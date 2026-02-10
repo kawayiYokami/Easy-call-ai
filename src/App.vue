@@ -45,7 +45,6 @@
         :user-alias="userAlias"
         :text-capable-api-configs="textCapableApiConfigs"
         :image-capable-api-configs="imageCapableApiConfigs"
-        :audio-capable-api-configs="audioCapableApiConfigs"
         :cache-stats="imageCacheStats"
         :cache-stats-loading="imageCacheStatsLoading"
         :config-dirty="configDirty"
@@ -81,10 +80,9 @@
         :latest-assistant-text="latestAssistantText"
         :chat-error-text="chatErrorText"
         :clipboard-images="clipboardImages"
-        :clipboard-audios="clipboardAudios"
         :chat-input="chatInput"
         :chat-input-placeholder="chatInputPlaceholder"
-        :can-record="activeChatApiConfig?.enableAudio || hasSttFallback"
+        :can-record="speechRecognitionSupported"
         :recording="recording"
         :recording-ms="recordingMs"
         :record-hotkey="config.recordHotkey"
@@ -93,7 +91,6 @@
         :has-more-turns="hasMoreTurns"
         @update:chat-input="chatInput = $event"
         @remove-clipboard-image="removeClipboardImage"
-        @remove-clipboard-audio="removeClipboardAudio"
         @start-recording="startRecording"
         @stop-recording="stopRecording(false)"
         @send-chat="sendChat"
@@ -122,6 +119,8 @@
                   v-for="(img, idx) in extractMessageImages(m)"
                   :key="`${img.mime}-${idx}`"
                   :src="`data:${img.mime};base64,${img.bytesBase64}`"
+                  loading="lazy"
+                  decoding="async"
                   class="rounded max-h-32 object-contain bg-base-100/40"
                 />
               </div>
@@ -166,7 +165,6 @@ const config = reactive<AppConfig>({
   maxRecordSeconds: 60,
   selectedApiConfigId: "",
   chatApiConfigId: "",
-  sttApiConfigId: undefined,
   visionApiConfigId: undefined,
   apiConfigs: [],
 });
@@ -182,7 +180,6 @@ const latestAssistantText = ref("");
 const chatErrorText = ref("");
 const currentHistory = ref<ChatMessage[]>([]);
 const clipboardImages = ref<Array<{ mime: string; bytesBase64: string }>>([]);
-const clipboardAudios = ref<Array<{ mime: string; bytesBase64: string; durationMs: number }>>([]);
 const recording = ref(false);
 const recordingMs = ref(0);
 
@@ -224,6 +221,20 @@ let recordingStartedAt = 0;
 let recordingTickTimer: ReturnType<typeof setInterval> | null = null;
 let recordingMaxTimer: ReturnType<typeof setTimeout> | null = null;
 let recordingDiscardCurrent = false;
+type SpeechRecognitionResultLike = { isFinal: boolean; 0: { transcript: string } };
+type SpeechRecognitionEventLike = { resultIndex: number; results: ArrayLike<SpeechRecognitionResultLike> };
+type SpeechRecognitionLike = {
+  lang: string;
+  interimResults: boolean;
+  continuous: boolean;
+  onresult: ((event: SpeechRecognitionEventLike) => void) | null;
+  onerror: ((event: { error?: string }) => void) | null;
+  onend: (() => void) | null;
+  start: () => void;
+  stop: () => void;
+};
+let speechRecognizer: SpeechRecognitionLike | null = null;
+let recordingRecognizedText = "";
 const hotkeyTestRecording = ref(false);
 const hotkeyTestRecordingMs = ref(0);
 const hotkeyTestAudio = ref<{ mime: string; bytesBase64: string; durationMs: number } | null>(null);
@@ -248,9 +259,6 @@ const titleText = computed(() => {
 const selectedApiConfig = computed(() => config.apiConfigs.find((a) => a.id === config.selectedApiConfigId) ?? null);
 const textCapableApiConfigs = computed(() => config.apiConfigs.filter((a) => a.enableText));
 const imageCapableApiConfigs = computed(() => config.apiConfigs.filter((a) => a.enableImage));
-const audioCapableApiConfigs = computed(() =>
-  config.apiConfigs.filter((a) => a.enableAudio && a.requestFormat === "openai_tts"),
-);
 const activeChatApiConfigId = computed(
   () => config.chatApiConfigId || textCapableApiConfigs.value[0]?.id || config.apiConfigs[0]?.id || "",
 );
@@ -262,12 +270,13 @@ const hasVisionFallback = computed(() =>
   !!config.visionApiConfigId
   && config.apiConfigs.some((a) => a.id === config.visionApiConfigId && a.enableImage),
 );
-const hasSttFallback = computed(() =>
-  !!config.sttApiConfigId
-  && config.apiConfigs.some(
-    (a) => a.id === config.sttApiConfigId && a.enableAudio && a.requestFormat === "openai_tts",
-  ),
-);
+const speechRecognitionSupported = computed(() => {
+  const w = window as typeof window & {
+    SpeechRecognition?: new () => SpeechRecognitionLike;
+    webkitSpeechRecognition?: new () => SpeechRecognitionLike;
+  };
+  return !!(w.SpeechRecognition || w.webkitSpeechRecognition);
+});
 const selectedAgent = computed(() => agents.value.find((a) => a.id === selectedAgentId.value) ?? null);
 const selectedModelOptions = computed(() => {
   const id = config.selectedApiConfigId;
@@ -278,7 +287,6 @@ const baseUrlReference = computed(() => {
   const format = selectedApiConfig.value?.requestFormat ?? "openai";
   if (format === "gemini") return "https://generativelanguage.googleapis.com/v1beta/openai";
   if (format === "deepseek/kimi") return "https://api.deepseek.com/v1";
-  if (format === "openai_tts") return "https://api.siliconflow.cn/v1/audio/transcriptions";
   return "https://api.openai.com/v1";
 });
 const chatInputPlaceholder = computed(() => {
@@ -286,7 +294,7 @@ const chatInputPlaceholder = computed(() => {
   if (!api) return "输入问题";
   const hints: string[] = [];
   if (api.enableImage || hasVisionFallback.value) hints.push("Ctrl+V 粘贴图片");
-  if (api.enableAudio || hasSttFallback.value) hints.push("可发送语音");
+  if (speechRecognitionSupported.value) hints.push("按住按钮语音转文字");
   if (hints.length === 0) return "输入问题";
   return `输入问题，${hints.join("，")}`;
 });
@@ -356,7 +364,6 @@ function buildConfigSnapshotJson(): string {
     maxRecordSeconds: config.maxRecordSeconds,
     selectedApiConfigId: config.selectedApiConfigId,
     chatApiConfigId: config.chatApiConfigId,
-    sttApiConfigId: config.sttApiConfigId,
     visionApiConfigId: config.visionApiConfigId,
     apiConfigs: config.apiConfigs.map((a) => ({
       id: a.id,
@@ -382,7 +389,6 @@ function buildConfigPayload(): AppConfig {
     maxRecordSeconds: config.maxRecordSeconds,
     selectedApiConfigId: config.selectedApiConfigId,
     chatApiConfigId: config.chatApiConfigId,
-    ...(config.sttApiConfigId ? { sttApiConfigId: config.sttApiConfigId } : {}),
     ...(config.visionApiConfigId ? { visionApiConfigId: config.visionApiConfigId } : {}),
     apiConfigs: config.apiConfigs.map((a) => ({
       id: a.id,
@@ -408,13 +414,7 @@ function buildConfigPayload(): AppConfig {
 function normalizeApiBindingsLocal() {
   if (!config.apiConfigs.length) return;
   for (const api of config.apiConfigs) {
-    if (api.requestFormat === "openai_tts") {
-      api.enableText = false;
-      api.enableImage = false;
-      api.enableTools = false;
-    } else {
-      api.enableAudio = false;
-    }
+    api.enableAudio = false;
   }
   if (!["Alt", "Ctrl", "Shift"].includes(config.recordHotkey)) {
     config.recordHotkey = "Alt";
@@ -426,14 +426,6 @@ function normalizeApiBindingsLocal() {
   }
   if (!config.apiConfigs.some((a) => a.id === config.chatApiConfigId && a.enableText)) {
     config.chatApiConfigId = textCapableApiConfigs.value[0]?.id ?? config.apiConfigs[0].id;
-  }
-  if (
-    config.sttApiConfigId
-    && !config.apiConfigs.some(
-      (a) => a.id === config.sttApiConfigId && a.enableAudio && a.requestFormat === "openai_tts",
-    )
-  ) {
-    config.sttApiConfigId = undefined;
   }
   if (
     config.visionApiConfigId
@@ -472,14 +464,28 @@ function extractMessageImages(msg?: ChatMessage): Array<{ mime: string; bytesBas
   if (!msg) return [];
   return msg.parts
     .filter((p) => p.type === "image")
-    .map((p) => ({ mime: p.mime, bytesBase64: p.bytesBase64 }));
+    .map((p) => {
+      const anyPart = p as unknown as { mime?: string; bytesBase64?: string; bytes_base64?: string };
+      return {
+        mime: anyPart.mime || "image/webp",
+        bytesBase64: anyPart.bytesBase64 || anyPart.bytes_base64 || "",
+      };
+    })
+    .filter((p) => !!p.bytesBase64);
 }
 
 function extractMessageAudios(msg?: ChatMessage): Array<{ mime: string; bytesBase64: string }> {
   if (!msg) return [];
   return msg.parts
     .filter((p) => p.type === "audio")
-    .map((p) => ({ mime: p.mime, bytesBase64: p.bytesBase64 }));
+    .map((p) => {
+      const anyPart = p as unknown as { mime?: string; bytesBase64?: string; bytes_base64?: string };
+      return {
+        mime: anyPart.mime || "audio/webm",
+        bytesBase64: anyPart.bytesBase64 || anyPart.bytes_base64 || "",
+      };
+    })
+    .filter((p) => !!p.bytesBase64);
 }
 
 async function loadConfig() {
@@ -494,7 +500,6 @@ async function loadConfig() {
     config.maxRecordSeconds = Math.max(config.minRecordSeconds, Number(cfg.maxRecordSeconds || 60));
     config.selectedApiConfigId = cfg.selectedApiConfigId;
     config.chatApiConfigId = cfg.chatApiConfigId;
-    config.sttApiConfigId = cfg.sttApiConfigId ?? undefined;
     config.visionApiConfigId = cfg.visionApiConfigId ?? undefined;
     config.apiConfigs.splice(0, config.apiConfigs.length, ...(cfg.apiConfigs.length ? cfg.apiConfigs : [createApiConfig("default")]));
     normalizeApiBindingsLocal();
@@ -521,7 +526,6 @@ async function saveConfig() {
     config.maxRecordSeconds = Math.max(config.minRecordSeconds, Number(saved.maxRecordSeconds || 60));
     config.selectedApiConfigId = saved.selectedApiConfigId;
     config.chatApiConfigId = saved.chatApiConfigId;
-    config.sttApiConfigId = saved.sttApiConfigId ?? undefined;
     config.visionApiConfigId = saved.visionApiConfigId ?? undefined;
     config.apiConfigs.splice(0, config.apiConfigs.length, ...saved.apiConfigs);
     normalizeApiBindingsLocal();
@@ -597,17 +601,14 @@ async function saveConversationApiSettings() {
     console.info("[CONFIG] save_conversation_api_settings invoked");
     const saved = await invoke<{
       chatApiConfigId: string;
-      sttApiConfigId?: string;
       visionApiConfigId?: string;
     }>("save_conversation_api_settings", {
       input: {
         chatApiConfigId: config.chatApiConfigId,
-        sttApiConfigId: config.sttApiConfigId || null,
         visionApiConfigId: config.visionApiConfigId || null,
       },
     });
     config.chatApiConfigId = saved.chatApiConfigId;
-    config.sttApiConfigId = saved.sttApiConfigId ?? undefined;
     config.visionApiConfigId = saved.visionApiConfigId ?? undefined;
     lastSavedConfigJson.value = buildConfigSnapshotJson();
     console.info("[CONFIG] save_conversation_api_settings success");
@@ -825,7 +826,7 @@ function enqueueFinalAssistantText(gen: number, finalText: string) {
 
 async function sendChat() {
   const text = chatInput.value.trim();
-  if (!text && clipboardImages.value.length === 0 && clipboardAudios.value.length === 0) {
+  if (!text && clipboardImages.value.length === 0) {
     return;
   }
 
@@ -836,11 +837,9 @@ async function sendChat() {
   chatErrorText.value = "";
 
   const sentImages = [...clipboardImages.value];
-  const sentAudios = [...clipboardAudios.value];
   const sentModel = activeChatApiConfig.value?.model;
   chatInput.value = "";
   clipboardImages.value = [];
-  clipboardAudios.value = [];
 
   const optimisticUserMessage: ChatMessage = {
     id: `optimistic-user-${Date.now()}`,
@@ -851,11 +850,6 @@ async function sendChat() {
         type: "image" as const,
         mime: img.mime,
         bytesBase64: img.bytesBase64,
-      })),
-      ...sentAudios.map((aud) => ({
-        type: "audio" as const,
-        mime: aud.mime,
-        bytesBase64: aud.bytesBase64,
       })),
     ],
   };
@@ -875,7 +869,7 @@ async function sendChat() {
       input: {
         apiConfigId: activeChatApiConfigId.value,
         agentId: selectedAgentId.value,
-        payload: { text, images: sentImages, audios: sentAudios, model: sentModel },
+        payload: { text, images: sentImages, model: sentModel },
       },
       onDelta: deltaChannel,
     });
@@ -964,11 +958,6 @@ function onPaste(event: ClipboardEvent) {
 function removeClipboardImage(index: number) {
   if (index < 0 || index >= clipboardImages.value.length) return;
   clipboardImages.value.splice(index, 1);
-}
-
-function removeClipboardAudio(index: number) {
-  if (index < 0 || index >= clipboardAudios.value.length) return;
-  clipboardAudios.value.splice(index, 1);
 }
 
 async function readBlobAsDataUrl(blob: Blob): Promise<string> {
@@ -1140,68 +1129,53 @@ function matchesRecordHotkey(event: KeyboardEvent): boolean {
 
 async function startRecording() {
   if (recording.value || chatting.value) return;
-  if (!(activeChatApiConfig.value?.enableAudio || hasSttFallback.value)) return;
-  if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === "undefined") {
-    status.value = "当前环境不支持录音。";
+  const w = window as typeof window & {
+    SpeechRecognition?: new () => SpeechRecognitionLike;
+    webkitSpeechRecognition?: new () => SpeechRecognitionLike;
+  };
+  const SR = w.SpeechRecognition || w.webkitSpeechRecognition;
+  if (!SR) {
+    status.value = "当前环境不支持本地语音识别。";
     return;
   }
-
   try {
-    mediaStream = await navigator.mediaDevices.getUserMedia({ audio: true });
-    startRecordingLevelMonitor(mediaStream);
-    mediaRecorder = new MediaRecorder(mediaStream);
-    const chunks: BlobPart[] = [];
     recordingDiscardCurrent = false;
-
-    mediaRecorder.ondataavailable = (event: BlobEvent) => {
-      if (event.data && event.data.size > 0) chunks.push(event.data);
+    recordingRecognizedText = "";
+    const recognizer = new SR();
+    speechRecognizer = recognizer;
+    recognizer.lang = "zh-CN";
+    recognizer.interimResults = true;
+    recognizer.continuous = true;
+    recognizer.onresult = (event) => {
+      for (let i = event.resultIndex; i < event.results.length; i += 1) {
+        const item = event.results[i];
+        const transcript = (item?.[0]?.transcript || "").trim();
+        if (item?.isFinal && transcript) {
+          recordingRecognizedText += `${transcript}\n`;
+        }
+      }
     };
-    mediaRecorder.onstop = async () => {
-      const durationMs = Math.max(0, Date.now() - recordingStartedAt);
+    recognizer.onerror = (event) => {
+      status.value = `本地语音识别失败: ${event?.error || "unknown"}`;
+    };
+    recognizer.onend = () => {
       recording.value = false;
       clearRecordingTimers();
-      if (mediaStream) {
-        for (const track of mediaStream.getTracks()) track.stop();
-        mediaStream = null;
-      }
-      stopRecordingLevelMonitor();
-      const minMs = config.minRecordSeconds * 1000;
-      if (recordingDiscardCurrent || durationMs < minMs || chunks.length === 0) {
-        if (!recordingDiscardCurrent && durationMs < minMs) {
-          status.value = `录音过短（< ${config.minRecordSeconds}s），已丢弃。`;
-        }
+      if (recordingDiscardCurrent) {
+        speechRecognizer = null;
         return;
       }
-      const MIN_VALID_RMS = 0.008;
-      if (recordingLevelSupported && recordingPeakLevel < MIN_VALID_RMS) {
-        status.value = "录音音量过低，未检测到有效语音，已丢弃。";
-        return;
+      const text = recordingRecognizedText.trim();
+      if (text) {
+        chatInput.value = chatInput.value.trim() ? `${chatInput.value.trim()}\n${text}` : text;
+        status.value = "录音已转文字。";
+      } else {
+        status.value = "未识别到文本。";
       }
-      const blob = new Blob(chunks, { type: mediaRecorder?.mimeType || "audio/webm" });
-      const dataUrl = await readBlobAsDataUrl(blob);
-      const base64 = dataUrl.includes(",") ? dataUrl.split(",")[1] : "";
-      if (!base64) return;
-      try {
-        const text = await invoke<string>("transcribe_audio_input", {
-          input: {
-            audios: [{ mime: blob.type || "audio/webm", bytesBase64: base64 }],
-          },
-        });
-        const trimmed = (text || "").trim();
-        if (trimmed) {
-          chatInput.value = chatInput.value.trim()
-            ? `${chatInput.value.trim()}\n${trimmed}`
-            : trimmed;
-          status.value = "录音已转文字。";
-        } else {
-          status.value = "录音已完成，但未识别到文本。";
-        }
-      } catch (e) {
-        status.value = `录音转文字失败: ${String(e)}`;
-      }
+      speechRecognizer = null;
+      recordingRecognizedText = "";
     };
-
-    mediaRecorder.start();
+    recognizer.start();
     recordingStartedAt = Date.now();
     recording.value = true;
     recordingMs.value = 0;
@@ -1215,25 +1189,14 @@ async function startRecording() {
   } catch (e) {
     recording.value = false;
     clearRecordingTimers();
-    stopRecordingLevelMonitor();
     status.value = `开始录音失败: ${String(e)}`;
-    if (mediaStream) {
-      for (const track of mediaStream.getTracks()) track.stop();
-      mediaStream = null;
-    }
   }
 }
 
 async function stopRecording(discard: boolean) {
   if (!recording.value) return;
   recordingDiscardCurrent = discard;
-  if (mediaRecorder && mediaRecorder.state !== "inactive") {
-    mediaRecorder.stop();
-  } else {
-    recording.value = false;
-    clearRecordingTimers();
-    stopRecordingLevelMonitor();
-  }
+  speechRecognizer?.stop();
 }
 
 async function importClipboardImageOnOpen() {
@@ -1385,6 +1348,8 @@ onMounted(async () => {
 onBeforeUnmount(() => {
   clearStreamBuffer();
   void stopRecording(true);
+  speechRecognizer?.stop();
+  speechRecognizer = null;
   void stopHotkeyRecordTest();
   if (hotkeyTestPlayer) {
     hotkeyTestPlayer.pause();
@@ -1404,7 +1369,6 @@ watch(
     maxRecordSeconds: config.maxRecordSeconds,
     selectedApiConfigId: config.selectedApiConfigId,
     chatApiConfigId: config.chatApiConfigId,
-    sttApiConfigId: config.sttApiConfigId,
     visionApiConfigId: config.visionApiConfigId,
     apiConfigs: config.apiConfigs.map((a) => ({
       id: a.id,
@@ -1457,7 +1421,6 @@ watch(
 watch(
   () => ({
     chatApiConfigId: config.chatApiConfigId,
-    sttApiConfigId: config.sttApiConfigId,
     visionApiConfigId: config.visionApiConfigId,
   }),
   () => {

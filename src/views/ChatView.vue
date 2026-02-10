@@ -17,6 +17,8 @@
                 v-for="(img, idx) in turn.userImages"
                 :key="`${turn.id}-img-${idx}`"
                 :src="`data:${img.mime};base64,${img.bytesBase64}`"
+                loading="lazy"
+                decoding="async"
                 class="rounded max-h-28 object-contain bg-base-100/40"
               />
             </div>
@@ -61,7 +63,10 @@
     </div>
 
     <div class="shrink-0 border-t border-base-300 bg-base-100 p-2">
-      <div v-if="chatErrorText" class="alert alert-error mb-2 py-2 px-3 text-xs whitespace-pre-wrap">
+      <div
+        v-if="chatErrorText"
+        class="alert alert-error mb-2 py-2 px-3 text-xs whitespace-pre-wrap break-all max-h-28 overflow-auto"
+      >
         <span>{{ chatErrorText }}</span>
       </div>
       <div v-if="clipboardImages.length > 0" class="flex flex-wrap gap-1 mb-2">
@@ -69,14 +74,6 @@
           <ImageIcon class="h-3.5 w-3.5" />
           <span class="text-[11px]">图片{{ idx + 1 }}</span>
           <button class="btn btn-ghost btn-xs btn-square" @click="$emit('removeClipboardImage', idx)">
-            <X class="h-3 w-3" />
-          </button>
-        </div>
-      </div>
-      <div v-if="clipboardAudios.length > 0" class="flex flex-wrap gap-1 mb-2">
-        <div v-for="(aud, idx) in clipboardAudios" :key="`${aud.mime}-${idx}`" class="badge badge-outline gap-1 py-3">
-          <span class="text-[11px]">语音{{ idx + 1 }} ({{ Math.max(1, Math.round(aud.durationMs / 1000)) }}s)</span>
-          <button class="btn btn-ghost btn-xs btn-square" @click="$emit('removeClipboardAudio', idx)">
             <X class="h-3 w-3" />
           </button>
         </div>
@@ -127,7 +124,6 @@ const props = defineProps<{
   latestAssistantText: string;
   chatErrorText: string;
   clipboardImages: Array<{ mime: string; bytesBase64: string }>;
-  clipboardAudios: Array<{ mime: string; bytesBase64: string; durationMs: number }>;
   chatInput: string;
   chatInputPlaceholder: string;
   canRecord: boolean;
@@ -142,7 +138,6 @@ const props = defineProps<{
 const emit = defineEmits<{
   (e: "update:chatInput", value: string): void;
   (e: "removeClipboardImage", index: number): void;
-  (e: "removeClipboardAudio", index: number): void;
   (e: "startRecording"): void;
   (e: "stopRecording"): void;
   (e: "sendChat"): void;

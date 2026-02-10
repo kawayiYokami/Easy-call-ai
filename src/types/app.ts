@@ -26,7 +26,6 @@ export type AppConfig = {
   maxRecordSeconds: number;
   selectedApiConfigId: string;
   chatApiConfigId: string;
-  sttApiConfigId?: string;
   visionApiConfigId?: string;
   apiConfigs: ApiConfigItem[];
 };

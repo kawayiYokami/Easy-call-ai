@@ -130,8 +130,6 @@ struct AppConfig {
     #[serde(default)]
     chat_api_config_id: String,
     #[serde(default)]
-    stt_api_config_id: Option<String>,
-    #[serde(default)]
     vision_api_config_id: Option<String>,
     api_configs: Vec<ApiConfig>,
 }
@@ -146,7 +144,6 @@ impl Default for AppConfig {
             max_record_seconds: default_max_record_seconds(),
             selected_api_config_id: api_config.id.clone(),
             chat_api_config_id: api_config.id.clone(),
-            stt_api_config_id: None,
             vision_api_config_id: None,
             api_configs: vec![api_config],
         }
@@ -186,12 +183,6 @@ struct SendChatRequest {
     api_config_id: Option<String>,
     agent_id: String,
     payload: ChatInputPayload,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct TranscribeAudioInput {
-    audios: Vec<BinaryPart>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -442,11 +433,6 @@ struct ResolvedApiConfig {
     fixed_test_prompt: String,
 }
 
-#[derive(Debug, Clone, Deserialize)]
-struct OpenAITranscriptionResponse {
-    text: Option<String>,
-}
-
 #[derive(Debug, Clone)]
 struct PreparedPrompt {
     preamble: String,
@@ -544,8 +530,6 @@ struct ChatSettings {
 struct ConversationApiSettings {
     chat_api_config_id: String,
     #[serde(default)]
-    stt_api_config_id: Option<String>,
-    #[serde(default)]
     vision_api_config_id: Option<String>,
 }
 
@@ -600,7 +584,6 @@ fn main() {
             get_archive_messages,
             open_external_url,
             send_chat_message,
-            transcribe_audio_input,
             refresh_models,
             check_tools_status,
             get_image_text_cache_stats,
@@ -649,28 +632,6 @@ mod tests {
     }
 
     #[test]
-    fn candidate_openai_transcription_urls_should_handle_common_forms() {
-        assert_eq!(
-            candidate_openai_transcription_urls("https://api.siliconflow.cn/v1"),
-            vec!["https://api.siliconflow.cn/v1/audio/transcriptions".to_string()]
-        );
-        assert_eq!(
-            candidate_openai_transcription_urls(
-                "https://api.siliconflow.cn/v1/audio/transcriptions"
-            ),
-            vec!["https://api.siliconflow.cn/v1/audio/transcriptions".to_string()]
-        );
-        assert_eq!(
-            candidate_openai_transcription_urls("https://gateway.example.com"),
-            vec![
-                "https://gateway.example.com/audio/transcriptions".to_string(),
-                "https://gateway.example.com/v1/audio/transcriptions".to_string(),
-            ]
-        );
-        assert!(candidate_openai_transcription_urls("  ").is_empty());
-    }
-
-    #[test]
     fn image_text_cache_upsert_and_find_should_work() {
         let mut data = AppData::default();
         upsert_image_text_cache(&mut data, "h1", "vision-a", "text-a");
@@ -709,7 +670,6 @@ mod tests {
             max_record_seconds: 0,
             selected_api_config_id: "a1".to_string(),
             chat_api_config_id: "a1".to_string(),
-            stt_api_config_id: Some("a2".to_string()),
             vision_api_config_id: None,
             api_configs: vec![
                 ApiConfig {
@@ -744,7 +704,6 @@ mod tests {
         assert_eq!(cfg.record_hotkey, "Alt");
         assert_eq!(cfg.min_record_seconds, 1);
         assert!(cfg.max_record_seconds >= cfg.min_record_seconds);
-        assert_eq!(cfg.stt_api_config_id, None);
     }
 
     #[test]
@@ -756,7 +715,6 @@ mod tests {
             max_record_seconds: 60,
             selected_api_config_id: "edit-b".to_string(),
             chat_api_config_id: "chat-a".to_string(),
-            stt_api_config_id: None,
             vision_api_config_id: None,
             api_configs: vec![
                 ApiConfig {
@@ -793,7 +751,7 @@ mod tests {
     }
 
     #[test]
-    fn normalize_app_config_should_force_openai_tts_audio_only() {
+    fn normalize_app_config_should_disable_audio_capability_globally() {
         let mut cfg = AppConfig {
             hotkey: "Alt+·".to_string(),
             record_hotkey: "Alt".to_string(),
@@ -801,7 +759,6 @@ mod tests {
             max_record_seconds: 60,
             selected_api_config_id: "tts-a".to_string(),
             chat_api_config_id: "tts-a".to_string(),
-            stt_api_config_id: Some("tts-a".to_string()),
             vision_api_config_id: Some("tts-a".to_string()),
             api_configs: vec![ApiConfig {
                 id: "tts-a".to_string(),
@@ -819,11 +776,10 @@ mod tests {
         };
         normalize_app_config(&mut cfg);
         let api = &cfg.api_configs[0];
-        assert!(!api.enable_text);
-        assert!(!api.enable_image);
-        assert!(api.enable_audio);
-        assert!(!api.enable_tools);
-        assert_eq!(cfg.stt_api_config_id, Some("tts-a".to_string()));
+        assert!(api.enable_text);
+        assert!(api.enable_image);
+        assert!(!api.enable_audio);
+        assert!(api.enable_tools);
         assert_eq!(cfg.vision_api_config_id, None);
     }
 

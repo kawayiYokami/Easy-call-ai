@@ -121,7 +121,6 @@ fn save_conversation_api_settings(
 
     let mut config = read_config(&state.config_path)?;
     config.chat_api_config_id = input.chat_api_config_id.clone();
-    config.stt_api_config_id = input.stt_api_config_id.clone();
     config.vision_api_config_id = input.vision_api_config_id.clone();
     normalize_app_config(&mut config);
     write_config(&state.config_path, &config)?;
@@ -129,7 +128,6 @@ fn save_conversation_api_settings(
 
     Ok(ConversationApiSettings {
         chat_api_config_id: config.chat_api_config_id,
-        stt_api_config_id: config.stt_api_config_id,
         vision_api_config_id: config.vision_api_config_id,
     })
 }
@@ -295,18 +293,7 @@ async fn send_chat_message(
     let mut effective_payload = input.payload.clone();
     let audios = effective_payload.audios.clone().unwrap_or_default();
     if !audios.is_empty() {
-        let stt_api = resolve_stt_api_config(&app_config)?;
-        let transcription = transcribe_payload_audios_openai_tts(&stt_api, &audios).await?;
-
-        let merged_text = effective_payload
-            .text
-            .as_deref()
-            .map(str::trim)
-            .filter(|v| !v.is_empty())
-            .map(|text| format!("{text}\n\n{transcription}"))
-            .unwrap_or(transcription);
-        effective_payload.text = Some(merged_text);
-        effective_payload.audios = None;
+        return Err("当前版本仅支持本地语音识别，发送消息不支持语音附件。".to_string());
     }
 
     if !selected_api.enable_image {
@@ -322,7 +309,7 @@ async fn send_chat_message(
             }
 
             let mut converted_texts = Vec::<String>::new();
-            for image in &images {
+            for (idx, image) in images.iter().enumerate() {
                 let hash = compute_image_hash_hex(image)?;
                 let cached = {
                     let guard = state
@@ -335,7 +322,8 @@ async fn send_chat_message(
                 };
 
                 if let Some(text) = cached {
-                    converted_texts.push(text);
+                    let mapped = format!("[图片{}]\n{}", idx + 1, text);
+                    converted_texts.push(mapped);
                     continue;
                 }
 
@@ -345,7 +333,8 @@ async fn send_chat_message(
                 if converted.is_empty() {
                     continue;
                 }
-                converted_texts.push(converted.clone());
+                let mapped = format!("[图片{}]\n{}", idx + 1, converted);
+                converted_texts.push(mapped);
 
                 let guard = state
                     .state_lock
@@ -372,6 +361,35 @@ async fn send_chat_message(
         }
     }
 
+    let effective_user_parts = build_user_parts(&effective_payload, &selected_api)?;
+    let effective_user_text = effective_user_parts
+        .iter()
+        .map(|part| match part {
+            MessagePart::Text { text } => text.clone(),
+            MessagePart::Image { .. } => "[image]".to_string(),
+            MessagePart::Audio { .. } => "[audio]".to_string(),
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    let effective_images = effective_user_parts
+        .iter()
+        .filter_map(|part| match part {
+            MessagePart::Image {
+                mime, bytes_base64, ..
+            } => Some((mime.clone(), bytes_base64.clone())),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    let effective_audios = effective_user_parts
+        .iter()
+        .filter_map(|part| match part {
+            MessagePart::Audio {
+                mime, bytes_base64, ..
+            } => Some((mime.clone(), bytes_base64.clone())),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+
     let (model_name, prepared_prompt, conversation_id, latest_user_text, archived_before_send) = {
         let guard = state
             .state_lock
@@ -390,16 +408,12 @@ async fn send_chat_message(
         let archived_before_send = archive_if_idle(&mut data, &selected_api.id, &input.agent_id);
         let idx = ensure_active_conversation_index(&mut data, &selected_api.id, &input.agent_id);
 
-        let user_parts = build_user_parts(&effective_payload, &selected_api)?;
-        let latest_user_text = user_parts
-            .iter()
-            .map(|part| match part {
-                MessagePart::Text { text } => text.clone(),
-                MessagePart::Image { .. } => "[image]".to_string(),
-                MessagePart::Audio { .. } => "[audio]".to_string(),
-            })
-            .collect::<Vec<_>>()
-            .join("\n");
+        // 聊天记录保留用户原始多模态内容；模型请求使用 effective_payload（可能已做图转文）。
+        let mut storage_api = selected_api.clone();
+        storage_api.enable_image = true;
+        storage_api.enable_audio = true;
+        let user_parts = build_user_parts(&input.payload, &storage_api)?;
+        let latest_user_text = effective_user_text.clone();
 
         let now = now_iso();
         let user_message = ChatMessage {
@@ -416,7 +430,10 @@ async fn send_chat_message(
         data.conversations[idx].updated_at = now;
 
         let conversation = data.conversations[idx].clone();
-        let prepared = build_prompt(&conversation, &agent, &data.user_alias, &now_iso());
+        let mut prepared = build_prompt(&conversation, &agent, &data.user_alias, &now_iso());
+        prepared.latest_user_text = effective_user_text.clone();
+        prepared.latest_images = effective_images.clone();
+        prepared.latest_audios = effective_audios.clone();
 
         let model_name = input
             .payload
@@ -486,26 +503,6 @@ async fn send_chat_message(
         assistant_text,
         archived_before_send,
     })
-}
-
-#[tauri::command]
-async fn transcribe_audio_input(
-    input: TranscribeAudioInput,
-    state: State<'_, AppState>,
-) -> Result<String, String> {
-    if input.audios.is_empty() {
-        return Err("No audio payload provided.".to_string());
-    }
-    let guard = state
-        .state_lock
-        .lock()
-        .map_err(|_| "Failed to lock state mutex".to_string())?;
-    let app_config = read_config(&state.config_path)?;
-    drop(guard);
-
-    let stt_api = resolve_stt_api_config(&app_config)?;
-    let text = transcribe_payload_audios_openai_tts(&stt_api, &input.audios).await?;
-    Ok(text)
 }
 
 async fn fetch_models_openai(input: &RefreshModelsInput) -> Result<Vec<String>, String> {

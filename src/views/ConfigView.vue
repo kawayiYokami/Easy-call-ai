@@ -102,7 +102,6 @@
           <div class="label py-1"><span class="label-text text-sm font-medium">请求格式</span></div>
           <select v-model="selectedApiConfig.requestFormat" class="select select-bordered select-sm">
             <option value="openai">openai</option>
-            <option value="openai_tts">openai_tts</option>
             <option value="gemini">gemini</option>
             <option value="deepseek/kimi">deepseek/kimi</option>
           </select>
@@ -143,10 +142,10 @@
         <div class="form-control">
           <div class="label py-1"><span class="label-text text-sm font-medium">能力开关</span></div>
           <div class="flex gap-2">
-            <label class="label cursor-pointer gap-1"><span class="label-text text-xs">文本</span><input v-model="selectedApiConfig.enableText" type="checkbox" class="toggle toggle-sm" :disabled="selectedApiConfig.requestFormat === 'openai_tts'" /></label>
-            <label class="label cursor-pointer gap-1"><span class="label-text text-xs">图片</span><input v-model="selectedApiConfig.enableImage" type="checkbox" class="toggle toggle-sm" :disabled="selectedApiConfig.requestFormat === 'openai_tts'" /></label>
-            <label class="label cursor-pointer gap-1"><span class="label-text text-xs">语音</span><input v-model="selectedApiConfig.enableAudio" type="checkbox" class="toggle toggle-sm" :disabled="selectedApiConfig.requestFormat !== 'openai_tts'" /></label>
-            <label class="label cursor-pointer gap-1"><span class="label-text text-xs">工具调用</span><input v-model="selectedApiConfig.enableTools" type="checkbox" class="toggle toggle-sm" :disabled="selectedApiConfig.requestFormat === 'openai_tts'" /></label>
+            <label class="label cursor-pointer gap-1"><span class="label-text text-xs">文本</span><input v-model="selectedApiConfig.enableText" type="checkbox" class="toggle toggle-sm" /></label>
+            <label class="label cursor-pointer gap-1"><span class="label-text text-xs">图片</span><input v-model="selectedApiConfig.enableImage" type="checkbox" class="toggle toggle-sm" /></label>
+            <label class="label cursor-pointer gap-1"><span class="label-text text-xs">语音</span><input v-model="selectedApiConfig.enableAudio" type="checkbox" class="toggle toggle-sm" disabled /></label>
+            <label class="label cursor-pointer gap-1"><span class="label-text text-xs">工具调用</span><input v-model="selectedApiConfig.enableTools" type="checkbox" class="toggle toggle-sm" /></label>
           </div>
         </div>
       </div>
@@ -207,17 +206,6 @@
         <div class="label py-1"><span class="label-text text-xs">对话AI</span></div>
         <select v-model="config.chatApiConfigId" class="select select-bordered select-sm">
           <option v-for="a in textCapableApiConfigs" :key="a.id" :value="a.id">{{ a.name }}</option>
-        </select>
-      </label>
-      <label class="form-control">
-        <div class="label py-1"><span class="label-text text-xs">音转文AI（可选）</span></div>
-        <select
-          :value="config.sttApiConfigId ?? ''"
-          class="select select-bordered select-sm"
-          @change="config.sttApiConfigId = (($event.target as HTMLSelectElement).value || undefined)"
-        >
-          <option value="">不配置</option>
-          <option v-for="a in audioCapableApiConfigs" :key="a.id" :value="a.id">{{ a.name }}</option>
         </select>
       </label>
       <label class="form-control">
@@ -283,7 +271,6 @@ const props = defineProps<{
   userAlias: string;
   textCapableApiConfigs: ApiConfigItem[];
   imageCapableApiConfigs: ApiConfigItem[];
-  audioCapableApiConfigs: ApiConfigItem[];
   cacheStats: ImageTextCacheStats;
   cacheStatsLoading: boolean;
   configDirty: boolean;

@@ -25,13 +25,7 @@ fn write_config(path: &PathBuf, config: &AppConfig) -> Result<(), String> {
 
 fn normalize_api_tools(config: &mut AppConfig) {
     for api in &mut config.api_configs {
-        if api.request_format.trim() == "openai_tts" {
-            api.enable_text = false;
-            api.enable_image = false;
-            api.enable_tools = false;
-        } else {
-            api.enable_audio = false;
-        }
+        api.enable_audio = false;
         if api.enable_tools && api.tools.is_empty() {
             api.tools = default_api_tools();
         }
@@ -75,17 +69,6 @@ fn normalize_app_config(config: &mut AppConfig) {
     if config.max_record_seconds < config.min_record_seconds {
         config.max_record_seconds = default_max_record_seconds().max(config.min_record_seconds);
     }
-
-    config.stt_api_config_id = config
-        .stt_api_config_id
-        .as_deref()
-        .filter(|id| {
-            config
-                .api_configs
-                .iter()
-                .any(|a| a.id == *id && a.enable_audio && a.request_format.trim() == "openai_tts")
-        })
-        .map(ToOwned::to_owned);
 
     config.vision_api_config_id = config
         .vision_api_config_id
@@ -205,37 +188,6 @@ fn resolve_api_config(
     })
 }
 
-fn resolve_stt_api_config(app_config: &AppConfig) -> Result<ApiConfig, String> {
-    let stt_id = app_config.stt_api_config_id.as_deref().ok_or_else(|| {
-        "Current chat API does not support audio and no 音转文AI is configured.".to_string()
-    })?;
-
-    let api = app_config
-        .api_configs
-        .iter()
-        .find(|a| a.id == stt_id)
-        .cloned()
-        .ok_or_else(|| "Configured 音转文AI not found.".to_string())?;
-
-    if !api.enable_audio {
-        return Err("Configured 音转文AI has audio disabled.".to_string());
-    }
-    if api.request_format.trim() != "openai_tts" {
-        return Err("音转文AI must use request format 'openai_tts'.".to_string());
-    }
-    if api.base_url.trim().is_empty() {
-        return Err("音转文AI Base URL is empty.".to_string());
-    }
-    if api.api_key.trim().is_empty() {
-        return Err("音转文AI API key is empty.".to_string());
-    }
-    if api.model.trim().is_empty() {
-        return Err("音转文AI model is empty.".to_string());
-    }
-
-    Ok(api)
-}
-
 fn resolve_vision_api_config(app_config: &AppConfig) -> Result<ApiConfig, String> {
     let vision_id = app_config.vision_api_config_id.as_deref().ok_or_else(|| {
         "Current chat API does not support image and no 图转文AI is configured.".to_string()
@@ -306,130 +258,6 @@ fn upsert_image_text_cache(data: &mut AppData, hash: &str, vision_api_id: &str, 
         text: text.to_string(),
         updated_at: now_iso(),
     });
-}
-
-fn candidate_openai_transcription_urls(base_url: &str) -> Vec<String> {
-    let base = base_url.trim().trim_end_matches('/').to_string();
-    if base.is_empty() {
-        return Vec::new();
-    }
-    let lower = base.to_ascii_lowercase();
-    if lower.ends_with("/audio/transcriptions") {
-        return vec![base];
-    }
-    if lower.ends_with("/v1") {
-        return vec![format!("{base}/audio/transcriptions")];
-    }
-    let mut urls = vec![
-        format!("{base}/audio/transcriptions"),
-        format!("{base}/v1/audio/transcriptions"),
-    ];
-    urls.sort();
-    urls.dedup();
-    urls
-}
-
-fn audio_file_extension_from_mime(mime: &str) -> &'static str {
-    match mime.trim().to_ascii_lowercase().as_str() {
-        "audio/mpeg" => "mp3",
-        "audio/mp4" => "m4a",
-        "audio/wav" | "audio/x-wav" => "wav",
-        "audio/webm" => "webm",
-        "audio/ogg" => "ogg",
-        _ => "bin",
-    }
-}
-
-async fn transcribe_one_audio_openai_tts(
-    stt_api: &ApiConfig,
-    audio: &BinaryPart,
-) -> Result<String, String> {
-    let raw = B64
-        .decode(audio.bytes_base64.trim())
-        .map_err(|err| format!("Decode audio base64 failed: {err}"))?;
-    if raw.is_empty() {
-        return Err("Audio payload is empty.".to_string());
-    }
-
-    let mime = if audio.mime.trim().is_empty() {
-        "application/octet-stream"
-    } else {
-        audio.mime.trim()
-    };
-    let ext = audio_file_extension_from_mime(mime);
-    let file_name = format!("input.{ext}");
-
-    let client = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(60))
-        .build()
-        .map_err(|err| format!("Build HTTP client failed: {err}"))?;
-
-    let mut errors = Vec::<String>::new();
-    for url in candidate_openai_transcription_urls(&stt_api.base_url) {
-        let file_part = reqwest::multipart::Part::bytes(raw.clone())
-            .file_name(file_name.clone())
-            .mime_str(mime)
-            .map_err(|err| format!("Build multipart file part failed: {err}"))?;
-        let form = reqwest::multipart::Form::new()
-            .text("model", stt_api.model.trim().to_string())
-            .part("file", file_part);
-
-        let resp = client
-            .post(&url)
-            .header(AUTHORIZATION, format!("Bearer {}", stt_api.api_key.trim()))
-            .multipart(form)
-            .send()
-            .await
-            .map_err(|err| format!("STT request failed ({url}): {err}"))?;
-
-        if !resp.status().is_success() {
-            let status = resp.status();
-            let raw_body = resp.text().await.unwrap_or_default();
-            let snippet = raw_body.chars().take(300).collect::<String>();
-            errors.push(format!("{url} -> {status} | {snippet}"));
-            continue;
-        }
-
-        let body = resp
-            .json::<OpenAITranscriptionResponse>()
-            .await
-            .map_err(|err| format!("Parse STT response failed ({url}): {err}"))?;
-        let text = body.text.unwrap_or_default();
-        let text = text.trim();
-        if text.is_empty() {
-            errors.push(format!("{url} -> empty transcription text"));
-            continue;
-        }
-        return Ok(text.to_string());
-    }
-
-    if errors.is_empty() {
-        Err("STT request failed: no candidate URL attempted.".to_string())
-    } else {
-        Err(format!("STT failed. Tried: {}", errors.join(" || ")))
-    }
-}
-
-async fn transcribe_payload_audios_openai_tts(
-    stt_api: &ApiConfig,
-    audios: &[BinaryPart],
-) -> Result<String, String> {
-    if audios.is_empty() {
-        return Err("Audio input is empty.".to_string());
-    }
-
-    let mut lines = Vec::<String>::new();
-    for audio in audios {
-        let text = transcribe_one_audio_openai_tts(stt_api, audio).await?;
-        if !text.trim().is_empty() {
-            lines.push(text);
-        }
-    }
-
-    if lines.is_empty() {
-        return Err("STT returned empty text.".to_string());
-    }
-    Ok(lines.join("\n"))
 }
 
 fn is_openai_style_request_format(request_format: &str) -> bool {
