@@ -395,6 +395,11 @@ struct ResolvedApiConfig {
     fixed_test_prompt: String,
 }
 
+#[derive(Debug, Clone, Deserialize)]
+struct OpenAITranscriptionResponse {
+    text: Option<String>,
+}
+
 #[derive(Debug, Clone)]
 struct PreparedPrompt {
     preamble: String,
@@ -675,6 +680,161 @@ fn resolve_api_config(
         model: selected.model.trim().to_string(),
         fixed_test_prompt: "EASY_CALL_AI_CACHE_TEST_V1".to_string(),
     })
+}
+
+fn resolve_stt_api_config(app_config: &AppConfig) -> Result<ApiConfig, String> {
+    let stt_id = app_config.stt_api_config_id.as_deref().ok_or_else(|| {
+        "Current chat API does not support audio and no 音转文AI is configured.".to_string()
+    })?;
+
+    let api = app_config
+        .api_configs
+        .iter()
+        .find(|a| a.id == stt_id)
+        .cloned()
+        .ok_or_else(|| "Configured 音转文AI not found.".to_string())?;
+
+    if !api.enable_audio {
+        return Err("Configured 音转文AI has audio disabled.".to_string());
+    }
+    if api.request_format.trim() != "openai_tts" {
+        return Err("音转文AI must use request format 'openai_tts'.".to_string());
+    }
+    if api.base_url.trim().is_empty() {
+        return Err("音转文AI Base URL is empty.".to_string());
+    }
+    if api.api_key.trim().is_empty() {
+        return Err("音转文AI API key is empty.".to_string());
+    }
+    if api.model.trim().is_empty() {
+        return Err("音转文AI model is empty.".to_string());
+    }
+
+    Ok(api)
+}
+
+fn candidate_openai_transcription_urls(base_url: &str) -> Vec<String> {
+    let base = base_url.trim().trim_end_matches('/').to_string();
+    if base.is_empty() {
+        return Vec::new();
+    }
+    let lower = base.to_ascii_lowercase();
+    if lower.ends_with("/audio/transcriptions") {
+        return vec![base];
+    }
+    if lower.ends_with("/v1") {
+        return vec![format!("{base}/audio/transcriptions")];
+    }
+    let mut urls = vec![
+        format!("{base}/audio/transcriptions"),
+        format!("{base}/v1/audio/transcriptions"),
+    ];
+    urls.sort();
+    urls.dedup();
+    urls
+}
+
+fn audio_file_extension_from_mime(mime: &str) -> &'static str {
+    match mime.trim().to_ascii_lowercase().as_str() {
+        "audio/mpeg" => "mp3",
+        "audio/mp4" => "m4a",
+        "audio/wav" | "audio/x-wav" => "wav",
+        "audio/webm" => "webm",
+        "audio/ogg" => "ogg",
+        _ => "bin",
+    }
+}
+
+async fn transcribe_one_audio_openai_tts(
+    stt_api: &ApiConfig,
+    audio: &BinaryPart,
+) -> Result<String, String> {
+    let raw = B64
+        .decode(audio.bytes_base64.trim())
+        .map_err(|err| format!("Decode audio base64 failed: {err}"))?;
+    if raw.is_empty() {
+        return Err("Audio payload is empty.".to_string());
+    }
+
+    let mime = if audio.mime.trim().is_empty() {
+        "application/octet-stream"
+    } else {
+        audio.mime.trim()
+    };
+    let ext = audio_file_extension_from_mime(mime);
+    let file_name = format!("input.{ext}");
+
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(60))
+        .build()
+        .map_err(|err| format!("Build HTTP client failed: {err}"))?;
+
+    let mut errors = Vec::<String>::new();
+    for url in candidate_openai_transcription_urls(&stt_api.base_url) {
+        let file_part = reqwest::multipart::Part::bytes(raw.clone())
+            .file_name(file_name.clone())
+            .mime_str(mime)
+            .map_err(|err| format!("Build multipart file part failed: {err}"))?;
+        let form = reqwest::multipart::Form::new()
+            .text("model", stt_api.model.trim().to_string())
+            .part("file", file_part);
+
+        let resp = client
+            .post(&url)
+            .header(AUTHORIZATION, format!("Bearer {}", stt_api.api_key.trim()))
+            .multipart(form)
+            .send()
+            .await
+            .map_err(|err| format!("STT request failed ({url}): {err}"))?;
+
+        if !resp.status().is_success() {
+            let status = resp.status();
+            let raw_body = resp.text().await.unwrap_or_default();
+            let snippet = raw_body.chars().take(300).collect::<String>();
+            errors.push(format!("{url} -> {status} | {snippet}"));
+            continue;
+        }
+
+        let body = resp
+            .json::<OpenAITranscriptionResponse>()
+            .await
+            .map_err(|err| format!("Parse STT response failed ({url}): {err}"))?;
+        let text = body.text.unwrap_or_default();
+        let text = text.trim();
+        if text.is_empty() {
+            errors.push(format!("{url} -> empty transcription text"));
+            continue;
+        }
+        return Ok(text.to_string());
+    }
+
+    if errors.is_empty() {
+        Err("STT request failed: no candidate URL attempted.".to_string())
+    } else {
+        Err(format!("STT failed. Tried: {}", errors.join(" || ")))
+    }
+}
+
+async fn transcribe_payload_audios_openai_tts(
+    stt_api: &ApiConfig,
+    audios: &[BinaryPart],
+) -> Result<String, String> {
+    if audios.is_empty() {
+        return Err("Audio input is empty.".to_string());
+    }
+
+    let mut lines = Vec::<String>::new();
+    for audio in audios {
+        let text = transcribe_one_audio_openai_tts(stt_api, audio).await?;
+        if !text.trim().is_empty() {
+            lines.push(text);
+        }
+    }
+
+    if lines.is_empty() {
+        return Err("STT returned empty text.".to_string());
+    }
+    Ok(lines.join("\n"))
 }
 
 fn is_openai_style_request_format(request_format: &str) -> bool {
@@ -1929,31 +2089,50 @@ async fn send_chat_message(
     state: State<'_, AppState>,
     on_delta: tauri::ipc::Channel<AssistantDeltaEvent>,
 ) -> Result<SendChatResult, String> {
-    let (
-        resolved_api,
-        selected_api,
-        model_name,
-        prepared_prompt,
-        conversation_id,
-        latest_user_text,
-        archived_before_send,
-    ) = {
+    let (app_config, selected_api, resolved_api) = {
         let guard = state
             .state_lock
             .lock()
             .map_err(|_| "Failed to lock state mutex".to_string())?;
-
         let app_config = read_config(&state.config_path)?;
-        let api_config = resolve_selected_api_config(&app_config, input.api_config_id.as_deref())
+        let selected_api = resolve_selected_api_config(&app_config, input.api_config_id.as_deref())
             .ok_or_else(|| "No API config configured. Please add one.".to_string())?;
-        let resolved_api = resolve_api_config(&app_config, Some(api_config.id.as_str()))?;
+        let resolved_api = resolve_api_config(&app_config, Some(selected_api.id.as_str()))?;
+        drop(guard);
+        (app_config, selected_api, resolved_api)
+    };
 
-        if !is_openai_style_request_format(&resolved_api.request_format) {
-            return Err(format!(
-                "Request format '{}' is not implemented in chat router yet.",
-                resolved_api.request_format
-            ));
+    if !is_openai_style_request_format(&resolved_api.request_format) {
+        return Err(format!(
+            "Request format '{}' is not implemented in chat router yet.",
+            resolved_api.request_format
+        ));
+    }
+
+    let mut effective_payload = input.payload.clone();
+    if !selected_api.enable_audio {
+        let audios = effective_payload.audios.clone().unwrap_or_default();
+        if !audios.is_empty() {
+            let stt_api = resolve_stt_api_config(&app_config)?;
+            let transcription = transcribe_payload_audios_openai_tts(&stt_api, &audios).await?;
+
+            let merged_text = effective_payload
+                .text
+                .as_deref()
+                .map(str::trim)
+                .filter(|v| !v.is_empty())
+                .map(|text| format!("{text}\n\n{transcription}"))
+                .unwrap_or(transcription);
+            effective_payload.text = Some(merged_text);
+            effective_payload.audios = None;
         }
+    }
+
+    let (model_name, prepared_prompt, conversation_id, latest_user_text, archived_before_send) = {
+        let guard = state
+            .state_lock
+            .lock()
+            .map_err(|_| "Failed to lock state mutex".to_string())?;
 
         let mut data = read_app_data(&state.data_path)?;
         ensure_default_agent(&mut data);
@@ -1964,10 +2143,10 @@ async fn send_chat_message(
             .cloned()
             .ok_or_else(|| "Selected agent not found.".to_string())?;
 
-        let archived_before_send = archive_if_idle(&mut data, &api_config.id, &input.agent_id);
-        let idx = ensure_active_conversation_index(&mut data, &api_config.id, &input.agent_id);
+        let archived_before_send = archive_if_idle(&mut data, &selected_api.id, &input.agent_id);
+        let idx = ensure_active_conversation_index(&mut data, &selected_api.id, &input.agent_id);
 
-        let user_parts = build_user_parts(&input.payload, &api_config)?;
+        let user_parts = build_user_parts(&effective_payload, &selected_api)?;
         let latest_user_text = user_parts
             .iter()
             .map(|part| match part {
@@ -2009,8 +2188,6 @@ async fn send_chat_message(
         drop(guard);
 
         (
-            resolved_api,
-            api_config,
             model_name,
             prepared,
             conversation_id,
@@ -2309,6 +2486,26 @@ mod tests {
             ]
         );
         assert!(candidate_openai_chat_urls("  ").is_empty());
+    }
+
+    #[test]
+    fn candidate_openai_transcription_urls_should_handle_common_forms() {
+        assert_eq!(
+            candidate_openai_transcription_urls("https://api.siliconflow.cn/v1"),
+            vec!["https://api.siliconflow.cn/v1/audio/transcriptions".to_string()]
+        );
+        assert_eq!(
+            candidate_openai_transcription_urls("https://api.siliconflow.cn/v1/audio/transcriptions"),
+            vec!["https://api.siliconflow.cn/v1/audio/transcriptions".to_string()]
+        );
+        assert_eq!(
+            candidate_openai_transcription_urls("https://gateway.example.com"),
+            vec![
+                "https://gateway.example.com/audio/transcriptions".to_string(),
+                "https://gateway.example.com/v1/audio/transcriptions".to_string(),
+            ]
+        );
+        assert!(candidate_openai_transcription_urls("  ").is_empty());
     }
 
     #[test]
