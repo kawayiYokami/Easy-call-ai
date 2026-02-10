@@ -196,10 +196,19 @@ function createApiConfig(seed = Date.now().toString()): ApiConfigItem {
     enableText: true,
     enableImage: true,
     enableAudio: true,
+    enableTools: false,
+    tools: defaultApiTools(),
     baseUrl: "https://api.openai.com/v1",
     apiKey: "",
     model: "gpt-4o-mini",
   };
+}
+
+function defaultApiTools() {
+  return [
+    { id: "fetch", command: "uvx", args: ["mcp-server-fetch"] },
+    { id: "bing-search", command: "npx", args: ["-y", "bing-cn-mcp"] },
+  ];
 }
 
 function renderMessage(msg: ChatMessage): string {
@@ -653,6 +662,8 @@ watch(
       enableText: a.enableText,
       enableImage: a.enableImage,
       enableAudio: a.enableAudio,
+      enableTools: a.enableTools,
+      tools: a.tools,
       baseUrl: a.baseUrl,
       apiKey: a.apiKey,
       model: a.model,
@@ -677,5 +688,15 @@ watch(
 watch(
   () => ({ selectedAgentId: selectedAgentId.value, userAlias: userAlias.value }),
   () => scheduleChatSettingsAutosave(),
+);
+
+watch(
+  () => selectedApiConfig.value?.enableTools,
+  (enabled) => {
+    if (!enabled || !selectedApiConfig.value) return;
+    if (selectedApiConfig.value.tools.length === 0) {
+      selectedApiConfig.value.tools = defaultApiTools();
+    }
+  },
 );
 </script>

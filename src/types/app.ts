@@ -1,3 +1,9 @@
+export type ApiToolItem = {
+  id: string;
+  command: string;
+  args: string[];
+};
+
 export type ApiConfigItem = {
   id: string;
   name: string;
@@ -5,6 +11,8 @@ export type ApiConfigItem = {
   enableText: boolean;
   enableImage: boolean;
   enableAudio: boolean;
+  enableTools: boolean;
+  tools: ApiToolItem[];
   baseUrl: string;
   apiKey: string;
   model: string;

@@ -32,6 +32,33 @@ const MAX_MULTIMODAL_BYTES: usize = 10 * 1024 * 1024;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+struct ApiToolConfig {
+  id: String,
+  command: String,
+  args: Vec<String>,
+}
+
+fn default_false() -> bool {
+  false
+}
+
+fn default_api_tools() -> Vec<ApiToolConfig> {
+  vec![
+    ApiToolConfig {
+      id: "fetch".to_string(),
+      command: "uvx".to_string(),
+      args: vec!["mcp-server-fetch".to_string()],
+    },
+    ApiToolConfig {
+      id: "bing-search".to_string(),
+      command: "npx".to_string(),
+      args: vec!["-y".to_string(), "bing-cn-mcp".to_string()],
+    },
+  ]
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 struct ApiConfig {
   id: String,
   name: String,
@@ -42,6 +69,10 @@ struct ApiConfig {
   enable_image: bool,
   #[serde(default = "default_true")]
   enable_audio: bool,
+  #[serde(default = "default_false")]
+  enable_tools: bool,
+  #[serde(default = "default_api_tools")]
+  tools: Vec<ApiToolConfig>,
   base_url: String,
   api_key: String,
   model: String,
@@ -60,6 +91,8 @@ impl Default for ApiConfig {
       enable_text: true,
       enable_image: true,
       enable_audio: true,
+      enable_tools: false,
+      tools: default_api_tools(),
       base_url: "https://api.openai.com/v1".to_string(),
       api_key: String::new(),
       model: "gpt-4o-mini".to_string(),
@@ -396,6 +429,14 @@ fn write_config(path: &PathBuf, config: &AppConfig) -> Result<(), String> {
   let toml_str =
     toml::to_string_pretty(config).map_err(|err| format!("Serialize config failed: {err}"))?;
   fs::write(path, toml_str).map_err(|err| format!("Write config failed: {err}"))
+}
+
+fn normalize_api_tools(config: &mut AppConfig) {
+  for api in &mut config.api_configs {
+    if api.enable_tools && api.tools.is_empty() {
+      api.tools = default_api_tools();
+    }
+  }
 }
 
 fn read_app_data(path: &PathBuf) -> Result<AppData, String> {
@@ -866,9 +907,10 @@ fn load_config(state: State<'_, AppState>) -> Result<AppConfig, String> {
     .state_lock
     .lock()
     .map_err(|_| "Failed to lock state mutex".to_string())?;
-  let result = read_config(&state.config_path);
+  let mut result = read_config(&state.config_path)?;
+  normalize_api_tools(&mut result);
   drop(guard);
-  result
+  Ok(result)
 }
 
 #[tauri::command]
@@ -876,6 +918,8 @@ fn save_config(config: AppConfig, state: State<'_, AppState>) -> Result<AppConfi
   if config.api_configs.is_empty() {
     return Err("At least one API config must be configured.".to_string());
   }
+  let mut config = config;
+  normalize_api_tools(&mut config);
 
   let guard = state
     .state_lock

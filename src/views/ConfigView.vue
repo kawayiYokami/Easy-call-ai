@@ -78,6 +78,13 @@
           <label class="label cursor-pointer gap-1"><span class="label-text text-xs">文本</span><input v-model="selectedApiConfig.enableText" type="checkbox" class="toggle toggle-sm" /></label>
           <label class="label cursor-pointer gap-1"><span class="label-text text-xs">图片</span><input v-model="selectedApiConfig.enableImage" type="checkbox" class="toggle toggle-sm" /></label>
           <label class="label cursor-pointer gap-1"><span class="label-text text-xs">语音</span><input v-model="selectedApiConfig.enableAudio" type="checkbox" class="toggle toggle-sm" /></label>
+          <label class="label cursor-pointer gap-1"><span class="label-text text-xs">工具调用</span><input v-model="selectedApiConfig.enableTools" type="checkbox" class="toggle toggle-sm" /></label>
+        </div>
+        <div v-if="selectedApiConfig.enableTools" class="rounded border border-base-300 bg-base-100 px-2 py-1 text-[11px]">
+          <div class="font-medium mb-1">默认工具</div>
+          <div v-for="tool in selectedApiConfig.tools" :key="tool.id">
+            {{ tool.id }}: {{ tool.command }} {{ tool.args.join(" ") }}
+          </div>
         </div>
       </div>
 
