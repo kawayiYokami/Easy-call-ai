@@ -66,10 +66,13 @@
         :chat-input="chatInput"
         :chat-input-placeholder="chatInputPlaceholder"
         :chatting="chatting"
+        :turns="visibleTurns"
+        :has-more-turns="hasMoreTurns"
         @update:chat-input="chatInput = $event"
         @remove-clipboard-image="removeClipboardImage"
         @send-chat="sendChat"
         @stop-chat="stopChat"
+        @load-more-turns="loadMoreTurns"
       />
 
       <ArchivesView
@@ -106,10 +109,10 @@
   </div>
 </template>
 <script setup lang="ts">
-import { computed, nextTick, onMounted, reactive, ref, watch } from "vue";
+import { computed, nextTick, onMounted, reactive, ref, shallowRef, watch } from "vue";
 import { invoke } from "@tauri-apps/api/core";
 import { emit, listen } from "@tauri-apps/api/event";
-import { getCurrentWindow, WebviewWindow } from "@tauri-apps/api/window";
+import { getCurrentWindow, Window as WebviewWindow } from "@tauri-apps/api/window";
 import { Minus, Pin, Square, X } from "lucide-vue-next";
 import ConfigView from "./views/ConfigView.vue";
 import ChatView from "./views/ChatView.vue";
@@ -122,6 +125,7 @@ import type {
   ChatMessage,
   ChatSettings,
   ChatSnapshot,
+  ChatTurn,
   ToolLoadStatus,
 } from "./types/app";
 
@@ -140,6 +144,9 @@ const latestUserImages = ref<Array<{ mime: string; bytesBase64: string }>>([]);
 const latestAssistantText = ref("");
 const currentHistory = ref<ChatMessage[]>([]);
 const clipboardImages = ref<Array<{ mime: string; bytesBase64: string }>>([]);
+
+const allMessages = shallowRef<ChatMessage[]>([]);
+const visibleTurnCount = ref(1);
 
 const archives = ref<ArchiveSummary[]>([]);
 const archiveMessages = ref<ChatMessage[]>([]);
@@ -194,6 +201,32 @@ const chatInputPlaceholder = computed(() => {
   if (hints.length === 0) return "输入问题";
   return `输入问题，${hints.join("，")}`;
 });
+
+const allTurns = computed<ChatTurn[]>(() => {
+  const msgs = allMessages.value;
+  const turns: ChatTurn[] = [];
+  for (let i = 0; i < msgs.length; i++) {
+    const msg = msgs[i];
+    if (msg.role === "user") {
+      const userText = removeBinaryPlaceholders(renderMessage(msg));
+      const userImages = extractMessageImages(msg);
+      let assistantText = "";
+      if (i + 1 < msgs.length && msgs[i + 1].role === "assistant") {
+        assistantText = renderMessage(msgs[i + 1]);
+        i++;
+      }
+      turns.push({ id: msg.id, userText, userImages, assistantText });
+    }
+  }
+  return turns;
+});
+
+const visibleTurns = computed(() =>
+  allTurns.value.slice(Math.max(0, allTurns.value.length - visibleTurnCount.value))
+);
+
+const hasMoreTurns = computed(() => visibleTurnCount.value < allTurns.value.length);
+
 function createApiConfig(seed = Date.now().toString()): ApiConfigItem {
   return {
     id: `api-config-${seed}`,
@@ -441,6 +474,22 @@ async function refreshChatSnapshot() {
     status.value = `Load chat snapshot failed: ${String(e)}`;
   }
 }
+async function loadAllMessages() {
+  if (!config.selectedApiConfigId || !selectedAgentId.value) return;
+  try {
+    const msgs = await invoke<ChatMessage[]>("get_active_conversation_messages", {
+      input: { apiConfigId: config.selectedApiConfigId, agentId: selectedAgentId.value },
+    });
+    allMessages.value = msgs;
+  } catch (e) {
+    status.value = `Load messages failed: ${String(e)}`;
+  }
+}
+
+function loadMoreTurns() {
+  visibleTurnCount.value++;
+}
+
 let chatGeneration = 0;
 
 async function sendChat() {
@@ -473,9 +522,11 @@ async function sendChat() {
     latestUserText.value = removeBinaryPlaceholders(result.latestUserText);
     latestUserImages.value = sentImages;
     latestAssistantText.value = result.assistantText;
+    await loadAllMessages();
   } catch (e) {
     if (gen !== chatGeneration) return;
     latestAssistantText.value = `Error: ${String(e)}`;
+    await loadAllMessages();
   } finally {
     if (gen === chatGeneration) chatting.value = false;
   }
@@ -654,6 +705,8 @@ onMounted(async () => {
     await loadChatSettings();
     if (viewMode.value === "chat") {
       await refreshChatSnapshot();
+      await loadAllMessages();
+      visibleTurnCount.value = 1;
       await importClipboardImageOnOpen();
     } else if (viewMode.value === "archives") {
       await loadArchives();

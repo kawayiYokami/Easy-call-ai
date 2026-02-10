@@ -47,6 +47,13 @@ export type ChatSnapshot = {
   activeMessageCount: number;
 };
 
+export type ChatTurn = {
+  id: string;
+  userText: string;
+  userImages: Array<{ mime: string; bytesBase64: string }>;
+  assistantText: string;
+};
+
 export type ArchiveSummary = { archiveId: string; archivedAt: string; title: string };
 
 export type ChatSettings = { selectedAgentId: string; userAlias: string };

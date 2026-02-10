@@ -1,32 +1,70 @@
 <template>
   <div class="flex flex-col h-full">
-    <div class="flex-1 overflow-y-auto p-3 space-y-2">
-      <div class="chat chat-end">
-      <div class="chat-header text-[11px] opacity-70 mb-1">{{ userAlias }}</div>
-        <div class="chat-bubble max-w-[92%]">
-          <div v-if="latestUserText" class="whitespace-pre-wrap">{{ latestUserText }}</div>
-          <div v-if="latestUserImages.length > 0" class="mt-2 grid gap-1">
-            <img
-              v-for="(img, idx) in latestUserImages"
-              :key="`${img.mime}-${idx}`"
-              :src="`data:${img.mime};base64,${img.bytesBase64}`"
-              class="rounded max-h-28 object-contain bg-base-100/40"
-            />
+    <div ref="scrollContainer" class="flex-1 overflow-y-auto p-3 space-y-2" @scroll="onScroll">
+      <!-- 加载更多提示 -->
+      <div v-if="hasMoreTurns" class="text-center">
+        <button class="btn btn-ghost btn-xs text-base-content/50" @click="$emit('loadMoreTurns')">加载更多...</button>
+      </div>
+
+      <!-- 历史对话 turns -->
+      <template v-for="turn in turns" :key="turn.id">
+        <div class="chat chat-end">
+          <div class="chat-header text-[11px] opacity-70 mb-1">{{ userAlias }}</div>
+          <div class="chat-bubble max-w-[92%]">
+            <div v-if="turn.userText" class="whitespace-pre-wrap">{{ turn.userText }}</div>
+            <div v-if="turn.userImages.length > 0" class="mt-2 grid gap-1">
+              <img
+                v-for="(img, idx) in turn.userImages"
+                :key="`${turn.id}-img-${idx}`"
+                :src="`data:${img.mime};base64,${img.bytesBase64}`"
+                class="rounded max-h-28 object-contain bg-base-100/40"
+              />
+            </div>
           </div>
         </div>
-      </div>
-      <div class="chat chat-start">
-        <div class="chat-header text-[11px] opacity-70 mb-1">{{ agentName || "助理" }}</div>
-        <div class="chat-bubble max-w-[92%] bg-white text-black assistant-markdown">
-          <span v-if="chatting" class="loading loading-dots loading-sm"></span>
+        <div v-if="turn.assistantText" class="chat chat-start">
+          <div class="chat-header text-[11px] opacity-70 mb-1">{{ agentName || "助理" }}</div>
           <div
-            v-else-if="latestAssistantText"
-            v-html="renderedAssistantHtml"
+            class="chat-bubble max-w-[92%] bg-white text-black assistant-markdown"
+            v-html="renderMarkdown(turn.assistantText)"
             @click="handleAssistantLinkClick"
           ></div>
-          <template v-else>...</template>
         </div>
-      </div>
+      </template>
+
+      <!-- 发送中的即时反馈 -->
+      <template v-if="chatting">
+        <div class="chat chat-end">
+          <div class="chat-header text-[11px] opacity-70 mb-1">{{ userAlias }}</div>
+          <div class="chat-bubble max-w-[92%]">
+            <div v-if="latestUserText" class="whitespace-pre-wrap">{{ latestUserText }}</div>
+            <div v-if="latestUserImages.length > 0" class="mt-2 grid gap-1">
+              <img
+                v-for="(img, idx) in latestUserImages"
+                :key="`pending-img-${idx}`"
+                :src="`data:${img.mime};base64,${img.bytesBase64}`"
+                class="rounded max-h-28 object-contain bg-base-100/40"
+              />
+            </div>
+          </div>
+        </div>
+        <div class="chat chat-start">
+          <div class="chat-header text-[11px] opacity-70 mb-1">{{ agentName || "助理" }}</div>
+          <div class="chat-bubble max-w-[92%] bg-white text-black assistant-markdown">
+            <span class="loading loading-dots loading-sm"></span>
+          </div>
+        </div>
+      </template>
+
+      <!-- 空状态 -->
+      <template v-if="turns.length === 0 && !chatting">
+        <div class="chat chat-start">
+          <div class="chat-header text-[11px] opacity-70 mb-1">{{ agentName || "助理" }}</div>
+          <div class="chat-bubble max-w-[92%] bg-white text-black assistant-markdown">
+            <template>...</template>
+          </div>
+        </div>
+      </template>
     </div>
 
     <div class="shrink-0 border-t border-base-300 bg-base-100 p-2">
@@ -57,11 +95,12 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from "vue";
+import { computed, ref, nextTick, onMounted, watch } from "vue";
 import { ArrowUp, Image as ImageIcon, Square, X } from "lucide-vue-next";
 import MarkdownIt from "markdown-it";
 import DOMPurify from "dompurify";
 import { invoke } from "@tauri-apps/api/core";
+import type { ChatTurn } from "../types/app";
 
 const props = defineProps<{
   userAlias: string;
@@ -73,6 +112,8 @@ const props = defineProps<{
   chatInput: string;
   chatInputPlaceholder: string;
   chatting: boolean;
+  turns: ChatTurn[];
+  hasMoreTurns: boolean;
 }>();
 
 const emit = defineEmits<{
@@ -80,6 +121,7 @@ const emit = defineEmits<{
   (e: "removeClipboardImage", index: number): void;
   (e: "sendChat"): void;
   (e: "stopChat"): void;
+  (e: "loadMoreTurns"): void;
 }>();
 
 const localChatInput = computed({
@@ -87,16 +129,42 @@ const localChatInput = computed({
   set: (value: string) => emit("update:chatInput", value),
 });
 
+const scrollContainer = ref<HTMLElement | null>(null);
+
 const md = new MarkdownIt({
   html: false,
   linkify: true,
   breaks: true,
 });
 
-const renderedAssistantHtml = computed(() => {
-  const raw = md.render(props.latestAssistantText || "");
+function renderMarkdown(text: string): string {
+  const raw = md.render(text || "");
   return DOMPurify.sanitize(raw);
-});
+}
+
+const renderedAssistantHtml = computed(() => renderMarkdown(props.latestAssistantText));
+
+function scrollToBottom() {
+  const el = scrollContainer.value;
+  if (el) el.scrollTop = el.scrollHeight;
+}
+
+let loadingMore = false;
+
+function onScroll() {
+  const el = scrollContainer.value;
+  if (!el) return;
+  if (el.scrollTop <= 20 && props.hasMoreTurns && !loadingMore) {
+    loadingMore = true;
+    const oldHeight = el.scrollHeight;
+    emit("loadMoreTurns");
+    nextTick(() => {
+      const newHeight = el.scrollHeight;
+      el.scrollTop = newHeight - oldHeight;
+      loadingMore = false;
+    });
+  }
+}
 
 async function handleAssistantLinkClick(event: MouseEvent) {
   const target = event.target as HTMLElement | null;
@@ -112,6 +180,24 @@ async function handleAssistantLinkClick(event: MouseEvent) {
     // ignore
   }
 }
+
+onMounted(() => {
+  nextTick(() => scrollToBottom());
+});
+
+watch(
+  () => props.chatting,
+  () => nextTick(() => scrollToBottom()),
+);
+
+watch(
+  () => props.turns.length,
+  (newLen, oldLen) => {
+    if (newLen > oldLen) {
+      nextTick(() => scrollToBottom());
+    }
+  },
+);
 </script>
 
 <style scoped>
