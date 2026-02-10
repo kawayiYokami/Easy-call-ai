@@ -10,7 +10,7 @@ use rig::{
   completion::{
     Message as RigMessage,
     Prompt,
-    message::{AudioMediaType, ImageMediaType, UserContent},
+    message::{AudioMediaType, ImageDetail, ImageMediaType, UserContent},
   },
   prelude::CompletionClient,
   providers::openai,
@@ -733,7 +733,11 @@ async fn call_model_openai_style(api_config: &ResolvedApiConfig, model_name: &st
   }
 
   for (mime, bytes) in prepared.latest_images {
-    content_items.push(UserContent::image_base64(bytes, image_media_type_from_mime(&mime), None));
+    content_items.push(UserContent::image_base64(
+      bytes,
+      image_media_type_from_mime(&mime),
+      Some(ImageDetail::Auto),
+    ));
   }
 
   for (mime, bytes) in prepared.latest_audios {
@@ -1108,9 +1112,10 @@ async fn send_chat_message(input: SendChatRequest, state: State<'_, AppState>) -
     let user_parts = build_user_parts(&input.payload, &api_config)?;
     let latest_user_text = user_parts
       .iter()
-      .filter_map(|part| match part {
-        MessagePart::Text { text } => Some(text.as_str()),
-        _ => None,
+      .map(|part| match part {
+        MessagePart::Text { text } => text.clone(),
+        MessagePart::Image { .. } => "[image]".to_string(),
+        MessagePart::Audio { .. } => "[audio]".to_string(),
       })
       .collect::<Vec<_>>()
       .join("\n");

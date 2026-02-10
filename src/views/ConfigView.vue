@@ -12,21 +12,35 @@
         <div class="label py-1"><span class="label-text text-xs">Hotkey</span></div>
         <input v-model="config.hotkey" class="input input-bordered input-sm" placeholder="Alt+C" />
       </label>
-      <label class="form-control">
+      <div class="form-control">
         <div class="label py-1"><span class="label-text text-xs">主题</span></div>
-        <button class="btn btn-sm w-full" @click="$emit('toggleTheme')">
-          {{ currentTheme === "light" ? "🌞 浅色模式" : "🌙 深色模式" }}
+        <button class="btn btn-sm btn-ghost bg-base-100 w-full flex items-center justify-center gap-2" @click="$emit('toggleTheme')">
+          <Sun v-if="currentTheme === 'light'" class="h-4 w-4" />
+          <Moon v-else class="h-4 w-4" />
+          <span>{{ currentTheme === "light" ? "浅色模式" : "深色模式" }}</span>
         </button>
-      </label>
-      <button class="btn btn-sm" :class="{ loading: loading }" @click="$emit('loadConfig')">重载</button>
+      </div>
     </template>
 
     <template v-else-if="configTab === 'api'">
       <label class="form-control">
         <div class="label py-1"><span class="label-text text-xs">当前API配置</span></div>
-        <select v-model="config.selectedApiConfigId" class="select select-bordered select-sm">
-          <option v-for="a in config.apiConfigs" :key="a.id" :value="a.id">{{ a.name }}</option>
-        </select>
+        <div class="flex gap-1">
+          <select v-model="config.selectedApiConfigId" class="select select-bordered select-sm flex-1">
+            <option v-for="a in config.apiConfigs" :key="a.id" :value="a.id">{{ a.name }}</option>
+          </select>
+          <button class="btn btn-sm btn-square btn-ghost bg-base-100" title="新增API配置" @click="$emit('addApiConfig')">
+            <Plus class="h-3.5 w-3.5" />
+          </button>
+          <button
+            class="btn btn-sm btn-square btn-ghost bg-base-100"
+            title="删除当前API配置"
+            :disabled="config.apiConfigs.length <= 1"
+            @click="$emit('removeSelectedApiConfig')"
+          >
+            <Trash2 class="h-3.5 w-3.5" />
+          </button>
+        </div>
       </label>
 
       <div v-if="selectedApiConfig" class="grid gap-2">
@@ -40,7 +54,25 @@
         <input v-model="selectedApiConfig.apiKey" type="password" class="input input-bordered input-sm" placeholder="api key" />
         <div class="flex gap-1">
           <input v-model="selectedApiConfig.model" class="input input-bordered input-sm flex-1" placeholder="model" />
-          <button class="btn btn-sm btn-square" :class="{ loading: refreshingModels }" :disabled="refreshingModels" @click="$emit('refreshModels')">刷新</button>
+          <div class="dropdown dropdown-end">
+            <button tabindex="0" class="btn btn-sm btn-square btn-ghost bg-base-100" :disabled="modelOptions.length === 0" title="选择模型">
+              <ChevronsUpDown class="h-3.5 w-3.5" />
+            </button>
+            <ul tabindex="0" class="dropdown-content z-[1] menu p-1 shadow bg-base-100 rounded-box w-52 max-h-56 overflow-auto">
+              <li v-for="modelName in modelOptions" :key="modelName">
+                <button @click="selectedApiConfig.model = modelName">{{ modelName }}</button>
+              </li>
+            </ul>
+          </div>
+          <button
+            class="btn btn-sm btn-square btn-ghost bg-base-100"
+            :class="{ loading: refreshingModels }"
+            :disabled="refreshingModels"
+            title="刷新模型列表"
+            @click="$emit('refreshModels')"
+          >
+            <RefreshCw class="h-3.5 w-3.5" />
+          </button>
         </div>
         <div class="flex gap-2">
           <label class="label cursor-pointer gap-1"><span class="label-text text-xs">文本</span><input v-model="selectedApiConfig.enableText" type="checkbox" class="toggle toggle-sm" /></label>
@@ -49,11 +81,6 @@
         </div>
       </div>
 
-      <div class="flex gap-1">
-        <button class="btn btn-sm" @click="$emit('addApiConfig')">新增</button>
-        <button class="btn btn-sm" :disabled="config.apiConfigs.length <= 1" @click="$emit('removeSelectedApiConfig')">删除</button>
-        <button class="btn btn-sm" :class="{ loading: loading }" @click="$emit('loadConfig')">重载</button>
-      </div>
     </template>
 
     <template v-else-if="configTab === 'agent'">
@@ -99,6 +126,7 @@
 
 <script setup lang="ts">
 import type { AgentProfile, ApiConfigItem, AppConfig } from "../types/app";
+import { ChevronsUpDown, Moon, Plus, RefreshCw, Sun, Trash2 } from "lucide-vue-next";
 
 type ConfigTab = "hotkey" | "api" | "agent" | "chatSettings";
 
@@ -109,7 +137,7 @@ defineProps<{
   selectedApiConfig: ApiConfigItem | null;
   baseUrlReference: string;
   refreshingModels: boolean;
-  loading: boolean;
+  modelOptions: string[];
   agents: AgentProfile[];
   selectedAgentId: string;
   selectedAgent: AgentProfile | null;
@@ -121,7 +149,6 @@ defineEmits<{
   (e: "update:selectedAgentId", value: string): void;
   (e: "update:userAlias", value: string): void;
   (e: "toggleTheme"): void;
-  (e: "loadConfig"): void;
   (e: "refreshModels"): void;
   (e: "addApiConfig"): void;
   (e: "removeSelectedApiConfig"): void;

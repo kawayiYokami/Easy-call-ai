@@ -20,7 +20,7 @@ rig = { package = "rig-core", version = "0.30.0" }
 tokio = { version = "1.48.0", features = ["rt-multi-thread"] }
 reqwest = { version = "0.11.27", default-features = false, features = ["json", "rustls-tls"] }
 base64 = "0.22"
-image = { version = "0.25", default-features = false, features = ["webp"] }
+image = { version = "0.25", default-features = false, features = ["png", "jpeg", "gif", "webp"] }
 uuid = { version = "1", features = ["v4"] }
 
 [features]

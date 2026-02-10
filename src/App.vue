@@ -35,7 +35,7 @@
         :selected-api-config="selectedApiConfig"
         :base-url-reference="baseUrlReference"
         :refreshing-models="refreshingModels"
-        :loading="loading"
+        :model-options="selectedModelOptions"
         :agents="agents"
         :selected-agent-id="selectedAgentId"
         :selected-agent="selectedAgent"
@@ -44,7 +44,6 @@
         @update:selected-agent-id="selectedAgentId = $event"
         @update:user-alias="userAlias = $event"
         @toggle-theme="toggleTheme"
-        @load-config="loadConfig"
         @refresh-models="refreshModels"
         @add-api-config="addApiConfig"
         @remove-selected-api-config="removeSelectedApiConfig"
@@ -58,6 +57,7 @@
         :user-alias="userAlias"
         :agent-name="selectedAgent?.name || '助理'"
         :latest-user-text="latestUserText"
+        :latest-user-images="latestUserImages"
         :latest-assistant-text="latestAssistantText"
         :clipboard-images="clipboardImages"
         :chat-input="chatInput"
@@ -84,7 +84,15 @@
           <div class="max-h-96 overflow-auto space-y-2">
             <div v-for="m in currentHistory" :key="m.id" class="text-xs border border-base-300 rounded p-2">
               <div class="font-semibold uppercase text-[11px]">{{ m.role }}</div>
-              <div class="whitespace-pre-wrap">{{ renderMessage(m) }}</div>
+              <div v-if="messageText(m)" class="whitespace-pre-wrap">{{ messageText(m) }}</div>
+              <div v-if="extractMessageImages(m).length > 0" class="mt-2 grid gap-1">
+                <img
+                  v-for="(img, idx) in extractMessageImages(m)"
+                  :key="`${img.mime}-${idx}`"
+                  :src="`data:${img.mime};base64,${img.bytesBase64}`"
+                  class="rounded max-h-32 object-contain bg-base-100/40"
+                />
+              </div>
             </div>
           </div>
           <div class="modal-action"><button class="btn btn-sm" @click="closeHistory">关闭</button></div>
@@ -124,6 +132,7 @@ const selectedAgentId = ref("default-agent");
 const userAlias = ref("用户");
 const chatInput = ref("");
 const latestUserText = ref("");
+const latestUserImages = ref<Array<{ mime: string; bytesBase64: string }>>([]);
 const latestAssistantText = ref("");
 const currentHistory = ref<ChatMessage[]>([]);
 const clipboardImages = ref<Array<{ mime: string; bytesBase64: string }>>([]);
@@ -137,6 +146,7 @@ const loading = ref(false);
 const saving = ref(false);
 const chatting = ref(false);
 const refreshingModels = ref(false);
+const apiModelOptions = ref<Record<string, string[]>>({});
 const historyDialog = ref<HTMLDialogElement | null>(null);
 const alwaysOnTop = ref(false);
 const configAutosaveReady = ref(false);
@@ -158,6 +168,11 @@ const titleText = computed(() => {
 });
 const selectedApiConfig = computed(() => config.apiConfigs.find((a) => a.id === config.selectedApiConfigId) ?? null);
 const selectedAgent = computed(() => agents.value.find((a) => a.id === selectedAgentId.value) ?? null);
+const selectedModelOptions = computed(() => {
+  const id = config.selectedApiConfigId;
+  if (!id) return [];
+  return apiModelOptions.value[id] ?? [];
+});
 const baseUrlReference = computed(() => {
   const format = selectedApiConfig.value?.requestFormat ?? "openai";
   if (format === "gemini") return "https://generativelanguage.googleapis.com/v1beta/openai";
@@ -193,6 +208,30 @@ function renderMessage(msg: ChatMessage): string {
     if (p.type === "image") return "[image]";
     return "[audio]";
   }).join("\n");
+}
+
+function messageText(msg: ChatMessage): string {
+  return msg.parts
+    .filter((p) => p.type === "text")
+    .map((p) => p.text)
+    .join("\n")
+    .trim();
+}
+
+function removeBinaryPlaceholders(text: string): string {
+  return text
+    .split("\n")
+    .map((line) => line.trim())
+    .filter((line) => line !== "[image]" && line !== "[audio]")
+    .join("\n")
+    .trim();
+}
+
+function extractMessageImages(msg?: ChatMessage): Array<{ mime: string; bytesBase64: string }> {
+  if (!msg) return [];
+  return msg.parts
+    .filter((p) => p.type === "image")
+    .map((p) => ({ mime: p.mime, bytesBase64: p.bytesBase64 }));
 }
 
 async function loadConfig() {
@@ -341,6 +380,7 @@ async function refreshModels() {
   refreshingModels.value = true;
   try {
     const models = await invoke<string[]>("refresh_models", { input: { baseUrl: selectedApiConfig.value.baseUrl, apiKey: selectedApiConfig.value.apiKey, requestFormat: selectedApiConfig.value.requestFormat } });
+    apiModelOptions.value[selectedApiConfig.value.id] = models;
     if (models.length) selectedApiConfig.value.model = models[0];
     status.value = `Model list refreshed (${models.length}).`;
   } catch (e) {
@@ -354,7 +394,8 @@ async function refreshChatSnapshot() {
   if (!config.selectedApiConfigId || !selectedAgentId.value) return;
   try {
     const snap = await invoke<ChatSnapshot>("get_chat_snapshot", { input: { apiConfigId: config.selectedApiConfigId, agentId: selectedAgentId.value } });
-    latestUserText.value = snap.latestUser ? renderMessage(snap.latestUser) : "";
+    latestUserText.value = snap.latestUser ? removeBinaryPlaceholders(renderMessage(snap.latestUser)) : "";
+    latestUserImages.value = extractMessageImages(snap.latestUser);
     latestAssistantText.value = snap.latestAssistant ? renderMessage(snap.latestAssistant) : "";
   } catch (e) {
     status.value = `Load chat snapshot failed: ${String(e)}`;
@@ -369,9 +410,8 @@ async function sendChat() {
   }
 
   // 立刻刷新 UI：显示用户消息 + loading 气泡
-  const imageCount = clipboardImages.value.length;
-  const userPreview = [text, imageCount > 0 ? `[图片 x${imageCount}]` : ""].filter(Boolean).join("\n");
-  latestUserText.value = userPreview;
+  latestUserText.value = text;
+  latestUserImages.value = [...clipboardImages.value];
   latestAssistantText.value = "";
 
   const sentImages = [...clipboardImages.value];
@@ -390,7 +430,8 @@ async function sendChat() {
       },
     });
     if (gen !== chatGeneration) return;
-    latestUserText.value = result.latestUserText;
+    latestUserText.value = removeBinaryPlaceholders(result.latestUserText);
+    latestUserImages.value = sentImages;
     latestAssistantText.value = result.assistantText;
   } catch (e) {
     if (gen !== chatGeneration) return;

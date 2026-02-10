@@ -10,14 +10,22 @@
     <div class="max-h-80 overflow-auto space-y-2">
       <div v-for="m in archiveMessages" :key="m.id" class="text-xs border border-base-300 rounded p-2">
         <div class="font-semibold uppercase text-[11px]">{{ m.role }}</div>
-        <div class="whitespace-pre-wrap">{{ renderMessage(m) }}</div>
+        <div v-if="messageText(m)" class="whitespace-pre-wrap">{{ messageText(m) }}</div>
+        <div v-if="messageImages(m).length > 0" class="mt-2 grid gap-1">
+          <img
+            v-for="(img, idx) in messageImages(m)"
+            :key="`${img.mime}-${idx}`"
+            :src="`data:${img.mime};base64,${img.bytesBase64}`"
+            class="rounded max-h-32 object-contain bg-base-100/40"
+          />
+        </div>
       </div>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import type { ArchiveSummary, ChatMessage } from "../types/app";
+import type { ArchiveSummary, ChatMessage, MessagePart } from "../types/app";
 
 defineProps<{
   archives: ArchiveSummary[];
@@ -29,4 +37,18 @@ defineEmits<{
   (e: "loadArchives"): void;
   (e: "selectArchive", archiveId: string): void;
 }>();
+
+function messageText(msg: ChatMessage): string {
+  return msg.parts
+    .filter((p): p is Extract<MessagePart, { type: "text" }> => p.type === "text")
+    .map((p) => p.text)
+    .join("\n")
+    .trim();
+}
+
+function messageImages(msg: ChatMessage): Array<{ mime: string; bytesBase64: string }> {
+  return msg.parts
+    .filter((p): p is Extract<MessagePart, { type: "image" }> => p.type === "image")
+    .map((p) => ({ mime: p.mime, bytesBase64: p.bytesBase64 }));
+}
 </script>

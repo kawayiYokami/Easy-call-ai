@@ -2,12 +2,22 @@
   <div class="flex flex-col h-full">
     <div class="flex-1 overflow-y-auto p-3 space-y-2">
       <div class="chat chat-end">
-        <div class="chat-header text-[11px] opacity-70 mb-1">{{ userAlias }}</div>
-        <div class="chat-bubble max-w-[92%] whitespace-pre-wrap">{{ latestUserText || "..." }}</div>
+      <div class="chat-header text-[11px] opacity-70 mb-1">{{ userAlias }}</div>
+        <div class="chat-bubble max-w-[92%]">
+          <div v-if="latestUserText" class="whitespace-pre-wrap">{{ latestUserText }}</div>
+          <div v-if="latestUserImages.length > 0" class="mt-2 grid gap-1">
+            <img
+              v-for="(img, idx) in latestUserImages"
+              :key="`${img.mime}-${idx}`"
+              :src="`data:${img.mime};base64,${img.bytesBase64}`"
+              class="rounded max-h-28 object-contain bg-base-100/40"
+            />
+          </div>
+        </div>
       </div>
       <div class="chat chat-start">
         <div class="chat-header text-[11px] opacity-70 mb-1">{{ agentName || "助理" }}</div>
-        <div class="chat-bubble max-w-[92%] whitespace-pre-wrap">
+        <div class="chat-bubble max-w-[92%] whitespace-pre-wrap bg-white text-black">
           <span v-if="chatting" class="loading loading-dots loading-sm"></span>
           <template v-else>{{ latestAssistantText || "..." }}</template>
         </div>
@@ -49,6 +59,7 @@ const props = defineProps<{
   userAlias: string;
   agentName: string;
   latestUserText: string;
+  latestUserImages: Array<{ mime: string; bytesBase64: string }>;
   latestAssistantText: string;
   clipboardImages: Array<{ mime: string; bytesBase64: string }>;
   chatInput: string;
