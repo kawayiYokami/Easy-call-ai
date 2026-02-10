@@ -26,6 +26,7 @@ scraper = "0.20"
 urlencoding = "2.1"
 webbrowser = "1.0"
 futures-util = "0.3"
+sha2 = "0.10"
 
 [features]
 default = ["custom-protocol"]

@@ -201,6 +201,16 @@ const activeChatApiConfigId = computed(
 const activeChatApiConfig = computed(
   () => config.apiConfigs.find((a) => a.id === activeChatApiConfigId.value) ?? null,
 );
+const hasVisionFallback = computed(() =>
+  !!config.visionApiConfigId
+  && config.apiConfigs.some((a) => a.id === config.visionApiConfigId && a.enableImage),
+);
+const hasSttFallback = computed(() =>
+  !!config.sttApiConfigId
+  && config.apiConfigs.some(
+    (a) => a.id === config.sttApiConfigId && a.enableAudio && a.requestFormat === "openai_tts",
+  ),
+);
 const selectedAgent = computed(() => agents.value.find((a) => a.id === selectedAgentId.value) ?? null);
 const selectedModelOptions = computed(() => {
   const id = config.selectedApiConfigId;
@@ -218,8 +228,8 @@ const chatInputPlaceholder = computed(() => {
   const api = activeChatApiConfig.value;
   if (!api) return "输入问题";
   const hints: string[] = [];
-  if (api.enableImage) hints.push("Ctrl+V 粘贴图片");
-  if (api.enableAudio) hints.push("可发送语音");
+  if (api.enableImage || hasVisionFallback.value) hints.push("Ctrl+V 粘贴图片");
+  if (api.enableAudio || hasSttFallback.value) hints.push("可发送语音");
   if (hints.length === 0) return "输入问题";
   return `输入问题，${hints.join("，")}`;
 });
@@ -724,7 +734,7 @@ function onPaste(event: ClipboardEvent) {
 
   for (const item of Array.from(items)) {
     if (item.type.startsWith("image/")) {
-      if (!apiConfig.enableImage) {
+      if (!apiConfig.enableImage && !hasVisionFallback.value) {
         event.preventDefault();
         return;
       }
@@ -772,7 +782,7 @@ async function importClipboardImageOnOpen() {
     }
   }
 
-  if (!apiConfig.enableImage) return;
+  if (!apiConfig.enableImage && !hasVisionFallback.value) return;
   if (!navigator.clipboard?.read) return;
 
   try {

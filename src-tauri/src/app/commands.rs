@@ -286,6 +286,69 @@ async fn send_chat_message(
         }
     }
 
+    if !selected_api.enable_image {
+        let images = effective_payload.images.clone().unwrap_or_default();
+        if !images.is_empty() {
+            let vision_api = resolve_vision_api_config(&app_config)?;
+            let vision_resolved = resolve_api_config(&app_config, Some(vision_api.id.as_str()))?;
+            if !is_openai_style_request_format(&vision_resolved.request_format) {
+                return Err(format!(
+                    "Vision request format '{}' is not implemented in image conversion router yet.",
+                    vision_resolved.request_format
+                ));
+            }
+
+            let mut converted_texts = Vec::<String>::new();
+            for image in &images {
+                let hash = compute_image_hash_hex(image)?;
+                let cached = {
+                    let guard = state
+                        .state_lock
+                        .lock()
+                        .map_err(|_| "Failed to lock state mutex".to_string())?;
+                    let data = read_app_data(&state.data_path)?;
+                    drop(guard);
+                    find_image_text_cache(&data, &hash, &vision_api.id)
+                };
+
+                if let Some(text) = cached {
+                    converted_texts.push(text);
+                    continue;
+                }
+
+                let converted = describe_image_with_vision_api(&vision_resolved, &vision_api, image)
+                    .await?;
+                let converted = converted.trim().to_string();
+                if converted.is_empty() {
+                    continue;
+                }
+                converted_texts.push(converted.clone());
+
+                let guard = state
+                    .state_lock
+                    .lock()
+                    .map_err(|_| "Failed to lock state mutex".to_string())?;
+                let mut data = read_app_data(&state.data_path)?;
+                upsert_image_text_cache(&mut data, &hash, &vision_api.id, &converted);
+                write_app_data(&state.data_path, &data)?;
+                drop(guard);
+            }
+
+            if !converted_texts.is_empty() {
+                let converted_all = converted_texts.join("\n\n");
+                let merged_text = effective_payload
+                    .text
+                    .as_deref()
+                    .map(str::trim)
+                    .filter(|v| !v.is_empty())
+                    .map(|text| format!("{text}\n\n{converted_all}"))
+                    .unwrap_or(converted_all);
+                effective_payload.text = Some(merged_text);
+            }
+            effective_payload.images = None;
+        }
+    }
+
     let (model_name, prepared_prompt, conversation_id, latest_user_text, archived_before_send) = {
         let guard = state
             .state_lock

@@ -354,6 +354,15 @@ struct ArchiveSummary {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+struct ImageTextCacheEntry {
+    hash: String,
+    vision_api_id: String,
+    text: String,
+    updated_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 struct AppData {
     version: u32,
     agents: Vec<AgentProfile>,
@@ -363,6 +372,8 @@ struct AppData {
     user_alias: String,
     conversations: Vec<Conversation>,
     archived_conversations: Vec<ConversationArchive>,
+    #[serde(default)]
+    image_text_cache: Vec<ImageTextCacheEntry>,
 }
 
 impl Default for AppData {
@@ -374,6 +385,7 @@ impl Default for AppData {
             user_alias: default_user_alias(),
             conversations: Vec::new(),
             archived_conversations: Vec::new(),
+            image_text_cache: Vec::new(),
         }
     }
 }
@@ -607,6 +619,23 @@ mod tests {
             ]
         );
         assert!(candidate_openai_transcription_urls("  ").is_empty());
+    }
+
+    #[test]
+    fn image_text_cache_upsert_and_find_should_work() {
+        let mut data = AppData::default();
+        upsert_image_text_cache(&mut data, "h1", "vision-a", "text-a");
+        assert_eq!(
+            find_image_text_cache(&data, "h1", "vision-a"),
+            Some("text-a".to_string())
+        );
+
+        upsert_image_text_cache(&mut data, "h1", "vision-a", "text-b");
+        assert_eq!(
+            find_image_text_cache(&data, "h1", "vision-a"),
+            Some("text-b".to_string())
+        );
+        assert_eq!(find_image_text_cache(&data, "h1", "vision-b"), None);
     }
 
     #[test]

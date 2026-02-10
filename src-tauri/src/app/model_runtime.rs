@@ -634,4 +634,34 @@ async fn call_model_openai_style(
     call_model_openai_rig_style(api_config, model_name, prepared).await
 }
 
+async fn describe_image_with_vision_api(
+    vision_resolved: &ResolvedApiConfig,
+    vision_api: &ApiConfig,
+    image: &BinaryPart,
+) -> Result<String, String> {
+    if !is_openai_style_request_format(&vision_resolved.request_format) {
+        return Err(format!(
+            "Vision request format '{}' is not implemented yet.",
+            vision_resolved.request_format
+        ));
+    }
+
+    let mime = image.mime.trim();
+    let prepared = PreparedPrompt {
+        preamble: "[SYSTEM PROMPT]\n你是图像理解助手。请读取图片中的关键信息并输出简洁中文描述，保留有价值的文本、数字、UI元素与上下文。".to_string(),
+        latest_user_text: "请识别这张图片并给出可用于后续对话的文本描述。".to_string(),
+        latest_images: vec![(
+            if mime.is_empty() {
+                "image/png".to_string()
+            } else {
+                mime.to_string()
+            },
+            image.bytes_base64.clone(),
+        )],
+        latest_audios: Vec::new(),
+    };
+
+    call_model_openai_rig_style(vision_resolved, &vision_api.model, prepared).await
+}
+
 

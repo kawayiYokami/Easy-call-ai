@@ -219,6 +219,78 @@ fn resolve_stt_api_config(app_config: &AppConfig) -> Result<ApiConfig, String> {
     Ok(api)
 }
 
+fn resolve_vision_api_config(app_config: &AppConfig) -> Result<ApiConfig, String> {
+    let vision_id = app_config.vision_api_config_id.as_deref().ok_or_else(|| {
+        "Current chat API does not support image and no 图转文AI is configured.".to_string()
+    })?;
+
+    let api = app_config
+        .api_configs
+        .iter()
+        .find(|a| a.id == vision_id)
+        .cloned()
+        .ok_or_else(|| "Configured 图转文AI not found.".to_string())?;
+
+    if !api.enable_image {
+        return Err("Configured 图转文AI has image disabled.".to_string());
+    }
+    if api.base_url.trim().is_empty() {
+        return Err("图转文AI Base URL is empty.".to_string());
+    }
+    if api.api_key.trim().is_empty() {
+        return Err("图转文AI API key is empty.".to_string());
+    }
+    if api.model.trim().is_empty() {
+        return Err("图转文AI model is empty.".to_string());
+    }
+
+    Ok(api)
+}
+
+fn decode_image_bytes(image: &BinaryPart) -> Result<Vec<u8>, String> {
+    B64.decode(image.bytes_base64.trim())
+        .map_err(|err| format!("Decode image base64 failed: {err}"))
+}
+
+fn compute_image_hash_hex(image: &BinaryPart) -> Result<String, String> {
+    use sha2::{Digest, Sha256};
+
+    let raw = decode_image_bytes(image)?;
+    let mut hasher = Sha256::new();
+    hasher.update(raw);
+    Ok(format!("{:x}", hasher.finalize()))
+}
+
+fn find_image_text_cache(
+    data: &AppData,
+    hash: &str,
+    vision_api_id: &str,
+) -> Option<String> {
+    data.image_text_cache
+        .iter()
+        .find(|entry| entry.hash == hash && entry.vision_api_id == vision_api_id)
+        .map(|entry| entry.text.clone())
+}
+
+fn upsert_image_text_cache(data: &mut AppData, hash: &str, vision_api_id: &str, text: &str) {
+    if let Some(entry) = data
+        .image_text_cache
+        .iter_mut()
+        .find(|entry| entry.hash == hash && entry.vision_api_id == vision_api_id)
+    {
+        entry.text = text.to_string();
+        entry.updated_at = now_iso();
+        return;
+    }
+
+    data.image_text_cache.push(ImageTextCacheEntry {
+        hash: hash.to_string(),
+        vision_api_id: vision_api_id.to_string(),
+        text: text.to_string(),
+        updated_at: now_iso(),
+    });
+}
+
 fn candidate_openai_transcription_urls(base_url: &str) -> Vec<String> {
     let base = base_url.trim().trim_end_matches('/').to_string();
     if base.is_empty() {
