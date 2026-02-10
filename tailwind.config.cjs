@@ -10,6 +10,6 @@ module.exports = {
     }),
   ],
   daisyui: {
-    themes: ["wireframe", "corporate", "light"],
+    themes: ["light", "forest"],
   },
 };

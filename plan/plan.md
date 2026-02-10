@@ -1,178 +1,260 @@
-# Easy Call AI 开发计划（Tauri 2 + Rust + Web UI）
+# Easy Call AI 计划（会话系统与双窗口）
 
-## 0. 目标与范围
+## 1. 目标
 
-### 0.1 项目目标
-在 Windows 11 上开发一个快速启动的 AI 对话工具，支持：
-- 全局热键唤起
-- 区域截图
-- 文本输入
-- 原生音频录制并发送
-- 多模态请求（文本 + 图像 + 音频）
-- 流式回复展示
+基于现有 `Tauri + Vue + Rust` 工程，落地以下能力：
 
-### 0.2 首版目标（MVP v1）
-MVP v1 只保证“稳定可用、链路打通”，不追求复杂特效：
-- 单热键唤起（默认 `Alt + C`）
-- 区域截图后附加到当前会话
-- 音频录制为 WAV（先不做 MP3）
-- 支持 1 个 Provider 的多模态调用
-- 流式文本回复
-- 配置页支持 API Key / Base URL / Model
+1. 极简对话窗口（独立于配置窗口）
+2. 聊天记录持久化
+3. 会话按“30 分钟无 AI 回复”自动归档
+4. 归档查看器（独立窗口，只读）
+5. 智能体（系统提示词）管理与一键切换
+6. 多模态消息存储与 `Ctrl+V` 粘贴接入
+7. 统一消息格式 + 供应商转换层（为多供应商切换做准备）
 
-### 0.3 非目标（v1 不做）
-- 多 Provider 并行路由与自动回退
-- 复杂会话管理（多会话树、云同步）
-- 高级音频后处理（降噪、VAD、实时转写）
+说明：toolcall / MCP 字段先设计进模型，不在本期实现执行。
 
 ---
 
-## 1. 技术栈（最终建议）
+## 2. 范围与边界（本期）
 
-### 1.1 应用架构
-- 桌面壳：`Tauri 2`
-- 前端：`Vue 3 + Vite + TypeScript`（也可换 React，二选一）
-- 后端核心：`Rust`（Tauri commands + service layer）
+### 2.1 本期实现
+- 对话窗口可发送文本，保留完整会话历史
+- 上下文发送基于“当前激活会话”的最新状态
+- UI 仅显示“最新用户发言之后”的消息片段（历史不丢）
+- 归档规则：
+  - 判定点：`最后一次 assistant 消息时间`
+  - 触发点：用户下一次发送前检查
+  - 命中后：当前会话归档并自动新建会话
+- 归档查看器独立窗口（只读浏览）
+- 智能体 CRUD（名称、系统提示词），对话窗口可切换
+- 发送时自动注入“当前时间文本块”
+- `Ctrl+V` 支持多模态素材入库（按 API 配置能力开关）
 
-### 1.2 Rust 核心依赖
-- 异步与网络：`tokio` + `reqwest`
-- 序列化：`serde` + `serde_json`
-- 配置：`toml` + `directories`
-- 密钥安全存储：`keyring`
-- 音频录制：`cpal` + `hound`（WAV）
-- 图像处理：`image`
-- 日志：`tracing` + `tracing-subscriber`
-
-### 1.3 Tauri 插件 / 能力
-- 全局热键：`tauri-plugin-global-shortcut`
-- 系统托盘：Tauri tray
-- 窗口控制与置顶：Tauri window API
-
-### 1.4 截图方案
-- MVP：优先验证 `screenshots` 能否满足区域抓取
-- 若稳定性不足：切换到 Windows 原生捕获 API（通过 `windows` crate）
+### 2.2 本期不实现
+- toolcall 实际执行
+- MCP 实际调用
+- 云同步与跨端记录同步
+- 复杂检索（RAG）
 
 ---
 
-## 2. 模块设计
+## 3. 架构与窗口
 
-### 2.1 前端模块（Web UI）
-- `launcher-ui`：唤起弹窗、输入框、发送状态
-- `capture-preview`：截图预览与移除
-- `audio-recorder`：录音开始/结束/时长展示
-- `message-stream`：流式渲染 AI 回复
-- `settings`：Provider 配置与连接测试
+## 3.1 窗口
+1. 配置窗口（已存在）：管理 API 配置 + 智能体设置入口
+2. 对话窗口（新增）：极简发送/展示
+3. 归档查看器（新增）：只读查看历史归档
 
-### 2.2 Rust 服务模块
-- `hotkey_service`：注册与响应全局热键
-- `capture_service`：区域截图与图片编码
-- `audio_service`：录音控制、WAV 写入
-- `ai_service`：统一多模态请求结构 + Provider 适配
-- `config_service`：读写配置
-- `secret_service`：API Key 存取（keyring）
+## 3.2 窗口关系
+- 配置窗口和对话窗口状态隔离
+- 会话数据由 Rust 端统一存储，前端仅读写接口
+- 托盘菜单后续扩展：
+  - 配置
+  - 对话（打开对话窗）
+  - 归档（打开归档查看器）
+  - 退出
 
-### 2.3 统一消息结构（建议）
+---
+
+## 4. 数据模型（内部统一格式）
+
+## 4.0 持久化路径与文件策略（新增）
+
+- 持久化目录统一使用 `ProjectDirs`（与 `config.toml` 同目录）
+- 目录示例：
+  - `~/.config/easycall/easy-call-ai/`（Linux 示例）
+  - Windows 下由 `ProjectDirs` 自动映射到系统配置目录
+
+本期采用“单文件优先”策略，简化一致性与备份：
+
+- `app_data.json`：会话、智能体、归档统一存储
+- `config.toml`：API 配置继续保留（已存在）
+
+后续若数据规模增大，再拆分为多文件（`conversations.json / archives.json / agents.yml`）。
+
+## 4.1 顶层
 ```ts
-interface ChatInputPayload {
-  text?: string;
-  images?: Array<{ mime: string; bytes_base64: string }>;
-  audios?: Array<{ mime: string; bytes_base64: string }>;
-  model: string;
+type StorageSchemaVersion = 1;
+
+interface AppData {
+  version: StorageSchemaVersion;
+  apiConfigs: ApiConfigRef[];
+  agents: AgentProfile[];
+  conversations: Conversation[];
+  archivedConversations: ConversationArchive[];
+}
+```
+
+## 4.2 会话与消息
+```ts
+interface Conversation {
+  id: string;
+  title: string;
+  apiConfigId: string;
+  agentId: string;
+  createdAt: string; // ISO
+  updatedAt: string; // ISO
+  lastAssistantAt?: string; // ISO
+  status: "active" | "archived";
+  messages: ChatMessage[];
+}
+
+interface ChatMessage {
+  id: string;
+  role: "system" | "user" | "assistant" | "tool";
+  createdAt: string; // ISO
+  providerMeta?: Record<string, unknown>;
+  parts: MessagePart[];
+  toolCall?: ToolCallBlock[]; // 预留
+  mcpCall?: McpCallBlock[];   // 预留
+}
+
+type MessagePart =
+  | { type: "text"; text: string }
+  | { type: "image"; mime: string; bytesBase64: string; name?: string; compressed?: true }
+  | { type: "audio"; mime: string; bytesBase64: string; name?: string; compressed?: true };
+```
+
+## 4.5 多模态压缩存储策略（新增）
+
+- 不保留原图/原音频，入库前统一转码为高压缩格式
+- 图片：
+  - 统一转 `WebP`（质量默认 `75`）
+  - 存储 `image/webp + base64`
+- 音频：
+  - 本期先统一为压缩容器（优先 `audio/ogg`）
+  - 若转码链路受限，先保留现有格式并标记为后续优化项
+- 单条消息多模态总大小上限维持 `10MB`（拍板项）
+
+## 4.3 智能体
+```ts
+interface AgentProfile {
+  id: string;
+  name: string;
+  systemPrompt: string;
+  createdAt: string;
+  updatedAt: string;
+}
+```
+
+## 4.4 归档
+```ts
+interface ConversationArchive {
+  archiveId: string;
+  archivedAt: string;
+  reason: "idle_timeout_30m";
+  sourceConversation: Conversation;
 }
 ```
 
 ---
 
-## 3. 里程碑与验收标准
+## 5. 转换层设计（关键）
 
-## M1. 项目骨架与基础能力（1 周）
-任务：
-- 初始化 Tauri 2 + Vue3 + TS
-- 接入全局热键与托盘
-- 完成配置页（不含 keyring）
+目标：内部统一消息格式 -> 各供应商请求体。
 
-验收标准：
-- 可在 Windows 11 打包并启动
-- `Alt + C` 可稳定唤起窗口（连续 20 次无异常）
-- 配置可持久化到本地配置文件
+## 5.1 Adapter 接口
+```ts
+interface ProviderAdapter {
+  buildRequest(input: UnifiedRequest): ProviderRequest;
+  parseResponse(resp: ProviderResponse): UnifiedResponse;
+}
+```
 
-## M2. 截图与录音（1-1.5 周）
-任务：
-- 完成区域截图（选区、确认、预览）
-- 完成音频录制（开始/停止，输出 WAV）
+## 5.2 首批适配策略
+1. `openai`
+2. `deepseek/kimi`（先按 openai-style）
+3. `gemini`（独立适配，优先文本）
 
-验收标准：
-- 截图区域与实际输出误差可接受（人工检查）
-- 录音文件可被常见播放器打开
-- 录音时 UI 无明显卡顿
-
-## M3. 多模态请求打通（1 周）
-任务：
-- 实现 `ai_service` 统一 payload
-- 接入 1 个 Provider（建议先 OpenAI 兼容接口）
-- 支持流式回复
-
-验收标准：
-- 文本、图像、音频可单独/组合发送成功
-- 流式响应可持续渲染，不阻塞 UI
-- 失败场景可显示错误信息（超时/401/429/5xx）
-
-## M4. 稳定性与发布（0.5-1 周）
-任务：
-- 增加日志与崩溃排查信息
-- 完成基础 E2E 回归清单
-- 打包发布与安装测试
-
-验收标准：
-- 连续使用 30 分钟无崩溃
-- 常见异常有明确提示和恢复路径
-- 可交付安装包（Windows 11）
+## 5.3 时间块注入
+- 每次发送前，插入系统文本块（不污染用户输入）：
+  - 示例：`Current local time: 2026-02-10T21:33:00+08:00`
 
 ---
 
-## 4. 工程规范
+## 6. 交互与规则
 
-### 4.1 错误处理
-- 所有外部调用（文件、设备、网络）必须返回可诊断错误
-- 用户可见错误统一映射为友好提示
+## 6.1 对话窗口显示规则
+- 消息发送后，UI 仅展示“最新 user 消息 + 对应 assistant 回复”
+- 对话窗口不展示更早历史
+- 提供一个按钮用于查看“当前未归档会话”的完整记录（独立查看态）
+- 完整历史仍保留在会话内，用于下次上下文构造
 
-### 4.2 安全
-- API Key 不落明文配置文件
-- 日志默认脱敏（不记录完整 key 与原始音频内容）
+## 6.2 归档规则
+1. 发送前检查当前会话 `lastAssistantAt`
+2. 若超过 30 分钟：
+  - 将会话迁移到 `archivedConversations`
+  - 当前会话标记 archived
+  - 自动创建新 active 会话并继续发送
 
-### 4.3 性能
-- UI 线程不做阻塞 I/O
-- 图片与音频编码在后台任务执行
-
-### 4.4 可测试性
-- Rust service 层尽量与 UI 解耦
-- 关键链路提供最小自动化测试（payload 构建、错误映射）
-
----
-
-## 5. 风险与预案
-
-- 风险 1：跨显示器 / DPI 下截图偏移
-  - 预案：优先做 DPI 场景测试；必要时切换原生 API
-- 风险 2：录音设备兼容性差异
-  - 预案：设备枚举 + 默认设备回退 + 错误引导
-- 风险 3：不同 Provider 的多模态字段不一致
-  - 预案：先定内部统一结构，再做适配层，不在 UI 侧分叉
+## 6.3 多模态粘贴
+- `Ctrl+V` 解析剪贴板：
+  - 图片 -> `image` part
+  - 音频文件（若存在）-> `audio` part
+  - 文本 -> `text` part
+- 是否可添加由当前 API 配置能力开关决定（text/image/audio）
 
 ---
 
-## 6. 下一步执行清单（开工即用）
+## 7. 实施里程碑
 
-1. 初始化 `Tauri 2 + Vue3 + TS` 工程并提交基础骨架。
-2. 完成热键唤起 + 托盘最小闭环。
-3. 定义并冻结 `ChatInputPayload` 与流式响应接口。
-4. 完成截图与录音 PoC（先验证能力，再打磨体验）。
-5. 接入首个 Provider，跑通多模态端到端。
+## M1（数据层与转换层骨架）
+- 新建统一消息模型与持久化文件
+- Conversation/Archive/Agent 的 Rust Command
+- Provider Adapter 基础接口与 openai 实装
+
+验收：
+- 能创建会话、写入消息、重启后恢复
+- 能把内部消息转换成可发送请求
+
+## M2（对话窗口 MVP）
+- 新建对话窗口 UI（极简）
+- 支持发送文本、显示“最新片段”
+- 发送时注入时间块
+- 智能体切换接入
+
+验收：
+- 连续对话上下文正确
+- 切换智能体后系统提示词生效
+
+## M3（归档与查看器）
+- 发送前 30 分钟归档逻辑
+- 归档查看器窗口（只读）
+- 会话与归档列表基础检索
+
+验收：
+- 归档后当前会话不可继续发送
+- 自动新建会话并可继续聊天
+- 归档可被稳定查看
+
+## M4（多模态粘贴与收尾）
+- `Ctrl+V` 多模态素材接入
+- 能力开关校验
+- 错误提示与边界处理
+
+验收：
+- 粘贴图片/文本流程完整
+- 不支持的模态会被正确拦截提示
 
 ---
 
-## 7. 版本规划建议
+## 8. 需要你审阅拍板的 6 个决策
 
-- `v1.0`：单 Provider + 稳定闭环（本计划范围）
-- `v1.1`：新增第二 Provider、会话历史、本地导出
-- `v1.2`：快捷操作增强（OCR、语音转写、模板提示词）
+已拍板结果：
+
+1. 归档触发：仅发送前检查
+2. 30 分钟判定：基于 `lastAssistantAt`
+3. 切换 API 配置：自动新建会话
+4. 切换智能体：自动新建会话
+5. 对话窗口：永远只显示“最新用户发言+回答”，仅提供按钮查看当前未归档聊天记录
+6. 多模态单条消息限制：10MB
+
+---
+
+## 9. 开发顺序建议（执行）
+
+1. 先做 M1（模型和存储），否则 UI 会反复返工
+2. 再做 M2（对话窗口 MVP）
+3. 然后做 M3（归档与查看器）
+4. 最后做 M4（多模态粘贴）

@@ -13,9 +13,29 @@
     "windows": [
       {
         "label": "main",
-        "title": "Easy Call AI",
+        "title": "Easy Call AI - 配置窗口",
         "width": 400,
         "height": 620,
+        "resizable": true,
+        "visible": false,
+        "decorations": false,
+        "shadow": true
+      },
+      {
+        "label": "chat",
+        "title": "Easy Call AI - 对话窗口",
+        "width": 420,
+        "height": 700,
+        "resizable": true,
+        "visible": false,
+        "decorations": false,
+        "shadow": true
+      },
+      {
+        "label": "archives",
+        "title": "Easy Call AI - 归档窗口",
+        "width": 520,
+        "height": 720,
         "resizable": true,
         "visible": false,
         "decorations": false,
