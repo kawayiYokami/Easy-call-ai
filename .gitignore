@@ -1,0 +1,32 @@
+node_modules/
+dist/
+.vite/
+
+# Logs
+*.log
+npm-debug.log*
+pnpm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Env
+.env
+.env.*
+!.env.example
+.debug/
+
+# IDE / OS
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# Tauri / Rust build outputs
+src-tauri/target/
+src-tauri/gen/
+target/
+
+# Tauri local config overrides
+src-tauri/.cargo/

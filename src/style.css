@@ -1,0 +1,93 @@
+@tailwind base;
+@plugin "daisyui" {
+  exclude: scrollbar;
+}
+@tailwind components;
+@tailwind utilities;
+
+html,
+body,
+#app {
+  width: 100%;
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  overflow: hidden;
+  background: #e5e7eb;
+}
+
+.answer {
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.window-shell {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+.window-content {
+  flex: 1;
+  overflow: auto;
+  background: #ffffff;
+}
+
+/* 自定义滚动条样式 */
+.window-content::-webkit-scrollbar {
+  width: 8px;
+}
+
+.window-content::-webkit-scrollbar-track {
+  background: #ffffff;
+}
+
+.window-content::-webkit-scrollbar-thumb {
+  background: #e5e7eb;
+  border-radius: 4px;
+}
+
+.window-content::-webkit-scrollbar-thumb:hover {
+  background: #d1d5db;
+}
+
+/* window-content 的滚动条样式 */
+.window-content::-webkit-scrollbar {
+  width: 8px;
+}
+
+.window-content::-webkit-scrollbar-track {
+  background: hsl(var(--b2));
+  border-radius: 4px;
+}
+
+.window-content::-webkit-scrollbar-thumb {
+  background: hsl(var(--bc) / 0.3);
+  border-radius: 4px;
+}
+
+.window-content::-webkit-scrollbar-thumb:hover {
+  background: hsl(var(--bc) / 0.5);
+}
+
+/* 自定义滚动条样式 */
+.window-content::-webkit-scrollbar {
+  width: 8px !important;
+}
+
+.window-content::-webkit-scrollbar-track {
+  background: hsl(var(--b2)) !important;
+  border-radius: 4px !important;
+}
+
+.window-content::-webkit-scrollbar-thumb {
+  background: hsl(var(--bc) / 0.3) !important;
+  border-radius: 4px !important;
+}
+
+.window-content::-webkit-scrollbar-thumb:hover {
+  background: hsl(var(--bc) / 0.5) !important;
+}
