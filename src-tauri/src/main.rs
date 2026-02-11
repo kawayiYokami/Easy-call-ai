@@ -38,6 +38,8 @@ use uuid::Uuid;
 const APP_DATA_SCHEMA_VERSION: u32 = 1;
 const ARCHIVE_IDLE_SECONDS: i64 = 30 * 60;
 const MAX_MULTIMODAL_BYTES: usize = 10 * 1024 * 1024;
+const DEFAULT_AGENT_ID: &str = "default-agent";
+const USER_PERSONA_ID: &str = "user-persona";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -250,6 +252,21 @@ struct ChatSnapshot {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+struct PromptPreview {
+    preamble: String,
+    latest_user_text: String,
+    latest_images: usize,
+    latest_audios: usize,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct SystemPromptPreview {
+    system_prompt: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 struct RefreshModelsInput {
     base_url: String,
     api_key: String,
@@ -353,6 +370,12 @@ struct AgentProfile {
     system_prompt: String,
     created_at: String,
     updated_at: String,
+    #[serde(default)]
+    avatar_path: Option<String>,
+    #[serde(default)]
+    avatar_updated_at: Option<String>,
+    #[serde(default)]
+    is_built_in_user: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -475,7 +498,7 @@ impl Default for AppData {
     fn default() -> Self {
         Self {
             version: APP_DATA_SCHEMA_VERSION,
-            agents: vec![default_agent()],
+            agents: vec![default_agent(), default_user_persona()],
             selected_agent_id: default_selected_agent_id(),
             user_alias: default_user_alias(),
             conversations: Vec::new(),
@@ -487,11 +510,28 @@ impl Default for AppData {
 }
 
 fn default_selected_agent_id() -> String {
-    "default-agent".to_string()
+    DEFAULT_AGENT_ID.to_string()
 }
 
 fn default_user_alias() -> String {
     "用户".to_string()
+}
+
+fn user_persona_name(data: &AppData) -> String {
+    data.agents
+        .iter()
+        .find(|a| a.id == USER_PERSONA_ID || a.is_built_in_user)
+        .map(|a| a.name.trim().to_string())
+        .filter(|v| !v.is_empty())
+        .unwrap_or_else(default_user_alias)
+}
+
+fn user_persona_intro(data: &AppData) -> String {
+    data.agents
+        .iter()
+        .find(|a| a.id == USER_PERSONA_ID || a.is_built_in_user)
+        .map(|a| a.system_prompt.trim().to_string())
+        .unwrap_or_default()
 }
 
 #[derive(Debug, Clone)]
@@ -549,19 +589,43 @@ fn parse_iso(value: &str) -> Option<OffsetDateTime> {
 fn default_agent() -> AgentProfile {
     let now = now_iso();
     AgentProfile {
-    id: "default-agent".to_string(),
-    name: "助理".to_string(),
-    system_prompt: "你是一个耐心、友善的助理。请用短信聊天的口吻与用户交流，优先自然、简短、有人味的表达。除非用户明确要求，否则不要使用结构化输出（如分点、表格、章节）和过度正式语气。面对截图相关问题时，先结合用户上下文给出直接可执行的建议，再补充必要说明。".to_string(),
-    created_at: now.clone(),
-    updated_at: now,
-  }
+        id: DEFAULT_AGENT_ID.to_string(),
+        name: "助理".to_string(),
+        system_prompt: "你是一个耐心、友善的助理。请用短信聊天的口吻与用户交流，优先自然、简短、有人味的表达。除非用户明确要求，否则不要使用结构化输出（如分点、表格、章节）和过度正式语气。面对截图相关问题时，先结合用户上下文给出直接可执行的建议，再补充必要说明。".to_string(),
+        created_at: now.clone(),
+        updated_at: now,
+        avatar_path: None,
+        avatar_updated_at: None,
+        is_built_in_user: false,
+    }
+}
+
+fn default_user_persona() -> AgentProfile {
+    let now = now_iso();
+    AgentProfile {
+        id: USER_PERSONA_ID.to_string(),
+        name: "用户".to_string(),
+        system_prompt: "我是...".to_string(),
+        created_at: now.clone(),
+        updated_at: now,
+        avatar_path: None,
+        avatar_updated_at: None,
+        is_built_in_user: true,
+    }
 }
 
 fn ensure_default_agent(data: &mut AppData) -> bool {
     let mut changed = false;
     let old_prompt = "You are a concise and helpful assistant.";
+    let mut has_assistant = false;
+    let mut has_user_persona = false;
     for agent in &mut data.agents {
-        if agent.id == "default-agent" {
+        if agent.id == DEFAULT_AGENT_ID {
+            has_assistant = true;
+            if agent.is_built_in_user {
+                agent.is_built_in_user = false;
+                changed = true;
+            }
             if agent.name == "Default Agent" {
                 agent.name = "助理".to_string();
                 changed = true;
@@ -570,20 +634,36 @@ fn ensure_default_agent(data: &mut AppData) -> bool {
                 agent.system_prompt = "你是一个耐心、友善的助理。请用短信聊天的口吻与用户交流，优先自然、简短、有人味的表达。除非用户明确要求，否则不要使用结构化输出（如分点、表格、章节）和过度正式语气。面对截图相关问题时，先结合用户上下文给出直接可执行的建议，再补充必要说明。".to_string();
                 changed = true;
             }
+        } else if agent.id == USER_PERSONA_ID {
+            has_user_persona = true;
+            if !agent.is_built_in_user {
+                agent.is_built_in_user = true;
+                changed = true;
+            }
+        } else if !agent.is_built_in_user {
+            has_assistant = true;
         }
     }
-    if data.agents.is_empty() {
+    if !has_assistant {
         data.agents.push(default_agent());
         changed = true;
     }
+    if !has_user_persona {
+        data.agents.push(default_user_persona());
+        changed = true;
+    }
     if data.selected_agent_id.trim().is_empty()
-        || !data.agents.iter().any(|a| a.id == data.selected_agent_id)
+        || !data
+            .agents
+            .iter()
+            .any(|a| a.id == data.selected_agent_id && !a.is_built_in_user)
     {
         data.selected_agent_id = default_selected_agent_id();
         changed = true;
     }
-    if data.user_alias.trim().is_empty() {
-        data.user_alias = default_user_alias();
+    let desired_alias = user_persona_name(data);
+    if data.user_alias != desired_alias {
+        data.user_alias = desired_alias;
         changed = true;
     }
     changed
@@ -649,9 +729,14 @@ fn main() {
             save_agents,
             load_chat_settings,
             save_chat_settings,
+            save_agent_avatar,
+            clear_agent_avatar,
+            read_avatar_data_url,
             save_conversation_api_settings,
             get_chat_snapshot,
             get_active_conversation_messages,
+            get_prompt_preview,
+            get_system_prompt_preview,
             list_archives,
             list_memories,
             export_memories,

@@ -50,21 +50,27 @@
         :model-refresh-error="modelRefreshError"
         :tool-statuses="toolStatuses"
         :personas="personas"
+        :assistant-personas="assistantPersonas"
+        :user-persona="userPersona"
+        :persona-editor-id="personaEditorId"
         :selected-persona-id="selectedPersonaId"
-        :selected-persona="selectedPersona"
-        :user-alias="userAlias"
+        :selected-persona="selectedPersonaEditor"
+        :selected-persona-avatar-url="selectedPersonaEditorAvatarUrl"
+        :user-persona-avatar-url="userPersonaAvatarUrl"
         :text-capable-api-configs="textCapableApiConfigs"
         :image-capable-api-configs="imageCapableApiConfigs"
         :cache-stats="imageCacheStats"
         :cache-stats-loading="imageCacheStatsLoading"
+        :avatar-saving="avatarSaving"
+        :avatar-error="avatarError"
         :config-dirty="configDirty"
         :saving-config="saving"
         :hotkey-test-recording="hotkeyTestRecording"
         :hotkey-test-recording-ms="hotkeyTestRecordingMs"
         :hotkey-test-audio-ready="!!hotkeyTestAudio"
         @update:config-tab="configTab = $event"
+        @update:persona-editor-id="personaEditorId = $event"
         @update:selected-persona-id="selectedPersonaId = $event"
-        @update:user-alias="userAlias = $event"
         @toggle-theme="toggleTheme"
         @refresh-models="refreshModels"
         @save-api-config="saveConfig"
@@ -73,18 +79,24 @@
         @add-persona="addPersona"
         @remove-selected-persona="removeSelectedPersona"
         @open-current-history="openCurrentHistory"
+        @open-prompt-preview="openPromptPreview"
+        @open-system-prompt-preview="openSystemPromptPreview"
         @open-memory-viewer="openMemoryViewer"
         @refresh-image-cache-stats="refreshImageCacheStats"
         @clear-image-cache="clearImageCache"
         @start-hotkey-record-test="startHotkeyRecordTest"
         @stop-hotkey-record-test="stopHotkeyRecordTest"
         @play-hotkey-record-test="playHotkeyRecordTest"
+        @save-agent-avatar="saveAgentAvatar"
+        @clear-agent-avatar="clearAgentAvatar"
       />
 
       <div v-else-if="viewMode === 'chat'" class="relative flex-1 min-h-0">
         <ChatView
           :user-alias="userAlias"
           :persona-name="selectedPersona?.name || '助理'"
+          :user-avatar-url="userAvatarUrl"
+          :assistant-avatar-url="selectedPersonaAvatarUrl"
           :latest-user-text="latestUserText"
           :latest-user-images="latestUserImages"
           :latest-assistant-text="latestAssistantText"
@@ -205,6 +217,26 @@
         </div>
       </dialog>
 
+      <dialog ref="promptPreviewDialog" class="modal">
+        <div class="modal-box max-w-2xl">
+          <h3 class="font-semibold text-sm mb-2">{{ promptPreviewMode === 'system' ? '系统提示词预览' : '提示词预览' }}</h3>
+          <div v-if="promptPreviewLoading" class="text-xs opacity-70">加载中...</div>
+          <div v-else class="grid gap-2">
+            <div v-if="promptPreviewMode === 'full'" class="text-[11px] opacity-70">
+              最新输入文本长度: {{ promptPreviewLatestUserText.length }} |
+              图片: {{ promptPreviewLatestImages }} |
+              语音: {{ promptPreviewLatestAudios }}
+            </div>
+            <textarea
+              class="textarea textarea-bordered textarea-sm w-full h-80 font-mono text-xs"
+              readonly
+              :value="promptPreviewText"
+            ></textarea>
+          </div>
+          <div class="modal-action"><button class="btn btn-sm" @click="closePromptPreview">关闭</button></div>
+        </div>
+      </dialog>
+
     </div>
   </div>
 </template>
@@ -248,7 +280,9 @@ const configTab = ref<"hotkey" | "api" | "tools" | "persona" | "chatSettings">("
 const currentTheme = ref<"light" | "forest">("light");
 const personas = ref<PersonaProfile[]>([]);
 const selectedPersonaId = ref("default-agent");
+const personaEditorId = ref("default-agent");
 const userAlias = ref("用户");
+const avatarDataUrlCache = ref<Record<string, string>>({});
 const chatInput = ref("");
 const latestUserText = ref("");
 const latestUserImages = ref<Array<{ mime: string; bytesBase64: string }>>([]);
@@ -281,9 +315,12 @@ const checkingToolsStatus = ref(false);
 const toolStatuses = ref<ToolLoadStatus[]>([]);
 const imageCacheStats = ref<ImageTextCacheStats>({ entries: 0, totalChars: 0 });
 const imageCacheStatsLoading = ref(false);
+const avatarSaving = ref(false);
+const avatarError = ref("");
 const apiModelOptions = ref<Record<string, string[]>>({});
 const historyDialog = ref<HTMLDialogElement | null>(null);
 const memoryDialog = ref<HTMLDialogElement | null>(null);
+const promptPreviewDialog = ref<HTMLDialogElement | null>(null);
 const memoryImportInput = ref<HTMLInputElement | null>(null);
 const alwaysOnTop = ref(false);
 const configAutosaveReady = ref(false);
@@ -340,6 +377,12 @@ const lastSavedConfigJson = ref("");
 const memoryList = ref<MemoryEntry[]>([]);
 const memoryPage = ref(1);
 const MEMORY_PAGE_SIZE = 5;
+const promptPreviewLoading = ref(false);
+const promptPreviewText = ref("");
+const promptPreviewLatestUserText = ref("");
+const promptPreviewLatestImages = ref(0);
+const promptPreviewLatestAudios = ref(0);
+const promptPreviewMode = ref<"full" | "system">("full");
 
 const sortedMemories = computed(() =>
   [...memoryList.value].sort((a, b) => {
@@ -386,7 +429,31 @@ const speechRecognitionSupported = computed(() => {
   };
   return !!(w.SpeechRecognition || w.webkitSpeechRecognition);
 });
-const selectedPersona = computed(() => personas.value.find((p) => p.id === selectedPersonaId.value) ?? null);
+const userPersona = computed(
+  () => personas.value.find((p) => p.isBuiltInUser || p.id === "user-persona") ?? null,
+);
+const assistantPersonas = computed(() =>
+  personas.value.filter((p) => !p.isBuiltInUser && p.id !== "user-persona"),
+);
+const selectedPersona = computed(
+  () =>
+    assistantPersonas.value.find((p) => p.id === selectedPersonaId.value)
+    ?? assistantPersonas.value[0]
+    ?? null,
+);
+const selectedPersonaEditor = computed(
+  () => personas.value.find((p) => p.id === personaEditorId.value) ?? null,
+);
+const userAvatarUrl = computed(
+  () => resolveAvatarUrl(userPersona.value?.avatarPath, userPersona.value?.avatarUpdatedAt),
+);
+const userPersonaAvatarUrl = computed(() => userAvatarUrl.value);
+const selectedPersonaAvatarUrl = computed(
+  () => resolveAvatarUrl(selectedPersona.value?.avatarPath, selectedPersona.value?.avatarUpdatedAt),
+);
+const selectedPersonaEditorAvatarUrl = computed(
+  () => resolveAvatarUrl(selectedPersonaEditor.value?.avatarPath, selectedPersonaEditor.value?.avatarUpdatedAt),
+);
 const selectedModelOptions = computed(() => {
   const id = config.selectedApiConfigId;
   if (!id) return [];
@@ -692,6 +759,49 @@ function extractMessageAudios(msg?: ChatMessage): Array<{ mime: string; bytesBas
     .filter((p) => !!p.bytesBase64);
 }
 
+function syncUserAliasFromPersona() {
+  const next = (userPersona.value?.name || "").trim() || "用户";
+  if (userAlias.value !== next) {
+    userAlias.value = next;
+  }
+}
+
+function avatarCacheKey(path?: string, updatedAt?: string): string {
+  if (!path) return "";
+  return `${path}|${updatedAt || ""}`;
+}
+
+function resolveAvatarUrl(path?: string, updatedAt?: string): string {
+  const key = avatarCacheKey(path, updatedAt);
+  if (!key) return "";
+  return avatarDataUrlCache.value[key] || "";
+}
+
+async function ensureAvatarCached(path?: string, updatedAt?: string) {
+  const key = avatarCacheKey(path, updatedAt);
+  if (!key || avatarDataUrlCache.value[key]) return;
+  try {
+    const result = await invoke<{ dataUrl: string }>("read_avatar_data_url", {
+      input: { path },
+    });
+    avatarDataUrlCache.value = {
+      ...avatarDataUrlCache.value,
+      [key]: result.dataUrl || "",
+    };
+  } catch {
+    // ignore avatar load failures, fallback to initial avatar.
+  }
+}
+
+async function preloadPersonaAvatars() {
+  const tasks: Promise<void>[] = [];
+  for (const p of personas.value) {
+    if (!p.avatarPath) continue;
+    tasks.push(ensureAvatarCached(p.avatarPath, p.avatarUpdatedAt));
+  }
+  await Promise.all(tasks);
+}
+
 async function loadConfig() {
   suppressAutosave.value = true;
   loading.value = true;
@@ -757,7 +867,14 @@ async function loadPersonas() {
   try {
     const list = await invoke<PersonaProfile[]>("load_agents");
     personas.value = list;
-    if (!personas.value.some((p) => p.id === selectedPersonaId.value)) selectedPersonaId.value = personas.value[0]?.id ?? "default-agent";
+    if (!assistantPersonas.value.some((p) => p.id === selectedPersonaId.value)) {
+      selectedPersonaId.value = assistantPersonas.value[0]?.id ?? "default-agent";
+    }
+    if (!personas.value.some((p) => p.id === personaEditorId.value)) {
+      personaEditorId.value = selectedPersonaId.value;
+    }
+    syncUserAliasFromPersona();
+    await preloadPersonaAvatars();
   } finally {
     suppressAutosave.value = false;
   }
@@ -767,8 +884,11 @@ async function loadChatSettings() {
   suppressAutosave.value = true;
   try {
     const settings = await invoke<{ selectedAgentId: string; userAlias: string }>("load_chat_settings");
-    if (personas.value.some((p) => p.id === settings.selectedAgentId)) {
+    if (assistantPersonas.value.some((p) => p.id === settings.selectedAgentId)) {
       selectedPersonaId.value = settings.selectedAgentId;
+    }
+    if (!personas.value.some((p) => p.id === personaEditorId.value)) {
+      personaEditorId.value = selectedPersonaId.value;
     }
     userAlias.value = settings.userAlias?.trim() || "用户";
   } finally {
@@ -780,6 +900,7 @@ async function savePersonas() {
   suppressAutosave.value = true;
   try {
     personas.value = await invoke<PersonaProfile[]>("save_agents", { input: { agents: personas.value } });
+    syncUserAliasFromPersona();
     status.value = "人格已保存。";
   } catch (e) {
     status.value = `Save personas failed: ${String(e)}`;
@@ -792,7 +913,11 @@ async function saveChatPreferences() {
   saving.value = true;
   status.value = "Saving chat settings...";
   try {
-    await invoke("save_chat_settings", { input: { selectedAgentId: selectedPersonaId.value, userAlias: userAlias.value } });
+    const targetAgentId = assistantPersonas.value.some((p) => p.id === selectedPersonaId.value)
+      ? selectedPersonaId.value
+      : assistantPersonas.value[0]?.id || "default-agent";
+    await invoke("save_chat_settings", { input: { selectedAgentId: targetAgentId, userAlias: userAlias.value } });
+    selectedPersonaId.value = targetAgentId;
     status.value = "Chat settings saved.";
   } catch (e) {
     status.value = `Save chat settings failed: ${String(e)}`;
@@ -865,15 +990,76 @@ function removeSelectedApiConfig() {
 function addPersona() {
   const id = `persona-${Date.now()}`;
   const now = new Date().toISOString();
-  personas.value.push({ id, name: `人格 ${personas.value.length + 1}`, systemPrompt: "", createdAt: now, updatedAt: now });
+  personas.value.push({
+    id,
+    name: `人格 ${assistantPersonas.value.length + 1}`,
+    systemPrompt: "你是...",
+    createdAt: now,
+    updatedAt: now,
+    avatarPath: undefined,
+    avatarUpdatedAt: undefined,
+    isBuiltInUser: false,
+  });
   selectedPersonaId.value = id;
+  personaEditorId.value = id;
 }
 
 function removeSelectedPersona() {
-  if (personas.value.length <= 1) return;
-  const idx = personas.value.findIndex((p) => p.id === selectedPersonaId.value);
+  if (assistantPersonas.value.length <= 1) return;
+  const target = selectedPersonaEditor.value;
+  if (!target || target.isBuiltInUser) return;
+  const idx = personas.value.findIndex((p) => p.id === target.id);
   if (idx >= 0) personas.value.splice(idx, 1);
-  selectedPersonaId.value = personas.value[0].id;
+  if (selectedPersonaId.value === target.id) {
+    selectedPersonaId.value = assistantPersonas.value[0]?.id || "default-agent";
+  }
+  personaEditorId.value = assistantPersonas.value[0]?.id || "default-agent";
+}
+
+async function saveAgentAvatar(input: { agentId: string; mime: string; bytesBase64: string }) {
+  avatarSaving.value = true;
+  avatarError.value = "";
+  try {
+    const result = await invoke<{ path: string; updatedAt: string }>("save_agent_avatar", {
+      input: {
+        agentId: input.agentId,
+        mime: input.mime,
+        bytesBase64: input.bytesBase64,
+      },
+    });
+    const idx = personas.value.findIndex((p) => p.id === input.agentId);
+    if (idx >= 0) {
+      personas.value[idx].avatarPath = result.path;
+      personas.value[idx].avatarUpdatedAt = result.updatedAt;
+      personas.value[idx].updatedAt = new Date().toISOString();
+    }
+    await ensureAvatarCached(result.path, result.updatedAt);
+    status.value = "头像已保存。";
+  } catch (e) {
+    const err = String(e);
+    avatarError.value = err;
+    status.value = `保存头像失败: ${err}`;
+  } finally {
+    avatarSaving.value = false;
+  }
+}
+
+async function clearAgentAvatar(input: { agentId: string }) {
+  avatarError.value = "";
+  try {
+    await invoke("clear_agent_avatar", { input: { agentId: input.agentId } });
+    const idx = personas.value.findIndex((p) => p.id === input.agentId);
+    if (idx >= 0) {
+      personas.value[idx].avatarPath = undefined;
+      personas.value[idx].avatarUpdatedAt = undefined;
+      personas.value[idx].updatedAt = new Date().toISOString();
+    }
+    status.value = "头像已清除。";
+  } catch (e) {
+    const err = String(e);
+    avatarError.value = err;
+    status.value = `清除头像失败: ${err}`;
+  }
 }
 
 async function refreshModels() {
@@ -1031,6 +1217,15 @@ type ImportMemoriesResult = {
   createdCount: number;
   mergedCount: number;
   totalCount: number;
+};
+type PromptPreviewResult = {
+  preamble: string;
+  latestUserText: string;
+  latestImages: number;
+  latestAudios: number;
+};
+type SystemPromptPreviewResult = {
+  systemPrompt: string;
 };
 const STREAM_FLUSH_INTERVAL_MS = 33;
 const STREAM_DRAIN_TARGET_MS = 1000;
@@ -1266,6 +1461,55 @@ async function openMemoryViewer() {
 
 function closeMemoryViewer() {
   memoryDialog.value?.close();
+}
+
+async function openPromptPreview() {
+  if (!activeChatApiConfigId.value || !selectedPersonaId.value) return;
+  promptPreviewMode.value = "full";
+  promptPreviewLoading.value = true;
+  promptPreviewText.value = "";
+  promptPreviewLatestUserText.value = "";
+  promptPreviewLatestImages.value = 0;
+  promptPreviewLatestAudios.value = 0;
+  promptPreviewDialog.value?.showModal();
+  try {
+    const preview = await invoke<PromptPreviewResult>("get_prompt_preview", {
+      input: { apiConfigId: activeChatApiConfigId.value, agentId: selectedPersonaId.value },
+    });
+    promptPreviewText.value = preview.preamble || "";
+    promptPreviewLatestUserText.value = preview.latestUserText || "";
+    promptPreviewLatestImages.value = Number(preview.latestImages || 0);
+    promptPreviewLatestAudios.value = Number(preview.latestAudios || 0);
+  } catch (e) {
+    promptPreviewText.value = `加载提示词失败: ${String(e)}`;
+  } finally {
+    promptPreviewLoading.value = false;
+  }
+}
+
+async function openSystemPromptPreview() {
+  if (!activeChatApiConfigId.value || !selectedPersonaId.value) return;
+  promptPreviewMode.value = "system";
+  promptPreviewLoading.value = true;
+  promptPreviewText.value = "";
+  promptPreviewLatestUserText.value = "";
+  promptPreviewLatestImages.value = 0;
+  promptPreviewLatestAudios.value = 0;
+  promptPreviewDialog.value?.showModal();
+  try {
+    const preview = await invoke<SystemPromptPreviewResult>("get_system_prompt_preview", {
+      input: { apiConfigId: activeChatApiConfigId.value, agentId: selectedPersonaId.value },
+    });
+    promptPreviewText.value = preview.systemPrompt || "";
+  } catch (e) {
+    promptPreviewText.value = `加载系统提示词失败: ${String(e)}`;
+  } finally {
+    promptPreviewLoading.value = false;
+  }
+}
+
+function closePromptPreview() {
+  promptPreviewDialog.value?.close();
 }
 
 async function exportMemories() {
@@ -1851,9 +2095,39 @@ watch(
     systemPrompt: p.systemPrompt,
     createdAt: p.createdAt,
     updatedAt: p.updatedAt,
+    avatarPath: p.avatarPath,
+    avatarUpdatedAt: p.avatarUpdatedAt,
+    isBuiltInUser: p.isBuiltInUser,
   })),
   () => schedulePersonasAutosave(),
   { deep: true },
+);
+
+watch(
+  () => userPersona.value?.name,
+  () => {
+    syncUserAliasFromPersona();
+  },
+);
+
+watch(
+  () => assistantPersonas.value.map((p) => p.id).join("|"),
+  () => {
+    if (assistantPersonas.value.length === 0) return;
+    if (!assistantPersonas.value.some((p) => p.id === selectedPersonaId.value)) {
+      selectedPersonaId.value = assistantPersonas.value[0].id;
+    }
+  },
+);
+
+watch(
+  () => personas.value.map((p) => p.id).join("|"),
+  () => {
+    if (personas.value.length === 0) return;
+    if (!personas.value.some((p) => p.id === personaEditorId.value)) {
+      personaEditorId.value = selectedPersonaId.value;
+    }
+  },
 );
 
 watch(

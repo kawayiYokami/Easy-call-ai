@@ -59,7 +59,17 @@ fn save_agents(
         .map_err(|_| "Failed to lock state mutex".to_string())?;
 
     let mut data = read_app_data(&state.data_path)?;
+    let existing_user_persona = data
+        .agents
+        .iter()
+        .find(|a| a.id == USER_PERSONA_ID)
+        .cloned();
     data.agents = input.agents;
+    if !data.agents.iter().any(|a| a.id == USER_PERSONA_ID) {
+        if let Some(user_persona) = existing_user_persona {
+            data.agents.push(user_persona);
+        }
+    }
     ensure_default_agent(&mut data);
     write_app_data(&state.data_path, &data)?;
     drop(guard);
@@ -81,8 +91,8 @@ fn load_chat_settings(state: State<'_, AppState>) -> Result<ChatSettings, String
     drop(guard);
 
     Ok(ChatSettings {
-        selected_agent_id: data.selected_agent_id,
-        user_alias: data.user_alias,
+        selected_agent_id: data.selected_agent_id.clone(),
+        user_alias: user_persona_name(&data),
     })
 }
 
@@ -98,19 +108,197 @@ fn save_chat_settings(
 
     let mut data = read_app_data(&state.data_path)?;
     ensure_default_agent(&mut data);
-    if !data.agents.iter().any(|a| a.id == input.selected_agent_id) {
+    if !data
+        .agents
+        .iter()
+        .any(|a| a.id == input.selected_agent_id && !a.is_built_in_user)
+    {
         return Err("Selected agent not found.".to_string());
     }
     data.selected_agent_id = input.selected_agent_id.clone();
-    data.user_alias = if input.user_alias.trim().is_empty() {
-        default_user_alias()
-    } else {
-        input.user_alias.trim().to_string()
-    };
+    data.user_alias = user_persona_name(&data);
     write_app_data(&state.data_path, &data)?;
     drop(guard);
 
-    Ok(input)
+    Ok(ChatSettings {
+        selected_agent_id: input.selected_agent_id,
+        user_alias: data.user_alias,
+    })
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct SaveAgentAvatarInput {
+    agent_id: String,
+    mime: String,
+    bytes_base64: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ClearAgentAvatarInput {
+    agent_id: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct AvatarDataPathInput {
+    path: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct AvatarMeta {
+    path: String,
+    updated_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct AvatarDataUrlOutput {
+    data_url: String,
+}
+
+fn avatar_storage_dir(state: &AppState) -> Result<PathBuf, String> {
+    let base = state
+        .data_path
+        .parent()
+        .ok_or_else(|| "App data path has no parent directory".to_string())?;
+    Ok(base.join("avatars"))
+}
+
+fn sanitize_avatar_key(value: &str) -> String {
+    let trimmed = value.trim();
+    let mut out = String::with_capacity(trimmed.len());
+    for ch in trimmed.chars() {
+        if ch.is_ascii_alphanumeric() || ch == '-' || ch == '_' {
+            out.push(ch);
+        } else {
+            out.push('_');
+        }
+    }
+    let normalized = out.trim_matches('_');
+    if normalized.is_empty() {
+        "unknown".to_string()
+    } else {
+        normalized.to_string()
+    }
+}
+
+fn normalize_avatar_bytes_to_webp(raw: &[u8]) -> Result<Vec<u8>, String> {
+    let image = image::load_from_memory(raw)
+        .map_err(|err| format!("Decode avatar image failed: {err}"))?;
+    let resized = image.resize_to_fill(128, 128, image::imageops::FilterType::Lanczos3);
+    let mut out = Vec::<u8>::new();
+    let mut cursor = Cursor::new(&mut out);
+    resized
+        .write_to(&mut cursor, ImageFormat::WebP)
+        .map_err(|err| format!("Encode avatar as webp failed: {err}"))?;
+    Ok(out)
+}
+
+#[tauri::command]
+fn save_agent_avatar(
+    input: SaveAgentAvatarInput,
+    state: State<'_, AppState>,
+) -> Result<AvatarMeta, String> {
+    if input.agent_id.trim().is_empty() {
+        return Err("agentId is required".to_string());
+    }
+    if input.bytes_base64.trim().is_empty() {
+        return Err("avatar payload is empty".to_string());
+    }
+    if !input.mime.trim().starts_with("image/") {
+        return Err("avatar mime must be image/*".to_string());
+    }
+
+    let guard = state
+        .state_lock
+        .lock()
+        .map_err(|_| "Failed to lock state mutex".to_string())?;
+    let mut data = read_app_data(&state.data_path)?;
+    let _ = ensure_default_agent(&mut data);
+
+    let idx = data
+        .agents
+        .iter()
+        .position(|a| a.id == input.agent_id)
+        .ok_or_else(|| "Agent not found".to_string())?;
+
+    let raw = B64
+        .decode(input.bytes_base64.trim())
+        .map_err(|err| format!("Decode avatar base64 failed: {err}"))?;
+    let webp = normalize_avatar_bytes_to_webp(&raw)?;
+
+    let dir = avatar_storage_dir(&state)?;
+    fs::create_dir_all(&dir).map_err(|err| format!("Create avatar directory failed: {err}"))?;
+    let safe_id = sanitize_avatar_key(&input.agent_id);
+    let path = dir.join(format!("agent-{safe_id}.webp"));
+    fs::write(&path, webp).map_err(|err| format!("Write avatar file failed: {err}"))?;
+
+    let now = now_iso();
+    data.agents[idx].avatar_path = Some(path.to_string_lossy().to_string());
+    data.agents[idx].avatar_updated_at = Some(now.clone());
+    data.agents[idx].updated_at = now.clone();
+    write_app_data(&state.data_path, &data)?;
+    drop(guard);
+
+    Ok(AvatarMeta {
+        path: path.to_string_lossy().to_string(),
+        updated_at: now,
+    })
+}
+
+#[tauri::command]
+fn clear_agent_avatar(
+    input: ClearAgentAvatarInput,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    if input.agent_id.trim().is_empty() {
+        return Err("agentId is required".to_string());
+    }
+
+    let guard = state
+        .state_lock
+        .lock()
+        .map_err(|_| "Failed to lock state mutex".to_string())?;
+    let mut data = read_app_data(&state.data_path)?;
+    let _ = ensure_default_agent(&mut data);
+    let idx = data
+        .agents
+        .iter()
+        .position(|a| a.id == input.agent_id)
+        .ok_or_else(|| "Agent not found".to_string())?;
+
+    if let Some(path) = data.agents[idx].avatar_path.as_deref() {
+        let p = PathBuf::from(path);
+        if p.exists() {
+            let _ = fs::remove_file(p);
+        }
+    }
+    data.agents[idx].avatar_path = None;
+    data.agents[idx].avatar_updated_at = None;
+    data.agents[idx].updated_at = now_iso();
+    write_app_data(&state.data_path, &data)?;
+    drop(guard);
+    Ok(())
+}
+
+#[tauri::command]
+fn read_avatar_data_url(
+    input: AvatarDataPathInput,
+) -> Result<AvatarDataUrlOutput, String> {
+    if input.path.trim().is_empty() {
+        return Ok(AvatarDataUrlOutput {
+            data_url: String::new(),
+        });
+    }
+    let bytes = fs::read(&input.path)
+        .map_err(|err| format!("Read avatar file failed: {err}"))?;
+    let base64 = B64.encode(bytes);
+    Ok(AvatarDataUrlOutput {
+        data_url: format!("data:image/webp;base64,{base64}"),
+    })
 }
 
 #[tauri::command]
@@ -212,6 +400,79 @@ fn get_active_conversation_messages(
     }
     drop(guard);
     Ok(messages)
+}
+
+#[tauri::command]
+fn get_prompt_preview(
+    input: SessionSelector,
+    state: State<'_, AppState>,
+) -> Result<PromptPreview, String> {
+    let guard = state
+        .state_lock
+        .lock()
+        .map_err(|_| "Failed to lock state mutex".to_string())?;
+
+    let app_config = read_config(&state.config_path)?;
+    let api_config = resolve_selected_api_config(&app_config, input.api_config_id.as_deref())
+        .ok_or_else(|| "No API config available".to_string())?;
+
+    let mut data = read_app_data(&state.data_path)?;
+    let _ = ensure_default_agent(&mut data);
+
+    let agent = data
+        .agents
+        .iter()
+        .find(|a| a.id == input.agent_id)
+        .cloned()
+        .ok_or_else(|| "Selected agent not found.".to_string())?;
+
+    let conversation = data
+        .conversations
+        .iter()
+        .find(|c| {
+            c.status == "active" && c.api_config_id == api_config.id && c.agent_id == input.agent_id
+        })
+        .cloned()
+        .unwrap_or_else(|| Conversation {
+            id: "preview".to_string(),
+            title: "Preview".to_string(),
+            api_config_id: api_config.id.clone(),
+            agent_id: input.agent_id.clone(),
+            created_at: now_iso(),
+            updated_at: now_iso(),
+            last_user_at: None,
+            last_assistant_at: None,
+            last_context_usage_ratio: 0.0,
+            status: "active".to_string(),
+            messages: Vec::new(),
+        });
+
+    let user_name = user_persona_name(&data);
+    let user_intro = user_persona_intro(&data);
+    let prepared = build_prompt(&conversation, &agent, &user_name, &user_intro, &now_iso());
+    drop(guard);
+
+    Ok(PromptPreview {
+        preamble: prepared.preamble,
+        latest_user_text: prepared.latest_user_text,
+        latest_images: prepared.latest_images.len(),
+        latest_audios: prepared.latest_audios.len(),
+    })
+}
+
+#[tauri::command]
+fn get_system_prompt_preview(
+    input: SessionSelector,
+    state: State<'_, AppState>,
+) -> Result<SystemPromptPreview, String> {
+    let preview = get_prompt_preview(input, state)?;
+    let marker = "\n\n[CONVERSATION HISTORY]\n";
+    let system_prompt = if let Some(idx) = preview.preamble.find(marker) {
+        preview.preamble[..idx].to_string()
+    } else {
+        preview.preamble
+    };
+    Ok(SystemPromptPreview { system_prompt })
 }
 
 #[tauri::command]
@@ -1201,7 +1462,9 @@ async fn send_chat_message(
             compute_context_usage_ratio(&data.conversations[idx], selected_api.context_window_tokens);
 
         let conversation = data.conversations[idx].clone();
-        let mut prepared = build_prompt(&conversation, &agent, &data.user_alias, &now_iso());
+        let user_name = user_persona_name(&data);
+        let user_intro = user_persona_intro(&data);
+        let mut prepared = build_prompt(&conversation, &agent, &user_name, &user_intro, &now_iso());
         if let Some(summary) = last_archive_summary {
             prepared.preamble.push_str(
                 "\n[HIDDEN ARCHIVE RECAP]\nUSER: 上次我们聊到哪里？\nASSISTANT: ",

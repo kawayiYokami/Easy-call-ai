@@ -39,6 +39,9 @@ export type PersonaProfile = {
   systemPrompt: string;
   createdAt: string;
   updatedAt: string;
+  avatarPath?: string;
+  avatarUpdatedAt?: string;
+  isBuiltInUser?: boolean;
 };
 
 export type MessagePart =

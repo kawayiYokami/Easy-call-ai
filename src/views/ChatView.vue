@@ -9,7 +9,18 @@
       <!-- 历史对话 turns -->
       <template v-for="turn in turns" :key="turn.id">
         <div class="chat chat-end">
-          <div class="chat-header text-[11px] opacity-70 mb-1">{{ userAlias }}</div>
+          <div class="chat-header mb-1">
+            <div v-if="userAvatarUrl" class="avatar">
+              <div class="w-7 rounded-full">
+                <img :src="userAvatarUrl" :alt="userAlias || '用户'" :title="userAlias || '用户'" />
+              </div>
+            </div>
+            <div v-else class="avatar placeholder">
+              <div class="bg-neutral text-neutral-content w-7 rounded-full">
+                <span>{{ avatarInitial(userAlias || "用户") }}</span>
+              </div>
+            </div>
+          </div>
           <div class="chat-bubble max-w-[92%]">
             <div v-if="turn.userText" class="whitespace-pre-wrap">{{ turn.userText }}</div>
             <div v-if="turn.userImages.length > 0" class="mt-2 grid gap-1">
@@ -37,8 +48,17 @@
           </div>
         </div>
         <div v-if="turn.assistantText || turn.assistantReasoningStandard || turn.assistantReasoningInline" class="chat chat-start">
-          <div class="chat-header text-[11px] opacity-70 mb-1 flex items-center gap-1">
-            <span>{{ personaName || "助理" }}</span>
+          <div class="chat-header mb-1 flex items-center gap-1">
+            <div v-if="assistantAvatarUrl" class="avatar">
+              <div class="w-7 rounded-full">
+                <img :src="assistantAvatarUrl" :alt="personaName || '助理'" :title="personaName || '助理'" />
+              </div>
+            </div>
+            <div v-else class="avatar placeholder">
+              <div class="bg-neutral text-neutral-content w-7 rounded-full">
+                <span>{{ avatarInitial(personaName || "助理") }}</span>
+              </div>
+            </div>
             <div v-if="turn.assistantReasoningStandard" class="collapse collapse-arrow">
               <input type="checkbox" />
               <div class="collapse-title">
@@ -67,8 +87,17 @@
       <!-- 发送中的即时反馈 -->
       <template v-if="chatting">
         <div class="chat chat-start">
-          <div class="chat-header text-[11px] opacity-70 mb-1 flex items-center gap-1">
-            <span>{{ personaName || "助理" }}</span>
+          <div class="chat-header mb-1 flex items-center gap-1">
+            <div v-if="assistantAvatarUrl" class="avatar">
+              <div class="w-7 rounded-full">
+                <img :src="assistantAvatarUrl" :alt="personaName || '助理'" :title="personaName || '助理'" />
+              </div>
+            </div>
+            <div v-else class="avatar placeholder">
+              <div class="bg-neutral text-neutral-content w-7 rounded-full">
+                <span>{{ avatarInitial(personaName || "助理") }}</span>
+              </div>
+            </div>
             <div v-if="latestReasoningStandardText" class="collapse collapse-arrow">
               <input type="checkbox" />
               <div class="collapse-title flex items-center gap-1">
@@ -177,6 +206,8 @@ import type { ChatTurn } from "../types/app";
 const props = defineProps<{
   userAlias: string;
   personaName: string;
+  userAvatarUrl: string;
+  assistantAvatarUrl: string;
   latestUserText: string;
   latestUserImages: Array<{ mime: string; bytesBase64: string }>;
   latestAssistantText: string;
@@ -224,6 +255,12 @@ const md = new MarkdownIt({
   linkify: true,
   breaks: true,
 });
+
+function avatarInitial(name: string): string {
+  const text = (name || "").trim();
+  if (!text) return "?";
+  return text[0].toUpperCase();
+}
 
 function splitThinkText(raw: string): { visible: string; inline: string } {
   const input = raw || "";

@@ -283,10 +283,21 @@ fn render_message_for_context(message: &ChatMessage) -> String {
     }
     format!("{}: {}", message.role.to_uppercase(), chunks.join(" | "))
 }
+
+fn xml_escape_prompt(input: &str) -> String {
+    input
+        .replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
+        .replace('\'', "&apos;")
+}
+
 fn build_prompt(
     conversation: &Conversation,
     agent: &AgentProfile,
-    user_alias: &str,
+    user_name: &str,
+    user_intro: &str,
     current_time: &str,
 ) -> PreparedPrompt {
     let mut history_lines = Vec::<String>::new();
@@ -295,12 +306,14 @@ fn build_prompt(
     }
 
     let preamble = format!(
-    "[SYSTEM PROMPT]\n{}\n\n[ROLE MAPPING]\nAssistant name: {}\nUser name: {}\nRules:\n- You are the assistant named '{}'.\n- The human user is named '{}'.\n- Never treat yourself as the user.\n\n[TIME]\nCurrent UTC time: {}\n\n[CONVERSATION HISTORY]\n{}\n",
+    "[SYSTEM PROMPT]\n{}\n\n[ROLE MAPPING]\nAssistant name: {}\nUser name: {}\nRules:\n- You are the assistant named '{}'.\n- The human user is named '{}'.\n- Never treat yourself as the user.\n\n[USER PROFILE]\n<user_profile>\n  <nickname>{}</nickname>\n  <self_intro>{}</self_intro>\n  <note>这是用户的自我介绍，请用于理解用户偏好与表达风格。</note>\n</user_profile>\n\n[TIME]\nCurrent UTC time: {}\n\n[CONVERSATION HISTORY]\n{}\n",
     agent.system_prompt,
     agent.name,
-    user_alias,
+    user_name,
     agent.name,
-    user_alias,
+    user_name,
+    xml_escape_prompt(user_name),
+    xml_escape_prompt(user_intro),
     current_time,
     history_lines.join("\n")
   );
