@@ -276,6 +276,11 @@ fn render_message_for_context(message: &ChatMessage) -> String {
             MessagePart::Audio { .. } => chunks.push("[audio attached]".to_string()),
         }
     }
+    for extra in &message.extra_text_blocks {
+        if !extra.trim().is_empty() {
+            chunks.push(extra.clone());
+        }
+    }
     format!("{}: {}", message.role.to_uppercase(), chunks.join(" | "))
 }
 fn build_prompt(
@@ -312,7 +317,12 @@ fn build_prompt(
     let mut latest_audios = Vec::<(String, String)>::new();
 
     if let Some(msg) = latest_user {
-        for part in msg.parts {
+        let ChatMessage {
+            parts,
+            extra_text_blocks,
+            ..
+        } = msg;
+        for part in parts {
             match part {
                 MessagePart::Text { text } => {
                     if !latest_user_text.is_empty() {
@@ -327,6 +337,15 @@ fn build_prompt(
                     mime, bytes_base64, ..
                 } => latest_audios.push((mime, bytes_base64)),
             }
+        }
+        for extra in extra_text_blocks {
+            if extra.trim().is_empty() {
+                continue;
+            }
+            if !latest_user_text.is_empty() {
+                latest_user_text.push('\n');
+            }
+            latest_user_text.push_str(&extra);
         }
     }
 

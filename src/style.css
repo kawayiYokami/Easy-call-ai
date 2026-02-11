@@ -33,7 +33,7 @@ body {
 
 .window-content {
   flex: 1;
-  overflow: auto;
+  min-height: 0;
 }
 
 /* 自定义滚动条样式 */

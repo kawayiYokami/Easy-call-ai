@@ -46,7 +46,7 @@ export type MessagePart =
   | { type: "image"; mime: string; bytesBase64: string }
   | { type: "audio"; mime: string; bytesBase64: string };
 
-export type ChatMessage = { id: string; role: string; parts: MessagePart[] };
+export type ChatMessage = { id: string; role: string; parts: MessagePart[]; extraTextBlocks?: string[] };
 
 export type ChatSnapshot = {
   conversationId: string;

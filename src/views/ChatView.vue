@@ -1,6 +1,6 @@
 <template>
-  <div class="flex flex-col h-full">
-    <div ref="scrollContainer" class="flex-1 overflow-y-auto p-3 space-y-2" @scroll="onScroll">
+  <div class="flex flex-col h-full min-h-0 relative">
+    <div ref="scrollContainer" class="flex-1 min-h-0 overflow-y-auto p-3 space-y-2" @scroll="onScroll">
       <!-- 加载更多提示 -->
       <div v-if="hasMoreTurns" class="text-center">
         <button class="btn btn-ghost btn-xs text-base-content/50" @click="$emit('loadMoreTurns')">加载更多...</button>
@@ -48,17 +48,14 @@
                 {{ turn.assistantReasoningStandard }}
               </div>
             </div>
-            <div v-if="(splitThinkText(turn.assistantText).inline || turn.assistantReasoningInline)" class="collapse collapse-arrow">
-              <input type="checkbox" />
-              <div class="collapse-title">
-                {{ lastLinePreview(splitThinkText(turn.assistantText).inline || turn.assistantReasoningInline) || "..." }}
-              </div>
-              <div class="collapse-content">
-                {{ splitThinkText(turn.assistantText).inline || turn.assistantReasoningInline }}
-              </div>
-            </div>
           </div>
           <div v-if="turn.assistantText" class="chat-bubble max-w-[92%] bg-white text-black assistant-markdown">
+            <div
+              v-if="splitThinkText(turn.assistantText).inline || turn.assistantReasoningInline"
+              class="mb-1 whitespace-pre-wrap italic text-base-content/60"
+            >
+              {{ splitThinkText(turn.assistantText).inline || turn.assistantReasoningInline }}
+            </div>
             <div
               v-html="renderMarkdown(splitThinkText(turn.assistantText).visible)"
               @click="handleAssistantLinkClick"
@@ -82,18 +79,14 @@
                 {{ latestReasoningStandardText }}
               </div>
             </div>
-            <div v-if="latestInlineReasoningText" class="collapse collapse-arrow">
-              <input type="checkbox" />
-              <div class="collapse-title flex items-center gap-1">
-                <span>{{ lastLinePreview(latestInlineReasoningText) || "..." }}</span>
-                <span class="loading loading-dots loading-xs opacity-60"></span>
-              </div>
-              <div class="collapse-content">
-                {{ latestInlineReasoningText }}
-              </div>
-            </div>
           </div>
           <div class="chat-bubble max-w-[92%] bg-white text-black assistant-markdown">
+            <div
+              v-if="latestInlineReasoningText"
+              class="mb-1 whitespace-pre-wrap italic text-base-content/60"
+            >
+              {{ latestInlineReasoningText }}
+            </div>
             <div v-if="latestAssistantText" v-html="renderedAssistantHtml" @click="handleAssistantLinkClick"></div>
             <div class="mt-1">
               <span v-if="!latestAssistantText" class="loading loading-dots loading-sm"></span>
@@ -117,6 +110,16 @@
 
     </div>
 
+    <div v-show="showJumpToBottom" class="pointer-events-none absolute inset-x-0 bottom-20 z-30 flex justify-center">
+      <button
+        class="btn btn-sm btn-circle btn-primary pointer-events-auto shadow-md"
+        title="回到底部"
+        @click="jumpToBottom"
+      >
+        <ArrowDown class="h-4 w-4" />
+      </button>
+    </div>
+
     <div class="shrink-0 border-t border-base-300 bg-base-100 p-2">
       <div
         v-if="chatErrorText"
@@ -135,7 +138,7 @@
       </div>
       <div class="flex flex-row items-center gap-2">
         <button
-          class="btn btn-sm btn-circle shrink-0"
+          class="btn btn-xs btn-circle shrink-0"
           :class="recording ? 'btn-error' : 'btn-ghost bg-base-100'"
           :disabled="!canRecord || chatting || frozen"
           :title="recording ? `录音中 ${Math.max(1, Math.round(recordingMs / 1000))}s` : `按住${recordHotkey}或按钮录音`"
@@ -149,13 +152,12 @@
         </button>
         <textarea
           v-model="localChatInput"
-          class="flex-1 textarea textarea-sm resize-none border-none bg-transparent focus:outline-none"
+          class="flex-1 textarea textarea-xs"
           :disabled="chatting || frozen"
-          :rows="Math.max(1, Math.min(10, Math.round(((localChatInput.match(/\n/g) || []).length + 1) * 1.5)))"
           :placeholder="chatInputPlaceholder"
           @keydown.enter.exact.prevent="!chatting && !frozen && $emit('sendChat')"
         ></textarea>
-        <button class="btn btn-sm btn-circle shrink-0" :class="{ 'btn-error': chatting, 'btn-primary': !chatting }" :disabled="frozen" @click="chatting ? $emit('stopChat') : $emit('sendChat')">
+        <button class="btn btn-xs btn-circle shrink-0" :class="{ 'btn-error': chatting, 'btn-primary': !chatting }" :disabled="frozen" @click="chatting ? $emit('stopChat') : $emit('sendChat')">
           <Square v-if="chatting" class="h-3 w-3 fill-current" />
           <ArrowUp v-else class="h-3.5 w-3.5" />
         </button>
@@ -166,7 +168,7 @@
 
 <script setup lang="ts">
 import { computed, ref, nextTick, onBeforeUnmount, onMounted, watch } from "vue";
-import { ArrowUp, Image as ImageIcon, Mic, Pause, Play, Square, X } from "lucide-vue-next";
+import { ArrowDown, ArrowUp, Image as ImageIcon, Mic, Pause, Play, Square, X } from "lucide-vue-next";
 import MarkdownIt from "markdown-it";
 import DOMPurify from "dompurify";
 import { invoke } from "@tauri-apps/api/core";
@@ -212,8 +214,10 @@ const localChatInput = computed({
 });
 
 const scrollContainer = ref<HTMLElement | null>(null);
+const autoFollowOutput = ref(true);
 const playingAudioId = ref("");
 let activeAudio: HTMLAudioElement | null = null;
+let followScrollRaf = 0;
 
 const md = new MarkdownIt({
   html: false,
@@ -223,16 +227,36 @@ const md = new MarkdownIt({
 
 function splitThinkText(raw: string): { visible: string; inline: string } {
   const input = raw || "";
-  const regex = /<think>([\s\S]*?)<\/think>/gi;
+  const openTag = "<think>";
+  const closeTag = "</think>";
   const blocks: string[] = [];
-  let m: RegExpExecArray | null;
-  while ((m = regex.exec(input)) !== null) {
-    const text = (m[1] || "").trim();
-    if (text) blocks.push(text);
+  let visible = "";
+  let cursor = 0;
+
+  while (cursor < input.length) {
+    const openIdx = input.indexOf(openTag, cursor);
+    if (openIdx < 0) {
+      visible += input.slice(cursor);
+      break;
+    }
+
+    visible += input.slice(cursor, openIdx);
+    const afterOpen = openIdx + openTag.length;
+    const closeIdx = input.indexOf(closeTag, afterOpen);
+    if (closeIdx < 0) {
+      const tail = input.slice(afterOpen).trim();
+      if (tail) blocks.push(tail);
+      cursor = input.length;
+      break;
+    }
+
+    const inner = input.slice(afterOpen, closeIdx).trim();
+    if (inner) blocks.push(inner);
+    cursor = closeIdx + closeTag.length;
   }
-  const visible = input.replace(regex, "").trim();
+
   return {
-    visible,
+    visible: visible.trim(),
     inline: blocks.join("\n\n"),
   };
 }
@@ -295,16 +319,52 @@ function toggleAudioPlayback(id: string, audio: { mime: string; bytesBase64: str
   });
 }
 
-function scrollToBottom() {
+function scrollToBottom(behavior: ScrollBehavior = "auto") {
   const el = scrollContainer.value;
-  if (el) el.scrollTop = el.scrollHeight;
+  if (el) {
+    el.scrollTo({ top: el.scrollHeight, behavior });
+  }
+}
+
+function isNearBottom(el: HTMLElement): boolean {
+  const threshold = 24;
+  const distance = el.scrollHeight - (el.scrollTop + el.clientHeight);
+  return distance <= threshold;
+}
+
+const showJumpToBottom = computed(() => !autoFollowOutput.value);
+
+function jumpToBottom() {
+  autoFollowOutput.value = true;
+  nextTick(() => scrollToBottom("smooth"));
 }
 
 let loadingMore = false;
 
+function evaluateFollowState(el: HTMLElement) {
+  // Hysteresis: avoid jitter around the boundary during streaming updates.
+  const enterFollowThreshold = 24;
+  const leaveFollowThreshold = 72;
+  const distance = el.scrollHeight - (el.scrollTop + el.clientHeight);
+  if (autoFollowOutput.value) {
+    if (distance > leaveFollowThreshold) {
+      autoFollowOutput.value = false;
+    }
+    return;
+  }
+  if (distance <= enterFollowThreshold) {
+    autoFollowOutput.value = true;
+  }
+}
+
 function onScroll() {
   const el = scrollContainer.value;
   if (!el) return;
+  if (followScrollRaf) cancelAnimationFrame(followScrollRaf);
+  followScrollRaf = requestAnimationFrame(() => {
+    evaluateFollowState(el);
+    followScrollRaf = 0;
+  });
   if (el.scrollTop <= 20 && props.hasMoreTurns && !loadingMore) {
     loadingMore = true;
     const oldHeight = el.scrollHeight;
@@ -333,24 +393,47 @@ async function handleAssistantLinkClick(event: MouseEvent) {
 }
 
 onMounted(() => {
-  nextTick(() => scrollToBottom());
+  nextTick(() => {
+    scrollToBottom();
+    autoFollowOutput.value = true;
+  });
 });
 
 onBeforeUnmount(() => {
+  if (followScrollRaf) {
+    cancelAnimationFrame(followScrollRaf);
+    followScrollRaf = 0;
+  }
   stopAudioPlayback();
 });
 
 watch(
   () => props.chatting,
-  () => nextTick(() => scrollToBottom()),
+  () => {
+    if (!autoFollowOutput.value) return;
+    nextTick(() => scrollToBottom());
+  },
 );
 
 watch(
   () => props.turns.length,
   (newLen, oldLen) => {
-    if (newLen > oldLen) {
+    if (newLen > oldLen && autoFollowOutput.value) {
       nextTick(() => scrollToBottom());
     }
+  },
+);
+
+watch(
+  () => [
+    props.latestAssistantText,
+    props.latestReasoningStandardText,
+    props.latestReasoningInlineText,
+    props.toolStatusText,
+  ],
+  () => {
+    if (!autoFollowOutput.value) return;
+    nextTick(() => scrollToBottom());
   },
 );
 </script>
