@@ -95,6 +95,8 @@ struct ApiConfig {
     base_url: String,
     api_key: String,
     model: String,
+    #[serde(default = "default_api_temperature")]
+    temperature: f64,
 }
 
 fn default_true() -> bool {
@@ -117,6 +119,10 @@ fn default_tool_max_iterations() -> u32 {
     10
 }
 
+fn default_api_temperature() -> f64 {
+    1.0
+}
+
 impl Default for ApiConfig {
     fn default() -> Self {
         Self {
@@ -131,6 +137,7 @@ impl Default for ApiConfig {
             base_url: "https://api.openai.com/v1".to_string(),
             api_key: String::new(),
             model: "gpt-4o-mini".to_string(),
+            temperature: default_api_temperature(),
         }
     }
 }
@@ -179,6 +186,7 @@ struct DebugApiConfig {
     base_url: String,
     api_key: String,
     model: String,
+    temperature: Option<f64>,
     fixed_test_prompt: Option<String>,
     enabled: Option<bool>,
 }
@@ -473,6 +481,7 @@ struct ResolvedApiConfig {
     base_url: String,
     api_key: String,
     model: String,
+    temperature: f64,
     fixed_test_prompt: String,
 }
 
@@ -727,6 +736,7 @@ mod tests {
                     base_url: "https://api.openai.com/v1".to_string(),
                     api_key: "k".to_string(),
                     model: "m".to_string(),
+                    temperature: 1.0,
                 },
                 ApiConfig {
                     id: "a2".to_string(),
@@ -740,6 +750,7 @@ mod tests {
                     base_url: "https://api.openai.com/v1".to_string(),
                     api_key: "k".to_string(),
                     model: "m".to_string(),
+                    temperature: 1.0,
                 },
             ],
         };
@@ -774,6 +785,7 @@ mod tests {
                     base_url: "https://api.openai.com/v1".to_string(),
                     api_key: "k".to_string(),
                     model: "m".to_string(),
+                    temperature: 1.0,
                 },
                 ApiConfig {
                     id: "edit-b".to_string(),
@@ -787,6 +799,7 @@ mod tests {
                     base_url: "https://api.openai.com/v1".to_string(),
                     api_key: "k".to_string(),
                     model: "m".to_string(),
+                    temperature: 1.0,
                 },
             ],
         };
@@ -818,6 +831,7 @@ mod tests {
                 base_url: "https://api.siliconflow.cn/v1/audio/transcriptions".to_string(),
                 api_key: "k".to_string(),
                 model: "m".to_string(),
+                temperature: 1.0,
             }],
         };
         normalize_app_config(&mut cfg);

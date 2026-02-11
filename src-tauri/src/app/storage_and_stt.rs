@@ -26,6 +26,7 @@ fn write_config(path: &PathBuf, config: &AppConfig) -> Result<(), String> {
 fn normalize_api_tools(config: &mut AppConfig) {
     for api in &mut config.api_configs {
         api.enable_audio = false;
+        api.temperature = api.temperature.clamp(0.0, 2.0);
         if api.enable_tools {
             if api.tools.is_empty() {
                 api.tools = default_api_tools();
@@ -172,6 +173,10 @@ fn resolve_api_config(
                 base_url: debug_cfg.base_url.trim().to_string(),
                 api_key: debug_cfg.api_key.trim().to_string(),
                 model: debug_cfg.model.trim().to_string(),
+                temperature: debug_cfg
+                    .temperature
+                    .unwrap_or(default_api_temperature())
+                    .clamp(0.0, 2.0),
                 fixed_test_prompt: debug_cfg
                     .fixed_test_prompt
                     .unwrap_or_else(|| "EASY_CALL_AI_CACHE_TEST_V1".to_string()),
@@ -194,6 +199,7 @@ fn resolve_api_config(
         base_url: selected.base_url.trim().to_string(),
         api_key: selected.api_key.trim().to_string(),
         model: selected.model.trim().to_string(),
+        temperature: selected.temperature.clamp(0.0, 2.0),
         fixed_test_prompt: "EASY_CALL_AI_CACHE_TEST_V1".to_string(),
     })
 }

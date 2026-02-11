@@ -412,6 +412,7 @@ function createApiConfig(seed = Date.now().toString()): ApiConfigItem {
     baseUrl: "https://api.openai.com/v1",
     apiKey: "",
     model: "gpt-4o-mini",
+    temperature: 1,
   };
 }
 
@@ -450,6 +451,7 @@ function buildConfigSnapshotJson(): string {
       baseUrl: a.baseUrl,
       apiKey: a.apiKey,
       model: a.model,
+      temperature: a.temperature,
     })),
   });
 }
@@ -481,6 +483,7 @@ function buildConfigPayload(): AppConfig {
       baseUrl: a.baseUrl,
       apiKey: a.apiKey,
       model: a.model,
+      temperature: Number(a.temperature ?? 1),
     })),
   };
 }
@@ -489,6 +492,7 @@ function normalizeApiBindingsLocal() {
   if (!config.apiConfigs.length) return;
   for (const api of config.apiConfigs) {
     api.enableAudio = false;
+    api.temperature = Math.max(0, Math.min(2, Number(api.temperature ?? 1)));
   }
   if (!["Alt", "Ctrl", "Shift"].includes(config.recordHotkey)) {
     config.recordHotkey = "Alt";
@@ -1580,6 +1584,7 @@ watch(
       baseUrl: a.baseUrl,
       apiKey: a.apiKey,
       model: a.model,
+      temperature: a.temperature,
     })),
   }),
   () => { /* 手动保存模式，不自动持久化 API 配置 */ },
@@ -1594,6 +1599,7 @@ watch(
     enableImage: a.enableImage,
     enableAudio: a.enableAudio,
     enableTools: a.enableTools,
+    temperature: a.temperature,
   })),
   () => normalizeApiBindingsLocal(),
   { deep: true },

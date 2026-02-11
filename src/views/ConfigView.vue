@@ -141,6 +141,25 @@
             </button>
           </div>
         </label>
+        <label class="form-control">
+          <div class="label py-1">
+            <span class="label-text text-sm font-medium">温度</span>
+            <span class="label-text-alt text-xs opacity-70">{{ Number(selectedApiConfig.temperature ?? 1).toFixed(1) }}</span>
+          </div>
+          <input
+            v-model.number="selectedApiConfig.temperature"
+            type="range"
+            min="0"
+            max="2"
+            step="0.1"
+            class="range range-xs"
+          />
+          <div class="mt-1 flex justify-between text-[10px] opacity-60">
+            <span>0.0</span>
+            <span>1.0</span>
+            <span>2.0</span>
+          </div>
+        </label>
         <div class="form-control">
           <div class="label py-1"><span class="label-text text-sm font-medium">能力开关</span></div>
           <div class="flex gap-2">

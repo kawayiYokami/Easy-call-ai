@@ -17,6 +17,7 @@ export type ApiConfigItem = {
   baseUrl: string;
   apiKey: string;
   model: string;
+  temperature: number;
 };
 
 export type AppConfig = {

@@ -33,7 +33,11 @@ async fn call_model_openai_rig_style(
         .build()
         .map_err(|err| format!("Failed to create OpenAI client via rig: {err}"))?;
 
-    let agent = client.completions_api().agent(model_name).build();
+    let agent = client
+        .completions_api()
+        .agent(model_name)
+        .temperature(api_config.temperature)
+        .build();
     let prompt_message = RigMessage::User {
         content: prompt_content,
     };
@@ -703,6 +707,7 @@ async fn call_model_openai_stream_text(
         { "role": "system", "content": prepared.preamble },
         { "role": "user", "content": prepared.latest_user_text }
       ],
+      "temperature": api_config.temperature,
       "stream": true
     });
 
@@ -769,6 +774,7 @@ async fn call_model_openai_with_tools(
         .completions_api()
         .agent(model_name)
         .preamble(&prepared.preamble)
+        .temperature(api_config.temperature)
         .tools(tools)
         .build();
 
@@ -914,6 +920,7 @@ async fn call_model_openai_with_tools(
         .completions_api()
         .agent(model_name)
         .preamble(&prepared.preamble)
+        .temperature(api_config.temperature)
         .build();
     let mut final_stream = final_agent
         .stream_completion(current_prompt.clone(), chat_history.clone())
