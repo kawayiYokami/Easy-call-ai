@@ -36,7 +36,7 @@
       </div>
     </div>
 
-    <div class="window-content" :class="viewMode === 'chat' ? 'flex flex-col' : 'p-3'">
+    <div class="window-content" :class="viewMode === 'chat' ? 'flex flex-col min-h-0 overflow-hidden' : 'p-3 overflow-auto'">
       <ConfigView
         v-if="viewMode === 'config'"
         :config="config"
@@ -81,7 +81,7 @@
         @play-hotkey-record-test="playHotkeyRecordTest"
       />
 
-      <div v-else-if="viewMode === 'chat'" class="relative flex-1">
+      <div v-else-if="viewMode === 'chat'" class="relative flex-1 min-h-0">
         <ChatView
           :user-alias="userAlias"
           :persona-name="selectedPersona?.name || '助理'"
@@ -329,6 +329,13 @@ let hotkeyTestTickTimer: ReturnType<typeof setInterval> | null = null;
 let hotkeyTestPlayer: HTMLAudioElement | null = null;
 let keydownHandler: ((event: KeyboardEvent) => void) | null = null;
 let keyupHandler: ((event: KeyboardEvent) => void) | null = null;
+let recordHotkeyPressed = false;
+let recordHotkeyStartTimer: ReturnType<typeof setTimeout> | null = null;
+let suppressRecordHotkeyUntil = 0;
+let blockRecordHotkeyUntilRelease = true;
+let conflictHintShown = false;
+const RECORD_HOTKEY_START_DELAY_MS = 180;
+const RECORD_HOTKEY_SUPPRESS_AFTER_POPUP_MS = 700;
 const lastSavedConfigJson = ref("");
 const memoryList = ref<MemoryEntry[]>([]);
 const memoryPage = ref(1);
@@ -396,7 +403,6 @@ const chatInputPlaceholder = computed(() => {
   if (!api) return "输入问题";
   const hints: string[] = [];
   if (api.enableImage || hasVisionFallback.value) hints.push("Ctrl+V 粘贴图片");
-  if (speechRecognitionSupported.value) hints.push("按住按钮语音转文字");
   if (hints.length === 0) return "输入问题";
   return `输入问题，${hints.join("，")}`;
 });
@@ -621,19 +627,27 @@ function normalizeApiBindingsLocal() {
 }
 
 function renderMessage(msg: ChatMessage): string {
-  return msg.parts.map((p) => {
+  const merged = msg.parts.map((p) => {
     if (p.type === "text") return p.text;
     if (p.type === "image") return "[image]";
     return "[audio]";
   }).join("\n");
+  return stripHiddenExtraBlocks(merged);
+}
+
+function stripHiddenExtraBlocks(text: string): string {
+  return (text || "")
+    .replace(/<memory_board>[\s\S]*?<\/memory_board>/g, "")
+    .replace(/\[MEMORY BOARD\][\s\S]*$/g, "")
+    .trim();
 }
 
 function messageText(msg: ChatMessage): string {
-  return msg.parts
+  const visible = msg.parts
     .filter((p) => p.type === "text")
     .map((p) => p.text)
-    .join("\n")
-    .trim();
+    .join("\n");
+  return stripHiddenExtraBlocks(visible);
 }
 
 function removeBinaryPlaceholders(text: string): string {
@@ -1500,6 +1514,21 @@ function matchesRecordHotkey(event: KeyboardEvent): boolean {
   return false;
 }
 
+function hasRecordHotkeyConflict(): boolean {
+  const hotkey = (config.hotkey || "").toUpperCase();
+  if (config.recordHotkey === "Alt") return hotkey.includes("ALT");
+  if (config.recordHotkey === "Ctrl") return hotkey.includes("CTRL");
+  if (config.recordHotkey === "Shift") return hotkey.includes("SHIFT");
+  return false;
+}
+
+function clearRecordHotkeyStartTimer() {
+  if (recordHotkeyStartTimer) {
+    clearTimeout(recordHotkeyStartTimer);
+    recordHotkeyStartTimer = null;
+  }
+}
+
 async function startRecording() {
   if (recording.value || chatting.value || forcingArchive.value) return;
   const w = window as typeof window & {
@@ -1572,55 +1601,13 @@ async function stopRecording(discard: boolean) {
   speechRecognizer?.stop();
 }
 
-async function importClipboardImageOnOpen() {
-  if (viewMode.value !== "chat") return;
-  const apiConfig = activeChatApiConfig.value;
-  if (!apiConfig) return;
-
-  if (apiConfig.enableText && !chatInput.value.trim() && navigator.clipboard?.readText) {
-    try {
-      const text = (await navigator.clipboard.readText()).trim();
-      if (text) {
-        chatInput.value = text;
-      }
-    } catch {
-      // Ignore clipboard text read errors.
-    }
-  }
-
-  if (!apiConfig.enableImage && !hasVisionFallback.value) return;
-  if (!navigator.clipboard?.read) return;
-
-  try {
-    const items = await navigator.clipboard.read();
-    for (const item of items) {
-      const imageType = item.types.find((t) => t.startsWith("image/"));
-      if (!imageType) continue;
-      const blob = await item.getType(imageType);
-      const dataUrl = await readBlobAsDataUrl(blob);
-      const base64 = dataUrl.includes(",") ? dataUrl.split(",")[1] : "";
-      if (!base64) continue;
-
-      const exists = clipboardImages.value.some(
-        (img) => img.mime === imageType && img.bytesBase64 === base64,
-      );
-      if (!exists) {
-        clipboardImages.value.push({ mime: imageType, bytesBase64: base64 });
-      }
-      break;
-    }
-  } catch {
-    // Clipboard read can fail depending on platform permissions; ignore silently.
-  }
-}
-
-async function closeWindow() { 
+async function closeWindow() {
   if (!appWindow) return;
-  await appWindow.hide(); 
+  await appWindow.hide();
 }
-async function startDrag() { 
+async function startDrag() {
   if (!appWindow) return;
-  await appWindow.startDragging(); 
+  await appWindow.startDragging();
 }
 async function toggleAlwaysOnTop() {
   if (!appWindow) return;
@@ -1658,14 +1645,39 @@ onMounted(async () => {
   keydownHandler = (event: KeyboardEvent) => {
     if (viewMode.value !== "chat") return;
     if (!matchesRecordHotkey(event)) return;
+    if (hasRecordHotkeyConflict()) {
+      if (!conflictHintShown) {
+        status.value = "呼唤热键与录音键冲突，已禁用键盘录音触发，请使用录音按钮。";
+        conflictHintShown = true;
+      }
+      return;
+    }
+    conflictHintShown = false;
     if (event.repeat) return;
+    if (Date.now() < suppressRecordHotkeyUntil) return;
+    if (blockRecordHotkeyUntilRelease) return;
     event.preventDefault();
-    void startRecording();
+    recordHotkeyPressed = true;
+    clearRecordHotkeyStartTimer();
+    recordHotkeyStartTimer = setTimeout(() => {
+      if (!recordHotkeyPressed) return;
+      if (Date.now() < suppressRecordHotkeyUntil) return;
+      void startRecording();
+    }, RECORD_HOTKEY_START_DELAY_MS);
   };
   keyupHandler = (event: KeyboardEvent) => {
     if (viewMode.value !== "chat") return;
     if (!matchesRecordHotkey(event)) return;
+    if (hasRecordHotkeyConflict()) return;
+    if (blockRecordHotkeyUntilRelease) {
+      blockRecordHotkeyUntilRelease = false;
+      recordHotkeyPressed = false;
+      clearRecordHotkeyStartTimer();
+      return;
+    }
     event.preventDefault();
+    recordHotkeyPressed = false;
+    clearRecordHotkeyStartTimer();
     void stopRecording(false);
   };
   window.addEventListener("keydown", keydownHandler);
@@ -1681,7 +1693,6 @@ onMounted(async () => {
       await refreshChatSnapshot();
       await loadAllMessages();
       visibleTurnCount.value = 1;
-      await importClipboardImageOnOpen();
     } else if (viewMode.value === "archives") {
       await loadArchives();
     }
@@ -1699,6 +1710,11 @@ onMounted(async () => {
     }
   }
   await listen("easy-call:refresh", async () => {
+    // Window was just summoned; suppress record-hotkey briefly to avoid combo-key conflict.
+    suppressRecordHotkeyUntil = Date.now() + RECORD_HOTKEY_SUPPRESS_AFTER_POPUP_MS;
+    blockRecordHotkeyUntilRelease = true;
+    recordHotkeyPressed = false;
+    clearRecordHotkeyStartTimer();
     configAutosaveReady.value = false;
     personasAutosaveReady.value = false;
     chatSettingsAutosaveReady.value = false;
@@ -1712,6 +1728,7 @@ onMounted(async () => {
 
 onBeforeUnmount(() => {
   clearStreamBuffer();
+  clearRecordHotkeyStartTimer();
   void stopRecording(true);
   speechRecognizer?.stop();
   speechRecognizer = null;
@@ -1850,4 +1867,3 @@ watch(
   },
 );
 </script>
-
