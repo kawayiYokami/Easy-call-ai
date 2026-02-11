@@ -142,10 +142,13 @@
       <ArchivesView
         v-else
         :archives="archives"
+        :selected-archive-id="selectedArchiveId"
         :archive-messages="archiveMessages"
         :render-message="renderMessage"
         @load-archives="loadArchives"
         @select-archive="selectArchive"
+        @export-archive="exportArchive"
+        @delete-archive="deleteArchive"
       />
 
       <dialog ref="historyDialog" class="modal">
@@ -308,6 +311,7 @@ const visibleTurnCount = ref(1);
 
 const archives = ref<ArchiveSummary[]>([]);
 const archiveMessages = ref<ChatMessage[]>([]);
+const selectedArchiveId = ref("");
 
 const windowReady = ref(false);
 const status = ref("Ready.");
@@ -1224,6 +1228,11 @@ type ExportMemoriesFileResult = {
   path: string;
   count: number;
 };
+type ExportArchiveFileResult = {
+  path: string;
+  archiveId: string;
+  format: "json" | "markdown";
+};
 type ForceArchiveResult = {
   archived: boolean;
   archiveId?: string | null;
@@ -1595,14 +1604,56 @@ async function handleMemoryImportFile(event: Event) {
 async function loadArchives() {
   try {
     archives.value = await invoke<ArchiveSummary[]>("list_archives");
-    if (archives.value.length > 0) await selectArchive(archives.value[0].archiveId);
+    if (archives.value.length === 0) {
+      selectedArchiveId.value = "";
+      archiveMessages.value = [];
+      return;
+    }
+    const targetId = archives.value.some((a) => a.archiveId === selectedArchiveId.value)
+      ? selectedArchiveId.value
+      : archives.value[0].archiveId;
+    await selectArchive(targetId);
   } catch (e) {
     status.value = `Load archives failed: ${String(e)}`;
   }
 }
 
 async function selectArchive(archiveId: string) {
+  selectedArchiveId.value = archiveId;
   archiveMessages.value = await invoke<ChatMessage[]>("get_archive_messages", { archiveId });
+}
+
+async function deleteArchive(archiveId: string) {
+  if (!archiveId) return;
+  try {
+    await invoke("delete_archive", { archiveId });
+    status.value = "归档已删除。";
+    if (selectedArchiveId.value === archiveId) {
+      selectedArchiveId.value = "";
+      archiveMessages.value = [];
+    }
+    await loadArchives();
+  } catch (e) {
+    status.value = `删除归档失败: ${String(e)}`;
+  }
+}
+
+async function exportArchive(payload: { format: "markdown" | "json" }) {
+  if (!selectedArchiveId.value) {
+    status.value = "请先选择一个归档。";
+    return;
+  }
+  try {
+    const result = await invoke<ExportArchiveFileResult>("export_archive_to_file", {
+      input: {
+        archiveId: selectedArchiveId.value,
+        format: payload.format,
+      },
+    });
+    status.value = `归档已导出（${result.format}）：${result.path}`;
+  } catch (e) {
+    status.value = `导出归档失败: ${String(e)}`;
+  }
 }
 
 function onPaste(event: ClipboardEvent) {

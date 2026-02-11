@@ -854,6 +854,8 @@ fn main() {
             export_memories_to_path,
             import_memories,
             get_archive_messages,
+            delete_archive,
+            export_archive_to_file,
             open_external_url,
             send_chat_message,
             force_archive_current,

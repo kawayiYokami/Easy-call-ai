@@ -603,6 +603,47 @@ fn build_time_context_block() -> String {
     )
 }
 
+fn archive_time_label(raw: &str) -> String {
+    let s = raw.trim();
+    if s.is_empty() {
+        return "unknown-time".to_string();
+    }
+    let mut normalized = s.replace('T', " ");
+    if normalized.ends_with('Z') {
+        normalized.pop();
+    }
+    if normalized.chars().count() >= 16 {
+        normalized.chars().take(16).collect::<String>()
+    } else {
+        normalized
+    }
+}
+
+fn archive_first_user_preview(conversation: &Conversation) -> String {
+    let text = conversation
+        .messages
+        .iter()
+        .find(|m| m.role == "user")
+        .map(|m| {
+            m.parts
+                .iter()
+                .filter_map(|p| match p {
+                    MessagePart::Text { text } => Some(text.trim()),
+                    _ => None,
+                })
+                .filter(|t| !t.is_empty())
+                .collect::<Vec<_>>()
+                .join(" ")
+        })
+        .unwrap_or_default();
+    let compact = clean_text(text.trim());
+    if compact.is_empty() {
+        "无内容".to_string()
+    } else {
+        compact.chars().take(10).collect::<String>()
+    }
+}
+
 #[tauri::command]
 fn list_archives(state: State<'_, AppState>) -> Result<Vec<ArchiveSummary>, String> {
     let guard = state
@@ -619,7 +660,11 @@ fn list_archives(state: State<'_, AppState>) -> Result<Vec<ArchiveSummary>, Stri
         .map(|archive| ArchiveSummary {
             archive_id: archive.archive_id.clone(),
             archived_at: archive.archived_at.clone(),
-            title: archive.source_conversation.title.clone(),
+            title: format!(
+                "{} - {}",
+                archive_time_label(&archive.archived_at),
+                archive_first_user_preview(&archive.source_conversation)
+            ),
             message_count: archive.source_conversation.messages.len(),
             api_config_id: archive.source_conversation.api_config_id.clone(),
             agent_id: archive.source_conversation.agent_id.clone(),
@@ -649,6 +694,262 @@ fn get_archive_messages(
         .ok_or_else(|| "Archive not found".to_string())?;
 
     Ok(archive.source_conversation.messages.clone())
+}
+
+#[tauri::command]
+fn delete_archive(archive_id: String, state: State<'_, AppState>) -> Result<(), String> {
+    if archive_id.trim().is_empty() {
+        return Err("archiveId is required".to_string());
+    }
+
+    let guard = state
+        .state_lock
+        .lock()
+        .map_err(|_| "Failed to lock state mutex".to_string())?;
+
+    let mut data = read_app_data(&state.data_path)?;
+    let before = data.archived_conversations.len();
+    data.archived_conversations
+        .retain(|a| a.archive_id != archive_id);
+
+    if data.archived_conversations.len() == before {
+        drop(guard);
+        return Err("Archive not found".to_string());
+    }
+
+    write_app_data(&state.data_path, &data)?;
+    drop(guard);
+    Ok(())
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ExportArchiveToFileInput {
+    archive_id: String,
+    format: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ExportArchiveFileResult {
+    path: String,
+    archive_id: String,
+    format: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ArchiveExportPayload {
+    version: u32,
+    exported_at: String,
+    archive: ConversationArchive,
+}
+
+fn archive_message_plain_text(message: &ChatMessage) -> String {
+    message
+        .parts
+        .iter()
+        .filter_map(|part| match part {
+            MessagePart::Text { text } => Some(text.trim().to_string()),
+            _ => None,
+        })
+        .filter(|text| !text.is_empty())
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+fn archive_message_image_count(message: &ChatMessage) -> usize {
+    message
+        .parts
+        .iter()
+        .filter(|part| matches!(part, MessagePart::Image { .. }))
+        .count()
+}
+
+fn archive_message_audio_count(message: &ChatMessage) -> usize {
+    message
+        .parts
+        .iter()
+        .filter(|part| matches!(part, MessagePart::Audio { .. }))
+        .count()
+}
+
+fn tool_call_markdown_lines(message: &ChatMessage) -> Vec<String> {
+    let mut out = Vec::new();
+    let Some(events) = message.tool_call.as_ref() else {
+        return out;
+    };
+
+    for event in events {
+        let Some(role) = event.get("role").and_then(Value::as_str) else {
+            continue;
+        };
+        if role == "assistant" {
+            let calls = event
+                .get("tool_calls")
+                .and_then(Value::as_array)
+                .cloned()
+                .unwrap_or_default();
+            for call in calls {
+                let name = call
+                    .get("function")
+                    .and_then(Value::as_object)
+                    .and_then(|f| f.get("name"))
+                    .and_then(Value::as_str)
+                    .unwrap_or("unknown");
+                let args = call
+                    .get("function")
+                    .and_then(Value::as_object)
+                    .and_then(|f| f.get("arguments"))
+                    .and_then(Value::as_str)
+                    .unwrap_or("")
+                    .trim();
+                if args.is_empty() {
+                    out.push(format!("- 工具调用: {name}"));
+                } else {
+                    out.push(format!("- 工具调用: {name} | 参数: {args}"));
+                }
+            }
+        } else if role == "tool" {
+            let content = event
+                .get("content")
+                .and_then(Value::as_str)
+                .unwrap_or("")
+                .trim();
+            if !content.is_empty() {
+                let snippet = if content.chars().count() > 300 {
+                    format!("{}...", content.chars().take(300).collect::<String>())
+                } else {
+                    content.to_string()
+                };
+                out.push(format!("- 工具结果: {snippet}"));
+            }
+        }
+    }
+    out
+}
+
+fn archive_message_markdown_block(message: &ChatMessage) -> String {
+    let role = match message.role.as_str() {
+        "user" => "用户",
+        "assistant" => "助手",
+        "tool" => "工具",
+        other => other,
+    };
+    let mut lines = Vec::<String>::new();
+    lines.push(format!("### {}  {}", role, message.created_at));
+
+    let text = archive_message_plain_text(message);
+    if !text.is_empty() {
+        lines.push(text);
+    }
+
+    let image_count = archive_message_image_count(message);
+    if image_count > 0 {
+        lines.push(format!("- 图片 x{image_count}"));
+    }
+    let audio_count = archive_message_audio_count(message);
+    if audio_count > 0 {
+        lines.push(format!("- 音频 x{audio_count}"));
+    }
+
+    for line in tool_call_markdown_lines(message) {
+        lines.push(line);
+    }
+
+    if lines.len() == 1 {
+        lines.push("- (空消息)".to_string());
+    }
+    lines.join("\n")
+}
+
+fn build_archive_markdown(archive: &ConversationArchive) -> String {
+    let mut blocks = Vec::<String>::new();
+    blocks.push("# 对话归档".to_string());
+    blocks.push(format!("- 标题: {}", archive.source_conversation.title));
+    blocks.push(format!("- 归档时间: {}", archive.archived_at));
+    if !archive.summary.trim().is_empty() {
+        blocks.push(String::new());
+        blocks.push("## 摘要".to_string());
+        blocks.push(archive.summary.trim().to_string());
+    }
+    blocks.push(String::new());
+    blocks.push("## 消息时间线".to_string());
+    for message in &archive.source_conversation.messages {
+        let role = message.role.as_str();
+        if role != "user" && role != "assistant" && role != "tool" {
+            continue;
+        }
+        blocks.push(String::new());
+        blocks.push(archive_message_markdown_block(message));
+    }
+    blocks.join("\n")
+}
+
+#[tauri::command]
+fn export_archive_to_file(
+    input: ExportArchiveToFileInput,
+    app: AppHandle,
+    state: State<'_, AppState>,
+) -> Result<ExportArchiveFileResult, String> {
+    if input.archive_id.trim().is_empty() {
+        return Err("archiveId is required".to_string());
+    }
+    let export_format = match input.format.trim().to_ascii_lowercase().as_str() {
+        "json" => "json",
+        "markdown" | "md" => "markdown",
+        _ => return Err("Unsupported export format. Use 'json' or 'markdown'.".to_string()),
+    };
+
+    let guard = state
+        .state_lock
+        .lock()
+        .map_err(|_| "Failed to lock state mutex".to_string())?;
+    let data = read_app_data(&state.data_path)?;
+    drop(guard);
+
+    let archive = data
+        .archived_conversations
+        .iter()
+        .find(|a| a.archive_id == input.archive_id)
+        .cloned()
+        .ok_or_else(|| "Archive not found".to_string())?;
+
+    let selected = if export_format == "json" {
+        app.dialog()
+            .file()
+            .add_filter("JSON", &["json"])
+            .blocking_save_file()
+    } else {
+        app.dialog()
+            .file()
+            .add_filter("Markdown", &["md", "markdown"])
+            .blocking_save_file()
+    };
+
+    let file_path = selected
+        .and_then(|fp| fp.as_path().map(ToOwned::to_owned))
+        .ok_or_else(|| "Export cancelled".to_string())?;
+
+    let body = if export_format == "json" {
+        let payload = ArchiveExportPayload {
+            version: 1,
+            exported_at: now_iso(),
+            archive: archive.clone(),
+        };
+        serde_json::to_string_pretty(&payload)
+            .map_err(|err| format!("Serialize archive export failed: {err}"))?
+    } else {
+        build_archive_markdown(&archive)
+    };
+
+    fs::write(&file_path, body).map_err(|err| format!("Write export file failed: {err}"))?;
+
+    Ok(ExportArchiveFileResult {
+        path: file_path.to_string_lossy().to_string(),
+        archive_id: archive.archive_id,
+        format: export_format.to_string(),
+    })
 }
 
 #[tauri::command]

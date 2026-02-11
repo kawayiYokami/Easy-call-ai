@@ -49,7 +49,14 @@ export type MessagePart =
   | { type: "image"; mime: string; bytesBase64: string }
   | { type: "audio"; mime: string; bytesBase64: string };
 
-export type ChatMessage = { id: string; role: string; parts: MessagePart[]; extraTextBlocks?: string[] };
+export type ChatMessage = {
+  id: string;
+  role: string;
+  createdAt?: string;
+  parts: MessagePart[];
+  extraTextBlocks?: string[];
+  toolCall?: Array<Record<string, unknown>>;
+};
 
 export type ChatSnapshot = {
   conversationId: string;
@@ -68,7 +75,12 @@ export type ChatTurn = {
   assistantReasoningInline: string;
 };
 
-export type ArchiveSummary = { archiveId: string; archivedAt: string; title: string };
+export type ArchiveSummary = {
+  archiveId: string;
+  archivedAt: string;
+  title: string;
+  messageCount?: number;
+};
 
 export type ResponseStyleOption = {
   id: string;
