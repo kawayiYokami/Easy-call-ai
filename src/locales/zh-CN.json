@@ -102,7 +102,7 @@
       "noVision": "不配置",
       "assistantPersona": "AI人格",
       "responseStyle": "对话风格",
-      "openCurrentHistory": "查看当前未归档记录",
+      "openCurrentHistory": "未归档记录",
       "previewRequest": "预览请求体",
       "previewSystemPrompt": "系统提示词",
       "imageCacheTitle": "图片转文缓存",
@@ -111,6 +111,12 @@
       "cacheUpdatedAt": "最近更新: {value}",
       "cacheHint": "缓存按“图转文AI配置”隔离，切换图转文AI后会自动使用对应缓存命名空间。"
     }
+  },
+  "responseStyle": {
+    "concise": "简洁",
+    "academic": "学术",
+    "teaching": "教学",
+    "abstract": "抽象"
   },
   "chat": {
     "loadMore": "加载更多...",

@@ -102,8 +102,8 @@
       "noVision": "설정 안 함",
       "assistantPersona": "AI 페르소나",
       "responseStyle": "대화 스타일",
-      "openCurrentHistory": "현재 미보관 기록 보기",
-      "previewRequest": "요청 본문 미리보기",
+      "openCurrentHistory": "기록",
+      "previewRequest": "요청",
       "previewSystemPrompt": "시스템 프롬프트",
       "imageCacheTitle": "이미지 텍스트 캐시",
       "clearCache": "정리",
@@ -111,6 +111,12 @@
       "cacheUpdatedAt": "최근 업데이트: {value}",
       "cacheHint": "캐시는 이미지 해석 AI 설정별로 분리됩니다. 전환 시 해당 네임스페이스 캐시를 사용합니다."
     }
+  },
+  "responseStyle": {
+    "concise": "간결",
+    "academic": "학술",
+    "teaching": "교육",
+    "abstract": "추상"
   },
   "chat": {
     "loadMore": "더 불러오기...",

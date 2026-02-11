@@ -102,8 +102,8 @@
       "noVision": "Not set",
       "assistantPersona": "AI Persona",
       "responseStyle": "Response Style",
-      "openCurrentHistory": "View Current Unarchived History",
-      "previewRequest": "Preview Request",
+      "openCurrentHistory": "History",
+      "previewRequest": "Request",
       "previewSystemPrompt": "System Prompt",
       "imageCacheTitle": "Image OCR Cache",
       "clearCache": "Clear",
@@ -111,6 +111,12 @@
       "cacheUpdatedAt": "Updated at: {value}",
       "cacheHint": "Cache is namespaced by vision API config. Switching vision API uses its own cache namespace."
     }
+  },
+  "responseStyle": {
+    "concise": "Concise",
+    "academic": "Academic",
+    "teaching": "Teaching",
+    "abstract": "Abstract"
   },
   "chat": {
     "loadMore": "Load more...",

@@ -299,14 +299,14 @@
             :class="responseStyleId === style.id ? 'btn-primary' : 'btn-ghost bg-base-100'"
             @click="$emit('update:responseStyleId', style.id)"
           >
-            {{ style.name }}
+            {{ t(`responseStyle.${style.id}`) }}
           </button>
         </div>
       </div>
-      <div class="flex gap-1">
-        <button class="btn btn-sm bg-base-100 border-base-300 hover:bg-base-200" @click="$emit('openCurrentHistory')">{{ t("config.chatSettings.openCurrentHistory") }}</button>
-        <button class="btn btn-sm bg-base-100 border-base-300 hover:bg-base-200" @click="$emit('openPromptPreview')">{{ t("config.chatSettings.previewRequest") }}</button>
-        <button class="btn btn-sm bg-base-100 border-base-300 hover:bg-base-200" @click="$emit('openSystemPromptPreview')">{{ t("config.chatSettings.previewSystemPrompt") }}</button>
+      <div class="grid grid-cols-3 gap-1 min-w-0">
+        <button class="btn btn-sm bg-base-100 border-base-300 hover:bg-base-200 px-2 min-w-0" @click="$emit('openCurrentHistory')">{{ t("config.chatSettings.openCurrentHistory") }}</button>
+        <button class="btn btn-sm bg-base-100 border-base-300 hover:bg-base-200 px-2 min-w-0" @click="$emit('openPromptPreview')">{{ t("config.chatSettings.previewRequest") }}</button>
+        <button class="btn btn-sm bg-base-100 border-base-300 hover:bg-base-200 px-2 min-w-0" @click="$emit('openSystemPromptPreview')">{{ t("config.chatSettings.previewSystemPrompt") }}</button>
       </div>
       <div class="rounded border border-base-300 bg-base-100 p-2 text-xs">
         <div class="flex items-center justify-between">

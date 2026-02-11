@@ -102,8 +102,8 @@
       "noVision": "未設定",
       "assistantPersona": "AI人格",
       "responseStyle": "会話スタイル",
-      "openCurrentHistory": "現在の未アーカイブ履歴を表示",
-      "previewRequest": "リクエストをプレビュー",
+      "openCurrentHistory": "履歴",
+      "previewRequest": "リクエスト",
       "previewSystemPrompt": "システムプロンプト",
       "imageCacheTitle": "画像読解キャッシュ",
       "clearCache": "クリア",
@@ -111,6 +111,12 @@
       "cacheUpdatedAt": "最終更新: {value}",
       "cacheHint": "キャッシュは「画像読解AI設定」ごとに分離されます。切替後は対応する名前空間のキャッシュが使用されます。"
     }
+  },
+  "responseStyle": {
+    "concise": "簡潔",
+    "academic": "学術",
+    "teaching": "教学",
+    "abstract": "抽象"
   },
   "chat": {
     "loadMore": "さらに読み込む...",
