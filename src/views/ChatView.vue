@@ -61,8 +61,8 @@
             </div>
             <div v-if="turn.assistantReasoningStandard" class="collapse collapse-arrow">
               <input type="checkbox" />
-              <div class="collapse-title">
-                {{ lastLinePreview(turn.assistantReasoningStandard) || "..." }}
+              <div class="collapse-title min-w-0">
+                <span class="block truncate italic">{{ lastLinePreview(turn.assistantReasoningStandard) || "..." }}</span>
               </div>
               <div class="collapse-content">
                 {{ turn.assistantReasoningStandard }}
@@ -100,8 +100,8 @@
             </div>
             <div v-if="latestReasoningStandardText" class="collapse collapse-arrow">
               <input type="checkbox" />
-              <div class="collapse-title flex items-center gap-1">
-                <span>{{ lastLinePreview(latestReasoningStandardText) || "..." }}</span>
+              <div class="collapse-title min-w-0 flex items-center gap-1">
+                <span class="block truncate italic">{{ lastLinePreview(latestReasoningStandardText) || "..." }}</span>
                 <span class="loading loading-dots loading-xs opacity-60"></span>
               </div>
               <div class="collapse-content">
@@ -318,8 +318,7 @@ function lastLinePreview(raw: string): string {
     .map((line) => line.trim())
     .filter((line) => line.length > 0);
   const last = lines.length ? lines[lines.length - 1] : raw.trim();
-  if (!last) return "";
-  return last.length > 42 ? `${last.slice(0, 42)}...` : last;
+  return last || "";
 }
 
 function buildAudioDataUrl(audio: { mime: string; bytesBase64: string }): string {
