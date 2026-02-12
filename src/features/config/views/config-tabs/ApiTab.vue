@@ -193,6 +193,7 @@ const providerPresets: ProviderPreset[] = [
   { id: "siliconflow", name: "SiliconFlow", urls: { openai: "https://api.siliconflow.cn/v1", "deepseek/kimi": "https://api.siliconflow.cn/v1" }, docsUrl: "https://docs.siliconflow.cn/" },
   { id: "iflow", name: "iFlow", urls: { openai: "https://apis.iflow.cn/v1" }, docsUrl: "https://platform.iflow.cn/models", hasFreeQuota: true },
   { id: "modelscope", name: "ModelScope", urls: { openai: "https://api-inference.modelscope.cn/v1" }, docsUrl: "https://modelscope.cn/models", hasFreeQuota: true },
+  { id: "nvidia-nim", name: "NVIDIA NIM", urls: { openai: "https://integrate.api.nvidia.com/v1", "deepseek/kimi": "https://integrate.api.nvidia.com/v1" }, docsUrl: "https://docs.api.nvidia.com/nim/", hasFreeQuota: true },
   { id: "openrouter", name: "OpenRouter", urls: { openai: "https://openrouter.ai/api/v1", "deepseek/kimi": "https://openrouter.ai/api/v1" }, docsUrl: "https://openrouter.ai/docs/api-reference/overview", hasFreeQuota: true },
   { id: "cloudflare-gateway", name: "Cloudflare Gateway", urls: { openai: "https://gateway.ai.cloudflare.com/v1/{account_id}/{gateway_id}/{provider}", "deepseek/kimi": "https://gateway.ai.cloudflare.com/v1/{account_id}/{gateway_id}/{provider}" }, docsUrl: "https://developers.cloudflare.com/ai-gateway/" },
   { id: "ollama-local", name: "Ollama (Local)", urls: { openai: "http://localhost:11434/v1", "deepseek/kimi": "http://localhost:11434/v1" }, docsUrl: "https://github.com/ollama/ollama/blob/main/docs/openai.md" },
