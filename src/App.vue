@@ -660,16 +660,15 @@ const chatFlow = useChatFlow({
   visibleTurnCount,
   activeChatApiConfigId,
   selectedPersonaId,
-  activeChatModel: () => activeChatApiConfig.value?.model,
   t: tr,
   formatRequestFailed: (error) => formatI18nError(tr, "status.requestFailed", error),
   removeBinaryPlaceholders,
-  invokeSendChatMessage: ({ apiConfigId, agentId, text, images, model, onDelta }) =>
+  invokeSendChatMessage: ({ apiConfigId, agentId, text, images, onDelta }) =>
     invokeTauri("send_chat_message", {
       input: {
         apiConfigId,
         agentId,
-        payload: { text, images, model },
+        payload: { text, images },
       },
       onDelta,
     }),

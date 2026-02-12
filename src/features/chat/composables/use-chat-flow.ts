@@ -27,7 +27,6 @@ type UseChatFlowOptions = {
   visibleTurnCount: Ref<number>;
   activeChatApiConfigId: Ref<string>;
   selectedPersonaId: Ref<string>;
-  activeChatModel: () => string | undefined;
   t: (key: string, params?: Record<string, unknown>) => string;
   formatRequestFailed: (error: unknown) => string;
   removeBinaryPlaceholders: (text: string) => string;
@@ -36,7 +35,6 @@ type UseChatFlowOptions = {
     agentId: string;
     text: string;
     images: Array<{ mime: string; bytesBase64: string }>;
-    model?: string;
     onDelta: Channel<AssistantDeltaEvent>;
   }) => Promise<{ assistantText: string; latestUserText: string; archivedBeforeSend: boolean }>;
   onReloadMessages: () => Promise<void>;
@@ -140,7 +138,6 @@ export function useChatFlow(options: UseChatFlowOptions) {
     options.chatErrorText.value = "";
 
     const sentImages = [...options.clipboardImages.value];
-    const sentModel = options.activeChatModel();
     options.chatInput.value = "";
     options.clipboardImages.value = [];
 
@@ -193,7 +190,6 @@ export function useChatFlow(options: UseChatFlowOptions) {
         agentId: options.selectedPersonaId.value,
         text,
         images: sentImages,
-        model: sentModel,
         onDelta: deltaChannel,
       });
       if (gen !== chatGeneration) return;

@@ -423,14 +423,14 @@ async fn send_chat_message(
         prepared.latest_images = effective_images.clone();
         prepared.latest_audios = effective_audios.clone();
 
-        let model_name = input
-            .payload
-            .model
-            .as_deref()
-            .map(str::trim)
-            .filter(|v| !v.is_empty())
-            .map(ToOwned::to_owned)
-            .unwrap_or_else(|| resolved_api.model.clone());
+        // Use persisted API config as the source of truth to avoid stale
+        // frontend model overrides after editing/saving config.
+        let model_name = selected_api.model.trim().to_string();
+        let model_name = if model_name.trim().is_empty() {
+            resolved_api.model.clone()
+        } else {
+            model_name
+        };
         let conversation_id = conversation.id.clone();
 
         write_app_data(&state.data_path, &data)?;
