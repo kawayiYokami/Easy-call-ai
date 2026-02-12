@@ -80,8 +80,12 @@ fn main() {
         .manage(state)
         .setup(|app| {
             let app_handle = app.handle().clone();
-            register_default_hotkey(&app_handle)?;
-            build_tray(&app_handle)?;
+            if let Err(err) = register_default_hotkey(&app_handle) {
+                eprintln!("[BOOT] register_default_hotkey failed: {err}");
+            }
+            if let Err(err) = build_tray(&app_handle) {
+                eprintln!("[BOOT] build_tray failed: {err}");
+            }
             let app_state = app_handle.state::<AppState>();
             let guard = app_state
                 .state_lock
@@ -100,7 +104,14 @@ fn main() {
             drop(guard);
             let _ = sync_tray_icon_from_avatar_path(&app_handle, avatar_path.as_deref());
             hide_on_close(&app_handle);
-            let _ = show_window(&app_handle, "main");
+            if let Err(err) = show_window(&app_handle, "main") {
+                eprintln!("[BOOT] show_window(main) failed: {err}");
+                if let Some(window) = app_handle.get_webview_window("main") {
+                    let _ = window.unminimize();
+                    let _ = window.show();
+                    let _ = window.set_focus();
+                }
+            }
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
