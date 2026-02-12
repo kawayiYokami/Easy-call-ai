@@ -466,6 +466,37 @@ fn deepseek_tool_schemas(selected_api: &ApiConfig) -> Vec<Value> {
             }
         }));
     }
+    if tool_enabled(selected_api, "desktop-screenshot") {
+        tools.push(serde_json::json!({
+            "type": "function",
+            "function": {
+                "name": "desktop_screenshot",
+                "description": "Capture current full desktop screenshot.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "webp_quality": { "type": "number", "minimum": 1, "maximum": 100, "default": 75 }
+                    }
+                }
+            }
+        }));
+    }
+    if tool_enabled(selected_api, "desktop-wait") {
+        tools.push(serde_json::json!({
+            "type": "function",
+            "function": {
+                "name": "desktop_wait",
+                "description": "Wait for specified milliseconds.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "ms": { "type": "integer", "minimum": 1, "maximum": 120000 }
+                    },
+                    "required": ["ms"]
+                }
+            }
+        }));
+    }
     tools
 }
 
@@ -495,8 +526,93 @@ async fn execute_builtin_tool_call(
                 app_state.ok_or_else(|| "memory_save_batch requires app state".to_string())?;
             builtin_memory_save_batch(state, args_json.clone())
         }
+        "desktop_screenshot" | "desktop-screenshot"
+            if tool_enabled(selected_api, "desktop-screenshot") =>
+        {
+            let args: DesktopScreenshotToolArgs = serde_json::from_value(args_json.clone())
+                .map_err(|err| format!("Parse desktop_screenshot args failed: {err}"))?;
+            builtin_desktop_screenshot(args.webp_quality).await
+        }
+        "desktop_wait" | "desktop-wait" if tool_enabled(selected_api, "desktop-wait") => {
+            let args: DesktopWaitToolArgs = serde_json::from_value(args_json.clone())
+                .map_err(|err| format!("Parse desktop_wait args failed: {err}"))?;
+            builtin_desktop_wait(args.ms).await
+        }
         _ => Err(format!("Unsupported or disabled tool: {tool_name}")),
     }
+}
+
+#[derive(Debug, Clone)]
+struct ScreenshotForwardPayload {
+    mime: String,
+    base64: String,
+    width: u32,
+    height: u32,
+}
+
+fn screenshot_forward_payload_from_tool_result(
+    tool_name: &str,
+    tool_result: &str,
+) -> Option<ScreenshotForwardPayload> {
+    if !matches!(tool_name, "desktop_screenshot" | "desktop-screenshot") {
+        return None;
+    }
+    let value = serde_json::from_str::<Value>(tool_result).ok()?;
+    let image_base64 = value.get("imageBase64")?.as_str()?.to_string();
+    if image_base64.is_empty() {
+        return None;
+    }
+    let mime = value
+        .get("imageMime")
+        .and_then(Value::as_str)
+        .filter(|m| !m.trim().is_empty())
+        .unwrap_or("image/webp")
+        .to_string();
+    let width = value
+        .get("width")
+        .and_then(Value::as_u64)
+        .unwrap_or(0)
+        .min(u32::MAX as u64) as u32;
+    let height = value
+        .get("height")
+        .and_then(Value::as_u64)
+        .unwrap_or(0)
+        .min(u32::MAX as u64) as u32;
+    Some(ScreenshotForwardPayload {
+        mime,
+        base64: image_base64,
+        width,
+        height,
+    })
+}
+
+fn screenshot_forward_notice(payload: &ScreenshotForwardPayload) -> String {
+    if payload.width > 0 && payload.height > 0 {
+        format!(
+            "截图工具已执行，以下图片来自工具结果（{}x{}），将作为用户消息转发，请注意鉴别。",
+            payload.width, payload.height
+        )
+    } else {
+        "截图工具已执行，以下图片来自工具结果，将作为用户消息转发，请注意鉴别。".to_string()
+    }
+}
+
+fn sanitize_tool_result_for_history(tool_name: &str, tool_result: &str) -> String {
+    if !matches!(tool_name, "desktop_screenshot" | "desktop-screenshot") {
+        return tool_result.to_string();
+    }
+    let Ok(mut value) = serde_json::from_str::<Value>(tool_result) else {
+        return tool_result.to_string();
+    };
+    if let Some(obj) = value.as_object_mut() {
+        if let Some(image_b64) = obj.get("imageBase64").and_then(Value::as_str) {
+            obj.insert(
+                "imageBase64".to_string(),
+                Value::String(format!("<omitted:{} chars>", image_b64.len())),
+            );
+        }
+    }
+    serde_json::to_string(&value).unwrap_or_else(|_| tool_result.to_string())
 }
 
 async fn call_model_deepseek_with_tools_http(
@@ -682,13 +798,37 @@ async fn call_model_deepseek_with_tools_http(
                 "done",
                 &format!("工具调用完成：{tool_name}"),
             );
+            let tool_result_text = tool_result.to_string();
+            let screenshot_forward =
+                screenshot_forward_payload_from_tool_result(&tool_name, &tool_result_text);
+            let history_content = sanitize_tool_result_for_history(&tool_name, &tool_result_text);
             let tool_event = serde_json::json!({
                 "role": "tool",
                 "tool_call_id": tc.id,
-                "content": tool_result.to_string()
+                "content": history_content
             });
             messages.push(tool_event.clone());
             tool_history_events.push(tool_event);
+            if let Some(payload) = screenshot_forward {
+                let notice = screenshot_forward_notice(&payload);
+                let user_forward_event = serde_json::json!({
+                    "role": "user",
+                    "content": [
+                        { "type": "text", "text": notice },
+                        {
+                            "type": "image_url",
+                            "image_url": {
+                                "url": format!("data:{};base64,{}", payload.mime, payload.base64)
+                            }
+                        }
+                    ]
+                });
+                messages.push(user_forward_event.clone());
+                tool_history_events.push(serde_json::json!({
+                    "role": "user",
+                    "content": "[desktop screenshot forwarded as user image]"
+                }));
+            }
         }
     }
 
@@ -731,7 +871,9 @@ async fn call_model_openai_with_tools(
     let has_fetch = tool_enabled(selected_api, "fetch");
     let has_bing = tool_enabled(selected_api, "bing-search");
     let has_memory = tool_enabled(selected_api, "memory-save");
-    if !has_fetch && !has_bing && !has_memory {
+    let has_desktop_screenshot = tool_enabled(selected_api, "desktop-screenshot");
+    let has_desktop_wait = tool_enabled(selected_api, "desktop-wait");
+    if !has_fetch && !has_bing && !has_memory && !has_desktop_screenshot && !has_desktop_wait {
         return call_model_openai_stream_text(api_config, model_name, &prepared, on_delta).await;
     }
 
@@ -760,6 +902,12 @@ async fn call_model_openai_with_tools(
             .ok_or_else(|| "memory_save_batch requires app state".to_string())?
             .clone();
         tools.push(Box::new(BuiltinMemorySaveBatchTool { app_state: state }));
+    }
+    if has_desktop_screenshot {
+        tools.push(Box::new(BuiltinDesktopScreenshotTool));
+    }
+    if has_desktop_wait {
+        tools.push(Box::new(BuiltinDesktopWaitTool));
     }
 
     let agent = client
@@ -811,7 +959,7 @@ async fn call_model_openai_with_tools(
         let mut turn_text = String::new();
         let mut turn_reasoning = String::new();
         let mut tool_calls = Vec::<AssistantContent>::new();
-        let mut tool_results = Vec::<(String, Option<String>, String)>::new();
+        let mut tool_results = Vec::<(String, String, Option<String>, String)>::new();
         let mut did_call_tool = false;
 
         while let Some(chunk) = stream.next().await {
@@ -892,15 +1040,16 @@ async fn call_model_openai_with_tools(
                         ]
                     });
                     tool_history_events.push(assistant_tool_event);
+                    let history_content = sanitize_tool_result_for_history(&tool_name, &tool_result);
                     let tool_event = serde_json::json!({
                         "role": "tool",
                         "tool_call_id": tool_call_id,
-                        "content": tool_result.clone()
+                        "content": history_content
                     });
                     tool_history_events.push(tool_event);
 
                     tool_calls.push(AssistantContent::ToolCall(tool_call.clone()));
-                    tool_results.push((tool_call.id, tool_call.call_id, tool_result));
+                    tool_results.push((tool_name, tool_call.id, tool_call.call_id, tool_result));
                 }
                 Ok(StreamedAssistantContent::Final(_)) => {}
                 Ok(StreamedAssistantContent::Reasoning(reasoning)) => {
@@ -968,7 +1117,9 @@ async fn call_model_openai_with_tools(
             });
         }
 
-        for (tool_id, call_id, tool_result) in tool_results {
+        for (tool_name, tool_id, call_id, tool_result) in tool_results {
+            let screenshot_forward =
+                screenshot_forward_payload_from_tool_result(&tool_name, &tool_result);
             let result_content = OneOrMany::one(ToolResultContent::text(tool_result));
             let user_content = if let Some(call_id) = call_id {
                 UserContent::tool_result_with_call_id(tool_id, call_id, result_content)
@@ -978,6 +1129,23 @@ async fn call_model_openai_with_tools(
             chat_history.push(RigMessage::User {
                 content: OneOrMany::one(user_content),
             });
+            if let Some(payload) = screenshot_forward {
+                let notice = screenshot_forward_notice(&payload);
+                let forwarded = OneOrMany::many(vec![
+                    UserContent::text(notice),
+                    UserContent::image_base64(
+                        payload.base64,
+                        image_media_type_from_mime(&payload.mime),
+                        Some(ImageDetail::Auto),
+                    ),
+                ])
+                .map_err(|_| "Failed to build screenshot forward user message".to_string())?;
+                chat_history.push(RigMessage::User { content: forwarded });
+                tool_history_events.push(serde_json::json!({
+                    "role": "user",
+                    "content": "[desktop screenshot forwarded as user image]"
+                }));
+            }
         }
 
         current_prompt = chat_history
@@ -1062,6 +1230,295 @@ async fn call_model_openai_with_tools(
     })
 }
 
+async fn call_model_gemini_with_tools(
+    api_config: &ResolvedApiConfig,
+    selected_api: &ApiConfig,
+    model_name: &str,
+    prepared: PreparedPrompt,
+    app_state: Option<&AppState>,
+    on_delta: &tauri::ipc::Channel<AssistantDeltaEvent>,
+    max_tool_iterations: usize,
+) -> Result<ModelReply, String> {
+    let has_fetch = tool_enabled(selected_api, "fetch");
+    let has_bing = tool_enabled(selected_api, "bing-search");
+    let has_memory = tool_enabled(selected_api, "memory-save");
+    let has_desktop_screenshot = tool_enabled(selected_api, "desktop-screenshot");
+    let has_desktop_wait = tool_enabled(selected_api, "desktop-wait");
+    if !has_fetch && !has_bing && !has_memory && !has_desktop_screenshot && !has_desktop_wait {
+        return call_model_gemini_rig_style(api_config, model_name, prepared).await;
+    }
+
+    let mut client_builder = gemini::Client::builder().api_key(&api_config.api_key);
+    let normalized_base = normalize_gemini_rig_base_url(&api_config.base_url);
+    if !normalized_base.is_empty() {
+        client_builder = client_builder.base_url(&normalized_base);
+    }
+    let client = client_builder
+        .build()
+        .map_err(|err| format!("Failed to create Gemini client via rig: {err}"))?;
+
+    let mut tools: Vec<Box<dyn ToolDyn>> = Vec::new();
+    if has_fetch {
+        tools.push(Box::new(BuiltinFetchTool));
+    }
+    if has_bing {
+        tools.push(Box::new(BuiltinBingSearchTool));
+    }
+    if has_memory {
+        let state = app_state
+            .ok_or_else(|| "memory_save requires app state".to_string())?
+            .clone();
+        tools.push(Box::new(BuiltinMemorySaveTool { app_state: state }));
+        let state = app_state
+            .ok_or_else(|| "memory_save_batch requires app state".to_string())?
+            .clone();
+        tools.push(Box::new(BuiltinMemorySaveBatchTool { app_state: state }));
+    }
+    if has_desktop_screenshot {
+        tools.push(Box::new(BuiltinDesktopScreenshotTool));
+    }
+    if has_desktop_wait {
+        tools.push(Box::new(BuiltinDesktopWaitTool));
+    }
+
+    let gemini_safety_settings = serde_json::json!({
+        "safetySettings": [
+            { "category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_NONE" },
+            { "category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_NONE" },
+            { "category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": "BLOCK_NONE" }
+        ]
+    });
+
+    let agent = client
+        .agent(model_name)
+        .preamble(&prepared.preamble)
+        .temperature(api_config.temperature)
+        .additional_params(gemini_safety_settings)
+        .tools(tools)
+        .build();
+
+    let mut full_assistant_text = String::new();
+    let mut full_reasoning_standard = String::new();
+    let mut tool_history_events = Vec::<Value>::new();
+    let mut prompt_blocks = vec![UserContent::text(prepared.latest_user_text.clone())];
+    if !prepared.latest_user_system_text.trim().is_empty() {
+        prompt_blocks.push(UserContent::text(prepared.latest_user_system_text.clone()));
+    }
+    let current_prompt_content = OneOrMany::many(prompt_blocks)
+        .map_err(|_| "Request payload is empty. Provide text, image, or audio.".to_string())?;
+    let mut current_prompt: RigMessage = RigMessage::User {
+        content: current_prompt_content,
+    };
+    let mut chat_history = Vec::<RigMessage>::new();
+    for hm in &prepared.history_messages {
+        if hm.role == "user" {
+            chat_history.push(RigMessage::User {
+                content: OneOrMany::one(UserContent::text(hm.text.clone())),
+            });
+        } else if hm.role == "assistant" {
+            chat_history.push(RigMessage::Assistant {
+                id: None,
+                content: OneOrMany::one(AssistantContent::text(hm.text.clone())),
+            });
+        }
+    }
+
+    for _ in 0..max_tool_iterations {
+        let mut stream = agent
+            .stream_completion(current_prompt.clone(), chat_history.clone())
+            .await
+            .map_err(|err| format!("rig stream completion build failed: {err}"))?
+            .stream()
+            .await
+            .map_err(|err| format!("rig stream start failed: {err}"))?;
+
+        chat_history.push(current_prompt.clone());
+
+        let mut turn_text = String::new();
+        let mut tool_calls = Vec::<AssistantContent>::new();
+        let mut tool_results = Vec::<(String, String, Option<String>, String)>::new();
+        let mut did_call_tool = false;
+
+        while let Some(chunk) = stream.next().await {
+            match chunk {
+                Ok(StreamedAssistantContent::Text(text)) => {
+                    let _ = on_delta.send(AssistantDeltaEvent {
+                        delta: text.text.clone(),
+                        kind: None,
+                        tool_name: None,
+                        tool_status: None,
+                        message: None,
+                    });
+                    turn_text.push_str(&text.text);
+                }
+                Ok(StreamedAssistantContent::ToolCall {
+                    tool_call,
+                    internal_call_id: _,
+                }) => {
+                    did_call_tool = true;
+                    let tool_call_id = tool_call.id.clone();
+                    let tool_name = tool_call.function.name.clone();
+                    let tool_args_value = tool_call.function.arguments.clone();
+                    send_tool_status_event(
+                        on_delta,
+                        &tool_name,
+                        "running",
+                        &format!("正在调用工具：{}", tool_name),
+                    );
+                    let tool_args = match &tool_args_value {
+                        Value::String(raw) => raw.clone(),
+                        other => other.to_string(),
+                    };
+                    let tool_result = agent
+                        .tool_server_handle
+                        .call_tool(&tool_name, &tool_args)
+                        .await
+                        .map_err(|err| {
+                            send_tool_status_event(
+                                on_delta,
+                                &tool_name,
+                                "failed",
+                                &format!("工具调用失败：{} ({err})", tool_name),
+                            );
+                            format!("Tool call '{}' failed: {err}", tool_name)
+                        })?;
+                    send_tool_status_event(
+                        on_delta,
+                        &tool_name,
+                        "done",
+                        &format!("工具调用完成：{}", tool_name),
+                    );
+                    let assistant_tool_event = serde_json::json!({
+                        "role": "assistant",
+                        "content": Value::Null,
+                        "tool_calls": [
+                            {
+                                "id": tool_call_id,
+                                "type": "function",
+                                "function": {
+                                    "name": tool_name,
+                                    "arguments": tool_args_value
+                                }
+                            }
+                        ]
+                    });
+                    tool_history_events.push(assistant_tool_event);
+                    let history_content = sanitize_tool_result_for_history(&tool_name, &tool_result);
+                    let tool_event = serde_json::json!({
+                        "role": "tool",
+                        "tool_call_id": tool_call_id,
+                        "content": history_content
+                    });
+                    tool_history_events.push(tool_event);
+
+                    tool_calls.push(AssistantContent::ToolCall(tool_call.clone()));
+                    tool_results.push((tool_name, tool_call.id, tool_call.call_id, tool_result));
+                }
+                Ok(StreamedAssistantContent::Final(_)) => {}
+                Ok(StreamedAssistantContent::Reasoning(reasoning)) => {
+                    let merged = reasoning.reasoning.join("\n");
+                    if !merged.is_empty() {
+                        full_reasoning_standard.push_str(&merged);
+                        let _ = on_delta.send(AssistantDeltaEvent {
+                            delta: merged,
+                            kind: Some("reasoning_standard".to_string()),
+                            tool_name: None,
+                            tool_status: None,
+                            message: None,
+                        });
+                    }
+                }
+                Ok(StreamedAssistantContent::ReasoningDelta { reasoning, .. }) => {
+                    if !reasoning.is_empty() {
+                        full_reasoning_standard.push_str(&reasoning);
+                        let _ = on_delta.send(AssistantDeltaEvent {
+                            delta: reasoning,
+                            kind: Some("reasoning_standard".to_string()),
+                            tool_name: None,
+                            tool_status: None,
+                            message: None,
+                        });
+                    }
+                }
+                Ok(StreamedAssistantContent::ToolCallDelta { .. }) => {}
+                Err(err) => return Err(format!("rig streaming failed: {err}")),
+            }
+        }
+
+        if !turn_text.is_empty() {
+            if !full_assistant_text.trim().is_empty() {
+                full_assistant_text.push_str("\n\n");
+            }
+            full_assistant_text.push_str(&turn_text);
+        }
+
+        if !did_call_tool {
+            return Ok(ModelReply {
+                assistant_text: full_assistant_text,
+                reasoning_standard: full_reasoning_standard,
+                reasoning_inline: String::new(),
+                tool_history_events,
+            });
+        }
+
+        if !tool_calls.is_empty() {
+            chat_history.push(RigMessage::Assistant {
+                id: None,
+                content: OneOrMany::many(tool_calls)
+                    .map_err(|_| "Failed to build assistant tool-call message".to_string())?,
+            });
+        }
+
+        for (tool_name, tool_id, call_id, tool_result) in tool_results {
+            let screenshot_forward =
+                screenshot_forward_payload_from_tool_result(&tool_name, &tool_result);
+            let result_content = OneOrMany::one(ToolResultContent::text(tool_result));
+            let user_content = if let Some(call_id) = call_id {
+                UserContent::tool_result_with_call_id(tool_id, call_id, result_content)
+            } else {
+                UserContent::tool_result(tool_id, result_content)
+            };
+            chat_history.push(RigMessage::User {
+                content: OneOrMany::one(user_content),
+            });
+            if let Some(payload) = screenshot_forward {
+                let notice = screenshot_forward_notice(&payload);
+                let forwarded = OneOrMany::many(vec![
+                    UserContent::text(notice),
+                    UserContent::image_base64(
+                        payload.base64,
+                        image_media_type_from_mime(&payload.mime),
+                        Some(ImageDetail::Auto),
+                    ),
+                ])
+                .map_err(|_| "Failed to build screenshot forward user message".to_string())?;
+                chat_history.push(RigMessage::User { content: forwarded });
+                tool_history_events.push(serde_json::json!({
+                    "role": "user",
+                    "content": "[desktop screenshot forwarded as user image]"
+                }));
+            }
+        }
+
+        current_prompt = chat_history
+            .pop()
+            .ok_or_else(|| "Tool call turn ended with empty chat history".to_string())?;
+    }
+
+    send_tool_status_event(
+        on_delta,
+        "tools",
+        "failed",
+        "工具调用达到上限，停止继续调用并立刻汇报。",
+    );
+    Ok(ModelReply {
+        assistant_text: full_assistant_text,
+        reasoning_standard: full_reasoning_standard,
+        reasoning_inline: String::new(),
+        tool_history_events,
+    })
+}
+
 async fn call_model_openai_style(
     api_config: &ResolvedApiConfig,
     selected_api: &ApiConfig,
@@ -1072,6 +1529,21 @@ async fn call_model_openai_style(
     max_tool_iterations: usize,
 ) -> Result<ModelReply, String> {
     if selected_api.request_format.trim() == "gemini" {
+        if selected_api.enable_tools
+            && prepared.latest_images.is_empty()
+            && prepared.latest_audios.is_empty()
+        {
+            return call_model_gemini_with_tools(
+                api_config,
+                selected_api,
+                model_name,
+                prepared,
+                app_state,
+                on_delta,
+                max_tool_iterations,
+            )
+            .await;
+        }
         return call_model_gemini_rig_style(api_config, model_name, prepared).await;
     }
 
