@@ -36,12 +36,10 @@ export function useChatMedia(options: UseChatMediaOptions) {
     const apiConfig = options.activeChatApiConfig.value;
     if (!apiConfig) return;
 
-    const text = event.clipboardData?.getData("text/plain");
-    if (text && !options.chatInput.value.trim() && apiConfig.enableText) {
-      options.chatInput.value = text;
-    }
+    const imageItems = Array.from(items).filter((item) => item.type.startsWith("image/"));
+    if (imageItems.length === 0) return;
 
-    for (const item of Array.from(items)) {
+    for (const item of imageItems) {
       if (item.type.startsWith("image/")) {
         if (!apiConfig.enableImage && !options.hasVisionFallback.value) {
           event.preventDefault();
@@ -189,4 +187,3 @@ export function useChatMedia(options: UseChatMediaOptions) {
     cleanupChatMedia,
   };
 }
-
