@@ -296,8 +296,6 @@ struct ChatInputPayload {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct SendChatRequest {
-    api_config_id: Option<String>,
-    agent_id: String,
     payload: ChatInputPayload,
 }
 

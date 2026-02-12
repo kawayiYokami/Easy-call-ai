@@ -4,17 +4,35 @@ async fn send_chat_message(
     state: State<'_, AppState>,
     on_delta: tauri::ipc::Channel<AssistantDeltaEvent>,
 ) -> Result<SendChatResult, String> {
-    let (app_config, selected_api, resolved_api) = {
+    let (app_config, selected_api, resolved_api, effective_agent_id) = {
         let guard = state
             .state_lock
             .lock()
             .map_err(|_| "Failed to lock state mutex".to_string())?;
         let app_config = read_config(&state.config_path)?;
-        let selected_api = resolve_selected_api_config(&app_config, input.api_config_id.as_deref())
+        let selected_api = resolve_selected_api_config(&app_config, None)
             .ok_or_else(|| "No API config configured. Please add one.".to_string())?;
         let resolved_api = resolve_api_config(&app_config, Some(selected_api.id.as_str()))?;
+        let mut data = read_app_data(&state.data_path)?;
+        let changed = ensure_default_agent(&mut data);
+        if changed {
+            write_app_data(&state.data_path, &data)?;
+        }
+        let effective_agent_id = if data
+            .agents
+            .iter()
+            .any(|a| a.id == data.selected_agent_id && !a.is_built_in_user)
+        {
+            data.selected_agent_id.clone()
+        } else {
+            data.agents
+                .iter()
+                .find(|a| !a.is_built_in_user)
+                .map(|a| a.id.clone())
+                .ok_or_else(|| "No assistant agent configured.".to_string())?
+        };
         drop(guard);
-        (app_config, selected_api, resolved_api)
+        (app_config, selected_api, resolved_api, effective_agent_id)
     };
 
     if !matches!(
@@ -154,13 +172,15 @@ async fn send_chat_message(
         let _agent = data
             .agents
             .iter()
-            .find(|a| a.id == input.agent_id)
+            .find(|a| a.id == effective_agent_id)
             .cloned()
             .ok_or_else(|| "Selected agent not found.".to_string())?;
 
-        if let Some(conversation) = data.conversations.iter_mut().find(|c| {
-            c.status == "active" && c.api_config_id == selected_api.id && c.agent_id == input.agent_id
-        }) {
+        if let Some(idx) = latest_active_conversation_index(&data, &effective_agent_id) {
+            let conversation = data
+                .conversations
+                .get_mut(idx)
+                .ok_or_else(|| "Active conversation index is out of bounds.".to_string())?;
             let decision =
                 decide_archive_before_user_message(conversation, selected_api.context_window_tokens);
             conversation.last_context_usage_ratio = decision.usage_ratio;
@@ -199,7 +219,7 @@ async fn send_chat_message(
             let agent = data
                 .agents
                 .iter()
-                .find(|a| a.id == input.agent_id)
+                .find(|a| a.id == effective_agent_id)
                 .cloned()
                 .ok_or_else(|| "Selected agent not found.".to_string())?;
             let user_alias = data.user_alias.clone();
@@ -238,6 +258,11 @@ async fn send_chat_message(
                 )
                 .is_some()
                 {
+                    let _ = ensure_active_conversation_index(
+                        &mut data,
+                        &selected_api.id,
+                        &effective_agent_id,
+                    );
                     let memory_merged = merge_memories_into_app_data(&mut data, &summary_memories);
                     if memory_merged > 0 {
                         invalidate_memory_matcher_cache();
@@ -343,11 +368,11 @@ async fn send_chat_message(
         let agent = data
             .agents
             .iter()
-            .find(|a| a.id == input.agent_id)
+            .find(|a| a.id == effective_agent_id)
             .cloned()
             .ok_or_else(|| "Selected agent not found.".to_string())?;
 
-        let idx = ensure_active_conversation_index(&mut data, &selected_api.id, &input.agent_id);
+        let idx = ensure_active_conversation_index(&mut data, &selected_api.id, &effective_agent_id);
 
         // 聊天记录保留用户原始多模态内容；模型请求使用 effective_payload（可能已做图转文）。
         let mut storage_api = selected_api.clone();
@@ -363,8 +388,7 @@ async fn send_chat_message(
             .iter()
             .rev()
             .find(|a| {
-                a.source_conversation.api_config_id == selected_api.id
-                    && a.source_conversation.agent_id == input.agent_id
+                a.source_conversation.agent_id == effective_agent_id
                     && !a.summary.trim().is_empty()
             })
             .map(|a| a.summary.clone());

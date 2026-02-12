@@ -371,7 +371,7 @@ fn save_conversation_api_settings(
 
 #[tauri::command]
 fn get_chat_snapshot(
-    input: SessionSelector,
+    _input: SessionSelector,
     state: State<'_, AppState>,
 ) -> Result<ChatSnapshot, String> {
     let guard = state
@@ -380,17 +380,27 @@ fn get_chat_snapshot(
         .map_err(|_| "Failed to lock state mutex".to_string())?;
 
     let app_config = read_config(&state.config_path)?;
-    let api_config = resolve_selected_api_config(&app_config, input.api_config_id.as_deref())
+    let api_config = resolve_selected_api_config(&app_config, None)
         .ok_or_else(|| "No API config available".to_string())?;
 
     let mut data = read_app_data(&state.data_path)?;
     let defaults_changed = ensure_default_agent(&mut data);
-    if !data.agents.iter().any(|a| a.id == input.agent_id) {
-        return Err("Selected agent not found.".to_string());
-    }
+    let effective_agent_id = if data
+        .agents
+        .iter()
+        .any(|a| a.id == data.selected_agent_id && !a.is_built_in_user)
+    {
+        data.selected_agent_id.clone()
+    } else {
+        data.agents
+            .iter()
+            .find(|a| !a.is_built_in_user)
+            .map(|a| a.id.clone())
+            .ok_or_else(|| "Selected agent not found.".to_string())?
+    };
 
     let before_len = data.conversations.len();
-    let idx = ensure_active_conversation_index(&mut data, &api_config.id, &input.agent_id);
+    let idx = ensure_active_conversation_index(&mut data, &api_config.id, &effective_agent_id);
     let conversation = &data.conversations[idx];
 
     let latest_user = conversation
@@ -421,7 +431,7 @@ fn get_chat_snapshot(
 
 #[tauri::command]
 fn get_active_conversation_messages(
-    input: SessionSelector,
+    _input: SessionSelector,
     state: State<'_, AppState>,
 ) -> Result<Vec<ChatMessage>, String> {
     let guard = state
@@ -430,14 +440,27 @@ fn get_active_conversation_messages(
         .map_err(|_| "Failed to lock state mutex".to_string())?;
 
     let app_config = read_config(&state.config_path)?;
-    let api_config = resolve_selected_api_config(&app_config, input.api_config_id.as_deref())
+    let api_config = resolve_selected_api_config(&app_config, None)
         .ok_or_else(|| "No API config available".to_string())?;
 
     let mut data = read_app_data(&state.data_path)?;
     let defaults_changed = ensure_default_agent(&mut data);
+    let effective_agent_id = if data
+        .agents
+        .iter()
+        .any(|a| a.id == data.selected_agent_id && !a.is_built_in_user)
+    {
+        data.selected_agent_id.clone()
+    } else {
+        data.agents
+            .iter()
+            .find(|a| !a.is_built_in_user)
+            .map(|a| a.id.clone())
+            .ok_or_else(|| "Selected agent not found.".to_string())?
+    };
 
     let before_len = data.conversations.len();
-    let idx = ensure_active_conversation_index(&mut data, &api_config.id, &input.agent_id);
+    let idx = ensure_active_conversation_index(&mut data, &api_config.id, &effective_agent_id);
     let messages = data.conversations[idx].messages.clone();
 
     if defaults_changed || data.conversations.len() != before_len {

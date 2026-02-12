@@ -1,11 +1,19 @@
+fn latest_active_conversation_index(data: &AppData, agent_id: &str) -> Option<usize> {
+    data.conversations
+        .iter()
+        .rposition(|c| c.status == "active" && c.agent_id == agent_id)
+}
+
 fn ensure_active_conversation_index(
     data: &mut AppData,
     api_config_id: &str,
     agent_id: &str,
 ) -> usize {
-    if let Some((idx, _)) = data.conversations.iter().enumerate().find(|(_, c)| {
-        c.status == "active" && c.api_config_id == api_config_id && c.agent_id == agent_id
-    }) {
+    if let Some(idx) = latest_active_conversation_index(data, agent_id) {
+        if data.conversations[idx].api_config_id != api_config_id {
+            data.conversations[idx].api_config_id = api_config_id.to_string();
+            data.conversations[idx].updated_at = now_iso();
+        }
         return idx;
     }
 

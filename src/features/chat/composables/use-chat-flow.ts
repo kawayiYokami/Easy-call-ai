@@ -25,14 +25,10 @@ type UseChatFlowOptions = {
   chatErrorText: Ref<string>;
   allMessages: Ref<ChatMessage[]>;
   visibleTurnCount: Ref<number>;
-  activeChatApiConfigId: Ref<string>;
-  selectedPersonaId: Ref<string>;
   t: (key: string, params?: Record<string, unknown>) => string;
   formatRequestFailed: (error: unknown) => string;
   removeBinaryPlaceholders: (text: string) => string;
   invokeSendChatMessage: (input: {
-    apiConfigId: string;
-    agentId: string;
     text: string;
     images: Array<{ mime: string; bytesBase64: string }>;
     onDelta: Channel<AssistantDeltaEvent>;
@@ -186,8 +182,6 @@ export function useChatFlow(options: UseChatFlowOptions) {
     options.chatting.value = true;
     try {
       const result = await options.invokeSendChatMessage({
-        apiConfigId: options.activeChatApiConfigId.value,
-        agentId: options.selectedPersonaId.value,
         text,
         images: sentImages,
         onDelta: deltaChannel,

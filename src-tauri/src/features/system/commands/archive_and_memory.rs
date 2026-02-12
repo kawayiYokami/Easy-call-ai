@@ -1,6 +1,6 @@
 #[tauri::command]
 fn get_prompt_preview(
-    input: SessionSelector,
+    _input: SessionSelector,
     state: State<'_, AppState>,
 ) -> Result<PromptPreview, String> {
     let guard = state
@@ -9,31 +9,42 @@ fn get_prompt_preview(
         .map_err(|_| "Failed to lock state mutex".to_string())?;
 
     let app_config = read_config(&state.config_path)?;
-    let api_config = resolve_selected_api_config(&app_config, input.api_config_id.as_deref())
+    let api_config = resolve_selected_api_config(&app_config, None)
         .ok_or_else(|| "No API config available".to_string())?;
 
     let mut data = read_app_data(&state.data_path)?;
     let _ = ensure_default_agent(&mut data);
+    let effective_agent_id = if data
+        .agents
+        .iter()
+        .any(|a| a.id == data.selected_agent_id && !a.is_built_in_user)
+    {
+        data.selected_agent_id.clone()
+    } else {
+        data.agents
+            .iter()
+            .find(|a| !a.is_built_in_user)
+            .map(|a| a.id.clone())
+            .ok_or_else(|| "Selected agent not found.".to_string())?
+    };
 
     let agent = data
         .agents
         .iter()
-        .find(|a| a.id == input.agent_id)
+        .find(|a| a.id == effective_agent_id)
         .cloned()
         .ok_or_else(|| "Selected agent not found.".to_string())?;
 
     let conversation = data
         .conversations
         .iter()
-        .find(|c| {
-            c.status == "active" && c.api_config_id == api_config.id && c.agent_id == input.agent_id
-        })
+        .rfind(|c| c.status == "active" && c.agent_id == effective_agent_id)
         .cloned()
         .unwrap_or_else(|| Conversation {
             id: "preview".to_string(),
             title: "Preview".to_string(),
             api_config_id: api_config.id.clone(),
-            agent_id: input.agent_id.clone(),
+            agent_id: effective_agent_id.clone(),
             created_at: now_iso(),
             updated_at: now_iso(),
             last_user_at: None,
@@ -58,9 +69,7 @@ fn get_prompt_preview(
         .iter()
         .rev()
         .find(|a| {
-            a.source_conversation.api_config_id == api_config.id
-                && a.source_conversation.agent_id == input.agent_id
-                && !a.summary.trim().is_empty()
+            a.source_conversation.agent_id == effective_agent_id && !a.summary.trim().is_empty()
         })
         .map(|a| a.summary.clone());
     if let Some(summary) = last_archive_summary {
@@ -940,7 +949,7 @@ async fn summarize_archived_conversation_with_model(
 
 #[tauri::command]
 async fn force_archive_current(
-    input: SessionSelector,
+    _input: SessionSelector,
     state: State<'_, AppState>,
 ) -> Result<ForceArchiveResult, String> {
     let (selected_api, resolved_api, source, agent, user_alias, memories) = {
@@ -949,27 +958,37 @@ async fn force_archive_current(
             .lock()
             .map_err(|_| "Failed to lock state mutex".to_string())?;
         let app_config = read_config(&state.config_path)?;
-        let selected_api = resolve_selected_api_config(&app_config, input.api_config_id.as_deref())
+        let selected_api = resolve_selected_api_config(&app_config, None)
             .ok_or_else(|| "No API config configured. Please add one.".to_string())?;
         let resolved_api = resolve_api_config(&app_config, Some(selected_api.id.as_str()))?;
         let mut data = read_app_data(&state.data_path)?;
         ensure_default_agent(&mut data);
+        let effective_agent_id = if data
+            .agents
+            .iter()
+            .any(|a| a.id == data.selected_agent_id && !a.is_built_in_user)
+        {
+            data.selected_agent_id.clone()
+        } else {
+            data.agents
+                .iter()
+                .find(|a| !a.is_built_in_user)
+                .map(|a| a.id.clone())
+                .ok_or_else(|| "Selected agent not found.".to_string())?
+        };
         let agent = data
             .agents
             .iter()
-            .find(|a| a.id == input.agent_id)
+            .find(|a| a.id == effective_agent_id)
             .cloned()
             .ok_or_else(|| "Selected agent not found.".to_string())?;
         let user_alias = data.user_alias.clone();
         let memories = data.memories.clone();
+        let source_idx = latest_active_conversation_index(&data, &effective_agent_id)
+            .ok_or_else(|| "当前没有可归档的活动对话。".to_string())?;
         let source = data
             .conversations
-            .iter()
-            .find(|c| {
-                c.status == "active"
-                    && c.api_config_id == selected_api.id
-                    && c.agent_id == input.agent_id
-            })
+            .get(source_idx)
             .cloned()
             .ok_or_else(|| "当前没有可归档的活动对话。".to_string())?;
         drop(guard);
@@ -1001,12 +1020,16 @@ async fn force_archive_current(
         .map_err(|_| "Failed to lock state mutex".to_string())?;
     let mut data = read_app_data(&state.data_path)?;
     ensure_default_agent(&mut data);
-    let archive_id =
-        archive_conversation_now(&mut data, &source.id, "manual_force_archive", &summary);
+    let archive_id = archive_conversation_now(&mut data, &source.id, "manual_force_archive", &summary);
     if archive_id.is_none() {
         drop(guard);
         return Err("活动对话已变化，请重试强制归档。".to_string());
     }
+    let _ = ensure_active_conversation_index(
+        &mut data,
+        &selected_api.id,
+        &source.agent_id,
+    );
     let merged_memories = merge_memories_into_app_data(&mut data, &summary_memories);
     if merged_memories > 0 {
         invalidate_memory_matcher_cache();
