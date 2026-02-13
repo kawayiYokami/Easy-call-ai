@@ -73,12 +73,17 @@ fn normalize_app_config(config: &mut AppConfig) {
         config.selected_api_config_id = config.api_configs[0].id.clone();
     }
 
-    let chat_valid = config
-        .api_configs
-        .iter()
-        .any(|a| a.id == config.chat_api_config_id && a.enable_text);
+    let chat_valid = config.api_configs.iter().any(|a| {
+        a.id == config.chat_api_config_id
+            && a.enable_text
+            && !matches!(a.request_format.trim(), "openai_tts")
+    });
     if !chat_valid {
-        if let Some(api) = config.api_configs.iter().find(|a| a.enable_text) {
+        if let Some(api) = config
+            .api_configs
+            .iter()
+            .find(|a| a.enable_text && !matches!(a.request_format.trim(), "openai_tts"))
+        {
             config.chat_api_config_id = api.id.clone();
         } else {
             config.chat_api_config_id = config.api_configs[0].id.clone();
@@ -106,6 +111,20 @@ fn normalize_app_config(config: &mut AppConfig) {
                 .any(|a| a.id == *id && a.enable_image)
         })
         .map(ToOwned::to_owned);
+
+    config.stt_api_config_id = config
+        .stt_api_config_id
+        .as_deref()
+        .filter(|id| {
+            config
+                .api_configs
+                .iter()
+                .any(|a| a.id == *id && matches!(a.request_format.trim(), "openai_tts"))
+        })
+        .map(ToOwned::to_owned);
+    if config.stt_api_config_id.is_none() {
+        config.stt_auto_send = false;
+    }
 }
 
 fn read_app_data(path: &PathBuf) -> Result<AppData, String> {

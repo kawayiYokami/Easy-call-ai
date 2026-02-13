@@ -40,6 +40,8 @@
             selected_api_config_id: "a1".to_string(),
             chat_api_config_id: "a1".to_string(),
             vision_api_config_id: None,
+            stt_api_config_id: None,
+            stt_auto_send: false,
             api_configs: vec![
                 ApiConfig {
                     id: "a1".to_string(),
@@ -78,6 +80,7 @@
         assert_eq!(cfg.min_record_seconds, 1);
         assert!(cfg.max_record_seconds >= cfg.min_record_seconds);
         assert_eq!(cfg.tool_max_iterations, 1);
+        assert!(!cfg.stt_auto_send);
     }
 
     #[test]
@@ -92,6 +95,8 @@
             selected_api_config_id: "edit-b".to_string(),
             chat_api_config_id: "chat-a".to_string(),
             vision_api_config_id: None,
+            stt_api_config_id: None,
+            stt_auto_send: false,
             api_configs: vec![
                 ApiConfig {
                     id: "chat-a".to_string(),
@@ -142,6 +147,8 @@
             selected_api_config_id: "tts-a".to_string(),
             chat_api_config_id: "tts-a".to_string(),
             vision_api_config_id: Some("tts-a".to_string()),
+            stt_api_config_id: Some("tts-a".to_string()),
+            stt_auto_send: true,
             api_configs: vec![ApiConfig {
                 id: "tts-a".to_string(),
                 name: "tts-a".to_string(),
@@ -165,5 +172,6 @@
         assert!(!api.enable_audio);
         assert!(api.enable_tools);
         assert_eq!(cfg.vision_api_config_id, None);
+        assert!(cfg.stt_auto_send);
     }
 
