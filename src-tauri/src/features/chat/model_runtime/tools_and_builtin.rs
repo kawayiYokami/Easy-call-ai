@@ -117,40 +117,40 @@ async fn call_model_gemini_rig_style(
         .additional_params(gemini_safety_settings)
         .build();
 
-    let mut prompt_text = String::new();
+    let mut content_items: Vec<UserContent> = Vec::new();
     if !prepared.latest_user_text.trim().is_empty() {
-        prompt_text.push_str(prepared.latest_user_text.trim());
+        content_items.push(UserContent::text(prepared.latest_user_text));
     }
     if !prepared.latest_user_time_text.trim().is_empty() {
-        if !prompt_text.is_empty() {
-            prompt_text.push_str("\n\n");
-        }
-        prompt_text.push_str(prepared.latest_user_time_text.trim());
+        content_items.push(UserContent::text(prepared.latest_user_time_text));
     }
     if !prepared.latest_user_system_text.trim().is_empty() {
-        if !prompt_text.is_empty() {
-            prompt_text.push_str("\n\n");
-        }
-        prompt_text.push_str(prepared.latest_user_system_text.trim());
-    }
-    if !prepared.latest_images.is_empty() {
-        if !prompt_text.is_empty() {
-            prompt_text.push_str("\n\n");
-        }
-        prompt_text.push_str(&format!("[images:{}]", prepared.latest_images.len()));
-    }
-    if !prepared.latest_audios.is_empty() {
-        if !prompt_text.is_empty() {
-            prompt_text.push_str("\n\n");
-        }
-        prompt_text.push_str(&format!("[audios:{}]", prepared.latest_audios.len()));
-    }
-    if prompt_text.trim().is_empty() {
-        return Err("Request payload is empty. Provide text, image, or audio.".to_string());
+        content_items.push(UserContent::text(prepared.latest_user_system_text));
     }
 
+    for (mime, bytes) in prepared.latest_images {
+        if mime.trim().eq_ignore_ascii_case("application/pdf") {
+            content_items.push(UserContent::document(bytes, Some(DocumentMediaType::PDF)));
+        } else {
+            content_items.push(UserContent::image_base64(
+                bytes,
+                image_media_type_from_mime(&mime),
+                Some(ImageDetail::Auto),
+            ));
+        }
+    }
+
+    for (mime, bytes) in prepared.latest_audios {
+        content_items.push(UserContent::audio(bytes, audio_media_type_from_mime(&mime)));
+    }
+
+    let prompt_content = OneOrMany::many(content_items)
+        .map_err(|_| "Request payload is empty. Provide text, image, or audio.".to_string())?;
+
     let assistant_text = agent
-        .prompt(prompt_text.clone())
+        .prompt(RigMessage::User {
+            content: prompt_content,
+        })
         .await
         .map_err(|err| err.to_string())?;
     Ok(ModelReply {

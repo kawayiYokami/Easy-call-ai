@@ -76,13 +76,13 @@ fn normalize_app_config(config: &mut AppConfig) {
     let chat_valid = config.api_configs.iter().any(|a| {
         a.id == config.chat_api_config_id
             && a.enable_text
-            && !matches!(a.request_format.trim(), "openai_tts")
+            && !a.request_format.is_openai_tts()
     });
     if !chat_valid {
         if let Some(api) = config
             .api_configs
             .iter()
-            .find(|a| a.enable_text && !matches!(a.request_format.trim(), "openai_tts"))
+            .find(|a| a.enable_text && !a.request_format.is_openai_tts())
         {
             config.chat_api_config_id = api.id.clone();
         } else {
@@ -119,7 +119,7 @@ fn normalize_app_config(config: &mut AppConfig) {
             config
                 .api_configs
                 .iter()
-                .any(|a| a.id == *id && matches!(a.request_format.trim(), "openai_tts"))
+                .any(|a| a.id == *id && a.request_format.is_openai_tts())
         })
         .map(ToOwned::to_owned);
     if config.stt_api_config_id.is_none() {
@@ -193,17 +193,15 @@ fn resolve_api_config(
         let enabled = debug_cfg.enabled.unwrap_or(true);
         let request_format_ok = debug_cfg
             .request_format
-            .as_deref()
-            .map(str::trim)
-            .unwrap_or("openai")
-            .eq_ignore_ascii_case("openai");
+            .unwrap_or(RequestFormat::OpenAI)
+            .is_openai_style();
 
         if enabled && request_format_ok {
             if debug_cfg.api_key.trim().is_empty() {
                 return Err(".debug/api-key.json exists but apiKey is empty.".to_string());
             }
             return Ok(ResolvedApiConfig {
-                request_format: "openai".to_string(),
+                request_format: RequestFormat::OpenAI,
                 base_url: debug_cfg.base_url.trim().to_string(),
                 api_key: debug_cfg.api_key.trim().to_string(),
                 model: debug_cfg.model.trim().to_string(),
@@ -229,7 +227,7 @@ fn resolve_api_config(
     }
 
     Ok(ResolvedApiConfig {
-        request_format: selected.request_format.trim().to_string(),
+        request_format: selected.request_format,
         base_url: selected.base_url.trim().to_string(),
         api_key: selected.api_key.trim().to_string(),
         model: selected.model.trim().to_string(),
@@ -310,6 +308,6 @@ fn upsert_image_text_cache(data: &mut AppData, hash: &str, vision_api_id: &str, 
     });
 }
 
-fn is_openai_style_request_format(request_format: &str) -> bool {
-    matches!(request_format.trim(), "openai" | "deepseek/kimi")
+fn is_openai_style_request_format(request_format: RequestFormat) -> bool {
+    request_format.is_openai_style()
 }

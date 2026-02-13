@@ -35,10 +35,7 @@ async fn send_chat_message(
         (app_config, selected_api, resolved_api, effective_agent_id)
     };
 
-    if !matches!(
-        resolved_api.request_format.trim(),
-        "openai" | "deepseek/kimi" | "gemini" | "anthropic"
-    ) {
+    if matches!(resolved_api.request_format, RequestFormat::OpenAITts) {
         return Err(format!(
             "Request format '{}' is not implemented in chat router yet.",
             resolved_api.request_format
@@ -58,10 +55,7 @@ async fn send_chat_message(
             if let Some(vision_api) = vision_api {
                 let vision_resolved =
                     resolve_api_config(&app_config, Some(vision_api.id.as_str()))?;
-                if !matches!(
-                    vision_resolved.request_format.trim(),
-                    "openai" | "deepseek/kimi" | "gemini" | "anthropic"
-                ) {
+                if matches!(vision_resolved.request_format, RequestFormat::OpenAITts) {
                     return Err(format!(
                         "Vision request format '{}' is not implemented in image conversion router yet.",
                         vision_resolved.request_format
@@ -133,7 +127,13 @@ async fn send_chat_message(
         .iter()
         .map(|part| match part {
             MessagePart::Text { text } => text.clone(),
-            MessagePart::Image { .. } => "[image]".to_string(),
+            MessagePart::Image { mime, .. } => {
+                if mime.trim().eq_ignore_ascii_case("application/pdf") {
+                    "[pdf]".to_string()
+                } else {
+                    "[image]".to_string()
+                }
+            }
             MessagePart::Audio { .. } => "[audio]".to_string(),
         })
         .collect::<Vec<_>>()
@@ -612,6 +612,64 @@ struct SttTranscribeOutput {
     text: String,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ReadLocalBinaryFileInput {
+    path: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ReadLocalBinaryFileOutput {
+    mime: String,
+    bytes_base64: String,
+}
+
+fn media_mime_from_path(path: &std::path::Path) -> Option<&'static str> {
+    let ext = path
+        .extension()
+        .and_then(|v| v.to_str())
+        .map(|v| v.trim().to_ascii_lowercase())
+        .unwrap_or_default();
+    match ext.as_str() {
+        "pdf" => Some("application/pdf"),
+        "png" => Some("image/png"),
+        "jpg" | "jpeg" => Some("image/jpeg"),
+        "gif" => Some("image/gif"),
+        "webp" => Some("image/webp"),
+        "heic" => Some("image/heic"),
+        "heif" => Some("image/heif"),
+        "svg" => Some("image/svg+xml"),
+        _ => None,
+    }
+}
+
+#[tauri::command]
+fn read_local_binary_file(
+    input: ReadLocalBinaryFileInput,
+) -> Result<ReadLocalBinaryFileOutput, String> {
+    let path_text = input.path.trim();
+    if path_text.is_empty() {
+        return Err("File path is empty.".to_string());
+    }
+    let path = std::path::PathBuf::from(path_text);
+    let mime = media_mime_from_path(&path)
+        .ok_or_else(|| format!("Unsupported file type: '{}'.", path_text))?
+        .to_string();
+    let raw = fs::read(&path).map_err(|err| format!("Read file failed: {err}"))?;
+    if raw.len() > MAX_MULTIMODAL_BYTES {
+        return Err(format!(
+            "File is too large ({} bytes). Max allowed is {} bytes.",
+            raw.len(),
+            MAX_MULTIMODAL_BYTES
+        ));
+    }
+    Ok(ReadLocalBinaryFileOutput {
+        mime,
+        bytes_base64: B64.encode(raw),
+    })
+}
+
 fn candidate_stt_urls(base_url: &str) -> Vec<String> {
     let base = base_url.trim().trim_end_matches('/');
     if base.is_empty() {
@@ -740,7 +798,7 @@ async fn stt_transcribe(
         .find(|a| a.id == selected_id)
         .cloned()
         .ok_or_else(|| "Selected STT API config not found.".to_string())?;
-    if !matches!(api.request_format.trim(), "openai_tts") {
+    if !api.request_format.is_openai_tts() {
         return Err("Selected STT API must use request_format='openai_tts'.".to_string());
     }
 
@@ -873,17 +931,14 @@ async fn refresh_models(input: RefreshModelsInput) -> Result<Vec<String>, String
         return Err("Base URL is empty.".to_string());
     }
 
-    match input.request_format.trim() {
-        "openai" | "deepseek/kimi" => fetch_models_openai(&input).await,
-        "gemini" => fetch_models_gemini_native(&input).await,
-        "anthropic" => fetch_models_anthropic(&input).await,
-        "openai_tts" => Err(
+    match input.request_format {
+        RequestFormat::OpenAI | RequestFormat::DeepSeekKimi => fetch_models_openai(&input).await,
+        RequestFormat::Gemini => fetch_models_gemini_native(&input).await,
+        RequestFormat::Anthropic => fetch_models_anthropic(&input).await,
+        RequestFormat::OpenAITts => Err(
             "Request format 'openai_tts' is for audio transcriptions and does not support model list refresh."
                 .to_string(),
         ),
-        other => Err(format!(
-            "Request format '{other}' model refresh is not implemented yet."
-        )),
     }
 }
 
@@ -1011,18 +1066,20 @@ async fn send_debug_probe(state: State<'_, AppState>) -> Result<String, String> 
         latest_audios: Vec::new(),
     };
 
-    let reply = match api_config.request_format.trim() {
-        "openai" | "deepseek/kimi" => {
+    let reply = match api_config.request_format {
+        RequestFormat::OpenAI | RequestFormat::DeepSeekKimi => {
             call_model_openai_rig_style(&api_config, &api_config.model, prepared).await?
         }
-        "gemini" => call_model_gemini_rig_style(&api_config, &api_config.model, prepared).await?,
-        "anthropic" => {
+        RequestFormat::Gemini => {
+            call_model_gemini_rig_style(&api_config, &api_config.model, prepared).await?
+        }
+        RequestFormat::Anthropic => {
             call_model_anthropic_rig_style(&api_config, &api_config.model, prepared).await?
         }
-        other => {
+        RequestFormat::OpenAITts => {
             return Err(format!(
                 "Request format '{}' is not implemented in probe router yet.",
-                other
+                api_config.request_format
             ))
         }
     };

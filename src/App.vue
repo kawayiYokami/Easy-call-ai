@@ -82,6 +82,7 @@
       :recording-ms="recordingMs"
       :transcribing="transcribing"
       :record-hotkey="config.recordHotkey"
+      :media-drag-active="mediaDragActive"
       :chatting="chatting"
       :forcing-archive="forcingArchive"
       :visible-turns="visibleTurns"
@@ -448,6 +449,9 @@ const chatMedia = useChatMedia({
   setStatus: (text) => {
     status.value = text;
   },
+  setChatError: (text) => {
+    chatErrorText.value = text;
+  },
   setStatusError,
   viewMode,
   chatting,
@@ -461,7 +465,11 @@ const chatMedia = useChatMedia({
 const hotkeyTestRecording = chatMedia.hotkeyTestRecording;
 const hotkeyTestRecordingMs = chatMedia.hotkeyTestRecordingMs;
 const hotkeyTestAudio = chatMedia.hotkeyTestAudio;
+const mediaDragActive = chatMedia.mediaDragActive;
 const onPaste = chatMedia.onPaste;
+const onDragOver = chatMedia.onDragOver;
+const onDrop = chatMedia.onDrop;
+const onNativeFileDrop = chatMedia.onNativeFileDrop;
 const removeClipboardImage = chatMedia.removeClipboardImage;
 const startHotkeyRecordTest = chatMedia.startHotkeyRecordTest;
 const stopHotkeyRecordTest = chatMedia.stopHotkeyRecordTest;
@@ -862,6 +870,12 @@ useAppLifecycle({
   appBootstrapUnmount: appBootstrap.unmount,
   restoreThemeFromStorage,
   onPaste,
+  onDragOver,
+  onDrop,
+  onNativeFileDrop,
+  onNativeDragState: (active) => {
+    mediaDragActive.value = active;
+  },
   recordHotkeyMount: recordHotkey.mount,
   recordHotkeyUnmount: recordHotkey.unmount,
   refreshAllViewData,

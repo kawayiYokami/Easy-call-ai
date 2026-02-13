@@ -1015,7 +1015,7 @@ async fn call_model_deepseek_with_tools_http(
                 })
             })
             .collect::<Vec<_>>();
-        let assistant_tool_event = if selected_api.request_format.trim() == "deepseek/kimi" {
+        let assistant_tool_event = if selected_api.request_format.is_deepseek_kimi() {
             serde_json::json!({
                 "role": "assistant",
                 "content": if turn_text.is_empty() { Value::Null } else { Value::String(turn_text.clone()) },
@@ -1129,7 +1129,7 @@ async fn call_model_openai_with_tools(
     on_delta: &tauri::ipc::Channel<AssistantDeltaEvent>,
     max_tool_iterations: usize,
 ) -> Result<ModelReply, String> {
-    if selected_api.request_format.trim() == "deepseek/kimi" {
+    if selected_api.request_format.is_deepseek_kimi() {
         return call_model_deepseek_with_tools_http(
             api_config,
             selected_api,
@@ -1396,7 +1396,7 @@ async fn call_model_openai_with_tools(
 
         if !tool_calls.is_empty() {
             let mut assistant_items = Vec::<AssistantContent>::new();
-            if selected_api.request_format.trim() == "deepseek/kimi" {
+            if selected_api.request_format.is_deepseek_kimi() {
                 // DeepSeek thinking mode + tool calls requires reasoning_content in assistant message.
                 assistant_items.push(AssistantContent::reasoning(turn_reasoning.clone()));
             }
@@ -2172,7 +2172,7 @@ async fn call_model_openai_style(
     on_delta: &tauri::ipc::Channel<AssistantDeltaEvent>,
     max_tool_iterations: usize,
 ) -> Result<ModelReply, String> {
-    if selected_api.request_format.trim() == "gemini" {
+    if selected_api.request_format.is_gemini() {
         if selected_api.enable_tools
             && prepared.latest_images.is_empty()
             && prepared.latest_audios.is_empty()
@@ -2190,7 +2190,7 @@ async fn call_model_openai_style(
         }
         return call_model_gemini_rig_style(api_config, model_name, prepared).await;
     }
-    if selected_api.request_format.trim() == "anthropic" {
+    if selected_api.request_format.is_anthropic() {
         if selected_api.enable_tools
             && prepared.latest_images.is_empty()
             && prepared.latest_audios.is_empty()
@@ -2211,7 +2211,7 @@ async fn call_model_openai_style(
 
     // 优先使用工具调用（如果启用）
     if selected_api.enable_tools
-        && is_openai_style_request_format(&selected_api.request_format)
+        && is_openai_style_request_format(selected_api.request_format)
         && prepared.latest_images.is_empty()
         && prepared.latest_audios.is_empty()
     {
@@ -2228,7 +2228,7 @@ async fn call_model_openai_style(
     }
 
     // 纯文本流式传输（无论工具是否启用，只要没有工具调用就走流式）
-    if is_openai_style_request_format(&selected_api.request_format)
+    if is_openai_style_request_format(selected_api.request_format)
         && prepared.latest_images.is_empty()
         && prepared.latest_audios.is_empty()
     {
@@ -2279,19 +2279,18 @@ async fn describe_image_with_vision_api(
         latest_audios: Vec::new(),
     };
 
-    let reply = match vision_resolved.request_format.trim() {
-        "openai" | "deepseek/kimi" => {
+    let reply = match vision_resolved.request_format {
+        RequestFormat::OpenAI | RequestFormat::DeepSeekKimi => {
             call_model_openai_rig_style(vision_resolved, &vision_api.model, prepared).await?
         }
-        "gemini" => call_model_gemini_rig_style(vision_resolved, &vision_api.model, prepared).await?,
-        "anthropic" => {
+        RequestFormat::Gemini => {
+            call_model_gemini_rig_style(vision_resolved, &vision_api.model, prepared).await?
+        }
+        RequestFormat::Anthropic => {
             call_model_anthropic_rig_style(vision_resolved, &vision_api.model, prepared).await?
         }
-        other => {
-            return Err(format!(
-                "Vision request format '{}' is not implemented yet.",
-                other
-            ))
+        RequestFormat::OpenAITts => {
+            return Err("Vision request format 'openai_tts' is not supported.".to_string())
         }
     };
     Ok(reply.assistant_text)

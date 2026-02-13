@@ -15,7 +15,7 @@ use reqwest::header::{HeaderMap, HeaderValue, AUTHORIZATION, CONTENT_TYPE};
 use rmcp::{ServiceExt, schemars};
 use rig::{
     completion::{
-        message::{AudioMediaType, ImageDetail, ImageMediaType, UserContent},
+        message::{AudioMediaType, DocumentMediaType, ImageDetail, ImageMediaType, UserContent},
         Message as RigMessage, Prompt, ToolDefinition,
     },
     message::{AssistantContent, ToolResultContent},
@@ -151,6 +151,7 @@ fn main() {
             export_archive_to_file,
             open_external_url,
             send_chat_message,
+            read_local_binary_file,
             stt_transcribe,
             force_archive_current,
             refresh_models,

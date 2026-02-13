@@ -104,6 +104,88 @@ struct ApiToolConfig {
     values: Value,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+enum RequestFormat {
+    #[serde(rename = "openai")]
+    OpenAI,
+    #[serde(rename = "openai_tts")]
+    OpenAITts,
+    #[serde(rename = "gemini")]
+    Gemini,
+    #[serde(rename = "deepseek/kimi")]
+    DeepSeekKimi,
+    #[serde(rename = "anthropic")]
+    Anthropic,
+}
+
+impl RequestFormat {
+    fn from_str(value: &str) -> Option<Self> {
+        match value.trim().to_ascii_lowercase().as_str() {
+            "openai" => Some(Self::OpenAI),
+            "openai_tts" => Some(Self::OpenAITts),
+            "gemini" => Some(Self::Gemini),
+            "deepseek/kimi" => Some(Self::DeepSeekKimi),
+            "anthropic" => Some(Self::Anthropic),
+            _ => None,
+        }
+    }
+
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::OpenAI => "openai",
+            Self::OpenAITts => "openai_tts",
+            Self::Gemini => "gemini",
+            Self::DeepSeekKimi => "deepseek/kimi",
+            Self::Anthropic => "anthropic",
+        }
+    }
+
+    fn is_openai_tts(self) -> bool {
+        matches!(self, Self::OpenAITts)
+    }
+
+    fn is_gemini(self) -> bool {
+        matches!(self, Self::Gemini)
+    }
+
+    fn is_anthropic(self) -> bool {
+        matches!(self, Self::Anthropic)
+    }
+
+    fn is_deepseek_kimi(self) -> bool {
+        matches!(self, Self::DeepSeekKimi)
+    }
+
+    fn is_openai_style(self) -> bool {
+        matches!(self, Self::OpenAI | Self::DeepSeekKimi)
+    }
+}
+
+impl std::fmt::Display for RequestFormat {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
+impl<'de> serde::Deserialize<'de> for RequestFormat {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let raw = <String as serde::Deserialize>::deserialize(deserializer)?;
+        Self::from_str(&raw).ok_or_else(|| {
+            serde::de::Error::custom(format!(
+                "unsupported request format '{}'",
+                raw.trim()
+            ))
+        })
+    }
+}
+
+fn default_request_format() -> RequestFormat {
+    RequestFormat::OpenAI
+}
+
 fn default_false() -> bool {
     false
 }
@@ -153,7 +235,8 @@ fn default_api_tools() -> Vec<ApiToolConfig> {
 struct ApiConfig {
     id: String,
     name: String,
-    request_format: String,
+    #[serde(default = "default_request_format")]
+    request_format: RequestFormat,
     #[serde(default = "default_true")]
     enable_text: bool,
     #[serde(default = "default_false")]
@@ -210,7 +293,7 @@ impl Default for ApiConfig {
         Self {
             id: "default-openai".to_string(),
             name: "Default OpenAI".to_string(),
-            request_format: "openai".to_string(),
+            request_format: RequestFormat::OpenAI,
             enable_text: true,
             enable_image: false,
             enable_audio: false,
@@ -274,7 +357,7 @@ impl Default for AppConfig {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct DebugApiConfig {
-    request_format: Option<String>,
+    request_format: Option<RequestFormat>,
     base_url: String,
     api_key: String,
     model: String,
@@ -352,7 +435,7 @@ struct SystemPromptPreview {
 struct RefreshModelsInput {
     base_url: String,
     api_key: String,
-    request_format: String,
+    request_format: RequestFormat,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -643,7 +726,7 @@ fn user_persona_intro(data: &AppData) -> String {
 
 #[derive(Debug, Clone)]
 struct ResolvedApiConfig {
-    request_format: String,
+    request_format: RequestFormat,
     base_url: String,
     api_key: String,
     model: String,

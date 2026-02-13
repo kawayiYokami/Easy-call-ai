@@ -1,3 +1,10 @@
+export type ApiRequestFormat =
+  | "openai"
+  | "openai_tts"
+  | "gemini"
+  | "deepseek/kimi"
+  | "anthropic";
+
 export type ApiToolItem = {
   id: string;
   command: string;
@@ -9,7 +16,7 @@ export type ApiToolItem = {
 export type ApiConfigItem = {
   id: string;
   name: string;
-  requestFormat: string;
+  requestFormat: ApiRequestFormat;
   enableText: boolean;
   enableImage: boolean;
   enableAudio: boolean;

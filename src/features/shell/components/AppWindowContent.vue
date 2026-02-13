@@ -93,6 +93,7 @@
         :recording-ms="recordingMs"
         :transcribing="transcribing"
         :record-hotkey="recordHotkey"
+        :media-drag-active="mediaDragActive"
         :chatting="chatting"
         :frozen="forcingArchive"
         :turns="visibleTurns"
@@ -260,6 +261,7 @@ const props = defineProps<{
   recordingMs: number;
   transcribing: boolean;
   recordHotkey: string;
+  mediaDragActive: boolean;
   chatting: boolean;
   forcingArchive: boolean;
   visibleTurns: ChatTurn[];

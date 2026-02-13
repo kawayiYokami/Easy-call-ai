@@ -5,6 +5,10 @@ type UseAppLifecycleOptions = {
   appBootstrapUnmount: () => void;
   restoreThemeFromStorage: () => void;
   onPaste: (event: ClipboardEvent) => void;
+  onDragOver: (event: DragEvent) => void;
+  onDrop: (event: DragEvent) => void;
+  onNativeFileDrop: (paths: string[]) => Promise<void> | void;
+  onNativeDragState: (active: boolean) => void;
   recordHotkeyMount: () => void;
   recordHotkeyUnmount: () => void;
   refreshAllViewData: () => Promise<void>;
@@ -26,6 +30,8 @@ export function useAppLifecycle(options: UseAppLifecycleOptions) {
     await options.appBootstrapMount();
     options.restoreThemeFromStorage();
     window.addEventListener("paste", options.onPaste);
+    window.addEventListener("dragover", options.onDragOver);
+    window.addEventListener("drop", options.onDrop);
     options.recordHotkeyMount();
     await options.refreshAllViewData();
     options.configAutosaveReady.value = true;
@@ -46,5 +52,7 @@ export function useAppLifecycle(options: UseAppLifecycleOptions) {
     options.recordHotkeyUnmount();
     void options.cleanupChatMedia();
     window.removeEventListener("paste", options.onPaste);
+    window.removeEventListener("dragover", options.onDragOver);
+    window.removeEventListener("drop", options.onDrop);
   });
 }

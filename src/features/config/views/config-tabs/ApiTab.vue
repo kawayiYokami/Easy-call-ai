@@ -151,7 +151,7 @@
 import { computed, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 import { ChevronsUpDown, ExternalLink, Link, Plus, RefreshCw, Trash2, WandSparkles } from "lucide-vue-next";
-import type { ApiConfigItem, AppConfig } from "../../../../types/app";
+import type { ApiConfigItem, ApiRequestFormat, AppConfig } from "../../../../types/app";
 import { invokeTauri } from "../../../../services/tauri-api";
 
 type ProviderPreset = {
@@ -202,15 +202,7 @@ const providerPresets: ProviderPreset[] = [
   { id: "ollama-local", name: "Ollama (Local)", urls: { openai: "http://localhost:11434/v1", "deepseek/kimi": "http://localhost:11434/v1" }, docsUrl: "https://github.com/ollama/ollama/blob/main/docs/openai.md" },
 ];
 
-const currentProtocol = computed(
-  () =>
-    (props.selectedApiConfig?.requestFormat?.trim() || "openai") as
-      | "openai"
-      | "openai_tts"
-      | "gemini"
-      | "deepseek/kimi"
-      | "anthropic",
-);
+const currentProtocol = computed<ApiRequestFormat>(() => props.selectedApiConfig?.requestFormat || "openai");
 const DEEPSEEK_KIMI_PROVIDER_IDS = new Set<string>([
   "deepseek",
   "moonshot-kimi",

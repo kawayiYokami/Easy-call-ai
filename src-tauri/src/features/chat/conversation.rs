@@ -204,6 +204,21 @@ fn compress_image_to_webp(bytes: &[u8]) -> Result<Vec<u8>, String> {
     Ok(cursor.into_inner())
 }
 
+fn is_supported_image_upload_mime(mime: &str) -> bool {
+    matches!(
+        mime.trim().to_ascii_lowercase().as_str(),
+        "image/jpeg"
+            | "image/jpg"
+            | "image/png"
+            | "image/gif"
+            | "image/webp"
+            | "image/heic"
+            | "image/heif"
+            | "image/svg+xml"
+            | "application/pdf"
+    )
+}
+
 fn build_user_parts(
     payload: &ChatInputPayload,
     api_config: &ApiConfig,
@@ -231,17 +246,40 @@ fn build_user_parts(
         }
 
         for image in images {
+            let mime = image.mime.trim().to_ascii_lowercase();
+            if !is_supported_image_upload_mime(&mime) {
+                return Err(format!(
+                    "Unsupported attachment mime type: '{}'.",
+                    image.mime.trim()
+                ));
+            }
             let raw = B64
                 .decode(image.bytes_base64.trim())
                 .map_err(|err| format!("Decode image base64 failed: {err}"))?;
-            let webp = compress_image_to_webp(&raw)?;
-            total_binary += webp.len();
-            parts.push(MessagePart::Image {
-                mime: "image/webp".to_string(),
-                bytes_base64: B64.encode(webp),
-                name: None,
-                compressed: true,
-            });
+            if mime == "application/pdf" {
+                if !api_config.request_format.is_gemini() {
+                    return Err(
+                        "PDF attachment is only supported when request format is 'gemini'."
+                            .to_string(),
+                    );
+                }
+                total_binary += raw.len();
+                parts.push(MessagePart::Image {
+                    mime: "application/pdf".to_string(),
+                    bytes_base64: B64.encode(raw),
+                    name: None,
+                    compressed: false,
+                });
+            } else {
+                let webp = compress_image_to_webp(&raw)?;
+                total_binary += webp.len();
+                parts.push(MessagePart::Image {
+                    mime: "image/webp".to_string(),
+                    bytes_base64: B64.encode(webp),
+                    name: None,
+                    compressed: true,
+                });
+            }
         }
     }
 
@@ -283,7 +321,13 @@ fn render_message_for_context(message: &ChatMessage) -> String {
     for part in &message.parts {
         match part {
             MessagePart::Text { text } => chunks.push(text.clone()),
-            MessagePart::Image { .. } => chunks.push("[image attached]".to_string()),
+            MessagePart::Image { mime, .. } => {
+                if mime.trim().eq_ignore_ascii_case("application/pdf") {
+                    chunks.push("[pdf attached]".to_string());
+                } else {
+                    chunks.push("[image attached]".to_string());
+                }
+            }
             MessagePart::Audio { .. } => chunks.push("[audio attached]".to_string()),
         }
     }
@@ -295,7 +339,13 @@ fn render_message_content_for_model(message: &ChatMessage) -> String {
     for part in &message.parts {
         match part {
             MessagePart::Text { text } => chunks.push(text.clone()),
-            MessagePart::Image { .. } => chunks.push("[image attached]".to_string()),
+            MessagePart::Image { mime, .. } => {
+                if mime.trim().eq_ignore_ascii_case("application/pdf") {
+                    chunks.push("[pdf attached]".to_string());
+                } else {
+                    chunks.push("[image attached]".to_string());
+                }
+            }
             MessagePart::Audio { .. } => chunks.push("[audio attached]".to_string()),
         }
     }

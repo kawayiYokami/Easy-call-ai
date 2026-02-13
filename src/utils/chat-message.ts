@@ -37,7 +37,10 @@ export function renderMessage(msg: ChatMessage): string {
   const merged = msg.parts
     .map((p) => {
       if (p.type === "text") return p.text;
-      if (p.type === "image") return "[image]";
+      if (p.type === "image") {
+        const mime = String((p as { mime?: string }).mime || "").trim().toLowerCase();
+        return mime === "application/pdf" ? "[pdf]" : "[image]";
+      }
       return "[audio]";
     })
     .join("\n");
@@ -56,7 +59,7 @@ export function removeBinaryPlaceholders(text: string): string {
   return text
     .split("\n")
     .map((line) => line.trim())
-    .filter((line) => line !== "[image]" && line !== "[audio]")
+    .filter((line) => line !== "[image]" && line !== "[pdf]" && line !== "[audio]")
     .join("\n")
     .trim();
 }
@@ -112,4 +115,3 @@ export function estimateConversationTokens(messages: ChatMessage[]): number {
   }
   return Math.ceil(total);
 }
-

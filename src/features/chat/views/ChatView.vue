@@ -1,5 +1,13 @@
 <template>
   <div class="flex flex-col h-full min-h-0 relative">
+    <div
+      v-if="mediaDragActive && !chatting && !frozen"
+      class="pointer-events-none absolute inset-0 z-40 flex items-center justify-center bg-base-100/70 backdrop-blur-[1px]"
+    >
+      <div class="rounded-box border border-primary/40 bg-base-100 px-4 py-2 text-sm font-medium text-primary">
+        Drop image or PDF
+      </div>
+    </div>
     <div ref="scrollContainer" class="flex-1 min-h-0 overflow-y-auto p-3 space-y-2" @scroll="onScroll">
       <!-- 加载更多提示 -->
       <div v-if="hasMoreTurns" class="text-center">
@@ -24,14 +32,19 @@
           <div class="chat-bubble max-w-[92%]">
             <div v-if="turn.userText" class="whitespace-pre-wrap">{{ turn.userText }}</div>
             <div v-if="turn.userImages.length > 0" class="mt-2 grid gap-1">
-              <img
-                v-for="(img, idx) in turn.userImages"
-                :key="`${turn.id}-img-${idx}`"
-                :src="`data:${img.mime};base64,${img.bytesBase64}`"
-                loading="lazy"
-                decoding="async"
-                class="rounded max-h-28 object-contain bg-base-100/40"
-              />
+              <template v-for="(img, idx) in turn.userImages" :key="`${turn.id}-img-${idx}`">
+                <img
+                  v-if="isImageMime(img.mime)"
+                  :src="`data:${img.mime};base64,${img.bytesBase64}`"
+                  loading="lazy"
+                  decoding="async"
+                  class="rounded max-h-28 object-contain bg-base-100/40"
+                />
+                <div v-else-if="isPdfMime(img.mime)" class="badge badge-outline gap-1 py-3 w-fit">
+                  <FileText class="h-3.5 w-3.5" />
+                  <span class="text-[11px]">PDF</span>
+                </div>
+              </template>
             </div>
             <div v-if="turn.userAudios.length > 0" class="mt-2 flex flex-col gap-1">
               <button
@@ -164,8 +177,10 @@
       </div>
       <div v-if="clipboardImages.length > 0" class="flex flex-wrap gap-1 mb-2">
         <div v-for="(img, idx) in clipboardImages" :key="`${img.mime}-${idx}`" class="badge badge-outline gap-1 py-3">
-          <ImageIcon class="h-3.5 w-3.5" />
-          <span class="text-[11px]">{{ t("chat.image", { index: idx + 1 }) }}</span>
+          <ImageIcon v-if="isImageMime(img.mime)" class="h-3.5 w-3.5" />
+          <FileText v-else-if="isPdfMime(img.mime)" class="h-3.5 w-3.5" />
+          <ImageIcon v-else class="h-3.5 w-3.5" />
+          <span class="text-[11px]">{{ isPdfMime(img.mime) ? `PDF ${idx + 1}` : t("chat.image", { index: idx + 1 }) }}</span>
           <button class="btn btn-ghost btn-xs btn-square" :disabled="chatting || frozen" @click="$emit('removeClipboardImage', idx)">
             <X class="h-3 w-3" />
           </button>
@@ -211,7 +226,7 @@
 <script setup lang="ts">
 import { computed, ref, nextTick, onBeforeUnmount, onMounted, watch } from "vue";
 import { useI18n } from "vue-i18n";
-import { ArrowDown, ArrowUp, Image as ImageIcon, Mic, Pause, Play, Square, X } from "lucide-vue-next";
+import { ArrowDown, ArrowUp, FileText, Image as ImageIcon, Mic, Pause, Play, Square, X } from "lucide-vue-next";
 import MarkdownIt from "markdown-it";
 import DOMPurify from "dompurify";
 import twemoji from "twemoji";
@@ -239,6 +254,7 @@ const props = defineProps<{
   recordingMs: number;
   transcribing: boolean;
   recordHotkey: string;
+  mediaDragActive: boolean;
   chatting: boolean;
   frozen: boolean;
   turns: ChatTurn[];
@@ -347,6 +363,14 @@ function lastLinePreview(raw: string): string {
 
 function buildAudioDataUrl(audio: { mime: string; bytesBase64: string }): string {
   return `data:${audio.mime};base64,${audio.bytesBase64}`;
+}
+
+function isImageMime(mime: string): boolean {
+  return (mime || "").trim().toLowerCase().startsWith("image/");
+}
+
+function isPdfMime(mime: string): boolean {
+  return (mime || "").trim().toLowerCase() === "application/pdf";
 }
 
 function stopAudioPlayback() {
