@@ -112,6 +112,7 @@
         </button>
       </div>
     </label>
+    <GeminiThinkingControl v-if="props.selectedApiConfig" :selected-api-config="props.selectedApiConfig" />
     <label v-if="!isSttMode" class="form-control">
       <div class="label py-1">
         <span class="label-text text-sm font-medium">{{ t("config.api.temperature") }}</span>
@@ -153,6 +154,7 @@ import { useI18n } from "vue-i18n";
 import { ChevronsUpDown, ExternalLink, Link, Plus, RefreshCw, Trash2, WandSparkles } from "lucide-vue-next";
 import type { ApiConfigItem, ApiRequestFormat, AppConfig } from "../../../../types/app";
 import { invokeTauri } from "../../../../services/tauri-api";
+import GeminiThinkingControl from "./GeminiThinkingControl.vue";
 
 type ProviderPreset = {
   id: string;

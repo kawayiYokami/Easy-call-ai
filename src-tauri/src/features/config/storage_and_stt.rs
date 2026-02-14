@@ -26,6 +26,7 @@ fn write_config(path: &PathBuf, config: &AppConfig) -> Result<(), String> {
 fn normalize_api_tools(config: &mut AppConfig) {
     for api in &mut config.api_configs {
         api.enable_audio = false;
+        api.gemini_thinking_budget = api.gemini_thinking_budget.max(-1);
         api.temperature = api.temperature.clamp(0.0, 2.0);
         api.context_window_tokens = api.context_window_tokens.clamp(16_000, 200_000);
         if api.enable_tools {
@@ -202,6 +203,8 @@ fn resolve_api_config(
             }
             return Ok(ResolvedApiConfig {
                 request_format: RequestFormat::OpenAI,
+                gemini_thinking_level: default_gemini_thinking_level(),
+                gemini_thinking_budget: default_gemini_thinking_budget(),
                 base_url: debug_cfg.base_url.trim().to_string(),
                 api_key: debug_cfg.api_key.trim().to_string(),
                 model: debug_cfg.model.trim().to_string(),
@@ -228,6 +231,8 @@ fn resolve_api_config(
 
     Ok(ResolvedApiConfig {
         request_format: selected.request_format,
+        gemini_thinking_level: selected.gemini_thinking_level,
+        gemini_thinking_budget: selected.gemini_thinking_budget.max(-1),
         base_url: selected.base_url.trim().to_string(),
         api_key: selected.api_key.trim().to_string(),
         model: selected.model.trim().to_string(),

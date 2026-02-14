@@ -79,6 +79,131 @@ fn normalize_gemini_rig_base_url(raw: &str) -> String {
     base
 }
 
+fn has_alpha_unit_with_boundaries(text: &str, unit: &str) -> bool {
+    if unit.is_empty() {
+        return false;
+    }
+    let source = text.as_bytes();
+    for (idx, _) in text.match_indices(unit) {
+        let prev_ok = if idx == 0 {
+            true
+        } else {
+            !source[idx - 1].is_ascii_alphanumeric()
+        };
+        let end = idx + unit.len();
+        let next_ok = if end >= source.len() {
+            true
+        } else {
+            !source[end].is_ascii_alphanumeric()
+        };
+        if prev_ok && next_ok {
+            return true;
+        }
+    }
+    false
+}
+
+fn has_numeric_unit_with_boundaries(text: &str, unit: &str) -> bool {
+    if unit.is_empty() {
+        return false;
+    }
+    let source = text.as_bytes();
+    for (idx, _) in text.match_indices(unit) {
+        let prev_ok = if idx == 0 {
+            true
+        } else {
+            !source[idx - 1].is_ascii_digit()
+        };
+        let end = idx + unit.len();
+        let next_ok = if end >= source.len() {
+            true
+        } else {
+            !source[end].is_ascii_digit()
+        };
+        if prev_ok && next_ok {
+            return true;
+        }
+    }
+    false
+}
+
+fn gemini_additional_params_for_model(
+    model_name: &str,
+    api_config: &ResolvedApiConfig,
+) -> Value {
+    let mut params = serde_json::Map::new();
+    params.insert(
+        "safetySettings".to_string(),
+        serde_json::json!([
+            {
+                "category": "HARM_CATEGORY_HARASSMENT",
+                "threshold": "BLOCK_NONE"
+            },
+            {
+                "category": "HARM_CATEGORY_HATE_SPEECH",
+                "threshold": "BLOCK_NONE"
+            },
+            {
+                "category": "HARM_CATEGORY_SEXUALLY_EXPLICIT",
+                "threshold": "BLOCK_NONE"
+            }
+        ]),
+    );
+    let normalized = model_name.trim().to_ascii_lowercase();
+    let is_gemini = has_alpha_unit_with_boundaries(&normalized, "gemini");
+    let is_v25 = is_gemini && has_numeric_unit_with_boundaries(&normalized, "2.5");
+    let is_v3 = is_gemini && has_numeric_unit_with_boundaries(&normalized, "3");
+    let is_flash = has_alpha_unit_with_boundaries(&normalized, "flash");
+
+    let selected_level = api_config.gemini_thinking_level;
+    let effective_v3_level = if is_v3 && is_flash {
+        match selected_level {
+            GeminiThinkingLevel::Minimal
+            | GeminiThinkingLevel::Low
+            | GeminiThinkingLevel::Medium
+            | GeminiThinkingLevel::High => selected_level,
+            GeminiThinkingLevel::Dynamic => GeminiThinkingLevel::High,
+        }
+    } else {
+        match selected_level {
+            GeminiThinkingLevel::Low | GeminiThinkingLevel::High => selected_level,
+            GeminiThinkingLevel::Minimal
+            | GeminiThinkingLevel::Medium
+            | GeminiThinkingLevel::Dynamic => GeminiThinkingLevel::High,
+        }
+    };
+    let v3_budget_from_level = match effective_v3_level {
+        GeminiThinkingLevel::Minimal => 0,
+        GeminiThinkingLevel::Low => 512,
+        GeminiThinkingLevel::Medium => 2048,
+        GeminiThinkingLevel::High | GeminiThinkingLevel::Dynamic => -1,
+    };
+    let thinking_config =
+        if is_v25 {
+            Some(serde_json::json!({
+                "thinkingBudget": api_config.gemini_thinking_budget.max(-1)
+            }))
+        } else if is_v3 {
+            Some(serde_json::json!({
+                // rig current gemini parser expects thinkingBudget to exist;
+                // include both so Gemini 3 level control remains available.
+                "thinkingLevel": effective_v3_level.as_str(),
+                "thinkingBudget": v3_budget_from_level
+            }))
+        } else {
+            None
+        };
+    if let Some(thinking_config) = thinking_config {
+        params.insert(
+            "generationConfig".to_string(),
+            serde_json::json!({
+                "thinkingConfig": thinking_config
+            }),
+        );
+    }
+    Value::Object(params)
+}
+
 async fn call_model_gemini_rig_style(
     api_config: &ResolvedApiConfig,
     model_name: &str,
@@ -93,28 +218,13 @@ async fn call_model_gemini_rig_style(
         .build()
         .map_err(|err| format!("Failed to create Gemini client via rig: {err}"))?;
 
-    let gemini_safety_settings = serde_json::json!({
-        "safetySettings": [
-            {
-                "category": "HARM_CATEGORY_HARASSMENT",
-                "threshold": "BLOCK_NONE"
-            },
-            {
-                "category": "HARM_CATEGORY_HATE_SPEECH",
-                "threshold": "BLOCK_NONE"
-            },
-            {
-                "category": "HARM_CATEGORY_SEXUALLY_EXPLICIT",
-                "threshold": "BLOCK_NONE"
-            }
-        ]
-    });
+    let gemini_additional_params = gemini_additional_params_for_model(model_name, api_config);
 
     let agent = client
         .agent(model_name)
         .preamble(&prepared.preamble)
         .temperature(api_config.temperature)
-        .additional_params(gemini_safety_settings)
+        .additional_params(gemini_additional_params)
         .build();
 
     let mut content_items: Vec<UserContent> = Vec::new();

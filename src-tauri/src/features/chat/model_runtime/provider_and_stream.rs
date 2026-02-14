@@ -1592,19 +1592,13 @@ async fn call_model_gemini_with_tools(
         tools.push(Box::new(BuiltinDesktopWaitTool));
     }
 
-    let gemini_safety_settings = serde_json::json!({
-        "safetySettings": [
-            { "category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_NONE" },
-            { "category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_NONE" },
-            { "category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": "BLOCK_NONE" }
-        ]
-    });
+    let gemini_additional_params = gemini_additional_params_for_model(model_name, api_config);
 
     let agent = client
         .agent(model_name)
         .preamble(&prepared.preamble)
         .temperature(api_config.temperature)
-        .additional_params(gemini_safety_settings)
+        .additional_params(gemini_additional_params)
         .tools(tools)
         .build();
 
