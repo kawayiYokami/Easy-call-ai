@@ -60,9 +60,6 @@ export function useConfigCore(options: UseConfigCoreOptions) {
       id: `api-config-${seed}`,
       name: `API Config ${options.config.apiConfigs.length + 1}`,
       requestFormat: "openai",
-      geminiThinkingMode: "auto",
-      geminiThinkingLevel: "high",
-      geminiThinkingBudget: -1,
       enableText: true,
       enableImage: false,
       enableAudio: false,
@@ -81,11 +78,6 @@ export function useConfigCore(options: UseConfigCoreOptions) {
     options.config.uiLanguage = normalizeLocale(options.config.uiLanguage);
     for (const api of options.config.apiConfigs) {
       api.enableAudio = false;
-      api.geminiThinkingMode = api.geminiThinkingMode || "auto";
-      api.geminiThinkingLevel = api.geminiThinkingLevel || "high";
-      api.geminiThinkingBudget = Number.isFinite(api.geminiThinkingBudget)
-        ? Math.max(-1, Math.round(Number(api.geminiThinkingBudget)))
-        : -1;
       api.temperature = Math.max(0, Math.min(2, Number(api.temperature ?? 1)));
       api.contextWindowTokens = Math.max(
         16000,
@@ -151,11 +143,6 @@ export function useConfigCore(options: UseConfigCoreOptions) {
         id: a.id,
         name: a.name,
         requestFormat: a.requestFormat,
-        geminiThinkingMode: a.geminiThinkingMode || "auto",
-        geminiThinkingLevel: a.geminiThinkingLevel || "high",
-        geminiThinkingBudget: Number.isFinite(a.geminiThinkingBudget)
-          ? Math.max(-1, Math.round(Number(a.geminiThinkingBudget)))
-          : -1,
         enableText: !!a.enableText,
         enableImage: !!a.enableImage,
         enableAudio: !!a.enableAudio,
@@ -193,11 +180,6 @@ export function useConfigCore(options: UseConfigCoreOptions) {
         id: a.id,
         name: a.name,
         requestFormat: a.requestFormat,
-        geminiThinkingMode: a.geminiThinkingMode || "auto",
-        geminiThinkingLevel: a.geminiThinkingLevel || "high",
-        geminiThinkingBudget: Number.isFinite(a.geminiThinkingBudget)
-          ? Math.max(-1, Math.round(Number(a.geminiThinkingBudget)))
-          : -1,
         enableText: a.enableText,
         enableImage: a.enableImage,
         enableAudio: a.enableAudio,

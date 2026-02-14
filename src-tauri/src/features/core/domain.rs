@@ -167,64 +167,6 @@ impl std::fmt::Display for RequestFormat {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-enum GeminiThinkingMode {
-    #[serde(rename = "auto")]
-    Auto,
-    #[serde(rename = "level")]
-    Level,
-    #[serde(rename = "budget")]
-    Budget,
-}
-
-impl GeminiThinkingMode {
-    fn as_str(self) -> &'static str {
-        match self {
-            Self::Auto => "auto",
-            Self::Level => "level",
-            Self::Budget => "budget",
-        }
-    }
-}
-
-impl std::fmt::Display for GeminiThinkingMode {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(self.as_str())
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-enum GeminiThinkingLevel {
-    #[serde(rename = "dynamic")]
-    Dynamic,
-    #[serde(rename = "minimal")]
-    Minimal,
-    #[serde(rename = "high")]
-    High,
-    #[serde(rename = "medium")]
-    Medium,
-    #[serde(rename = "low")]
-    Low,
-}
-
-impl GeminiThinkingLevel {
-    fn as_str(self) -> &'static str {
-        match self {
-            Self::Dynamic => "high",
-            Self::Minimal => "minimal",
-            Self::High => "high",
-            Self::Medium => "medium",
-            Self::Low => "low",
-        }
-    }
-}
-
-impl std::fmt::Display for GeminiThinkingLevel {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(self.as_str())
-    }
-}
-
 impl<'de> serde::Deserialize<'de> for RequestFormat {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
@@ -242,18 +184,6 @@ impl<'de> serde::Deserialize<'de> for RequestFormat {
 
 fn default_request_format() -> RequestFormat {
     RequestFormat::OpenAI
-}
-
-fn default_gemini_thinking_mode() -> GeminiThinkingMode {
-    GeminiThinkingMode::Auto
-}
-
-fn default_gemini_thinking_level() -> GeminiThinkingLevel {
-    GeminiThinkingLevel::High
-}
-
-fn default_gemini_thinking_budget() -> i32 {
-    -1
 }
 
 fn default_false() -> bool {
@@ -307,12 +237,6 @@ struct ApiConfig {
     name: String,
     #[serde(default = "default_request_format")]
     request_format: RequestFormat,
-    #[serde(default = "default_gemini_thinking_mode")]
-    gemini_thinking_mode: GeminiThinkingMode,
-    #[serde(default = "default_gemini_thinking_level")]
-    gemini_thinking_level: GeminiThinkingLevel,
-    #[serde(default = "default_gemini_thinking_budget")]
-    gemini_thinking_budget: i32,
     #[serde(default = "default_true")]
     enable_text: bool,
     #[serde(default = "default_false")]
@@ -370,9 +294,6 @@ impl Default for ApiConfig {
             id: "default-openai".to_string(),
             name: "Default OpenAI".to_string(),
             request_format: RequestFormat::OpenAI,
-            gemini_thinking_mode: default_gemini_thinking_mode(),
-            gemini_thinking_level: default_gemini_thinking_level(),
-            gemini_thinking_budget: default_gemini_thinking_budget(),
             enable_text: true,
             enable_image: false,
             enable_audio: false,
@@ -806,8 +727,6 @@ fn user_persona_intro(data: &AppData) -> String {
 #[derive(Debug, Clone)]
 struct ResolvedApiConfig {
     request_format: RequestFormat,
-    gemini_thinking_level: GeminiThinkingLevel,
-    gemini_thinking_budget: i32,
     base_url: String,
     api_key: String,
     model: String,

@@ -79,62 +79,22 @@ fn normalize_gemini_rig_base_url(raw: &str) -> String {
     base
 }
 
-fn has_alpha_unit_with_boundaries(text: &str, unit: &str) -> bool {
-    if unit.is_empty() {
-        return false;
-    }
-    let source = text.as_bytes();
-    for (idx, _) in text.match_indices(unit) {
-        let prev_ok = if idx == 0 {
-            true
-        } else {
-            !source[idx - 1].is_ascii_alphanumeric()
-        };
-        let end = idx + unit.len();
-        let next_ok = if end >= source.len() {
-            true
-        } else {
-            !source[end].is_ascii_alphanumeric()
-        };
-        if prev_ok && next_ok {
-            return true;
-        }
-    }
-    false
-}
-
-fn has_numeric_unit_with_boundaries(text: &str, unit: &str) -> bool {
-    if unit.is_empty() {
-        return false;
-    }
-    let source = text.as_bytes();
-    for (idx, _) in text.match_indices(unit) {
-        let prev_ok = if idx == 0 {
-            true
-        } else {
-            !source[idx - 1].is_ascii_digit()
-        };
-        let end = idx + unit.len();
-        let next_ok = if end >= source.len() {
-            true
-        } else {
-            !source[end].is_ascii_digit()
-        };
-        if prev_ok && next_ok {
-            return true;
-        }
-    }
-    false
-}
-
-fn gemini_additional_params_for_model(
-    model_name: &str,
+async fn call_model_gemini_rig_style(
     api_config: &ResolvedApiConfig,
-) -> Value {
-    let mut params = serde_json::Map::new();
-    params.insert(
-        "safetySettings".to_string(),
-        serde_json::json!([
+    model_name: &str,
+    prepared: PreparedPrompt,
+) -> Result<ModelReply, String> {
+    let mut client_builder = gemini::Client::builder().api_key(&api_config.api_key);
+    let normalized_base = normalize_gemini_rig_base_url(&api_config.base_url);
+    if !normalized_base.is_empty() {
+        client_builder = client_builder.base_url(&normalized_base);
+    }
+    let client = client_builder
+        .build()
+        .map_err(|err| format!("Failed to create Gemini client via rig: {err}"))?;
+
+    let gemini_safety_settings = serde_json::json!({
+        "safetySettings": [
             {
                 "category": "HARM_CATEGORY_HARASSMENT",
                 "threshold": "BLOCK_NONE"
@@ -147,87 +107,14 @@ fn gemini_additional_params_for_model(
                 "category": "HARM_CATEGORY_SEXUALLY_EXPLICIT",
                 "threshold": "BLOCK_NONE"
             }
-        ]),
-    );
-    let normalized = model_name.trim().to_ascii_lowercase();
-    let is_gemini = has_alpha_unit_with_boundaries(&normalized, "gemini");
-    let is_v25 = is_gemini && has_numeric_unit_with_boundaries(&normalized, "2.5");
-    let is_v3 = is_gemini && has_numeric_unit_with_boundaries(&normalized, "3");
-    let is_flash = has_alpha_unit_with_boundaries(&normalized, "flash");
-
-    let selected_level = api_config.gemini_thinking_level;
-    let effective_v3_level = if is_v3 && is_flash {
-        match selected_level {
-            GeminiThinkingLevel::Minimal
-            | GeminiThinkingLevel::Low
-            | GeminiThinkingLevel::Medium
-            | GeminiThinkingLevel::High => selected_level,
-            GeminiThinkingLevel::Dynamic => GeminiThinkingLevel::High,
-        }
-    } else {
-        match selected_level {
-            GeminiThinkingLevel::Low | GeminiThinkingLevel::High => selected_level,
-            GeminiThinkingLevel::Minimal
-            | GeminiThinkingLevel::Medium
-            | GeminiThinkingLevel::Dynamic => GeminiThinkingLevel::High,
-        }
-    };
-    let v3_budget_from_level = match effective_v3_level {
-        GeminiThinkingLevel::Minimal => 0,
-        GeminiThinkingLevel::Low => 512,
-        GeminiThinkingLevel::Medium => 2048,
-        GeminiThinkingLevel::High | GeminiThinkingLevel::Dynamic => -1,
-    };
-    let thinking_config =
-        if is_v25 {
-            Some(serde_json::json!({
-                "includeThoughts": true,
-                "thinkingBudget": api_config.gemini_thinking_budget.max(-1)
-            }))
-        } else if is_v3 {
-            Some(serde_json::json!({
-                // rig current gemini parser expects thinkingBudget to exist;
-                // include both so Gemini 3 level control remains available.
-                "includeThoughts": true,
-                "thinkingLevel": effective_v3_level.as_str(),
-                "thinkingBudget": v3_budget_from_level
-            }))
-        } else {
-            None
-        };
-    if let Some(thinking_config) = thinking_config {
-        params.insert(
-            "generationConfig".to_string(),
-            serde_json::json!({
-                "thinkingConfig": thinking_config
-            }),
-        );
-    }
-    Value::Object(params)
-}
-
-async fn call_model_gemini_rig_style(
-    api_config: &ResolvedApiConfig,
-    model_name: &str,
-    prepared: PreparedPrompt,
-    on_delta: Option<&tauri::ipc::Channel<AssistantDeltaEvent>>,
-) -> Result<ModelReply, String> {
-    let mut client_builder = gemini::Client::builder().api_key(&api_config.api_key);
-    let normalized_base = normalize_gemini_rig_base_url(&api_config.base_url);
-    if !normalized_base.is_empty() {
-        client_builder = client_builder.base_url(&normalized_base);
-    }
-    let client = client_builder
-        .build()
-        .map_err(|err| format!("Failed to create Gemini client via rig: {err}"))?;
-
-    let gemini_additional_params = gemini_additional_params_for_model(model_name, api_config);
+        ]
+    });
 
     let agent = client
         .agent(model_name)
         .preamble(&prepared.preamble)
         .temperature(api_config.temperature)
-        .additional_params(gemini_additional_params)
+        .additional_params(gemini_safety_settings)
         .build();
 
     let mut content_items: Vec<UserContent> = Vec::new();
@@ -260,72 +147,15 @@ async fn call_model_gemini_rig_style(
     let prompt_content = OneOrMany::many(content_items)
         .map_err(|_| "Request payload is empty. Provide text, image, or audio.".to_string())?;
 
-    let prompt_message = RigMessage::User {
-        content: prompt_content,
-    };
-
-    let mut stream = agent
-        .stream_completion(prompt_message, Vec::<RigMessage>::new())
+    let assistant_text = agent
+        .prompt(RigMessage::User {
+            content: prompt_content,
+        })
         .await
-        .map_err(|err| format!("rig stream completion build failed: {err}"))?
-        .stream()
-        .await
-        .map_err(|err| format!("rig stream start failed: {err}"))?;
-
-    let mut assistant_text = String::new();
-    let mut reasoning_standard = String::new();
-    while let Some(chunk) = futures_util::StreamExt::next(&mut stream).await {
-        match chunk {
-            Ok(StreamedAssistantContent::Text(text)) => {
-                if let Some(ch) = on_delta {
-                    let _ = ch.send(AssistantDeltaEvent {
-                        delta: text.text.clone(),
-                        kind: None,
-                        tool_name: None,
-                        tool_status: None,
-                        message: None,
-                    });
-                }
-                assistant_text.push_str(&text.text);
-            }
-            Ok(StreamedAssistantContent::Reasoning(reasoning)) => {
-                let merged = reasoning.reasoning.join("\n");
-                if !merged.is_empty() {
-                    if let Some(ch) = on_delta {
-                        let _ = ch.send(AssistantDeltaEvent {
-                            delta: merged.clone(),
-                            kind: Some("reasoning_standard".to_string()),
-                            tool_name: None,
-                            tool_status: None,
-                            message: None,
-                        });
-                    }
-                    reasoning_standard.push_str(&merged);
-                }
-            }
-            Ok(StreamedAssistantContent::ReasoningDelta { reasoning, .. }) => {
-                if !reasoning.is_empty() {
-                    if let Some(ch) = on_delta {
-                        let _ = ch.send(AssistantDeltaEvent {
-                            delta: reasoning.clone(),
-                            kind: Some("reasoning_standard".to_string()),
-                            tool_name: None,
-                            tool_status: None,
-                            message: None,
-                        });
-                    }
-                    reasoning_standard.push_str(&reasoning);
-                }
-            }
-            Ok(StreamedAssistantContent::Final(_))
-            | Ok(StreamedAssistantContent::ToolCall { .. })
-            | Ok(StreamedAssistantContent::ToolCallDelta { .. }) => {}
-            Err(err) => return Err(format!("rig streaming failed: {err}")),
-        }
-    }
+        .map_err(|err| err.to_string())?;
     Ok(ModelReply {
         assistant_text,
-        reasoning_standard,
+        reasoning_standard: String::new(),
         reasoning_inline: String::new(),
         tool_history_events: Vec::new(),
     })

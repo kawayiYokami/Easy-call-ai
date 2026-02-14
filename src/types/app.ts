@@ -5,9 +5,6 @@ export type ApiRequestFormat =
   | "deepseek/kimi"
   | "anthropic";
 
-export type GeminiThinkingMode = "auto" | "level" | "budget";
-export type GeminiThinkingLevel = "dynamic" | "minimal" | "high" | "medium" | "low";
-
 export type ApiToolItem = {
   id: string;
   command: string;
@@ -20,9 +17,6 @@ export type ApiConfigItem = {
   id: string;
   name: string;
   requestFormat: ApiRequestFormat;
-  geminiThinkingMode?: GeminiThinkingMode;
-  geminiThinkingLevel?: GeminiThinkingLevel;
-  geminiThinkingBudget?: number;
   enableText: boolean;
   enableImage: boolean;
   enableAudio: boolean;

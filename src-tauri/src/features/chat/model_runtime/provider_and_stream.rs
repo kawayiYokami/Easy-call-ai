@@ -1549,7 +1549,7 @@ async fn call_model_gemini_with_tools(
     let has_desktop_screenshot = tool_enabled(selected_api, "desktop-screenshot");
     let has_desktop_wait = tool_enabled(selected_api, "desktop-wait");
     if !has_fetch && !has_bing && !has_memory && !has_desktop_screenshot && !has_desktop_wait {
-        return call_model_gemini_rig_style(api_config, model_name, prepared, Some(on_delta)).await;
+        return call_model_gemini_rig_style(api_config, model_name, prepared).await;
     }
 
     let mut client_builder = gemini::Client::builder().api_key(&api_config.api_key);
@@ -1592,13 +1592,19 @@ async fn call_model_gemini_with_tools(
         tools.push(Box::new(BuiltinDesktopWaitTool));
     }
 
-    let gemini_additional_params = gemini_additional_params_for_model(model_name, api_config);
+    let gemini_safety_settings = serde_json::json!({
+        "safetySettings": [
+            { "category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_NONE" },
+            { "category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_NONE" },
+            { "category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": "BLOCK_NONE" }
+        ]
+    });
 
     let agent = client
         .agent(model_name)
         .preamble(&prepared.preamble)
         .temperature(api_config.temperature)
-        .additional_params(gemini_additional_params)
+        .additional_params(gemini_safety_settings)
         .tools(tools)
         .build();
 
@@ -2182,7 +2188,7 @@ async fn call_model_openai_style(
             )
             .await;
         }
-        return call_model_gemini_rig_style(api_config, model_name, prepared, Some(on_delta)).await;
+        return call_model_gemini_rig_style(api_config, model_name, prepared).await;
     }
     if selected_api.request_format.is_anthropic() {
         if selected_api.enable_tools
@@ -2278,7 +2284,7 @@ async fn describe_image_with_vision_api(
             call_model_openai_rig_style(vision_resolved, &vision_api.model, prepared).await?
         }
         RequestFormat::Gemini => {
-            call_model_gemini_rig_style(vision_resolved, &vision_api.model, prepared, None).await?
+            call_model_gemini_rig_style(vision_resolved, &vision_api.model, prepared).await?
         }
         RequestFormat::Anthropic => {
             call_model_anthropic_rig_style(vision_resolved, &vision_api.model, prepared).await?
