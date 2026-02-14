@@ -74,7 +74,7 @@
 import { useI18n } from "vue-i18n";
 import type { ApiConfigItem, AppConfig, ImageTextCacheStats, PersonaProfile, ResponseStyleOption } from "../../../../types/app";
 
-defineProps<{
+const props = defineProps<{
   config: AppConfig;
   textCapableApiConfigs: ApiConfigItem[];
   imageCapableApiConfigs: ApiConfigItem[];

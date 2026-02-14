@@ -13,6 +13,7 @@ export type AssistantDeltaEvent = {
 type UseChatFlowOptions = {
   chatting: Ref<boolean>;
   forcingArchive: Ref<boolean>;
+  getSession: () => { apiConfigId: string; agentId: string } | null;
   chatInput: Ref<string>;
   clipboardImages: Ref<Array<{ mime: string; bytesBase64: string }>>;
   latestUserText: Ref<string>;
@@ -31,8 +32,15 @@ type UseChatFlowOptions = {
   invokeSendChatMessage: (input: {
     text: string;
     images: Array<{ mime: string; bytesBase64: string }>;
+    session: { apiConfigId: string; agentId: string };
     onDelta: Channel<AssistantDeltaEvent>;
-  }) => Promise<{ assistantText: string; latestUserText: string; archivedBeforeSend: boolean }>;
+  }) => Promise<{
+    assistantText: string;
+    latestUserText: string;
+    reasoningStandard?: string;
+    reasoningInline?: string;
+    archivedBeforeSend: boolean;
+  }>;
   onReloadMessages: () => Promise<void>;
 };
 
@@ -104,25 +112,12 @@ export function useChatFlow(options: UseChatFlowOptions) {
     }
   }
 
-  function enqueueFinalAssistantText(gen: number, finalText: string) {
-    if (gen !== chatGeneration) return;
-    const text = finalText.trim();
-    if (!text) return;
-    const combined = `${options.latestAssistantText.value}${streamPendingText}`;
-    if (!combined) {
-      enqueueStreamDelta(gen, finalText);
-      return;
-    }
-    if (text.startsWith(combined)) {
-      const missing = text.slice(combined.length);
-      if (missing) enqueueStreamDelta(gen, missing);
-    }
-  }
-
   async function sendChat() {
     if (options.chatting.value || options.forcingArchive.value) return;
     const text = options.chatInput.value.trim();
     if (!text && options.clipboardImages.value.length === 0) return;
+    const sendSession = options.getSession();
+    if (!sendSession || !sendSession.apiConfigId || !sendSession.agentId) return;
 
     options.latestUserText.value = text;
     options.latestUserImages.value = [...options.clipboardImages.value];
@@ -137,19 +132,6 @@ export function useChatFlow(options: UseChatFlowOptions) {
     options.chatInput.value = "";
     options.clipboardImages.value = [];
 
-    const optimisticUserMessage: ChatMessage = {
-      id: `optimistic-user-${Date.now()}`,
-      role: "user",
-      parts: [
-        ...(text ? [{ type: "text" as const, text }] : []),
-        ...sentImages.map((img) => ({
-          type: "image" as const,
-          mime: img.mime,
-          bytesBase64: img.bytesBase64,
-        })),
-      ],
-    };
-    options.allMessages.value = [...options.allMessages.value, optimisticUserMessage];
     options.visibleTurnCount.value = 1;
 
     const gen = ++chatGeneration;
@@ -184,18 +166,33 @@ export function useChatFlow(options: UseChatFlowOptions) {
       const result = await options.invokeSendChatMessage({
         text,
         images: sentImages,
+        session: sendSession,
         onDelta: deltaChannel,
       });
       if (gen !== chatGeneration) return;
       options.latestUserText.value = options.removeBinaryPlaceholders(result.latestUserText);
       options.latestUserImages.value = sentImages;
-      enqueueFinalAssistantText(gen, result.assistantText);
+      // Always align to backend final text to avoid stream/snapshot race drift.
+      clearStreamBuffer();
+      options.latestAssistantText.value = String(result.assistantText || "");
+      if (typeof result.reasoningStandard === "string") {
+        options.latestReasoningStandardText.value = result.reasoningStandard;
+      }
+      if (typeof result.reasoningInline === "string") {
+        options.latestReasoningInlineText.value = result.reasoningInline;
+      }
       options.chatErrorText.value = "";
       if ((options.toolStatusState.value as string) === "running") {
         options.toolStatusState.value = "done";
         options.toolStatusText.value = options.t("status.toolCallDone");
       }
-      await options.onReloadMessages();
+      const currentSession = options.getSession();
+      const sameSession = !!currentSession
+        && currentSession.apiConfigId === sendSession.apiConfigId
+        && currentSession.agentId === sendSession.agentId;
+      if (sameSession) {
+        await options.onReloadMessages();
+      }
     } catch (error) {
       if (gen !== chatGeneration) return;
       clearStreamBuffer();
@@ -207,7 +204,13 @@ export function useChatFlow(options: UseChatFlowOptions) {
         options.toolStatusState.value = "failed";
         options.toolStatusText.value = options.t("status.toolCallFailed");
       }
-      await options.onReloadMessages();
+      const currentSession = options.getSession();
+      const sameSession = !!currentSession
+        && currentSession.apiConfigId === sendSession.apiConfigId
+        && currentSession.agentId === sendSession.agentId;
+      if (sameSession) {
+        await options.onReloadMessages();
+      }
     } finally {
       if (gen === chatGeneration) {
         options.chatting.value = false;
@@ -226,6 +229,8 @@ export function useChatFlow(options: UseChatFlowOptions) {
     reasoningStartedAtMs.value = 0;
     options.toolStatusText.value = "";
     options.toolStatusState.value = "";
+    // 停止后恢复历史消息
+    void options.onReloadMessages();
   }
 
   return {

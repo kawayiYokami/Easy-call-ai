@@ -99,6 +99,34 @@
 
       <!-- 发送中的即时反馈 -->
       <template v-if="chatting">
+        <!-- 用户消息 (与历史消息样式一致) -->
+        <div class="chat chat-end">
+          <div class="chat-header mb-1">
+            <div v-if="userAvatarUrl" class="avatar">
+              <div class="w-7 rounded-full">
+                <img :src="userAvatarUrl" :alt="userAlias || t('archives.roleUser')" :title="userAlias || t('archives.roleUser')" />
+              </div>
+            </div>
+            <div v-else class="avatar placeholder">
+              <div class="bg-neutral text-neutral-content w-7 rounded-full">
+                <span>{{ avatarInitial(userAlias || t("archives.roleUser")) }}</span>
+              </div>
+            </div>
+          </div>
+          <div class="chat-bubble max-w-[92%]">
+            <div v-if="latestUserText" class="whitespace-pre-wrap">{{ latestUserText }}</div>
+            <div v-if="latestUserImages.length > 0" class="mt-2 grid gap-1">
+              <template v-for="(img, idx) in latestUserImages" :key="`streaming-user-img-${idx}`">
+                <img v-if="isImageMime(img.mime)" :src="`data:${img.mime};base64,${img.bytesBase64}`" loading="lazy" decoding="async" class="rounded max-h-28 object-contain bg-base-100/40" />
+                <div v-else-if="isPdfMime(img.mime)" class="badge badge-outline gap-1 py-3 w-fit">
+                  <FileText class="h-3.5 w-3.5" />
+                  <span class="text-[11px]">PDF</span>
+                </div>
+              </template>
+            </div>
+          </div>
+        </div>
+        <!-- 助手流式响应 -->
         <div class="chat chat-start">
           <div class="chat-header mb-1 flex items-center gap-1">
             <div v-if="assistantAvatarUrl" class="avatar">

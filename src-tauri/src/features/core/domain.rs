@@ -386,6 +386,8 @@ struct ChatInputPayload {
 #[serde(rename_all = "camelCase")]
 struct SendChatRequest {
     payload: ChatInputPayload,
+    #[serde(default)]
+    session: Option<SessionSelector>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -927,4 +929,3 @@ struct ConversationApiSettings {
     #[serde(default)]
     stt_auto_send: bool,
 }
-

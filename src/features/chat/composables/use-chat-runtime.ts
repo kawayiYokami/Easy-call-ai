@@ -33,6 +33,8 @@ type UseChatRuntimeOptions = {
 export function useChatRuntime(options: UseChatRuntimeOptions) {
   async function refreshChatSnapshot() {
     if (!options.activeChatApiConfigId.value || !options.selectedPersonaId.value) return;
+    // Avoid clobbering in-flight streaming text with stale snapshot content.
+    if (options.chatting.value) return;
     const startedAt = options.perfNow();
     try {
       const snap = await invokeTauri<ChatSnapshot>("get_chat_snapshot", {

@@ -4,21 +4,53 @@ async fn send_chat_message(
     state: State<'_, AppState>,
     on_delta: tauri::ipc::Channel<AssistantDeltaEvent>,
 ) -> Result<SendChatResult, String> {
+    let requested_api_id = input
+        .session
+        .as_ref()
+        .and_then(|s| s.api_config_id.as_deref())
+        .map(str::trim)
+        .filter(|v| !v.is_empty())
+        .map(ToOwned::to_owned);
+    let requested_agent_id = input
+        .session
+        .as_ref()
+        .map(|s| s.agent_id.trim().to_string())
+        .filter(|v| !v.is_empty());
+
     let (app_config, selected_api, resolved_api, effective_agent_id) = {
         let guard = state
             .state_lock
             .lock()
             .map_err(|_| "Failed to lock state mutex".to_string())?;
         let app_config = read_config(&state.config_path)?;
-        let selected_api = resolve_selected_api_config(&app_config, None)
-            .ok_or_else(|| "No API config configured. Please add one.".to_string())?;
+        let selected_api = if let Some(api_id) = requested_api_id.as_deref() {
+            app_config
+                .api_configs
+                .iter()
+                .find(|a| a.id == api_id)
+                .cloned()
+                .ok_or_else(|| format!("Selected API config '{api_id}' not found."))?
+        } else {
+            resolve_selected_api_config(&app_config, None)
+                .ok_or_else(|| "No API config configured. Please add one.".to_string())?
+        };
         let resolved_api = resolve_api_config(&app_config, Some(selected_api.id.as_str()))?;
         let mut data = read_app_data(&state.data_path)?;
         let changed = ensure_default_agent(&mut data);
         if changed {
             write_app_data(&state.data_path, &data)?;
         }
-        let effective_agent_id = if data
+        let effective_agent_id = if let Some(agent_id) = requested_agent_id.as_deref() {
+            if data
+                .agents
+                .iter()
+                .any(|a| a.id == agent_id && !a.is_built_in_user)
+            {
+                agent_id.to_string()
+            } else {
+                return Err(format!("Selected agent '{agent_id}' not found."));
+            }
+        } else if data
             .agents
             .iter()
             .any(|a| a.id == data.selected_agent_id && !a.is_built_in_user)
@@ -1085,4 +1117,3 @@ async fn send_debug_probe(state: State<'_, AppState>) -> Result<String, String> 
     };
     Ok(reply.assistant_text)
 }
-

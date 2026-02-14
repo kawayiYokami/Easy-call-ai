@@ -85,8 +85,8 @@
       :media-drag-active="mediaDragActive"
       :chatting="chatting"
       :forcing-archive="forcingArchive"
-      :visible-turns="visibleTurns"
-      :has-more-turns="hasMoreTurns"
+      :visible-turns="displayTurns"
+      :has-more-turns="displayHasMoreTurns"
       :archives="archives"
       :selected-archive-id="selectedArchiveId"
       :archive-messages="archiveMessages"
@@ -560,6 +560,8 @@ const { visibleTurns, hasMoreTurns, chatContextUsageRatio, chatUsagePercent } = 
   perfDebug: PERF_DEBUG,
   perfNow,
 });
+const displayTurns = computed(() => chatting.value ? [] : visibleTurns.value);
+const displayHasMoreTurns = computed(() => !chatting.value && hasMoreTurns.value);
 
 function syncUserAliasFromPersona() {
   const next = (userPersona.value?.name || "").trim() || t("archives.roleUser");
@@ -805,6 +807,12 @@ async function checkGithubUpdate(silent: boolean) {
 const chatFlow = useChatFlow({
   chatting,
   forcingArchive,
+  getSession: () => {
+    const apiConfigId = String(activeChatApiConfigId.value || "").trim();
+    const agentId = String(selectedPersonaId.value || "").trim();
+    if (!apiConfigId || !agentId) return null;
+    return { apiConfigId, agentId };
+  },
   chatInput,
   clipboardImages,
   latestUserText,
@@ -820,10 +828,14 @@ const chatFlow = useChatFlow({
   t: tr,
   formatRequestFailed: (error) => formatI18nError(tr, "status.requestFailed", error),
   removeBinaryPlaceholders,
-  invokeSendChatMessage: ({ text, images, onDelta }) =>
+  invokeSendChatMessage: ({ text, images, session, onDelta }) =>
     invokeTauri("send_chat_message", {
       input: {
         payload: { text, images },
+        session: {
+          apiConfigId: session.apiConfigId,
+          agentId: session.agentId,
+        },
       },
       onDelta,
     }),
