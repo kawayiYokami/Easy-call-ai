@@ -41,6 +41,12 @@ type UseChatFlowOptions = {
     reasoningInline?: string;
     archivedBeforeSend: boolean;
   }>;
+  invokeStopChatMessage?: (input: {
+    session: { apiConfigId: string; agentId: string };
+    partialAssistantText: string;
+    partialReasoningStandard: string;
+    partialReasoningInline: string;
+  }) => Promise<void>;
   onReloadMessages: () => Promise<void>;
 };
 
@@ -220,18 +226,41 @@ export function useChatFlow(options: UseChatFlowOptions) {
     }
   }
 
-  function stopChat() {
-    chatGeneration += 1;
+  async function stopChat() {
+    if (!options.chatting.value) return;
+    const stopSession = options.getSession();
+    const gen = ++chatGeneration;
+    if (streamPendingText) {
+      options.latestAssistantText.value += streamPendingText;
+      streamPendingText = "";
+    }
     clearStreamBuffer();
     options.chatting.value = false;
-    options.latestAssistantText.value = options.t("status.interrupted");
-    options.latestReasoningStandardText.value = "";
-    options.latestReasoningInlineText.value = "";
     reasoningStartedAtMs.value = 0;
-    options.toolStatusText.value = "";
-    options.toolStatusState.value = "";
-    // 停止后恢复历史消息
-    void options.onReloadMessages();
+    if (options.toolStatusState.value === "running") {
+      options.toolStatusState.value = "failed";
+      options.toolStatusText.value = options.t("status.interrupted");
+    } else {
+      options.toolStatusState.value = "";
+      options.toolStatusText.value = "";
+    }
+    const partialAssistantText = options.latestAssistantText.value;
+    const partialReasoningStandard = options.latestReasoningStandardText.value;
+    const partialReasoningInline = options.latestReasoningInlineText.value;
+    if (stopSession && options.invokeStopChatMessage) {
+      try {
+        await options.invokeStopChatMessage({
+          session: stopSession,
+          partialAssistantText,
+          partialReasoningStandard,
+          partialReasoningInline,
+        });
+      } catch (error) {
+        console.warn("[CHAT] stop_chat_message failed:", error);
+      }
+    }
+    if (gen !== chatGeneration) return;
+    await options.onReloadMessages();
   }
 
   return {

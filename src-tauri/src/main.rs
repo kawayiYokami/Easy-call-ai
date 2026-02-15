@@ -9,7 +9,7 @@ use std::{
 
 use base64::{engine::general_purpose::STANDARD as B64, Engine as _};
 use directories::ProjectDirs;
-use futures_util::StreamExt;
+use futures_util::{future::AbortHandle, StreamExt};
 use image::ImageFormat;
 use reqwest::header::{HeaderMap, HeaderValue, AUTHORIZATION, CONTENT_TYPE};
 use rmcp::{ServiceExt, schemars};
@@ -151,6 +151,7 @@ fn main() {
             export_archive_to_file,
             open_external_url,
             send_chat_message,
+            stop_chat_message,
             read_local_binary_file,
             stt_transcribe,
             force_archive_current,

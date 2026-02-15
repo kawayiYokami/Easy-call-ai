@@ -392,6 +392,18 @@ struct SendChatRequest {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+struct StopChatRequest {
+    session: SessionSelector,
+    #[serde(default)]
+    partial_assistant_text: String,
+    #[serde(default)]
+    partial_reasoning_standard: String,
+    #[serde(default)]
+    partial_reasoning_inline: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 struct SendChatResult {
     conversation_id: String,
     latest_user_text: String,
@@ -399,6 +411,14 @@ struct SendChatResult {
     reasoning_standard: String,
     reasoning_inline: String,
     archived_before_send: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct StopChatResult {
+    aborted: bool,
+    persisted: bool,
+    conversation_id: Option<String>,
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -762,6 +782,7 @@ struct AppState {
     config_path: PathBuf,
     data_path: PathBuf,
     state_lock: Arc<Mutex<()>>,
+    inflight_chat_abort_handles: Arc<Mutex<std::collections::HashMap<String, AbortHandle>>>,
 }
 
 impl AppState {
@@ -774,6 +795,7 @@ impl AppState {
             config_path: config_dir.join("config.toml"),
             data_path: config_dir.join("app_data.json"),
             state_lock: Arc::new(Mutex::new(())),
+            inflight_chat_abort_handles: Arc::new(Mutex::new(std::collections::HashMap::new())),
         })
     }
 }

@@ -1,3 +1,7 @@
+fn inflight_chat_key(api_config_id: &str, agent_id: &str) -> String {
+    format!("{}::{}", api_config_id.trim(), agent_id.trim())
+}
+
 #[tauri::command]
 async fn send_chat_message(
     input: SendChatRequest,
@@ -67,6 +71,21 @@ async fn send_chat_message(
         (app_config, selected_api, resolved_api, effective_agent_id)
     };
 
+    let chat_key = inflight_chat_key(&selected_api.id, &effective_agent_id);
+    let (abort_handle, abort_registration) = AbortHandle::new_pair();
+    {
+        let mut inflight = state
+            .inflight_chat_abort_handles
+            .lock()
+            .map_err(|_| "Failed to lock inflight chat abort handles".to_string())?;
+        if let Some(previous) = inflight.insert(chat_key.clone(), abort_handle) {
+            previous.abort();
+        }
+    }
+
+    let state_for_run = state.clone();
+    let run = async move {
+    let state = state_for_run;
     if matches!(resolved_api.request_format, RequestFormat::OpenAITts) {
         return Err(format!(
             "Request format '{}' is not implemented in chat router yet.",
@@ -575,6 +594,150 @@ async fn send_chat_message(
         reasoning_standard,
         reasoning_inline,
         archived_before_send,
+    })
+    };
+
+    let result = futures_util::future::Abortable::new(run, abort_registration).await;
+    {
+        let mut inflight = state
+            .inflight_chat_abort_handles
+            .lock()
+            .map_err(|_| "Failed to lock inflight chat abort handles".to_string())?;
+        inflight.remove(&chat_key);
+    }
+
+    match result {
+        Ok(inner) => inner,
+        Err(_) => Err("CHAT_ABORTED_BY_USER".to_string()),
+    }
+}
+
+#[tauri::command]
+async fn stop_chat_message(
+    input: StopChatRequest,
+    state: State<'_, AppState>,
+) -> Result<StopChatResult, String> {
+    let api_config_id = input
+        .session
+        .api_config_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|v| !v.is_empty())
+        .ok_or_else(|| "Missing session.apiConfigId".to_string())?
+        .to_string();
+    let agent_id = input.session.agent_id.trim().to_string();
+    if agent_id.is_empty() {
+        return Err("Missing session.agentId".to_string());
+    }
+
+    let chat_key = inflight_chat_key(&api_config_id, &agent_id);
+    let aborted = {
+        let mut inflight = state
+            .inflight_chat_abort_handles
+            .lock()
+            .map_err(|_| "Failed to lock inflight chat abort handles".to_string())?;
+        if let Some(handle) = inflight.remove(&chat_key) {
+            handle.abort();
+            true
+        } else {
+            false
+        }
+    };
+
+    let partial_assistant_text = input.partial_assistant_text.trim().to_string();
+    let partial_reasoning_standard = input.partial_reasoning_standard.trim().to_string();
+    let partial_reasoning_inline = input.partial_reasoning_inline.trim().to_string();
+    let should_persist = !partial_assistant_text.is_empty()
+        || !partial_reasoning_standard.is_empty()
+        || !partial_reasoning_inline.is_empty();
+    if !should_persist {
+        return Ok(StopChatResult {
+            aborted,
+            persisted: false,
+            conversation_id: None,
+        });
+    }
+
+    let guard = state
+        .state_lock
+        .lock()
+        .map_err(|_| "Failed to lock state mutex".to_string())?;
+    let app_config = read_config(&state.config_path)?;
+    let selected_api = app_config
+        .api_configs
+        .iter()
+        .find(|api| api.id == api_config_id)
+        .cloned()
+        .ok_or_else(|| format!("Selected API config '{api_config_id}' not found."))?;
+    let mut data = read_app_data(&state.data_path)?;
+    ensure_default_agent(&mut data);
+
+    let idx = latest_active_conversation_index(&data, &api_config_id, &agent_id);
+    let Some(idx) = idx else {
+        drop(guard);
+        return Ok(StopChatResult {
+            aborted,
+            persisted: false,
+            conversation_id: None,
+        });
+    };
+    let conversation = data
+        .conversations
+        .get_mut(idx)
+        .ok_or_else(|| "Active conversation index is out of bounds.".to_string())?;
+
+    // If the latest message is already an assistant message, do not append duplicate partial output.
+    if conversation
+        .messages
+        .last()
+        .map(|m| m.role == "assistant")
+        .unwrap_or(false)
+    {
+        let conversation_id = conversation.id.clone();
+        drop(guard);
+        return Ok(StopChatResult {
+            aborted,
+            persisted: false,
+            conversation_id: Some(conversation_id),
+        });
+    }
+
+    let provider_meta = if partial_reasoning_standard.is_empty() && partial_reasoning_inline.is_empty()
+    {
+        None
+    } else {
+        Some(serde_json::json!({
+            "reasoningStandard": partial_reasoning_standard,
+            "reasoningInline": partial_reasoning_inline
+        }))
+    };
+
+    let now = now_iso();
+    conversation.messages.push(ChatMessage {
+        id: Uuid::new_v4().to_string(),
+        role: "assistant".to_string(),
+        created_at: now.clone(),
+        parts: vec![MessagePart::Text {
+            text: partial_assistant_text,
+        }],
+        extra_text_blocks: Vec::new(),
+        provider_meta,
+        tool_call: None,
+        mcp_call: None,
+    });
+    conversation.updated_at = now.clone();
+    conversation.last_assistant_at = Some(now);
+    conversation.last_context_usage_ratio =
+        compute_context_usage_ratio(conversation, selected_api.context_window_tokens);
+    let conversation_id = conversation.id.clone();
+
+    write_app_data(&state.data_path, &data)?;
+    drop(guard);
+
+    Ok(StopChatResult {
+        aborted,
+        persisted: true,
+        conversation_id: Some(conversation_id),
     })
 }
 

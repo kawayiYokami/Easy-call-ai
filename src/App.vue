@@ -835,6 +835,18 @@ const chatFlow = useChatFlow({
       },
       onDelta,
     }),
+  invokeStopChatMessage: ({ session, partialAssistantText, partialReasoningStandard, partialReasoningInline }) =>
+    invokeTauri("stop_chat_message", {
+      input: {
+        session: {
+          apiConfigId: session.apiConfigId,
+          agentId: session.agentId,
+        },
+        partialAssistantText,
+        partialReasoningStandard,
+        partialReasoningInline,
+      },
+    }),
   onReloadMessages: () => loadAllMessages(),
 });
 
