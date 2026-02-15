@@ -101,7 +101,7 @@
           >
             <ChevronsUpDown class="h-3.5 w-3.5" />
           </button>
-          <div tabindex="0" class="dropdown-content z-[1] flex flex-col shadow bg-base-100 rounded-box min-w-[360px] max-h-72 overflow-hidden">
+          <div tabindex="0" class="dropdown-content z-[1] flex flex-col shadow bg-base-100 rounded-box min-w-[280px] max-h-72 overflow-hidden">
             <input
               v-model="modelSearch"
               type="text"
