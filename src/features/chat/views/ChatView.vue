@@ -72,23 +72,34 @@
                 <span>{{ avatarInitial(personaName || t("archives.roleAssistant")) }}</span>
               </div>
             </div>
-            <div v-if="turn.assistantReasoningStandard" class="collapse collapse-arrow">
-              <input type="checkbox" />
-              <div class="collapse-title min-w-0">
-                <span class="block truncate italic">{{ lastLinePreview(turn.assistantReasoningStandard) || "..." }}</span>
-              </div>
-              <div class="collapse-content">
+            <details
+              v-if="turn.assistantReasoningStandard"
+              class="collapse collapse-arrow border border-base-300 bg-base-200 min-w-0 max-w-[min(65vw,34rem)]"
+            >
+              <summary class="collapse-title py-2 px-3 min-h-0 text-xs italic flex items-center">
+                <span class="block min-w-0 flex-1 whitespace-normal break-words">
+                  {{ firstLinePreview(turn.assistantReasoningStandard) || "..." }}
+                </span>
+              </summary>
+              <div class="collapse-content px-3 pb-2 whitespace-pre-wrap text-xs leading-relaxed text-base-content/80">
                 {{ turn.assistantReasoningStandard }}
               </div>
-            </div>
+            </details>
           </div>
           <div v-if="turn.assistantText" class="chat-bubble max-w-[92%] bg-white text-black assistant-markdown">
-            <div
-              v-if="splitThinkText(turn.assistantText).inline || turn.assistantReasoningInline"
-              class="mb-1 whitespace-pre-wrap italic text-base-content/60"
+            <details
+              v-if="resolvedTurnInlineReasoning(turn)"
+              class="collapse border border-base-content/10 bg-base-200/50 mb-2"
             >
-              {{ splitThinkText(turn.assistantText).inline || turn.assistantReasoningInline }}
-            </div>
+              <summary class="collapse-title py-1.5 px-2.5 min-h-0 text-[11px] italic flex items-center text-base-content/60 cursor-pointer">
+                <span class="block min-w-0 flex-1 whitespace-normal break-words">
+                  {{ firstLinePreview(resolvedTurnInlineReasoning(turn)) || "..." }}
+                </span>
+              </summary>
+              <div class="collapse-content max-w-full px-2.5 pb-1.5 whitespace-pre-wrap break-words text-[11px] leading-relaxed text-base-content/60" style="overflow-wrap: anywhere;">
+                {{ resolvedTurnInlineReasoning(turn) }}
+              </div>
+            </details>
             <div
               v-html="renderMarkdown(splitThinkText(turn.assistantText).visible)"
               @click="handleAssistantLinkClick"
@@ -139,24 +150,32 @@
                 <span>{{ avatarInitial(personaName || t("archives.roleAssistant")) }}</span>
               </div>
             </div>
-            <div v-if="latestReasoningStandardText" class="collapse collapse-arrow">
-              <input type="checkbox" />
-              <div class="collapse-title min-w-0 flex items-center gap-1">
-                <span class="block truncate italic">{{ lastLinePreview(latestReasoningStandardText) || "..." }}</span>
+            <details
+              v-if="latestReasoningStandardText"
+              class="collapse collapse-arrow border border-base-300 bg-base-200 min-w-0 max-w-[min(65vw,34rem)]"
+            >
+              <summary class="collapse-title py-2 px-3 min-h-0 text-xs italic flex items-center gap-1">
+                <span class="block min-w-0 flex-1 whitespace-normal break-words">{{ firstLinePreview(latestReasoningStandardText) || "..." }}</span>
                 <span class="loading loading-dots loading-xs opacity-60"></span>
-              </div>
-              <div class="collapse-content">
+              </summary>
+              <div class="collapse-content px-3 pb-2 whitespace-pre-wrap text-xs leading-relaxed text-base-content/80">
                 {{ latestReasoningStandardText }}
               </div>
-            </div>
+            </details>
           </div>
           <div class="chat-bubble max-w-[92%] bg-white text-black assistant-markdown">
-            <div
+            <details
               v-if="latestInlineReasoningText"
-              class="mb-1 whitespace-pre-wrap italic text-base-content/60"
+              class="collapse border border-base-content/10 bg-base-200/50 mb-2"
             >
-              {{ latestInlineReasoningText }}
-            </div>
+              <summary class="collapse-title py-1.5 px-2.5 min-h-0 text-[11px] italic flex items-center gap-1 text-base-content/60 cursor-pointer">
+                <span class="block min-w-0 flex-1 whitespace-normal break-words">{{ firstLinePreview(latestInlineReasoningText) || "..." }}</span>
+                <span class="loading loading-dots loading-xs opacity-60"></span>
+              </summary>
+              <div class="collapse-content max-w-full px-2.5 pb-1.5 whitespace-pre-wrap break-words text-[11px] leading-relaxed text-base-content/60" style="overflow-wrap: anywhere;">
+                {{ latestInlineReasoningText }}
+              </div>
+            </details>
             <div v-if="latestAssistantText" v-html="renderedAssistantHtml" @click="handleAssistantLinkClick"></div>
             <div class="mt-1">
               <span v-if="!latestAssistantText" class="loading loading-dots loading-sm"></span>
@@ -379,14 +398,21 @@ const latestInlineReasoningText = computed(
 );
 const renderedAssistantHtml = computed(() => renderMarkdown(latestAssistantParts.value.visible));
 
-function lastLinePreview(raw: string): string {
+function resolvedTurnInlineReasoning(turn: ChatTurn): string {
+  return splitThinkText(turn.assistantText).inline || turn.assistantReasoningInline || "";
+}
+
+function firstLinePreview(raw: string): string {
   if (!raw) return "";
   const lines = raw
     .split(/\r?\n/)
     .map((line) => line.trim())
     .filter((line) => line.length > 0);
-  const last = lines.length ? lines[lines.length - 1] : raw.trim();
-  return last || "";
+  const first = lines.length ? lines[0] : raw.trim();
+  if (!first) return "";
+  const chars = Array.from(first);
+  if (chars.length <= 20) return first;
+  return chars.slice(0, 20).join("") + "...";
 }
 
 function buildAudioDataUrl(audio: { mime: string; bytesBase64: string }): string {
