@@ -129,6 +129,7 @@ fn consume_api_key_for_request(resolved_api: &ResolvedApiConfig) -> String {
         name: String::new(),
         request_format: resolved_api.request_format,
         allow_concurrent_requests: resolved_api.allow_concurrent_requests,
+        max_concurrent_requests: resolved_api.max_concurrent_requests,
         enable_text: true,
         enable_image: false,
         enable_audio: false,
@@ -175,6 +176,7 @@ fn migrate_legacy_api_configs_into_providers(config: &mut AppConfig) {
                 name: legacy.name.clone(),
                 request_format: legacy.request_format,
                 allow_concurrent_requests: legacy.allow_concurrent_requests,
+                max_concurrent_requests: legacy.max_concurrent_requests,
                 enable_text: legacy.enable_text,
                 enable_image: legacy.enable_image,
                 enable_audio: legacy.enable_audio,
@@ -294,6 +296,7 @@ fn expand_api_configs_from_providers(config: &mut AppConfig) {
                 name: format!("{}/{}", provider.name.trim(), model.model.trim()),
                 request_format: provider.request_format,
                 allow_concurrent_requests: provider.allow_concurrent_requests,
+                max_concurrent_requests: provider.max_concurrent_requests,
                 enable_text: provider.enable_text,
                 enable_image: model.enable_image,
                 enable_audio: provider.enable_audio,
@@ -1560,6 +1563,7 @@ fn resolve_api_config(
                 provider_key_cursor: 0,
                 request_format: RequestFormat::OpenAI,
                 allow_concurrent_requests: false,
+                max_concurrent_requests: None,
                 base_url: debug_cfg.base_url.trim().to_string(),
                 api_key: debug_cfg.api_key.trim().to_string(),
                 model: debug_cfg.model.trim().to_string(),
@@ -1637,6 +1641,9 @@ fn resolve_api_config(
         allow_concurrent_requests: selected_provider
             .map(|provider| provider.allow_concurrent_requests)
             .unwrap_or(selected.allow_concurrent_requests),
+        max_concurrent_requests: selected_provider
+            .and_then(|provider| provider.max_concurrent_requests)
+            .or(selected.max_concurrent_requests),
         base_url: selected.base_url.trim().to_string(),
         api_key: selected_api_key,
         model: selected.model.trim().to_string(),

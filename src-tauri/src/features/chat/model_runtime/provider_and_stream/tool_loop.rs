@@ -1014,7 +1014,7 @@ async fn run_genai_tool_loop(
 
         let mut stop_after_remote_im_done_in_turn = false;
         let round_output = async {
-            let _provider_serial_guard = maybe_acquire_provider_serial_guard(
+            let _provider_concurrency_guard = maybe_acquire_provider_concurrency_guard(
                 tool_abort_state,
                 &api_config,
                 model_name,
@@ -1599,7 +1599,7 @@ async fn run_genai_tool_loop_non_stream(
             if !genai_tools.is_empty() {
                 request = request.with_tools(genai_tools.clone());
             }
-            let _provider_serial_guard = maybe_acquire_provider_serial_guard(
+            let _provider_concurrency_guard = maybe_acquire_provider_concurrency_guard(
                 tool_abort_state,
                 &api_config,
                 model_name,

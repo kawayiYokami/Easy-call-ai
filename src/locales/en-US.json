@@ -101,6 +101,8 @@
       "requestFormat": "Protocol",
       "allowConcurrentRequests": "Allow Concurrent Requests",
       "allowConcurrentRequestsHint": "When disabled, all models under this provider will run serially.",
+      "maxConcurrentRequests": "Max Concurrent Requests",
+      "maxConcurrentRequestsHint": "Leave empty for unlimited. Recommended: 2-4.",
       "baseUrl": "Base URL",
       "linkHelper": "Link Helper",
       "linkHelperHint": "Pick a common provider to generate a base URL template.",

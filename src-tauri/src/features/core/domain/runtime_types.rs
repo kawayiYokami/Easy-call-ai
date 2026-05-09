@@ -32,6 +32,7 @@ struct ResolvedApiConfig {
     provider_key_cursor: usize,
     request_format: RequestFormat,
     allow_concurrent_requests: bool,
+    max_concurrent_requests: Option<u32>,
     base_url: String,
     api_key: String,
     model: String,

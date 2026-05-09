@@ -101,6 +101,8 @@
       "requestFormat": "协议",
       "allowConcurrentRequests": "允许并发请求",
       "allowConcurrentRequestsHint": "关闭后，该供应商下所有模型请求会串行执行。",
+      "maxConcurrentRequests": "最大并发数",
+      "maxConcurrentRequestsHint": "留空表示无限制，建议填 2-4。",
       "baseUrl": "基础链接",
       "linkHelper": "链接助手",
       "linkHelperHint": "选择常见供应商，自动生成对应基础链接。",

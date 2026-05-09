@@ -533,8 +533,8 @@ async fn call_model_openai_stream_internal(
     app_state: Option<&AppState>,
 ) -> Result<ModelReply, String> {
     let api_config = resolve_request_api_config(api_config).await?;
-    let _provider_serial_guard =
-        maybe_acquire_provider_serial_guard(app_state, &api_config, model_name).await?;
+    let _provider_concurrency_guard =
+        maybe_acquire_provider_concurrency_guard(app_state, &api_config, model_name).await?;
     let request_api_key = consume_api_key_for_request(&api_config);
     let adapter_kind = match kind {
         OpenAiApiKind::ChatCompletions => resolve_provider_genai_adapter_kind(
@@ -595,8 +595,8 @@ async fn call_model_openai_non_stream(
     app_state: Option<&AppState>,
 ) -> Result<ModelReply, String> {
     let api_config = resolve_request_api_config(api_config).await?;
-    let _provider_serial_guard =
-        maybe_acquire_provider_serial_guard(app_state, &api_config, model_name).await?;
+    let _provider_concurrency_guard =
+        maybe_acquire_provider_concurrency_guard(app_state, &api_config, model_name).await?;
     let request_api_key = consume_api_key_for_request(&api_config);
     let adapter_kind = resolve_provider_genai_adapter_kind(
         &api_config,
@@ -649,8 +649,8 @@ async fn call_model_openai_responses(
     app_state: Option<&AppState>,
 ) -> Result<ModelReply, String> {
     let api_config = resolve_request_api_config(api_config).await?;
-    let _provider_serial_guard =
-        maybe_acquire_provider_serial_guard(app_state, &api_config, model_name).await?;
+    let _provider_concurrency_guard =
+        maybe_acquire_provider_concurrency_guard(app_state, &api_config, model_name).await?;
     let request_api_key = consume_api_key_for_request(&api_config);
     let service_target = build_provider_genai_service_target(
         &api_config,
@@ -686,8 +686,8 @@ async fn call_model_gemini(
 ) -> Result<ModelReply, String> {
     let request = build_genai_chat_request(&prepared)?;
     let api_config = resolve_request_api_config(api_config).await?;
-    let _provider_serial_guard =
-        maybe_acquire_provider_serial_guard(app_state, &api_config, model_name).await?;
+    let _provider_concurrency_guard =
+        maybe_acquire_provider_concurrency_guard(app_state, &api_config, model_name).await?;
     let request_api_key = consume_api_key_for_request(&api_config);
     let service_target = build_provider_genai_service_target(
         &api_config,
@@ -735,8 +735,8 @@ async fn call_model_anthropic(
     app_state: Option<&AppState>,
 ) -> Result<ModelReply, String> {
     let api_config = resolve_request_api_config(api_config).await?;
-    let _provider_serial_guard =
-        maybe_acquire_provider_serial_guard(app_state, &api_config, model_name).await?;
+    let _provider_concurrency_guard =
+        maybe_acquire_provider_concurrency_guard(app_state, &api_config, model_name).await?;
     let request_api_key = consume_api_key_for_request(&api_config);
     let service_target = build_provider_genai_service_target(
         &api_config,
@@ -960,6 +960,7 @@ mod openai_responses_genai_request_tests {
             provider_key_cursor: 0,
             request_format: RequestFormat::OpenAI,
             allow_concurrent_requests: false,
+            max_concurrent_requests: None,
             base_url: "https://api.openai.com/v1".to_string(),
             api_key: "test-key".to_string(),
             model: "gpt-4o-mini".to_string(),
@@ -984,6 +985,7 @@ mod openai_responses_genai_request_tests {
             provider_key_cursor: 0,
             request_format: RequestFormat::Codex,
             allow_concurrent_requests: false,
+            max_concurrent_requests: None,
             base_url: DEFAULT_CODEX_BASE_URL.to_string(),
             api_key: "test-key".to_string(),
             model: "gpt-5.4".to_string(),
@@ -1008,6 +1010,7 @@ mod openai_responses_genai_request_tests {
             provider_key_cursor: 0,
             request_format: RequestFormat::Codex,
             allow_concurrent_requests: false,
+            max_concurrent_requests: None,
             base_url: DEFAULT_CODEX_BASE_URL.to_string(),
             api_key: "test-key".to_string(),
             model: "gpt-5.3-codex-spark".to_string(),

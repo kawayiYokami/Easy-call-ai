@@ -26,14 +26,14 @@ struct ModelCallExecutionResult {
     log_parts: ModelCallLogParts,
 }
 
-struct ProviderSerialGuard {
+struct ProviderConcurrencyGuard {
     provider_id: String,
     model_name: String,
     acquired_at: std::time::Instant,
-    _guard: tokio::sync::OwnedMutexGuard<()>,
+    _permit: tokio::sync::OwnedSemaphorePermit,
 }
 
-impl Drop for ProviderSerialGuard {
+impl Drop for ProviderConcurrencyGuard {
     fn drop(&mut self) {
         let held_ms = self
             .acquired_at
@@ -41,7 +41,7 @@ impl Drop for ProviderSerialGuard {
             .as_millis()
             .min(u128::from(u64::MAX)) as u64;
         runtime_log_info(format!(
-            "[推理串行] 完成并释放供应商串行门: provider_id={}, model={}, held_ms={}",
+            "[推理并发] 完成并释放供应商并发门: provider_id={}, model={}, held_ms={}",
             self.provider_id, self.model_name, held_ms
         ));
     }
@@ -185,14 +185,18 @@ fn provider_system_message_user_fallback(state: Option<&AppState>, base_url: &st
     provider_system_message_user_fallback_cached(state, base_url)
 }
 
-async fn maybe_acquire_provider_serial_guard(
+async fn maybe_acquire_provider_concurrency_guard(
     state: Option<&AppState>,
     resolved_api: &ResolvedApiConfig,
     model_name: &str,
-) -> Result<Option<ProviderSerialGuard>, String> {
-    if resolved_api.allow_concurrent_requests {
+) -> Result<Option<ProviderConcurrencyGuard>, String> {
+    let effective_max: Option<usize> = if let Some(max) = resolved_api.max_concurrent_requests {
+        Some(max.max(1) as usize)
+    } else if resolved_api.allow_concurrent_requests {
         return Ok(None);
-    }
+    } else {
+        Some(1)
+    };
     let Some(app_state) = state else {
         return Ok(None);
     };
@@ -205,31 +209,32 @@ async fn maybe_acquire_provider_serial_guard(
         return Ok(None);
     };
 
+    let max = effective_max.unwrap_or(1);
     runtime_log_info(format!(
-        "[推理串行] 开始等待供应商串行门: provider_id={}, model={}",
-        provider_id, model_name
+        "[推理并发] 开始等待供应商并发门: provider_id={}, model={}, max={}",
+        provider_id, model_name, max
     ));
-    let gate = {
+    let semaphore = {
         let mut gates = app_state.provider_request_gates.lock().await;
         gates.entry(provider_id.to_string())
-            .or_insert_with(|| std::sync::Arc::new(tokio::sync::Mutex::new(())))
+            .or_insert_with(|| std::sync::Arc::new(tokio::sync::Semaphore::new(max)))
             .clone()
     };
     let wait_started = std::time::Instant::now();
-    let guard = gate.lock_owned().await;
+    let permit = semaphore.acquire_owned().await.map_err(|err| format!("Semaphore acquire failed: {err}"))?;
     let waited_ms = wait_started
         .elapsed()
         .as_millis()
         .min(u128::from(u64::MAX)) as u64;
     runtime_log_info(format!(
-        "[推理串行] 已进入供应商串行门: provider_id={}, model={}, waited_ms={}",
+        "[推理并发] 已进入供应商并发门: provider_id={}, model={}, waited_ms={}",
         provider_id, model_name, waited_ms
     ));
-    Ok(Some(ProviderSerialGuard {
+    Ok(Some(ProviderConcurrencyGuard {
         provider_id: provider_id.to_string(),
         model_name: model_name.to_string(),
         acquired_at: std::time::Instant::now(),
-        _guard: guard,
+        _permit: permit,
     }))
 }
 

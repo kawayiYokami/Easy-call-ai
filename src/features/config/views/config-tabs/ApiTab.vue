@@ -80,6 +80,16 @@
               <input v-model="selectedProvider.allowConcurrentRequests" type="checkbox" class="toggle toggle-sm mt-0.5" />
             </label>
 
+            <label v-if="selectedProvider.allowConcurrentRequests" class="flex items-start justify-between gap-3 rounded-box border border-base-300 bg-base-200/70 px-3 py-3">
+              <div class="flex flex-col gap-1">
+                <span class="text-sm font-medium">{{ t("config.api.maxConcurrentRequests") }}</span>
+                <span class="text-xs opacity-65">{{ t("config.api.maxConcurrentRequestsHint") }}</span>
+              </div>
+              <input v-model.number="selectedProvider.maxConcurrentRequests" type="number" min="1" max="32" step="1"
+                class="input input-bordered input-sm w-20" placeholder="∞"
+                @blur="if (selectedProvider.maxConcurrentRequests != null && selectedProvider.maxConcurrentRequests < 1) selectedProvider.maxConcurrentRequests = null" />
+            </label>
+
             <div v-if="!selectedProviderIsCodex" class="flex flex-col gap-1">
               <div class="flex items-center gap-2">
                 <span class="text-sm font-medium">{{ t("config.api.baseUrl") }}</span>
