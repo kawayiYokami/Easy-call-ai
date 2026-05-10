@@ -158,6 +158,27 @@ Tauri 管理 3 个无边框窗口：`main`（配置，900×900）、`chat`（对
   - 若两者仅在 1-2 个分支不同，保留并排实现更清晰。
   - 若两者都有相同“预处理 -> 校验 -> 错误映射 -> 收尾”流程，且重复超过阈值，应抽公共 pipeline（如 `process_common`），各自只保留差异步骤。
 
+### 新增字段的完整链路追踪
+
+给现有数据结构加新字段时，必须追踪全链路，不能只改"能看到的地方"。最低要求：
+
+1. **后端**：结构体定义 → Default impl → 构造点（所有 `StructName { ... }` 字面量）→ 解析/序列化 → 测试 fixture
+2. **前端**：类型定义 → composable（内存层）→ persistence（存储加载层）→ Vue 组件 → i18n
+3. **grep 旧字段名**：加新字段前，先 grep 旧字段（如 `allowConcurrentRequests`），确保同目录下所有引用点都覆盖了。最容易漏的是 persistence 层和测试 fixture。
+4. **运行时状态生命周期**：如果新字段影响运行时缓存（如 `HashMap` 里的 `Semaphore`），必须考虑配置热更新时旧缓存如何失效或重建，不能只做 `or_insert_with` 一次性创建。
+5. **存储输入校验**：从 localStorage / JSON / 磁盘读出来的新字段，必须在 persistence 层做类型校验（`Number.isFinite`、范围检查、默认值兜底），不能假设上游写入一定合法。
+
+> 经验来源：PR #10（`max_concurrent_requests`）合入后，原作者补充修复了后端运行时状态不感知配置变更（`ProviderRequestGate`）、前端 persistence 层缺失校验、以及 UI 控件语义合并（slider 替代双控件）三个问题。
+
+### 多字段关联时的 UI 设计
+
+当多个配置字段表达同一个用户意图时（如 `allowConcurrentRequests` + `maxConcurrentRequests` 本质都是"同时跑几个"），不要按字段一一对应给控件。应先想清楚用户的认知模型，用一个控件统一表达，通过 encode/decode 函数在 UI 状态和数据模型之间转换。
+
+好处：
+- 从设计上消除无效状态组合（如 toggle 关了但数字填了 3）
+- 用户只需理解一个概念
+- 校验逻辑集中在 encode 层，不会散落在多个控件的事件处理里
+
 ### 提交信息规范
 - 采用约定式提交（Conventional Commits），推荐格式：`type(scope): 简要中文描述`。
 - 提交信息默认使用中文，便于与现有项目历史保持一致。
