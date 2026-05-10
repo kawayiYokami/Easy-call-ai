@@ -1208,6 +1208,7 @@ fn builtin_read_file_should_downgrade_bad_image_to_text_notice() {
                 name: "vision-a".to_string(),
                 request_format: RequestFormat::OpenAI,
                 allow_concurrent_requests: false,
+                max_concurrent_requests: None,
                 enable_text: true,
                 enable_image: true,
                 enable_audio: false,

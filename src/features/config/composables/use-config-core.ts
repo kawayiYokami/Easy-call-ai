@@ -168,9 +168,7 @@ export function useConfigCore(options: UseConfigCoreOptions) {
         provider.name = String(provider.name || "").trim() || provider.id;
         provider.requestFormat = normalizeApiRequestFormat(draft.requestFormat);
         provider.allowConcurrentRequests = !!draft.allowConcurrentRequests;
-        if (draft.maxConcurrentRequests != null) {
-          provider.maxConcurrentRequests = draft.maxConcurrentRequests;
-        }
+        provider.maxConcurrentRequests = draft.maxConcurrentRequests ?? null;
         provider.enableText = !!draft.enableText;
         provider.enableAudio = !!draft.enableAudio;
         provider.baseUrl = String(draft.baseUrl || "").trim();

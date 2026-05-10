@@ -44,6 +44,11 @@ struct ResolvedApiConfig {
     codex_auth: Option<CodexRuntimeAuth>,
 }
 
+struct ProviderRequestGate {
+    limit: usize,
+    semaphore: std::sync::Arc<tokio::sync::Semaphore>,
+}
+
 #[derive(Debug, Clone)]
 struct PreparedBinaryPayload {
     mime: String,

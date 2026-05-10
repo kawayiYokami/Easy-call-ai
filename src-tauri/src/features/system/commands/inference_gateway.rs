@@ -214,14 +214,27 @@ async fn maybe_acquire_provider_concurrency_guard(
         "[推理并发] 开始等待供应商并发门: provider_id={}, model={}, max={}",
         provider_id, model_name, max
     ));
-    let semaphore = {
+    let gate = {
         let mut gates = app_state.provider_request_gates.lock().await;
-        gates.entry(provider_id.to_string())
-            .or_insert_with(|| std::sync::Arc::new(tokio::sync::Semaphore::new(max)))
-            .clone()
+        match gates.get(provider_id) {
+            Some(gate) if gate.limit == max => gate.clone(),
+            _ => {
+                let gate = std::sync::Arc::new(ProviderRequestGate {
+                    limit: max,
+                    semaphore: std::sync::Arc::new(tokio::sync::Semaphore::new(max)),
+                });
+                gates.insert(provider_id.to_string(), gate.clone());
+                gate
+            }
+        }
     };
     let wait_started = std::time::Instant::now();
-    let permit = semaphore.acquire_owned().await.map_err(|err| format!("Semaphore acquire failed: {err}"))?;
+    let permit = gate
+        .semaphore
+        .clone()
+        .acquire_owned()
+        .await
+        .map_err(|err| format!("Semaphore acquire failed: {err}"))?;
     let waited_ms = wait_started
         .elapsed()
         .as_millis()

@@ -72,24 +72,6 @@
               </label>
             </div>
 
-            <label class="flex items-start justify-between gap-3 rounded-box border border-base-300 bg-base-200/70 px-3 py-3">
-              <div class="flex flex-col gap-1">
-                <span class="text-sm font-medium">{{ t("config.api.allowConcurrentRequests") }}</span>
-                <span class="text-xs opacity-65">{{ t("config.api.allowConcurrentRequestsHint") }}</span>
-              </div>
-              <input v-model="selectedProvider.allowConcurrentRequests" type="checkbox" class="toggle toggle-sm mt-0.5" />
-            </label>
-
-            <label v-if="selectedProvider.allowConcurrentRequests" class="flex items-start justify-between gap-3 rounded-box border border-base-300 bg-base-200/70 px-3 py-3">
-              <div class="flex flex-col gap-1">
-                <span class="text-sm font-medium">{{ t("config.api.maxConcurrentRequests") }}</span>
-                <span class="text-xs opacity-65">{{ t("config.api.maxConcurrentRequestsHint") }}</span>
-              </div>
-              <input v-model.number="selectedProvider.maxConcurrentRequests" type="number" min="1" max="32" step="1"
-                class="input input-bordered input-sm w-20" placeholder="∞"
-                @blur="if (selectedProvider.maxConcurrentRequests != null && selectedProvider.maxConcurrentRequests < 1) selectedProvider.maxConcurrentRequests = null" />
-            </label>
-
             <div v-if="!selectedProviderIsCodex" class="flex flex-col gap-1">
               <div class="flex items-center gap-2">
                 <span class="text-sm font-medium">{{ t("config.api.baseUrl") }}</span>
@@ -100,6 +82,25 @@
               </div>
               <input v-model="selectedProvider.baseUrl" class="input input-bordered input-sm"
                 :placeholder="props.baseUrlReference" />
+              <label class="mt-2 flex flex-col gap-1">
+                <div class="flex flex-col gap-1">
+                  <span class="text-sm font-medium">{{ t("config.api.allowConcurrentRequests") }}</span>
+                </div>
+                <div class="flex items-center gap-3">
+                  <input
+                    :value="providerConcurrentLimit(selectedProvider)"
+                    type="range"
+                    min="0"
+                    max="16"
+                    step="1"
+                    class="range range-sm flex-1"
+                    @input="updateProviderConcurrentLimit(selectedProvider, ($event.target as HTMLInputElement).value)"
+                  />
+                  <div class="w-16 text-right text-sm">
+                    {{ providerConcurrentLimitLabel(selectedProvider) }}
+                  </div>
+                </div>
+              </label>
               <div v-if="baseUrlHelperOpen" class="rounded-box border border-base-300 bg-base-200/50 p-3">
                 <div class="mb-2 text-xs opacity-70">{{ t("config.api.linkHelperHint") }}</div>
                 <div class="tabs tabs-boxed mb-2 bg-base-100 p-1">
@@ -653,12 +654,46 @@ function capabilityFromRequestFormat(format: ApiRequestFormat | string): ApiCapa
   return "text";
 }
 
+function decodeProviderConcurrentLimit(provider: ApiProviderConfigItem): number {
+  if (!provider.allowConcurrentRequests) {
+    return 1;
+  }
+  const raw = Number(provider.maxConcurrentRequests ?? 0);
+  if (!Number.isFinite(raw) || raw <= 0) {
+    return 0;
+  }
+  return Math.min(16, Math.max(1, Math.round(raw)));
+}
+
+function encodeProviderConcurrentLimit(provider: ApiProviderConfigItem, value: string | number) {
+  const parsed = Math.round(Number(value ?? 0));
+  const limit = Number.isFinite(parsed) ? Math.min(16, Math.max(0, parsed)) : 0;
+  provider.allowConcurrentRequests = true;
+  provider.maxConcurrentRequests = limit === 0 ? null : limit;
+}
+
+function providerConcurrentLimit(provider: ApiProviderConfigItem): number {
+  return decodeProviderConcurrentLimit(provider);
+}
+
+function providerConcurrentLimitLabel(provider: ApiProviderConfigItem): string {
+  const value = decodeProviderConcurrentLimit(provider);
+  if (value === 0) return t("config.api.concurrentUnlimited");
+  if (value === 1) return t("config.api.concurrentSerial");
+  return String(value);
+}
+
+function updateProviderConcurrentLimit(provider: ApiProviderConfigItem, value: string | number) {
+  encodeProviderConcurrentLimit(provider, value);
+}
+
 function cloneProvider(provider: ApiProviderConfigItem): ApiProviderConfigItem {
   return {
     id: String(provider.id || "").trim(),
     name: String(provider.name || "").trim(),
     requestFormat: normalizeApiRequestFormat(provider.requestFormat),
     allowConcurrentRequests: !!provider.allowConcurrentRequests,
+    maxConcurrentRequests: provider.maxConcurrentRequests ?? null,
     enableText: !!provider.enableText,
     enableImage: !!provider.enableImage,
     enableAudio: !!provider.enableAudio,
@@ -704,6 +739,7 @@ function normalizeProviderForCompare(provider: ApiProviderConfigItem) {
     name: String(provider.name || "").trim(),
     requestFormat: normalizeApiRequestFormat(provider.requestFormat),
     allowConcurrentRequests: !!provider.allowConcurrentRequests,
+    maxConcurrentRequests: provider.maxConcurrentRequests ?? null,
     enableText: !!provider.enableText,
     enableImage: !!provider.enableImage,
     enableAudio: !!provider.enableAudio,
@@ -813,6 +849,7 @@ function createProvider(seed: string, capability: ApiCapability = activeCapabili
     name: `API Provider ${providerList.value.length + 1}`,
     requestFormat,
     allowConcurrentRequests: false,
+    maxConcurrentRequests: null,
     enableText: capability === "text",
     enableImage: false,
     enableAudio: capability === "voice",

@@ -97,7 +97,7 @@ struct AppState {
     provider_system_message_user_fallback_keys:
         Arc<Mutex<std::collections::HashSet<String>>>,
     provider_request_gates:
-        Arc<tokio::sync::Mutex<std::collections::HashMap<String, Arc<tokio::sync::Semaphore>>>>,
+        Arc<tokio::sync::Mutex<std::collections::HashMap<String, Arc<ProviderRequestGate>>>>,
     conversation_index_repair_gates:
         Arc<Mutex<std::collections::HashMap<String, Arc<Mutex<()>>>>>,
     remote_im_contact_runtime_states:
