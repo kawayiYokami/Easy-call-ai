@@ -310,6 +310,9 @@
       @keydown.left.prevent="adjustPaneWidthByKeyboard('right', 24)"
       @keydown.right.prevent="adjustPaneWidthByKeyboard('right', -24)"
     ></div>
+
+    <!-- 赏罚引擎面板 -->
+    <RelationshipPanel :conversation-id="activeConversationId" :agent-id="activeAgentId" />
   </div>
 </template>
 
@@ -328,6 +331,7 @@ import FloatingScrollbar from "../../shell/components/FloatingScrollbar.vue";
 import ChatConversationSidebar from "../components/ChatConversationSidebar.vue";
 import ChatWorkspaceToolbar from "../components/ChatWorkspaceToolbar.vue";
 import ToolReviewSidebar from "../components/ToolReviewSidebar.vue";
+import RelationshipPanel from "../components/RelationshipPanel.vue";
 import ChatImagePreviewDialog from "../components/dialogs/ChatImagePreviewDialog.vue";
 import ChatSupervisionTaskDialog from "../components/dialogs/ChatSupervisionTaskDialog.vue";
 import ConversationTodoDropdown from "../components/ConversationTodoDropdown.vue";
@@ -374,7 +378,7 @@ const props = defineProps<{
   hasMoreHistory: boolean; loadingOlderHistory: boolean;
   latestOwnMessageAlignRequest: number; conversationScrollToBottomRequest: number;
   currentWorkspaceName: string; currentWorkspaceRootPath: string; workspaces: ShellWorkspace[];
-  currentDepartmentId: string; activeConversationId: string; currentTodos: ChatTodoItem[];
+  currentDepartmentId: string; activeConversationId: string; activeAgentId: string; currentTodos: ChatTodoItem[];
   supervisionActive: boolean; supervisionTitle: string; supervisionDialogOpen: boolean;
   supervisionTaskSaving: boolean; supervisionTaskError: string;
   activeSupervisionTask: { taskId: string; goal: string; why: string; todo: string; endAtLocal: string; remainingHours: number } | null;

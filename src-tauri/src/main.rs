@@ -74,6 +74,21 @@ include!("features/mcp.rs");
 include!("features/skill.rs");
 include!("features/task.rs");
 include!("features/delegate.rs");
+mod relationship_state {
+    use crate::{AppState, State};
+    #[cfg(test)]
+    use crate::Uuid;
+    include!("features/relationship_state/types.rs");
+    include!("features/relationship_state/state.rs");
+    include!("features/relationship_state/analyzer.rs");
+    include!("features/relationship_state/reducer.rs");
+    include!("features/relationship_state/block.rs");
+    include!("features/relationship_state/mod.rs");
+}
+mod relationship_state_llm_analyzer_runtime {
+    use crate::*;
+    include!("features/relationship_state/llm_analyzer_runtime.rs");
+}
 
 include!("features/system/commands.rs");
 
@@ -996,7 +1011,12 @@ fn main() {
             commands::mcp_refresh_mcp_and_skills,
             commands::mcp_list_skills,
             mcp_open_workspace_dir,
-            commands::skill_open_workspace_dir
+            commands::skill_open_workspace_dir,
+            relationship_state::refresh_relationship_rules,
+            relationship_state::get_relationship_panel_snapshot,
+            relationship_state::preview_relationship_block,
+            relationship_state::reset_relationship_state,
+            relationship_state::simulate_relationship_event
         ])
         .run(tauri::generate_context!())
         .unwrap_or_else(|err| {

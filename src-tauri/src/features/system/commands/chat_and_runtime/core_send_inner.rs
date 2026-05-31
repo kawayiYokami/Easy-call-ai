@@ -1416,6 +1416,7 @@ async fn send_chat_message_inner(
             current_todos: Vec::new(),
             memory_recall_table: Vec::new(),
             plan_mode_enabled: false,
+            relationship_state: None,
         }
     };
     let requested_conversation_id_for_prepare = requested_conversation_id.clone();
@@ -1516,6 +1517,7 @@ async fn send_chat_message_inner(
                     current_todos: Vec::new(),
                     memory_recall_table: Vec::new(),
                     plan_mode_enabled: false,
+                    relationship_state: None,
                 });
             }
             return build_prepare_snapshot_read_only(
@@ -1581,6 +1583,7 @@ async fn send_chat_message_inner(
                 current_todos: Vec::new(),
                 memory_recall_table: Vec::new(),
                 plan_mode_enabled: false,
+                relationship_state: None,
             });
         }
         build_prepare_snapshot_read_only(&data, runtime_agents, selected_api, effective_agent_id)
@@ -2395,6 +2398,7 @@ async fn send_chat_message_inner(
             Some(&resolved_api),
             Some(snapshot.enable_pdf_images),
         );
+
         if requested_plan_mode_enabled
             && !conversation_latest_user_has_plan_mode_block(&conversation, &current_agent.id)
         {
@@ -2651,6 +2655,10 @@ async fn send_chat_message_inner(
     let mut model_reply: Option<ModelReply> = None;
     let mut active_selected_api = selected_api.clone();
     let mut active_resolved_api = resolved_api.clone();
+    let mut active_model_name = selected_api.model.trim().to_string();
+    if active_model_name.is_empty() {
+        active_model_name = resolved_api.model.clone();
+    }
     let mut fallback_errors = Vec::<String>::new();
     let prepared_prompt = prepared_prompt;
     let mut conversation_for_request = conversation_for_request;
@@ -2802,6 +2810,7 @@ async fn send_chat_message_inner(
                     ModelReplyContentState::Visible => {
                         active_selected_api = candidate_selected_api.clone();
                         active_resolved_api = candidate_resolved_api.clone();
+                        active_model_name = candidate_model_name.clone();
                         model_reply = Some(reply);
                         candidate_final_error = None;
                         break;
@@ -3105,6 +3114,45 @@ async fn send_chat_message_inner(
                     conversation.updated_at = now.clone();
                     conversation.last_assistant_at = Some(now);
                 }
+                // 关系状态引擎：优先使用 LLM Analyzer，失败时回退启发式 analyzer
+                let relationship_event = {
+                    let root = relationship_state::read_relationship_from_value(conversation.relationship_state.as_ref());
+                    let current_relationship_state = relationship_state::agent_state(&root, &current_agent.id);
+                    let recent_context = relationship_state_llm_analyzer_runtime::relationship_recent_context(&conversation, &current_agent.id);
+                    let rules = relationship_state::load_relationship_rules(&relationship_state::relationship_data_dir(Some(&state.data_path.to_string_lossy())))?;
+                    if rules.analyzer_enabled {
+                        match relationship_state_llm_analyzer_runtime::run_relationship_interaction_analyzer(
+                            &active_resolved_api,
+                            &active_selected_api,
+                            &active_model_name,
+                            &latest_user_text,
+                            &recent_context,
+                            &current_relationship_state,
+                            &current_agent,
+                            &state,
+                        )
+                        .await
+                        {
+                            Ok(event) => event,
+                            Err(err) => {
+                                runtime_log_warn(format!(
+                                    "[关系状态] Analyzer 失败，使用启发式回退：conversation_id={}，agent_id={}，error={}",
+                                    conversation_id, current_agent.id, err
+                                ));
+                                relationship_state::analyze_interaction_fallback(&latest_user_text)
+                            }
+                        }
+                    } else {
+                        relationship_state::analyze_interaction_fallback(&latest_user_text)
+                    }
+                };
+                relationship_state::apply_interaction_event(
+                    &mut conversation.relationship_state,
+                    &conversation_id,
+                    &current_agent.id,
+                    relationship_event,
+                    &state.data_path.to_string_lossy(),
+                );
                 conversation_service().persist_conversation_with_chat_index(
                     &state,
                     &conversation,

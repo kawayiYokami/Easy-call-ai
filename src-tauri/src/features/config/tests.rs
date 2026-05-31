@@ -1202,5 +1202,6 @@ maxOutputTokens = 8192
             current_todos: Vec::new(),
             memory_recall_table: Vec::new(),
             plan_mode_enabled: false,
+        relationship_state: None,
         }
     }

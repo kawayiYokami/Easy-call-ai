@@ -149,6 +149,8 @@ struct Conversation {
     memory_recall_table: Vec<String>,
     #[serde(default)]
     plan_mode_enabled: bool,
+    #[serde(default)]
+    relationship_state: Option<serde_json::Value>,
 }
 
 #[derive(Debug, Clone)]

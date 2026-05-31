@@ -1932,6 +1932,7 @@ mod unarchived_conversations_tests {
             current_todos: Vec::new(),
             memory_recall_table: Vec::new(),
             plan_mode_enabled: true,
+            relationship_state: None,
         }
     }
 

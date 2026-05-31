@@ -813,6 +813,24 @@ impl ConversationPromptService {
                     conversation,
                     agent,
                 ));
+                let relationship_block = relationship_state::build_relationship_state_block_for_agent(
+                    conversation.relationship_state.as_ref(),
+                    &agent.id,
+                );
+                if !extra_blocks.iter().any(|block| block.contains("<relationship_state>"))
+                    && !conversation.messages.iter().rev().any(|message| {
+                        prompt_role_for_message(message, &agent.id).as_deref() == Some("user")
+                            && message
+                                .extra_text_blocks
+                                .iter()
+                                .any(|block| block.contains("<relationship_state>"))
+                    })
+                {
+                    extra_blocks.push(relationship_block);
+                    if let Some(log_stage) = stage_logger {
+                        log_stage("prepare_context.relationship_state_ready");
+                    }
+                }
                 (
                     latest_user_text,
                     prepared.latest_user_meta_text.clone(),

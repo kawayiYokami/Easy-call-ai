@@ -241,6 +241,7 @@ impl ConversationShardMeta {
             current_todos: self.current_todos,
             memory_recall_table: self.memory_recall_table,
             plan_mode_enabled: self.plan_mode_enabled,
+            relationship_state: None,
         }
     }
 }
@@ -324,6 +325,7 @@ mod message_store_meta_tests {
             }],
             memory_recall_table: vec!["memory-a".to_string()],
             plan_mode_enabled: true,
+            relationship_state: None,
         }
     }
 

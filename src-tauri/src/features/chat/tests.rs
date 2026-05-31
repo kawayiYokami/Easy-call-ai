@@ -439,6 +439,105 @@
     }
 
     #[test]
+    fn build_prompt_should_put_relationship_state_in_latest_user_extra_not_system() {
+        let now = now_iso();
+        let agent = default_agent();
+        let messages = vec![test_text_message("user", "谢谢你一直陪我", &now)];
+        let mut conv = test_active_conversation_with_messages(messages, Some(now));
+        let mut root = relationship_state::RelationshipStateRoot::default();
+        root.by_agent.insert(
+            agent.id.clone(),
+            relationship_state::AgentRelationshipState {
+                dimensions: relationship_state::RelationshipDimensions {
+                    affection: 82,
+                    trust: 70,
+                    tension: 4,
+                    sadness: 0,
+                    playfulness: 45,
+                    attachment: 68,
+                },
+                ..relationship_state::AgentRelationshipState::default()
+            },
+        );
+        conv.relationship_state = Some(relationship_state::write_relationship_to_value(&root));
+
+        let overrides = ChatPromptOverrides {
+            latest_user_intent: Some(LatestUserPayloadIntent::ChatRequest {
+                trigger_only: false,
+                submitted_user_text: "谢谢你一直陪我".to_string(),
+                include_task_board: false,
+                include_todo_board: false,
+                attachment_relative_paths: Vec::new(),
+            }),
+            ..Default::default()
+        };
+        let prepared = build_prepared_prompt_for_mode(
+            PromptBuildMode::Chat,
+            &conv,
+            &agent,
+            &[agent.clone(), default_user_persona()],
+            &[],
+            "用户",
+            "我是...",
+            DEFAULT_RESPONSE_STYLE_ID,
+            "zh-CN",
+            None,
+            None,
+            None,
+            Some(overrides),
+            None,
+            Some(&ApiConfig::default()),
+            None,
+            Some(false),
+        );
+
+        assert!(!prepared.preamble.contains("<relationship_state>"));
+        assert_eq!(prepared.latest_user_extra_text.matches("<relationship_state>").count(), 1);
+        assert!(prepared.latest_user_extra_text.contains("当前关系状态"));
+    }
+
+    #[test]
+    fn build_prompt_should_not_duplicate_relationship_state_block() {
+        let now = now_iso();
+        let agent = default_agent();
+        let mut message = test_text_message("user", "继续", &now);
+        message.extra_text_blocks = vec!["<relationship_state>existing</relationship_state>".to_string()];
+        let conv = test_active_conversation_with_messages(vec![message], Some(now));
+
+        let overrides = ChatPromptOverrides {
+            latest_user_intent: Some(LatestUserPayloadIntent::ChatRequest {
+                trigger_only: false,
+                submitted_user_text: "继续".to_string(),
+                include_task_board: false,
+                include_todo_board: false,
+                attachment_relative_paths: Vec::new(),
+            }),
+            ..Default::default()
+        };
+        let prepared = build_prepared_prompt_for_mode(
+            PromptBuildMode::Chat,
+            &conv,
+            &agent,
+            &[agent.clone(), default_user_persona()],
+            &[],
+            "用户",
+            "我是...",
+            DEFAULT_RESPONSE_STYLE_ID,
+            "zh-CN",
+            None,
+            None,
+            None,
+            Some(overrides),
+            None,
+            Some(&ApiConfig::default()),
+            None,
+            Some(false),
+        );
+
+        assert_eq!(prepared.latest_user_extra_text.matches("<relationship_state>").count(), 1);
+    }
+
+    #[test]
     fn builtin_memory_save_should_use_current_tool_agent_as_owner() {
         let state = test_chat_runtime_state();
         let mut assistant = default_agent();
@@ -3010,6 +3109,7 @@
             current_todos: Vec::new(),
             memory_recall_table: Vec::new(),
             plan_mode_enabled: false,
+        relationship_state: None,
         }
     }
 
@@ -4195,6 +4295,7 @@
             current_todos: Vec::new(),
             memory_recall_table: Vec::new(),
             plan_mode_enabled: false,
+        relationship_state: None,
         }];
         state_write_app_data_cached(&state, &data).expect("write app data");
 
@@ -4764,6 +4865,7 @@
             current_todos: Vec::new(),
             memory_recall_table: Vec::new(),
             plan_mode_enabled: false,
+        relationship_state: None,
         });
         state_write_app_data_cached(&state, &data).expect("write app data");
 
@@ -4836,6 +4938,7 @@
             }],
             memory_recall_table: Vec::new(),
             plan_mode_enabled: false,
+        relationship_state: None,
         });
         state_write_app_data_cached(&state, &data).expect("write app data");
 

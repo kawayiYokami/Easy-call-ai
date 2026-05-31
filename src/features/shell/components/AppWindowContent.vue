@@ -163,6 +163,7 @@
         :workspaces="currentChatWorkspaces"
         :current-department-id="currentChatDepartmentId"
         :active-conversation-id="currentChatConversationId"
+        :active-agent-id="assistantDepartmentAgentId"
         :current-todos="currentChatTodos"
         :supervision-active="chatSupervisionActive"
         :supervision-title="chatSupervisionTitle"

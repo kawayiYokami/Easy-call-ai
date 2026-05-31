@@ -2,6 +2,8 @@
 
 ## 进行中
 
+- 功能（relationship-state-engine）：新增 Relationship State Engine v1，按 `conversation + agent` 维护关系状态，使用 LLM Analyzer 输出结构化 `InteractionEvent`，经 `StateReducer` 更新 `affection / trust / tension / sadness / playfulness / attachment` 等维度，并将自然语言关系状态块追加到最新用户消息末尾，避免污染 system prompt cache；新增 `RelationshipPanel`、`relationship_rules.json` 热加载配置与开发者模拟事件能力，同时移除旧 `reward_engine` 原型。
+
 ## 发布：v0.9.88
 
 - 发布（release-0.9.88）：同步前端 `package.json`、Tauri `tauri.conf.json` 与 Rust `Cargo.toml` / `Cargo.lock` 版本号到 `0.9.88`，纳入本轮更新退出停机、远程 IM 渠道运行态分片、委托打断、聊天三栏标题栏、侧边栏持久化、Markdown 基础样式与滚底定位修复。

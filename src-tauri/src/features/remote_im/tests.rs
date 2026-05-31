@@ -145,6 +145,7 @@
                 current_todos: Vec::new(),
                 memory_recall_table: Vec::new(),
                 plan_mode_enabled: false,
+            relationship_state: None,
             },
             Conversation {
                 id: "conversation-sub".to_string(),
@@ -174,6 +175,7 @@
                 current_todos: Vec::new(),
                 memory_recall_table: Vec::new(),
                 plan_mode_enabled: false,
+            relationship_state: None,
             },
         ];
         let input = RemoteImEnqueueInput {
@@ -288,6 +290,7 @@
                 current_todos: Vec::new(),
                 memory_recall_table: Vec::new(),
                 plan_mode_enabled: false,
+            relationship_state: None,
             },
             Conversation {
                 id: "conversation-sub".to_string(),
@@ -317,6 +320,7 @@
                 current_todos: Vec::new(),
                 memory_recall_table: Vec::new(),
                 plan_mode_enabled: false,
+            relationship_state: None,
             },
         ];
         let input = RemoteImEnqueueInput {
@@ -455,6 +459,7 @@
             current_todos: Vec::new(),
             memory_recall_table: Vec::new(),
             plan_mode_enabled: false,
+        relationship_state: None,
         };
 
         assert!(conversation_has_remote_im_platform_message(
@@ -523,6 +528,7 @@
             current_todos: Vec::new(),
             memory_recall_table: Vec::new(),
             plan_mode_enabled: false,
+        relationship_state: None,
         };
 
         assert!(!conversation_has_remote_im_platform_message(
@@ -1042,6 +1048,7 @@
             current_todos: Vec::new(),
             memory_recall_table: Vec::new(),
             plan_mode_enabled: false,
+        relationship_state: None,
         }
     }
 
