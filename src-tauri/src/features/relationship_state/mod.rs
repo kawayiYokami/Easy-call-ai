@@ -4,21 +4,21 @@ static LAST_SNAPSHOT: std::sync::LazyLock<std::sync::Mutex<std::collections::Has
 static RULES_CACHE: std::sync::LazyLock<std::sync::Mutex<Option<RelationshipRules>>> =
     std::sync::LazyLock::new(|| std::sync::Mutex::new(None));
 
-pub fn relationship_data_dir(data_path: Option<&str>) -> String {
-    match data_path.and_then(|p| {
+pub fn relationship_data_dir(data_path: Option<&str>) -> Result<String, String> {
+    let Some(path) = data_path.and_then(|p| {
         let trimmed = p.trim();
         if trimmed.is_empty() { None } else { Some(trimmed) }
-    }) {
-        Some(p) => format!("{}/relationship_state", p.trim_end_matches('/').trim_end_matches('\\')),
-        None => r"F:\AI_Project\P-ai\workspace\projects\P-ai\relationship_state".to_string(),
-    }
+    }) else {
+        return Err("relationship data path is required".to_string());
+    };
+    Ok(format!("{}/relationship_state", path.trim_end_matches('/').trim_end_matches('\\')))
 }
 
 fn relationship_rules_path(data_path: &str) -> std::path::PathBuf {
     [data_path, "relationship_rules.json"].iter().collect()
 }
 
-pub fn load_relationship_rules(data_path: &str) -> Result<RelationshipRules, String> {
+pub async fn load_relationship_rules(data_path: &str) -> Result<RelationshipRules, String> {
     {
         let cache = RULES_CACHE.lock().map_err(|e| format!("锁失败: {}", e))?;
         if let Some(rules) = cache.as_ref() {
@@ -27,10 +27,11 @@ pub fn load_relationship_rules(data_path: &str) -> Result<RelationshipRules, Str
     }
 
     let path = relationship_rules_path(data_path);
-    if !path.exists() {
-        write_default_relationship_rules(data_path)?;
+    if tokio::fs::metadata(&path).await.is_err() {
+        write_default_relationship_rules(data_path).await?;
     }
-    let text = std::fs::read_to_string(&path)
+    let text = tokio::fs::read_to_string(&path)
+        .await
         .map_err(|e| format!("读取 relationship_rules.json 失败: {}", e))?;
     let rules: RelationshipRules = serde_json::from_str(&text)
         .map_err(|e| format!("解析 relationship_rules.json 失败: {}", e))?;
@@ -39,14 +40,14 @@ pub fn load_relationship_rules(data_path: &str) -> Result<RelationshipRules, Str
     Ok(rules)
 }
 
-fn write_default_relationship_rules(data_path: &str) -> Result<(), String> {
+async fn write_default_relationship_rules(data_path: &str) -> Result<(), String> {
     let path = relationship_rules_path(data_path);
     if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent).map_err(|e| format!("创建 relationship_state 目录失败: {}", e))?;
+        tokio::fs::create_dir_all(parent).await.map_err(|e| format!("创建 relationship_state 目录失败: {}", e))?;
     }
     let text = serde_json::to_string_pretty(&RelationshipRules::default())
         .map_err(|e| format!("序列化默认 relationship_rules.json 失败: {}", e))?;
-    std::fs::write(&path, text).map_err(|e| format!("写入 relationship_rules.json 失败: {}", e))
+    tokio::fs::write(&path, text).await.map_err(|e| format!("写入 relationship_rules.json 失败: {}", e))
 }
 
 pub fn invalidate_relationship_rules_cache() {
@@ -64,20 +65,17 @@ pub fn build_relationship_state_block_for_agent(
     build_relationship_state_block(&state)
 }
 
-pub fn apply_interaction_event(
+pub fn apply_interaction_event_with_rules(
     relationship_state: &mut Option<serde_json::Value>,
     conversation_id: &str,
     agent_id: &str,
     event: InteractionEvent,
-    data_path: &str,
+    rules: &RelationshipRules,
 ) {
-    let Ok(rules) = load_relationship_rules(&relationship_data_dir(Some(data_path))) else {
-        return;
-    };
     let mut root = read_relationship_from_value(relationship_state.as_ref());
     let state = agent_state_mut(&mut root, agent_id);
-    reduce_relationship_state(state, event, &rules);
-    let snapshot = build_panel_snapshot(agent_id, state, &rules);
+    reduce_relationship_state(state, event, rules);
+    let snapshot = build_panel_snapshot(agent_id, state, rules);
     if let Ok(mut cache) = LAST_SNAPSHOT.lock() {
         cache.insert(snapshot_key(conversation_id, agent_id), snapshot);
     }
@@ -105,7 +103,7 @@ fn snapshot_key(conversation_id: &str, agent_id: &str) -> String {
 }
 
 #[tauri::command]
-pub fn get_relationship_panel_snapshot(
+pub async fn get_relationship_panel_snapshot(
     conversation_id: String,
     agent_id: Option<String>,
     state: State<'_, AppState>,
@@ -116,31 +114,31 @@ pub fn get_relationship_panel_snapshot(
             return Ok(snapshot.clone());
         }
     }
-    let rules = load_relationship_rules(&relationship_data_dir(Some(&state.data_path.to_string_lossy())))?;
+    let rules = load_relationship_rules(&relationship_data_dir(Some(&state.data_path.to_string_lossy()))?).await?;
     Ok(build_panel_snapshot(&agent_id, &AgentRelationshipState::default(), &rules))
 }
 
 #[tauri::command]
-pub fn preview_relationship_block(agent_id: Option<String>, state: State<'_, AppState>) -> Result<String, String> {
+pub async fn preview_relationship_block(agent_id: Option<String>, state: State<'_, AppState>) -> Result<String, String> {
     let agent_id = agent_id.unwrap_or_else(|| "default_agent".to_string());
-    let rules = load_relationship_rules(&relationship_data_dir(Some(&state.data_path.to_string_lossy())))?;
+    let rules = load_relationship_rules(&relationship_data_dir(Some(&state.data_path.to_string_lossy()))?).await?;
     Ok(build_panel_snapshot(&agent_id, &AgentRelationshipState::default(), &rules).relationship_block)
 }
 
 #[tauri::command]
-pub fn refresh_relationship_rules(state: State<'_, AppState>) -> Result<RelationshipRules, String> {
+pub async fn refresh_relationship_rules(state: State<'_, AppState>) -> Result<RelationshipRules, String> {
     invalidate_relationship_rules_cache();
-    load_relationship_rules(&relationship_data_dir(Some(&state.data_path.to_string_lossy())))
+    load_relationship_rules(&relationship_data_dir(Some(&state.data_path.to_string_lossy()))?).await
 }
 
 #[tauri::command]
-pub fn reset_relationship_state(
+pub async fn reset_relationship_state(
     conversation_id: String,
     agent_id: Option<String>,
     state: State<'_, AppState>,
 ) -> Result<RelationshipPanelSnapshot, String> {
     let agent_id = agent_id.unwrap_or_else(|| "default_agent".to_string());
-    let rules = load_relationship_rules(&relationship_data_dir(Some(&state.data_path.to_string_lossy())))?;
+    let rules = load_relationship_rules(&relationship_data_dir(Some(&state.data_path.to_string_lossy()))?).await?;
     let snapshot = build_panel_snapshot(&agent_id, &AgentRelationshipState::default(), &rules);
     if let Ok(mut cache) = LAST_SNAPSHOT.lock() {
         cache.insert(snapshot_key(&conversation_id, &agent_id), snapshot.clone());
@@ -149,7 +147,7 @@ pub fn reset_relationship_state(
 }
 
 #[tauri::command]
-pub fn simulate_relationship_event(
+pub async fn simulate_relationship_event(
     conversation_id: String,
     agent_id: Option<String>,
     event_type: String,
@@ -157,7 +155,7 @@ pub fn simulate_relationship_event(
     state: State<'_, AppState>,
 ) -> Result<RelationshipPanelSnapshot, String> {
     let agent_id = agent_id.unwrap_or_else(|| "default_agent".to_string());
-    let rules = load_relationship_rules(&relationship_data_dir(Some(&state.data_path.to_string_lossy())))?;
+    let rules = load_relationship_rules(&relationship_data_dir(Some(&state.data_path.to_string_lossy()))?).await?;
     let mut relationship = if let Ok(cache) = LAST_SNAPSHOT.lock() {
         cache
             .get(&snapshot_key(&conversation_id, &agent_id))
@@ -188,14 +186,14 @@ pub fn simulate_relationship_event(
 mod relationship_rules_tests {
     use super::*;
 
-    #[test]
-    fn load_relationship_rules_should_create_default_file() {
+    #[tokio::test]
+    async fn load_relationship_rules_should_create_default_file() {
         let root = std::env::temp_dir().join(format!(
             "relationship-rules-{}",
             Uuid::new_v4()
         ));
         let data_dir = root.to_string_lossy().to_string();
-        let rules = load_relationship_rules(&data_dir).expect("load rules");
+        let rules = load_relationship_rules(&data_dir).await.expect("load rules");
         assert!(relationship_rules_path(&data_dir).exists());
         assert!(rules.event_impacts.contains_key("gratitude"));
         let _ = std::fs::remove_dir_all(root);

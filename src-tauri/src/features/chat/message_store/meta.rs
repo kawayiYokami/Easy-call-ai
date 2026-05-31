@@ -26,6 +26,7 @@ pub(super) struct ConversationPersistMeta {
     current_todos: Vec<ConversationTodoItem>,
     memory_recall_table: Vec<String>,
     plan_mode_enabled: bool,
+    relationship_state: Option<serde_json::Value>,
 }
 
 impl ConversationPersistMeta {
@@ -100,6 +101,8 @@ pub(super) struct ConversationShardMeta {
     memory_recall_table: Vec<String>,
     #[serde(default)]
     plan_mode_enabled: bool,
+    #[serde(default)]
+    relationship_state: Option<serde_json::Value>,
 }
 
 impl ConversationShardMeta {
@@ -147,6 +150,7 @@ impl ConversationShardMeta {
             current_todos: conversation.current_todos.clone(),
             memory_recall_table: conversation.memory_recall_table.clone(),
             plan_mode_enabled: conversation.plan_mode_enabled,
+            relationship_state: conversation.relationship_state.clone(),
         }
     }
 
@@ -178,6 +182,7 @@ impl ConversationShardMeta {
             current_todos: meta.current_todos.clone(),
             memory_recall_table: meta.memory_recall_table.clone(),
             plan_mode_enabled: meta.plan_mode_enabled,
+            relationship_state: meta.relationship_state.clone(),
         }
     }
 
@@ -209,6 +214,7 @@ impl ConversationShardMeta {
             current_todos: self.current_todos.clone(),
             memory_recall_table: self.memory_recall_table.clone(),
             plan_mode_enabled: self.plan_mode_enabled,
+            relationship_state: self.relationship_state.clone(),
         }
     }
 
@@ -241,7 +247,7 @@ impl ConversationShardMeta {
             current_todos: self.current_todos,
             memory_recall_table: self.memory_recall_table,
             plan_mode_enabled: self.plan_mode_enabled,
-            relationship_state: None,
+            relationship_state: self.relationship_state,
         }
     }
 }
@@ -325,7 +331,21 @@ mod message_store_meta_tests {
             }],
             memory_recall_table: vec!["memory-a".to_string()],
             plan_mode_enabled: true,
-            relationship_state: None,
+            relationship_state: Some(serde_json::json!({
+                "version": 1,
+                "byAgent": {
+                    DEFAULT_AGENT_ID: {
+                        "dimensions": {
+                            "affection": 72,
+                            "trust": 61,
+                            "tension": 3,
+                            "sadness": 0,
+                            "playfulness": 35,
+                            "attachment": 44
+                        }
+                    }
+                }
+            })),
         }
     }
 
@@ -342,6 +362,7 @@ mod message_store_meta_tests {
         assert_eq!(persist_meta, ConversationPersistMeta::from_conversation(&conversation));
         assert_eq!(restored.messages.len(), 2);
         assert_eq!(restored.id, conversation.id);
+        assert_eq!(restored.relationship_state, conversation.relationship_state);
     }
 
     #[test]

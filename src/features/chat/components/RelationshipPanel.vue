@@ -1,12 +1,18 @@
 <template>
   <div
     class="relationship-panel fixed right-4 top-16 z-50 rounded-box border border-base-300 bg-base-100 shadow-lg transition-all duration-300"
-    :class="collapsed ? 'h-10 w-10 cursor-pointer overflow-hidden' : 'w-72 p-3'"
-    @click="collapsed && toggleCollapse()"
+    :class="collapsed ? 'h-10 w-10 overflow-hidden' : 'w-72 p-3'"
   >
-    <div v-if="collapsed" class="flex h-full w-full items-center justify-center text-sm font-bold" :style="{ color: dotColor }">
+    <button
+      v-if="collapsed"
+      type="button"
+      class="flex h-full w-full items-center justify-center text-sm font-bold"
+      :style="{ color: dotColor }"
+      aria-label="Open relationship panel"
+      @click="toggleCollapse"
+    >
       <Heart class="h-5 w-5" :style="{ fill: dotColor }" />
-    </div>
+    </button>
 
     <template v-else>
       <div class="mb-2 flex items-center justify-between">
@@ -118,6 +124,7 @@ const props = defineProps<{
 const collapsed = ref(true);
 const snapshot = ref<RelationshipPanelSnapshot | null>(null);
 let pollTimer: ReturnType<typeof setInterval> | null = null;
+let requestSerial = 0;
 
 const bars: BarDef[] = [
   { key: "affection", label: "亲近", emoji: "❤️", color: "#ec4899" },
@@ -164,10 +171,18 @@ function tauriArgs() {
   return args;
 }
 
+function isCurrentRequest(serial: number, conversationId: string, agentId: string) {
+  return serial === requestSerial && conversationId === props.conversationId && agentId === agentIdText.value;
+}
+
 async function refresh() {
   try {
     if (!props.conversationId) return;
-    snapshot.value = await invokeTauri<RelationshipPanelSnapshot>("get_relationship_panel_snapshot", tauriArgs());
+    const conversationId = props.conversationId;
+    const agentId = agentIdText.value;
+    const serial = ++requestSerial;
+    const nextSnapshot = await invokeTauri<RelationshipPanelSnapshot>("get_relationship_panel_snapshot", tauriArgs());
+    if (isCurrentRequest(serial, conversationId, agentId)) snapshot.value = nextSnapshot;
   } catch (err) {
     console.warn("[RelationshipPanel] 刷新失败:", err);
   }
@@ -176,7 +191,11 @@ async function refresh() {
 async function reset() {
   try {
     if (!props.conversationId) return;
-    snapshot.value = await invokeTauri<RelationshipPanelSnapshot>("reset_relationship_state", tauriArgs());
+    const conversationId = props.conversationId;
+    const agentId = agentIdText.value;
+    const serial = ++requestSerial;
+    const nextSnapshot = await invokeTauri<RelationshipPanelSnapshot>("reset_relationship_state", tauriArgs());
+    if (isCurrentRequest(serial, conversationId, agentId)) snapshot.value = nextSnapshot;
   } catch (err) {
     console.warn("[RelationshipPanel] 重置失败:", err);
   }
@@ -185,11 +204,15 @@ async function reset() {
 async function simulate(eventType: string) {
   try {
     if (!props.conversationId) return;
-    snapshot.value = await invokeTauri<RelationshipPanelSnapshot>("simulate_relationship_event", {
+    const conversationId = props.conversationId;
+    const agentId = agentIdText.value;
+    const serial = ++requestSerial;
+    const nextSnapshot = await invokeTauri<RelationshipPanelSnapshot>("simulate_relationship_event", {
       ...tauriArgs(),
       eventType,
       intensity: 1,
     });
+    if (isCurrentRequest(serial, conversationId, agentId)) snapshot.value = nextSnapshot;
   } catch (err) {
     console.warn("[RelationshipPanel] 模拟事件失败:", err);
   }
@@ -229,6 +252,7 @@ onUnmounted(() => {
 });
 
 watch(() => [props.conversationId, props.agentId], () => {
+  requestSerial += 1;
   snapshot.value = null;
   refresh();
 });

@@ -311,8 +311,8 @@
       @keydown.right.prevent="adjustPaneWidthByKeyboard('right', -24)"
     ></div>
 
-    <!-- 赏罚引擎面板 -->
-    <RelationshipPanel :conversation-id="activeConversationId" :agent-id="activeAgentId" />
+    <!-- Relationship State 面板 -->
+    <RelationshipPanel v-if="!toolReviewPanelOpen" :conversation-id="activeConversationId" :agent-id="activeAgentId" />
   </div>
 </template>
 

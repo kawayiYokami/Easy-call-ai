@@ -3114,45 +3114,61 @@ async fn send_chat_message_inner(
                     conversation.updated_at = now.clone();
                     conversation.last_assistant_at = Some(now);
                 }
-                // 关系状态引擎：优先使用 LLM Analyzer，失败时回退启发式 analyzer
-                let relationship_event = {
-                    let root = relationship_state::read_relationship_from_value(conversation.relationship_state.as_ref());
-                    let current_relationship_state = relationship_state::agent_state(&root, &current_agent.id);
-                    let recent_context = relationship_state_llm_analyzer_runtime::relationship_recent_context(&conversation, &current_agent.id);
-                    let rules = relationship_state::load_relationship_rules(&relationship_state::relationship_data_dir(Some(&state.data_path.to_string_lossy())))?;
-                    if rules.analyzer_enabled {
-                        match relationship_state_llm_analyzer_runtime::run_relationship_interaction_analyzer(
-                            &active_resolved_api,
-                            &active_selected_api,
-                            &active_model_name,
-                            &latest_user_text,
-                            &recent_context,
-                            &current_relationship_state,
-                            &current_agent,
-                            &state,
-                        )
-                        .await
-                        {
-                            Ok(event) => event,
-                            Err(err) => {
-                                runtime_log_warn(format!(
-                                    "[关系状态] Analyzer 失败，使用启发式回退：conversation_id={}，agent_id={}，error={}",
-                                    conversation_id, current_agent.id, err
-                                ));
-                                relationship_state::analyze_interaction_fallback(&latest_user_text)
-                            }
+                let rules = match relationship_state::relationship_data_dir(Some(&state.data_path.to_string_lossy())) {
+                    Ok(data_dir) => match relationship_state::load_relationship_rules(&data_dir).await {
+                        Ok(rules) => Some(rules),
+                        Err(err) => {
+                            runtime_log_warn(format!(
+                                "[关系状态] 规则加载失败，使用启发式事件但跳过状态写入：conversation_id={}，agent_id={}，error={}",
+                                conversation_id, current_agent.id, err
+                            ));
+                            None
                         }
-                    } else {
-                        relationship_state::analyze_interaction_fallback(&latest_user_text)
+                    },
+                    Err(err) => {
+                        runtime_log_warn(format!(
+                            "[关系状态] 数据路径无效，使用启发式事件但跳过状态写入：conversation_id={}，agent_id={}，error={}",
+                            conversation_id, current_agent.id, err
+                        ));
+                        None
                     }
                 };
-                relationship_state::apply_interaction_event(
-                    &mut conversation.relationship_state,
-                    &conversation_id,
-                    &current_agent.id,
-                    relationship_event,
-                    &state.data_path.to_string_lossy(),
-                );
+                let root = relationship_state::read_relationship_from_value(conversation.relationship_state.as_ref());
+                let current_relationship_state = relationship_state::agent_state(&root, &current_agent.id);
+                let recent_context = relationship_state_llm_analyzer_runtime::relationship_recent_context(&conversation, &current_agent.id);
+                let analyzer_enabled = rules.as_ref().map(|rules| rules.analyzer_enabled).unwrap_or(false);
+                let relationship_event = if analyzer_enabled {
+                    match relationship_state_llm_analyzer_runtime::run_relationship_interaction_analyzer(
+                        &active_resolved_api,
+                        &active_selected_api,
+                        &active_model_name,
+                        &latest_user_text,
+                        &recent_context,
+                        &current_relationship_state,
+                        &current_agent,
+                        &state,
+                    ).await {
+                        Ok(event) => event,
+                        Err(err) => {
+                            runtime_log_warn(format!(
+                                "[关系状态] Analyzer 失败，使用启发式回退：conversation_id={}，agent_id={}，error={}",
+                                conversation_id, current_agent.id, err
+                            ));
+                            relationship_state::analyze_interaction_fallback(&latest_user_text)
+                        }
+                    }
+                } else {
+                    relationship_state::analyze_interaction_fallback(&latest_user_text)
+                };
+                if let Some(rules) = rules.as_ref() {
+                    relationship_state::apply_interaction_event_with_rules(
+                        &mut conversation.relationship_state,
+                        &conversation_id,
+                        &current_agent.id,
+                        relationship_event,
+                        rules,
+                    );
+                }
                 conversation_service().persist_conversation_with_chat_index(
                     &state,
                     &conversation,
@@ -3178,6 +3194,61 @@ async fn send_chat_message_inner(
                         persisted_assistant_message = Some(assistant_message);
                         conversation.updated_at = now.clone();
                         conversation.last_assistant_at = Some(now);
+                    }
+                    let rules = match relationship_state::relationship_data_dir(Some(&state.data_path.to_string_lossy())) {
+                        Ok(data_dir) => match relationship_state::load_relationship_rules(&data_dir).await {
+                            Ok(rules) => Some(rules),
+                            Err(err) => {
+                                runtime_log_warn(format!(
+                                    "[关系状态] 规则加载失败，使用启发式事件但跳过状态写入：conversation_id={}，agent_id={}，error={}",
+                                    conversation_id, current_agent.id, err
+                                ));
+                                None
+                            }
+                        },
+                        Err(err) => {
+                            runtime_log_warn(format!(
+                                "[关系状态] 数据路径无效，使用启发式事件但跳过状态写入：conversation_id={}，agent_id={}，error={}",
+                                conversation_id, current_agent.id, err
+                            ));
+                            None
+                        }
+                    };
+                    let root = relationship_state::read_relationship_from_value(conversation.relationship_state.as_ref());
+                    let current_relationship_state = relationship_state::agent_state(&root, &current_agent.id);
+                    let recent_context = relationship_state_llm_analyzer_runtime::relationship_recent_context(&conversation, &current_agent.id);
+                    let analyzer_enabled = rules.as_ref().map(|rules| rules.analyzer_enabled).unwrap_or(false);
+                    let relationship_event = if analyzer_enabled {
+                        match relationship_state_llm_analyzer_runtime::run_relationship_interaction_analyzer(
+                            &active_resolved_api,
+                            &active_selected_api,
+                            &active_model_name,
+                            &latest_user_text,
+                            &recent_context,
+                            &current_relationship_state,
+                            &current_agent,
+                            &state,
+                        ).await {
+                            Ok(event) => event,
+                            Err(err) => {
+                                runtime_log_warn(format!(
+                                    "[关系状态] Analyzer 失败，使用启发式回退：conversation_id={}，agent_id={}，error={}",
+                                    conversation_id, current_agent.id, err
+                                ));
+                                relationship_state::analyze_interaction_fallback(&latest_user_text)
+                            }
+                        }
+                    } else {
+                        relationship_state::analyze_interaction_fallback(&latest_user_text)
+                    };
+                    if let Some(rules) = rules.as_ref() {
+                        relationship_state::apply_interaction_event_with_rules(
+                            &mut conversation.relationship_state,
+                            &conversation_id,
+                            &current_agent.id,
+                            relationship_event,
+                            rules,
+                        );
                     }
                     delegate_runtime_thread_conversation_update(&state, &conversation_id, conversation)?;
                 }
