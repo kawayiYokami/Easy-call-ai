@@ -135,7 +135,6 @@ export function useChatSelection(options: UseChatSelectionOptions) {
     }
     if (kind === "delegate") {
       if (!actionPayload || typeof actionPayload === "string") return;
-      if (payload.count === 0) return;
       onEmit.selectionActionDelegate({
         ...payload,
         departmentId: String(actionPayload.departmentId || "").trim(),

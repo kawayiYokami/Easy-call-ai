@@ -236,7 +236,7 @@ async fn confirm_plan_and_continue_inner(
         )
     };
     let continue_event_id = format!("confirm-plan-continue-{}", Uuid::new_v4());
-    let preview = build_force_compaction_preview_result(state, &selected_api, &conversation)?;
+    let preview = build_trim_compaction_preview_result(state, &selected_api, &conversation)?;
     let should_compact_before_continue =
         preview.can_compact && plan_confirm_context_usage_ratio(&conversation, &selected_api) >= 0.60;
     if should_compact_before_continue {
@@ -896,6 +896,7 @@ fn emit_conversation_message_appended_event(
         conversation_id: conversation_id.to_string(),
         message: message.clone(),
     };
+    ide_chat_broadcast_notification("conversation.messageAppended", serde_json::json!(&payload));
     if let Err(err) = app_handle.emit(CHAT_CONVERSATION_MESSAGE_APPENDED_EVENT, payload) {
         eprintln!(
             "[聊天推送] append 消息事件发送失败：conversation_id={}, message_id={}, error={}",
@@ -1201,6 +1202,333 @@ fn spawn_user_mention_delegate(app_state: AppState, plan: UserMentionPlan) {
             }
         }
     });
+}
+
+fn spawn_user_mention_after_message_flushed(
+    app_state: AppState,
+    event_id: String,
+    result_rx: tokio::sync::oneshot::Receiver<Result<SendChatResult, String>>,
+    mention_failures: Vec<UserMentionFailurePlan>,
+    mention_plans: Vec<UserMentionPlan>,
+) {
+    tokio::spawn(async move {
+        match result_rx.await {
+            Ok(Ok(_)) => {
+                for failure in mention_failures {
+                    spawn_user_mention_failure_message(app_state.clone(), failure);
+                }
+                for plan in mention_plans {
+                    spawn_user_mention_delegate(app_state.clone(), plan);
+                }
+            }
+            Ok(Err(err)) => {
+                eprintln!(
+                    "[用户@委托] 用户消息落库前调度失败，跳过委托: event_id={}, error={}",
+                    event_id, err
+                );
+            }
+            Err(_) => {
+                eprintln!(
+                    "[用户@委托] 用户消息落库结果丢失，跳过委托: event_id={}",
+                    event_id
+                );
+            }
+        }
+    });
+}
+
+const ACCEPTED_SUBMIT_TRACE_ID_LIMIT: usize = 5000;
+
+fn claim_submit_trace_id(state: &AppState, trace_id: &str) -> Result<bool, String> {
+    let trace_id = trace_id.trim();
+    if trace_id.is_empty() {
+        return Ok(true);
+    }
+    let mut accepted = state
+        .accepted_submit_trace_ids
+        .lock()
+        .map_err(|_| "Failed to lock accepted submit trace ids".to_string())?;
+    if accepted.iter().any(|value| value == trace_id) {
+        return Ok(false);
+    }
+    accepted.push_back(trace_id.to_string());
+    while accepted.len() > ACCEPTED_SUBMIT_TRACE_ID_LIMIT {
+        accepted.pop_front();
+    }
+    Ok(true)
+}
+
+fn release_submit_trace_id(state: &AppState, trace_id: &str) {
+    let trace_id = trace_id.trim();
+    if trace_id.is_empty() {
+        return;
+    }
+    if let Ok(mut accepted) = state.accepted_submit_trace_ids.lock() {
+        if let Some(index) = accepted.iter().position(|value| value == trace_id) {
+            accepted.remove(index);
+        }
+    }
+}
+
+async fn submit_chat_message_inner(
+    input: SendChatRequest,
+    state: &AppState,
+    on_delta: tauri::ipc::Channel<AssistantDeltaEvent>,
+) -> Result<SubmitChatResult, String> {
+    if input.trigger_only {
+        return Err("submit_chat_message 不支持 trigger_only".to_string());
+    }
+
+    let text = input.payload.text.as_deref().unwrap_or("").trim();
+    let images = input.payload.images.as_ref().map(|v| v.as_slice()).unwrap_or(&[]);
+    let attachments = input
+        .payload
+        .attachments
+        .as_ref()
+        .map(|v| v.as_slice())
+        .unwrap_or(&[]);
+
+    if text.is_empty() && images.is_empty() && attachments.is_empty() {
+        return Err("消息内容为空".to_string());
+    }
+
+    let display_text = input
+        .payload
+        .display_text
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or(text)
+        .to_string();
+    let normalized_mentions = normalize_payload_mentions(input.payload.mentions.as_ref());
+    let has_user_mentions = !normalized_mentions.is_empty();
+
+    let mut message_parts = Vec::new();
+    if !text.is_empty() {
+        message_parts.push(MessagePart::Text { text: text.to_string() });
+    }
+    for img in images {
+        message_parts.push(MessagePart::Image {
+            mime: img.mime.clone(),
+            bytes_base64: img.bytes_base64.clone(),
+            name: None,
+            compressed: false,
+        });
+    }
+
+    let request_id = runtime_context_request_id_or_new(None, input.trace_id.as_deref(), "chat");
+    if !claim_submit_trace_id(state, &request_id)? {
+        let session = input.session.as_ref().ok_or_else(|| "缺少会话信息".to_string())?;
+        let conversation_id = session
+            .conversation_id
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .unwrap_or("")
+            .to_string();
+        return Ok(SubmitChatResult {
+            accepted: false,
+            duplicate: true,
+            event_id: String::new(),
+            conversation_id,
+            trace_id: request_id,
+            ingress: "duplicate".to_string(),
+        });
+    }
+    let user_message = ChatMessage {
+        id: Uuid::new_v4().to_string(),
+        role: "user".to_string(),
+        created_at: now_iso(),
+        speaker_agent_id: None,
+        parts: message_parts,
+        extra_text_blocks: input.payload.extra_text_blocks.clone().unwrap_or_default(),
+        provider_meta: {
+            let mut attachment_entries =
+                normalize_payload_attachments(input.payload.attachments.as_ref());
+            attachment_entries.extend(normalize_payload_image_attachments(
+                input.payload.images.as_ref(),
+            ));
+            build_user_message_provider_meta(
+                input.payload.provider_meta.clone(),
+                &attachment_entries,
+                &normalized_mentions,
+                Some(request_id.as_str()),
+            )
+        },
+        tool_call: None,
+        mcp_call: None,
+    };
+
+    let session = input.session.as_ref().ok_or_else(|| "缺少会话信息".to_string())?;
+    let requested_department_id = session
+        .department_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToOwned::to_owned)
+        .ok_or_else(|| {
+            eprintln!("[聊天发送] 缺少 department_id，拒绝提交用户消息");
+            "缺少 department_id".to_string()
+        })?;
+    let requested_agent_id = session.agent_id.trim().to_string();
+    let conversation_id = session
+        .conversation_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToOwned::to_owned)
+        .ok_or_else(|| {
+            eprintln!("[聊天发送] 缺少 conversation_id，拒绝提交用户消息");
+            "缺少 conversation_id".to_string()
+        })?;
+
+    if requested_agent_id.is_empty() {
+        return Err("会话信息不完整".to_string());
+    }
+
+    let prepare_started_at = std::time::Instant::now();
+    let (department_id, agent_id, model_config_id, mention_plans, mention_failures) = {
+        let config_started_at = std::time::Instant::now();
+        let app_config = state_read_config_cached(state)?;
+        let config_elapsed_ms = config_started_at.elapsed().as_millis();
+        let app_data_started_at = std::time::Instant::now();
+        let agents = state_read_agents_cached(state)?;
+        let app_data_elapsed_ms = app_data_started_at.elapsed().as_millis();
+        let department_started_at = std::time::Instant::now();
+        let department = department_by_id(&app_config, requested_department_id.as_str())
+            .ok_or_else(|| format!("部门已经消失：{}", requested_department_id))?;
+        let agent_id = requested_agent_id.clone();
+        let department_elapsed_ms = department_started_at.elapsed().as_millis();
+        let api_config_id = department_primary_api_config_id(department);
+        if api_config_id.trim().is_empty() {
+            return Err(format!("部门模型未配置: {}", department.id));
+        }
+
+        let conversation_started_at = std::time::Instant::now();
+        let conversation = state_read_conversation_cached(state, &conversation_id)?;
+        let conversation_elapsed_ms = conversation_started_at.elapsed().as_millis();
+        let (mention_plans, mention_failures) = build_user_mention_dispatch_plans(
+            &app_config,
+            &conversation,
+            &agents,
+            &department.id,
+            &agent_id,
+            &display_text,
+            input.payload.mentions.as_ref(),
+        )?;
+
+        eprintln!(
+            "[聊天发送] 提交前准备耗时：总计={}ms，读取配置={}ms，读取应用数据={}ms，解析部门={}ms，会话解析={}ms，conversation_id={}，department_id={}，agent_id={}",
+            prepare_started_at.elapsed().as_millis(),
+            config_elapsed_ms,
+            app_data_elapsed_ms,
+            department_elapsed_ms,
+            conversation_elapsed_ms,
+            conversation_id,
+            department.id,
+            agent_id
+        );
+
+        (
+            department.id.clone(),
+            agent_id,
+            api_config_id,
+            mention_plans,
+            mention_failures,
+        )
+    };
+
+    let event_id = Uuid::new_v4().to_string();
+    let mut runtime_context = runtime_context_new(
+        "user_message",
+        if has_user_mentions { "user_mention_send" } else { "user_send" },
+    );
+    runtime_context.request_id = Some(request_id.clone());
+    runtime_context.dispatch_id = Some(event_id.clone());
+    runtime_context.origin_conversation_id = Some(conversation_id.clone());
+    runtime_context.target_conversation_id = Some(conversation_id.clone());
+    runtime_context.root_conversation_id = Some(conversation_id.clone());
+    runtime_context.executor_agent_id = Some(agent_id.clone());
+    runtime_context.executor_department_id = Some(department_id.clone());
+    runtime_context.model_config_id = Some(model_config_id.clone());
+    let event = ChatPendingEvent {
+        id: event_id.clone(),
+        conversation_id: conversation_id.clone(),
+        created_at: now_iso(),
+        source: ChatEventSource::User,
+        queue_mode: ChatQueueMode::Normal,
+        messages: vec![user_message],
+        activate_assistant: !has_user_mentions,
+        session_info: ChatSessionInfo {
+            department_id: department_id.clone(),
+            agent_id: agent_id.clone(),
+        },
+        runtime_context: Some(runtime_context),
+        sender_info: None,
+    };
+
+    let mention_result_rx = if has_user_mentions {
+        let (result_tx, result_rx) = tokio::sync::oneshot::channel();
+        register_chat_event_runtime(state, &event_id, on_delta, result_tx)?;
+        Some(result_rx)
+    } else {
+        register_chat_event_delta_channel(state, &event_id, on_delta)?;
+        None
+    };
+
+    let ingress = match ingress_chat_event(state, event) {
+        Ok(value) => value,
+        Err(err) => {
+            let _ = state
+                .pending_chat_delta_channels
+                .lock()
+                .map(|mut map| map.remove(&event_id));
+            let _ = state
+                .pending_chat_result_senders
+                .lock()
+                .map(|mut map| map.remove(&event_id));
+            release_submit_trace_id(state, &request_id);
+            return Err(err);
+        }
+    };
+
+    let (accepted, duplicate, ingress_label) = match &ingress {
+        ChatEventIngress::Direct(_) => (true, false, "direct"),
+        ChatEventIngress::Queued { .. } => (true, false, "queued"),
+        ChatEventIngress::Duplicate { .. } => (false, true, "duplicate"),
+    };
+
+    trigger_chat_event_after_ingress(state, ingress);
+
+    if accepted {
+        if let Some(result_rx) = mention_result_rx {
+            spawn_user_mention_after_message_flushed(
+                state.clone(),
+                event_id.clone(),
+                result_rx,
+                mention_failures,
+                mention_plans,
+            );
+        }
+    }
+
+    Ok(SubmitChatResult {
+        accepted,
+        duplicate,
+        event_id,
+        conversation_id,
+        trace_id: request_id,
+        ingress: ingress_label.to_string(),
+    })
+}
+
+#[tauri::command]
+async fn submit_chat_message(
+    input: SendChatRequest,
+    state: State<'_, AppState>,
+    on_delta: tauri::ipc::Channel<AssistantDeltaEvent>,
+) -> Result<SubmitChatResult, String> {
+    submit_chat_message_inner(input, state.inner(), on_delta).await
 }
 
 #[tauri::command]
@@ -1671,7 +1999,14 @@ async fn submit_user_async_delegate(
     input: SubmitUserAsyncDelegateInput,
     state: State<'_, AppState>,
 ) -> Result<SubmitUserAsyncDelegateOutput, String> {
-    let (plan, selected_message_count) = resolve_user_async_delegate_plan(state.inner(), &input)?;
+    submit_user_async_delegate_internal(input, state.inner()).await
+}
+
+async fn submit_user_async_delegate_internal(
+    input: SubmitUserAsyncDelegateInput,
+    state: &AppState,
+) -> Result<SubmitUserAsyncDelegateOutput, String> {
+    let (plan, selected_message_count) = resolve_user_async_delegate_plan(state, &input)?;
     let output = SubmitUserAsyncDelegateOutput {
         delegate_id: String::new(),
         conversation_id: plan.root_conversation_id.clone(),
@@ -1679,7 +2014,7 @@ async fn submit_user_async_delegate(
         target_agent_name: plan.target_agent_name.clone(),
         selected_message_count,
     };
-    let delegate_id = spawn_user_async_delegate(state.inner().clone(), plan)?;
+    let delegate_id = spawn_user_async_delegate(state.clone(), plan)?;
     runtime_log_info(format!(
         "[用户异步委托] 发起 完成 conversation_id={} delegate_id={} target_agent_id={} selected_message_count={}",
         output.conversation_id,

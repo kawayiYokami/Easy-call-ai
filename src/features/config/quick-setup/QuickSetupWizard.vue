@@ -3,7 +3,7 @@
     <div class="flex h-screen min-h-0 flex-col overflow-hidden">
       <header class="grid h-10 shrink-0 grid-cols-[1fr_auto_1fr] items-center border-b border-base-300 bg-base-200 px-2 select-none" data-tauri-drag-region>
         <div class="flex justify-self-start">
-          <button class="btn btn-ghost btn-xs h-7 min-h-7 w-7 px-0" type="button" :disabled="saving" :aria-label="t('quickSetup.advancedSettings')" @click.stop="openConfigWindow">
+          <button class="btn btn-ghost btn-xs h-7 min-h-7 w-7 px-0" type="button" :disabled="saving" :aria-label="t('quickSetup.advancedSettings')" @click.stop="openSettingsWindow">
             <SlidersHorizontal class="h-3.5 w-3.5" />
           </button>
         </div>
@@ -343,7 +343,7 @@ import { useI18n } from "vue-i18n";
 import { emit } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { open } from "@tauri-apps/plugin-dialog";
-import { Eye, EyeOff, Minus, SlidersHorizontal, X } from "lucide-vue-next";
+import { Eye, EyeOff, Minus, SlidersHorizontal, X } from "@lucide/vue";
 import { i18n, normalizeLocale } from "../../../i18n";
 import { invokeTauri } from "../../../services/tauri-api";
 import type { ApiProviderConfigItem, ApiRequestFormat, AppBootstrapSnapshot, AppConfig, ChatSettings, PersonaProfile, ResponseStyleOption } from "../../../types/app";
@@ -959,7 +959,7 @@ function upsertProvider(draft: AdvancedDraft, stableIds?: { providerId: string; 
     id: providerId,
     name: draft.name.trim(),
     requestFormat: normalizeApiRequestFormat(draft.requestFormat),
-    allowConcurrentRequests: false,
+    allowConcurrentRequests: true,
     enableText: draft.requestFormat !== "openai_stt" && draft.requestFormat !== "openai_embedding" && draft.requestFormat !== "openai_rerank" && draft.requestFormat !== "gemini_embedding",
     enableImage: draft.requestFormat !== "openai_stt" && draft.requestFormat !== "openai_embedding" && draft.requestFormat !== "openai_rerank" && draft.requestFormat !== "gemini_embedding",
     enableAudio: draft.requestFormat === "openai_stt",
@@ -993,7 +993,8 @@ function upsertProvider(draft: AdvancedDraft, stableIds?: { providerId: string; 
     id: endpointId,
     name: `${provider.name}/${draft.model.trim()}`,
     requestFormat: provider.requestFormat,
-    allowConcurrentRequests: false,
+    allowConcurrentRequests: true,
+    maxConcurrentRequests: null,
     enableText: provider.enableText,
     enableImage: provider.models[0].enableImage,
     enableAudio: provider.enableAudio,
@@ -1175,7 +1176,7 @@ async function pickWorkspacePath() {
   }
 }
 
-async function openConfigWindow() {
+async function openSettingsWindow() {
   if (saving.value) return;
   saving.value = true;
   errorText.value = "";

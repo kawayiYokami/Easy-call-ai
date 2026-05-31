@@ -1,5 +1,5 @@
 <template>
-  <div v-if="hasActiveOrPendingTodo" class="pointer-events-none sticky top-0 z-20 flex justify-center pt-1">
+  <div v-if="hasActiveOrPendingTodo" class="pointer-events-none sticky -top-3 z-20 flex justify-center pb-1">
     <div
       class="dropdown dropdown-bottom pointer-events-auto"
       :aria-label="t('config.task.fields.todo')"
@@ -8,7 +8,7 @@
     >
       <label
         tabindex="0"
-        class="btn btn-sm max-w-[min(88vw,30rem)] flex-nowrap justify-start gap-2 overflow-hidden rounded-full border-base-300 bg-base-300 text-base-content hover:border-base-300 hover:bg-base-200 normal-case"
+        class="todobar-btn btn btn-sm max-w-[min(88vw,30rem)] flex-nowrap justify-start gap-2 overflow-hidden border-base-300 bg-base-300 text-base-content hover:border-base-300 hover:bg-base-200 normal-case"
       >
         <ListTodo class="h-4 w-4 shrink-0 opacity-70" />
         <span class="min-w-0 flex-1 truncate text-left">{{ activeConversationTodoDisplay }}</span>
@@ -53,7 +53,7 @@
 <script setup lang="ts">
 import { computed } from "vue";
 import { useI18n } from "vue-i18n";
-import { ListTodo } from "lucide-vue-next";
+import { ListTodo } from "@lucide/vue";
 
 interface NormalizedTodo {
   content: string;
@@ -100,3 +100,12 @@ function todoStatusClass(status: NormalizedTodo["status"]): string {
   return "bg-base-200 text-base-content/70";
 }
 </script>
+
+<style scoped>
+.todobar-btn {
+  border-radius: 0 0 var(--radius-field) var(--radius-field);
+}
+.todobar-btn:hover {
+  transform: translateY(1px);
+}
+</style>

@@ -61,6 +61,21 @@
   contain-intrinsic-size: auto;
 }
 
+.ecall-markdown-content .code-block-container pre.shiki,
+.ecall-markdown-content .code-block-container .shiki {
+  display: block !important;
+  width: 100% !important;
+  min-width: 100% !important;
+}
+
+.ecall-markdown-content .code-block-container :where(pre.shiki, .shiki) :where(code, span, .line, .line *) {
+  background: transparent !important;
+  background-color: transparent !important;
+  background-image: none !important;
+  box-shadow: none !important;
+  text-shadow: none !important;
+}
+
 .ecall-markdown-content > :first-child {
   margin-top: 0;
 }
@@ -107,7 +122,7 @@
   border-top: 1px solid color-mix(in srgb, var(--color-base-content) 14%, transparent);
 }
 
-.ecall-markdown-content :where(:not(pre) > code,.inline-code,.inline-code-node) {
+.ecall-markdown-content :where(:not(pre) > code,.inline-code,.inline-code-node):not(.code-block-container *) {
   color: var(--color-base-content) !important;
   border: 0 !important;
   background: var(--color-base-300) !important;

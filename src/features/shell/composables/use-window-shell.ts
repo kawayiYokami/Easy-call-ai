@@ -1,5 +1,6 @@
 import { ref, shallowRef } from "vue";
 import { getCurrentWindow, Window as WebviewWindow } from "@tauri-apps/api/window";
+import { invokeTauri } from "../../../services/tauri-api";
 
 export function useWindowShell() {
   const appWindow = shallowRef<WebviewWindow | null>(null);
@@ -33,6 +34,12 @@ export function useWindowShell() {
 
   async function closeWindow() {
     if (!appWindow.value) return;
+    try {
+      await invokeTauri("hide_current_window");
+      return;
+    } catch (error) {
+      console.warn("[窗口] 后端隐藏当前窗口失败，回退前端隐藏", error);
+    }
     await appWindow.value.hide();
   }
 

@@ -5,15 +5,14 @@ import type { TerminalApprovalConversationItem } from "../../shell/composables/u
 export function useChatConversationCtx(
   props: {
     currentTheme: string;
-    isDarkAppTheme: (theme: string) => boolean;
     activeConversationId: string;
     conversationItems?: ChatConversationOverviewItem[];
     unarchivedConversationItems: ChatConversationOverviewItem[];
     currentTodos: ChatTodoItem[];
     compactingConversation: boolean;
     compactingConversationId?: string;
-    forcingArchive: boolean;
-    forcingArchiveConversationId?: string;
+    trimming: boolean;
+    trimmingConversationId?: string;
     terminalApprovals?: TerminalApprovalConversationItem[];
     terminalApprovalResolving?: boolean;
     supervisionActive: boolean;
@@ -25,13 +24,27 @@ export function useChatConversationCtx(
     selectedMentions: ChatMentionTarget[];
     messageBlocks: Array<{ isExtraTextBlock?: boolean; planCard?: { action?: string }; sourceMessageId?: string; id?: string; providerMeta?: Record<string, unknown> }>;
   },
+  isDarkAppTheme: (theme: string) => boolean,
   t: (key: string, params?: Record<string, unknown>) => string,
 ) {
-  const markdownIsDark = computed(() => props.isDarkAppTheme(props.currentTheme));
+  const markdownIsDark = computed(() => isDarkAppTheme(props.currentTheme));
 
   function isOrganizeContextToolCall(call: { name: string; status?: string }): boolean {
     const name = String(call.name || "").trim().toLowerCase();
     return name === "organize_context" || name === "archive";
+  }
+
+  function isOrganizeContextStatusText(text: string): boolean {
+    const value = String(text || "").trim();
+    return !!value && (
+      value.includes(t("chat.statusCompactingContext"))
+      || value.includes("压缩上下文")
+      || value.includes("壓縮上下文")
+      || value.includes("整理上下文")
+      || value.includes("整理後繼續")
+      || value.includes("整理后继续")
+      || value.toLowerCase().includes("compacting context")
+    );
   }
 
   const visibleStreamToolCalls = computed(() =>
@@ -97,21 +110,22 @@ export function useChatConversationCtx(
 
   const isOrganizingContextBusy = computed(() => {
     if (props.compactingConversation && isCurrentConversationCompacting.value) return true;
+    const runtimeState = String(activeConversationSummary.value?.runtimeState || "").trim();
+    if (runtimeState === "organizing_context" || runtimeState === "compacting") return true;
     const runningTool = activeRunningToolCall.value;
     if (runningTool && isOrganizeContextToolCall(runningTool)) return true;
     const statusState = String(props.toolStatusState || "").trim();
     if (statusState !== "running") return false;
-    const statusText = t("chat.statusCompactingContext");
     const actualText = String(props.toolStatusText || "").trim();
-    return actualText.includes(statusText);
+    return isOrganizeContextStatusText(actualText);
   });
 
   const chatStatusBanner = computed<null | { text: string; tone: "default" | "error" }>(() => {
     const errorText = String(props.chatErrorText || "").trim();
     if (errorText) return { text: errorText, tone: "error" };
-    if (props.forcingArchive) {
+    if (props.trimming) {
       const currentId = String(props.activeConversationId || "").trim();
-      const archivingId = String(props.forcingArchiveConversationId || "").trim();
+      const archivingId = String(props.trimmingConversationId || "").trim();
       if (!currentId || currentId !== archivingId) return null;
       return { text: t("chat.statusArchivingConversation"), tone: "default" };
     }

@@ -21,46 +21,21 @@
       data-tauri-drag-region
       class="relative z-30 flex h-full min-w-0 items-center gap-1 px-2"
     >
-      <div v-if="!detachedChatWindow" class="relative" @mousedown.stop>
-        <div class="indicator">
-          <span
-            v-if="conversationUnreadTotal > 0"
-            class="indicator-item indicator-top indicator-start z-10 h-2.5 w-2.5 -translate-x-0.5 -translate-y-0.5 rounded-full bg-error"
-            aria-hidden="true"
-          ></span>
-          <button
-            v-if="sideConversationListVisible"
-            class="btn btn-ghost btn-sm h-8 min-h-8 px-2"
-            :class="sideConversationListVisible ? 'btn-active' : ''"
-            :title="t('chat.conversationList')"
-            @click.stop="emit('toggle-side-conversation-list')"
-          >
-            <PanelLeftOpen class="h-3.5 w-3.5" />
-          </button>
-        </div>
-      </div>
-
-      <div v-if="sideConversationListVisible && !detachedChatWindow" role="tablist" class="tabs tabs-border min-w-0 shrink-0" @mousedown.stop>
+      <div v-if="!detachedChatWindow && leftHeaderInLayout" class="indicator" @mousedown.stop>
+        <span
+          v-if="conversationUnreadTotal > 0"
+          class="indicator-item indicator-top indicator-start z-10 h-2.5 w-2.5 -translate-x-0.5 -translate-y-0.5 rounded-full bg-error"
+          aria-hidden="true"
+        ></span>
         <button
-          type="button"
-          role="tab"
-          class="tab h-8 px-2"
-          :class="conversationListTab === 'local' ? 'tab-active font-semibold' : ''"
-          @click.stop="emit('update:conversation-list-tab', 'local')"
+          class="btn btn-ghost btn-sm h-8 min-h-8 px-2"
+          :class="sideConversationListVisible ? 'btn-active' : ''"
+          :title="t('chat.conversationList')"
+          @click.stop="emit('toggle-side-conversation-list')"
         >
-          {{ t("chat.localConversationTab") }}
-        </button>
-        <button
-          type="button"
-          role="tab"
-          class="tab h-8 px-2"
-          :class="conversationListTab === 'contact' ? 'tab-active font-semibold' : ''"
-          @click.stop="emit('update:conversation-list-tab', 'contact')"
-        >
-          {{ t("chat.contactConversationTab") }}
+          <LayoutList class="h-3.5 w-3.5" />
         </button>
       </div>
-
     </div>
 
     <div
@@ -69,15 +44,21 @@
       class="relative z-30 grid h-full min-w-0 grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-1 px-2"
     >
       <div class="relative z-40 flex min-w-0 items-center gap-1" @mousedown.stop>
-        <button
-          v-if="!sideConversationListVisible && !detachedChatWindow"
-          class="btn btn-ghost btn-sm h-8 min-h-8 px-2"
-          :title="t('chat.conversationList')"
-          @click.stop="emit('toggle-side-conversation-list')"
-        >
-          <PanelLeftClose class="h-3.5 w-3.5" />
-        </button>
-
+        <div v-if="!detachedChatWindow && !leftHeaderInLayout" class="indicator">
+          <span
+            v-if="conversationUnreadTotal > 0"
+            class="indicator-item indicator-top indicator-start z-10 h-2.5 w-2.5 -translate-x-0.5 -translate-y-0.5 rounded-full bg-error"
+            aria-hidden="true"
+          ></span>
+          <button
+            class="btn btn-ghost btn-sm h-8 min-h-8 px-2"
+            :class="sideConversationListVisible ? 'btn-active' : ''"
+            :title="t('chat.conversationList')"
+            @click.stop="emit('toggle-side-conversation-list')"
+          >
+            <LayoutList class="h-3.5 w-3.5" />
+          </button>
+        </div>
         <button
           v-if="!detachedChatWindow"
           class="btn btn-ghost btn-sm h-8 min-h-8 px-2"
@@ -86,19 +67,11 @@
         >
           <SquarePen class="h-4 w-4" />
         </button>
-
         <button
-          class="btn btn-ghost btn-sm h-8 min-h-8 px-2"
-          :disabled="forcingArchive || chatting"
-          :title="forceArchiveTip"
-          @click.stop="$emit('force-archive')"
-        >
-          <FoldVertical class="h-3.5 w-3.5 shrink-0" />
-        </button>
-
-        <div
-          class="inline-flex h-8 w-8 items-center justify-center text-base-content/70"
-          :title="t('chat.contextUsageTitle', { percent: normalizedChatUsagePercent })"
+          class="btn btn-ghost btn-sm btn-square h-8 min-h-8 w-8 shrink-0"
+          :disabled="trimming || chatting"
+          :title="`${t('chat.contextUsageTitle', { percent: normalizedChatUsagePercent })} · ${trimTip}`"
+          @click.stop="$emit('trimConversation')"
         >
           <svg
             class="h-5 w-5 -rotate-90"
@@ -125,45 +98,20 @@
               :stroke-dashoffset="strokeDashoffset"
             />
           </svg>
-        </div>
+        </button>
       </div>
 
       <div
         data-tauri-drag-region
-        class="relative z-30 flex min-w-0 flex-1 self-stretch items-center justify-center px-2"
+        class="relative z-30 flex min-w-0 flex-1 self-stretch items-center justify-start gap-1 px-2"
         :title="combinedTitleTooltip"
       >
-        <span class="pointer-events-none truncate text-sm font-semibold text-base-content">{{ combinedTitle }}</span>
+        <span
+          class="truncate text-sm font-semibold text-base-content"
+        >{{ combinedTitle }}</span>
       </div>
 
       <div class="relative z-40 flex min-w-0 items-center justify-end gap-1" @mousedown.stop>
-        <button
-          v-if="!toolReviewPanelOpenVisible"
-          type="button"
-          class="btn btn-ghost btn-sm h-8 min-h-8 px-2"
-          :title="t('chat.toolReview.title')"
-          @click.stop="emit('toggle-tool-review-panel')"
-        >
-          <PanelRightClose class="h-3.5 w-3.5" />
-        </button>
-
-        <button
-          v-if="!detachedChatWindow"
-          class="btn btn-ghost btn-sm h-8 min-h-8 px-2"
-          :title="t('window.archivesTitle')"
-          @click.stop="$emit('open-archives')"
-        >
-          <History class="h-3.5 w-3.5" />
-        </button>
-
-        <button
-          v-if="!detachedChatWindow"
-          class="btn btn-ghost btn-sm h-8 min-h-8 px-2"
-          :title="openConfigTitle"
-          @click.stop="$emit('open-config')"
-        >
-          <Settings class="h-3.5 w-3.5" />
-        </button>
       </div>
     </div>
 
@@ -172,16 +120,55 @@
       data-tauri-drag-region
       class="relative z-30 flex h-full min-w-0 flex-nowrap items-center justify-end gap-1 px-2"
     >
+      <div v-if="toolReviewPanelOpenVisible && rightHeaderInLayout" role="tablist" class="tabs tabs-border min-w-0 shrink-0" @mousedown.stop>
+        <button
+          type="button"
+          role="tab"
+          class="tab h-8 px-2"
+          :class="chatRightPanelMode === 'reader' ? 'tab-active font-semibold' : ''"
+          @click.stop="emit('update:chat-right-panel-mode', 'reader')"
+        >
+          {{ t("chat.readerPanelTab") }}
+        </button>
+        <button
+          type="button"
+          role="tab"
+          class="tab h-8 px-2"
+          :class="chatRightPanelMode !== 'reader' ? 'tab-active font-semibold' : ''"
+          @click.stop="emit('update:chat-right-panel-mode', 'delegate')"
+        >
+          {{ t("chat.delegatePanelTab") }}
+        </button>
+      </div>
       <button
-        v-if="toolReviewPanelOpenVisible"
+        v-else-if="toolReviewPanelOpenVisible"
+        type="button"
+        class="btn btn-ghost btn-sm btn-square h-8 min-h-8 w-8 shrink-0"
+        :title="chatRightPanelMode === 'reader' ? t('chat.readerPanelTab') : t('chat.delegatePanelTab')"
+        @mousedown.stop
+        @click.stop="emit('update:chat-right-panel-mode', chatRightPanelMode === 'reader' ? 'delegate' : 'reader')"
+      >
+        <ArrowUpDown class="h-3.5 w-3.5" />
+      </button>
+
+      <button
         type="button"
         class="btn btn-ghost btn-sm h-8 min-h-8 px-2"
         :class="toolReviewPanelOpenVisible ? 'btn-active' : ''"
-        :title="t('chat.toolReview.title')"
+        :title="t('chat.rightSidebarToggle')"
         @mousedown.stop
         @click.stop="emit('toggle-tool-review-panel')"
       >
-        <PanelRightOpen class="h-3.5 w-3.5" />
+        <LayoutPanelLeft class="h-3.5 w-3.5 -scale-x-100" />
+      </button>
+
+      <button
+        class="btn btn-ghost btn-sm"
+        :title="openSettingsTitle || t('common.settings')"
+        @mousedown.stop
+        @click.stop="$emit('open-settings')"
+      >
+        <Settings class="h-3.5 w-3.5" />
       </button>
 
       <button
@@ -257,7 +244,7 @@
           class="w-full bg-transparent outline-none"
           :value="configSearchQuery"
           :placeholder="configSearchPlaceholder"
-          @focus="openConfigSearchPopover"
+          @focus="openSettingsSearchPopover"
           @input="handleConfigSearchInput"
           @keydown="handleConfigSearchKeydown"
         />
@@ -315,20 +302,30 @@
   </div>
 
   <dialog v-if="viewMode === 'chat'" class="modal" :class="{ 'modal-open': createConversationDialogOpen }">
-    <div class="modal-box max-w-md">
+    <div class="modal-box max-w-lg">
       <h3 class="text-base font-semibold">{{ t("chat.newConversation") }}</h3>
-      <div class="mt-3 flex flex-col gap-3">
-        <div class="rounded-lg border border-warning/30 bg-warning/10 px-3 py-2 text-sm leading-6 text-base-content/80">
-          {{ t("chat.unarchivedConversationMemoryReminder") }}
+      <div class="mt-4 flex flex-col gap-3">
+        <div class="flex flex-col gap-2">
+          <input
+            ref="createConversationInputRef"
+            v-model="createConversationTitle"
+            type="text"
+            class="input input-bordered w-full"
+            :placeholder="t('chat.newConversationTopicPlaceholder')"
+            @keydown="handleCreateConversationDialogKeydown"
+          />
+          <div v-if="recentConversationTopics.length > 0" class="flex flex-wrap gap-1.5">
+            <button
+              v-for="topic in recentConversationTopics"
+              :key="topic"
+              type="button"
+              class="btn btn-ghost btn-xs h-7 min-h-7 rounded-full px-3 text-xs font-medium text-base-content/75"
+              @click="applyRecentConversationTopic(topic)"
+            >
+              {{ topic }}
+            </button>
+          </div>
         </div>
-        <input
-          ref="createConversationInputRef"
-          v-model="createConversationTitle"
-          type="text"
-          class="input input-bordered w-full"
-          :placeholder="t('chat.newConversationTopicPlaceholder')"
-          @keydown="handleCreateConversationDialogKeydown"
-        />
         <select
           v-model="createConversationDepartmentId"
           class="select select-bordered w-full"
@@ -341,28 +338,66 @@
             {{ departmentOptionLabel(department) }}
           </option>
         </select>
-        <label class="label cursor-pointer justify-start gap-3 rounded-lg border border-base-300 px-3 py-2">
+        <label class="flex h-10 cursor-pointer items-center justify-start gap-3 px-1">
           <input v-model="createConversationCopyCurrent" type="checkbox" class="checkbox checkbox-sm" />
           <span class="label-text text-sm">{{ t("chat.copyCurrentConversation") }}</span>
         </label>
-        <div v-if="recentConversationTopics.length > 0" class="flex flex-col gap-2">
-          <div class="text-xs font-medium opacity-70">{{ t("chat.recentConversationTopics") }}</div>
-          <div class="flex flex-wrap gap-2">
-            <button
-              v-for="topic in recentConversationTopics"
-              :key="topic"
-              type="button"
-              class="btn btn-sm btn-ghost"
-              @click="applyRecentConversationTopic(topic)"
+        <div class="grid grid-cols-[minmax(0,1fr)_5rem] gap-2">
+          <div class="join min-w-0">
+            <select
+              v-model="createConversationWorkspacePath"
+              class="select select-bordered join-item min-w-0 flex-1"
+              @change="handleCreateConversationWorkspaceChange"
             >
-              {{ topic }}
+              <option value="">{{ t("chat.createConversationNoWorkspace") }}</option>
+              <option
+                v-for="workspace in selectableCreateConversationWorkspaces"
+                :key="workspace.id"
+                :value="workspace.path"
+              >
+                {{ workspace.name }}
+              </option>
+              <option
+                v-if="createConversationCustomWorkspace && !selectableCreateConversationWorkspaces.some((item) => item.path === createConversationCustomWorkspace?.path)"
+                :value="createConversationCustomWorkspace.path"
+              >
+                {{ createConversationCustomWorkspace.name }}
+              </option>
+            </select>
+            <button
+              type="button"
+              class="btn btn-square join-item"
+              :title="t('common.browse')"
+              @click="pickCreateConversationWorkspace"
+            >
+              <FolderOpen class="h-4 w-4" />
             </button>
           </div>
+          <select
+            v-model="createConversationWorkspaceAccess"
+            class="select select-bordered min-w-0"
+            :disabled="!createConversationWorkspacePath"
+          >
+            <option value="approval">{{ workspaceAccessLabel("approval") }}</option>
+            <option value="full_access">{{ workspaceAccessLabel("full_access") }}</option>
+            <option value="read_only">{{ workspaceAccessLabel("read_only") }}</option>
+          </select>
         </div>
       </div>
-      <div class="modal-action">
-        <button class="btn btn-sm" @click="closeCreateConversationDialog">{{ t("common.cancel") }}</button>
-        <button class="btn btn-sm btn-primary" @click="confirmCreateConversation">{{ t("common.confirm") }}</button>
+      <div class="modal-action mt-5 items-center justify-between gap-3">
+        <label class="label min-w-0 cursor-pointer justify-start gap-2 p-0">
+          <input v-model="createConversationMaxPermission" type="checkbox" class="checkbox checkbox-sm" />
+          <span class="label-text truncate text-sm">{{ t("chat.createConversationMaxPermission") }}</span>
+        </label>
+        <div class="flex shrink-0 items-center justify-end gap-2">
+          <button class="btn btn-sm btn-ghost gap-2 px-2" :disabled="importConversationLoading" @click="importConversationFromExternal">
+            <span v-if="importConversationLoading" class="loading loading-spinner loading-xs"></span>
+            <Upload v-else class="h-4 w-4" />
+            <span>{{ t("chat.importConversationExternal") }}</span>
+          </button>
+          <button class="btn btn-sm" @click="closeCreateConversationDialog">{{ t("common.cancel") }}</button>
+          <button class="btn btn-sm btn-primary" @click="confirmCreateConversation">{{ t("common.confirm") }}</button>
+        </div>
       </div>
     </div>
     <form method="dialog" class="modal-backdrop">
@@ -401,15 +436,12 @@
         <div v-else-if="changelogError" class="rounded-box border border-error/30 bg-error/10 px-3 py-2 text-sm text-error">
           {{ changelogError }}
         </div>
-        <MarkdownRender
+        <AppMarkdownRenderer
           v-else-if="changelogMarkdown"
           class="ecall-markdown-content max-w-none"
-          custom-id="chat-markstream"
-          :nodes="changelogNodes"
+          :text="changelogMarkdown"
           :is-dark="markdownIsDark"
-          :code-block-props="markdownCodeBlockProps"
-          :mermaid-props="markdownMermaidProps"
-          :typewriter="false"
+          variant="document"
         />
         <div v-else class="flex h-full min-h-0 items-center justify-center text-sm text-base-content/70">
           {{ t("about.changelogEmpty") }}
@@ -426,15 +458,17 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 import { invokeTauri } from "../../../services/tauri-api";
-import MarkdownRender, { enableKatex, enableMermaid, getMarkdown, parseMarkdownToStructure } from "markstream-vue";
-import { Download, FoldVertical, History, Minus, PanelLeftClose, PanelLeftOpen, PanelRightClose, PanelRightOpen, ScrollText, Search, Settings, Square, SquarePen, X } from "lucide-vue-next";
-import type { ChatConversationOverviewItem } from "../../../types/app";
+import { open as openDialog } from "@tauri-apps/plugin-dialog";
+import { ArrowUpDown, Download, FoldVertical, FolderOpen, History, LayoutList, LayoutPanelLeft, Minus, ScrollText, Search, Settings, Square, SquarePen, Upload, X } from "@lucide/vue";
+import type { ChatConversationOverviewItem, ShellWorkspace, ShellWorkspaceAccess } from "../../../types/app";
+import { defaultWorkspaceNameFromPath } from "../../../utils/shell-workspaces";
 import { resolveConversationDisplayTitle } from "../../chat/utils/conversation-title";
-import { registerChatMarkstreamComponents } from "../../chat/markdown/register-chat-markstream";
+import { AppMarkdownRenderer, initKatex } from "../../chat/markdown";
 import type { ConfigSearchResult, ConfigSearchTab } from "../../config/search/config-search";
 import { isDarkAppTheme } from "../composables/use-app-theme";
-import "markstream-vue/index.css";
 import { usePipelineStatus } from "../composables/use-pipeline-status";
+
+initKatex();
 
 const RING_RADIUS = 14;
 const RING_CIRCUMFERENCE = 2 * Math.PI * RING_RADIUS;
@@ -452,40 +486,21 @@ type CreateConversationInput = {
   title?: string;
   departmentId?: string;
   copyCurrent?: boolean;
+  importPath?: string;
+  shellWorkspaces?: ShellWorkspace[];
+  shellAutonomousMode?: boolean;
 };
 
 const RECENT_CONVERSATION_TOPICS_STORAGE_KEY = "easy_call.recent_conversation_topics.v1";
 const RECENT_CONVERSATION_TOPICS_LIMIT = 7;
+const RECENT_CREATE_CONVERSATION_WORKSPACES_STORAGE_KEY = "easy_call.recent_create_conversation_workspaces.v1";
+const RECENT_CREATE_CONVERSATION_WORKSPACES_LIMIT = 12;
 
-enableMermaid();
-enableKatex();
-registerChatMarkstreamComponents();
+const { markConversationRead } = usePipelineStatus({
+  activeConversationId: computed(() => String(props.activeConversationId || "").trim()),
+});
 
-const { markConversationRead } = usePipelineStatus();
-
-const markstreamMarkdown = getMarkdown();
-const markdownCodeBlockProps = {
-  showHeader: true,
-  showCopyButton: true,
-  showPreviewButton: false,
-  showExpandButton: true,
-  showCollapseButton: true,
-  showFontSizeButtons: false,
-  enableFontSizeControl: false,
-  isShowPreview: false,
-  showTooltips: false,
-};
-const markdownMermaidProps = {
-  showHeader: true,
-  showCopyButton: true,
-  showExportButton: false,
-  showFullscreenButton: true,
-  showCollapseButton: false,
-  showZoomControls: true,
-  showModeToggle: false,
-  enableWheelZoom: true,
-  showTooltips: false,
-};
+const markdownIsDark = computed(() => isDarkAppTheme(props.currentTheme));
 
 const props = defineProps<{
   viewMode: "chat" | "archives" | "config";
@@ -493,25 +508,28 @@ const props = defineProps<{
   currentTheme: string;
   titleText: string;
   chatUsagePercent: number;
-  forcingArchive: boolean;
+  trimming: boolean;
   chatting: boolean;
   currentPersonaName: string;
   sideConversationListVisible: boolean;
   toolReviewPanelOpenVisible: boolean;
   chatSidePanelWidths: { leftWidth: number; rightWidth: number };
   conversationListTab: "local" | "contact";
+  chatLeftPanelMode: "local" | "contact";
+  chatRightPanelMode: "reader" | "review" | "delegate";
   activeConversationId: string;
   conversationItems: ChatConversationOverviewItem[];
+  currentChatWorkspaces?: ShellWorkspace[];
   userAlias: string;
   userAvatarUrl: string;
   personaNameMap: Record<string, string>;
   personaAvatarUrlMap: Record<string, string>;
   createConversationDepartmentOptions: ConversationDepartmentOption[];
   defaultCreateConversationDepartmentId: string;
-  forceArchiveTip: string;
+  trimTip: string;
   maximized: boolean;
   windowReady: boolean;
-  openConfigTitle: string;
+  openSettingsTitle: string;
   closeTitle?: string;
   configSearchQuery?: string;
   configSearchResults?: ConfigSearchResult[];
@@ -524,11 +542,13 @@ const props = defineProps<{
 }>();
 
 const emit = defineEmits<{
-  (e: "open-config"): void;
+  (e: "open-settings"): void;
   (e: "open-archives"): void;
   (e: "toggle-side-conversation-list"): void;
   (e: "toggle-tool-review-panel"): void;
   (e: "update:conversation-list-tab", value: "local" | "contact"): void;
+  (e: "update:chat-left-panel-mode", value: "local" | "contact"): void;
+  (e: "update:chat-right-panel-mode", value: "reader" | "review" | "delegate"): void;
   (e: "minimize-window"): void;
   (e: "toggle-maximize-window"): void;
   (e: "switch-conversation", payload: { conversationId: string; kind?: "local_unarchived" | "remote_im_contact"; remoteContactId?: string }): void;
@@ -537,7 +557,7 @@ const emit = defineEmits<{
   (e: "archive-conversation", conversationId: string): void;
   (e: "delete-conversation", conversationId: string): void;
   (e: "create-conversation", input?: CreateConversationInput): void;
-  (e: "force-archive"): void;
+  (e: "trimConversation"): void;
   (e: "startDrag"): void;
   (e: "close-window"): void;
   (e: "update:config-search-query", value: string): void;
@@ -558,19 +578,51 @@ const strokeDashoffset = computed(() => {
   return RING_CIRCUMFERENCE * (1 - percent / 100);
 });
 
+// ========== responsive header pane layout ==========
+
+const windowWidth = ref(typeof window === "undefined" ? 0 : window.innerWidth);
+
+function updateWindowWidth() {
+  windowWidth.value = typeof window === "undefined" ? 0 : window.innerWidth;
+}
+
+function headerPaneWidth(side: "left" | "right"): number {
+  const raw = side === "left"
+    ? Number(props.chatSidePanelWidths?.leftWidth || 0)
+    : Number(props.chatSidePanelWidths?.rightWidth || 0);
+  const min = 260;
+  return Math.max(min, Number.isFinite(raw) && raw > 0 ? Math.round(raw) : min);
+}
+
+function headerCanFit(leftW: number, rightW: number): boolean {
+  return windowWidth.value <= 0 || leftW + 300 + rightW <= windowWidth.value;
+}
+
+const leftHeaderInLayout = computed(() => {
+  if (props.viewMode !== "chat" || !props.sideConversationListVisible || props.detachedChatWindow) return false;
+  return headerCanFit(headerPaneWidth("left"), 0);
+});
+
+const rightHeaderInLayout = computed(() => {
+  if (props.viewMode !== "chat" || !props.toolReviewPanelOpenVisible) return false;
+  const rightW = headerPaneWidth("right");
+  return leftHeaderInLayout.value
+    ? headerCanFit(headerPaneWidth("left"), rightW)
+    : headerCanFit(0, rightW);
+});
+
 const chatHeaderGridStyle = computed(() => {
-  const leftWidth = Number(props.chatSidePanelWidths?.leftWidth || 0);
-  const rightWidth = Number(props.chatSidePanelWidths?.rightWidth || 0);
-  const leftColumn = props.sideConversationListVisible && !props.detachedChatWindow && Number.isFinite(leftWidth) && leftWidth > 0
-    ? `${Math.round(leftWidth)}px`
+  const leftColumn = leftHeaderInLayout.value
+    ? `${headerPaneWidth("left")}px`
     : "0px";
-  const rightColumn = props.toolReviewPanelOpenVisible && Number.isFinite(rightWidth) && rightWidth > 0
-    ? `${Math.round(rightWidth)}px`
+  const rightColumn = rightHeaderInLayout.value
+    ? `${headerPaneWidth("right")}px`
     : "max-content";
   return {
     gridTemplateColumns: `${leftColumn} minmax(0, 1fr) ${rightColumn}`,
   };
 });
+
 
 const currentConversationTitle = computed(() => {
   const activeId = String(props.activeConversationId || "").trim();
@@ -595,20 +647,11 @@ const conversationUnreadTotal = computed(() =>
 );
 
 const combinedTitle = computed(() => {
-  const parts: string[] = [];
-  const title = currentConversationTitle.value;
-  const dept = currentConversationDepartmentName.value;
-  const persona = props.currentPersonaName;
-
-  if (title) parts.push(title);
-  if (dept) parts.push(dept);
-  if (persona) parts.push(persona);
-
-  return parts.join(" · ");
+  return currentConversationTitle.value || props.currentPersonaName;
 });
 
 const combinedTitleTooltip = computed(() => {
-  return combinedTitle.value || props.currentPersonaName;
+  return currentConversationTitle.value || props.currentPersonaName;
 });
 
 watch(
@@ -624,6 +667,12 @@ const createConversationDialogOpen = ref(false);
 const createConversationTitle = ref("");
 const createConversationDepartmentId = ref("");
 const createConversationCopyCurrent = ref(false);
+const createConversationWorkspacePath = ref("");
+const createConversationWorkspaceAccess = ref<ShellWorkspaceAccess>("approval");
+const createConversationCustomWorkspace = ref<ShellWorkspace | null>(null);
+const createConversationMaxPermission = ref(false);
+const recentCreateConversationWorkspaces = ref<ShellWorkspace[]>([]);
+const importConversationLoading = ref(false);
 const configSearchOpen = ref(false);
 const changelogDialogOpen = ref(false);
 const changelogLoading = ref(false);
@@ -631,10 +680,167 @@ const changelogError = ref("");
 const changelogMarkdown = ref("");
 const changelogLoaded = ref(false);
 
-const changelogNodes = computed(() =>
-  parseMarkdownToStructure(changelogMarkdown.value || "", markstreamMarkdown, { final: true }),
+const selectableCreateConversationWorkspaces = computed<ShellWorkspace[]>(() =>
+  mergeCreateConversationWorkspaces([
+    ...(props.currentChatWorkspaces || []),
+    ...recentCreateConversationWorkspaces.value,
+  ])
+    .filter((item) => item.level !== "system" && String(item.path || "").trim())
+    .map((item) => ({
+      id: String(item.id || "").trim() || `conversation-workspace-${String(item.path || "").trim()}`,
+      name: String(item.name || "").trim() || defaultWorkspaceNameFromPath(item.path) || item.path,
+      path: String(item.path || "").trim(),
+      level: item.level === "main" ? "main" : "secondary",
+      access: normalizeWorkspaceAccess(item.access),
+      builtIn: false,
+    })),
 );
-const markdownIsDark = computed(() => isDarkAppTheme(props.currentTheme));
+
+function normalizeWorkspacePathKey(path: string): string {
+  return String(path || "").trim().toLowerCase();
+}
+
+function mergeCreateConversationWorkspaces(items: ShellWorkspace[]): ShellWorkspace[] {
+  const merged: ShellWorkspace[] = [];
+  const seen = new Set<string>();
+  for (const item of items) {
+    const path = String(item.path || "").trim();
+    const key = normalizeWorkspacePathKey(path);
+    if (!path || seen.has(key)) continue;
+    seen.add(key);
+    merged.push({ ...item, path });
+  }
+  return merged;
+}
+
+function normalizeWorkspaceAccess(value: unknown): ShellWorkspaceAccess {
+  const access = String(value || "").trim();
+  if (access === "full_access" || access === "read_only" || access === "approval") {
+    return access;
+  }
+  return "approval";
+}
+
+function resetCreateConversationWorkspace() {
+  createConversationWorkspacePath.value = "";
+  createConversationWorkspaceAccess.value = "approval";
+  createConversationCustomWorkspace.value = null;
+  createConversationMaxPermission.value = false;
+}
+
+function workspaceAccessLabel(access: ShellWorkspaceAccess): string {
+  if (access === "full_access") return t("config.tools.workspaceAccessFullAccess");
+  if (access === "read_only") return t("config.tools.workspaceAccessReadOnly");
+  return t("config.tools.workspaceAccessApproval");
+}
+
+function selectedCreateConversationWorkspace(): ShellWorkspace | undefined {
+  const path = String(createConversationWorkspacePath.value || "").trim();
+  if (!path) return undefined;
+  const source = selectableCreateConversationWorkspaces.value.find((item) => item.path === path)
+    || (createConversationCustomWorkspace.value?.path === path ? createConversationCustomWorkspace.value : null);
+  const name = String(source?.name || "").trim() || defaultWorkspaceNameFromPath(path) || path;
+  return {
+    id: String(source?.id || "").trim() || `conversation-workspace-${Date.now().toString(36)}`,
+    name,
+    path,
+    level: "main",
+    access: normalizeWorkspaceAccess(createConversationWorkspaceAccess.value),
+    builtIn: false,
+  };
+}
+
+function createConversationWorkspacePayload(): ShellWorkspace[] | undefined {
+  const workspace = selectedCreateConversationWorkspace();
+  return workspace ? [workspace] : undefined;
+}
+
+function loadRecentCreateConversationWorkspaces() {
+  try {
+    const raw = window.localStorage.getItem(RECENT_CREATE_CONVERSATION_WORKSPACES_STORAGE_KEY);
+    if (!raw) return;
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return;
+    recentCreateConversationWorkspaces.value = mergeCreateConversationWorkspaces(parsed.map((item): ShellWorkspace => ({
+      id: String(item?.id || "").trim(),
+      name: String(item?.name || "").trim(),
+      path: String(item?.path || "").trim(),
+      level: "secondary",
+      access: normalizeWorkspaceAccess(item?.access),
+      builtIn: false,
+    }))).slice(0, RECENT_CREATE_CONVERSATION_WORKSPACES_LIMIT);
+  } catch {
+    recentCreateConversationWorkspaces.value = [];
+  }
+}
+
+function saveRecentCreateConversationWorkspaces() {
+  try {
+    window.localStorage.setItem(
+      RECENT_CREATE_CONVERSATION_WORKSPACES_STORAGE_KEY,
+      JSON.stringify(recentCreateConversationWorkspaces.value),
+    );
+  } catch {
+    // ignore persistence failures
+  }
+}
+
+function pushRecentCreateConversationWorkspace(workspace: ShellWorkspace | undefined) {
+  if (!workspace?.path) return;
+  const normalized: ShellWorkspace = {
+    id: workspace.id || `conversation-workspace-${Date.now().toString(36)}`,
+    name: workspace.name || defaultWorkspaceNameFromPath(workspace.path) || workspace.path,
+    path: workspace.path,
+    level: "secondary",
+    access: normalizeWorkspaceAccess(workspace.access),
+    builtIn: false,
+  };
+  const targetKey = normalizeWorkspacePathKey(normalized.path);
+  recentCreateConversationWorkspaces.value = [
+    normalized,
+    ...recentCreateConversationWorkspaces.value.filter((item) => normalizeWorkspacePathKey(item.path) !== targetKey),
+  ].slice(0, RECENT_CREATE_CONVERSATION_WORKSPACES_LIMIT);
+  saveRecentCreateConversationWorkspaces();
+}
+
+function handleCreateConversationWorkspaceChange() {
+  const path = String(createConversationWorkspacePath.value || "").trim();
+  if (!path) {
+    createConversationWorkspaceAccess.value = "approval";
+    return;
+  }
+  const source = selectableCreateConversationWorkspaces.value.find((item) => item.path === path)
+    || (createConversationCustomWorkspace.value?.path === path ? createConversationCustomWorkspace.value : null);
+  createConversationWorkspaceAccess.value = normalizeWorkspaceAccess(source?.access);
+}
+
+async function pickCreateConversationWorkspace() {
+  const selected = await openDialog({
+    multiple: false,
+    directory: true,
+  });
+  const path = String(Array.isArray(selected) ? selected[0] : selected || "").trim();
+  if (!path) return;
+  const existing = selectableCreateConversationWorkspaces.value.find((item) => item.path.toLowerCase() === path.toLowerCase());
+  if (existing) {
+    createConversationWorkspacePath.value = existing.path;
+    createConversationWorkspaceAccess.value = normalizeWorkspaceAccess(existing.access);
+    pushRecentCreateConversationWorkspace(existing);
+    return;
+  }
+  const workspace: ShellWorkspace = {
+    id: `conversation-workspace-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
+    name: defaultWorkspaceNameFromPath(path) || path,
+    path,
+    level: "main",
+    access: "approval",
+    builtIn: false,
+  };
+  createConversationCustomWorkspace.value = workspace;
+  createConversationWorkspacePath.value = workspace.path;
+  createConversationWorkspaceAccess.value = workspace.access;
+  pushRecentCreateConversationWorkspace(workspace);
+}
 
 function loadRecentConversationTopics() {
   try {
@@ -689,7 +895,7 @@ function handleWindowKeydown(event: KeyboardEvent) {
   }
 }
 
-function openConfigSearchPopover() {
+function openSettingsSearchPopover() {
   if (props.viewMode !== "config") return;
   configSearchOpen.value = true;
 }
@@ -727,6 +933,7 @@ function handleCreateConversation() {
     || String(props.defaultCreateConversationDepartmentId || "").trim()
     || String(props.createConversationDepartmentOptions[0]?.id || "").trim();
   createConversationCopyCurrent.value = false;
+  resetCreateConversationWorkspace();
   createConversationDialogOpen.value = true;
   nextTick(() => createConversationInputRef.value?.focus());
 }
@@ -760,6 +967,8 @@ function closeCreateConversationDialog() {
   createConversationTitle.value = "";
   createConversationDepartmentId.value = "";
   createConversationCopyCurrent.value = false;
+  resetCreateConversationWorkspace();
+  importConversationLoading.value = false;
 }
 
 function applyRecentConversationTopic(topic: string) {
@@ -784,11 +993,55 @@ function confirmCreateConversation() {
   createConversationTitle.value = "";
   createConversationDepartmentId.value = "";
   createConversationCopyCurrent.value = false;
+  const shellWorkspaces = createConversationWorkspacePayload();
+  const shellAutonomousMode = createConversationMaxPermission.value;
+  pushRecentCreateConversationWorkspace(shellWorkspaces?.[0]);
+  resetCreateConversationWorkspace();
   emit("create-conversation", {
     title,
     departmentId: departmentId || undefined,
     copyCurrent,
+    shellWorkspaces,
+    shellAutonomousMode,
   });
+}
+
+async function importConversationFromExternal() {
+  if (importConversationLoading.value) return;
+  importConversationLoading.value = true;
+  try {
+    const selected = await openDialog({
+      multiple: false,
+      directory: false,
+      filters: [{ name: "JSON", extensions: ["json"] }],
+    });
+    const importPath = Array.isArray(selected) ? selected[0] : selected;
+    const path = String(importPath || "").trim();
+    if (!path) return;
+    const title = String(createConversationTitle.value || "").trim();
+    const departmentId = String(createConversationDepartmentId.value || "").trim();
+    if (title) {
+      pushRecentConversationTopic(title);
+    }
+    createConversationDialogOpen.value = false;
+    createConversationTitle.value = "";
+    createConversationDepartmentId.value = "";
+    createConversationCopyCurrent.value = false;
+    const shellWorkspaces = createConversationWorkspacePayload();
+    const shellAutonomousMode = createConversationMaxPermission.value;
+    pushRecentCreateConversationWorkspace(shellWorkspaces?.[0]);
+    resetCreateConversationWorkspace();
+    emit("create-conversation", {
+      title,
+      departmentId: departmentId || undefined,
+      copyCurrent: false,
+      importPath: path,
+      shellWorkspaces,
+      shellAutonomousMode,
+    });
+  } finally {
+    importConversationLoading.value = false;
+  }
 }
 
 function handleCreateConversationDialogKeydown(event: KeyboardEvent) {
@@ -800,13 +1053,17 @@ function handleCreateConversationDialogKeydown(event: KeyboardEvent) {
 
 onMounted(() => {
   loadRecentConversationTopics();
+  loadRecentCreateConversationWorkspaces();
   document.addEventListener("pointerdown", handleDocumentPointerDown);
   window.addEventListener("keydown", handleWindowKeydown);
+  updateWindowWidth();
+  window.addEventListener("resize", updateWindowWidth, { passive: true });
 });
 
 onBeforeUnmount(() => {
   document.removeEventListener("pointerdown", handleDocumentPointerDown);
   window.removeEventListener("keydown", handleWindowKeydown);
+  window.removeEventListener("resize", updateWindowWidth);
 });
 </script>
 

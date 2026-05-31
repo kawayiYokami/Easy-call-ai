@@ -170,7 +170,7 @@ fn build_user_profile_snapshot_block(
     agent: &AgentProfile,
     limit: usize,
 ) -> Result<Option<String>, String> {
-    build_user_profile_snapshot_block_for_user(data_path, agent, "0", limit)
+    build_user_profile_snapshot_block_for_user(data_path, agent, USER_PERSONA_ID, limit)
 }
 
 fn build_user_profile_snapshot_block_for_user(
@@ -194,7 +194,7 @@ fn build_user_profile_memory_board(
     data_path: &PathBuf,
     agent: &AgentProfile,
 ) -> Result<Option<String>, String> {
-    build_user_profile_memory_board_for_user(data_path, agent, "0")
+    build_user_profile_memory_board_for_user(data_path, agent, USER_PERSONA_ID)
 }
 
 fn build_user_profile_memory_board_for_user(
@@ -414,22 +414,26 @@ mod prompt_assembly_tests {
         let data_path = temp_data_path("prompt_profile_board");
         let drafts = vec![MemoryDraftInput {
             memory_type: "knowledge".to_string(),
-            judgment: "本地用户（0）当前长期在深圳生活".to_string(),
+            judgment: "本地用户（user-persona）当前长期在深圳生活".to_string(),
             reasoning: "本轮明确说明".to_string(),
             tags: vec![
                 "本地用户".to_string(),
-                "0".to_string(),
+                USER_PERSONA_ID.to_string(),
                 "事实属性".to_string(),
             ],
             owner_agent_id: None,
         }];
         memory_store_upsert_drafts(&data_path, &drafts).expect("seed memories");
 
-        let block = build_user_profile_memory_board_for_user(&data_path, &default_agent(), "0")
+        let block = build_user_profile_memory_board_for_user(
+            &data_path,
+            &default_agent(),
+            USER_PERSONA_ID,
+        )
             .expect("build profile board")
             .expect("profile board should exist");
         assert!(block.contains("用户画像记忆"));
-        assert!(block.contains("本地用户（0）当前长期在深圳生活"));
+        assert!(block.contains("本地用户（user-persona）当前长期在深圳生活"));
     }
 
     #[test]
@@ -450,11 +454,11 @@ mod prompt_assembly_tests {
             },
             MemoryDraftInput {
                 memory_type: "knowledge".to_string(),
-                judgment: "本地用户（0）长期在深圳".to_string(),
+                judgment: "本地用户（user-persona）长期在深圳".to_string(),
                 reasoning: "历史画像".to_string(),
                 tags: vec![
                     "本地用户".to_string(),
-                    "0".to_string(),
+                    USER_PERSONA_ID.to_string(),
                     "事实属性".to_string(),
                 ],
                 owner_agent_id: None,
@@ -550,7 +554,9 @@ mod prompt_assembly_tests {
             conversation_processing_claims: Arc::new(Mutex::new(HashSet::new())),
             pending_chat_result_senders: Arc::new(Mutex::new(HashMap::new())),
             pending_chat_delta_channels: Arc::new(Mutex::new(HashMap::new())),
+            accepted_submit_trace_ids: Arc::new(Mutex::new(std::collections::VecDeque::new())),
             active_chat_view_bindings: Arc::new(Mutex::new(HashMap::new())),
+            conversation_list_activity_marks: Arc::new(Mutex::new(HashMap::new())),
             dequeue_lock: Arc::new(Mutex::new(())),
             delegate_runtime_threads: Arc::new(Mutex::new(HashMap::new())),
             delegate_recent_threads: Arc::new(Mutex::new(VecDeque::new())),
@@ -564,6 +570,7 @@ mod prompt_assembly_tests {
             preferred_release_source: Arc::new(Mutex::new(String::new())),
             migration_preview_dirs: Arc::new(Mutex::new(HashMap::new())),
             delegate_active_ids: Arc::new(std::sync::Mutex::new(std::collections::HashSet::new())),
+            backend_ready: Arc::new(std::sync::atomic::AtomicBool::new(false)),
         }
     }
 

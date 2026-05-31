@@ -65,8 +65,26 @@ struct UnarchivedConversationSummary {
     detached_window_open: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     detached_window_label: Option<String>,
+    state: ConversationListItemState,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     preview_messages: Vec<ConversationPreviewMessage>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ConversationListItemState {
+    activity: String,
+    runtime_state: MainSessionState,
+    unread_count: usize,
+    open_state: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    opened_by: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    disabled_reason: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    failed_message: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    completed_at: Option<String>,
 }
 
 fn conversation_current_todo_text(conversation: &Conversation) -> Option<String> {
@@ -230,6 +248,115 @@ fn build_preview_messages_from_chat_messages(
         .collect()
 }
 
+fn conversation_list_open_state(
+    state: &AppState,
+    conversation_id: &str,
+) -> (String, Option<String>, Option<String>) {
+    let cid = conversation_id.trim();
+    if cid.is_empty() {
+        return ("closed".to_string(), None, None);
+    }
+    if let Some(label) = detached_chat_window_for_conversation(cid) {
+        let opened_by = if label.starts_with("ide-chat-sidebar-") {
+            "vscode"
+        } else if is_detached_chat_window_label(&label) {
+            "detached"
+        } else {
+            "main"
+        };
+        return ("open".to_string(), Some(opened_by.to_string()), Some(label));
+    }
+    let opened_by = state
+        .active_chat_view_bindings
+        .lock()
+        .ok()
+        .and_then(|bindings| {
+            bindings.iter().find_map(|(label, binding)| {
+                if binding.conversation_id.trim() != cid {
+                    return None;
+                }
+                if label == "chat" || label == "main" {
+                    Some("main".to_string())
+                } else if is_detached_chat_window_label(label) {
+                    Some("detached".to_string())
+                } else if label.starts_with("ide-chat-sidebar-") {
+                    Some("vscode".to_string())
+                } else {
+                    None
+                }
+            })
+        });
+    if opened_by.is_some() {
+        ("open".to_string(), opened_by, None)
+    } else {
+        ("closed".to_string(), None, None)
+    }
+}
+
+fn conversation_list_activity_mark(
+    state: &AppState,
+    conversation_id: &str,
+) -> Option<ConversationListActivityMark> {
+    state
+        .conversation_list_activity_marks
+        .lock()
+        .ok()
+        .and_then(|marks| marks.get(conversation_id.trim()).cloned())
+}
+
+fn set_conversation_list_activity_mark(
+    state: &AppState,
+    conversation_id: &str,
+    mark: ConversationListActivityMark,
+) {
+    if let Ok(mut marks) = state.conversation_list_activity_marks.lock() {
+        marks.insert(conversation_id.trim().to_string(), mark);
+    }
+}
+
+fn clear_conversation_list_activity_mark(state: &AppState, conversation_id: &str) {
+    if let Ok(mut marks) = state.conversation_list_activity_marks.lock() {
+        marks.remove(conversation_id.trim());
+    }
+}
+
+fn build_conversation_list_item_state(
+    state: &AppState,
+    conversation_id: &str,
+    unread_count: usize,
+) -> ConversationListItemState {
+    let runtime_state = get_conversation_runtime_state(state, conversation_id)
+        .unwrap_or(MainSessionState::Idle);
+    let (open_state, opened_by, _open_label) =
+        conversation_list_open_state(state, conversation_id);
+    let mark = conversation_list_activity_mark(state, conversation_id);
+    let activity = if runtime_state != MainSessionState::Idle {
+        "busy".to_string()
+    } else {
+        mark.as_ref()
+            .map(|item| item.activity.trim().to_string())
+            .filter(|value| matches!(value.as_str(), "completed" | "failed"))
+            .unwrap_or_else(|| "idle".to_string())
+    };
+    let disabled_reason = if runtime_state == MainSessionState::OrganizingContext {
+        Some("organizing_context".to_string())
+    } else if open_state == "open" && opened_by.as_deref() != Some("main") {
+        Some("opened_elsewhere".to_string())
+    } else {
+        None
+    };
+    ConversationListItemState {
+        activity,
+        runtime_state,
+        unread_count,
+        open_state,
+        opened_by,
+        disabled_reason,
+        failed_message: mark.as_ref().and_then(|item| item.failed_message.clone()),
+        completed_at: mark.and_then(|item| item.completed_at),
+    }
+}
+
 #[cfg(test)]
 fn normalized_pinned_conversation_ids(data: &AppData) -> Vec<String> {
     let main_conversation_id = data
@@ -260,7 +387,7 @@ fn normalized_pinned_conversation_ids(data: &AppData) -> Vec<String> {
 }
 
 fn build_unarchived_conversation_summary(
-    _state: &AppState,
+    state: &AppState,
     app_config: &AppConfig,
     main_conversation_id: &str,
     pinned_conversation_ids: &[String],
@@ -282,6 +409,8 @@ fn build_unarchived_conversation_summary(
         .filter(|value| !value.is_empty())
         .unwrap_or_else(|| department_id.clone());
     let detached_window_label = detached_chat_window_for_conversation(conversation_id);
+    let unread_count = conversation_unread_count_for_overview(conversation);
+    let item_state = build_conversation_list_item_state(state, conversation_id, unread_count);
     UnarchivedConversationSummary {
         conversation_id: conversation.id.clone(),
         title: conversation.title.clone(),
@@ -289,7 +418,7 @@ fn build_unarchived_conversation_summary(
         updated_at: conversation.updated_at.clone(),
         last_message_at,
         message_count: conversation.messages.len(),
-        unread_count: conversation_unread_count_for_overview(conversation),
+        unread_count,
         agent_id: conversation.agent_id.clone(),
         department_id,
         department_name,
@@ -305,8 +434,6 @@ fn build_unarchived_conversation_summary(
             .map(str::trim)
             .filter(|value| !value.is_empty())
             .map(ToOwned::to_owned),
-        // 会话列表预览保持最轻量，只返回标题/时间/基础标识与最近预览消息。
-        // 工作区、运行态、计划模式等重字段走其他链路，不在这里同步重算。
         workspace_label: String::new(),
         is_active: conversation.status.trim() == "active",
         is_main_conversation,
@@ -317,6 +444,7 @@ fn build_unarchived_conversation_summary(
         plan_mode_enabled: false,
         detached_window_open: detached_window_label.is_some(),
         detached_window_label,
+        state: item_state,
         preview_messages: build_conversation_preview_messages(conversation, 2),
     }
 }
@@ -583,6 +711,7 @@ fn emit_unarchived_conversation_overview_updated_payload(
     state: &AppState,
     payload: &UnarchivedConversationOverviewUpdatedPayload,
 ) {
+    ide_chat_broadcast_notification("conversation.overviewUpdated", serde_json::json!(payload));
     let started_at = std::time::Instant::now();
     runtime_log_info(format!(
         "[会话概览] 开始，任务=推送未归档会话概览，preferred_conversation_id={}，conversation_count={}",
@@ -622,6 +751,7 @@ fn emit_conversation_todos_updated_payload(
     state: &AppState,
     payload: &ConversationTodosUpdatedPayload,
 ) {
+    ide_chat_broadcast_notification("conversation.todosUpdated", serde_json::json!(payload));
     let app_handle = match state.app_handle.lock() {
         Ok(guard) => guard.as_ref().cloned(),
         Err(err) => {
@@ -662,6 +792,7 @@ fn emit_conversation_runtime_state_updated_payload(
     state: &AppState,
     payload: &ConversationRuntimeStateUpdatedPayload,
 ) {
+    ide_chat_broadcast_notification("conversation.runtimeStateUpdated", serde_json::json!(payload));
     let started_at = std::time::Instant::now();
     let app_handle = match state.app_handle.lock() {
         Ok(guard) => guard.as_ref().cloned(),
@@ -827,6 +958,16 @@ mod conversation_snapshot_api_tests {
             plan_mode_enabled: false,
             detached_window_open: false,
             detached_window_label: None,
+            state: ConversationListItemState {
+                activity: "idle".to_string(),
+                runtime_state: MainSessionState::Idle,
+                unread_count: 0,
+                open_state: "closed".to_string(),
+                opened_by: None,
+                disabled_reason: None,
+                failed_message: None,
+                completed_at: None,
+            },
             preview_messages: Vec::new(),
         }
     }

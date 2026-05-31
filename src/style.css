@@ -346,6 +346,7 @@ body {
   width: 4px;
   cursor: col-resize;
   flex-shrink: 0;
+  touch-action: none;
   transition: background-color 0.15s;
   background-color: transparent;
 }

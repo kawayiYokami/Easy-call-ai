@@ -82,6 +82,7 @@
                 ModelRefreshStrategy::GeminiNative,
                 ModelRefreshStrategy::OpenAi,
                 ModelRefreshStrategy::AnthropicNative,
+                ModelRefreshStrategy::GenaiAdapter(genai::adapter::AdapterKind::Gemini),
             ]
         );
     }

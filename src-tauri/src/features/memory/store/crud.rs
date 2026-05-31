@@ -67,7 +67,7 @@ fn memory_store_sync_memory_fts(conn: &Connection, memory_id: &str) -> Result<()
     let raw_fts_text = format!("{} {}", judgment.trim(), tags_text.trim())
         .trim()
         .to_string();
-    // Keep FTS indexing tokenization aligned with query tokenization (jieba).
+    // Keep FTS indexing tokenization aligned with query tokenization (CJK 1/2-gram).
     let fts_doc = memory_tokenize_terms(&raw_fts_text, false).join(" ");
 
     conn.execute("DELETE FROM memory_fts WHERE item_id=?1", params![memory_id])
@@ -140,13 +140,6 @@ fn memory_store_upsert_drafts(
     let tx = conn
         .transaction_with_behavior(TransactionBehavior::Immediate)
         .map_err(|err| format!("Begin memory upsert transaction failed: {err}"))?;
-
-    // Inject draft tags into jieba so judgment tokenization keeps these terms intact.
-    let draft_tags: Vec<String> = drafts
-        .iter()
-        .flat_map(|d| d.tags.iter().cloned())
-        .collect();
-    memory_jieba_add_words(&draft_tags);
 
     let now = now_iso();
     let mut next_memory_no = tx

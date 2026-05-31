@@ -22,7 +22,11 @@ fn llm_workspace_skills_root(state: &AppState) -> Result<PathBuf, String> {
 
 fn sync_skill_template_file(path: &PathBuf, content: &str) -> Result<(), String> {
     if path.exists() {
-        return Ok(());
+        if let Ok(meta) = fs::metadata(path) {
+            if meta.len() == content.len() as u64 {
+                return Ok(());
+            }
+        }
     }
     fs::write(path, content).map_err(|err| format!("Write file failed ({}): {err}", path.display()))
 }

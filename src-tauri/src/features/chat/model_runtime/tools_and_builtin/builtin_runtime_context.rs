@@ -9,11 +9,10 @@ async fn builtin_organize_context(
     api_config_id: &str,
     agent_id: &str,
 ) -> Result<Value, String> {
-    let (selected_api, resolved_api, source, effective_agent_id) = {
+    let (selected_api, source) = {
         let app_config = state_read_config_cached(app_state)?;
         let selected_api = resolve_selected_api_config(&app_config, Some(api_config_id))
             .ok_or_else(|| "No API config configured. Please add one.".to_string())?;
-        let resolved_api = resolve_api_config(&app_config, Some(selected_api.id.as_str()))?;
         let (_, session_agent_id, session_conversation_id) = delegate_parse_session_parts(session_id);
         let requested_agent_id = agent_id.trim();
         let effective_agent_id = if requested_agent_id.is_empty() {
@@ -50,22 +49,16 @@ async fn builtin_organize_context(
                 "message": "此时不应该整理：当前上下文占用不足 10%。"
             }));
         }
-        (selected_api, resolved_api, source, effective_agent_id)
+        (selected_api, source)
     };
 
-    spawn_organize_context_auto_compaction(
-        app_state,
-        selected_api,
-        resolved_api,
-        source.clone(),
-        effective_agent_id.clone(),
-    );
     Ok(serde_json::json!({
         "ok": true,
         "applied": true,
         "terminal": true,
-        "scheduled": true,
+        "scheduled": false,
+        "apiConfigId": selected_api.id,
         "conversationId": source.id,
-        "message": "上下文整理已接管当前轮，完成后会立即续跑。"
+        "message": "上下文整理已接管当前轮，系统会先保存已完成工作，再整理并续跑。"
     }))
 }

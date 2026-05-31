@@ -308,6 +308,7 @@ export type RemoteImContact = {
   remoteContactType: string;
   remoteContactId: string;
   remoteContactName: string;
+  avatarUrl?: string;
   remarkName: string;
   allowSend: boolean;
   allowSendFiles: boolean;
@@ -586,6 +587,7 @@ export type ChatMessageBlock = {
   images: Array<{ mime: string; bytesBase64?: string; mediaRef?: string }>;
   audios: Array<{ mime: string; bytesBase64: string }>;
   attachmentFiles: Array<{ fileName: string; relativePath: string }>;
+  extraTextReferences?: Array<{ label: string; text: string }>;
   memeSegments?: MemeMessageSegment[];
   taskTrigger?: TaskTriggerMessageCard;
   planCard?: PlanMessageCard;
@@ -681,13 +683,25 @@ export type UnarchivedConversationSummary = {
   isMainConversation?: boolean;
   isPinned?: boolean;
   pinIndex?: number;
-  runtimeState?: "idle" | "assistant_streaming" | "organizing_context";
+  runtimeState?: "idle" | "assistant_streaming" | "organizing_context" | "archiving" | "compacting";
   currentTodo?: string;
   planModeEnabled?: boolean;
   currentTodos?: ChatTodoItem[];
   detachedWindowOpen?: boolean;
   detachedWindowLabel?: string;
   previewMessages?: ConversationPreviewMessage[];
+  state?: ConversationListItemState;
+};
+
+export type ConversationListItemState = {
+  activity: "idle" | "busy" | "completed" | "failed";
+  runtimeState: "idle" | "assistant_streaming" | "organizing_context";
+  unreadCount: number;
+  openState: "closed" | "open";
+  openedBy?: "main" | "detached" | "vscode";
+  disabledReason?: "organizing_context" | "opened_elsewhere";
+  failedMessage?: string;
+  completedAt?: string;
 };
 
 export type ConversationPreviewMessage = {
@@ -723,7 +737,7 @@ export type ChatConversationOverviewItem = {
   isMainConversation?: boolean;
   isPinned?: boolean;
   pinIndex?: number;
-  runtimeState?: "idle" | "assistant_streaming" | "organizing_context";
+  runtimeState?: "idle" | "assistant_streaming" | "organizing_context" | "archiving" | "compacting";
   currentTodo?: string;
   currentTodos?: ChatTodoItem[];
   detachedWindowOpen?: boolean;
@@ -732,6 +746,7 @@ export type ChatConversationOverviewItem = {
   canCreateNew?: boolean;
   backgroundStatus?: "completed" | "failed";
   previewMessages?: ConversationPreviewMessage[];
+  state?: ConversationListItemState;
 };
 
 export type DelegateConversationSummary = {

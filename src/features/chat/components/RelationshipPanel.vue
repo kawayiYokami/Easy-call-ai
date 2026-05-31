@@ -75,7 +75,7 @@
 
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref, watch } from "vue";
-import { Heart, Minus, RotateCw, Trash2 } from "lucide-vue-next";
+import { Heart, Minus, RotateCw, Trash2 } from "@lucide/vue";
 import { invokeTauri } from "../../../services/tauri-api";
 
 interface RelationshipDimensions {

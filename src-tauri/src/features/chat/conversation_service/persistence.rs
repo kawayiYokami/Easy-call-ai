@@ -92,6 +92,36 @@ impl ConversationService {
     ) -> Result<(), String> {
         state_schedule_conversation_persist(state, conversation, true).map(|_| ())
     }
+
+    fn append_tool_call_result_pair(
+        &self,
+        state: &AppState,
+        conversation_id: &str,
+        agent_id: &str,
+        assistant_tool_call_event: Value,
+        tool_result_event: Value,
+        provider_meta_patch: Option<Value>,
+    ) -> Result<message_store::MessageStoreToolCallResultAppend, String> {
+        let normalized_conversation_id = conversation_id.trim();
+        if normalized_conversation_id.is_empty() {
+            return Err("conversationId is required.".to_string());
+        }
+        let _guard = lock_conversation_with_metrics(state, "append_tool_call_result_pair")?;
+        let conversation = state_read_conversation_cached(state, normalized_conversation_id)?;
+        self.ensure_unarchived_conversation(&conversation, normalized_conversation_id)?;
+        let paths = message_store::message_store_paths(&state.data_path, normalized_conversation_id)?;
+        let append = message_store::append_message_store_tool_call_result_pair(
+            &paths,
+            &conversation,
+            agent_id,
+            assistant_tool_call_event,
+            tool_result_event,
+            provider_meta_patch,
+        )?;
+        state_mark_conversation_direct_persisted(state, &append.conversation, true)?;
+        Ok(append)
+    }
+
     fn update_conversation_todos(
         &self,
         state: &AppState,

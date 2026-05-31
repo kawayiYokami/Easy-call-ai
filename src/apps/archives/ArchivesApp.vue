@@ -1,7 +1,7 @@
 <template>
-  <UnifiedWindowApp fixed-view-mode="archives" />
+  <ArchivesWindowApp />
 </template>
 
 <script setup lang="ts">
-import UnifiedWindowApp from "../../UnifiedWindowApp.vue";
+import ArchivesWindowApp from "../../ArchivesWindowApp.vue";
 </script>

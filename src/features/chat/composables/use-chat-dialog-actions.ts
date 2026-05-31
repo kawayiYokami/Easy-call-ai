@@ -11,13 +11,13 @@ type UseChatDialogActionsOptions = {
 const ARCHIVE_FOCUS_REQUEST_STORAGE_KEY = "easy_call.archives.focus_request.v1";
 
 export function useChatDialogActions(options: UseChatDialogActionsOptions) {
-  async function openCurrentHistory() {
-    console.info("[CHAT] openCurrentHistory 开始: 打开归档窗口");
+  async function openConversationList() {
+    console.info("[CHAT] openConversationList 开始: 打开归档窗口");
     try {
       await invokeTauri("show_archives_window");
     } catch (error) {
       const err = error as { message?: unknown; stack?: unknown };
-      console.error("[CHAT] openCurrentHistory 失败: 打开归档窗口", {
+      console.error("[CHAT] openConversationList 失败: 打开归档窗口", {
         message: String(err?.message ?? error ?? ""),
         stack: String(err?.stack ?? ""),
         action: "show_archives_window",
@@ -28,7 +28,7 @@ export function useChatDialogActions(options: UseChatDialogActionsOptions) {
   async function openConversationSummary(conversationId: string) {
     const normalizedConversationId = String(conversationId || "").trim();
     if (!normalizedConversationId) {
-      await openCurrentHistory();
+      await openConversationList();
       return;
     }
     try {
@@ -50,7 +50,7 @@ export function useChatDialogActions(options: UseChatDialogActionsOptions) {
         error,
       });
     }
-    await openCurrentHistory();
+    await openConversationList();
   }
 
   async function openPromptPreview() {
@@ -64,7 +64,7 @@ export function useChatDialogActions(options: UseChatDialogActionsOptions) {
   }
 
   return {
-    openCurrentHistory,
+    openConversationList,
     openConversationSummary,
     openPromptPreview,
     openSystemPromptPreview,

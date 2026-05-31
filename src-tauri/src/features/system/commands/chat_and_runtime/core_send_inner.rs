@@ -401,6 +401,48 @@ fn remote_im_trim_conversation_for_qa_mode(conversation: &Conversation) -> Conve
     trimmed
 }
 
+fn conversation_upsert_final_assistant_message(
+    conversation: &mut Conversation,
+    current_agent_id: &str,
+    assistant_message: ChatMessage,
+    now: &str,
+) -> ChatMessage {
+    let target_idx = conversation
+        .messages
+        .last()
+        .filter(|message| message.role.trim() == "assistant")
+        .filter(|message| {
+            message
+                .speaker_agent_id
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                == Some(current_agent_id.trim())
+        })
+        .map(|_| conversation.messages.len().saturating_sub(1));
+    if let Some(idx) = target_idx {
+        if let Some(existing) = conversation.messages.get_mut(idx) {
+            let existing_id = existing.id.clone();
+            let existing_created_at = existing.created_at.clone();
+            let existing_tool_call = existing.tool_call.take();
+            *existing = assistant_message;
+            existing.id = existing_id;
+            existing.created_at = existing_created_at;
+            if existing.tool_call.as_ref().map(|items| items.is_empty()).unwrap_or(true) {
+                existing.tool_call = existing_tool_call;
+            }
+            conversation.updated_at = now.to_string();
+            conversation.last_assistant_at = Some(now.to_string());
+            return existing.clone();
+        }
+    }
+    conversation.messages.push(assistant_message.clone());
+    increment_conversation_unread_count(conversation, 1);
+    conversation.updated_at = now.to_string();
+    conversation.last_assistant_at = Some(now.to_string());
+    assistant_message
+}
+
 fn remote_im_find_contact_by_conversation<'a>(
     data: &'a AppData,
     conversation_id: &str,
@@ -437,6 +479,8 @@ fn remote_im_contact_tool_history_events(
 
 // ==================== 图像回退 ====================
 
+const IMAGE_FALLBACK_RECENT_USER_MESSAGE_LIMIT: usize = 7;
+
 async fn resolve_image_description_with_vision_fallback(
     state: &AppState,
     vision_api: &ApiConfig,
@@ -471,6 +515,57 @@ async fn resolve_image_description_with_vision_fallback(
     Ok(Some(trimmed))
 }
 
+fn prepared_latest_user_present(prepared: &PreparedPrompt) -> bool {
+    !prepared.latest_user_text.trim().is_empty()
+        || !prepared.latest_user_meta_text.trim().is_empty()
+        || !prepared.latest_user_extra_text.trim().is_empty()
+        || prepared
+            .latest_user_extra_blocks
+            .iter()
+            .any(|block| !block.trim().is_empty())
+        || !prepared.latest_images.is_empty()
+        || !prepared.latest_audios.is_empty()
+}
+
+fn recent_user_image_fallback_plan(prepared: &PreparedPrompt) -> (Vec<bool>, bool) {
+    let latest_user_in_window = prepared_latest_user_present(prepared);
+    let mut remaining = IMAGE_FALLBACK_RECENT_USER_MESSAGE_LIMIT
+        .saturating_sub(usize::from(latest_user_in_window));
+    let mut history_in_window = vec![false; prepared.history_messages.len()];
+
+    // 远程联系人可能连续刷大量图片。图转文按“最近用户消息条数”限流：
+    // 最新消息优先占 1 条，历史消息再从后向前补齐，旧图片只保留路径引用。
+    for (idx, message) in prepared.history_messages.iter().enumerate().rev() {
+        if message.role.trim() != "user" {
+            continue;
+        }
+        if remaining == 0 {
+            break;
+        }
+        history_in_window[idx] = true;
+        remaining -= 1;
+    }
+
+    (history_in_window, latest_user_in_window)
+}
+
+fn image_reference_block_for_fallback(index: usize, image: &PreparedBinaryPayload) -> String {
+    let reference = image
+        .saved_path
+        .as_deref()
+        .map(str::trim)
+        .filter(|path| !path.is_empty())
+        .map(|path| format!("路径：{path}"))
+        .unwrap_or_else(|| {
+            format!(
+                "路径：未保存；mime={}；base64_chars={}",
+                image.mime,
+                image.content.len()
+            )
+        });
+    format!("[图片{}]\n{}", index + 1, reference)
+}
+
 async fn apply_prompt_image_fallbacks_to_prepared(
     state: &AppState,
     app_config: &AppConfig,
@@ -494,14 +589,32 @@ async fn apply_prompt_image_fallbacks_to_prepared(
     }
 
     let mut changed = false;
+    let (history_image_fallback_window, latest_user_in_window) =
+        recent_user_image_fallback_plan(prepared);
 
-    for message in &mut prepared.history_messages {
+    for (message_index, message) in prepared.history_messages.iter_mut().enumerate() {
         if message.role.trim() != "user" || message.images.is_empty() {
             continue;
         }
 
         let original_images = std::mem::take(&mut message.images);
         let mut converted_blocks = Vec::<String>::new();
+        if !history_image_fallback_window
+            .get(message_index)
+            .copied()
+            .unwrap_or(false)
+        {
+            converted_blocks.extend(
+                original_images
+                    .iter()
+                    .enumerate()
+                    .map(|(index, image)| image_reference_block_for_fallback(index, image)),
+            );
+            message.extra_text_blocks.extend(converted_blocks);
+            changed = true;
+            continue;
+        }
+
         for (index, image_payload) in original_images.into_iter().enumerate() {
             let image = BinaryPart {
                 mime: image_payload.mime,
@@ -528,22 +641,31 @@ async fn apply_prompt_image_fallbacks_to_prepared(
     if !prepared.latest_images.is_empty() {
         let original_images = std::mem::take(&mut prepared.latest_images);
         let mut converted_blocks = Vec::<String>::new();
-        for (index, image_payload) in original_images.into_iter().enumerate() {
-            let image = BinaryPart {
-                mime: image_payload.mime,
-                bytes_base64: image_payload.content,
-                saved_path: image_payload.saved_path,
-            };
-            if let Some(text) = resolve_image_description_with_vision_fallback(
-                state,
-                &vision_api,
-                &vision_resolved,
-                &image,
-            )
-            .await?
-            {
-                converted_blocks.push(format!("[图片{}]\n{}", index + 1, text));
+        if latest_user_in_window {
+            for (index, image_payload) in original_images.into_iter().enumerate() {
+                let image = BinaryPart {
+                    mime: image_payload.mime,
+                    bytes_base64: image_payload.content,
+                    saved_path: image_payload.saved_path,
+                };
+                if let Some(text) = resolve_image_description_with_vision_fallback(
+                    state,
+                    &vision_api,
+                    &vision_resolved,
+                    &image,
+                )
+                .await?
+                {
+                    converted_blocks.push(format!("[图片{}]\n{}", index + 1, text));
+                }
             }
+        } else {
+            converted_blocks.extend(
+                original_images
+                    .iter()
+                    .enumerate()
+                    .map(|(index, image)| image_reference_block_for_fallback(index, image)),
+            );
         }
         if !converted_blocks.is_empty() {
             prepared_prompt_append_latest_user_extra_blocks(prepared, &converted_blocks);
@@ -3108,11 +3230,12 @@ async fn send_chat_message_inner(
                         &reasoning_inline,
                         provider_meta,
                     );
-                    conversation.messages.push(assistant_message.clone());
-                    increment_conversation_unread_count(&mut conversation, 1);
-                    persisted_assistant_message = Some(assistant_message);
-                    conversation.updated_at = now.clone();
-                    conversation.last_assistant_at = Some(now);
+                    persisted_assistant_message = Some(conversation_upsert_final_assistant_message(
+                        &mut conversation,
+                        &current_agent.id,
+                        assistant_message,
+                        &now,
+                    ));
                 }
                 let rules = match relationship_state::relationship_data_dir(Some(&state.data_path.to_string_lossy())) {
                     Ok(data_dir) => match relationship_state::load_relationship_rules(&data_dir).await {
@@ -3189,11 +3312,12 @@ async fn send_chat_message_inner(
                             &reasoning_inline,
                             provider_meta,
                         );
-                        conversation.messages.push(assistant_message.clone());
-                        increment_conversation_unread_count(&mut conversation, 1);
-                        persisted_assistant_message = Some(assistant_message);
-                        conversation.updated_at = now.clone();
-                        conversation.last_assistant_at = Some(now);
+                        persisted_assistant_message = Some(conversation_upsert_final_assistant_message(
+                            &mut conversation,
+                            &current_agent.id,
+                            assistant_message,
+                            &now,
+                        ));
                     }
                     let rules = match relationship_state::relationship_data_dir(Some(&state.data_path.to_string_lossy())) {
                         Ok(data_dir) => match relationship_state::load_relationship_rules(&data_dir).await {
@@ -3467,6 +3591,87 @@ mod core_send_inner_tests {
         }
     }
 
+    fn test_prepared_prompt_with_user_image_history(
+        history_user_count: usize,
+        latest_user_text: &str,
+    ) -> PreparedPrompt {
+        let history_messages = (0..history_user_count)
+            .map(|idx| PreparedHistoryMessage {
+                role: "user".to_string(),
+                text: format!("user-{idx}"),
+                extra_text_blocks: Vec::new(),
+                user_time_text: None,
+                images: vec![PreparedBinaryPayload {
+                    mime: "image/png".to_string(),
+                    content: B64.encode(format!("image-{idx}").as_bytes()),
+                    saved_path: Some(format!("downloads/image-{idx}.png")),
+                }],
+                audios: Vec::new(),
+                tool_calls: None,
+                tool_call_id: None,
+                reasoning_content: None,
+            })
+            .collect::<Vec<_>>();
+        PreparedPrompt {
+            preamble: String::new(),
+            history_messages,
+            latest_user_text: latest_user_text.to_string(),
+            latest_user_meta_text: String::new(),
+            latest_user_extra_text: String::new(),
+            latest_user_extra_blocks: Vec::new(),
+            latest_images: if latest_user_text.trim().is_empty() {
+                Vec::new()
+            } else {
+                vec![PreparedBinaryPayload {
+                    mime: "image/png".to_string(),
+                    content: B64.encode(b"latest"),
+                    saved_path: Some("downloads/latest.png".to_string()),
+                }]
+            },
+            latest_audios: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn recent_user_image_fallback_plan_should_count_latest_user_first() {
+        let prepared = test_prepared_prompt_with_user_image_history(8, "latest");
+
+        let (history_window, latest_in_window) = recent_user_image_fallback_plan(&prepared);
+
+        assert!(latest_in_window);
+        assert_eq!(
+            history_window,
+            vec![false, false, true, true, true, true, true, true]
+        );
+    }
+
+    #[test]
+    fn recent_user_image_fallback_plan_should_use_last_seven_history_users_without_latest() {
+        let prepared = test_prepared_prompt_with_user_image_history(8, "");
+
+        let (history_window, latest_in_window) = recent_user_image_fallback_plan(&prepared);
+
+        assert!(!latest_in_window);
+        assert_eq!(
+            history_window,
+            vec![false, true, true, true, true, true, true, true]
+        );
+    }
+
+    #[test]
+    fn image_reference_block_for_fallback_should_preserve_saved_path() {
+        let image = PreparedBinaryPayload {
+            mime: "image/png".to_string(),
+            content: B64.encode(b"old-image"),
+            saved_path: Some("downloads/old.png".to_string()),
+        };
+
+        assert_eq!(
+            image_reference_block_for_fallback(0, &image),
+            "[图片1]\n路径：downloads/old.png"
+        );
+    }
+
     #[test]
     fn prioritize_requested_chat_api_id_should_move_requested_id_to_front() {
         let app_config = AppConfig {
@@ -3542,6 +3747,138 @@ mod core_send_inner_tests {
             trusted_input_tokens: None,
             round_logs_recorded_internally: false,
         }
+    }
+
+    #[test]
+    fn conversation_upsert_final_assistant_message_should_update_last_same_assistant() {
+        let now = now_iso();
+        let mut conversation = Conversation {
+            id: "conversation-a".to_string(),
+            title: "测试".to_string(),
+            agent_id: "agent-a".to_string(),
+            department_id: ASSISTANT_DEPARTMENT_ID.to_string(),
+            bound_conversation_id: None,
+            parent_conversation_id: None,
+            child_conversation_ids: Vec::new(),
+            fork_message_cursor: None,
+            unread_count: 0,
+            conversation_kind: String::new(),
+            root_conversation_id: None,
+            delegate_id: None,
+            created_at: now.clone(),
+            updated_at: now.clone(),
+            last_user_at: None,
+            last_assistant_at: None,
+            status: String::new(),
+            summary: String::new(),
+            user_profile_snapshot: String::new(),
+            shell_workspace_path: None,
+            shell_workspaces: Vec::new(),
+            shell_autonomous_mode: false,
+            archived_at: None,
+            messages: vec![ChatMessage {
+                id: "assistant-existing".to_string(),
+                role: "assistant".to_string(),
+                created_at: now.clone(),
+                speaker_agent_id: Some("agent-a".to_string()),
+                parts: vec![MessagePart::Text {
+                    text: String::new(),
+                }],
+                extra_text_blocks: Vec::new(),
+                provider_meta: None,
+                tool_call: Some(vec![
+                    serde_json::json!({
+                        "role": "assistant",
+                        "content": Value::Null,
+                        "tool_calls": [{
+                            "id": "call-1",
+                            "type": "function",
+                            "function": {
+                                "name": "read_file",
+                                "arguments": "{}"
+                            }
+                        }]
+                    }),
+                    serde_json::json!({
+                        "role": "tool",
+                        "tool_call_id": "call-1",
+                        "content": "ok"
+                    }),
+                ]),
+                mcp_call: None,
+            }],
+            current_todos: Vec::new(),
+            memory_recall_table: Vec::new(),
+            plan_mode_enabled: false,
+            relationship_state: None,
+        };
+        let final_message = build_assistant_message_from_request_sequence(
+            "assistant-new".to_string(),
+            "agent-a",
+            now.clone(),
+            &[
+                serde_json::json!({
+                    "role": "assistant",
+                    "content": Value::Null,
+                    "tool_calls": [{
+                        "id": "call-1",
+                        "type": "function",
+                        "function": {
+                            "name": "read_file",
+                            "arguments": "{}"
+                        }
+                    }]
+                }),
+                serde_json::json!({
+                    "role": "tool",
+                    "tool_call_id": "call-1",
+                    "content": "ok"
+                }),
+                serde_json::json!({
+                    "role": "assistant",
+                    "content": "最终回答"
+                }),
+            ],
+            "",
+            Some(serde_json::json!({
+                "effectivePromptTokens": 128_u64
+            })),
+        );
+
+        let persisted = conversation_upsert_final_assistant_message(
+            &mut conversation,
+            "agent-a",
+            final_message,
+            &now,
+        );
+
+        assert_eq!(conversation.messages.len(), 1);
+        assert_eq!(persisted.id, "assistant-existing");
+        assert_eq!(
+            conversation.messages[0]
+                .parts
+                .first()
+                .and_then(|part| match part {
+                    MessagePart::Text { text } => Some(text.as_str()),
+                    _ => None,
+                }),
+            Some("最终回答")
+        );
+        assert_eq!(
+            conversation.messages[0]
+                .tool_call
+                .as_ref()
+                .map(Vec::len),
+            Some(2)
+        );
+        assert_eq!(
+            conversation.messages[0]
+                .provider_meta
+                .as_ref()
+                .and_then(|meta| meta.get("effectivePromptTokens"))
+                .and_then(Value::as_u64),
+            Some(128)
+        );
     }
 
     #[test]

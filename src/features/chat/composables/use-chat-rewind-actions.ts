@@ -21,7 +21,7 @@ type UseChatRewindActionsOptions = {
     remainingCount: number,
   ) => void;
   chatting: Ref<boolean>;
-  forcingArchive: Ref<boolean>;
+  trimming: Ref<boolean>;
   compactingConversation: Ref<boolean>;
   chatInput: Ref<string>;
   selectedMentions: Ref<ChatMentionTarget[]>;
@@ -224,13 +224,13 @@ export function useChatRewindActions(options: UseChatRewindActionsOptions) {
     console.info("[会话撤回] 点击撤回", {
       turnId: payload?.turnId,
       chatting: options.chatting.value,
-      forcingArchive: options.forcingArchive.value,
+      trimming: options.trimming.value,
       compactingConversation: options.compactingConversation.value,
     });
-    if (options.forcingArchive.value || options.compactingConversation.value) {
+    if (options.trimming.value || options.compactingConversation.value) {
       console.info("[会话撤回] 跳过：当前会话处于忙碌状态", {
         turnId: payload?.turnId,
-        forcingArchive: options.forcingArchive.value,
+        trimming: options.trimming.value,
         compactingConversation: options.compactingConversation.value,
       });
       return;
@@ -263,7 +263,7 @@ export function useChatRewindActions(options: UseChatRewindActionsOptions) {
   }
 
   async function handleRegenerateTurn(payload: { turnId: string }) {
-    if (options.forcingArchive.value || options.compactingConversation.value) return;
+    if (options.trimming.value || options.compactingConversation.value) return;
     options.clearForegroundRuntimeState();
     await interruptConversationRuntimeForRewind();
     const recalledUserMessage = await rewindConversationFromTurn(payload.turnId, false);

@@ -94,7 +94,7 @@ mod builtin_memory_tests {
     fn normalize_memory_keywords_should_preserve_search_anchor_text() {
         let tags = normalize_memory_keywords(&vec![
             " 用户昵称 ".to_string(),
-            "0".to_string(),
+            USER_PERSONA_ID.to_string(),
             "remote-user-Alpha@im.test".to_string(),
             "用户要求".to_string(),
             " ".to_string(),
@@ -112,7 +112,7 @@ mod builtin_memory_tests {
             tags,
             vec![
                 "用户昵称".to_string(),
-                "0".to_string(),
+                USER_PERSONA_ID.to_string(),
                 "remote-user-Alpha@im.test".to_string(),
                 "用户要求".to_string(),
                 "额外标签一".to_string(),
@@ -135,9 +135,9 @@ mod builtin_memory_tests {
                 id: "memory-uuid-a".to_string(),
                 memory_no: Some(12),
                 memory_type: "knowledge".to_string(),
-                judgment: "红豆喜欢直接结论".to_string(),
+                judgment: "测试用户喜欢直接结论".to_string(),
                 reasoning: String::new(),
-                tags: vec!["红豆".to_string()],
+                tags: vec!["测试用户".to_string()],
                 owner_agent_id: None,
                 created_at: "2026-05-12T00:00:00Z".to_string(),
                 updated_at: "2026-05-12T00:00:00Z".to_string(),
@@ -146,9 +146,9 @@ mod builtin_memory_tests {
                 id: "memory-uuid-b".to_string(),
                 memory_no: Some(19),
                 memory_type: "skill".to_string(),
-                judgment: "红豆偏好先修 bug".to_string(),
+                judgment: "测试用户偏好先修 bug".to_string(),
                 reasoning: String::new(),
-                tags: vec!["红豆".to_string()],
+                tags: vec!["测试用户".to_string()],
                 owner_agent_id: None,
                 created_at: "2026-05-12T00:00:00Z".to_string(),
                 updated_at: "2026-05-12T00:00:00Z".to_string(),
@@ -184,6 +184,72 @@ mod builtin_memory_tests {
         assert_eq!(normalize_recall_time_filter(Some("2026-05-12")).unwrap(), Some("2026-05-12".to_string()));
         assert!(normalize_recall_time_filter(Some("2026-13")).is_err());
         assert!(normalize_recall_time_filter(Some("2026/05")).is_err());
+    }
+
+    #[test]
+    fn order_recall_memory_ids_should_preserve_search_order_for_query() {
+        let memories = vec![
+            MemoryEntry {
+                id: "older-more-relevant".to_string(),
+                memory_no: Some(1),
+                memory_type: "knowledge".to_string(),
+                judgment: "更相关但更旧".to_string(),
+                reasoning: String::new(),
+                tags: vec!["相关".to_string()],
+                owner_agent_id: None,
+                created_at: "2026-05-01T00:00:00Z".to_string(),
+                updated_at: "2026-05-01T00:00:00Z".to_string(),
+            },
+            MemoryEntry {
+                id: "newer-less-relevant".to_string(),
+                memory_no: Some(2),
+                memory_type: "knowledge".to_string(),
+                judgment: "较新但排序靠后".to_string(),
+                reasoning: String::new(),
+                tags: vec!["相关".to_string()],
+                owner_agent_id: None,
+                created_at: "2026-05-30T00:00:00Z".to_string(),
+                updated_at: "2026-05-30T00:00:00Z".to_string(),
+            },
+        ];
+        let candidate_ids = vec![
+            "older-more-relevant".to_string(),
+            "newer-less-relevant".to_string(),
+        ];
+
+        let ordered = order_recall_memory_ids(&memories, &candidate_ids, None, false);
+        assert_eq!(ordered, candidate_ids);
+    }
+
+    #[test]
+    fn order_recall_memory_ids_should_sort_browse_mode_by_time() {
+        let memories = vec![
+            MemoryEntry {
+                id: "older".to_string(),
+                memory_no: Some(1),
+                memory_type: "knowledge".to_string(),
+                judgment: "旧".to_string(),
+                reasoning: String::new(),
+                tags: vec![],
+                owner_agent_id: None,
+                created_at: "2026-05-01T00:00:00Z".to_string(),
+                updated_at: "2026-05-01T00:00:00Z".to_string(),
+            },
+            MemoryEntry {
+                id: "newer".to_string(),
+                memory_no: Some(2),
+                memory_type: "knowledge".to_string(),
+                judgment: "新".to_string(),
+                reasoning: String::new(),
+                tags: vec![],
+                owner_agent_id: None,
+                created_at: "2026-05-30T00:00:00Z".to_string(),
+                updated_at: "2026-05-30T00:00:00Z".to_string(),
+            },
+        ];
+
+        let ordered = order_recall_memory_ids(&memories, &[], None, true);
+        assert_eq!(ordered, vec!["newer".to_string(), "older".to_string()]);
     }
 }
 
@@ -459,6 +525,37 @@ fn memory_matches_time_filter(memory: &MemoryEntry, time_prefix: Option<&str>) -
     updated.starts_with(prefix) || created.starts_with(prefix)
 }
 
+fn order_recall_memory_ids(
+    memories: &[MemoryEntry],
+    candidate_ids: &[String],
+    time_prefix: Option<&str>,
+    query_is_empty: bool,
+) -> Vec<String> {
+    if query_is_empty {
+        let mut rows = memories
+            .iter()
+            .filter(|memory| memory_matches_time_filter(memory, time_prefix))
+            .collect::<Vec<_>>();
+        rows.sort_by(|left, right| {
+            let left_time = if left.updated_at.trim().is_empty() { &left.created_at } else { &left.updated_at };
+            let right_time = if right.updated_at.trim().is_empty() { &right.created_at } else { &right.updated_at };
+            right_time.cmp(left_time).then_with(|| left.display_id().cmp(&right.display_id()))
+        });
+        return rows.into_iter().map(|memory| memory.id.clone()).collect();
+    }
+
+    let memory_by_id = memories
+        .iter()
+        .map(|memory| (memory.id.as_str(), memory))
+        .collect::<std::collections::HashMap<_, _>>();
+    candidate_ids
+        .iter()
+        .filter_map(|id| memory_by_id.get(id.as_str()).copied())
+        .filter(|memory| memory_matches_time_filter(memory, time_prefix))
+        .map(|memory| memory.id.clone())
+        .collect()
+}
+
 fn builtin_memory_save(
     app_state: &AppState,
     memory_context: &MemoryAgentContext,
@@ -592,23 +689,17 @@ fn builtin_recall(
     } else {
         memory_recall_hit_ids(&app_state.data_path, &memories, trimmed_query)
     };
-    let candidate_set = candidate_ids.iter().map(|id| id.as_str()).collect::<std::collections::HashSet<_>>();
-    let mut ordered_memories = memories
-        .iter()
-        .filter(|memory| candidate_set.contains(memory.id.as_str()))
-        .filter(|memory| memory_matches_time_filter(memory, time_prefix.as_deref()))
-        .collect::<Vec<_>>();
-    ordered_memories.sort_by(|left, right| {
-        let left_time = if left.updated_at.trim().is_empty() { &left.created_at } else { &left.updated_at };
-        let right_time = if right.updated_at.trim().is_empty() { &right.created_at } else { &right.updated_at };
-        right_time.cmp(left_time).then_with(|| left.display_id().cmp(&right.display_id()))
-    });
-    let total = ordered_memories.len();
-    let page_ids = ordered_memories
+    let ordered_ids = order_recall_memory_ids(
+        &memories,
+        &candidate_ids,
+        time_prefix.as_deref(),
+        trimmed_query.is_empty(),
+    );
+    let total = ordered_ids.len();
+    let page_ids = ordered_ids
         .into_iter()
         .skip(offset)
         .take(limit)
-        .map(|memory| memory.id.clone())
         .collect::<Vec<_>>();
     let memory_board = build_memory_board_xml_from_recall_ids(&memories, &page_ids)
         .unwrap_or_default();

@@ -1,233 +1,56 @@
 import { Channel } from "@tauri-apps/api/core";
-import { ref, type Ref } from "vue";
-import type { ChatMentionTarget, ChatMessage, PromptCommandPreset } from "../../../types/app";
+import { ref } from "vue";
+import type { ChatMessage } from "../../../types/app";
+import { useChatFlowChannelBinding } from "./use-chat-flow-channel-binding";
+import {
+  DRAFT_ASSISTANT_ID_PREFIX,
+  useChatFlowDrafts,
+} from "./use-chat-flow-drafts";
+import { useChatFlowExternalEvents } from "./use-chat-flow-external-events";
+import { useChatFlowFrontendDispatch } from "./use-chat-flow-frontend-dispatch";
+import { useChatFlowSendInput } from "./use-chat-flow-send-input";
+import { useChatFlowSendController } from "./use-chat-flow-send-controller";
+import {
+  readDeltaMessage,
+  readHistoryFlushedPayload,
+  type AssistantDeltaEvent,
+  type HistoryFlushedPayload,
+  type RoundCompletedPayload,
+  type RoundFailedPayload,
+  type RoundStartedPayload,
+} from "./use-chat-flow-events";
+import {
+  type StreamToolCallView,
+} from "./use-chat-flow-tool-calls";
+import { useChatFlowSendPayloads } from "./use-chat-flow-send-payloads";
+import {
+  useChatFlowStreamCache,
+  type ConversationStreamCache,
+} from "./use-chat-flow-stream-cache";
+import { useChatFlowSendRecovery } from "./use-chat-flow-send-recovery";
+import { useChatFlowStop } from "./use-chat-flow-stop";
+import { useChatFlowStreamingEvents } from "./use-chat-flow-streaming-events";
+import { useChatFlowRoundEvents } from "./use-chat-flow-round-events";
+import { useChatFlowForegroundReset } from "./use-chat-flow-foreground-reset";
+import { useChatFlowRoundFinalizers } from "./use-chat-flow-round-finalizers";
+import { useChatFlowForegroundRounds } from "./use-chat-flow-foreground-rounds";
+import {
+  normalizeConversationId,
+} from "./use-chat-flow-utils";
+import type {
+  DeferredRoundCompletion,
+  FrontendRoundPhase,
+  PendingTerminalEvent,
+  ResumeForegroundRuntimeRoundInput,
+  RoundState,
+  SendChatOverrides,
+  UseChatFlowOptions,
+} from "./use-chat-flow-types";
 
 const CHAT_STREAM_DEBUG = false;
 
-// ---------------------------------------------------------------------------
-// 1. 类型声明
-// ---------------------------------------------------------------------------
-
-export type AssistantDeltaEvent = {
-  delta?: string;
-  kind?: string;
-  requestId?: string;
-  activationId?: string;
-  phaseId?: string;
-  reason?: string;
-  toolName?: string;
-  toolCallId?: string;
-  toolStatus?: string;
-  toolArgs?: string;
-  message?: string;
-};
-
-type HistoryFlushedPayload = {
-  conversationId: string;
-  messageCount: number;
-  messages: ChatMessage[];
-  activateAssistant?: boolean;
-  compactionApplied?: boolean;
-};
-
-type RoundStartedPayload = {
-  conversationId: string;
-  activationId?: string;
-  requestId?: string;
-  reason?: string;
-  departmentId?: string;
-  agentId?: string;
-};
-
-type RoundCompletedPayload = {
-  conversationId: string;
-  activationId?: string;
-  requestId?: string;
-  assistantText: string;
-  reasoningStandard?: string;
-  reasoningInline?: string;
-  archivedBeforeSend?: boolean;
-  assistantMessage?: ChatMessage;
-};
-
-type RoundFailedPayload = {
-  conversationId?: string;
-  activationId?: string;
-  requestId?: string;
-  error: string;
-};
-
-export type FrontendRoundPhase = "idle" | "queued" | "waiting" | "streaming";
-
-type UseChatFlowOptions = {
-  chatting: Ref<boolean>;
-  forcingArchive: Ref<boolean>;
-  getSession: () => { apiConfigId: string; agentId: string; departmentId?: string } | null;
-  getConversationId?: () => string;
-  chatInput: Ref<string>;
-  selectedMentions?: Ref<ChatMentionTarget[]>;
-  selectedInstructionPrompts?: Ref<PromptCommandPreset[]>;
-  clipboardImages: Ref<Array<{ mime: string; bytesBase64: string; savedPath?: string }>>;
-  queuedAttachmentNotices?: Ref<Array<{ id: string; fileName: string; relativePath: string; mime: string }>>;
-  latestUserText: Ref<string>;
-  latestUserImages: Ref<Array<{ mime: string; bytesBase64: string }>>;
-  latestAssistantText: Ref<string>;
-  latestReasoningStandardText: Ref<string>;
-  latestReasoningInlineText: Ref<string>;
-  toolStatusText: Ref<string>;
-  toolStatusState: Ref<"running" | "done" | "failed" | "">;
-  streamToolCalls?: Ref<StreamToolCallView[]>;
-  chatErrorText: Ref<string>;
-  allMessages: Ref<ChatMessage[]>;
-  onOwnUserDraftInserted?: () => void;
-  t: (key: string, params?: Record<string, unknown>) => string;
-  formatRequestFailed: (error: unknown) => string;
-  removeBinaryPlaceholders: (text: string) => string;
-  invokeSendChatMessage: (input: {
-    text: string;
-    displayText?: string;
-    images: Array<{ mime: string; bytesBase64: string; savedPath?: string }>;
-    attachments?: Array<{ fileName: string; relativePath: string; mime: string }>;
-    extraTextBlocks?: string[];
-    mentions?: ChatMentionTarget[];
-    session: { apiConfigId: string; agentId: string; departmentId?: string; conversationId?: string };
-    onDelta: Channel<AssistantDeltaEvent>;
-  }) => Promise<{
-    assistantText: string;
-    latestUserText: string;
-    reasoningStandard?: string;
-    reasoningInline?: string;
-    archivedBeforeSend: boolean;
-    assistantMessage?: ChatMessage;
-  }>;
-  invokeStopChatMessage?: (input: {
-    session: { apiConfigId: string; agentId: string; departmentId?: string; conversationId?: string };
-    partialAssistantText: string;
-    partialReasoningStandard: string;
-    partialReasoningInline: string;
-  }) => Promise<{
-    aborted: boolean;
-    persisted: boolean;
-    conversationId?: string | null;
-    assistantText?: string;
-    reasoningStandard?: string;
-    reasoningInline?: string;
-    assistantMessage?: ChatMessage;
-  }>;
-  invokeBindActiveChatViewStream?: (input: {
-    conversationId?: string;
-    onDelta: Channel<AssistantDeltaEvent>;
-  }) => Promise<void>;
-  onReloadMessages: () => Promise<void>;
-  onHistoryFlushed?: (input: {
-    conversationId: string;
-    messageCount: number;
-    pendingMessages: ChatMessage[];
-    activateAssistant: boolean;
-  }) => Promise<void>;
-};
-
-// ---------------------------------------------------------------------------
-// 2. 常量
-// ---------------------------------------------------------------------------
-
-const DRAFT_ASSISTANT_ID_PREFIX = "__draft_assistant__:";
-const DRAFT_USER_ID_PREFIX = "__draft_user__:";
-// ---------------------------------------------------------------------------
-// 3. 状态机
-//
-//   idle ──sendChat()──→ queued
-//   queued ──history_flushed──→ queued（只合并正式历史）
-//   queued ──round_started──→ waiting
-//   queued ──promise settled(无 history_flushed)──→ idle
-//   streaming ──round_completed──→ idle
-//   streaming ──stopChat()──→ idle
-//
-//   核心不变量：history_flushed 只表达“历史已落库”，不再表达“助理已启动”；
-//   round_started 才表达“助理轮次开始”。history_flushed 之后只允许更新 draft 气泡文字，
-//   不对 allMessages 做任何其他读写。
-// ---------------------------------------------------------------------------
-
-type RoundState =
-  | { phase: "idle" }
-  | { phase: "queued"; gen: number }
-  | { phase: "streaming"; gen: number; draftId: string };
-
-type PendingTerminalEvent =
-  | {
-      kind: "completed";
-      gen: number;
-      result: {
-        assistantText: string;
-        reasoningStandard?: string;
-        reasoningInline?: string;
-        assistantMessage?: ChatMessage;
-      };
-    }
-  | {
-      kind: "failed";
-      gen: number;
-      error: unknown;
-    };
-
-type DeferredRoundCompletion = {
-  gen: number;
-  result: {
-    assistantText: string;
-    reasoningStandard?: string;
-    reasoningInline?: string;
-    assistantMessage?: ChatMessage;
-  };
-};
-
-type SendChatOverrides = {
-  text?: string;
-  displayText?: string;
-  extraTextBlocks?: string[];
-  skipInstructionPrompts?: boolean;
-  suppressInitialReload?: boolean;
-};
-
-type ConversationStreamCache = {
-  activationId?: string;
-  requestId?: string;
-  frontendDispatchStartedAtMs?: number;
-  frontendDispatchElapsedMs?: number;
-  assistantText: string;
-  reasoningStandard: string;
-  pendingReasoningStandardBreak: boolean;
-  reasoningInline: string;
-  toolStatusText: string;
-  toolStatusState: "running" | "done" | "failed" | "";
-  streamToolCalls: StreamToolCallView[];
-  streamToolCallCount: number;
-  streamLastToolName: string;
-};
-
-type StreamToolCallView = { toolCallId?: string; name: string; argsText: string; status?: "doing" | "done" };
-
-export type ConversationRuntimeStreamCacheSnapshot = {
-  activationId?: string;
-  requestId?: string;
-  frontendDispatchStartedAtMs?: number;
-  frontendDispatchElapsedMs?: number;
-  assistantText?: string;
-  reasoningStandard?: string;
-  reasoningInline?: string;
-  toolStatusText?: string;
-  toolStatusState?: "running" | "done" | "failed" | "" | string;
-  streamToolCalls?: Array<{ toolCallId?: string; name?: string; argsText?: string; status?: "doing" | "done" | string }>;
-  streamToolCallCount?: number;
-  streamLastToolName?: string;
-  hasVisibleProgress?: boolean;
-};
-
-export type ResumeForegroundRuntimeRoundInput = {
-  conversationId?: string | null;
-  streamCache?: ConversationRuntimeStreamCacheSnapshot | null;
-  statusText?: string;
-  reason?: string;
-};
+export type { ConversationRuntimeStreamCacheSnapshot } from "./use-chat-flow-stream-cache";
+export type { FrontendRoundPhase, ResumeForegroundRuntimeRoundInput } from "./use-chat-flow-types";
 
 export function useChatFlow(options: UseChatFlowOptions) {
   // ── 状态 ──
@@ -238,6 +61,7 @@ export function useChatFlow(options: UseChatFlowOptions) {
   let historyFlushedReceivedGen = 0; // 记录 sendChat 轮次是否已收到 history_flushed，避免 finally 误回收
   let pendingTerminalEvent: PendingTerminalEvent | null = null;
   let deferredRoundCompletion: DeferredRoundCompletion | null = null;
+  let foregroundRounds: ReturnType<typeof useChatFlowForegroundRounds> | null = null;
   let activeActivationId = "";
   let queuedStreamingState: {
     assistantText: string;
@@ -252,241 +76,539 @@ export function useChatFlow(options: UseChatFlowOptions) {
     frontendDispatchElapsedMs: number;
   } | null = null;
   const sendStartedAtMsByGen = new Map<number, number>();
-  let frontendDispatchTimer: ReturnType<typeof setInterval> | null = null;
-  let frontendDispatchTimerGen = 0;
-  let frontendDispatchStartedAtMs = 0;
-  let frontendDispatchElapsedMs = 0;
 
   // ── 流式统计 ──
   let streamToolCallCount = 0;
   let streamLastToolName = "";
   let pendingReasoningStandardBreak = false;
   let activeHistoryMessageCount = 0;
-  const conversationStreamCache = new Map<string, ConversationStreamCache>();
+  const {
+    buildQueuedAttachmentPayload,
+    buildImageAttachmentPayload,
+    buildInstructionExtraTextBlocks,
+  } = useChatFlowSendPayloads({
+    queuedAttachmentNotices: options.queuedAttachmentNotices,
+    selectedInstructionPrompts: options.selectedInstructionPrompts,
+  });
+  const sendInput = useChatFlowSendInput({
+    chatInput: options.chatInput,
+    clipboardImages: options.clipboardImages,
+    queuedAttachmentNotices: options.queuedAttachmentNotices,
+    selectedMentions: options.selectedMentions,
+    latestUserText: options.latestUserText,
+    latestUserImages: options.latestUserImages,
+    getSession: options.getSession,
+    getConversationId: options.getConversationId,
+    buildQueuedAttachmentPayload,
+    buildImageAttachmentPayload,
+    buildInstructionExtraTextBlocks,
+  });
+  const frontendDispatch = useChatFlowFrontendDispatch({
+    allMessages: options.allMessages,
+    getDraftIdForGen: (gen) => {
+      if (round.phase === "streaming" && round.gen === gen) return round.draftId;
+      return `${DRAFT_ASSISTANT_ID_PREFIX}${gen}`;
+    },
+    isRoundActiveForGen: (gen) => (
+      (round.phase === "queued" || round.phase === "streaming")
+      && round.gen === gen
+    ),
+    syncCurrentDisplayStateToConversationStreamCache: () => {
+      syncCurrentDisplayStateToConversationStreamCache();
+    },
+  });
+  const {
+    applyAssistantDeltaToDraft,
+    finalizeDraft,
+    getPendingUserDraftId,
+    hasAssistantDraftInMessages,
+    insertDraft,
+    insertUserDraft,
+    loadStreamToolCallsFromDraft,
+    removeAssistantDrafts,
+    removeDraft,
+    syncStreamToolCallsToDraft,
+    updateDraftText,
+    updateQueuedAssistantDraftStatus,
+  } = useChatFlowDrafts({
+    allMessages: options.allMessages,
+    latestUserText: options.latestUserText,
+    latestAssistantText: options.latestAssistantText,
+    latestReasoningStandardText: options.latestReasoningStandardText,
+    latestReasoningInlineText: options.latestReasoningInlineText,
+    toolStatusText: options.toolStatusText,
+    streamToolCalls: options.streamToolCalls,
+    getSession: options.getSession,
+    getConversationId: options.getConversationId,
+    buildImageAttachmentPayload,
+    getSendStartedAtMs: (gen) => sendStartedAtMsByGen.get(gen) || 0,
+    getActiveHistoryMessageCount: () => activeHistoryMessageCount,
+    getFrontendDispatchStartedAtMs: frontendDispatch.getStartedAtMs,
+    currentFrontendDispatchElapsedMs: frontendDispatch.currentElapsedMs,
+  });
+  const {
+    applyAssistantEventToConversationStreamCache,
+    applyConversationStreamCacheToDisplay,
+    clearConversationStreamCache,
+    readConversationStreamCache,
+    syncCurrentDisplayStateToConversationStreamCache,
+    writeConversationStreamCacheSnapshot,
+  } = useChatFlowStreamCache({
+    getConversationId: options.getConversationId,
+    latestAssistantText: options.latestAssistantText,
+    latestReasoningStandardText: options.latestReasoningStandardText,
+    latestReasoningInlineText: options.latestReasoningInlineText,
+    toolStatusText: options.toolStatusText,
+    toolStatusState: options.toolStatusState,
+    streamToolCalls: options.streamToolCalls,
+    getActiveActivationId: () => activeActivationId,
+    getFrontendDispatchStartedAtMs: frontendDispatch.getStartedAtMs,
+    getFrontendDispatchElapsedMs: frontendDispatch.getElapsedMs,
+    currentFrontendDispatchElapsedMs: frontendDispatch.currentElapsedMs,
+    restoreFrontendDispatchTimerFromCache,
+    getPendingReasoningStandardBreak: () => pendingReasoningStandardBreak,
+    setPendingReasoningStandardBreak: (value) => {
+      pendingReasoningStandardBreak = value;
+    },
+    getStreamToolCallCount: () => streamToolCallCount,
+    setStreamToolCallCount: (value) => {
+      streamToolCallCount = value;
+    },
+    getStreamLastToolName: () => streamLastToolName,
+    setStreamLastToolName: (value) => {
+      streamLastToolName = value;
+    },
+  });
+  const reasoningStartedAtMs = ref(0);
+  const roundFinalizers = useChatFlowRoundFinalizers({
+    getRound: () => round,
+    setRound,
+    getDeferredRoundCompletion: () => deferredRoundCompletion,
+    setDeferredRoundCompletion: (value: DeferredRoundCompletion | null) => {
+      deferredRoundCompletion = value;
+    },
+    latestAssistantText: options.latestAssistantText,
+    latestReasoningStandardText: options.latestReasoningStandardText,
+    latestReasoningInlineText: options.latestReasoningInlineText,
+    toolStatusText: options.toolStatusText,
+    toolStatusState: options.toolStatusState,
+    chatting: options.chatting,
+    reasoningStartedAtMs,
+    t: options.t,
+    getStreamToolCallCount: () => streamToolCallCount,
+    getStreamLastToolName: () => streamLastToolName,
+    setPendingReasoningStandardBreak: (value: boolean) => {
+      pendingReasoningStandardBreak = value;
+    },
+    clearChatErrorText,
+    updateDraftText,
+    finalizeDraft,
+    clearConversationStreamCache,
+    clearFrontendDispatchTimer,
+    setActiveActivationId: (value: string) => {
+      activeActivationId = value;
+    },
+    onReloadMessages: options.onReloadMessages,
+    removeDraft,
+    setPendingTerminalEvent: (event: PendingTerminalEvent | null) => {
+      pendingTerminalEvent = event;
+    },
+    setQueuedStreamingState: (value: typeof queuedStreamingState) => {
+      queuedStreamingState = value;
+    },
+    sendStartedAtMsByGen,
+    getPendingUserDraftId,
+    formatRequestFailed: options.formatRequestFailed,
+    setChatErrorText,
+    applyAssistantDeltaToDraft,
+  });
+  const streamingEvents = useChatFlowStreamingEvents({
+    latestReasoningStandardText: options.latestReasoningStandardText,
+    latestReasoningInlineText: options.latestReasoningInlineText,
+    toolStatusText: options.toolStatusText,
+    toolStatusState: options.toolStatusState,
+    streamToolCalls: options.streamToolCalls,
+    reasoningStartedAtMs,
+    getRound: () => round,
+    promoteQueuedRoundToStreaming,
+    setPendingTerminalEvent: (event) => {
+      pendingTerminalEvent = event;
+    },
+    clearConversationStreamCache,
+    getConversationId: options.getConversationId,
+    setActiveActivationId: (value) => {
+      activeActivationId = value;
+    },
+    handleRoundCompleted,
+    handleRoundFailed,
+    getPendingReasoningStandardBreak: () => pendingReasoningStandardBreak,
+    setPendingReasoningStandardBreak: (value) => {
+      pendingReasoningStandardBreak = value;
+    },
+    getStreamToolCallCount: () => streamToolCallCount,
+    setStreamToolCallCount: (value) => {
+      streamToolCallCount = value;
+    },
+    getStreamLastToolName: () => streamLastToolName,
+    setStreamLastToolName: (value) => {
+      streamLastToolName = value;
+    },
+    syncStreamToolCallsToDraft,
+    syncCurrentDisplayStateToConversationStreamCache,
+    updateDraftText,
+    enqueueStreamDelta: roundFinalizers.enqueueStreamDelta,
+  });
+  const channelBinding = useChatFlowChannelBinding({
+    debug: CHAT_STREAM_DEBUG,
+    getConversationId: options.getConversationId,
+    invokeBindActiveChatViewStream: options.invokeBindActiveChatViewStream,
+    getRoundStreamingGen: () => (round.phase === "streaming" ? round.gen : 0),
+    getCurrentGeneration: () => generation,
+    markHistoryFlushedReceived: (gen) => {
+      historyFlushedReceivedGen = Math.max(historyFlushedReceivedGen, gen);
+    },
+    handleHistoryFlushed,
+    handleStreamingEvent,
+    formatRequestFailed: options.formatRequestFailed,
+    setChatErrorText,
+  });
+  foregroundRounds = useChatFlowForegroundRounds({
+    getRound: () => round,
+    setRound,
+    frontendDispatch,
+    setFrontendRoundPhase: (value: FrontendRoundPhase) => {
+      frontendRoundPhase.value = value;
+    },
+    nextGeneration: () => ++generation,
+    getSendChatActiveGen: () => sendChatActiveGen,
+    getActiveActivationId: () => activeActivationId,
+    setActiveActivationId: (value: string) => {
+      activeActivationId = value;
+    },
+    setPendingTerminalEvent: (event: PendingTerminalEvent | null) => {
+      pendingTerminalEvent = event;
+    },
+    setDeferredRoundCompletion: (event: DeferredRoundCompletion | null) => {
+      deferredRoundCompletion = event;
+    },
+    getQueuedStreamingState: () => queuedStreamingState,
+    setQueuedStreamingState: (value: typeof queuedStreamingState) => {
+      queuedStreamingState = value;
+    },
+    setActiveHistoryMessageCount: (value: number) => {
+      activeHistoryMessageCount = value;
+    },
+    getConversationId: options.getConversationId,
+    allMessages: options.allMessages,
+    latestAssistantText: options.latestAssistantText,
+    latestReasoningStandardText: options.latestReasoningStandardText,
+    latestReasoningInlineText: options.latestReasoningInlineText,
+    toolStatusText: options.toolStatusText,
+    toolStatusState: options.toolStatusState,
+    streamToolCalls: options.streamToolCalls,
+    chatting: options.chatting,
+    t: options.t,
+    channelBinding,
+    sendStartedAtMsByGen,
+    clearConversationStreamCache,
+    removeAssistantDrafts,
+    resetDisplayState,
+    startFrontendDispatchTimer,
+    updateQueuedAssistantDraftStatus,
+    hasAssistantDraftInMessages,
+    insertDraft,
+    updateDraftText,
+    applyConversationStreamCacheToDisplay,
+    loadStreamToolCallsFromDraft,
+    readConversationStreamCache,
+    writeConversationStreamCacheSnapshot,
+    setPendingReasoningStandardBreak: (value: boolean) => {
+      pendingReasoningStandardBreak = value;
+    },
+    setStreamToolCallCount: (value: number) => {
+      streamToolCallCount = value;
+    },
+    setStreamLastToolName: (value: string) => {
+      streamLastToolName = value;
+    },
+    applyPendingTerminalEvent,
+  });
+  const externalEvents = useChatFlowExternalEvents({
+    debug: CHAT_STREAM_DEBUG,
+    getCurrentConversationId: () => String(options.getConversationId ? options.getConversationId() : "").trim(),
+    getActiveActivationId: () => activeActivationId,
+    setActiveActivationId: (value) => {
+      activeActivationId = value;
+    },
+    getRound: () => round,
+    getSendChatActiveGen: () => sendChatActiveGen,
+    nextGeneration: () => ++generation,
+    channelBinding,
+    handleHistoryFlushed,
+    beginAssistantActivationFromEvent,
+    markRoundStarted,
+    payloadMatchesActiveActivation,
+    handleRoundCompleted,
+    handleRoundFailed,
+    clearConversationStreamCache,
+    clearFrontendDispatchTimer,
+    onReloadMessages: options.onReloadMessages,
+    setChatErrorText,
+    formatRequestFailed: options.formatRequestFailed,
+    latestAssistantText: options.latestAssistantText,
+    latestReasoningStandardText: options.latestReasoningStandardText,
+    latestReasoningInlineText: options.latestReasoningInlineText,
+    chatting: options.chatting,
+    reasoningStartedAtMs,
+    applyAssistantEventToConversationStreamCache,
+    applyConversationStreamCacheToDisplay,
+    hasAssistantDraftInMessages,
+    ensureForegroundStreamingRound,
+    handleStreamingEvent,
+    syncStreamToolCallsToDraft,
+    updateDraftText,
+  });
+  const stopController = useChatFlowStop({
+    chatting: options.chatting,
+    latestAssistantText: options.latestAssistantText,
+    latestReasoningStandardText: options.latestReasoningStandardText,
+    latestReasoningInlineText: options.latestReasoningInlineText,
+    toolStatusText: options.toolStatusText,
+    toolStatusState: options.toolStatusState,
+    allMessages: options.allMessages,
+    getSession: options.getSession,
+    getConversationId: options.getConversationId,
+    invokeStopChatMessage: options.invokeStopChatMessage,
+    onReloadMessages: options.onReloadMessages,
+    t: options.t,
+    getRound: () => round,
+    setRound,
+    advanceGeneration: () => {
+      generation += 1;
+    },
+    setSendChatActiveGen: (gen) => {
+      sendChatActiveGen = gen;
+    },
+    clearDeferredRoundCompletion: () => {
+      deferredRoundCompletion = null;
+    },
+    clearPendingTerminalEvent: () => {
+      pendingTerminalEvent = null;
+    },
+    setActiveActivationId: (value) => {
+      activeActivationId = value;
+    },
+    clearFrontendDispatchTimer,
+    getPendingUserDraftId,
+    removeDraft,
+    deleteSendStartedAtMs: (gen) => {
+      sendStartedAtMsByGen.delete(gen);
+    },
+    getStreamToolCallCount: () => streamToolCallCount,
+    getStreamLastToolName: () => streamLastToolName,
+    clearConversationStreamCache,
+    reasoningStartedAtMs,
+  });
+  const sendRecovery = useChatFlowSendRecovery({
+    chatting: options.chatting,
+    latestAssistantText: options.latestAssistantText,
+    latestReasoningStandardText: options.latestReasoningStandardText,
+    latestReasoningInlineText: options.latestReasoningInlineText,
+    toolStatusText: options.toolStatusText,
+    toolStatusState: options.toolStatusState,
+    reasoningStartedAtMs,
+    getRound: () => round,
+    setRound,
+    getSession: options.getSession,
+    getHistoryFlushedReceivedGen: () => historyFlushedReceivedGen,
+    setSendChatActiveGenIfCurrent: (gen, value) => {
+      if (sendChatActiveGen === gen) sendChatActiveGen = value;
+    },
+    clearFrontendDispatchTimer,
+    clearChatErrorText,
+    setChatErrorText,
+    formatRequestFailed: options.formatRequestFailed,
+    getPendingUserDraftId,
+    removeDraft,
+    deleteSendStartedAtMs: (gen) => {
+      sendStartedAtMsByGen.delete(gen);
+    },
+    getStreamToolCallCount: () => streamToolCallCount,
+    getStreamLastToolName: () => streamLastToolName,
+    failQueuedRoundWithoutDraft: roundFinalizers.failQueuedRoundWithoutDraft,
+    onReloadMessages: options.onReloadMessages,
+    t: options.t,
+  });
+  const roundEvents = useChatFlowRoundEvents({
+    chatting: options.chatting,
+    latestAssistantText: options.latestAssistantText,
+    latestReasoningStandardText: options.latestReasoningStandardText,
+    latestReasoningInlineText: options.latestReasoningInlineText,
+    toolStatusText: options.toolStatusText,
+    toolStatusState: options.toolStatusState,
+    streamToolCalls: options.streamToolCalls,
+    reasoningStartedAtMs,
+    getRound: () => round,
+    setRound,
+    getGeneration: () => generation,
+    setPendingTerminalEvent: (event) => {
+      pendingTerminalEvent = event;
+    },
+    getPendingTerminalEvent: () => pendingTerminalEvent,
+    setDeferredRoundCompletion: (event) => {
+      deferredRoundCompletion = event;
+    },
+    clearConversationStreamCache,
+    clearFrontendDispatchTimer,
+    setActiveActivationId: (value) => {
+      activeActivationId = value;
+    },
+    setSendChatActiveGen: (value) => {
+      sendChatActiveGen = value;
+    },
+    sendStartedAtMsByGen,
+    hasAssistantDraftInMessages,
+    applyConversationStreamCacheToDisplay,
+    loadStreamToolCallsFromDraft,
+    updateQueuedAssistantDraftStatus,
+    insertDraft,
+    updateDraftText,
+    syncStreamToolCallsToDraft,
+    applyPendingTerminalEvent,
+    promoteQueuedRoundToStreaming,
+    finalizeDeferredRoundCompletion: roundFinalizers.finalizeDeferredRoundCompletion,
+    finalizeQueuedRoundWithoutDraft: roundFinalizers.finalizeQueuedRoundWithoutDraft,
+    failQueuedRoundWithoutDraft: roundFinalizers.failQueuedRoundWithoutDraft,
+    enqueueStreamDelta: roundFinalizers.enqueueStreamDelta,
+    setPendingReasoningStandardBreak: (value) => {
+      pendingReasoningStandardBreak = value;
+    },
+    getPendingReasoningStandardBreak: () => pendingReasoningStandardBreak,
+    getStreamToolCallCount: () => streamToolCallCount,
+    setStreamToolCallCount: (value) => {
+      streamToolCallCount = value;
+    },
+    getStreamLastToolName: () => streamLastToolName,
+    setStreamLastToolName: (value) => {
+      streamLastToolName = value;
+    },
+    setChatErrorText,
+    formatRequestFailed: options.formatRequestFailed,
+    onReloadMessages: options.onReloadMessages,
+    optionsT: options.t,
+  });
+  const sendController = useChatFlowSendController({
+    chatting: options.chatting,
+    toolStatusText: options.toolStatusText,
+    toolStatusState: options.toolStatusState,
+    streamToolCalls: options.streamToolCalls,
+    getConversationId: options.getConversationId,
+    getSession: options.getSession,
+    invokeSendChatMessage: options.invokeSendChatMessage,
+    onOwnUserDraftInserted: options.onOwnUserDraftInserted,
+    t: options.t,
+    getRound: () => round,
+    setRound,
+    nextGeneration: () => ++generation,
+    setSendChatActiveGen: (gen) => {
+      sendChatActiveGen = gen;
+    },
+    setActiveActivationId: (value) => {
+      activeActivationId = value;
+    },
+    setPendingTerminalEventNull: () => {
+      pendingTerminalEvent = null;
+    },
+    sendStartedAtMsByGen,
+    startFrontendDispatchTimer,
+    clearConversationStreamCache,
+    clearChatErrorText,
+    applyPreparedSendInput: sendInput.applyPreparedSendInput,
+    prepareSendInput: sendInput.prepareSendInput,
+    insertUserDraft,
+    resetDisplayState,
+    removeDraft,
+    updateQueuedAssistantDraftStatus,
+    channelBinding,
+    handleRoundCompleted,
+    sendRecovery,
+  });
+  const foregroundReset = useChatFlowForegroundReset({
+    latestUserText: options.latestUserText,
+    latestUserImages: options.latestUserImages,
+    latestAssistantText: options.latestAssistantText,
+    latestReasoningStandardText: options.latestReasoningStandardText,
+    latestReasoningInlineText: options.latestReasoningInlineText,
+    toolStatusText: options.toolStatusText,
+    toolStatusState: options.toolStatusState,
+    streamToolCalls: options.streamToolCalls,
+    chatting: options.chatting,
+    getConversationId: options.getConversationId,
+    getRound: () => round,
+    setRound,
+    tickGeneration: () => {
+      generation += 1;
+    },
+    setSendChatActiveGen: (value) => {
+      sendChatActiveGen = value;
+    },
+    setActiveActivationId: (value) => {
+      activeActivationId = value;
+    },
+    setDeferredRoundCompletionNull: () => {
+      deferredRoundCompletion = null;
+    },
+    setPendingTerminalEventNull: () => {
+      pendingTerminalEvent = null;
+    },
+    resetQueuedStreamingState: () => {
+      queuedStreamingState = null;
+    },
+    clearFrontendDispatchTimer,
+    getPendingUserDraftId,
+    removeDraft,
+    removeAssistantDrafts,
+    finalizeDraft,
+    clearConversationStreamCache,
+    setActiveHistoryMessageCount: (value) => {
+      activeHistoryMessageCount = value;
+    },
+    reasoningStartedAtMs,
+  });
 
   function setRound(next: RoundState, frontendPhase?: FrontendRoundPhase) {
     round = next;
     frontendRoundPhase.value = frontendPhase ?? next.phase;
   }
 
-  function readRoundStartedPayload(raw: string | undefined): RoundStartedPayload | null {
-    const text = String(raw || "").trim();
-    if (!text) return null;
-    try {
-      const parsed = JSON.parse(text) as Record<string, unknown>;
-      return {
-        conversationId: String(parsed.conversationId || "").trim(),
-        activationId: typeof parsed.activationId === "string" ? parsed.activationId : undefined,
-        requestId: typeof parsed.requestId === "string" ? parsed.requestId : undefined,
-        reason: typeof parsed.reason === "string" ? parsed.reason : undefined,
-        departmentId: typeof parsed.departmentId === "string" ? parsed.departmentId : undefined,
-        agentId: typeof parsed.agentId === "string" ? parsed.agentId : undefined,
-      };
-    } catch {
-      return {
-        conversationId: text,
-      };
-    }
-  }
-
-  function isChatAbortedByUser(error: unknown): boolean {
-    const normalized = String(
-      typeof error === "string"
-        ? error
-        : (error as { message?: unknown } | null)?.message ?? error ?? "",
-    ).trim();
-    return normalized === "CHAT_ABORTED_BY_USER";
-  }
-  const reasoningStartedAtMs = ref(0);
-  let pendingUserDraftId = "";
-
   // =========================================================================
   // 工具函数（纯逻辑，无副作用）
   // =========================================================================
 
-  function normalizeConversationId(conversationId?: string | null): string {
-    return String(conversationId || "").trim();
-  }
-
-  function positiveRoundedNumber(value: unknown): number {
-    const numeric = Number(value || 0);
-    if (!Number.isFinite(numeric) || numeric <= 0) return 0;
-    return Math.round(numeric);
-  }
-
-  function currentFrontendDispatchElapsedMs(): number {
-    if (frontendDispatchStartedAtMs > 0) {
-      frontendDispatchElapsedMs = Math.max(0, Date.now() - frontendDispatchStartedAtMs);
+  function setChatErrorText(text: string, conversationId?: string | null) {
+    const cid = normalizeConversationId(conversationId || (options.getConversationId ? options.getConversationId() : ""));
+    if (cid && options.setConversationChatError) {
+      options.setConversationChatError(cid, text);
+      return;
     }
-    return positiveRoundedNumber(frontendDispatchElapsedMs);
+    options.chatErrorText.value = text;
+  }
+
+  function clearChatErrorText(conversationId?: string | null) {
+    setChatErrorText("", conversationId);
   }
 
   function clearFrontendDispatchTimer() {
-    if (frontendDispatchTimer) {
-      clearInterval(frontendDispatchTimer);
-      frontendDispatchTimer = null;
-    }
-    frontendDispatchTimerGen = 0;
-    frontendDispatchStartedAtMs = 0;
-    frontendDispatchElapsedMs = 0;
-  }
-
-  function draftIdForFrontendDispatchGen(gen: number): string {
-    if (round.phase === "streaming" && round.gen === gen) return round.draftId;
-    return `${DRAFT_ASSISTANT_ID_PREFIX}${gen}`;
-  }
-
-  function updateDraftFrontendDispatchMeta(gen: number) {
-    if (!gen || frontendDispatchStartedAtMs <= 0) return;
-    const elapsedMs = currentFrontendDispatchElapsedMs();
-    const draftId = draftIdForFrontendDispatchGen(gen);
-    let touched = false;
-    options.allMessages.value = options.allMessages.value.map((message) => {
-      if (message.id !== draftId) return message;
-      touched = true;
-      const meta = ((message.providerMeta || {}) as Record<string, unknown>);
-      return {
-        ...message,
-        providerMeta: {
-          ...meta,
-          _frontendDispatchStartedAtMs: frontendDispatchStartedAtMs,
-          _frontendDispatchElapsedMs: elapsedMs,
-        },
-      };
-    });
-    if (touched) {
-      syncCurrentDisplayStateToConversationStreamCache();
-    }
+    frontendDispatch.clear();
   }
 
   function startFrontendDispatchTimer(gen: number, startedAtMs?: number, elapsedMs?: number) {
-    const normalizedGen = Math.max(0, Math.round(Number(gen || 0)));
-    if (!normalizedGen) return;
-    const nextStartedAtMs = positiveRoundedNumber(startedAtMs) || Date.now();
-    if (
-      frontendDispatchTimer
-      && frontendDispatchTimerGen === normalizedGen
-      && frontendDispatchStartedAtMs === nextStartedAtMs
-    ) {
-      updateDraftFrontendDispatchMeta(normalizedGen);
-      return;
-    }
-    if (frontendDispatchTimer) {
-      clearInterval(frontendDispatchTimer);
-      frontendDispatchTimer = null;
-    }
-    frontendDispatchTimerGen = normalizedGen;
-    frontendDispatchStartedAtMs = nextStartedAtMs;
-    frontendDispatchElapsedMs = positiveRoundedNumber(elapsedMs);
-    updateDraftFrontendDispatchMeta(normalizedGen);
-    frontendDispatchTimer = setInterval(() => {
-      if (
-        frontendDispatchTimerGen !== normalizedGen
-        || (round.phase !== "queued" && round.phase !== "streaming")
-        || round.gen !== normalizedGen
-      ) {
-        clearFrontendDispatchTimer();
-        return;
-      }
-      updateDraftFrontendDispatchMeta(normalizedGen);
-    }, 1000);
+    frontendDispatch.start(gen, startedAtMs, elapsedMs);
   }
 
   function restoreFrontendDispatchTimerFromCache(cache: ConversationStreamCache) {
-    const startedAtMs = positiveRoundedNumber(cache.frontendDispatchStartedAtMs);
-    const elapsedMs = positiveRoundedNumber(cache.frontendDispatchElapsedMs);
-    if (!startedAtMs && !elapsedMs) return;
-    const gen = round.phase === "queued" || round.phase === "streaming" ? round.gen : frontendDispatchTimerGen;
-    if (!gen) {
-      frontendDispatchStartedAtMs = startedAtMs;
-      frontendDispatchElapsedMs = elapsedMs;
-      return;
-    }
-    startFrontendDispatchTimer(gen, startedAtMs || Date.now() - elapsedMs, elapsedMs);
-  }
-
-  function emptyConversationStreamCache(): ConversationStreamCache {
-    return {
-      activationId: "",
-      requestId: "",
-      frontendDispatchStartedAtMs: 0,
-      frontendDispatchElapsedMs: 0,
-      assistantText: "",
-      reasoningStandard: "",
-      pendingReasoningStandardBreak: false,
-      reasoningInline: "",
-      toolStatusText: "",
-      toolStatusState: "",
-      streamToolCalls: [],
-      streamToolCallCount: 0,
-      streamLastToolName: "",
-    };
-  }
-
-  function stringifyExternalEventPayload(payload: unknown, eventName: string): string {
-    if (typeof payload === "string") return payload;
-    if (payload && typeof payload === "object") {
-      try {
-        return JSON.stringify(payload);
-      } catch (error) {
-        console.warn("[聊天事件] 外部事件 payload 序列化失败", {
-          eventName,
-          error,
-        });
-      }
-    }
-    return "";
-  }
-
-  function readConversationStreamCache(conversationId?: string | null): ConversationStreamCache | null {
-    const cid = normalizeConversationId(conversationId);
-    if (!cid) return null;
-    const cache = conversationStreamCache.get(cid);
-    if (!cache) return null;
-    return {
-      activationId: String(cache.activationId || "").trim(),
-      requestId: String(cache.requestId || "").trim(),
-      frontendDispatchStartedAtMs: positiveRoundedNumber(cache.frontendDispatchStartedAtMs),
-      frontendDispatchElapsedMs: positiveRoundedNumber(cache.frontendDispatchElapsedMs),
-      assistantText: cache.assistantText,
-      reasoningStandard: cache.reasoningStandard,
-      pendingReasoningStandardBreak: !!cache.pendingReasoningStandardBreak,
-      reasoningInline: cache.reasoningInline,
-      toolStatusText: cache.toolStatusText,
-      toolStatusState: cache.toolStatusState,
-      streamToolCalls: cache.streamToolCalls.map((item) => ({ ...item })),
-      streamToolCallCount: cache.streamToolCallCount,
-      streamLastToolName: cache.streamLastToolName,
-    };
-  }
-
-  function writeConversationStreamCache(
-    conversationId: string,
-    updater: (current: ConversationStreamCache) => ConversationStreamCache,
-  ) {
-    const cid = normalizeConversationId(conversationId);
-    if (!cid) return;
-    const next = updater(readConversationStreamCache(cid) || emptyConversationStreamCache());
-    conversationStreamCache.set(cid, {
-      ...next,
-      activationId: String(next.activationId || "").trim(),
-      requestId: String(next.requestId || "").trim(),
-      frontendDispatchStartedAtMs: positiveRoundedNumber(next.frontendDispatchStartedAtMs),
-      frontendDispatchElapsedMs: positiveRoundedNumber(next.frontendDispatchElapsedMs),
-      streamToolCalls: Array.isArray(next.streamToolCalls) ? next.streamToolCalls.map((item) => ({ ...item })) : [],
-    });
-  }
-
-  function clearConversationStreamCache(conversationId?: string | null) {
-    const cid = normalizeConversationId(conversationId);
-    if (!cid) return;
-    conversationStreamCache.delete(cid);
-  }
-
-  function sameActivationId(left?: string | null, right?: string | null): boolean {
-    const normalizedLeft = String(left || "").trim();
-    const normalizedRight = String(right || "").trim();
-    return !!normalizedLeft && !!normalizedRight && normalizedLeft === normalizedRight;
+    const gen = round.phase === "queued" || round.phase === "streaming" ? round.gen : 0;
+    frontendDispatch.restoreFromCache(cache, gen);
   }
 
   function payloadMatchesActiveActivation(payload: { activationId?: string; requestId?: string } | null | undefined): boolean {
@@ -495,1287 +617,48 @@ export function useChatFlow(options: UseChatFlowOptions) {
     return !payloadActivationId || payloadActivationId === activeActivationId;
   }
 
-  function syncCurrentDisplayStateToConversationStreamCache(conversationId?: string | null) {
-    const cid = normalizeConversationId(conversationId || (options.getConversationId ? options.getConversationId() : ""));
-    if (!cid) return;
-    writeConversationStreamCache(cid, () => ({
-      assistantText: String(options.latestAssistantText.value || ""),
-      activationId: activeActivationId,
-      requestId: activeActivationId,
-      frontendDispatchStartedAtMs,
-      frontendDispatchElapsedMs: currentFrontendDispatchElapsedMs(),
-      reasoningStandard: String(options.latestReasoningStandardText.value || ""),
-      pendingReasoningStandardBreak,
-      reasoningInline: String(options.latestReasoningInlineText.value || ""),
-      toolStatusText: String(options.toolStatusText.value || ""),
-      toolStatusState: options.toolStatusState.value,
-      streamToolCalls: Array.isArray(options.streamToolCalls?.value)
-        ? options.streamToolCalls.value.map((item) => ({ ...item }))
-        : [],
-      streamToolCallCount,
-      streamLastToolName,
-    }));
-  }
-
-  function applyConversationStreamCacheToDisplay(conversationId?: string | null): boolean {
-    const cache = readConversationStreamCache(conversationId);
-    if (!cache) return false;
-    if (activeActivationId && cache.activationId && cache.activationId !== activeActivationId) {
-      return false;
-    }
-    if (cache.assistantText || !options.latestAssistantText.value) {
-      options.latestAssistantText.value = cache.assistantText;
-    }
-    restoreFrontendDispatchTimerFromCache(cache);
-    if (cache.reasoningStandard || !options.latestReasoningStandardText.value) {
-      options.latestReasoningStandardText.value = cache.reasoningStandard;
-    }
-    pendingReasoningStandardBreak = !!cache.pendingReasoningStandardBreak;
-    if (cache.reasoningInline || !options.latestReasoningInlineText.value) {
-      options.latestReasoningInlineText.value = cache.reasoningInline;
-    }
-    if (cache.toolStatusText || !options.toolStatusText.value) {
-      options.toolStatusText.value = cache.toolStatusText;
-    }
-    if (cache.toolStatusState || !options.toolStatusState.value) {
-      options.toolStatusState.value = cache.toolStatusState;
-    }
-    if (options.streamToolCalls) {
-      if (cache.streamToolCalls.length > 0 || options.streamToolCalls.value.length === 0) {
-        options.streamToolCalls.value = mergeStreamToolCallsForward(
-          options.streamToolCalls.value,
-          cache.streamToolCalls,
-        );
-      }
-    }
-    streamToolCallCount = Math.max(streamToolCallCount, cache.streamToolCallCount);
-    if (cache.streamLastToolName) {
-      streamLastToolName = cache.streamLastToolName;
-    }
-    return true;
-  }
-
-  function normalizeToolStatusState(value: unknown): "running" | "done" | "failed" | "" {
-    const text = String(value || "").trim();
-    return text === "running" || text === "done" || text === "failed" ? text : "";
-  }
-
-  function normalizeStreamToolCallView(item: unknown): StreamToolCallView | null {
-    const raw = item && typeof item === "object" ? item as Record<string, unknown> : null;
-    const toolCallId = String(raw?.toolCallId || "").trim();
-    const name = String(raw?.name || "").trim();
-    if (!toolCallId || !name) return null;
-    return {
-      toolCallId,
-      name,
-      argsText: String(raw?.argsText || ""),
-      status: String(raw?.status || "") === "doing" ? "doing" : "done",
-    };
-  }
-
-  function sameStreamToolCallIdentity(left: StreamToolCallView, right: StreamToolCallView): boolean {
-    return !!left.toolCallId && !!right.toolCallId && left.toolCallId === right.toolCallId;
-  }
-
-  function findStreamToolCallViewIndex(
-    calls: StreamToolCallView[],
-    toolCallId: string | undefined,
-  ): number {
-    const normalizedToolCallId = String(toolCallId || "").trim();
-    if (!normalizedToolCallId) return -1;
-    return calls.findIndex((call) => String(call.toolCallId || "").trim() === normalizedToolCallId);
-  }
-
-  function applyToolStatusToStreamToolCalls(
-    currentCalls: StreamToolCallView[],
-    parsed: AssistantDeltaEvent,
-  ): { calls: StreamToolCallView[]; appended: boolean } {
-    const toolName = String(parsed.toolName || "").trim();
-    const toolArgs = String(parsed.toolArgs || "").trim();
-    const toolCallId = String(parsed.toolCallId || "").trim() || undefined;
-    const toolStatus = String(parsed.toolStatus || "").trim();
-    const next = currentCalls.map((item) => ({ ...item }));
-    if (!toolName || !toolStatus || !toolCallId) {
-      return { calls: next, appended: false };
-    }
-    const index = findStreamToolCallViewIndex(next, toolCallId);
-    if (toolStatus === "running") {
-      const item: StreamToolCallView = {
-        toolCallId,
-        name: toolName,
-        argsText: toolArgs,
-        status: "doing",
-      };
-      if (index >= 0) {
-        next[index] = item;
-        return { calls: next, appended: false };
-      }
-      next.push(item);
-      return { calls: next, appended: true };
-    }
-    if (toolStatus === "done" || toolStatus === "failed") {
-      if (index >= 0) {
-        next[index] = {
-          ...next[index],
-          toolCallId: toolCallId || next[index].toolCallId,
-          name: toolName,
-          argsText: toolArgs || next[index].argsText,
-          status: "done",
-        };
-        return { calls: next, appended: false };
-      }
-      next.push({
-        toolCallId,
-        name: toolName,
-        argsText: toolArgs,
-        status: "done",
-      });
-      return { calls: next, appended: true };
-    }
-    return { calls: next, appended: false };
-  }
-
-  function mergeStreamToolCallsForward(
-    currentCalls: StreamToolCallView[],
-    incomingCalls: StreamToolCallView[],
-  ): StreamToolCallView[] {
-    const current = currentCalls.map((item) => ({ ...item }));
-    const incoming = incomingCalls.map((item) => ({ ...item }));
-    if (incoming.length === 0) return current;
-    if (current.length === 0) return incoming;
-
-    if (
-      current.length === incoming.length
-      && incoming.every((item, idx) => sameStreamToolCallIdentity(current[idx], item))
-    ) {
-      return current.map((item, idx) => {
-        return { ...item, ...incoming[idx], status: incoming[idx].status };
-      });
-    }
-
-    const maxOverlap = Math.min(current.length, incoming.length);
-    for (let overlap = maxOverlap; overlap > 0; overlap -= 1) {
-      const currentStart = current.length - overlap;
-      const overlaps = incoming.slice(0, overlap).every((item, idx) =>
-        sameStreamToolCallIdentity(current[currentStart + idx], item)
-      );
-      if (!overlaps) continue;
-      const merged = current.map((item, idx) => {
-        if (idx < currentStart) return item;
-        return { ...item, ...incoming[idx - currentStart], status: incoming[idx - currentStart].status };
-      });
-      const tail = incoming.slice(overlap);
-      if (tail.length === 0) return merged;
-      return [...merged, ...tail];
-    }
-
-    if (incoming.length > current.length) {
-      return incoming;
-    }
-
-    const latest = incoming[incoming.length - 1];
-    const currentLast = current[current.length - 1];
-    if (latest && !sameStreamToolCallIdentity(currentLast, latest)) {
-      return [...current, latest];
-    }
-
-    return current;
-  }
-
-  function normalizeStreamToolCallViews(items: unknown): StreamToolCallView[] {
-    return Array.isArray(items)
-      ? items
-        .map((item) => normalizeStreamToolCallView(item))
-        .filter((item): item is StreamToolCallView => !!item)
-      : [];
-  }
-
-  function loadStreamToolCallsFromDraft(draftId: string) {
-    if (!options.streamToolCalls) return;
-    if (!draftId) {
-      options.streamToolCalls.value = [];
-      return;
-    }
-    const draft = options.allMessages.value.find((item) => item.id === draftId);
-    const meta = (draft?.providerMeta || {}) as Record<string, unknown>;
-    const calls = normalizeStreamToolCallViews(meta._streamToolCalls);
-    options.streamToolCalls.value = mergeStreamToolCallsForward(options.streamToolCalls.value, calls);
-  }
-
-  function streamCacheHasVisibleProgress(cache?: ConversationRuntimeStreamCacheSnapshot | ConversationStreamCache | null): boolean {
-    if (!cache) return false;
-    return !!(
-      String(cache.assistantText || "").trim()
-      || String(cache.reasoningStandard || "").trim()
-      || String(cache.reasoningInline || "").trim()
-      || String(cache.toolStatusText || "").trim()
-      || String(cache.toolStatusState || "").trim()
-      || (Array.isArray(cache.streamToolCalls) && cache.streamToolCalls.length > 0)
-    );
-  }
-
-  function writeConversationStreamCacheSnapshot(
-    conversationId: string,
-    snapshot?: ConversationRuntimeStreamCacheSnapshot | null,
-  ) {
-    const cid = normalizeConversationId(conversationId);
-    if (!cid || !snapshot) return;
-    writeConversationStreamCache(cid, (current) => ({
-      activationId: String(snapshot.activationId || snapshot.requestId || current.activationId || "").trim(),
-      requestId: String(snapshot.requestId || snapshot.activationId || current.requestId || "").trim(),
-      frontendDispatchStartedAtMs: positiveRoundedNumber(snapshot.frontendDispatchStartedAtMs || current.frontendDispatchStartedAtMs),
-      frontendDispatchElapsedMs: positiveRoundedNumber(snapshot.frontendDispatchElapsedMs || current.frontendDispatchElapsedMs),
-      assistantText: String(snapshot.assistantText || ""),
-      reasoningStandard: String(snapshot.reasoningStandard || ""),
-      pendingReasoningStandardBreak: current.pendingReasoningStandardBreak,
-      reasoningInline: String(snapshot.reasoningInline || ""),
-      toolStatusText: String(snapshot.toolStatusText || ""),
-      toolStatusState: normalizeToolStatusState(snapshot.toolStatusState),
-      streamToolCalls: mergeStreamToolCallsForward(
-        current.streamToolCalls,
-        normalizeStreamToolCallViews(snapshot.streamToolCalls),
-      ),
-      streamToolCallCount: Math.max(0, Math.round(Number(snapshot.streamToolCallCount || 0))),
-      streamLastToolName: String(snapshot.streamLastToolName || ""),
-    }));
-  }
-
-  function applyAssistantEventToConversationStreamCache(
-    conversationId: string,
-    parsed: AssistantDeltaEvent,
-  ): boolean {
-    const cid = normalizeConversationId(conversationId);
-    if (!cid) return false;
-    let changed = false;
-    writeConversationStreamCache(cid, (current) => {
-      const next: ConversationStreamCache = {
-        ...current,
-        activationId: String(parsed.activationId || parsed.requestId || current.activationId || activeActivationId || "").trim(),
-        requestId: String(parsed.requestId || parsed.activationId || current.requestId || activeActivationId || "").trim(),
-        frontendDispatchStartedAtMs,
-        frontendDispatchElapsedMs: currentFrontendDispatchElapsedMs(),
-        streamToolCalls: mergeStreamToolCallsForward(
-          current.streamToolCalls,
-          Array.isArray(options.streamToolCalls?.value) ? options.streamToolCalls.value : [],
-        ),
-      };
-      const delta = readDeltaMessage(parsed);
-      if (parsed.kind === "tool_status") {
-        const toolName = String(parsed.toolName || "").trim();
-        const statusUpdate = applyToolStatusToStreamToolCalls(next.streamToolCalls, parsed);
-        if (String(next.reasoningStandard || "").trim()) {
-          next.pendingReasoningStandardBreak = true;
-        }
-        next.streamToolCalls = statusUpdate.calls;
-        if (parsed.toolStatus === "running" && toolName && parsed.toolCallId) {
-          next.streamLastToolName = toolName;
-          if (statusUpdate.appended) {
-            next.streamToolCallCount += 1;
-          }
-        } else if (statusUpdate.appended) {
-          next.streamToolCallCount = Math.max(next.streamToolCallCount, next.streamToolCalls.length);
-        }
-        next.toolStatusText = parsed.message || "";
-        next.toolStatusState =
-          parsed.toolStatus === "running" || parsed.toolStatus === "done" || parsed.toolStatus === "failed"
-            ? parsed.toolStatus : "";
-        changed = true;
-        return next;
-      }
-      if (parsed.kind === "reasoning_standard" && delta) {
-        next.reasoningStandard = appendReasoningStandardDelta(
-          next.reasoningStandard,
-          delta,
-          next.pendingReasoningStandardBreak,
-        );
-        if (delta.trim()) {
-          next.pendingReasoningStandardBreak = false;
-        }
-        changed = true;
-        return next;
-      }
-      if (parsed.kind === "reasoning_inline" && delta) {
-        next.reasoningInline += delta;
-        changed = true;
-        return next;
-      }
-      if (delta) {
-        next.assistantText += delta;
-        changed = true;
-      }
-      return next;
-    });
-    return changed;
-  }
-
-  function hasAssistantDraftInMessages(): boolean {
-    return options.allMessages.value.some((message) =>
-      String(message?.id || "").trim().startsWith(DRAFT_ASSISTANT_ID_PREFIX)
-    );
-  }
-
-  function mergeAssistantText(currentText: string, finalText: string): string {
-    const current = String(currentText || "");
-    const finalValue = String(finalText || "");
-    if (!current) return finalValue;
-    if (!finalValue) return current;
-    if (finalValue.startsWith(current)) return finalValue;
-    return finalValue;
-  }
-
-  function readHistoryFlushedPayload(raw: string | undefined): HistoryFlushedPayload | null {
-    const text = String(raw || "").trim();
-    if (!text) return null;
-    try {
-      const parsed = JSON.parse(text) as Record<string, unknown>;
-      return {
-        conversationId: String(parsed.conversationId || "").trim(),
-        messageCount: Math.max(0, Math.round(Number(parsed.messageCount) || 0)),
-        messages: Array.isArray(parsed.messages) ? (parsed.messages as ChatMessage[]) : [],
-        activateAssistant: !!parsed.activateAssistant,
-        compactionApplied: !!parsed.compactionApplied,
-      };
-    } catch {
-      return {
-        conversationId: text,
-        messageCount: 0,
-        messages: [],
-        activateAssistant: false,
-        compactionApplied: false,
-      };
-    }
-  }
-
-  function readRoundCompletedPayload(raw: string | undefined): RoundCompletedPayload | null {
-    const text = String(raw || "").trim();
-    if (!text) return null;
-    try {
-      const parsed = JSON.parse(text) as Record<string, unknown>;
-      return {
-        conversationId: String(parsed.conversationId || "").trim(),
-        activationId: typeof parsed.activationId === "string" ? parsed.activationId : undefined,
-        requestId: typeof parsed.requestId === "string" ? parsed.requestId : undefined,
-        assistantText: String(parsed.assistantText || ""),
-        reasoningStandard: typeof parsed.reasoningStandard === "string" ? parsed.reasoningStandard : undefined,
-        reasoningInline: typeof parsed.reasoningInline === "string" ? parsed.reasoningInline : undefined,
-        archivedBeforeSend: !!parsed.archivedBeforeSend,
-        assistantMessage: (parsed.assistantMessage as ChatMessage | undefined) || undefined,
-      };
-    } catch {
-      return null;
-    }
-  }
-
-  function readRoundFailedPayload(raw: string | undefined): RoundFailedPayload | null {
-    const text = String(raw || "").trim();
-    if (!text) return null;
-    try {
-      const parsed = JSON.parse(text) as Record<string, unknown>;
-      return {
-        conversationId: typeof parsed.conversationId === "string" ? parsed.conversationId : undefined,
-        activationId: typeof parsed.activationId === "string" ? parsed.activationId : undefined,
-        requestId: typeof parsed.requestId === "string" ? parsed.requestId : undefined,
-        error: String(parsed.error || ""),
-      };
-    } catch {
-      return { error: text };
-    }
-  }
-
-  function readDeltaMessage(message: unknown): string {
-    if (typeof message === "string") return message;
-    if (message && typeof message === "object" && "delta" in message) {
-      const value = (message as { delta?: unknown }).delta;
-      return typeof value === "string" ? value : "";
-    }
-    return "";
-  }
-
-  function appendReasoningStandardDelta(current: string, delta: string, shouldStartNewSection: boolean): string {
-    if (!delta) return current;
-    if (!shouldStartNewSection || !current.trim() || !delta.trim()) return `${current}${delta}`;
-    const separator = current.endsWith("\n\n") || current.endsWith("\r\n\r\n")
-      ? ""
-      : current.endsWith("\n") || current.endsWith("\r\n")
-        ? "\n"
-        : "\n\n";
-    return `${current}${separator}${delta.trimStart()}`;
-  }
-
-  function readAssistantEvent(message: unknown): AssistantDeltaEvent {
-    if (!message || typeof message !== "object") return {};
-    const m = message as Record<string, unknown>;
-    return {
-      delta: typeof m.delta === "string" ? m.delta : undefined,
-      kind: typeof m.kind === "string" ? m.kind : undefined,
-      requestId: typeof m.requestId === "string" ? m.requestId : undefined,
-      activationId: typeof m.activationId === "string" ? m.activationId : undefined,
-      phaseId: typeof m.phaseId === "string" ? m.phaseId : undefined,
-      reason: typeof m.reason === "string" ? m.reason : undefined,
-      toolName: typeof m.toolName === "string" ? m.toolName : undefined,
-      toolCallId: typeof m.toolCallId === "string" ? m.toolCallId : undefined,
-      toolStatus: typeof m.toolStatus === "string" ? m.toolStatus : undefined,
-      toolArgs: typeof m.toolArgs === "string" ? m.toolArgs : undefined,
-      message: typeof m.message === "string" ? m.message : undefined,
-    };
-  }
-
-  function summarizeToolCallsText(): string {
-    if (streamToolCallCount <= 0) return "";
-    const extraCount = Math.max(0, streamToolCallCount - 1);
-    return extraCount > 0
-      ? `调用 ${streamLastToolName || "-"} (+${extraCount})`
-      : `调用 ${streamLastToolName || "-"}`;
-  }
-
-  function hasAssistantVisibleOutput(result: {
-    assistantText: string;
-    reasoningStandard?: string;
-    reasoningInline?: string;
-  }): boolean {
-    return (
-      !!result.assistantText.trim() ||
-      !!(result.reasoningStandard || "").trim() ||
-      !!(result.reasoningInline || "").trim()
-    );
-  }
-
-  function buildQueuedAttachmentPayload(): Array<{ fileName: string; relativePath: string; mime: string }> {
-    const list = options.queuedAttachmentNotices?.value || [];
-    if (list.length === 0) return [];
-    return list
-      .map((item) => {
-        const fileName = String(item.fileName || "").trim();
-        const relativePath = String(item.relativePath || "").trim().replace(/\\/g, "/");
-        const mime = String(item.mime || "").trim();
-        if (!fileName || !relativePath) return null;
-        return { fileName, relativePath, mime };
-      })
-      .filter((v): v is { fileName: string; relativePath: string; mime: string } => !!v);
-  }
-
-  function buildImageAttachmentPayload(
-    images: Array<{ mime: string; bytesBase64: string; savedPath?: string }>,
-  ): Array<{ fileName: string; relativePath: string; mime: string }> {
-    const dedup = new Map<string, { fileName: string; relativePath: string; mime: string }>();
-    for (const image of images) {
-      const rawPath = String(image.savedPath || "").trim();
-      if (!rawPath) continue;
-      const relativePath = rawPath.replace(/\\/g, "/");
-      if (!relativePath) continue;
-      const fileName = relativePath.split("/").pop() || "attachment";
-      const mime = String(image.mime || "").trim();
-      const key = `${relativePath}::${mime}`;
-      if (dedup.has(key)) continue;
-      dedup.set(key, { fileName, relativePath, mime });
-    }
-    return Array.from(dedup.values());
-  }
-
-  function buildInstructionExtraTextBlocks(): string[] {
-    const list = options.selectedInstructionPrompts?.value || [];
-    if (list.length === 0) return [];
-    return list
-      .map((item) => {
-        const prompt = String(item?.prompt || "").trim();
-        if (!prompt) return "";
-        return `<user instruction>\n${prompt}\n</user instruction>`;
-      })
-      .filter((item) => !!item);
-  }
-
-  // =========================================================================
-  // Draft 操作 —— 唯一允许写 allMessages 的地方
-  //
-  // insertDraft: history_flushed 时插入空气泡
-  // updateDraftText: 流式期间把 latestAssistantText 同步到气泡
-  // removeDraft: history_flushed 清屏时移除上一轮残留
-  // =========================================================================
-
-  function insertUserDraft(
-    gen: number,
-    text: string,
-    images: Array<{ mime: string; bytesBase64: string; savedPath?: string }>,
-    attachments: Array<{ fileName: string; relativePath: string; mime: string }>,
-    mentions: ChatMentionTarget[],
-  ): string {
-    const draftId = `${DRAFT_USER_ID_PREFIX}${gen}`;
-    const parts: ChatMessage["parts"] = [];
-    const normalizedText = String(text || "");
-    if (normalizedText) {
-      parts.push({ type: "text", text: normalizedText });
-    }
-    for (const image of images) {
-      const mime = String(image.mime || "").trim();
-      const bytesBase64 = String(image.bytesBase64 || "").trim();
-      if (!mime || !bytesBase64) continue;
-      parts.push({ type: "image", mime, bytesBase64 });
-    }
-    const attachmentPayload = [...attachments, ...buildImageAttachmentPayload(images)];
-    const msg: ChatMessage = {
-      id: draftId,
-      role: "user",
-      createdAt: new Date().toISOString(),
-      speakerAgentId: "user-persona",
-      parts,
-      providerMeta: {
-        attachments: attachmentPayload.length > 0 ? attachmentPayload : undefined,
-        message_meta: mentions.length > 0
-          ? {
-              kind: "user_message",
-              mentions: mentions.map((item) => ({
-                agentId: item.agentId,
-                agentName: item.agentName,
-                departmentId: item.departmentId,
-                departmentName: item.departmentName,
-              })),
-            }
-          : undefined,
-        _optimistic: true,
-      },
-    };
-    const cur = options.allMessages.value;
-    const idx = cur.findIndex((m) => m.id === draftId);
-    options.allMessages.value = idx < 0 ? [...cur, msg] : cur.map((m, i) => (i === idx ? msg : m));
-    pendingUserDraftId = draftId;
-    return draftId;
-  }
-
-  function insertDraft(gen: number, initialText = ""): string {
-    const draftId = `${DRAFT_ASSISTANT_ID_PREFIX}${gen}`;
-    const startedAtMs = sendStartedAtMsByGen.get(gen) || 0;
-    const elapsedMs = startedAtMs > 0 ? Math.max(0, Date.now() - startedAtMs) : -1;
-    console.warn("[聊天前端耗时] 助理草稿出现", {
-      gen,
-      elapsedMs,
-      conversationId: String(options.getConversationId ? options.getConversationId() : "").trim(),
-      activeHistoryMessageCount,
-      latestUserTextLength: String(options.latestUserText.value || "").length,
-    });
-    const agentId = String(options.getSession()?.agentId || "").trim();
-    const msg: ChatMessage = {
-      id: draftId,
-      role: "assistant",
-      createdAt: new Date().toISOString(),
-      speakerAgentId: agentId || "assistant-draft",
-      parts: [{ type: "text", text: "" }],
-      providerMeta: {
-        reasoningStandard: "",
-        reasoningInline: "",
-        _streaming: true,
-        _streamSegments: [] as string[],
-        _streamTail: "",
-        _preStreamingStatusText: String(initialText || ""),
-        _frontendDispatchStartedAtMs: frontendDispatchStartedAtMs,
-        _frontendDispatchElapsedMs: currentFrontendDispatchElapsedMs(),
-      },
-    };
-    const cur = options.allMessages.value;
-    const idx = cur.findIndex((m) => m.id === draftId);
-    if (idx >= 0) {
-      options.allMessages.value = cur.map((m, i) => (i === idx ? msg : m));
-      return draftId;
-    }
-    const relatedUserDraftId = `${DRAFT_USER_ID_PREFIX}${gen}`;
-    const userDraftIdx = cur.findIndex((m) => m.id === relatedUserDraftId);
-    if (userDraftIdx >= 0) {
-      options.allMessages.value = [
-        ...cur.slice(0, userDraftIdx + 1),
-        msg,
-        ...cur.slice(userDraftIdx + 1),
-      ];
-      return draftId;
-    }
-    options.allMessages.value = [...cur, msg];
-    return draftId;
-  }
-
-  function updateQueuedAssistantDraftStatus(draftId: string, statusText: string) {
-    if (!draftId) return;
-    const agentId = String(options.getSession()?.agentId || "").trim();
-    const existingDraft = options.allMessages.value.find((item) => item.id === draftId);
-    const existingMeta = ((existingDraft?.providerMeta || {}) as Record<string, unknown>);
-    const msg: ChatMessage = {
-      id: draftId,
-      role: "assistant",
-      createdAt: String(existingDraft?.createdAt || new Date().toISOString()),
-      speakerAgentId: agentId || "assistant-draft",
-      parts: [{ type: "text", text: "" }],
-      providerMeta: {
-        ...existingMeta,
-        reasoningStandard: "",
-        reasoningInline: "",
-        _streaming: true,
-        _streamSegments: [] as string[],
-        _streamTail: "",
-        _streamAnimatedDelta: "",
-        _preStreamingStatusText: String(statusText || ""),
-        _frontendDispatchStartedAtMs: frontendDispatchStartedAtMs,
-        _frontendDispatchElapsedMs: currentFrontendDispatchElapsedMs(),
-      },
-    };
-    const cur = options.allMessages.value;
-    const idx = cur.findIndex((m) => m.id === draftId);
-    if (idx >= 0) {
-      options.allMessages.value = cur.map((m, i) => (i === idx ? msg : m));
-    } else {
-      const gen = Number(String(draftId).split(":").pop() || 0);
-      const relatedUserDraftId = `${DRAFT_USER_ID_PREFIX}${gen}`;
-      const userDraftIdx = cur.findIndex((m) => m.id === relatedUserDraftId);
-      options.allMessages.value = userDraftIdx >= 0
-        ? [
-            ...cur.slice(0, userDraftIdx + 1),
-            msg,
-            ...cur.slice(userDraftIdx + 1),
-          ]
-        : [...cur, msg];
-    }
-    console.info("[聊天草稿] 更新预流式草稿状态", {
-      draftId,
-      statusText,
-      conversationId: String(options.getConversationId ? options.getConversationId() : "").trim(),
-    });
-  }
-
-  function readDraftStreamSegments(draftId: string): string[] {
-    if (!draftId) return [];
-    const draft = options.allMessages.value.find((item) => item.id === draftId);
-    const meta = (draft?.providerMeta || {}) as Record<string, unknown>;
-    if (!Array.isArray(meta._streamSegments)) return [];
-    return (meta._streamSegments as unknown[])
-      .map((item) => String(item ?? ""))
-      .filter((item) => item.length > 0);
-  }
-
-  function readDraftStreamTail(draftId: string): string {
-    if (!draftId) return "";
-    const draft = options.allMessages.value.find((item) => item.id === draftId);
-    const meta = (draft?.providerMeta || {}) as Record<string, unknown>;
-    return String(meta._streamTail ?? "");
-  }
-
-  function syncStreamToolCallsToDraft(draftId: string) {
-    if (!draftId || !options.streamToolCalls) return;
-    const calls = options.streamToolCalls.value.map((item) => ({ ...item }));
-    options.allMessages.value = options.allMessages.value.map((message) => {
-      if (message.id !== draftId) return message;
-      const meta = ((message.providerMeta || {}) as Record<string, unknown>);
-      return {
-        ...message,
-        providerMeta: {
-          ...meta,
-          _streamToolCalls: calls,
-        },
-      };
-    });
-  }
-
-  function consumeClosedMarkdownBlocks(input: string): { chunks: string[]; tail: string } {
-    const chunks: string[] = [];
-    let cursor = 0;
-    let scan = 0;
-    let inFence = false;
-    let fenceMarker = "";
-    let lineStart = 0;
-    let lastSafe = 0;
-    let prevBlank = false;
-
-    while (scan <= input.length) {
-      const isEnd = scan === input.length;
-      const ch = isEnd ? "\n" : input[scan];
-      if (ch !== "\n" && !isEnd) {
-        scan += 1;
-        continue;
-      }
-      const lineEnd = scan;
-      const line = input.slice(lineStart, lineEnd);
-      const trimmed = line.trimStart();
-      const isBlank = line.trim().length === 0;
-
-      if (!inFence && (trimmed.startsWith("```") || trimmed.startsWith("~~~"))) {
-        inFence = true;
-        fenceMarker = trimmed.startsWith("~~~") ? "~~~" : "```";
-      } else if (inFence && fenceMarker && trimmed.startsWith(fenceMarker)) {
-        inFence = false;
-        lastSafe = isEnd ? lineEnd : lineEnd + 1;
-      }
-
-      if (!inFence && prevBlank && !isBlank) {
-        const splitAt = lineStart;
-        if (splitAt > cursor) {
-          const chunk = input.slice(cursor, splitAt).trim();
-          if (chunk) chunks.push(chunk);
-          cursor = splitAt;
-          lastSafe = splitAt;
-        }
-      }
-
-      prevBlank = isBlank;
-      lineStart = scan + 1;
-      scan += 1;
-    }
-
-    if (lastSafe > cursor) {
-      const chunk = input.slice(cursor, lastSafe).trim();
-      if (chunk) chunks.push(chunk);
-      cursor = lastSafe;
-    }
-
-    const tail = input.slice(cursor);
-    return { chunks, tail };
-  }
-
-  function updateDraftText(
-    draftId: string,
-    streamSegments?: string[],
-    streamTail?: string,
-    streamAnimatedDelta = "",
-  ) {
-    if (!draftId) return;
-    const agentId = String(options.getSession()?.agentId || "").trim();
-    const existingDraft = options.allMessages.value.find((item) => item.id === draftId);
-    const existingDraftText = readMessagePlainText(existingDraft);
-    const nextAssistantText = String(options.latestAssistantText.value || "");
-    const shouldPreserveExistingDraftText =
-      !!existingDraft
-      && !nextAssistantText
-      && !!existingDraftText
-      && (
-        !!String(options.toolStatusText.value || "").trim()
-        || (options.streamToolCalls?.value.length || 0) > 0
-      );
-    if (shouldPreserveExistingDraftText) {
-      options.latestAssistantText.value = existingDraftText;
-    }
-    const nextStreamSegments = streamSegments || readDraftStreamSegments(draftId);
-    const nextStreamTail = streamTail ?? readDraftStreamTail(draftId);
-    const nextReasoningStandard = String(options.latestReasoningStandardText.value || "");
-    const nextReasoningInline = String(options.latestReasoningInlineText.value || "");
-    const hasVisibleStreamContent =
-      !!String(options.latestAssistantText.value || "").trim()
-      || !!nextReasoningStandard.trim()
-      || !!nextReasoningInline.trim()
-      || nextStreamSegments.some((item) => !!String(item || "").trim())
-      || !!String(nextStreamTail || "").trim()
-      || (options.streamToolCalls?.value.length || 0) > 0;
-    const preStreamingStatusText = hasVisibleStreamContent
-      ? ""
-      : String(options.toolStatusText.value || "").trim();
-    const msg: ChatMessage = {
-      id: draftId,
-      role: "assistant",
-      createdAt: String(existingDraft?.createdAt || new Date().toISOString()),
-      speakerAgentId: agentId || "assistant-draft",
-      parts: [{ type: "text", text: String(options.latestAssistantText.value || "") }],
-      providerMeta: {
-        reasoningStandard: nextReasoningStandard,
-        reasoningInline: nextReasoningInline,
-        _streaming: true,
-        _streamSegments: nextStreamSegments,
-        _streamTail: nextStreamTail,
-        _streamAnimatedDelta: String(streamAnimatedDelta || ""),
-        _preStreamingStatusText: preStreamingStatusText,
-        _frontendDispatchStartedAtMs: frontendDispatchStartedAtMs,
-        _frontendDispatchElapsedMs: currentFrontendDispatchElapsedMs(),
-        _streamToolCalls: Array.isArray(options.streamToolCalls?.value)
-          ? options.streamToolCalls.value.map((item) => ({ ...item }))
-          : [] as StreamToolCallView[],
-      },
-    };
-    const cur = options.allMessages.value;
-    const idx = cur.findIndex((m) => m.id === draftId);
-    options.allMessages.value = idx < 0 ? [...cur, msg] : cur.map((m, i) => (i === idx ? msg : m));
-  }
-
-  function removeDraft(draftId: string) {
-    if (!draftId) return;
-    if (draftId === pendingUserDraftId) {
-      pendingUserDraftId = "";
-    }
-    options.allMessages.value = options.allMessages.value.filter((m) => m.id !== draftId);
-  }
-
-  function removeAssistantDrafts() {
-    options.allMessages.value = options.allMessages.value.filter((message) => {
-      const messageId = String(message?.id || "").trim();
-      return !messageId.startsWith(DRAFT_ASSISTANT_ID_PREFIX);
-    });
-  }
-
-  function finalizeDraft(draftId: string, finalMessage?: ChatMessage) {
-    if (!draftId) return;
-    const current = options.allMessages.value;
-    const draftIdx = current.findIndex((m) => m.id === draftId);
-    if (draftIdx < 0) return;
-
-    if (finalMessage) {
-      const deduped = current.filter((m, idx) => idx === draftIdx || m.id !== finalMessage.id);
-      const nextDraftIdx = deduped.findIndex((m) => m.id === draftId);
-      if (nextDraftIdx < 0) {
-        options.allMessages.value = deduped;
-        return;
-      }
-      options.allMessages.value = deduped.map((m, idx) => (idx === nextDraftIdx ? finalMessage : m));
-      return;
-    }
-
-    // 没有后端正式消息时，至少将 draft 退为非 streaming，避免残留流式态。
-    const draft = current[draftIdx];
-    const draftMeta = ((draft.providerMeta || {}) as Record<string, unknown>);
-    const nextMeta = { ...draftMeta };
-    delete (nextMeta as Record<string, unknown>)._streaming;
-    const normalized: ChatMessage = { ...draft, providerMeta: nextMeta };
-    options.allMessages.value = current.map((m, idx) => (idx === draftIdx ? normalized : m));
-  }
-
-  // =========================================================================
-  // 流式输出
-  // =========================================================================
-
-  function applyAssistantDeltaToDraft(draftId: string, delta: string) {
-    if (!draftId || !delta) return;
-    options.latestAssistantText.value += delta;
-    const currentSegments = readDraftStreamSegments(draftId);
-    const currentTail = readDraftStreamTail(draftId);
-    const parsed = consumeClosedMarkdownBlocks(`${currentTail}${delta}`);
-    const nextStreamSegments = parsed.chunks.length > 0
-      ? [...currentSegments, ...parsed.chunks]
-      : currentSegments;
-    updateDraftText(draftId, nextStreamSegments, parsed.tail, delta);
-  }
-
-  function finalizeDeferredRoundCompletion() {
-    if (!deferredRoundCompletion) return;
-    if (round.phase !== "streaming" || round.gen !== deferredRoundCompletion.gen) {
-      deferredRoundCompletion = null;
-      return;
-    }
-    const { draftId } = round;
-    const { result } = deferredRoundCompletion;
-    deferredRoundCompletion = null;
-
-    options.latestAssistantText.value = mergeAssistantText(
-      options.latestAssistantText.value,
-      String(result.assistantText || ""),
-    );
-
-    if (typeof result.reasoningStandard === "string") {
-      options.latestReasoningStandardText.value = result.reasoningStandard;
-      pendingReasoningStandardBreak = false;
-    }
-    if (typeof result.reasoningInline === "string") {
-      options.latestReasoningInlineText.value = result.reasoningInline;
-    }
-    options.chatErrorText.value = "";
-    if ((options.toolStatusState.value as string) === "running") {
-      options.toolStatusState.value = "done";
-      options.toolStatusText.value = summarizeToolCallsText() || options.t("status.toolCallDone");
-    }
-
-    updateDraftText(draftId);
-    finalizeDraft(draftId, result.assistantMessage);
-    clearConversationStreamCache(options.getConversationId ? options.getConversationId() : "");
-    clearFrontendDispatchTimer();
-    activeActivationId = "";
-    setRound({ phase: "idle" });
-    options.chatting.value = false;
-    reasoningStartedAtMs.value = 0;
-  }
-
-  async function finalizeQueuedRoundWithoutDraft(
-    gen: number,
-    result: {
-      assistantText: string;
-      reasoningStandard?: string;
-      reasoningInline?: string;
-      assistantMessage?: ChatMessage;
-    },
-  ) {
-    sendStartedAtMsByGen.delete(gen);
-    if (round.phase !== "queued" || round.gen !== gen) return;
-    removeDraft(`${DRAFT_ASSISTANT_ID_PREFIX}${gen}`);
-    pendingTerminalEvent = null;
-    deferredRoundCompletion = null;
-    queuedStreamingState = null;
-    clearConversationStreamCache(options.getConversationId ? options.getConversationId() : "");
-    clearFrontendDispatchTimer();
-    activeActivationId = "";
-    options.chatErrorText.value = "";
-    setRound({ phase: "idle" });
-    options.chatting.value = false;
-    reasoningStartedAtMs.value = 0;
-    await options.onReloadMessages();
-  }
-
-  async function failQueuedRoundWithoutDraft(gen: number, error: unknown) {
-    sendStartedAtMsByGen.delete(gen);
-    if (round.phase !== "queued" || round.gen !== gen) return;
-    removeDraft(`${DRAFT_ASSISTANT_ID_PREFIX}${gen}`);
-    pendingTerminalEvent = null;
-    deferredRoundCompletion = null;
-    queuedStreamingState = null;
-    clearConversationStreamCache(options.getConversationId ? options.getConversationId() : "");
-    clearFrontendDispatchTimer();
-    activeActivationId = "";
-    options.latestAssistantText.value = "";
-    options.latestReasoningStandardText.value = "";
-    options.latestReasoningInlineText.value = "";
-    pendingReasoningStandardBreak = false;
-    options.chatErrorText.value = options.formatRequestFailed(error);
-    if (!options.toolStatusText.value) {
-      options.toolStatusState.value = "failed";
-      options.toolStatusText.value = summarizeToolCallsText() || options.t("status.toolCallFailed");
-    }
-    if (pendingUserDraftId === `${DRAFT_USER_ID_PREFIX}${gen}`) {
-      removeDraft(pendingUserDraftId);
-    }
-    setRound({ phase: "idle" });
-    options.chatting.value = false;
-    reasoningStartedAtMs.value = 0;
-    await options.onReloadMessages();
-  }
-
-  function enqueueStreamDelta(gen: number, delta: string) {
-    if (round.phase !== "streaming" || round.gen !== gen || !delta) return;
-    applyAssistantDeltaToDraft(round.draftId, delta);
-    finalizeDeferredRoundCompletion();
-  }
-
   // =========================================================================
   // 显示状态重置（只在 history_flushed 清屏时调用）
   // =========================================================================
 
   function resetDisplayState() {
-    deferredRoundCompletion = null;
-    queuedStreamingState = null;
-    streamToolCallCount = 0;
-    streamLastToolName = "";
-    options.latestUserText.value = "";
-    options.latestUserImages.value = [];
-    options.latestAssistantText.value = "";
-    options.latestReasoningStandardText.value = "";
-    options.latestReasoningInlineText.value = "";
-    pendingReasoningStandardBreak = false;
-    options.toolStatusText.value = "";
-    options.toolStatusState.value = "";
-    if (options.streamToolCalls) options.streamToolCalls.value = [];
+    foregroundReset.resetDisplayState();
   }
 
   function clearForegroundRoundState() {
-    ++generation;
-    sendChatActiveGen = 0;
-    activeActivationId = "";
-    deferredRoundCompletion = null;
-    clearFrontendDispatchTimer();
-    if (pendingUserDraftId) {
-      removeDraft(pendingUserDraftId);
-    }
-    if (round.phase === "streaming") {
-      removeDraft(round.draftId);
-    } else if (round.phase === "queued") {
-      removeDraft(`${DRAFT_ASSISTANT_ID_PREFIX}${round.gen}`);
-    }
-    setRound({ phase: "idle" });
-    activeHistoryMessageCount = 0;
-    options.chatting.value = false;
-    reasoningStartedAtMs.value = 0;
-    resetDisplayState();
-    options.chatErrorText.value = "";
+    foregroundReset.clearForegroundRoundState();
   }
 
   function clearForegroundRuntimeState() {
-    ++generation;
-    const conversationId = options.getConversationId ? options.getConversationId() : "";
-    sendChatActiveGen = 0;
-    boundDisplayGeneration = 0;
-    historyFlushedReceivedGen = 0;
-    activeActivationId = "";
-    pendingTerminalEvent = null;
-    deferredRoundCompletion = null;
-    queuedStreamingState = null;
-    clearFrontendDispatchTimer();
-    if (pendingUserDraftId) {
-      removeDraft(pendingUserDraftId);
-    }
-    removeAssistantDrafts();
-    setRound({ phase: "idle" });
-    activeHistoryMessageCount = 0;
-    options.chatting.value = false;
-    reasoningStartedAtMs.value = 0;
-    resetDisplayState();
-    options.chatErrorText.value = "";
-    clearConversationStreamCache(conversationId);
-  }
-
-  function readMessagePlainText(message?: ChatMessage): string {
-    if (!message) return "";
-    const parts = Array.isArray(message.parts) ? message.parts : [];
-    return parts
-      .filter((part) => part && typeof part === "object" && (part as { type?: unknown }).type === "text")
-      .map((part) => String((part as { text?: unknown }).text || ""))
-      .join("");
+    foregroundReset.clearForegroundRuntimeState();
   }
 
   function freezeForegroundRoundState() {
-    ++generation;
-    sendChatActiveGen = 0;
-    const conversationId = options.getConversationId ? options.getConversationId() : "";
-    if (round.phase === "streaming") {
-      syncCurrentDisplayStateToConversationStreamCache(conversationId);
-      clearFrontendDispatchTimer();
-      console.info("[聊天流式阶段] 前台冻结并保留流式缓存", {
-        conversationId,
-        roundGen: round.gen,
-        assistantTextLength: String(options.latestAssistantText.value || "").length,
-        reasoningStandardLength: String(options.latestReasoningStandardText.value || "").length,
-        reasoningInlineLength: String(options.latestReasoningInlineText.value || "").length,
-      });
-    } else if (round.phase === "queued") {
-      syncCurrentDisplayStateToConversationStreamCache(conversationId);
-      clearFrontendDispatchTimer();
-    }
-    if (pendingUserDraftId) {
-      removeDraft(pendingUserDraftId);
-    }
-    if (round.phase === "streaming") {
-      finalizeDraft(round.draftId);
-    } else if (round.phase === "queued") {
-      removeDraft(`${DRAFT_ASSISTANT_ID_PREFIX}${round.gen}`);
-    }
-    setRound({ phase: "idle" });
-    activeHistoryMessageCount = 0;
-    options.chatting.value = false;
-    reasoningStartedAtMs.value = 0;
-    resetDisplayState();
-    options.chatErrorText.value = "";
+    foregroundReset.freezeForegroundRoundState();
   }
 
   function beginAssistantActivationFromEvent(payload: RoundStartedPayload): number {
-    const payloadConversationId = normalizeConversationId(payload.conversationId);
-    const currentConversationId = normalizeConversationId(options.getConversationId ? options.getConversationId() : "");
-    if (currentConversationId && payloadConversationId && currentConversationId !== payloadConversationId) {
-      return 0;
-    }
-    const nextActivationId = String(payload.activationId || payload.requestId || "").trim();
-    const cid = payloadConversationId || currentConversationId;
-    if (activeActivationId && nextActivationId && activeActivationId === nextActivationId && round.phase !== "idle") {
-      return round.gen;
-    }
-    if (cid) clearConversationStreamCache(cid);
-    activeActivationId = nextActivationId;
-    let gen = round.phase === "queued" ? round.gen : sendChatActiveGen;
-    if (!gen) {
-      gen = ++generation;
-      boundDisplayGeneration = gen;
-      pendingTerminalEvent = null;
-      deferredRoundCompletion = null;
-      queuedStreamingState = null;
-      removeAssistantDrafts();
-      resetDisplayState();
-      activeHistoryMessageCount = formalizeMessages(options.allMessages.value).length;
-      setRound({ phase: "queued", gen }, "waiting");
-    }
-    startFrontendDispatchTimer(gen, sendStartedAtMsByGen.get(gen));
-    options.chatting.value = true;
-    updateQueuedAssistantDraftStatus(`${DRAFT_ASSISTANT_ID_PREFIX}${gen}`, options.t("chat.statusWaitingReply"));
-    frontendRoundPhase.value = "waiting";
-    return gen;
-  }
-
-  function applyQueuedStreamingStateIfNeeded(draftId: string) {
-    if (!queuedStreamingState) return;
-    options.latestAssistantText.value = queuedStreamingState.assistantText;
-    options.latestReasoningStandardText.value = queuedStreamingState.reasoningStandard;
-    options.latestReasoningInlineText.value = queuedStreamingState.reasoningInline;
-    options.toolStatusText.value = queuedStreamingState.toolStatusText;
-    options.toolStatusState.value = queuedStreamingState.toolStatusState;
-    if (options.streamToolCalls) {
-      options.streamToolCalls.value = queuedStreamingState.streamToolCalls;
-    }
-    streamToolCallCount = queuedStreamingState.streamToolCallCount;
-    streamLastToolName = queuedStreamingState.streamLastToolName;
-    if (queuedStreamingState.frontendDispatchStartedAtMs || queuedStreamingState.frontendDispatchElapsedMs) {
-      startFrontendDispatchTimer(
-        round.phase === "streaming" ? round.gen : frontendDispatchTimerGen,
-        queuedStreamingState.frontendDispatchStartedAtMs,
-        queuedStreamingState.frontendDispatchElapsedMs,
-      );
-    }
-    queuedStreamingState = null;
-    updateDraftText(draftId);
+    return foregroundRounds?.beginAssistantActivationFromEvent(payload) ?? 0;
   }
 
   function ensureForegroundWaitingRound(statusText = options.t("chat.statusWaitingReply")) {
-    if (round.phase === "queued") {
-      startFrontendDispatchTimer(round.gen, frontendDispatchStartedAtMs || undefined, frontendDispatchElapsedMs);
-      updateQueuedAssistantDraftStatus(`${DRAFT_ASSISTANT_ID_PREFIX}${round.gen}`, statusText);
-      options.chatting.value = true;
-      frontendRoundPhase.value = "waiting";
-      return round.gen;
-    }
-    if (round.phase === "streaming") {
-      startFrontendDispatchTimer(round.gen, frontendDispatchStartedAtMs || undefined, frontendDispatchElapsedMs);
-      if (!hasAssistantDraftInMessages()) {
-        const draftId = insertDraft(round.gen, statusText);
-        updateDraftText(draftId);
-        setRound({ phase: "streaming", gen: round.gen, draftId });
-      }
-      options.chatting.value = true;
-      return round.gen;
-    }
-    const gen = ++generation;
-    boundDisplayGeneration = gen;
-    pendingTerminalEvent = null;
-    deferredRoundCompletion = null;
-    queuedStreamingState = null;
-    activeHistoryMessageCount = formalizeMessages(options.allMessages.value).length;
-    setRound({ phase: "queued", gen }, "waiting");
-    startFrontendDispatchTimer(gen);
-    options.chatting.value = true;
-    updateQueuedAssistantDraftStatus(`${DRAFT_ASSISTANT_ID_PREFIX}${gen}`, statusText);
-    return gen;
+    return foregroundRounds?.ensureForegroundWaitingRound(statusText) ?? 0;
   }
 
   function ensureForegroundStreamingRound() {
-    const conversationId = options.getConversationId ? options.getConversationId() : "";
-    if (round.phase === "streaming") {
-      if (!hasAssistantDraftInMessages()) {
-        if (options.streamToolCalls) options.streamToolCalls.value = [];
-        applyConversationStreamCacheToDisplay(conversationId);
-        const draftId = insertDraft(round.gen);
-        updateDraftText(draftId);
-        setRound({ phase: "streaming", gen: round.gen, draftId });
-      } else {
-        loadStreamToolCallsFromDraft(round.draftId);
-      }
-      return round.gen;
-    }
-    const gen = ++generation;
-    if (options.streamToolCalls) options.streamToolCalls.value = [];
-    const existingDraft = [...options.allMessages.value]
-      .reverse()
-      .find((message) => String(message?.id || "").trim().startsWith(DRAFT_ASSISTANT_ID_PREFIX));
-    const existingDraftId = String(existingDraft?.id || "").trim();
-    const existingDraftMeta = ((existingDraft?.providerMeta || {}) as Record<string, unknown>);
-    const restoredFromCache = !existingDraftId && applyConversationStreamCacheToDisplay(conversationId);
-    if (existingDraftId && !frontendDispatchStartedAtMs) {
-      frontendDispatchStartedAtMs = positiveRoundedNumber(existingDraftMeta._frontendDispatchStartedAtMs);
-      frontendDispatchElapsedMs = positiveRoundedNumber(existingDraftMeta._frontendDispatchElapsedMs);
-    }
-    console.info("[聊天流式阶段] 前台恢复流式投影", {
-      conversationId,
-      restoredFromCache,
-      existingDraftId,
-      assistantTextLength: String(options.latestAssistantText.value || "").length,
-      roundPhase: round.phase,
-    });
-    if (!restoredFromCache) {
-      options.latestAssistantText.value = readMessagePlainText(existingDraft);
-      options.latestReasoningStandardText.value = String(existingDraftMeta.reasoningStandard || "");
-      options.latestReasoningInlineText.value = String(existingDraftMeta.reasoningInline || "");
-      pendingReasoningStandardBreak = false;
-    }
-    activeHistoryMessageCount = formalizeMessages(options.allMessages.value).length;
-    const draftId = existingDraftId || insertDraft(gen);
-    if (existingDraftId) {
-      loadStreamToolCallsFromDraft(draftId);
-    }
-    if (existingDraftId || restoredFromCache) {
-      updateDraftText(draftId);
-    }
-    setRound({ phase: "streaming", gen, draftId });
-    startFrontendDispatchTimer(gen, frontendDispatchStartedAtMs || undefined, frontendDispatchElapsedMs);
-    options.chatting.value = true;
-    applyQueuedStreamingStateIfNeeded(draftId);
-    return gen;
+    return foregroundRounds?.ensureForegroundStreamingRound() ?? 0;
   }
 
   function resumeForegroundRuntimeRound(input?: ResumeForegroundRuntimeRoundInput) {
-    const conversationId = normalizeConversationId(input?.conversationId || (options.getConversationId ? options.getConversationId() : ""));
-    if (!conversationId) return 0;
-    if (input?.streamCache) {
-      writeConversationStreamCacheSnapshot(conversationId, input.streamCache);
-    }
-    const cache = readConversationStreamCache(conversationId);
-    const hasVisibleProgress =
-      !!input?.streamCache?.hasVisibleProgress
-      || streamCacheHasVisibleProgress(input?.streamCache)
-      || streamCacheHasVisibleProgress(cache);
-    console.info("[聊天流式恢复] 应用后端运行态快照", {
-      conversationId,
-      reason: String(input?.reason || ""),
-      hasVisibleProgress,
-      assistantTextLength: String(cache?.assistantText || input?.streamCache?.assistantText || "").length,
-      reasoningStandardLength: String(cache?.reasoningStandard || input?.streamCache?.reasoningStandard || "").length,
-      reasoningInlineLength: String(cache?.reasoningInline || input?.streamCache?.reasoningInline || "").length,
-      toolCallCount: Math.max(
-        Number(cache?.streamToolCallCount || 0),
-        Number(input?.streamCache?.streamToolCallCount || 0),
-      ),
-    });
-    return hasVisibleProgress
-      ? ensureForegroundStreamingRound()
-      : ensureForegroundWaitingRound(input?.statusText || options.t("chat.statusWaitingReply"));
+    return foregroundRounds?.resumeForegroundRuntimeRound(input) ?? 0;
+  }
+
+  function resumeForegroundStreamCacheProjection(input?: { conversationId?: string | null; reason?: string }) {
+    return foregroundRounds?.resumeForegroundStreamCacheProjection(input) ?? 0;
   }
 
   function promoteQueuedRoundToStreaming(gen: number) {
-    if (round.phase === "streaming" && round.gen === gen) {
-      return gen;
-    }
-    if (round.phase !== "queued" || round.gen !== gen) {
-      return 0;
-    }
-    const conversationId = options.getConversationId ? options.getConversationId() : "";
-    if (options.streamToolCalls) options.streamToolCalls.value = [];
-    const existingDraft = [...options.allMessages.value]
-      .reverse()
-      .find((message) => String(message?.id || "").trim().startsWith(DRAFT_ASSISTANT_ID_PREFIX));
-    const existingDraftId = String(existingDraft?.id || "").trim();
-    const existingDraftMeta = ((existingDraft?.providerMeta || {}) as Record<string, unknown>);
-    const restoredFromCache = !existingDraftId && applyConversationStreamCacheToDisplay(conversationId);
-    if (existingDraftId && !frontendDispatchStartedAtMs) {
-      frontendDispatchStartedAtMs = positiveRoundedNumber(existingDraftMeta._frontendDispatchStartedAtMs);
-      frontendDispatchElapsedMs = positiveRoundedNumber(existingDraftMeta._frontendDispatchElapsedMs);
-    }
-    if (!restoredFromCache) {
-      options.latestAssistantText.value = readMessagePlainText(existingDraft);
-      options.latestReasoningStandardText.value = String(existingDraftMeta.reasoningStandard || "");
-      options.latestReasoningInlineText.value = String(existingDraftMeta.reasoningInline || "");
-      pendingReasoningStandardBreak = false;
-    }
-    activeHistoryMessageCount = formalizeMessages(options.allMessages.value).length;
-    const draftId = existingDraftId || insertDraft(gen);
-    if (existingDraftId) {
-      loadStreamToolCallsFromDraft(draftId);
-    }
-    if (existingDraftId || restoredFromCache) {
-      updateDraftText(draftId);
-    }
-    setRound({ phase: "streaming", gen, draftId });
-    startFrontendDispatchTimer(gen, frontendDispatchStartedAtMs || undefined, frontendDispatchElapsedMs);
-    options.chatting.value = true;
-    applyQueuedStreamingStateIfNeeded(draftId);
-    applyPendingTerminalEvent(gen);
-    return gen;
-  }
-
-  function assistantEventHasVisibleProgress(parsed: AssistantDeltaEvent): boolean {
-    return (
-      !!readDeltaMessage(parsed)
-      || parsed.kind === "reasoning_standard"
-      || parsed.kind === "reasoning_inline"
-      || parsed.kind === "tool_status"
-    );
-  }
-
-  function formalizeMessages(messages: ChatMessage[]): ChatMessage[] {
-    return messages.filter((item) => {
-      const messageId = String(item?.id || "").trim();
-      return (
-        !messageId.startsWith(DRAFT_ASSISTANT_ID_PREFIX)
-        && !messageId.startsWith(DRAFT_USER_ID_PREFIX)
-      );
-    });
+    return foregroundRounds?.promoteQueuedRoundToStreaming(gen) ?? 0;
   }
 
   // =========================================================================
@@ -1793,136 +676,19 @@ export function useChatFlow(options: UseChatFlowOptions) {
     source: "sendChat" | "bound",
   ) {
     const flushed = readHistoryFlushedPayload(parsed.message);
-    const startedAtMs = sendStartedAtMsByGen.get(gen) || 0;
-    const elapsedMs = startedAtMs > 0 ? Math.max(0, Date.now() - startedAtMs) : -1;
-    const wasQueuedForActivation = !!flushed?.activateAssistant;
-    const shouldForceReset = !!flushed?.compactionApplied;
-    console.warn("[聊天前端耗时] history_flushed 到达", {
-      source,
-      gen,
-      elapsedMs,
-      conversationId: String(flushed?.conversationId || "").trim(),
-      wasQueuedForActivation,
-      shouldForceReset,
-      messageCount: Math.max(0, Math.round(Number(flushed?.messageCount || 0))),
-    });
-    console.info("[CHAT_TRACE][history_flushed] 开始", {
-      source,
-      gen,
-      sendChatActiveGen,
-      wasQueuedForActivation,
-      shouldForceReset,
-      payloadConversationId: String(flushed?.conversationId || "").trim(),
-    });
-    const replayMessages = Array.isArray(flushed?.messages) ? flushed!.messages : [];
-    console.info("[CHAT_TRACE][history_flushed] 完成", {
-      source,
-      gen,
-      wasQueuedForActivation,
-      shouldForceReset,
-      payloadConversationId: String(flushed?.conversationId || "").trim(),
-      replayCount: replayMessages.length,
-      messageCount: Number(flushed?.messageCount || 0),
-      firstMessageId: String(replayMessages[0]?.id || ""),
-      lastMessageId: String(replayMessages[replayMessages.length - 1]?.id || ""),
-    });
-    // 测试里 history_flushed 可能只给 messageCount，不给 messages 数组。
-    // 若只看 replayMessages.length，会把可见窗口错误压成 1，导致轮次显示异常。
-    const payloadMessageCount = Math.max(0, Math.round(Number(flushed?.messageCount || 0)));
-    const batchVisibleCount = Math.max(1, replayMessages.length, payloadMessageCount);
-    activeHistoryMessageCount = batchVisibleCount;
-    const shouldPreserveStreamingState =
-      round.phase === "streaming" && round.gen === gen;
-    const preservedStreamingState = shouldPreserveStreamingState ? {
-      assistantText: options.latestAssistantText.value,
-      reasoningStandard: options.latestReasoningStandardText.value,
-      reasoningInline: options.latestReasoningInlineText.value,
-      toolStatusText: options.toolStatusText.value,
-      toolStatusState: options.toolStatusState.value,
-      streamToolCalls: options.streamToolCalls ? [...options.streamToolCalls.value] : [],
-      streamToolCallCount,
-      streamLastToolName,
-      frontendDispatchStartedAtMs,
-      frontendDispatchElapsedMs: currentFrontendDispatchElapsedMs(),
-    } : null;
-    const shouldKeepStreamingDraft =
-      !shouldForceReset
-      && round.phase === "streaming"
-      && hasAssistantDraftInMessages()
-      && (
-        options.toolStatusState.value === "running"
-        || (options.streamToolCalls?.value.length || 0) > 0
-      );
-    if (shouldForceReset) {
-      // 上下文整理改写消息序列时，先强制收口当前显示态。
-      if (!shouldKeepStreamingDraft) {
-        const oldDraftId = round.phase === "streaming" ? round.draftId : "";
-        resetDisplayState();
-        if (oldDraftId) removeDraft(oldDraftId);
-        setRound({ phase: "idle" });
-        clearFrontendDispatchTimer();
-      }
-      queuedStreamingState = preservedStreamingState;
-    }
-
-    // ── reload ──
-    if (options.onHistoryFlushed) {
-      console.info("[CHAT_TRACE][history_flushed] apply_start", {
-        source,
-        gen,
-        wasQueuedForActivation,
-        shouldForceReset,
-        batchVisibleCount,
-      });
+    if (flushed && options.onHistoryFlushed) {
       await options.onHistoryFlushed({
-        conversationId: String(flushed?.conversationId || "").trim(),
-        messageCount: batchVisibleCount,
-        pendingMessages: replayMessages,
-        activateAssistant: wasQueuedForActivation,
+        conversationId: flushed.conversationId,
+        messageCount: flushed.messageCount,
+        pendingMessages: flushed.messages,
+        activateAssistant: !!flushed.activateAssistant,
       });
-      console.info("[CHAT_TRACE][history_flushed] apply_done", {
-        source,
-        gen,
-        wasQueuedForActivation,
-        shouldForceReset,
-        batchVisibleCount,
-      });
-    } else {
-      await options.onReloadMessages();
     }
-
-    if (!wasQueuedForActivation) {
-      // await 期间可能有新的 sendChat/轮次启动，避免回写旧状态覆盖新轮次。
-      // 对 sendChat 的激活批次，history_flushed 只完成历史合并，不收回 queued；等待 round_started。
-      if (gen !== generation) return;
-      setRound({ phase: "idle" });
-      clearFrontendDispatchTimer();
-      options.chatting.value = false;
-      console.info("[CHAT_TRACE][history_flushed] non_activate_finish", {
-        source,
-        gen,
-        generation,
-      });
-      return;
-    }
+    await roundEvents.handleHistoryFlushed(gen, parsed, source);
   }
 
   async function markRoundStarted(gen: number) {
-    if (round.phase !== "queued" || round.gen !== gen) return;
-    if (pendingTerminalEvent && pendingTerminalEvent.gen === gen) {
-      const pending = pendingTerminalEvent;
-      pendingTerminalEvent = null;
-      queuedStreamingState = null;
-      if (pending.kind === "completed") {
-        await finalizeQueuedRoundWithoutDraft(gen, pending.result);
-        return;
-      }
-      await failQueuedRoundWithoutDraft(gen, pending.error);
-      return;
-    }
-    updateQueuedAssistantDraftStatus(`${DRAFT_ASSISTANT_ID_PREFIX}${gen}`, options.t("chat.statusWaitingReply"));
-    options.chatting.value = true;
-    frontendRoundPhase.value = "waiting";
+    await roundEvents.markRoundStarted(gen);
   }
 
   /**
@@ -1938,484 +704,22 @@ export function useChatFlow(options: UseChatFlowOptions) {
       assistantMessage?: ChatMessage;
     },
   ) {
-    sendStartedAtMsByGen.delete(gen);
-    if (round.phase === "queued" && round.gen === gen) {
-      await finalizeQueuedRoundWithoutDraft(gen, result);
-      return;
-    }
-    if (round.phase !== "streaming" || round.gen !== gen) return;
-    deferredRoundCompletion = { gen, result };
-    finalizeDeferredRoundCompletion();
+    await roundEvents.handleRoundCompleted(gen, result);
   }
 
   async function handleRoundFailed(gen: number, error: unknown) {
-    sendStartedAtMsByGen.delete(gen);
-    if (isChatAbortedByUser(error)) {
-      if ((round.phase === "streaming" || round.phase === "queued") && round.gen === gen) {
-        clearConversationStreamCache(options.getConversationId ? options.getConversationId() : "");
-        activeActivationId = "";
-        setRound({ phase: "idle" });
-        clearFrontendDispatchTimer();
-        options.chatting.value = false;
-        reasoningStartedAtMs.value = 0;
-      }
-      return;
-    }
-    if (round.phase === "queued" && round.gen === gen) {
-      await failQueuedRoundWithoutDraft(gen, error);
-      return;
-    }
-    if (round.phase !== "streaming" || round.gen !== gen) return;
-    const { draftId } = round;
-    deferredRoundCompletion = null;
-    clearConversationStreamCache(options.getConversationId ? options.getConversationId() : "");
-    clearFrontendDispatchTimer();
-    activeActivationId = "";
-
-    options.latestAssistantText.value = "";
-    options.latestReasoningStandardText.value = "";
-    options.latestReasoningInlineText.value = "";
-    pendingReasoningStandardBreak = false;
-    options.chatErrorText.value = options.formatRequestFailed(error);
-    if (!options.toolStatusText.value) {
-      options.toolStatusState.value = "failed";
-      options.toolStatusText.value = summarizeToolCallsText() || options.t("status.toolCallFailed");
-    }
-    removeDraft(draftId);
-    setRound({ phase: "idle" });
-    options.chatting.value = false;
-    reasoningStartedAtMs.value = 0;
-    await options.onReloadMessages();
+    await roundEvents.handleRoundFailed(gen, error);
   }
 
   function applyPendingTerminalEvent(gen: number) {
-    if (!pendingTerminalEvent || pendingTerminalEvent.gen !== gen) return false;
-    const pending = pendingTerminalEvent;
-    pendingTerminalEvent = null;
-    deferredRoundCompletion = null;
-    if (pending.kind === "completed") {
-      void handleRoundCompleted(gen, pending.result);
-      return true;
-    }
-    void handleRoundFailed(gen, pending.error);
-    return true;
+    return roundEvents.applyPendingTerminalEvent(gen);
   }
 
   // =========================================================================
   // Delta 分发
   // =========================================================================
-
   function handleStreamingEvent(currentGen: number, parsed: AssistantDeltaEvent) {
-    if (!currentGen) return;
-    if (round.phase === "queued" && round.gen === currentGen && assistantEventHasVisibleProgress(parsed)) {
-      promoteQueuedRoundToStreaming(currentGen);
-    }
-    const currentRound = round;
-    if (currentRound.phase !== "streaming" && currentRound.phase !== "queued") return;
-    if (currentRound.gen !== currentGen) return;
-
-    if (parsed.kind === "round_completed") {
-      const p = readRoundCompletedPayload(parsed.message);
-      if (currentRound.phase === "queued") {
-        pendingTerminalEvent = {
-          kind: "completed",
-          gen: currentGen,
-          result: {
-            assistantText: String(p?.assistantText || ""),
-            reasoningStandard: p?.reasoningStandard,
-            reasoningInline: p?.reasoningInline,
-            assistantMessage: p?.assistantMessage,
-          },
-        };
-        clearConversationStreamCache(options.getConversationId ? options.getConversationId() : "");
-        activeActivationId = "";
-        return;
-      }
-      void handleRoundCompleted(currentGen, {
-        assistantText: String(p?.assistantText || ""),
-        reasoningStandard: p?.reasoningStandard,
-        reasoningInline: p?.reasoningInline,
-        assistantMessage: p?.assistantMessage,
-      });
-      return;
-    }
-    if (parsed.kind === "round_failed") {
-      const p = readRoundFailedPayload(parsed.message);
-      if (currentRound.phase === "queued") {
-        pendingTerminalEvent = {
-          kind: "failed",
-          gen: currentGen,
-          error: p?.error || parsed.message || JSON.stringify(parsed),
-        };
-        clearConversationStreamCache(options.getConversationId ? options.getConversationId() : "");
-        activeActivationId = "";
-        return;
-      }
-      void handleRoundFailed(currentGen, p?.error || parsed.message || JSON.stringify(parsed));
-      return;
-    }
-
-    if (parsed.kind === "tool_status") {
-      if (String(options.latestReasoningStandardText.value || "").trim()) {
-        pendingReasoningStandardBreak = true;
-      }
-      const toolName = String(parsed.toolName || "").trim();
-      if (options.streamToolCalls) {
-        const statusUpdate = applyToolStatusToStreamToolCalls(options.streamToolCalls.value, parsed);
-        options.streamToolCalls.value = statusUpdate.calls;
-        if (parsed.toolStatus === "running" && toolName && parsed.toolCallId) {
-          streamLastToolName = toolName;
-          if (statusUpdate.appended) {
-            streamToolCallCount += 1;
-          }
-        } else if (statusUpdate.appended) {
-          streamToolCallCount = Math.max(streamToolCallCount, options.streamToolCalls.value.length);
-        }
-      } else if (parsed.toolStatus === "running" && toolName && parsed.toolCallId) {
-        streamLastToolName = toolName;
-      }
-      if (currentRound.phase === "streaming") {
-        syncStreamToolCallsToDraft(currentRound.draftId);
-      }
-      options.toolStatusText.value = parsed.message || "";
-      options.toolStatusState.value =
-        parsed.toolStatus === "running" || parsed.toolStatus === "done" || parsed.toolStatus === "failed"
-          ? parsed.toolStatus : "";
-      syncCurrentDisplayStateToConversationStreamCache();
-      if (currentRound.phase === "streaming") {
-        updateDraftText(currentRound.draftId);
-      }
-      return;
-    }
-    if (parsed.kind === "reasoning_standard") {
-      const dt = readDeltaMessage(parsed);
-      if (dt && reasoningStartedAtMs.value === 0) reasoningStartedAtMs.value = Date.now();
-      options.latestReasoningStandardText.value = appendReasoningStandardDelta(
-        options.latestReasoningStandardText.value,
-        dt,
-        pendingReasoningStandardBreak,
-      );
-      if (dt.trim()) pendingReasoningStandardBreak = false;
-      syncCurrentDisplayStateToConversationStreamCache();
-      if (currentRound.phase === "streaming") {
-        updateDraftText(currentRound.draftId);
-      }
-      return;
-    }
-    if (parsed.kind === "reasoning_inline") {
-      const dt = readDeltaMessage(parsed);
-      if (dt && reasoningStartedAtMs.value === 0) reasoningStartedAtMs.value = Date.now();
-      options.latestReasoningInlineText.value += dt;
-      syncCurrentDisplayStateToConversationStreamCache();
-      if (currentRound.phase === "streaming") {
-        updateDraftText(currentRound.draftId);
-      }
-      return;
-    }
-
-    enqueueStreamDelta(currentGen, readDeltaMessage(parsed));
-    syncCurrentDisplayStateToConversationStreamCache();
-  }
-
-  function attachDeltaHandler(
-    channel: Channel<AssistantDeltaEvent>,
-    source: "sendChat" | "bound",
-    getGen: () => number,
-    nextGenOnHistoryFlushed: () => number,
-  ) {
-    channel.onmessage = (event) => {
-      const parsed = readAssistantEvent(event);
-
-      if (parsed.kind === "history_flushed") {
-        const hfGen = nextGenOnHistoryFlushed();
-        // sendChat 轮次如果已被本地中断（generation 已前进），忽略迟到的 history_flushed。
-        if (source === "sendChat" && hfGen !== generation) {
-          return;
-        }
-        if (source === "sendChat") {
-          historyFlushedReceivedGen = Math.max(historyFlushedReceivedGen, hfGen);
-        }
-        void handleHistoryFlushed(hfGen, parsed, source).catch((err) => {
-          console.error("[聊天] history_flushed 处理失败", {
-            message: String((err as { message?: string })?.message ?? err ?? ""),
-            gen: hfGen,
-          });
-          options.chatErrorText.value = options.formatRequestFailed(err);
-        });
-        return;
-      }
-
-      const currentGen = getGen();
-      handleStreamingEvent(currentGen, parsed);
-    };
-  }
-
-  let boundConversationId = "";
-  let boundConversationInitialized = false;
-  let boundDisplayGeneration = 0;
-  let boundDeltaChannel: Channel<AssistantDeltaEvent> | null = null;
-
-  function hasActiveBoundDeltaChannel(conversationId?: string | null): boolean {
-    if (!boundDeltaChannel || !boundConversationInitialized) return false;
-    const cid = normalizeConversationId(conversationId || (options.getConversationId ? options.getConversationId() : ""));
-    const boundCid = normalizeConversationId(boundConversationId);
-    return !!cid && !!boundCid && cid === boundCid;
-  }
-
-  async function bindActiveConversationStream(conversationId: string, force = false) {
-    if (!options.invokeBindActiveChatViewStream) return;
-    const id = String(conversationId || "").trim();
-    if (!force && boundConversationInitialized && id === boundConversationId) return;
-    const channel = new Channel<AssistantDeltaEvent>();
-    attachDeltaHandler(
-      channel,
-      "bound",
-      () => (round.phase === "streaming" ? round.gen : boundDisplayGeneration),
-      () => (round.phase === "streaming" ? round.gen : boundDisplayGeneration),
-    );
-    await options.invokeBindActiveChatViewStream({
-      conversationId: id || undefined,
-      onDelta: channel,
-    });
-    boundDeltaChannel = channel;
-    boundConversationId = id;
-    boundConversationInitialized = true;
-    if (!id) boundDisplayGeneration = 0;
-  }
-
-  async function handleExternalStreamRebindRequired(payload: unknown) {
-    const raw = payload && typeof payload === "object" ? payload as Record<string, unknown> : null;
-    const payloadConversationId = String(raw?.conversationId || "").trim();
-    const currentConversationId = String(options.getConversationId ? options.getConversationId() : "").trim();
-    if (!payloadConversationId || !currentConversationId || payloadConversationId !== currentConversationId) {
-      return;
-    }
-    const requestId = String(raw?.requestId || "").trim();
-    const phaseId = String(raw?.phaseId || "").trim();
-    const reason = String(raw?.reason || "").trim();
-    if (CHAT_STREAM_DEBUG) {
-      console.debug("[聊天] 流式通道重绑 开始", {
-        conversationId: currentConversationId,
-        requestId,
-        phaseId,
-        reason,
-        roundPhase: round.phase,
-      });
-    }
-    try {
-      await bindActiveConversationStream(currentConversationId, true);
-      if (round.phase !== "streaming") {
-        if (CHAT_STREAM_DEBUG) {
-          console.debug("[聊天流式重绑][前端] 重绑事件触发恢复草稿", {
-            conversationId: currentConversationId,
-            requestId,
-            phaseId,
-            reason,
-            roundPhase: round.phase,
-          });
-        }
-        ensureForegroundStreamingRound();
-      }
-      if (CHAT_STREAM_DEBUG) {
-        console.debug("[聊天] 流式通道重绑 完成", {
-          conversationId: currentConversationId,
-          requestId,
-          phaseId,
-          reason,
-        });
-      }
-    } catch (error) {
-      console.error("[聊天] 流式通道重绑 失败", {
-        conversationId: currentConversationId,
-        requestId,
-        phaseId,
-        reason,
-        error,
-      });
-      throw error;
-    }
-  }
-
-  async function handleExternalHistoryFlushed(payload: unknown) {
-    const raw = stringifyExternalEventPayload(payload, "history_flushed");
-    const parsed = readHistoryFlushedPayload(raw);
-    if (!parsed) return;
-    const currentConversationId = String(options.getConversationId ? options.getConversationId() : "").trim();
-    const payloadConversationId = String(parsed.conversationId || "").trim();
-    if (currentConversationId && payloadConversationId && currentConversationId !== payloadConversationId) {
-      return;
-    }
-    const treatAsSendChat = sendChatActiveGen > 0 && !!parsed.activateAssistant;
-    const source: "sendChat" | "bound" = treatAsSendChat ? "sendChat" : "bound";
-    const gen = treatAsSendChat ? sendChatActiveGen : ++generation;
-    if (!treatAsSendChat) {
-      boundDisplayGeneration = gen;
-    }
-    await handleHistoryFlushed(
-      gen,
-      {
-        kind: "history_flushed",
-        message: JSON.stringify(parsed),
-      },
-      source,
-    );
-  }
-
-  async function handleExternalRoundStarted(payload: unknown) {
-    const raw = stringifyExternalEventPayload(payload, "round_started");
-    const parsed = readRoundStartedPayload(raw);
-    if (!parsed) return;
-    const currentConversationId = String(options.getConversationId ? options.getConversationId() : "").trim();
-    const payloadConversationId = String(parsed.conversationId || "").trim();
-    if (currentConversationId && payloadConversationId && currentConversationId !== payloadConversationId) {
-      return;
-    }
-    const gen = beginAssistantActivationFromEvent(parsed);
-    if (!gen) return;
-    await markRoundStarted(gen);
-  }
-
-  async function handleExternalRoundCompleted(payload: unknown) {
-    const raw = stringifyExternalEventPayload(payload, "round_completed");
-    const parsed = readRoundCompletedPayload(raw);
-    if (!parsed) return;
-    const currentConversationId = String(options.getConversationId ? options.getConversationId() : "").trim();
-    const payloadConversationId = String(parsed.conversationId || "").trim();
-    if (currentConversationId && payloadConversationId && currentConversationId !== payloadConversationId) {
-      clearConversationStreamCache(payloadConversationId);
-      return;
-    }
-    if (!payloadMatchesActiveActivation(parsed)) {
-      clearConversationStreamCache(payloadConversationId || currentConversationId);
-      return;
-    }
-    if (round.phase !== "streaming" && round.phase !== "queued") {
-      options.chatting.value = false;
-      reasoningStartedAtMs.value = 0;
-      clearConversationStreamCache(payloadConversationId || currentConversationId);
-      clearFrontendDispatchTimer();
-      activeActivationId = "";
-      await options.onReloadMessages();
-      return;
-    }
-    handleRoundCompleted(round.gen, {
-      assistantText: String(parsed.assistantText || ""),
-      reasoningStandard: parsed.reasoningStandard,
-      reasoningInline: parsed.reasoningInline,
-      assistantMessage: parsed.assistantMessage,
-    });
-  }
-
-  async function handleExternalRoundFailed(payload: unknown) {
-    const raw = stringifyExternalEventPayload(payload, "round_failed");
-    const parsed = readRoundFailedPayload(raw);
-    const currentConversationId = String(options.getConversationId ? options.getConversationId() : "").trim();
-    const payloadConversationId = String(parsed?.conversationId || "").trim();
-    if (currentConversationId && payloadConversationId && currentConversationId !== payloadConversationId) {
-      clearConversationStreamCache(payloadConversationId);
-      return;
-    }
-    if (!payloadMatchesActiveActivation(parsed)) {
-      clearConversationStreamCache(payloadConversationId || currentConversationId);
-      return;
-    }
-    if (round.phase !== "streaming" && round.phase !== "queued") {
-      options.latestAssistantText.value = "";
-      options.latestReasoningStandardText.value = "";
-      options.latestReasoningInlineText.value = "";
-      options.chatting.value = false;
-      reasoningStartedAtMs.value = 0;
-      clearConversationStreamCache(payloadConversationId || currentConversationId);
-      clearFrontendDispatchTimer();
-      activeActivationId = "";
-      // 记录非流式阶段的轮次失败错误，包含上下文和错误详情
-      const errorDetail = parsed?.error || raw || String(raw);
-      const errorObj = typeof errorDetail === "string" ? (
-        (() => {
-          try {
-            const obj = JSON.parse(errorDetail);
-            return obj;
-          } catch {
-            return { message: errorDetail };
-          }
-        })()
-      ) : errorDetail;
-      console.error(
-        "[聊天流程] 非流式轮次失败",
-        {
-          roundPhase: round.phase,
-          roundGen: null,
-          error: errorObj,
-          rawPayload: raw,
-        }
-      );
-      options.chatErrorText.value = options.formatRequestFailed(errorDetail);
-      await options.onReloadMessages();
-      return;
-    }
-    handleRoundFailed(round.gen, parsed?.error || raw || String(raw));
-  }
-
-  async function handleExternalAssistantDelta(payload: unknown) {
-    const rawObj = payload && typeof payload === "object" ? payload as Record<string, unknown> : null;
-    const currentConversationId = String(options.getConversationId ? options.getConversationId() : "").trim();
-    const payloadConversationId = String(rawObj?.conversationId || "").trim();
-    const parsed = readAssistantEvent(rawObj?.event ?? payload);
-    const cacheConversationId = payloadConversationId || currentConversationId;
-    const eventActivationId = String(parsed.activationId || parsed.requestId || "").trim();
-    if (activeActivationId && eventActivationId && eventActivationId !== activeActivationId) {
-      return;
-    }
-    if (currentConversationId && payloadConversationId && currentConversationId !== payloadConversationId) {
-      if (cacheConversationId) {
-        applyAssistantEventToConversationStreamCache(cacheConversationId, parsed);
-      }
-      return;
-    }
-    if (parsed.kind !== "tool_status" && assistantEventHasVisibleProgress(parsed) && hasActiveBoundDeltaChannel(cacheConversationId)) {
-      return;
-    }
-    if (cacheConversationId) {
-      applyAssistantEventToConversationStreamCache(cacheConversationId, parsed);
-    }
-    const shouldProjectFromAppEvent =
-      parsed.kind === "tool_status"
-      || round.phase !== "streaming"
-      || !hasAssistantDraftInMessages();
-    const shouldResumeForegroundRound =
-      shouldProjectFromAppEvent
-      && assistantEventHasVisibleProgress(parsed);
-    if (shouldResumeForegroundRound) {
-      if (CHAT_STREAM_DEBUG) {
-        console.debug("[聊天流式重绑][前端] 普通事件触发恢复前景流式", {
-          currentConversationId,
-          payloadConversationId,
-          kind: parsed.kind || "delta",
-        });
-      }
-    }
-    if (!shouldProjectFromAppEvent) {
-      return;
-    }
-    const currentGen = shouldResumeForegroundRound
-      ? ensureForegroundStreamingRound()
-      : (round.phase === "streaming" ? round.gen : 0);
-    if (!currentGen) return;
-    if (parsed.kind === "reasoning_standard" || parsed.kind === "reasoning_inline") {
-      const delta = readDeltaMessage(parsed);
-      if (delta && reasoningStartedAtMs.value === 0) {
-        reasoningStartedAtMs.value = Date.now();
-      }
-    }
-    if (parsed.kind === "tool_status") {
-      applyConversationStreamCacheToDisplay(cacheConversationId);
-      if (round.phase === "streaming") {
-        syncStreamToolCallsToDraft(round.draftId);
-        updateDraftText(round.draftId);
-      }
-      return;
-    }
-    handleStreamingEvent(currentGen, parsed);
+    streamingEvents.handleStreamingEvent(currentGen, parsed);
   }
 
   // =========================================================================
@@ -2423,283 +727,11 @@ export function useChatFlow(options: UseChatFlowOptions) {
   // =========================================================================
 
   async function sendChat(overrides?: SendChatOverrides) {
-    const useOverrideMessage = !!overrides && typeof overrides.text === "string";
-    const plainText =
-      useOverrideMessage
-        ? String(overrides.text || "").trim()
-        : options.chatInput.value.trim();
-    const queuedAttachments = useOverrideMessage ? [] : buildQueuedAttachmentPayload();
-    const instructionExtraTextBlocks = overrides?.skipInstructionPrompts ? [] : buildInstructionExtraTextBlocks();
-    const selectedMentions = Array.isArray(options.selectedMentions?.value)
-      ? options.selectedMentions.value
-        .map((item) => ({
-          agentId: String(item.agentId || "").trim(),
-          agentName: String(item.agentName || "").trim(),
-          departmentId: String(item.departmentId || "").trim(),
-          departmentName: String(item.departmentName || "").trim(),
-          avatarUrl: String(item.avatarUrl || "").trim() || undefined,
-        }))
-        .filter((item) => !!item.agentId && !!item.departmentId)
-      : [];
-    const extraTextBlocks = [
-      ...instructionExtraTextBlocks,
-      ...(Array.isArray(overrides?.extraTextBlocks) ? overrides.extraTextBlocks : []),
-    ].filter((item) => !!String(item || "").trim());
-    const finalImages = useOverrideMessage ? [] : [...options.clipboardImages.value];
-    if (!plainText && finalImages.length === 0 && queuedAttachments.length === 0 && extraTextBlocks.length === 0) return;
-    const sendSession = options.getSession();
-    if (!sendSession || !sendSession.apiConfigId || !sendSession.agentId) return;
-
-    const hasForegroundRoundInFlight = options.chatting.value || round.phase !== "idle";
-    if (!hasForegroundRoundInFlight) {
-      clearConversationStreamCache(options.getConversationId ? options.getConversationId() : "");
-      activeActivationId = "";
-      options.toolStatusText.value = "";
-      options.toolStatusState.value = "";
-      if (options.streamToolCalls) options.streamToolCalls.value = [];
-      options.chatErrorText.value = "";
-    }
-
-    const sentImages = finalImages;
-    const attachments = [...queuedAttachments, ...buildImageAttachmentPayload(sentImages)];
-    options.latestUserText.value = plainText;
-    options.latestUserImages.value = sentImages.map((image) => ({
-      mime: String(image.mime || ""),
-      bytesBase64: String(image.bytesBase64 || ""),
-    }));
-    if (!useOverrideMessage) {
-      options.chatInput.value = "";
-      options.clipboardImages.value = [];
-      if (options.queuedAttachmentNotices) options.queuedAttachmentNotices.value = [];
-      if (options.selectedMentions) options.selectedMentions.value = [];
-    }
-
-    const gen = ++generation;
-    sendChatActiveGen = gen;
-    sendStartedAtMsByGen.set(gen, Date.now());
-    if (!hasForegroundRoundInFlight) {
-      startFrontendDispatchTimer(gen, sendStartedAtMsByGen.get(gen));
-    }
-    console.warn("[聊天前端耗时] 发送开始", {
-      gen,
-      conversationId: String(options.getConversationId ? options.getConversationId() : "").trim(),
-      textLength: plainText.length,
-      imageCount: sentImages.length,
-      attachmentCount: attachments.length,
-      extraBlockCount: extraTextBlocks.length,
-    });
-    pendingTerminalEvent = null;
-    if (!hasForegroundRoundInFlight) {
-      insertUserDraft(gen, plainText, sentImages, attachments, selectedMentions);
-      options.onOwnUserDraftInserted?.();
-    }
-
-    if (!hasForegroundRoundInFlight) {
-      resetDisplayState();
-      if (round.phase === "streaming") removeDraft(round.draftId);
-      if (selectedMentions.length === 0) {
-        setRound({ phase: "queued", gen });
-        updateQueuedAssistantDraftStatus(`${DRAFT_ASSISTANT_ID_PREFIX}${gen}`, options.t("chat.statusPreparingMessage"));
-      }
-      // 有 @ 目标时：消息已委托给目标部门，当前会话不需助理回复，跳过 queued 和草稿。
-      // 注意：queued 阶段不应提前置 chatting=true。
-      // 之前这里提前置 true，会让“未收到 history_flushed 前 UI 不应进入流式态”的测试失败。
-    }
-
-    const deltaChannel = new Channel<AssistantDeltaEvent>();
-    attachDeltaHandler(deltaChannel, "sendChat", () => gen, () => gen);
-
-    try {
-      const result = await options.invokeSendChatMessage({
-        text: plainText,
-        displayText:
-          overrides && typeof overrides.displayText === "string"
-            ? overrides.displayText
-            : plainText,
-        images: sentImages,
-        attachments: attachments.length > 0 ? attachments : undefined,
-        extraTextBlocks: extraTextBlocks.length > 0 ? extraTextBlocks : undefined,
-        mentions: selectedMentions.length > 0 ? selectedMentions : undefined,
-        session: {
-          ...sendSession,
-          conversationId: options.getConversationId ? options.getConversationId() : "",
-        },
-        onDelta: deltaChannel,
-      });
-
-      const cur = options.getSession();
-      if (!cur || cur.apiConfigId !== sendSession.apiConfigId || cur.agentId !== sendSession.agentId) return;
-
-      // Promise fallback：delta 通道已处理过就跳过
-      if ((round.phase === "streaming" || round.phase === "queued") && round.gen === gen) {
-        await handleRoundCompleted(gen, {
-          assistantText: String(result.assistantText || ""),
-          reasoningStandard: result.reasoningStandard,
-          reasoningInline: result.reasoningInline,
-          assistantMessage: result.assistantMessage,
-        });
-      }
-    } catch (error) {
-      if (isChatAbortedByUser(error)) {
-        sendStartedAtMsByGen.delete(gen);
-        options.chatErrorText.value = "";
-        if ((round.phase === "streaming" || round.phase === "queued") && round.gen === gen) {
-          setRound({ phase: "idle" });
-          clearFrontendDispatchTimer();
-        }
-        options.chatting.value = false;
-        reasoningStartedAtMs.value = 0;
-        return;
-      }
-      console.error("[聊天] 聊天流程请求失败", {
-        action: "sendChat", apiConfigId: sendSession.apiConfigId, agentId: sendSession.agentId,
-        gen, message: String((error as { message?: string })?.message ?? error ?? ""),
-      });
-
-      if (round.phase === "idle" || round.gen !== gen) {
-        if (pendingUserDraftId === `${DRAFT_USER_ID_PREFIX}${gen}`) {
-          removeDraft(pendingUserDraftId);
-        }
-        removeDraft(`${DRAFT_ASSISTANT_ID_PREFIX}${gen}`);
-        sendStartedAtMsByGen.delete(gen);
-        clearFrontendDispatchTimer();
-        options.chatErrorText.value = options.formatRequestFailed(error);
-        return;
-      }
-
-      options.latestAssistantText.value = "";
-      options.latestReasoningStandardText.value = "";
-      options.latestReasoningInlineText.value = "";
-      options.chatErrorText.value = options.formatRequestFailed(error);
-      if (!options.toolStatusText.value) {
-        options.toolStatusState.value = "failed";
-        options.toolStatusText.value = summarizeToolCallsText() || options.t("status.toolCallFailed");
-      }
-
-      const cur = options.getSession();
-      if (cur && cur.apiConfigId === sendSession.apiConfigId && cur.agentId === sendSession.agentId) {
-        if (round.phase === "streaming" && round.gen === gen) {
-          removeDraft(round.draftId);
-          if (pendingUserDraftId === `${DRAFT_USER_ID_PREFIX}${gen}`) {
-            removeDraft(pendingUserDraftId);
-          }
-          sendStartedAtMsByGen.delete(gen);
-          setRound({ phase: "idle" });
-          clearFrontendDispatchTimer();
-          options.chatting.value = false;
-          reasoningStartedAtMs.value = 0;
-        } else if (round.phase === "queued" && round.gen === gen) {
-          await failQueuedRoundWithoutDraft(gen, error);
-        }
-      }
-    } finally {
-      if (sendChatActiveGen === gen) sendChatActiveGen = 0;
-      // 仅在该轮次未收到 history_flushed 时，才执行 queued 兜底回收。
-      // 否则可能与 handleHistoryFlushed 的 await 竞态，导致 draft 无法插入。
-      if (round.phase === "queued" && round.gen === gen && historyFlushedReceivedGen !== gen) {
-        removeDraft(`${DRAFT_ASSISTANT_ID_PREFIX}${gen}`);
-        if (pendingUserDraftId === `${DRAFT_USER_ID_PREFIX}${gen}`) {
-          removeDraft(pendingUserDraftId);
-        }
-        sendStartedAtMsByGen.delete(gen);
-        setRound({ phase: "idle" });
-        clearFrontendDispatchTimer();
-        options.chatting.value = false;
-        reasoningStartedAtMs.value = 0;
-        if (!overrides?.suppressInitialReload) {
-          await options.onReloadMessages();
-        }
-      }
-    }
+    await sendController.sendChat(overrides);
   }
 
   async function stopChat() {
-    // queued 也允许 stop：请求已发出但 UI 还没进入 streaming 时，仍需要可中断。
-    // 之前只看 chatting.value 会把 queued stop 直接短路。
-    if (!options.chatting.value && round.phase !== "queued") return;
-    const stopSession = options.getSession();
-    const cid = options.getConversationId ? options.getConversationId() : "";
-    const activeDraftId = round.phase === "streaming" ? round.draftId : "";
-    const activeDraft = activeDraftId
-      ? options.allMessages.value.find((message) => String(message?.id || "") === activeDraftId)
-      : undefined;
-    const activeDraftMeta = ((activeDraft?.providerMeta || {}) as Record<string, unknown>);
-    const partialAssistantText = options.latestAssistantText.value || readMessagePlainText(activeDraft);
-    const partialReasoningStandard =
-      options.latestReasoningStandardText.value || String(activeDraftMeta.reasoningStandard || "");
-    const partialReasoningInline =
-      options.latestReasoningInlineText.value || String(activeDraftMeta.reasoningInline || "");
-
-    const finishLocalStoppedRound = async (statusState: "failed" | "" = "") => {
-      ++generation;
-      sendChatActiveGen = 0;
-      deferredRoundCompletion = null;
-      pendingTerminalEvent = null;
-      activeActivationId = "";
-      clearFrontendDispatchTimer();
-      if (pendingUserDraftId) {
-        removeDraft(pendingUserDraftId);
-      }
-      if (round.phase === "streaming") {
-        removeDraft(round.draftId);
-        sendStartedAtMsByGen.delete(round.gen);
-      } else if (round.phase === "queued") {
-        removeDraft(`${DRAFT_ASSISTANT_ID_PREFIX}${round.gen}`);
-        sendStartedAtMsByGen.delete(round.gen);
-      }
-      setRound({ phase: "idle" });
-      options.chatting.value = false;
-      reasoningStartedAtMs.value = 0;
-      options.toolStatusState.value = statusState;
-      options.toolStatusText.value = statusState
-        ? (summarizeToolCallsText() || options.t("status.interrupted"))
-        : "";
-      clearConversationStreamCache(options.getConversationId ? options.getConversationId() : "");
-      await options.onReloadMessages();
-    };
-
-    // queued 阶段：尚未进入流式，直接本地中断，不请求后端 stop。
-    if (round.phase === "queued") {
-      await finishLocalStoppedRound();
-      // 本地立即停的同时，异步通知后端中断正在排队/执行中的请求。
-      if (stopSession && options.invokeStopChatMessage) {
-        void options
-          .invokeStopChatMessage({
-            session: cid ? { ...stopSession, conversationId: cid } : stopSession,
-            partialAssistantText,
-            partialReasoningStandard,
-            partialReasoningInline,
-          })
-          .catch((error) => {
-            const et = error instanceof Error
-              ? `${error.message}\n${error.stack || ""}`.trim()
-              : (() => { try { return JSON.stringify(error); } catch { return String(error); } })();
-            console.warn(`[聊天] queued 停止后端中断失败，apiConfigId=${stopSession.apiConfigId}，agentId=${stopSession.agentId}，错误=${et}`);
-          });
-      }
-      return;
-    }
-
-    if (stopSession && options.invokeStopChatMessage) {
-      try {
-        await options.invokeStopChatMessage({
-          session: cid ? { ...stopSession, conversationId: cid } : stopSession,
-          partialAssistantText,
-          partialReasoningStandard,
-          partialReasoningInline,
-        });
-        await finishLocalStoppedRound();
-        return;
-      } catch (error) {
-        const et = error instanceof Error
-          ? `${error.message}\n${error.stack || ""}`.trim()
-          : (() => { try { return JSON.stringify(error); } catch { return String(error); } })();
-        console.warn(`[聊天] 停止消息失败，apiConfigId=${stopSession.apiConfigId}，agentId=${stopSession.agentId}，len=${partialAssistantText.length}，错误=${et}`);
-      }
-    }
-
-    // stop 失败时，回退本地中断，避免 UI 挂在 streaming 态。
-    await finishLocalStoppedRound("failed");
+    await stopController.stopChat();
   }
 
   return {
@@ -2710,13 +742,14 @@ export function useChatFlow(options: UseChatFlowOptions) {
     freezeForegroundRoundState,
     resumeForegroundStreamingRound: ensureForegroundStreamingRound,
     resumeForegroundRuntimeRound,
-    bindActiveConversationStream,
-    handleExternalStreamRebindRequired,
-    handleExternalHistoryFlushed,
-    handleExternalRoundStarted,
-    handleExternalRoundCompleted,
-    handleExternalRoundFailed,
-    handleExternalAssistantDelta,
+    resumeForegroundStreamCacheProjection,
+    bindActiveConversationStream: channelBinding.bindActiveConversationStream,
+    handleExternalStreamRebindRequired: externalEvents.handleExternalStreamRebindRequired,
+    handleExternalHistoryFlushed: externalEvents.handleExternalHistoryFlushed,
+    handleExternalRoundStarted: externalEvents.handleExternalRoundStarted,
+    handleExternalRoundCompleted: externalEvents.handleExternalRoundCompleted,
+    handleExternalRoundFailed: externalEvents.handleExternalRoundFailed,
+    handleExternalAssistantDelta: externalEvents.handleExternalAssistantDelta,
     frontendRoundPhase,
     reasoningStartedAtMs,
   };

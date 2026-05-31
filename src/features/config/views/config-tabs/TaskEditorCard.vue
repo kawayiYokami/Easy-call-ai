@@ -199,7 +199,7 @@
 <script setup lang="ts">
 import { computed } from "vue";
 import { useI18n } from "vue-i18n";
-import { Trash2 } from "lucide-vue-next";
+import { Trash2 } from "@lucide/vue";
 import type { TaskEditorForm, TaskEditorMode, TaskEntry, TaskRunLogEntry } from "./task-editor";
 import { formatIsoToLocalDateTime } from "../../../../utils/time";
 import TaskDateTimeInput from "./TaskDateTimeInput.vue";

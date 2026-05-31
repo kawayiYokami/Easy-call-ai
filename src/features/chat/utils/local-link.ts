@@ -25,8 +25,10 @@ export function normalizeLocalLinkHref(href: string): string {
   }
 
   const decoded = safeDecodeUriComponent(trimmed).replace(/%5C/gi, "\\");
-  if (/^[A-Za-z]:[\\/]/.test(decoded)) {
-    return `${decoded.slice(0, 2)}${decoded.slice(2).replace(/\\/g, "/")}`;
+  // /E:/path → E:/path (Windows 路径带前导斜杠)
+  const windowsNormalized = decoded.replace(/^\/([A-Za-z]:)/, "$1");
+  if (/^[A-Za-z]:[\\/]/.test(windowsNormalized)) {
+    return `${windowsNormalized.slice(0, 2)}${windowsNormalized.slice(2).replace(/\\/g, "/")}`;
   }
   return decoded;
 }

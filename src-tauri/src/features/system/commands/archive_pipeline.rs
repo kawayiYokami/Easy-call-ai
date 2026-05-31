@@ -230,126 +230,9 @@ struct ForceArchiveResult {
     merge_groups: Option<usize>,
 }
 
-fn build_context_compaction_followup_runtime_context(source: &Conversation) -> RuntimeContext {
-    let mut runtime_context = runtime_context_new(
-        "context_compaction",
-        "context_compaction_followup",
-    );
-    runtime_context.request_id = Some(format!(
-        "context-compaction-followup-{}",
-        Uuid::new_v4()
-    ));
-    runtime_context.origin_conversation_id = Some(source.id.clone());
-    runtime_context.target_conversation_id = Some(source.id.clone());
-    runtime_context.root_conversation_id = Some(source.id.clone());
-    runtime_context
-}
-
-fn context_compaction_followup_department_id(
-    state: &AppState,
-    source: &Conversation,
-    effective_agent_id: &str,
-) -> Result<String, String> {
-    let department_id = source.department_id.trim();
-    if !department_id.is_empty() {
-        return Ok(department_id.to_string());
-    }
-    Ok(department_for_agent_id(&state_read_config_cached(state)?, effective_agent_id)
-        .map(|department| department.id.clone())
-        .unwrap_or_else(|| ASSISTANT_DEPARTMENT_ID.to_string()))
-}
-
-fn enqueue_context_compaction_followup(
-    state: &AppState,
-    source: &Conversation,
-    effective_agent_id: &str,
-) -> Result<(), String> {
-    if conversation_has_guided_queue_events(state, &source.id).unwrap_or(false) {
-        return Ok(());
-    }
-    let followup_event = ChatPendingEvent {
-        id: format!("context-compaction-followup-{}", Uuid::new_v4()),
-        conversation_id: source.id.clone(),
-        created_at: now_iso(),
-        source: ChatEventSource::System,
-        queue_mode: ChatQueueMode::Normal,
-        messages: Vec::new(),
-        activate_assistant: true,
-        session_info: ChatSessionInfo {
-            department_id: context_compaction_followup_department_id(state, source, effective_agent_id)?,
-            agent_id: effective_agent_id.to_string(),
-        },
-        runtime_context: Some(build_context_compaction_followup_runtime_context(source)),
-        sender_info: None,
-    };
-    match ingress_chat_event(state, followup_event)? {
-        ChatEventIngress::Direct(event) => {
-            trigger_chat_event_after_ingress(state, ChatEventIngress::Direct(event));
-        }
-        ChatEventIngress::Queued { event_id } => {
-            runtime_log_info(format!(
-                "[上下文整理] 完成后续激活已入队 conversation_id={} event_id={}",
-                source.id, event_id
-            ));
-        }
-        ChatEventIngress::Duplicate { event_id } => {
-            runtime_log_info(format!(
-                "[上下文整理] 完成后续激活重复，已忽略 conversation_id={} event_id={}",
-                source.id, event_id
-            ));
-        }
-    }
-    trigger_chat_queue_processing(state);
-    Ok(())
-}
-
-fn spawn_organize_context_auto_compaction(
-    state: &AppState,
-    selected_api: ApiConfig,
-    resolved_api: ResolvedApiConfig,
-    source: Conversation,
-    effective_agent_id: String,
-) {
-    let state = state.clone();
-    tauri::async_runtime::spawn(async move {
-        let conversation_id = source.id.clone();
-        let result = run_context_compaction_pipeline(
-            &state,
-            &selected_api,
-            &resolved_api,
-            &source,
-            &effective_agent_id,
-            "organize_context",
-            "ORGANIZE-CONTEXT-AUTO",
-            true,
-        )
-        .await;
-        match result {
-            Ok(_) => {
-                if let Err(err) = enqueue_context_compaction_followup(
-                    &state,
-                    &source,
-                    &effective_agent_id,
-                ) {
-                    runtime_log_warn(format!(
-                        "[上下文整理] 自动压缩完成后续激活失败 conversation_id={} error={}",
-                        conversation_id, err
-                    ));
-                }
-            }
-            Err(err) => {
-                runtime_log_warn(format!(
-                    "[上下文整理] 自动压缩失败 conversation_id={} error={}",
-                    conversation_id, err
-                ));
-            }
-        }
-    });
-}
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct ForceArchivePreviewResult {
+struct TrimPreviewResult {
     conversation_id: String,
     can_archive: bool,
     can_drop_conversation: bool,
@@ -370,7 +253,7 @@ struct ForceArchiveCurrentInput {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct ForceCompactionPreviewResult {
+struct TrimCompactionPreviewResult {
     conversation_id: String,
     can_compact: bool,
     message_count: usize,
@@ -430,11 +313,11 @@ fn prepare_background_archive_active_conversation(
     )
 }
 
-fn build_force_compaction_preview_result(
+fn build_trim_compaction_preview_result(
     state: &AppState,
     selected_api: &ApiConfig,
     source: &Conversation,
-) -> Result<ForceCompactionPreviewResult, String> {
+) -> Result<TrimCompactionPreviewResult, String> {
     let message_count = archive_pipeline_message_count_for_delete(source);
     let has_assistant_reply = archive_pipeline_has_assistant_reply(source);
     let is_empty = source.messages.is_empty();
@@ -454,7 +337,7 @@ fn build_force_compaction_preview_result(
     } else {
         None
     };
-    Ok(ForceCompactionPreviewResult {
+    Ok(TrimCompactionPreviewResult {
         conversation_id: source.id.clone(),
         can_compact: compaction_disabled_reason.is_none(),
         message_count,
@@ -615,10 +498,7 @@ async fn summarize_archived_conversation_with_model_v2(
             open_loops
         },
         useful_memory_ids: resolve_memory_curation_ids(&parsed.useful_memory_ids, &id_alias_map),
-        memory_actions: resolve_memory_action_drafts(
-            &parsed.memory_actions.into_iter().take(7).collect::<Vec<_>>(),
-            &id_alias_map,
-        ),
+        memory_actions: resolve_memory_action_drafts(&parsed.memory_actions, &id_alias_map),
     })
 }
 
@@ -1320,7 +1200,7 @@ async fn summarize_compaction_with_fallback(
 }
 
 #[tauri::command]
-async fn force_archive_current(
+async fn trim_current_conversation(
     input: ForceArchiveCurrentInput,
     state: State<'_, AppState>,
 ) -> Result<ForceArchiveResult, String> {
@@ -1368,13 +1248,13 @@ async fn force_archive_current(
                 &effective_agent_id_cloned,
                 Some(active_conversation_id_for_background.as_str()),
                 None,
-                "manual_force_archive",
+                "manual_trim_conversation",
                 "ARCHIVE-FORCE",
             )
             .await;
             if let Err(err) = result {
                 eprintln!(
-                    "[ARCHIVE-FORCE] 失败，任务=background_force_archive，conversation_id={}，error={}",
+                    "[TRIM] 失败，任务=background_trim_conversation，conversation_id={}，error={}",
                     source_cloned.id, err
                 );
             }
@@ -1385,7 +1265,7 @@ async fn force_archive_current(
             .is_err()
         {
             eprintln!(
-                "[ARCHIVE-FORCE] 失败，任务=background_force_archive，conversation_id={}，error=panic",
+                "[TRIM] 失败，任务=background_trim_conversation，conversation_id={}，error=panic",
                 source_cloned.id
             );
             if let Err(err) = set_conversation_runtime_state(
@@ -1394,7 +1274,7 @@ async fn force_archive_current(
                 MainSessionState::Idle,
             ) {
                 eprintln!(
-                    "[ARCHIVE-FORCE] 警告，任务=background_force_archive_reset_state，conversation_id={}，error={}",
+                    "[TRIM] 警告，任务=background_trim_conversation_reset_state，conversation_id={}，error={}",
                     source_cloned.id, err
                 );
             } else {
@@ -1426,13 +1306,13 @@ async fn force_archive_current(
 }
 
 #[tauri::command]
-async fn force_compact_current(
+async fn trim_compact_current(
     input: SessionSelector,
     state: State<'_, AppState>,
 ) -> Result<ForceArchiveResult, String> {
     let (selected_api, resolved_api, source, effective_agent_id) =
         resolve_archive_target_conversation(state.inner(), &input)?;
-    let preview = build_force_compaction_preview_result(state.inner(), &selected_api, &source)?;
+    let preview = build_trim_compaction_preview_result(state.inner(), &selected_api, &source)?;
     if !preview.can_compact {
         return Err(preview
             .compaction_disabled_reason
@@ -1444,7 +1324,7 @@ async fn force_compact_current(
         &resolved_api,
         &source,
         &effective_agent_id,
-        "manual_force_compaction",
+        "manual_trim_compaction",
         "COMPACTION-FORCE",
         false,
     )
@@ -1454,10 +1334,10 @@ async fn force_compact_current(
 }
 
 #[tauri::command]
-fn preview_force_archive_current(
+fn preview_trim_current_conversation(
     input: SessionSelector,
     state: State<'_, AppState>,
-) -> Result<ForceArchivePreviewResult, String> {
+) -> Result<TrimPreviewResult, String> {
     let (_selected_api, _resolved_api, source, _effective_agent_id) =
         resolve_archive_target_conversation(state.inner(), &input)?;
     let runtime = state_read_runtime_state_cached(state.inner())?;
@@ -1488,7 +1368,7 @@ fn preview_force_archive_current(
     } else {
         None
     };
-    Ok(ForceArchivePreviewResult {
+    Ok(TrimPreviewResult {
         conversation_id: source.id,
         can_archive: archive_disabled_reason.is_none(),
         can_drop_conversation: !is_main_conversation,
@@ -1500,13 +1380,13 @@ fn preview_force_archive_current(
 }
 
 #[tauri::command]
-fn preview_force_compact_current(
+fn preview_trim_compact_current(
     input: SessionSelector,
     state: State<'_, AppState>,
-) -> Result<ForceCompactionPreviewResult, String> {
+) -> Result<TrimCompactionPreviewResult, String> {
     let (selected_api, _resolved_api, source, _effective_agent_id) =
         resolve_archive_target_conversation(state.inner(), &input)?;
-    build_force_compaction_preview_result(state.inner(), &selected_api, &source)
+    build_trim_compaction_preview_result(state.inner(), &selected_api, &source)
 }
 
 pub(crate) async fn run_archive_pipeline(
@@ -1595,6 +1475,13 @@ pub(crate) async fn run_context_compaction_pipeline(
     let trace_id = Uuid::new_v4().to_string();
 
     set_conversation_runtime_state(state, &source.id, MainSessionState::OrganizingContext)?;
+    emit_conversation_runtime_state_updated_payload(
+        state,
+        &ConversationRuntimeStateUpdatedPayload {
+            conversation_id: source.id.clone(),
+            runtime_state: MainSessionState::OrganizingContext,
+        },
+    );
     eprintln!(
         "[ARCHIVE-PIPELINE] 开始: task=context_compaction, trace_id={}, agent_id={}, api_id={}, started_at={}",
         trace_id, effective_agent_id, selected_api.id, started_at.elapsed().as_millis()
@@ -1623,6 +1510,13 @@ pub(crate) async fn run_context_compaction_pipeline(
             trace_id, elapsed_ms, state_err
         );
     } else {
+        emit_conversation_runtime_state_updated_payload(
+            state,
+            &ConversationRuntimeStateUpdatedPayload {
+                conversation_id: source.id.clone(),
+                runtime_state: MainSessionState::Idle,
+            },
+        );
         eprintln!(
             "[ARCHIVE-PIPELINE] 完成: task=context_compaction, trace_id={}, agent_id={}, api_id={}, elapsed_ms={}",
             trace_id, effective_agent_id, selected_api.id, elapsed_ms
@@ -2003,6 +1897,23 @@ async fn run_archive_pipeline_inner(
         )),
     }
 
+    // 清理 apply_patch 备份记录
+    match cleanup_backup_records_from_messages(&state.data_path, &source.messages) {
+        Ok(cleaned) if cleaned > 0 => {
+            eprintln!(
+                "[归档] apply_patch 备份清理完成: conversation={}, cleaned={}",
+                source.id, cleaned
+            );
+        }
+        Err(err) => {
+            eprintln!(
+                "[归档] apply_patch 备份清理失败: conversation={}, error={}",
+                source.id, err
+            );
+        }
+        _ => {}
+    }
+
     // 清理PDF缓存
     if let Err(e) = cleanup_pdf_cache_for_conversation(&state, &source.id) {
         eprintln!(
@@ -2128,5 +2039,26 @@ mod archive_pipeline_tests {
         assert!(summary.contains("未完事项"));
         assert!(summary.contains("1. 继续改 archive pipeline"));
         assert!(summary.contains("2. 补充 JSON 契约测试"));
+    }
+
+    #[test]
+    fn resolve_memory_action_drafts_should_not_cap_actions_at_seven() {
+        let drafts = (0..8)
+            .map(|idx| ArchiveMemoryActionDraft {
+                action: ArchiveMemoryActionKind::Create,
+                source_memory_ids: Vec::new(),
+                memory: ArchiveMemoryDraft {
+                    memory_type: "knowledge".to_string(),
+                    judgment: format!("测试记忆 {}", idx),
+                    reasoning: "测试依据".to_string(),
+                    tags: vec!["测试".to_string()],
+                },
+            })
+            .collect::<Vec<_>>();
+        let id_alias_map = HashMap::<String, String>::new();
+
+        let resolved = resolve_memory_action_drafts(&drafts, &id_alias_map);
+
+        assert_eq!(resolved.len(), 8);
     }
 }

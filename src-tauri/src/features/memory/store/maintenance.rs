@@ -1,20 +1,4 @@
 fn memory_store_rebuild_indexes(data_path: &PathBuf) -> Result<MemoryStoreRebuildReport, String> {
-    // Inject all tags into jieba before rebuilding FTS so tokenization keeps known terms intact.
-    {
-        let conn = memory_store_open(data_path)?;
-        let mut stmt = conn
-            .prepare("SELECT DISTINCT name FROM global_tag")
-            .map_err(|err| format!("Prepare list all tags for jieba failed: {err}"))?;
-        let rows = stmt
-            .query_map([], |row| row.get::<_, String>(0))
-            .map_err(|err| format!("Query all tags for jieba failed: {err}"))?;
-        let mut all_tags = Vec::<String>::new();
-        for row in rows {
-            all_tags.push(row.map_err(|err| format!("Read tag for jieba failed: {err}"))?);
-        }
-        memory_jieba_add_words(&all_tags);
-    }
-
     let mut conn = memory_store_open(data_path)?;
     let tx = conn
         .transaction_with_behavior(TransactionBehavior::Immediate)

@@ -181,7 +181,7 @@
 <script setup lang="ts">
 import { computed, ref } from "vue";
 import { useI18n } from "vue-i18n";
-import { Plus, RotateCcw, Save, Trash2 } from "lucide-vue-next";
+import { Plus, RotateCcw, Save, Trash2 } from "@lucide/vue";
 import type { PersonaProfile } from "../../../../types/app";
 import { invokeTauri } from "../../../../services/tauri-api";
 import SegmentedControl from "../../components/SegmentedControl.vue";

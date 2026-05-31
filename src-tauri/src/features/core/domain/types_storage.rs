@@ -166,6 +166,8 @@ struct RemoteImContact {
     #[serde(default)]
     remote_contact_name: String,
     #[serde(default)]
+    avatar_url: String,
+    #[serde(default)]
     remark_name: String,
     #[serde(default)]
     allow_send: bool,
@@ -732,6 +734,7 @@ mod types_storage_tests {
     fn deputy_department_permission_should_apply_default_guard_even_when_control_disabled() {
         let mut deputy = default_deputy_department("api-a");
         deputy.permission_control.enabled = false;
+        deputy.is_deputy = true;
 
         assert!(department_permission_allows_any_name(
             Some(&deputy),

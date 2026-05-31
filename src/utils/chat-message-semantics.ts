@@ -57,6 +57,11 @@ export type ChatMessageDisplayProjection = {
   toolCalls: Array<{ name: string; argsText: string }>;
 };
 
+export type TaskTriggerDisplayLabels = {
+  goal: string;
+  todo: string;
+};
+
 function sanitizeStoredToolHistoryEvents(
   events: ChatMessage["toolCall"],
 ): Array<Record<string, unknown>> {
@@ -217,6 +222,16 @@ function resolveTaskTrigger(message: ChatMessage): TaskTriggerMessageCard | unde
   };
 }
 
+function stripGoalTaskPrefix(value: string): string {
+  const text = String(value || "").trim();
+  for (const prefix of ["Goal Task：", "Goal Task:", "督工任务：", "目标任务：", "目標任務："]) {
+    if (text.startsWith(prefix)) {
+      return text.slice(prefix.length).trim();
+    }
+  }
+  return text;
+}
+
 function resolvePlanCard(message: ChatMessage): PlanMessageCard | undefined {
   const meta = (message.providerMeta || {}) as Record<string, unknown>;
   const raw = meta.planCard;
@@ -319,7 +334,10 @@ function resolveMessageMentions(message: ChatMessage): ChatMentionTarget[] {
   return mentions;
 }
 
-export function projectMessageForDisplay(message: ChatMessage): ChatMessageDisplayProjection {
+export function projectMessageForDisplay(
+  message: ChatMessage,
+  taskTriggerLabels?: TaskTriggerDisplayLabels,
+): ChatMessageDisplayProjection {
   const rendered = removeBinaryPlaceholders(renderMessage(message));
   const parsed = parseAssistantStoredText(rendered);
   const meta = (message.providerMeta || {}) as Record<string, unknown>;
@@ -334,9 +352,20 @@ export function projectMessageForDisplay(message: ChatMessage): ChatMessageDispl
   const channelId = String(origin?.channel_id || "").trim();
   const contactId = String(origin?.contact_id || "").trim();
   const messageKind = String(meta.messageKind || "").trim();
+  const goalLabel = String(taskTriggerLabels?.goal || "").trim() || "Goal";
+  const todoLabel = String(taskTriggerLabels?.todo || "").trim() || "Todo";
   const displayText =
     taskTrigger && messageKind === "task_trigger"
-      ? ""
+      ? [
+        `**${goalLabel}**`,
+        stripGoalTaskPrefix(taskTrigger.goal),
+        "",
+        `**${todoLabel}**`,
+        String(taskTrigger.todo || "").trim(),
+      ].filter((line, index) => {
+        if (!String(line || "").trim()) return index === 0 || index === 3;
+        return true;
+      }).join("\n")
       : message.role === "assistant"
         ? parsed.assistantText
         : rendered;
@@ -372,7 +401,9 @@ function defaultToolResultSuccess(rawContent: unknown): boolean {
   const text = String(rawContent || "").trim();
   if (!text) return false;
   try {
-    const parsed = JSON.parse(text) as { ok?: unknown; approved?: unknown };
+    const parsed = JSON.parse(text) as { ok?: unknown; approved?: unknown; backupRecordId?: unknown };
+    // 有 backupRecordId 就说明有备份可恢复
+    if (typeof parsed.backupRecordId === "string" && parsed.backupRecordId.trim()) return true;
     return parsed.ok === true && parsed.approved !== false;
   } catch {
     return false;

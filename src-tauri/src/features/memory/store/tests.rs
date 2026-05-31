@@ -528,22 +528,22 @@ mod memory_store_tests {
             &vec![
                 MemoryDraftInput {
                     memory_type: "knowledge".to_string(),
-                    judgment: "本地用户（0）常驻深圳".to_string(),
+                    judgment: "本地用户（user-persona）常驻深圳".to_string(),
                     reasoning: "明确说明".to_string(),
                     tags: vec![
                         "本地用户".to_string(),
-                        "0".to_string(),
+                        USER_PERSONA_ID.to_string(),
                         "事实属性".to_string(),
                     ],
                     owner_agent_id: None,
                 },
                 MemoryDraftInput {
                     memory_type: "emotion".to_string(),
-                    judgment: "本地用户（0）今天很开心".to_string(),
+                    judgment: "本地用户（user-persona）今天很开心".to_string(),
                     reasoning: "语气积极".to_string(),
                     tags: vec![
                         "本地用户".to_string(),
-                        "0".to_string(),
+                        USER_PERSONA_ID.to_string(),
                         "事实属性".to_string(),
                     ],
                     owner_agent_id: None,
@@ -552,7 +552,7 @@ mod memory_store_tests {
                     memory_type: "knowledge".to_string(),
                     judgment: "普通带人名记忆".to_string(),
                     reasoning: "没有画像属性标签".to_string(),
-                    tags: vec!["本地用户".to_string(), "0".to_string()],
+                    tags: vec!["本地用户".to_string(), USER_PERSONA_ID.to_string()],
                     owner_agent_id: None,
                 },
             ],

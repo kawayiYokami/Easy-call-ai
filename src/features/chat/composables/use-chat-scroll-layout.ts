@@ -32,13 +32,18 @@ export function useChatScrollLayout(options: UseChatScrollLayoutOptions) {
 
   function updateJumpToBottomOffset() {
     const composerHeight = composerContainer.value?.offsetHeight ?? 0;
-    jumpToBottomOffset.value = Math.max(16, composerHeight + 12);
+    const nextOffset = Math.max(16, composerHeight + 12);
+    if (jumpToBottomOffset.value !== nextOffset) {
+      jumpToBottomOffset.value = nextOffset;
+    }
   }
 
   function updateLatestOwnElasticMinHeight() {
     const scrollEl = scrollContainer.value;
     if (!scrollEl) {
-      latestOwnElasticMinHeight.value = 0;
+      if (latestOwnElasticMinHeight.value !== 0) {
+        latestOwnElasticMinHeight.value = 0;
+      }
       return;
     }
     const scrollStyles = window.getComputedStyle(scrollEl);
@@ -47,7 +52,10 @@ export function useChatScrollLayout(options: UseChatScrollLayoutOptions) {
       - parseFloat(scrollStyles.paddingTop || "0")
       - parseFloat(scrollStyles.paddingBottom || "0");
     const toolbarHeight = toolbarContainer.value?.offsetHeight ?? 0;
-    latestOwnElasticMinHeight.value = Math.max(0, scrollViewportHeight - toolbarHeight);
+    const nextMinHeight = Math.max(0, scrollViewportHeight - toolbarHeight);
+    if (latestOwnElasticMinHeight.value !== nextMinHeight) {
+      latestOwnElasticMinHeight.value = nextMinHeight;
+    }
   }
 
   async function prepareBottomAlignmentLayout() {

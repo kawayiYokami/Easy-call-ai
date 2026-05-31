@@ -35,7 +35,7 @@
                 type="checkbox"
                 class="toggle toggle-primary toggle-sm mt-0.5 shrink-0"
                 :checked="ch.enabled"
-                :disabled="saving"
+                :disabled="saving || isChannelOperationBusy(ch.id)"
                 @mousedown.stop
                 @click.stop
                 @change.stop="(e) => toggleChannelEnabled(ch, (e.target as HTMLInputElement).checked)"
@@ -75,6 +75,9 @@
           <RefreshCw class="h-3.5 w-3.5" :class="contactsLoading ? 'animate-spin' : ''" />
         </button>
       </div>
+      <div v-if="contactsDisabledReason" class="px-3 pb-2 text-xs text-warning">
+        {{ contactsDisabledReason }}
+      </div>
       <ul class="w-full flex-1 overflow-y-auto px-0">
         <li v-if="contactsError" class="menu-title">
           <span class="text-xs text-error">{{ contactsError }}</span>
@@ -83,73 +86,167 @@
           <span class="text-xs italic opacity-60">{{ t("config.remoteIm.contactsEmpty") }}</span>
         </li>
         <template v-else>
-          <li v-for="item in currentChannelContacts" :key="item.id" class="border-b border-base-200 last:border-b-0">
+          <template v-for="group in groupedContacts" :key="group.mode">
+            <li class="menu-title text-base-content">
+              <span class="text-sm font-bold">{{ group.label }}（{{ group.items.length }}）</span>
+            </li>
+            <li
+              v-for="item in group.items"
+              :key="item.id"
+              class="border-b border-base-200 last:border-b-0"
+            >
             <div class="flex items-start gap-2 px-3 py-2">
-                <span class="badge shrink-0" :class="item.remoteContactType === 'group' ? 'badge-secondary' : 'badge-primary'">{{ item.remoteContactType === "group" ? t("config.remoteIm.group") : t("config.remoteIm.private") }}</span>
-                <div class="flex-1 min-w-0">
-                  <div class="truncate font-semibold">
-                    <span class="font-normal opacity-70">[{{ contactDepartmentLabel(item) }}]</span>
-                    {{ " " }}
-                    {{ contactSafeDisplayName(item) }}
-                    <span class="text-xs font-normal opacity-50">（{{ contactSecondaryText(item) }}）</span>
-                  </div>
-                  <div class="mt-1 flex flex-wrap gap-1 text-[10px]">
-                    <span
-                      class="badge badge-info badge-xs"
-                      :title="processingModeHintText(item)"
-                    >
-                      {{ contactProcessingModeLabel(item) }}
-                    </span>
-                    <span
-                      class="badge badge-primary badge-xs"
-                      :title="contactActivationHintText(item)"
-                    >
-                      {{ contactActivationModeLabel(item) }}
-                    </span>
-                    <span
-                      v-if="item.allowReceive"
-                      class="badge badge-xs badge-warning"
-                      :title="t('config.remoteIm.allowReceive')"
-                    >
-                      {{ t("config.remoteIm.receiveShort") }}
-                    </span>
-                    <span
-                      v-if="item.allowSend"
-                      class="badge badge-xs badge-warning"
-                      :title="t('config.remoteIm.allowSend')"
-                    >
-                      {{ t("config.remoteIm.sendShort") }}
-                    </span>
-                    <span
-                      v-if="item.allowSendFiles"
-                      class="badge badge-xs badge-warning"
-                      :title="t('config.remoteIm.allowSendFiles')"
-                    >
-                      {{ t("config.remoteIm.filesShort") }}
-                    </span>
+                <div class="avatar placeholder shrink-0">
+                  <div class="flex h-9 w-9 items-center justify-center overflow-hidden rounded-full border border-base-300 bg-base-200 text-xs font-semibold leading-none text-base-content/70">
+                    <img v-if="contactAvatarUrl(item)" :src="contactAvatarUrl(item)" :alt="contactSafeDisplayName(item)" class="block h-full w-full object-cover" />
+                    <span v-else>{{ contactAvatarFallbackText(item) }}</span>
                   </div>
                 </div>
-                <div class="flex items-center gap-1">
-                  <button
-                    class="btn btn-ghost btn-square btn-sm hover:bg-base-300"
-                    :title="t('config.remoteIm.viewLogs')"
-                    @click.stop="openContactLogsModal(item.id)"
-                  >
-                    <ScrollText class="h-4 w-4" />
-                  </button>
-                  <button
-                    class="btn btn-ghost btn-square btn-sm hover:bg-base-300"
-                    :title="t('config.remoteIm.channelDetails')"
-                    @click.stop="openContactConfigModal(item.id)"
-                  >
-                    <Settings class="h-4 w-4" />
-                  </button>
+                <div class="flex-1 min-w-0">
+                  <div class="flex items-center gap-2">
+                    <div class="min-w-0 flex-1 truncate font-semibold">
+                      <span class="font-normal opacity-70">[{{ contactDepartmentLabel(item) }}]</span>
+                      {{ " " }}
+                      {{ contactSafeDisplayName(item) }}
+                      <span class="text-xs font-normal opacity-50">（{{ contactSecondaryText(item) }}）</span>
+                    </div>
+                    <div class="flex shrink-0 items-center gap-1">
+                      <input
+                        type="checkbox"
+                        class="toggle toggle-sm"
+                        :class="contactCommunicationToggleClass(item)"
+                        :checked="contactCommunicationToggleEnabled(item)"
+                        :disabled="contactsDisabled"
+                        :title="`${t('config.remoteIm.allowReceive')} / ${t('config.remoteIm.allowSend')}`"
+                        @click.stop
+                        @change="toggleContactCommunication(item, ($event.target as HTMLInputElement).checked)"
+                      />
+                      <div v-if="contactNeedsQuickModel(item) && !props.config.toolReviewApiConfigId" class="dropdown dropdown-end">
+                        <div tabindex="0" role="button" class="btn btn-ghost btn-square btn-sm text-error hover:bg-error hover:text-error-content">
+                          <AlertTriangle class="h-4 w-4" />
+                        </div>
+                        <div tabindex="0" class="dropdown-content card card-sm bg-base-100 border border-error/30 shadow-lg z-10 w-64">
+                          <div class="card-body p-3">
+                            <p class="text-error text-xs">{{ t('config.remoteIm.quickModelMissingHint') }}</p>
+                          </div>
+                        </div>
+                      </div>
+                      <button
+                        class="btn btn-ghost btn-square btn-sm hover:bg-base-300"
+                        :title="t('config.remoteIm.viewLogs')"
+                        @click.stop="openContactLogsModal(item.id)"
+                      >
+                        <ScrollText class="h-4 w-4" />
+                      </button>
+                      <button
+                        class="btn btn-ghost btn-square btn-sm hover:bg-base-300"
+                        :title="t('config.remoteIm.channelDetails')"
+                        :disabled="contactsDisabled"
+                        @click.stop="openContactConfigModal(item.id)"
+                      >
+                        <Settings class="h-4 w-4" />
+                      </button>
+                    </div>
+                  </div>
+                  <div class="mt-1.5 flex flex-wrap gap-1.5 overflow-visible whitespace-nowrap text-xs">
+                    <span class="badge badge-sm shrink-0" :class="item.remoteContactType === 'group' ? 'badge-secondary' : 'badge-primary'">
+                      {{ item.remoteContactType === "group" ? t("config.remoteIm.group") : t("config.remoteIm.private") }}
+                    </span>
+                    <div>
+                      <button
+                        type="button"
+                        class="badge badge-sm shrink-0 gap-1.5 transition-colors"
+                        :class="contactActivationBadgeClass(item)"
+                        :title="contactActivationHintText(item)"
+                        :disabled="contactsDisabled || isContactOperationBusy(item.id)"
+                        @click.stop="openContactPillMenu($event, item, 'activation')"
+                      >
+                        {{ contactActivationModeLabel(item) }}
+                        <ChevronUp class="h-3.5 w-3.5 opacity-70" />
+                      </button>
+                    </div>
+                    <span
+                      v-if="contactKeywordModeMissingKeywords(item)"
+                      class="badge badge-sm badge-warning shrink-0 gap-1.5"
+                      title="关键词入场已启用，但关键词为空。请补充关键词，否则不会触发入场。"
+                    >
+                      <AlertTriangle class="h-3.5 w-3.5" />
+                      关键词空
+                    </span>
+                    <div>
+                      <button
+                        type="button"
+                        class="badge badge-sm shrink-0 gap-1.5 transition-colors"
+                        :class="contactProcessingModeBadgeClass(item)"
+                        :title="processingModeHintText(item)"
+                        :disabled="contactsDisabled || isContactOperationBusy(item.id)"
+                        @click.stop="openContactPillMenu($event, item, 'processing')"
+                      >
+                        {{ contactProcessingModeLabel(item) }}
+                        <ChevronUp class="h-3.5 w-3.5 opacity-70" />
+                      </button>
+                    </div>
+                    <div>
+                      <button
+                        type="button"
+                        class="badge badge-sm shrink-0 gap-1.5"
+                        :class="normalizeResponseStrategy(item.responseStrategy) === 'smart_judge' ? 'badge-accent' : 'badge-ghost'"
+                        :title="contactResponseStrategyHintText(item)"
+                        :disabled="contactsDisabled || isContactOperationBusy(item.id)"
+                        @click.stop="openContactPillMenu($event, item, 'response')"
+                      >
+                        {{ contactResponseStrategyLabel(item) }}
+                        <ChevronUp class="h-3.5 w-3.5 opacity-70" />
+                      </button>
+                    </div>
+                    <div>
+                      <button
+                        type="button"
+                        class="badge badge-sm shrink-0 gap-1.5"
+                        :class="item.allowSendFiles ? 'badge-warning' : 'badge-ghost'"
+                        :title="t('config.remoteIm.allowSendFiles')"
+                        :disabled="contactsDisabled || isContactOperationBusy(item.id)"
+                        @click.stop="openContactPillMenu($event, item, 'files')"
+                      >
+                        {{ contactSendFilesLabel(item) }}
+                        <ChevronUp class="h-3.5 w-3.5 opacity-70" />
+                      </button>
+                    </div>
+                  </div>
                 </div>
             </div>
           </li>
+          </template>
         </template>
       </ul>
     </div>
+
+    <Teleport to="body">
+      <div
+        v-if="contactPillMenu"
+        class="fixed inset-0 z-[9999]"
+        @click="closeContactPillMenu"
+        @wheel.passive="closeContactPillMenu"
+      >
+        <ul
+          class="menu menu-sm fixed rounded-box border border-base-300 bg-base-100 p-1 text-sm shadow-xl"
+          :class="contactPillMenu.widthClass"
+          :style="{ left: `${contactPillMenu.left}px`, top: `${contactPillMenu.top}px` }"
+          @click.stop
+        >
+          <li v-for="option in contactPillMenu.options" :key="option.key">
+            <button
+              type="button"
+              class="leading-5"
+              :class="{ active: option.active }"
+              @click="selectContactPillMenuOption(option)"
+            >
+              {{ option.label }}
+            </button>
+          </li>
+        </ul>
+      </div>
+    </Teleport>
 
     <div class="modal z-90" :class="{ 'modal-open': addChannelModalOpen }" @click.self="closeAddChannelModal">
       <div class="modal-box max-w-md">
@@ -376,18 +473,19 @@
               <div class="border-t border-base-300 mt-2 pt-2">
                 <div class="flex items-center justify-between">
                   <span class="font-semibold">{{ t("config.remoteIm.connectionStatus") }}</span>
-                  <button class="btn btn-square btn-ghost" :title="t('common.refresh')" @click="refreshChannelStatus">
+                  <button
+                    class="btn btn-square btn-ghost"
+                    :title="t('common.refresh')"
+                    :disabled="isChannelOperationBusy(selectedChannel.id)"
+                    @click="refreshChannelStatus"
+                  >
                     <RefreshCw class="h-3.5 w-3.5" />
                   </button>
                 </div>
                 <div class="mt-2 flex items-center gap-2">
                   <span class="size-2 rounded-full" :class="channelStatus?.connected ? 'bg-success' : 'bg-base-300'"></span>
                   <span class="text-xs">
-                    {{ channelStatus?.connected
-                      ? `${t("config.remoteIm.connected")} (${channelStatus.peerAddr})`
-                      : channelStatus?.listenAddr
-                        ? t("config.remoteIm.waitingForConnection")
-                        : t("config.remoteIm.serverNotStarted") }}
+                    {{ onebotStatusText(channelStatus) }}
                   </span>
                 </div>
               </div>
@@ -418,10 +516,10 @@
               <button
                 class="btn"
                 :class="channelDirty ? 'btn-primary' : 'btn-ghost'"
-                :disabled="!channelDirty || saving"
+                :disabled="!channelDirty || saving || isChannelOperationBusy(selectedChannel.id)"
                 @click="saveChannels"
               >
-                <Save v-if="!saving" class="h-3.5 w-3.5" />
+                <Save v-if="!saving && !isChannelOperationBusy(selectedChannel.id)" class="h-3.5 w-3.5" />
                 <span v-else class="loading loading-spinner loading-xs"></span>
                 {{ t("common.save") }}
               </button>
@@ -584,24 +682,6 @@
               </li>
 
               <li class="list-row flex items-center justify-between gap-3">
-                <div class="font-medium">{{ t("config.remoteIm.allowReceive") }}</div>
-                <input
-                  type="checkbox"
-                  class="toggle toggle-primary"
-                  v-model="contactDraft.allowReceive"
-                />
-              </li>
-
-              <li class="list-row flex items-center justify-between gap-3">
-                <div class="font-medium">{{ t("config.remoteIm.allowSend") }}</div>
-                <input
-                  type="checkbox"
-                  class="toggle toggle-primary"
-                  v-model="contactDraft.allowSend"
-                />
-              </li>
-
-              <li class="list-row flex items-center justify-between gap-3">
                 <div class="font-medium">{{ t("config.remoteIm.allowSendFiles") }}</div>
                 <input
                   type="checkbox"
@@ -697,7 +777,7 @@
           <div class="mt-3 pt-3 border-t border-base-300 flex items-center justify-between gap-2 shrink-0">
             <button
               class="btn btn-ghost text-error"
-              :disabled="contactSaving || contactDeleting || !selectedContact"
+              :disabled="contactsDisabled || contactSaving || contactDeleting || !selectedContact"
               @click="selectedContact && deleteContact(selectedContact)"
             >
               <Trash2 class="h-3.5 w-3.5" />
@@ -708,7 +788,7 @@
               <RotateCcw class="h-3.5 w-3.5" />
               {{ t("common.reset") }}
             </button>
-            <button class="btn btn-primary" :disabled="!contactDraftDirty || contactSaving || contactDeleting" @click="saveContactDraft">
+            <button class="btn btn-primary" :disabled="contactsDisabled || !contactDraftDirty || contactSaving || contactDeleting" @click="saveContactDraft">
               <Save v-if="!contactSaving" class="h-3.5 w-3.5" />
               <span v-else class="loading loading-spinner loading-xs"></span>
               {{ t("common.save") }}
@@ -724,12 +804,14 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
-import { Plus, RefreshCw, RotateCcw, Save, ScrollText, Settings, SquareTerminal, Trash2 } from "lucide-vue-next";
+import { AlertTriangle, ChevronUp, Plus, RefreshCw, RotateCcw, Save, ScrollText, Settings, SquareTerminal, Trash2 } from "@lucide/vue";
 import { invokeTauri } from "../../../../services/tauri-api";
 import { open } from "@tauri-apps/plugin-dialog";
-import type { AppConfig, DepartmentConfig, RemoteImChannelConfig, RemoteImContact, RemoteImPlatform, ShellWorkspace } from "../../../../types/app";
+import type { AppConfig, DepartmentConfig, PersonaProfile, RemoteImChannelConfig, RemoteImContact, RemoteImPlatform, ShellWorkspace } from "../../../../types/app";
 import type { ChannelConnectionStatus, ChannelLogEntry, WeixinLoginStatus } from "./remote-im/types";
 import {
+  contactCommunicationToggleClass,
+  contactCommunicationToggleEnabled,
   formatLogTime,
   normalizeActivationMode,
   normalizeProcessingMode,
@@ -740,6 +822,7 @@ import {
 
 const props = defineProps<{
   config: AppConfig;
+  personas: PersonaProfile[];
   saveConfigAction: () => Promise<boolean> | boolean;
   setStatusAction: (text: string) => void;
 }>();
@@ -749,10 +832,27 @@ const WEIXIN_OC_BOT_TYPE = "3";
 const WEIXIN_OC_QR_POLL_INTERVAL = 1;
 const WEIXIN_OC_LONG_POLL_TIMEOUT_MS = 35000;
 const WEIXIN_OC_API_TIMEOUT_MS = 15000;
+type ContactPillMenuKind = "activation" | "processing" | "response" | "files";
+type ContactPillMenuOption = {
+  key: string;
+  label: string;
+  active: boolean;
+  value: string | boolean;
+};
+type ContactPillMenuState = {
+  contactId: string;
+  kind: ContactPillMenuKind;
+  left: number;
+  top: number;
+  widthClass: string;
+  options: ContactPillMenuOption[];
+};
 const saving = ref(false);
 const contactsLoading = ref(false);
 const contactsError = ref("");
 const contacts = ref<RemoteImContact[]>([]);
+const channelOperationIds = ref<Record<string, boolean>>({});
+const contactOperationIds = ref<Record<string, boolean>>({});
 const credentialDrafts = ref<Record<string, string>>({});
 const napcatCredentials = ref({ wsHost: "0.0.0.0", wsPort: 6199, wsToken: "" });
 const dingtalkCredentials = ref({ clientId: "", clientSecret: "" });
@@ -780,6 +880,7 @@ const addChannelModalOpen = ref(false);
 const channelConfigModalOpen = ref(false);
 const contactConfigModalOpen = ref(false);
 const selectedContactId = ref<string>("");
+const contactPillMenu = ref<ContactPillMenuState | null>(null);
 const contactSaving = ref(false);
 const contactDeleting = ref(false);
 const channelRuntimeStates = ref<Record<string, ChannelConnectionStatus | null>>({});
@@ -898,9 +999,81 @@ const channelSnapshot = computed(() => {
 const lastSavedChannelSnapshot = ref(channelSnapshot.value);
 const channelDirty = computed(() => channelSnapshot.value !== lastSavedChannelSnapshot.value);
 
+function isChannelOperationBusy(channelId: string): boolean {
+  return !!channelOperationIds.value[channelId];
+}
+
+function setChannelOperationBusy(channelId: string, busy: boolean) {
+  if (busy) {
+    channelOperationIds.value = { ...channelOperationIds.value, [channelId]: true };
+    return;
+  }
+  const next = { ...channelOperationIds.value };
+  delete next[channelId];
+  channelOperationIds.value = next;
+}
+
+function isContactOperationBusy(contactId: string): boolean {
+  return !!contactOperationIds.value[contactId];
+}
+
+async function withContactOperation(contactId: string, action: () => Promise<void>) {
+  if (isContactOperationBusy(contactId)) return;
+  contactOperationIds.value = { ...contactOperationIds.value, [contactId]: true };
+  try {
+    await action();
+  } finally {
+    const next = { ...contactOperationIds.value };
+    delete next[contactId];
+    contactOperationIds.value = next;
+  }
+}
+
 const currentChannelContacts = computed(() => {
   if (!selectedChannelId.value) return [];
   return contacts.value.filter((c) => c.channelId === selectedChannelId.value);
+});
+const contactsDisabledReason = computed(() => {
+  const channel = selectedChannel.value;
+  if (!channel) return "";
+  if (!channel.enabled) return "当前渠道未启用，联系人列表不可操作。";
+  if (channel.platform === "feishu") return "";
+  if (channel.platform === "onebot_v11" || channel.platform === "dingtalk" || channel.platform === "weixin_oc") {
+    const status = channelRuntimeStates.value[channel.id];
+    if (status?.connected) return "";
+    if (channel.platform === "onebot_v11" && status?.statusText === "binding_retry") {
+      return status.lastError || "OneBot 固定端口被占用，正在按原端口重试绑定。";
+    }
+    if (channel.platform === "onebot_v11" && status?.statusText === "bind_failed") {
+      return status.lastError || "OneBot 端口绑定失败，请换一个可用端口后保存并重启渠道。";
+    }
+    if (channel.platform === "onebot_v11" && status?.statusText === "binding") {
+      return "OneBot 正在绑定固定端口，连接成功前联系人列表不可操作。";
+    }
+    if (channel.platform === "onebot_v11" && status?.listenAddr) {
+      return `OneBot 服务端已监听 ${status.listenAddr}，等待 NapCat/协议端连接后联系人列表可操作。`;
+    }
+    return "渠道尚未真正连接，连接成功前联系人列表不可操作。";
+  }
+  return "";
+});
+const contactsDisabled = computed(() => !!contactsDisabledReason.value);
+const contactActivationModeOrder: RemoteImContact["activationMode"][] = ["always", "keyword", "never"];
+
+type ContactGroup = { mode: "always" | "keyword" | "never"; label: string; items: typeof currentChannelContacts.value };
+const groupedContacts = computed<ContactGroup[]>(() => {
+  const all = currentChannelContacts.value;
+  const groups: { mode: ContactGroup["mode"]; label: string; items: typeof all }[] = [
+    { mode: "always", label: t("config.remoteIm.activateModeAlways"), items: [] },
+    { mode: "keyword", label: t("config.remoteIm.activateModeKeyword"), items: [] },
+    { mode: "never", label: t("config.remoteIm.activateModeNever"), items: [] },
+  ];
+  for (const c of all) {
+    const mode = normalizeActivationMode(c.activationMode);
+    const target = groups.find((g) => g.mode === mode);
+    (target ?? groups[2]).items.push(c);
+  }
+  return groups.filter((g) => g.items.length > 0);
 });
 const selectedContact = computed(() =>
   currentChannelContacts.value.find((item) => item.id === selectedContactId.value) ?? null,
@@ -1188,11 +1361,13 @@ function resetNapcatCredentials() {
 
 async function saveChannels() {
   if (saving.value || !selectedChannel.value) return false;
+  const savedId = selectedChannelId.value;
+  if (isChannelOperationBusy(savedId)) return false;
   if (selectedChannel.value.platform === "feishu") {
     syncCredentialJson(selectedChannel.value);
   }
-  const savedId = selectedChannelId.value;
   saving.value = true;
+  setChannelOperationBusy(savedId, true);
   try {
     const result = await Promise.resolve(props.saveConfigAction());
     if (result) {
@@ -1230,11 +1405,13 @@ async function saveChannels() {
     }
     return false;
   } finally {
+    setChannelOperationBusy(savedId, false);
     saving.value = false;
   }
 }
 
 async function toggleChannelEnabled(channel: RemoteImChannelConfig, enabled: boolean) {
+  if (saving.value || isChannelOperationBusy(channel.id)) return;
   const previousEnabled = channel.enabled;
   props.setStatusAction(`正在${enabled ? "启用" : "停用"}渠道：${channel.name || channel.id}`);
   if (enabled) {
@@ -1246,6 +1423,7 @@ async function toggleChannelEnabled(channel: RemoteImChannelConfig, enabled: boo
   }
   channel.enabled = enabled;
   saving.value = true;
+  setChannelOperationBusy(channel.id, true);
   try {
     const result = await Promise.resolve(props.saveConfigAction());
     if (result) {
@@ -1277,6 +1455,7 @@ async function toggleChannelEnabled(channel: RemoteImChannelConfig, enabled: boo
     channel.enabled = previousEnabled;
     props.setStatusAction(t("status.saveConfigFailed", { err: String(error) }));
   } finally {
+    setChannelOperationBusy(channel.id, false);
     saving.value = false;
   }
 }
@@ -1286,35 +1465,27 @@ async function toggleSelectedChannelEnabled(enabled: boolean) {
   await toggleChannelEnabled(selectedChannel.value, enabled);
 }
 
-async function toggleContactAllowSend(item: RemoteImContact, enabled: boolean) {
-  const oldValue = item.allowSend;
+async function toggleContactCommunication(item: RemoteImContact, enabled: boolean) {
+  if (contactsDisabled.value) return;
+  const oldSend = item.allowSend;
+  const oldReceive = item.allowReceive;
   item.allowSend = enabled;
+  item.allowReceive = enabled;
   try {
     await invokeTauri<RemoteImContact>("remote_im_update_contact_allow_send", {
       input: { contactId: item.id, allowSend: enabled },
     });
     await refreshContacts();
   } catch (error) {
-    item.allowSend = oldValue;
+    item.allowSend = oldSend;
+    item.allowReceive = oldReceive;
     props.setStatusAction(t("status.saveConfigFailed", { err: String(error) }));
-  }
-}
-
-async function toggleContactAllowReceive(item: RemoteImContact, enabled: boolean) {
-  const oldValue = item.allowReceive;
-  item.allowReceive = enabled;
-  try {
-    await invokeTauri<RemoteImContact>("remote_im_update_contact_allow_receive", {
-      input: { contactId: item.id, allowReceive: enabled },
-    });
     await refreshContacts();
-  } catch (error) {
-    item.allowReceive = oldValue;
-    props.setStatusAction(t("status.saveConfigFailed", { err: String(error) }));
   }
 }
 
 async function toggleContactAllowSendFiles(item: RemoteImContact, enabled: boolean) {
+  if (contactsDisabled.value) return;
   const oldValue = item.allowSendFiles;
   item.allowSendFiles = enabled;
   try {
@@ -1345,6 +1516,7 @@ async function saveContactActivation(
     >
   >,
 ) {
+  if (contactsDisabled.value) return;
   const oldMode = item.activationMode;
   const oldKeywords = [...item.activationKeywords];
   const oldMuteKeywords = [...(Array.isArray(item.muteKeywords) ? item.muteKeywords : [])];
@@ -1404,6 +1576,171 @@ function onContactActivationModeChange(item: RemoteImContact, modeRaw: string) {
   void saveContactActivation(item, { activationMode: mode });
 }
 
+function contactActivationModeOptions(): Array<{ value: RemoteImContact["activationMode"]; label: string }> {
+  return [
+    { value: "always", label: t("config.remoteIm.activateModeAlways") },
+    { value: "keyword", label: t("config.remoteIm.activateModeKeyword") },
+    { value: "never", label: t("config.remoteIm.activateModeNever") },
+  ];
+}
+
+async function selectContactActivationMode(
+  item: RemoteImContact,
+  mode: RemoteImContact["activationMode"],
+) {
+  if (contactsDisabled.value) return;
+  const nextMode = normalizeActivationMode(mode);
+  if (normalizeActivationMode(item.activationMode || "never") === nextMode) return;
+  await withContactOperation(item.id, () => saveContactActivation(item, { activationMode: nextMode }));
+}
+
+function closeContactPillMenu() {
+  contactPillMenu.value = null;
+}
+
+function contactPillMenuWidthClass(kind: ContactPillMenuKind): string {
+  if (kind === "processing") return "w-40";
+  if (kind === "files") return "w-32";
+  return "w-36";
+}
+
+function contactPillMenuOptions(
+  item: RemoteImContact,
+  kind: ContactPillMenuKind,
+): ContactPillMenuOption[] {
+  if (kind === "activation") {
+    const current = normalizeActivationMode(item.activationMode || "never");
+    return contactActivationModeOptions().map((option) => ({
+      key: option.value,
+      label: option.label,
+      active: current === option.value,
+      value: option.value,
+    }));
+  }
+  if (kind === "processing") {
+    const current = normalizeProcessingMode(item.processingMode);
+    return contactProcessingModeOptions().map((option) => ({
+      key: option.value,
+      label: option.label,
+      active: current === option.value,
+      value: option.value,
+    }));
+  }
+  if (kind === "response") {
+    const current = normalizeResponseStrategy(item.responseStrategy);
+    return contactResponseStrategyOptions().map((option) => ({
+      key: option.value,
+      label: option.label,
+      active: current === option.value,
+      value: option.value,
+    }));
+  }
+  return contactSendFilesOptions().map((option) => ({
+    key: String(option.value),
+    label: option.label,
+    active: !!item.allowSendFiles === option.value,
+    value: option.value,
+  }));
+}
+
+function openContactPillMenu(
+  event: MouseEvent,
+  item: RemoteImContact,
+  kind: ContactPillMenuKind,
+) {
+  if (contactsDisabled.value || isContactOperationBusy(item.id)) return;
+  const target = event.currentTarget as HTMLElement | null;
+  const rect = target?.getBoundingClientRect();
+  if (!rect) return;
+  const options = contactPillMenuOptions(item, kind);
+  const menuHeight = options.length * 32 + 10;
+  const menuWidth = kind === "processing" ? 160 : kind === "files" ? 128 : 144;
+  const left = Math.max(8, Math.min(window.innerWidth - menuWidth - 8, rect.left));
+  const top = Math.max(8, rect.top - menuHeight - 4);
+  contactPillMenu.value = {
+    contactId: item.id,
+    kind,
+    left,
+    top,
+    widthClass: contactPillMenuWidthClass(kind),
+    options,
+  };
+}
+
+async function selectContactPillMenuOption(option: ContactPillMenuOption) {
+  const menu = contactPillMenu.value;
+  if (!menu) return;
+  const item = contacts.value.find((contact) => contact.id === menu.contactId);
+  closeContactPillMenu();
+  if (!item) return;
+  if (menu.kind === "activation") {
+    await selectContactActivationMode(item, option.value as RemoteImContact["activationMode"]);
+  } else if (menu.kind === "processing") {
+    await selectContactProcessingMode(item, option.value as "continuous" | "qa");
+  } else if (menu.kind === "response") {
+    await selectContactResponseStrategy(item, option.value as NonNullable<RemoteImContact["responseStrategy"]>);
+  } else {
+    await selectContactAllowSendFiles(item, option.value === true);
+  }
+}
+
+function contactActivationModeIndex(item: RemoteImContact): number {
+  const mode = normalizeActivationMode(item.activationMode || "never");
+  const index = contactActivationModeOrder.indexOf(mode);
+  return index >= 0 ? index : contactActivationModeOrder.length - 1;
+}
+
+function reorderContactAfterActivationMove(
+  contactId: string,
+  targetMode: RemoteImContact["activationMode"],
+  direction: -1 | 1,
+) {
+  const moved = contacts.value.find((contact) => contact.id === contactId);
+  if (!moved) return;
+  const channelId = moved.channelId;
+  const channelItems = contacts.value.filter((contact) => contact.channelId === channelId && contact.id !== contactId);
+  const targetGroup = channelItems.filter(
+    (contact) => normalizeActivationMode(contact.activationMode || "never") === targetMode,
+  );
+  const rebuiltChannelItems: RemoteImContact[] = [];
+  for (const mode of contactActivationModeOrder) {
+    const items = channelItems.filter((contact) => normalizeActivationMode(contact.activationMode || "never") === mode);
+    if (mode === targetMode && direction === 1) {
+      rebuiltChannelItems.push(moved);
+    }
+    rebuiltChannelItems.push(...items);
+    if (mode === targetMode && direction === -1) {
+      rebuiltChannelItems.push(moved);
+    }
+  }
+  if (targetGroup.length === 0 && !rebuiltChannelItems.some((contact) => contact.id === contactId)) {
+    rebuiltChannelItems.push(moved);
+  }
+  const next = [...contacts.value];
+  let cursor = 0;
+  for (let index = 0; index < next.length; index += 1) {
+    if (next[index].channelId !== channelId) continue;
+    const replacement = rebuiltChannelItems[cursor];
+    if (replacement) {
+      next[index] = replacement;
+      cursor += 1;
+    }
+  }
+  contacts.value = next;
+}
+
+async function moveContactActivationMode(item: RemoteImContact, direction: -1 | 1) {
+  if (contactsDisabled.value) return;
+  const currentIndex = contactActivationModeIndex(item);
+  const nextIndex = (currentIndex + direction + contactActivationModeOrder.length) % contactActivationModeOrder.length;
+  const nextMode = contactActivationModeOrder[nextIndex];
+  if (!nextMode) return;
+  await withContactOperation(item.id, async () => {
+    await saveContactActivation(item, { activationMode: nextMode });
+    reorderContactAfterActivationMove(item.id, nextMode, direction);
+  });
+}
+
 async function onContactDepartmentChange(
   item: RemoteImContact,
   departmentIdRaw: string,
@@ -1444,6 +1781,85 @@ async function onContactProcessingModeChange(
     item.processingMode = oldValue;
     props.setStatusAction(t("status.saveConfigFailed", { err: String(error) }));
   }
+}
+
+function contactProcessingModeOptions(): Array<{ value: "continuous" | "qa"; label: string }> {
+  return [
+    { value: "continuous", label: t("config.remoteIm.processingModeContinuous") },
+    { value: "qa", label: t("config.remoteIm.processingModeQa") },
+  ];
+}
+
+async function selectContactProcessingMode(
+  item: RemoteImContact,
+  mode: "continuous" | "qa",
+) {
+  if (contactsDisabled.value) return;
+  const nextMode = normalizeProcessingMode(mode);
+  if (normalizeProcessingMode(item.processingMode) === nextMode) return;
+  await withContactOperation(item.id, () => onContactProcessingModeChange(item, nextMode));
+}
+
+async function cycleContactProcessingMode(item: RemoteImContact) {
+  if (contactsDisabled.value) return;
+  const current = normalizeProcessingMode(item.processingMode);
+  const next = current === "qa" ? "continuous" : "qa";
+  await withContactOperation(item.id, () => onContactProcessingModeChange(item, next));
+}
+
+function contactResponseStrategyOptions(): Array<{
+  value: NonNullable<RemoteImContact["responseStrategy"]>;
+  label: string;
+}> {
+  return [
+    { value: "always_reply", label: t("config.remoteIm.responseStrategyAlways") },
+    { value: "smart_judge", label: t("config.remoteIm.responseStrategySmart") },
+  ];
+}
+
+function contactResponseStrategyLabel(item: RemoteImContact): string {
+  return normalizeResponseStrategy(item.responseStrategy) === "smart_judge"
+    ? t("config.remoteIm.responseStrategySmart")
+    : t("config.remoteIm.responseStrategyAlways");
+}
+
+async function selectContactResponseStrategy(
+  item: RemoteImContact,
+  strategy: NonNullable<RemoteImContact["responseStrategy"]>,
+) {
+  if (contactsDisabled.value) return;
+  const nextStrategy = normalizeResponseStrategy(strategy);
+  if (normalizeResponseStrategy(item.responseStrategy) === nextStrategy) return;
+  await withContactOperation(item.id, () => saveContactActivation(item, { responseStrategy: nextStrategy }));
+}
+
+async function cycleContactResponseStrategy(item: RemoteImContact) {
+  if (contactsDisabled.value) return;
+  const current = normalizeResponseStrategy(item.responseStrategy);
+  const next = current === "smart_judge" ? "always_reply" : "smart_judge";
+  await withContactOperation(item.id, () => saveContactActivation(item, { responseStrategy: next }));
+}
+
+function contactSendFilesOptions(): Array<{ value: boolean; label: string }> {
+  return [
+    { value: true, label: "可发文件" },
+    { value: false, label: "禁发文件" },
+  ];
+}
+
+function contactSendFilesLabel(item: RemoteImContact): string {
+  return item.allowSendFiles ? "可发文件" : "禁发文件";
+}
+
+async function selectContactAllowSendFiles(item: RemoteImContact, enabled: boolean) {
+  if (contactsDisabled.value) return;
+  if (!!item.allowSendFiles === enabled) return;
+  await withContactOperation(item.id, () => toggleContactAllowSendFiles(item, enabled));
+}
+
+async function cycleContactAllowSendFiles(item: RemoteImContact) {
+  if (contactsDisabled.value) return;
+  await withContactOperation(item.id, () => toggleContactAllowSendFiles(item, !item.allowSendFiles));
 }
 
 function onContactActivationKeywordsBlur(item: RemoteImContact) {
@@ -1507,6 +1923,7 @@ function resetContactDraft() {
 }
 
 async function saveContactDraft() {
+  if (contactsDisabled.value) return;
   if (!selectedContact.value || !contactDraft.value || !contactDraftDirty.value || contactSaving.value) return;
   const item = selectedContact.value;
   const draft = contactDraft.value;
@@ -1569,11 +1986,8 @@ async function saveContactDraft() {
       });
     }
 
-    if (!!draft.allowReceive !== !!item.allowReceive) {
-      await toggleContactAllowReceive(item, !!draft.allowReceive);
-    }
-    if (!!draft.allowSend !== !!item.allowSend) {
-      await toggleContactAllowSend(item, !!draft.allowSend);
+    if (!!draft.allowReceive !== !!item.allowReceive || !!draft.allowSend !== !!item.allowSend) {
+      await toggleContactCommunication(item, !!draft.allowReceive || !!draft.allowSend);
     }
     if (!!draft.allowSendFiles !== !!item.allowSendFiles) {
       await toggleContactAllowSendFiles(item, !!draft.allowSendFiles);
@@ -2003,6 +2417,7 @@ function buildContactLogDisplayItem(log: ChannelLogEntry): ContactLogDisplayItem
 }
 
 async function deleteContact(item: RemoteImContact) {
+  if (contactsDisabled.value) return;
   if (contactDeleting.value) return;
   const displayName = contactSafeDisplayName(item);
   const confirmed = window.confirm(`确定删除联系人“${displayName}”吗？\n仅删除联系人记录，不清理已有会话历史。`);
@@ -2033,9 +2448,20 @@ async function deleteContact(item: RemoteImContact) {
 
 function contactDepartmentLabel(item: RemoteImContact): string {
   const departmentId = String(item.boundDepartmentId || "").trim();
-  if (!departmentId) return t("config.department.assistantBadge");
-  const matched = remoteImDepartmentOptions.value.find((dept) => dept.id === departmentId);
-  return matched ? matched.label : departmentId;
+  const department = departmentId
+    ? (props.config.departments || []).find((dept) => String(dept.id || "").trim() === departmentId)
+    : (props.config.departments || []).find((dept) => dept.id === "assistant-department" || dept.isBuiltInAssistant);
+  const departmentName = department
+    ? departmentDisplayName(department)
+    : departmentId || t("config.department.assistantBadge");
+  const personaNames = (department?.agentIds || [])
+    .map((agentId) => {
+      const normalizedAgentId = String(agentId || "").trim();
+      return (props.personas || []).find((agent) => String(agent.id || "").trim() === normalizedAgentId)?.name || "";
+    })
+    .map((name) => String(name || "").trim())
+    .filter(Boolean);
+  return personaNames.length > 0 ? `${departmentName}（${personaNames.join(" / ")}）` : departmentName;
 }
 
 function departmentDisplayName(dept: DepartmentConfig): string {
@@ -2052,6 +2478,20 @@ function contactProcessingModeLabel(item: RemoteImContact): string {
     : t("config.remoteIm.processingModeContinuous");
 }
 
+function contactAvatarUrl(item: RemoteImContact): string {
+  return String(item.avatarUrl || "").trim();
+}
+
+function contactAvatarFallbackText(item: RemoteImContact): string {
+  const name = contactSafeDisplayName(item).trim();
+  if (name) return Array.from(name)[0] || "?";
+  return item.remoteContactType === "group" ? "群" : "私";
+}
+
+function contactProcessingModeBadgeClass(item: RemoteImContact): string {
+  return normalizeProcessingMode(item.processingMode) === "qa" ? "badge-secondary" : "badge-info";
+}
+
 function processingModeHintText(item: RemoteImContact): string {
   return normalizeProcessingMode(item.processingMode) === "qa"
     ? t("config.remoteIm.processingModeQaHint")
@@ -2065,6 +2505,19 @@ function contactActivationModeLabel(item: RemoteImContact): string {
   return t("config.remoteIm.activateModeNever");
 }
 
+function contactActivationBadgeClass(item: RemoteImContact): string {
+  const mode = normalizeActivationMode(item.activationMode || "never");
+  if (mode === "always") return "badge-success";
+  if (mode === "keyword") return "badge-primary";
+  return "badge-ghost";
+}
+
+function contactKeywordModeMissingKeywords(item: RemoteImContact): boolean {
+  if (normalizeActivationMode(item.activationMode || "never") !== "keyword") return false;
+  return !Array.isArray(item.activationKeywords)
+    || item.activationKeywords.every((keyword) => !String(keyword || "").trim());
+}
+
 function contactActivationHintText(item: RemoteImContact): string {
   const mode = normalizeActivationMode(item.activationMode);
   if (mode === "always") return t("config.remoteIm.activateModeAlwaysHint");
@@ -2076,6 +2529,10 @@ function contactResponseStrategyHintText(item: RemoteImContact): string {
   return normalizeResponseStrategy(item.responseStrategy) === "smart_judge"
     ? t("config.remoteIm.responseStrategySmartHint")
     : t("config.remoteIm.responseStrategyAlwaysHint");
+}
+
+function contactNeedsQuickModel(item: RemoteImContact): boolean {
+  return normalizeResponseStrategy(item.responseStrategy) === "smart_judge";
 }
 
 function platformLabelText(platform: string): string {
@@ -2140,6 +2597,17 @@ async function refreshAllChannelStatuses() {
   await Promise.all(jobs);
 }
 
+function onebotStatusText(status: ChannelConnectionStatus | null): string {
+  if (!status) return t("config.remoteIm.serverNotStarted");
+  if (status.connected) return `${t("config.remoteIm.connected")} (${status.peerAddr})`;
+  if (status.statusText === "binding_retry") return status.lastError || "固定端口被占用，正在重试";
+  if (status.statusText === "bind_failed") return status.lastError || "端口绑定失败";
+  if (status.statusText === "disabled") return "渠道已禁用";
+  if (status.statusText === "binding") return "正在绑定固定端口";
+  if (status.listenAddr) return `服务端已监听 ${status.listenAddr}，等待 NapCat/OneBot 客户端连接`;
+  return t("config.remoteIm.serverNotStarted");
+}
+
 function channelStatusPreview(channel: RemoteImChannelConfig): string {
   if (channel.platform === "weixin_oc") {
     const status = channelRuntimeStates.value[channel.id];
@@ -2182,7 +2650,11 @@ function channelStatusPreview(channel: RemoteImChannelConfig): string {
   if (status.connected) {
     return t("config.remoteIm.connected");
   }
-  return status.listenAddr ? t("config.remoteIm.waitingForConnection") : t("config.remoteIm.serverNotStarted");
+  if (status.statusText === "binding_retry") return status.lastError || "固定端口被占用，正在重试";
+  if (status.statusText === "bind_failed") return status.lastError || "端口绑定失败";
+  if (status.statusText === "disabled") return "渠道已禁用";
+  if (status.statusText === "binding") return "正在绑定固定端口";
+  return status.listenAddr ? `已监听 ${status.listenAddr}，等待客户端连接` : t("config.remoteIm.serverNotStarted");
 }
 
 function channelListStatusBadgeText(channel: RemoteImChannelConfig): string {
@@ -2190,6 +2662,11 @@ function channelListStatusBadgeText(channel: RemoteImChannelConfig): string {
   if (channel.platform === "onebot_v11" || channel.platform === "dingtalk" || channel.platform === "weixin_oc") {
     const status = channelRuntimeStates.value[channel.id];
     if (status?.connected) return t("config.remoteIm.connected");
+    if (channel.platform === "onebot_v11" && status?.statusText === "binding_retry") return "重试绑定";
+    if (channel.platform === "onebot_v11" && status?.statusText === "bind_failed") return "绑定失败";
+    if (channel.platform === "onebot_v11" && status?.statusText === "disabled") return "已禁用";
+    if (channel.platform === "onebot_v11" && status?.statusText === "binding") return "绑定中";
+    if (channel.platform === "onebot_v11" && status?.listenAddr) return "等待连接";
     if (channel.platform === "weixin_oc" && status?.statusText === "need_login") return "待登录";
     return t("config.remoteIm.enabledState");
   }
@@ -2200,6 +2677,8 @@ function channelListStatusBadgeClass(channel: RemoteImChannelConfig): string {
   if (!channel.enabled) return "badge-ghost";
   if (channel.platform === "onebot_v11" || channel.platform === "dingtalk" || channel.platform === "weixin_oc") {
     const status = channelRuntimeStates.value[channel.id];
+    if (channel.platform === "onebot_v11" && status?.statusText === "bind_failed") return "badge-error";
+    if (channel.platform === "onebot_v11" && status?.statusText === "disabled") return "badge-ghost";
     if (channel.platform === "weixin_oc" && status?.statusText === "need_login") return "badge-warning";
     return status?.connected ? "badge-success" : "badge-warning";
   }

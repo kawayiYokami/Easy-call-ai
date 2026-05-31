@@ -1,13 +1,12 @@
 <template>
   <div
     ref="chatLayoutRoot"
-    class="relative h-full min-h-0"
-    :class="showSideConversationList && !detachedChatWindow ? 'flex flex-row overflow-hidden' : 'flex flex-col relative'"
+    class="relative flex h-full min-h-0 flex-row overflow-hidden"
   >
     <div
       v-if="showSideConversationList && !detachedChatWindow"
-      class="flex h-full min-h-0 shrink-0"
-      :style="{ width: `${leftSidebarWidth}px` }"
+      :class="leftPaneInLayout ? 'flex h-full min-h-0 shrink-0' : 'absolute bottom-0 left-0 top-0 z-50 flex h-full min-h-0 border-r border-base-300 bg-base-100 shadow-2xl'"
+      :style="{ width: `${leftPaneVisibleWidth}px` }"
     >
       <ChatConversationSidebar
         :items="conversationItems || unarchivedConversationItems"
@@ -16,12 +15,13 @@
         :user-avatar-url="userAvatarUrl"
         :persona-name-map="personaNameMap"
         :persona-avatar-url-map="personaAvatarUrlMap"
-        :active-tab="conversationListTab"
-        @update:active-tab="$emit('updateConversationListTab', $event)"
+        :active-tab="chatLeftPanelMode === 'contact' ? 'contact' : 'local'"
+        @update:active-tab="$emit('update:conversation-list-tab', $event)"
         @select="handleConversationListSelect"
         @rename="handleConversationRename"
         @toggle-pin-conversation="handleConversationPinToggle"
         @archive-conversation="handleConversationArchive"
+        @export-conversation="handleConversationExport"
         @delete-conversation="handleConversationDelete"
       />
     </div>
@@ -92,8 +92,7 @@
                 </div>
                 <div v-else-if="entry.item.kind === 'message'"
                   v-memo="messageMemoKey(entry.item.block, entry.item.renderId, entry.item.blockIndex, entry.item.compactWithPrevious)">
-                  <div class="ecall-elastic-item-shell"
-                    :style="entry.item.id === latestOwnElasticItemId ? { minHeight: `${latestOwnElasticMinHeight}px` } : undefined">
+                  <div class="ecall-elastic-item-shell">
                     <ChatMessageItem
                       :active-conversation-id="activeConversationId" :block="entry.item.block"
                       :selection-key="entry.item.renderId" :selection-mode-enabled="messageSelectionModeEnabled"
@@ -104,10 +103,12 @@
                       :stream-tool-calls="visibleStreamToolCalls" :markdown-is-dark="markdownIsDark"
                       :playing-audio-id="playingAudioId" :active-turn-user="false"
                       :compact-with-previous="entry.item.compactWithPrevious"
-                      :can-regenerate="canRegenerateBlock(entry.item.block, entry.item.blockIndex)"
+                      :can-regenerate="!sidebarMode && canRegenerateBlock(entry.item.block, entry.item.blockIndex)"
                       :can-confirm-plan="canConfirmPlan(entry.item.block)"
+                      :read-plan-file-content="readPlanFileContent"
                       :bubble-background-hidden="isBubbleBackgroundHidden(entry.item.block)"
                       :hide-toggle-enabled="canToggleBubbleBackground(entry.item.block)"
+                      :disable-markdown-render="sidebarMode"
                       @recall-turn="$emit('recallTurn', $event)" @regenerate-turn="$emit('regenerateTurn', $event)"
                       @confirm-plan="$emit('confirmPlan', $event)" @enter-selection-mode="enterMessageSelectionMode"
                       @toggle-message-selected="toggleMessageSelected" @copy-message="copyMessage"
@@ -119,7 +120,7 @@
                   </div>
                 </div>
                 <div v-else class="ecall-turn-group">
-                  <div class="ecall-turn-stack" :style="entry.item.id === latestOwnElasticItemId ? { minHeight: `${latestOwnElasticMinHeight}px` } : undefined">
+                  <div class="ecall-turn-stack">
                     <template v-for="groupItem in entry.item.items" :key="groupItem.renderId">
                       <ChatMessageItem
                         v-memo="messageMemoKey(groupItem.block, groupItem.renderId, groupItem.blockIndex, groupItem.compactWithPrevious)"
@@ -132,10 +133,12 @@
                         :stream-tool-calls="visibleStreamToolCalls" :markdown-is-dark="markdownIsDark"
                         :playing-audio-id="playingAudioId" :active-turn-user="false"
                         :compact-with-previous="groupItem.compactWithPrevious"
-                        :can-regenerate="canRegenerateBlock(groupItem.block, groupItem.blockIndex)"
+                        :can-regenerate="!sidebarMode && canRegenerateBlock(groupItem.block, groupItem.blockIndex)"
                         :can-confirm-plan="canConfirmPlan(groupItem.block)"
+                        :read-plan-file-content="readPlanFileContent"
                         :bubble-background-hidden="isBubbleBackgroundHidden(groupItem.block)"
                         :hide-toggle-enabled="canToggleBubbleBackground(groupItem.block)"
+                        :disable-markdown-render="sidebarMode"
                         @recall-turn="$emit('recallTurn', $event)" @regenerate-turn="$emit('regenerateTurn', $event)"
                         @confirm-plan="$emit('confirmPlan', $event)" @enter-selection-mode="enterMessageSelectionMode"
                         @toggle-message-selected="toggleMessageSelected" @copy-message="copyMessage"
@@ -150,22 +153,25 @@
               </div>
             </div>
 
+            <div :style="{ minHeight: `${latestOwnTailSpacerMinHeight}px` }"></div>
             <div ref="toolbarContainer" class="ecall-chat-toolbar-shell px-2 pt-1 pb-2">
               <ChatWorkspaceToolbar
                 :chatting="chatting" :frozen="frozen" :conversation-busy="conversationBusy"
                 :workspace-button-label="t('chat.allowedWorkspaceButton')" :workspace-button-name="currentWorkspaceName"
                 :workspace-button-disabled="!activeConversationId || activeConversationSummary?.kind === 'remote_im_contact'"
                 :hide-menu-button="activeConversationSummary?.kind === 'remote_im_contact'"
-                :hide-workspace-button="activeConversationSummary?.kind === 'remote_im_contact'"
+                :hide-workspace-button="hideWorkspaceButton || activeConversationSummary?.kind === 'remote_im_contact'"
+                :show-forward-menu-item="!sidebarMode"
+                :show-share-menu-item="!sidebarMode"
+                :show-workspace-menu-item="true"
+                :show-code-review-menu-item="sidebarMode"
                 :mention-entries="mentionEntries" :selected-mention-keys="selectedMentionKeys"
-                :supervision-active="supervisionActive" :supervision-label="t('chat.supervision.button')"
-                :supervision-active-label="t('chat.supervision.buttonActive')" :supervision-title="supervisionButtonTitle"
-                :supervision-disabled="activeConversationSummary?.kind === 'remote_im_contact'"
                 :show-detach-button="!detachedChatWindow && !activeConversationSummary?.isMainConversation"
                 :detach-disabled="!activeConversationId || activeConversationSummary?.isMainConversation || chatting || frozen || conversationBusy"
                 @lock-workspace="$emit('lockWorkspace')" @open-branch-selection="openBranchSelectionMenu"
                 @open-delegate-selection="openDelegateSelectionMenu" @open-forward-selection="openForwardSelectionMenu"
                 @open-share-selection="openShareSelectionMenu"
+                @open-code-review="$emit('openCodeReview')"
                 @mention-entry="(entry) => {
                   const agentId = String(entry?.agentId || '').trim();
                   const departmentId = String(entry?.departmentId || '').trim();
@@ -174,7 +180,7 @@
                   if (selectedMentionKeys.includes(mentionKey)) { emit('removeMention', { agentId, departmentId }); return; }
                   emit('addMention', { agentId, agentName: String(entry?.agentName || '').trim() || agentId, departmentId, departmentName: String(entry?.departmentName || '').trim() || departmentId, avatarUrl: String(entry?.avatarUrl || '').trim() || undefined });
                 }"
-                @open-supervision-task="$emit('openSupervisionTask')" @detach-conversation="handleDetachConversationRequest"
+                @detach-conversation="handleDetachConversationRequest"
               />
             </div>
           </div>
@@ -189,11 +195,20 @@
         </div>
 
         <div ref="composerContainer" class="relative shrink-0 border-t border-base-300 bg-base-100 p-2">
-          <div v-if="chatStatusBanner" class="pointer-events-none absolute inset-x-0 top-0 z-10 -translate-y-full">
-            <div class="relative flex w-full items-center justify-center rounded-none px-4 py-1.5 text-center text-[12px] backdrop-blur-md"
+          <div v-if="chatStatusBanner" class="absolute inset-x-0 top-0 z-10 -translate-y-full">
+            <div class="relative flex w-full items-center justify-center gap-2 rounded-none px-4 py-1.5 text-center text-[12px] backdrop-blur-md"
               :class="chatStatusBanner.tone === 'error' ? 'bg-error/12 text-error' : chatStatusBanner.text === t('chat.statusCompactingContext') ? 'bg-info/12 text-info' : 'bg-base-200/75 text-base-content'">
               <span class="relative z-1" :class="chatStatusBanner.tone === 'error' ? '' : 'text-base-content/80 ecall-shimmer-text ecall-reasoning-shimmer'"
                 :data-shimmer-text="chatStatusBanner.tone === 'error' ? '' : chatStatusBanner.text">{{ chatStatusBanner.text }}</span>
+              <button
+                v-if="chatStatusBanner.tone === 'error'"
+                type="button"
+                class="btn btn-ghost btn-xs h-5 min-h-5 w-5 shrink-0 p-0 text-error hover:bg-error/15"
+                :title="t('common.close')"
+                @click="$emit('clearChatError')"
+              >
+                <X class="h-3.5 w-3.5" />
+              </button>
             </div>
           </div>
           <ChatApprovalPanel
@@ -211,9 +226,13 @@
             :transcribing="transcribing" :can-record="canRecord" :recording="recording" :recording-ms="recordingMs"
             :record-hotkey="recordHotkey" :selected-chat-model-id="selectedChatModelId"
             :chat-model-options="chatModelOptions" :plan-mode-enabled="planModeEnabled"
+            :workspace-access="workspaceAccess"
             :frontend-round-phase="frontendRoundPhase" :chat-usage-percent="chatUsagePercent"
-            :force-archive-tip="forceArchiveTip" :chatting="chatting" :busy="conversationBusy"
+            :trim-tip="trimTip" :chatting="chatting" :busy="conversationBusy"
             :stop-chat-disabled="isOrganizingContextBusy" :frozen="frozen"
+            :supervision-active="supervisionActive"
+            :supervision-title="supervisionButtonTitle"
+            :supervision-disabled="activeConversationSummary?.kind === 'remote_im_contact'"
             :show-side-conversation-list="detachedChatWindow ? false : showSideConversationList"
             :active-conversation-id="activeConversationId" :unarchived-conversation-items="unarchivedConversationItems"
             :user-alias="userAlias" :user-avatar-url="userAvatarUrl"
@@ -221,24 +240,27 @@
             :create-conversation-department-options="createConversationDepartmentOptions"
             :delegate-department-ids="delegateDepartmentIds"
             :default-create-conversation-department-id="defaultCreateConversationDepartmentId"
-            :ide-context-groups="visibleIdeContextGroups" :attached-ide-context-references="attachedIdeContextReferences"
+            :ide-context-groups="mergedVisibleIdeContextGroups" :attached-ide-context-references="attachedIdeContextReferences"
+            :sidebar-mode="sidebarMode"
             @update:chat-input="$emit('update:chatInput', $event)" @add-mention="$emit('addMention', $event)"
             @remove-mention="$emit('removeMention', $event)" @remove-clipboard-image="$emit('removeClipboardImage', $event)"
             @remove-queued-attachment-notice="$emit('removeQueuedAttachmentNotice', $event)"
             @start-recording="$emit('startRecording')" @stop-recording="$emit('stopRecording')"
             @pick-attachments="$emit('pickAttachments')"
             @update:selected-chat-model-id="$emit('update:selectedChatModelId', $event)"
+            @update:workspace-access="$emit('updateWorkspaceAccess', $event)"
             @update:plan-mode-enabled="$emit('update:planModeEnabled', $event)"
             @attach-ide-context-reference="handleAttachIdeContextReference"
             @remove-ide-context-reference="handleRemoveIdeContextReference"
             @send-chat="handleSendChat" @stop-chat="$emit('stopChat')"
+            @open-supervision-task="$emit('openSupervisionTask')"
             @exit-selection-mode="exitMessageSelectionMode"
             @selection-action-copy="copySelectedMessages"
             @selection-action-branch="emitSelectionAction('branch')"
             @selection-action-forward="emitSelectionAction('forward', $event)"
             @selection-action-delegate="emitSelectionAction('delegate', $event)"
             @selection-action-share="emitSelectionAction('share', $event)"
-            @force-archive="$emit('forceArchive')" @switch-conversation="$emit('switchConversation', $event)"
+            @trim-conversation="$emit('trimConversation')" @open-conversation-list="$emit('openConversationList')" @open-settings="$emit('openSettings')" @switch-conversation="$emit('switchConversation', $event)"
             @create-conversation="$emit('createConversation', $event)"
           />
         </div>
@@ -253,15 +275,43 @@
         />
 
         <ChatSupervisionTaskDialog
+          v-if="!sidebarMode"
           :open="supervisionDialogOpen" :saving="supervisionTaskSaving" :error-text="supervisionTaskError"
           :active-task="activeSupervisionTask" :recent-history="recentSupervisionTaskHistory"
           @close="$emit('closeSupervisionTask')" @save="$emit('saveSupervisionTask', $event)"
         />
       </div>
 
-      <div v-if="toolReviewPanelOpen" class="flex h-full min-h-0 shrink-0 border-l border-base-300 bg-base-100 pt-2"
-        :style="{ width: `${rightSidebarWidth}px` }">
-        <ToolReviewSidebar ref="toolReviewSidebarRef" class="w-full"
+      <div
+        v-if="leftPaneOverlay || rightPaneOverlay"
+        class="absolute inset-0 z-40 bg-base-300/20 backdrop-blur-[1px]"
+        @click="closeOverlayPanes"
+      ></div>
+
+      <div v-if="effectiveToolReviewPanelOpen"
+        :class="rightPaneInLayout ? 'flex h-full min-h-0 shrink-0 border-l border-base-300 bg-base-100' : 'absolute bottom-0 right-0 top-0 z-50 flex h-full min-h-0 border-l border-base-300 bg-base-100 shadow-2xl'"
+        :style="{ width: `${rightPaneVisibleWidth}px` }">
+        <FileReaderPanel
+          v-if="chatRightPanelMode === 'reader'"
+          ref="chatReaderPanelRef"
+          class="h-full w-full"
+          :initial-root-path="currentWorkspaceRootPath"
+          :session-key="chatFileReaderSessionKey"
+          :legacy-session-key="legacyChatFileReaderSessionKey"
+          :enable-global-drop="false"
+          :markdown-is-dark="markdownIsDark"
+          custom-markstream-id="chat-file-reader-markstream"
+          @capture-context-reference="handleCaptureFileReaderContextReference"
+          @clear-selection-context-reference="handleClearFileReaderSelectionContextReference"
+        >
+          <template #empty>
+            <div class="space-y-2 px-5 text-center">
+              <div class="font-medium text-base-content/70">选择文件开始阅读</div>
+              <div class="text-xs leading-relaxed text-base-content/50">右侧目录会跟随当前会话工作区，也可以通过文件标签页同时阅读多个文件。</div>
+            </div>
+          </template>
+        </FileReaderPanel>
+        <ToolReviewSidebar v-else ref="toolReviewSidebarRef" class="w-full"
           :batches="toolReviewBatches" :current-batch-key="toolReviewCurrentBatchKey"
           :detail-map="toolReviewDetailMap" :detail-loading-call-id="toolReviewDetailLoadingCallId"
           :reviewing-call-id="toolReviewReviewingCallId" :batch-reviewing-key="toolReviewBatchReviewingKey"
@@ -270,42 +320,45 @@
           :current-report-id="toolReviewCurrentReportId" :markdown-is-dark="markdownIsDark"
           :current-workspace-name="currentWorkspaceName" :current-workspace-root-path="currentWorkspaceRootPath"
           :workspaces="workspaces" :current-department-id="currentDepartmentId"
-          :department-options="toolReviewDepartmentOptions" :delegate-statuses="delegateStatuses"
-          :delegate-loading="delegateStatusesLoading" :delegate-error-text="delegateStatusesErrorText"
+          :department-options="toolReviewDepartmentOptions"
+          :delegate-statuses="delegateStatuses"
+          :delegate-statuses-loading="delegateStatusesLoading"
+          :delegate-statuses-error-text="delegateStatusesErrorText"
           @select-batch="setToolReviewCurrentBatchKey" @load-item-detail="loadToolReviewItemDetail"
           @review-item="runToolReviewForCall" @review-batch="runToolReviewForBatch"
           @pick-commit-review="handlePickCommitReview" @review-code="handleToolReviewCode"
           @retry-report="handleRetryToolReviewReport" @delete-report="handleDeleteToolReviewReport"
           @copy-report="copyToolReviewReport" @attach-report="$emit('attachToolReviewReport', $event)"
-          @open-delegate-detail="openDelegateArchiveDetail" @abort-delegate="abortDelegate"
+          @open-delegate-detail="openDelegateArchiveDetail"
+          @abort-delegate="abortDelegate"
         />
       </div>
     </div>
 
     <div
       v-if="showSideConversationList && !detachedChatWindow"
-      class="ecall-pane-splitter ecall-pane-splitter-left absolute bottom-0 top-0 z-30"
+      class="ecall-pane-splitter ecall-pane-splitter-left absolute bottom-0 top-0 z-[60]"
       :class="{ 'ecall-pane-splitter-active': activePaneResizeSide === 'left' }"
-      :style="{ left: `${leftSidebarWidth - 2}px` }"
+      :style="{ left: `${leftPaneVisibleWidth - 2}px` }"
       role="separator"
       tabindex="0"
       aria-orientation="vertical"
       :aria-valuemin="PANE_WIDTH_LIMITS.left.min"
       :aria-valuemax="PANE_WIDTH_LIMITS.left.max"
-      :aria-valuenow="leftSidebarWidth"
+      :aria-valuenow="leftPaneVisibleWidth"
       @pointerdown="startPaneResize('left', $event)"
       @keydown.left.prevent="adjustPaneWidthByKeyboard('left', -24)"
       @keydown.right.prevent="adjustPaneWidthByKeyboard('left', 24)"
     ></div>
 
     <div
-      v-if="toolReviewPanelOpen"
-      class="ecall-pane-splitter ecall-pane-splitter-right absolute bottom-0 top-0 z-30"
+      v-if="effectiveToolReviewPanelOpen"
+      class="ecall-pane-splitter ecall-pane-splitter-right absolute bottom-0 top-0 z-[60]"
       :class="{ 'ecall-pane-splitter-active': activePaneResizeSide === 'right' }"
-      :style="{ right: `${rightSidebarWidth - 2}px` }"
+      :style="{ right: `${rightPaneVisibleWidth - 2}px` }"
       role="separator" tabindex="0" aria-orientation="vertical"
       :aria-valuemin="PANE_WIDTH_LIMITS.right.min" :aria-valuemax="PANE_WIDTH_LIMITS.right.max"
-      :aria-valuenow="rightSidebarWidth"
+      :aria-valuenow="rightPaneVisibleWidth"
       @pointerdown="startPaneResize('right', $event)"
       @keydown.left.prevent="adjustPaneWidthByKeyboard('right', 24)"
       @keydown.right.prevent="adjustPaneWidthByKeyboard('right', -24)"
@@ -317,11 +370,10 @@
 </template>
 
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, onMounted, ref, toRef, type ComponentPublicInstance, type Ref } from "vue";
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, toRef, watch, type ComponentPublicInstance, type Ref } from "vue";
 import { useI18n } from "vue-i18n";
 import { isDarkAppTheme } from "../../shell/composables/use-app-theme";
-import { ChevronsDown, History } from "lucide-vue-next";
-import "markstream-vue/index.css";
+import { ChevronsDown, History, X } from "@lucide/vue";
 import { invokeTauri } from "../../../services/tauri-api";
 import type { ApiConfigItem, ChatConversationOverviewItem, ChatMentionEntry, ChatMentionTarget, ChatMessageBlock, ChatPersonaPresenceChip, ChatTodoItem, ConversationDelegateStatusSummary, IdeContextReferenceItem, IdeContextWorkspaceGroup, PromptCommandPreset, ShellWorkspace } from "../../../types/app";
 import ChatMessageItem from "../components/ChatMessageItem.vue";
@@ -332,6 +384,7 @@ import ChatConversationSidebar from "../components/ChatConversationSidebar.vue";
 import ChatWorkspaceToolbar from "../components/ChatWorkspaceToolbar.vue";
 import ToolReviewSidebar from "../components/ToolReviewSidebar.vue";
 import RelationshipPanel from "../components/RelationshipPanel.vue";
+import FileReaderPanel from "../../file-reader/components/FileReaderPanel.vue";
 import ChatImagePreviewDialog from "../components/dialogs/ChatImagePreviewDialog.vue";
 import ChatSupervisionTaskDialog from "../components/dialogs/ChatSupervisionTaskDialog.vue";
 import ConversationTodoDropdown from "../components/ConversationTodoDropdown.vue";
@@ -342,7 +395,7 @@ import { useChatScrollLayout } from "../composables/use-chat-scroll-layout";
 import { useChatToolReview, type ToolReviewCodeReviewScope, type ToolReviewCommitOption, type ToolReviewReportRecord } from "../composables/use-chat-tool-review";
 import type { TerminalApprovalConversationItem } from "../../shell/composables/use-terminal-approval";
 import { isAbsoluteLocalPath, normalizeLocalLinkHref } from "../utils/local-link";
-import { type ChatRenderItem, isRightAlignedMessage, canOpenInFileReader } from "../utils/chat-render";
+import { type ChatRenderItem, isRightAlignedMessage, canOpenInFileReader, fileExtensionFromPath } from "../utils/chat-render";
 import { useIdeContext } from "../composables/use-ide-context";
 import { useDelegateStatus } from "../composables/use-delegate-status";
 import { useBubbleBackground } from "../composables/use-bubble-background";
@@ -371,8 +424,8 @@ const props = defineProps<{
   chatInput: string; instructionPresets: PromptCommandPreset[]; chatInputPlaceholder: string;
   canRecord: boolean; recording: boolean; recordingMs: number; transcribing: boolean; recordHotkey: string;
   selectedChatModelId: string; toolReviewRefreshTick: number; chatModelOptions: ApiConfigItem[];
-  planModeEnabled: boolean; chatUsagePercent: number; forceArchiveTip: string;
-  mediaDragActive: boolean; chatting: boolean; forcingArchive: boolean; forcingArchiveConversationId?: string;
+  planModeEnabled: boolean; chatUsagePercent: number; trimTip: string;
+  mediaDragActive: boolean; chatting: boolean; trimming: boolean; trimmingConversationId?: string;
   compactingConversation: boolean; compactingConversationId?: string;
   conversationBusy: boolean; frozen: boolean; messageBlocks: ChatMessageBlock[];
   hasMoreHistory: boolean; loadingOlderHistory: boolean;
@@ -387,11 +440,17 @@ const props = defineProps<{
   conversationItems?: ChatConversationOverviewItem[]; sideConversationListVisible: boolean;
   initialToolReviewPanelOpen: boolean;
   conversationListTab: "local" | "contact";
-  createConversationDepartmentOptions: Array<{ id: string; name: string; ownerAgentId?: string; ownerName: string; providerName?: string; modelName?: string }>;
+  chatLeftPanelMode: "local" | "contact";
+  chatRightPanelMode: "reader" | "review" | "delegate";
+  createConversationDepartmentOptions: Array<{ id: string; name: string; ownerAgentId?: string; ownerName: string; providerName?: string; modelName?: string; childDepartmentIds?: string[] }>;
   delegateDepartmentIds: string[]; defaultCreateConversationDepartmentId: string;
   ideContextGroups: IdeContextWorkspaceGroup[]; attachedIdeContextReferences: IdeContextReferenceItem[];
   detachedChatWindow?: boolean; terminalApprovals?: TerminalApprovalConversationItem[];
   terminalApprovalResolving?: boolean;
+  sidebarMode?: boolean;
+  hideWorkspaceButton?: boolean;
+  workspaceAccess?: "read_only" | "approval" | "full_access" | "";
+  readPlanFileContent?: (input: { conversationId: string; path: string }) => Promise<string>;
 }>();
 
 const emit = defineEmits<{
@@ -402,26 +461,31 @@ const emit = defineEmits<{
   (e: "toolReviewPanelOpenChange", value: boolean): void;
   (e: "sidePanelWidthsChange", value: { leftWidth: number; rightWidth: number }): void;
   (e: "sidePanelWidthsCommit", value: { leftWidth: number; rightWidth: number }): void;
-  (e: "updateConversationListTab", value: "local" | "contact"): void;
+  (e: "update:conversation-list-tab", value: "local" | "contact"): void;
+  (e: "update:chatLeftPanelMode", value: "local" | "contact"): void;
+  (e: "update:chatRightPanelMode", value: "reader" | "review" | "delegate"): void;
   (e: "removeClipboardImage", index: number): void;
   (e: "removeQueuedAttachmentNotice", index: number): void;
   (e: "startRecording"): void; (e: "stopRecording"): void; (e: "pickAttachments"): void;
   (e: "update:selectedChatModelId", value: string): void;
+  (e: "updateWorkspaceAccess", value: "read_only" | "approval" | "full_access"): void;
   (e: "update:planModeEnabled", value: boolean): void;
   (e: "sendChat", payload?: { extraTextBlocks?: string[] }): void;
-  (e: "stopChat"): void; (e: "forceArchive"): void;
+  (e: "stopChat"): void; (e: "trimConversation"): void; (e: "openConversationList"): void; (e: "openSettings"): void;
+  (e: "clearChatError"): void;
   (e: "recallTurn", payload: { turnId: string }): void;
   (e: "regenerateTurn", payload: { turnId: string }): void;
   (e: "confirmPlan", payload: { messageId: string }): void;
-  (e: "lockWorkspace"): void; (e: "openSupervisionTask"): void;
+  (e: "lockWorkspace"): void; (e: "openSupervisionTask"): void; (e: "openCodeReview"): void;
   (e: "detachConversation"): void; (e: "closeSupervisionTask"): void;
   (e: "saveSupervisionTask", payload: { durationHours: number; goal: string; why: string; todo: string }): void;
   (e: "switchConversation", payload: { conversationId: string; kind?: "local_unarchived" | "remote_im_contact"; remoteContactId?: string }): void;
   (e: "renameConversation", payload: { conversationId: string; title: string }): void;
   (e: "togglePinConversation", conversationId: string): void;
   (e: "archiveConversation", conversationId: string): void;
+  (e: "exportConversation", conversationId: string): void;
   (e: "deleteConversation", conversationId: string): void;
-  (e: "createConversation", input?: { title?: string; departmentId?: string }): void;
+  (e: "createConversation", input?: { title?: string; departmentId?: string; copyCurrent?: boolean; importPath?: string; shellWorkspaces?: ShellWorkspace[]; shellAutonomousMode?: boolean }): void;
   (e: "loadOlderHistory"): void; (e: "reachedBottom"): void;
   (e: "jumpToConversationBottom"): void;
   (e: "refreshToolReviewMessage", payload: { conversationId: string; messageId: string }): void;
@@ -434,12 +498,14 @@ const emit = defineEmits<{
   (e: "selectionActionShare", payload: { count: number; messageIds: string[]; blocks: ChatMessageBlock[]; exportFormat?: "html" | "png" }): void;
   (e: "approveTerminalApproval", requestId: string): void;
   (e: "denyTerminalApproval", requestId: string): void;
+  (e: "openSidebarFileReference", href: string): void;
 }>();
 
 // ==================== basic state ====================
 
 const { t } = useI18n();
 const toolReviewSidebarRef = ref<ComponentPublicInstance<{ setCommitOptions: (items: ToolReviewCommitOption[], loading?: boolean, total?: number, page?: number, pageSize?: number) => void }> | null>(null);
+const chatReaderPanelRef = ref<InstanceType<typeof FileReaderPanel> | null>(null);
 const chatScrollbarRef = ref<InstanceType<typeof FloatingScrollbar> | null>(null);
 const linkOpenErrorText = ref("");
 const conversationSummaryCard = ref<{ visible: boolean; text: string }>({ visible: false, text: "" });
@@ -453,11 +519,21 @@ const {
   activeConversationTerminalApprovals, supervisionButtonTitle,
   isOrganizingContextBusy, chatStatusBanner, selectedMentionKeys,
   latestPendingPlanMessageId,
-} = useChatConversationCtx({ ...props, isDarkAppTheme }, t);
+} = useChatConversationCtx(props, isDarkAppTheme, t);
 
 const toolReviewDepartmentOptions = computed(() => {
   const allowed = new Set((Array.isArray(props.delegateDepartmentIds) ? props.delegateDepartmentIds : []).map((id) => String(id || "").trim()).filter(Boolean));
   return (Array.isArray(props.createConversationDepartmentOptions) ? props.createConversationDepartmentOptions : []).filter((item) => allowed.has(String(item.id || "").trim()));
+});
+
+const chatFileReaderSessionKey = computed(() => {
+  const conversationId = String(props.activeConversationId || "").trim();
+  return conversationId ? `easy_call.chat_file_reader_session.${conversationId}.v1` : "";
+});
+
+const legacyChatFileReaderSessionKey = computed(() => {
+  const conversationId = String(props.activeConversationId || "").trim();
+  return conversationId ? `easy-call.chat.file-reader-session.${conversationId}` : "";
 });
 
 // ==================== messages / audio / bubble ====================
@@ -465,6 +541,7 @@ const toolReviewDepartmentOptions = computed(() => {
 const { playingAudioId, copyMessage, stopAudioPlayback, toggleAudioPlayback } = useChatMessageActions();
 const { isHidden: isBubbleBackgroundHidden, canToggle: canToggleBubbleBackground, toggle: toggleBubbleBackground } = useBubbleBackground(toRef(props, "activeConversationId"));
 const showSideConversationList = computed(() => !!props.sideConversationListVisible);
+const sidebarMode = computed(() => !!props.sidebarMode);
 
 function canRegenerateBlock(block: ChatMessageBlock, blockIndex: number): boolean {
   if (block.role !== "assistant" || block.isExtraTextBlock) return false;
@@ -519,6 +596,51 @@ const {
   workspaces: toRef(props, "workspaces"),
   currentWorkspaceRootPath: toRef(props, "currentWorkspaceRootPath"),
   currentWorkspaceName: toRef(props, "currentWorkspaceName"),
+  enabled: computed(() => !sidebarMode.value),
+});
+
+const fileReaderVisibleContextReference = ref<IdeContextReferenceItem | null>(null);
+const fileReaderSelectionContextReference = ref<IdeContextReferenceItem | null>(null);
+const fileReaderContextReferences = computed<IdeContextReferenceItem[]>(() => {
+  const visible = fileReaderVisibleContextReference.value;
+  const selection = fileReaderSelectionContextReference.value;
+  if (!visible && !selection) return [];
+  if (!visible) return selection ? [selection] : [];
+  if (!selection) return [visible];
+  const visibleFilePath = String(visible.filePath || "").trim();
+  const selectionFilePath = String(selection.filePath || "").trim();
+  return visibleFilePath && visibleFilePath === selectionFilePath ? [selection] : [visible];
+});
+const mergedVisibleIdeContextGroups = computed<IdeContextWorkspaceGroup[]>(() => {
+  const propGroups = Array.isArray(props.ideContextGroups) ? props.ideContextGroups : [];
+  const baseGroups = propGroups.length > 0 ? propGroups : visibleIdeContextGroups.value;
+  if (fileReaderContextReferences.value.length === 0) return baseGroups;
+  return [
+    {
+      workspacePath: String(props.currentWorkspaceRootPath || "").trim(),
+      workspaceName: String(props.currentWorkspaceName || "").trim() || t("chat.allowedWorkspaceButton"),
+      references: fileReaderContextReferences.value,
+    },
+    ...baseGroups,
+  ];
+});
+
+function handleCaptureFileReaderContextReference(reference: IdeContextReferenceItem) {
+  const source = String(reference.source || "").trim();
+  if (source === "visible_range") {
+    fileReaderVisibleContextReference.value = { ...reference };
+  } else {
+    fileReaderSelectionContextReference.value = { ...reference };
+  }
+}
+
+function handleClearFileReaderSelectionContextReference() {
+  fileReaderSelectionContextReference.value = null;
+}
+
+watch(() => props.activeConversationId, () => {
+  fileReaderVisibleContextReference.value = null;
+  fileReaderSelectionContextReference.value = null;
 });
 
 // ==================== selection state shared between virtual list & selection mode ====================
@@ -593,9 +715,9 @@ const activeJumpToBottomRequest = ref(0);
 
 const {
   virtualizer, virtualEntries, totalVirtualSize, measureVirtualRow,
-  scheduleVirtualMeasure, syncViewportMetrics,
+  latestOwnTailContentHeight, scheduleVirtualMeasure, syncViewportMetrics,
   resetVirtualizerAtConversationBottom, alignItemToTop, captureVisibleAnchor, findRenderedMessageElement,
-  resolveMessageAnchorElement, syncVisibleStreamingVirtualItemViewportTops,
+  resolveMessageAnchorElement, syncVisibleStreamingVirtualItemViewportTops, refreshObservedVirtualItemElements,
 } = useChatVirtualScroll({
   renderItems: virtualRenderItems, renderItemById, blockChronologicalIndexMap,
   scrollContainer, scrollbarRef: chatScrollbarRef as Ref<{ updateThumb: () => void } | null>,
@@ -603,7 +725,14 @@ const {
   activeConversationId: toRef(props, "activeConversationId"),
   latestOwnElasticItemId,
   latestOwnElasticMinHeight,
+  debugEnabled: computed(() => !sidebarMode.value),
+  smoothScrollEnabled: computed(() => !sidebarMode.value),
   onUserScroll: () => onScroll(),
+});
+
+const latestOwnTailSpacerMinHeight = computed(() => {
+  if (!latestOwnElasticItemId.value || latestOwnTailContentHeight.value <= 0) return 0;
+  return Math.max(0, latestOwnElasticMinHeight.value - latestOwnTailContentHeight.value);
 });
 
 // ==================== tool review ====================
@@ -628,6 +757,7 @@ const {
   onToolReviewPanelOpenChange: (open) => emit("toolReviewPanelOpenChange", open),
   toolReviewSidebarRef,
 });
+const effectiveToolReviewPanelOpen = computed(() => !sidebarMode.value && toolReviewPanelOpen.value);
 
 // ==================== delegate status ====================
 
@@ -636,23 +766,61 @@ const {
   openDelegateArchiveDetail, abortDelegate,
 } = useDelegateStatus({
   activeConversationId: toRef(props, "activeConversationId"),
-  panelOpen: toolReviewPanelOpen,
+  panelOpen: effectiveToolReviewPanelOpen,
 });
 
 // ==================== panes ====================
 
 const panesCleanupFns: Array<() => void> = [];
 const {
-  leftSidebarWidth, rightSidebarWidth, activePaneResizeSide,
+  leftPaneInLayout, rightPaneInLayout,
+  leftPaneOverlay, rightPaneOverlay, leftPaneVisibleWidth, rightPaneVisibleWidth, activePaneResizeSide,
   startPaneResize, adjustPaneWidthByKeyboard,
 } = useChatPanes({
-  chatLayoutRoot, toolReviewPanelOpen,
+  chatLayoutRoot, toolReviewPanelOpen: effectiveToolReviewPanelOpen,
   showSideConversationList, detachedChatWindow: !!props.detachedChatWindow,
   syncViewportMetrics,
   onPaneWidthsChange: (left, right) => emit("sidePanelWidthsChange", { leftWidth: left, rightWidth: right }),
   onPaneWidthsCommit: (left, right) => emit("sidePanelWidthsCommit", { leftWidth: left, rightWidth: right }),
   onBeforeUnmountCleanup: (fn) => panesCleanupFns.push(fn),
 });
+
+function closeOverlayPanes() {
+  if (leftPaneOverlay.value) emit("sideConversationListVisibleChange", false);
+  if (rightPaneOverlay.value) emit("toolReviewPanelOpenChange", false);
+}
+
+// 滚动容器宽度变化时保持滚动百分比
+let _scrollWidthPrev = 0;
+let _scrollResizeObserver: ResizeObserver | null = null;
+watch(scrollContainer, (el, _oldEl, onCleanup) => {
+  _scrollResizeObserver?.disconnect();
+  _scrollResizeObserver = null;
+  if (!el) return;
+  _scrollWidthPrev = el.clientWidth;
+  _scrollResizeObserver = new ResizeObserver((entries) => {
+    const entry = entries[0];
+    if (!entry) return;
+    const newWidth = Math.round(entry.contentRect.width);
+    if (newWidth === _scrollWidthPrev || _scrollWidthPrev === 0) {
+      _scrollWidthPrev = newWidth;
+      return;
+    }
+    const maxScroll = el.scrollHeight - el.clientHeight;
+    const ratio = maxScroll > 0 ? el.scrollTop / maxScroll : -1;
+    _scrollWidthPrev = newWidth;
+    if (ratio < 0) return;
+    requestAnimationFrame(() => {
+      const newMax = el.scrollHeight - el.clientHeight;
+      if (newMax > 0) el.scrollTop = Math.round(ratio * newMax);
+    });
+  });
+  _scrollResizeObserver.observe(el);
+  onCleanup(() => {
+    _scrollResizeObserver?.disconnect();
+    _scrollResizeObserver = null;
+  });
+}, { immediate: true });
 
 // ==================== scroll orchestration ====================
 
@@ -667,7 +835,7 @@ const {
   resetConversationToBottom: resetVirtualizerAtConversationBottom,
   alignItemToTop, captureVisibleAnchor, findRenderedMessageElement, resolveMessageAnchorElement,
   syncVisibleStreamingVirtualItemViewportTops,
-  refreshObservedVirtualItemElements: () => {},
+  refreshObservedVirtualItemElements,
   latestOwnElasticItemId,
   props: {
     hasMoreHistory: toRef(props, "hasMoreHistory"), loadingOlderHistory: toRef(props, "loadingOlderHistory"),
@@ -711,6 +879,7 @@ function handleConversationRename(payload: { conversationId: string; title: stri
 }
 function handleConversationPinToggle(id: string) { emit("togglePinConversation", String(id || "").trim()); }
 function handleConversationArchive(id: string) { emit("archiveConversation", String(id || "").trim()); }
+function handleConversationExport(id: string) { emit("exportConversation", String(id || "").trim()); }
 function handleConversationDelete(id: string) { emit("deleteConversation", String(id || "").trim()); }
 
 // ==================== link / copy ====================
@@ -725,12 +894,24 @@ async function handleAssistantLinkClick(event: MouseEvent) {
   const target = event.target as HTMLElement | null;
   const anchor = target?.closest("a") as HTMLAnchorElement | null;
   if (!anchor) return;
-  const href = normalizeLocalLinkHref(anchor.getAttribute("href")?.trim() || "");
-  if (!href) return;
+  const rawHref = anchor.getAttribute("data-href") || anchor.getAttribute("href")?.trim() || "";
+  let href = normalizeLocalLinkHref(rawHref);
+  if (!href || href === "#") return;
+  // 相对路径：基于当前工作目录解析为绝对路径
+  if (!isAbsoluteLocalPath(href) && !href.startsWith("http://") && !href.startsWith("https://")) {
+    const root = String(props.currentWorkspaceRootPath || "").trim().replace(/\\/g, "/").replace(/\/$/, "");
+    if (root) {
+      href = `${root}/${href}`;
+    }
+  }
   if (isAbsoluteLocalPath(href)) {
     event.preventDefault(); event.stopPropagation();
+    if (sidebarMode.value) {
+      emit("openSidebarFileReference", href);
+      return;
+    }
     try {
-      if (canOpenInFileReader(href)) { await invokeTauri("open_file_reader_window_command", { path: href }); }
+      if (canOpenInFileReader(href) || !fileExtensionFromPath(href)) { await openLocalFileInChatReader(href); }
       else { await invokeTauri("open_local_file_directory", { path: href }); }
       linkOpenErrorText.value = "";
     } catch (error) { linkOpenErrorText.value = t("status.openLinkFailed", { err: String(error) }); }
@@ -741,6 +922,16 @@ async function handleAssistantLinkClick(event: MouseEvent) {
     try { await invokeTauri("open_external_url", { url: href }); linkOpenErrorText.value = ""; }
     catch (error) { linkOpenErrorText.value = t("status.openLinkFailed", { err: String(error) }); }
   }
+}
+
+async function openLocalFileInChatReader(path: string) {
+  emit("update:chatRightPanelMode", "reader");
+  if (!props.initialToolReviewPanelOpen) {
+    emit("toolReviewPanelOpenChange", true);
+  }
+  await nextTick();
+  await nextTick();
+  await chatReaderPanelRef.value?.openPath(path);
 }
 
 // ==================== time divider ====================

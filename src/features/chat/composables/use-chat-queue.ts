@@ -1,6 +1,6 @@
-import { ref, onMounted, onUnmounted } from "vue";
+import { computed, ref, onMounted, onUnmounted, type Ref } from "vue";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
-import { invokeTauri } from "../../../services/tauri-api";
+import { invokeTauri, isTauriRuntimeAvailable } from "../../../services/tauri-api";
 
 export type ChatQueueEvent = {
   id: string;
@@ -24,17 +24,32 @@ type ChatQueueSnapshotPush = {
   sessionState: MainSessionState;
 };
 
+type UseChatQueueOptions = {
+  enabled?: Ref<boolean> | boolean;
+};
+
 function isMainSessionState(value: unknown): value is MainSessionState {
   return value === "idle" || value === "assistant_streaming" || value === "organizing_context";
 }
 
-export function useChatQueue() {
+export function useChatQueue(options: UseChatQueueOptions = {}) {
   const queueEvents = ref<ChatQueueEvent[]>([]);
   const sessionState = ref<MainSessionState>("idle");
   const polling = ref(false);
   const unlisteners: UnlistenFn[] = [];
+  const enabled = computed(() => {
+    const configured = options.enabled;
+    const configuredValue = typeof configured === "object" && configured && "value" in configured
+      ? configured.value
+      : configured;
+    return configuredValue !== false && isTauriRuntimeAvailable();
+  });
 
   async function refreshQueue() {
+    if (!enabled.value) {
+      queueEvents.value = [];
+      return;
+    }
     try {
       const events = await invokeTauri<ChatQueueEvent[]>("get_chat_queue_snapshot");
       queueEvents.value = events || [];
@@ -45,6 +60,10 @@ export function useChatQueue() {
   }
 
   async function refreshSessionState() {
+    if (!enabled.value) {
+      sessionState.value = "idle";
+      return;
+    }
     try {
       const state = await invokeTauri<MainSessionState>("get_main_session_state_snapshot");
       sessionState.value = state || "idle";
@@ -54,6 +73,7 @@ export function useChatQueue() {
   }
 
   async function recallQueueEvent(eventId: string): Promise<ChatQueueRecallResult> {
+    if (!enabled.value) return { removed: false, messageText: "" };
     try {
       const result = await invokeTauri<ChatQueueRecallResult>("recall_chat_queue_event", { eventId });
       if (result?.removed) {
@@ -67,6 +87,7 @@ export function useChatQueue() {
   }
 
   async function markGuided(eventId: string): Promise<boolean> {
+    if (!enabled.value) return false;
     try {
       const updated = await invokeTauri<boolean>("mark_chat_queue_event_guided", { eventId });
       if (updated) {
@@ -80,7 +101,7 @@ export function useChatQueue() {
   }
 
   async function startPolling() {
-    if (polling.value) return;
+    if (polling.value || !enabled.value) return;
     polling.value = true;
 
     try {

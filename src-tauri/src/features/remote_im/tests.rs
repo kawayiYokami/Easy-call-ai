@@ -1,5 +1,5 @@
     #[test]
-    fn remote_im_upsert_contact_for_inbound_should_create_with_send_false_and_receive_follow_channel_activation() {
+    fn remote_im_upsert_contact_for_inbound_should_create_with_communication_follow_channel_activation() {
         let channel = RemoteImChannelConfig {
             id: "c1".to_string(),
             name: "qq".to_string(),
@@ -53,7 +53,7 @@
             .iter()
             .find(|item| item.id == contact_id)
             .expect("contact exists");
-        assert!(!contact.allow_send);
+        assert!(contact.allow_send);
         assert!(contact.allow_receive);
         assert_eq!(contact.activation_mode, "never");
         assert!(contact.activation_keywords.is_empty());
@@ -218,8 +218,9 @@
             remote_contact_type: input.remote_contact_type.clone(),
             remote_contact_id: input.remote_contact_id.clone(),
             remote_contact_name: input.remote_contact_name.clone().unwrap_or_default(),
+            avatar_url: String::new(),
             remark_name: String::new(),
-            allow_send: false,
+            allow_send: true,
             allow_send_files: false,
             allow_receive: true,
             activation_mode: "never".to_string(),
@@ -363,8 +364,9 @@
             remote_contact_type: input.remote_contact_type.clone(),
             remote_contact_id: input.remote_contact_id.clone(),
             remote_contact_name: input.remote_contact_name.clone().unwrap_or_default(),
+            avatar_url: String::new(),
             remark_name: String::new(),
-            allow_send: false,
+            allow_send: true,
             allow_send_files: false,
             allow_receive: true,
             activation_mode: "never".to_string(),
@@ -772,7 +774,9 @@
             conversation_processing_claims: Arc::new(Mutex::new(std::collections::HashSet::new())),
             pending_chat_result_senders: Arc::new(Mutex::new(std::collections::HashMap::new())),
             pending_chat_delta_channels: Arc::new(Mutex::new(std::collections::HashMap::new())),
+            accepted_submit_trace_ids: Arc::new(Mutex::new(std::collections::VecDeque::new())),
             active_chat_view_bindings: Arc::new(Mutex::new(std::collections::HashMap::new())),
+            conversation_list_activity_marks: Arc::new(Mutex::new(std::collections::HashMap::new())),
             dequeue_lock: Arc::new(Mutex::new(())),
             delegate_runtime_threads: Arc::new(Mutex::new(std::collections::HashMap::new())),
             delegate_recent_threads: Arc::new(Mutex::new(std::collections::VecDeque::new())),
@@ -790,6 +794,7 @@
             preferred_release_source: Arc::new(Mutex::new("github".to_string())),
             migration_preview_dirs: Arc::new(Mutex::new(std::collections::HashMap::new())),
             delegate_active_ids: Arc::new(std::sync::Mutex::new(std::collections::HashSet::new())),
+            backend_ready: Arc::new(std::sync::atomic::AtomicBool::new(false)),
         }
     }
 
@@ -834,6 +839,124 @@
         tokio::time::sleep(Duration::from_millis(30)).await;
         assert!(manager.event_consumer_tasks.read().await.is_empty());
         assert!(manager.event_consumer_stop_senders.read().await.is_empty());
+    }
+
+    #[tokio::test]
+    async fn onebot_channel_event_bus_should_exist_before_client_connection() {
+        use futures_util::SinkExt as _;
+
+        let manager = OnebotV11WsManager::new();
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind temp listener");
+        let port = listener.local_addr().expect("local addr").port();
+        drop(listener);
+
+        manager
+            .start(
+                "channel-a".to_string(),
+                OnebotV11WsCredentials {
+                    ws_host: "127.0.0.1".to_string(),
+                    ws_port: port,
+                    ws_token: None,
+                },
+            )
+            .await
+            .expect("start onebot channel");
+
+        let mut event_rx = manager
+            .subscribe_events("channel-a")
+            .await
+            .expect("event bus should be available before client connects");
+
+        let url = format!("ws://127.0.0.1:{port}");
+        let (mut client, _) = tokio_tungstenite::connect_async(url.as_str())
+            .await
+            .expect("connect client");
+        let event = serde_json::json!({
+            "post_type": "message",
+            "message_type": "private",
+            "user_id": 10001,
+            "message_id": 42,
+            "message": "hello"
+        });
+        client
+            .send(tokio_tungstenite::tungstenite::Message::Text(
+                event.to_string().into(),
+            ))
+            .await
+            .expect("send event");
+
+        let received = tokio::time::timeout(Duration::from_secs(2), event_rx.recv())
+            .await
+            .expect("event should arrive")
+            .expect("event bus open");
+        assert_eq!(received.get("message_id").and_then(Value::as_i64), Some(42));
+
+        manager
+            .stop_channel("channel-a")
+            .await
+            .expect("stop onebot channel");
+    }
+
+    #[tokio::test]
+    async fn onebot_channel_start_should_be_serialized_per_channel() {
+        let manager = OnebotV11WsManager::new();
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind temp listener");
+        let port = listener.local_addr().expect("local addr").port();
+        drop(listener);
+
+        let credentials = OnebotV11WsCredentials {
+            ws_host: "127.0.0.1".to_string(),
+            ws_port: port,
+            ws_token: None,
+        };
+        let first = manager.start("channel-a".to_string(), credentials.clone());
+        let second = manager.start("channel-a".to_string(), credentials);
+        let (first_result, second_result) = tokio::join!(first, second);
+
+        first_result.expect("first start should succeed");
+        second_result.expect("second start should wait and succeed");
+        assert_eq!(manager.channel_tasks.read().await.len(), 1);
+        assert_eq!(manager.channel_runtimes.read().await.len(), 1);
+        let logs = manager.get_logs("channel-a").await;
+        assert_eq!(
+            logs.iter()
+                .filter(|entry| entry.message.contains("服务器启动，监听"))
+                .count(),
+            1
+        );
+        assert!(
+            logs.iter()
+                .any(|entry| entry.message.contains("跳过重复启动")),
+            "second start should reuse the existing listener"
+        );
+
+        manager
+            .stop_channel("channel-a")
+            .await
+            .expect("stop onebot channel");
+    }
+
+    #[tokio::test]
+    async fn onebot_stop_channel_should_cancel_bind_retry_without_waiting_for_lifecycle_lock() {
+        let manager = OnebotV11WsManager::new();
+        let addr = "127.0.0.1:6199".parse().expect("valid onebot addr");
+        let runtime = {
+            let _guard = manager.channel_lifecycle_guard("channel-a").await;
+            manager.prepare_start_after_stop_at("channel-a", addr).await
+        };
+        manager
+            .channel_status_texts
+            .write()
+            .await
+            .insert("channel-a".to_string(), "binding_retry".to_string());
+
+        tokio::time::timeout(Duration::from_secs(1), manager.stop_channel("channel-a"))
+            .await
+            .expect("stop should not wait for the bind retry timeout")
+            .expect("stop channel");
+
+        assert!(runtime.cancel.is_cancelled());
+        assert!(manager.channel_runtimes.read().await.is_empty());
     }
 
     #[tokio::test]
@@ -935,6 +1058,7 @@
             remote_contact_type: "private".to_string(),
             remote_contact_id: "remote-a".to_string(),
             remote_contact_name: "张三".to_string(),
+            avatar_url: String::new(),
             remark_name: String::new(),
             allow_send: true,
             allow_send_files: false,
@@ -1372,7 +1496,7 @@
     }
 
     #[test]
-    fn remote_im_prepare_enqueue_runtime_state_should_mark_pending_without_activation_when_busy() {
+    fn remote_im_prepare_enqueue_runtime_state_should_mark_pending_and_defer_activation_when_busy() {
         let state = remote_im_test_state();
         let contact = remote_im_test_contact("contact-a", "conversation-a");
 
@@ -1397,8 +1521,8 @@
             remote_im_prepare_enqueue_runtime_state(&state, &contact, "请补充这条信息")
                 .expect("prepare runtime state");
 
-        assert!(!activate_assistant);
-        assert!(reason.contains("待办"));
+        assert!(activate_assistant);
+        assert!(reason.contains("出队激活"));
         let runtime_states =
             lock_remote_im_contact_runtime_states(&state).expect("lock runtime states");
         let runtime = runtime_states.get("contact-a").expect("runtime exists");

@@ -284,6 +284,24 @@
     }
 
     #[test]
+    fn build_prompt_user_meta_text_should_include_local_user_id() {
+        let now = now_iso();
+        let mut message = test_text_message("user", "继续", &now);
+        message.speaker_agent_id = Some(USER_PERSONA_ID.to_string());
+
+        let meta = build_prompt_user_meta_text(
+            &message,
+            &[default_agent(), default_user_persona()],
+            "用户",
+            "zh-CN",
+            false,
+        )
+        .expect("meta text");
+
+        assert!(meta.contains("user_id=user-persona"));
+    }
+
+    #[test]
     fn build_prompt_user_meta_text_should_use_snake_case_remote_identity_tags() {
         let now = now_iso();
         let mut message = test_text_message("user", "你好", &now);
@@ -558,10 +576,13 @@
             &state,
             &worker_memory_context,
             serde_json::json!({
-                "memoryType": "knowledge",
-                "judgment": "当前任务由执行者人格负责",
-                "reasoning": "回归测试",
-                "tags": ["执行者", "回归"]
+                "action": "create",
+                "memory": {
+                    "memoryType": "knowledge",
+                    "judgment": "当前任务由执行者人格负责",
+                    "reasoning": "回归测试",
+                    "tags": ["执行者", "回归"]
+                }
             }),
         )
         .expect("save memory");
@@ -639,10 +660,13 @@
             &state,
             &deputy_memory_context,
             serde_json::json!({
-                "memoryType": "knowledge",
-                "judgment": "这是副手人格记录的共享记忆",
-                "reasoning": "回归测试",
-                "tags": ["副手回归", "共享"]
+                "action": "create",
+                "memory": {
+                    "memoryType": "knowledge",
+                    "judgment": "这是副手人格记录的共享记忆",
+                    "reasoning": "回归测试",
+                    "tags": ["副手回归", "共享"]
+                }
             }),
         )
         .expect("save deputy memory");
@@ -686,10 +710,13 @@
             &state,
             &private_worker_memory_context,
             serde_json::json!({
-                "memoryType": "knowledge",
-                "judgment": "这是私有工作区人格记录的共享记忆",
-                "reasoning": "回归测试",
-                "tags": ["私有回归", "共享"]
+                "action": "create",
+                "memory": {
+                    "memoryType": "knowledge",
+                    "judgment": "这是私有工作区人格记录的共享记忆",
+                    "reasoning": "回归测试",
+                    "tags": ["私有回归", "共享"]
+                }
             }),
         )
         .expect("save private workspace memory");
@@ -2000,6 +2027,95 @@
     }
 
     #[test]
+    fn build_prompt_after_compaction_should_not_replay_pre_compaction_checkpoint_tool_history() {
+        let now = now_iso();
+        let agent = default_agent();
+        let checkpoint = build_stop_chat_partial_assistant_message(
+            &agent.id,
+            "我已经读取完文件，准备继续处理。",
+            "先读取文件，再继续总结。",
+            "",
+            &[
+                serde_json::json!({
+                    "role": "assistant",
+                    "content": Value::Null,
+                    "reasoning_content": "先读取文件",
+                    "tool_calls": [{
+                        "id": "call_read",
+                        "type": "function",
+                        "function": {
+                            "name": "read_file",
+                            "arguments": "{\"path\":\"README.md\"}"
+                        }
+                    }]
+                }),
+                serde_json::json!({
+                    "role": "tool",
+                    "tool_call_id": "call_read",
+                    "content": "README 内容"
+                }),
+            ],
+        );
+        let compaction = ChatMessage {
+            id: Uuid::new_v4().to_string(),
+            role: "user".to_string(),
+            created_at: now.clone(),
+            speaker_agent_id: Some(SYSTEM_PERSONA_ID.to_string()),
+            parts: vec![MessagePart::Text {
+                text: "[上下文整理]\n整理摘要：已读取 README，接下来继续处理。".to_string(),
+            }],
+            extra_text_blocks: Vec::new(),
+            provider_meta: Some(serde_json::json!({
+                "message_meta": {
+                    "kind": "context_compaction",
+                    "scene": "compaction",
+                    "reason": "organize_context"
+                }
+            })),
+            tool_call: None,
+            mcp_call: None,
+        };
+        let messages = vec![
+            test_text_message("user", "请读取 README 并继续处理", &now),
+            checkpoint,
+            compaction,
+            test_text_message("user", "继续", &now),
+        ];
+        let conv = test_active_conversation_with_messages(messages, Some(now));
+
+        let prepared = build_prompt(
+            &conv,
+            &agent,
+            &[agent.clone(), default_user_persona()],
+            &[],
+            "用户",
+            "我是...",
+            DEFAULT_RESPONSE_STYLE_ID,
+            "zh-CN",
+            None,
+            None,
+            None,
+            false,
+        );
+
+        assert_eq!(prepared.latest_user_text, "继续");
+        assert_eq!(prepared.history_messages.len(), 1);
+        assert!(prepared.history_messages[0].text.contains("已读取 README"));
+        assert!(
+            prepared
+                .history_messages
+                .iter()
+                .all(|message| message.tool_calls.is_none())
+        );
+        assert!(
+            prepared
+                .history_messages
+                .iter()
+                .all(|message| !message.text.contains("README 内容"))
+        );
+    }
+
+    #[test]
     fn build_prompt_should_resolve_latest_user_from_trimmed_context_window() {
         let now = now_iso();
         let agent = default_agent();
@@ -2344,6 +2460,60 @@
         assert_eq!(all_sources[1].channel_id, "remote-im-b");
     }
 
+    #[test]
+    fn filter_remote_im_follow_up_sources_should_wait_for_pending_queue_message() {
+        let state = test_chat_runtime_state();
+        let created_at = now_iso();
+        let remote_sender = RemoteImMessageSource {
+            channel_id: "remote-im-a".to_string(),
+            platform: RemoteImPlatform::OnebotV11,
+            im_name: "QQ".to_string(),
+            remote_contact_type: "private".to_string(),
+            remote_contact_id: "contact-a".to_string(),
+            remote_contact_name: "张三".to_string(),
+            sender_id: "contact-a".to_string(),
+            sender_name: "张三".to_string(),
+            sender_avatar_url: None,
+            platform_message_id: None,
+        };
+        let source = remote_im_activation_source_from_sender(&remote_sender);
+        let event = ChatPendingEvent {
+            id: Uuid::new_v4().to_string(),
+            conversation_id: "conversation-a".to_string(),
+            created_at: created_at.clone(),
+            source: ChatEventSource::RemoteIm,
+            queue_mode: ChatQueueMode::Normal,
+            messages: vec![test_text_message("user", "忙碌期间来的新消息", &created_at)],
+            activate_assistant: true,
+            session_info: ChatSessionInfo {
+                department_id: ASSISTANT_DEPARTMENT_ID.to_string(),
+                agent_id: DEFAULT_AGENT_ID.to_string(),
+            },
+            runtime_context: None,
+            sender_info: Some(remote_sender),
+        };
+        {
+            let mut slots = state
+                .conversation_runtime_slots
+                .lock()
+                .expect("lock runtime slots");
+            let slot = conversation_slot_mut(&mut slots, "conversation-a");
+            slot.pending_queue.push_back(event);
+        }
+
+        assert!(remote_im_source_has_pending_queue_event(
+            &state,
+            "conversation-a",
+            &source,
+        ));
+        let filtered = filter_remote_im_follow_up_sources_for_pending_queue(
+            &state,
+            "conversation-a",
+            vec![source],
+        );
+        assert!(filtered.is_empty());
+    }
+
     fn seed_remote_im_auto_send_test_state(
         channel_credentials: Value,
     ) -> (AppState, RemoteImActivationSource, String, String, String) {
@@ -2400,6 +2570,7 @@
             remote_contact_type: "private".to_string(),
             remote_contact_id: "contact-a".to_string(),
             remote_contact_name: "张三".to_string(),
+            avatar_url: String::new(),
             remark_name: String::new(),
             allow_send: true,
             allow_send_files: false,
@@ -3032,7 +3203,9 @@
             conversation_processing_claims: Arc::new(Mutex::new(std::collections::HashSet::new())),
             pending_chat_result_senders: Arc::new(Mutex::new(std::collections::HashMap::new())),
             pending_chat_delta_channels: Arc::new(Mutex::new(std::collections::HashMap::new())),
+            accepted_submit_trace_ids: Arc::new(Mutex::new(std::collections::VecDeque::new())),
             active_chat_view_bindings: Arc::new(Mutex::new(std::collections::HashMap::new())),
+            conversation_list_activity_marks: Arc::new(Mutex::new(std::collections::HashMap::new())),
             dequeue_lock: Arc::new(Mutex::new(())),
             delegate_runtime_threads: Arc::new(Mutex::new(std::collections::HashMap::new())),
             delegate_recent_threads: Arc::new(Mutex::new(std::collections::VecDeque::new())),
@@ -3058,6 +3231,7 @@
             preferred_release_source: Arc::new(Mutex::new("github".to_string())),
             migration_preview_dirs: Arc::new(Mutex::new(std::collections::HashMap::new())),
             delegate_active_ids: Arc::new(std::sync::Mutex::new(std::collections::HashSet::new())),
+            backend_ready: Arc::new(std::sync::atomic::AtomicBool::new(false)),
         }
     }
 
@@ -3372,8 +3546,9 @@
             remote_contact_type: "group".to_string(),
             remote_contact_id: "remote-a".to_string(),
             remote_contact_name: "测试群".to_string(),
+            avatar_url: String::new(),
             remark_name: String::new(),
-            allow_send: false,
+            allow_send: true,
             allow_send_files: false,
             allow_receive: true,
             activation_mode: "never".to_string(),
@@ -3434,8 +3609,9 @@
             remote_contact_type: "group".to_string(),
             remote_contact_id: "remote-a".to_string(),
             remote_contact_name: "测试群".to_string(),
+            avatar_url: String::new(),
             remark_name: String::new(),
-            allow_send: false,
+            allow_send: true,
             allow_send_files: false,
             allow_receive: true,
             activation_mode: "never".to_string(),
@@ -3516,8 +3692,9 @@
             remote_contact_type: "group".to_string(),
             remote_contact_id: "remote-a".to_string(),
             remote_contact_name: "测试群".to_string(),
+            avatar_url: String::new(),
             remark_name: String::new(),
-            allow_send: false,
+            allow_send: true,
             allow_send_files: false,
             allow_receive: true,
             activation_mode: "never".to_string(),
@@ -4191,8 +4368,9 @@
             remote_contact_type: "group".to_string(),
             remote_contact_id: "remote-a".to_string(),
             remote_contact_name: "测试群".to_string(),
+            avatar_url: String::new(),
             remark_name: String::new(),
-            allow_send: false,
+            allow_send: true,
             allow_send_files: false,
             allow_receive: true,
             activation_mode: "never".to_string(),

@@ -96,6 +96,7 @@ impl ConversationService {
         let target_conversation_id = target_conversation.id.clone();
         ensure_unarchived_conversation_not_organizing(state, &target_conversation_id)?;
         clear_conversation_unread_count(&mut target_conversation);
+        clear_conversation_list_activity_mark(state, &target_conversation_id);
         if created_new_conversation {
             state_schedule_conversation_persist(state, &target_conversation, true)?;
         } else {
@@ -227,6 +228,7 @@ impl ConversationService {
             };
         let conversation_id = target_conversation.id.clone();
         ensure_unarchived_conversation_not_organizing(state, &conversation_id)?;
+        clear_conversation_list_activity_mark(state, &conversation_id);
         if created_new_conversation {
             state_schedule_conversation_persist(state, &target_conversation, true)?;
         }
@@ -343,6 +345,22 @@ impl ConversationService {
         if source_conversation.summary.trim().is_empty() || conversation_is_delegate(&source_conversation) {
             drop(guard);
             return Err("活动对话已变化，请重试归档。".to_string());
+        }
+        // 清理该会话消息关联的 apply_patch 备份记录
+        match cleanup_backup_records_from_messages(&state.data_path, &source_conversation.messages) {
+            Ok(cleaned) if cleaned > 0 => {
+                eprintln!(
+                    "[会话删除] apply_patch 备份清理完成: conversation={}, cleaned={}",
+                    source.id, cleaned
+                );
+            }
+            Err(err) => {
+                eprintln!(
+                    "[会话删除] apply_patch 备份清理失败: conversation={}, error={}",
+                    source.id, err
+                );
+            }
+            _ => {}
         }
         state_schedule_conversation_delete(state, &source.id, true)?;
         let chat_index = state_read_chat_index_cached(state)?;
@@ -686,7 +704,7 @@ impl ConversationService {
             .filter(|value| !value.is_empty())
             .unwrap_or_default();
         let copy_source_conversation_id = trimmed_option(input.copy_source_conversation_id.as_deref());
-        let conversation = if let Some(source_conversation_id) = copy_source_conversation_id.as_deref() {
+        let mut conversation = if let Some(source_conversation_id) = copy_source_conversation_id.as_deref() {
             let source_conversation = state_read_conversation_cached(state, source_conversation_id)
                 .ok()
                 .filter(|conversation| {
@@ -712,6 +730,14 @@ impl ConversationService {
                 conversation_title,
             )
         };
+        if let Some(shell_workspaces) = input.shell_workspaces.as_ref() {
+            conversation.shell_workspaces =
+                normalize_conversation_shell_workspaces(state, shell_workspaces);
+            conversation.shell_workspace_path = None;
+        }
+        if let Some(shell_autonomous_mode) = input.shell_autonomous_mode {
+            conversation.shell_autonomous_mode = shell_autonomous_mode;
+        }
         let conversation_id = conversation.id.clone();
         let persist_seq = state_schedule_conversation_persist(state, &conversation, true)?;
         runtime_log_info(format!(
@@ -977,7 +1003,24 @@ impl ConversationService {
             drop(guard);
             return Err("删除后未找到可用会话".to_string());
         }
+        // 清理该会话消息关联的 apply_patch 备份记录
+        match cleanup_backup_records_from_messages(&state.data_path, &conversation.messages) {
+            Ok(cleaned) if cleaned > 0 => {
+                eprintln!(
+                    "[会话删除] apply_patch 备份清理完成: conversation={}, cleaned={}",
+                    normalized_conversation_id, cleaned
+                );
+            }
+            Err(err) => {
+                eprintln!(
+                    "[会话删除] apply_patch 备份清理失败: conversation={}, error={}",
+                    normalized_conversation_id, err
+                );
+            }
+            _ => {}
+        }
         state_schedule_conversation_delete(state, normalized_conversation_id, true)?;
+        clear_conversation_list_activity_mark(state, normalized_conversation_id);
         let unarchived_conversations =
             self.collect_unarchived_conversation_summaries_cached(state, &app_config)?;
         drop(guard);
@@ -1085,7 +1128,7 @@ fn maybe_undo_rewind_apply_patch(
         removed_messages.len(),
         message_id
     ));
-    let undone_patch_count = match try_undo_apply_patch_from_removed_messages(state, removed_messages) {
+    let (undone_patch_count, overwritten_files) = match try_undo_apply_patch_from_removed_messages(state, removed_messages) {
         Ok(value) => value,
         Err(err) => {
             let elapsed_ms = started_at.elapsed().as_millis();
@@ -1097,8 +1140,8 @@ fn maybe_undo_rewind_apply_patch(
         }
     };
     runtime_log_info(format!(
-        "[会话撤回] 工具逆向处理，任务=rewind_conversation_from_message，patches={}，message_id={}",
-        undone_patch_count, message_id
+        "[会话撤回] 工具逆向处理，任务=rewind_conversation_from_message，patches={}，overwritten={}，message_id={}",
+        undone_patch_count, overwritten_files.len(), message_id
     ));
     if undone_patch_count > 0 {
         eprintln!(
@@ -1106,6 +1149,13 @@ fn maybe_undo_rewind_apply_patch(
             undone_patch_count,
             message_id
         );
+    }
+    if !overwritten_files.is_empty() {
+        runtime_log_warn(format!(
+            "[会话撤回] 有 {} 个文件存在非LLM修改被覆盖: {:?}",
+            overwritten_files.len(),
+            overwritten_files
+        ));
     }
     Ok(())
 }

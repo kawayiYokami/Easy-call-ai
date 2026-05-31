@@ -1,6 +1,7 @@
 import { ref, type ComputedRef, type Ref } from "vue";
 import type { ApiConfigItem } from "../../../types/app";
 import { invokeTauri } from "../../../services/tauri-api";
+import { useHotkeyRecordTest } from "../../shell/composables/use-hotkey-record-test";
 
 type TrFn = (key: string, params?: Record<string, unknown>) => string;
 
@@ -11,7 +12,7 @@ type UseChatMediaOptions = {
   setStatusError: (key: string, error: unknown) => void;
   viewMode: Ref<"chat" | "archives" | "config">;
   chatting: Ref<boolean>;
-  forcingArchive: Ref<boolean>;
+  trimming: Ref<boolean>;
   isRecording: () => boolean;
   activeChatApiConfig: ComputedRef<ApiConfigItem | null>;
   hasVisionFallback: ComputedRef<boolean>;
@@ -36,17 +37,14 @@ type QueueInlineFileAttachmentInput = {
 };
 
 export function useChatMedia(options: UseChatMediaOptions) {
-  const hotkeyTestRecording = ref(false);
-  const hotkeyTestRecordingMs = ref(0);
-  const hotkeyTestAudio = ref<{ mime: string; bytesBase64: string; durationMs: number } | null>(null);
   const mediaDragActive = ref(false);
-
-  let hotkeyTestRecorder: MediaRecorder | null = null;
-  let hotkeyTestStream: MediaStream | null = null;
-  let hotkeyTestStartedAt = 0;
-  let hotkeyTestTickTimer: ReturnType<typeof setInterval> | null = null;
-  let hotkeyTestPlayer: HTMLAudioElement | null = null;
   let dragOverlayHideTimer: ReturnType<typeof setTimeout> | null = null;
+  const hotkeyRecordTest = useHotkeyRecordTest({
+    t: options.t,
+    setStatus: options.setStatus,
+    setStatusError: options.setStatusError,
+    isBlocked: options.isRecording,
+  });
 
   function canAcceptImage(apiConfig: ApiConfigItem): boolean {
     return !!apiConfig.enableImage || options.hasVisionFallback.value;
@@ -64,6 +62,15 @@ export function useChatMedia(options: UseChatMediaOptions) {
       } as QueueInlineFileAttachmentInput,
     });
     applyQueuedAttachmentResult(queued, options.activeChatApiConfig.value || ({ enableImage: false } as ApiConfigItem));
+  }
+
+  async function readBlobAsDataUrl(blob: Blob): Promise<string> {
+    return await new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(String(reader.result || ""));
+      reader.onerror = () => reject(reader.error);
+      reader.readAsDataURL(blob);
+    });
   }
 
   function classifyFileMime(
@@ -195,7 +202,7 @@ export function useChatMedia(options: UseChatMediaOptions) {
 
   function onPaste(event: ClipboardEvent) {
     if (options.viewMode.value !== "chat") return;
-    if (options.forcingArchive.value) return;
+    if (options.trimming.value) return;
     const apiConfig = options.activeChatApiConfig.value;
     if (!apiConfig) return;
     const collected = collectPastedFiles(event);
@@ -228,7 +235,7 @@ export function useChatMedia(options: UseChatMediaOptions) {
 
   function onDragOver(event: DragEvent) {
     if (options.viewMode.value !== "chat") return;
-    if (options.forcingArchive.value) return;
+    if (options.trimming.value) return;
     const apiConfig = options.activeChatApiConfig.value;
     if (!apiConfig) return;
     if (!event.dataTransfer) return;
@@ -251,7 +258,7 @@ export function useChatMedia(options: UseChatMediaOptions) {
 
   function onDrop(event: DragEvent) {
     if (options.viewMode.value !== "chat") return;
-    if (options.forcingArchive.value) return;
+    if (options.trimming.value) return;
     const apiConfig = options.activeChatApiConfig.value;
     if (!apiConfig) return;
     const collected = collectDroppedFiles(event);
@@ -279,7 +286,7 @@ export function useChatMedia(options: UseChatMediaOptions) {
 
   async function onNativeFileDrop(paths: string[]) {
     if (options.viewMode.value !== "chat") return;
-    if (options.forcingArchive.value) return;
+    if (options.trimming.value) return;
     const apiConfig = options.activeChatApiConfig.value;
     if (!apiConfig) return;
     if (!Array.isArray(paths) || paths.length === 0) return;
@@ -303,117 +310,8 @@ export function useChatMedia(options: UseChatMediaOptions) {
     options.clipboardImages.value.splice(index, 1);
   }
 
-  async function readBlobAsDataUrl(blob: Blob): Promise<string> {
-    return await new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = () => resolve(String(reader.result || ""));
-      reader.onerror = () => reject(reader.error);
-      reader.readAsDataURL(blob);
-    });
-  }
-
-  function clearHotkeyTestTimers() {
-    if (hotkeyTestTickTimer) {
-      clearInterval(hotkeyTestTickTimer);
-      hotkeyTestTickTimer = null;
-    }
-  }
-
-  function stopHotkeyTestStream() {
-    if (hotkeyTestStream) {
-      for (const track of hotkeyTestStream.getTracks()) track.stop();
-      hotkeyTestStream = null;
-    }
-  }
-
-  async function startHotkeyRecordTest() {
-    if (hotkeyTestRecording.value) return;
-    if (options.isRecording()) return;
-    if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === "undefined") {
-      options.setStatus(options.t("status.recordUnsupported"));
-      return;
-    }
-    try {
-      hotkeyTestStream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      hotkeyTestRecorder = new MediaRecorder(hotkeyTestStream);
-      const chunks: BlobPart[] = [];
-      hotkeyTestRecorder.ondataavailable = (event: BlobEvent) => {
-        if (event.data && event.data.size > 0) chunks.push(event.data);
-      };
-      hotkeyTestRecorder.onstop = async () => {
-        const durationMs = Math.max(0, Date.now() - hotkeyTestStartedAt);
-        try {
-          if (chunks.length === 0) return;
-          const blob = new Blob(chunks, { type: hotkeyTestRecorder?.mimeType || "audio/webm" });
-          const dataUrl = await readBlobAsDataUrl(blob);
-          const base64 = dataUrl.includes(",") ? dataUrl.split(",")[1] : "";
-          if (!base64) return;
-          hotkeyTestAudio.value = {
-            mime: blob.type || "audio/webm",
-            bytesBase64: base64,
-            durationMs,
-          };
-          options.setStatus(
-            options.t("status.recordTestDone", { seconds: Math.max(1, Math.round(durationMs / 1000)) }),
-          );
-        } catch (e) {
-          options.setStatusError("status.recordTestFailed", e);
-        } finally {
-          hotkeyTestRecording.value = false;
-          clearHotkeyTestTimers();
-          stopHotkeyTestStream();
-        }
-      };
-      hotkeyTestRecorder.start();
-      hotkeyTestStartedAt = Date.now();
-      hotkeyTestRecording.value = true;
-      hotkeyTestRecordingMs.value = 0;
-      clearHotkeyTestTimers();
-      hotkeyTestTickTimer = setInterval(() => {
-        hotkeyTestRecordingMs.value = Math.max(0, Date.now() - hotkeyTestStartedAt);
-      }, 100);
-    } catch (e) {
-      hotkeyTestRecording.value = false;
-      clearHotkeyTestTimers();
-      stopHotkeyTestStream();
-      options.setStatusError("status.recordTestFailed", e);
-    }
-  }
-
-  async function stopHotkeyRecordTest() {
-    if (!hotkeyTestRecording.value) return;
-    if (hotkeyTestRecorder && hotkeyTestRecorder.state !== "inactive") {
-      hotkeyTestRecorder.stop();
-    } else {
-      hotkeyTestRecording.value = false;
-      clearHotkeyTestTimers();
-      stopHotkeyTestStream();
-    }
-  }
-
-  function playHotkeyRecordTest() {
-    if (!hotkeyTestAudio.value) return;
-    if (hotkeyTestPlayer) {
-      hotkeyTestPlayer.pause();
-      hotkeyTestPlayer.currentTime = 0;
-      hotkeyTestPlayer = null;
-    }
-    const src = `data:${hotkeyTestAudio.value.mime};base64,${hotkeyTestAudio.value.bytesBase64}`;
-    hotkeyTestPlayer = new Audio(src);
-    void hotkeyTestPlayer.play().catch(() => {
-      hotkeyTestPlayer = null;
-    });
-  }
-
   async function cleanupChatMedia() {
-    await stopHotkeyRecordTest();
-    if (hotkeyTestPlayer) {
-      hotkeyTestPlayer.pause();
-      hotkeyTestPlayer.currentTime = 0;
-      hotkeyTestPlayer = null;
-    }
-    clearHotkeyTestTimers();
-    stopHotkeyTestStream();
+    await hotkeyRecordTest.cleanupHotkeyRecordTest();
     mediaDragActive.value = false;
     if (dragOverlayHideTimer) {
       clearTimeout(dragOverlayHideTimer);
@@ -423,18 +321,18 @@ export function useChatMedia(options: UseChatMediaOptions) {
 
   return {
     mediaDragActive,
-    hotkeyTestRecording,
-    hotkeyTestRecordingMs,
-    hotkeyTestAudio,
+    hotkeyTestRecording: hotkeyRecordTest.hotkeyTestRecording,
+    hotkeyTestRecordingMs: hotkeyRecordTest.hotkeyTestRecordingMs,
+    hotkeyTestAudio: hotkeyRecordTest.hotkeyTestAudio,
     onPaste,
     onDragOver,
     onDrop,
     onNativeFileDrop,
     queueTextAttachment,
     removeClipboardImage,
-    startHotkeyRecordTest,
-    stopHotkeyRecordTest,
-    playHotkeyRecordTest,
+    startHotkeyRecordTest: hotkeyRecordTest.startHotkeyRecordTest,
+    stopHotkeyRecordTest: hotkeyRecordTest.stopHotkeyRecordTest,
+    playHotkeyRecordTest: hotkeyRecordTest.playHotkeyRecordTest,
     cleanupChatMedia,
   };
 }

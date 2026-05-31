@@ -14,6 +14,8 @@ interface UseChatVirtualScrollOptions {
   activeConversationId: Ref<string>;
   latestOwnElasticItemId: Ref<string>;
   latestOwnElasticMinHeight: Ref<number>;
+  debugEnabled?: Ref<boolean> | boolean;
+  smoothScrollEnabled?: Ref<boolean> | boolean;
   onUserScroll: () => void;
 }
 
@@ -28,6 +30,8 @@ export function useChatVirtualScroll(options: UseChatVirtualScrollOptions) {
     activeConversationId,
     latestOwnElasticItemId,
     latestOwnElasticMinHeight,
+    debugEnabled,
+    smoothScrollEnabled,
     onUserScroll,
   } = options;
 
@@ -35,6 +39,7 @@ export function useChatVirtualScroll(options: UseChatVirtualScrollOptions) {
   const observedVirtualItemResizeElements = new Map<string, HTMLElement>();
   const measuredVirtualItemHeights = new Map<string, number>();
   const streamingVirtualItemViewportTop = new Map<string, number>();
+  const measuredVirtualItemRevision = ref(0);
 
   let pendingMeasureFrame = 0;
   let pendingVirtualResizeFrame = 0;
@@ -50,20 +55,47 @@ export function useChatVirtualScroll(options: UseChatVirtualScrollOptions) {
 
   function estimateRenderItemSize(index: number): number {
     const item = renderItems.value[index];
-    const estimatedHeight = estimateChatRenderItemHeight(item);
-    return item?.id === latestOwnElasticItemId.value
-      ? Math.max(estimatedHeight, latestOwnElasticMinHeight.value)
-      : estimatedHeight;
+    return estimateChatRenderItemHeight(item);
   }
 
   function estimateTotalRenderSize(): number {
     return renderItems.value.reduce((total, _item, index) => total + estimateRenderItemSize(index), 0);
   }
 
+  function measuredOrEstimatedRenderItemSize(index: number): number {
+    const item = renderItems.value[index];
+    if (!item) return 0;
+    return measuredVirtualItemHeights.get(item.id) ?? estimateRenderItemSize(index);
+  }
+
+  const latestOwnTailContentHeight = computed(() => {
+    if (measuredVirtualItemRevision.value < 0) return 0;
+    const itemId = String(latestOwnElasticItemId.value || "").trim();
+    if (!itemId) return 0;
+    const startIndex = renderItems.value.findIndex((item) => item.id === itemId);
+    if (startIndex < 0) return 0;
+    let total = 0;
+    for (let index = startIndex; index < renderItems.value.length; index += 1) {
+      total += measuredOrEstimatedRenderItemSize(index);
+    }
+    return total;
+  });
+
   function chatVirtualScrollDebugEnabled(): boolean {
     if (typeof window === "undefined") return false;
+    const configuredDebugEnabled = typeof debugEnabled === "object" && debugEnabled && "value" in debugEnabled
+      ? debugEnabled.value
+      : debugEnabled;
+    if (configuredDebugEnabled === false) return false;
     return window.localStorage.getItem("easy-call.debug.chat-virtual-scroll") === "1"
       || (window as any).__easyCallDebugChatVirtualScroll === true;
+  }
+
+  function nativeSmoothScrollEnabled(): boolean {
+    const configured = typeof smoothScrollEnabled === "object" && smoothScrollEnabled && "value" in smoothScrollEnabled
+      ? smoothScrollEnabled.value
+      : smoothScrollEnabled;
+    return configured !== false;
   }
 
   function debugVirtualScrollState(label: string) {
@@ -85,22 +117,9 @@ export function useChatVirtualScroll(options: UseChatVirtualScrollOptions) {
       + ` init=${Math.round(initialBottomOffset.value)}`
       + ` est=${Math.round(estimateTotalRenderSize())}`
       + ` total=${Math.round(virtualizer.value.getTotalSize())}`
-      + ` elastic=${latestOwnElasticItemId.value ? "yes" : "no"}:${Math.round(latestOwnElasticMinHeight.value)}`,
+      + ` elastic=${latestOwnElasticItemId.value ? "yes" : "no"}:${Math.round(latestOwnElasticMinHeight.value)}`
+      + ` tail=${Math.round(latestOwnTailContentHeight.value)}`,
     );
-  }
-
-  function traceVirtualScrollFrames(label: string, frameCount = 6) {
-    if (!chatVirtualScrollDebugEnabled()) return;
-    const requestId = ++debugTraceRequest;
-    let frame = 0;
-    const tick = () => {
-      if (requestId !== debugTraceRequest) return;
-      debugVirtualScrollState(`${label}:frame-${frame}`);
-      frame += 1;
-      if (frame >= frameCount) return;
-      requestAnimationFrame(tick);
-    };
-    requestAnimationFrame(tick);
   }
 
   const virtualizer = useVirtualizer(
@@ -155,6 +174,7 @@ export function useChatVirtualScroll(options: UseChatVirtualScrollOptions) {
       lastItemId: lastItem?.id || "",
       latestOwnElasticItemId: latestOwnElasticItemId.value,
       latestOwnElasticMinHeight: Math.round(latestOwnElasticMinHeight.value),
+      latestOwnTailContentHeight: Math.round(latestOwnTailContentHeight.value),
     };
   });
 
@@ -212,9 +232,16 @@ export function useChatVirtualScroll(options: UseChatVirtualScrollOptions) {
     if (!itemId) return;
     const scrollEl = scrollContainer.value;
     const previousTop = streamingVirtualItemViewportTop.get(itemId);
-    virtualizer.value.measureElement(element);
     const nextHeight = Math.round(element.getBoundingClientRect().height);
+    const previousHeight = measuredVirtualItemHeights.get(itemId);
+    if (previousHeight === nextHeight) {
+      observedVirtualItemElements.set(itemId, element);
+      updateStreamingVirtualItemViewportTop(itemId, element);
+      return;
+    }
+    virtualizer.value.measureElement(element);
     measuredVirtualItemHeights.set(itemId, nextHeight);
+    measuredVirtualItemRevision.value += 1;
     observedVirtualItemElements.set(itemId, element);
     if (
       scrollEl
@@ -278,7 +305,9 @@ export function useChatVirtualScroll(options: UseChatVirtualScrollOptions) {
         }
         observedVirtualItemResizeElements.delete(normalizedItemId);
         observedVirtualItemElements.delete(normalizedItemId);
-        measuredVirtualItemHeights.delete(normalizedItemId);
+        if (measuredVirtualItemHeights.delete(normalizedItemId)) {
+          measuredVirtualItemRevision.value += 1;
+        }
         streamingVirtualItemViewportTop.delete(normalizedItemId);
       }
       return;
@@ -292,7 +321,9 @@ export function useChatVirtualScroll(options: UseChatVirtualScrollOptions) {
         }
         observedVirtualItemResizeElements.delete(normalizedItemId);
         observedVirtualItemElements.delete(normalizedItemId);
-        measuredVirtualItemHeights.delete(normalizedItemId);
+        if (measuredVirtualItemHeights.delete(normalizedItemId)) {
+          measuredVirtualItemRevision.value += 1;
+        }
         streamingVirtualItemViewportTop.delete(normalizedItemId);
       }
       return;
@@ -309,7 +340,10 @@ export function useChatVirtualScroll(options: UseChatVirtualScrollOptions) {
       }
       observedVirtualItemResizeElements.set(resolvedItemId, target);
       const nextHeight = Math.round(target.getBoundingClientRect().height);
-      measuredVirtualItemHeights.set(resolvedItemId, nextHeight);
+      if (measuredVirtualItemHeights.get(resolvedItemId) !== nextHeight) {
+        measuredVirtualItemHeights.set(resolvedItemId, nextHeight);
+        measuredVirtualItemRevision.value += 1;
+      }
       observedVirtualItemElements.set(resolvedItemId, target);
       updateStreamingVirtualItemViewportTop(resolvedItemId, target);
     }
@@ -337,7 +371,9 @@ export function useChatVirtualScroll(options: UseChatVirtualScrollOptions) {
         }
         observedVirtualItemResizeElements.delete(itemId);
         observedVirtualItemElements.delete(itemId);
-        measuredVirtualItemHeights.delete(itemId);
+        if (measuredVirtualItemHeights.delete(itemId)) {
+          measuredVirtualItemRevision.value += 1;
+        }
         streamingVirtualItemViewportTop.delete(itemId);
       }
     }
@@ -350,6 +386,7 @@ export function useChatVirtualScroll(options: UseChatVirtualScrollOptions) {
     observedVirtualItemElements.clear();
     observedVirtualItemResizeElements.clear();
     measuredVirtualItemHeights.clear();
+    measuredVirtualItemRevision.value += 1;
     streamingVirtualItemViewportTop.clear();
     pendingVirtualResizeElements.clear();
   }
@@ -360,7 +397,6 @@ export function useChatVirtualScroll(options: UseChatVirtualScrollOptions) {
     clearMeasuredVirtualState();
     initialBottomOffset.value = estimateTotalRenderSize();
     virtualizer.value.measure();
-    debugVirtualScrollState("初始底部定位准备");
     void nextTick(async () => {
       if (requestId !== conversationVirtualizerResetRequest) return;
       await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
@@ -369,13 +405,7 @@ export function useChatVirtualScroll(options: UseChatVirtualScrollOptions) {
       if (scrollEl) {
         scrollEl.scrollTop = scrollEl.scrollHeight;
       }
-      const lastIndex = renderItems.value.length - 1;
-      if (lastIndex >= 0) {
-        virtualizer.value.scrollToIndex(lastIndex, { align: "end" });
-      }
-      debugVirtualScrollState("初始底部定位完成");
       scrollbarRef.value?.updateThumb();
-      traceVirtualScrollFrames("reset:after-nextTick");
     });
   }
 
@@ -384,11 +414,9 @@ export function useChatVirtualScroll(options: UseChatVirtualScrollOptions) {
     activeJumpToBottomRequest.value = 0;
     clearMeasuredVirtualState();
     initialBottomOffset.value = 0;
-    debugVirtualScrollState("切换会话等待首批消息");
     void nextTick(() => {
       if (String(activeConversationId.value || "").trim() !== conversationId) return;
       if (renderItems.value.length <= 0) return;
-      debugVirtualScrollState("首批消息已到达");
       resetVirtualizerAtConversationBottom();
     });
   }
@@ -457,7 +485,8 @@ export function useChatVirtualScroll(options: UseChatVirtualScrollOptions) {
     const scrollStyles = window.getComputedStyle(scrollEl);
     const targetTop = parseFloat(scrollStyles.paddingTop || "0");
     const nextTop = scrollEl.scrollTop + (wrapperRect.top - containerRect.top) - targetTop;
-    scrollEl.scrollTo({ top: Math.max(0, nextTop), behavior });
+    const resolvedBehavior: ScrollBehavior = behavior === "smooth" && !nativeSmoothScrollEnabled() ? "auto" : behavior;
+    scrollEl.scrollTo({ top: Math.max(0, nextTop), behavior: resolvedBehavior });
     onUserScroll();
   }
 
@@ -570,6 +599,7 @@ export function useChatVirtualScroll(options: UseChatVirtualScrollOptions) {
     virtualRows,
     virtualEntries,
     totalVirtualSize,
+    latestOwnTailContentHeight,
     virtualDebugVisible,
     virtualDebugState,
     measureVirtualRow,

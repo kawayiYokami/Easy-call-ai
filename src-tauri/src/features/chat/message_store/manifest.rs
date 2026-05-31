@@ -157,6 +157,10 @@ impl MessageStoreManifest {
         self.messages_jsonl_bytes
     }
 
+    pub(super) fn updated_at(&self) -> &str {
+        &self.updated_at
+    }
+
     fn stale_jsonl_reason(&self) -> Option<String> {
         if self.should_read_jsonl() {
             return None;

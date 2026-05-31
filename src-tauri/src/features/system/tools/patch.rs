@@ -305,36 +305,6 @@ fn apply_patch_read_backup_record(path: &Path) -> Result<ApplyPatchBackupRecord,
         .map_err(|err| format!("解析 apply_patch 恢复记录失败（{}）：{err}", path.to_string_lossy()))
 }
 
-fn apply_patch_take_latest_backup_record(
-    data_path: &PathBuf,
-    fingerprint: &str,
-) -> Result<Option<(PathBuf, ApplyPatchBackupRecord)>, String> {
-    let dir = apply_patch_temp_records_dir(data_path);
-    if !dir.exists() {
-        return Ok(None);
-    }
-    let mut matches = Vec::<(PathBuf, ApplyPatchBackupRecord)>::new();
-    let entries = std::fs::read_dir(&dir)
-        .map_err(|err| format!("读取 apply_patch 记录目录失败（{}）：{err}", dir.to_string_lossy()))?;
-    for entry in entries.flatten() {
-        let path = entry.path();
-        if path.extension().and_then(|value| value.to_str()) != Some("json") {
-            continue;
-        }
-        let record = apply_patch_read_backup_record(&path)?;
-        if record.fingerprint == fingerprint {
-            matches.push((path, record));
-        }
-    }
-    matches.sort_by(|left, right| {
-        left.1
-            .created_at
-            .cmp(&right.1.created_at)
-            .then_with(|| left.1.record_id.cmp(&right.1.record_id))
-    });
-    Ok(matches.pop())
-}
-
 fn apply_patch_read_text_file(path: &Path) -> Result<String, String> {
     decode_text_file_from_path(path).map(|decoded| decoded.text)
 }
@@ -347,119 +317,158 @@ fn apply_patch_write_parent_dir(path: &Path) -> Result<(), String> {
     Ok(())
 }
 
+/// 恢复备份记录中的所有文件。
+/// 无论文件当前状态如何都强制恢复，返回 (恢复文件数, 有非LLM修改被覆盖的文件列表)。
 fn apply_patch_restore_backup_record(
     data_path: &PathBuf,
     record: &ApplyPatchBackupRecord,
-) -> Result<usize, String> {
+) -> Result<(usize, Vec<String>), String> {
     let mut restored = 0usize;
+    let mut overwritten_files = Vec::<String>::new();
     for entry in record.entries.iter().rev() {
         match entry.kind {
             ApplyPatchBackupKind::Add => {
+                // Add 操作的撤回 = 删除该文件
                 let path = PathBuf::from(&entry.path);
                 if !path.exists() {
-                    return Err(format!("撤回失败：目标文件不存在 {}", terminal_path_for_user(&path)));
+                    // 文件已不存在，视为已撤回，跳过
+                    continue;
                 }
-                let current = apply_patch_read_text_file(&path)?;
                 let expected = entry.expected_current_content.as_deref().unwrap_or_default();
-                if current != expected {
-                    return Err(format!(
-                        "撤回失败：文件已变更，无法安全删除 {}",
-                        terminal_path_for_user(&path)
-                    ));
+                if let Ok(current) = apply_patch_read_text_file(&path) {
+                    if current != expected {
+                        overwritten_files.push(terminal_path_for_user(&path));
+                    }
                 }
-                std::fs::remove_file(&path).map_err(|err| {
-                    format!("撤回失败：删除文件失败 {}: {err}", terminal_path_for_user(&path))
-                })?;
+                if let Err(err) = std::fs::remove_file(&path) {
+                    eprintln!(
+                        "[apply_patch撤回] 删除文件失败（跳过）: path={}, error={}",
+                        terminal_path_for_user(&path), err
+                    );
+                    continue;
+                }
                 restored = restored.saturating_add(1);
             }
             ApplyPatchBackupKind::Delete => {
+                // Delete 操作的撤回 = 从 blob 恢复文件
                 let path = PathBuf::from(&entry.path);
+                let blob_file = match entry.backup_blob_file.as_deref() {
+                    Some(f) => f,
+                    None => continue,
+                };
+                let raw = match std::fs::read(apply_patch_blob_path(data_path, blob_file)) {
+                    Ok(data) => data,
+                    Err(err) => {
+                        eprintln!(
+                            "[apply_patch撤回] 读取删除备份失败（跳过）: path={}, error={}",
+                            terminal_path_for_user(&path), err
+                        );
+                        continue;
+                    }
+                };
                 if path.exists() {
-                    return Err(format!(
-                        "撤回失败：删除前文件恢复目标已存在 {}",
-                        terminal_path_for_user(&path)
-                    ));
+                    // 文件已存在（用户或其他操作重新创建了），强制覆盖但记录
+                    overwritten_files.push(terminal_path_for_user(&path));
                 }
-                let blob_file = entry.backup_blob_file.as_deref().ok_or_else(|| {
-                    format!("撤回失败：删除备份缺少 blob 记录 {}", terminal_path_for_user(&path))
-                })?;
-                let raw = std::fs::read(apply_patch_blob_path(data_path, blob_file)).map_err(|err| {
-                    format!("撤回失败：读取删除备份失败 {}: {err}", terminal_path_for_user(&path))
-                })?;
-                apply_patch_write_parent_dir(&path)?;
-                std::fs::write(&path, raw).map_err(|err| {
-                    format!("撤回失败：恢复文件失败 {}: {err}", terminal_path_for_user(&path))
-                })?;
+                let _ = apply_patch_write_parent_dir(&path);
+                if let Err(err) = std::fs::write(&path, raw) {
+                    eprintln!(
+                        "[apply_patch撤回] 恢复文件失败（跳过）: path={}, error={}",
+                        terminal_path_for_user(&path), err
+                    );
+                    continue;
+                }
                 restored = restored.saturating_add(1);
             }
             ApplyPatchBackupKind::Update => {
+                // Update 操作的撤回 = 从 blob 恢复原始内容
                 let path = PathBuf::from(&entry.path);
-                if !path.exists() {
-                    return Err(format!("撤回失败：目标文件不存在 {}", terminal_path_for_user(&path)));
+                let blob_file = match entry.backup_blob_file.as_deref() {
+                    Some(f) => f,
+                    None => continue,
+                };
+                let raw = match std::fs::read(apply_patch_blob_path(data_path, blob_file)) {
+                    Ok(data) => data,
+                    Err(err) => {
+                        eprintln!(
+                            "[apply_patch撤回] 读取修改备份失败（跳过）: path={}, error={}",
+                            terminal_path_for_user(&path), err
+                        );
+                        continue;
+                    }
+                };
+                if path.exists() {
+                    let expected = entry.expected_current_content.as_deref().unwrap_or_default();
+                    if let Ok(current) = apply_patch_read_text_file(&path) {
+                        if current != expected {
+                            overwritten_files.push(terminal_path_for_user(&path));
+                        }
+                    }
                 }
-                let current = apply_patch_read_text_file(&path)?;
-                let expected = entry.expected_current_content.as_deref().unwrap_or_default();
-                if current != expected {
-                    return Err(format!(
-                        "撤回失败：文件已变更，无法安全恢复 {}",
-                        terminal_path_for_user(&path)
-                    ));
+                let _ = apply_patch_write_parent_dir(&path);
+                if let Err(err) = std::fs::write(&path, raw) {
+                    eprintln!(
+                        "[apply_patch撤回] 恢复文件失败（跳过）: path={}, error={}",
+                        terminal_path_for_user(&path), err
+                    );
+                    continue;
                 }
-                let blob_file = entry.backup_blob_file.as_deref().ok_or_else(|| {
-                    format!("撤回失败：修改备份缺少 blob 记录 {}", terminal_path_for_user(&path))
-                })?;
-                let raw = std::fs::read(apply_patch_blob_path(data_path, blob_file)).map_err(|err| {
-                    format!("撤回失败：读取修改备份失败 {}: {err}", terminal_path_for_user(&path))
-                })?;
-                std::fs::write(&path, raw).map_err(|err| {
-                    format!("撤回失败：恢复文件失败 {}: {err}", terminal_path_for_user(&path))
-                })?;
                 restored = restored.saturating_add(1);
             }
             ApplyPatchBackupKind::MoveUpdate => {
+                // MoveUpdate 操作的撤回 = 从 blob 恢复到原始路径，删除移动后的路径
                 let from_path = PathBuf::from(entry.from_path.as_deref().unwrap_or_default());
                 let to_path = PathBuf::from(entry.to_path.as_deref().unwrap_or_default());
-                if !to_path.exists() {
-                    return Err(format!(
-                        "撤回失败：移动后的目标文件不存在 {}",
-                        terminal_path_for_user(&to_path)
-                    ));
+                let blob_file = match entry.backup_blob_file.as_deref() {
+                    Some(f) => f,
+                    None => continue,
+                };
+                let raw = match std::fs::read(apply_patch_blob_path(data_path, blob_file)) {
+                    Ok(data) => data,
+                    Err(err) => {
+                        eprintln!(
+                            "[apply_patch撤回] 读取移动备份失败（跳过）: path={}, error={}",
+                            terminal_path_for_user(&to_path), err
+                        );
+                        continue;
+                    }
+                };
+                // 检查移动后的文件是否有非 LLM 修改
+                if to_path.exists() {
+                    let expected = entry.expected_current_content.as_deref().unwrap_or_default();
+                    if let Ok(current) = apply_patch_read_text_file(&to_path) {
+                        if current != expected {
+                            overwritten_files.push(terminal_path_for_user(&to_path));
+                        }
+                    }
                 }
+                // 检查原始路径是否已被占用
                 if from_path.exists()
                     && terminal_normalize_for_access_check(&from_path)
                         != terminal_normalize_for_access_check(&to_path)
                 {
-                    return Err(format!(
-                        "撤回失败：原始路径已存在，无法安全恢复 {}",
-                        terminal_path_for_user(&from_path)
-                    ));
+                    overwritten_files.push(terminal_path_for_user(&from_path));
                 }
-                let current = apply_patch_read_text_file(&to_path)?;
-                let expected = entry.expected_current_content.as_deref().unwrap_or_default();
-                if current != expected {
-                    return Err(format!(
-                        "撤回失败：文件已变更，无法安全恢复 {}",
-                        terminal_path_for_user(&to_path)
-                    ));
+                let _ = apply_patch_write_parent_dir(&from_path);
+                if let Err(err) = std::fs::write(&from_path, raw) {
+                    eprintln!(
+                        "[apply_patch撤回] 恢复原始文件失败（跳过）: path={}, error={}",
+                        terminal_path_for_user(&from_path), err
+                    );
+                    continue;
                 }
-                let blob_file = entry.backup_blob_file.as_deref().ok_or_else(|| {
-                    format!("撤回失败：移动备份缺少 blob 记录 {}", terminal_path_for_user(&to_path))
-                })?;
-                let raw = std::fs::read(apply_patch_blob_path(data_path, blob_file)).map_err(|err| {
-                    format!("撤回失败：读取移动备份失败 {}: {err}", terminal_path_for_user(&to_path))
-                })?;
-                apply_patch_write_parent_dir(&from_path)?;
-                std::fs::write(&from_path, raw).map_err(|err| {
-                    format!("撤回失败：恢复原始文件失败 {}: {err}", terminal_path_for_user(&from_path))
-                })?;
-                std::fs::remove_file(&to_path).map_err(|err| {
-                    format!("撤回失败：删除移动后的文件失败 {}: {err}", terminal_path_for_user(&to_path))
-                })?;
+                // 删除移动后的文件（如果和原始路径不同）
+                if terminal_normalize_for_access_check(&from_path)
+                    != terminal_normalize_for_access_check(&to_path)
+                    && to_path.exists()
+                {
+                    let _ = std::fs::remove_file(&to_path);
+                }
                 restored = restored.saturating_add(1);
             }
         }
     }
-    Ok(restored)
+    Ok((restored, overwritten_files))
 }
 
 fn clear_apply_patch_temp(data_path: &PathBuf) -> Result<(usize, usize), String> {
@@ -596,105 +605,6 @@ fn apply_patch_format_error(message: impl AsRef<str>) -> String {
 
 fn apply_patch_preview_text(input: &str, max_chars: usize) -> String {
     input.chars().take(max_chars).collect()
-}
-
-fn apply_patch_parse_json_value(value: &serde_json::Value) -> Result<Vec<ApplyPatchOp>, String> {
-    let operations = value
-        .get("operations")
-        .and_then(|v| v.as_array())
-        .ok_or_else(|| apply_patch_format_error(r#"apply_patch JSON 顶层缺少 "operations" 数组。顶层必须是 {"operations": [...]}。"#))?;
-    if operations.is_empty() {
-        return Err(apply_patch_format_error(
-            "apply_patch 操作列表为空。至少需要一项操作。",
-        ));
-    }
-    let mut ops = Vec::<ApplyPatchOp>::new();
-    for (i, op_value) in operations.iter().enumerate() {
-        let op = op_value.as_object().ok_or_else(|| {
-            apply_patch_format_error(format!(
-                r#"apply_patch 操作[{}] 不是 JSON 对象。每个操作必须是 {{"action": ..., ...}}。"#,
-                i
-            ))
-        })?;
-        let action = op.get("action").and_then(|v| v.as_str()).ok_or_else(|| {
-            apply_patch_format_error(format!(
-                r#"apply_patch 操作[{}] 缺少 "action" 字段。必须是 "add"、"update"、"delete" 或 "move"。\n最小示例：{}"#,
-                i,
-                apply_patch_operation_example("update")
-            ))
-        })?;
-        let path = op.get("path").and_then(|v| v.as_str())
-            .ok_or_else(|| apply_patch_format_error(format!(
-                r#"apply_patch 操作[{}] 缺少 "path" 字段。\n对应 action 的最小示例：{}"#,
-                i,
-                apply_patch_operation_example(action)
-            )))?
-            .to_string();
-        match action {
-            "add" => {
-                let content_str = op.get("content").and_then(|v| v.as_str()).ok_or_else(|| {
-                    apply_patch_format_error(format!(
-                        r#"apply_patch 操作[{}] (add) 缺少 "content" 字段。add 操作必须提供文件内容。\n最小 add 示例：{}"#,
-                        i,
-                        apply_patch_operation_example("add")
-                    ))
-                })?.to_string();
-                ops.push(ApplyPatchOp::Add { path, content: content_str });
-            }
-            "delete" => { ops.push(ApplyPatchOp::Delete { path }); }
-            "update" => {
-                let old_string = op.get("old_string").and_then(|v| v.as_str()).ok_or_else(|| {
-                    apply_patch_format_error(format!(
-                        r#"apply_patch 操作[{}] (update) 缺少 "old_string" 字段。\n最小 update 示例：{}"#,
-                        i,
-                        apply_patch_operation_example("update")
-                    ))
-                })?.to_string();
-                let new_string = op.get("new_string").and_then(|v| v.as_str()).ok_or_else(|| {
-                    apply_patch_format_error(format!(
-                        r#"apply_patch 操作[{}] (update) 缺少 "new_string" 字段。\n最小 update 示例：{}"#,
-                        i,
-                        apply_patch_operation_example("update")
-                    ))
-                })?.to_string();
-                if old_string == new_string {
-                    return Err(apply_patch_format_error(format!(
-                        "apply_patch 操作[{}] (update) old_string 和 new_string 完全相同。update 必须真的修改内容。\n最小 update 示例：{}",
-                        i,
-                        apply_patch_operation_example("update")
-                    )));
-                }
-                let replace_all = op.get("replace_all").and_then(|v| v.as_bool()).unwrap_or(false);
-                ops.push(ApplyPatchOp::Update { path, old_string, new_string, replace_all });
-            }
-            "move" => {
-                let to = op.get("to").and_then(|v| v.as_str()).ok_or_else(|| {
-                    apply_patch_format_error(format!(
-                        r#"apply_patch 操作[{}] (move) 缺少 "to" 字段。\n最小 move 示例：{}"#,
-                        i,
-                        apply_patch_operation_example("move")
-                    ))
-                })?.to_string();
-                ops.push(ApplyPatchOp::Move { path, to });
-            }
-            other => return Err(apply_patch_format_error(format!(
-                r#"apply_patch 操作[{}] 的 action "{}" 无效。必须是 "add"、"update"、"delete" 或 "move"。\n可参考最小 update 示例：{}"#,
-                i,
-                other,
-                apply_patch_operation_example("update")
-            ))),
-        }
-    }
-    Ok(ops)
-}
-
-fn apply_patch_parse_json(input: &str) -> Result<Vec<ApplyPatchOp>, String> {
-    let value: serde_json::Value = serde_json::from_str(input).map_err(|err| {
-        apply_patch_format_error(format!(
-            "apply_patch 输入解析失败：不是有效的 JSON。\nJSON 解析错误: {err}"
-        ))
-    })?;
-    apply_patch_parse_json_value(&value)
 }
 
 
@@ -1721,38 +1631,6 @@ mod apply_patch_tool_tests {
     }
 
     #[test]
-    fn parse_json_should_support_add_delete_update_and_move() {
-        let root = std::env::temp_dir().join(format!("eca-apply-patch-parse-{}", Uuid::new_v4()));
-        std::fs::create_dir_all(&root).expect("create temp root");
-        let input = serde_json::json!({
-            "operations": [
-                {"action": "add", "path": root.join("a.txt").to_string_lossy(), "content": "hello"},
-                {"action": "delete", "path": root.join("b.txt").to_string_lossy()},
-                {"action": "update", "path": root.join("c.txt").to_string_lossy(), "old_string": "old", "new_string": "new"},
-                {"action": "move", "path": root.join("d.txt").to_string_lossy(), "to": root.join("e.txt").to_string_lossy()}
-            ]
-        })
-        .to_string();
-        let ops = apply_patch_parse_json(&input).expect("parse");
-        assert_eq!(ops.len(), 4);
-        let resolved = apply_patch_resolve_ops(&root, ops).expect("resolve");
-        match &resolved[3] {
-            ApplyPatchResolvedOp::Update { to, old_string, new_string, .. } => {
-                assert!(to.is_some());
-                assert!(old_string.is_empty());
-                assert!(new_string.is_empty());
-            }
-            _ => panic!("expected move as update op"),
-        }
-    }
-
-    #[test]
-    fn parse_json_should_explain_invalid_json() {
-        let err = apply_patch_parse_json("not json").expect_err("invalid json should fail");
-        assert!(err.contains("不是有效的 JSON"));
-    }
-
-    #[test]
     fn tool_args_should_accept_snake_case_update_fields() {
         let args: ApplyPatchToolArgs = serde_json::from_str(
             r#"{"operations":[{"action":"update","path":"a.txt","old_string":"before","new_string":"after","replace_all":true}]}"#,
@@ -1780,100 +1658,6 @@ mod apply_patch_tool_tests {
         assert_eq!(old_string, "before");
         assert_eq!(new_string, "after");
         assert!(*replace_all);
-    }
-
-    #[test]
-    fn parse_json_should_reject_git_diff_text_with_json_hint() {
-        let err = apply_patch_parse_json(
-            "diff --git a/a.txt b/a.txt\n--- a/a.txt\n+++ b/a.txt\n@@\n-old\n+new\n",
-        )
-        .expect_err("git diff text should fail");
-        assert!(err.contains("不是有效的 JSON"));
-        assert!(err.contains("只支持 JSON 格式"));
-        assert!(err.contains("不支持标准 git diff"));
-    }
-
-    #[test]
-    fn parse_json_should_reject_non_object_operation() {
-        let err = apply_patch_parse_json("{\"operations\": [1]}")
-            .expect_err("non-object operation should fail");
-        assert!(err.contains("操作[0] 不是 JSON 对象"));
-    }
-
-    #[test]
-    fn parse_json_should_reject_missing_action() {
-        let err = apply_patch_parse_json("{\"operations\": [{\"path\": \"a.txt\"}]}")
-            .expect_err("missing action should fail");
-        assert!(err.contains("缺少 \"action\" 字段"));
-        assert!(err.contains("最小示例"));
-    }
-
-    #[test]
-    fn parse_json_should_reject_missing_path() {
-        let err = apply_patch_parse_json("{\"operations\": [{\"action\": \"delete\"}]}")
-            .expect_err("missing path should fail");
-        assert!(err.contains("缺少 \"path\" 字段"));
-        assert!(err.contains("对应 action 的最小示例"));
-    }
-
-    #[test]
-    fn parse_json_should_reject_missing_operations() {
-        let err = apply_patch_parse_json("{}").expect_err("missing operations should fail");
-        assert!(err.contains("operations"));
-        assert!(err.contains("顶层格式示例"));
-    }
-
-    #[test]
-    fn parse_json_should_reject_empty_operations() {
-        let err = apply_patch_parse_json("{\"operations\": []}").expect_err("empty operations should fail");
-        assert!(err.contains("操作列表为空"));
-    }
-
-    #[test]
-    fn parse_json_should_reject_invalid_action() {
-        let err = apply_patch_parse_json("{\"operations\": [{\"action\": \"rename\", \"path\": \"a.txt\"}]}")
-            .expect_err("invalid action should fail");
-        assert!(err.contains("无效"));
-    }
-
-    #[test]
-    fn parse_json_should_reject_add_without_content() {
-        let err = apply_patch_parse_json("{\"operations\": [{\"action\": \"add\", \"path\": \"a.txt\"}]}")
-            .expect_err("missing content should fail");
-        assert!(err.contains("content"));
-        assert!(err.contains("最小 add 示例"));
-    }
-
-    #[test]
-    fn parse_json_should_reject_update_without_old_string() {
-        let err = apply_patch_parse_json("{\"operations\": [{\"action\": \"update\", \"path\": \"a.txt\", \"new_string\": \"x\"}]}")
-            .expect_err("missing old_string should fail");
-        assert!(err.contains("old_string"));
-        assert!(err.contains("最小 update 示例"));
-    }
-
-    #[test]
-    fn parse_json_should_reject_update_without_new_string() {
-        let err = apply_patch_parse_json("{\"operations\": [{\"action\": \"update\", \"path\": \"a.txt\", \"old_string\": \"x\"}]}")
-            .expect_err("missing new_string should fail");
-        assert!(err.contains("new_string"));
-        assert!(err.contains("最小 update 示例"));
-    }
-
-    #[test]
-    fn parse_json_should_reject_move_without_to() {
-        let err = apply_patch_parse_json("{\"operations\": [{\"action\": \"move\", \"path\": \"a.txt\"}]}")
-            .expect_err("missing to should fail");
-        assert!(err.contains("to"));
-        assert!(err.contains("最小 move 示例"));
-    }
-
-    #[test]
-    fn parse_json_should_reject_same_old_and_new() {
-        let err = apply_patch_parse_json("{\"operations\": [{\"action\": \"update\", \"path\": \"a.txt\", \"old_string\": \"x\", \"new_string\": \"x\"}]}")
-            .expect_err("same old/new should fail");
-        assert!(err.contains("完全相同"));
-        assert!(err.contains("最小 update 示例"));
     }
 
     #[test]
@@ -2118,7 +1902,8 @@ mod apply_patch_tool_tests {
             ]
         })
         .to_string();
-        let ops = apply_patch_resolve_ops(&cwd, apply_patch_parse_json(&input).expect("parse")).expect("resolve");
+        let args: ApplyPatchToolArgs = serde_json::from_str(&input).expect("parse tool args");
+        let ops = apply_patch_resolve_ops(&cwd, apply_patch_ops_from_tool_args(args).expect("convert")).expect("resolve");
         let record = apply_patch_prepare_backup_record(&data_path, "s1", &cwd, &input, &ops)
             .expect("prepare");
         assert_eq!(record.entries.len(), 3);
@@ -2164,8 +1949,9 @@ mod apply_patch_tool_tests {
                 backup_blob_file: None,
             }],
         };
-        let restored = apply_patch_restore_backup_record(&data_path, &record).expect("restore");
+        let (restored, overwritten) = apply_patch_restore_backup_record(&data_path, &record).expect("restore");
         assert_eq!(restored, 1);
+        assert!(overwritten.is_empty());
         assert!(!path.exists());
     }
 
@@ -2192,46 +1978,9 @@ mod apply_patch_tool_tests {
                 backup_blob_file: Some("update.bin".to_string()),
             }],
         };
-        let restored = apply_patch_restore_backup_record(&data_path, &record).expect("restore");
+        let (restored, overwritten) = apply_patch_restore_backup_record(&data_path, &record).expect("restore");
         assert_eq!(restored, 1);
+        assert!(overwritten.is_empty());
         assert_eq!(std::fs::read_to_string(&path).expect("read restored"), "old\n");
-    }
-
-    #[test]
-    fn take_latest_backup_record_should_pick_newest_match() {
-        let data_path = make_temp_data_path("apply-patch-record-pick");
-        let records_dir = apply_patch_temp_records_dir(&data_path);
-        std::fs::create_dir_all(&records_dir).expect("create records");
-        let older = ApplyPatchBackupRecord {
-            record_id: "older".to_string(),
-            session_id: "s1".to_string(),
-            cwd: "c".to_string(),
-            fingerprint: "fp".to_string(),
-            created_at: "2026-03-21T10:00:00Z".to_string(),
-            entries: Vec::new(),
-        };
-        let newer = ApplyPatchBackupRecord {
-            record_id: "newer".to_string(),
-            session_id: "s1".to_string(),
-            cwd: "c".to_string(),
-            fingerprint: "fp".to_string(),
-            created_at: "2026-03-21T10:00:01Z".to_string(),
-            entries: Vec::new(),
-        };
-        std::fs::write(
-            apply_patch_record_path(&data_path, &older.record_id),
-            serde_json::to_vec(&older).expect("serialize older"),
-        )
-        .expect("write older");
-        std::fs::write(
-            apply_patch_record_path(&data_path, &newer.record_id),
-            serde_json::to_vec(&newer).expect("serialize newer"),
-        )
-        .expect("write newer");
-
-        let hit = apply_patch_take_latest_backup_record(&data_path, "fp")
-            .expect("take record")
-            .expect("matched record");
-        assert_eq!(hit.1.record_id, "newer");
     }
 }

@@ -63,10 +63,11 @@ export function messageText(msg: ChatMessage): string {
 export function removeBinaryPlaceholders(text: string): string {
   return text
     .split("\n")
-    .map((line) => line.trim())
-    .filter((line) => line !== "[image]" && line !== "[pdf]" && line !== "[audio]")
-    .join("\n")
-    .trim();
+    .filter((line) => {
+      const trimmed = line.trim();
+      return trimmed !== "[image]" && trimmed !== "[pdf]" && trimmed !== "[audio]";
+    })
+    .join("\n");
 }
 
 export function extractMessageImages(

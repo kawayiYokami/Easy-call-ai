@@ -1,7 +1,7 @@
 <template>
-  <UnifiedWindowApp fixed-view-mode="config" />
+  <ConfigWindowApp />
 </template>
 
 <script setup lang="ts">
-import UnifiedWindowApp from "../../UnifiedWindowApp.vue";
+import ConfigWindowApp from "../../ConfigWindowApp.vue";
 </script>

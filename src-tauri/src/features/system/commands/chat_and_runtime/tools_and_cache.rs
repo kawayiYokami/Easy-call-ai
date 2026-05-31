@@ -118,7 +118,10 @@ fn check_tools_status(
             ),
             "operate" => ("loaded".to_string(), "桌面输入工具可用（鼠标/键盘/文本）".to_string()),
             "reload" => ("loaded".to_string(), "刷新工作区 MCP 与技能工具可用".to_string()),
-            "organize_context" => ("loaded".to_string(), "整理当前活跃对话上下文工具可用".to_string()),
+            "organize_context" => (
+                "hidden".to_string(),
+                "整理上下文工具已隐藏。".to_string(),
+            ),
             "wait" => (
                 "unavailable".to_string(),
                 "wait 工具已删除；请改用 operate 脚本中的 wait 动作。".to_string(),

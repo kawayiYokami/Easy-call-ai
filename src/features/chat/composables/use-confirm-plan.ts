@@ -14,7 +14,7 @@ type UseConfirmPlanOptions = {
   currentDepartmentId: Ref<string>;
   currentConversationId: Ref<string>;
   chatting: Ref<boolean>;
-  forcingArchive: Ref<boolean>;
+  trimming: Ref<boolean>;
   compactingConversation: Ref<boolean>;
   setConversationPlanMode: (conversationId: string, value: boolean) => Promise<boolean>;
   clearForegroundRuntimeState: () => void;
@@ -52,7 +52,7 @@ export function useConfirmPlan(options: UseConfirmPlanOptions) {
       !session.messageId
       || !session.conversationId
       || options.chatting.value
-      || options.forcingArchive.value
+      || options.trimming.value
       || options.compactingConversation.value
     ) return;
     options.clearForegroundRuntimeState();

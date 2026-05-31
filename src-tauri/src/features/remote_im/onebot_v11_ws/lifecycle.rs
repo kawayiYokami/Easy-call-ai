@@ -1,15 +1,15 @@
 impl OnebotV11WsManager {
     /// 订阅事件流
     pub async fn subscribe_events(&self, channel_id: &str) -> Option<broadcast::Receiver<Value>> {
-        let connections = self.connections.read().await;
-        connections.get(channel_id).map(|c| c.event_tx.subscribe())
+        let senders = self.channel_event_senders.read().await;
+        senders.get(channel_id).map(|tx| tx.subscribe())
     }
 
-    /// 关闭所有服务器
+    /// 关闭所有服务器（通过取消所有 runtime 的 CancellationToken 触发 axum graceful shutdown）
     pub async fn shutdown(&self) {
-        let shutdowns = self.channel_shutdowns.write().await.drain().collect::<Vec<_>>();
-        for (_, tx) in shutdowns {
-            let _ = tx.send(());
+        let runtimes: Vec<_> = self.channel_runtimes.read().await.values().cloned().collect();
+        for runtime in runtimes {
+            runtime.cancel.cancel();
         }
     }
 
@@ -18,10 +18,13 @@ impl OnebotV11WsManager {
         self.connections.read().await.contains_key(channel_id)
     }
 
-    /// 订阅渠道的关闭信号
-    pub(crate) async fn subscribe_shutdown(&self, channel_id: &str) -> Option<broadcast::Receiver<()>> {
-        let shutdowns = self.channel_shutdowns.read().await;
-        shutdowns.get(channel_id).map(|tx| tx.subscribe())
+    /// 获取渠道的 CancellationToken，事件消费器用它来感知渠道停止
+    pub(crate) async fn get_channel_cancel_token(&self, channel_id: &str) -> Option<CancellationToken> {
+        self.channel_runtimes
+            .read()
+            .await
+            .get(channel_id)
+            .map(|runtime| runtime.cancel.clone())
     }
 }
 
@@ -39,33 +42,14 @@ pub fn onebot_v11_ws_manager() -> Arc<OnebotV11WsManager> {
     ONEBOT_V11_WS_MANAGER.clone()
 }
 
-/// 启动 OneBot v11 WebSocket 服务器（同步版本，用于应用启动）
-pub(crate) fn onebot_v11_ws_server_start(
+/// 启动 OneBot v11 WebSocket 服务器
+pub(crate) async fn onebot_v11_ws_server_start(
     channel: RemoteImChannelConfig,
-    _app_handle: tauri::AppHandle,
 ) -> Result<(), String> {
     let credentials = OnebotV11WsCredentials::from_credentials(&channel.credentials);
     let manager = onebot_v11_ws_manager();
     let channel_id = channel.id.clone();
-
-    // 通过 oneshot 等待异步启动结果，确保错误能传递给调用方
-    let (tx, rx) = std::sync::mpsc::channel();
-    tauri::async_runtime::spawn(async move {
-        let result = manager.start(channel_id, credentials).await;
-        if tx.send(result).is_err() {
-            eprintln!("[远程IM][OneBot v11 WS] 启动结果回传失败：接收端已关闭");
-        }
-    });
-
-    match rx.recv_timeout(Duration::from_secs(8)) {
-        Ok(result) => result,
-        Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
-            Err("启动 OneBot v11 WS 服务超时，异步任务未及时返回".to_string())
-        }
-        Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
-            Err("启动任务通道关闭".to_string())
-        }
-    }
+    manager.start(channel_id, credentials).await
 }
 
 /// 获取渠道连接状态
@@ -79,4 +63,3 @@ pub async fn get_channel_logs(channel_id: String) -> Result<Vec<ChannelLogEntry>
     let manager = onebot_v11_ws_manager();
     Ok(manager.get_logs(&channel_id).await)
 }
-

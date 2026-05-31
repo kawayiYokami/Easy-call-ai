@@ -3,7 +3,7 @@ import { invokeTauri } from "../../../services/tauri-api";
 import type { ConversationDelegateStatusSummary } from "../../../types/app";
 
 const ARCHIVE_FOCUS_REQUEST_STORAGE_KEY = "easy_call.archives.focus_request.v1";
-const POLL_INTERVAL_MS = 2000;
+const POLL_INTERVAL_MS = 1000;
 
 interface UseDelegateStatusOptions {
   activeConversationId: Ref<string>;

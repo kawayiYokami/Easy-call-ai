@@ -1,8 +1,8 @@
 use std::{
+    ffi::OsString,
     fs::{self as std_fs, File as StdFile},
     io::{Read, Write},
     path::{Path as StdPath, PathBuf as StdPathBuf},
-    process::{Command, Stdio},
     sync::{
         atomic::{AtomicBool, Ordering},
     },
@@ -289,12 +289,19 @@ fn shutdown_background_services_before_windows_updater_exit(app: AppHandle) {
     eprintln!("[自动更新] Windows 安装器退出前开始优雅停机后台服务");
     let cleanup_app = app.clone();
     let handle = thread::spawn(move || {
-        tauri::async_runtime::block_on(graceful_shutdown_background_services(&app));
+        tauri::async_runtime::block_on(graceful_shutdown_background_services_with_timeout(&app))
     });
-    if handle.join().is_err() {
-        eprintln!("[自动更新] Windows 安装器退出前优雅停机后台服务失败：停机线程异常退出");
-    } else {
-        eprintln!("[自动更新] Windows 安装器退出前优雅停机后台服务完成");
+    match handle.join() {
+        Ok(true) => {
+            eprintln!("[自动更新] Windows 安装器退出前优雅停机后台服务完成");
+        }
+        Ok(false) => {
+            eprintln!("[自动更新] Windows 安装器退出前优雅停机后台服务超时");
+            show_background_shutdown_timeout_dialog(&cleanup_app);
+        }
+        Err(_) => {
+            eprintln!("[自动更新] Windows 安装器退出前优雅停机后台服务失败：停机线程异常退出");
+        }
     }
     cleanup_app.cleanup_before_exit();
 }
@@ -695,17 +702,103 @@ fn write_portable_plan(plan_path: &StdPath, plan: &PortableUpdatePlan) -> Result
 }
 
 #[cfg(target_os = "windows")]
-fn spawn_detached_hidden(command: &mut Command) -> Result<(), String> {
-    use std::os::windows::process::CommandExt;
-    use windows_sys::Win32::System::Threading::{CREATE_NO_WINDOW, DETACHED_PROCESS};
+fn windows_command_line_arg(arg: &std::ffi::OsStr) -> String {
+    use std::os::windows::ffi::OsStrExt;
 
-    command.creation_flags(DETACHED_PROCESS | CREATE_NO_WINDOW);
-    command.spawn().map_err(|err| format!("启动后台进程失败：{err}"))?;
+    let raw = String::from_utf16_lossy(&arg.encode_wide().collect::<Vec<u16>>());
+    if raw.is_empty() {
+        return "\"\"".to_string();
+    }
+    if !raw.chars().any(|ch| ch.is_whitespace() || ch == '"') {
+        return raw;
+    }
+
+    let mut quoted = String::from("\"");
+    let mut backslashes = 0usize;
+    for ch in raw.chars() {
+        match ch {
+            '\\' => backslashes += 1,
+            '"' => {
+                quoted.push_str(&"\\".repeat(backslashes * 2 + 1));
+                quoted.push('"');
+                backslashes = 0;
+            }
+            _ => {
+                if backslashes > 0 {
+                    quoted.push_str(&"\\".repeat(backslashes));
+                    backslashes = 0;
+                }
+                quoted.push(ch);
+            }
+        }
+    }
+    if backslashes > 0 {
+        quoted.push_str(&"\\".repeat(backslashes * 2));
+    }
+    quoted.push('"');
+    quoted
+}
+
+#[cfg(target_os = "windows")]
+fn spawn_detached_hidden(exe: &StdPath, args: &[OsString]) -> Result<(), String> {
+    use std::os::windows::ffi::OsStrExt;
+    use windows_sys::Win32::Foundation::CloseHandle;
+    use windows_sys::Win32::System::Threading::{
+        CreateProcessW, CREATE_NO_WINDOW, DETACHED_PROCESS, PROCESS_INFORMATION, STARTUPINFOW,
+    };
+
+    let mut command_line = windows_command_line_arg(exe.as_os_str());
+    for arg in args {
+        command_line.push(' ');
+        command_line.push_str(&windows_command_line_arg(arg.as_os_str()));
+    }
+
+    let mut exe_wide = exe.as_os_str().encode_wide().collect::<Vec<u16>>();
+    exe_wide.push(0);
+    let mut command_line_wide = command_line.encode_utf16().collect::<Vec<u16>>();
+    command_line_wide.push(0);
+
+    let mut startup_info: STARTUPINFOW = unsafe { std::mem::zeroed() };
+    startup_info.cb = std::mem::size_of::<STARTUPINFOW>() as u32;
+    let mut process_info: PROCESS_INFORMATION = unsafe { std::mem::zeroed() };
+
+    let success = unsafe {
+        CreateProcessW(
+            exe_wide.as_ptr(),
+            command_line_wide.as_mut_ptr(),
+            std::ptr::null(),
+            std::ptr::null(),
+            0,
+            DETACHED_PROCESS | CREATE_NO_WINDOW,
+            std::ptr::null(),
+            std::ptr::null(),
+            &startup_info,
+            &mut process_info,
+        )
+    };
+
+    if success == 0 {
+        return Err(format!(
+            "启动后台进程失败：CreateProcessW 失败，error={}",
+            std::io::Error::last_os_error()
+        ));
+    }
+
+    unsafe {
+        CloseHandle(process_info.hProcess);
+        CloseHandle(process_info.hThread);
+    }
     Ok(())
 }
 
 #[cfg(not(target_os = "windows"))]
-fn spawn_detached_hidden(command: &mut Command) -> Result<(), String> {
+fn spawn_detached_hidden(exe: &StdPath, args: &[OsString]) -> Result<(), String> {
+    let mut command = std::process::Command::new(exe);
+    command
+        .args(args)
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null());
     command.spawn().map_err(|err| format!("启动后台进程失败：{err}"))?;
     Ok(())
 }
@@ -769,7 +862,7 @@ async fn check_updater_with_manifest_fallbacks(
             }
             .map_err(|err| format!("配置更新端点失败（地址：{endpoint}，第 {attempt} 次）：{err}"))?;
             if force {
-                builder = builder.version_comparator(|current, update| update.version != current);
+                builder = builder.version_comparator(|_, _| true);
             }
             let updater = match builder.build() {
                 Ok(updater) => updater,
@@ -1178,25 +1271,57 @@ async fn apply_prepared_github_update(app: AppHandle) -> Result<(), String> {
                     UpdateRuntimeKind::Installer,
                     UPDATE_STAGE_COMPLETED,
                     format!("安装版更新 {} 已安装，准备重启", prepared.target_version),
-                    Some(prepared.current_version),
-                    Some(prepared.target_version),
+                    Some(prepared.current_version.clone()),
+                    Some(prepared.target_version.clone()),
                     None,
                     None,
                     None,
                 ),
             );
-            graceful_shutdown_background_services(&app).await;
+            if !graceful_shutdown_background_services_with_timeout(&app).await {
+                let message = "自动关闭失败，请手动关闭应用重启".to_string();
+                show_background_shutdown_timeout_dialog(&app);
+                emit_update_progress(
+                    &app,
+                    build_update_progress(
+                        UpdateRuntimeKind::Installer,
+                        UPDATE_STAGE_FAILED,
+                        format!("更新失败：{message}"),
+                        Some(prepared.current_version),
+                        Some(prepared.target_version),
+                        None,
+                        None,
+                        Some(message.clone()),
+                    ),
+                );
+                return Err(message);
+            }
             app.restart()
         }
         PreparedGithubUpdate::Portable(prepared) => {
-            let mut command = Command::new(&prepared.helper_copy_path);
-            command
-                .arg(PORTABLE_HELPER_FLAG)
-                .arg(&prepared.plan_path)
-                .stdin(Stdio::null())
-                .stdout(Stdio::null())
-                .stderr(Stdio::null());
-            if let Err(err) = spawn_detached_hidden(&mut command) {
+            if !graceful_shutdown_background_services_with_timeout(&app).await {
+                let message = "自动关闭失败，请手动关闭应用重启".to_string();
+                show_background_shutdown_timeout_dialog(&app);
+                emit_update_progress(
+                    &app,
+                    build_update_progress(
+                        prepared.runtime_kind,
+                        UPDATE_STAGE_FAILED,
+                        format!("更新失败：{message}"),
+                        Some(prepared.current_version),
+                        Some(prepared.target_version),
+                        None,
+                        None,
+                        Some(message.clone()),
+                    ),
+                );
+                return Err(message);
+            }
+            let helper_args = vec![
+                OsString::from(PORTABLE_HELPER_FLAG),
+                prepared.plan_path.as_os_str().to_os_string(),
+            ];
+            if let Err(err) = spawn_detached_hidden(&prepared.helper_copy_path, &helper_args) {
                 let message = format!("启动便携版更新助手失败：{err}");
                 emit_update_progress(
                     &app,
@@ -1219,14 +1344,13 @@ async fn apply_prepared_github_update(app: AppHandle) -> Result<(), String> {
                     prepared.runtime_kind,
                     UPDATE_STAGE_REPLACING,
                     format!("便携版更新 {} 已准备完成，程序即将退出并完成替换", prepared.target_version),
-                    Some(prepared.current_version),
-                    Some(prepared.target_version),
+                    Some(prepared.current_version.clone()),
+                    Some(prepared.target_version.clone()),
                     None,
                     None,
                     None,
                 ),
             );
-            graceful_shutdown_background_services(&app).await;
             app.exit(0);
             Ok(())
         }
@@ -1391,9 +1515,7 @@ fn replace_from_staging(plan: &PortableUpdatePlan) -> Result<(), String> {
         append_helper_log(&log_path, "[自动更新] 便携版回滚完成");
         return Err(format!("便携版更新失败，已回滚旧版本：{err}"));
     }
-    let mut relaunch = Command::new(&target_exe_path);
-    relaunch.stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null());
-    spawn_detached_hidden(&mut relaunch)?;
+    spawn_detached_hidden(&target_exe_path, &[])?;
     append_helper_log(&log_path, "[自动更新] 新版本已启动，开始清理临时文件");
     let _ = remove_if_exists(&staging_dir);
     let _ = remove_if_exists(&zip_path);

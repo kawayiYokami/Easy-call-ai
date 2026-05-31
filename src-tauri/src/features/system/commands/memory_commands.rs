@@ -730,9 +730,6 @@ fn import_angel_memories_by_scope(
         .transaction_with_behavior(TransactionBehavior::Immediate)
         .map_err(|err| format!("开始记忆备份导入事务失败: {err}"))?;
 
-    let draft_tags: Vec<String> = items.iter().flat_map(|d| d.tags.iter().cloned()).collect();
-    memory_jieba_add_words(&draft_tags);
-
     let mut next_memory_no = tx
         .query_row(
             "SELECT COALESCE(MAX(memory_no), 0) + 1 FROM memory_record",
@@ -1126,6 +1123,14 @@ fn search_memories_mixed(
         memories: out,
         elapsed_ms: started.elapsed().as_millis(),
     })
+}
+
+#[tauri::command]
+fn search_chat_history_slices(
+    input: ChatHistorySearchInput,
+    state: State<'_, AppState>,
+) -> Result<ChatHistorySearchResult, String> {
+    chat_history_search_for_agent(state.inner(), &input)
 }
 
 #[tauri::command]

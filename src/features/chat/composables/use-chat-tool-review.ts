@@ -27,6 +27,7 @@ export type ToolReviewReportRecord = {
   scope: string;
   target: string;
   departmentId?: string;
+  delegateId?: string;
   workspacePath: string;
   createdAt: string;
   updatedAt: string;

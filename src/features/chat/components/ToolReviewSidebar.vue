@@ -8,11 +8,8 @@
       </div>
     </div>
     <div class="flex min-h-0 flex-1 flex-col overflow-x-hidden">
-      <div v-if="activeTab !== 'delegates' && errorText" class="mx-4 my-4 rounded-box border border-error/30 bg-error/10 px-3 py-2 text-sm text-error">
+      <div v-if="errorText" class="mx-4 my-4 rounded-box border border-error/30 bg-error/10 px-3 py-2 text-sm text-error">
         {{ errorText }}
-      </div>
-      <div v-if="activeTab === 'delegates' && props.delegateErrorText" class="mx-4 my-4 rounded-box border border-error/30 bg-error/10 px-3 py-2 text-sm text-error">
-        {{ props.delegateErrorText }}
       </div>
 
       <template v-if="activeTab === 'tools' && currentBatch">
@@ -57,54 +54,58 @@
       </div>
 
       <div v-else-if="activeTab === 'delegates'" class="flex min-h-0 flex-1 flex-col">
-        <div v-if="props.delegateLoading && props.delegateStatuses.length === 0" class="flex min-h-0 flex-1 items-center justify-center text-sm text-base-content/65">
+        <div v-if="delegateStatusesErrorText" class="mx-4 my-4 rounded-box border border-error/30 bg-error/10 px-3 py-2 text-sm text-error">
+          {{ delegateStatusesErrorText }}
+        </div>
+        <div v-if="delegateStatusesLoading && delegateStatuses.length === 0" class="flex min-h-0 flex-1 items-center justify-center text-sm text-base-content/65">
           <span class="loading loading-spinner loading-sm mr-2"></span>
           {{ t("chat.toolReview.delegateLoading") }}
         </div>
-        <div v-else-if="props.delegateStatuses.length === 0" class="px-4 py-2 text-sm text-base-content/65">
+        <div v-else-if="delegateStatuses.length === 0" class="px-4 py-4 text-sm text-base-content/65">
           {{ t("chat.toolReview.delegateEmpty") }}
         </div>
         <div v-else class="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto py-2">
-          <section
-            v-for="delegate in props.delegateStatuses"
-            :key="delegate.delegateId"
-            class="w-full min-w-0 rounded-box border border-base-300 bg-base-200 px-3 py-3"
-          >
-            <div class="flex min-w-0 items-center justify-between gap-3">
-              <div class="min-w-0 truncate text-sm font-medium text-base-content/85">
-                {{ delegate.title || delegate.delegateId }}
+          <section v-for="delegate in delegateStatuses" :key="delegate.delegateId">
+            <details class="collapse collapse-arrow w-full rounded-box border border-base-300 bg-base-200">
+              <summary class="collapse-title min-h-0 px-3 py-3 pr-10">
+                <div class="flex items-center justify-between gap-3">
+                  <div class="min-w-0 flex items-center gap-2">
+                    <div class="truncate text-sm">{{ delegate.title || delegate.delegateId }}</div>
+                  </div>
+                  <div class="badge badge-sm min-w-14 shrink-0 justify-center whitespace-nowrap" :class="delegateStatusBadgeClass(delegate.status)">
+                    {{ formatDelegateStatus(delegate.status) }}
+                  </div>
+                </div>
+                <DelegateProgressLine
+                  :running="isDelegateRunning(delegate.status)"
+                  :elapsed-ms="delegate.elapsedMs"
+                  :request-count="delegate.requestCount"
+                  :token-count="delegate.tokenCount"
+                  :last-tool-name="delegate.lastToolName"
+                />
+              </summary>
+              <div class="collapse-content flex flex-col gap-3 px-3 pb-3">
+                <div class="whitespace-pre-wrap wrap-break-word text-sm leading-7 text-base-content/75">
+                  最近工具：{{ delegate.lastToolName || "-" }}
+                </div>
+                <div class="flex items-center justify-end gap-3">
+                  <button
+                    v-if="isDelegateRunning(delegate.status)"
+                    type="button"
+                    class="btn btn-sm btn-error btn-outline gap-1.5 font-normal"
+                    @click="emit('abortDelegate', delegate)"
+                  >打断</button>
+                  <button
+                    type="button"
+                    class="btn btn-sm gap-1.5 border-base-300 bg-base-100 font-normal hover:bg-base-100"
+                    @click="emit('openDelegateDetail', delegate)"
+                  >查看详情</button>
+                </div>
               </div>
-              <div class="badge badge-sm shrink-0 whitespace-nowrap" :class="delegateStatusBadgeClass(delegate.status)">
-                {{ formatDelegateStatus(delegate.status) }}
-              </div>
-            </div>
-            <div class="mt-3 flex flex-col gap-2 text-xs text-base-content/70">
-              <div class="flex min-w-0 items-center justify-between gap-3">
-                <span class="shrink-0">用时 {{ formatElapsedMs(delegate.elapsedMs) }}</span>
-                <span class="shrink-0">{{ delegate.requestCount }}步</span>
-              </div>
-              <div class="flex min-w-0 items-center justify-between gap-3">
-                <span class="min-w-0 truncate">最近工具 {{ delegate.lastToolName || "-" }}</span>
-                <span class="shrink-0">用量 {{ formatTokenK(delegate.tokenCount) }}</span>
-              </div>
-            </div>
-            <div class="mt-3 flex justify-end gap-2">
-              <button
-                v-if="isDelegateRunning(delegate.status)"
-                type="button"
-                class="btn btn-sm btn-error btn-outline gap-1.5 font-normal"
-                @click="emit('abortDelegate', delegate)"
-              >打断</button>
-              <button
-                type="button"
-                class="btn btn-sm gap-1.5 border-base-300 bg-base-100 font-normal hover:bg-base-100"
-                @click="emit('openDelegateDetail', delegate)"
-              >查看详情</button>
-            </div>
+            </details>
           </section>
         </div>
       </div>
-
       <div v-else class="flex min-h-0 flex-1 flex-col">
         <div class="border-b border-base-300 bg-base-100 px-4 py-3">
           <button
@@ -134,9 +135,22 @@
                     {{ formatReportStatus(report.status) }}
                   </div>
                 </div>
-                <div v-if="report.status === 'success'" class="mt-1 text-xs text-base-content/65">
-                  {{ reportJudgementSummary(report) }}
-                </div>
+                <DelegateProgressLine
+                  v-if="report.status === 'success'"
+                  :text="reportJudgementSummary(report)"
+                />
+                <DelegateProgressLine
+                  v-else-if="report.status === 'pending' && matchedReportProgress(report)"
+                  :running="true"
+                  :elapsed-ms="matchedReportProgress(report)!.elapsedMs"
+                  :request-count="matchedReportProgress(report)!.requestCount"
+                  :token-count="matchedReportProgress(report)!.tokenCount"
+                  :last-tool-name="matchedReportProgress(report)!.lastToolName"
+                />
+                <DelegateProgressLine
+                  v-else-if="report.status === 'pending'"
+                  text="生成中..."
+                />
               </summary>
               <div class="collapse-content flex flex-col gap-3 px-3 pb-3">
                 <div class="whitespace-pre-wrap wrap-break-word text-sm leading-7 text-base-content/75">
@@ -296,14 +310,11 @@
           v-else-if="currentReport?.status === 'success'"
           class="whitespace-pre-wrap wrap-break-word rounded-box border border-base-300 bg-base-200 px-3 py-3 text-sm leading-7 text-base-content/80"
         >{{ currentReport.reportText || t("chat.toolReview.noReportContent") }}</pre>
-        <MarkdownRender
+        <AppMarkdownRenderer
           v-else
           class="ecall-markdown-content tool-review-report-markdown max-w-none"
-          :nodes="reportMarkdownNodes"
+          :text="reportMarkdownText"
           :is-dark="markdownIsDark"
-          :code-block-props="markdownCodeBlockProps"
-          :mermaid-props="markdownMermaidProps"
-          :typewriter="false"
         />
       </div>
       <div class="flex items-center justify-between gap-3 border-t border-base-300 px-4 py-3">
@@ -333,110 +344,35 @@
     </form>
   </dialog>
 
-  <dialog class="modal" :class="{ 'modal-open': reviewTargetDialogOpen }">
-    <div class="modal-box w-[88vw] max-w-4xl p-0">
-      <div class="border-b border-base-300 px-5 py-4">
-        <div class="text-base font-semibold">{{ t("chat.toolReview.generateReviewReport") }}</div>
-      </div>
-      <div class="px-5 pt-4">
-        <div class="mb-4 grid gap-1.5">
-          <div class="text-xs font-medium text-base-content/60">{{ t("chat.toolReview.departmentLabel") }}</div>
-          <select v-model="selectedReviewDepartmentId" class="select select-bordered select-sm w-full">
-            <option v-for="department in props.departmentOptions" :key="department.id" :value="department.id">
-              {{ departmentOptionLabel(department) }}
-            </option>
-          </select>
-        </div>
-        <div role="tablist" class="tabs tabs-border">
-          <button type="button" role="tab" class="tab" :class="{ 'tab-active': reviewTargetTab === 'commit' }" @click="setReviewTargetTab('commit')">{{ t("chat.toolReview.scopeCommit") }}</button>
-          <button type="button" role="tab" class="tab" :class="{ 'tab-active': reviewTargetTab === 'main' }" @click="setReviewTargetTab('main')">{{ t("chat.toolReview.scopeMain") }}</button>
-          <button type="button" role="tab" class="tab" :class="{ 'tab-active': reviewTargetTab === 'uncommitted' }" @click="setReviewTargetTab('uncommitted')">{{ t("chat.toolReview.scopeUncommitted") }}</button>
-          <button type="button" role="tab" class="tab" :class="{ 'tab-active': reviewTargetTab === 'custom' }" @click="setReviewTargetTab('custom')">{{ t("chat.toolReview.scopeCustom") }}</button>
-        </div>
-      </div>
-      <div class="px-5 py-4">
-        <div v-if="reviewTargetTab === 'commit'" class="rounded-box border border-base-300">
-          <div class="sticky top-0 z-10 flex items-center justify-between border-b border-base-300 bg-base-100 px-4 py-3 text-sm">
-            <button type="button" class="btn btn-sm" :disabled="commitOptionsLoading || commitPage <= 1" @click="requestCommitPage(commitPage - 1)">上一页</button>
-            <span class="text-base-content/70">第 {{ commitPage }} 页 / 共 {{ commitTotalPages }} 页 · {{ commitTotal }}</span>
-            <button type="button" class="btn btn-sm" :disabled="commitOptionsLoading || commitPage >= commitTotalPages" @click="requestCommitPage(commitPage + 1)">下一页</button>
-          </div>
-          <div class="max-h-[55vh] overflow-y-auto">
-            <div v-if="commitOptionsLoading" class="px-4 py-3 text-sm text-base-content/70">{{ t("chat.toolReview.commitPickerLoading") }}</div>
-            <div v-else-if="commitOptions.length === 0" class="px-4 py-3 text-sm text-base-content/70">{{ t("chat.toolReview.commitPickerEmpty") }}</div>
-            <button
-              v-for="item in commitOptions"
-              :key="item.hash"
-              type="button"
-              class="flex w-full items-start gap-3 border-b border-base-300 px-4 py-3 text-left last:border-b-0 hover:bg-base-200"
-              @click="toggleCommitSelection(item.hash)"
-            >
-              <input type="checkbox" class="checkbox checkbox-sm mt-1" :checked="selectedCommitHashes.includes(item.hash)" tabindex="-1">
-              <div class="min-w-0 flex-1 text-sm text-base-content">{{ item.subject }}</div>
-            </button>
-          </div>
-        </div>
-
-        <div v-else-if="reviewTargetTab === 'custom'">
-          <textarea
-            v-model="customTargetText"
-            class="textarea textarea-bordered h-40 w-full"
-            :placeholder="t('chat.toolReview.customDialogPlaceholder')"
-          ></textarea>
-        </div>
-
-        <div v-else class="rounded-box border border-base-300 px-4 py-3 text-sm text-base-content/70">
-          {{ reviewTargetTab === 'main' ? t('chat.toolReview.scopeMain') : t('chat.toolReview.scopeUncommitted') }}
-        </div>
-      </div>
-      <div class="flex items-center justify-end gap-3 border-t border-base-300 px-5 py-4">
-        <button type="button" class="btn" @click="closeReviewTargetDialog">{{ t("common.cancel") }}</button>
-        <button type="button" class="btn btn-primary" :disabled="!canConfirmReviewTarget" @click="confirmReviewTargetSelection">{{ t("common.confirm") }}</button>
-      </div>
-    </div>
-    <form method="dialog" class="modal-backdrop">
-      <button @click.prevent="closeReviewTargetDialog">close</button>
-    </form>
-  </dialog>
+  <ToolReviewTargetDialog
+    :open="reviewTargetDialogOpen"
+    :submitting="submitting"
+    :error-text="reportErrorText"
+    :current-department-id="currentDepartmentId"
+    :department-options="departmentOptions"
+    :commit-options="commitOptions"
+    :commit-options-loading="commitOptionsLoading"
+    :commit-total="commitTotal"
+    :commit-page="commitPage"
+    :commit-page-size="commitPageSize"
+    @close="reviewTargetDialogOpen = false"
+    @pick-commit-review="handlePickCommitReview"
+    @review-code="handleReviewCode"
+  />
 </template>
 
 <script setup lang="ts">
 import { computed, ref, useAttrs, watch } from "vue";
 import { useI18n } from "vue-i18n";
-import MarkdownRender, { enableKatex, enableMermaid, getMarkdown, parseMarkdownToStructure } from "markstream-vue";
-import type { ConversationDelegateStatusSummary, ShellWorkspace } from "../../../types/app";
+import type { ShellWorkspace } from "../../../types/app";
 import { defaultWorkspaceNameFromPath, inferWorkspaceName, isLegacyGenericWorkspaceName, normalizeWorkspaceLevel } from "../../../utils/shell-workspaces";
 import type { ToolReviewBatchSummary, ToolReviewCodeReviewScope, ToolReviewCommitOption, ToolReviewItemDetail, ToolReviewItemSummary, ToolReviewReportRecord } from "../composables/use-chat-tool-review";
-import { registerChatMarkstreamComponents } from "../markdown/register-chat-markstream";
+import { AppMarkdownRenderer, initKatex } from "../markdown";
 import ToolReviewItemCard from "./ToolReviewItemCard.vue";
+import ToolReviewTargetDialog from "./ToolReviewTargetDialog.vue";
+import DelegateProgressLine from "./DelegateProgressLine.vue";
 
-enableMermaid();
-enableKatex();
-registerChatMarkstreamComponents();
-
-const markstreamMarkdown = getMarkdown();
-const markdownCodeBlockProps = {
-  showHeader: true,
-  showCopyButton: true,
-  showPreviewButton: false,
-  showExpandButton: true,
-  showCollapseButton: true,
-  showFontSizeButtons: false,
-  enableFontSizeControl: false,
-  isShowPreview: false,
-  showTooltips: false,
-};
-const markdownMermaidProps = {
-  showHeader: true,
-  showCopyButton: true,
-  showExportButton: false,
-  showFullscreenButton: true,
-  showCollapseButton: false,
-  showZoomControls: true,
-  showModeToggle: false,
-  enableWheelZoom: true,
-  showTooltips: false,
-};
+initKatex();
 
 const props = defineProps<{
   batches: ToolReviewBatchSummary[];
@@ -456,9 +392,9 @@ const props = defineProps<{
   workspaces: ShellWorkspace[];
   currentDepartmentId: string;
   departmentOptions: Array<{ id: string; name: string; ownerName: string; providerName?: string; modelName?: string }>;
-  delegateStatuses: ConversationDelegateStatusSummary[];
-  delegateLoading: boolean;
-  delegateErrorText: string;
+  delegateStatuses: import("../../../types/app").ConversationDelegateStatusSummary[];
+  delegateStatusesLoading: boolean;
+  delegateStatusesErrorText: string;
 }>();
 
 const emit = defineEmits<{
@@ -472,8 +408,8 @@ const emit = defineEmits<{
   (e: "deleteReport", report: ToolReviewReportRecord): void;
   (e: "copyReport", reportText: string): void;
   (e: "attachReport", reportText: string): void;
-  (e: "openDelegateDetail", status: ConversationDelegateStatusSummary): void;
-  (e: "abortDelegate", status: ConversationDelegateStatusSummary): void;
+  (e: "openDelegateDetail", status: import("../../../types/app").ConversationDelegateStatusSummary): void;
+  (e: "abortDelegate", status: import("../../../types/app").ConversationDelegateStatusSummary): void;
 }>();
 
 const { t } = useI18n();
@@ -484,11 +420,7 @@ const localCurrentReportId = ref("");
 const rootAttrs = useAttrs();
 const commitOptions = ref<ToolReviewCommitOption[]>([]);
 const commitOptionsLoading = ref(false);
-const selectedCommitHashes = ref<string[]>([]);
-const customTargetText = ref("");
 const selectedFindingIds = ref<string[]>([]);
-const selectedReviewDepartmentId = ref("");
-const reviewTargetTab = ref<"commit" | "main" | "uncommitted" | "custom">("main");
 const commitPage = ref(1);
 const commitPageSize = ref(30);
 const commitTotal = ref(0);
@@ -587,14 +519,6 @@ const reviewGroups = computed<ToolReviewGroup[]>(() => {
 const currentBatchUnreviewedCount = computed(() =>
   currentBatch.value?.items.filter((item) => !item.hasReview).length ?? 0
 );
-
-const validReviewDepartmentId = computed(() => {
-  const selected = String(selectedReviewDepartmentId.value || "").trim();
-  if (selected && props.departmentOptions.some((item) => item.id === selected)) return selected;
-  const current = String(props.currentDepartmentId || "").trim();
-  if (current && props.departmentOptions.some((item) => item.id === current)) return current;
-  return String(props.departmentOptions[0]?.id || "").trim();
-});
 
 function sortByOrderIndex(left: ToolReviewItemSummary, right: ToolReviewItemSummary) {
   return Number(left.orderIndex || 0) - Number(right.orderIndex || 0);
@@ -702,18 +626,27 @@ const currentReport = computed(() => {
 
 const reportTotalPages = computed(() => Math.max(1, Math.ceil(props.reports.length / reportPageSize)));
 
+function matchedReportProgress(report: ToolReviewReportRecord) {
+  const targetId = String(report.delegateId || "").trim();
+  if (targetId) {
+    return props.delegateStatuses.find((d) => d.delegateId === targetId) || null;
+  }
+  // 委托刚创建、delegate_id 尚未写入报告时，按会话匹配运行中的委托
+  const convId = String(report.conversationId || "").trim();
+  if (!convId) return null;
+  return props.delegateStatuses.find(
+    (d) => (d.status === "running" || d.status === "delivered") && d.rootConversationId === convId,
+  ) || null;
+}
+
 const pagedReports = computed(() => {
   const page = Math.min(Math.max(1, reportPage.value), reportTotalPages.value);
   const start = (page - 1) * reportPageSize;
   return props.reports.slice(start, start + reportPageSize);
 });
 
-const reportMarkdownNodes = computed(() =>
-  parseMarkdownToStructure(
-    currentReport.value?.reportText || currentReport.value?.errorText || "",
-    markstreamMarkdown,
-    { final: true },
-  )
+const reportMarkdownText = computed(() =>
+  currentReport.value?.reportText || currentReport.value?.errorText || ""
 );
 
 type ReportFindingView = {
@@ -951,28 +884,6 @@ watch(
   }
 );
 
-watch(
-  () => [props.currentDepartmentId, props.departmentOptions.map((item) => item.id).join("|")],
-  () => {
-    const current = String(props.currentDepartmentId || "").trim();
-    selectedReviewDepartmentId.value = props.departmentOptions.some((item) => item.id === current)
-      ? current
-      : String(props.departmentOptions[0]?.id || "").trim();
-  },
-  { immediate: true },
-);
-
-watch(
-  () => reviewTargetDialogOpen.value,
-  (open) => {
-    if (!open) return;
-    const current = String(props.currentDepartmentId || "").trim();
-    selectedReviewDepartmentId.value = props.departmentOptions.some((item) => item.id === current)
-      ? current
-      : String(props.departmentOptions[0]?.id || "").trim();
-  },
-);
-
 function handleReportAction() {
   reviewTargetDialogOpen.value = true;
 }
@@ -985,73 +896,17 @@ function setCommitOptions(items: ToolReviewCommitOption[] = [], loading = false,
   commitPageSize.value = pageSize;
 }
 
-function closeReviewTargetDialog() {
-  reviewTargetDialogOpen.value = false;
-  selectedCommitHashes.value = [];
-  customTargetText.value = "";
-}
-
-function setReviewTargetTab(tab: "commit" | "main" | "uncommitted" | "custom") {
-  reviewTargetTab.value = tab;
-  if (tab === "commit" && !commitOptionsLoading.value && commitOptions.value.length === 0) {
-    commitOptionsLoading.value = true;
-    emit("pickCommitReview", 1);
-  }
-}
-
-const commitTotalPages = computed(() => Math.max(1, Math.ceil(commitTotal.value / Math.max(1, commitPageSize.value))));
-
-function requestCommitPage(page: number) {
-  const normalizedPage = Math.min(Math.max(1, page), commitTotalPages.value);
+function handlePickCommitReview(page: number) {
   commitOptionsLoading.value = true;
-  emit("pickCommitReview", normalizedPage);
+  emit("pickCommitReview", page);
 }
 
-const canConfirmReviewTarget = computed(() => {
-  if (!validReviewDepartmentId.value) return false;
-  if (reviewTargetTab.value === "commit") return selectedCommitHashes.value.length > 0;
-  if (reviewTargetTab.value === "custom") return !!customTargetText.value.trim();
-  return true;
-});
-
-function toggleCommitSelection(hash: string) {
-  const normalizedHash = String(hash || "").trim();
-  if (!normalizedHash) return;
-  selectedCommitHashes.value = selectedCommitHashes.value.includes(normalizedHash)
-    ? selectedCommitHashes.value.filter((item) => item !== normalizedHash)
-    : [...selectedCommitHashes.value, normalizedHash];
-}
-
-function confirmReviewTargetSelection() {
-  const departmentId = validReviewDepartmentId.value;
-  if (!departmentId) return;
-  if (reviewTargetTab.value === "commit") {
-    if (selectedCommitHashes.value.length === 0) return;
-    emit("reviewCode", { scope: "commit", target: selectedCommitHashes.value.join("\n"), departmentId });
-    closeReviewTargetDialog();
-    return;
-  }
-  if (reviewTargetTab.value === "custom") {
-    const target = customTargetText.value.trim();
-    if (!target) return;
-    emit("reviewCode", { scope: "custom", target, departmentId });
-    closeReviewTargetDialog();
-    return;
-  }
-  emit("reviewCode", { scope: reviewTargetTab.value, target: "", departmentId });
-  closeReviewTargetDialog();
-}
-
-function departmentOptionLabel(department: { id: string; name: string; ownerName: string; providerName?: string; modelName?: string }) {
-  const name = String(department.name || department.id || "").trim();
-  const ownerName = String(department.ownerName || "").trim();
-  const providerName = String(department.providerName || "").trim();
-  const modelName = String(department.modelName || "").trim();
-  const modelText = [providerName, modelName].filter(Boolean).join(" / ");
-  return [name, ownerName, modelText].filter(Boolean).join(" · ");
+function handleReviewCode(input: { scope: ToolReviewCodeReviewScope; target?: string; departmentId: string }) {
+  emit("reviewCode", input);
 }
 
 defineExpose({
+  handleReportAction,
   setCommitOptions,
 });
 
@@ -1076,6 +931,18 @@ function canRetryReport(report: ToolReviewReportRecord) {
 
 function deleteReport(report: ToolReviewReportRecord) {
   emit("deleteReport", report);
+}
+
+function formatReportStatus(status: string) {
+  if (status === "success") return "已完成";
+  if (status === "failed") return "生成失败";
+  return "生成中";
+}
+
+function reportStatusBadgeClass(status: string) {
+  if (status === "success") return "badge-primary";
+  if (status === "failed") return "badge-error";
+  return "badge-warning";
 }
 
 function formatDelegateStatus(status: string) {
@@ -1112,18 +979,6 @@ function formatElapsedMs(value: number) {
   if (hours > 0) return `${hours}时${minutes}分`;
   if (minutes > 0) return `${minutes}分${seconds}秒`;
   return `${seconds}秒`;
-}
-
-function formatReportStatus(status: string) {
-  if (status === "success") return "已完成";
-  if (status === "failed") return "生成失败";
-  return "生成中";
-}
-
-function reportStatusBadgeClass(status: string) {
-  if (status === "success") return "badge-primary";
-  if (status === "failed") return "badge-error";
-  return "badge-warning";
 }
 
 function formatReportScope(scope: string) {
@@ -1319,7 +1174,7 @@ function reportExpandedText(report: ToolReviewReportRecord) {
   margin: 0.65rem 0;
 }
 
-.assistant-markdown :deep(.ecall-markdown-content :where(:not(pre) > code,.inline-code)) {
+.assistant-markdown :deep(.ecall-markdown-content :where(:not(pre) > code,.inline-code):not(.code-block-container *)) {
   font-size: 0.86em;
 }
 

@@ -60,7 +60,7 @@ export function useConfigCore(options: UseConfigCoreOptions) {
       id: `api-provider-${seed}`,
       name: `API Provider ${options.config.apiProviders.length + 1}`,
       requestFormat: "openai",
-      allowConcurrentRequests: false,
+      allowConcurrentRequests: true,
       maxConcurrentRequests: null,
       enableText: true,
       enableImage: true,

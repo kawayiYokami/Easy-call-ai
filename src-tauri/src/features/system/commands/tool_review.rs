@@ -26,6 +26,13 @@ async fn list_tool_review_commit_options(
     input: ToolReviewCommitPageInput,
     state: State<'_, AppState>,
 ) -> Result<ListToolReviewCommitOptionsOutput, String> {
+    list_tool_review_commit_options_internal_command(input, state.inner()).await
+}
+
+async fn list_tool_review_commit_options_internal_command(
+    input: ToolReviewCommitPageInput,
+    state: &AppState,
+) -> Result<ListToolReviewCommitOptionsOutput, String> {
     let conversation_id = input.conversation_id.trim();
     let page = input.page.max(1);
     let page_size = input.page_size.clamp(1, 100);
@@ -37,7 +44,7 @@ async fn list_tool_review_commit_options(
         runtime_log_info("[工具审查][commit列表] 跳过 conversation_id 为空".to_string());
         return Ok(ListToolReviewCommitOptionsOutput { total: 0, page, page_size, commits: Vec::new() });
     }
-    let conversation = with_tool_review_conversation(state.inner(), conversation_id, |conversation| {
+    let conversation = with_tool_review_conversation(state, conversation_id, |conversation| {
         Ok(conversation.clone())
     })
     .map_err(|err| {
@@ -47,7 +54,7 @@ async fn list_tool_review_commit_options(
         ));
         err
     })?;
-    let (total, commits) = tool_review_list_commit_options_internal(state.inner(), &conversation, page, page_size)
+    let (total, commits) = tool_review_list_commit_options_internal(state, &conversation, page, page_size)
         .await
         .map_err(|err| {
             runtime_log_error(format!(
@@ -358,6 +365,8 @@ struct ToolReviewReportRecord {
     report_text: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     error_text: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    delegate_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -500,15 +509,32 @@ fn delete_tool_review_report(
     input: DeleteToolReviewReportInput,
     state: State<'_, AppState>,
 ) -> Result<(), String> {
+    delete_tool_review_report_internal(input, state.inner())
+}
+
+fn delete_tool_review_report_internal(
+    input: DeleteToolReviewReportInput,
+    state: &AppState,
+) -> Result<(), String> {
     let conversation_id = input.conversation_id.trim();
     let report_id = input.report_id.trim();
     if conversation_id.is_empty() || report_id.is_empty() {
         return Err("conversationId 和 reportId 不能为空。".to_string());
     }
-    with_tool_review_conversation(state.inner(), conversation_id, |_conversation| {
+    // 先读取报告，若有 delegate_id 则打断对应委托
+    let reports = tool_review_read_report_records(&state.data_path, conversation_id)?;
+    if let Some(report) = reports.iter().find(|r| r.id.trim() == report_id) {
+        if let Some(ref delegate_id) = report.delegate_id {
+            let did = delegate_id.trim();
+            if !did.is_empty() {
+                let _ = abort_delegate_runtime_thread(state, did, "用户删除审查报告时连带打断");
+            }
+        }
+    }
+    with_tool_review_conversation(state, conversation_id, |_conversation| {
         tool_review_delete_report_record(&state.data_path, conversation_id, report_id)
     })?;
-    emit_tool_review_reports_updated(state.inner(), conversation_id, report_id, "deleted");
+    emit_tool_review_reports_updated(state, conversation_id, report_id, "deleted");
     Ok(())
 }
 
@@ -881,7 +907,7 @@ async fn tool_review_exec_git_readonly(
     timeout_ms: u64,
 ) -> Result<String, String> {
     let session_id = format!("tool-review-code::{}", conversation_id.trim());
-    let execution = sandbox_execute_command(state, &session_id, command, cwd, timeout_ms).await?;
+    let execution = sandbox_execute_command(state, &session_id, command, cwd, timeout_ms, false).await?;
     let stdout = terminal_decode_output_bytes(&execution.stdout);
     let stderr = terminal_decode_output_bytes(&execution.stderr);
     if !execution.ok {
@@ -1074,6 +1100,7 @@ fn tool_review_create_pending_report(
         updated_at: now,
         report_text: String::new(),
         error_text: None,
+        delegate_id: None,
     };
     records.push(record.clone());
     tool_review_write_report_records(data_path, conversation_id, &records)?;
@@ -1088,6 +1115,7 @@ fn tool_review_update_report_record(
     title: Option<&str>,
     report_text: Option<&str>,
     error_text: Option<&str>,
+    delegate_id: Option<&str>,
 ) -> Result<ToolReviewReportRecord, String> {
     let mut records = tool_review_read_report_records(data_path, conversation_id)?;
     let target_id = report_id.trim();
@@ -1110,6 +1138,9 @@ fn tool_review_update_report_record(
             .map(str::trim)
             .filter(|value| !value.is_empty())
             .map(ToOwned::to_owned);
+        if let Some(did) = delegate_id.map(str::trim).filter(|v| !v.is_empty()) {
+            item.delegate_id = Some(did.to_string());
+        }
     }
     let updated = records[position].clone();
     tool_review_write_report_records(data_path, conversation_id, &records)?;
@@ -1291,11 +1322,18 @@ fn list_tool_review_reports(
     input: ToolReviewConversationInput,
     state: State<'_, AppState>,
 ) -> Result<ListToolReviewReportsOutput, String> {
+    list_tool_review_reports_internal(input, state.inner())
+}
+
+fn list_tool_review_reports_internal(
+    input: ToolReviewConversationInput,
+    state: &AppState,
+) -> Result<ListToolReviewReportsOutput, String> {
     let conversation_id = input.conversation_id.trim();
     if conversation_id.is_empty() {
         return Ok(ListToolReviewReportsOutput { reports: Vec::new() });
     }
-    with_tool_review_conversation(state.inner(), conversation_id, |_conversation| {
+    with_tool_review_conversation(state, conversation_id, |_conversation| {
         let _ = tool_review_prune_legacy_batch_report_records(&state.data_path, conversation_id)?;
         Ok(ListToolReviewReportsOutput {
             reports: tool_review_list_reports_newest_first(&state.data_path, conversation_id)?,
@@ -1427,6 +1465,13 @@ async fn submit_tool_review_code(
     input: ToolReviewCodeReviewInput,
     state: State<'_, AppState>,
 ) -> Result<SubmitToolReviewCodeOutput, String> {
+    submit_tool_review_code_internal(input, state.inner()).await
+}
+
+async fn submit_tool_review_code_internal(
+    input: ToolReviewCodeReviewInput,
+    state: &AppState,
+) -> Result<SubmitToolReviewCodeOutput, String> {
     let conversation_id = input.conversation_id.trim();
     runtime_log_info(format!(
         "[工具审查][后端] 收到 submit_tool_review_code conversation_id={} scope={} target={}",
@@ -1457,7 +1502,7 @@ async fn submit_tool_review_code(
         .map(str::trim)
         .filter(|value| !value.is_empty());
 
-    let app_state = state.inner().clone();
+    let app_state = state.clone();
     let conversation = with_tool_review_conversation(&app_state, conversation_id, |conversation| {
         Ok(conversation.clone())
     })
@@ -1556,6 +1601,7 @@ async fn submit_tool_review_code(
                     None,
                     None,
                     Some(&err),
+                    None,
                 );
                 runtime_log_error(format!(
                     "[工具审查][后端] 读取 code-review skill 失败 conversation_id={} scope={} report_id={} err={}",
@@ -1599,6 +1645,7 @@ async fn submit_tool_review_code(
                     None,
                     None,
                     Some(&err),
+                    None,
                 );
                 runtime_log_error(format!(
                     "[工具审查][后端] 代码审查委托失败 conversation_id={} scope={} report_id={} err={}",
@@ -1608,6 +1655,13 @@ async fn submit_tool_review_code(
                 return;
             }
         };
+        let result_delegate_id = delegate_result
+            .get("delegate")
+            .and_then(|d| d.get("delegateId"))
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|v| !v.is_empty())
+            .map(ToOwned::to_owned);
         let ok = delegate_result.get("ok").and_then(Value::as_bool).unwrap_or(false);
         if !ok {
             let reason = delegate_result
@@ -1623,6 +1677,7 @@ async fn submit_tool_review_code(
                 None,
                 None,
                 Some(&reason),
+                result_delegate_id.as_deref(),
             );
             runtime_log_error(format!(
                 "[工具审查][后端] 代码审查委托返回失败 conversation_id={} scope={} report_id={} reason={}",
@@ -1648,6 +1703,7 @@ async fn submit_tool_review_code(
                     None,
                     None,
                     Some(&err),
+                    None,
                 );
                 runtime_log_error(format!(
                     "[工具审查][后端] 代码审查结果缺失 conversation_id={} scope={} report_id={}",
@@ -1667,6 +1723,7 @@ async fn submit_tool_review_code(
             Some(&report_title),
             Some(&report_text),
             None,
+            result_delegate_id.as_deref(),
         ) {
             Ok(_) => {
                 runtime_log_info(format!(
@@ -1688,6 +1745,7 @@ async fn submit_tool_review_code(
                     None,
                     None,
                     Some(&err),
+                    None,
                 );
                 emit_tool_review_reports_updated(&app_state, &conversation_id_owned, &report_id, "failed");
             }

@@ -37,17 +37,25 @@
             >
               <div class="flex items-center gap-2 p-2">
               <div class="shrink-0">
-                <div class="avatar">
-                  <div class="w-10 h-10 rounded-full bg-error text-error-content">
-                    <img
-                      v-if="lastSpeakerAvatarUrl(item)"
-                      :src="lastSpeakerAvatarUrl(item)"
-                      :alt="lastSpeakerLabel(item)"
-                      class="w-10 h-10 rounded-full object-cover"
-                    />
-                    <span v-else class="flex h-10 w-10 items-center justify-center rounded-full text-sm font-bold">
-                      {{ lastSpeakerInitial(item) }}
-                    </span>
+                <div class="indicator">
+                  <span
+                    v-if="conversationIndicatorTone(item)"
+                    class="indicator-item indicator-top indicator-end z-10 h-2.5 w-2.5 translate-x-0.5 -translate-y-0.5 rounded-full"
+                    :class="conversationIndicatorClass(conversationIndicatorTone(item))"
+                    aria-hidden="true"
+                  ></span>
+                  <div class="avatar">
+                    <div class="w-10 h-10 rounded-full bg-error text-error-content">
+                      <img
+                        v-if="lastSpeakerAvatarUrl(item)"
+                        :src="lastSpeakerAvatarUrl(item)"
+                        :alt="lastSpeakerLabel(item)"
+                        class="w-10 h-10 rounded-full object-cover"
+                      />
+                      <span v-else class="flex h-10 w-10 items-center justify-center rounded-full text-sm font-bold">
+                        {{ lastSpeakerInitial(item) }}
+                      </span>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -117,6 +125,16 @@
                             <span>{{ t("common.rename") }}</span>
                           </button>
                         </li>
+                        <li>
+                          <button
+                            type="button"
+                            :disabled="!canExportConversation(item)"
+                            @click.stop="requestConversationExport(item)"
+                          >
+                            <Download class="h-4 w-4" />
+                            <span>{{ t("chat.exportConversation") }}</span>
+                          </button>
+                        </li>
                         <li v-if="!item.isMainConversation">
                           <button
                             type="button"
@@ -145,12 +163,12 @@
 
                 <div class="mt-1 flex items-center justify-between gap-2 text-xs">
                   <span class="min-w-0 truncate opacity-60">
-                    {{ latestPreviewLine(item) }}
+                    {{ conversationStatusText(item) || latestPreviewLine(item) }}
                   </span>
                   <div class="flex shrink-0 items-center gap-2">
-                    <span v-if="item.runtimeState" class="text-[11px] text-base-content/60">
-                      {{ runtimeStateText(item.runtimeState) }}
-                    </span>
+                    <span v-if="conversationPipelineStatus(item) === 'busy' || conversationRuntimeBusy(item)" class="loading loading-spinner loading-xs text-primary" :title="conversationStatusText(item)"></span>
+                    <span v-else-if="conversationPipelineStatus(item) === 'error'" class="badge badge-error badge-xs">{{ t("common.failed") }}</span>
+                    <span v-else-if="conversationStatusText(item)" class="text-[11px] text-base-content/60">{{ conversationStatusText(item) }}</span>
                     <span
                       v-if="unreadCountBadge(item)"
                       class="inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-error px-1.5 text-[11px] font-medium text-error-content"
@@ -179,8 +197,9 @@
 <script setup lang="ts">
 import { computed, nextTick, ref, watchEffect } from "vue";
 import { useI18n } from "vue-i18n";
-import { Archive, Ellipsis, PencilLine, Pin, PinOff, Trash2 } from "lucide-vue-next";
+import { Archive, Download, Ellipsis, PencilLine, Pin, PinOff, Trash2 } from "@lucide/vue";
 import type { ChatConversationOverviewItem, ConversationPreviewMessage } from "../../../types/app";
+import { usePipelineStatus } from "../../shell/composables/use-pipeline-status";
 import { formatConversationListTime } from "../utils/conversation-time";
 import { resolveConversationDisplayTitle } from "../utils/conversation-title";
 import ChatConversationFloatingScroll from "./ChatConversationFloatingScroll.vue";
@@ -202,10 +221,14 @@ const emit = defineEmits<{
   (e: "renameConversation", payload: { conversationId: string; title: string }): void;
   (e: "togglePinConversation", conversationId: string): void;
   (e: "archiveConversation", conversationId: string): void;
+  (e: "exportConversation", conversationId: string): void;
   (e: "deleteConversation", conversationId: string): void;
 }>();
 
 const { t, locale } = useI18n();
+const { conversationStatusById } = usePipelineStatus({
+  activeConversationId: computed(() => String(props.activeConversationId || "").trim()),
+});
 const renameInputRef = ref<HTMLInputElement | null>(null);
 const editingConversationId = ref("");
 const editingTitleDraft = ref("");
@@ -287,7 +310,10 @@ function setRenameInputRef(element: Element | { $el?: Element | null } | null) {
 }
 
 function isConversationItemDisabled(item: ChatConversationOverviewItem): boolean {
-  return item.runtimeState === "organizing_context" || !!item.detachedWindowOpen;
+  return item.runtimeState === "organizing_context"
+    || item.runtimeState === "archiving"
+    || item.runtimeState === "compacting"
+    || !!item.detachedWindowOpen;
 }
 
 function isLocalConversation(item: ChatConversationOverviewItem): boolean {
@@ -317,6 +343,12 @@ function conversationItemTitle(item: ChatConversationOverviewItem): string {
   if (item.detachedWindowOpen) {
     return t("chat.detachedWindowOpen");
   }
+  if (item.runtimeState === "archiving") {
+    return runtimeStateText("archiving");
+  }
+  if (item.runtimeState === "compacting") {
+    return runtimeStateText("compacting");
+  }
   if (item.runtimeState === "organizing_context") {
     return t("chat.organizingContextDisabled");
   }
@@ -340,6 +372,10 @@ function canArchiveConversation(item: ChatConversationOverviewItem): boolean {
   return isLocalConversation(item) && !item.isMainConversation && !isConversationItemDisabled(item);
 }
 
+function canExportConversation(item: ChatConversationOverviewItem): boolean {
+  return isLocalConversation(item) && !isConversationItemDisabled(item);
+}
+
 function canDeleteConversation(item: ChatConversationOverviewItem): boolean {
   return isLocalConversation(item) && !item.isMainConversation && !isConversationItemDisabled(item);
 }
@@ -357,6 +393,11 @@ function toggleConversationPin(item: ChatConversationOverviewItem) {
 function requestConversationArchive(item: ChatConversationOverviewItem) {
   if (!canArchiveConversation(item)) return;
   emit("archiveConversation", String(item.conversationId || "").trim());
+}
+
+function requestConversationExport(item: ChatConversationOverviewItem) {
+  if (!canExportConversation(item)) return;
+  emit("exportConversation", String(item.conversationId || "").trim());
 }
 
 function requestConversationDelete(item: ChatConversationOverviewItem) {
@@ -418,6 +459,41 @@ function unreadCountBadge(item: ChatConversationOverviewItem): string {
   return unreadCount > 99 ? "99+" : String(unreadCount);
 }
 
+function conversationPipelineStatus(item: ChatConversationOverviewItem) {
+  return conversationStatusById.value[String(item.conversationId || "").trim()] || "";
+}
+
+function conversationRuntimeBusy(item: ChatConversationOverviewItem): boolean {
+  return item.runtimeState === "assistant_streaming"
+    || item.runtimeState === "organizing_context"
+    || item.runtimeState === "archiving"
+    || item.runtimeState === "compacting";
+}
+
+function conversationStatusText(item: ChatConversationOverviewItem): string {
+  if (item.runtimeState && item.runtimeState !== "idle") return runtimeStateText(item.runtimeState);
+  const pipelineStatus = conversationPipelineStatus(item);
+  if (pipelineStatus === "busy") return t("chat.runtimeStreaming");
+  if (pipelineStatus === "error") return t("common.failed");
+  return "";
+}
+
+function conversationIndicatorTone(item: ChatConversationOverviewItem): "error" | "info" | "success" | "" {
+  if (isCurrentConversation(item)) return "";
+  const pipelineStatus = conversationPipelineStatus(item);
+  if (pipelineStatus === "error") return "error";
+  if (pipelineStatus === "busy") return "info";
+  if (pipelineStatus === "success") return "success";
+  return "";
+}
+
+function conversationIndicatorClass(tone: "error" | "info" | "success" | ""): string {
+  if (tone === "error") return "bg-error";
+  if (tone === "info") return "bg-warning";
+  if (tone === "success") return "bg-success";
+  return "";
+}
+
 function normalizedPreviewMessages(item: ChatConversationOverviewItem): ConversationPreviewMessage[] {
   return conversationPreviewCache.value.get(String(item.conversationId || "").trim()) || [];
 }
@@ -436,6 +512,8 @@ function conversationMatchesSearch(item: ChatConversationOverviewItem, query: st
 function runtimeStateText(runtimeState?: ChatConversationOverviewItem["runtimeState"]): string {
   if (runtimeState === "assistant_streaming") return t("chat.runtimeStreaming");
   if (runtimeState === "organizing_context") return t("chat.runtimeOrganizing");
+  if (runtimeState === "archiving") return "归档中";
+  if (runtimeState === "compacting") return "压缩中";
   return t("chat.runtimeIdle");
 }
 

@@ -81,6 +81,80 @@
       </div>
     </div>
 
+    <!-- 聊天记录搜索区 -->
+    <div class="card bg-base-100 border border-base-300">
+      <div class="card-body p-3 gap-3">
+        <div class="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <div class="text-sm font-medium">聊天记录</div>
+            <div class="text-xs opacity-60">按人格搜索已压缩/归档的对话切片</div>
+          </div>
+          <div v-if="chatHistoryStats" class="flex flex-wrap items-center gap-2 text-xs opacity-70">
+            <span class="badge badge-sm badge-ghost">全部 {{ chatHistoryStats.totalSlices }}</span>
+            <span class="badge badge-sm badge-ghost">可见 {{ chatHistoryStats.visibleSlices }}</span>
+            <span class="badge badge-sm badge-ghost">本地 {{ chatHistoryStats.localConversationSlices }}</span>
+            <span class="badge badge-sm badge-ghost">归档 {{ chatHistoryStats.archiveSlices }}</span>
+            <span class="badge badge-sm badge-ghost">联系人 {{ chatHistoryStats.contactSlices }}</span>
+            <span class="badge badge-sm badge-ghost">索引 {{ formatBytes(chatHistoryStats.indexStorageBytes) }}</span>
+            <span class="badge badge-sm badge-ghost">缓存 {{ formatBytes(chatHistoryStats.cachedSliceBytes) }}</span>
+          </div>
+        </div>
+
+        <div class="grid grid-cols-1 gap-2 md:grid-cols-[180px_minmax(0,1fr)_auto]">
+          <select v-model="chatHistoryAgentId" class="select select-bordered select-sm" :disabled="chatHistoryLoading">
+            <option value="">选择人格</option>
+            <option v-for="agent in personaOptions" :key="agent.id" :value="agent.id">
+              {{ agent.name || agent.id }}
+            </option>
+          </select>
+          <input
+            v-model.trim="chatHistoryQuery"
+            class="input input-bordered input-sm"
+            placeholder="搜索压缩后的聊天记录"
+            :disabled="chatHistoryLoading"
+            @keyup.enter="searchChatHistory"
+          />
+          <button
+            class="btn btn-sm btn-primary"
+            :disabled="chatHistoryLoading || !chatHistoryAgentId || !chatHistoryQuery"
+            @click="searchChatHistory"
+          >
+            <span v-if="chatHistoryLoading" class="loading loading-spinner loading-xs"></span>
+            {{ chatHistoryLoading ? "搜索中" : "搜索聊天记录" }}
+          </button>
+        </div>
+
+        <div v-if="chatHistoryMessage" class="text-xs opacity-70">
+          {{ chatHistoryMessage }}
+        </div>
+
+        <div v-if="chatHistoryHits.length > 0" class="max-h-96 overflow-auto">
+          <div class="flex flex-col gap-2">
+            <div
+              v-for="hit in chatHistoryHits"
+              :key="hit.slice.id"
+              class="rounded-box border border-base-300 bg-base-200 p-3"
+            >
+              <div class="mb-2 flex flex-wrap items-center gap-2 text-xs opacity-70">
+                <span class="badge badge-sm badge-outline">{{ chatHistorySourceLabel(hit.slice.sourceKind) }}</span>
+                <span>{{ hit.slice.sourceTitle || hit.slice.sourceId }}</span>
+                <span>{{ formatMemoryTime(hit.slice.timeStart || hit.slice.timeEnd) }}</span>
+                <span>BM25 {{ hit.bm25NormalizedScore.toFixed(3) }}</span>
+              </div>
+              <div class="whitespace-pre-wrap wrap-break-word text-sm leading-relaxed">
+                {{ hit.slice.content }}
+              </div>
+              <div class="mt-2 flex flex-wrap gap-1 text-xs opacity-70">
+                <span v-for="speaker in hit.slice.speakers" :key="`${hit.slice.id}-${speaker}`" class="badge badge-sm badge-ghost">
+                  {{ speaker }}
+                </span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
     <!-- 记忆列表区 -->
     <div class="card bg-base-100 min-h-70">
       <div class="card-body p-3 min-h-0 flex flex-col gap-3">
@@ -292,7 +366,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref } from "vue";
 import { useI18n } from "vue-i18n";
-import { LayoutList, List, SlidersHorizontal } from "lucide-vue-next";
+import { LayoutList, List, SlidersHorizontal } from "@lucide/vue";
 import { invokeTauri } from "../../../../services/tauri-api";
 import MemoryExportCard from "../../components/MemoryExportCard.vue";
 import MemoryImportCard from "../../components/MemoryImportCard.vue";
@@ -341,6 +415,42 @@ type PersonaLite = {
   name: string;
 };
 
+type ChatHistorySlice = {
+  id: string;
+  sourceKind: string;
+  sourceId: string;
+  sourceTitle: string;
+  segmentId: string;
+  sliceIndex: number;
+  content: string;
+  speakers: string[];
+  visibleAgentIds: string[];
+  timeStart: string;
+  timeEnd: string;
+  messageStartId: string;
+  messageEndId: string;
+};
+
+type ChatHistorySearchHit = {
+  slice: ChatHistorySlice;
+  bm25Score: number;
+  bm25NormalizedScore: number;
+};
+
+type ChatHistorySearchStats = {
+  totalSlices: number;
+  visibleSlices: number;
+  indexStorageBytes: number;
+  cachedSliceBytes: number;
+  indexedConversations: number;
+  skippedDelegateConversations: number;
+  skippedLiveBlocks: number;
+  skippedNoAgentSegments: number;
+  localConversationSlices: number;
+  archiveSlices: number;
+  contactSlices: number;
+};
+
 const { t } = useI18n();
 const props = withDefaults(defineProps<{ syncLocked?: boolean }>(), {
   syncLocked: false,
@@ -368,7 +478,14 @@ const rerankApiConfigId = ref("");
 const embeddingLastPassedTestKey = ref("");
 const rerankLastPassedTestKey = ref("");
 const apiConfigs = ref<ApiConfigLite[]>([]);
+const personaOptions = ref<PersonaLite[]>([]);
 const personaNameMap = ref<Record<string, string>>({});
+const chatHistoryAgentId = ref("");
+const chatHistoryQuery = ref("");
+const chatHistoryHits = ref<ChatHistorySearchHit[]>([]);
+const chatHistoryStats = ref<ChatHistorySearchStats | null>(null);
+const chatHistoryMessage = ref("");
+const chatHistoryLoading = ref(false);
 const syncProgressDone = ref(0);
 const syncProgressTotal = ref(0);
 const syncProgressStatus = ref("idle");
@@ -547,6 +664,19 @@ function formatMemoryTime(iso: string): string {
   return `${year}-${month}-${day}`;
 }
 
+function formatBytes(value: number): string {
+  if (!Number.isFinite(value) || value <= 0) return "0 B";
+  const units = ["B", "KB", "MB", "GB"];
+  let size = value;
+  let unitIndex = 0;
+  while (size >= 1024 && unitIndex < units.length - 1) {
+    size /= 1024;
+    unitIndex += 1;
+  }
+  const digits = size >= 10 || unitIndex === 0 ? 0 : 1;
+  return `${size.toFixed(digits)} ${units[unitIndex]}`;
+}
+
 async function withLoading<T>(fn: () => Promise<T>): Promise<T | null> {
   loading.value = true;
   try {
@@ -607,6 +737,43 @@ async function searchMemories() {
   memoryPage.value = 1;
   isSearchMode.value = true;
   opMessage.value = t('config.memory.searchCompleted', { count: result.memories.length });
+}
+
+function chatHistorySourceLabel(sourceKind: string): string {
+  const labels: Record<string, string> = {
+    localConversation: "本地",
+    archive: "归档",
+    contact: "联系人",
+  };
+  return labels[sourceKind] || sourceKind;
+}
+
+async function searchChatHistory() {
+  const agentId = chatHistoryAgentId.value.trim();
+  const query = chatHistoryQuery.value.trim();
+  if (!agentId || !query || chatHistoryLoading.value) return;
+  chatHistoryLoading.value = true;
+  chatHistoryMessage.value = "搜索中...";
+  try {
+    const result = await invokeTauri<{
+      hits: ChatHistorySearchHit[];
+      stats: ChatHistorySearchStats;
+      elapsedMs: number;
+    }>("search_chat_history_slices", {
+      input: {
+        agentId,
+        query,
+        limit: 30,
+      },
+    });
+    chatHistoryHits.value = result.hits;
+    chatHistoryStats.value = result.stats;
+    chatHistoryMessage.value = `找到 ${result.hits.length} 条，耗时 ${result.elapsedMs}ms`;
+  } catch (err) {
+    chatHistoryMessage.value = `聊天记录搜索失败：${String(err)}`;
+  } finally {
+    chatHistoryLoading.value = false;
+  }
 }
 
 async function clearSearch() {
@@ -769,6 +936,7 @@ async function loadApiConfigs() {
 async function loadPersonaNames() {
   const agents = await withLoading(() => invokeTauri<PersonaLite[]>("load_agents"));
   if (!agents) return;
+  personaOptions.value = agents.filter((agent) => String(agent.id || "").trim());
   const next: Record<string, string> = {};
   for (const agent of agents) {
     const id = String(agent.id || "").trim();
@@ -777,6 +945,9 @@ async function loadPersonaNames() {
     next[id] = name || id;
   }
   personaNameMap.value = next;
+  if (!chatHistoryAgentId.value && personaOptions.value.length > 0) {
+    chatHistoryAgentId.value = personaOptions.value[0].id;
+  }
 }
 
 async function loadBindings() {

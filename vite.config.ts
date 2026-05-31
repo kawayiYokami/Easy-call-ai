@@ -21,6 +21,8 @@ export default defineConfig({
         archives: resolve(__dirname, "archives.html"),
         quickSetup: resolve(__dirname, "quick-setup.html"),
         fileReader: resolve(__dirname, "file-reader.html"),
+        runtimeLogs: resolve(__dirname, "runtime-logs.html"),
+        sidebar: resolve(__dirname, "sidebar.html"),
       },
     },
   },

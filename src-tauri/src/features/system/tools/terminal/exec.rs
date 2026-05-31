@@ -1479,7 +1479,7 @@ async fn builtin_shell_exec(
         }
     }
 
-    let execution_result = sandbox_execute_command(state, &normalized_session, cmd, &execution_cwd, timeout_ms).await;
+    let execution_result = sandbox_execute_command(state, &normalized_session, cmd, &execution_cwd, timeout_ms, is_read_whitelist).await;
     let execution = match execution_result {
         Ok(execution) => execution,
         Err(err) if terminal_is_timeout_error(&err) => {
@@ -1570,7 +1570,9 @@ mod terminal_exec_tests {
             conversation_processing_claims: Arc::new(Mutex::new(HashSet::new())),
             pending_chat_result_senders: Arc::new(Mutex::new(HashMap::new())),
             pending_chat_delta_channels: Arc::new(Mutex::new(HashMap::new())),
+            accepted_submit_trace_ids: Arc::new(Mutex::new(std::collections::VecDeque::new())),
             active_chat_view_bindings: Arc::new(Mutex::new(HashMap::new())),
+            conversation_list_activity_marks: Arc::new(Mutex::new(HashMap::new())),
             dequeue_lock: Arc::new(Mutex::new(())),
             delegate_runtime_threads: Arc::new(Mutex::new(HashMap::new())),
             delegate_recent_threads: Arc::new(Mutex::new(VecDeque::new())),
@@ -1584,6 +1586,7 @@ mod terminal_exec_tests {
             preferred_release_source: Arc::new(Mutex::new("github".to_string())),
             migration_preview_dirs: Arc::new(Mutex::new(HashMap::new())),
             delegate_active_ids: Arc::new(std::sync::Mutex::new(std::collections::HashSet::new())),
+            backend_ready: Arc::new(std::sync::atomic::AtomicBool::new(false)),
         }
     }
 

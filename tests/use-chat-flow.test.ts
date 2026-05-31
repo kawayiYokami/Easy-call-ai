@@ -56,7 +56,7 @@ describe("useChatFlow stream isolation", () => {
 
   it("does not hydrate streaming bubble from history before first delta", async () => {
     const chatting = ref(false);
-    const forcingArchive = ref(false);
+    const trimming = ref(false);
     const chatInput = ref("new question");
     const clipboardImages = ref<Array<{ mime: string; bytesBase64: string }>>([]);
     const latestUserText = ref("");
@@ -90,7 +90,7 @@ describe("useChatFlow stream isolation", () => {
       activeChatApiConfigId: ref("api-1"),
       assistantDepartmentAgentId: ref("agent-1"),
       chatting,
-      forcingArchive,
+      trimming,
       compactingConversation: ref(false),
       allMessages,
       visibleMessageBlockCount: visibleTurnCount,
@@ -116,7 +116,7 @@ describe("useChatFlow stream isolation", () => {
 
     const flow = useChatFlow({
       chatting,
-      forcingArchive,
+      trimming,
       getSession: () => ({ apiConfigId: "api-1", agentId: "agent-1" }),
       chatInput,
       clipboardImages,
@@ -181,7 +181,7 @@ describe("useChatFlow stream isolation", () => {
 
   it("shows retry status in the pre-streaming assistant draft", async () => {
     const chatting = ref(false);
-    const forcingArchive = ref(false);
+    const trimming = ref(false);
     const chatInput = ref("new question");
     const clipboardImages = ref<Array<{ mime: string; bytesBase64: string }>>([]);
     const latestUserText = ref("");
@@ -212,7 +212,7 @@ describe("useChatFlow stream isolation", () => {
 
     const flow = useChatFlow({
       chatting,
-      forcingArchive,
+      trimming,
       getSession: () => ({ apiConfigId: "api-1", agentId: "agent-1" }),
       chatInput,
       clipboardImages,
@@ -274,7 +274,7 @@ describe("useChatFlow stream isolation", () => {
 
   it("clears retry waiting draft after stop succeeds", async () => {
     const chatting = ref(false);
-    const forcingArchive = ref(false);
+    const trimming = ref(false);
     const chatInput = ref("new question");
     const clipboardImages = ref<Array<{ mime: string; bytesBase64: string }>>([]);
     const latestUserText = ref("");
@@ -298,7 +298,7 @@ describe("useChatFlow stream isolation", () => {
 
     const flow = useChatFlow({
       chatting,
-      forcingArchive,
+      trimming,
       getSession: () => ({ apiConfigId: "api-1", agentId: "agent-1" }),
       chatInput,
       clipboardImages,
@@ -351,7 +351,7 @@ describe("useChatFlow stream isolation", () => {
 
   it("stops stream by preserving partial text and syncing stop payload", async () => {
     const chatting = ref(false);
-    const forcingArchive = ref(false);
+    const trimming = ref(false);
     const chatInput = ref("new question");
     const clipboardImages = ref<Array<{ mime: string; bytesBase64: string }>>([]);
     const latestUserText = ref("");
@@ -374,7 +374,7 @@ describe("useChatFlow stream isolation", () => {
 
     const flow = useChatFlow({
       chatting,
-      forcingArchive,
+      trimming,
       getSession: () => ({ apiConfigId: "api-1", agentId: "agent-1" }),
       chatInput,
       clipboardImages,
@@ -428,7 +428,7 @@ describe("useChatFlow stream isolation", () => {
 
   it("keeps current streaming round visible until history_flushed switches to next round", async () => {
     const chatting = ref(false);
-    const forcingArchive = ref(false);
+    const trimming = ref(false);
     const chatInput = ref("first question");
     const clipboardImages = ref<Array<{ mime: string; bytesBase64: string }>>([]);
     const latestUserText = ref("");
@@ -458,7 +458,7 @@ describe("useChatFlow stream isolation", () => {
 
     const flow = useChatFlow({
       chatting,
-      forcingArchive,
+      trimming,
       getSession: () => ({ apiConfigId: "api-1", agentId: "agent-1" }),
       chatInput,
       clipboardImages,
@@ -552,7 +552,7 @@ describe("useChatFlow stream isolation", () => {
 
   it("does not enter streaming view for non-activated batch without history_flushed", async () => {
     const chatting = ref(false);
-    const forcingArchive = ref(false);
+    const trimming = ref(false);
     const chatInput = ref("queued-only");
     const clipboardImages = ref<Array<{ mime: string; bytesBase64: string }>>([]);
     const latestUserText = ref("");
@@ -579,7 +579,7 @@ describe("useChatFlow stream isolation", () => {
 
     const flow = useChatFlow({
       chatting,
-      forcingArchive,
+      trimming,
       getSession: () => ({ apiConfigId: "api-1", agentId: "agent-1" }),
       chatInput,
       clipboardImages,
@@ -630,7 +630,7 @@ describe("useChatRuntime force archive conversation sync", () => {
     hoisted.invokeTauriMock.mockReset();
   });
 
-  it("updates current conversation id from force_archive_current before reload messages", async () => {
+  it("updates current conversation id from trim_current_conversation before reload messages", async () => {
     const statusList: string[] = [];
     const errorList: string[] = [];
     const currentConversationId = ref("conv-old");
@@ -638,7 +638,7 @@ describe("useChatRuntime force archive conversation sync", () => {
     const visibleTurnCount = ref(1);
 
     hoisted.invokeTauriMock.mockImplementation(async (command: string, payload?: unknown) => {
-      if (command === "force_archive_current") {
+      if (command === "trim_current_conversation") {
         return {
           archived: true,
           archiveId: "archive-1",
@@ -671,7 +671,7 @@ describe("useChatRuntime force archive conversation sync", () => {
       assistantDepartmentAgentId: ref("agent-1"),
       currentConversationId,
       chatting: ref(false),
-      forcingArchive: ref(false),
+      trimming: ref(false),
       compactingConversation: ref(false),
       allMessages,
       visibleMessageBlockCount: visibleTurnCount,
@@ -680,7 +680,7 @@ describe("useChatRuntime force archive conversation sync", () => {
       perfDebug: false,
     });
 
-    await runtime.forceArchiveNow();
+    await runtime.trimNow();
 
     expect(currentConversationId.value).toBe("conv-new");
     expect(allMessages.value).toHaveLength(1);

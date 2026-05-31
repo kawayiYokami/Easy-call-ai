@@ -11,13 +11,13 @@
           <div class="mt-1 text-xs opacity-70">{{ t("chat.workspacePickerHint") }}</div>
         </div>
         <label
-          class="flex max-w-[14rem] shrink-0 cursor-pointer items-center gap-2 rounded-full bg-base-200 px-3 py-2 text-xs font-medium leading-tight"
+          class="flex max-w-56 shrink-0 cursor-pointer items-center gap-2 rounded-full bg-base-200 px-3 py-2 text-xs font-medium leading-tight"
           :title="t('chat.workspacePickerAutonomousHint')"
         >
           <span class="whitespace-normal">{{ t("chat.workspacePickerAutonomous") }}</span>
           <input
             type="checkbox"
-            class="toggle toggle-primary toggle-sm"
+            class="checkbox checkbox-primary checkbox-sm"
             :checked="autonomousMode"
             :disabled="saving"
             @change="onAutonomousModeChange"
@@ -100,7 +100,7 @@
         </div>
       </div>
       <div class="flex items-center justify-between gap-3 border-t border-base-300 px-4 py-3">
-        <button class="btn btn-sm" type="button" :disabled="saving" @click="emit('addWorkspace')">
+        <button v-if="!hideAddWorkspace" class="btn btn-sm" type="button" :disabled="saving" @click="emit('addWorkspace')">
           {{ t("config.tools.addWorkspace") }}
         </button>
         <div class="flex items-center gap-2">
@@ -118,16 +118,19 @@
 
 <script setup lang="ts">
 import { computed } from "vue";
-import { SquareTerminal, Trash2 } from "lucide-vue-next";
+import { SquareTerminal, Trash2 } from "@lucide/vue";
 import { useI18n } from "vue-i18n";
 import type { ChatWorkspaceChoice } from "../../composables/use-chat-workspace";
 
-const props = defineProps<{
+const props = withDefaults(defineProps<{
   open: boolean;
   saving: boolean;
   workspaces: ChatWorkspaceChoice[];
   autonomousMode: boolean;
-}>();
+  hideAddWorkspace?: boolean;
+}>(), {
+  hideAddWorkspace: false,
+});
 
 const emit = defineEmits<{
   (e: "close"): void;

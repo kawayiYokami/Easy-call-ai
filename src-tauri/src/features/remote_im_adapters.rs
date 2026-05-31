@@ -1527,6 +1527,7 @@ mod remote_im_adapter_tests {
             remote_contact_type: "group".to_string(),
             remote_contact_id: "gid".to_string(),
             remote_contact_name: "g".to_string(),
+            avatar_url: String::new(),
             remark_name: String::new(),
             allow_send: false,
             allow_send_files: false,

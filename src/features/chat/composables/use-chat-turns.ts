@@ -29,11 +29,26 @@ function positiveNumberFromProviderMeta(meta: Record<string, unknown>, key: stri
   return Math.round(value);
 }
 
+function extraTextReferenceLabel(text: string): string {
+  const trimmed = String(text || "").trim();
+  const matched = trimmed.match(/^用户引用了文件片段：([^\n（]+)/);
+  return matched?.[1]?.trim() || trimmed.split("\n")[0]?.replace(/^用户引用了文件片段：/, "").trim() || "文件片段";
+}
+
+function buildExtraTextReferences(message: ChatMessage): Array<{ label: string; text: string }> {
+  if (!Array.isArray(message.extraTextBlocks)) return [];
+  return message.extraTextBlocks
+    .map((raw) => String(raw || "").trim())
+    .filter(Boolean)
+    .map((text) => ({ label: extraTextReferenceLabel(text), text }));
+}
+
 type UseChatMessageBlocksOptions = {
   allMessages: ShallowRef<ChatMessage[]>;
   activeChatApiConfig: ComputedRef<ApiConfigItem | null>;
   perfDebug: boolean;
   perfNow: () => number;
+  taskTriggerLabels?: { goal: string; todo: string };
 };
 
 export function useChatMessageBlocks(options: UseChatMessageBlocksOptions) {
@@ -91,6 +106,7 @@ export function useChatMessageBlocks(options: UseChatMessageBlocksOptions) {
         images: [],
         audios: [],
         attachmentFiles: [],
+        extraTextReferences: [],
         memeSegments: undefined,
         taskTrigger: undefined,
         planCard: undefined,
@@ -110,7 +126,7 @@ export function useChatMessageBlocks(options: UseChatMessageBlocksOptions) {
     }
 
     const meta = (message.providerMeta || {}) as Record<string, unknown>;
-    const projection = projectMessageForDisplay(message);
+    const projection = projectMessageForDisplay(message, options.taskTriggerLabels);
     const streamSegments = Array.isArray(meta._streamSegments)
       ? (meta._streamSegments as unknown[])
         .map((item) => String(item ?? ""))
@@ -121,6 +137,7 @@ export function useChatMessageBlocks(options: UseChatMessageBlocksOptions) {
     const streamToolCalls = streamToolCallsFromProviderMeta(meta);
     const dispatchElapsedMs = positiveNumberFromProviderMeta(meta, "dispatchElapsedMs");
     const frontendDispatchElapsedMs = positiveNumberFromProviderMeta(meta, "_frontendDispatchElapsedMs");
+    const extraTextReferences = buildExtraTextReferences(message);
     const baseBlock = {
       id: message.id,
       sourceMessageId: message.id,
@@ -138,6 +155,7 @@ export function useChatMessageBlocks(options: UseChatMessageBlocksOptions) {
       images: projection.images,
       audios: projection.audios,
       attachmentFiles: projection.attachmentFiles,
+      extraTextReferences: message.role === "user" ? extraTextReferences : [],
       memeSegments: projection.memeSegments,
       taskTrigger: projection.taskTrigger,
       planCard: projection.planCard,
@@ -158,6 +176,7 @@ export function useChatMessageBlocks(options: UseChatMessageBlocksOptions) {
       || baseBlock.images.length > 0
       || baseBlock.audios.length > 0
       || baseBlock.attachmentFiles.length > 0
+      || (baseBlock.extraTextReferences || []).length > 0
       || !!baseBlock.taskTrigger
       || !!baseBlock.planCard
       || !!baseBlock.reasoningStandard
@@ -167,7 +186,7 @@ export function useChatMessageBlocks(options: UseChatMessageBlocksOptions) {
       blocks.push(baseBlock);
     }
 
-    if (Array.isArray(message.extraTextBlocks)) {
+    if (message.role !== "user" && Array.isArray(message.extraTextBlocks)) {
       message.extraTextBlocks.forEach((raw, index) => {
         const text = String(raw || "").trim();
         if (!text) return;
@@ -188,6 +207,7 @@ export function useChatMessageBlocks(options: UseChatMessageBlocksOptions) {
           images: [],
           audios: [],
           attachmentFiles: [],
+          extraTextReferences: [],
           memeSegments: undefined,
           taskTrigger: undefined,
           planCard: undefined,

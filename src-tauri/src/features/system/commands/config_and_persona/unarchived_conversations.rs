@@ -144,6 +144,10 @@ struct CreateUnarchivedConversationInput {
     title: Option<String>,
     #[serde(default)]
     copy_source_conversation_id: Option<String>,
+    #[serde(default)]
+    shell_workspaces: Option<Vec<ShellWorkspaceConfig>>,
+    #[serde(default)]
+    shell_autonomous_mode: Option<bool>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -151,6 +155,65 @@ struct CreateUnarchivedConversationInput {
 struct CreateUnarchivedConversationOutput {
     conversation_id: String,
     unarchived_conversations: Vec<UnarchivedConversationSummary>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ExportConversationShareInput {
+    conversation_id: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ExportConversationShareOutput {
+    file_name: String,
+    payload_json: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ImportConversationShareFromFileInput {
+    path: String,
+    #[serde(default)]
+    department_id: Option<String>,
+    #[serde(default)]
+    title: Option<String>,
+    #[serde(default)]
+    shell_workspaces: Option<Vec<ShellWorkspaceConfig>>,
+    #[serde(default)]
+    shell_autonomous_mode: Option<bool>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ConversationShareSource {
+    #[serde(default)]
+    conversation_id: String,
+    #[serde(default)]
+    department_id: String,
+    #[serde(default)]
+    agent_id: String,
+    #[serde(default)]
+    user_id: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ConversationSharePayload {
+    #[serde(rename = "type")]
+    payload_type: String,
+    version: u32,
+    exported_at: String,
+    #[serde(default)]
+    title: String,
+    #[serde(default)]
+    source: Option<ConversationShareSource>,
+    #[serde(default)]
+    messages: Vec<ChatMessage>,
+    #[serde(default)]
+    current_todos: Vec<ConversationTodoItem>,
+    #[serde(default)]
+    plan_mode_enabled: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -223,6 +286,66 @@ fn clone_chat_message_for_copied_conversation(message: &ChatMessage) -> ChatMess
         role: message.role.clone(),
         created_at: message.created_at.clone(),
         speaker_agent_id: message.speaker_agent_id.clone(),
+        parts: message.parts.clone(),
+        extra_text_blocks: message.extra_text_blocks.clone(),
+        provider_meta: message.provider_meta.clone(),
+        tool_call: message.tool_call.clone(),
+        mcp_call: message.mcp_call.clone(),
+    }
+}
+
+fn sanitize_conversation_share_file_name(title: &str, conversation_id: &str) -> String {
+    let base = title
+        .trim()
+        .chars()
+        .map(|ch| match ch {
+            '\\' | '/' | ':' | '*' | '?' | '"' | '<' | '>' | '|' => '_',
+            ch if ch.is_control() => '_',
+            ch => ch,
+        })
+        .collect::<String>()
+        .trim()
+        .trim_matches('.')
+        .to_string();
+    let fallback = conversation_id.trim();
+    let name = if base.is_empty() {
+        if fallback.is_empty() {
+            "conversation".to_string()
+        } else {
+            format!("conversation-{fallback}")
+        }
+    } else {
+        base.chars().take(80).collect::<String>()
+    };
+    format!("{name}.json")
+}
+
+fn normalize_imported_conversation_share_message(
+    message: &ChatMessage,
+    target_agent_id: &str,
+) -> ChatMessage {
+    let normalized_role = match message.role.trim().to_ascii_lowercase().as_str() {
+        "user" => "user",
+        "assistant" => "assistant",
+        "tool" => "tool",
+        "system" => "system",
+        _ => "assistant",
+    };
+    let speaker_agent_id = match normalized_role {
+        "user" => Some(USER_PERSONA_ID.to_string()),
+        "assistant" => Some(target_agent_id.trim().to_string()),
+        "system" => Some(SYSTEM_PERSONA_ID.to_string()),
+        _ => None,
+    };
+    ChatMessage {
+        id: Uuid::new_v4().to_string(),
+        role: normalized_role.to_string(),
+        created_at: if message.created_at.trim().is_empty() {
+            now_iso()
+        } else {
+            message.created_at.clone()
+        },
+        speaker_agent_id,
         parts: message.parts.clone(),
         extra_text_blocks: message.extra_text_blocks.clone(),
         provider_meta: message.provider_meta.clone(),
@@ -466,9 +589,153 @@ fn create_unarchived_conversation(
 }
 
 #[tauri::command]
+fn export_conversation_share_json(
+    input: ExportConversationShareInput,
+    state: State<'_, AppState>,
+) -> Result<ExportConversationShareOutput, String> {
+    let conversation_id = input.conversation_id.trim();
+    if conversation_id.is_empty() {
+        return Err("conversationId 不能为空".to_string());
+    }
+    let conversation = state_read_conversation_cached(state.inner(), conversation_id)
+        .map_err(|_| "会话不存在或已归档".to_string())?;
+    if !conversation.summary.trim().is_empty()
+        || !conversation_visible_in_foreground_lists(&conversation)
+    {
+        return Err("只能导出未归档会话".to_string());
+    }
+    let payload = ConversationSharePayload {
+        payload_type: "easy_call_conversation_share".to_string(),
+        version: 1,
+        exported_at: now_iso(),
+        title: conversation.title.clone(),
+        source: Some(ConversationShareSource {
+            conversation_id: conversation.id.clone(),
+            department_id: conversation.department_id.clone(),
+            agent_id: conversation.agent_id.clone(),
+            user_id: USER_PERSONA_ID.to_string(),
+        }),
+        messages: conversation.messages.clone(),
+        current_todos: conversation.current_todos.clone(),
+        plan_mode_enabled: conversation.plan_mode_enabled,
+    };
+    let payload_json = serde_json::to_string_pretty(&payload)
+        .map_err(|err| format!("生成会话分享 JSON 失败: {err}"))?;
+    runtime_log_info(format!(
+        "[会话分享] 完成，任务=导出会话，conversation_id={}，message_count={}",
+        conversation.id,
+        conversation.messages.len()
+    ));
+    Ok(ExportConversationShareOutput {
+        file_name: sanitize_conversation_share_file_name(&conversation.title, &conversation.id),
+        payload_json,
+    })
+}
+
+#[tauri::command]
+fn import_conversation_share_from_file(
+    input: ImportConversationShareFromFileInput,
+    state: State<'_, AppState>,
+) -> Result<CreateUnarchivedConversationOutput, String> {
+    let path = input.path.trim();
+    if path.is_empty() {
+        return Err("path 不能为空".to_string());
+    }
+    let payload_json = fs::read_to_string(PathBuf::from(path))
+        .map_err(|err| format!("读取会话分享文件失败: {err}"))?;
+    let payload: ConversationSharePayload = serde_json::from_str(&payload_json)
+        .map_err(|err| format!("解析会话分享 JSON 失败: {err}"))?;
+    if payload.payload_type.trim() != "easy_call_conversation_share" {
+        return Err("不是有效的 PAI 会话分享文件".to_string());
+    }
+    if payload.messages.is_empty() {
+        return Err("会话分享文件没有可导入的消息".to_string());
+    }
+
+    let requested_title = input
+        .title
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToOwned::to_owned)
+        .or_else(|| {
+            let title = payload.title.trim();
+            if title.is_empty() {
+                None
+            } else {
+                Some(title.to_string())
+            }
+        });
+    let create_input = CreateUnarchivedConversationInput {
+        api_config_id: None,
+        agent_id: None,
+        department_id: input.department_id.clone(),
+        title: requested_title,
+        copy_source_conversation_id: None,
+        shell_workspaces: input.shell_workspaces.clone(),
+        shell_autonomous_mode: input.shell_autonomous_mode,
+    };
+    let result = conversation_service().create_unarchived_conversation(state.inner(), &create_input)?;
+    let conversation_id = result.conversation_id.clone();
+    let mut conversation = state_read_conversation_cached(state.inner(), &conversation_id)
+        .map_err(|_| "新建导入会话后读取失败".to_string())?;
+    let target_agent_id = conversation.agent_id.clone();
+    conversation.messages = payload
+        .messages
+        .iter()
+        .map(|message| normalize_imported_conversation_share_message(message, &target_agent_id))
+        .collect();
+    conversation.current_todos = payload.current_todos;
+    conversation.plan_mode_enabled = payload.plan_mode_enabled;
+    conversation.fork_message_cursor = conversation.messages.last().map(|message| message.id.clone());
+    if let Some(last_message) = conversation.messages.last() {
+        conversation.updated_at = last_message.created_at.clone();
+    }
+    conversation.last_user_at = conversation
+        .messages
+        .iter()
+        .rev()
+        .find(|message| message.role.trim() == "user")
+        .map(|message| message.created_at.clone());
+    conversation.last_assistant_at = conversation
+        .messages
+        .iter()
+        .rev()
+        .find(|message| message.role.trim() == "assistant")
+        .map(|message| message.created_at.clone());
+    state_schedule_conversation_persist(state.inner(), &conversation, true)?;
+
+    let overview_payload = UnarchivedConversationOverviewUpdatedPayload {
+        preferred_conversation_id: Some(conversation_id.clone()),
+        unarchived_conversations: conversation_service()
+            .list_unarchived_conversation_summaries(state.inner())?
+            .summaries,
+    };
+    emit_unarchived_conversation_overview_updated_payload(state.inner(), &overview_payload);
+    runtime_log_info(format!(
+        "[会话分享] 完成，任务=导入会话，conversation_id={}，department_id={}，agent_id={}，message_count={}",
+        conversation.id,
+        conversation.department_id,
+        conversation.agent_id,
+        conversation.messages.len()
+    ));
+    Ok(CreateUnarchivedConversationOutput {
+        conversation_id,
+        unarchived_conversations: overview_payload.unarchived_conversations,
+    })
+}
+
+#[tauri::command]
 async fn branch_unarchived_conversation_from_selection(
     input: BranchUnarchivedConversationFromSelectionInput,
     state: State<'_, AppState>,
+) -> Result<BranchUnarchivedConversationFromSelectionOutput, String> {
+    branch_unarchived_conversation_from_selection_internal(input, state.inner()).await
+}
+
+async fn branch_unarchived_conversation_from_selection_internal(
+    input: BranchUnarchivedConversationFromSelectionInput,
+    state: &AppState,
 ) -> Result<BranchUnarchivedConversationFromSelectionOutput, String> {
     let source_conversation_id = input.source_conversation_id.trim();
     if source_conversation_id.is_empty() {
@@ -486,11 +753,11 @@ async fn branch_unarchived_conversation_from_selection(
     }
 
     let result = conversation_service().branch_unarchived_conversation_from_selection(
-        state.inner(),
+        state,
         source_conversation_id,
         &normalized_selected_message_ids,
     )?;
-    emit_unarchived_conversation_overview_updated_payload(state.inner(), &result.overview_payload);
+    emit_unarchived_conversation_overview_updated_payload(state, &result.overview_payload);
     runtime_log_info(format!(
         "[会话分支] 完成，任务=按已选消息创建会话分支，source_conversation_id={}，conversation_id={}，selected_count={}，has_compaction_seed={}",
         source_conversation_id,

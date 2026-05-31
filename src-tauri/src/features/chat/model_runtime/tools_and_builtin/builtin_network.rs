@@ -1,5 +1,9 @@
 const FETCH_BROWSER_UA: &str =
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36";
+const EXA_MCP_URL: &str = "https://mcp.exa.ai/mcp";
+const EXA_ACCEPT_HEADER: &str = "application/json, text/event-stream";
+const EXA_TOOL_NAME_WEB_SEARCH: &str = "web_search_exa";
+const EXA_TOOL_NAME_WEB_FETCH: &str = "web_fetch_exa";
 
 fn is_forbidden_fetch_ip(ip: std::net::IpAddr) -> bool {
     match ip {
@@ -111,7 +115,123 @@ fn build_fetch_client(
         .map_err(|err| format!("Build HTTP client failed: {err}"))
 }
 
-async fn builtin_fetch(state: &AppState, url: &str, max_length: usize) -> Result<Value, String> {
+fn exa_result_texts(result: &Value) -> Vec<String> {
+    result
+        .get("content")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(|item| {
+            let text = item.get("text").and_then(Value::as_str)?.trim();
+            if text.is_empty() {
+                None
+            } else {
+                Some(text.to_string())
+            }
+        })
+        .collect()
+}
+
+fn exa_result_has_content(result: &Value) -> bool {
+    !exa_result_texts(result).is_empty()
+}
+
+fn parse_exa_sse_result(body: &str) -> Result<Value, String> {
+    let mut data_lines = Vec::<String>::new();
+    for line in body.lines() {
+        let trimmed = line.trim_end();
+        if let Some(rest) = trimmed.strip_prefix("data:") {
+            let payload = rest.trim();
+            if !payload.is_empty() {
+                data_lines.push(payload.to_string());
+            }
+        }
+    }
+    if data_lines.is_empty() {
+        return Err("Exa SSE response missing data payload.".to_string());
+    }
+    let mut last_error: Option<String> = None;
+    for payload in data_lines {
+        let value: Value = match serde_json::from_str(&payload) {
+            Ok(value) => value,
+            Err(err) => {
+                last_error = Some(format!("Parse Exa SSE JSON failed: {err}"));
+                continue;
+            }
+        };
+        if let Some(error) = value.get("error") {
+            return Err(format!("Exa MCP returned error: {error}"));
+        }
+        if let Some(result) = value.get("result") {
+            return Ok(result.clone());
+        }
+    }
+    Err(last_error.unwrap_or_else(|| "Exa SSE response missing JSON-RPC result.".to_string()))
+}
+
+async fn call_exa_mcp_tool(
+    state: &AppState,
+    tool_name: &str,
+    arguments: Value,
+) -> Result<Value, String> {
+    let request_body = serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "tools/call",
+        "params": {
+            "name": tool_name,
+            "arguments": arguments,
+        }
+    });
+    let response = state
+        .shared_http_client
+        .post(EXA_MCP_URL)
+        .header("Content-Type", "application/json")
+        .header("Accept", EXA_ACCEPT_HEADER)
+        .json(&request_body)
+        .send()
+        .await
+        .map_err(|err| format!("Call Exa MCP failed: {err}"))?;
+    let status = response.status();
+    let body = response
+        .text()
+        .await
+        .map_err(|err| format!("Read Exa MCP response failed: {err}"))?;
+    if !status.is_success() {
+        return Err(format!("Exa MCP returned status {status}: {}", truncate_by_chars(&clean_text(&body), 240)));
+    }
+    parse_exa_sse_result(&body)
+}
+
+fn map_exa_fetch_result(url: &str, max_length: usize, result: &Value) -> Result<Value, String> {
+    let texts = exa_result_texts(result);
+    if texts.is_empty() {
+        return Err("Exa fetch returned empty content.".to_string());
+    }
+    let combined = texts.join("\n\n");
+    Ok(serde_json::json!({
+      "ok": true,
+      "url": url,
+      "status": 200,
+      "content": truncate_by_chars(&combined, max_length),
+      "provider": "exa"
+    }))
+}
+
+fn map_exa_search_result(query: &str, result: &Value) -> Result<Value, String> {
+    let texts = exa_result_texts(result);
+    if texts.is_empty() {
+        return Err("Exa search returned empty content.".to_string());
+    }
+    Ok(serde_json::json!({
+        "query": query,
+        "engine": "exa",
+        "results": texts,
+        "provider": "exa"
+    }))
+}
+
+async fn builtin_fetch_fallback(state: &AppState, url: &str, max_length: usize) -> Result<Value, String> {
     let normalized_url = url.trim();
     if normalized_url.is_empty() {
         return Ok(serde_json::json!({
@@ -120,7 +240,8 @@ async fn builtin_fetch(state: &AppState, url: &str, max_length: usize) -> Result
           "status": Value::Null,
           "error": "empty_url",
           "message": "Fetch url is empty.",
-          "content": ""
+          "content": "",
+          "provider": "builtin"
         }));
     }
 
@@ -133,7 +254,8 @@ async fn builtin_fetch(state: &AppState, url: &str, max_length: usize) -> Result
               "status": Value::Null,
               "error": "invalid_url",
               "message": message,
-              "content": ""
+              "content": "",
+              "provider": "builtin"
             }));
         }
     };
@@ -147,7 +269,8 @@ async fn builtin_fetch(state: &AppState, url: &str, max_length: usize) -> Result
               "status": Value::Null,
               "error": "build_http_client_failed",
               "message": err,
-              "content": ""
+              "content": "",
+              "provider": "builtin"
             }));
         }
     };
@@ -173,7 +296,8 @@ async fn builtin_fetch(state: &AppState, url: &str, max_length: usize) -> Result
           "status": Value::Null,
           "error": "request_failed",
           "message": format!("Fetch url failed: {}", err),
-          "content": ""
+          "content": "",
+          "provider": "builtin"
         }));
         }
     };
@@ -190,7 +314,8 @@ async fn builtin_fetch(state: &AppState, url: &str, max_length: usize) -> Result
           "status": status.as_u16(),
           "error": "http_status_not_success",
           "message": format!("Fetch url failed with status {status}"),
-          "content": fallback_content
+          "content": fallback_content,
+          "provider": "builtin"
         }));
     }
     let extracted = rs_trafilatura::extract_with_options(
@@ -233,8 +358,25 @@ async fn builtin_fetch(state: &AppState, url: &str, max_length: usize) -> Result
       "ok": true,
       "url": normalized_url,
       "status": status.as_u16(),
-      "content": truncated
+      "content": truncated,
+      "provider": "builtin"
     }))
+}
+
+async fn builtin_fetch(state: &AppState, url: &str, max_length: usize) -> Result<Value, String> {
+    match call_exa_mcp_tool(
+        state,
+        EXA_TOOL_NAME_WEB_FETCH,
+        serde_json::json!({
+            "urls": [url.trim()],
+            "maxCharacters": max_length,
+        }),
+    )
+    .await
+    {
+        Ok(result) if exa_result_has_content(&result) => map_exa_fetch_result(url.trim(), max_length, &result),
+        Ok(_) | Err(_) => builtin_fetch_fallback(state, url, max_length).await,
+    }
 }
 
 // ========== bing search ==========
@@ -324,7 +466,7 @@ fn canonical_url_key(raw: &str) -> String {
     key
 }
 
-async fn builtin_bing_search(state: &AppState, query: &str) -> Result<Value, String> {
+async fn builtin_bing_search_fallback(state: &AppState, query: &str) -> Result<Value, String> {
     let client = state.shared_http_client.clone();
     let limit = 10usize;
     let raw_query = query.trim();
@@ -383,9 +525,7 @@ async fn builtin_bing_search(state: &AppState, query: &str) -> Result<Value, Str
         let mut seen = std::collections::HashSet::<String>::new();
         let mut rows = Vec::new();
         for item in doc.select(&item_sel) {
-            let title_node = item
-                .select(&a_sel)
-                .next();
+            let title_node = item.select(&a_sel).next();
             let title = title_node
                 .as_ref()
                 .map(|n| clean_text(&n.text().collect::<Vec<_>>().join(" ")))
@@ -415,7 +555,8 @@ async fn builtin_bing_search(state: &AppState, query: &str) -> Result<Value, Str
                 "query": query,
                 "requestUrl": url,
                 "engine": "bing",
-                "results": rows
+                "results": rows,
+                "provider": "builtin"
             }));
         }
         last_error = Some("no results parsed".to_string());
@@ -425,5 +566,21 @@ async fn builtin_bing_search(state: &AppState, query: &str) -> Result<Value, Str
         last_error.unwrap_or_else(|| "unknown".to_string()),
         last_request_url.unwrap_or_else(|| "<none>".to_string())
     ))
+}
+
+async fn builtin_bing_search(state: &AppState, query: &str) -> Result<Value, String> {
+    match call_exa_mcp_tool(
+        state,
+        EXA_TOOL_NAME_WEB_SEARCH,
+        serde_json::json!({
+            "query": query.trim(),
+            "numResults": 10,
+        }),
+    )
+    .await
+    {
+        Ok(result) if exa_result_has_content(&result) => map_exa_search_result(query.trim(), &result),
+        Ok(_) | Err(_) => builtin_bing_search_fallback(state, query).await,
+    }
 }
 

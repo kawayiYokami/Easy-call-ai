@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ImageIcon, FileCode2 } from "lucide-vue-next";
+import { ImageIcon, FileCode2 } from "@lucide/vue";
 
 const props = defineProps<{
   open: boolean;

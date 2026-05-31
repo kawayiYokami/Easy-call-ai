@@ -1774,6 +1774,13 @@ fn build_prompt_user_meta_text(
                 tags.push(format!("contact_id={}", contact_id));
             }
         }
+    } else if message
+        .speaker_agent_id
+        .as_deref()
+        .map(str::trim)
+        == Some(USER_PERSONA_ID)
+    {
+        tags.push(format!("user_id={}", USER_PERSONA_ID));
     }
     if let Some(memory_ids) = message
         .provider_meta
@@ -2134,6 +2141,7 @@ fn resolve_media_from_message(
             MessagePart::Image {
                 mime, bytes_base64, ..
             } => {
+                let stored_path = prompt_path_from_stored_binary_marker(bytes_base64, data_path);
                 let resolved = if let Some(path) = data_path {
                     match resolve_stored_binary_base64(path, bytes_base64) {
                         Ok(value) => value,
@@ -2155,7 +2163,8 @@ fn resolve_media_from_message(
                 if !resolved.trim().is_empty() {
                     let saved_path = image_paths
                         .get_mut(&mime.trim().to_ascii_lowercase())
-                        .and_then(|paths| paths.pop_front());
+                        .and_then(|paths| paths.pop_front())
+                        .or(stored_path);
                     images.push(PreparedBinaryPayload {
                         mime: mime.clone(),
                         content: resolved,
@@ -2166,6 +2175,7 @@ fn resolve_media_from_message(
             MessagePart::Audio {
                 mime, bytes_base64, ..
             } => {
+                let stored_path = prompt_path_from_stored_binary_marker(bytes_base64, data_path);
                 let resolved = if let Some(path) = data_path {
                     match resolve_stored_binary_base64(path, bytes_base64) {
                         Ok(value) => value,
@@ -2187,7 +2197,8 @@ fn resolve_media_from_message(
                 if !resolved.trim().is_empty() {
                     let saved_path = audio_paths
                         .get_mut(&mime.trim().to_ascii_lowercase())
-                        .and_then(|paths| paths.pop_front());
+                        .and_then(|paths| paths.pop_front())
+                        .or(stored_path);
                     audios.push(PreparedBinaryPayload {
                         mime: mime.clone(),
                         content: resolved,
@@ -2199,6 +2210,52 @@ fn resolve_media_from_message(
         }
     }
     (images, audios)
+}
+
+fn prompt_path_from_stored_binary_marker(
+    value: &str,
+    data_path: Option<&PathBuf>,
+) -> Option<String> {
+    let (kind, stored_id) = stored_binary_ref_from_marker(value.trim())?;
+    let stored_id = stored_id.trim().replace('\\', "/");
+    if stored_id.is_empty() {
+        return None;
+    }
+    match kind {
+        StoredBinaryRefKind::Download => Some(format!("downloads/{stored_id}")),
+        StoredBinaryRefKind::Media => data_path
+            .and_then(|path| media_storage_dir_from_data_path(path).ok())
+            .map(|dir| dir.join(stored_id).to_string_lossy().replace('\\', "/")),
+    }
+}
+
+#[cfg(test)]
+mod prompt_media_path_tests {
+    use super::*;
+
+    #[test]
+    fn prompt_path_from_stored_binary_marker_should_keep_download_refs_workspace_relative() {
+        let data_path = PathBuf::from("C:/pai/config/app_data.json");
+
+        let path = prompt_path_from_stored_binary_marker(
+            &download_marker_from_id("conversation-a/image.png"),
+            Some(&data_path),
+        );
+
+        assert_eq!(path.as_deref(), Some("downloads/conversation-a/image.png"));
+    }
+
+    #[test]
+    fn prompt_path_from_stored_binary_marker_should_make_media_refs_reachable() {
+        let data_path = PathBuf::from("C:/pai/config/app_data.json");
+
+        let path = prompt_path_from_stored_binary_marker(
+            &media_marker_from_id("image.png"),
+            Some(&data_path),
+        );
+
+        assert_eq!(path.as_deref(), Some("C:/pai/media/image.png"));
+    }
 }
 
 fn collect_prompt_media_parts(

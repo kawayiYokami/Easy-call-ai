@@ -12,14 +12,14 @@ type ArchiveImportPreview = {
   imported: number;
   replaced: number;
 } | null;
-type ForceArchivePreviewResult = {
+type TrimPreviewResult = {
   canArchive: boolean;
   canDropConversation: boolean;
   messageCount: number;
   hasAssistantReply: boolean;
   archiveDisabledReason?: string | null;
 } | null;
-type ForceCompactionPreviewResult = {
+type TrimCompactionPreviewResult = {
   canCompact: boolean;
   contextUsagePercent: number;
   compactionDisabledReason?: string | null;
@@ -47,11 +47,11 @@ const props = defineProps<{
   archiveImportPreview: ArchiveImportPreview;
   archiveImportRunning: boolean;
   skillPlaceholderDialogOpen: boolean;
-  forceArchiveActionDialogOpen: boolean;
-  forceArchivePreviewLoading: boolean;
-  forceArchivePreview: ForceArchivePreviewResult;
-  forceCompactionPreview: ForceCompactionPreviewResult;
-  forcingArchive: boolean;
+  trimActionDialogOpen: boolean;
+  trimPreviewLoading: boolean;
+  trimPreview: TrimPreviewResult;
+  trimCompactionPreview: TrimCompactionPreviewResult;
+  trimming: boolean;
 }>();
 
 const emit = defineEmits<{
@@ -64,28 +64,28 @@ const emit = defineEmits<{
   confirmRewindWithPatch: [];
   confirmRewindMessageOnly: [];
   cancelRewindConfirm: [];
-  closeConfigSaveErrorDialog: [];
+  closeSettingsSaveErrorDialog: [];
   closeArchiveImportPreviewDialog: [];
   confirmArchiveImport: [];
   closeSkillPlaceholderDialog: [];
   confirmDeleteConversationFromArchiveDialog: [];
-  confirmForceCompactionAction: [];
-  confirmForceArchiveAction: [];
-  closeForceArchiveActionDialog: [];
+  confirmTrimCompactionAction: [];
+  confirmTrimAction: [];
+  closeTrimActionDialog: [];
 }>();
 
 const { t } = useI18n();
 
-function handleConfirmForceArchiveAction() {
-  emit("confirmForceArchiveAction");
+function handleConfirmTrimAction() {
+  emit("confirmTrimAction");
 }
 
-function handleCloseForceArchiveActionDialog() {
-  emit("closeForceArchiveActionDialog");
+function handleCloseTrimActionDialog() {
+  emit("closeTrimActionDialog");
 }
 
-function handleConfirmForceCompactionAction() {
-  emit("confirmForceCompactionAction");
+function handleConfirmTrimCompactionAction() {
+  emit("confirmTrimCompactionAction");
 }
 
 function handleConfirmDeleteConversationFromArchiveDialog() {
@@ -183,11 +183,11 @@ function handleConfirmDeleteConversationFromArchiveDialog() {
         :class="configSaveErrorDialogKind === 'warning' ? 'text-warning' : 'text-error'"
       >{{ configSaveErrorDialogBody }}</pre>
       <div class="modal-action">
-        <button class="btn btn-sm btn-primary" @click="emit('closeConfigSaveErrorDialog')">{{ t("common.close") }}</button>
+        <button class="btn btn-sm btn-primary" @click="emit('closeSettingsSaveErrorDialog')">{{ t("common.close") }}</button>
       </div>
     </div>
     <form method="dialog" class="modal-backdrop">
-      <button @click.prevent="emit('closeConfigSaveErrorDialog')">close</button>
+      <button @click.prevent="emit('closeSettingsSaveErrorDialog')">close</button>
     </form>
   </dialog>
 
@@ -230,74 +230,74 @@ function handleConfirmDeleteConversationFromArchiveDialog() {
     </form>
   </dialog>
 
-  <dialog class="modal" :class="{ 'modal-open': forceArchiveActionDialogOpen }">
+  <dialog class="modal" :class="{ 'modal-open': trimActionDialogOpen }">
     <div class="modal-box w-[80vw] max-w-[80vw]">
-      <h3 class="font-semibold text-base">{{ t("dialogs.forceArchive.title") }}</h3>
-      <div v-if="forceArchivePreviewLoading" class="mt-3 text-sm opacity-70">{{ t("dialogs.forceArchive.loading") }}</div>
+      <h3 class="font-semibold text-base">{{ t("dialogs.trim.title") }}</h3>
+      <div v-if="trimPreviewLoading" class="mt-3 text-sm opacity-70">{{ t("dialogs.trim.loading") }}</div>
       <template v-else>
         <div class="mt-3 rounded-box border border-base-300 bg-base-200/40 px-3 py-3 text-sm">
-          <div class="font-medium">{{ t("dialogs.forceArchive.compactTitle") }}</div>
-          <div class="mt-1 opacity-80">{{ t("dialogs.forceArchive.compactSummary") }}</div>
-          <div class="mt-2 text-xs opacity-70">{{ t("dialogs.forceArchive.compactHint") }}</div>
+          <div class="font-medium">{{ t("dialogs.trim.compactTitle") }}</div>
+          <div class="mt-1 opacity-80">{{ t("dialogs.trim.compactSummary") }}</div>
+          <div class="mt-2 text-xs opacity-70">{{ t("dialogs.trim.compactHint") }}</div>
           <div
-            v-if="forceCompactionPreview?.compactionDisabledReason"
+            v-if="trimCompactionPreview?.compactionDisabledReason"
             class="mt-3 rounded border border-warning/30 bg-warning/10 px-3 py-2 text-sm text-warning-content"
           >
-            {{ forceCompactionPreview.compactionDisabledReason }}
+            {{ trimCompactionPreview.compactionDisabledReason }}
           </div>
         </div>
         <div class="mt-3 rounded-box border border-base-300 bg-base-200/40 px-3 py-3 text-sm">
-          <div class="font-medium">{{ t("dialogs.forceArchive.dropTitle") }}</div>
-          <div class="mt-1 opacity-80">{{ t("dialogs.forceArchive.dropSummary") }}</div>
-          <div class="mt-2 text-xs opacity-70">{{ t("dialogs.forceArchive.dropHint") }}</div>
+          <div class="font-medium">{{ t("dialogs.trim.dropTitle") }}</div>
+          <div class="mt-1 opacity-80">{{ t("dialogs.trim.dropSummary") }}</div>
+          <div class="mt-2 text-xs opacity-70">{{ t("dialogs.trim.dropHint") }}</div>
         </div>
         <div class="mt-3 rounded-box border border-base-300 bg-base-200/40 px-3 py-3 text-sm">
-          <div class="font-medium">{{ t("dialogs.forceArchive.archiveTitle") }}</div>
-          <div class="mt-1 opacity-80">{{ t("dialogs.forceArchive.archiveSummary") }}</div>
-          <div class="mt-2 text-xs opacity-70">{{ t("dialogs.forceArchive.archiveHint") }}</div>
+          <div class="font-medium">{{ t("dialogs.trim.archiveTitle") }}</div>
+          <div class="mt-1 opacity-80">{{ t("dialogs.trim.archiveSummary") }}</div>
+          <div class="mt-2 text-xs opacity-70">{{ t("dialogs.trim.archiveHint") }}</div>
           <div
-            v-if="forceArchivePreview?.archiveDisabledReason"
+            v-if="trimPreview?.archiveDisabledReason"
             class="mt-3 rounded border border-warning/30 bg-warning/10 px-3 py-2 text-sm text-warning-content"
           >
-            {{ forceArchivePreview.archiveDisabledReason }}
+            {{ trimPreview.archiveDisabledReason }}
           </div>
         </div>
       </template>
       <div class="mt-4 flex items-end justify-between gap-4">
         <div class="text-xs opacity-60">
-          <div>{{ t("dialogs.forceArchive.messageCount", { count: forceArchivePreview?.messageCount ?? 0 }) }}</div>
-          <div>{{ t("dialogs.forceArchive.contextUsage", { percent: forceCompactionPreview?.contextUsagePercent ?? 0 }) }}</div>
+          <div>{{ t("dialogs.trim.messageCount", { count: trimPreview?.messageCount ?? 0 }) }}</div>
+          <div>{{ t("dialogs.trim.contextUsage", { percent: trimCompactionPreview?.contextUsagePercent ?? 0 }) }}</div>
         </div>
         <div class="modal-action mt-0">
         <button
           class="btn btn-sm btn-error"
-          :disabled="forceArchivePreviewLoading || !forceArchivePreview?.canDropConversation || forcingArchive"
+          :disabled="trimPreviewLoading || !trimPreview?.canDropConversation || trimming"
           @click="handleConfirmDeleteConversationFromArchiveDialog"
         >
-          {{ t("dialogs.forceArchive.dropTitle") }}
+          {{ t("dialogs.trim.dropTitle") }}
         </button>
         <button
           class="btn btn-sm btn-primary"
-          :disabled="forceArchivePreviewLoading || !forceCompactionPreview?.canCompact || forcingArchive"
-          @click="handleConfirmForceCompactionAction"
+          :disabled="trimPreviewLoading || !trimCompactionPreview?.canCompact || trimming"
+          @click="handleConfirmTrimCompactionAction"
         >
-          {{ t("dialogs.forceArchive.compactTitle") }}
+          {{ t("dialogs.trim.compactTitle") }}
         </button>
         <button
           class="btn btn-sm btn-secondary"
-          :disabled="forceArchivePreviewLoading || !forceArchivePreview?.canArchive || forcingArchive"
-          @click="handleConfirmForceArchiveAction"
+          :disabled="trimPreviewLoading || !trimPreview?.canArchive || trimming"
+          @click="handleConfirmTrimAction"
         >
-          {{ t("dialogs.forceArchive.archiveTitle") }}
+          {{ t("dialogs.trim.archiveTitle") }}
         </button>
-        <button class="btn btn-sm" :disabled="forceArchivePreviewLoading || forcingArchive" @click="handleCloseForceArchiveActionDialog">
+        <button class="btn btn-sm" :disabled="trimPreviewLoading || trimming" @click="handleCloseTrimActionDialog">
           {{ t("common.cancel") }}
         </button>
         </div>
       </div>
     </div>
     <form method="dialog" class="modal-backdrop">
-      <button @click.prevent="handleCloseForceArchiveActionDialog">close</button>
+      <button @click.prevent="handleCloseTrimActionDialog">close</button>
     </form>
   </dialog>
 </template>

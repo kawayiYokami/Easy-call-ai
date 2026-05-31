@@ -262,22 +262,7 @@ fn migrate_memory_fts(conn: &Connection) -> Result<(), String> {
         )
         .map_err(|err| format!("Migrate memory_fts (drop tags column) failed: {err}"))?;
 
-        // Load all tags into jieba then repopulate FTS inline so data is never empty after migration.
-        let tag_names: Vec<String> = {
-            let mut stmt = conn
-                .prepare("SELECT DISTINCT name FROM global_tag")
-                .map_err(|err| format!("Migrate: list tags failed: {err}"))?;
-            let rows = stmt
-                .query_map([], |row| row.get::<_, String>(0))
-                .map_err(|err| format!("Migrate: query tags failed: {err}"))?;
-            let mut out = Vec::<String>::new();
-            for row in rows {
-                out.push(row.map_err(|err| format!("Migrate: read tag failed: {err}"))?);
-            }
-            out
-        };
-        memory_jieba_add_words(&tag_names);
-
+        // Repopulate FTS inline so data is never empty after migration.
         let memory_ids: Vec<String> = {
             let mut stmt = conn
                 .prepare("SELECT id FROM memory_record")
@@ -324,21 +309,6 @@ fn repopulate_fts_if_needed(conn: &Connection) -> Result<(), String> {
         .query_row("SELECT COUNT(1) FROM memory_record", [], |row| row.get(0))
         .unwrap_or(0);
     if fts_count == 0 && mem_count > 0 {
-        let tag_names: Vec<String> = {
-            let mut stmt = conn
-                .prepare("SELECT DISTINCT name FROM global_tag")
-                .map_err(|err| format!("FTS repopulate: list tags failed: {err}"))?;
-            let rows = stmt
-                .query_map([], |row| row.get::<_, String>(0))
-                .map_err(|err| format!("FTS repopulate: query tags failed: {err}"))?;
-            let mut out = Vec::<String>::new();
-            for row in rows {
-                out.push(row.map_err(|err| format!("FTS repopulate: read tag failed: {err}"))?);
-            }
-            out
-        };
-        memory_jieba_add_words(&tag_names);
-
         let memory_ids: Vec<String> = {
             let mut stmt = conn
                 .prepare("SELECT id FROM memory_record")

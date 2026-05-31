@@ -23,15 +23,6 @@
         </div>
 
         <label class="block space-y-2">
-          <span class="block text-sm font-medium">{{ t("chat.supervision.durationLabel") }}</span>
-          <select v-model="durationHours" class="select select-bordered w-full" :disabled="saving">
-            <option v-for="hour in durationOptions" :key="hour" :value="hour">
-              {{ t("chat.supervision.durationOption", { hours: hour }) }}
-            </option>
-          </select>
-        </label>
-
-        <label class="block space-y-2">
           <span class="block text-sm font-medium">{{ t("chat.supervision.goalLabel") }}</span>
           <input
             v-model="goal"
@@ -39,28 +30,7 @@
             type="text"
             :placeholder="t('chat.supervision.goalPlaceholder')"
             :disabled="saving"
-          />
-        </label>
-
-        <label class="block space-y-2">
-          <span class="block text-sm font-medium">{{ t("chat.supervision.whyLabel") }}</span>
-          <input
-            v-model="why"
-            class="input input-bordered w-full"
-            type="text"
-            :placeholder="t('chat.supervision.whyPlaceholder')"
-            :disabled="saving"
-          />
-        </label>
-
-        <label class="block space-y-2">
-          <span class="block text-sm font-medium">{{ t("chat.supervision.todoLabel") }}</span>
-          <input
-            v-model="todo"
-            class="input input-bordered w-full"
-            type="text"
-            :placeholder="t('chat.supervision.todoPlaceholder')"
-            :disabled="saving"
+            @keydown.enter.prevent="handleSave"
           />
         </label>
       </div>
@@ -107,6 +77,8 @@
 import { computed, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 
+const GOAL_TASK_DURATION_HOURS = 24;
+
 type ActiveSupervisionTask = {
   taskId: string;
   goal: string;
@@ -138,40 +110,31 @@ const emit = defineEmits<{
 
 const { t } = useI18n();
 
-const durationOptions = Array.from({ length: 24 }, (_, index) => index + 1);
+const GOAL_TASK_WHY = "用户希望你完成目标之前持续推进";
+const GOAL_TASK_TODO = "请自行判断";
 const goal = ref("");
-const why = ref("");
-const todo = ref("");
-const durationHours = ref(1);
 
 const canSubmit = computed(() => {
-  return !!goal.value.trim() && !!todo.value.trim();
+  return !!goal.value.trim();
 });
 
 function resetForm() {
   goal.value = String(props.activeTask?.goal || t("chat.supervision.defaultGoal")).trim();
-  why.value = String(props.activeTask?.why || t("chat.supervision.defaultWhy")).trim();
-  todo.value = String(props.activeTask?.todo || t("chat.supervision.defaultTodo")).trim();
-  durationHours.value = Number.isFinite(props.activeTask?.remainingHours)
-    ? Math.min(24, Math.max(1, Number(props.activeTask?.remainingHours || 1)))
-    : 1;
 }
 
 function handleSave() {
   if (!canSubmit.value) return;
+  const normalizedGoal = goal.value.trim();
   emit("save", {
-    durationHours: durationHours.value,
-    goal: goal.value.trim(),
-    why: why.value.trim(),
-    todo: todo.value.trim(),
+    durationHours: GOAL_TASK_DURATION_HOURS,
+    goal: normalizedGoal,
+    why: GOAL_TASK_WHY,
+    todo: GOAL_TASK_TODO,
   });
 }
 
 function applyRecentHistory(entry: SupervisionHistoryEntry) {
   goal.value = String(entry.goal || "").trim();
-  why.value = String(entry.why || "").trim();
-  todo.value = String(entry.todo || "").trim();
-  durationHours.value = Math.min(24, Math.max(1, Number(entry.durationHours || 1)));
 }
 
 watch(

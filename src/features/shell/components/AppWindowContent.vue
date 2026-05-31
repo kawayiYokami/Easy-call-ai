@@ -88,7 +88,7 @@
       @reset-personas="resetPersonas"
       @save-personas="savePersonas"
       @import-persona-memories="importPersonaMemories"
-      @open-current-history="openCurrentHistory"
+      @open-conversation-list="openConversationList"
       @open-prompt-preview="openPromptPreview"
       @open-system-prompt-preview="openSystemPromptPreview"
       @open-memory-viewer="openMemoryViewer"
@@ -144,14 +144,14 @@
         :chat-model-options="textCapableApiConfigs"
         :plan-mode-enabled="planModeEnabled"
         :chat-usage-percent="chatUsagePercent"
-        :force-archive-tip="forceArchiveTip"
+        :trim-tip="trimTip"
         :media-drag-active="mediaDragActive"
         :chatting="chatting"
-        :forcing-archive="forcingArchive"
-        :forcing-archive-conversation-id="forcingArchiveConversationId"
+        :trimming="trimming"
+        :trimming-conversation-id="trimmingConversationId"
         :compacting-conversation="compactingConversation"
         :compacting-conversation-id="compactingConversationId"
-        :conversation-busy="forcingArchive || compactingConversation"
+        :conversation-busy="trimming || compactingConversation"
         :frozen="branchingConversation || forwardingConversationSelection"
         :message-blocks="visibleMessageBlocks"
         :has-more-history="chatHasMoreHistory"
@@ -184,6 +184,8 @@
         :side-conversation-list-visible="sideConversationListVisible"
         :initial-tool-review-panel-open="initialToolReviewPanelOpen"
         :conversation-list-tab="conversationListTab"
+        :chat-left-panel-mode="chatLeftPanelMode"
+        :chat-right-panel-mode="chatRightPanelMode"
         @update:chat-input="updateChatInput"
         @update:selected-instruction-prompts="updateSelectedInstructionPrompts"
         @add-mention="addChatMention"
@@ -193,6 +195,8 @@
         @side-panel-widths-change="setChatSidePanelWidths"
         @side-panel-widths-commit="commitChatSidePanelWidths"
         @update:conversation-list-tab="updateConversationListTab"
+        @update:chat-left-panel-mode="updateChatLeftPanelMode"
+        @update:chat-right-panel-mode="updateChatRightPanelMode"
         @remove-clipboard-image="removeClipboardImage"
         @remove-queued-attachment-notice="removeQueuedAttachmentNotice"
         @pick-attachments="pickAttachments"
@@ -202,13 +206,16 @@
         @stop-recording="stopRecording"
         @send-chat="sendChat"
         @stop-chat="stopChat"
+        @clear-chat-error="clearChatError"
         @load-older-history="onLoadOlderChatHistory"
         @reached-bottom="onReachedChatBottom"
         @jump-to-conversation-bottom="onJumpToConversationBottom"
         @recall-turn="onRecallTurn"
         @regenerate-turn="onRegenerateTurn"
         @confirm-plan="confirmPlan"
-        @force-archive="openForceArchiveActionDialog"
+        @trim-conversation="openTrimActionDialog"
+        @open-conversation-list="openConversationList"
+        @open-settings="openSettingsWindow"
         @selection-action-copy="setStatus(props.t('chat.selection.copied', { count: $event.count }))"
         @selection-action-copy-error="setStatus(props.t('chat.copyFailed'))"
         @selection-action-branch="onBranchConversationFromSelection($event)"
@@ -226,6 +233,7 @@
         @rename-conversation="onRenameConversation"
         @toggle-pin-conversation="onToggleConversationPin"
         @archive-conversation="onArchiveConversation"
+        @export-conversation="exportConversationShare"
         @delete-conversation="onDeleteConversation"
         @create-conversation="onCreateConversation"
         @approve-terminal-approval="approveTerminalApproval"
@@ -414,6 +422,8 @@ const props = defineProps<{
   sideConversationListVisible: boolean;
   initialToolReviewPanelOpen: boolean;
   conversationListTab: "local" | "contact";
+  chatLeftPanelMode: "local" | "contact";
+  chatRightPanelMode: "reader" | "review" | "delegate";
   config: AppConfig;
   configTab: "welcome" | "hotkey" | "api" | "tools" | "mcp" | "skill" | "persona" | "department" | "departmentTree" | "demo" | "chatSettings" | "notification" | "remoteIm" | "memory" | "task" | "logs" | "appearance" | "migration" | "about";
   localeOptions: Array<{ value: "zh-CN" | "en-US" | "zh-TW"; label: string }>;
@@ -497,11 +507,11 @@ const props = defineProps<{
   denyTerminalApproval: (requestId?: string) => void;
   planModeEnabled: boolean;
   chatUsagePercent: number;
-  forceArchiveTip: string;
+  trimTip: string;
   mediaDragActive: boolean;
   chatting: boolean;
-  forcingArchive: boolean;
-  forcingArchiveConversationId?: string;
+  trimming: boolean;
+  trimmingConversationId?: string;
   compactingConversation: boolean;
   compactingConversationId?: string;
   branchingConversation: boolean;
@@ -613,9 +623,10 @@ const props = defineProps<{
   resetPersonas: () => Promise<unknown> | unknown;
   savePersonas: () => Promise<boolean> | boolean;
   importPersonaMemories: (payload: { agentId: string; file: File }) => void;
-  openCurrentHistory: () => void;
+  openConversationList: () => void;
   openConversationSummary: (conversationId: string) => void;
-  openForceArchiveActionDialog: () => void;
+  openTrimActionDialog: () => void;
+  openSettingsWindow: () => void;
   openPromptPreview: () => void;
   openSystemPromptPreview: () => void;
   openMemoryViewer: () => void;
@@ -639,6 +650,8 @@ const props = defineProps<{
   setToolReviewPanelOpen: (value: boolean) => void;
   setChatSidePanelWidths: (value: { leftWidth: number; rightWidth: number }, options?: { syncWindow?: boolean }) => void;
   updateConversationListTab: (value: "local" | "contact") => void;
+  updateChatLeftPanelMode: (value: "local" | "contact") => void;
+  updateChatRightPanelMode: (value: "reader" | "review" | "delegate") => void;
   removeClipboardImage: (index: number) => void;
   removeQueuedAttachmentNotice: (index: number) => void;
   pickAttachments: () => void;
@@ -646,6 +659,7 @@ const props = defineProps<{
   stopRecording: () => void;
   sendChat: () => void;
   stopChat: () => void;
+  clearChatError: () => void;
   onLoadOlderChatHistory: () => void;
   onReachedChatBottom: () => void;
   onJumpToConversationBottom: () => void;
@@ -663,7 +677,7 @@ const props = defineProps<{
   onToggleConversationPin: (conversationId: string) => void;
   onArchiveConversation: (conversationId: string) => void;
   onDeleteConversation: (conversationId: string) => void;
-  onCreateConversation: (input?: { title?: string; departmentId?: string }) => void;
+  onCreateConversation: (input?: { title?: string; departmentId?: string; copyCurrent?: boolean; importPath?: string; shellWorkspaces?: ShellWorkspace[]; shellAutonomousMode?: boolean }) => void;
   onBranchConversationFromSelection: (payload: { count: number; messageIds: string[] }) => void;
   onForwardConversationFromSelection: (payload: { count: number; messageIds: string[]; targetConversationId: string }) => void;
   onUserAsyncDelegateFromSelection: (payload: { count: number; messageIds: string[]; departmentId: string; presetId: string; background: string; question: string; focus: string }) => Promise<boolean> | boolean;
@@ -717,6 +731,30 @@ function handleDetachConversation() {
 const selectionShareDialogOpen = ref(false);
 const selectionShareDialogLoading = ref(false);
 const selectionSharePayload = ref<SelectionSharePayload | null>(null);
+
+async function exportConversationShare(conversationId: string) {
+  const id = String(conversationId || "").trim();
+  if (!id) return;
+  try {
+    const result = await invokeTauri<{ fileName: string; payloadJson: string }>("export_conversation_share_json", {
+      input: { conversationId: id },
+    });
+    const path = await save({
+      filters: [{ name: "JSON", extensions: ["json"] }],
+      defaultPath: String(result?.fileName || "conversation.json").trim() || "conversation.json",
+    });
+    if (!path) return;
+    await invokeTauri("write_utf8_text_file_to_path", {
+      input: {
+        path,
+        text: String(result?.payloadJson || ""),
+      },
+    });
+    props.setStatus(props.t("chat.conversationShareExported", { path }));
+  } catch (error) {
+    props.setStatus(props.t("chat.conversationShareExportFailed", { err: String(error) }));
+  }
+}
 
 async function handleUserAsyncDelegateFromSelection(payload: {
   count: number;

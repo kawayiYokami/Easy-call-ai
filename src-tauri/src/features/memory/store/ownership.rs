@@ -283,7 +283,7 @@ fn memory_store_list_profile_memories_visible_for_agent(
 ) -> Result<Vec<MemoryEntry>, String> {
     memory_store_list_profile_memories_by_user_id_visible_for_agent(
         data_path,
-        "0",
+        USER_PERSONA_ID,
         agent_id,
         private_memory_enabled,
         limit,

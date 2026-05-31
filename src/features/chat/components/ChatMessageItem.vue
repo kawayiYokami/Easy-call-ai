@@ -95,97 +95,7 @@
               blockNeedsWideBubble(block) ? 'ecall-assistant-bubble-wide' : '',
             ]"
           >
-            <div v-if="block.planCard" class="space-y-3">
-              <div class="flex items-center gap-2">
-                <span class="badge badge-sm badge-ghost">
-                  {{ block.planCard.action === "complete" ? t("chat.plan.completeBadge") : t("chat.plan.badge") }}
-                </span>
-              </div>
-              <div class="font-mono text-[11px] leading-5 break-all text-base-content/55">{{ block.planCard.path }}</div>
-              <div v-if="block.planCard.action === 'present'" class="space-y-2">
-                <div
-                  v-if="planMarkdownLoading"
-                  class="flex items-center gap-2 text-sm leading-6 text-base-content/65"
-                >
-                  <span class="loading loading-spinner loading-xs"></span>
-                  <span>正在读取计划文件</span>
-                </div>
-                <div
-                  v-else-if="planMarkdownError"
-                  class="whitespace-pre-wrap text-sm leading-6 text-warning"
-                >{{ planMarkdownError }}</div>
-                <div v-else-if="planMarkdownText" ref="markdownContainerRef">
-                  <MarkdownRender
-                    class="ecall-markdown-content max-w-none"
-                    custom-id="chat-markstream"
-                    :nodes="markdownNodesForPlanCard(block)"
-                    :is-dark="markdownIsDark"
-                    :final="true"
-                    :max-live-nodes="0"
-                    :batch-rendering="false"
-                    :initial-render-batch-size="0"
-                    :render-batch-size="0"
-                    :render-batch-delay="0"
-                    :render-batch-budget-ms="0"
-                    :code-block-props="markdownCodeBlockProps"
-                    :mermaid-props="markdownMermaidProps"
-                    :typewriter="false"
-                    @click="emit('assistantLinkClick', $event)"
-                  />
-                </div>
-              </div>
-              <div v-if="block.planCard.action === 'present'" class="space-y-2">
-                <button
-                  type="button"
-                  class="ecall-plan-confirm-action btn btn-sm btn-primary"
-                  :disabled="chatting || busy || frozen || !canConfirmPlan"
-                  @click="emit('confirmPlan', { messageId: block.sourceMessageId || block.id })"
-                >
-                  {{ t("chat.plan.confirmAction") }}
-                </button>
-                <div class="text-xs opacity-60">{{ t("chat.plan.confirmHint") }}</div>
-              </div>
-            </div>
-            <div v-if="block.taskTrigger" class="space-y-2">
-        <div class="flex items-center gap-2">
-          <span class="badge badge-sm badge-ghost">{{ t("chat.taskTrigger.badge") }}</span>
-        </div>
-        <div v-if="block.taskTrigger.taskId" class="space-y-0.5">
-          <div class="text-[11px] opacity-55">{{ t("config.task.fields.taskId") }}</div>
-          <div class="font-mono text-xs leading-6 break-all">{{ block.taskTrigger.taskId }}</div>
-        </div>
-        <div v-if="block.taskTrigger.goal" class="space-y-0.5">
-          <div class="text-[11px] opacity-55">{{ t("config.task.fields.goal") }}</div>
-          <div class="text-sm leading-6 whitespace-pre-wrap">{{ block.taskTrigger.goal }}</div>
-        </div>
-        <div v-if="block.taskTrigger.why" class="space-y-0.5">
-          <div class="text-[11px] opacity-55">{{ t("config.task.fields.why") }}</div>
-          <div class="text-sm leading-6 whitespace-pre-wrap">{{ block.taskTrigger.why }}</div>
-        </div>
-        <div v-if="block.taskTrigger.todo" class="space-y-0.5">
-          <div class="text-[11px] opacity-55">{{ t("config.task.fields.todo") }}</div>
-          <div class="text-sm leading-6 whitespace-pre-wrap">{{ block.taskTrigger.todo }}</div>
-        </div>
-        <div v-if="block.taskTrigger.runAt || block.taskTrigger.endAt || block.taskTrigger.nextRunAt || block.taskTrigger.cronExpression" class="grid gap-1 text-sm leading-6">
-          <div v-if="block.taskTrigger.runAt">
-            <span class="text-[11px] opacity-55">{{ t("config.task.fields.runAt") }}</span>
-            <span class="ml-2">{{ formattedBlockTime(block.taskTrigger.runAt) }}</span>
-          </div>
-          <div v-if="block.taskTrigger.nextRunAt">
-            <span class="text-[11px] opacity-55">{{ t("config.task.fields.nextRunAt") }}</span>
-            <span class="ml-2">{{ formattedBlockTime(block.taskTrigger.nextRunAt) }}</span>
-          </div>
-          <div v-if="block.taskTrigger.endAt">
-            <span class="text-[11px] opacity-55">{{ t("config.task.fields.endAt") }}</span>
-            <span class="ml-2">{{ formattedBlockTime(block.taskTrigger.endAt) }}</span>
-          </div>
-          <div v-if="block.taskTrigger.cronExpression">
-            <span class="text-[11px] opacity-55">{{ t("config.task.fields.cronExpression") }}</span>
-            <span class="ml-2">{{ block.taskTrigger.cronExpression }}</span>
-          </div>
-        </div>
-      </div>
-      <div v-if="!isOwnMessage(block) && block.reasoningStandard" class="flex flex-col opacity-90">
+            <div v-if="!isOwnMessage(block) && block.reasoningStandard" class="flex flex-col opacity-90">
         <details class="collapse border-l-2 border-base-content/20 pl-3 rounded-none min-w-55" @toggle="onReasoningStandardToggle">
           <summary class="collapse-title py-1 px-1 min-h-0 text-xs font-semibold flex items-center gap-1.5 text-base-content/80 hover:bg-base-200">
             <span class="inline-block shrink-0 text-[10px] leading-none text-success">▲</span>
@@ -274,28 +184,23 @@
           </div>
         </details>
       </div>
-      <div v-if="hasRenderableMemeSegments(block)" :class="block.taskTrigger ? 'mt-3' : ''">
+      <div v-if="hasRenderableMemeSegments(block)">
         <div ref="markdownContainerRef" class="ecall-meme-segment-flow">
           <template v-for="(segment, index) in block.memeSegments || []" :key="`${block.id}-meme-${index}`">
             <div
               v-if="segment.type === 'text' && segment.text"
               class="ecall-meme-text-segment"
             >
-              <MarkdownRender
+              <SidebarLightMarkdown
+                v-if="forcePlainMarkdownRender"
+                :text="segment.text"
+                @click="emit('assistantLinkClick', $event)"
+              />
+              <AppMarkdownRenderer
+                v-else
                 class="ecall-markdown-content ecall-inline-meme-markdown max-w-none"
-                custom-id="chat-markstream"
-                :nodes="markdownNodesForText(block, segment.text, true, `meme:${index}`)"
+                :text="segment.text"
                 :is-dark="markdownIsDark"
-                :final="true"
-                :max-live-nodes="0"
-                :batch-rendering="false"
-                :initial-render-batch-size="0"
-                :render-batch-size="0"
-                :render-batch-delay="0"
-                :render-batch-budget-ms="0"
-                :code-block-props="markdownCodeBlockProps"
-                :mermaid-props="markdownMermaidProps"
-                :typewriter="false"
                 @click="emit('assistantLinkClick', $event)"
               />
             </div>
@@ -310,30 +215,72 @@
           </template>
         </div>
       </div>
-      <div v-else-if="block.text" :class="block.taskTrigger ? 'mt-3' : ''">
+      <div v-else-if="block.text">
         <div
           v-if="isOwnMessage(block)"
           class="whitespace-pre-wrap break-all"
           style="overflow-wrap: anywhere;"
         >{{ block.text }}</div>
-        <div ref="markdownContainerRef">
-          <MarkdownRender
+        <div
+          v-else-if="forcePlainMarkdownRender"
+          @click="emit('assistantLinkClick', $event)"
+        >
+          <SidebarLightMarkdown :text="splitThinkText(block.text).visible || block.text" />
+        </div>
+        <div v-else ref="markdownContainerRef">
+          <AppMarkdownRenderer
             class="ecall-markdown-content max-w-none"
-            custom-id="chat-markstream"
-            :nodes="markdownNodesForBlock(block)"
+            :text="splitThinkText(block.text).visible || block.text"
             :is-dark="markdownIsDark"
-            :final="!block.isStreaming"
-            :max-live-nodes="0"
-            :batch-rendering="!!block.isStreaming"
-            :initial-render-batch-size="block.isStreaming ? STREAM_INITIAL_RENDER_BATCH_SIZE : 0"
-            :render-batch-size="block.isStreaming ? STREAM_RENDER_BATCH_SIZE : 0"
-            :render-batch-delay="block.isStreaming ? STREAM_RENDER_BATCH_DELAY : 0"
-            :render-batch-budget-ms="block.isStreaming ? STREAM_RENDER_BATCH_BUDGET_MS : 0"
-            :code-block-props="markdownCodeBlockProps"
-            :mermaid-props="markdownMermaidProps"
-            :typewriter="false"
+            :streaming="!!block.isStreaming"
             @click="emit('assistantLinkClick', $event)"
           />
+        </div>
+      </div>
+      <div v-if="block.planCard" class="space-y-3" :class="hasRenderableMemeSegments(block) || block.text ? 'mt-3' : ''">
+        <div class="flex items-center gap-2">
+          <span class="badge badge-sm badge-ghost">
+            {{ block.planCard.action === "complete" ? t("chat.plan.completeBadge") : t("chat.plan.badge") }}
+          </span>
+        </div>
+        <div class="font-mono text-[11px] leading-5 break-all text-base-content/55">{{ block.planCard.path }}</div>
+        <div v-if="block.planCard.action === 'present'" class="space-y-2">
+          <div
+            v-if="planMarkdownLoading"
+            class="flex items-center gap-2 text-sm leading-6 text-base-content/65"
+          >
+            <span class="loading loading-spinner loading-xs"></span>
+            <span>正在读取计划文件</span>
+          </div>
+          <div
+            v-else-if="planMarkdownError"
+            class="whitespace-pre-wrap text-sm leading-6 text-warning"
+          >{{ planMarkdownError }}</div>
+          <div
+            v-else-if="planMarkdownText && forcePlainMarkdownRender"
+            @click="emit('assistantLinkClick', $event)"
+          >
+            <SidebarLightMarkdown :text="planMarkdownText" />
+          </div>
+          <div v-else-if="planMarkdownText" ref="markdownContainerRef">
+            <AppMarkdownRenderer
+              class="ecall-markdown-content max-w-none"
+              :text="planMarkdownText"
+              :is-dark="markdownIsDark"
+              @click="emit('assistantLinkClick', $event)"
+            />
+          </div>
+        </div>
+        <div v-if="block.planCard.action === 'present'" class="space-y-2">
+          <button
+            type="button"
+            class="ecall-plan-confirm-action btn btn-sm btn-primary"
+            :disabled="chatting || busy || frozen || !canConfirmPlan"
+            @click="emit('confirmPlan', { messageId: block.sourceMessageId || block.id })"
+          >
+            {{ t("chat.plan.confirmAction") }}
+          </button>
+          <div class="text-xs opacity-60">{{ t("chat.plan.confirmHint") }}</div>
         </div>
       </div>
       <div v-if="block.images.length > 0" :class="block.taskTrigger || block.text ? 'mt-2 grid gap-1' : 'grid gap-1'">
@@ -492,6 +439,20 @@
           class="whitespace-pre-wrap break-all"
           style="overflow-wrap: anywhere;"
         >{{ isOwnMessage(block) ? ownMessageDisplayText(block) : block.text }}</div>
+        <div
+          v-if="block.extraTextReferences && block.extraTextReferences.length > 0"
+          :class="block.text ? 'mt-2 flex flex-wrap gap-1' : 'flex flex-wrap gap-1'"
+        >
+          <div
+            v-for="(reference, idx) in block.extraTextReferences"
+            :key="`${block.id}-extra-ref-${idx}`"
+            class="badge badge-ghost gap-1 py-3"
+            :title="reference.label"
+          >
+            <FileText class="h-3.5 w-3.5" />
+            <span class="max-w-64 truncate text-[11px]">{{ reference.label }}</span>
+          </div>
+        </div>
         <div v-if="block.images.length > 0" :class="block.taskTrigger || block.text ? 'mt-2 grid gap-1' : 'grid gap-1'">
           <template v-for="(img, idx) in block.images" :key="`${block.id}-img-${idx}`">
             <img
@@ -579,50 +540,20 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, ref, watch, watchEffect, watchPostEffect } from "vue";
 import { useI18n } from "vue-i18n";
-import { CircleCheckBig, Copy, Eye, EyeOff, FileText, Pause, Play, RotateCcw, Undo2 } from "lucide-vue-next";
-import MarkdownRender, { enableKatex, enableMermaid, getMarkdown, parseMarkdownToStructure } from "markstream-vue";
+import { CircleCheckBig, Copy, Eye, EyeOff, FileText, Pause, Play, RotateCcw, Undo2 } from "@lucide/vue";
 import { invokeTauri } from "../../../services/tauri-api";
 import type { ChatMessageBlock, MemeMessageSegment } from "../../../types/app";
 import { formatIsoToLocalHourMinute } from "../../../utils/time";
-import { registerChatMarkstreamComponents } from "../markdown/register-chat-markstream";
+import { AppMarkdownRenderer, initKatex } from "../markdown";
 import { normalizeLocalLinkHref } from "../utils/local-link";
+import SidebarLightMarkdown from "./SidebarLightMarkdown.vue";
 
-enableMermaid();
-enableKatex();
-registerChatMarkstreamComponents();
+initKatex();
 
-const STREAM_MARKDOWN_PARSE_THROTTLE_MS = 100;
-const MARKDOWN_NODE_CACHE_LIMIT = 100;
-const STREAM_INITIAL_RENDER_BATCH_SIZE = 20;
-const STREAM_RENDER_BATCH_SIZE = 10;
-const STREAM_RENDER_BATCH_DELAY = 24;
-const STREAM_RENDER_BATCH_BUDGET_MS = 4;
-const markstreamMarkdown = getMarkdown();
-const markdownNodeCache = new Map<string, { text: string; final: boolean; nodes: any[]; lastParseTime: number }>();
-const markdownCodeBlockProps = {
-  showHeader: true,
-  showCopyButton: true,
-  showPreviewButton: false,
-  showExpandButton: true,
-  showCollapseButton: true,
-  showFontSizeButtons: false,
-  enableFontSizeControl: false,
-  isShowPreview: false,
-  showTooltips: false,
-};
-const markdownMermaidProps = {
-  showHeader: true,
-  showCopyButton: true,
-  showExportButton: false,
-  showFullscreenButton: true,
-  showCollapseButton: false,
-  showZoomControls: true,
-  showModeToggle: false,
-  enableWheelZoom: true,
-  showTooltips: false,
-};
 const imageDataUrlCache = new Map<string, string>();
 const imageDataUrlPromiseCache = new Map<string, Promise<string>>();
+const debugPlainMarkdownRender = typeof window !== "undefined"
+  && window.localStorage.getItem("easy-call.debug.chat-plain-markdown") === "1";
 
 const props = defineProps<{
   activeConversationId: string;
@@ -644,8 +575,10 @@ const props = defineProps<{
   compactWithPrevious: boolean;
   canRegenerate: boolean;
   canConfirmPlan: boolean;
+  readPlanFileContent?: (input: { conversationId: string; path: string }) => Promise<string>;
   bubbleBackgroundHidden: boolean;
   hideToggleEnabled: boolean;
+  disableMarkdownRender?: boolean;
 }>();
 
 const emit = defineEmits<{
@@ -672,6 +605,7 @@ const toolCallsExpanded = ref(false);
 const planMarkdownText = ref("");
 const planMarkdownError = ref("");
 const planMarkdownLoading = ref(false);
+const forcePlainMarkdownRender = computed(() => !!props.disableMarkdownRender || debugPlainMarkdownRender);
 let disposed = false;
 
 watch(
@@ -694,10 +628,10 @@ watch(
     }
     planMarkdownLoading.value = true;
     try {
-      const content = await invokeTauri<string>("read_plan_file_content", {
-        conversationId: snapshot.conversationId,
-        path: snapshot.path,
-      });
+      const input = { conversationId: snapshot.conversationId, path: snapshot.path };
+      const content = props.readPlanFileContent
+        ? await props.readPlanFileContent(input)
+        : await invokeTauri<string>("read_plan_file_content", input);
       if (cancelled || disposed) return;
       planMarkdownText.value = String(content || "");
     } catch (error) {
@@ -1537,43 +1471,6 @@ function splitThinkText(raw: string): { visible: string; inline: string } {
   };
 }
 
-function markdownNodesForText(
-  block: ChatMessageBlock,
-  rawText: string,
-  final: boolean,
-  cacheSuffix = "main",
-): any[] {
-  const text = splitThinkText(rawText).visible;
-  const cacheKey = `${String(block.id || "")}::${cacheSuffix}`;
-  const cached = markdownNodeCache.get(cacheKey);
-  if (cached && cached.text === text && cached.final === final) {
-    markdownNodeCache.delete(cacheKey);
-    markdownNodeCache.set(cacheKey, cached);
-    return cached.nodes;
-  }
-
-  const now = Date.now();
-  if (!final && cached && now - cached.lastParseTime < STREAM_MARKDOWN_PARSE_THROTTLE_MS) {
-    return cached.nodes;
-  }
-
-  const nodes = parseMarkdownToStructure(text, markstreamMarkdown, { final });
-  if (markdownNodeCache.size >= MARKDOWN_NODE_CACHE_LIMIT) {
-    const oldestKey = markdownNodeCache.keys().next().value;
-    if (typeof oldestKey === "string") markdownNodeCache.delete(oldestKey);
-  }
-  markdownNodeCache.set(cacheKey, { text, final, nodes, lastParseTime: now });
-  return nodes;
-}
-
-function markdownNodesForBlock(block: ChatMessageBlock): any[] {
-  return markdownNodesForText(block, block.text, !block.isStreaming, "main");
-}
-
-function markdownNodesForPlanCard(block: ChatMessageBlock): any[] {
-  return markdownNodesForText(block, planMarkdownText.value, true, "plan-card");
-}
-
 function normalizeRenderedLocalLinks() {
   const container = markdownContainerRef.value;
   if (!container) return;
@@ -2004,7 +1901,7 @@ function openResolvedImagePreview(
   margin: 0.65rem 0;
 }
 
-.assistant-markdown :deep(.ecall-markdown-content :where(:not(pre) > code,.inline-code)) {
+.assistant-markdown :deep(.ecall-markdown-content :where(:not(pre) > code,.inline-code):not(.code-block-container *)) {
   font-size: 0.86em;
 }
 

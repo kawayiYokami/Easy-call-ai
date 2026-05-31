@@ -87,6 +87,17 @@ struct RemoteImReplyTarget {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+struct SubmitChatResult {
+    accepted: bool,
+    duplicate: bool,
+    event_id: String,
+    conversation_id: String,
+    trace_id: String,
+    ingress: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 struct SendChatResult {
     conversation_id: String,
     latest_user_text: String,
@@ -282,6 +293,38 @@ struct FetchModelMetadataOutput {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+struct TestEmbeddingConnectionInput {
+    base_url: String,
+    api_key: String,
+    request_format: RequestFormat,
+    model: String,
+    #[serde(default)]
+    text: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct TestEmbeddingConnectionResult {
+    vector_dim: usize,
+    elapsed_ms: u128,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct TestVoiceConnectionInput {
+    base_url: String,
+    api_key: String,
+    request_format: RequestFormat,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct TestVoiceConnectionResult {
+    elapsed_ms: u128,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 struct CheckToolsStatusInput {
     #[serde(default)]
     agent_id: Option<String>,
@@ -398,4 +441,11 @@ struct AssistantDeltaEvent {
 struct ActiveChatViewBinding {
     conversation_id: String,
     delta_channel: tauri::ipc::Channel<AssistantDeltaEvent>,
+}
+
+#[derive(Debug, Clone)]
+struct ConversationListActivityMark {
+    activity: String,
+    failed_message: Option<String>,
+    completed_at: Option<String>,
 }

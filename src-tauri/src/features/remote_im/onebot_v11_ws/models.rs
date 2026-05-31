@@ -1,9 +1,10 @@
 // OneBot v11 反向 WebSocket 服务器
-// 实现 OneBot v11 协议的反向 WebSocket 连接
+// 实现 OneBot v11 协议的反向 WebSocket 连接（基于 axum WebSocket）
 
 use std::net::SocketAddr;
 use std::time::Duration;
 
+use axum::extract::ws::{Message as AxumWsMessage, WebSocket};
 use chrono::{DateTime, Utc};
 use futures_util::stream::{SplitSink, SplitStream};
 use futures_util::SinkExt;
@@ -11,10 +12,10 @@ use tokio::net::TcpListener;
 use tokio::sync::{broadcast, oneshot, watch, RwLock};
 use tokio_util::sync::CancellationToken;
 use tokio_util::task::TaskTracker;
+
+// 以下 import 供 ide_context.rs 等其他 include! 文件使用（它们仍用 tokio-tungstenite 做独立 WS 服务器）
 use tokio_tungstenite::accept_hdr_async;
 use tokio_tungstenite::tungstenite::handshake::server::{Request, Response};
-use tokio_tungstenite::tungstenite::http::Response as HttpResponse;
-use tokio_tungstenite::tungstenite::Message;
 
 const CHANNEL_LOG_LIMIT: usize = 300;
 
@@ -72,7 +73,6 @@ fn default_ws_port() -> u16 {
 
 const NAPCAT_RECONNECT_INTERVAL_SECS: u64 = 30;
 const NAPCAT_MAX_MEDIA_DOWNLOAD_SIZE_BYTES: u64 = 20 * 1024 * 1024;
-const NAPCAT_WS_HANDSHAKE_TIMEOUT_SECS: u64 = 5;
 const NAPCAT_ACTIVE_CONNECTION_REPLACE_TIMEOUT_MS: u64 = 1500;
 
 impl OnebotV11WsCredentials {
@@ -116,8 +116,6 @@ struct WsConnection {
     tx: broadcast::Sender<String>,
     /// 等待响应的 oneshot 映射: echo -> sender
     pending_responses: Arc<RwLock<HashMap<String, oneshot::Sender<OneBotApiResponse>>>>,
-    /// 事件上报通道
-    event_tx: broadcast::Sender<Value>,
     /// 连接的对端地址
     peer_addr: Option<String>,
     /// 连接时间
@@ -126,8 +124,25 @@ struct WsConnection {
 
 #[derive(Clone)]
 struct OnebotChannelRuntime {
+    #[allow(dead_code)] // 用于测试中的 runtime 匹配验证
+    id: String,
     cancel: CancellationToken,
     tasks: TaskTracker,
+}
+
+/// axum WebSocket handler 所需的共享状态
+#[derive(Clone)]
+struct OnebotAxumState {
+    channel_id: String,
+    expected_token: Option<String>,
+    conn_tx: broadcast::Sender<String>,
+    pending_responses: Arc<RwLock<HashMap<String, oneshot::Sender<OneBotApiResponse>>>>,
+    event_tx: broadcast::Sender<Value>,
+    connections: Arc<RwLock<HashMap<String, WsConnection>>>,
+    connection_stop_senders: Arc<RwLock<HashMap<String, watch::Sender<bool>>>>,
+    channel_logs: Arc<RwLock<HashMap<String, Vec<ChannelLogEntry>>>>,
+    active_connection_gate: Arc<std::sync::atomic::AtomicBool>,
+    cancel: CancellationToken,
 }
 
 /// OneBot v11 WebSocket 服务器管理器
@@ -137,13 +152,17 @@ pub struct OnebotV11WsManager {
     connections: Arc<RwLock<HashMap<String, WsConnection>>>,
     /// 活跃连接停止信号: channel_id -> stop sender
     connection_stop_senders: Arc<RwLock<HashMap<String, watch::Sender<bool>>>>,
-    /// 每个渠道独立的关闭信号: channel_id -> shutdown sender
-    channel_shutdowns: Arc<RwLock<HashMap<String, broadcast::Sender<()>>>>,
+    /// 每个渠道独立的事件总线: channel_id -> event sender
+    channel_event_senders: Arc<RwLock<HashMap<String, broadcast::Sender<Value>>>>,
     /// 渠道日志: channel_id -> 日志条目列表
     channel_logs: Arc<RwLock<HashMap<String, Vec<ChannelLogEntry>>>>,
     /// 渠道监听地址: channel_id -> listen_addr
     listen_addrs: Arc<RwLock<HashMap<String, String>>>,
-    /// 渠道 accept 循环的 JoinHandle，用于 stop 时等待旧服务器释放端口
+    /// 渠道状态文本: channel_id -> status_text
+    channel_status_texts: Arc<RwLock<HashMap<String, String>>>,
+    /// 渠道最近错误: channel_id -> last_error
+    channel_last_errors: Arc<RwLock<HashMap<String, String>>>,
+    /// 渠道 axum serve 任务的 JoinHandle
     channel_tasks: Arc<RwLock<HashMap<String, tokio::task::JoinHandle<()>>>>,
     /// 渠道派生任务组，用于 stop 时收割所有连接任务
     channel_runtimes: Arc<RwLock<HashMap<String, OnebotChannelRuntime>>>,
@@ -155,7 +174,5 @@ pub struct OnebotV11WsManager {
     lifecycle_locks: Arc<tokio::sync::Mutex<HashMap<String, Arc<tokio::sync::Mutex<()>>>>>,
 }
 
-type WsStream = tokio_tungstenite::WebSocketStream<tokio::net::TcpStream>;
-type WsSender = SplitSink<WsStream, Message>;
-type WsReceiver = SplitStream<WsStream>;
-
+type AxumWsSender = SplitSink<WebSocket, AxumWsMessage>;
+type AxumWsReceiver = SplitStream<WebSocket>;

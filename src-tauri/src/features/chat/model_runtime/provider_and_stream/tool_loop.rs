@@ -208,6 +208,44 @@ struct ToolLoopAutoCompactionContext {
     trusted_prompt_usage: std::sync::Arc<std::sync::Mutex<Option<TrustedPromptUsage>>>,
 }
 
+fn organize_context_auto_tool_call_id(context: &ToolLoopAutoCompactionContext, reason: &str) -> String {
+    let identity = context
+        .request_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or(context.conversation_id.as_str());
+    format!("auto_organize_context:{reason}:{identity}")
+}
+
+fn send_organize_context_status_event(
+    on_delta: &tauri::ipc::Channel<AssistantDeltaEvent>,
+    context: &ToolLoopAutoCompactionContext,
+    reason: &str,
+    tool_status: &str,
+    message: &str,
+) {
+    let request_id = context
+        .request_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToOwned::to_owned);
+    let _ = on_delta.send(AssistantDeltaEvent {
+        delta: String::new(),
+        kind: Some("tool_status".to_string()),
+        request_id: request_id.clone(),
+        activation_id: request_id,
+        phase_id: None,
+        reason: Some(reason.to_string()),
+        tool_name: Some("organize_context".to_string()),
+        tool_call_id: Some(organize_context_auto_tool_call_id(context, reason)),
+        tool_status: Some(tool_status.to_string()),
+        tool_args: None,
+        message: Some(message.to_string()),
+    });
+}
+
 fn tool_loop_transient_tool_history_message(events: &[Value]) -> Option<ChatMessage> {
     if events.is_empty() {
         return None;
@@ -665,6 +703,103 @@ fn sync_completed_tool_history_cache(
     }
 }
 
+fn persist_completed_tool_pair_async(
+    state: Option<&AppState>,
+    context: Option<&ToolLoopAutoCompactionContext>,
+    selected_api: &ApiConfig,
+    trusted_input_tokens: Option<u64>,
+    chat_session_key: &str,
+    assistant_tool_call_event: Value,
+    tool_result_event: Value,
+) -> Option<tauri::async_runtime::JoinHandle<Result<(), String>>> {
+    let Some(state) = state.cloned() else {
+        return None;
+    };
+    let Some(context) = context.cloned() else {
+        return None;
+    };
+    let chat_session_key = chat_session_key.to_string();
+    let provider_meta_patch =
+        tool_pair_provider_meta_patch(trusted_input_tokens, selected_api.context_window_tokens);
+    Some(tauri::async_runtime::spawn(async move {
+        match conversation_service().append_tool_call_result_pair(
+            &state,
+            &context.conversation_id,
+            &context.agent.id,
+            assistant_tool_call_event,
+            tool_result_event,
+            provider_meta_patch,
+        ) {
+            Ok(result) => {
+                set_stream_cache_persisted_assistant_message_id(
+                    &state,
+                    &context.conversation_id,
+                    &result.assistant_message_id,
+                );
+                runtime_log_info(format!(
+                    "[聊天] 完成，任务=append_tool_call_result_pair，session={}，conversation_id={}，assistant_message_id={}，created={}，tool_event_count={}",
+                    chat_session_key,
+                    context.conversation_id,
+                    result.assistant_message_id,
+                    result.created,
+                    result.tool_event_count
+                ));
+                Ok(())
+            }
+            Err(err) => {
+                runtime_log_warn(format!(
+                    "[聊天] 失败，任务=append_tool_call_result_pair，session={}，conversation_id={}，error={}",
+                    chat_session_key, context.conversation_id, err
+                ));
+                Err(err)
+            }
+        }
+    }))
+}
+
+async fn await_pending_tool_pair_persists(
+    pending_tool_pair_persists: &mut Vec<tauri::async_runtime::JoinHandle<Result<(), String>>>,
+    chat_session_key: &str,
+    reason: &str,
+) -> Result<(), String> {
+    if pending_tool_pair_persists.is_empty() {
+        return Ok(());
+    }
+    runtime_log_info(format!(
+        "[聊天] 等待工具结果落盘，任务=drain_tool_pair_persist，session={}，reason={}，pending_count={}",
+        chat_session_key,
+        reason,
+        pending_tool_pair_persists.len()
+    ));
+    for handle in pending_tool_pair_persists.drain(..) {
+        handle
+            .await
+            .map_err(|err| format!("等待工具结果落盘任务失败：{err}"))?
+            .map_err(|err| format!("工具结果落盘失败：{err}"))?;
+    }
+    Ok(())
+}
+
+fn tool_pair_provider_meta_patch(
+    trusted_input_tokens: Option<u64>,
+    context_window_tokens: u32,
+) -> Option<Value> {
+    let effective_prompt_tokens = trusted_input_tokens.filter(|value| *value > 0)?;
+    let context_window = f64::from(context_window_tokens.max(1));
+    let context_usage_ratio = effective_prompt_tokens as f64 / context_window;
+    let context_usage_percent = context_usage_ratio
+        .mul_add(100.0, 0.0)
+        .round()
+        .clamp(0.0, 100.0) as u32;
+    Some(serde_json::json!({
+        "providerPromptTokens": effective_prompt_tokens,
+        "effectivePromptTokens": effective_prompt_tokens,
+        "effectivePromptSource": "provider_tool_round",
+        "contextUsageRatio": context_usage_ratio,
+        "contextUsagePercent": context_usage_percent
+    }))
+}
+
 async fn call_tool_with_user_abort<F, T, E>(
     app_state: Option<&AppState>,
     chat_session_key: &str,
@@ -821,6 +956,10 @@ async fn maybe_apply_auto_compaction_before_tool_continue_genai(
     resolved_api: &ResolvedApiConfig,
     on_delta: &tauri::ipc::Channel<AssistantDeltaEvent>,
     transient_tool_history: &[Value],
+    partial_assistant_text: &str,
+    partial_reasoning_standard: &str,
+    chat_session_key: &str,
+    pending_tool_pair_persists: &mut Vec<tauri::async_runtime::JoinHandle<Result<(), String>>>,
 ) -> Result<bool, String> {
     let Some(state) = state else {
         return Ok(false);
@@ -866,25 +1005,39 @@ async fn maybe_apply_auto_compaction_before_tool_continue_genai(
         return Ok(false);
     }
 
-    let _ = on_delta.send(AssistantDeltaEvent {
-        delta: String::new(),
-        kind: Some("tool_status".to_string()),
-        request_id: None,
-        activation_id: None,
-        phase_id: None,
-        reason: None,
-        tool_name: Some("organize_context".to_string()),
-        tool_call_id: None,
-        tool_status: Some("running".to_string()),
-        tool_args: None,
-        message: Some("上下文接近上限，正在整理后继续执行...".to_string()),
-    });
+    send_organize_context_status_event(
+        on_delta,
+        context,
+        "auto_before_tool_continue",
+        "running",
+        "正在压缩上下文，完成后继续执行...",
+    );
 
+    // Tool-result appends are spawned so ordinary tool loops do not pay an I/O
+    // barrier on every call. Context compaction is a history boundary: before
+    // creating the summary, wait for the spawned appends to update the message
+    // store and conversation cache, then read the refreshed conversation below.
+    await_pending_tool_pair_persists(
+        pending_tool_pair_persists,
+        chat_session_key,
+        "auto_before_tool_continue",
+    )
+    .await?;
+
+    let refreshed_source = persist_tool_loop_compaction_checkpoint(
+        state,
+        context,
+        &[],
+        partial_assistant_text,
+        partial_reasoning_standard,
+        chat_session_key,
+        "auto_before_tool_continue",
+    )?;
     let archive_res = run_context_compaction_pipeline(
         state,
         selected_api,
         resolved_api,
-        &source,
+        &refreshed_source,
         &context.agent.id,
         &decision.reason,
         "COMPACTION-BEFORE-TOOL-CONTINUE",
@@ -895,19 +1048,13 @@ async fn maybe_apply_auto_compaction_before_tool_continue_genai(
     let archive_result = match archive_res {
         Ok(result) => result,
         Err(err) => {
-            let _ = on_delta.send(AssistantDeltaEvent {
-                delta: String::new(),
-                kind: Some("tool_status".to_string()),
-                request_id: None,
-                activation_id: None,
-                phase_id: None,
-                reason: None,
-                tool_name: Some("organize_context".to_string()),
-                tool_call_id: None,
-                tool_status: Some("failed".to_string()),
-                tool_args: None,
-                message: Some(format!("自动整理失败：{err}")),
-            });
+            send_organize_context_status_event(
+                on_delta,
+                context,
+                "auto_before_tool_continue",
+                "failed",
+                &format!("上下文压缩失败：{err}"),
+            );
             return Err(format!("自动整理失败：{err}"));
         }
     };
@@ -935,21 +1082,149 @@ async fn maybe_apply_auto_compaction_before_tool_continue_genai(
         ));
     }
 
-    let _ = on_delta.send(AssistantDeltaEvent {
-        delta: String::new(),
-        kind: Some("tool_status".to_string()),
-        request_id: None,
-        activation_id: None,
-        phase_id: None,
-        reason: None,
-        tool_name: Some("organize_context".to_string()),
-        tool_call_id: None,
-        tool_status: Some("done".to_string()),
-        tool_args: None,
-        message: Some("整理完成，正在重新开始当前调度...".to_string()),
-    });
+    send_organize_context_status_event(
+        on_delta,
+        context,
+        "auto_before_tool_continue",
+        "done",
+        "上下文压缩完成，正在重新开始当前调度...",
+    );
 
     Err(CHAT_DISPATCH_RESTART_AFTER_COMPACTION.to_string())
+}
+
+fn persist_tool_loop_compaction_checkpoint(
+    state: &AppState,
+    context: &ToolLoopAutoCompactionContext,
+    transient_tool_history: &[Value],
+    partial_assistant_text: &str,
+    partial_reasoning_standard: &str,
+    chat_session_key: &str,
+    reason: &str,
+) -> Result<Conversation, String> {
+    let history_for_checkpoint = tool_history_without_organize_context(transient_tool_history.to_vec());
+    let should_persist = !partial_assistant_text.trim().is_empty()
+        || !partial_reasoning_standard.trim().is_empty()
+        || !history_for_checkpoint.is_empty();
+    if should_persist {
+        let persist_result = conversation_service().persist_stop_chat_partial_message(
+            state,
+            Some(context.conversation_id.as_str()),
+            None,
+            &context.agent.id,
+            partial_assistant_text,
+            partial_reasoning_standard,
+            "",
+            &history_for_checkpoint,
+        )?;
+        runtime_log_info(format!(
+            "[上下文整理] 完成，任务=interrupt_checkpoint，conversation_id={}，reason={}，persisted={}，assistant_message_id={}，tool_event_count={}",
+            context.conversation_id,
+            reason,
+            persist_result.persisted,
+            persist_result
+                .assistant_message
+                .as_ref()
+                .map(|message| message.id.as_str())
+                .unwrap_or(""),
+            history_for_checkpoint.len()
+        ));
+        clear_inflight_completed_tool_history(state, chat_session_key)?;
+    } else {
+        runtime_log_info(format!(
+            "[上下文整理] 跳过，任务=interrupt_checkpoint，conversation_id={}，reason={}，原因=无可落盘内容",
+            context.conversation_id, reason
+        ));
+    }
+    tool_loop_active_conversation_snapshot(state, &context.conversation_id)?
+        .ok_or_else(|| "上下文整理前重新读取会话失败：会话不存在或已归档。".to_string())
+}
+
+async fn apply_organize_context_compaction_checkpoint(
+    state: Option<&AppState>,
+    context: Option<&ToolLoopAutoCompactionContext>,
+    selected_api: &ApiConfig,
+    resolved_api: &ResolvedApiConfig,
+    on_delta: &tauri::ipc::Channel<AssistantDeltaEvent>,
+    _transient_tool_history: &[Value],
+    partial_assistant_text: &str,
+    partial_reasoning_standard: &str,
+    chat_session_key: &str,
+    pending_tool_pair_persists: &mut Vec<tauri::async_runtime::JoinHandle<Result<(), String>>>,
+) -> Result<(), String> {
+    let state = state.ok_or_else(|| "缺少应用状态，无法整理上下文。".to_string())?;
+    let context = context.ok_or_else(|| "缺少当前调度上下文，无法整理上下文。".to_string())?;
+    send_organize_context_status_event(
+        on_delta,
+        context,
+        "organize_context",
+        "running",
+        "正在保存已完成工作并压缩上下文...",
+    );
+
+    // Same boundary rule as automatic compaction: organize_context stops the
+    // current dispatch and builds a summary from the durable conversation, so
+    // any spawned tool-result appends from this dispatch must finish first.
+    await_pending_tool_pair_persists(
+        pending_tool_pair_persists,
+        chat_session_key,
+        "organize_context",
+    )
+    .await?;
+
+    let refreshed_source = persist_tool_loop_compaction_checkpoint(
+        state,
+        context,
+        &[],
+        partial_assistant_text,
+        partial_reasoning_standard,
+        chat_session_key,
+        "organize_context",
+    )?;
+    let archive_res = run_context_compaction_pipeline(
+        state,
+        selected_api,
+        resolved_api,
+        &refreshed_source,
+        &context.agent.id,
+        "organize_context",
+        "ORGANIZE-CONTEXT-AUTO",
+        false,
+    )
+    .await;
+    match archive_res {
+        Ok(result) => {
+            if let Some(warning) = result
+                .warning
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+            {
+                runtime_log_warn(format!(
+                    "[上下文整理] organize_context 完成但有降级 warning conversation_id={} warning={}",
+                    context.conversation_id, warning
+                ));
+            }
+            send_organize_context_status_event(
+                on_delta,
+                context,
+                "organize_context",
+                "done",
+                "上下文压缩完成，正在重新开始当前调度...",
+            );
+            Ok(())
+        }
+        Err(err) => {
+            send_organize_context_status_event(
+                on_delta,
+                context,
+                "organize_context",
+                "failed",
+                &format!("上下文压缩失败：{err}"),
+            );
+            Err(format!("整理失败：{err}"))
+        }
+    }
 }
 
 async fn run_genai_tool_loop(
@@ -990,6 +1265,8 @@ async fn run_genai_tool_loop(
     let mut full_assistant_text = String::new();
     let mut full_reasoning_standard = String::new();
     let mut tool_history_events = Vec::<Value>::new();
+    let mut pending_tool_pair_persists =
+        Vec::<tauri::async_runtime::JoinHandle<Result<(), String>>>::new();
     let mut trusted_input_tokens: Option<u64> = None;
     let (system_prompt, mut messages) = build_genai_message_state(&prepared)?;
 
@@ -1007,6 +1284,10 @@ async fn run_genai_tool_loop(
                 resolved_api,
                 on_delta,
                 &tool_history_events,
+                &full_assistant_text,
+                &full_reasoning_standard,
+                chat_session_key,
+                &mut pending_tool_pair_persists,
             )
             .await?;
         }
@@ -1312,18 +1593,31 @@ async fn run_genai_tool_loop(
                     Value::String(turn_reasoning.trim().to_string()),
                 );
             }
+            let assistant_tool_event_for_persist = assistant_tool_event.clone();
             tool_history_events.push(assistant_tool_event);
             let history_content = sanitize_tool_result_for_history(&tool_name, &tool_result_text);
-            tool_history_events.push(serde_json::json!({
+            let tool_result_event = serde_json::json!({
                 "role": "tool",
                 "tool_call_id": tool_call_id,
                 "content": history_content
-            }));
+            });
+            tool_history_events.push(tool_result_event.clone());
             sync_completed_tool_history_cache(
                 tool_abort_state,
                 chat_session_key,
                 &tool_history_events,
             );
+            if let Some(handle) = persist_completed_tool_pair_async(
+                tool_abort_state,
+                auto_compaction_context,
+                selected_api,
+                trusted_input_tokens,
+                chat_session_key,
+                assistant_tool_event_for_persist,
+                tool_result_event,
+            ) {
+                pending_tool_pair_persists.push(handle);
+            }
 
             if tool_loop_should_close_for_guided_queue(tool_abort_state, auto_compaction_context) {
                 runtime_log_info(format!(
@@ -1402,6 +1696,26 @@ async fn run_genai_tool_loop(
                 tool_history_events,
                 trusted_input_tokens,
             ));
+        }
+
+        if deferred_outcome
+            .as_ref()
+            .is_some_and(|outcome| matches!(outcome, DeferredToolLoopOutcome::OrganizeContext))
+        {
+            apply_organize_context_compaction_checkpoint(
+                tool_abort_state,
+                auto_compaction_context,
+                selected_api,
+                resolved_api,
+                on_delta,
+                &tool_history_events,
+                &full_assistant_text,
+                &full_reasoning_standard,
+                chat_session_key,
+                &mut pending_tool_pair_persists,
+            )
+            .await?;
+            return Err(CHAT_DISPATCH_RESTART_AFTER_COMPACTION.to_string());
         }
 
         if let Some(outcome) = deferred_outcome {
@@ -1563,6 +1877,8 @@ async fn run_genai_tool_loop_non_stream(
     let mut full_assistant_text = String::new();
     let mut full_reasoning_standard = String::new();
     let mut tool_history_events = Vec::<Value>::new();
+    let mut pending_tool_pair_persists =
+        Vec::<tauri::async_runtime::JoinHandle<Result<(), String>>>::new();
     let mut trusted_input_tokens: Option<u64> = None;
     let (system_prompt, mut messages) = build_genai_message_state(&prepared)?;
 
@@ -1579,6 +1895,10 @@ async fn run_genai_tool_loop_non_stream(
                 resolved_api,
                 on_delta,
                 &tool_history_events,
+                &full_assistant_text,
+                &full_reasoning_standard,
+                chat_session_key,
+                &mut pending_tool_pair_persists,
             )
             .await?;
         }
@@ -1786,18 +2106,31 @@ async fn run_genai_tool_loop_non_stream(
                     Value::String(turn_reasoning.trim().to_string()),
                 );
             }
+            let assistant_tool_event_for_persist = assistant_tool_event.clone();
             tool_history_events.push(assistant_tool_event);
             let history_content = sanitize_tool_result_for_history(&tool_name, &tool_result_text);
-            tool_history_events.push(serde_json::json!({
+            let tool_result_event = serde_json::json!({
                 "role": "tool",
                 "tool_call_id": tool_call_id,
                 "content": history_content
-            }));
+            });
+            tool_history_events.push(tool_result_event.clone());
             sync_completed_tool_history_cache(
                 tool_abort_state,
                 chat_session_key,
                 &tool_history_events,
             );
+            if let Some(handle) = persist_completed_tool_pair_async(
+                tool_abort_state,
+                auto_compaction_context,
+                selected_api,
+                trusted_input_tokens,
+                chat_session_key,
+                assistant_tool_event_for_persist,
+                tool_result_event,
+            ) {
+                pending_tool_pair_persists.push(handle);
+            }
 
             if tool_loop_should_close_for_guided_queue(tool_abort_state, auto_compaction_context) {
                 runtime_log_info(format!(
@@ -1876,6 +2209,26 @@ async fn run_genai_tool_loop_non_stream(
                 tool_history_events,
                 trusted_input_tokens,
             ));
+        }
+
+        if deferred_outcome
+            .as_ref()
+            .is_some_and(|outcome| matches!(outcome, DeferredToolLoopOutcome::OrganizeContext))
+        {
+            apply_organize_context_compaction_checkpoint(
+                tool_abort_state,
+                auto_compaction_context,
+                selected_api,
+                resolved_api,
+                on_delta,
+                &tool_history_events,
+                &full_assistant_text,
+                &full_reasoning_standard,
+                chat_session_key,
+                &mut pending_tool_pair_persists,
+            )
+            .await?;
+            return Err(CHAT_DISPATCH_RESTART_AFTER_COMPACTION.to_string());
         }
 
         if let Some(outcome) = deferred_outcome {
@@ -2022,6 +2375,57 @@ mod tool_loop_tests {
         );
 
         assert_eq!(final_text.as_deref(), Some("用户应直接看到这句"));
+    }
+
+    #[test]
+    fn tool_history_without_organize_context_should_keep_prior_business_tools() {
+        let read_call_id = "call-read";
+        let organize_call_id = "call-organize";
+        let events = vec![
+            serde_json::json!({
+                "role": "assistant",
+                "content": Value::Null,
+                "tool_calls": [{
+                    "id": read_call_id,
+                    "type": "function",
+                    "function": {
+                        "name": "read",
+                        "arguments": "{}"
+                    }
+                }]
+            }),
+            serde_json::json!({
+                "role": "tool",
+                "tool_call_id": read_call_id,
+                "content": "读取完成"
+            }),
+            serde_json::json!({
+                "role": "assistant",
+                "content": Value::Null,
+                "tool_calls": [{
+                    "id": organize_call_id,
+                    "type": "function",
+                    "function": {
+                        "name": "organize_context",
+                        "arguments": "{}"
+                    }
+                }]
+            }),
+            serde_json::json!({
+                "role": "tool",
+                "tool_call_id": organize_call_id,
+                "content": r#"{"ok":true,"applied":true}"#
+            }),
+        ];
+
+        let filtered = tool_history_without_organize_context(events);
+
+        assert_eq!(filtered.len(), 2);
+        assert_eq!(
+            filtered[0]["tool_calls"][0]["function"]["name"].as_str(),
+            Some("read")
+        );
+        assert_eq!(filtered[1]["tool_call_id"].as_str(), Some(read_call_id));
     }
 
     #[test]

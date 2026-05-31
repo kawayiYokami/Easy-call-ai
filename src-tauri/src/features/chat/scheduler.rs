@@ -187,8 +187,11 @@ pub(crate) struct ConversationStreamRuntimeCacheSnapshot {
     pub stream_tool_calls: Vec<ConversationStreamToolCallRuntimeCache>,
     pub stream_tool_call_count: usize,
     pub stream_last_tool_name: String,
+    pub started_at: String,
+    pub started_at_ms: u64,
     pub updated_at: String,
     pub has_visible_progress: bool,
+    pub persisted_assistant_message_id: String,
 }
 
 const CHAT_QUEUE_SNAPSHOT_EVENT: &str = "easy-call:chat-queue-snapshot";
@@ -618,17 +621,26 @@ pub(crate) fn ingress_chat_event(
     Ok(ChatEventIngress::Direct(event))
 }
 
-pub(crate) fn register_chat_event_runtime(
+pub(crate) fn register_chat_event_delta_channel(
     state: &AppState,
     event_id: &str,
     on_delta: tauri::ipc::Channel<AssistantDeltaEvent>,
-    sender: tokio::sync::oneshot::Sender<Result<SendChatResult, String>>,
 ) -> Result<(), String> {
     state
         .pending_chat_delta_channels
         .lock()
         .map_err(|_| "Failed to lock pending chat delta channels".to_string())?
         .insert(event_id.to_string(), on_delta);
+    Ok(())
+}
+
+pub(crate) fn register_chat_event_runtime(
+    state: &AppState,
+    event_id: &str,
+    on_delta: tauri::ipc::Channel<AssistantDeltaEvent>,
+    sender: tokio::sync::oneshot::Sender<Result<SendChatResult, String>>,
+) -> Result<(), String> {
+    register_chat_event_delta_channel(state, event_id, on_delta)?;
     state
         .pending_chat_result_senders
         .lock()
@@ -737,14 +749,19 @@ fn conversation_has_focused_chat_view(state: &AppState, conversation_id: &str) -
     if focused_window_labels.is_empty() {
         return false;
     }
-    focused_window_labels.iter().any(|window_label| {
+    if focused_window_labels.iter().any(|window_label| {
         let Some(window) = app_handle.get_webview_window(window_label) else {
             return false;
         };
         let is_visible = window.is_visible().unwrap_or(false);
         let is_focused = window.is_focused().unwrap_or(false);
         is_visible && is_focused
-    })
+    }) {
+        return true;
+    }
+    // VS Code 侧边栏通过 WebSocket 连接，不在 active_chat_view_bindings 中，
+    // 但会注册到 detached_chat_windows；只要会话已打开就应跳过通知。
+    detached_chat_window_for_conversation(conversation_id).is_some()
 }
 
 fn emit_assistant_delta_app_event(
@@ -763,6 +780,7 @@ fn emit_assistant_delta_app_event(
         "conversationId": conversation_id,
         "event": event,
     });
+    ide_chat_broadcast_notification("chat.assistantDelta", payload.clone());
     let _ = app_handle.emit(CHAT_ASSISTANT_DELTA_EVENT, payload);
 }
 
@@ -792,6 +810,15 @@ fn stream_cache_has_visible_progress(cache: &ConversationStreamRuntimeCache) -> 
         || !cache.stream_tool_calls.is_empty()
 }
 
+fn now_unix_ms() -> u64 {
+    let millis = now_utc().unix_timestamp_nanos() / 1_000_000;
+    if millis <= 0 {
+        0
+    } else {
+        millis.min(i128::from(u64::MAX)) as u64
+    }
+}
+
 fn event_tool_call_id(event: &AssistantDeltaEvent) -> Option<&str> {
     event
         .tool_call_id
@@ -818,16 +845,40 @@ fn reset_conversation_stream_runtime_cache(
     conversation_id: &str,
     activation_id: &str,
     request_id: &str,
+    started_at: &str,
+    started_at_ms: u64,
 ) -> Result<(), String> {
     let mut slots = lock_conversation_runtime_slots(state)?;
     let slot = conversation_slot_mut(&mut slots, conversation_id);
     slot.stream_cache = ConversationStreamRuntimeCache {
         activation_id: activation_id.trim().to_string(),
         request_id: request_id.trim().to_string(),
-        updated_at: now_iso(),
+        started_at: started_at.trim().to_string(),
+        started_at_ms,
+        updated_at: started_at.trim().to_string(),
         ..ConversationStreamRuntimeCache::default()
     };
     Ok(())
+}
+
+fn set_stream_cache_persisted_assistant_message_id(
+    state: &AppState,
+    conversation_id: &str,
+    assistant_message_id: &str,
+) {
+    let mut slots = match lock_conversation_runtime_slots(state) {
+        Ok(slots) => slots,
+        Err(err) => {
+            eprintln!("[聊天流式缓存] 更新 persisted_assistant_message_id 失败，锁错误: {err}");
+            return;
+        }
+    };
+    let cid = conversation_id.trim();
+    if cid.is_empty() {
+        return;
+    }
+    let slot = conversation_slot_mut(&mut slots, cid);
+    slot.stream_cache.persisted_assistant_message_id = assistant_message_id.trim().to_string();
 }
 
 fn clear_conversation_stream_runtime_cache(
@@ -1001,6 +1052,7 @@ fn emit_stream_rebind_required_event(
         "phaseId": phase_id.map(str::trim).filter(|value| !value.is_empty()),
         "reason": reason.trim(),
     });
+    ide_chat_broadcast_notification("chat.streamRebindRequired", payload.clone());
     runtime_log_info(format!(
         "[聊天流式重绑] 发送普通事件 conversation_id={} request_id={} phase_id={} reason={}",
         conversation_id.trim(),
@@ -1289,8 +1341,11 @@ pub(crate) fn read_conversation_runtime_snapshot(
         stream_tool_calls: stream_cache.stream_tool_calls,
         stream_tool_call_count: stream_cache.stream_tool_call_count,
         stream_last_tool_name: stream_cache.stream_last_tool_name,
+        started_at: stream_cache.started_at,
+        started_at_ms: stream_cache.started_at_ms,
         updated_at: stream_cache.updated_at,
         has_visible_progress,
+        persisted_assistant_message_id: stream_cache.persisted_assistant_message_id,
     };
     Ok(ConversationRuntimeSnapshot {
         conversation_id: cid.to_string(),
@@ -1470,6 +1525,53 @@ fn collect_activated_remote_im_sources(
         }
     }
     activated_remote_im_sources
+}
+
+fn remote_im_source_has_pending_queue_event(
+    state: &AppState,
+    conversation_id: &str,
+    source: &RemoteImActivationSource,
+) -> bool {
+    let Ok(slots) = lock_conversation_runtime_slots(state) else {
+        return false;
+    };
+    let Some(slot) = slots.get(conversation_id.trim()) else {
+        return false;
+    };
+    let source_key = remote_im_activation_source_key(source);
+    slot.pending_queue.iter().any(|event| {
+        matches!(event.source, ChatEventSource::RemoteIm)
+            && event
+                .sender_info
+                .as_ref()
+                .map(|sender| {
+                    remote_im_activation_source_key(&remote_im_activation_source_from_sender(sender))
+                        == source_key
+                })
+                .unwrap_or(false)
+    })
+}
+
+fn filter_remote_im_follow_up_sources_for_pending_queue(
+    state: &AppState,
+    conversation_id: &str,
+    sources: Vec<RemoteImActivationSource>,
+) -> Vec<RemoteImActivationSource> {
+    sources
+        .into_iter()
+        .filter(|source| {
+            let has_pending_queue =
+                remote_im_source_has_pending_queue_event(state, conversation_id, source);
+            if has_pending_queue {
+                runtime_log_info(format!(
+                    "[远程联系人状态机] 待办续跑跳过: conversation_id={}，remote_contact_id={}，reason=等待队列消息先写入历史",
+                    conversation_id,
+                    source.remote_contact_id
+                ));
+            }
+            !has_pending_queue
+        })
+        .collect()
 }
 
 fn release_conversation_processing_claim(
@@ -1997,6 +2099,11 @@ async fn process_conversation_batch(
                             Vec::new()
                         }
                     };
+                    follow_up_sources = filter_remote_im_follow_up_sources_for_pending_queue(
+                        state,
+                        conversation_id,
+                        follow_up_sources,
+                    );
                     emit_round_completed_event(
                         state,
                         conversation_id,
@@ -2054,6 +2161,12 @@ async fn process_conversation_batch(
                                         Vec::new()
                                     }
                                 };
+                                follow_up_sources =
+                                    filter_remote_im_follow_up_sources_for_pending_queue(
+                                        state,
+                                        conversation_id,
+                                        follow_up_sources,
+                                    );
                                 emit_round_completed_event(
                                     state,
                                     conversation_id,
@@ -2211,11 +2324,15 @@ async fn activate_main_assistant(
     }
     let activation_id = trace_id.clone();
     let activation_reason = resolve_activation_reason(&runtime_context);
+    let stream_started_at = now_iso();
+    let stream_started_at_ms = now_unix_ms();
     reset_conversation_stream_runtime_cache(
         state,
         conversation_id,
         activation_id.as_str(),
         trace_id.as_str(),
+        stream_started_at.as_str(),
+        stream_started_at_ms,
     )?;
     emit_round_started_event(
         state,
@@ -2225,6 +2342,8 @@ async fn activate_main_assistant(
         activation_reason.as_str(),
         session_info.department_id.as_str(),
         session_info.agent_id.as_str(),
+        stream_started_at.as_str(),
+        stream_started_at_ms,
     );
 
     // 设置状态为 AssistantStreaming
@@ -2436,6 +2555,57 @@ async fn activate_main_assistant(
         ));
     }
 
+    // 后台会话活动标记：前台观看时不写 completed/failed，直接清标记
+    let is_watched = state
+        .active_chat_view_bindings
+        .lock()
+        .ok()
+        .map(|bindings| {
+            bindings.values().any(|b| b.conversation_id.trim() == conversation_id)
+        })
+        .unwrap_or(false)
+        || detached_chat_window_for_conversation(conversation_id).is_some();
+    if is_watched {
+        clear_conversation_list_activity_mark(state, conversation_id);
+    } else {
+        match &result {
+            Ok(_) => {
+                set_conversation_list_activity_mark(
+                    state,
+                    conversation_id,
+                    ConversationListActivityMark {
+                        activity: "completed".to_string(),
+                        failed_message: None,
+                        completed_at: Some(now_iso()),
+                    },
+                );
+            }
+            Err(err) => {
+                if err != CHAT_ABORTED_BY_USER_ERROR {
+                    set_conversation_list_activity_mark(
+                        state,
+                        conversation_id,
+                        ConversationListActivityMark {
+                            activity: "failed".to_string(),
+                            failed_message: Some(err.clone()),
+                            completed_at: None,
+                        },
+                    );
+                } else {
+                    clear_conversation_list_activity_mark(state, conversation_id);
+                }
+            }
+        }
+    }
+
+    // 活动标记变化后广播完整列表更新
+    if let Err(err) = emit_unarchived_conversation_overview_updated_from_state(state) {
+        runtime_log_warn(format!(
+            "[会话概览] 跳过，任务=活动标记更新后推送，conversation_id={}，error={}",
+            conversation_id, err
+        ));
+    }
+
     result.map(|result| ActivatedAssistantResult {
         result,
         activation_id,
@@ -2466,6 +2636,7 @@ fn emit_history_flushed_event(
     conversation_id: &str,
     event_ids: &[String],
 ) {
+    ide_chat_broadcast_notification("chat.historyFlushed", payload.clone());
     let app_handle = match state.app_handle.lock() {
         Ok(guard) => guard.as_ref().cloned(),
         Err(_) => None,
@@ -2496,6 +2667,8 @@ fn emit_round_started_event(
     reason: &str,
     department_id: &str,
     agent_id: &str,
+    started_at: &str,
+    started_at_ms: u64,
 ) {
     let app_handle = match state.app_handle.lock() {
         Ok(guard) => guard.as_ref().cloned(),
@@ -2515,7 +2688,10 @@ fn emit_round_started_event(
         "reason": reason,
         "departmentId": department_id,
         "agentId": agent_id,
+        "startedAt": started_at,
+        "startedAtMs": started_at_ms,
     });
+    ide_chat_broadcast_notification("chat.roundStarted", payload.clone());
     match app_handle.emit(CHAT_ROUND_STARTED_EVENT, payload) {
         Ok(_) => {}
         Err(err) => eprintln!(
@@ -2548,12 +2724,14 @@ fn emit_round_completed_event(
         "conversationId": conversation_id,
         "activationId": activation_id.map(str::trim).filter(|value| !value.is_empty()),
         "requestId": request_id.map(str::trim).filter(|value| !value.is_empty()),
+        "status": "completed",
         "assistantText": result.assistant_text,
         "reasoningStandard": result.reasoning_standard,
         "reasoningInline": result.reasoning_inline,
         "archivedBeforeSend": result.archived_before_send,
         "assistantMessage": result.assistant_message,
     });
+    ide_chat_broadcast_notification("chat.roundFinished", payload.clone());
     match app_handle.emit(CHAT_ROUND_COMPLETED_EVENT, payload) {
         Ok(_) => {}
         Err(err) => eprintln!(
@@ -2743,12 +2921,14 @@ fn emit_stop_chat_round_completed_event(
     };
     let payload = serde_json::json!({
         "conversationId": conversation_id,
+        "status": "stopped",
         "assistantText": result.assistant_text,
         "reasoningStandard": result.reasoning_standard,
         "reasoningInline": result.reasoning_inline,
         "archivedBeforeSend": false,
         "assistantMessage": result.assistant_message,
     });
+    ide_chat_broadcast_notification("chat.roundFinished", payload.clone());
     match app_handle.emit(CHAT_ROUND_COMPLETED_EVENT, payload) {
         Ok(_) => {}
         Err(err) => eprintln!(
@@ -2781,8 +2961,10 @@ fn emit_round_failed_event(
         "conversationId": conversation_id,
         "activationId": activation_id.map(str::trim).filter(|value| !value.is_empty()),
         "requestId": request_id.map(str::trim).filter(|value| !value.is_empty()),
+        "status": "failed",
         "error": error_text,
     });
+    ide_chat_broadcast_notification("chat.roundFinished", payload.clone());
     match app_handle.emit(CHAT_ROUND_FAILED_EVENT, payload) {
         Ok(_) => {}
         Err(err) => eprintln!(

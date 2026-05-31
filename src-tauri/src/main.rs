@@ -21,7 +21,7 @@ use tauri::{
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
     AppHandle, Emitter, Manager, PhysicalPosition, Position, State,
 };
-use tauri_plugin_dialog::DialogExt;
+use tauri_plugin_dialog::{DialogExt, MessageDialogKind};
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut, ShortcutState};
 use time::{format_description::well_known::Rfc3339, OffsetDateTime, UtcOffset};
 use uuid::Uuid;
@@ -67,6 +67,7 @@ include!("features/system/updater.rs");
 // ==================== 记忆匹配 ====================
 include!("features/memory/store.rs");
 include!("features/memory/matcher.rs");
+include!("features/memory/chat_history_search.rs");
 include!("features/memory/providers.rs");
 
 // ==================== MCP ====================
@@ -123,6 +124,15 @@ fn install_tauri_async_runtime() -> Result<tokio::runtime::Runtime, String> {
         format!("设置 Tauri 异步运行时失败: {panic_text}")
     })?;
     Ok(runtime)
+}
+
+#[tauri::command]
+fn demo_restart_app(app: AppHandle) -> Result<(), String> {
+    std::thread::spawn(move || {
+        std::thread::sleep(std::time::Duration::from_millis(200));
+        graceful_restart_app(&app);
+    });
+    Ok(())
 }
 
 // Remote IM 命令包装
@@ -278,6 +288,73 @@ fn frontend_ready_start_remote_im_services(app: AppHandle) -> Result<bool, Strin
     Ok(true)
 }
 
+/// 阶段 2 延迟初始化：在 backend_ready 之后异步执行，避免阻塞前端首屏渲染。
+async fn run_deferred_setup(app_handle: AppHandle) {
+    let app_state = app_handle.state::<AppState>();
+
+    let emit_progress = |step: &str| {
+        let _ = app_handle.emit("easy-call:startup-progress", step);
+        eprintln!("[启动-延迟] 开始: {step}");
+    };
+
+    emit_progress("注册快捷键");
+    if let Err(err) = register_default_hotkey(&app_handle) {
+        eprintln!("[启动-延迟] 注册默认快捷键失败: {err}");
+    }
+    emit_progress("启动持久化服务");
+    if let Err(err) = start_app_data_persist_worker(app_state.inner()) {
+        eprintln!("[启动-延迟] 启动后台持久化服务失败: {err}");
+    }
+    if let Err(err) = start_conversation_persist_worker(app_state.inner()) {
+        eprintln!("[启动-延迟] 启动会话后台持久化服务失败: {err}");
+    }
+    emit_progress("启动录音热键探针");
+    if let Err(err) = start_record_hotkey_probe(
+        app_handle.clone(),
+        app_state.config_path.clone(),
+    ) {
+        eprintln!("[启动-延迟] 启动录音热键探针失败: {err}");
+    }
+    emit_progress("构建系统托盘");
+    if let Err(err) = build_tray(&app_handle) {
+        eprintln!("[启动-延迟] 构建托盘失败: {err}");
+    }
+    emit_progress("配置自检");
+    match state_read_config_cached(app_state.inner()) {
+        Ok(mut config) => {
+            if run_startup_self_checks(&mut config) {
+                if let Err(err) = state_write_config_cached(app_state.inner(), &config) {
+                    eprintln!("[启动自检] 写入修复后的配置失败: {err}");
+                } else {
+                    eprintln!("[启动自检] 完成，已将副手部门模型从默认人格修正为副手");
+                }
+            }
+        }
+        Err(err) => {
+            eprintln!("[启动自检] 读取配置失败: {err}");
+        }
+    }
+    emit_progress("初始化记忆存储");
+    if let Err(err) = memory_store_open(&app_state.data_path) {
+        eprintln!("[启动-延迟] 初始化记忆存储失败: {err}");
+    }
+    emit_progress("初始化任务存储");
+    if let Err(err) = task_store_open(&app_state.data_path) {
+        eprintln!("[启动-延迟] 初始化任务存储失败: {err}");
+    }
+    emit_progress("初始化委托存储");
+    if let Err(err) = delegate_store_open(&app_state.data_path) {
+        eprintln!("[启动-延迟] 初始化委托存储失败：{err}");
+    }
+    let _ = sync_default_tray_icon(&app_handle);
+    if should_enable_devtools() {
+        eprintln!("[启动-延迟] 检测到 devtools 开关已开启，但当前构建未启用 open_devtools API，跳过打开 devtools");
+    }
+    let _ = app_handle.emit("easy-call:startup-progress", "done");
+    start_webview_heartbeat_monitor(&app_handle);
+    eprintln!("[启动-延迟] 阶段 2 初始化完成");
+}
+
 async fn start_background_services_after_frontend_ready(
     app_handle: AppHandle,
     startup_state: AppState,
@@ -294,8 +371,8 @@ async fn start_background_services_after_frontend_ready(
         Ok(result) => log_workspace_load_result("[工作区加载]", &result),
         Err(err) => eprintln!("[工作区加载] 状态=失败，error={err}"),
     }
-    start_remote_im_services_after_frontend_ready(app_handle).await;
-    start_ide_context_bridge_server(startup_state, ide_context_runtime);
+    start_remote_im_services_after_frontend_ready(app_handle.clone()).await;
+    start_ide_context_bridge_server(app_handle, startup_state, ide_context_runtime);
 }
 
 async fn start_remote_im_services_after_frontend_ready(app_handle: AppHandle) {
@@ -328,6 +405,7 @@ async fn start_remote_im_services_after_frontend_ready(app_handle: AppHandle) {
         .filter(|ch| ch.enabled && ch.platform == RemoteImPlatform::OnebotV11)
         .cloned()
         .collect();
+    let mut started_napcat_channels = Vec::new();
     for channel in &napcat_channels {
         let effective_channel =
             match remote_im_channel_with_effective_credentials(&event_state, channel) {
@@ -340,14 +418,19 @@ async fn start_remote_im_services_after_frontend_ready(app_handle: AppHandle) {
                     continue;
                 }
             };
-        if let Err(err) = onebot_v11_ws_server_start(effective_channel, app_handle.clone()) {
-            eprintln!(
-                "[启动] 前端就绪后启动 OneBot v11 WS 服务失败: channel_id={}, error={}",
-                channel.id, err
-            );
+        match onebot_v11_ws_server_start(effective_channel).await {
+            Ok(()) => {
+                started_napcat_channels.push(channel.clone());
+            }
+            Err(err) => {
+                eprintln!(
+                    "[启动] 前端就绪后启动 OneBot v11 WS 服务失败: channel_id={}, error={}",
+                    channel.id, err
+                );
+            }
         }
     }
-    for channel in napcat_channels {
+    for channel in started_napcat_channels {
         let channel_id = channel.id.clone();
         let state_clone = event_state.clone();
         if let Err(err) = onebot_v11_ws_manager()
@@ -417,9 +500,33 @@ async fn start_remote_im_services_after_frontend_ready(app_handle: AppHandle) {
 const APP_SHUTDOWN_STATE_IDLE: u8 = 0;
 const APP_SHUTDOWN_STATE_RUNNING: u8 = 1;
 const APP_SHUTDOWN_STATE_DONE: u8 = 2;
+const BACKGROUND_SHUTDOWN_TIMEOUT_SECS: u64 = 60;
 
 static APP_SHUTDOWN_STATE: std::sync::atomic::AtomicU8 =
     std::sync::atomic::AtomicU8::new(APP_SHUTDOWN_STATE_IDLE);
+
+fn show_background_shutdown_timeout_dialog(app: &AppHandle) {
+    let message = "自动关闭失败，请手动关闭应用重启";
+    eprintln!("[退出] {message}");
+    app.dialog()
+        .message(message)
+        .title("自动关闭失败")
+        .kind(MessageDialogKind::Error)
+        .show(|_| {});
+}
+
+fn show_background_shutdown_timeout_dialog_then_exit(app: &AppHandle, code: i32) {
+    let message = "自动关闭失败，请手动关闭应用重启";
+    eprintln!("[退出] {message}");
+    let app_handle = app.clone();
+    app.dialog()
+        .message(message)
+        .title("自动关闭失败")
+        .kind(MessageDialogKind::Error)
+        .show(move |_| {
+            app_handle.exit(code);
+        });
+}
 
 async fn graceful_shutdown_background_services(app: &AppHandle) {
     let shutdown_started = APP_SHUTDOWN_STATE.compare_exchange(
@@ -460,26 +567,17 @@ async fn graceful_shutdown_background_services(app: &AppHandle) {
             match channel.platform {
                 RemoteImPlatform::OnebotV11 => shutdown_futures.push(Box::pin(async move {
                     let stop_started = std::time::Instant::now();
-                    match tokio::time::timeout(
-                        std::time::Duration::from_secs(10),
-                        onebot_v11_ws_manager().stop_channel(&channel_id),
-                    )
-                    .await
-                    {
-                        Ok(Ok(())) => eprintln!(
+                    match onebot_v11_ws_manager().stop_channel(&channel_id).await {
+                        Ok(()) => eprintln!(
                             "[退出] OneBot 渠道已停止: channel_id={}，duration_ms={}",
                             channel_id,
                             stop_started.elapsed().as_millis()
                         ),
-                        Ok(Err(err)) => eprintln!(
-                            "[退出] OneBot 渠道停止失败: channel_id={}，duration_ms={}，error={}",
+                        Err(err) => eprintln!(
+                            "[退出] OneBot 渠道停止异常，底层已执行强制清理: channel_id={}，duration_ms={}，error={}",
                             channel_id,
                             stop_started.elapsed().as_millis(),
                             err
-                        ),
-                        Err(_) => eprintln!(
-                            "[退出] OneBot 渠道停止超时: channel_id={}，timeout_ms=10000",
-                            channel_id
                         ),
                     }
                 })),
@@ -530,6 +628,13 @@ async fn graceful_shutdown_background_services(app: &AppHandle) {
     // 兜底广播关闭，确保仍持有 shutdown receiver 的旧渠道尽快退出 accept 循环。
     onebot_v11_ws_manager().shutdown().await;
 
+    let ide_bridge_started_at = std::time::Instant::now();
+    shutdown_ide_context_bridge_server().await;
+    eprintln!(
+        "[退出] IDE 上下文桥已停止: duration_ms={}",
+        ide_bridge_started_at.elapsed().as_millis()
+    );
+
     match load_workspace_mcp_servers(&state) {
         Ok(servers) => {
             let shutdown_futures = servers
@@ -574,21 +679,49 @@ async fn graceful_shutdown_background_services(app: &AppHandle) {
     APP_SHUTDOWN_STATE.store(APP_SHUTDOWN_STATE_DONE, std::sync::atomic::Ordering::SeqCst);
 }
 
-fn graceful_shutdown_background_services_blocking(app: &AppHandle) {
-    tauri::async_runtime::block_on(graceful_shutdown_background_services(app));
+async fn graceful_shutdown_background_services_with_timeout(app: &AppHandle) -> bool {
+    match tokio::time::timeout(
+        std::time::Duration::from_secs(BACKGROUND_SHUTDOWN_TIMEOUT_SECS),
+        graceful_shutdown_background_services(app),
+    )
+    .await
+    {
+        Ok(()) => true,
+        Err(_) => {
+            APP_SHUTDOWN_STATE.store(
+                APP_SHUTDOWN_STATE_IDLE,
+                std::sync::atomic::Ordering::SeqCst,
+            );
+            eprintln!("[退出] 后台服务自动关闭超过 {} 秒", BACKGROUND_SHUTDOWN_TIMEOUT_SECS);
+            false
+        }
+    }
+}
+
+fn graceful_shutdown_background_services_blocking(app: &AppHandle) -> bool {
+    tauri::async_runtime::block_on(graceful_shutdown_background_services_with_timeout(app))
 }
 
 fn graceful_exit_app(app: &AppHandle, code: i32) {
-    graceful_shutdown_background_services_blocking(app);
-    app.exit(code);
+    if graceful_shutdown_background_services_blocking(app) {
+        app.exit(code);
+    } else {
+        show_background_shutdown_timeout_dialog_then_exit(app, code);
+    }
 }
 
 fn graceful_restart_app(app: &AppHandle) {
-    graceful_shutdown_background_services_blocking(app);
-    app.restart();
+    if graceful_shutdown_background_services_blocking(app) {
+        app.restart();
+    } else {
+        show_background_shutdown_timeout_dialog(app);
+    }
 }
 
 fn main() {
+    init_backend_file_logging();
+    install_backend_file_panic_hook();
+
     if std::env::args().any(|arg| arg == MCP_SCREENSHOT_SERVER_FLAG) {
         if let Err(err) = run_desktop_screenshot_mcp_server() {
             eprintln!("{err}");
@@ -718,49 +851,9 @@ fn main() {
                     eprintln!("[启动] 写入应用句柄槽位失败: {e}");
                 }
             }
-            if let Err(err) = register_default_hotkey(&app_handle) {
-                eprintln!("[启动] 注册默认快捷键失败: {err}");
-            }
-            if let Err(err) = start_app_data_persist_worker(app_handle.state::<AppState>().inner()) {
-                eprintln!("[启动] 启动后台持久化服务失败: {err}");
-            }
-            if let Err(err) = start_conversation_persist_worker(app_handle.state::<AppState>().inner()) {
-                eprintln!("[启动] 启动会话后台持久化服务失败: {err}");
-            }
-            if let Err(err) = start_record_hotkey_probe(
-                app_handle.clone(),
-                app_handle.state::<AppState>().config_path.clone(),
-            ) {
-                eprintln!("[启动] 启动录音热键探针失败: {err}");
-            }
-            if let Err(err) = build_tray(&app_handle) {
-                eprintln!("[启动] 构建托盘失败: {err}");
-            }
+
+            // ========== 阶段 1：最小启动，尽快让前端可见 ==========
             let app_state = app_handle.state::<AppState>();
-            match state_read_config_cached(app_state.inner()) {
-                Ok(mut config) => {
-                    if run_startup_self_checks(&mut config) {
-                        if let Err(err) = state_write_config_cached(app_state.inner(), &config) {
-                            eprintln!("[启动自检] 写入修复后的配置失败: {err}");
-                        } else {
-                            eprintln!("[启动自检] 完成，已将副手部门模型从默认人格修正为副手");
-                        }
-                    }
-                }
-                Err(err) => {
-                    eprintln!("[启动自检] 读取配置失败: {err}");
-                }
-            }
-            if let Err(err) = memory_store_open(&app_state.data_path) {
-                eprintln!("[启动] 初始化记忆存储失败: {err}");
-            }
-            if let Err(err) = task_store_open(&app_state.data_path) {
-                eprintln!("[启动] 初始化任务存储失败: {err}");
-            }
-            if let Err(err) = delegate_store_open(&app_state.data_path) {
-                eprintln!("[启动] 初始化委托存储失败：{err}");
-            }
-            let _ = sync_default_tray_icon(&app_handle);
             attach_window_layout_persistence(&app_handle);
             hide_on_close(&app_handle);
             let startup_window_label = match state_read_config_cached(app_state.inner()) {
@@ -781,10 +874,19 @@ fn main() {
                     let _ = window.set_focus();
                 }
             }
-            if should_enable_devtools() {
-                eprintln!("[启动] 检测到 devtools 开关已开启，但当前构建未启用 open_devtools API，跳过打开 devtools");
-            }
-            eprintln!("[启动] 任务调度、工作区加载与远程 IM 服务延后到前端 mounted ready 后启动");
+            app_handle
+                .state::<AppState>()
+                .backend_ready
+                .store(true, std::sync::atomic::Ordering::Release);
+            let _ = app_handle.emit("easy-call:backend-ready", ());
+            eprintln!("[启动] 后端就绪信号已发出（阶段 1 完成）");
+
+            // ========== 阶段 2：异步完成剩余初始化 ==========
+            let deferred_handle = app_handle.clone();
+            tauri::async_runtime::spawn(async move {
+                run_deferred_setup(deferred_handle).await;
+            });
+
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -792,6 +894,8 @@ fn main() {
             show_chat_window,
             show_archives_window,
             show_quick_setup_window,
+            open_runtime_logs_window,
+            hide_current_window,
             complete_quick_setup_and_open_chat,
             detach_current_conversation_to_window,
             get_detached_chat_window_info,
@@ -809,6 +913,9 @@ fn main() {
             check_message_store_migration,
             run_message_store_migration,
             load_app_bootstrap_snapshot,
+            is_backend_ready,
+            webview_pong,
+            debug_crash_webview,
             list_system_fonts,
             set_webview_zoom_percent,
             set_chat_side_panels_window_expanded,
@@ -839,6 +946,8 @@ fn main() {
             mark_conversation_read,
             set_conversation_plan_mode,
             create_unarchived_conversation,
+            export_conversation_share_json,
+            import_conversation_share_from_file,
             branch_unarchived_conversation_from_selection,
             forward_unarchived_conversation_selection,
             rename_unarchived_conversation,
@@ -882,6 +991,7 @@ fn main() {
             write_utf8_text_file_to_path,
             write_base64_file_to_path,
             search_memories_mixed,
+            search_chat_history_slices,
             sync_memory_embedding_provider,
             test_memory_embedding_provider,
             test_memory_rerank_provider,
@@ -903,6 +1013,7 @@ fn main() {
             open_workspace_file,
             read_plan_file_content,
             confirm_plan_and_continue,
+            submit_chat_message,
             send_chat_message,
             send_user_mention_message,
             submit_user_async_delegate,
@@ -918,12 +1029,14 @@ fn main() {
             queue_local_file_attachment,
             queue_inline_file_attachment,
             stt_transcribe,
-            force_archive_current,
-            force_compact_current,
-            preview_force_archive_current,
-            preview_force_compact_current,
+            trim_current_conversation,
+            trim_compact_current,
+            preview_trim_current_conversation,
+            preview_trim_compact_current,
             refresh_models,
             quick_genai_chat,
+            test_embedding_connection,
+            test_voice_connection,
             resolve_model_adapter_kind,
             fetch_model_metadata,
             export_config_migration_package,
@@ -941,6 +1054,7 @@ fn main() {
             list_recent_llm_round_logs,
             clear_recent_llm_round_logs,
             list_recent_runtime_logs,
+            list_runtime_logs_since,
             clear_recent_runtime_logs,
             append_runtime_log_probe,
             remote_im_list_channels,
@@ -972,6 +1086,7 @@ fn main() {
             desktop_screenshot,
             xcap,
             demo_send_native_notification,
+            demo_restart_app,
             get_host_runtime_prerequisites,
             install_host_runtime_prerequisite,
             terminal_self_check,
@@ -996,6 +1111,7 @@ fn main() {
             open_file_reader_window_command,
             read_file_reader_file,
             list_file_reader_directory,
+            update_file_reader_watch_targets,
             open_file_reader_directory_shell,
             open_local_file_directory,
             open_file_with_default_program,

@@ -50,7 +50,7 @@
 
 <script setup lang="ts">
 import { useI18n } from "vue-i18n";
-import { Undo2 } from "lucide-vue-next";
+import { Undo2 } from "@lucide/vue";
 import type { ChatQueueEvent, MainSessionState } from "../composables/use-chat-queue";
 
 const props = defineProps<{

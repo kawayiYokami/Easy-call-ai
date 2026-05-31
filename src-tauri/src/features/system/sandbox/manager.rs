@@ -52,7 +52,9 @@ impl SandboxManager {
         // Defense in depth: backend entrance re-checks cwd policy.
         // On Windows this backend is mainly a controlled process runner with
         // process-tree cleanup, not a true OS-level sandbox.
-        sandbox_assert_cwd_allowed(state, &request.session_id, &request.cwd)?;
+        if !request.cwd_pre_validated {
+            sandbox_assert_cwd_allowed(state, &request.session_id, &request.cwd)?;
+        }
         let runtime_shell = terminal_shell_for_state(state);
         match self.backend {
             #[cfg(target_os = "windows")]
@@ -81,6 +83,7 @@ async fn sandbox_execute_command(
     command: &str,
     cwd: &std::path::Path,
     timeout_ms: u64,
+    cwd_pre_validated: bool,
 ) -> Result<SandboxExecutionResult, String> {
     let manager = SandboxManager::from_state(state);
     let request = SandboxRequest {
@@ -88,6 +91,7 @@ async fn sandbox_execute_command(
         command: command.to_string(),
         cwd: cwd.to_path_buf(),
         timeout_ms,
+        cwd_pre_validated,
     };
     manager.run(state, request).await
 }

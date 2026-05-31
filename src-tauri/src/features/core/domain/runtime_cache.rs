@@ -942,17 +942,24 @@ fn state_write_runtime_state_cached(
         .app_data_persist_write_lock
         .lock()
         .map_err(|_| "Failed to lock app data persist write lock".to_string())?;
-    let _ = write_runtime_state_shard(&state.data_path, runtime)?;
+    let mut next_runtime = runtime.clone();
+    normalize_runtime_state_contact_communication(&mut next_runtime);
+    if let Ok(existing_runtime) = read_runtime_state_shard(&state.data_path) {
+        next_runtime.message_store_migration_version = next_runtime
+            .message_store_migration_version
+            .max(existing_runtime.message_store_migration_version);
+    }
+    let _ = write_runtime_state_shard(&state.data_path, &next_runtime)?;
     let disk_mtime = path_modified_time(&app_layout_runtime_state_path(&state.data_path));
     *state
         .cached_runtime_state
         .lock()
-        .map_err(|_| "Failed to lock cached runtime state".to_string())? = Some(runtime.clone());
+        .map_err(|_| "Failed to lock cached runtime state".to_string())? = Some(next_runtime.clone());
     *state
         .cached_runtime_state_mtime
         .lock()
         .map_err(|_| "Failed to lock cached runtime state mtime".to_string())? = disk_mtime;
-    sync_cached_app_data_runtime(state, runtime)?;
+    sync_cached_app_data_runtime(state, &next_runtime)?;
     if let Ok(mut pending) = state.app_data_persist_pending.lock() {
         if pending
             .as_ref()

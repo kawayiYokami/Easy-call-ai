@@ -28,10 +28,10 @@ type UseChatRuntimeOptions = {
   activeChatApiConfigId: Ref<string>;
   assistantDepartmentAgentId: Ref<string>;
   currentConversationId?: Ref<string>;
-  forcingArchiveConversationId?: Ref<string>;
+  trimmingConversationId?: Ref<string>;
   compactingConversationId?: Ref<string>;
   chatting: Ref<boolean>;
-  forcingArchive: Ref<boolean>;
+  trimming: Ref<boolean>;
   compactingConversation: Ref<boolean>;
   suppressNextCompactionReload?: Ref<boolean>;
   allMessages: ShallowRef<ChatMessage[]>;
@@ -42,7 +42,7 @@ type UseChatRuntimeOptions = {
 };
 
 type ConversationMaintenanceAction = {
-  command: "force_archive_current" | "force_compact_current";
+  command: "trim_current_conversation" | "trim_compact_current";
   runningKey: string;
   partialKey: string;
   doneKey: string;
@@ -70,7 +70,7 @@ export function useChatRuntime(options: UseChatRuntimeOptions) {
       options.setChatError(text);
       return;
     }
-    if (options.forcingArchive.value || options.compactingConversation.value) {
+    if (options.trimming.value || options.compactingConversation.value) {
       const text = options.t("status.conversationActionInProgress");
       options.setStatus(text);
       options.setChatError(text);
@@ -87,9 +87,9 @@ export function useChatRuntime(options: UseChatRuntimeOptions) {
     options.setStatus("");
     options.setChatError("");
     if (action.lockForeground) {
-      options.forcingArchive.value = true;
-      if (options.forcingArchiveConversationId) {
-        options.forcingArchiveConversationId.value = sourceConversationId || "";
+      options.trimming.value = true;
+      if (options.trimmingConversationId) {
+        options.trimmingConversationId.value = sourceConversationId || "";
       }
     } else {
       options.compactingConversation.value = true;
@@ -99,7 +99,7 @@ export function useChatRuntime(options: UseChatRuntimeOptions) {
     }
     try {
       const result = await invokeTauri<ForceArchiveResult>(action.command, {
-        input: action.command === "force_archive_current"
+        input: action.command === "trim_current_conversation"
           ? {
             session: {
               apiConfigId,
@@ -168,9 +168,9 @@ export function useChatRuntime(options: UseChatRuntimeOptions) {
       }
     } finally {
       if (action.lockForeground) {
-        options.forcingArchive.value = false;
-        if (options.forcingArchiveConversationId) {
-          options.forcingArchiveConversationId.value = "";
+        options.trimming.value = false;
+        if (options.trimmingConversationId) {
+          options.trimmingConversationId.value = "";
         }
       } else {
         options.compactingConversation.value = false;
@@ -181,25 +181,25 @@ export function useChatRuntime(options: UseChatRuntimeOptions) {
     }
   }
 
-  async function forceArchiveNow() {
+  async function trimNow() {
     await runConversationMaintenance({
-      command: "force_archive_current",
-      runningKey: "status.forceArchiveRunning",
-      partialKey: "status.forceArchivePartial",
-      doneKey: "status.forceArchiveDone",
-      failedKey: "status.forceArchiveFailed",
+      command: "trim_current_conversation",
+      runningKey: "status.trimArchiveRunning",
+      partialKey: "status.trimArchivePartial",
+      doneKey: "status.trimArchiveDone",
+      failedKey: "status.trimArchiveFailed",
       isDone: (result) => result.archived,
       lockForeground: true,
     });
   }
 
-  async function forceCompactNow() {
+  async function trimCompactNow() {
     await runConversationMaintenance({
-      command: "force_compact_current",
-      runningKey: "status.forceCompactRunning",
-      partialKey: "status.forceCompactPartial",
-      doneKey: "status.forceCompactDone",
-      failedKey: "status.forceCompactFailed",
+      command: "trim_compact_current",
+      runningKey: "status.trimCompactRunning",
+      partialKey: "status.trimCompactPartial",
+      doneKey: "status.trimCompactDone",
+      failedKey: "status.trimCompactFailed",
       isDone: (result) => !result.reasonCode,
       lockForeground: false,
     });
@@ -234,8 +234,8 @@ export function useChatRuntime(options: UseChatRuntimeOptions) {
 
   return {
     refreshConversationHistory,
-    forceArchiveNow,
-    forceCompactNow,
+    trimNow,
+    trimCompactNow,
     loadAllMessages,
   };
 }

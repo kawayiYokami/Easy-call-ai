@@ -4,7 +4,8 @@ import { formatDateToLocalRfc3339 } from "../../../utils/time";
 import { toErrorMessage } from "../../../utils/error";
 import type { TaskEntry } from "../../config/views/config-tabs/task-editor";
 
-const SUPERVISION_TASK_GOAL_PREFIX = "督工任务：";
+const SUPERVISION_TASK_GOAL_PREFIX = "Goal Task：";
+const LEGACY_SUPERVISION_TASK_GOAL_PREFIX = "督工任务：";
 const SUPERVISION_TASK_HISTORY_STORAGE_KEY = "chat-supervision-task-history";
 const SUPERVISION_TASK_HISTORY_LIMIT = 3;
 
@@ -48,7 +49,7 @@ export function useSupervisionTask(options: UseSupervisionTaskOptions) {
   function normalizeSupervisionGoal(goal: string): string {
     const text = String(goal || "").trim();
     if (!text) return SUPERVISION_TASK_GOAL_PREFIX;
-    if (text.startsWith(SUPERVISION_TASK_GOAL_PREFIX)) {
+    if (text.startsWith(SUPERVISION_TASK_GOAL_PREFIX) || text.startsWith(LEGACY_SUPERVISION_TASK_GOAL_PREFIX)) {
       return text;
     }
     return `${SUPERVISION_TASK_GOAL_PREFIX}${text}`;
@@ -56,10 +57,12 @@ export function useSupervisionTask(options: UseSupervisionTaskOptions) {
 
   function stripSupervisionGoalPrefix(goal: string): string {
     const text = String(goal || "").trim();
-    if (!text.startsWith(SUPERVISION_TASK_GOAL_PREFIX)) {
-      return text;
+    for (const prefix of [SUPERVISION_TASK_GOAL_PREFIX, LEGACY_SUPERVISION_TASK_GOAL_PREFIX]) {
+      if (text.startsWith(prefix)) {
+        return text.slice(prefix.length).trim();
+      }
     }
-    return text.slice(SUPERVISION_TASK_GOAL_PREFIX.length).trim();
+    return text;
   }
 
   function parseTaskTime(value?: string | null): Date | null {
@@ -139,7 +142,8 @@ export function useSupervisionTask(options: UseSupervisionTaskOptions) {
   function supervisionTaskIsActive(task: TaskEntry, conversationId: string): boolean {
     if (String(task.completionState || "").trim() !== "active") return false;
     if (String(task.conversationId || "").trim() !== conversationId) return false;
-    if (!String(task.goal || "").trim().startsWith(SUPERVISION_TASK_GOAL_PREFIX)) return false;
+    const goal = String(task.goal || "").trim();
+    if (!goal.startsWith(SUPERVISION_TASK_GOAL_PREFIX) && !goal.startsWith(LEGACY_SUPERVISION_TASK_GOAL_PREFIX)) return false;
     const runAt = parseTaskTime(task.trigger?.run_at);
     const endAt = parseTaskTime(task.trigger?.end_at);
     if (!endAt) return false;
@@ -193,7 +197,7 @@ export function useSupervisionTask(options: UseSupervisionTaskOptions) {
     } catch (error) {
       activeSupervisionTask.value = null;
       if (!params.silent) {
-        console.warn("[督工] 读取当前会话督工任务失败", error);
+        console.warn("[目标任务] 读取当前会话任务失败", error);
       }
     }
   }
@@ -277,7 +281,7 @@ export function useSupervisionTask(options: UseSupervisionTaskOptions) {
         try {
           await invokeTauri<boolean>("task_dispatch_task_now", { input: { taskId } });
         } catch (dispatchError) {
-          console.warn("[督工] 首次触发失败", dispatchError);
+          console.warn("[目标任务] 首次触发失败", dispatchError);
         }
       }
       pushRecentSupervisionTaskHistory(payload);

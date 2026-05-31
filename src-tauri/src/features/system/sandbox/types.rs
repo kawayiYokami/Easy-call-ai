@@ -4,6 +4,7 @@ struct SandboxRequest {
     command: String,
     cwd: std::path::PathBuf,
     timeout_ms: u64,
+    cwd_pre_validated: bool,
 }
 
 #[derive(Debug, Clone)]

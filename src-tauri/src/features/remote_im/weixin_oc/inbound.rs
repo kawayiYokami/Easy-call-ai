@@ -254,6 +254,7 @@ fn upsert_weixin_oc_contact(
         remote_contact_type: "private".to_string(),
         remote_contact_id: normalized_user_id.to_string(),
         remote_contact_name: display_name,
+        avatar_url: String::new(),
         remark_name: String::new(),
         allow_send: true,
         allow_send_files: false,

@@ -152,7 +152,10 @@ fn task_tool_how_from_args(args: &TaskToolArgsWire) -> Option<String> {
                 if parts.is_empty() {
                     parts.push(joined);
                 } else {
-                    parts.push(format!("待办：{}", joined));
+                    let prefixed = format!("待办：{}", joined);
+                    if !parts.iter().any(|part| part == &joined || part == &prefixed) {
+                        parts.push(prefixed);
+                    }
                 }
             }
             Some(parts.join("\n"))

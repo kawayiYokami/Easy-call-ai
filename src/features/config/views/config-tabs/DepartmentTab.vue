@@ -455,7 +455,7 @@
 
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from "vue";
-import { Check, Plus, RotateCcw, Save, Trash2, X } from "lucide-vue-next";
+import { Check, Plus, RotateCcw, Save, Trash2, X } from "@lucide/vue";
 import { useI18n } from "vue-i18n";
 import { invokeTauri } from "../../../../services/tauri-api";
 import type { ApiConfigItem, AppConfig, DepartmentConfig, DepartmentPermissionCatalog, PersonaProfile } from "../../../../types/app";

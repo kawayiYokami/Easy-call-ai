@@ -190,7 +190,7 @@ import { Handle, MarkerType, Position, VueFlow, type Connection, type Edge as Fl
 import "@vue-flow/core/dist/style.css";
 import "@vue-flow/core/dist/theme-default.css";
 import "@vue-flow/controls/dist/style.css";
-import { Check, Maximize2, Minimize2, RotateCcw, Save } from "lucide-vue-next";
+import { Check, Maximize2, Minimize2, RotateCcw, Save } from "@lucide/vue";
 import type { AppConfig, DepartmentConfig, PersonaProfile } from "../../../../types/app";
 import SettingsStickyLayout from "../../components/SettingsStickyLayout.vue";
 import {

@@ -1,7 +1,7 @@
 <template>
-  <UnifiedWindowApp fixed-view-mode="chat" />
+  <ChatWindowApp />
 </template>
 
 <script setup lang="ts">
-import UnifiedWindowApp from "../../UnifiedWindowApp.vue";
+import ChatWindowApp from "../../ChatWindowApp.vue";
 </script>

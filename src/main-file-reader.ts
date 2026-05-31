@@ -4,6 +4,7 @@ import "./style.css";
 import "./features/chat/markdown/markdown-content.css";
 import "katex/dist/katex.min.css";
 import { initMarkdownAppearance } from "./features/shell/composables/use-markdown-appearance";
+import { LUCIDE_CONTEXT } from "./lucide-context";
 
 initMarkdownAppearance();
 
@@ -27,4 +28,4 @@ window.addEventListener("unhandledrejection", (event) => {
   console.error(`[未处理的Promise拒绝] 消息: ${message}, 堆栈: ${stack}`);
 });
 
-createApp(FileReaderApp).mount("#app");
+createApp(FileReaderApp).provide(LUCIDE_CONTEXT, {}).mount("#app");

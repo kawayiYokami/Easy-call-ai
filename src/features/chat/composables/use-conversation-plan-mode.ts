@@ -110,5 +110,6 @@ export function useConversationPlanMode(options: UseConversationPlanModeOptions)
     currentConversationPlanModeEnabled,
     setConversationPlanMode,
     setCurrentConversationPlanMode,
+    updatePlanModeEnabled: setCurrentConversationPlanMode,
   };
 }

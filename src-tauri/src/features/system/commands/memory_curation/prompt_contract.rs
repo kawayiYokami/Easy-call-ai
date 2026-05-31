@@ -43,15 +43,6 @@ fn memory_curation_example_output_block() -> &'static str {
         "reasoning": "string",
         "tags": ["string"]
       }
-    },
-    {
-      "action": "create",
-      "memory": {
-        "memoryType": "knowledge|skill|event",
-        "judgment": "string",
-        "reasoning": "string",
-        "tags": ["用户昵称", "用户ID", "用户要求"]
-      }
     }
   ]
 }"###

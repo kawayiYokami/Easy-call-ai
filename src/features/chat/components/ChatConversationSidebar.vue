@@ -1,13 +1,48 @@
 <template>
   <aside class="flex h-full w-full shrink-0 flex-col border-r border-base-300 bg-base-200">
-    <ChatConversationListHeader
-      v-model:search-query="conversationSearchQuery"
-      v-model:active-tab="activeConversationTab"
-      :search-placeholder="t('chat.conversationSearchPlaceholder')"
-      :local-label="t('chat.localConversationTab')"
-      :contact-label="t('chat.contactConversationTab')"
-      :show-tabs="false"
-    />
+    <div class="flex items-center gap-2 p-2 pb-0">
+      <div role="tablist" class="tabs tabs-border min-w-0 shrink-0">
+        <button
+          type="button"
+          role="tab"
+          class="tab h-8 px-3"
+          :class="activeTab === 'local' ? 'tab-active font-semibold' : ''"
+          @click="emit('update:activeTab', 'local')"
+        >
+          {{ t('chat.localConversationTab') }}
+        </button>
+        <button
+          type="button"
+          role="tab"
+          class="tab h-8 px-3"
+          :class="activeTab === 'contact' ? 'tab-active font-semibold' : ''"
+          @click="emit('update:activeTab', 'contact')"
+        >
+          {{ t('chat.contactConversationTab') }}
+        </button>
+      </div>
+      <button
+        type="button"
+        class="btn btn-ghost btn-xs h-7 min-h-7 w-7 min-w-7 p-0 ml-auto"
+        :class="showSearch ? 'text-primary' : 'text-base-content/55'"
+        :title="t('chat.conversationSearchPlaceholder')"
+        @click="showSearch = !showSearch"
+      >
+        <Search class="h-4 w-4" />
+      </button>
+    </div>
+    <div v-if="showSearch" class="shrink-0 px-2 pt-1 pb-1">
+      <label class="input input-bordered input-sm flex h-8 min-w-0 items-center gap-2 bg-base-100">
+        <Search class="h-3.5 w-3.5 opacity-60" />
+        <input
+          ref="searchInputRef"
+          v-model="conversationSearchQuery"
+          type="text"
+          class="w-full bg-transparent outline-none"
+          :placeholder="t('chat.conversationSearchPlaceholder')"
+        />
+      </label>
+    </div>
     <ChatConversationFloatingScroll class="flex-1 min-h-0">
       <section
         v-for="section in filteredConversationSections"
@@ -124,6 +159,16 @@
                             <span>{{ t("common.rename") }}</span>
                           </button>
                         </li>
+                        <li>
+                          <button
+                            type="button"
+                            :disabled="!canExportConversation(item)"
+                            @click.stop="requestConversationExport(item)"
+                          >
+                            <Download class="h-4 w-4" />
+                            <span>{{ t("chat.exportConversation") }}</span>
+                          </button>
+                        </li>
                         <li v-if="!item.isMainConversation">
                           <button
                             type="button"
@@ -152,10 +197,12 @@
 
                 <div class="mt-1 flex items-center justify-between gap-2 text-xs">
                   <span class="min-w-0 truncate opacity-60">
-                    {{ latestPreviewLine(item) }}
+                    {{ conversationStatusText(item) || latestPreviewLine(item) }}
                   </span>
                   <div class="flex shrink-0 items-center gap-2">
-                    <span v-if="item.runtimeState" class="text-[11px] text-base-content/60">{{ runtimeStateText(item.runtimeState) }}</span>
+                    <span v-if="conversationPipelineStatus(item) === 'busy' || conversationRuntimeBusy(item)" class="loading loading-spinner loading-xs text-primary" :title="conversationStatusText(item)"></span>
+                    <span v-else-if="conversationPipelineStatus(item) === 'error'" class="badge badge-error badge-xs">{{ t("common.failed") }}</span>
+                    <span v-else-if="conversationStatusText(item)" class="text-[11px] text-base-content/60">{{ conversationStatusText(item) }}</span>
                     <span
                       v-if="unreadCountBadge(item)"
                       class="inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-error px-1.5 text-[11px] font-medium text-error-content"
@@ -184,13 +231,13 @@
 <script setup lang="ts">
 import { computed, nextTick, ref, watch, watchEffect } from "vue";
 import { useI18n } from "vue-i18n";
-import { Archive, Ellipsis, PencilLine, Pin, PinOff, Trash2 } from "lucide-vue-next";
+import { Archive, Download, Ellipsis, PencilLine, Pin, PinOff, Search, Trash2 } from "@lucide/vue";
 import type { ChatConversationOverviewItem, ConversationPreviewMessage } from "../../../types/app";
 import { usePipelineStatus } from "../../shell/composables/use-pipeline-status";
 import { formatConversationListTime } from "../utils/conversation-time";
 import { resolveConversationDisplayTitle } from "../utils/conversation-title";
 import ChatConversationFloatingScroll from "./ChatConversationFloatingScroll.vue";
-import ChatConversationListHeader from "./ChatConversationListHeader.vue";
+
 
 const props = defineProps<{
   items: ChatConversationOverviewItem[];
@@ -207,6 +254,7 @@ const emit = defineEmits<{
   (e: "rename", payload: { conversationId: string; title: string }): void;
   (e: "togglePinConversation", conversationId: string): void;
   (e: "archiveConversation", conversationId: string): void;
+  (e: "exportConversation", conversationId: string): void;
   (e: "deleteConversation", conversationId: string): void;
   (e: "update:activeTab", value: "local" | "contact"): void;
 }>();
@@ -216,11 +264,15 @@ const renameInputRef = ref<HTMLInputElement | null>(null);
 const editingConversationId = ref("");
 const editingTitleDraft = ref("");
 const conversationSearchQuery = ref("");
+const showSearch = ref(false);
+const searchInputRef = ref<HTMLInputElement | null>(null);
 const activeConversationTab = computed({
   get: () => props.activeTab === "contact" ? "contact" : "local",
   set: (value: "local" | "contact") => emit("update:activeTab", value),
 });
-const { conversationStatusById, markConversationRead } = usePipelineStatus();
+const { conversationStatusById, markConversationRead } = usePipelineStatus({
+  activeConversationId: computed(() => String(props.activeConversationId || "").trim()),
+});
 
 const conversationPreviewCache = computed(() => new Map(
   props.items.map((item) => [String(item.conversationId || "").trim(), Array.isArray(item.previewMessages) ? item.previewMessages : []]),
@@ -282,6 +334,15 @@ watch(
   { immediate: true },
 );
 
+watch(showSearch, async (visible) => {
+  if (visible) {
+    await nextTick();
+    searchInputRef.value?.focus();
+  } else {
+    conversationSearchQuery.value = "";
+  }
+});
+
 function resetConversationTitleEdit() {
   editingConversationId.value = "";
   editingTitleDraft.value = "";
@@ -311,22 +372,28 @@ function isCurrentConversation(item: ChatConversationOverviewItem): boolean {
 }
 
 function conversationIndicatorTone(item: ChatConversationOverviewItem): "error" | "info" | "success" | "" {
+  if (isCurrentConversation(item)) return "";
   const conversationId = String(item.conversationId || "").trim();
-  if (!conversationId || isCurrentConversation(item)) return "";
+  if (!conversationId) return "";
   const pipelineStatus = conversationStatusById.value[conversationId];
   if (pipelineStatus === "error") return "error";
-  if (pipelineStatus === "busy") return "success";
+  if (pipelineStatus === "busy") return "info";
+  if (pipelineStatus === "success") return "success";
   return "";
 }
 
 function conversationIndicatorClass(tone: "error" | "info" | "success" | ""): string {
   if (tone === "error") return "bg-error";
+  if (tone === "info") return "bg-warning";
   if (tone === "success") return "bg-success";
   return "";
 }
 
 function isConversationDisabled(item: ChatConversationOverviewItem): boolean {
-  return item.runtimeState === "organizing_context" || !!item.detachedWindowOpen;
+  return item.runtimeState === "organizing_context"
+    || item.runtimeState === "archiving"
+    || item.runtimeState === "compacting"
+    || !!item.detachedWindowOpen;
 }
 
 function isLocalConversation(item: ChatConversationOverviewItem): boolean {
@@ -354,6 +421,8 @@ function conversationDisplayTitle(item: ChatConversationOverviewItem): string {
 
 function conversationItemTitle(item: ChatConversationOverviewItem): string {
   if (item.detachedWindowOpen) return t("chat.detachedWindowOpen");
+  if (item.runtimeState === "archiving") return runtimeStateText("archiving");
+  if (item.runtimeState === "compacting") return runtimeStateText("compacting");
   if (isConversationDisabled(item)) return t("chat.organizingContextDisabled");
   return item.workspaceLabel || t("chat.defaultWorkspace");
 }
@@ -376,6 +445,10 @@ function canArchiveConversation(item: ChatConversationOverviewItem): boolean {
   return isLocalConversation(item) && !item.isMainConversation && !isConversationDisabled(item);
 }
 
+function canExportConversation(item: ChatConversationOverviewItem): boolean {
+  return isLocalConversation(item) && !isConversationDisabled(item);
+}
+
 function canDeleteConversation(item: ChatConversationOverviewItem): boolean {
   return isLocalConversation(item) && !item.isMainConversation && !isConversationDisabled(item);
 }
@@ -393,6 +466,11 @@ function toggleConversationPin(item: ChatConversationOverviewItem) {
 function requestConversationArchive(item: ChatConversationOverviewItem) {
   if (!canArchiveConversation(item)) return;
   emit("archiveConversation", String(item.conversationId || "").trim());
+}
+
+function requestConversationExport(item: ChatConversationOverviewItem) {
+  if (!canExportConversation(item)) return;
+  emit("exportConversation", String(item.conversationId || "").trim());
 }
 
 function requestConversationDelete(item: ChatConversationOverviewItem) {
@@ -447,9 +525,30 @@ function unreadCountBadge(item: ChatConversationOverviewItem): string {
   return unreadCount > 99 ? "99+" : String(unreadCount);
 }
 
+function conversationPipelineStatus(item: ChatConversationOverviewItem) {
+  return conversationStatusById.value[String(item.conversationId || "").trim()] || "";
+}
+
+function conversationRuntimeBusy(item: ChatConversationOverviewItem): boolean {
+  return item.runtimeState === "assistant_streaming"
+    || item.runtimeState === "organizing_context"
+    || item.runtimeState === "archiving"
+    || item.runtimeState === "compacting";
+}
+
+function conversationStatusText(item: ChatConversationOverviewItem): string {
+  if (item.runtimeState && item.runtimeState !== "idle") return runtimeStateText(item.runtimeState);
+  const pipelineStatus = conversationPipelineStatus(item);
+  if (pipelineStatus === "busy") return t("chat.runtimeStreaming");
+  if (pipelineStatus === "error") return t("common.failed");
+  return "";
+}
+
 function runtimeStateText(runtimeState?: ChatConversationOverviewItem["runtimeState"]): string {
   if (runtimeState === "assistant_streaming") return t("chat.runtimeStreaming");
   if (runtimeState === "organizing_context") return t("chat.runtimeOrganizing");
+  if (runtimeState === "archiving") return "归档中";
+  if (runtimeState === "compacting") return "压缩中";
   return t("chat.runtimeIdle");
 }
 

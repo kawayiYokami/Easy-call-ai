@@ -19,6 +19,16 @@ fn show_quick_setup_window(app: AppHandle) -> Result<(), String> {
 }
 
 #[tauri::command]
+fn open_runtime_logs_window(app: AppHandle) -> Result<(), String> {
+    show_runtime_logs_window(&app)
+}
+
+#[tauri::command]
+fn hide_current_window(window: tauri::Window) -> Result<(), String> {
+    window.hide().map_err(|err| format!("隐藏当前窗口失败：{err}"))
+}
+
+#[tauri::command]
 fn complete_quick_setup_and_open_chat(app: AppHandle) -> Result<(), String> {
     show_window(&app, "chat")?;
     if let Some(window) = app.get_webview_window("quick-setup") {
@@ -35,7 +45,6 @@ struct WebviewZoomUpdatedPayload {
 
 #[derive(Debug, Clone)]
 struct ChatSidePanelWindowSnapshot {
-    x: i32,
     y: i32,
     width: f64,
     height: f64,
@@ -120,6 +129,19 @@ fn apply_chat_side_panel_window_expansion(
         let Some(snapshot) = snapshot_slot.take() else {
             return Ok(false);
         };
+        let current_position = window
+            .outer_position()
+            .map_err(|err| format!("读取窗口位置失败：{err}"))?;
+        let scale_factor = window
+            .scale_factor()
+            .map_err(|err| format!("读取窗口缩放比例失败：{err}"))?
+            .max(0.1);
+        let left_delta_physical = if snapshot.left_expanded {
+            (normalized_left_width * scale_factor).round() as i32
+        } else {
+            0
+        };
+        let restored_x = current_position.x.saturating_add(left_delta_physical);
         window
             .set_size(tauri::Size::Logical(tauri::LogicalSize::new(
                 snapshot.width.max(MIN_COLLAPSED_WIDTH_LOGICAL),
@@ -127,7 +149,7 @@ fn apply_chat_side_panel_window_expansion(
             )))
             .map_err(|err| format!("恢复侧栏窗口尺寸失败：{err}"))?;
         window
-            .set_position(Position::Physical(PhysicalPosition::new(snapshot.x, snapshot.y)))
+            .set_position(Position::Physical(PhysicalPosition::new(restored_x, current_position.y)))
             .map_err(|err| format!("恢复侧栏窗口位置失败：{err}"))?;
         return Ok(true);
     }
@@ -145,7 +167,6 @@ fn apply_chat_side_panel_window_expansion(
     let size_logical = size.to_logical::<f64>(scale_factor);
     if snapshot_slot.is_none() {
         *snapshot_slot = Some(ChatSidePanelWindowSnapshot {
-            x: position.x,
             y: position.y,
             width: size_logical.width,
             height: size_logical.height,
@@ -156,6 +177,7 @@ fn apply_chat_side_panel_window_expansion(
     let snapshot = snapshot_slot
         .as_mut()
         .ok_or_else(|| "侧栏窗口快照缺失".to_string())?;
+    let previous_left_expanded = snapshot.left_expanded;
     snapshot.left_expanded = left_expanded;
     snapshot.right_expanded = right_expanded;
 
@@ -177,12 +199,14 @@ fn apply_chat_side_panel_window_expansion(
     let desired_width = monitor_logical_width
         .map(|max_width| desired_width_without_clamp.min(max_width))
         .unwrap_or(desired_width_without_clamp);
-    let left_delta_physical = if left_expanded {
+    let left_delta_physical = if !previous_left_expanded && left_expanded {
+        -((normalized_left_width * scale_factor).round() as i32)
+    } else if previous_left_expanded && !left_expanded {
         (normalized_left_width * scale_factor).round() as i32
     } else {
         0
     };
-    let mut desired_x = snapshot.x.saturating_sub(left_delta_physical);
+    let mut desired_x = position.x.saturating_add(left_delta_physical);
     if let Some(monitor) = monitor.as_ref() {
         desired_x = desired_x.max(monitor.position().x);
     }
@@ -307,6 +331,7 @@ fn detach_current_conversation_to_window(
         conversation_id,
         window_label
     );
+    clear_conversation_list_activity_mark(&state, conversation_id);
     emit_unarchived_conversation_overview_updated_from_state(&state)?;
     Ok(DetachedChatWindowOutput {
         conversation_id: conversation_id.to_string(),
@@ -621,6 +646,22 @@ fn read_app_bootstrap_snapshot(state: &AppState) -> Result<AppBootstrapSnapshot,
 #[tauri::command]
 fn load_app_bootstrap_snapshot(state: State<'_, AppState>) -> Result<AppBootstrapSnapshot, String> {
     read_app_bootstrap_snapshot(&state)
+}
+
+#[tauri::command]
+fn is_backend_ready(state: State<'_, AppState>) -> bool {
+    state.backend_ready.load(std::sync::atomic::Ordering::Acquire)
+}
+
+#[tauri::command]
+fn webview_pong(window: tauri::Window) {
+    webview_record_pong(window.label());
+}
+
+#[tauri::command]
+fn debug_crash_webview(webview: tauri::Webview) -> Result<(), String> {
+    webview.eval("(function(){const a=[];while(true){a.push(new Array(1000000).fill('x'));}})();")
+        .map_err(|err| format!("注入崩溃脚本失败：{err}"))
 }
 
 #[tauri::command]

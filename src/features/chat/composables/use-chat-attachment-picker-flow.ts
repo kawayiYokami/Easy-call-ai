@@ -10,7 +10,7 @@ type QueuedAttachmentNotice = {
 
 type UseChatAttachmentPickerFlowOptions = {
   chatting: Ref<boolean>;
-  forcingArchive: Ref<boolean>;
+  trimming: Ref<boolean>;
   queuedAttachmentNotices: Ref<QueuedAttachmentNotice[]>;
   onNativeFileDrop: (paths: string[]) => Promise<void>;
   setStatusError: (key: string, error: unknown) => void;
@@ -23,7 +23,7 @@ export function useChatAttachmentPickerFlow(options: UseChatAttachmentPickerFlow
   }
 
   async function pickChatAttachments() {
-    if (options.chatting.value || options.forcingArchive.value) return;
+    if (options.chatting.value || options.trimming.value) return;
     try {
       const picked = await open({
         multiple: true,

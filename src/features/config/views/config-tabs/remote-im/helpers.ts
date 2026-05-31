@@ -53,6 +53,14 @@ export function contactResponseStrategyHint(item: RemoteImContact): string {
   return "始终回复：一旦允许入场，就直接交给处理部门回复。";
 }
 
+export function contactCommunicationToggleEnabled(item: Pick<RemoteImContact, "allowReceive" | "allowSend">): boolean {
+  return !!item.allowSend;
+}
+
+export function contactCommunicationToggleClass(item: Pick<RemoteImContact, "allowReceive" | "allowSend">): string {
+  return contactCommunicationToggleEnabled(item) ? "toggle-success" : "";
+}
+
 export function parseKeywordList(raw: string): string[] {
   const seen = new Set<string>();
   const out: string[] = [];

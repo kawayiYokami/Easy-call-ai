@@ -1,6 +1,6 @@
 import { ref, computed, watch, onMounted, onBeforeUnmount, type Ref } from "vue";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
-import { invokeTauri } from "../../../services/tauri-api";
+import { invokeTauri, isTauriRuntimeAvailable } from "../../../services/tauri-api";
 import type { IdeContextQueryResult, IdeContextReferenceItem, IdeContextWorkspaceGroup, IdeContextWorkspaceInput, ShellWorkspace } from "../../../types/app";
 
 interface UseIdeContextOptions {
@@ -8,6 +8,7 @@ interface UseIdeContextOptions {
   workspaces: Ref<ShellWorkspace[]>;
   currentWorkspaceRootPath: Ref<string>;
   currentWorkspaceName: Ref<string>;
+  enabled?: Ref<boolean> | boolean;
 }
 
 export function useIdeContext(options: UseIdeContextOptions) {
@@ -15,6 +16,13 @@ export function useIdeContext(options: UseIdeContextOptions) {
 
   const ideContextGroups = ref<IdeContextWorkspaceGroup[]>([]);
   const attachedIdeContextReferences = ref<IdeContextReferenceItem[]>([]);
+  const enabled = computed(() => {
+    const configured = options.enabled;
+    const configuredValue = typeof configured === "object" && configured && "value" in configured
+      ? configured.value
+      : configured;
+    return configuredValue !== false && isTauriRuntimeAvailable();
+  });
 
   let refreshTimer: ReturnType<typeof setInterval> | null = null;
   let eventUnlisten: UnlistenFn | null = null;
@@ -38,6 +46,10 @@ export function useIdeContext(options: UseIdeContextOptions) {
   }
 
   async function refresh() {
+    if (!enabled.value) {
+      ideContextGroups.value = [];
+      return;
+    }
     const wsInputs = normalizedWorkspaceInputs();
     if (wsInputs.length === 0) {
       ideContextGroups.value = [];
@@ -57,6 +69,7 @@ export function useIdeContext(options: UseIdeContextOptions) {
   }
 
   function startTimer() {
+    if (!enabled.value) return;
     stopTimer();
     refreshTimer = window.setInterval(() => void refresh(), 5000);
   }
@@ -68,6 +81,7 @@ export function useIdeContext(options: UseIdeContextOptions) {
   }
 
   async function startEventListener() {
+    if (!enabled.value) return;
     stopEventListener();
     try {
       eventUnlisten = await listen("ide-context-updated", () => void refresh());
@@ -109,6 +123,7 @@ export function useIdeContext(options: UseIdeContextOptions) {
   );
 
   onMounted(() => {
+    if (!enabled.value) return;
     void refresh();
     void startEventListener();
     startTimer();

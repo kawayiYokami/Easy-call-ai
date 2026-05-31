@@ -4,17 +4,18 @@ use sha2::{Digest, Sha256};
 use std::collections::{HashMap, HashSet};
 use tantivy::collector::TopDocs;
 use tantivy::query::QueryParser;
-use tantivy::schema::{IndexRecordOption, Schema, TextFieldIndexing, TextOptions, Value as TantivyValue, FAST, STORED};
+use tantivy::schema::{
+    Field, IndexRecordOption, Schema, TextFieldIndexing, TextOptions, Value as TantivyValue, FAST,
+    STORED,
+};
 use tantivy::tokenizer::{SimpleTokenizer, TextAnalyzer};
 use tantivy::{doc, Index};
 
 const MEMORY_MATCH_MAX_ITEMS: usize = 7;
 const MEMORY_CANDIDATE_MULTIPLIER: usize = 7;
 const MEMORY_ROUTE_CANDIDATE_LIMIT: usize = MEMORY_MATCH_MAX_ITEMS * MEMORY_CANDIDATE_MULTIPLIER;
-const MEMORY_WEIGHT_BM25: f64 = 0.3;
-const MEMORY_WEIGHT_VECTOR: f64 = 0.7;
-const MEMORY_RECALL_MIN_FINAL_SCORE: f64 = 0.5;
-const MEMORY_RECALL_TOP_SCORE_RATIO: f64 = 0.9;
+const MEMORY_RRF_K: f64 = 60.0;
+const MEMORY_RECALL_TOP_SCORE_RATIO: f64 = 0.5;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -24,6 +25,13 @@ struct MemoryMixedRankItem {
     bm25_raw_score: f64,
     vector_score: f64,
     final_score: f64,
+}
+
+#[derive(Debug, Clone)]
+struct MemoryBm25Hit {
+    memory_id: String,
+    raw_score: f64,
+    normalized_score: f64,
 }
 
 #[cfg(test)]
@@ -41,10 +49,6 @@ fn memory_matcher_cache() -> &'static std::sync::Mutex<Option<CompiledMemoryMatc
     CACHE.get_or_init(|| std::sync::Mutex::new(None))
 }
 
-fn memory_jieba_add_words(words: &[String]) {
-    let _ = words;
-}
-
 fn memory_is_cjk_char(ch: char) -> bool {
     matches!(
         ch as u32,
@@ -58,6 +62,21 @@ fn memory_is_cjk_char(ch: char) -> bool {
             | 0x2CEB0..=0x2EBEF
             | 0x30000..=0x3134F
     )
+}
+
+fn memory_normalize_search_text(text: &str) -> String {
+    let mut out = String::new();
+    for ch in text.trim().chars() {
+        let normalized = match ch {
+            '\u{3000}' => ' ',
+            '\u{FF01}'..='\u{FF5E}' => char::from_u32(ch as u32 - 0xFEE0).unwrap_or(ch),
+            '\u{2018}' | '\u{2019}' => '\'',
+            '\u{201C}' | '\u{201D}' => '"',
+            _ => ch,
+        };
+        out.push(normalized.to_ascii_lowercase());
+    }
+    out.trim_matches('"').trim().to_string()
 }
 
 fn memory_push_token(
@@ -76,7 +95,8 @@ fn memory_push_token(
 }
 
 fn memory_tokenize_terms(text: &str, dedup: bool) -> Vec<String> {
-    if text.trim().is_empty() {
+    let normalized = memory_normalize_search_text(text);
+    if normalized.trim().is_empty() {
         return Vec::new();
     }
 
@@ -107,10 +127,10 @@ fn memory_tokenize_terms(text: &str, dedup: bool) -> Vec<String> {
         cjk_run.clear();
     };
 
-    for ch in text.chars() {
-        if ch.is_ascii_alphanumeric() {
+    for ch in normalized.chars() {
+        if ch.is_ascii_alphanumeric() || ch == '_' {
             flush_cjk(&mut cjk_run, &mut out, &mut seen);
-            ascii.push(ch.to_ascii_lowercase());
+            ascii.push(ch);
             continue;
         }
         flush_ascii(&mut ascii, &mut out, &mut seen);
@@ -126,6 +146,7 @@ fn memory_tokenize_terms(text: &str, dedup: bool) -> Vec<String> {
     out
 }
 
+#[cfg(test)]
 fn memory_tokenize_query_terms(text: &str) -> Vec<String> {
     let mut terms = memory_tokenize_terms(text, true);
 
@@ -139,6 +160,131 @@ fn memory_tokenize_query_terms(text: &str) -> Vec<String> {
         terms.push(compact);
     }
     terms
+}
+
+fn memory_split_query_terms(text: &str) -> Vec<String> {
+    let normalized = memory_normalize_search_text(text);
+    let mut terms = Vec::<String>::new();
+    let mut seen = HashSet::<String>::new();
+    for part in normalized.split(|ch: char| ch.is_whitespace() || ch == '|') {
+        let term = part.trim();
+        if term.is_empty() || !seen.insert(term.to_string()) {
+            continue;
+        }
+        terms.push(term.to_string());
+    }
+    terms
+}
+
+fn memory_required_query_terms(query: &str) -> Vec<String> {
+    let normalized = memory_normalize_search_text(query);
+    let mut out = Vec::<String>::new();
+    let mut seen = HashSet::<String>::new();
+    let mut ascii = String::new();
+    let mut cjk_run = Vec::<char>::new();
+
+    let flush_ascii = |ascii: &mut String, out: &mut Vec<String>, seen: &mut HashSet<String>| {
+        if ascii.is_empty() {
+            return;
+        }
+        memory_push_token(out, seen, ascii.clone(), true);
+        ascii.clear();
+    };
+    let flush_cjk = |cjk_run: &mut Vec<char>, out: &mut Vec<String>, seen: &mut HashSet<String>| {
+        if cjk_run.is_empty() {
+            return;
+        }
+        if cjk_run.len() <= 2 {
+            let term = cjk_run.iter().collect::<String>();
+            memory_push_token(out, seen, term, true);
+        } else {
+            for pair in cjk_run.windows(2) {
+                memory_push_token(out, seen, format!("{}{}", pair[0], pair[1]), true);
+            }
+        }
+        cjk_run.clear();
+    };
+
+    for ch in normalized.chars() {
+        if ch.is_ascii_alphanumeric() || ch == '_' {
+            flush_cjk(&mut cjk_run, &mut out, &mut seen);
+            ascii.push(ch);
+            continue;
+        }
+        flush_ascii(&mut ascii, &mut out, &mut seen);
+        if memory_is_cjk_char(ch) {
+            cjk_run.push(ch);
+        } else {
+            flush_cjk(&mut cjk_run, &mut out, &mut seen);
+        }
+    }
+    flush_ascii(&mut ascii, &mut out, &mut seen);
+    flush_cjk(&mut cjk_run, &mut out, &mut seen);
+
+    out
+}
+
+fn memory_escape_query_term(term: &str) -> String {
+    let mut out = String::new();
+    for ch in term.chars() {
+        if matches!(
+            ch,
+            '\\' | '"' | '+' | '-' | '!' | '(' | ')' | '{' | '}' | '[' | ']' | '^' | '~'
+                | '*' | '?' | ':' | '/'
+        ) {
+            out.push('\\');
+        }
+        out.push(ch);
+    }
+    out
+}
+
+fn memory_build_all_terms_query(field_name: &str, terms: &[String]) -> String {
+    terms
+        .iter()
+        .map(|term| format!("+{}:\"{}\"", field_name, memory_escape_query_term(term)))
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+fn memory_build_any_terms_query(field_name: &str, terms: &[String]) -> String {
+    terms
+        .iter()
+        .map(|term| format!("{}:\"{}\"", field_name, memory_escape_query_term(term)))
+        .collect::<Vec<_>>()
+        .join(" OR ")
+}
+
+fn memory_resolve_hit_limit(query: &str, base_limit: usize) -> usize {
+    let compact = memory_normalize_search_text(query)
+        .chars()
+        .filter(|ch| !ch.is_whitespace())
+        .collect::<String>();
+    let has_cjk = compact.chars().any(memory_is_cjk_char);
+    let len = compact.chars().count();
+    if has_cjk && len <= 1 {
+        base_limit.max(800)
+    } else if has_cjk && len <= 3 {
+        base_limit.max(240)
+    } else {
+        base_limit
+    }
+}
+
+fn memory_rrf_score_for_id(
+    memory_id: &str,
+    bm25_rank_map: &HashMap<String, usize>,
+    vector_rank_map: Option<&HashMap<String, usize>>,
+) -> f64 {
+    let bm25_rrf = bm25_rank_map
+        .get(memory_id)
+        .map(|rank| 1.0 / (MEMORY_RRF_K + *rank as f64))
+        .unwrap_or(0.0);
+    let vector_rrf = vector_rank_map
+        .and_then(|rank_map| rank_map.get(memory_id))
+        .map(|rank| 1.0 / (MEMORY_RRF_K + *rank as f64))
+        .unwrap_or(0.0);
+    bm25_rrf + vector_rrf
 }
 
 #[cfg(test)]
@@ -329,17 +475,22 @@ fn memory_recall_hit_ids(
     query_text: &str,
 ) -> Vec<String> {
     let ranked = memory_mixed_ranked_items(data_path, memories, query_text, MEMORY_MATCH_MAX_ITEMS);
+    memory_recall_ids_from_ranked_items(ranked)
+}
+
+fn memory_recall_ids_from_ranked_items(ranked: Vec<MemoryMixedRankItem>) -> Vec<String> {
     let top_score = ranked
         .first()
         .map(|item| item.final_score)
-        .filter(|score| score.is_finite())
+        .filter(|score| score.is_finite() && *score > 0.0)
         .unwrap_or(0.0);
-    let dynamic_threshold = (top_score * MEMORY_RECALL_TOP_SCORE_RATIO).clamp(0.0, 1.0);
-    let effective_threshold = MEMORY_RECALL_MIN_FINAL_SCORE.max(dynamic_threshold);
-
+    if top_score <= 0.0 {
+        return Vec::new();
+    }
+    let threshold = top_score * MEMORY_RECALL_TOP_SCORE_RATIO;
     ranked
         .into_iter()
-        .filter(|item| item.final_score >= effective_threshold)
+        .filter(|item| item.final_score.is_finite() && item.final_score >= threshold)
         .map(|item| item.memory_id)
         .collect::<Vec<_>>()
 }
@@ -362,7 +513,7 @@ fn memory_tantivy_bm25_scores(
     memories: &[MemoryEntry],
     query_text: &str,
     limit: usize,
-) -> Result<Vec<(String, f64, f64)>, String> {
+) -> Result<Vec<MemoryBm25Hit>, String> {
     if memories.is_empty() || query_text.trim().is_empty() || limit == 0 {
         return Ok(Vec::new());
     }
@@ -407,78 +558,189 @@ fn memory_tantivy_bm25_scores(
         .reader()
         .map_err(|err| format!("Open tantivy reader failed: {err}"))?;
     let searcher = reader.searcher();
-    let query_tokens = memory_tokenize_query_terms(query_text).join(" ");
-    if query_tokens.trim().is_empty() {
+    let qp = QueryParser::for_index(&index, vec![content_field]);
+
+    fn search_tantivy_stage(
+        qp: &QueryParser,
+        searcher: &tantivy::Searcher,
+        memory_idx_field: Field,
+        query_text: &str,
+        fetch_limit: usize,
+    ) -> Result<Vec<(usize, f64)>, String> {
+        if query_text.trim().is_empty() || fetch_limit == 0 {
+            return Ok(Vec::new());
+        }
+        let parsed = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| qp.parse_query(query_text)));
+        let query = match parsed {
+            Ok(Ok(query)) => query,
+            Ok(Err(err)) => return Err(format!("Parse tantivy query failed: {err}")),
+            Err(_) => {
+                return Err(
+                    "Parse tantivy query panicked (invalid grammar input); query was rejected safely."
+                        .to_string(),
+                )
+            }
+        };
+        let collector = TopDocs::with_limit(fetch_limit).order_by_score();
+        let searched = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            searcher.search(&query, &collector)
+        }));
+        let hits: Vec<(f32, tantivy::DocAddress)> = match searched {
+            Ok(Ok(hits)) => hits,
+            Ok(Err(err)) => return Err(format!("Search tantivy bm25 failed: {err}")),
+            Err(_) => {
+                return Err(
+                    "Search tantivy bm25 panicked unexpectedly; search was aborted safely."
+                        .to_string(),
+                )
+            }
+        };
+
+        let mut out = Vec::<(usize, f64)>::new();
+        for (score, addr) in hits {
+            let doc: tantivy::schema::TantivyDocument = searcher
+                .doc(addr)
+                .map_err(|err| format!("Read tantivy hit document failed: {err}"))?;
+            let idx = doc
+                .get_first(memory_idx_field)
+                .and_then(|v| v.as_u64())
+                .map(|v| v as usize)
+                .ok_or_else(|| "Read tantivy memory_idx failed".to_string())?;
+            out.push((idx, score as f64));
+        }
+        Ok(out)
+    }
+
+    fn merge_single_term_hits(
+        memories: &[MemoryEntry],
+        searcher: &tantivy::Searcher,
+        qp: &QueryParser,
+        memory_idx_field: Field,
+        content_field_name: &str,
+        term: &str,
+        limit: usize,
+    ) -> Result<Vec<(usize, f64, bool)>, String> {
+        let required_terms = memory_required_query_terms(term);
+        let all_terms = memory_tokenize_terms(term, true);
+        if required_terms.is_empty() && all_terms.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        let base_hit_limit = limit.saturating_mul(8).max(50);
+        let hit_limit = memory_resolve_hit_limit(term, base_hit_limit);
+        let strict_query = memory_build_all_terms_query(content_field_name, &required_terms);
+        let loose_query = memory_build_any_terms_query(content_field_name, &all_terms);
+
+        let mut seen = HashSet::<usize>::new();
+        let mut merged = Vec::<(usize, f64, usize)>::new();
+
+        for (stage_rank, query_text) in [(0usize, strict_query), (1usize, loose_query)] {
+            if query_text.trim().is_empty() {
+                continue;
+            }
+            if stage_rank == 1 && merged.len() >= limit {
+                break;
+            }
+            let stage_hits = search_tantivy_stage(
+                qp,
+                searcher,
+                memory_idx_field,
+                &query_text,
+                hit_limit.min(memories.len().max(1)),
+            )?;
+            for (idx, score) in stage_hits {
+                if seen.insert(idx) {
+                    merged.push((idx, score, stage_rank));
+                }
+            }
+        }
+
+        merged.sort_by(|a, b| {
+            a.2.cmp(&b.2)
+                .then_with(|| b.1.total_cmp(&a.1))
+                .then_with(|| a.0.cmp(&b.0))
+        });
+        Ok(merged
+            .into_iter()
+            .take(limit)
+            .map(|(idx, score, stage_rank)| (idx, score, stage_rank == 0))
+            .collect())
+    }
+
+    let query_terms = memory_split_query_terms(query_text);
+    if query_terms.is_empty() {
         return Ok(Vec::new());
     }
-    let qp = QueryParser::for_index(&index, vec![content_field]);
-    // Build explicit fielded query to avoid tantivy grammar panics on field-less special syntax.
-    let fielded_query = memory_tokenize_query_terms(query_text)
+    let mut scored = if query_terms.len() == 1 {
+        merge_single_term_hits(
+            memories,
+            &searcher,
+            &qp,
+            memory_idx_field,
+            "content",
+            &query_terms[0],
+            limit,
+        )?
         .into_iter()
-        .map(|token| {
-            let escaped = token
-                .replace('\\', "\\\\")
-                .replace('"', "\\\"");
-            format!("content:\"{}\"", escaped)
-        })
+        .map(|(idx, score, _)| (idx, score))
         .collect::<Vec<_>>()
-        .join(" OR ");
-    let parse_target = if fielded_query.trim().is_empty() {
-        query_tokens
     } else {
-        fielded_query
-    };
-    let parsed = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| qp.parse_query(&parse_target)));
-    let query = match parsed {
-        Ok(Ok(query)) => query,
-        Ok(Err(err)) => return Err(format!("Parse tantivy query failed: {err}")),
-        Err(_) => {
-            return Err(
-                "Parse tantivy query panicked (invalid grammar input); query was rejected safely."
-                    .to_string(),
-            )
+        let per_term_limit = memories.len().max(limit);
+        let mut by_memory = HashMap::<usize, (f64, usize)>::new();
+        for term in &query_terms {
+            let term_hits = merge_single_term_hits(
+                memories,
+                &searcher,
+                &qp,
+                memory_idx_field,
+                "content",
+                term,
+                per_term_limit,
+            )?;
+            for (idx, score, strict_matched) in term_hits {
+                let entry = by_memory.entry(idx).or_insert((score, 0));
+                entry.0 = entry.0.max(score);
+                if strict_matched {
+                    entry.1 += 1;
+                }
+            }
         }
-    };
-    let collector = TopDocs::with_limit(limit).order_by_score();
-    let searched = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        searcher.search(&query, &collector)
-    }));
-    let hits: Vec<(f32, tantivy::DocAddress)> = match searched {
-        Ok(Ok(hits)) => hits,
-        Ok(Err(err)) => return Err(format!("Search tantivy bm25 failed: {err}")),
-        Err(_) => {
-            return Err(
-                "Search tantivy bm25 panicked unexpectedly; search was aborted safely."
-                    .to_string(),
-            )
-        }
+        let mut merged = by_memory
+            .into_iter()
+            .map(|(idx, (score, matched_terms))| (idx, score, matched_terms))
+            .collect::<Vec<_>>();
+        merged.sort_by(|a, b| {
+            b.2.cmp(&a.2)
+                .then_with(|| b.1.total_cmp(&a.1))
+                .then_with(|| a.0.cmp(&b.0))
+        });
+        merged
+            .into_iter()
+            .take(limit)
+            .map(|(idx, score, _)| (idx, score))
+            .collect::<Vec<_>>()
     };
 
-    let max_score = hits
+    let max_score = scored
         .iter()
-        .map(|(score, _)| *score as f64)
+        .map(|(_, score)| *score)
         .fold(0.0f64, f64::max);
-    let mut out = Vec::<(String, f64, f64)>::new();
-    for (score, addr) in hits {
-        let doc: tantivy::schema::TantivyDocument = searcher
-            .doc(addr)
-            .map_err(|err| format!("Read tantivy hit document failed: {err}"))?;
-        let idx = doc
-            .get_first(memory_idx_field)
-            .and_then(|v| v.as_u64())
-            .map(|v| v as usize)
-            .ok_or_else(|| "Read tantivy memory_idx failed".to_string())?;
+    let mut out = Vec::<MemoryBm25Hit>::new();
+    for (idx, raw_score) in scored.drain(..) {
         let memory_id = memories
             .get(idx)
             .map(|m| m.id.clone())
             .ok_or_else(|| format!("Invalid tantivy memory_idx: {idx}"))?;
-        let raw_score = score as f64;
         let normalized = if max_score > 0.0 {
             (raw_score / max_score).clamp(0.0, 1.0)
         } else {
             0.0
         };
-        out.push((memory_id, raw_score, normalized));
+        out.push(MemoryBm25Hit {
+            memory_id,
+            raw_score,
+            normalized_score: normalized,
+        });
     }
     Ok(out)
 }
@@ -597,10 +859,10 @@ fn memory_mixed_ranked_items(
     let mut bm25_map = HashMap::<String, f64>::new();
     let mut bm25_raw_map = HashMap::<String, f64>::new();
     let mut bm25_top_ids = Vec::<String>::new();
-    for (memory_id, raw_score, norm_score) in bm25_hits {
-        bm25_raw_map.insert(memory_id.clone(), raw_score);
-        bm25_map.insert(memory_id.clone(), norm_score);
-        bm25_top_ids.push(memory_id);
+    for hit in bm25_hits {
+        bm25_raw_map.insert(hit.memory_id.clone(), hit.raw_score);
+        bm25_map.insert(hit.memory_id.clone(), hit.normalized_score);
+        bm25_top_ids.push(hit.memory_id);
     }
 
     let has_embedding = memory_has_embedding_binding(data_path);
@@ -630,8 +892,8 @@ fn memory_mixed_ranked_items(
     }
 
     // Retrieval modes:
-    // 1) no embedding + no rerank: BM25 direct output.
-    // 2) embedding + no rerank: weighted fusion (vector + BM25).
+    // 1) no embedding + no rerank: BM25 rank via RRF score.
+    // 2) embedding + no rerank: vector rank + BM25 rank via RRF.
     // 3) no embedding + rerank: BM25 candidates reranked.
     // 4) embedding + rerank: BM25 + vector candidates union, then reranked.
     let rerank_provider = memory_rerank_provider_from_binding(data_path).ok().flatten();
@@ -665,7 +927,7 @@ fn memory_mixed_ranked_items(
             }
         }
     } else if !effective_has_embedding {
-        candidate_ids.extend(bm25_top_ids.into_iter().take(limit));
+        candidate_ids.extend(bm25_top_ids.iter().take(limit).cloned());
     } else {
         let mut all = HashSet::<String>::new();
         for id in &bm25_top_ids {
@@ -688,6 +950,22 @@ fn memory_mixed_ranked_items(
     if candidate_ids.is_empty() {
         return Vec::new();
     }
+
+    let bm25_rank_map = bm25_top_ids
+        .iter()
+        .enumerate()
+        .map(|(idx, id)| (id.clone(), idx + 1))
+        .collect::<HashMap<_, _>>();
+    let mut vector_rank_pairs = vector_map
+        .iter()
+        .map(|(id, score)| (id.clone(), *score))
+        .collect::<Vec<_>>();
+    vector_rank_pairs.sort_by(|a, b| b.1.total_cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
+    let vector_rank_map = vector_rank_pairs
+        .iter()
+        .enumerate()
+        .map(|(idx, (id, _))| (id.clone(), idx + 1))
+        .collect::<HashMap<_, _>>();
 
     let mut rerank_map = HashMap::<String, f64>::new();
     let mut rerank_available = false;
@@ -717,11 +995,10 @@ fn memory_mixed_ranked_items(
         .filter_map(|memory_id| {
             let idx = *memory_index.get(&memory_id)?;
             let bm25_score = bm25_map.get(&memory_id).copied().unwrap_or(0.0);
-            let vector_score = vector_map.get(&memory_id).copied().unwrap_or(0.0);
             let final_score = if rerank_available {
                 rerank_map.get(&memory_id).copied().unwrap_or(0.0)
             } else if effective_has_embedding {
-                MEMORY_WEIGHT_VECTOR * vector_score + MEMORY_WEIGHT_BM25 * bm25_score
+                memory_rrf_score_for_id(&memory_id, &bm25_rank_map, Some(&vector_rank_map))
             } else {
                 bm25_score
             };

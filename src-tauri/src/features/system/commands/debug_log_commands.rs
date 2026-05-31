@@ -1,4 +1,8 @@
 const RUNTIME_LOG_MAX_BYTES: usize = 10 * 1024 * 1024;
+const BACKEND_LOG_MAX_BYTES: u64 = 5 * 1024 * 1024;
+const BACKEND_LOG_MAX_FILES: usize = 20;
+const BACKEND_LOG_ARCHIVE_MAX_BYTES: u64 = 25 * 1024 * 1024;
+const BACKEND_LOG_FILE_NAME: &str = "backend.log";
 const DEFAULT_LLM_ROUND_LOG_CAPACITY: usize = 3;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -75,6 +79,187 @@ fn pending_chat_round_buffer() -> &'static Mutex<PendingChatRoundBuffer> {
     PENDING_CHAT_ROUNDS.get_or_init(|| Mutex::new(PendingChatRoundBuffer::default()))
 }
 
+fn backend_log_write_lock() -> &'static Mutex<()> {
+    static BACKEND_LOG_WRITE_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+    BACKEND_LOG_WRITE_LOCK.get_or_init(|| Mutex::new(()))
+}
+
+fn backend_log_path() -> &'static Option<PathBuf> {
+    static BACKEND_LOG_PATH: OnceLock<Option<PathBuf>> = OnceLock::new();
+    BACKEND_LOG_PATH.get_or_init(resolve_backend_log_path)
+}
+
+fn resolve_backend_log_path() -> Option<PathBuf> {
+    let log_dir = detect_portable_runtime_root()
+        .or_else(|| {
+            ProjectDirs::from("ai", "easycall", "p-ai")
+                .map(|dirs| dirs.config_dir().to_path_buf())
+        })
+        .or_else(|| current_exe_dir())
+        .unwrap_or_else(std::env::temp_dir)
+        .join("logs");
+    if fs::create_dir_all(&log_dir).is_err() {
+        return None;
+    }
+    Some(log_dir.join(BACKEND_LOG_FILE_NAME))
+}
+
+fn backend_log_archive_path(path: &PathBuf) -> PathBuf {
+    let ts = now_utc().unix_timestamp();
+    let pid = std::process::id();
+    for index in 0..100_u32 {
+        let suffix = if index == 0 {
+            String::new()
+        } else {
+            format!(".{index}")
+        };
+        let candidate = path.with_file_name(format!("backend.{ts}.{pid}{suffix}.log"));
+        if !candidate.exists() {
+            return candidate;
+        }
+    }
+    path.with_file_name(format!("backend.{ts}.{pid}.fallback.log"))
+}
+
+fn is_backend_log_archive(path: &PathBuf) -> bool {
+    let Some(name) = path.file_name().and_then(|value| value.to_str()) else {
+        return false;
+    };
+    name.starts_with("backend.") && name.ends_with(".log") && name != BACKEND_LOG_FILE_NAME
+}
+
+fn prune_backend_log_archives(path: &PathBuf) {
+    let Some(dir) = path.parent() else {
+        return;
+    };
+    let Ok(entries) = fs::read_dir(dir) else {
+        return;
+    };
+    let mut archives = entries
+        .filter_map(Result::ok)
+        .map(|entry| entry.path())
+        .filter(is_backend_log_archive)
+        .filter_map(|archive_path| {
+            let metadata = fs::metadata(&archive_path).ok()?;
+            let modified = metadata.modified().unwrap_or(std::time::SystemTime::UNIX_EPOCH);
+            Some((archive_path, modified, metadata.len()))
+        })
+        .collect::<Vec<_>>();
+    archives.sort_by(|a, b| b.1.cmp(&a.1));
+
+    let mut kept_files = 0_usize;
+    let mut kept_bytes = 0_u64;
+    for (archive_path, _, bytes) in archives {
+        let next_files = kept_files.saturating_add(1);
+        let next_bytes = kept_bytes.saturating_add(bytes);
+        if next_files > BACKEND_LOG_MAX_FILES || next_bytes > BACKEND_LOG_ARCHIVE_MAX_BYTES {
+            let _ = fs::remove_file(archive_path);
+        } else {
+            kept_files = next_files;
+            kept_bytes = next_bytes;
+        }
+    }
+}
+
+fn archive_backend_log(path: &PathBuf) {
+    let Ok(metadata) = fs::metadata(path) else {
+        return;
+    };
+    if metadata.len() == 0 {
+        return;
+    }
+    let target = backend_log_archive_path(path);
+    if fs::rename(path, &target).is_err() {
+        if fs::copy(path, &target).is_ok() {
+            let _ = fs::remove_file(path);
+        }
+    }
+    prune_backend_log_archives(path);
+}
+
+fn rotate_backend_log_if_needed(path: &PathBuf, pending_bytes: u64) {
+    let current_bytes = fs::metadata(path).map(|meta| meta.len()).unwrap_or(0);
+    if current_bytes.saturating_add(pending_bytes) <= BACKEND_LOG_MAX_BYTES {
+        return;
+    }
+    archive_backend_log(path);
+}
+
+fn now_log_local_rfc3339() -> String {
+    let now = now_utc();
+    UtcOffset::current_local_offset()
+        .ok()
+        .map(|offset| now.to_offset(offset))
+        .unwrap_or(now)
+        .replace_nanosecond(0)
+        .ok()
+        .and_then(|value| value.format(&Rfc3339).ok())
+        .unwrap_or_else(now_utc_rfc3339)
+}
+
+fn append_backend_log_line(level: &str, message: &str) {
+    let Some(path) = backend_log_path().as_ref() else {
+        return;
+    };
+    let Ok(_guard) = backend_log_write_lock().lock() else {
+        return;
+    };
+    let line = format!(
+        "{} {:<5} {}\n",
+        now_log_local_rfc3339(),
+        level.to_uppercase(),
+        message
+    );
+    rotate_backend_log_if_needed(path, line.len() as u64);
+    if let Ok(mut file) = std::fs::OpenOptions::new().create(true).append(true).open(path) {
+        let _ = std::io::Write::write_all(&mut file, line.as_bytes());
+    }
+}
+
+fn init_backend_file_logging() {
+    let Some(path) = backend_log_path().as_ref() else {
+        return;
+    };
+    if let Ok(_guard) = backend_log_write_lock().lock() {
+        archive_backend_log(path);
+    }
+    append_backend_log_line("info", "========== 本次启动开始 ==========");
+}
+
+fn install_backend_file_panic_hook() {
+    static BACKEND_FILE_PANIC_HOOK_INSTALLED: OnceLock<()> = OnceLock::new();
+    if BACKEND_FILE_PANIC_HOOK_INSTALLED.set(()).is_err() {
+        return;
+    }
+    let previous_hook = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |info| {
+        let payload = info
+            .payload()
+            .downcast_ref::<&str>()
+            .map(|value| (*value).to_string())
+            .or_else(|| info.payload().downcast_ref::<String>().cloned())
+            .unwrap_or_else(|| "unknown panic payload".to_string());
+        let location = info
+            .location()
+            .map(|loc| format!("{}:{}", loc.file(), loc.line()))
+            .unwrap_or_else(|| "unknown location".to_string());
+        let thread_name = std::thread::current()
+            .name()
+            .unwrap_or("unnamed")
+            .to_string();
+        append_backend_log_line(
+            "error",
+            &format!(
+                "[panic] location={} thread={} payload={}",
+                location.trim(),
+                thread_name.trim(),
+                payload.trim()
+            ),
+        );
+        previous_hook(info);
+    }));
+}
+
 fn normalize_runtime_log(level: &str, message: String) -> (String, String) {
     let mut current_level = level.to_string();
     let mut text = message.trim().to_string();
@@ -106,19 +291,21 @@ fn normalize_runtime_log(level: &str, message: String) -> (String, String) {
 fn runtime_log_push(level: &str, message: String) {
     let _ = std::io::Write::write_all(&mut std::io::stderr(), format!("{message}\n").as_bytes());
     let (normalized_level, normalized_message) = normalize_runtime_log(level, message);
+    append_backend_log_line(&normalized_level, &normalized_message);
+    let created_at = now_log_local_rfc3339();
     let Ok(mut buf) = runtime_log_buffer().lock() else {
         return;
     };
     if let Some(last) = buf.entries.back_mut() {
         if last.level == normalized_level && last.message == normalized_message {
             last.repeat = last.repeat.saturating_add(1);
-            last.created_at = now_iso();
+            last.created_at = created_at;
             return;
         }
     }
     let entry = RuntimeLogEntry {
         id: Uuid::new_v4().to_string(),
-        created_at: now_iso(),
+        created_at,
         level: normalized_level,
         message: normalized_message,
         repeat: 1,
@@ -446,7 +633,7 @@ fn build_llm_round_log_entry(
     let success = error.as_ref().map(|value| value.trim().is_empty()).unwrap_or(true);
     LlmRoundLogEntry {
         id: Uuid::new_v4().to_string(),
-        created_at: now_iso(),
+        created_at: now_log_local_rfc3339(),
         trace_id,
         scene: scene.to_string(),
         request_format: request_format.as_str().to_string(),
@@ -708,6 +895,27 @@ fn list_recent_runtime_logs() -> Result<Vec<RuntimeLogEntry>, String> {
         .lock()
         .map_err(|_| "Failed to lock runtime logs".to_string())?;
     Ok(logs.entries.iter().cloned().collect::<Vec<_>>())
+}
+
+#[tauri::command]
+fn list_runtime_logs_since(since_created_at: Option<String>) -> Result<Vec<RuntimeLogEntry>, String> {
+    let logs = runtime_log_buffer()
+        .lock()
+        .map_err(|_| "Failed to lock runtime logs".to_string())?;
+    let anchor = since_created_at
+        .as_deref()
+        .map(str::trim)
+        .filter(|v| !v.is_empty())
+        .unwrap_or("");
+    if anchor.is_empty() {
+        return Ok(logs.entries.iter().cloned().collect());
+    }
+    Ok(logs
+        .entries
+        .iter()
+        .filter(|entry| entry.created_at.as_str() > anchor)
+        .cloned()
+        .collect())
 }
 
 #[tauri::command]

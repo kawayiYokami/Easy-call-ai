@@ -411,3 +411,11 @@ fn parse_script(request: &OperateRequest) -> DesktopToolResult<Vec<DesktopScript
     }
     Ok(actions)
 }
+
+
+/// 快速检查脚本文本中是否包含 screenshot 动作（不做完整解析，仅行首关键词匹配）
+fn script_contains_screenshot(script: &str) -> bool {
+    script
+        .lines()
+        .any(|line| line.trim().starts_with("screenshot"))
+}

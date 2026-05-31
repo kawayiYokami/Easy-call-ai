@@ -198,7 +198,7 @@
             @update:instruction-presets="$emit('update:instructionPresets', $event)"
             @patch-conversation-api-settings="$emit('patchConversationApiSettings', $event)"
             @patch-chat-settings="$emit('patchChatSettings', $event)"
-            @open-current-history="$emit('openCurrentHistory')"
+            @open-conversation-list="$emit('openConversationList')"
             @open-prompt-preview="$emit('openPromptPreview')"
             @open-system-prompt-preview="$emit('openSystemPromptPreview')"
             @refresh-image-cache-stats="$emit('refreshImageCacheStats')"
@@ -214,6 +214,7 @@
           <RemoteImTab
             v-else-if="props.configTab === 'remoteIm'"
             :config="config"
+            :personas="personas"
             :save-config-action="saveConfigAction"
             :set-status-action="setStatusAction"
           />
@@ -490,7 +491,7 @@ const emit = defineEmits<{
   (e: "resetPersonas"): void;
   (e: "savePersonas"): void;
   (e: "importPersonaMemories", value: { agentId: string; file: File }): void;
-  (e: "openCurrentHistory"): void;
+  (e: "openConversationList"): void;
   (e: "openPromptPreview"): void;
   (e: "openSystemPromptPreview"): void;
   (e: "refreshImageCacheStats"): void;

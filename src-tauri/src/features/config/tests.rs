@@ -984,6 +984,52 @@ maxOutputTokens = 8192
     }
 
     #[test]
+    fn runtime_state_shard_should_sync_remote_im_contact_communication_flags() {
+        let root = std::env::temp_dir().join(format!("eca-app-data-contact-sync-{}", Uuid::new_v4()));
+        std::fs::create_dir_all(root.join("config")).expect("create temp config dir");
+        let data_path = root.join("config").join("app_data.json");
+
+        let mut runtime = RuntimeStateFile::default();
+        runtime.remote_im_contacts.push(RemoteImContact {
+            id: "contact-a".to_string(),
+            channel_id: "channel-a".to_string(),
+            platform: RemoteImPlatform::OnebotV11,
+            remote_contact_type: "private".to_string(),
+            remote_contact_id: "remote-a".to_string(),
+            remote_contact_name: "张三".to_string(),
+            avatar_url: String::new(),
+            remark_name: String::new(),
+            allow_send: false,
+            allow_send_files: false,
+            allow_receive: true,
+            activation_mode: "never".to_string(),
+            activation_keywords: Vec::new(),
+            mute_keywords: default_remote_im_contact_mute_keywords(),
+            unmute_keywords: default_remote_im_contact_unmute_keywords(),
+            patience_seconds: default_remote_im_contact_patience_seconds(),
+            mute_duration_seconds: default_remote_im_contact_mute_duration_seconds(),
+            activation_cooldown_seconds: 0,
+            route_mode: "dedicated_contact_conversation".to_string(),
+            bound_department_id: Some(REMOTE_CUSTOMER_SERVICE_DEPARTMENT_ID.to_string()),
+            bound_conversation_id: None,
+            processing_mode: "continuous".to_string(),
+            response_strategy: default_remote_im_contact_response_strategy(),
+            response_guidance: default_remote_im_contact_response_guidance(),
+            last_activated_at: None,
+            last_message_at: None,
+            dingtalk_session_webhook: None,
+            dingtalk_session_webhook_expired_time: None,
+            shell_workspaces: Vec::new(),
+        });
+
+        assert!(write_runtime_state_shard(&data_path, &runtime).expect("write runtime shard"));
+        let restored = read_runtime_state_shard(&data_path).expect("read runtime shard");
+        let contact = restored.remote_im_contacts.first().expect("contact exists");
+        assert!(contact.allow_send);
+        assert!(contact.allow_receive);
+    }
+
+    #[test]
     fn write_conversation_shard_should_write_message_store_and_only_touch_target() {
         let root = std::env::temp_dir().join(format!("eca-conversation-shard-{}", Uuid::new_v4()));
         std::fs::create_dir_all(root.join("config")).expect("create temp config dir");

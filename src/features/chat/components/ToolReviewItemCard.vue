@@ -61,7 +61,7 @@
 <script setup lang="ts">
 import { computed, ref } from "vue";
 import { useI18n } from "vue-i18n";
-import { Eye, RotateCcw } from "lucide-vue-next";
+import { Eye, RotateCcw } from "@lucide/vue";
 import type { ToolReviewItemDetail, ToolReviewItemSummary } from "../composables/use-chat-tool-review";
 import ToolReviewChangesDialog from "./ToolReviewChangesDialog.vue";
 

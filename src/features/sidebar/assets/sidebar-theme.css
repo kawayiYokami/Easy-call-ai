@@ -1,0 +1,162 @@
+:root {
+  color-scheme: light dark;
+  --pai-sidebar-fallback-bg: #ffffff;
+  --pai-sidebar-fallback-panel: #f6f6f6;
+  --pai-sidebar-fallback-hover: #eeeeee;
+  --pai-sidebar-fallback-fg: #1f2328;
+  --pai-sidebar-bg: var(--vscode-sideBar-background, var(--vscode-editor-background, var(--pai-sidebar-fallback-bg)));
+  --pai-sidebar-panel: var(--vscode-editor-background, var(--vscode-sideBar-background, var(--pai-sidebar-fallback-panel)));
+  --pai-sidebar-hover: var(--vscode-list-hoverBackground, var(--vscode-toolbar-hoverBackground, var(--pai-sidebar-fallback-hover)));
+  --pai-sidebar-fg: var(--vscode-sideBar-foreground, var(--vscode-foreground, var(--vscode-editor-foreground, var(--pai-sidebar-fallback-fg))));
+  --pai-sidebar-muted-fg: var(--vscode-descriptionForeground, color-mix(in srgb, var(--pai-sidebar-fg) 64%, transparent));
+  --color-base-100: var(--pai-sidebar-bg);
+  --color-base-200: var(--pai-sidebar-panel);
+  --color-base-300: var(--pai-sidebar-hover);
+  --color-base-content: var(--pai-sidebar-fg);
+  --color-primary: var(--vscode-button-background, #0e639c);
+  --color-primary-content: var(--vscode-button-foreground, #ffffff);
+  --color-secondary: var(--vscode-badge-background, #4d4d4d);
+  --color-secondary-content: var(--vscode-badge-foreground, #ffffff);
+  --color-accent: var(--vscode-textLink-foreground, #0969da);
+  --color-accent-content: var(--vscode-button-foreground, #ffffff);
+  --color-neutral: var(--vscode-editorWidget-background, #252526);
+  --color-neutral-content: var(--vscode-editorWidget-foreground, #cccccc);
+  --color-info: var(--vscode-notificationsInfoIcon-foreground, #3794ff);
+  --color-info-content: var(--vscode-sideBar-foreground, #1f2328);
+  --color-success: var(--vscode-testing-iconPassed, #73c991);
+  --color-success-content: var(--vscode-sideBar-foreground, #1f2328);
+  --color-warning: var(--vscode-notificationsWarningIcon-foreground, #cca700);
+  --color-warning-content: var(--vscode-sideBar-foreground, #1f2328);
+  --color-error: var(--vscode-errorForeground, #f14c4c);
+  --color-error-content: var(--vscode-sideBar-background, #ffffff);
+  --radius-selector: 0.5rem;
+  --radius-field: 0.5rem;
+  --radius-box: 0.5rem;
+  --border: 1px;
+  --depth: 0;
+  --noise: 0;
+}
+
+body.vscode-dark,
+body.vscode-high-contrast,
+body[data-vscode-theme-kind="vscode-dark"],
+body[data-vscode-theme-kind="vscode-high-contrast"] {
+  --pai-sidebar-fallback-bg: #1f1f29;
+  --pai-sidebar-fallback-panel: #252631;
+  --pai-sidebar-fallback-hover: #313342;
+  --pai-sidebar-fallback-fg: #d7d9e3;
+}
+
+body.vscode-light,
+body[data-vscode-theme-kind="vscode-light"] {
+  --pai-sidebar-fallback-bg: #ffffff;
+  --pai-sidebar-fallback-panel: #f6f7f9;
+  --pai-sidebar-fallback-hover: #e9edf3;
+  --pai-sidebar-fallback-fg: #1f2328;
+}
+
+html,
+body,
+#app {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  overflow: hidden;
+  background: var(--pai-sidebar-bg);
+  color: var(--pai-sidebar-fg);
+}
+
+body {
+  font-family: var(--vscode-font-family, ui-sans-serif, system-ui, sans-serif);
+  font-size: var(--vscode-font-size, 13px);
+}
+
+button,
+textarea {
+  font-family: inherit;
+}
+
+button,
+textarea,
+input,
+select,
+.btn,
+.badge,
+.dropdown-content,
+.menu,
+.chat-bubble,
+.mockup-code {
+  color: inherit;
+}
+
+button svg,
+.btn svg,
+.badge svg,
+.dropdown-content svg,
+.menu svg {
+  color: currentColor;
+  stroke: currentColor;
+}
+
+.sidebar-scrollbar {
+  scrollbar-width: thin;
+  scrollbar-color: var(--vscode-scrollbarSlider-background, rgba(127, 127, 127, 0.4)) transparent;
+}
+
+.sidebar-scrollbar::-webkit-scrollbar {
+  width: 10px;
+}
+
+.sidebar-scrollbar::-webkit-scrollbar-thumb {
+  background: var(--vscode-scrollbarSlider-background, rgba(127, 127, 127, 0.4));
+}
+
+.text-base-content\/45 {
+  color: color-mix(in srgb, var(--pai-sidebar-fg) 48%, transparent) !important;
+}
+
+.text-base-content\/55,
+.text-base-content\/60,
+.opacity-60,
+.opacity-70 {
+  color: var(--pai-sidebar-muted-fg) !important;
+}
+
+.opacity-80 {
+  color: color-mix(in srgb, var(--pai-sidebar-fg) 82%, transparent) !important;
+}
+
+.btn-ghost,
+.btn:not(.btn-primary):not(.btn-error):not(.btn-info):not(.btn-success):not(.btn-warning) {
+  color: var(--pai-sidebar-fg);
+}
+
+.btn-ghost:hover {
+  background: color-mix(in srgb, var(--pai-sidebar-fg) 10%, transparent);
+  color: var(--pai-sidebar-fg);
+}
+
+.textarea,
+.select,
+.input,
+.badge-ghost,
+.badge-outline {
+  color: var(--pai-sidebar-fg);
+}
+
+.textarea::placeholder,
+.input::placeholder {
+  color: var(--pai-sidebar-muted-fg);
+  opacity: 1;
+}
+
+.code-block-header,
+.code-header-main,
+.code-header-title,
+.code-header-caption,
+.code-header-actions,
+.mockup-code,
+.mockup-code pre,
+.mockup-code code {
+  color: var(--pai-sidebar-fg) !important;
+}

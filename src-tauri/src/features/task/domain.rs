@@ -748,6 +748,9 @@ fn task_todo_from_legacy_fields(status_summary: &str, todos: &[String]) -> Strin
         let joined = normalized_todos.join("；");
         if normalized_status.is_empty() {
             parts.push(joined);
+        } else if joined == normalized_status || format!("待办：{}", joined) == normalized_status {
+            // New goal-task records persist the simplified todo into both legacy fields.
+            // Keep the user-facing text single-line instead of echoing the same todo twice.
         } else {
             parts.push(format!("待办：{}", joined));
         }

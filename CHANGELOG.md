@@ -1,5 +1,251 @@
 # 变更日志
 
+## 未发布
+
+## 发布：v0.10.13
+
+- 功能（memory）：记忆页面新增聊天记录搜索卡片，按人格关键字搜索已压缩/归档的本地与联系人对话切片；首版使用 BM25-only 和切片统计，暂不接入向量与主动 RAG。
+- 调整（config-api）：模型能力卡片的能力开关改为复选框显示，并让 OpenAI Responses 协议同样显示思维强度配置。
+- 升级（memory）：记忆检索底座改为 CJK 1/2-gram Tantivy 多级检索，支持空格/`|` 多词命中数排序；向量与 BM25 融合改为 RRF(K=60)，主动召回按最高分一半过滤并保留 BM25-only 的归一化分数过滤能力，移除 jieba 残留逻辑。
+- 调整（config）：前端新增供应商与快速配置向导默认开启供应商并发请求，避免新用户默认串行导致多会话/委托不可用。
+- 修复（updater）：强制更新检查不再排除与当前版本号相同的 latest manifest，避免“强制下载更新”误提示没有可用更新。
+- 功能（chat）：新建会话弹窗支持选择最近工作目录、设置目录权限与会话最大权限，并在创建/导入会话时写入对应运行权限。
+
+## 发布：v0.10.12
+
+- 重构（chat-stream）：前端流式恢复改为统一的历史消息覆盖投影，集中处理流式草稿替代已持久化半成品消息的去重逻辑，避免多个恢复入口重复过滤。
+- 修复（updater）：Windows 便携版自动更新 helper 与重启新进程改用 `CreateProcessW` 禁止继承父进程句柄，并在优雅停机中关闭 IDE 上下文桥监听，避免更新后 OneBot/IDE 本地端口被孤儿句柄占用。
+- 修复（remote-im）：远程联系人通信开关统一同步 `allowSend` / `allowReceive`，读写运行态时自动修复历史半开数据，避免界面显示已开启但实际发信仍被 `allowSend` 拦截。
+- 升级（builtin-network）：`fetch` 与 `websearch` 内置工具默认优先走 Exa MCP 网关（`https://mcp.exa.ai/mcp`），当 Exa 返回非标准成功结果（无 `result`、SSE 解析失败、内容为空等）时自动降级到原有内置实现（`fetch` 回退 reqwest + trafilatura，`websearch` 回退 Bing HTML 解析），无需本地额度计数，仅按返回结果质量判定降级。
+- 修复（chat-stream）：流式期间工具调用结果即时持久化后，切换会话再切回时流式草稿与半成品持久化消息重复显示；后端流式缓存新增 `persisted_assistant_message_id` 字段，前端切会话恢复统一只从后端读取快照并按该字段去重，移除前端本地缓存恢复路径。
+
+## 发布：v0.10.11
+
+- 修复（remote-im）：远程联系人列表状态胶囊改为上拉菜单选择，菜单挂载到页面根部以避免被联系人列表滚动容器裁剪，并优化文件发送权限文案。
+- 修复（chat-stream）：聊天窗口失焦后重新激活时，优先从前端流式缓存恢复当前会话投影，并在后端已完成时清理临时流式草稿后重载正式消息，避免切回窗口后流式内容不同步或草稿悬挂。
+- 重构（remote-im）：OneBot v11 WS 服务器从手写 TCP listener + accept 循环迁移至 axum serve，由框架管理端口绑定、连接接受与 graceful shutdown；移除 600 秒 bind retry 循环和 channel_shutdowns broadcast，stop 后端口确定性释放，消除"自己占自己端口"和长时间无响应问题。
+
+## 发布：v0.10.10
+
+- 重构（remote-im）：OneBot v11 WS 服务器迁移至 axum serve，端口确定性释放，消除自占端口和长时间无响应。
+- 修复（chat）：右侧面板模式切换改为单按钮 toggle，修复标题栏 dropdown 不可用。
+- 修复（tools）：operate 截图前检查模型是否支持图片，不支持时直接拒绝。
+- 升级（deps）：genai 升级至 v0.6.3-WIP，包含 openai_resp 容错修复和 reasoning suffix 对所有 OpenAI 兼容供应商的放开。
+
+- 修复（message-store）：独立聊天窗口不再触发全局消息仓库迁移预检；迁移预检将近期更新的 `building` manifest 视为活跃写入而非异常会话，并避免 busy 状态阻止迁移版本落盘。
+
+- 修复（remote-im）：OneBot v11 生命周期改为短锁收敛并跳过重复启动，避免端口重试期间停用/重启被长时间阻塞；运行日志时间改为本地时间；远程联系人列表增加头像、可点击胶囊与触发模式上下调整，优化服务端已监听但协议端未连接时的状态提示。
+
+## 发布：v0.10.9
+
+- 修复（remote-im）：远程联系人忙碌期间收到新消息时，不再在当前轮收尾后抢先用旧历史触发待办续跑；改为等待排队消息先写入历史，再按该消息准确执行智能激活判定。
+
+- 修复（chat-stream）：流式气泡计时改为以后端记录的流式开始时间为准，并随运行态快照恢复，避免切换会话或重绑流式时退化为前端内存计时。
+
+- 功能（conversation-share）：新建会话弹窗支持从外部 JSON 导入会话分享，导入时按当前选择部门重映射助理、本地用户重映射为用户；本地会话列表增加“导出会话”，导出完整消息 JSON 供他人导入。
+
+- 功能（meme）：贴纸库改为按 `.meme/` 根目录文件和第一层文件夹直接生成可用 meme 列表，`meme` 工具简化为 `emotion/path` 入库；同名贴纸自动从根目录单图合并为文件夹多变体，保留 dHash 图哈希库用于重复录入检测且不再清理孤儿 hash。
+
+- 修复（config-api）：连通性测试不再硬编码 `temperature=0`，避免 Kimi 等模型因温度参数不兼容而 400；Kimi 预设增加 A 协议 `https://api.kimi.com/coding/`，点击预设时同步切换协议。
+
+- 修复（chat-archive）：会话列表“归档”改为直接执行归档，不再打开压缩卡片；会话列表增加归档中/压缩中的运行态提示，避免当前会话后台处理时无 UI 反馈。
+
+## 发布：v0.10.8
+
+- 修复（remote-im）：OneBot v11 WS 事件总线改为渠道级生命周期，事件消费器可在 NapCat 客户端连接前完成订阅，避免重启后连接已建立但早到消息无人消费导致 QQ 消息收不到；同时兼容二进制 JSON WebSocket 帧。
+
+## 发布：v0.10.7
+
+- 修复（user-profile-memory）：本地用户画像改用消息链路中的 `user-persona` 作为真实用户 ID，并在最新用户请求元信息中注入 `user_id=user-persona`；整理/归档提示词改为使用用户称谓和后置身份片段生成画像标签，避免输出占位符 `用户ID`，并允许 `memoryActions` 多条保留不再静默截断。
+
+## 发布：v0.10.6
+
+- 修复（user-profile-memory）：本地用户画像改用消息链路中的 `user-persona` 作为真实用户 ID，并在最新用户请求元信息中注入 `user_id=user-persona`；整理/归档提示词改为使用用户称谓和后置身份片段生成画像标签，避免输出占位符 `用户ID`，并允许 `memoryActions` 多条保留不再静默截断。
+
+- 修复（onebot-shutdown-and-restart）：OneBot v11 WS 停机链路改为分阶段强制收束，补齐连接发送超时、任务组退出等待与运行态清理验证；应用退出/重启与更新关闭后台服务时增加 60 秒系统提示边界，便携版更新恢复为 helper 启动成功后再关闭后台服务；Demo 页新增重启按钮方便验证普通重启链路。
+
+## 发布：v0.10.5
+
+- 修复（remote-im）：联系人列表合并收发开关改为正确识别“仅收信”状态，避免误把 `allowReceive` 写成关闭导致远程联系人无法收信。
+
+## 发布：v0.10.4
+
+- 修复（chat-layout）：侧栏拖拽与嵌入/覆盖切换改为更稳定的成对决策，支持从嵌入态直接拖到覆盖宽度，并在空间不足时优先让后来打开的侧栏以覆盖层显示，避免中间聊天区被异常挤压。
+
+- 调整（chat-sidebar）：右侧栏开关语义改为单纯展开/收起右侧栏，不再默认跳转工具评估；标题栏在宽度不足时将“阅读 / 委托”切换收纳为下拉按钮，并同步更新“右侧栏”文案。
+
+## 发布：v0.10.3
+
+- 修复（config-api）：连通性测试切换供应商时清空残留结果；API Key 置顶时保留单个密钥可见状态映射，避免误将同供应商全部密钥显示为明文。
+
+- 修复（model-provider）：嵌入连通性测试改由 blocking 线程池执行同步 provider 调用，避免阻塞异步命令；修正语音端点 `/v1/audio/...` 推导 models URL 时重复拼接 `/v1` 的问题。
+
+- 修复（remote-im）：联系人收发开关更新失败后刷新联系人列表，避免前后端状态短暂不一致。
+
+## 发布：v0.10.2
+
+- 重构（frontend）：拆分统一窗口入口，按配置、对话、归档窗口分别组织入口组件，并将聊天流、窗口状态、配置同步、滚动、媒体、工具与生命周期逻辑拆入更细的 composable，降低 `UnifiedWindowApp` 与 `use-chat-flow` 的维护成本。
+
+- 功能（windowing）：新增 WebView 心跳崩溃恢复，后端每 5 秒检测前端 ping，连续 15 秒无响应时自动重建窗口；补充 `debug_crash_webview` 调试命令用于验证恢复链路。
+
+- 功能（file-reader）：文件读取去掉 2MB 大小限制，超大纯文本仍可渲染并对单行内容做 10000 字符截断；文本解码失败时回退为十六进制显示。
+
+- 修复（chat）：本地路径链接改用 `data-href` 阻止浏览器默认导航，修复 Windows 路径被规范化为 `/E:/path` 的问题，并让目录链接在侧边栏文件阅读器中打开；修复拆分窗口入口后左侧栏远程会话 tab 点击无法切换的问题。
+
+- 修复（chat）：用户消息抬起弹性空间改为消息流末尾、工具栏上方的独立占位，并按最后一条本人用户消息及其后续所有要素高度计算，避免时间标签、助理/群友消息等内容错位。
+
+- 修复（goal-task）：任务待办兼容旧字段时去重，避免目标任务提醒中重复显示“待办：请自行判断”。
+
+- 优化（chat）：移除会话切换、流绑定、运行态快照恢复等正常路径的前端追踪日志，避免无错误时刷屏。
+
+- 修复（windowing）：窗口关闭按钮改为通过后端隐藏当前窗口，修复生产构建后对话窗口关闭按钮可能无效的问题。
+
+- 调整（goal-task）：将“督工/监督任务”入口改为目标任务 / Goal Task，从更多菜单移至输入区左下角；创建表单简化为仅输入目标，底层继续复用原任务机制并固定写入推进原因与待办。
+
+## 发布：v0.10.1
+
+- 维护（deps）：前后端依赖全量更新，`lucide-vue-next` 迁移至 `@lucide/vue` v1.16，通过 `app.provide(LUCIDE_CONTEXT)` 修复函数式组件 inject 问题；修复 sandbox read-whitelist cwd 冲突与测试参数格式。
+
+- 修复（vscode-sidebar）：IDE 上下文静止时定期心跳续租，避免 30s TTL 清理引用；新增 `autoSendIdeContext` / `includeVisibleRange` 用户配置开关。
+
+## 发布：v0.10.0
+
+- 功能（runtime-logs）：运行日志独立窗口创建链路补齐本地诊断、布局恢复、显示与聚焦错误记录，窗口前端增加加载兜底与全局错误监听，避免日志窗口自身白屏时无法判断失败阶段。
+
+- 功能（backend-log）：后端运行日志同步写入本地 `logs/backend.log`，每次启动创建新的当前日志，旧日志按时间戳归档；单次运行日志超过 5MB 自动归档，归档最多保留 20 个且总量限制为 25MB，确保启动失败或窗口打不开时仍可排查。
+
+## 发布：v0.9.99
+
+- 修复（runtime-logs）：运行日志独立窗口创建链路补齐本地诊断、布局恢复、显示与聚焦错误记录，窗口前端增加加载兜底与全局错误监听，避免日志窗口自身白屏时无法判断失败阶段。
+
+- 新增（backend-log）：后端运行日志同步写入本地 `logs/backend.log`，每次启动创建新的当前日志，旧日志按时间戳归档；单次运行日志超过 5MB 自动归档，归档最多保留 20 个且总量限制为 25MB，确保启动失败或窗口打不开时仍可排查。
+
+## 发布：v0.9.98
+
+- 修复（startup）：启动等待后端就绪时增加顶层遮罩，后端事件与前端轮询双通道确认，避免首次启动露出空 UI 或等待失败后停止首轮数据加载。
+
+- 修复（chat）：流式过程中新建会话后统一走会话切换链路，确保前台流冻结、旧会话缓存、滚动状态清理与运行态恢复生效。
+
+- 修复（markdown）：自写 Markdown 渲染器限制链接 href 的安全协议，避免模型输出或文件内容中的 `javascript:` / `data:` 等不可信链接在 WebView 中执行；同时修复流式节流窗口内最后一段内容可能停留在旧缓存的问题。
+
+## 发布：v0.9.97
+
+- 调整（vscode-sidebar-settings）：VS Code 侧边栏扩展设置页新增 `paiSidebar.autoSendIdeContext` 与 `paiSidebar.includeVisibleRange` 两个用户意图开关，用于控制 IDE 上下文自动同步和无选区时是否同步可见代码。
+
+- 修复（vscode-sidebar-connector）：IDE 上下文内容未变化时定期刷新快照 `updatedAt`，避免静止 VS Code 窗口被 PAI 侧 30 秒 TTL 清理后引用消失。
+
+- 重构（markdown）：替换 markstream-vue 为自写 AppMarkdownRenderer，代码块 shiki 高亮、数学公式 KaTeX 渲染、mermaid 图表渲染；流式采用乐观闭合策略（未闭合块不输出，闭合后一次性渲染），消除画面跳动；支持 chat/document 两种排版变体。
+
+- 移除依赖：markstream-vue、stream-markdown。
+
+## 发布：v0.9.96
+
+- 修复（message-store-migration）：消息仓库迁移增加版本标记与后端互斥锁，避免多窗口启动并发检查读到 building 中间态导致误报，迁移完成后同版本不再重复扫描。
+
+- 重构（sidebar）：VSCode 侧边栏标题栏对齐主应用风格，左箭头切换会话列表、中间新建/标题/压缩进度环、右侧设置按钮，标题超10字自动省略。
+
+- 重构（naming）：全局命名对齐实际语义：force-archive → trim-conversation（抛弃/压缩/归档三合一）、open-current-history → open-conversation-list、open-config → open-settings；前后端事件名、变量名、类型名、i18n 键、Rust 命令名同步更新。
+
+- 修复（sidebar-layout）：SidebarLayout.vue 中 $emit 三元表达式类型错误，改为分支调用以匹配 defineEmits 重载签名。
+
+- 修复（header-spacing）：右侧面板切换按钮从中间 grid 右列移至右边 flex 容器，消除与设置按钮之间的多余间距。
+
+- 功能（sidebar-review）：VSCode 侧边栏标题栏新增审查按钮，点击弹出审查面板，支持查看/删除/重新生成审查报告，通过 WS Bridge 调用 toolReview.reports.list / report.delete / code.submit。
+
+- 修复（naming-emit）：ShellDialogsHost closeConfigSaveErrorDialog 重命名为 closeSettingsSaveErrorDialog 与父监听对齐；ChatComposerPanel 补齐 trimTip/trim-conversation 声明；AppWindowHeader 设置按钮 title 使用 openSettingsTitle prop。
+
+- 修复（sidebar-workspace）：VSCode 侧边栏工作区权限按钮始终显示，不再依赖 vscodeWorkspaceRoots 是否为空。
+
+- 重构（message-layout）：助理气泡内计划交互区和任务触发卡片移至正文下方，渲染顺序改为：思维链 → 工具调用 → 正文 → 计划/任务 → 图片/音频。
+
+- 修复（sidebar-title）：Web 端标题取值逻辑与 APP 端对齐，改为 computed 从 activeSummary 按 title → summaryTitle → 时间回退派生；APP 端标题栏去除部门/人格拼接，仅显示会话标题且超10字截断。
+
+- 修复（header-spacing）：右侧面板切换按钮从中间 grid 右列移至右边 flex 容器，消除与设置按钮之间的多余间距。
+
+## 发布：v0.9.95
+
+- 新增（file-reader-hover-tree）：地址栏面包屑目录按钮悬停时弹出浮动目录树面板，支持展开/收起子目录和点击打开文件，面板带边界检测确保不超出窗口可视区域。
+
+## 发布：v0.9.94
+
+- 重构（chat-right-panel）：合并审查/评估/委托为统一三标签面板，标题栏收窄为“阅读”与“委托”两个 tab，委托内容内联至 ToolReviewSidebar，去除独立 DelegateStatusSidebar 嵌套。
+
+- 新增（delegate-progress）：新增 DelegateProgressLine 组件，折叠卡片第二行实时显示委托进度（用时/步数/用量/最近工具）或完成摘要，审查报告与委托卡片统一使用。
+
+- 修复（tool-review）：审查报告记录新增 delegateId 字段，删除审查报告时自动打断对应委托；报告进度匹配改为按 delegateId 精确匹配并回退至会话上下文兜底。
+
+- 优化（delegate-poll）：委托状态轮询间隔从 2 秒缩短至 1 秒。
+
+- 修复（notification）：修复 VS Code 侧边栏已打开的后台会话仍触发系统通知的问题；通知跳过逻辑补全 detached_chat_windows 检查。
+
+- 新增（conversation-list-state）：统一本地会话列表状态，前端不再各自推演"忙碌、完成、失败、未读、是否已打开"，只拉取并监听后端产出的 `state` 字段（`activity`、`runtimeState`、`unreadCount`、`openState`、`openedBy`、`disabledReason`、`failedMessage`、`completedAt`）。
+
+- 升级（markstream-vue）：0.0.13-beta.2 → 1.0.0，代码块主题跟随应用亮暗模式切换。
+
+- 修复（chat-codeblock）：代码块 Shiki 主题不再硬编码，`darkTheme` 使用 `github-dark`、`lightTheme` 使用 `github-light`，`isDark` 透传自应用主题。
+
+- 更新（sidebar-extension）：VS Code 侧边栏扩展发布者改为 yokami233618，扩展名改为 P-ai-Sidebar，显示名改为 P-ai。
+
+- 修复（chat-codeblock）：为代码块 plain text 添加兜底字色，防止浅色主题下深色背景不可见。
+
+- 清理（vscode-sidebar）：移除 `package.json` 中冗余的 `onView` 激活事件声明。
+
+- 优化（vscode-sidebar）：侧边栏聊天改用轻量 Markdown 渲染，保留粗体/斜体/删除线/行内代码/链接/列表/表格/引用/代码块复制等基础格式，降低 VS Code Webview 滚动卡顿。
+
+- 修复（vscode-sidebar-scroll）：侧边栏发送用户消息写入完成后直接滚到底部，禁用平滑滚动时仍保持即时跟随。
+
+- 功能（vscode-connector）：VS Code 扩展展示名改为 Pai，描述改为桌面版连接器，扩展版本随主应用同步；插件同步可见编辑器/选区上下文到后端，侧边栏通过 `ideContext.query` 刷新附件，避免选区变化触发侧边栏重连刷新。
+
+- 修复（summary-context）：收紧 SummaryContext 与归档反思 JSON 输出约束，要求字符串内容引用统一使用竖引号 `「」` / `『』`，降低裸英文双引号导致的 JSON 解析失败。
+
+## 发布：v0.9.92
+
+- 修复（chat-text-indent）：修复 `removeBinaryPlaceholders` 中 `.map(line => line.trim())` 误删所有行首缩进的问题，改为仅在 filter 判断时 trim，保留原始缩进。
+
+- 清理（debug-log）：移除 `ChatShikiCodeBlockNode.vue` 与 `ChatMessageItem.vue` 中的调试日志。
+
+## 发布：v0.9.91
+
+- 修复（vscode-sidebar）：补齐 VS Code 边栏打包发布脚本与文档，修复边栏审批、工具调用流、计划确认与计划文件读取桥接，并统一审批卡片按钮样式。
+
+- 功能（vscode-sidebar）：新增侧边栏聊天集成，支持在 VS Code 内发起委托、选择模式操作。
+
+- 修复（file-reader）：修复目录按钮被当前文件状态锁死的问题。
+
+- 文档（agents）：收紧计划文档生成条件，仅限重构、全新功能域或用户明确要求时才生成。
+
+- 清理（chore）：清理项目根目录冗余文件。
+
+- 修复（chat-view-layout）：ChatView 根容器始终使用 `flex flex-row` 布局，不再根据侧栏显隐切换 `flex-row`/`flex-col`。
+
+- 修复（sidebar-expansion）：删除窗口扩展逻辑，开关侧栏不再触发窗口 resize，窗口模式下与全屏表现一致。
+
+- 修复（sidebar-delegate）：修复侧边栏多选模式下委托按钮始终不可用的问题，补齐部门列表加载与委托事件链路。
+
+- 清理（debug-log）：移除虚拟滚动调试日志 `traceVirtualScrollFrames`、`debugVirtualScrollState` 高频刷屏调用。
+
+## 发布：v0.9.90
+
+- 发布（release-0.9.90）：同步前端 `package.json`、Tauri `tauri.conf.json` 与 Rust `Cargo.toml` / `Cargo.lock` 版本号到 `0.9.90`，纳入输入框覆盖式浮动滚动条。
+
+- 功能（vscode-sidebar）：新增 VS Code 侧边栏聊天集成，基于本地 IDE 上下文桥提供 `/chat` JSON-RPC 通道；侧边栏支持会话列表、打开/新建会话、流式发送/停止、模型切换、会话压缩、撤回回填、工作区权限切换、设置入口、头像与人格展示，并复用主聊天气泡渲染与文件引用打开逻辑。
+
+- 修复（chat-input-floating-scrollbar）：输入框原生滚动条替换为覆盖式浮动滚动条，`resizeChatInput` 中 `minHeight` 从 32 改为 48 对齐 DaisyUI 默认值，无内容时空滚动条不再出现。
+
+## 发布：v0.9.89
+
+- 发布（release-0.9.89）：同步前端 `package.json`、Tauri `tauri.conf.json` 与 Rust `Cargo.toml` / `Cargo.lock` 版本号到 `0.9.89`，纳入本轮输入面板模型下拉改为上拉、会话运行状态通知、文件引用阅读器与只读自动刷新、滚动条悬停显示修复。
+
+- 功能（chat-model-selector-upward）：输入面板模型选择器从原生 `<select>` 替换为上拉自定义菜单，选项悬停高亮、选中标记背景色、点击外部自动收起、宽 `w-80` 高 `max-h-80vh`、超长模型名省略、去边框去阴影。
+
+- 功能（chat-conversation-status-notice）：会话列表运行状态新增后台忙碌、未查看完成与失败提示；完成态保留到用户切入会话后清理，后台完成追加消息时即时增加未读数，关闭聊天错误横幅时同步清除对应会话的失败标记。
+
+- 功能（chat-file-reader-context-watch）：聊天右栏文件阅读器新增显式文件片段引用候选，按当前可视范围与用户选区生成可附加上下文，附加后作为快照随消息发送；同时为当前活动文件和可见目录节点加入只读自动刷新，外部变更后自动更新阅读内容与目录节点。
+
+- 修复（chat-markdown-link-style）：修复 Markdown 链接样式。
+
+- 修复（chat-input-floating-scrollbar）：输入框原生滚动条替换为覆盖式浮动滚动条，`resizeChatInput` 中 `minHeight` 从 32 改为 48 对齐 DaisyUI 默认值，无内容时空滚动条不再出现。
+
 ## 进行中
 
 - 功能（relationship-state-engine）：新增 Relationship State Engine v1，按 `conversation + agent` 维护关系状态，使用 LLM Analyzer 输出结构化 `InteractionEvent`，经 `StateReducer` 更新 `affection / trust / tension / sadness / playfulness / attachment` 等维度，并将自然语言关系状态块追加到最新用户消息末尾，避免污染 system prompt cache；新增 `RelationshipPanel`、`relationship_rules.json` 热加载配置与开发者模拟事件能力，同时移除旧 `reward_engine` 原型。

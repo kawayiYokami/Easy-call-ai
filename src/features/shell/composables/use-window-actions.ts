@@ -9,7 +9,7 @@ type UseWindowActionsOptions = {
 };
 
 export function useWindowActions(options: UseWindowActionsOptions) {
-  function openConfigWindow() {
+  function openSettingsWindow() {
     void invokeTauri("show_main_window");
   }
 
@@ -44,7 +44,7 @@ export function useWindowActions(options: UseWindowActionsOptions) {
   }
 
   return {
-    openConfigWindow,
+    openSettingsWindow,
     summonChatWindowFromConfig,
     closeWindowAndClearForeground,
     minimizeWindowAndClearForeground,

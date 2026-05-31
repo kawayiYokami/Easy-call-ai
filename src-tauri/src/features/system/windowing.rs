@@ -2,6 +2,7 @@ use std::str::FromStr;
 
 const MAIN_TRAY_ID: &str = "easy-call-tray";
 const WINDOW_LAYOUTS_FILE_NAME: &str = "window_layouts.json";
+const WINDOW_DIAGNOSTIC_LOG_FILE_NAME: &str = "window_diagnostics.log";
 const DETACHED_CHAT_WINDOW_PREFIX: &str = "chat-detached-";
 const FILE_READER_WINDOW_LABEL: &str = "file-reader";
 
@@ -35,6 +36,21 @@ struct PersistedWindowLayout {
 
 fn window_layouts_path(data_path: &PathBuf) -> PathBuf {
     app_layout_state_dir(data_path).join(WINDOW_LAYOUTS_FILE_NAME)
+}
+
+fn append_window_diagnostic_log(app: &AppHandle, message: String) {
+    runtime_log_info(message.clone());
+
+    let state = app.state::<AppState>();
+    let dir = app_layout_state_dir(&state.data_path);
+    if fs::create_dir_all(&dir).is_err() {
+        return;
+    }
+    let path = dir.join(WINDOW_DIAGNOSTIC_LOG_FILE_NAME);
+    let line = format!("{} {}\n", now_iso(), message);
+    if let Ok(mut file) = std::fs::OpenOptions::new().create(true).append(true).open(path) {
+        let _ = std::io::Write::write_all(&mut file, line.as_bytes());
+    }
 }
 
 fn load_window_layouts(data_path: &PathBuf) -> PersistedWindowLayouts {
@@ -838,6 +854,152 @@ fn show_chat_entry_window(app: &AppHandle) -> Result<(), String> {
     show_window(app, target)
 }
 
+// ==================== 运行日志窗口 ====================
+
+const RUNTIME_LOGS_WINDOW_LABEL: &str = "runtime-logs";
+
+fn show_runtime_logs_window(app: &AppHandle) -> Result<(), String> {
+    if let Some(window) = app.get_webview_window(RUNTIME_LOGS_WINDOW_LABEL) {
+        append_window_diagnostic_log(
+            app,
+            format!(
+                "[运行日志窗口] 已存在，开始聚焦：window_label={}",
+                RUNTIME_LOGS_WINDOW_LABEL
+            ),
+        );
+        if let Err(err) = window.unminimize() {
+            append_window_diagnostic_log(
+                app,
+                format!(
+                    "[运行日志窗口] 取消最小化失败：window_label={}，error={}",
+                    RUNTIME_LOGS_WINDOW_LABEL, err
+                ),
+            );
+        }
+        if let Err(err) = window.show() {
+            append_window_diagnostic_log(
+                app,
+                format!(
+                    "[运行日志窗口] 显示失败：window_label={}，error={}",
+                    RUNTIME_LOGS_WINDOW_LABEL, err
+                ),
+            );
+        }
+        if let Err(err) = window.set_focus() {
+            append_window_diagnostic_log(
+                app,
+                format!(
+                    "[运行日志窗口] 聚焦失败：window_label={}，error={}",
+                    RUNTIME_LOGS_WINDOW_LABEL, err
+                ),
+            );
+        }
+        return Ok(());
+    }
+    let app_handle = app.clone();
+    std::thread::Builder::new()
+        .name("runtime-logs-window-create".to_string())
+        .spawn(move || {
+            let started_at = std::time::Instant::now();
+            append_window_diagnostic_log(
+                &app_handle,
+                format!(
+                    "[运行日志窗口] 开始创建窗口：window_label={}",
+                    RUNTIME_LOGS_WINDOW_LABEL
+                ),
+            );
+            if app_handle.get_webview_window(RUNTIME_LOGS_WINDOW_LABEL).is_some() {
+                append_window_diagnostic_log(
+                    &app_handle,
+                    format!(
+                        "[运行日志窗口] 创建前发现窗口已存在，转为聚焦：window_label={}",
+                        RUNTIME_LOGS_WINDOW_LABEL
+                    ),
+                );
+                return;
+            }
+            let window = match tauri::WebviewWindowBuilder::new(
+                &app_handle,
+                RUNTIME_LOGS_WINDOW_LABEL,
+                tauri::WebviewUrl::App("runtime-logs.html".into()),
+            )
+            .title("PAI - 运行日志")
+            .inner_size(900.0, 600.0)
+            .min_inner_size(600.0, 400.0)
+            .resizable(true)
+            .decorations(false)
+            .shadow(true)
+            .visible(false)
+            .build()
+            {
+                Ok(w) => w,
+                Err(err) => {
+                    append_window_diagnostic_log(
+                        &app_handle,
+                        format!(
+                            "[运行日志窗口] 创建失败：window_label={}，error={}",
+                            RUNTIME_LOGS_WINDOW_LABEL, err
+                        ),
+                    );
+                    return;
+                }
+            };
+            if let Err(err) = apply_window_layout_before_show(&app_handle, RUNTIME_LOGS_WINDOW_LABEL) {
+                append_window_diagnostic_log(
+                    &app_handle,
+                    format!(
+                        "[运行日志窗口] 应用窗口布局失败：window_label={}，error={}",
+                        RUNTIME_LOGS_WINDOW_LABEL, err
+                    ),
+                );
+            }
+            if let Err(err) = window.unminimize() {
+                append_window_diagnostic_log(
+                    &app_handle,
+                    format!(
+                        "[运行日志窗口] 取消最小化失败：window_label={}，error={}",
+                        RUNTIME_LOGS_WINDOW_LABEL, err
+                    ),
+                );
+            }
+            if let Err(err) = window.show() {
+                append_window_diagnostic_log(
+                    &app_handle,
+                    format!(
+                        "[运行日志窗口] 显示失败：window_label={}，error={}",
+                        RUNTIME_LOGS_WINDOW_LABEL, err
+                    ),
+                );
+            }
+            if let Err(err) = window.set_focus() {
+                append_window_diagnostic_log(
+                    &app_handle,
+                    format!(
+                        "[运行日志窗口] 聚焦失败：window_label={}，error={}",
+                        RUNTIME_LOGS_WINDOW_LABEL, err
+                    ),
+                );
+            }
+            append_window_diagnostic_log(
+                &app_handle,
+                format!(
+                    "[运行日志窗口] 窗口已显示：window_label={}，elapsed_ms={}",
+                    RUNTIME_LOGS_WINDOW_LABEL,
+                    started_at.elapsed().as_millis()
+                ),
+            );
+            let cloned = window.clone();
+            let _ = window.on_window_event(move |event| {
+                if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                    api.prevent_close();
+                    let _ = cloned.hide();
+                }
+            });
+        })
+        .map_err(|err| format!("调度创建运行日志窗口失败：{err}"))?;
+    Ok(())
+}
+
 fn build_tray(app: &AppHandle) -> Result<(), String> {
     let config = MenuItem::with_id(app, "config", "配置", true, None::<&str>)
         .map_err(|err| format!("Create tray menu item failed: {err}"))?;
@@ -847,10 +1009,12 @@ fn build_tray(app: &AppHandle) -> Result<(), String> {
         .map_err(|err| format!("Create tray menu item failed: {err}"))?;
     let archives = MenuItem::with_id(app, "archives", "归档", true, None::<&str>)
         .map_err(|err| format!("Create tray menu item failed: {err}"))?;
+    let runtime_logs = MenuItem::with_id(app, "runtime-logs", "运行日志", true, None::<&str>)
+        .map_err(|err| format!("Create tray menu item failed: {err}"))?;
     let quit = MenuItem::with_id(app, "quit", "退出", true, None::<&str>)
         .map_err(|err| format!("Create tray menu item failed: {err}"))?;
 
-    let menu = Menu::with_items(app, &[&config, &chat, &file_reader, &archives, &quit])
+    let menu = Menu::with_items(app, &[&config, &chat, &file_reader, &archives, &runtime_logs, &quit])
         .map_err(|err| format!("Create tray menu failed: {err}"))?;
 
     let mut tray = TrayIconBuilder::with_id(MAIN_TRAY_ID).menu(&menu);
@@ -880,6 +1044,8 @@ fn build_tray(app: &AppHandle) -> Result<(), String> {
                 let _ = show_file_reader_window(app);
             } else if id == "archives" {
                 let _ = show_window(app, "archives");
+            } else if id == "runtime-logs" {
+                let _ = show_runtime_logs_window(app);
             } else if id == "quit" {
                 graceful_exit_app(app, 0);
             }
@@ -902,4 +1068,134 @@ fn hide_on_close(app: &AppHandle) {
             });
         }
     }
+}
+
+// ==================== WebView 心跳崩溃恢复 ====================
+
+const WEBVIEW_HEARTBEAT_INTERVAL_MS: u64 = 5000;
+const WEBVIEW_HEARTBEAT_MAX_MISS: u32 = 3;
+const WEBVIEW_MONITORED_LABELS: &[&str] = &["main", "chat"];
+
+static WEBVIEW_PONG_TIMESTAMPS: OnceLock<Mutex<std::collections::HashMap<String, std::time::Instant>>> =
+    OnceLock::new();
+
+fn webview_pong_timestamps() -> &'static Mutex<std::collections::HashMap<String, std::time::Instant>> {
+    WEBVIEW_PONG_TIMESTAMPS.get_or_init(|| Mutex::new(std::collections::HashMap::new()))
+}
+
+fn webview_record_pong(label: &str) {
+    if let Ok(mut map) = webview_pong_timestamps().lock() {
+        map.insert(label.to_string(), std::time::Instant::now());
+    }
+}
+
+fn webview_window_url_for_label(label: &str) -> &'static str {
+    match label {
+        "main" => "index.html",
+        "chat" => "chat.html",
+        "archives" => "archives.html",
+        "quick-setup" => "quick-setup.html",
+        _ => "index.html",
+    }
+}
+
+fn rebuild_crashed_window(app: &AppHandle, label: &str) {
+    eprintln!("[WebView心跳] 窗口崩溃恢复开始: label={label}");
+    // 尝试关闭旧窗口
+    if let Some(window) = app.get_webview_window(label) {
+        let _ = window.destroy();
+    }
+    // 等待旧窗口销毁
+    std::thread::sleep(std::time::Duration::from_millis(200));
+
+    let url = webview_window_url_for_label(label);
+    let (default_w, default_h) = default_window_size(label);
+    let (min_w, min_h) = minimum_window_size(label);
+    let resizable = !is_fixed_window_size(label);
+
+    let result = tauri::WebviewWindowBuilder::new(
+        app,
+        label,
+        tauri::WebviewUrl::App(url.into()),
+    )
+    .title(format!("PAI - {label}"))
+    .inner_size(default_w as f64, default_h as f64)
+    .min_inner_size(min_w as f64, min_h as f64)
+    .resizable(resizable)
+    .decorations(false)
+    .shadow(true)
+    .visible(false)
+    .build();
+
+    match result {
+        Ok(window) => {
+            // 重新注册 hide_on_close
+            let cloned = window.clone();
+            let _ = window.on_window_event(move |event| {
+                if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                    api.prevent_close();
+                    let _ = cloned.hide();
+                }
+            });
+            // 恢复布局并显示
+            let _ = apply_window_layout_before_show(app, label);
+            let _ = window.show();
+            let _ = window.set_focus();
+            // 重置 pong 时间戳
+            webview_record_pong(label);
+            eprintln!("[WebView心跳] 窗口崩溃恢复完成: label={label}");
+        }
+        Err(err) => {
+            eprintln!("[WebView心跳] 窗口重建失败: label={label}, error={err}");
+        }
+    }
+}
+
+fn start_webview_heartbeat_monitor(app: &AppHandle) {
+    // 初始化所有监控窗口的 pong 时间戳
+    for label in WEBVIEW_MONITORED_LABELS {
+        webview_record_pong(label);
+    }
+
+    let app_handle = app.clone();
+    std::thread::Builder::new()
+        .name("webview-heartbeat".to_string())
+        .spawn(move || {
+            loop {
+                std::thread::sleep(std::time::Duration::from_millis(WEBVIEW_HEARTBEAT_INTERVAL_MS));
+
+                for label in WEBVIEW_MONITORED_LABELS {
+                    // 只监控可见窗口
+                    let is_visible = app_handle
+                        .get_webview_window(label)
+                        .and_then(|w| w.is_visible().ok())
+                        .unwrap_or(false);
+                    if !is_visible {
+                        // 不可见窗口重置时间戳，不检测
+                        webview_record_pong(label);
+                        continue;
+                    }
+
+                    // 发送 ping
+                    let _ = app_handle.emit_to(label, "easy-call:webview-ping", ());
+
+                    // 检查上次 pong 时间
+                    let missed = {
+                        let map = webview_pong_timestamps().lock().ok();
+                        map.and_then(|m| m.get(*label).copied())
+                            .map(|last| last.elapsed().as_millis() as u64)
+                            .unwrap_or(0)
+                    };
+                    let threshold = WEBVIEW_HEARTBEAT_INTERVAL_MS * (WEBVIEW_HEARTBEAT_MAX_MISS as u64 + 1);
+                    if missed > threshold {
+                        eprintln!(
+                            "[WebView心跳] 检测到窗口无响应: label={}, missed_ms={}, threshold_ms={}",
+                            label, missed, threshold
+                        );
+                        rebuild_crashed_window(&app_handle, label);
+                    }
+                }
+            }
+        })
+        .ok();
 }

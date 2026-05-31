@@ -123,6 +123,9 @@ async fn terminal_request_user_approval(
         }
         return Err(format!("Emit terminal approval request failed: {err}"));
     }
+    if let Ok(value) = serde_json::to_value(&payload) {
+        ide_chat_broadcast_notification("terminalApproval.requested", value);
+    }
 
     let wait_result = rx.await;
 

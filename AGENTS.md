@@ -33,6 +33,10 @@ pnpm smoke                                   # Windows 集成冒烟测试（Powe
 # 生产构建
 pnpm build                                   # tsc + vite build
 pnpm tauri build                             # 完整打包（含 Rust 编译）
+
+# VS Code 侧边栏扩展（详见 docs/vscode-sidebar-build-publish.md）
+pnpm package:vscode-sidebar
+pnpm publish:vscode-sidebar
 ```
 
 ## 架构概览
@@ -70,6 +74,13 @@ Vue 组件 → invokeTauri() → Tauri invoke() → Rust #[tauri::command] → �
 - **shell/**: `use-app-bootstrap` (初始化)、`use-app-theme`、`use-window-shell`、`use-app-lifecycle`、`use-github-update`
 - **chat/**: `use-chat-flow` (流式缓冲与 delta 处理)、`use-chat-runtime` (会话持久化)、`use-chat-turns` (上下文窗口计算)、`use-chat-media` (图片/音频)、`use-speech-recording` (本地+远程 STT)
 - **config/**: `use-config-persistence` (加载/保存)、`use-config-runtime` (模型列表刷新)、`use-config-core` / `use-config-editors` (供应商与模型配置编辑)
+
+### VS Code 侧边栏扩展
+
+- `sidebar.html` 是根 Vite 多入口之一，`pnpm build` 时和主应用前端一起产出到仓库根 `dist/`
+- `src/features/sidebar/extension/` 只是 VS Code 扩展壳；打 `.vsix` 前必须先把仓库根 `dist/` 同步到该目录下的 `dist/`
+- 本地调试时扩展会优先读取 `src/features/sidebar/extension/dist/`，找不到才回退到仓库根 `dist/`；但 VSIX 打包只会收录扩展目录自己的 `dist/**`
+- 打包和发布步骤不要再手敲长命令，统一走 `pnpm package:vscode-sidebar` / `pnpm publish:vscode-sidebar`；详细说明放在 `docs/vscode-sidebar-build-publish.md`
 
 ### 多窗口
 
@@ -158,6 +169,17 @@ Tauri 管理 3 个无边框窗口：`main`（配置，900×900）、`chat`（对
   - 若两者仅在 1-2 个分支不同，保留并排实现更清晰。
   - 若两者都有相同“预处理 -> 校验 -> 错误映射 -> 收尾”流程，且重复超过阈值，应抽公共 pipeline（如 `process_common`），各自只保留差异步骤。
 
+### 新增字段链路追踪
+
+给数据结构加字段时，追踪全链路：
+- 后端：结构体 → Default → 所有构造字面量 → 序列化 → 测试 fixture
+- 前端：类型 → composable → persistence（含输入校验） → 组件 → i18n
+- 运行时缓存若依赖该字段，须处理配置热更新时的失效/重建
+
+### 多字段关联的 UI 设计
+
+多个字段表达同一用户意图时，用一个控件统一表达，通过 encode/decode 转换 UI 状态与数据模型，避免无效状态组合。
+
 ### 提交信息规范
 - 采用约定式提交（Conventional Commits），推荐格式：`type(scope): 简要中文描述`。
 - 提交信息默认使用中文，便于与现有项目历史保持一致。
@@ -167,7 +189,11 @@ Tauri 管理 3 个无边框窗口：`main`（配置，900×900）、`chat`（对
 - 不要把测试留到最后一次性再跑；开发过程中应边改边验证，尽早发现并修复失败。
 
 ### 计划与归档流程
-- 新功能开发必须先产出计划文档（放在 `plan/` 目录）。
+- 仅在以下情况才生成计划文档：
+  - 重构（大规模模块拆分、架构调整、技术栈迁移）
+  - 全新功能域设计（涉及多模块、跨前后端、接口协议或数据模型设计）
+  - 用户明确要求写计划
+- 常规功能迭代、简单 UI 改动、文档更新、小修小补等日常工作，直接实现，不需要生成计划。
 - 计划必须先得到用户明确确认后，才可进入实现阶段。
 - 归档判定以用户结论为准，不以开发者自测或主观判断替代。
 - 归档需要根据最新实现情况修正计划书，进行归档报告。

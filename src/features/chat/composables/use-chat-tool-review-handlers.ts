@@ -51,7 +51,6 @@ export function useChatToolReviewHandlers(options: UseChatToolReviewHandlersOpti
     toolReviewPanelOpen,
     (value) => {
       onToolReviewPanelOpenChange(value);
-      syncViewportMetrics();
     },
     { immediate: true },
   );
