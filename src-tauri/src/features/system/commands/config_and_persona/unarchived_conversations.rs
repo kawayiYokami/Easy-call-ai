@@ -215,11 +215,15 @@ fn set_conversation_preferred_model(
         preferred_api_config_id.as_deref().unwrap_or("部门模型")
     ));
 
-    if let Some(api_config_id) = preferred_api_config_id.as_deref() {
+    let resolved_preferred_api_config_id = if let Some(api_config_id) = preferred_api_config_id.as_deref() {
         let config = state_read_config_cached(state.inner())?;
         let resolved_api_config_id = resolve_model_role_api_config_id(&config, api_config_id)
             .ok_or_else(|| format!("会话首选模型角色未配置：api_config_id={api_config_id}"))?;
-        let Some(api_config) = config.api_configs.iter().find(|api| api.id == resolved_api_config_id) else {
+        let Some(api_config) = config
+            .api_configs
+            .iter()
+            .find(|api| api.id == resolved_api_config_id)
+        else {
             return Err(format!("会话首选模型不存在：api_config_id={api_config_id}"));
         };
         if !api_config.enable_text || !api_config.request_format.is_chat_text() {
@@ -229,12 +233,15 @@ fn set_conversation_preferred_model(
                 api_config.request_format
             ));
         }
-    }
+        Some(resolved_api_config_id)
+    } else {
+        None
+    };
 
     conversation_service().set_conversation_preferred_api_config_id(
         state.inner(),
         conversation_id,
-        preferred_api_config_id.clone(),
+        resolved_preferred_api_config_id.clone(),
     )?;
     let overview_payload =
         conversation_service().refresh_unarchived_conversation_overview_payload(state.inner())?;
@@ -243,12 +250,12 @@ fn set_conversation_preferred_model(
     runtime_log_info(format!(
         "[会话模型] 完成，任务=切换会话首选模型，会话ID={}，api_config_id={}",
         conversation_id,
-        preferred_api_config_id.as_deref().unwrap_or("部门模型")
+        resolved_preferred_api_config_id.as_deref().unwrap_or("部门模型")
     ));
 
     Ok(SetConversationPreferredModelOutput {
         conversation_id: conversation_id.to_string(),
-        preferred_api_config_id,
+        preferred_api_config_id: resolved_preferred_api_config_id,
     })
 }
 

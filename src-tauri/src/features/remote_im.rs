@@ -2176,10 +2176,8 @@ fn resolve_department_agent_pair(
             agent_id, department.id
         ));
     }
-    let department_model_api_id = department_primary_api_config_id(department);
-    if department_model_api_id.trim().is_empty() {
-        return Err(format!("部门模型未配置: {}", department.id));
-    }
+    department_primary_chat_api_config_id(config, department)
+        .ok_or_else(|| format!("部门模型未配置或不可用于聊天: {}", department.id))?;
     Ok((department.id.clone(), agent_id))
 }
 

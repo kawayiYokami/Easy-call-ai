@@ -223,11 +223,13 @@ async fn confirm_plan_and_continue_inner(
             .or_else(|| runtime_department_for_agent(&runtime_org, &requested_agent_id))
             .or_else(|| runtime_department_by_id(&runtime_org, ASSISTANT_DEPARTMENT_ID))
             .ok_or_else(|| "找不到可用于继续执行计划的部门。".to_string())?;
-        let api_config_id = department_primary_api_config_id(department);
-        if api_config_id.trim().is_empty() {
-            return Err(format!("部门模型未配置: {}", department.id));
-        }
-        let selected_api = resolve_selected_api_config(&app_config, Some(api_config_id.as_str()))
+        let api_config_id = department_primary_chat_api_config_id(app_config, department)
+            .ok_or_else(|| format!("部门模型未配置或不可用于聊天: {}", department.id))?;
+        let selected_api = app_config
+            .api_configs
+            .iter()
+            .find(|api| api.id == api_config_id)
+            .cloned()
             .ok_or_else(|| format!("模型配置不存在: {api_config_id}"))?;
         let resolved_api = resolve_api_config(&app_config, Some(selected_api.id.as_str()))?;
         (
@@ -1346,10 +1348,8 @@ async fn submit_chat_message_inner(
             .ok_or_else(|| format!("部门已经消失：{}", requested_department_id))?;
         let agent_id = requested_agent_id.clone();
         let department_elapsed_ms = department_started_at.elapsed().as_millis();
-        let api_config_id = department_primary_api_config_id(department);
-        if api_config_id.trim().is_empty() {
-            return Err(format!("部门模型未配置: {}", department.id));
-        }
+        let api_config_id = department_primary_chat_api_config_id(&app_config, department)
+            .ok_or_else(|| format!("部门模型未配置或不可用于聊天: {}", department.id))?;
 
         let conversation_started_at = std::time::Instant::now();
         let conversation = state_read_conversation_cached(state, &conversation_id)?;
@@ -1604,10 +1604,8 @@ async fn send_chat_message(
             .ok_or_else(|| format!("部门已经消失：{}", requested_department_id))?;
         let agent_id = requested_agent_id.clone();
         let department_elapsed_ms = department_started_at.elapsed().as_millis();
-        let api_config_id = department_primary_api_config_id(department);
-        if api_config_id.trim().is_empty() {
-            return Err(format!("部门模型未配置: {}", department.id));
-        }
+        let api_config_id = department_primary_chat_api_config_id(&app_config, department)
+            .ok_or_else(|| format!("部门模型未配置或不可用于聊天: {}", department.id))?;
 
         let conversation_started_at = std::time::Instant::now();
         let conversation = {
@@ -1833,10 +1831,8 @@ async fn send_user_mention_message_inner(
             .ok_or_else(|| format!("部门已经消失：{}", requested_department_id))?;
         let agent_id = requested_agent_id.clone();
         let department_elapsed_ms = department_started_at.elapsed().as_millis();
-        let api_config_id = department_primary_api_config_id(department);
-        if api_config_id.trim().is_empty() {
-            return Err(format!("部门模型未配置: {}", department.id));
-        }
+        let api_config_id = department_primary_chat_api_config_id(&app_config, department)
+            .ok_or_else(|| format!("部门模型未配置或不可用于聊天: {}", department.id))?;
 
         let conversation_started_at = std::time::Instant::now();
         let conversation = {

@@ -398,6 +398,13 @@ fn resolve_department_chat_api_config_id(
         .then_some(resolved_id)
 }
 
+fn department_primary_chat_api_config_id(
+    app_config: &AppConfig,
+    department: &DepartmentConfig,
+) -> Option<String> {
+    resolve_department_chat_api_config_id(app_config, &department_primary_api_config_id(department))
+}
+
 fn department_effective_chat_api_config_ids(
     app_config: &AppConfig,
     department: &DepartmentConfig,

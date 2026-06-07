@@ -764,8 +764,16 @@ impl ConversationService {
                 conversation_title,
             )
         };
-        conversation.preferred_api_config_id = resolve_model_role_api_config_id(&app_config, &api_config_id)
-            .filter(|value| !value.trim().is_empty());
+        conversation.preferred_api_config_id =
+            resolve_model_role_api_config_id(&app_config, &api_config_id)
+                .map(|value| value.trim().to_string())
+                .filter(|value| !value.is_empty() && !is_model_role_api_config_id(value))
+                .filter(|value| {
+                    app_config
+                        .api_configs
+                        .iter()
+                        .any(|api| api.id == *value && is_text_chat_api(api))
+                });
         if let Some(shell_workspaces) = input.shell_workspaces.as_ref() {
             conversation.shell_workspaces =
                 normalize_conversation_shell_workspaces(state, shell_workspaces);
@@ -1226,12 +1234,14 @@ fn resolve_stop_chat_api_config_id(
     requested_department_id: Option<&str>,
     agent_id: &str,
 ) -> Result<String, String> {
-    requested_department_id
+    let raw_api_config_id = requested_department_id
         .and_then(|id| department_by_id(app_config, id))
         .map(department_primary_api_config_id)
         .or_else(|| department_for_agent_id(app_config, agent_id).map(department_primary_api_config_id))
         .or_else(|| resolve_selected_api_config(app_config, None).map(|api| api.id.clone()))
-        .ok_or_else(|| "Missing available API config for stop request".to_string())
+        .ok_or_else(|| "Missing available API config for stop request".to_string())?;
+    resolve_model_role_api_config_id(app_config, &raw_api_config_id)
+        .ok_or_else(|| format!("Model role '{raw_api_config_id}' is not configured."))
 }
 
 fn resolve_stop_chat_target(

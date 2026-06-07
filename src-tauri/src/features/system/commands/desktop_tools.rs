@@ -680,7 +680,9 @@ fn resolve_chat_tool_session_id(
     }
 
     let config = state_read_config_cached(state)?;
-    if !config.api_configs.iter().any(|v| v.id == api_id) {
+    let resolved_api_id = resolve_model_role_api_config_id(&config, api_id)
+        .ok_or_else(|| format!("Model role '{api_id}' is not configured."))?;
+    if !config.api_configs.iter().any(|v| v.id == resolved_api_id) {
         return Err(format!("Selected API config '{api_id}' not found."));
     }
     let agents = state_read_agents_cached(state)?;

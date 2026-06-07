@@ -3790,6 +3790,33 @@ mod core_send_inner_tests {
     }
 
     #[test]
+    fn department_primary_chat_api_config_id_should_resolve_role_for_scheduling() {
+        let app_config = AppConfig {
+            api_configs: vec![test_chat_api("api-expert", false)],
+            api_providers: Vec::new(),
+            assistant_department_api_config_id: "api-expert".to_string(),
+            ..AppConfig::default()
+        };
+        let department = test_department_with_models(vec![MODEL_ROLE_EXPERT_API_CONFIG_ID], false);
+
+        assert_eq!(
+            department_primary_api_config_id(&department),
+            MODEL_ROLE_EXPERT_API_CONFIG_ID.to_string()
+        );
+        assert_eq!(
+            department_primary_chat_api_config_id(&app_config, &department).as_deref(),
+            Some("api-expert")
+        );
+
+        let (candidate_api_ids, preferred_applied) =
+            build_chat_candidate_api_ids(&app_config, &department, None, None)
+                .expect("build candidates");
+
+        assert!(!preferred_applied);
+        assert_eq!(candidate_api_ids, vec!["api-expert".to_string()]);
+    }
+
+    #[test]
     fn build_chat_candidate_api_ids_should_keep_only_required_model_when_fallback_disabled() {
         let app_config = AppConfig {
             api_configs: vec![

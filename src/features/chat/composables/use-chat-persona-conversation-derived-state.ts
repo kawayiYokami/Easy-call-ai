@@ -46,24 +46,28 @@ export function useChatPersonaConversationDerivedState(bindings: Record<string, 
       || String(currentForegroundDepartment.value?.agentIds?.[0] || "").trim()
       || String(bindings.assistantDepartmentAgentId.value || "").trim(),
   );
-  const currentConversationPreferredApiConfigId = computed(() => {
-    const apiConfigId = String(bindings.currentChatPreferredApiConfigId?.value || "").trim();
-    if (!apiConfigId) return "";
+  function resolveForegroundTextApiConfigId(apiConfigId: string): string {
     const resolvedId = resolveModelRoleApiConfigId(apiConfigId, bindings.config);
     return bindings.config.apiConfigs.some((item: any) => item.id === resolvedId && item.enableText)
       ? resolvedId
       : "";
+  }
+  const currentConversationPreferredApiConfigId = computed(() => {
+    const apiConfigId = String(bindings.currentChatPreferredApiConfigId?.value || "").trim();
+    if (!apiConfigId) return "";
+    return resolveForegroundTextApiConfigId(apiConfigId);
   });
   const currentForegroundApiConfigIds = computed(() => {
     const departmentIds = bindings.departmentOrderedApiConfigIds(currentForegroundDepartment.value);
     return Array.from(new Set([
       currentConversationPreferredApiConfigId.value,
       ...departmentIds,
-    ].map((item: string) => String(item || "").trim()).filter(Boolean)));
+    ].map((item: string) => resolveForegroundTextApiConfigId(String(item || "").trim())).filter(Boolean)));
   });
   const currentForegroundApiConfigId = computed(
     () => {
-      return currentForegroundApiConfigIds.value[0] || bindings.departmentConversationApiConfigId(currentForegroundDepartment.value);
+      return currentForegroundApiConfigIds.value[0]
+        || resolveForegroundTextApiConfigId(bindings.departmentConversationApiConfigId(currentForegroundDepartment.value));
     },
   );
   const currentForegroundApiConfig = computed(

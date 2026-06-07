@@ -554,14 +554,11 @@ fn ide_chat_create_conversation_options(state: &AppState) -> Result<Value, Strin
             if department_id.is_empty() {
                 return None;
             }
-            let api_config_id = department_primary_api_config_id(department);
-            if api_config_id.trim().is_empty() {
-                return None;
-            }
+            let api_config_id = department_primary_chat_api_config_id(&config, department)?;
             let api_config = config
                 .api_configs
                 .iter()
-                .find(|api| api.id.trim() == api_config_id.trim() && is_text_chat_api(api))?;
+                .find(|api| api.id.trim() == api_config_id && is_text_chat_api(api))?;
             let owner_id = department
                 .agent_ids
                 .first()
@@ -1778,7 +1775,7 @@ fn ide_chat_select_model(state: &AppState, _app: &AppHandle, params: Value) -> R
         if !is_text_chat_api(selected_api) {
             return Err(format!("API config '{api_config_id}' does not support chat text."));
         }
-        Some(api_config_id.to_string())
+        Some(resolved_api_config_id)
     };
     conversation_service().set_conversation_preferred_api_config_id(
         state,
