@@ -633,11 +633,31 @@ fn ensure_unarchived_conversation_not_organizing(
 
 #[tauri::command]
 fn list_unarchived_conversations(state: State<'_, AppState>) -> Result<Vec<UnarchivedConversationSummary>, String> {
-    Ok(
-        conversation_service()
-            .list_unarchived_conversation_summaries(state.inner())?
-            .summaries,
-    )
+    let summaries = conversation_service()
+        .list_unarchived_conversation_summaries(state.inner())?
+        .summaries;
+    if !summaries.is_empty() {
+        return Ok(summaries);
+    }
+
+    runtime_log_info("[会话] 开始，任务=确保默认未归档会话，触发条件=未归档会话列表为空".to_string());
+    let create_input = CreateUnarchivedConversationInput {
+        api_config_id: None,
+        agent_id: None,
+        department_id: Some(ASSISTANT_DEPARTMENT_ID.to_string()),
+        title: None,
+        copy_source_conversation_id: None,
+        shell_workspaces: None,
+        shell_autonomous_mode: None,
+    };
+    let result = conversation_service().create_unarchived_conversation(state.inner(), &create_input)?;
+    emit_unarchived_conversation_overview_updated_payload(state.inner(), &result.overview_payload);
+    runtime_log_info(format!(
+        "[会话] 完成，任务=确保默认未归档会话，conversation_id={}，overview_count={}",
+        result.conversation_id,
+        result.overview_payload.unarchived_conversations.len()
+    ));
+    Ok(result.overview_payload.unarchived_conversations)
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

@@ -6,6 +6,7 @@
 - 优化（task）：task_remind 提示词改为「背景：目标：要求：」三段格式，区分用户发起（goal）与 LLM 自建任务，去掉冗余的调度元数据。
 - 功能（supervision）：督工任务对话框新增「停止」按钮，可将运行中的任务标记为 failed_completed。
 - 修复（i18n）：GOAL_TASK_WHY 清空以对齐新的 task_remind 来源判断。
+- 修复（chat）：首次启动未归档会话为空时自动创建助理部门默认会话，避免发送消息时缺少 conversation_id。
 
 ## 发布：v0.11.0
 
