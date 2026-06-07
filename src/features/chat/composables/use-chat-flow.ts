@@ -196,6 +196,7 @@ export function useChatFlow(options: UseChatFlowOptions) {
     toolStatusText: options.toolStatusText,
     toolStatusState: options.toolStatusState,
     streamBlocks: options.streamBlocks,
+    contextUsagePreview: options.contextUsagePreview,
     reasoningStartedAtMs,
     getRound: () => round,
     promoteQueuedRoundToStreaming,
@@ -531,6 +532,12 @@ export function useChatFlow(options: UseChatFlowOptions) {
     frontendDispatch.clear();
   }
 
+  function clearContextUsagePreview() {
+    if (options.contextUsagePreview) {
+      options.contextUsagePreview.value = null;
+    }
+  }
+
   function startFrontendDispatchTimer(gen: number, startedAtMs?: number, elapsedMs?: number) {
     frontendDispatch.start(gen, startedAtMs, elapsedMs);
   }
@@ -551,18 +558,22 @@ export function useChatFlow(options: UseChatFlowOptions) {
   // =========================================================================
 
   function resetDisplayState() {
+    clearContextUsagePreview();
     foregroundReset.resetDisplayState();
   }
 
   function clearForegroundRoundState() {
+    clearContextUsagePreview();
     foregroundReset.clearForegroundRoundState();
   }
 
   function clearForegroundRuntimeState() {
+    clearContextUsagePreview();
     foregroundReset.clearForegroundRuntimeState();
   }
 
   function freezeForegroundRoundState() {
+    clearContextUsagePreview();
     foregroundReset.freezeForegroundRoundState();
   }
 
@@ -654,10 +665,12 @@ export function useChatFlow(options: UseChatFlowOptions) {
   // =========================================================================
 
   async function sendChat(overrides?: SendChatOverrides) {
+    clearContextUsagePreview();
     await sendController.sendChat(overrides);
   }
 
   async function stopChat() {
+    clearContextUsagePreview();
     await stopController.stopChat();
   }
 

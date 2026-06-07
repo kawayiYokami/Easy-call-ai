@@ -925,6 +925,7 @@ fn main() {
             save_agents,
             get_agent_private_memory_count,
             set_agent_private_memory_enabled,
+            set_agent_memory_recall_mode,
             export_agent_private_memories,
             disable_agent_private_memory,
             import_agent_memories,

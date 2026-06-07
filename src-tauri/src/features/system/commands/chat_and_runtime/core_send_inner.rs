@@ -1326,9 +1326,16 @@ fn collect_recall_payload_for_user_message(
     if message.role.trim() != "user" {
         return Ok(UserMessageRecallPayload::default());
     }
-    let private_memory_enabled = agents
+    let memory_agent = agents
         .iter()
-        .find(|a| a.id == effective_agent_id)
+        .find(|a| a.id == effective_agent_id);
+    if !memory_agent
+        .map(agent_memory_rag_enabled)
+        .unwrap_or(true)
+    {
+        return Ok(UserMessageRecallPayload::default());
+    }
+    let private_memory_enabled = memory_agent
         .map(|a| a.private_memory_enabled)
         .unwrap_or(false);
     let recall_query_text =

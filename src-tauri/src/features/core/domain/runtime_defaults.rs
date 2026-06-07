@@ -20,6 +20,7 @@ fn default_agent() -> AgentProfile {
         is_built_in_user: false,
         is_built_in_system: false,
         private_memory_enabled: false,
+        memory_recall_mode: default_agent_memory_recall_mode(),
         source: default_main_source(),
         scope: default_global_scope(),
     }
@@ -40,6 +41,7 @@ fn default_deputy_agent() -> AgentProfile {
         is_built_in_user: false,
         is_built_in_system: true,
         private_memory_enabled: false,
+        memory_recall_mode: default_agent_memory_recall_mode(),
         source: default_main_source(),
         scope: default_global_scope(),
     }
@@ -59,6 +61,7 @@ fn default_user_persona() -> AgentProfile {
         is_built_in_user: true,
         is_built_in_system: false,
         private_memory_enabled: false,
+        memory_recall_mode: default_agent_memory_recall_mode(),
         source: default_main_source(),
         scope: default_global_scope(),
     }
@@ -78,6 +81,7 @@ fn default_system_persona() -> AgentProfile {
         is_built_in_user: false,
         is_built_in_system: true,
         private_memory_enabled: false,
+        memory_recall_mode: default_agent_memory_recall_mode(),
         source: default_main_source(),
         scope: default_global_scope(),
     }

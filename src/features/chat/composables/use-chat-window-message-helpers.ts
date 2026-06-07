@@ -8,6 +8,7 @@ export function buildPersonasSnapshotJson(personas: PersonaProfile[]) {
       name: item.name,
       systemPrompt: item.systemPrompt,
       privateMemoryEnabled: !!item.privateMemoryEnabled,
+      memoryRecallMode: item.memoryRecallMode || "auto",
       avatarPath: item.avatarPath || "",
       avatarUpdatedAt: item.avatarUpdatedAt || "",
       isBuiltInUser: !!item.isBuiltInUser,

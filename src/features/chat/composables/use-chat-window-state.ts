@@ -11,6 +11,7 @@ import type {
   ToolLoadStatus,
   AssistantStreamBlock,
 } from "../../../types/app";
+import type { ContextUsageUpdatePayload } from "./use-chat-flow-events";
 
 type UseChatWindowStateOptions = {
   isMacPlatform: boolean;
@@ -95,6 +96,7 @@ export function useChatWindowState(options: UseChatWindowStateOptions) {
   const toolStatusText = ref("");
   const toolStatusState = ref<"running" | "done" | "failed" | "">("");
   const streamBlocks = ref<AssistantStreamBlock[]>([]);
+  const latestContextUsagePreview = ref<ContextUsageUpdatePayload | null>(null);
   const clipboardImages = ref<Array<{ mime: string; bytesBase64: string; savedPath?: string }>>([]);
   const queuedAttachmentNotices = ref<Array<{ id: string; fileName: string; relativePath: string; mime: string }>>([]);
   const allMessages = shallowRef<ChatMessage[]>([]);
@@ -174,6 +176,7 @@ export function useChatWindowState(options: UseChatWindowStateOptions) {
     toolStatusText,
     toolStatusState,
     streamBlocks,
+    latestContextUsagePreview,
     clipboardImages,
     queuedAttachmentNotices,
     allMessages,

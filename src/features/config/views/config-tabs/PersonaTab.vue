@@ -98,27 +98,30 @@
         </div>
       </div>
 
-      <!-- 私有记忆配置 -->
+      <!-- 记忆配置 -->
       <div v-if="!selectedPersona.isBuiltInUser && !selectedPersona.isBuiltInSystem && !selectedPersonaIsPrivateWorkspace" class="card bg-base-100 border border-base-300">
-        <div class="card-body gap-3 p-4">
-          <h3 class="card-title text-base mb-0">{{ t('config.persona.privateMemory') }}</h3>
-          <div class="flex items-center justify-between">
-            <div class="text-sm">
-              <div class="opacity-60">{{ t('config.persona.privateMemoryHint') }}</div>
-              <div class="mt-1 font-medium">
-                {{ t('config.persona.currentStatus') }}{{ selectedPersona.privateMemoryEnabled ? t('config.persona.private') : t('config.persona.public') }}
-              </div>
-            </div>
-            <SegmentedControl
-              class="min-w-40"
-              :model-value="!!selectedPersona.privateMemoryEnabled"
-              :options="privateMemoryModeOptions"
-              :disabled="privateMemoryCounting || privateMemorySwitching"
-              size="sm"
-              @change="setPrivateMemoryMode"
-            />
-          </div>
-          <div class="flex justify-end">
+        <div class="card-body gap-2 p-4">
+          <h3 class="card-title text-base mb-0">{{ t('config.persona.memorySettings') }}</h3>
+          <div class="text-xs leading-snug opacity-60">{{ t('config.persona.privateMemoryHint') }}</div>
+          <SegmentedControl
+            :model-value="!!selectedPersona.privateMemoryEnabled"
+            :options="privateMemoryModeOptions"
+            :disabled="privateMemoryCounting || privateMemorySwitching"
+            size="sm"
+            @change="setPrivateMemoryMode"
+          />
+
+          <h3 class="mt-2 text-sm font-semibold">{{ t('config.persona.memoryRecallMode') }}</h3>
+          <div class="text-xs leading-snug opacity-60">{{ t('config.persona.memoryRecallModeHint') }}</div>
+          <SegmentedControl
+            :model-value="selectedPersonaMemoryRecallMode"
+            :options="memoryRecallModeOptions"
+            :disabled="memoryRecallModeSwitching"
+            size="sm"
+            @change="setMemoryRecallMode"
+          />
+
+          <div class="mt-2 flex justify-end">
             <button class="btn btn-sm btn-ghost" @click="triggerPersonaMemoryImport" :title="t('config.persona.import')">
               <svg xmlns="http://www.w3.org/2000/svg" class="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" x2="12" y1="15" y2="3"/></svg>
               {{ t('config.persona.import') }}
@@ -182,7 +185,7 @@
 import { computed, ref } from "vue";
 import { useI18n } from "vue-i18n";
 import { Plus, RotateCcw, Save, Trash2 } from "@lucide/vue";
-import type { PersonaProfile } from "../../../../types/app";
+import type { MemoryRecallMode, PersonaProfile } from "../../../../types/app";
 import { invokeTauri } from "../../../../services/tauri-api";
 import SegmentedControl from "../../components/SegmentedControl.vue";
 
@@ -213,10 +216,16 @@ const privateMemoryModeOptions = computed(() => [
   { value: false, label: t("config.persona.global") },
   { value: true, label: t("config.persona.private") },
 ]);
+const memoryRecallModeOptions = computed(() => [
+  { value: "auto" as MemoryRecallMode, label: t("config.persona.memoryRecallAuto") },
+  { value: "manual" as MemoryRecallMode, label: t("config.persona.memoryRecallManual") },
+  { value: "off" as MemoryRecallMode, label: t("config.persona.memoryRecallOff") },
+]);
 const personaMemoryImportInput = ref<HTMLInputElement | null>(null);
 const privateMemoryDialog = ref<HTMLDialogElement | null>(null);
 const privateMemoryCounting = ref(false);
 const privateMemorySwitching = ref(false);
+const memoryRecallModeSwitching = ref(false);
 const privateMemoryExporting = ref(false);
 const privateMemoryDialogMessage = ref("");
 const privateMemoryError = ref("");
@@ -230,8 +239,17 @@ const selectedPersonaIsPreset = computed(
   () => isPresetPersona(props.selectedPersona),
 );
 const sortedPersonas = computed(() => sortPersonasForSelect(props.personas));
+const selectedPersonaMemoryRecallMode = computed(() =>
+  normalizeMemoryRecallMode(props.selectedPersona?.memoryRecallMode),
+);
 
 type PersonaDefaultSeed = Pick<PersonaProfile, "systemPrompt">;
+
+function normalizeMemoryRecallMode(value: unknown): MemoryRecallMode {
+  const raw = String(value || "").trim();
+  if (raw === "manual" || raw === "off") return raw;
+  return "auto";
+}
 
 function personaSelectRank(persona: PersonaProfile): number {
   if (persona.isBuiltInUser) return 0;
@@ -352,6 +370,28 @@ async function setPrivateMemoryMode(enabled: boolean) {
     privateMemoryDialogMessage.value = t('config.persona.countFailedButCanClose');
   } finally {
     privateMemoryCounting.value = false;
+  }
+}
+
+async function setMemoryRecallMode(mode: MemoryRecallMode) {
+  const agentId = props.selectedPersona?.id;
+  if (!agentId) return;
+  const nextMode = normalizeMemoryRecallMode(mode);
+  const current = normalizeMemoryRecallMode(props.selectedPersona?.memoryRecallMode);
+  if (current === nextMode) return;
+  privateMemoryError.value = "";
+  memoryRecallModeSwitching.value = true;
+  try {
+    const result = await invokeTauri<{ agentId: string; mode: MemoryRecallMode }>("set_agent_memory_recall_mode", {
+      input: { agentId, mode: nextMode },
+    });
+    if (props.selectedPersona) {
+      props.selectedPersona.memoryRecallMode = normalizeMemoryRecallMode(result.mode);
+    }
+  } catch (error) {
+    privateMemoryError.value = `${t('config.persona.switchFailed')}: ${String(error ?? "unknown")}`;
+  } finally {
+    memoryRecallModeSwitching.value = false;
   }
 }
 

@@ -534,6 +534,116 @@
     }
 
     #[test]
+    fn manual_memory_recall_mode_should_skip_rag_but_keep_builtin_recall() {
+        let state = test_chat_runtime_state();
+        let mut agent = default_agent();
+        agent.memory_recall_mode = MEMORY_RECALL_MODE_MANUAL.to_string();
+        state_write_agents_cached(&state, &[agent.clone(), default_user_persona()])
+            .expect("seed agents");
+        memory_store_upsert_drafts(
+            &state.data_path,
+            &[MemoryDraftInput {
+                memory_type: "knowledge".to_string(),
+                judgment: "用户喜欢猫咪".to_string(),
+                reasoning: "回归测试".to_string(),
+                tags: vec!["猫咪".to_string()],
+                owner_agent_id: None,
+            }],
+        )
+        .expect("seed memory");
+        let user_message = ChatMessage {
+            id: Uuid::new_v4().to_string(),
+            role: "user".to_string(),
+            created_at: now_iso(),
+            speaker_agent_id: Some(USER_PERSONA_ID.to_string()),
+            parts: vec![MessagePart::Text {
+                text: "猫咪".to_string(),
+                reasoning_content: None,
+            }],
+            extra_text_blocks: Vec::new(),
+            provider_meta: None,
+            tool_call: None,
+            mcp_call: None,
+        };
+
+        let recall_payload = collect_recall_payload_for_user_message(
+            &state.data_path,
+            &[agent.clone()],
+            &agent.id,
+            &user_message,
+        )
+        .expect("collect recall payload");
+        assert!(recall_payload.stored_ids.is_empty());
+        assert!(recall_payload.raw_ids.is_empty());
+
+        let memory_context = memory_agent_context_from_agent(&agent)
+            .expect("manual memory context");
+        let recall_result = builtin_recall(&state, &memory_context, "猫咪", None, None, None)
+            .expect("manual recall");
+        let memory_board = recall_result
+            .get("memoryBoard")
+            .and_then(Value::as_str)
+            .unwrap_or_default();
+        assert_eq!(recall_result.get("count").and_then(Value::as_u64), Some(1));
+        assert!(memory_board.contains("用户喜欢猫咪"));
+    }
+
+    #[test]
+    fn off_memory_recall_mode_should_skip_rag_and_builtin_recall_results() {
+        let state = test_chat_runtime_state();
+        let mut agent = default_agent();
+        agent.memory_recall_mode = MEMORY_RECALL_MODE_OFF.to_string();
+        state_write_agents_cached(&state, &[agent.clone(), default_user_persona()])
+            .expect("seed agents");
+        memory_store_upsert_drafts(
+            &state.data_path,
+            &[MemoryDraftInput {
+                memory_type: "knowledge".to_string(),
+                judgment: "用户喜欢猫咪".to_string(),
+                reasoning: "回归测试".to_string(),
+                tags: vec!["猫咪".to_string()],
+                owner_agent_id: None,
+            }],
+        )
+        .expect("seed memory");
+        let user_message = ChatMessage {
+            id: Uuid::new_v4().to_string(),
+            role: "user".to_string(),
+            created_at: now_iso(),
+            speaker_agent_id: Some(USER_PERSONA_ID.to_string()),
+            parts: vec![MessagePart::Text {
+                text: "猫咪".to_string(),
+                reasoning_content: None,
+            }],
+            extra_text_blocks: Vec::new(),
+            provider_meta: None,
+            tool_call: None,
+            mcp_call: None,
+        };
+
+        let recall_payload = collect_recall_payload_for_user_message(
+            &state.data_path,
+            &[agent.clone()],
+            &agent.id,
+            &user_message,
+        )
+        .expect("collect recall payload");
+        assert!(recall_payload.stored_ids.is_empty());
+        assert!(recall_payload.raw_ids.is_empty());
+
+        let memory_context = memory_agent_context_from_agent(&agent)
+            .expect("off memory context");
+        let recall_result = builtin_recall(&state, &memory_context, "猫咪", None, None, None)
+            .expect("off recall");
+        assert_eq!(recall_result.get("count").and_then(Value::as_u64), Some(0));
+        assert_eq!(recall_result.get("total").and_then(Value::as_u64), Some(0));
+        assert_eq!(
+            recall_result.get("memoryBoard").and_then(Value::as_str),
+            Some("")
+        );
+    }
+
+    #[test]
     fn builtin_memory_save_should_use_current_tool_agent_as_owner() {
         let state = test_chat_runtime_state();
         let mut assistant = default_agent();
@@ -678,6 +788,7 @@
             is_built_in_user: false,
             is_built_in_system: false,
             private_memory_enabled: false,
+            memory_recall_mode: default_agent_memory_recall_mode(),
             source: default_private_workspace_source(),
             scope: default_assistant_private_scope(),
         };
@@ -2776,6 +2887,7 @@
             is_built_in_user: false,
             is_built_in_system: false,
             private_memory_enabled: false,
+            memory_recall_mode: default_agent_memory_recall_mode(),
             source: "global".to_string(),
             scope: "global".to_string(),
         };
@@ -2897,6 +3009,7 @@
             is_built_in_user: false,
             is_built_in_system: false,
             private_memory_enabled: false,
+            memory_recall_mode: default_agent_memory_recall_mode(),
             source: "global".to_string(),
             scope: "global".to_string(),
         };
@@ -2958,6 +3071,7 @@
             is_built_in_user: false,
             is_built_in_system: false,
             private_memory_enabled: false,
+            memory_recall_mode: default_agent_memory_recall_mode(),
             source: "global".to_string(),
             scope: "global".to_string(),
         };
@@ -3018,6 +3132,7 @@
             is_built_in_user: false,
             is_built_in_system: false,
             private_memory_enabled: false,
+            memory_recall_mode: default_agent_memory_recall_mode(),
             source: "global".to_string(),
             scope: "global".to_string(),
         };

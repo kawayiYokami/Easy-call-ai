@@ -258,11 +258,13 @@ struct MemoryAgentContext {
     owner_agent_id: Option<String>,
     effective_agent_id: String,
     private_memory_enabled: bool,
+    recall_enabled: bool,
 }
 
 fn build_memory_agent_context(
     agent_id: &str,
     private_memory_enabled: bool,
+    recall_enabled: bool,
 ) -> Result<MemoryAgentContext, String> {
     let effective_agent_id = agent_id.trim();
     if effective_agent_id.is_empty() {
@@ -272,6 +274,7 @@ fn build_memory_agent_context(
         owner_agent_id: private_memory_enabled.then_some(effective_agent_id.to_string()),
         effective_agent_id: effective_agent_id.to_string(),
         private_memory_enabled,
+        recall_enabled,
     })
 }
 
@@ -279,7 +282,11 @@ fn memory_agent_context_from_agent(agent: &AgentProfile) -> Result<MemoryAgentCo
     if agent.is_built_in_user {
         return Err(format!("当前人格不支持读写记忆：agent_id={}", agent.id));
     }
-    build_memory_agent_context(&agent.id, agent.private_memory_enabled)
+    build_memory_agent_context(
+        &agent.id,
+        agent.private_memory_enabled,
+        agent_memory_recall_enabled(agent),
+    )
 }
 
 fn upsert_memories(
@@ -678,6 +685,19 @@ fn builtin_recall(
     let time_prefix = normalize_recall_time_filter(time)?;
     let offset = offset.unwrap_or(0);
     let limit = limit.unwrap_or(7).clamp(1, 50);
+    if !memory_context.recall_enabled {
+        return Ok(serde_json::json!({
+          "ok": true,
+          "memoryBoard": "",
+          "count": 0,
+          "total": 0,
+          "offset": offset,
+          "limit": limit,
+          "time": time_prefix,
+          "query": trimmed_query,
+          "reason": "memory_recall_disabled"
+        }));
+    }
     let memories = memory_store_list_memories_visible_for_agent(
         &app_state.data_path,
         &memory_context.effective_agent_id,

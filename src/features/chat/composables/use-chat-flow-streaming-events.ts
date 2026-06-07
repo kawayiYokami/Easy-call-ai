@@ -7,9 +7,11 @@ import {
 import {
   assistantEventHasVisibleProgress,
   readDeltaMessage,
+  readContextUsageUpdatePayload,
   readRoundCompletedPayload,
   readRoundFailedPayload,
   type AssistantDeltaEvent,
+  type ContextUsageUpdatePayload,
 } from "./use-chat-flow-events";
 import type { PendingTerminalEvent, RoundState } from "./use-chat-flow-types";
 
@@ -17,6 +19,7 @@ type UseChatFlowStreamingEventsOptions = {
   toolStatusText: Ref<string>;
   toolStatusState: Ref<"running" | "done" | "failed" | "">;
   streamBlocks?: Ref<AssistantStreamBlock[]>;
+  contextUsagePreview?: Ref<ContextUsageUpdatePayload | null>;
   reasoningStartedAtMs: Ref<number>;
   getRound: () => RoundState;
   promoteQueuedRoundToStreaming: (gen: number) => number;
@@ -105,7 +108,20 @@ export function useChatFlowStreamingEvents(options: UseChatFlowStreamingEventsOp
       });
       return;
     }
+    if (parsed.kind === "context_usage_update") {
+      const p = readContextUsageUpdatePayload(parsed.message);
+      const activeConversationId = options.getConversationId ? options.getConversationId() : "";
+      if (p && (!activeConversationId || p.conversationId === activeConversationId)) {
+        if (options.contextUsagePreview) {
+          options.contextUsagePreview.value = p;
+        }
+      }
+      return;
+    }
     if (parsed.kind === "round_completed") {
+      if (options.contextUsagePreview) {
+        options.contextUsagePreview.value = null;
+      }
       const p = readRoundCompletedPayload(parsed.message);
       const result = {
         assistantText: String(p?.assistantText || ""),
@@ -130,6 +146,9 @@ export function useChatFlowStreamingEvents(options: UseChatFlowStreamingEventsOp
     }
 
     if (parsed.kind === "round_failed") {
+      if (options.contextUsagePreview) {
+        options.contextUsagePreview.value = null;
+      }
       const p = readRoundFailedPayload(parsed.message);
       const error = p?.error || parsed.message || JSON.stringify(parsed);
       if (currentRound.phase === "queued") {

@@ -88,11 +88,12 @@ fn build_global_tool_schema_cache(state: &AppState) -> Vec<ProviderToolDefinitio
     let preview_session_id = "__tool_schema_cache__".to_string();
     let _preview_api_id = "__tool_schema_cache__".to_string();
     let preview_agent_id = DEFAULT_AGENT_ID.to_string();
-    let preview_memory_context = build_memory_agent_context(&preview_agent_id, false)
+    let preview_memory_context = build_memory_agent_context(&preview_agent_id, false, true)
         .unwrap_or(MemoryAgentContext {
             owner_agent_id: None,
             effective_agent_id: preview_agent_id.clone(),
             private_memory_enabled: false,
+            recall_enabled: true,
         });
     let mut definitions = vec![
         BuiltinFetchTool { app_state: state.clone() }.provider_tool_definition(),
@@ -304,10 +305,12 @@ fn push_runtime_tool_executors(
         app_state: state.clone(),
         memory_context: memory_context.clone(),
     }));
-    tools.push(Box::new(BuiltinRecallTool {
-        app_state: state.clone(),
-        memory_context,
-    }));
+    if memory_context.recall_enabled {
+        tools.push(Box::new(BuiltinRecallTool {
+            app_state: state.clone(),
+            memory_context,
+        }));
+    }
     tools.push(Box::new(BuiltinOperateTool { model_supports_image }));
     tools.push(Box::new(BuiltinReloadTool { app_state: state.clone() }));
     tools.push(Box::new(BuiltinReadFileTool {

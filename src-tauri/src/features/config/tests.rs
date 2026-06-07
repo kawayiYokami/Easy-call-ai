@@ -1105,6 +1105,7 @@ model = "gpt-4.1"
             is_built_in_user: false,
             is_built_in_system: false,
             private_memory_enabled: false,
+            memory_recall_mode: default_agent_memory_recall_mode(),
             source: default_main_source(),
             scope: default_global_scope(),
         });

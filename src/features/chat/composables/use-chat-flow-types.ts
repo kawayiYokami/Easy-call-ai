@@ -1,7 +1,7 @@
 import type { Channel } from "@tauri-apps/api/core";
 import type { Ref } from "vue";
 import type { AssistantStreamBlock, ChatMentionTarget, ChatMessage } from "../../../types/app";
-import type { AssistantDeltaEvent } from "./use-chat-flow-events";
+import type { AssistantDeltaEvent, ContextUsageUpdatePayload } from "./use-chat-flow-events";
 import type { ConversationRuntimeStreamCacheSnapshot } from "./use-chat-flow-stream-cache";
 
 export type FrontendRoundPhase = "idle" | "queued" | "waiting" | "streaming";
@@ -21,6 +21,7 @@ export type UseChatFlowOptions = {
   toolStatusText: Ref<string>;
   toolStatusState: Ref<"running" | "done" | "failed" | "">;
   streamBlocks?: Ref<AssistantStreamBlock[]>;
+  contextUsagePreview?: Ref<ContextUsageUpdatePayload | null>;
   chatErrorText: Ref<string>;
   setConversationChatError?: (conversationId: string, text: string) => void;
   allMessages: Ref<ChatMessage[]>;

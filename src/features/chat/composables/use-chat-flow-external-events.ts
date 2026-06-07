@@ -274,6 +274,13 @@ export function useChatFlowExternalEvents(options: UseChatFlowExternalEventsOpti
       }
     }
     const round = options.getRound();
+    if (parsed.kind === "context_usage_update") {
+      const currentGen = round.phase === "streaming" || round.phase === "queued" ? round.gen : 0;
+      if (currentGen) {
+        options.handleStreamingEvent(currentGen, parsed);
+      }
+      return;
+    }
     const shouldProjectFromAppEvent =
       parsed.kind === "tool_status"
       || round.phase !== "streaming"

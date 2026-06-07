@@ -74,6 +74,8 @@ export function useChatWindowContentOrchestrator(bindings: Record<string, any>) 
   const messageBlocks = useChatMessageBlocks({
     allMessages: bindings.allMessages,
     activeChatApiConfig: personaConversation.currentForegroundApiConfig,
+    currentConversationId: bindings.currentChatConversationId,
+    contextUsagePreview: bindings.latestContextUsagePreview,
     perfDebug: bindings.PERF_DEBUG,
     perfNow: bindings.perfNow,
     taskTriggerLabels: {

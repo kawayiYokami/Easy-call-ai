@@ -1,3 +1,31 @@
+const MEMORY_RECALL_MODE_AUTO: &str = "auto";
+const MEMORY_RECALL_MODE_MANUAL: &str = "manual";
+const MEMORY_RECALL_MODE_OFF: &str = "off";
+
+fn default_agent_memory_recall_mode() -> String {
+    MEMORY_RECALL_MODE_AUTO.to_string()
+}
+
+fn normalize_agent_memory_recall_mode(value: &str) -> String {
+    match value.trim().to_ascii_lowercase().as_str() {
+        MEMORY_RECALL_MODE_MANUAL => MEMORY_RECALL_MODE_MANUAL.to_string(),
+        MEMORY_RECALL_MODE_OFF => MEMORY_RECALL_MODE_OFF.to_string(),
+        _ => MEMORY_RECALL_MODE_AUTO.to_string(),
+    }
+}
+
+fn agent_memory_recall_mode(agent: &AgentProfile) -> String {
+    normalize_agent_memory_recall_mode(&agent.memory_recall_mode)
+}
+
+fn agent_memory_rag_enabled(agent: &AgentProfile) -> bool {
+    agent_memory_recall_mode(agent) == MEMORY_RECALL_MODE_AUTO
+}
+
+fn agent_memory_recall_enabled(agent: &AgentProfile) -> bool {
+    agent_memory_recall_mode(agent) != MEMORY_RECALL_MODE_OFF
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct AgentProfile {
@@ -18,6 +46,8 @@ struct AgentProfile {
     is_built_in_system: bool,
     #[serde(default)]
     private_memory_enabled: bool,
+    #[serde(default = "default_agent_memory_recall_mode")]
+    memory_recall_mode: String,
     #[serde(default = "default_main_source")]
     source: String,
     #[serde(default = "default_global_scope")]

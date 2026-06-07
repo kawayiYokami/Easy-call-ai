@@ -1,5 +1,6 @@
 import { computed, type ComputedRef, type Ref, type ShallowRef } from "vue";
 import type { ApiConfigItem, ChatMessage, ChatMessageBlock } from "../../../types/app";
+import type { ContextUsageUpdatePayload } from "./use-chat-flow-events";
 import {
   estimateConversationTokens,
 } from "../../../utils/chat-message";
@@ -54,6 +55,8 @@ function buildExtraTextReferences(message: ChatMessage): Array<{ label: string; 
 type UseChatMessageBlocksOptions = {
   allMessages: ShallowRef<ChatMessage[]>;
   activeChatApiConfig: ComputedRef<ApiConfigItem | null>;
+  currentConversationId?: Ref<string>;
+  contextUsagePreview?: Ref<ContextUsageUpdatePayload | null>;
   perfDebug: boolean;
   perfNow: () => number;
   taskTriggerLabels?: { goal: string; todo: string };
@@ -91,6 +94,18 @@ export function useChatMessageBlocks(options: UseChatMessageBlocksOptions) {
       return Math.min(100, Math.max(0, Math.round(raw)));
     }
     return null;
+  }
+
+  function previewContextUsageRatio(): number | null {
+    const preview = options.contextUsagePreview?.value;
+    if (!preview) return null;
+    const activeConversationId = String(options.currentConversationId?.value || "").trim();
+    if (activeConversationId && preview.conversationId !== activeConversationId) return null;
+    const ratio = Number(preview.contextUsageRatio);
+    if (Number.isFinite(ratio) && ratio >= 0) return ratio;
+    const percent = Number(preview.contextUsagePercent);
+    if (!Number.isFinite(percent)) return null;
+    return Math.max(0, percent) / 100;
   }
 
   function buildMessageBlocks(message: ChatMessage): ChatMessageBlock[] {
@@ -311,6 +326,10 @@ export function useChatMessageBlocks(options: UseChatMessageBlocksOptions) {
   const visibleMessageBlocks = computed(() => allMessageBlocks.value);
 
   const chatContextUsageRatio = computed(() => {
+    const previewRatio = previewContextUsageRatio();
+    if (previewRatio !== null) {
+      return previewRatio;
+    }
     const backendPercent = latestBackendContextUsagePercent(options.allMessages.value);
     if (backendPercent !== null) {
       return backendPercent / 100;

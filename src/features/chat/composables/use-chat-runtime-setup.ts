@@ -27,6 +27,7 @@ export function useChatRuntimeSetup(bindings: Record<string, any>) {
       toolStatusText: bindings.toolStatusText,
       toolStatusState: bindings.toolStatusState,
       streamBlocks: bindings.streamBlocks,
+      contextUsagePreview: bindings.latestContextUsagePreview,
       chatErrorText: bindings.chatErrorText,
       setConversationChatError: bindings.setConversationChatErrorText,
       allMessages: bindings.allMessages,

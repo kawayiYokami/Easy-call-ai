@@ -78,6 +78,7 @@ export function useConfigEditors(options: UseConfigEditorsOptions) {
       systemPrompt: options.t("config.persona.assistantPlaceholder"),
       tools: defaultToolBindings(),
       privateMemoryEnabled: false,
+      memoryRecallMode: "auto",
       createdAt: now,
       updatedAt: now,
       avatarPath: undefined,

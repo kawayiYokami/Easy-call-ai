@@ -42,6 +42,9 @@ fn save_agents(
         .into_iter()
         .filter(|agent| !is_private_workspace_source(&agent.source))
         .collect();
+    for agent in &mut data.agents {
+        agent.memory_recall_mode = normalize_agent_memory_recall_mode(&agent.memory_recall_mode);
+    }
     if !data.agents.iter().any(|a| a.id == USER_PERSONA_ID) {
         if let Some(user_persona) = existing_user_persona {
             data.agents.push(user_persona);
@@ -261,6 +264,20 @@ struct SetAgentPrivateMemoryEnabledResult {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+struct SetAgentMemoryRecallModeInput {
+    agent_id: String,
+    mode: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct SetAgentMemoryRecallModeResult {
+    agent_id: String,
+    mode: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 struct ExportAgentPrivateMemoriesInput {
     agent_id: String,
 }
@@ -304,6 +321,48 @@ fn get_agent_private_memory_count(
     }
     Ok(AgentPrivateMemoryCountResult {
         count: memory_store_count_private_memories_by_agent(&state.data_path, agent_id)?,
+    })
+}
+
+#[tauri::command]
+fn set_agent_memory_recall_mode(
+    input: SetAgentMemoryRecallModeInput,
+    state: State<'_, AppState>,
+) -> Result<SetAgentMemoryRecallModeResult, String> {
+    let agent_id = input.agent_id.trim();
+    if agent_id.is_empty() {
+        return Err("agentId is required".to_string());
+    }
+    let mode = match input.mode.trim().to_ascii_lowercase().as_str() {
+        MEMORY_RECALL_MODE_AUTO => MEMORY_RECALL_MODE_AUTO.to_string(),
+        MEMORY_RECALL_MODE_MANUAL => MEMORY_RECALL_MODE_MANUAL.to_string(),
+        MEMORY_RECALL_MODE_OFF => MEMORY_RECALL_MODE_OFF.to_string(),
+        _ => return Err("memoryRecallMode must be auto, manual, or off".to_string()),
+    };
+
+    let mut agents = state_read_agents_cached(&state)?;
+    let base_config = read_config(&state.config_path)?;
+    let (private_agent_ids, _) =
+        runtime_private_organization_ids(&state.data_path, &base_config, &agents)?;
+    if private_agent_ids.contains(agent_id) {
+        return Err(private_agent_operation_error(agent_id));
+    }
+
+    let agent_idx = agents
+        .iter()
+        .position(|a| a.id == agent_id && !a.is_built_in_user)
+        .ok_or_else(|| format!("Agent '{}' not found.", agent_id))?;
+    if normalize_agent_memory_recall_mode(&agents[agent_idx].memory_recall_mode) != mode {
+        agents[agent_idx].memory_recall_mode = mode.clone();
+        state_write_agents_cached(&state, &agents)?;
+        runtime_log_info(format!(
+            "[记忆] 完成，任务=切换人格回忆模式，agent_id={}，mode={}",
+            agent_id, mode
+        ));
+    }
+    Ok(SetAgentMemoryRecallModeResult {
+        agent_id: agent_id.to_string(),
+        mode,
     })
 }
 

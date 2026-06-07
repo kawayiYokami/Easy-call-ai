@@ -36,8 +36,8 @@
       </div>
 
       <div class="border-t border-base-300/70 bg-base-100 px-5 py-4">
-        <div class="flex items-end gap-4">
-          <div v-if="recentHistory.length" class="min-w-0 flex-1">
+        <div class="space-y-4">
+          <div v-if="recentHistory.length" class="min-w-0">
             <div class="mb-2 text-xs font-medium uppercase tracking-[0.08em] text-base-content/50">
               {{ t("chat.supervision.recentTitle") }}
             </div>
@@ -56,7 +56,7 @@
               </button>
             </div>
           </div>
-          <div class="ml-auto flex shrink-0 items-center justify-end gap-2">
+          <div class="flex items-center justify-between gap-3">
             <button
               v-if="activeTask"
               class="btn btn-error btn-outline"
@@ -65,12 +65,15 @@
             >
               {{ t("chat.supervision.stopAction") }}
             </button>
-            <button class="btn btn-ghost" :disabled="saving" @click="emit('close')">
-              {{ t("common.cancel") }}
-            </button>
-            <button class="btn btn-primary" :disabled="saving || !canSubmit" @click="handleSave">
-              {{ saving ? t("common.loading") : (activeTask ? t("chat.supervision.updateAction") : t("chat.supervision.createAction")) }}
-            </button>
+            <span v-else></span>
+            <div class="flex shrink-0 items-center justify-end gap-2">
+              <button class="btn btn-ghost" :disabled="saving" @click="emit('close')">
+                {{ t("common.cancel") }}
+              </button>
+              <button class="btn btn-primary" :disabled="saving || !canSubmit" @click="handleSave">
+                {{ saving ? t("common.loading") : (activeTask ? t("chat.supervision.updateAction") : t("chat.supervision.createAction")) }}
+              </button>
+            </div>
           </div>
         </div>
       </div>

@@ -300,6 +300,7 @@ fn load_private_agents_from_workspace(
             is_built_in_user: false,
             is_built_in_system: false,
             private_memory_enabled: false,
+            memory_recall_mode: default_agent_memory_recall_mode(),
             source: default_private_workspace_source(),
             scope: default_assistant_private_scope(),
         };

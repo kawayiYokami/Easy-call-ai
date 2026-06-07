@@ -472,12 +472,15 @@ export type RuntimeLogEntry = {
   repeat: number;
 };
 
+export type MemoryRecallMode = "auto" | "manual" | "off";
+
 export type PersonaProfile = {
   id: string;
   name: string;
   systemPrompt: string;
   tools: ApiToolItem[];
   privateMemoryEnabled?: boolean;
+  memoryRecallMode?: MemoryRecallMode;
   createdAt: string;
   updatedAt: string;
   avatarPath?: string;
