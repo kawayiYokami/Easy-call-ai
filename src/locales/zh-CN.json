@@ -1392,7 +1392,8 @@
     "recordStartFailed": "开始录音失败: {err}",
     "terminalApprovalQueueHint": "当前还有 {count} 条终端审批请求等待处理。",
     "reviewOpinion": "评估意见：",
-    "toolTimeline": {}
+    "toolTimeline": {},
+    "requestFailed": "请求失败: {err}"
   },
   "sidebar": {
     "terminalApproval": "终端审批",

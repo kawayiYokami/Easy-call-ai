@@ -1392,7 +1392,8 @@
     "recordStartFailed": "Start recording failed: {err}",
     "terminalApprovalQueueHint": "{count} terminal approval request(s) are still waiting.",
     "reviewOpinion": "Assessment note:",
-    "toolTimeline": {}
+    "toolTimeline": {},
+    "requestFailed": "Request failed: {err}"
   },
   "sidebar": {
     "terminalApproval": "Terminal approval",
