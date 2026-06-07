@@ -981,7 +981,7 @@ function upsertProvider(draft: AdvancedDraft, stableIds?: { providerId: string; 
       reasoningEffort: "medium",
       temperature: 1,
       customTemperatureEnabled: false,
-      contextWindowTokens: 128000,
+      contextWindowTokens: 256000,
       customMaxOutputTokensEnabled: false,
       maxOutputTokens: 4096,
     }],
@@ -1010,7 +1010,7 @@ function upsertProvider(draft: AdvancedDraft, stableIds?: { providerId: string; 
     reasoningEffort: "medium",
     temperature: 1,
     customTemperatureEnabled: false,
-    contextWindowTokens: 128000,
+    contextWindowTokens: 256000,
     customMaxOutputTokensEnabled: false,
     maxOutputTokens: 4096,
   }];

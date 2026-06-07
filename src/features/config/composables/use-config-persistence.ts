@@ -364,7 +364,7 @@ export function useConfigPersistence(options: UseConfigPersistenceOptions) {
                 reasoningEffort: String((model as { reasoningEffort?: unknown }).reasoningEffort || DEFAULT_REASONING_EFFORT).trim() || DEFAULT_REASONING_EFFORT,
                 temperature: Number((model as { temperature?: unknown }).temperature ?? 1),
                 customTemperatureEnabled: !!(model as { customTemperatureEnabled?: unknown }).customTemperatureEnabled,
-                contextWindowTokens: Math.round(Number((model as { contextWindowTokens?: unknown }).contextWindowTokens ?? 128000)),
+                contextWindowTokens: Math.round(Number((model as { contextWindowTokens?: unknown }).contextWindowTokens ?? 256000)),
                 customMaxOutputTokensEnabled: !!(model as { customMaxOutputTokensEnabled?: unknown }).customMaxOutputTokensEnabled,
                 maxOutputTokens: Math.round(Number((model as { maxOutputTokens?: unknown }).maxOutputTokens ?? 4096)),
               }))

@@ -487,6 +487,9 @@ type ModelCapabilityLimits = {
 };
 
 const SLIDER_CONTEXT_MIN = 16_000;
+const AUTO_CONTEXT_WINDOW_TOKENS = 256_000;
+const AUTO_CONTEXT_WINDOW_SMALL_MODEL_THRESHOLD = 200_000;
+const FALLBACK_CONTEXT_WINDOW_MAX = 2_000_000;
 const DEFAULT_CODEX_BASE_URL = "https://chatgpt.com/backend-api/codex";
 const DEFAULT_CODEX_AUTH_MODE: CodexAuthMode = "read_local";
 const DEFAULT_CODEX_LOCAL_AUTH_PATH = "~/.codex/auth.json";
@@ -940,7 +943,7 @@ function cloneProvider(provider: ApiProviderConfigItem): ApiProviderConfigItem {
         reasoningEffort: normalizedModelReasoningEffort(provider, model),
         temperature: Number(model.temperature ?? 1),
         customTemperatureEnabled: !!model.customTemperatureEnabled,
-        contextWindowTokens: Math.round(Number(model.contextWindowTokens ?? 128000)),
+        contextWindowTokens: Math.round(Number(model.contextWindowTokens ?? AUTO_CONTEXT_WINDOW_TOKENS)),
         customMaxOutputTokensEnabled: !!model.customMaxOutputTokensEnabled,
         maxOutputTokens: Number(model.maxOutputTokens ?? 4096),
       }))
@@ -999,7 +1002,7 @@ function normalizeProviderForCompare(provider: ApiProviderConfigItem) {
         reasoningEffort: normalizedModelReasoningEffort(provider, model),
         temperature: Number(model.temperature ?? 1),
         customTemperatureEnabled: !!model.customTemperatureEnabled,
-        contextWindowTokens: Math.round(Number(model.contextWindowTokens ?? 128000)),
+        contextWindowTokens: Math.round(Number(model.contextWindowTokens ?? AUTO_CONTEXT_WINDOW_TOKENS)),
         customMaxOutputTokensEnabled: !!model.customMaxOutputTokensEnabled,
         maxOutputTokens: Number(model.maxOutputTokens ?? 4096),
       }))
@@ -1032,7 +1035,7 @@ function applyProtocolDefaults(provider: ApiProviderConfigItem) {
       reasoningEffort: String(model.reasoningEffort || DEFAULT_REASONING_EFFORT).trim() || DEFAULT_REASONING_EFFORT,
       temperature: 1,
       customTemperatureEnabled: false,
-      contextWindowTokens: 128000,
+      contextWindowTokens: AUTO_CONTEXT_WINDOW_TOKENS,
       customMaxOutputTokensEnabled: false,
       maxOutputTokens: 4096,
     }));
@@ -1065,7 +1068,7 @@ function createModel(seed: string, name = "gpt-4o-mini"): ApiModelConfigItem {
     reasoningEffort: DEFAULT_REASONING_EFFORT,
     temperature: 1,
     customTemperatureEnabled: false,
-    contextWindowTokens: 128000,
+    contextWindowTokens: AUTO_CONTEXT_WINDOW_TOKENS,
     customMaxOutputTokensEnabled: false,
     maxOutputTokens: 4096,
   };
@@ -1276,9 +1279,21 @@ function closeModelPicker() {
 }
 
 function contextWindowMax(modelCard: ApiModelConfigItem): number {
-  const raw = Number(modelCapabilityById.value[modelCard.id]?.contextWindowMax ?? 2_000_000);
-  if (!Number.isFinite(raw)) return 2_000_000;
-  return Math.max(SLIDER_CONTEXT_MIN, Math.min(2_000_000, Math.round(raw)));
+  const raw = Number(modelCapabilityById.value[modelCard.id]?.contextWindowMax ?? FALLBACK_CONTEXT_WINDOW_MAX);
+  if (!Number.isFinite(raw)) return FALLBACK_CONTEXT_WINDOW_MAX;
+  return Math.max(SLIDER_CONTEXT_MIN, Math.min(FALLBACK_CONTEXT_WINDOW_MAX, Math.round(raw)));
+}
+
+function autoContextWindowTokens(modelCard: ApiModelConfigItem): number {
+  const contextMax = contextWindowMax(modelCard);
+  if (contextMax < AUTO_CONTEXT_WINDOW_SMALL_MODEL_THRESHOLD) {
+    return contextMax;
+  }
+  return Math.min(AUTO_CONTEXT_WINDOW_TOKENS, contextMax);
+}
+
+function applyAutoContextWindowTokens(modelCard: ApiModelConfigItem) {
+  modelCard.contextWindowTokens = autoContextWindowTokens(modelCard);
 }
 
 function maxOutputTokensMax(modelCard: ApiModelConfigItem): number {
@@ -1294,7 +1309,7 @@ function shouldWarnDeepSeekKimiProtocol(modelCard: ApiModelConfigItem): boolean 
 }
 
 function clampModelCardValues(modelCard: ApiModelConfigItem) {
-  const nextContext = Math.round(Number(modelCard.contextWindowTokens ?? 128_000));
+  const nextContext = Math.round(Number(modelCard.contextWindowTokens ?? AUTO_CONTEXT_WINDOW_TOKENS));
   const contextMax = contextWindowMax(modelCard);
   const contextMin = Math.min(SLIDER_CONTEXT_MIN, contextMax);
   const clampedContext = Math.max(contextMin, Math.min(contextMax, nextContext));
@@ -1304,22 +1319,22 @@ function clampModelCardValues(modelCard: ApiModelConfigItem) {
 
   const nextOutput = Math.round(Number(modelCard.maxOutputTokens ?? 4_096));
   const clampedOutput = Math.max(256, Math.min(maxOutputTokensMax(modelCard), nextOutput));
-    if (Number.isFinite(nextOutput) && nextOutput !== clampedOutput) {
-      modelCard.maxOutputTokens = clampedOutput;
-    }
+  if (Number.isFinite(nextOutput) && nextOutput !== clampedOutput) {
+    modelCard.maxOutputTokens = clampedOutput;
   }
+}
 
-  function clampManualContextWindowValue(modelCard: ApiModelConfigItem) {
-    const nextContext = Math.round(Number(modelCard.contextWindowTokens ?? 128_000));
-    const clampedContext = Math.max(SLIDER_CONTEXT_MIN, Math.min(2_000_000, nextContext));
-    if (!Number.isFinite(nextContext)) {
-      modelCard.contextWindowTokens = 128_000;
-      return;
-    }
-    if (nextContext !== clampedContext) {
-      modelCard.contextWindowTokens = clampedContext;
-    }
+function clampManualContextWindowValue(modelCard: ApiModelConfigItem) {
+  const nextContext = Math.round(Number(modelCard.contextWindowTokens ?? AUTO_CONTEXT_WINDOW_TOKENS));
+  const clampedContext = Math.max(SLIDER_CONTEXT_MIN, Math.min(FALLBACK_CONTEXT_WINDOW_MAX, nextContext));
+  if (!Number.isFinite(nextContext)) {
+    modelCard.contextWindowTokens = AUTO_CONTEXT_WINDOW_TOKENS;
+    return;
   }
+  if (nextContext !== clampedContext) {
+    modelCard.contextWindowTokens = clampedContext;
+  }
+}
 
 function selectModelOption(modelCard: ApiModelConfigItem, option: string) {
   modelCard.model = option;
@@ -1330,6 +1345,7 @@ function selectModelOption(modelCard: ApiModelConfigItem, option: string) {
   if (provider) {
     applyProtocolDefaults(provider);
   }
+  applyAutoContextWindowTokens(modelCard);
   void syncModelMetadata(modelCard);
   closeModelPicker();
 }
@@ -1368,7 +1384,11 @@ async function syncModelMetadata(modelCard: ApiModelConfigItem) {
       },
     });
     if (!metadata?.found) {
-      modelCard.contextWindowTokens = 200_000;
+      modelCapabilityById.value = {
+        ...modelCapabilityById.value,
+        [modelCard.id]: {},
+      };
+      applyAutoContextWindowTokens(modelCard);
       clampModelCardValues(modelCard);
       return;
     }
@@ -1383,6 +1403,7 @@ async function syncModelMetadata(modelCard: ApiModelConfigItem) {
       ...modelCapabilityById.value,
       [modelCard.id]: nextLimits,
     };
+    applyAutoContextWindowTokens(modelCard);
     clampModelCardValues(modelCard);
   } catch (error) {
     const message = String(error || "").trim();

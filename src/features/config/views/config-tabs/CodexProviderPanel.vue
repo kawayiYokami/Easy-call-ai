@@ -299,7 +299,7 @@ function applyCodexDefaults() {
     reasoningEffort: String(model.reasoningEffort || DEFAULT_REASONING_EFFORT).trim() || DEFAULT_REASONING_EFFORT,
     temperature: 1,
     customTemperatureEnabled: false,
-    contextWindowTokens: 128000,
+    contextWindowTokens: 256000,
     customMaxOutputTokensEnabled: false,
     maxOutputTokens: 4096,
   }));
@@ -574,7 +574,7 @@ function createModel(seed: string, modelName: string): ApiModelConfigItem {
     reasoningEffort: DEFAULT_REASONING_EFFORT,
     temperature: 1,
     customTemperatureEnabled: false,
-    contextWindowTokens: 128000,
+    contextWindowTokens: 256000,
     customMaxOutputTokensEnabled: false,
     maxOutputTokens: 4096,
   };

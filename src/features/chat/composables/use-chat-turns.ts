@@ -336,7 +336,7 @@ export function useChatMessageBlocks(options: UseChatMessageBlocksOptions) {
     }
     const api = options.activeChatApiConfig.value;
     if (!api) return 0;
-    const maxTokens = Math.max(16000, Math.round(Number(api.contextWindowTokens ?? 128000)));
+    const maxTokens = Math.max(16000, Math.round(Number(api.contextWindowTokens ?? 256000)));
     const used = estimateConversationTokens(options.allMessages.value);
     return used / Math.max(1, maxTokens);
   });

@@ -23,6 +23,7 @@ type UseConfigCoreOptions = {
 
 export function useConfigCore(options: UseConfigCoreOptions) {
   const DEFAULT_MAX_OUTPUT_TOKENS = 4096;
+  const DEFAULT_CONTEXT_WINDOW_TOKENS = 256000;
   const DEFAULT_CODEX_AUTH_MODE = "read_local";
   const DEFAULT_CODEX_LOCAL_AUTH_PATH = "~/.codex/auth.json";
   const DEFAULT_REASONING_EFFORT = "medium";
@@ -49,7 +50,7 @@ export function useConfigCore(options: UseConfigCoreOptions) {
       reasoningEffort: DEFAULT_REASONING_EFFORT,
       temperature: 1,
       customTemperatureEnabled: false,
-      contextWindowTokens: 128000,
+      contextWindowTokens: DEFAULT_CONTEXT_WINDOW_TOKENS,
       customMaxOutputTokensEnabled: false,
       maxOutputTokens: 4096,
     };
@@ -138,7 +139,7 @@ export function useConfigCore(options: UseConfigCoreOptions) {
             reasoningEffort: String(api.reasoningEffort || DEFAULT_REASONING_EFFORT).trim() || DEFAULT_REASONING_EFFORT,
             temperature: Number(api.temperature ?? 1),
             customTemperatureEnabled: !!api.customTemperatureEnabled,
-            contextWindowTokens: Math.round(Number(api.contextWindowTokens ?? 128000)),
+            contextWindowTokens: Math.round(Number(api.contextWindowTokens ?? DEFAULT_CONTEXT_WINDOW_TOKENS)),
             customMaxOutputTokensEnabled: !!api.customMaxOutputTokensEnabled,
             maxOutputTokens: toFiniteMaxOutputTokens(api.maxOutputTokens),
           }],
@@ -188,7 +189,7 @@ export function useConfigCore(options: UseConfigCoreOptions) {
         model.reasoningEffort = String(draft.reasoningEffort || model.reasoningEffort || DEFAULT_REASONING_EFFORT).trim() || DEFAULT_REASONING_EFFORT;
         model.temperature = Number(draft.temperature ?? 1);
         model.customTemperatureEnabled = !!draft.customTemperatureEnabled;
-        model.contextWindowTokens = Math.round(Number(draft.contextWindowTokens ?? 128000));
+        model.contextWindowTokens = Math.round(Number(draft.contextWindowTokens ?? DEFAULT_CONTEXT_WINDOW_TOKENS));
         model.customMaxOutputTokensEnabled = !!draft.customMaxOutputTokensEnabled;
         model.maxOutputTokens = toFiniteMaxOutputTokens(draft.maxOutputTokens);
       }
@@ -223,7 +224,7 @@ export function useConfigCore(options: UseConfigCoreOptions) {
           reasoningEffort: String(model.reasoningEffort || DEFAULT_REASONING_EFFORT).trim() || DEFAULT_REASONING_EFFORT,
           temperature: Number(model.temperature ?? 1),
           customTemperatureEnabled: !!model.customTemperatureEnabled,
-          contextWindowTokens: Math.round(Number(model.contextWindowTokens ?? 128000)),
+          contextWindowTokens: Math.round(Number(model.contextWindowTokens ?? DEFAULT_CONTEXT_WINDOW_TOKENS)),
           customMaxOutputTokensEnabled: !!model.customMaxOutputTokensEnabled,
           maxOutputTokens: toFiniteMaxOutputTokens(model.maxOutputTokens),
         });
@@ -255,7 +256,7 @@ export function useConfigCore(options: UseConfigCoreOptions) {
         reasoningEffort: String(model.reasoningEffort || DEFAULT_REASONING_EFFORT).trim() || DEFAULT_REASONING_EFFORT,
         temperature: Number(model.temperature ?? 1),
         customTemperatureEnabled: !!model.customTemperatureEnabled,
-        contextWindowTokens: Math.round(Number(model.contextWindowTokens ?? 128000)),
+        contextWindowTokens: Math.round(Number(model.contextWindowTokens ?? DEFAULT_CONTEXT_WINDOW_TOKENS)),
         customMaxOutputTokensEnabled: !!model.customMaxOutputTokensEnabled,
         maxOutputTokens: toFiniteMaxOutputTokens(model.maxOutputTokens),
       });
@@ -345,7 +346,7 @@ export function useConfigCore(options: UseConfigCoreOptions) {
           reasoningEffort: String(model.reasoningEffort || DEFAULT_REASONING_EFFORT).trim() || DEFAULT_REASONING_EFFORT,
           temperature: Number(model.temperature ?? 1),
           customTemperatureEnabled: !!model.customTemperatureEnabled,
-          contextWindowTokens: Math.round(Number(model.contextWindowTokens ?? 128000)),
+          contextWindowTokens: Math.round(Number(model.contextWindowTokens ?? DEFAULT_CONTEXT_WINDOW_TOKENS)),
           customMaxOutputTokensEnabled: !!model.customMaxOutputTokensEnabled,
           maxOutputTokens: toFiniteMaxOutputTokens(model.maxOutputTokens),
         })),
@@ -376,7 +377,7 @@ export function useConfigCore(options: UseConfigCoreOptions) {
         reasoningEffort: String(a.reasoningEffort || DEFAULT_REASONING_EFFORT).trim() || DEFAULT_REASONING_EFFORT,
         temperature: Number(a.temperature ?? 1),
         customTemperatureEnabled: !!a.customTemperatureEnabled,
-        contextWindowTokens: Math.round(Number(a.contextWindowTokens ?? 128000)),
+        contextWindowTokens: Math.round(Number(a.contextWindowTokens ?? DEFAULT_CONTEXT_WINDOW_TOKENS)),
         customMaxOutputTokensEnabled: !!a.customMaxOutputTokensEnabled,
         maxOutputTokens: toFiniteMaxOutputTokens(a.maxOutputTokens),
       })),
