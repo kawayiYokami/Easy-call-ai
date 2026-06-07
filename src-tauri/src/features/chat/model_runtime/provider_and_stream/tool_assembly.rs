@@ -23,6 +23,34 @@ fn tool_schema_definition_to_manifest_item(definition: &ProviderToolDefinition) 
     tool_manifest_item("schema_cache", &definition.name, true, true, None)
 }
 
+fn runtime_tool_names_for_log(tool_assembly: &RuntimeToolAssembly) -> Option<Value> {
+    let mut names = Vec::<String>::new();
+    for item in &tool_assembly.tool_manifest {
+        let Some(name) = item
+            .get("name")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+        else {
+            continue;
+        };
+        let enabled = item.get("enabled").and_then(Value::as_bool).unwrap_or(true);
+        let attached = item.get("attached").and_then(Value::as_bool).unwrap_or(true);
+        if enabled && attached && !names.iter().any(|existing| existing == name) {
+            names.push(name.to_string());
+        }
+    }
+    if names.is_empty() {
+        return None;
+    }
+    Some(Value::Array(
+        names
+            .into_iter()
+            .map(|name| serde_json::json!({ "name": name }))
+            .collect(),
+    ))
+}
+
 fn operate_provider_tool_definition() -> ProviderToolDefinition {
     ProviderToolDefinition::new(
         MCP_OPERATE_TOOL_NAME,

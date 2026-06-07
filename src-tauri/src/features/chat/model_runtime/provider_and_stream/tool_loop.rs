@@ -7,6 +7,7 @@ struct GenaiToolLoopRoundOutput {
     reasoning_delta_emitted: bool,
     turn_tool_calls: Vec<genai::chat::ToolCall>,
     trusted_input_tokens: Option<u64>,
+    usage: Option<Value>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -140,6 +141,7 @@ fn repeated_tool_call_block_reply(
         tool_history_events,
         suppress_assistant_message: false,
         trusted_input_tokens,
+        usage: None,
         round_logs_recorded_internally: true,
     }
 }
@@ -168,12 +170,19 @@ fn tool_loop_round_response_value(
     turn_text: &str,
     turn_reasoning: &str,
     turn_tool_calls: &[genai::chat::ToolCall],
+    usage: Option<&Value>,
 ) -> Value {
-    serde_json::json!({
+    let mut response = serde_json::json!({
         "assistantText": turn_text,
         "reasoningContent": turn_reasoning,
         "toolCalls": tool_loop_round_tool_calls_json(turn_tool_calls)
-    })
+    });
+    if let Some(usage) = usage {
+        if let Some(map) = response.as_object_mut() {
+            map.insert("usage".to_string(), usage.clone());
+        }
+    }
+    response
 }
 
 fn push_tool_loop_round_log(
@@ -201,7 +210,7 @@ fn push_tool_loop_round_log(
         model_name,
         &api_config.base_url,
         masked_auth_headers(&api_config.api_key),
-        Some(Value::Array(tool_assembly.tool_manifest.clone())),
+        runtime_tool_names_for_log(tool_assembly),
         Some(response),
         None,
         elapsed_ms,
@@ -319,6 +328,7 @@ fn tool_loop_guided_close_reply(
         tool_history_events,
         suppress_assistant_message: false,
         trusted_input_tokens,
+        usage: None,
         round_logs_recorded_internally: true,
     }
 }
@@ -361,6 +371,7 @@ fn finalize_deferred_tool_loop_outcome(
             tool_history_events: tool_history_without_organize_context(tool_history_events),
             suppress_assistant_message: true,
             trusted_input_tokens: None,
+            usage: None,
             round_logs_recorded_internally: true,
         },
         DeferredToolLoopOutcome::TaskComplete(final_text) => ModelReply {
@@ -371,6 +382,7 @@ fn finalize_deferred_tool_loop_outcome(
             tool_history_events,
             suppress_assistant_message: false,
             trusted_input_tokens,
+            usage: None,
             round_logs_recorded_internally: true,
         },
         DeferredToolLoopOutcome::PlanPresent(plan_result) => {
@@ -382,6 +394,7 @@ fn finalize_deferred_tool_loop_outcome(
                 tool_history_events,
                 suppress_assistant_message: false,
                 trusted_input_tokens,
+                usage: None,
                 round_logs_recorded_internally: true,
             }
         }
@@ -1676,6 +1689,7 @@ async fn run_genai_tool_loop(
     let mut pending_tool_group_result_persists =
         Vec::<tauri::async_runtime::JoinHandle<Result<(), String>>>::new();
     let mut trusted_input_tokens: Option<u64> = None;
+    let mut latest_usage = None::<Value>;
     let (system_prompt, mut messages) = build_genai_message_state(&prepared)?;
 
     let mut auto_compaction_applied = false;
@@ -1713,6 +1727,7 @@ async fn run_genai_tool_loop(
             let mut reasoning_delta_emitted = false;
             let mut turn_tool_calls = Vec::<genai::chat::ToolCall>::new();
             let mut round_trusted_input_tokens = None;
+            let mut round_usage = None;
 
             let mut stream = {
                 let mut request = genai::chat::ChatRequest::from_messages(
@@ -1763,6 +1778,7 @@ async fn run_genai_tool_loop(
                             .and_then(|usage| usage.prompt_tokens)
                             .and_then(|value| u64::try_from(value).ok())
                             .filter(|value| *value > 0);
+                        round_usage = end.captured_usage.as_ref().and_then(genai_usage_to_log_value);
                         if turn_text.is_empty() {
                             if let Some(captured_texts) = end
                                 .captured_content
@@ -1813,6 +1829,7 @@ async fn run_genai_tool_loop(
                 reasoning_delta_emitted,
                 turn_tool_calls,
                 trusted_input_tokens: round_trusted_input_tokens,
+                usage: round_usage,
             })
         }
         .await?;
@@ -1822,12 +1839,16 @@ async fn run_genai_tool_loop(
             reasoning_delta_emitted,
             turn_tool_calls,
             trusted_input_tokens: round_trusted_input_tokens,
+            usage: round_usage,
         } = round_output;
         let round_elapsed_ms = round_started_at
             .elapsed()
             .as_millis()
             .min(u128::from(u64::MAX)) as u64;
         trusted_input_tokens = round_trusted_input_tokens;
+        if let Some(usage) = round_usage.as_ref() {
+            latest_usage = Some(usage.clone());
+        }
         push_tool_loop_round_log(
             tool_abort_state,
             chat_session_key,
@@ -1835,7 +1856,7 @@ async fn run_genai_tool_loop(
             &api_config,
             model_name,
             &tool_assembly,
-            tool_loop_round_response_value(&turn_text, &turn_reasoning, &turn_tool_calls),
+            tool_loop_round_response_value(&turn_text, &turn_reasoning, &turn_tool_calls, round_usage.as_ref()),
             round_elapsed_ms,
         );
 
@@ -1868,6 +1889,7 @@ async fn run_genai_tool_loop(
                 tool_history_events,
                 suppress_assistant_message: false,
                 trusted_input_tokens,
+                usage: latest_usage,
                 round_logs_recorded_internally: true,
             });
         }
@@ -2162,6 +2184,7 @@ async fn run_genai_tool_loop(
                 tool_history_events,
                 suppress_assistant_message: false,
                 trusted_input_tokens,
+                usage: latest_usage,
                 round_logs_recorded_internally: true,
             });
         }
@@ -2183,6 +2206,7 @@ async fn run_genai_tool_loop(
         tool_history_events,
         suppress_assistant_message: false,
         trusted_input_tokens,
+        usage: latest_usage,
         round_logs_recorded_internally: true,
     })
 }
@@ -2208,6 +2232,7 @@ async fn execute_genai_non_stream_round(
         .prompt_tokens
         .and_then(|value| u64::try_from(value).ok())
         .filter(|value| *value > 0);
+    let usage = genai_usage_to_log_value(&response.usage);
 
     if !turn_reasoning.is_empty() {
         send_reasoning_delta_event(on_delta, &turn_reasoning);
@@ -2225,6 +2250,7 @@ async fn execute_genai_non_stream_round(
         turn_reasoning,
         turn_tool_calls,
         trusted_input_tokens,
+        usage,
     })
 }
 
@@ -2269,6 +2295,7 @@ async fn run_genai_tool_loop_non_stream(
     let mut pending_tool_group_result_persists =
         Vec::<tauri::async_runtime::JoinHandle<Result<(), String>>>::new();
     let mut trusted_input_tokens: Option<u64> = None;
+    let mut latest_usage = None::<Value>;
     let (system_prompt, mut messages) = build_genai_message_state(&prepared)?;
 
     let mut auto_compaction_applied = false;
@@ -2328,12 +2355,16 @@ async fn run_genai_tool_loop_non_stream(
         let reasoning_delta_emitted = round.reasoning_delta_emitted;
         let raw_turn_tool_calls = round.turn_tool_calls;
         let round_trusted_input_tokens = round.trusted_input_tokens;
+        let round_usage = round.usage;
         let round_elapsed_ms = round_started_at
             .elapsed()
             .as_millis()
             .min(u128::from(u64::MAX)) as u64;
         if let Some(value) = round_trusted_input_tokens {
             trusted_input_tokens = Some(value);
+        }
+        if let Some(usage) = round_usage.as_ref() {
+            latest_usage = Some(usage.clone());
         }
         push_tool_loop_round_log(
             tool_abort_state,
@@ -2342,7 +2373,7 @@ async fn run_genai_tool_loop_non_stream(
             &api_config,
             model_name,
             &tool_assembly,
-            tool_loop_round_response_value(&turn_text, &turn_reasoning, &raw_turn_tool_calls),
+            tool_loop_round_response_value(&turn_text, &turn_reasoning, &raw_turn_tool_calls, round_usage.as_ref()),
             round_elapsed_ms,
         );
         if let Some(context) = auto_compaction_context {
@@ -2376,6 +2407,7 @@ async fn run_genai_tool_loop_non_stream(
                 tool_history_events,
                 suppress_assistant_message: false,
                 trusted_input_tokens,
+                usage: latest_usage,
                 round_logs_recorded_internally: true,
             });
         }
@@ -2670,6 +2702,7 @@ async fn run_genai_tool_loop_non_stream(
                 tool_history_events,
                 suppress_assistant_message: false,
                 trusted_input_tokens,
+                usage: latest_usage,
                 round_logs_recorded_internally: true,
             });
         }
@@ -2691,6 +2724,7 @@ async fn run_genai_tool_loop_non_stream(
         tool_history_events,
         suppress_assistant_message: false,
         trusted_input_tokens,
+        usage: latest_usage,
         round_logs_recorded_internally: true,
     })
 }
@@ -3167,7 +3201,7 @@ mod tool_loop_tests {
 
     #[test]
     fn tool_loop_round_response_value_should_keep_reasoning_content() {
-        let response = tool_loop_round_response_value("准备调用工具", "先读取目标文件确认结构", &[]);
+        let response = tool_loop_round_response_value("准备调用工具", "先读取目标文件确认结构", &[], None);
 
         assert_eq!(response["assistantText"].as_str(), Some("准备调用工具"));
         assert_eq!(

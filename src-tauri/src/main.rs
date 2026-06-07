@@ -1060,6 +1060,7 @@ fn main() {
             get_image_text_cache_stats,
             clear_image_text_cache,
             list_recent_llm_round_logs,
+            get_recent_llm_round_log_section,
             clear_recent_llm_round_logs,
             list_recent_runtime_logs,
             list_runtime_logs_since,

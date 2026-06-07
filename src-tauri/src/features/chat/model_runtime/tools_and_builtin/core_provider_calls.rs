@@ -7,6 +7,7 @@ struct ModelReply {
     tool_history_events: Vec<Value>,
     suppress_assistant_message: bool,
     trusted_input_tokens: Option<u64>,
+    usage: Option<Value>,
     round_logs_recorded_internally: bool,
 }
 
@@ -15,6 +16,34 @@ struct ModelReply {
 enum OpenAiApiKind {
     ChatCompletions,
     Responses,
+}
+
+fn genai_usage_to_log_value(usage: &genai::chat::Usage) -> Option<Value> {
+    let prompt_details = usage.prompt_tokens_details.as_ref();
+    let completion_details = usage.completion_tokens_details.as_ref();
+    let cache_creation_details =
+        prompt_details.and_then(|details| details.cache_creation_details.as_ref());
+    if usage.prompt_tokens.is_none()
+        && usage.completion_tokens.is_none()
+        && usage.total_tokens.is_none()
+        && prompt_details.and_then(|details| details.cached_tokens).is_none()
+        && prompt_details.and_then(|details| details.cache_creation_tokens).is_none()
+        && cache_creation_details.and_then(|details| details.ephemeral_5m_tokens).is_none()
+        && cache_creation_details.and_then(|details| details.ephemeral_1h_tokens).is_none()
+        && completion_details.and_then(|details| details.reasoning_tokens).is_none()
+    {
+        return None;
+    }
+    Some(serde_json::json!({
+        "promptTokens": usage.prompt_tokens,
+        "completionTokens": usage.completion_tokens,
+        "totalTokens": usage.total_tokens,
+        "cachedTokens": prompt_details.and_then(|details| details.cached_tokens),
+        "cacheCreationTokens": prompt_details.and_then(|details| details.cache_creation_tokens),
+        "cacheCreation5mTokens": cache_creation_details.and_then(|details| details.ephemeral_5m_tokens),
+        "cacheCreation1hTokens": cache_creation_details.and_then(|details| details.ephemeral_1h_tokens),
+        "reasoningTokens": completion_details.and_then(|details| details.reasoning_tokens),
+    }))
 }
 
 fn normalize_openai_genai_base_url(raw: &str) -> String {
@@ -633,6 +662,7 @@ async fn call_model_openai_non_stream(
         .exec_chat(model_spec, request, Some(&options))
         .await
         .map_err(|err| format!("genai openai non-stream failed: {err}"))?;
+    let usage = genai_usage_to_log_value(&response.usage);
     let response_texts = response.content.into_texts();
     let assistant_text = join_model_text_blocks(response_texts.iter().map(String::as_str));
     let activity_reasoning_text = response.reasoning_content.unwrap_or_default();
@@ -649,6 +679,7 @@ async fn call_model_openai_non_stream(
         tool_history_events: Vec::new(),
         suppress_assistant_message: false,
         trusted_input_tokens,
+        usage,
         round_logs_recorded_internally: false,
     })
 }
@@ -722,6 +753,7 @@ async fn call_model_gemini(
         .exec_chat(model_spec, request, Some(&options))
         .await
         .map_err(|err| format!("genai gemini non-stream failed: {err}"))?;
+    let usage = genai_usage_to_log_value(&response.usage);
     let response_texts = response.content.into_texts();
     let assistant_text = join_model_text_blocks(response_texts.iter().map(String::as_str));
     Ok(ModelReply {
@@ -736,6 +768,7 @@ async fn call_model_gemini(
             .prompt_tokens
             .and_then(|value| u64::try_from(value).ok())
             .filter(|value| *value > 0),
+        usage,
         round_logs_recorded_internally: false,
     })
 }

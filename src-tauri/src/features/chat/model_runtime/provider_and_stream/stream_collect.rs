@@ -50,6 +50,7 @@ where
     let mut assistant_text = String::new();
     let mut activity_reasoning_text = String::new();
     let mut trusted_input_tokens: Option<u64> = None;
+    let mut usage = None;
     while let Some(chunk) = stream.next().await {
         match chunk {
             Ok(genai::chat::ChatStreamEvent::Start) => {}
@@ -129,6 +130,7 @@ where
                     .and_then(|usage| usage.prompt_tokens)
                     .and_then(|value| u64::try_from(value).ok())
                     .filter(|value| *value > 0);
+                usage = end.captured_usage.as_ref().and_then(genai_usage_to_log_value);
             }
             Err(err) => {
                 runtime_log_error(format!(
@@ -147,6 +149,7 @@ where
         tool_history_events: Vec::new(),
         suppress_assistant_message: false,
         trusted_input_tokens,
+        usage,
         round_logs_recorded_internally: false,
     })
 }

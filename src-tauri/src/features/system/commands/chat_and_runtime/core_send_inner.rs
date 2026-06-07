@@ -3997,6 +3997,7 @@ mod core_send_inner_tests {
             tool_history_events: Vec::new(),
             suppress_assistant_message: false,
             trusted_input_tokens: None,
+            usage: None,
             round_logs_recorded_internally: false,
         }
     }

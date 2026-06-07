@@ -607,12 +607,78 @@ fn prepared_prompt_to_messages_json(prepared: &PreparedPrompt) -> Vec<Value> {
     messages
 }
 
+fn log_text_len(text: &str) -> usize {
+    text.chars().count()
+}
+
+fn push_unique_log_name(names: &mut Vec<String>, raw: &str) {
+    let name = raw.trim();
+    if !name.is_empty() && !names.iter().any(|existing| existing == name) {
+        names.push(name.to_string());
+    }
+}
+
+fn log_tool_call_name(call: &Value) -> Option<&str> {
+    call.get("function")
+        .and_then(|function| function.get("name"))
+        .and_then(Value::as_str)
+        .or_else(|| call.get("function_name").and_then(Value::as_str))
+        .or_else(|| call.get("name").and_then(Value::as_str))
+}
+
+fn log_tool_call_names_value(names: Vec<String>) -> Value {
+    Value::Array(names.into_iter().map(Value::String).collect())
+}
+
+fn tool_calls_summary_from_value(value: Option<&Value>) -> (usize, Vec<String>) {
+    let Some(calls) = value.and_then(Value::as_array) else {
+        return (0, Vec::new());
+    };
+    let mut names = Vec::<String>::new();
+    for call in calls {
+        if let Some(name) = log_tool_call_name(call) {
+            push_unique_log_name(&mut names, name);
+        }
+    }
+    (calls.len(), names)
+}
+
+fn tool_history_summary_from_events(events: &[Value]) -> (usize, Vec<String>) {
+    let mut count = 0usize;
+    let mut names = Vec::<String>::new();
+    for event in events {
+        let Some(calls) = event.get("tool_calls").and_then(Value::as_array) else {
+            continue;
+        };
+        count = count.saturating_add(calls.len());
+        for call in calls {
+            if let Some(name) = log_tool_call_name(call) {
+                push_unique_log_name(&mut names, name);
+            }
+        }
+    }
+    (count, names)
+}
+
+fn tool_history_summary_from_value(value: Option<&Value>) -> (usize, Vec<String>) {
+    let Some(events) = value.and_then(Value::as_array) else {
+        return (0, Vec::new());
+    };
+    tool_history_summary_from_events(events)
+}
+
 fn model_reply_to_log_value(reply: &ModelReply) -> Value {
-    serde_json::json!({
+    let mut value = serde_json::json!({
         "assistantText": reply.assistant_text,
         "activityReasoningText": reply.activity_reasoning_text,
         "toolHistoryEvents": reply.tool_history_events
-    })
+    });
+    if let Some(usage) = reply.usage.as_ref() {
+        if let Some(map) = value.as_object_mut() {
+            map.insert("usage".to_string(), usage.clone());
+        }
+    }
+    value
 }
 
 fn build_llm_round_log_entry(
@@ -686,6 +752,13 @@ fn log_entry_tool_call_count(entry: &LlmRoundLogEntry) -> usize {
     let Some(response) = entry.response.as_ref() else {
         return 0;
     };
+    if let Some(count) = response
+        .get("toolCallCount")
+        .and_then(Value::as_u64)
+        .and_then(|value| usize::try_from(value).ok())
+    {
+        return count;
+    }
     if let Some(tool_calls) = response.get("toolCalls").and_then(Value::as_array) {
         return tool_calls.len();
     }
@@ -700,6 +773,176 @@ fn log_entry_tool_call_count(entry: &LlmRoundLogEntry) -> usize {
         .filter_map(|event| event.get("tool_calls").and_then(Value::as_array))
         .map(|calls| calls.len())
         .sum()
+}
+
+fn compact_log_tools_value(tools: &Value) -> Option<Value> {
+    let items = tools.as_array()?;
+    let mut names = Vec::<String>::new();
+    for item in items {
+        if let Some(name) = item
+            .as_str()
+            .or_else(|| item.get("name").and_then(Value::as_str))
+        {
+            push_unique_log_name(&mut names, name);
+        }
+    }
+    if names.is_empty() {
+        None
+    } else {
+        Some(Value::Array(
+            names
+                .into_iter()
+                .map(|name| serde_json::json!({ "name": name }))
+                .collect(),
+        ))
+    }
+}
+
+fn compact_log_response_value(response: &Value) -> Value {
+    let Some(source) = response.as_object() else {
+        return response.clone();
+    };
+    let mut compact = serde_json::Map::<String, Value>::new();
+    for key in [
+        "conversationId",
+        "assistantTextLength",
+        "activityReasoningTextLength",
+        "reasoningContentLength",
+        "reasoningTextLength",
+        "toolCallCount",
+        "toolCallNames",
+        "usage",
+        "roundUsage",
+    ] {
+        if let Some(value) = source.get(key) {
+            compact.insert(key.to_string(), value.clone());
+        }
+    }
+    if !compact.contains_key("assistantTextLength") {
+        if let Some(text) = source.get("assistantText").and_then(Value::as_str) {
+            compact.insert(
+                "assistantTextLength".to_string(),
+                serde_json::json!(log_text_len(text)),
+            );
+        }
+    }
+    if !compact.contains_key("reasoningContentLength")
+        && !compact.contains_key("activityReasoningTextLength")
+    {
+        if let Some(text) = source
+            .get("reasoningContent")
+            .or_else(|| source.get("activityReasoningText"))
+            .and_then(Value::as_str)
+        {
+            compact.insert(
+                "reasoningContentLength".to_string(),
+                serde_json::json!(log_text_len(text)),
+            );
+        }
+    }
+    if !compact.contains_key("toolCallCount") || !compact.contains_key("toolCallNames") {
+        let (direct_count, direct_names) = tool_calls_summary_from_value(source.get("toolCalls"));
+        let (history_count, history_names) =
+            tool_history_summary_from_value(source.get("toolHistoryEvents"));
+        let count = direct_count.saturating_add(history_count);
+        let mut names = direct_names;
+        for name in history_names {
+            push_unique_log_name(&mut names, &name);
+        }
+        if !compact.contains_key("toolCallCount") {
+            compact.insert("toolCallCount".to_string(), serde_json::json!(count));
+        }
+        if !compact.contains_key("toolCallNames") {
+            compact.insert("toolCallNames".to_string(), log_tool_call_names_value(names));
+        }
+    }
+    Value::Object(compact)
+}
+
+fn compact_llm_round_log_entry_for_ui(entry: &LlmRoundLogEntry) -> LlmRoundLogEntry {
+    LlmRoundLogEntry {
+        id: entry.id.clone(),
+        created_at: entry.created_at.clone(),
+        trace_id: entry.trace_id.clone(),
+        scene: entry.scene.clone(),
+        request_format: entry.request_format.clone(),
+        provider: entry.provider.clone(),
+        model: entry.model.clone(),
+        base_url: entry.base_url.clone(),
+        headers: entry.headers.clone(),
+        tools: entry.tools.as_ref().and_then(compact_log_tools_value),
+        response: entry.response.as_ref().map(compact_log_response_value),
+        error: entry.error.clone(),
+        elapsed_ms: entry.elapsed_ms,
+        timeline: entry.timeline.clone(),
+        round_count: entry.round_count,
+        tool_call_count: entry.tool_call_count,
+        rounds: entry.rounds.as_ref().map(|rounds| {
+            rounds
+                .iter()
+                .map(compact_llm_round_log_entry_for_ui)
+                .collect()
+        }),
+        success: entry.success,
+    }
+}
+
+#[derive(Default)]
+struct LlmRoundUsageTotals {
+    prompt_tokens: i64,
+    completion_tokens: i64,
+    total_tokens: i64,
+    cached_tokens: i64,
+    cache_creation_tokens: i64,
+    cache_creation_5m_tokens: i64,
+    cache_creation_1h_tokens: i64,
+    reasoning_tokens: i64,
+    round_count: usize,
+}
+
+fn usage_value_i64(usage: &Value, key: &str) -> i64 {
+    usage
+        .get(key)
+        .and_then(Value::as_i64)
+        .filter(|value| *value > 0)
+        .unwrap_or(0)
+}
+
+fn aggregate_round_usage(rounds: &[LlmRoundLogEntry]) -> Option<Value> {
+    let mut totals = LlmRoundUsageTotals::default();
+    for round in rounds {
+        let Some(usage) = round.response.as_ref().and_then(|response| response.get("usage")) else {
+            continue;
+        };
+        totals.round_count += 1;
+        totals.prompt_tokens += usage_value_i64(usage, "promptTokens");
+        totals.completion_tokens += usage_value_i64(usage, "completionTokens");
+        totals.total_tokens += usage_value_i64(usage, "totalTokens");
+        totals.cached_tokens += usage_value_i64(usage, "cachedTokens");
+        totals.cache_creation_tokens += usage_value_i64(usage, "cacheCreationTokens");
+        totals.cache_creation_5m_tokens += usage_value_i64(usage, "cacheCreation5mTokens");
+        totals.cache_creation_1h_tokens += usage_value_i64(usage, "cacheCreation1hTokens");
+        totals.reasoning_tokens += usage_value_i64(usage, "reasoningTokens");
+    }
+    if totals.round_count == 0 {
+        return None;
+    }
+    let total_tokens = if totals.total_tokens > 0 {
+        totals.total_tokens
+    } else {
+        totals.prompt_tokens + totals.completion_tokens
+    };
+    Some(serde_json::json!({
+        "roundCount": totals.round_count,
+        "promptTokens": totals.prompt_tokens,
+        "completionTokens": totals.completion_tokens,
+        "totalTokens": total_tokens,
+        "cachedTokens": totals.cached_tokens,
+        "cacheCreationTokens": totals.cache_creation_tokens,
+        "cacheCreation5mTokens": totals.cache_creation_5m_tokens,
+        "cacheCreation1hTokens": totals.cache_creation_1h_tokens,
+        "reasoningTokens": totals.reasoning_tokens,
+    }))
 }
 
 fn normalize_llm_round_log_capacity(value: u32) -> usize {
@@ -801,6 +1044,18 @@ fn push_llm_round_log(
         let mut pipeline_entry = entry;
         pipeline_entry.round_count = Some(round_count);
         pipeline_entry.tool_call_count = Some(tool_call_count);
+        if let Some(round_usage) = aggregate_round_usage(&rounds) {
+            let mut response = pipeline_entry
+                .response
+                .take()
+                .unwrap_or_else(|| serde_json::json!({}));
+            if let Some(map) = response.as_object_mut() {
+                map.insert("roundUsage".to_string(), round_usage);
+            } else {
+                response = serde_json::json!({ "roundUsage": round_usage });
+            }
+            pipeline_entry.response = Some(response);
+        }
         if !rounds.is_empty() {
             pipeline_entry.rounds = Some(rounds);
         }
@@ -839,7 +1094,10 @@ fn latest_chat_round_headers_and_tools(
                         && entry.model == model_name
                         && entry.base_url == base_url
                 }) {
-                    return (entry.headers.clone(), entry.tools.clone());
+                    return (
+                        entry.headers.clone(),
+                        entry.tools.as_ref().and_then(compact_log_tools_value),
+                    );
                 }
             }
         }
@@ -856,7 +1114,10 @@ fn latest_chat_round_headers_and_tools(
     }) else {
         return (Vec::new(), None);
     };
-    (entry.headers.clone(), entry.tools.clone())
+    (
+        entry.headers.clone(),
+        entry.tools.as_ref().and_then(compact_log_tools_value),
+    )
 }
 
 #[tauri::command]
@@ -869,8 +1130,129 @@ fn list_recent_llm_round_logs(state: State<'_, AppState>) -> Result<Vec<LlmRound
     Ok(logs
         .iter()
         .skip(logs.len().saturating_sub(capacity))
-        .cloned()
+        .map(compact_llm_round_log_entry_for_ui)
         .collect::<Vec<_>>())
+}
+
+fn find_llm_round_log_entry_by_id<'a>(
+    entry: &'a LlmRoundLogEntry,
+    id: &str,
+) -> Option<&'a LlmRoundLogEntry> {
+    if entry.id == id {
+        return Some(entry);
+    }
+    entry.rounds.as_ref().and_then(|rounds| {
+        rounds
+            .iter()
+            .find_map(|round| find_llm_round_log_entry_by_id(round, id))
+    })
+}
+
+fn log_response_text_field(response: Option<&Value>, keys: &[&str]) -> String {
+    let Some(response) = response else {
+        return String::new();
+    };
+    keys.iter()
+        .find_map(|key| response.get(*key).and_then(Value::as_str))
+        .unwrap_or_default()
+        .to_string()
+}
+
+fn log_response_usage_section(response: Option<&Value>) -> Option<Value> {
+    let response = response?;
+    let mut usage = serde_json::Map::<String, Value>::new();
+    if let Some(value) = response.get("usage") {
+        usage.insert("usage".to_string(), value.clone());
+    }
+    if let Some(value) = response.get("roundUsage") {
+        usage.insert("roundUsage".to_string(), value.clone());
+    }
+    if usage.is_empty() {
+        None
+    } else {
+        Some(Value::Object(usage))
+    }
+}
+
+fn llm_round_log_section_value(entry: &LlmRoundLogEntry, section: &str) -> Option<Value> {
+    let response = entry.response.as_ref();
+    match section.trim() {
+        "answer" => {
+            let assistant_text = log_response_text_field(response, &["assistantText"]);
+            let reasoning_text =
+                log_response_text_field(response, &["reasoningContent", "activityReasoningText"]);
+            Some(serde_json::json!({
+                "assistantText": assistant_text,
+                "activityReasoningText": reasoning_text,
+                "assistantTextLength": response
+                    .and_then(|value| value.get("assistantTextLength"))
+                    .cloned()
+                    .unwrap_or_else(|| serde_json::json!(0)),
+                "reasoningTextLength": response
+                    .and_then(|value| {
+                        value.get("reasoningContentLength")
+                            .or_else(|| value.get("activityReasoningTextLength"))
+                            .or_else(|| value.get("reasoningTextLength"))
+                    })
+                    .cloned()
+                    .unwrap_or_else(|| serde_json::json!(0)),
+            }))
+        }
+        "usage" => log_response_usage_section(response),
+        "raw_response" => response.cloned(),
+        "tools" => {
+            let mut tools = serde_json::Map::<String, Value>::new();
+            if let Some(value) = entry.tools.as_ref() {
+                if let Some(compact) = compact_log_tools_value(value) {
+                    tools.insert("availableTools".to_string(), compact);
+                }
+            }
+            if let Some(value) = response.and_then(|value| value.get("toolCallNames")) {
+                tools.insert("toolCallNames".to_string(), value.clone());
+            } else if let Some(response) = response {
+                let (direct_count, direct_names) =
+                    tool_calls_summary_from_value(response.get("toolCalls"));
+                let (history_count, history_names) =
+                    tool_history_summary_from_value(response.get("toolHistoryEvents"));
+                let mut names = direct_names;
+                for name in history_names {
+                    push_unique_log_name(&mut names, &name);
+                }
+                let count = direct_count.saturating_add(history_count);
+                tools.insert("toolCallNames".to_string(), log_tool_call_names_value(names));
+                tools.insert("toolCallCount".to_string(), serde_json::json!(count));
+            }
+            if tools.is_empty() {
+                None
+            } else {
+                Some(Value::Object(tools))
+            }
+        }
+        _ => None,
+    }
+}
+
+#[tauri::command]
+fn get_recent_llm_round_log_section(
+    state: State<'_, AppState>,
+    id: String,
+    section: String,
+) -> Result<Option<Value>, String> {
+    let id = id.trim().to_string();
+    if id.is_empty() {
+        return Ok(None);
+    }
+    let logs = state
+        .llm_round_logs
+        .lock()
+        .map_err(|_| "Failed to lock llm round logs".to_string())?;
+    Ok(logs
+        .iter()
+        .rev()
+        .find_map(|entry| {
+            find_llm_round_log_entry_by_id(entry, &id)
+                .and_then(|entry| llm_round_log_section_value(entry, &section))
+        }))
 }
 
 #[tauri::command]

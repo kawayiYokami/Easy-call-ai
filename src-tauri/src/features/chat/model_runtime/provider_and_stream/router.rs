@@ -220,7 +220,7 @@ async fn prepare_openai_style_tool_assembly(
         prepared,
         &tool_assembly.unavailable_tool_notices,
     );
-    *tool_manifest_for_log = Some(Value::Array(tool_assembly.tool_manifest.clone()));
+    *tool_manifest_for_log = runtime_tool_names_for_log(&tool_assembly);
     Ok(Some(tool_assembly))
 }
 
@@ -397,7 +397,7 @@ async fn call_model_openai_style(
             if tool_assembly.tools.is_empty() {
                 call_model_gemini(api_config, model_name, prepared, app_state).await
             } else {
-                tool_manifest_for_log = Some(Value::Array(tool_assembly.tool_manifest.clone()));
+                tool_manifest_for_log = runtime_tool_names_for_log(&tool_assembly);
                 call_model_gemini_with_tools(
                     api_config,
                     selected_api,
@@ -429,7 +429,7 @@ async fn call_model_openai_style(
             if tool_assembly.tools.is_empty() {
                 call_model_anthropic(api_config, model_name, prepared, app_state).await
             } else {
-                tool_manifest_for_log = Some(Value::Array(tool_assembly.tool_manifest.clone()));
+                tool_manifest_for_log = runtime_tool_names_for_log(&tool_assembly);
                 call_model_anthropic_with_tools(
                     api_config,
                     selected_api,
