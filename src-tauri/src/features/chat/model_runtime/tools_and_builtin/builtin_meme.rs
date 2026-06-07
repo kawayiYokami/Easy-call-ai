@@ -834,6 +834,7 @@ fn provider_meta_meme_segments(meta: Option<&Value>) -> Option<Vec<PersistedMeme
     serde_json::from_value::<Vec<PersistedMemeSegment>>(raw).ok()
 }
 
+#[cfg(test)]
 fn persist_meme_segments_into_provider_meta(
     provider_meta: &mut Option<Value>,
     segments: Option<&[PersistedMemeSegment]>,

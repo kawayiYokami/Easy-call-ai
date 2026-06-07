@@ -33,48 +33,44 @@
             @keydown.enter.prevent="handleSave"
           />
         </label>
+
+        <div v-if="recentHistory.length" class="min-w-0">
+          <div class="mb-2 text-xs font-medium uppercase tracking-[0.08em] text-base-content/50">
+            {{ t("chat.supervision.recentTitle") }}
+          </div>
+          <div class="flex flex-wrap gap-2">
+            <button
+              v-for="(entry, index) in recentHistory"
+              :key="`${entry.goal}-${entry.todo}-${index}`"
+              type="button"
+              class="min-w-0 max-w-full rounded-box border border-base-300 bg-base-200/70 px-3 py-2 text-left transition hover:border-primary/40 hover:bg-base-200"
+              :disabled="saving"
+              @click="applyRecentHistory(entry)"
+            >
+              <div class="truncate text-sm font-medium text-base-content">
+                {{ entry.goal }}
+              </div>
+            </button>
+          </div>
+        </div>
       </div>
 
       <div class="border-t border-base-300/70 bg-base-100 px-5 py-4">
-        <div class="space-y-4">
-          <div v-if="recentHistory.length" class="min-w-0">
-            <div class="mb-2 text-xs font-medium uppercase tracking-[0.08em] text-base-content/50">
-              {{ t("chat.supervision.recentTitle") }}
-            </div>
-            <div class="flex flex-wrap gap-2">
-              <button
-                v-for="(entry, index) in recentHistory"
-                :key="`${entry.goal}-${entry.todo}-${index}`"
-                type="button"
-                class="min-w-0 max-w-full rounded-box border border-base-300 bg-base-200/70 px-3 py-2 text-left transition hover:border-primary/40 hover:bg-base-200"
-                :disabled="saving"
-                @click="applyRecentHistory(entry)"
-              >
-                <div class="truncate text-sm font-medium text-base-content">
-                  {{ entry.goal }}
-                </div>
-              </button>
-            </div>
-          </div>
-          <div class="flex items-center justify-between gap-3">
-            <button
-              v-if="activeTask"
-              class="btn btn-error btn-outline"
-              :disabled="saving"
-              @click="emit('stop')"
-            >
-              {{ t("chat.supervision.stopAction") }}
-            </button>
-            <span v-else></span>
-            <div class="flex shrink-0 items-center justify-end gap-2">
-              <button class="btn btn-ghost" :disabled="saving" @click="emit('close')">
-                {{ t("common.cancel") }}
-              </button>
-              <button class="btn btn-primary" :disabled="saving || !canSubmit" @click="handleSave">
-                {{ saving ? t("common.loading") : (activeTask ? t("chat.supervision.updateAction") : t("chat.supervision.createAction")) }}
-              </button>
-            </div>
-          </div>
+        <div class="flex items-center justify-end gap-2">
+          <button
+            v-if="activeTask"
+            class="btn btn-error"
+            :disabled="saving"
+            @click="emit('stop')"
+          >
+            {{ t("chat.supervision.stopAction") }}
+          </button>
+          <button class="btn btn-neutral" :disabled="saving" @click="emit('close')">
+            {{ t("common.cancel") }}
+          </button>
+          <button class="btn btn-primary" :disabled="saving || !canSubmit" @click="handleSave">
+            {{ saving ? t("common.loading") : (activeTask ? t("chat.supervision.updateAction") : t("chat.supervision.createAction")) }}
+          </button>
         </div>
       </div>
     </div>

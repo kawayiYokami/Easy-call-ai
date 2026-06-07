@@ -3242,9 +3242,6 @@ async fn send_chat_message_inner(
         &assistant_text,
         &activity_reasoning_text,
     );
-    let folded_assistant =
-        fold_request_messages_to_assistant_content(&assistant_request_messages);
-    let assistant_text_for_storage = folded_assistant.assistant_text.clone();
     let remote_im_conversation_kind = if is_remote_im_contact_conversation {
         "remote_im_contact"
     } else {
@@ -3318,18 +3315,6 @@ async fn send_chat_message_inner(
         provider_meta = Some(merged);
     }
     let assistant_message_id = Uuid::new_v4().to_string();
-    let persisted_inline_segments =
-        resolve_text_to_persisted_inline_segments(&state, &assistant_text_for_storage, &assistant_message_id)?;
-    persist_inline_segments_into_provider_meta(
-        &mut provider_meta,
-        persisted_inline_segments.as_deref(),
-    );
-    if let Some(meme_segments) = persisted_inline_segments.as_ref().and_then(|s| inline_segments_to_meme_segments(s)) {
-        persist_meme_segments_into_provider_meta(
-            &mut provider_meta,
-            Some(&meme_segments),
-        );
-    }
     log_run_stage("model_reply_ready");
 
     let mut persisted_assistant_message: Option<ChatMessage> = None;
