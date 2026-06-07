@@ -110,7 +110,7 @@
           <input
             v-model.trim="chatHistoryQuery"
             class="input input-bordered input-sm"
-            placeholder="{{ t('config.memory.chatHistorySearchPlaceholder') }}"
+            :placeholder="t('config.memory.chatHistorySearchPlaceholder')"
             :disabled="chatHistoryLoading"
             @keyup.enter="searchChatHistory"
           />

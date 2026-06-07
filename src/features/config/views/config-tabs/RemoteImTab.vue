@@ -168,7 +168,7 @@
                     <span
                       v-if="contactKeywordModeMissingKeywords(item)"
                       class="badge badge-sm badge-warning shrink-0 gap-1.5"
-                      title="{{ t('config.remoteIm.keywordMissingHint') }}"
+                      :title="t('config.remoteIm.keywordMissingHint')"
                     >
                       <AlertTriangle class="h-3.5 w-3.5" />
                       {{ t('config.remoteIm.keywordEmpty') }}

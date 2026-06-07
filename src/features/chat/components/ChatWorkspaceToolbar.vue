@@ -91,7 +91,7 @@
           tabindex="0"
           class="btn btn-ghost btn-sm btn-circle shrink-0 border border-base-300/70 bg-base-100/70 hover:border-base-300 hover:bg-base-200"
           :disabled="chatting || frozen || uniqueMentionEntries.length === 0"
-          title="{{ t('chat.toolbar.personaList') }}"
+          :title="t('chat.toolbar.personaList')"
         >
           <Users class="h-4 w-4" />
         </button>
