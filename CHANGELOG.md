@@ -10,6 +10,7 @@
 - 修复（chat）：完成态消息不再由后端把 assistant 原文解析并写入 `inlineSegments` / `memeSegments`，避免本地 Markdown 图片在流式态显示、落库替换后消失。
 - 修复（chat）：部门模型角色占位仅保留在部门配置层；新建/加载/切换会话和调度读取部门模型时立即解析为具体模型 ID，避免 `role:expert` 进入会话模型、工具 session 或调度上下文。
 - 优化（config）：前端切换模型和创建模型时默认上下文窗口优先设为 256K，并受已知模型最大上下文限制；最大上下文低于 200K 时不再强行拉到 256K，避免无意回到 128K。
+- 修复（i18n）：请求失败状态会展开结构化错误里的真实 `message/detail/error`，并补齐请求失败友好文案，避免界面直接显示 `status.requestFailed` 等 i18n key。
 
 ## 发布：v0.11.1
 

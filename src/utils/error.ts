@@ -1,15 +1,98 @@
-export function toErrorMessage(error: unknown): string {
-  if (error instanceof Error) return error.message || String(error);
-  if (typeof error === "string") return error;
-  if (error == null) return "unknown";
-  if (typeof error === "object" && "message" in error && typeof (error as { message?: unknown }).message === "string") {
-    return (error as { message: string }).message;
+const STRUCTURED_ERROR_KEYS = [
+  "message",
+  "detail",
+  "details",
+  "reason",
+  "error_description",
+  "errorMessage",
+  "description",
+  "error",
+  "cause",
+  "body",
+] as const;
+
+function cleanErrorText(value: unknown): string {
+  return String(value ?? "").trim();
+}
+
+function isGenericErrorText(value: string): boolean {
+  const text = cleanErrorText(value);
+  if (!text) return true;
+  const normalized = text.toLowerCase();
+  return (
+    normalized === "unknown"
+    || normalized === "error"
+    || normalized === "failed"
+    || normalized === "failure"
+    || normalized === "request_failed"
+    || normalized === "status.requestfailed"
+    || /^status\.[a-z0-9_.-]+$/i.test(text)
+  );
+}
+
+function tryParseStructuredErrorString(value: string, depth: number): string {
+  const text = cleanErrorText(value);
+  if (!text || depth > 4) return text;
+  const first = text[0];
+  if (first !== "{" && first !== "[") return text;
+  try {
+    const parsed = JSON.parse(text) as unknown;
+    const parsedText = toErrorMessageInner(parsed, depth + 1);
+    return cleanErrorText(parsedText) || text;
+  } catch {
+    return text;
   }
+}
+
+function stringifyUnknownError(error: unknown): string {
   try {
     return JSON.stringify(error);
   } catch {
     return String(error);
   }
+}
+
+function toErrorMessageInner(error: unknown, depth: number): string {
+  if (depth > 6) return stringifyUnknownError(error);
+  if (error instanceof Error) {
+    const message = cleanErrorText(error.message || String(error));
+    const cause = (error as Error & { cause?: unknown }).cause;
+    if (cause !== undefined) {
+      const causeText = toErrorMessageInner(cause, depth + 1);
+      if (causeText && (isGenericErrorText(message) || !message.includes(causeText))) {
+        return message && !isGenericErrorText(message) ? `${message}: ${causeText}` : causeText;
+      }
+    }
+    return message || "unknown";
+  }
+  if (typeof error === "string") return tryParseStructuredErrorString(error, depth);
+  if (error == null) return "unknown";
+  if (typeof error !== "object") return cleanErrorText(error);
+
+  if (Array.isArray(error)) {
+    const parts = error
+      .map((item) => toErrorMessageInner(item, depth + 1))
+      .map(cleanErrorText)
+      .filter((item) => !!item && !isGenericErrorText(item));
+    if (parts.length > 0) return parts.join("; ");
+    return stringifyUnknownError(error);
+  }
+
+  const record = error as Record<string, unknown>;
+  let fallback = "";
+  for (const key of STRUCTURED_ERROR_KEYS) {
+    if (!(key in record)) continue;
+    const text = cleanErrorText(toErrorMessageInner(record[key], depth + 1));
+    if (!text) continue;
+    if (!fallback) fallback = text;
+    if (!isGenericErrorText(text)) return text;
+  }
+  if (fallback) return fallback;
+  return stringifyUnknownError(error);
+}
+
+export function toErrorMessage(error: unknown): string {
+  return cleanErrorText(toErrorMessageInner(error, 0)) || "unknown";
 }
 
 function resolveKnownI18nErrorKey(errorMessage: string): string {
@@ -119,17 +202,34 @@ export function formatI18nError(
   key: string,
   error: unknown,
 ): string {
-  const err = toErrorMessage(error);
+  const translateWithFallback = (
+    i18nKey: string,
+    params: Record<string, unknown> | undefined,
+    fallback: string,
+  ): string => {
+    const text = cleanErrorText(translate(i18nKey, params));
+    return text && text !== i18nKey ? text : fallback;
+  };
+  const rawErr = toErrorMessage(error);
+  const err = isGenericErrorText(rawErr)
+    ? translateWithFallback("status.requestUnknownReason", undefined, "unknown")
+    : rawErr;
   const knownKey = resolveKnownI18nErrorKey(err);
   if (knownKey) {
-    const friendly = translate(knownKey);
+    const friendly = translateWithFallback(knownKey, undefined, "");
     if (err === "CHAT_ABORTED_BY_USER") {
-      return friendly;
+      return friendly || err;
     }
-    return translate("status.requestFriendlyWithRaw", {
-      reason: friendly,
-      err,
-    });
+    if (friendly) {
+      return translateWithFallback(
+        "status.requestFriendlyWithRaw",
+        {
+          reason: friendly,
+          err,
+        },
+        `${friendly}: ${err}`,
+      );
+    }
   }
-  return translate(key, { err });
+  return translateWithFallback(key, { err }, err);
 }
