@@ -1,7 +1,7 @@
 <template>
-  <div class="rounded-box border border-base-300 bg-base-100 px-3 py-3">
+  <div :class="delegateOnly ? 'px-0 py-0' : 'rounded-box border border-base-300 bg-base-100 px-3 py-3'">
     <div v-if="!delegateOnly || selectedMessageCount > 0" class="text-xs opacity-70">{{ t("chat.selection.selectedCount", { count: selectedMessageCount }) }}</div>
-    <div class="mt-3 flex flex-wrap items-center gap-2">
+    <div v-if="!delegateOnly" class="mt-3 flex flex-wrap items-center gap-2">
       <button v-if="!delegateOnly" type="button" class="btn btn-sm" :disabled="selectedMessageCount === 0" @click="emit('selectionActionBranch')">
         {{ t("chat.selection.branch") }}
       </button>
@@ -58,7 +58,10 @@
       </div>
     </div>
 
-    <div v-if="selectionDelegateCardOpen" class="mt-3 rounded-box border border-base-300 bg-base-200/50 px-3 py-3">
+    <div
+      v-if="selectionDelegateCardOpen"
+      :class="delegateOnly ? 'mt-2' : 'mt-3 rounded-box border border-base-300 bg-base-200/50 px-3 py-3'"
+    >
       <div class="flex items-center justify-between gap-3">
         <div>
           <div class="text-sm font-medium">{{ t("chat.selection.asyncDelegate") }}</div>
