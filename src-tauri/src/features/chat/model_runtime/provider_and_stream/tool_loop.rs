@@ -424,56 +424,6 @@ fn send_text_delta_event(
     });
 }
 
-fn send_context_usage_update_event(
-    on_delta: &tauri::ipc::Channel<AssistantDeltaEvent>,
-    conversation_id: &str,
-    usage: &PromptUsageResolution,
-    context_window_tokens: u32,
-    latest_tool_result_estimated_tokens: u64,
-    decision: &ArchiveDecision,
-    decision_source: &str,
-) {
-    let context_usage_ratio = if usage.usage_ratio.is_finite() {
-        usage.usage_ratio.max(0.0)
-    } else {
-        0.0
-    };
-    let context_usage_percent = context_usage_ratio
-        .mul_add(100.0, 0.0)
-        .round()
-        .clamp(0.0, 100.0) as u32;
-    let message = serde_json::json!({
-        "conversationId": conversation_id.trim(),
-        "contextUsagePercent": context_usage_percent,
-        "contextUsageRatio": context_usage_ratio,
-        "effectivePromptTokens": usage.effective_prompt_tokens,
-        "contextWindowTokens": context_window_tokens,
-        "estimatedPromptTokens": usage.estimated_prompt_tokens,
-        "latestToolResultEstimatedTokens": latest_tool_result_estimated_tokens,
-        "source": usage.source,
-        "decisionSource": decision_source,
-        "reason": decision.reason,
-        "eventReason": "tool_result_estimate_before_continue",
-        "shouldArchive": decision.should_archive,
-        "forced": decision.forced,
-    })
-    .to_string();
-    let _ = on_delta.send(AssistantDeltaEvent {
-        delta: String::new(),
-        kind: Some("context_usage_update".to_string()),
-        request_id: None,
-        activation_id: None,
-        phase_id: None,
-        reason: Some("tool_result_estimate_before_continue".to_string()),
-        tool_name: None,
-        tool_call_id: None,
-        tool_status: None,
-        tool_args: None,
-        message: Some(message),
-        stream_cache: None,
-    });
-}
-
 fn assistant_tool_group_history_event_value(
     turn_text: &str,
     tool_calls: &[genai::chat::ToolCall],
@@ -1418,15 +1368,6 @@ async fn maybe_apply_auto_compaction_before_tool_continue_genai(
         &usage,
         source.last_user_at.as_deref(),
         archive_pipeline_has_assistant_reply(&source),
-    );
-    send_context_usage_update_event(
-        on_delta,
-        &context.conversation_id,
-        &usage,
-        selected_api.context_window_tokens,
-        latest_tool_result_tokens,
-        &decision,
-        decision_source,
     );
     runtime_log_info(format!(
         "[聊天] 工具续调前上下文整理检查 conversation_id={} should_archive={} forced={} usage_ratio={:.4} source={} reason={} effective_prompt_tokens={} context_window_tokens={} estimated={} latest_tool_result_estimated_tokens={}",

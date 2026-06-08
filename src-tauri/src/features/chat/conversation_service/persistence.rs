@@ -85,6 +85,78 @@ fn build_foreground_snapshot_recent_messages(
     Ok((conversation.messages[start..].to_vec(), start > 0))
 }
 
+fn provider_usage_prompt_tokens(usage: &Value) -> u64 {
+    usage
+        .get("promptTokens")
+        .or_else(|| usage.get("prompt_tokens"))
+        .and_then(|value| {
+            value
+                .as_u64()
+                .or_else(|| value.as_i64().and_then(|item| u64::try_from(item).ok()))
+        })
+        .unwrap_or(0)
+}
+
+fn emit_provider_context_usage_update_from_conversation(
+    state: &AppState,
+    conversation: &Conversation,
+    usage: &Value,
+) {
+    let prompt_tokens = provider_usage_prompt_tokens(usage);
+    if prompt_tokens == 0 {
+        return;
+    }
+    let app_config = match state_read_config_cached(state) {
+        Ok(value) => value,
+        Err(err) => {
+            runtime_log_warn(format!(
+                "[聊天用量] 跳过，任务=推送真实上下文用量，conversation_id={}，error={}",
+                conversation.id, err
+            ));
+            return;
+        }
+    };
+    let Some(api_config) =
+        resolve_selected_api_config(&app_config, conversation.preferred_api_config_id.as_deref())
+    else {
+        return;
+    };
+    let context_window_tokens = api_config.context_window_tokens.max(1);
+    let context_usage_ratio = prompt_tokens as f64 / f64::from(context_window_tokens);
+    let context_usage_percent = context_usage_ratio
+        .mul_add(100.0, 0.0)
+        .round()
+        .clamp(0.0, 100.0) as u32;
+    let message = serde_json::json!({
+        "conversationId": conversation.id,
+        "providerPromptTokens": prompt_tokens,
+        "contextUsagePercent": context_usage_percent,
+        "contextUsageRatio": context_usage_ratio,
+        "contextWindowTokens": context_window_tokens,
+        "source": "provider_prompt_tokens",
+        "eventReason": "provider_request_usage",
+    })
+    .to_string();
+    emit_assistant_delta_app_event(
+        state,
+        &conversation.id,
+        &AssistantDeltaEvent {
+            delta: String::new(),
+            kind: Some("context_usage_update".to_string()),
+            request_id: None,
+            activation_id: None,
+            phase_id: None,
+            reason: Some("provider_request_usage".to_string()),
+            tool_name: None,
+            tool_call_id: None,
+            tool_status: None,
+            tool_args: None,
+            message: Some(message),
+            stream_cache: None,
+        },
+    );
+}
+
 impl ConversationService {
     fn persist_conversation(
         &self,
@@ -122,7 +194,7 @@ impl ConversationService {
             return Ok(false);
         }
         let _guard = lock_conversation_with_metrics(state, "add_conversation_cumulative_usage")?;
-        let (_, changed, _) = state_update_conversation_metadata_cached(
+        let (conversation, changed, _) = state_update_conversation_metadata_cached(
             state,
             normalized_conversation_id,
             |conversation| {
@@ -132,6 +204,9 @@ impl ConversationService {
                 ))
             },
         )?;
+        if changed {
+            emit_provider_context_usage_update_from_conversation(state, &conversation, usage);
+        }
         Ok(changed)
     }
 
