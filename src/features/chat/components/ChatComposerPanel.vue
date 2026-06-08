@@ -130,7 +130,10 @@
           class="fixed z-1200"
           :style="mentionPanelStyle"
         >
-          <div class="dropdown-content mt-2 w-max max-w-[min(80vw,20rem)] overflow-hidden rounded-box border border-base-300 bg-base-100 p-1 shadow-xl">
+          <div
+            ref="mentionPanelScrollRef"
+            class="dropdown-content mt-2 max-h-[min(56vh,24rem)] w-max max-w-[min(80vw,20rem)] overflow-y-auto overscroll-contain rounded-box border border-base-300 bg-base-100 p-1 shadow-xl"
+          >
             <ul class="flex flex-col gap-1">
               <li
                 v-for="(item, index) in filteredMentionOptions"
@@ -138,6 +141,7 @@
               >
                 <button
                   type="button"
+                  :data-mention-option-index="index"
                   class="flex min-h-0 w-full items-start gap-2 rounded-xl px-2 py-1.5 text-left text-base-content transition-colors"
                   :class="[
                     mentionFocusIndex === index ? 'bg-base-200' : '',
@@ -456,6 +460,7 @@ const mentionPanelOpen = ref(false);
 const mentionQuery = ref("");
 const mentionFocusIndex = ref(0);
 const mentionRange = ref<{ start: number; end: number } | null>(null);
+const mentionPanelScrollRef = ref<HTMLDivElement | null>(null);
 const mentionPanelStyle = ref<Record<string, string>>({
   left: "0px",
   top: "0px",
@@ -792,6 +797,16 @@ function moveMentionFocus(delta: number) {
   if (list.length === 0) return;
   const next = mentionFocusIndex.value + delta;
   mentionFocusIndex.value = Math.max(0, Math.min(list.length - 1, next));
+  scrollMentionFocusIntoView();
+}
+
+function scrollMentionFocusIntoView() {
+  nextTick(() => {
+    const container = mentionPanelScrollRef.value;
+    if (!container) return;
+    const active = container.querySelector<HTMLElement>(`[data-mention-option-index="${mentionFocusIndex.value}"]`);
+    active?.scrollIntoView({ block: "nearest" });
+  });
 }
 
 function updateMentionState() {
