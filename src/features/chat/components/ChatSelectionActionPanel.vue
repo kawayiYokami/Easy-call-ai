@@ -80,9 +80,26 @@
           {{ selectionDelegateDepartmentLabel(department) }}
         </option>
       </select>
-      <textarea v-model="selectionDelegateBackground" class="textarea textarea-bordered mt-3 min-h-16 w-full resize-y text-sm" :placeholder="t('chat.selection.backgroundPlaceholder')"></textarea>
-      <textarea v-model="selectionDelegateQuestion" class="textarea textarea-bordered mt-2 min-h-20 w-full resize-y text-sm" :placeholder="t('chat.selection.questionPlaceholder')"></textarea>
-      <textarea v-model="selectionDelegateFocus" class="textarea textarea-bordered mt-2 min-h-20 w-full resize-y text-sm" :placeholder="t('chat.selection.focusPlaceholder')"></textarea>
+      <label class="form-control mt-3">
+        <span class="label py-1">
+          <span class="label-text text-xs opacity-70">{{ t("chat.selection.delegateBodyLabel") }}</span>
+        </span>
+        <textarea v-model="selectionDelegateQuestion" class="textarea textarea-bordered min-h-24 w-full resize-y text-sm" :placeholder="t('chat.selection.questionPlaceholder')"></textarea>
+      </label>
+      <div class="mt-2 grid grid-cols-2 gap-2">
+        <label class="form-control min-w-0">
+          <span class="label py-1">
+            <span class="label-text text-xs opacity-70">{{ t("chat.selection.backgroundLabel") }}</span>
+          </span>
+          <textarea v-model="selectionDelegateBackground" class="textarea textarea-bordered min-h-20 w-full resize-y text-sm" :placeholder="t('chat.selection.backgroundPlaceholder')"></textarea>
+        </label>
+        <label class="form-control min-w-0">
+          <span class="label py-1">
+            <span class="label-text text-xs opacity-70">{{ t("chat.selection.focusLabel") }}</span>
+          </span>
+          <textarea v-model="selectionDelegateFocus" class="textarea textarea-bordered min-h-20 w-full resize-y text-sm" :placeholder="t('chat.selection.focusPlaceholder')"></textarea>
+        </label>
+      </div>
       <div class="mt-3 flex items-center justify-end gap-2">
         <button type="button" class="btn btn-sm" @click="cancelSelectionDelegate">{{ t("common.cancel") }}</button>
         <button type="button" class="btn btn-sm btn-primary" :disabled="!canSubmitSelectionDelegate" @click="confirmSelectionDelegate">
