@@ -1879,16 +1879,13 @@
     },
     "trim": {
       "title": "Process Current Conversation",
-      "loading": "Checking whether the current conversation should be compacted, archived, or dropped...",
+      "loading": "Checking whether the current conversation can be compacted or archived...",
       "compactTitle": "Compact",
-      "compactSummary": "Organize older history while keeping the current conversation active.",
-      "compactHint": "Best when context usage is high but you still want to continue the topic.",
-      "dropTitle": "Drop",
-      "dropSummary": "Delete the current conversation without summary or archive.",
-      "dropHint": "Best for tests, accidental triggers, or content you do not need to keep.",
+      "compactSummary": "Organize older history and keep chatting.",
+      "compactHint": "Use when context usage is high.",
       "archiveTitle": "Archive",
-      "archiveSummary": "Run memory reflection and keep the full conversation body without summary.",
-      "archiveHint": "Best when this conversation is finished and should become history.",
+      "archiveSummary": "Keep the conversation body and run memory reflection.",
+      "archiveHint": "Use when the conversation is finished.",
       "messageCount": "Current message count: {count}",
       "contextUsage": "Current context usage: {percent}%"
     }

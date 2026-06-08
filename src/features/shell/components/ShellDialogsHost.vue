@@ -14,7 +14,6 @@ type ArchiveImportPreview = {
 } | null;
 type TrimPreviewResult = {
   canArchive: boolean;
-  canDropConversation: boolean;
   messageCount: number;
   hasAssistantReply: boolean;
   archiveDisabledReason?: string | null;
@@ -68,7 +67,6 @@ const emit = defineEmits<{
   closeArchiveImportPreviewDialog: [];
   confirmArchiveImport: [];
   closeSkillPlaceholderDialog: [];
-  confirmDeleteConversationFromArchiveDialog: [];
   confirmTrimCompactionAction: [];
   confirmTrimAction: [];
   closeTrimActionDialog: [];
@@ -86,10 +84,6 @@ function handleCloseTrimActionDialog() {
 
 function handleConfirmTrimCompactionAction() {
   emit("confirmTrimCompactionAction");
-}
-
-function handleConfirmDeleteConversationFromArchiveDialog() {
-  emit("confirmDeleteConversationFromArchiveDialog");
 }
 </script>
 
@@ -247,11 +241,6 @@ function handleConfirmDeleteConversationFromArchiveDialog() {
           </div>
         </div>
         <div class="mt-3 rounded-box border border-base-300 bg-base-200/40 px-3 py-3 text-sm">
-          <div class="font-medium">{{ t("dialogs.trim.dropTitle") }}</div>
-          <div class="mt-1 opacity-80">{{ t("dialogs.trim.dropSummary") }}</div>
-          <div class="mt-2 text-xs opacity-70">{{ t("dialogs.trim.dropHint") }}</div>
-        </div>
-        <div class="mt-3 rounded-box border border-base-300 bg-base-200/40 px-3 py-3 text-sm">
           <div class="font-medium">{{ t("dialogs.trim.archiveTitle") }}</div>
           <div class="mt-1 opacity-80">{{ t("dialogs.trim.archiveSummary") }}</div>
           <div class="mt-2 text-xs opacity-70">{{ t("dialogs.trim.archiveHint") }}</div>
@@ -269,13 +258,6 @@ function handleConfirmDeleteConversationFromArchiveDialog() {
           <div>{{ t("dialogs.trim.contextUsage", { percent: trimCompactionPreview?.contextUsagePercent ?? 0 }) }}</div>
         </div>
         <div class="modal-action mt-0">
-        <button
-          class="btn btn-sm btn-error"
-          :disabled="trimPreviewLoading || !trimPreview?.canDropConversation || trimming"
-          @click="handleConfirmDeleteConversationFromArchiveDialog"
-        >
-          {{ t("dialogs.trim.dropTitle") }}
-        </button>
         <button
           class="btn btn-sm btn-primary"
           :disabled="trimPreviewLoading || !trimCompactionPreview?.canCompact || trimming"

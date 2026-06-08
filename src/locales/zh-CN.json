@@ -1879,16 +1879,13 @@
     },
     "trim": {
       "title": "处理当前会话",
-      "loading": "正在判断当前会话适合压缩、归档还是丢弃...",
+      "loading": "正在判断当前会话是否可压缩或归档...",
       "compactTitle": "压缩",
-      "compactSummary": "整理较早历史，保留当前会话继续聊。",
-      "compactHint": "适合上下文占用偏高，但你还想继续当前话题时使用。",
-      "dropTitle": "丢弃",
-      "dropSummary": "直接删除当前会话，不生成摘要，也不保留归档。",
-      "dropHint": "适合测试、误触发，或确认这段内容不需要留痕时使用。",
+      "compactSummary": "整理较早历史，继续当前会话。",
+      "compactHint": "上下文占用偏高时使用。",
       "archiveTitle": "归档",
-      "archiveSummary": "执行记忆反思并保留正文对话，不生成摘要。",
-      "archiveHint": "适合这段会话已经结束，准备沉淀为历史记录时使用。",
+      "archiveSummary": "保留正文对话，执行记忆反思。",
+      "archiveHint": "会话结束后沉淀为历史。",
       "messageCount": "当前会话消息数：{count}",
       "contextUsage": "当前上下文占用：{percent}%"
     }

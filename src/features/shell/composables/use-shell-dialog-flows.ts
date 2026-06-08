@@ -10,7 +10,6 @@ const t = i18n.global.t;
 export type TrimPreviewResult = {
   conversationId: string;
   canArchive: boolean;
-  canDropConversation: boolean;
   messageCount: number;
   hasAssistantReply: boolean;
   isEmpty: boolean;
@@ -46,7 +45,6 @@ type UseShellDialogFlowsOptions = {
   setStatusError: (key: string, error: unknown) => void;
   trimCompactNow: () => Promise<void>;
   trimNow: () => Promise<void>;
-  deleteUnarchivedConversationFromArchives: (conversationId: string) => Promise<void>;
 };
 
 export function useShellDialogFlows(options: UseShellDialogFlowsOptions) {
@@ -126,7 +124,6 @@ export function useShellDialogFlows(options: UseShellDialogFlowsOptions) {
     return {
       conversationId,
       canArchive: !archiveDisabledReason,
-      canDropConversation: !isMainConversation,
       messageCount,
       hasAssistantReply: assistantReplyPresent,
       isEmpty,
@@ -199,18 +196,6 @@ export function useShellDialogFlows(options: UseShellDialogFlowsOptions) {
     if (!trimPreview.value?.canArchive) return;
     closeTrimActionDialog();
     await options.trimNow();
-  }
-
-  async function confirmDeleteConversationFromArchiveDialog() {
-    const conversationId = String(options.currentChatConversationId.value || "").trim();
-    if (!conversationId) return;
-    if (currentUnarchivedConversationSummary()?.isMainConversation) {
-      closeTrimActionDialog();
-      options.setStatus(t('sidebar.deleteMainNotAllowed'));
-      return;
-    }
-    closeTrimActionDialog();
-    await options.deleteUnarchivedConversationFromArchives(conversationId);
   }
 
   function openSkillPlaceholderDialog() {
@@ -358,7 +343,6 @@ export function useShellDialogFlows(options: UseShellDialogFlowsOptions) {
     closeTrimActionDialog,
     confirmTrimCompactionAction,
     confirmTrimAction,
-    confirmDeleteConversationFromArchiveDialog,
     openSkillPlaceholderDialog,
     closeSkillPlaceholderDialog,
     requestRecallMode,

@@ -126,7 +126,6 @@ export function useChatServiceAssemblies(bindings: Record<string, any>) {
     setStatusError: bindings.setStatusError,
     trimCompactNow: chatRuntime.trimCompactNow,
     trimNow: chatRuntime.trimNow,
-    deleteUnarchivedConversationFromArchives: bindings.deleteUnarchivedConversationFromArchives,
   });
   const chatDialogActions = useChatDialogActions({
     activeChatApiConfigId: bindings.currentForegroundApiConfigId,

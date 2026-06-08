@@ -384,7 +384,6 @@
       @close-archive-import-preview-dialog="closeArchiveImportPreviewDialog"
       @confirm-archive-import="confirmArchiveImport"
       @close-skill-placeholder-dialog="closeSkillPlaceholderDialog"
-      @confirm-delete-conversation-from-archive-dialog="confirmDeleteConversationFromArchiveDialog"
       @confirm-trim-compaction-action="confirmTrimCompactionAction"
       @confirm-trim-action="handleConfirmTrimAction()"
       @close-trim-action-dialog="closeTrimActionDialog"

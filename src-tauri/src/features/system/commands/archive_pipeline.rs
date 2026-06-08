@@ -267,6 +267,7 @@ struct TrimCompactionPreviewResult {
 }
 
 const SHORT_CONVERSATION_DELETE_THRESHOLD: usize = 3;
+const ARCHIVE_REFLECTION_MIN_BODY_TOKENS: f64 = 1_000.0;
 
 fn build_archive_reporting_conversation(
     source: &Conversation,
@@ -294,6 +295,116 @@ fn build_archive_reporting_conversation(
         .cloned()
         .collect();
     std::borrow::Cow::Owned(reporting)
+}
+
+fn archive_message_body_text(message: &ChatMessage) -> String {
+    message
+        .parts
+        .iter()
+        .filter_map(|part| match part {
+            MessagePart::Text { text, .. } => Some(clean_text(text.trim())),
+            _ => None,
+        })
+        .filter(|text| !text.is_empty())
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+fn archive_message_memory_block(
+    message: &ChatMessage,
+    memories: &[MemoryEntry],
+    seen_memory_ids: &mut HashSet<String>,
+) -> Option<String> {
+    let inject_ids = prompt_retrieved_memory_ids_from_message(message)
+        .into_iter()
+        .filter(|memory_id| seen_memory_ids.insert(memory_id.clone()))
+        .collect::<Vec<_>>();
+    build_memory_board_xml_from_recall_ids(memories, &inject_ids)
+}
+
+fn archive_message_stored_memory_blocks(message: &ChatMessage) -> Vec<String> {
+    message
+        .extra_text_blocks
+        .iter()
+        .filter_map(|block| {
+            let trimmed = block.trim();
+            if !trimmed.contains("<memory_context>")
+                && !trimmed.contains("[MemoryBoard]")
+                && !trimmed.contains("<memory_board")
+            {
+                return None;
+            }
+            let sanitized = sanitize_memory_block_xml(trimmed);
+            let sanitized = sanitized.trim();
+            if sanitized.is_empty() {
+                None
+            } else {
+                Some(sanitized.to_string())
+            }
+        })
+        .collect()
+}
+
+fn build_archive_body_reporting_conversation(
+    source: &Conversation,
+    memories: &[MemoryEntry],
+) -> Conversation {
+    let mut seen_memory_ids = HashSet::<String>::new();
+    let mut reporting = source.clone();
+    reporting.messages = source
+        .messages
+        .iter()
+        .filter_map(|message| {
+            let role = message.role.trim().to_ascii_lowercase();
+            if role != "user" && role != "assistant" {
+                return None;
+            }
+            if archive_pipeline_is_context_compaction_message(message) {
+                return None;
+            }
+            let mut body_blocks = Vec::<String>::new();
+            let body_text = archive_message_body_text(message);
+            if !body_text.is_empty() {
+                body_blocks.push(body_text);
+            }
+            let stored_memory_blocks = archive_message_stored_memory_blocks(message);
+            let has_stored_memory_blocks = !stored_memory_blocks.is_empty();
+            body_blocks.extend(stored_memory_blocks);
+            if !has_stored_memory_blocks {
+                if let Some(memory_block) =
+                    archive_message_memory_block(message, memories, &mut seen_memory_ids)
+                {
+                    body_blocks.push(memory_block);
+                }
+            }
+            let body = body_blocks.join("\n\n");
+            if body.trim().is_empty() {
+                return None;
+            }
+            let mut next = message.clone();
+            next.role = role;
+            next.parts = vec![MessagePart::Text {
+                text: body,
+                reasoning_content: None,
+            }];
+            next.extra_text_blocks.clear();
+            next.provider_meta = None;
+            next.tool_call = None;
+            next.mcp_call = None;
+            Some(next)
+        })
+        .collect();
+    reporting
+}
+
+fn archive_body_token_count(source: &Conversation) -> f64 {
+    source
+        .messages
+        .iter()
+        .map(archive_message_body_text)
+        .filter(|text| !text.is_empty())
+        .map(|text| estimated_tokens_for_text(&text))
+        .sum()
 }
 
 fn resolve_archive_target_conversation(
@@ -2204,23 +2315,38 @@ async fn run_archive_pipeline_inner(
     );
 
     let reporting_source = build_archive_reporting_conversation(source);
-    let (summary_draft, archive_warning) = summarize_archive_summary_with_fallback(
-        state,
-        resolved_api,
-        selected_api,
-        &owner_agent,
-        &user_alias,
-        reporting_source.as_ref(),
-        &memories,
-    )
-    .await;
-    let deduped_recall = archive_pipeline_dedup_recall_table(&source.memory_recall_table);
-    let applied_report = apply_summary_context_result(
-        &state.data_path,
-        &owner_agent,
-        &deduped_recall,
-        &summary_draft,
-    )?;
+    let body_reporting_source =
+        build_archive_body_reporting_conversation(reporting_source.as_ref(), &memories);
+    let archive_body_tokens = archive_body_token_count(&body_reporting_source);
+    let (archive_warning, applied_report) =
+        if archive_body_tokens >= ARCHIVE_REFLECTION_MIN_BODY_TOKENS {
+            let (summary_draft, archive_warning) = summarize_archive_summary_with_fallback(
+                state,
+                resolved_api,
+                selected_api,
+                &owner_agent,
+                &user_alias,
+                &body_reporting_source,
+                &memories,
+            )
+            .await;
+            let deduped_recall = archive_pipeline_dedup_recall_table(&source.memory_recall_table);
+            let applied_report = apply_summary_context_result(
+                &state.data_path,
+                &owner_agent,
+                &deduped_recall,
+                &summary_draft,
+            )?;
+            (archive_warning, Some(applied_report))
+        } else {
+            runtime_log_info(format!(
+                "[SummaryContext] 跳过，场景=archive，conversation_id={}，原因=正文不足1000token，body_tokens={:.0}，threshold={:.0}",
+                source.id,
+                archive_body_tokens,
+                ARCHIVE_REFLECTION_MIN_BODY_TOKENS
+            ));
+            (None, None)
+        };
 
     let mut archived_conversation = state_read_conversation_cached(state, &source.id)
         .map_err(|_| "归档前会话已变化，请重试归档。".to_string())?;
@@ -2309,18 +2435,35 @@ async fn run_archive_pipeline_inner(
         archive_reason,
     );
 
-    eprintln!(
-        "[SummaryContext] 完成，场景=archive，trace_id={}，conversation_id={}，merged_memories={}，merged_groups={}，profile_applied={}，profile_skipped={}，useful_accept={}，penalized={}，natural_decay={}",
-        trace_id,
-        source.id,
-        applied_report.merged_memories,
-        applied_report.merged_groups,
-        applied_report.applied_profile_memories,
-        applied_report.skipped_profile_memories,
-        applied_report.memory_feedback.useful_accepted_count,
-        applied_report.memory_feedback.penalized_count,
-        applied_report.memory_feedback.natural_decay_count
-    );
+    if let Some(applied_report) = applied_report.as_ref() {
+        eprintln!(
+            "[SummaryContext] 完成，场景=archive，trace_id={}，conversation_id={}，merged_memories={}，merged_groups={}，profile_applied={}，profile_skipped={}，useful_accept={}，penalized={}，natural_decay={}",
+            trace_id,
+            source.id,
+            applied_report.merged_memories,
+            applied_report.merged_groups,
+            applied_report.applied_profile_memories,
+            applied_report.skipped_profile_memories,
+            applied_report.memory_feedback.useful_accepted_count,
+            applied_report.memory_feedback.penalized_count,
+            applied_report.memory_feedback.natural_decay_count
+        );
+    } else {
+        eprintln!(
+            "[SummaryContext] 跳过完成，场景=archive，trace_id={}，conversation_id={}，body_tokens={:.0}",
+            trace_id,
+            source.id,
+            archive_body_tokens
+        );
+    }
+    let merged_memories = applied_report
+        .as_ref()
+        .map(|report| report.merged_memories)
+        .unwrap_or(0);
+    let merge_groups = applied_report
+        .as_ref()
+        .map(|report| report.merged_groups);
+    let memory_feedback = applied_report.map(|report| report.memory_feedback);
 
     Ok(ForceArchiveResult {
         archived: true,
@@ -2328,12 +2471,12 @@ async fn run_archive_pipeline_inner(
         active_conversation_id: Some(active_conversation_id),
         compaction_message: None,
         summary: String::new(),
-        merged_memories: applied_report.merged_memories,
+        merged_memories,
         warning: archive_warning,
         reason_code: None,
         elapsed_ms: Some(started_at.elapsed().as_millis().min(u128::from(u64::MAX)) as u64),
-        memory_feedback: Some(applied_report.memory_feedback),
-        merge_groups: Some(applied_report.merged_groups),
+        memory_feedback,
+        merge_groups,
     })
 }
 
@@ -2355,6 +2498,20 @@ mod archive_pipeline_tests {
             provider_meta: None,
             tool_call: None,
             mcp_call: None,
+        }
+    }
+
+    fn test_memory_entry(id: &str, judgment: &str) -> MemoryEntry {
+        MemoryEntry {
+            id: id.to_string(),
+            memory_no: None,
+            memory_type: "knowledge".to_string(),
+            judgment: judgment.to_string(),
+            reasoning: "回归测试".to_string(),
+            tags: vec!["测试".to_string()],
+            owner_agent_id: None,
+            created_at: "2026-04-18T10:00:00Z".to_string(),
+            updated_at: "2026-04-18T10:00:00Z".to_string(),
         }
     }
 
@@ -2552,6 +2709,75 @@ mod archive_pipeline_tests {
             .map(|message| message.id.as_str())
             .collect::<Vec<_>>();
         assert_eq!(ids, vec!["m3", "m4"]);
+    }
+
+    #[test]
+    fn build_archive_body_reporting_conversation_should_keep_body_and_memory_only() {
+        let mut source = test_conversation();
+        let mut user = test_message("u1", "user", "用户正文");
+        user.extra_text_blocks = vec![
+            "附件提取文本不应进入归档正文".to_string(),
+            "<memory_context>\n<id:memory-a>\n用户偏好短回复\n> 回归测试\n</id:memory-a>\n</memory_context>".to_string(),
+        ];
+        user.provider_meta = Some(serde_json::json!({
+            "hiddenPromptText": "隐藏提示不应进入归档正文",
+            "retrieved_memory_ids": ["memory-a"],
+            "attachments": [{
+                "relativePath": "docs/large.pdf"
+            }]
+        }));
+        user.tool_call = Some(vec![serde_json::json!({
+            "role": "tool",
+            "content": "工具结果不应进入归档正文"
+        })]);
+        let mut assistant = test_message("a1", "assistant", "助手正文");
+        if let Some(MessagePart::Text {
+            reasoning_content, ..
+        }) = assistant.parts.first_mut()
+        {
+            *reasoning_content = Some("reasoning 不应进入归档正文".to_string());
+        }
+        source.messages = vec![user, assistant];
+        let memories = vec![test_memory_entry("memory-a", "用户偏好短回复")];
+
+        let reporting = build_archive_body_reporting_conversation(&source, &memories);
+        let rendered = reporting
+            .messages
+            .iter()
+            .map(archive_message_body_text)
+            .collect::<Vec<_>>()
+            .join("\n\n");
+
+        assert!(rendered.contains("用户正文"));
+        assert!(rendered.contains("助手正文"));
+        assert!(rendered.contains("<memory_context>"));
+        assert!(rendered.contains("用户偏好短回复"));
+        assert!(!rendered.contains("附件提取文本"));
+        assert!(!rendered.contains("隐藏提示"));
+        assert!(!rendered.contains("docs/large.pdf"));
+        assert!(!rendered.contains("工具结果"));
+        assert!(!rendered.contains("reasoning"));
+        assert!(reporting.messages.iter().all(|message| message.provider_meta.is_none()));
+        assert!(reporting.messages.iter().all(|message| message.tool_call.is_none()));
+    }
+
+    #[test]
+    fn archive_body_token_count_should_drive_reflection_threshold() {
+        let mut short_source = test_conversation();
+        short_source.messages = vec![
+            test_message("u1", "user", "短正文"),
+            test_message("a1", "assistant", "短回复"),
+        ];
+        let short_reporting = build_archive_body_reporting_conversation(&short_source, &[]);
+        assert!(archive_body_token_count(&short_reporting) < ARCHIVE_REFLECTION_MIN_BODY_TOKENS);
+
+        let mut long_source = test_conversation();
+        long_source.messages = vec![
+            test_message("u1", "user", &"很长的归档正文 ".repeat(50_000)),
+            test_message("a1", "assistant", "收到"),
+        ];
+        let long_reporting = build_archive_body_reporting_conversation(&long_source, &[]);
+        assert!(archive_body_token_count(&long_reporting) >= ARCHIVE_REFLECTION_MIN_BODY_TOKENS);
     }
 
     #[test]
