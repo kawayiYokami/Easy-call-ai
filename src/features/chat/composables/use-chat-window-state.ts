@@ -22,7 +22,7 @@ export function useChatWindowState(options: UseChatWindowStateOptions) {
   const DRAFT_ASSISTANT_ID_PREFIX = "__draft_assistant__:";
   const BACKGROUND_CONVERSATION_CACHE_LIMIT = 10;
   const FOREGROUND_SNAPSHOT_RECENT_LIMIT = 4;
-  const OLDER_HISTORY_PAGE_SIZE = 2;
+  const OLDER_HISTORY_PAGE_SIZE = 4;
   type BackgroundConversationBadgeState = "completed" | "failed";
 
   const viewMode = ref<"chat" | "archives" | "config">("config");
