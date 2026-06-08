@@ -964,6 +964,7 @@ fn main() {
             list_conversation_delegate_statuses,
             abort_delegate_conversation,
             get_delegate_conversation_messages,
+            get_delegate_conversation_block_page,
             delete_delegate_conversation,
             delete_unarchived_conversation,
             get_active_conversation_messages,

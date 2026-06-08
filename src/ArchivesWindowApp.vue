@@ -51,7 +51,11 @@
         :unarchived-has-next-block="unarchivedHasNextBlock"
         :unarchived-messages="unarchivedMessages"
         :delegate-conversations="delegateConversations"
+        :delegate-blocks="delegateBlocks"
         :selected-delegate-conversation-id="selectedDelegateConversationId"
+        :selected-delegate-block-id="selectedDelegateBlockId"
+        :delegate-has-prev-block="delegateHasPrevBlock"
+        :delegate-has-next-block="delegateHasNextBlock"
         :delegate-messages="delegateMessages"
         :remote-im-contact-conversations="remoteImContactConversations"
         :remote-im-contact-blocks="remoteImContactBlocks"
@@ -69,6 +73,7 @@
         @select-unarchived-conversation="selectUnarchivedConversation"
         @select-unarchived-block="selectUnarchivedConversationBlock"
         @select-delegate-conversation="selectDelegateConversation"
+        @select-delegate-block="selectDelegateConversationBlock"
         @select-remote-im-contact-conversation="selectRemoteImContactConversation"
         @select-remote-im-contact-block="selectRemoteImContactConversationBlock"
         @export-archive="exportArchive"
@@ -260,8 +265,12 @@ const {
   unarchivedHasPrevBlock,
   unarchivedHasNextBlock,
   delegateConversations,
+  delegateBlocks,
   delegateMessages,
   selectedDelegateConversationId,
+  selectedDelegateBlockId,
+  delegateHasPrevBlock,
+  delegateHasNextBlock,
   remoteImContactConversations,
   remoteImContactBlocks,
   remoteImContactMessages,
@@ -272,6 +281,7 @@ const {
   selectUnarchivedConversation,
   selectUnarchivedConversationBlock,
   selectDelegateConversation,
+  selectDelegateConversationBlock,
   selectRemoteImContactConversation,
   selectRemoteImContactConversationBlock,
   loadArchives,

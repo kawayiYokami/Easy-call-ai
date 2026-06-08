@@ -6299,6 +6299,7 @@
             assistant_provider_meta: None,
             tool_history_events: Vec::new(),
             suppress_assistant_message: false,
+            usage: None,
             trusted_input_tokens: None,
             round_logs_recorded_internally: false,
         };

@@ -38,10 +38,33 @@ pub(super) fn message_store_paths(
     }
     validate_message_store_conversation_id(conversation_id)?;
     let shard_dir = app_layout_chat_conversations_dir(data_path).join(conversation_id);
+    message_store_paths_for_shard_dir(
+        data_path,
+        conversation_id,
+        shard_dir,
+        app_layout_chat_conversation_path(data_path, conversation_id),
+    )
+}
+
+pub(super) fn message_store_paths_for_shard_dir(
+    data_path: &PathBuf,
+    conversation_id: &str,
+    shard_dir: PathBuf,
+    legacy_conversation_file: PathBuf,
+) -> Result<MessageStorePaths, String> {
+    if conversation_id.trim().is_empty() {
+        return Err("会话 ID 为空，无法构造消息存储路径".to_string());
+    }
+    if conversation_id != conversation_id.trim() {
+        return Err(format!(
+            "会话 ID 不能包含首尾空白，conversation_id={conversation_id}"
+        ));
+    }
+    validate_message_store_conversation_id(conversation_id)?;
     Ok(MessageStorePaths {
         data_path: data_path.clone(),
         conversation_id: conversation_id.to_string(),
-        legacy_conversation_file: app_layout_chat_conversation_path(data_path, conversation_id),
+        legacy_conversation_file,
         manifest_file: shard_dir.join(MESSAGE_STORE_MANIFEST_FILE_NAME),
         meta_file: shard_dir.join(MESSAGE_STORE_META_FILE_NAME),
         messages_file: shard_dir.join(MESSAGE_STORE_MESSAGES_FILE_NAME),

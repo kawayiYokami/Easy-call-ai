@@ -528,3 +528,9 @@ fn delegate_runtime_thread_conversation_delete_by_root(
 fn delegate_persisted_conversation_list(app_state: &AppState) -> Result<Vec<Conversation>, String> {
     delegate_conversation_store_list(&app_state.data_path)
 }
+
+fn delegate_persisted_conversation_summary_list(
+    app_state: &AppState,
+) -> Result<Vec<DelegatePersistedConversationSummary>, String> {
+    delegate_conversation_store_summary_list(&app_state.data_path)
+}

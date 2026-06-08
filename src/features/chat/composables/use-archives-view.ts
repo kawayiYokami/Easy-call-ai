@@ -101,8 +101,12 @@ export function useArchivesView(options: UseArchivesViewOptions) {
   const unarchivedHasPrevBlock = ref(false);
   const unarchivedHasNextBlock = ref(false);
   const delegateConversations = ref<DelegateConversationSummary[]>([]);
+  const delegateBlocks = ref<ConversationBlockSummary[]>([]);
   const delegateMessages = ref<ChatMessage[]>([]);
   const selectedDelegateConversationId = ref("");
+  const selectedDelegateBlockId = ref<number | null>(null);
+  const delegateHasPrevBlock = ref(false);
+  const delegateHasNextBlock = ref(false);
   const remoteImContactConversations = ref<RemoteImContactConversationSummary[]>([]);
   const remoteImContactBlocks = ref<ConversationBlockSummary[]>([]);
   const remoteImContactMessages = ref<ChatMessage[]>([]);
@@ -216,16 +220,58 @@ export function useArchivesView(options: UseArchivesViewOptions) {
 
   async function selectDelegateConversation(conversationId: string) {
     const previousId = selectedDelegateConversationId.value;
+    const previousBlocks = delegateBlocks.value;
+    const previousBlockId = selectedDelegateBlockId.value;
     const previousMessages = delegateMessages.value;
+    const previousHasPrev = delegateHasPrevBlock.value;
+    const previousHasNext = delegateHasNextBlock.value;
     try {
-      const messages = await invokeTauri<ChatMessage[]>("get_delegate_conversation_messages", {
+      const page = await invokeTauri<ArchiveBlockPage>("get_delegate_conversation_block_page", {
         input: { conversationId },
       });
       selectedDelegateConversationId.value = conversationId;
-      delegateMessages.value = messages;
+      delegateBlocks.value = Array.isArray(page?.blocks) ? page.blocks : [];
+      selectedDelegateBlockId.value = Number.isFinite(page?.selectedBlockId) ? page.selectedBlockId : null;
+      delegateMessages.value = Array.isArray(page?.messages) ? page.messages : [];
+      delegateHasPrevBlock.value = !!page?.hasPrevBlock;
+      delegateHasNextBlock.value = !!page?.hasNextBlock;
     } catch (e) {
       selectedDelegateConversationId.value = previousId;
+      delegateBlocks.value = previousBlocks;
+      selectedDelegateBlockId.value = previousBlockId;
       delegateMessages.value = previousMessages;
+      delegateHasPrevBlock.value = previousHasPrev;
+      delegateHasNextBlock.value = previousHasNext;
+      options.setStatusError("status.loadMessagesFailed", e);
+    }
+  }
+
+  async function selectDelegateConversationBlock(blockId?: number | null) {
+    const conversationId = String(selectedDelegateConversationId.value || "").trim();
+    if (!conversationId) return;
+    const previousBlocks = delegateBlocks.value;
+    const previousBlockId = selectedDelegateBlockId.value;
+    const previousMessages = delegateMessages.value;
+    const previousHasPrev = delegateHasPrevBlock.value;
+    const previousHasNext = delegateHasNextBlock.value;
+    try {
+      const page = await invokeTauri<ArchiveBlockPage>("get_delegate_conversation_block_page", {
+        input: {
+          conversationId,
+          blockId: typeof blockId === "number" ? blockId : undefined,
+        },
+      });
+      delegateBlocks.value = Array.isArray(page?.blocks) ? page.blocks : delegateBlocks.value;
+      selectedDelegateBlockId.value = Number.isFinite(page?.selectedBlockId) ? page.selectedBlockId : null;
+      delegateMessages.value = Array.isArray(page?.messages) ? page.messages : [];
+      delegateHasPrevBlock.value = !!page?.hasPrevBlock;
+      delegateHasNextBlock.value = !!page?.hasNextBlock;
+    } catch (e) {
+      delegateBlocks.value = previousBlocks;
+      selectedDelegateBlockId.value = previousBlockId;
+      delegateMessages.value = previousMessages;
+      delegateHasPrevBlock.value = previousHasPrev;
+      delegateHasNextBlock.value = previousHasNext;
       options.setStatusError("status.loadMessagesFailed", e);
     }
   }
@@ -235,7 +281,11 @@ export function useArchivesView(options: UseArchivesViewOptions) {
       delegateConversations.value = await invokeTauri<DelegateConversationSummary[]>("list_delegate_conversations");
       if (delegateConversations.value.length === 0) {
         selectedDelegateConversationId.value = "";
+        selectedDelegateBlockId.value = null;
+        delegateBlocks.value = [];
         delegateMessages.value = [];
+        delegateHasPrevBlock.value = false;
+        delegateHasNextBlock.value = false;
         return;
       }
       const targetId = delegateConversations.value.some((item) => item.conversationId === selectedDelegateConversationId.value)
@@ -495,7 +545,11 @@ export function useArchivesView(options: UseArchivesViewOptions) {
       options.setStatus("委托会话已删除。");
       if (selectedDelegateConversationId.value === conversationId) {
         selectedDelegateConversationId.value = "";
+        selectedDelegateBlockId.value = null;
+        delegateBlocks.value = [];
         delegateMessages.value = [];
+        delegateHasPrevBlock.value = false;
+        delegateHasNextBlock.value = false;
       }
       await loadDelegateConversations();
       return result;
@@ -592,8 +646,12 @@ export function useArchivesView(options: UseArchivesViewOptions) {
     unarchivedHasPrevBlock,
     unarchivedHasNextBlock,
     delegateConversations,
+    delegateBlocks,
     delegateMessages,
     selectedDelegateConversationId,
+    selectedDelegateBlockId,
+    delegateHasPrevBlock,
+    delegateHasNextBlock,
     remoteImContactConversations,
     remoteImContactBlocks,
     remoteImContactMessages,
@@ -604,6 +662,7 @@ export function useArchivesView(options: UseArchivesViewOptions) {
     selectUnarchivedConversation,
     selectUnarchivedConversationBlock,
     selectDelegateConversation,
+    selectDelegateConversationBlock,
     selectRemoteImContactConversation,
     selectRemoteImContactConversationBlock,
     loadUnarchivedConversations,

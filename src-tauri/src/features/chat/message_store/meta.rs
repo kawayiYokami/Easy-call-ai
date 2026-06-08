@@ -106,8 +106,28 @@ pub(super) struct ConversationShardMeta {
 }
 
 impl ConversationShardMeta {
+    pub(super) fn id(&self) -> &str {
+        self.id.as_str()
+    }
+
     pub(super) fn title(&self) -> &str {
         self.title.as_str()
+    }
+
+    pub(super) fn agent_id(&self) -> &str {
+        self.agent_id.as_str()
+    }
+
+    pub(super) fn conversation_kind(&self) -> &str {
+        self.conversation_kind.as_str()
+    }
+
+    pub(super) fn root_conversation_id(&self) -> Option<&str> {
+        self.root_conversation_id.as_deref()
+    }
+
+    pub(super) fn delegate_id(&self) -> Option<&str> {
+        self.delegate_id.as_deref()
     }
 
     pub(super) fn updated_at(&self) -> &str {
@@ -120,6 +140,10 @@ impl ConversationShardMeta {
 
     pub(super) fn last_assistant_at(&self) -> Option<&str> {
         self.last_assistant_at.as_deref()
+    }
+
+    pub(super) fn archived_at(&self) -> Option<&str> {
+        self.archived_at.as_deref()
     }
 
     pub(super) fn preferred_api_config_id(&self) -> Option<&str> {

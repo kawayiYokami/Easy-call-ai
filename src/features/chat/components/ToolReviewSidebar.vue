@@ -336,7 +336,7 @@
 import { computed, ref, useAttrs, watch } from "vue";
 import { useI18n } from "vue-i18n";
 import { invokeTauri } from "../../../services/tauri-api";
-import type { ChatMessage, ConversationDelegateStatusSummary, ShellWorkspace } from "../../../types/app";
+import type { ArchiveBlockPage, ChatMessage, ConversationDelegateStatusSummary, ShellWorkspace } from "../../../types/app";
 import { defaultWorkspaceNameFromPath, inferWorkspaceName, isLegacyGenericWorkspaceName, normalizeWorkspaceLevel } from "../../../utils/shell-workspaces";
 import type { ToolReviewBatchSummary, ToolReviewCodeReviewScope, ToolReviewCommitOption, ToolReviewItemDetail, ToolReviewItemSummary, ToolReviewReportRecord } from "../composables/use-chat-tool-review";
 import { AppMarkdownRenderer, initKatex } from "../markdown";
@@ -561,10 +561,10 @@ async function openDelegateResult(status: import("../../../types/app").Conversat
   delegateResultDialogOpen.value = true;
   delegateResultLoading.value = true;
   try {
-    const messages = await invokeTauri<ChatMessage[]>("get_delegate_conversation_messages", {
+    const page = await invokeTauri<ArchiveBlockPage>("get_delegate_conversation_block_page", {
       input: { conversationId },
     });
-    delegateResultText.value = formatDelegateResultText(findLastAssistantText(messages));
+    delegateResultText.value = formatDelegateResultText(findLastAssistantText(Array.isArray(page?.messages) ? page.messages : []));
   } catch (error) {
     delegateResultText.value = `读取委托结果失败：${String(error)}`;
   } finally {

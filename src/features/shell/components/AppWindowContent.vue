@@ -265,7 +265,11 @@
       :unarchived-has-next-block="unarchivedHasNextBlock"
       :unarchived-messages="unarchivedMessages"
       :delegate-conversations="delegateConversations"
+      :delegate-blocks="delegateBlocks"
       :selected-delegate-conversation-id="selectedDelegateConversationId"
+      :selected-delegate-block-id="selectedDelegateBlockId"
+      :delegate-has-prev-block="delegateHasPrevBlock"
+      :delegate-has-next-block="delegateHasNextBlock"
       :delegate-messages="delegateMessages"
       :remote-im-contact-conversations="remoteImContactConversations"
       :remote-im-contact-blocks="remoteImContactBlocks"
@@ -283,6 +287,7 @@
       @select-unarchived-conversation="selectUnarchivedConversation"
       @select-unarchived-block="selectUnarchivedConversationBlock"
       @select-delegate-conversation="selectDelegateConversation"
+      @select-delegate-block="selectDelegateConversationBlock"
       @select-remote-im-contact-conversation="selectRemoteImContactConversation"
       @select-remote-im-contact-block="selectRemoteImContactConversationBlock"
       @export-archive="exportArchive"
@@ -560,7 +565,11 @@ const props = defineProps<{
   unarchivedHasNextBlock?: boolean;
   unarchivedMessages: ChatMessage[];
   delegateConversations: DelegateConversationSummary[];
+  delegateBlocks: import("../../../types/app").ConversationBlockSummary[];
   selectedDelegateConversationId: string;
+  selectedDelegateBlockId?: number | null;
+  delegateHasPrevBlock?: boolean;
+  delegateHasNextBlock?: boolean;
   delegateMessages: ChatMessage[];
   remoteImContactConversations: RemoteImContactConversationSummary[];
   remoteImContactBlocks: import("../../../types/app").ConversationBlockSummary[];
@@ -680,6 +689,7 @@ const props = defineProps<{
   selectUnarchivedConversation: (id: string) => void;
   selectUnarchivedConversationBlock: (blockId?: number | null) => void;
   selectDelegateConversation: (id: string) => void;
+  selectDelegateConversationBlock: (blockId?: number | null) => void;
   selectRemoteImContactConversation: (id: string) => void;
   selectRemoteImContactConversationBlock: (blockId?: number | null) => void;
   exportArchive: (payload: { format: "markdown" | "json" }) => void;

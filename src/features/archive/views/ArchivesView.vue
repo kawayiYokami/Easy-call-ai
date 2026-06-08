@@ -128,7 +128,7 @@
             <div class="whitespace-pre-wrap wrap-break-word text-sm">{{ archiveSummaryText }}</div>
           </div>
           <div
-            v-if="(viewMode === 'archive' && archiveBlocks.length > 0) || (viewMode === 'current' && unarchivedBlocks.length > 0) || (viewMode === 'remoteIm' && remoteImContactBlocks.length > 0)"
+            v-if="(viewMode === 'archive' && archiveBlocks.length > 0) || (viewMode === 'current' && unarchivedBlocks.length > 0) || (viewMode === 'delegate' && delegateBlocks.length > 0) || (viewMode === 'remoteIm' && remoteImContactBlocks.length > 0)"
             class="sticky top-0 z-10 flex items-center justify-between gap-2 rounded border border-base-300 bg-base-200/95 px-3 py-2 backdrop-blur"
           >
             <button
@@ -289,7 +289,11 @@ const props = defineProps<{
   unarchivedHasNextBlock?: boolean;
   unarchivedMessages: ChatMessage[];
   delegateConversations: DelegateConversationSummary[];
+  delegateBlocks: ConversationBlockSummary[];
   selectedDelegateConversationId: string;
+  selectedDelegateBlockId?: number | null;
+  delegateHasPrevBlock?: boolean;
+  delegateHasNextBlock?: boolean;
   delegateMessages: ChatMessage[];
   remoteImContactConversations: RemoteImContactConversationSummary[];
   remoteImContactBlocks: ConversationBlockSummary[];
@@ -311,6 +315,7 @@ const emit = defineEmits<{
   (e: "selectUnarchivedConversation", conversationId: string): void;
   (e: "selectUnarchivedBlock", blockId?: number | null): void;
   (e: "selectDelegateConversation", conversationId: string): void;
+  (e: "selectDelegateBlock", blockId?: number | null): void;
   (e: "selectRemoteImContactConversation", contactId: string): void;
   (e: "selectRemoteImContactBlock", blockId?: number | null): void;
   (e: "exportArchive", payload: { format: "markdown" | "json" }): void;
@@ -357,12 +362,17 @@ const selectedArchiveBlockSummary = computed(() =>
 const selectedUnarchivedBlockSummary = computed(() =>
   props.unarchivedBlocks.find((item) => item.blockId === props.selectedUnarchivedBlockId) ?? null,
 );
+const selectedDelegateBlockSummary = computed(() =>
+  props.delegateBlocks.find((item) => item.blockId === props.selectedDelegateBlockId) ?? null,
+);
 const selectedRemoteImBlockSummary = computed(() =>
   props.remoteImContactBlocks.find((item) => item.blockId === props.selectedRemoteImContactBlockId) ?? null,
 );
 const activeBlocks = computed(() =>
   viewMode.value === "current"
     ? props.unarchivedBlocks
+    : viewMode.value === "delegate"
+      ? props.delegateBlocks
     : viewMode.value === "remoteIm"
       ? props.remoteImContactBlocks
       : props.archiveBlocks,
@@ -370,6 +380,8 @@ const activeBlocks = computed(() =>
 const activeSelectedBlockId = computed(() =>
   viewMode.value === "current"
     ? props.selectedUnarchivedBlockId
+    : viewMode.value === "delegate"
+      ? props.selectedDelegateBlockId
     : viewMode.value === "remoteIm"
       ? props.selectedRemoteImContactBlockId
       : props.selectedArchiveBlockId,
@@ -377,6 +389,8 @@ const activeSelectedBlockId = computed(() =>
 const activeHasPrevBlock = computed(() =>
   viewMode.value === "current"
     ? !!props.unarchivedHasPrevBlock
+    : viewMode.value === "delegate"
+      ? !!props.delegateHasPrevBlock
     : viewMode.value === "remoteIm"
       ? !!props.remoteImHasPrevBlock
       : !!props.archiveHasPrevBlock,
@@ -384,6 +398,8 @@ const activeHasPrevBlock = computed(() =>
 const activeHasNextBlock = computed(() =>
   viewMode.value === "current"
     ? !!props.unarchivedHasNextBlock
+    : viewMode.value === "delegate"
+      ? !!props.delegateHasNextBlock
     : viewMode.value === "remoteIm"
       ? !!props.remoteImHasNextBlock
       : !!props.archiveHasNextBlock,
@@ -391,6 +407,8 @@ const activeHasNextBlock = computed(() =>
 const activeSelectedBlockSummary = computed(() =>
   viewMode.value === "current"
     ? selectedUnarchivedBlockSummary.value
+    : viewMode.value === "delegate"
+      ? selectedDelegateBlockSummary.value
     : viewMode.value === "remoteIm"
       ? selectedRemoteImBlockSummary.value
       : selectedArchiveBlockSummary.value,
@@ -444,6 +462,10 @@ function focusAdjacentArchiveBlock(step: -1 | 1) {
   if (!next) return;
   if (viewMode.value === "current") {
     emit("selectUnarchivedBlock", next.blockId);
+    return;
+  }
+  if (viewMode.value === "delegate") {
+    emit("selectDelegateBlock", next.blockId);
     return;
   }
   if (viewMode.value === "remoteIm") {

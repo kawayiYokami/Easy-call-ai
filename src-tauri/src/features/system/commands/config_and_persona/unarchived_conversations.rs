@@ -1030,26 +1030,25 @@ fn list_delegate_conversations(
             })
         })
         .collect::<Vec<_>>();
-    for conversation in delegate_persisted_conversation_list(state.inner())? {
+    for conversation in delegate_persisted_conversation_summary_list(state.inner())? {
         let delegate_id = conversation
             .delegate_id
             .clone()
-            .unwrap_or_else(|| conversation.id.clone());
+            .unwrap_or_else(|| conversation.conversation_id.clone());
         if !seen_ids.insert(delegate_id.clone()) {
             continue;
         }
-        let last_message_at = conversation.messages.last().map(|message| message.created_at.clone());
         summaries.push(DelegateConversationSummary {
-            conversation_id: conversation.id.clone(),
+            conversation_id: conversation.conversation_id.clone(),
             title: delegate_display_title_from_id(
                 state.inner(),
                 &delegate_id,
-                Some(&conversation),
+                None,
                 Some(&conversation.title),
             ),
             updated_at: conversation.updated_at.clone(),
-            last_message_at,
-            message_count: conversation.messages.len(),
+            last_message_at: conversation.last_message_at.clone(),
+            message_count: conversation.message_count,
             agent_id: conversation.agent_id.clone(),
             delegate_id: Some(delegate_id),
             root_conversation_id: conversation.root_conversation_id.clone(),
@@ -1623,6 +1622,30 @@ struct ConversationBlockPageOutput {
     has_next_block: bool,
 }
 
+fn conversation_block_page_output_from_message_store_page(
+    page: message_store::MessageStoreBlockPage,
+) -> ConversationBlockPageOutput {
+    ConversationBlockPageOutput {
+        blocks: page
+            .blocks
+            .into_iter()
+            .map(|item| ConversationBlockSummaryOutput {
+                block_id: item.block_id,
+                message_count: item.message_count,
+                first_message_id: item.first_message_id,
+                last_message_id: item.last_message_id,
+                first_created_at: item.first_created_at,
+                last_created_at: item.last_created_at,
+                is_latest: item.is_latest,
+            })
+            .collect(),
+        selected_block_id: page.selected_block_id,
+        messages: page.messages,
+        has_prev_block: page.has_prev_block,
+        has_next_block: page.has_next_block,
+    }
+}
+
 #[tauri::command]
 fn get_unarchived_conversation_recent_block_messages(
     input: GetUnarchivedConversationRecentBlockMessagesInput,
@@ -1735,6 +1758,25 @@ fn get_delegate_conversation_messages(
         .ok_or_else(|| "Delegate conversation not found.".to_string())?;
     materialize_chat_message_parts_from_media_refs(&mut messages, &state.data_path);
     Ok(messages)
+}
+
+#[tauri::command]
+fn get_delegate_conversation_block_page(
+    input: GetConversationBlockPageInput,
+    state: State<'_, AppState>,
+) -> Result<ConversationBlockPageOutput, String> {
+    let conversation_id = input.conversation_id.trim();
+    if conversation_id.is_empty() {
+        return Err("conversationId is required.".to_string());
+    }
+    let mut page = delegate_conversation_store_read_block_page(
+        &state.data_path,
+        conversation_id,
+        input.block_id,
+    )?
+    .ok_or_else(|| "Delegate conversation not found.".to_string())?;
+    materialize_chat_message_parts_from_media_refs(&mut page.messages, &state.data_path);
+    Ok(conversation_block_page_output_from_message_store_page(page))
 }
 
 #[tauri::command]
