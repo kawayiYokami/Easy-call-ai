@@ -17,6 +17,7 @@ export type ConfigSearchTab =
   | "task"
   | "logs"
   | "appearance"
+  | "migration"
   | "about";
 
 export type ConfigSearchResult = {
@@ -55,6 +56,7 @@ const CONFIG_SEARCH_SOURCES: ConfigSearchSource[] = [
   { tab: "task", titleKey: "config.tabs.task", titleFallback: "Task", prefixes: ["config.task"] },
   { tab: "logs", titleKey: "config.tabs.logs", titleFallback: "Logs", prefixes: ["config.logs"] },
   { tab: "appearance", titleKey: "config.tabs.appearance", titleFallback: "Appearance", prefixes: ["appearance"] },
+  { tab: "migration", titleKey: "config.tabs.migration", titleFallback: "Storage", prefixes: ["config.storage", "config.migration"] },
   { tab: "about", titleKey: "config.tabs.about", titleFallback: "About", prefixes: ["about"] },
 ];
 

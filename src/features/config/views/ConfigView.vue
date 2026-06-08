@@ -251,7 +251,7 @@
             @reset-generated-theme="$emit('resetGeneratedTheme')"
           />
 
-          <MigrationTab
+          <StorageTab
             v-else-if="props.configTab === 'migration'"
           />
 
@@ -397,7 +397,7 @@ import MemoryTab from "./config-tabs/MemoryTab.vue";
 import TaskTab from "./config-tabs/TaskTab.vue";
 import LogTab from "./config-tabs/LogTab.vue";
 import AppearanceTab from "./config-tabs/AppearanceTab.vue";
-import MigrationTab from "./config-tabs/MigrationTab.vue";
+import StorageTab from "./config-tabs/StorageTab.vue";
 import AboutTab from "./config-tabs/AboutTab.vue";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { invokeTauri } from "../../../services/tauri-api";
