@@ -139,6 +139,15 @@ export function useSupervisionTask(options: UseSupervisionTaskOptions) {
     saveRecentSupervisionTaskHistory();
   }
 
+  function dispatchTaskSidebarRefreshEvent(kind: "created" | "updated" | "completed", taskId: string) {
+    if (typeof window === "undefined") return;
+    window.dispatchEvent(new CustomEvent(`easy-call:task-${kind}`, {
+      detail: {
+        taskId: String(taskId || "").trim(),
+      },
+    }));
+  }
+
   function supervisionTaskIsActive(task: TaskEntry, conversationId: string): boolean {
     if (String(task.completionState || "").trim() !== "active") return false;
     if (String(task.conversationId || "").trim() !== conversationId) return false;
@@ -254,6 +263,7 @@ export function useSupervisionTask(options: UseSupervisionTaskOptions) {
           },
         });
         taskId = String(updated.taskId || "").trim();
+        dispatchTaskSidebarRefreshEvent("updated", taskId);
         options.setStatus(
           options.t("chat.supervision.updatedStatus", {
             hours: payload.durationHours,
@@ -271,6 +281,7 @@ export function useSupervisionTask(options: UseSupervisionTaskOptions) {
           },
         });
         taskId = String(created.taskId || "").trim();
+        dispatchTaskSidebarRefreshEvent("created", taskId);
         options.setStatus(
           options.t("chat.supervision.createdStatus", {
             hours: payload.durationHours,
@@ -304,13 +315,14 @@ export function useSupervisionTask(options: UseSupervisionTaskOptions) {
     supervisionTaskSaving.value = true;
     supervisionTaskError.value = "";
     try {
-      await invokeTauri<TaskEntry>("task_complete_task", {
+      const completed = await invokeTauri<TaskEntry>("task_complete_task", {
         input: {
           taskId,
           completionState: "failed_completed",
           completionConclusion: options.t("chat.supervision.stoppedConclusion"),
         },
       });
+      dispatchTaskSidebarRefreshEvent("completed", completed.taskId);
       options.setStatus(options.t("chat.supervision.stoppedStatus"));
       activeSupervisionTask.value = null;
       supervisionTaskDialogOpen.value = false;

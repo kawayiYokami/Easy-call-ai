@@ -1242,6 +1242,7 @@
     "otherConversations": "其他",
     "localConversationTab": "本地",
     "contactConversationTab": "遠端",
+    "taskConversationTab": "任務",
     "readerPanelTab": "閱讀",
     "delegatePanelTab": "委託",
     "rightSidebarToggle": "右側欄",
@@ -1288,6 +1289,13 @@
     "viewSummary": "查看摘要",
     "transcribing": "語音轉寫中...",
     "taskTrigger": {},
+    "taskSidebar": {
+      "searchPlaceholder": "搜尋任務或會話",
+      "empty": "暫無進行中的任務",
+      "searchEmpty": "沒有符合的任務",
+      "unlinkedConversation": "未關聯會話",
+      "unknownConversation": "未知會話"
+    },
     "taskCreate": {
       "title": "新建任務",
       "contentLabel": "任務內容",

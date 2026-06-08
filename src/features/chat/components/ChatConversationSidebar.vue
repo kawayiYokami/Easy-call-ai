@@ -6,7 +6,7 @@
           type="button"
           role="tab"
           class="tab h-8 px-3 transition-[color,border-color,background-color] duration-200 ease-out"
-          :class="activeTab === 'local' ? 'tab-active font-semibold' : ''"
+          :class="activeConversationTab === 'local' ? 'tab-active font-semibold' : ''"
           @click="requestConversationTabChange('local')"
         >
           {{ t('chat.localConversationTab') }}
@@ -15,17 +15,26 @@
           type="button"
           role="tab"
           class="tab h-8 px-3 transition-[color,border-color,background-color] duration-200 ease-out"
-          :class="activeTab === 'contact' ? 'tab-active font-semibold' : ''"
+          :class="activeConversationTab === 'contact' ? 'tab-active font-semibold' : ''"
           @click="requestConversationTabChange('contact')"
         >
           {{ t('chat.contactConversationTab') }}
+        </button>
+        <button
+          type="button"
+          role="tab"
+          class="tab h-8 px-3 transition-[color,border-color,background-color] duration-200 ease-out"
+          :class="activeConversationTab === 'task' ? 'tab-active font-semibold' : ''"
+          @click="requestConversationTabChange('task')"
+        >
+          {{ t('chat.taskConversationTab') }}
         </button>
       </div>
       <button
         type="button"
         class="btn btn-ghost btn-xs h-7 min-h-7 w-7 min-w-7 p-0 ml-auto"
         :class="showSearch ? 'text-primary' : 'text-base-content/55'"
-        :title="t('chat.conversationSearchPlaceholder')"
+        :title="searchPlaceholder"
         @click="showSearch = !showSearch"
       >
         <Search class="h-4 w-4" />
@@ -39,23 +48,31 @@
           v-model="conversationSearchQuery"
           type="text"
           class="w-full bg-transparent outline-none"
-          :placeholder="t('chat.conversationSearchPlaceholder')"
+          :placeholder="searchPlaceholder"
         />
       </label>
     </div>
     <ChatConversationFloatingScroll ref="conversationFloatingScrollRef" class="flex-1 min-h-0">
       <Transition :name="conversationTabTransitionName" mode="out-in" @after-enter="handleConversationTabTransitionSettled">
         <div :key="activeConversationTab" class="conversation-tab-panel">
-          <CollapsibleGroup
-            v-for="section in filteredConversationSections"
-            :key="section.key"
-            :title="section.title"
-            :count="section.items.length"
-            :model-value="isConversationSectionCollapsed(section.key)"
-            @update:model-value="toggleConversationSection(section.key)"
-            @after-enter="scheduleConversationListScrollbarUpdate"
-            @after-leave="scheduleConversationListScrollbarUpdate"
-          >
+          <ChatTaskSidebarPanel
+            v-if="activeConversationTab === 'task'"
+            :conversation-items="items"
+            :search-query="conversationSearchQuery"
+            @edit-task="requestTaskEdit"
+            @layout-change="scheduleConversationListScrollbarUpdate"
+          />
+          <template v-else>
+            <CollapsibleGroup
+              v-for="section in filteredConversationSections"
+              :key="section.key"
+              :title="section.title"
+              :count="section.items.length"
+              :model-value="isConversationSectionCollapsed(section.key)"
+              @update:model-value="toggleConversationSection(section.key)"
+              @after-enter="scheduleConversationListScrollbarUpdate"
+              @after-leave="scheduleConversationListScrollbarUpdate"
+            >
             <template #actions>
               <button
                 v-if="section.workspaceRootPath"
@@ -228,13 +245,14 @@
                   </div>
 
                 </div>
-              </CollapsibleGroup>
-          <div
-            v-if="filteredConversationSections.length === 0"
-            class="px-3 py-4 text-center text-sm text-base-content/60"
-          >
-            {{ t("chat.conversationSearchEmpty") }}
-          </div>
+            </CollapsibleGroup>
+            <div
+              v-if="filteredConversationSections.length === 0"
+              class="px-3 py-4 text-center text-sm text-base-content/60"
+            >
+              {{ t("chat.conversationSearchEmpty") }}
+            </div>
+          </template>
         </div>
       </Transition>
     </ChatConversationFloatingScroll>
@@ -247,6 +265,7 @@ import { useI18n } from "vue-i18n";
 import { Ellipsis, PencilLine, Pin, PinOff, Search, SquarePen, Trash2, Upload } from "@lucide/vue";
 import CollapsibleGroup from "./CollapsibleGroup.vue";
 import type { ChatConversationOverviewItem, ConversationPreviewMessage } from "../../../types/app";
+import type { TaskEntry } from "../../config/views/config-tabs/task-editor";
 import { usePipelineStatus } from "../../shell/composables/use-pipeline-status";
 import { formatConversationListTime } from "../utils/conversation-time";
 import {
@@ -256,6 +275,9 @@ import {
 } from "../utils/conversation-sections";
 import { resolveConversationDisplayTitle } from "../utils/conversation-title";
 import ChatConversationFloatingScroll from "./ChatConversationFloatingScroll.vue";
+import ChatTaskSidebarPanel from "./ChatTaskSidebarPanel.vue";
+
+type ConversationSidebarTab = "local" | "contact" | "task";
 
 
 const props = defineProps<{
@@ -265,7 +287,7 @@ const props = defineProps<{
   userAvatarUrl: string;
   personaNameMap: Record<string, string>;
   personaAvatarUrlMap: Record<string, string>;
-  activeTab: "local" | "contact";
+  activeTab: ConversationSidebarTab;
 }>();
 
 const emit = defineEmits<{
@@ -275,7 +297,8 @@ const emit = defineEmits<{
   (e: "archiveConversation", conversationId: string): void;
   (e: "exportConversation", conversationId: string): void;
   (e: "deleteConversation", conversationId: string): void;
-  (e: "update:activeTab", value: "local" | "contact"): void;
+  (e: "update:activeTab", value: ConversationSidebarTab): void;
+  (e: "editTask", task: TaskEntry): void;
 }>();
 
 const { t, locale } = useI18n();
@@ -289,8 +312,11 @@ const conversationFloatingScrollRef = ref<InstanceType<typeof ChatConversationFl
 const collapsedConversationSectionKeys = ref<Record<string, boolean>>({});
 const conversationTabTransitionName = ref("conversation-tab-slide-left");
 const activeConversationTab = computed({
-  get: () => props.activeTab === "contact" ? "contact" : "local",
-  set: (value: "local" | "contact") => emit("update:activeTab", value),
+  get: (): ConversationSidebarTab => {
+    if (props.activeTab === "contact" || props.activeTab === "task") return props.activeTab;
+    return "local";
+  },
+  set: (value: ConversationSidebarTab) => emit("update:activeTab", value),
 });
 const { conversationStatusById, markConversationRead } = usePipelineStatus({
   activeConversationId: computed(() => String(props.activeConversationId || "").trim()),
@@ -339,6 +365,12 @@ const normalizedConversationSearchQuery = computed(() =>
   String(conversationSearchQuery.value || "").trim().toLocaleLowerCase(),
 );
 
+const searchPlaceholder = computed(() =>
+  activeConversationTab.value === "task"
+    ? t("chat.taskSidebar.searchPlaceholder")
+    : t("chat.conversationSearchPlaceholder"),
+);
+
 const filteredConversationSections = computed(() => {
   const query = normalizedConversationSearchQuery.value;
   if (!query) return conversationSections.value;
@@ -369,9 +401,12 @@ watch(
   () => activeConversationTab.value,
   (nextValue, previousValue) => {
     if (!previousValue || nextValue === previousValue) return;
-    conversationTabTransitionName.value = nextValue === "contact"
+    conversationTabTransitionName.value = conversationTabOrder(nextValue) > conversationTabOrder(previousValue)
       ? "conversation-tab-slide-left"
       : "conversation-tab-slide-right";
+    if (nextValue === "task") {
+      resetConversationTitleEdit();
+    }
   },
 );
 
@@ -400,12 +435,22 @@ function toggleConversationSection(key: string) {
   };
 }
 
-function requestConversationTabChange(value: "local" | "contact") {
+function conversationTabOrder(value: ConversationSidebarTab): number {
+  if (value === "task") return 2;
+  if (value === "contact") return 1;
+  return 0;
+}
+
+function requestConversationTabChange(value: ConversationSidebarTab) {
   if (value === activeConversationTab.value) return;
-  conversationTabTransitionName.value = value === "contact"
+  conversationTabTransitionName.value = conversationTabOrder(value) > conversationTabOrder(activeConversationTab.value)
     ? "conversation-tab-slide-left"
     : "conversation-tab-slide-right";
   emit("update:activeTab", value);
+}
+
+function requestTaskEdit(task: TaskEntry) {
+  emit("editTask", task);
 }
 
 function scheduleConversationListScrollbarUpdate() {

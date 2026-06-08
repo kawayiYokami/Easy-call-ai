@@ -2,7 +2,7 @@
   <dialog class="modal" :class="{ 'modal-open': open }" @cancel.prevent="handleClose">
     <div class="modal-box w-11/12 max-w-2xl p-0">
       <div class="flex items-center justify-between gap-3 border-b border-base-300/70 px-5 py-4">
-        <h3 class="text-base font-semibold">{{ t("chat.taskCreate.title") }}</h3>
+        <h3 class="text-base font-semibold">{{ dialogTitle }}</h3>
         <button
           type="button"
           class="btn btn-ghost btn-sm btn-circle"
@@ -101,7 +101,7 @@
             </button>
             <button type="submit" class="btn btn-primary" :disabled="saving">
               <span v-if="saving" class="loading loading-spinner loading-sm"></span>
-              {{ saving ? t("config.task.saving") : t("config.task.createAction") }}
+              {{ submitButtonLabel }}
             </button>
           </div>
         </div>
@@ -126,17 +126,28 @@ import type { TaskEntry, TaskScheduleMode } from "../../../config/views/config-t
 
 type RepeatIntervalUnit = "minutes" | "hours" | "days" | "weeks" | "months";
 
+type TaskTriggerInputWire = {
+  run_at: string;
+  everyMinutes?: number;
+  cron_expression?: string;
+  end_at?: string;
+};
+
 type TaskCreateInputWire = {
   targetScope: "desktop";
   goal: string;
   why: string;
   todo: string;
-  trigger: {
-    run_at: string;
-    everyMinutes?: number;
-    cron_expression?: string;
-    end_at?: string;
-  };
+  trigger: TaskTriggerInputWire;
+};
+
+type TaskUpdateInputWire = {
+  taskId: string;
+  conversationId?: string;
+  goal: string;
+  why: string;
+  todo: string;
+  trigger: TaskTriggerInputWire;
 };
 
 const DEFAULT_RUN_AT_DELAY_MINUTES = 10;
@@ -144,11 +155,14 @@ const DERIVED_TITLE_LIMIT = 80;
 
 const props = defineProps<{
   open: boolean;
+  mode?: "create" | "edit";
+  task?: TaskEntry | null;
 }>();
 
 const emit = defineEmits<{
   (e: "close"): void;
   (e: "created", task: TaskEntry): void;
+  (e: "updated", task: TaskEntry): void;
 }>();
 
 const { t } = useI18n();
@@ -162,10 +176,19 @@ const scheduleMode = ref<TaskScheduleMode>("once");
 const repeatEvery = ref("1");
 const repeatUnit = ref<RepeatIntervalUnit>("hours");
 const endAt = ref("");
+const preservedCronExpression = ref("");
+const initialScheduleSnapshot = ref("");
 const scheduleModeOptions = computed(() => [
   { value: "once" as const, label: t("config.task.scheduleModes.once") },
   { value: "interval" as const, label: t("config.task.scheduleModes.interval") },
 ]);
+const dialogMode = computed(() => props.mode === "edit" ? "edit" : "create");
+const isEditMode = computed(() => dialogMode.value === "edit");
+const dialogTitle = computed(() => isEditMode.value ? t("config.task.editorEditTitle") : t("chat.taskCreate.title"));
+const submitButtonLabel = computed(() => {
+  if (saving.value) return t("config.task.saving");
+  return isEditMode.value ? t("config.task.saveUpdate") : t("config.task.createAction");
+});
 
 function defaultRunAt(): string {
   const next = new Date(Date.now() + DEFAULT_RUN_AT_DELAY_MINUTES * 60_000);
@@ -181,6 +204,37 @@ function resetForm() {
   repeatEvery.value = "1";
   repeatUnit.value = "hours";
   endAt.value = "";
+  preservedCronExpression.value = "";
+  initialScheduleSnapshot.value = scheduleInputSnapshot();
+  errorText.value = "";
+}
+
+function resetFormFromTask(task: TaskEntry) {
+  title.value = String(task.goal || "").trim();
+  content.value = String(task.todo || "").trim();
+  runAt.value = String(task.trigger?.run_at || task.trigger?.next_run_at || "").trim() || defaultRunAt();
+  endAt.value = String(task.trigger?.end_at || "").trim();
+  preservedCronExpression.value = String(task.trigger?.cron_expression || "").trim();
+  const everyMinutes = Number(task.trigger?.every_minutes);
+  if (Number.isFinite(everyMinutes) && everyMinutes > 0) {
+    scheduleMode.value = "interval";
+    setRepeatFromEveryMinutes(everyMinutes);
+  } else if (preservedCronExpression.value) {
+    scheduleMode.value = "interval";
+    const monthlyInterval = inferMonthlyIntervalFromCronExpression(preservedCronExpression.value);
+    if (monthlyInterval) {
+      repeatEvery.value = String(monthlyInterval);
+      repeatUnit.value = "months";
+    } else {
+      repeatEvery.value = "1";
+      repeatUnit.value = "hours";
+    }
+  } else {
+    scheduleMode.value = "once";
+    repeatEvery.value = "1";
+    repeatUnit.value = "hours";
+  }
+  initialScheduleSnapshot.value = scheduleInputSnapshot();
   errorText.value = "";
 }
 
@@ -215,7 +269,52 @@ function buildMonthlyCronExpression(runAtDate: Date, repeatEveryValue: number): 
   return `${minute} ${hour} ${day} ${months.sort((left, right) => left - right).join(",")} *`;
 }
 
-function buildPayload(): TaskCreateInputWire | null {
+function inferMonthlyIntervalFromCronExpression(value: string): number | null {
+  const parts = String(value || "").trim().split(/\s+/);
+  if (parts.length !== 5 || parts[4] !== "*") return null;
+  const monthPart = parts[3];
+  if (monthPart === "*") return 1;
+  const months = monthPart
+    .split(",")
+    .map((item) => Number.parseInt(item, 10))
+    .filter((item) => Number.isInteger(item) && item >= 1 && item <= 12)
+    .sort((left, right) => left - right);
+  if (months.length === 1) return 12;
+  if (months.length < 2) return null;
+  const diffs = months.map((month, index) => {
+    const nextMonth = index === months.length - 1 ? months[0] + 12 : months[index + 1];
+    return nextMonth - month;
+  });
+  const firstDiff = diffs[0];
+  return firstDiff > 0 && diffs.every((item) => item === firstDiff) ? firstDiff : null;
+}
+
+function setRepeatFromEveryMinutes(value: number) {
+  const minuteValue = Math.max(1, Math.floor(value));
+  const unitToMinutes: Record<RepeatIntervalUnit, number> = {
+    minutes: 1,
+    hours: 60,
+    days: 24 * 60,
+    weeks: 7 * 24 * 60,
+    months: 30 * 24 * 60,
+  };
+  const preferredUnits: RepeatIntervalUnit[] = ["weeks", "days", "hours", "minutes"];
+  const matchedUnit = preferredUnits.find((unit) => minuteValue % unitToMinutes[unit] === 0) || "minutes";
+  repeatUnit.value = matchedUnit;
+  repeatEvery.value = String(Math.max(1, Math.floor(minuteValue / unitToMinutes[matchedUnit])));
+}
+
+function scheduleInputSnapshot(): string {
+  return JSON.stringify({
+    runAt: String(runAt.value || "").trim(),
+    scheduleMode: scheduleMode.value,
+    repeatEvery: String(repeatEvery.value || "").trim(),
+    repeatUnit: repeatUnit.value,
+    endAt: String(endAt.value || "").trim(),
+  });
+}
+
+function buildPayload(): TaskCreateInputWire | TaskUpdateInputWire | null {
   const normalizedContent = content.value.trim();
   if (!normalizedContent) {
     errorText.value = t("chat.taskCreate.validation.contentRequired");
@@ -233,34 +332,44 @@ function buildPayload(): TaskCreateInputWire | null {
     errorText.value = t("chat.taskCreate.validation.runAtInvalid");
     return null;
   }
-  if (runAtDate.getTime() < Date.now() - 60_000) {
+  if (!isEditMode.value && runAtDate.getTime() < Date.now() - 60_000) {
     errorText.value = t("chat.taskCreate.validation.runAtPast");
     return null;
   }
 
-  const trigger: TaskCreateInputWire["trigger"] = {
+  const trigger: TaskTriggerInputWire = {
     run_at: normalizedRunAt,
   };
   if (scheduleMode.value === "interval") {
-    const repeatEveryValue = Number(String(repeatEvery.value || "1").trim() || "1");
-    if (!Number.isInteger(repeatEveryValue) || repeatEveryValue <= 0) {
-      errorText.value = t("chat.taskCreate.validation.intervalInvalid");
-      return null;
-    }
-    if (repeatUnit.value === "months") {
-      if (repeatEveryValue > 12 || (repeatEveryValue > 1 && 12 % repeatEveryValue !== 0)) {
-        errorText.value = t("chat.taskCreate.validation.monthIntervalInvalid");
+    const existingEveryMinutes = Number(props.task?.trigger?.every_minutes);
+    if (
+      isEditMode.value
+      && preservedCronExpression.value
+      && !Number.isFinite(existingEveryMinutes)
+      && initialScheduleSnapshot.value === scheduleInputSnapshot()
+    ) {
+      trigger.cron_expression = preservedCronExpression.value;
+    } else {
+      const repeatEveryValue = Number(String(repeatEvery.value || "1").trim() || "1");
+      if (!Number.isInteger(repeatEveryValue) || repeatEveryValue <= 0) {
+        errorText.value = t("chat.taskCreate.validation.intervalInvalid");
         return null;
       }
-      trigger.cron_expression = buildMonthlyCronExpression(runAtDate, repeatEveryValue);
-    } else {
-      const unitToMinutes: Record<Exclude<RepeatIntervalUnit, "months">, number> = {
-        minutes: 1,
-        hours: 60,
-        days: 24 * 60,
-        weeks: 7 * 24 * 60,
-      };
-      trigger.everyMinutes = repeatEveryValue * unitToMinutes[repeatUnit.value];
+      if (repeatUnit.value === "months") {
+        if (repeatEveryValue > 12 || (repeatEveryValue > 1 && 12 % repeatEveryValue !== 0)) {
+          errorText.value = t("chat.taskCreate.validation.monthIntervalInvalid");
+          return null;
+        }
+        trigger.cron_expression = buildMonthlyCronExpression(runAtDate, repeatEveryValue);
+      } else {
+        const unitToMinutes: Record<Exclude<RepeatIntervalUnit, "months">, number> = {
+          minutes: 1,
+          hours: 60,
+          days: 24 * 60,
+          weeks: 7 * 24 * 60,
+        };
+        trigger.everyMinutes = repeatEveryValue * unitToMinutes[repeatUnit.value];
+      }
     }
 
     const normalizedEndAt = endAt.value.trim();
@@ -278,11 +387,26 @@ function buildPayload(): TaskCreateInputWire | null {
     }
   }
 
-  return {
+  const basePayload: TaskCreateInputWire = {
     targetScope: "desktop",
     goal: title.value.trim() || deriveTitleFromContent(normalizedContent),
     why: "",
     todo: normalizedContent,
+    trigger,
+  };
+  if (!isEditMode.value) return basePayload;
+  const taskId = String(props.task?.taskId || "").trim();
+  if (!taskId) {
+    errorText.value = t("config.task.detailLoadFailed");
+    return null;
+  }
+  const conversationId = String(props.task?.conversationId || "").trim();
+  return {
+    taskId,
+    ...(conversationId ? { conversationId } : {}),
+    goal: basePayload.goal,
+    why: basePayload.why,
+    todo: basePayload.todo,
     trigger,
   };
 }
@@ -290,6 +414,15 @@ function buildPayload(): TaskCreateInputWire | null {
 function dispatchTaskCreatedEvent(task: TaskEntry) {
   if (typeof window === "undefined") return;
   window.dispatchEvent(new CustomEvent("easy-call:task-created", {
+    detail: {
+      taskId: String(task.taskId || "").trim(),
+    },
+  }));
+}
+
+function dispatchTaskUpdatedEvent(task: TaskEntry) {
+  if (typeof window === "undefined") return;
+  window.dispatchEvent(new CustomEvent("easy-call:task-updated", {
     detail: {
       taskId: String(task.taskId || "").trim(),
     },
@@ -304,12 +437,19 @@ async function handleSubmit() {
   saving.value = true;
   errorText.value = "";
   try {
+    if (isEditMode.value) {
+      const updated = await invokeTauri<TaskEntry>("task_update_task", { input: payload });
+      dispatchTaskUpdatedEvent(updated);
+      emit("updated", updated);
+      emit("close");
+      return;
+    }
     const created = await invokeTauri<TaskEntry>("task_create_task", { input: payload });
     dispatchTaskCreatedEvent(created);
     emit("created", created);
     emit("close");
   } catch (error) {
-    errorText.value = `${t("config.task.createFailed")}: ${toErrorMessage(error)}`;
+    errorText.value = `${isEditMode.value ? t("config.task.updateFailed") : t("config.task.createFailed")}: ${toErrorMessage(error)}`;
   } finally {
     saving.value = false;
   }
@@ -324,10 +464,22 @@ watch(
   () => props.open,
   async (open) => {
     if (!open) return;
-    resetForm();
+    if (isEditMode.value && props.task) {
+      resetFormFromTask(props.task);
+    } else {
+      resetForm();
+    }
     await nextTick();
     contentInputRef.value?.focus();
   },
   { immediate: true },
+);
+
+watch(
+  () => props.task,
+  (task) => {
+    if (!props.open || !isEditMode.value || !task) return;
+    resetFormFromTask(task);
+  },
 );
 </script>

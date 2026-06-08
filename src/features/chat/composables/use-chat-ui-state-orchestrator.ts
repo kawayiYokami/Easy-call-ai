@@ -26,16 +26,23 @@ const LEGACY_CHAT_SIDE_PANEL_WIDTH_STORAGE_KEYS = {
   right: "easy-call.chat.right-sidebar-width",
 } as const;
 
-function loadStoredConversationListTab(): "local" | "contact" {
-  if (typeof window === "undefined") return "local";
-  const stored = String(window.localStorage.getItem(CHAT_CONVERSATION_LIST_TAB_STORAGE_KEY) || "").trim();
-  return stored === "contact" ? "contact" : "local";
+type ChatLeftPanelMode = "local" | "contact" | "task";
+
+function normalizeChatLeftPanelMode(value: string): ChatLeftPanelMode {
+  if (value === "contact" || value === "task") return value;
+  return "local";
 }
 
-function loadStoredChatLeftPanelMode(): "local" | "contact" {
+function loadStoredConversationListTab(): ChatLeftPanelMode {
+  if (typeof window === "undefined") return "local";
+  const stored = String(window.localStorage.getItem(CHAT_CONVERSATION_LIST_TAB_STORAGE_KEY) || "").trim();
+  return normalizeChatLeftPanelMode(stored);
+}
+
+function loadStoredChatLeftPanelMode(): ChatLeftPanelMode {
   if (typeof window === "undefined") return loadStoredConversationListTab();
   const stored = String(window.localStorage.getItem(CHAT_LEFT_PANEL_MODE_STORAGE_KEY) || window.localStorage.getItem(LEGACY_CHAT_LEFT_PANEL_MODE_STORAGE_KEY) || "").trim();
-  return stored === "contact" ? "contact" : loadStoredConversationListTab();
+  return stored ? normalizeChatLeftPanelMode(stored) : loadStoredConversationListTab();
 }
 
 function loadStoredChatRightPanelMode(): "reader" | "review" | "delegate" {
@@ -84,8 +91,8 @@ export function useChatUiStateOrchestrator(bindings: ChatUiStateBindings) {
   const selectedChatMentions = ref<ChatMentionTarget[]>([]);
   const chatInput = ref("");
 
-  const conversationListTab = ref<"local" | "contact">(loadStoredConversationListTab());
-  const chatLeftPanelMode = ref<"local" | "contact">(loadStoredChatLeftPanelMode());
+  const conversationListTab = ref<ChatLeftPanelMode>(loadStoredConversationListTab());
+  const chatLeftPanelMode = ref<ChatLeftPanelMode>(loadStoredChatLeftPanelMode());
   const chatRightPanelMode = ref<"reader" | "review" | "delegate">(loadStoredChatRightPanelMode());
   const sideConversationListVisible = ref(loadStoredChatSidePanelVisibility("left"));
   const toolReviewPanelOpenVisible = ref(loadStoredChatSidePanelVisibility("right"));
@@ -209,16 +216,16 @@ export function useChatUiStateOrchestrator(bindings: ChatUiStateBindings) {
     }
   }
 
-  function updateConversationListTab(value: "local" | "contact") {
-    conversationListTab.value = value === "contact" ? "contact" : "local";
+  function updateConversationListTab(value: ChatLeftPanelMode) {
+    conversationListTab.value = normalizeChatLeftPanelMode(value);
     chatLeftPanelMode.value = conversationListTab.value;
     if (typeof window === "undefined") return;
     window.localStorage.setItem(CHAT_CONVERSATION_LIST_TAB_STORAGE_KEY, conversationListTab.value);
     window.localStorage.setItem(CHAT_LEFT_PANEL_MODE_STORAGE_KEY, chatLeftPanelMode.value);
   }
 
-  function updateChatLeftPanelMode(value: "local" | "contact") {
-    const nextMode = value === "contact" ? "contact" : "local";
+  function updateChatLeftPanelMode(value: ChatLeftPanelMode) {
+    const nextMode = normalizeChatLeftPanelMode(value);
     chatLeftPanelMode.value = nextMode;
     conversationListTab.value = nextMode;
     if (typeof window !== "undefined") {

@@ -1134,6 +1134,7 @@
     "otherConversations": "Others",
     "localConversationTab": "Local",
     "contactConversationTab": "Remote",
+    "taskConversationTab": "Tasks",
     "readerPanelTab": "Read",
     "delegatePanelTab": "Delegate",
     "rightSidebarToggle": "Right Sidebar",
@@ -1294,6 +1295,13 @@
     "audioCount": "[Audio {count}]",
     "attachmentList": "[Attachment {names}]",
     "taskTrigger": {},
+    "taskSidebar": {
+      "searchPlaceholder": "Search tasks or conversations",
+      "empty": "No active tasks",
+      "searchEmpty": "No matching tasks",
+      "unlinkedConversation": "Unlinked Conversation",
+      "unknownConversation": "Unknown Conversation"
+    },
     "taskCreate": {
       "title": "New Task",
       "contentLabel": "Task Content",

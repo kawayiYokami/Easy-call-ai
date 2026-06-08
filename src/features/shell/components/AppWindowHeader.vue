@@ -533,8 +533,8 @@ const props = defineProps<{
   sideConversationListVisible: boolean;
   toolReviewPanelOpenVisible: boolean;
   chatSidePanelWidths: { leftWidth: number; rightWidth: number };
-  conversationListTab: "local" | "contact";
-  chatLeftPanelMode: "local" | "contact";
+  conversationListTab: "local" | "contact" | "task";
+  chatLeftPanelMode: "local" | "contact" | "task";
   chatRightPanelMode: "reader" | "review" | "delegate";
   activeConversationId: string;
   currentDepartmentId?: string;
@@ -566,8 +566,8 @@ const emit = defineEmits<{
   (e: "open-archives"): void;
   (e: "toggle-side-conversation-list"): void;
   (e: "toggle-tool-review-panel"): void;
-  (e: "update:conversation-list-tab", value: "local" | "contact"): void;
-  (e: "update:chat-left-panel-mode", value: "local" | "contact"): void;
+  (e: "update:conversation-list-tab", value: "local" | "contact" | "task"): void;
+  (e: "update:chat-left-panel-mode", value: "local" | "contact" | "task"): void;
   (e: "update:chat-right-panel-mode", value: "reader" | "review" | "delegate"): void;
   (e: "minimize-window"): void;
   (e: "toggle-maximize-window"): void;

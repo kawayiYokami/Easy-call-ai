@@ -225,6 +225,7 @@
         @save-supervision-task="saveSupervisionTask"
         @stop-supervision-task="stopSupervisionTask"
         @task-created="setStatus(props.t('config.task.created'))"
+        @task-updated="setStatus(props.t('config.task.updated'))"
         @refresh-tool-review-message="onRefreshToolReviewMessage"
         @switch-conversation="onSwitchConversation"
         @rename-conversation="onRenameConversation"
@@ -423,8 +424,8 @@ const props = defineProps<{
   detachedChatWindow?: boolean;
   sideConversationListVisible: boolean;
   initialToolReviewPanelOpen: boolean;
-  conversationListTab: "local" | "contact";
-  chatLeftPanelMode: "local" | "contact";
+  conversationListTab: "local" | "contact" | "task";
+  chatLeftPanelMode: "local" | "contact" | "task";
   chatRightPanelMode: "reader" | "review" | "delegate";
   config: AppConfig;
   configTab: "welcome" | "hotkey" | "api" | "tools" | "mcp" | "skill" | "persona" | "department" | "departmentTree" | "demo" | "chatSettings" | "notification" | "remoteIm" | "memory" | "task" | "logs" | "appearance" | "migration" | "about";
@@ -651,8 +652,8 @@ const props = defineProps<{
   setSideConversationListVisible: (value: boolean) => void;
   setToolReviewPanelOpen: (value: boolean) => void;
   setChatSidePanelWidths: (value: { leftWidth: number; rightWidth: number }, options?: { syncWindow?: boolean }) => void;
-  updateConversationListTab: (value: "local" | "contact") => void;
-  updateChatLeftPanelMode: (value: "local" | "contact") => void;
+  updateConversationListTab: (value: "local" | "contact" | "task") => void;
+  updateChatLeftPanelMode: (value: "local" | "contact" | "task") => void;
   updateChatRightPanelMode: (value: "reader" | "review" | "delegate") => void;
   removeClipboardImage: (index: number) => void;
   removeQueuedAttachmentNotice: (index: number) => void;

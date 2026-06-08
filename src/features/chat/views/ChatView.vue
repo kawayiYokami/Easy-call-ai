@@ -15,8 +15,9 @@
         :user-avatar-url="userAvatarUrl"
         :persona-name-map="personaNameMap"
         :persona-avatar-url-map="personaAvatarUrlMap"
-        :active-tab="chatLeftPanelMode === 'contact' ? 'contact' : 'local'"
+        :active-tab="chatLeftPanelMode"
         @update:active-tab="$emit('update:conversation-list-tab', $event)"
+        @edit-task="openTaskEditDialog"
         @select="handleConversationListSelect"
         @rename="handleConversationRename"
         @toggle-pin-conversation="handleConversationPinToggle"
@@ -303,9 +304,12 @@
         />
         <ChatTaskCreateDialog
           v-if="!sidebarMode"
-          :open="taskCreateDialogOpen"
-          @close="closeTaskCreateDialog"
+          :open="taskDialogOpen"
+          :mode="taskDialogMode"
+          :task="taskDialogTask"
+          @close="closeTaskDialog"
           @created="handleTaskCreated"
+          @updated="handleTaskUpdated"
         />
       </div>
 
@@ -483,8 +487,8 @@ const props = defineProps<{
   currentTheme: string; unarchivedConversationItems: ChatConversationOverviewItem[];
   conversationItems?: ChatConversationOverviewItem[]; sideConversationListVisible: boolean;
   initialToolReviewPanelOpen: boolean;
-  conversationListTab: "local" | "contact";
-  chatLeftPanelMode: "local" | "contact";
+  conversationListTab: "local" | "contact" | "task";
+  chatLeftPanelMode: "local" | "contact" | "task";
   chatRightPanelMode: "reader" | "review" | "delegate";
   createConversationDepartmentOptions: Array<{ id: string; name: string; ownerAgentId?: string; ownerName: string; providerName?: string; modelName?: string; childDepartmentIds?: string[] }>;
   defaultCreateConversationDepartmentId: string;
@@ -505,8 +509,8 @@ const emit = defineEmits<{
   (e: "toolReviewPanelOpenChange", value: boolean): void;
   (e: "sidePanelWidthsChange", value: { leftWidth: number; rightWidth: number }): void;
   (e: "sidePanelWidthsCommit", value: { leftWidth: number; rightWidth: number }): void;
-  (e: "update:conversation-list-tab", value: "local" | "contact"): void;
-  (e: "update:chatLeftPanelMode", value: "local" | "contact"): void;
+  (e: "update:conversation-list-tab", value: "local" | "contact" | "task"): void;
+  (e: "update:chatLeftPanelMode", value: "local" | "contact" | "task"): void;
   (e: "update:chatRightPanelMode", value: "reader" | "review" | "delegate"): void;
   (e: "removeClipboardImage", index: number): void;
   (e: "removeQueuedAttachmentNotice", index: number): void;
@@ -525,6 +529,7 @@ const emit = defineEmits<{
   (e: "saveSupervisionTask", payload: { durationHours: number; goal: string; why: string; todo: string }): void;
   (e: "stopSupervisionTask"): void;
   (e: "taskCreated", task: TaskEntry): void;
+  (e: "taskUpdated", task: TaskEntry): void;
   (e: "switchConversation", payload: { conversationId: string; kind?: "local_unarchived" | "remote_im_contact"; remoteContactId?: string }): void;
   (e: "renameConversation", payload: { conversationId: string; title: string }): void;
   (e: "togglePinConversation", conversationId: string): void;
@@ -556,7 +561,9 @@ const chatScrollbarRef = ref<InstanceType<typeof FloatingScrollbar> | null>(null
 const linkOpenErrorText = ref("");
 const conversationSummaryCard = ref<{ visible: boolean; text: string }>({ visible: false, text: "" });
 const composerPanelRef = ref<{ focusInput: (opts?: FocusOptions) => void } | null>(null);
-const taskCreateDialogOpen = ref(false);
+const taskDialogOpen = ref(false);
+const taskDialogMode = ref<"create" | "edit">("create");
+const taskDialogTask = ref<TaskEntry | null>(null);
 
 // ==================== context computed ====================
 
@@ -626,16 +633,29 @@ const openShareSelectionMenu = () => openSelectionMenu();
 
 function openTaskCreateDialog() {
   if (props.chatting || props.frozen || props.conversationBusy) return;
-  taskCreateDialogOpen.value = true;
+  taskDialogMode.value = "create";
+  taskDialogTask.value = null;
+  taskDialogOpen.value = true;
 }
 
-function closeTaskCreateDialog() {
-  taskCreateDialogOpen.value = false;
+function openTaskEditDialog(task: TaskEntry) {
+  taskDialogMode.value = "edit";
+  taskDialogTask.value = task;
+  taskDialogOpen.value = true;
+}
+
+function closeTaskDialog() {
+  taskDialogOpen.value = false;
 }
 
 function handleTaskCreated(task: TaskEntry) {
-  taskCreateDialogOpen.value = false;
+  taskDialogOpen.value = false;
   emit("taskCreated", task);
+}
+
+function handleTaskUpdated(task: TaskEntry) {
+  taskDialogOpen.value = false;
+  emit("taskUpdated", task);
 }
 
 function openConversationSummary(block: ChatMessageBlock, event?: MouseEvent) {

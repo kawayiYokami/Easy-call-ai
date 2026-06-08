@@ -1243,6 +1243,7 @@
     "otherConversations": "其他",
     "localConversationTab": "本地",
     "contactConversationTab": "远程",
+    "taskConversationTab": "任务",
     "readerPanelTab": "阅读",
     "delegatePanelTab": "委托",
     "rightSidebarToggle": "右侧栏",
@@ -1288,6 +1289,13 @@
     "previewAttachment": "[附件]",
     "viewSummary": "查看摘要",
     "taskTrigger": {},
+    "taskSidebar": {
+      "searchPlaceholder": "搜索任务或会话",
+      "empty": "暂无进行中的任务",
+      "searchEmpty": "没有匹配的任务",
+      "unlinkedConversation": "未关联会话",
+      "unknownConversation": "未知会话"
+    },
     "taskCreate": {
       "title": "新建任务",
       "contentLabel": "任务内容",
