@@ -93,9 +93,6 @@ export function useChatConfigDerivedState(config: AppConfig) {
       if (!isModelRoleApiConfigId(nextId)) {
         config.selectedApiConfigId = nextId;
       }
-      if ((department.id === "assistant-department" || department.isBuiltInAssistant) && !isModelRoleApiConfigId(nextId)) {
-        config.assistantDepartmentApiConfigId = nextId;
-      }
       return false;
     }
     const filtered = department.modelFailureFallbackEnabled
@@ -106,9 +103,6 @@ export function useChatConfigDerivedState(config: AppConfig) {
     department.apiConfigIds = deduped;
     department.apiConfigId = deduped[0] || "";
     department.updatedAt = new Date().toISOString();
-    if ((department.id === "assistant-department" || department.isBuiltInAssistant) && !isModelRoleApiConfigId(department.apiConfigId)) {
-      config.assistantDepartmentApiConfigId = department.apiConfigId;
-    }
     if (!isModelRoleApiConfigId(nextId)) {
       config.selectedApiConfigId = nextId;
     }

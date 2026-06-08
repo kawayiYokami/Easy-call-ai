@@ -278,13 +278,6 @@ fn assistant_department(config: &AppConfig) -> Option<&DepartmentConfig> {
         .find(|item| item.id == ASSISTANT_DEPARTMENT_ID || item.is_built_in_assistant)
 }
 
-fn assistant_department_mut(config: &mut AppConfig) -> Option<&mut DepartmentConfig> {
-    config
-        .departments
-        .iter_mut()
-        .find(|item| item.id == ASSISTANT_DEPARTMENT_ID || item.is_built_in_assistant)
-}
-
 fn assistant_department_agent_id(config: &AppConfig) -> Option<String> {
     assistant_department(config).and_then(|dept| {
         dept.agent_ids

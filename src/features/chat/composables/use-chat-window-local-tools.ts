@@ -42,7 +42,6 @@ export function useChatWindowLocalTools(bindings: Record<string, any>) {
       apiConfigIds: [...(currentDepartment.apiConfigIds || [])],
       updatedAt: String(currentDepartment.updatedAt || ""),
     };
-    const previousAssistantDepartmentApiConfigId = String(bindings.config.assistantDepartmentApiConfigId || "").trim();
     const previousSelectedApiConfigId = String(bindings.config.selectedApiConfigId || "").trim();
     const changed = bindings.applyDepartmentPrimaryApiConfigLocally(currentDepartment, nextId);
     if (!changed) return;
@@ -57,7 +56,6 @@ export function useChatWindowLocalTools(bindings: Record<string, any>) {
       currentDepartment.apiConfigId = previousDepartment.apiConfigId;
       currentDepartment.apiConfigIds = previousDepartment.apiConfigIds;
       currentDepartment.updatedAt = previousDepartment.updatedAt;
-      bindings.config.assistantDepartmentApiConfigId = previousAssistantDepartmentApiConfigId;
       bindings.config.selectedApiConfigId = previousSelectedApiConfigId;
       bindings.setStatusError("status.saveConfigFailed", error);
     }

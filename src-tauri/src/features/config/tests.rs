@@ -494,7 +494,7 @@
     }
 
     #[test]
-    fn normalize_app_config_should_drop_invalid_department_models_without_frontend_fallback() {
+    fn normalize_app_config_should_drop_invalid_department_models_without_clearing_expert_model() {
         let mut cfg = AppConfig {
             hotkey: "Alt+·".to_string(),
             ui_language: default_ui_language(),
@@ -639,25 +639,28 @@
 
         normalize_app_config(&mut cfg);
 
-        assert_eq!(cfg.assistant_department_api_config_id, "");
+        assert_eq!(
+            cfg.assistant_department_api_config_id,
+            "chat-a::chat-a-model-default"
+        );
         let assistant = cfg
             .departments
             .iter()
             .find(|item| item.id == ASSISTANT_DEPARTMENT_ID)
             .expect("assistant department");
-        assert_eq!(assistant.api_config_id, "");
-        assert!(assistant.api_config_ids.is_empty());
+        assert_eq!(assistant.api_config_id, MODEL_ROLE_EXPERT_API_CONFIG_ID);
+        assert_eq!(assistant.api_config_ids, vec![MODEL_ROLE_EXPERT_API_CONFIG_ID.to_string()]);
         let research = cfg
             .departments
             .iter()
             .find(|item| item.id == "department-research")
             .expect("research department");
-        assert_eq!(research.api_config_id, "");
-        assert!(research.api_config_ids.is_empty());
+        assert_eq!(research.api_config_id, MODEL_ROLE_EXPERT_API_CONFIG_ID);
+        assert_eq!(research.api_config_ids, vec![MODEL_ROLE_EXPERT_API_CONFIG_ID.to_string()]);
     }
 
     #[test]
-    fn normalize_app_config_should_preserve_empty_assistant_department_model() {
+    fn normalize_app_config_should_preserve_empty_expert_model_while_defaulting_department_role() {
         let mut cfg = AppConfig {
             hotkey: "Alt+·".to_string(),
             ui_language: default_ui_language(),
@@ -732,8 +735,54 @@
         normalize_app_config(&mut cfg);
 
         assert_eq!(cfg.assistant_department_api_config_id, "");
-        assert_eq!(cfg.departments[0].api_config_id, "");
-        assert!(cfg.departments[0].api_config_ids.is_empty());
+        assert_eq!(cfg.departments[0].api_config_id, MODEL_ROLE_EXPERT_API_CONFIG_ID);
+        assert_eq!(cfg.departments[0].api_config_ids, vec![MODEL_ROLE_EXPERT_API_CONFIG_ID.to_string()]);
+    }
+
+    #[test]
+    fn normalize_app_config_should_not_copy_builtin_department_model_to_expert_model() {
+        let mut chat_a = ApiConfig::default();
+        chat_a.id = "chat-a".to_string();
+        chat_a.name = "chat-a".to_string();
+        chat_a.request_format = RequestFormat::OpenAI;
+        chat_a.enable_text = true;
+        chat_a.base_url = "https://api.openai.com/v1".to_string();
+        chat_a.api_key = "k".to_string();
+        chat_a.model = "chat-a".to_string();
+
+        let mut chat_b = chat_a.clone();
+        chat_b.id = "chat-b".to_string();
+        chat_b.name = "chat-b".to_string();
+        chat_b.model = "chat-b".to_string();
+
+        let mut assistant = default_assistant_department("chat-b");
+        assistant.api_config_id = "chat-b".to_string();
+        assistant.api_config_ids = vec!["chat-b".to_string()];
+
+        let mut cfg = AppConfig {
+            selected_api_config_id: "chat-a".to_string(),
+            assistant_department_api_config_id: "chat-a".to_string(),
+            departments: vec![assistant],
+            api_configs: vec![chat_a, chat_b],
+            api_providers: Vec::new(),
+            ..AppConfig::default()
+        };
+
+        normalize_app_config(&mut cfg);
+
+        assert_eq!(
+            cfg.assistant_department_api_config_id,
+            "chat-a::chat-a-model-default"
+        );
+        let assistant = cfg
+            .departments
+            .iter()
+            .find(|item| item.id == ASSISTANT_DEPARTMENT_ID)
+            .expect("assistant department");
+        assert_eq!(
+            assistant.api_config_id,
+            "chat-b::chat-b-model-default"
+        );
     }
 
     #[test]

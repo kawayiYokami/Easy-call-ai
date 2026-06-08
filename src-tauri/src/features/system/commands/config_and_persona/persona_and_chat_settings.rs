@@ -1148,21 +1148,6 @@ fn patch_conversation_api_settings(
     let mut config = state_read_config_cached(&state)?;
     apply_conversation_api_settings_patch(&mut config, input);
     normalize_app_config(&mut config);
-    let assistant_api_config_id = config.assistant_department_api_config_id.clone();
-    if let Some(dept) = assistant_department_mut(&mut config) {
-        let cleaned = assistant_api_config_id.trim();
-        dept.api_config_ids = if cleaned.is_empty() {
-            Vec::new()
-        } else {
-            vec![cleaned.to_string()]
-        };
-        dept.api_config_id = if cleaned.is_empty() {
-            String::new()
-        } else {
-            cleaned.to_string()
-        };
-        dept.updated_at = now_iso();
-    }
     state_write_config_cached(&state, &config)?;
 
     let payload = build_conversation_api_settings_payload(&config);
@@ -1197,7 +1182,7 @@ fn set_department_primary_api_config(
         return Err(format!("API config '{api_config_id}' does not support chat text."));
     }
 
-    let (department_primary_api_config_id, assistant_department_changed) = {
+    {
         let Some(target_department) = config
             .departments
             .iter_mut()
@@ -1232,14 +1217,6 @@ fn set_department_primary_api_config(
             .unwrap_or_default();
         target_department.updated_at = now_iso();
 
-        (
-            target_department.api_config_id.clone(),
-            target_department.id == ASSISTANT_DEPARTMENT_ID || target_department.is_built_in_assistant,
-        )
-    };
-
-    if assistant_department_changed {
-        config.assistant_department_api_config_id = department_primary_api_config_id;
     }
     config.selected_api_config_id = api_config_id.to_string();
 

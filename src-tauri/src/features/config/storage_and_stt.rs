@@ -1078,12 +1078,6 @@ fn normalize_departments(config: &mut AppConfig) {
         item.order_index = (idx as i64) + 1;
     }
     config.departments = out;
-    if let Some(dept) = assistant_department(config) {
-        let primary_id = department_primary_api_config_id(dept);
-        if !is_model_role_api_config_id(&primary_id) {
-            config.assistant_department_api_config_id = primary_id;
-        }
-    }
 }
 
 fn normalize_app_config(config: &mut AppConfig) {
