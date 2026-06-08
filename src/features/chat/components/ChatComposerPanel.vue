@@ -33,12 +33,21 @@
     <div v-if="systemNotificationMode" class="flex flex-wrap items-center justify-center gap-2">
       <button
         type="button"
-        class="btn btn-sm btn-primary gap-2"
+        class="btn btn-sm gap-2"
         :disabled="chatting || frozen || busy"
         @click="emit('openDelegateSelection')"
       >
         <ClipboardList class="h-3.5 w-3.5" />
         {{ t("chat.conversationMenu.startDelegate") }}
+      </button>
+      <button
+        type="button"
+        class="btn btn-sm gap-2"
+        :disabled="chatting || frozen || busy"
+        @click="emit('openTaskCreate')"
+      >
+        <CalendarPlus class="h-3.5 w-3.5" />
+        {{ t("chat.newTask") }}
       </button>
       <button
         type="button"
@@ -318,7 +327,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
-import { Bot, ChevronDown, ClipboardList, FileText, History, Image as ImageIcon, Layers2, Menu, Mic, Minus, Paperclip, Plus, Send, Settings, Square, Target, X } from "@lucide/vue";
+import { Bot, CalendarPlus, ChevronDown, ClipboardList, FileText, History, Image as ImageIcon, Layers2, Menu, Mic, Minus, Paperclip, Plus, Send, Settings, Square, Target, X } from "@lucide/vue";
 import type { ApiConfigItem, ChatConversationOverviewItem, ChatMentionEntry, ChatMentionTarget, IdeContextReferenceItem, IdeContextWorkspaceGroup, PromptCommandPreset } from "../../../types/app";
 import { invokeTauri } from "../../../services/tauri-api";
 import ChatQueuePreview from "./ChatQueuePreview.vue";
@@ -417,6 +426,7 @@ const emit = defineEmits<{
   (e: "sendChat"): void;
   (e: "stopChat"): void;
   (e: "openDelegateSelection"): void;
+  (e: "openTaskCreate"): void;
   (e: "openSupervisionTask"): void;
   (e: "open-conversation-list"): void;
   (e: "open-settings"): void;

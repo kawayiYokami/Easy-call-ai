@@ -224,6 +224,7 @@
         @close-supervision-task="closeSupervisionTaskDialog"
         @save-supervision-task="saveSupervisionTask"
         @stop-supervision-task="stopSupervisionTask"
+        @task-created="setStatus(props.t('config.task.created'))"
         @refresh-tool-review-message="onRefreshToolReviewMessage"
         @switch-conversation="onSwitchConversation"
         @rename-conversation="onRenameConversation"

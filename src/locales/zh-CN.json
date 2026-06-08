@@ -1235,6 +1235,7 @@
     "attach": "添加附件",
     "send": "发送",
     "newConversation": "新建会话",
+    "newTask": "新建任务",
     "conversationList": "会话列表",
     "untitledConversation": "未命名会话",
     "mainConversationPinned": "系统通知会话始终置顶",
@@ -1287,6 +1288,31 @@
     "previewAttachment": "[附件]",
     "viewSummary": "查看摘要",
     "taskTrigger": {},
+    "taskCreate": {
+      "title": "新建任务",
+      "contentLabel": "任务内容",
+      "contentPlaceholder": "写要定时执行的任务",
+      "titleLabel": "任务标题",
+      "titlePlaceholder": "默认使用正文第一行",
+      "intervalLabel": "重复间隔",
+      "intervalUnits": {
+        "minutes": "分钟",
+        "hours": "小时",
+        "days": "天",
+        "weeks": "周",
+        "months": "月"
+      },
+      "validation": {
+        "contentRequired": "任务内容不能为空。",
+        "runAtRequired": "触发时间不能为空。",
+        "runAtInvalid": "触发时间格式无效。",
+        "runAtPast": "触发时间不能早于当前时间。",
+        "intervalInvalid": "重复间隔必须是大于 0 的整数。",
+        "monthIntervalInvalid": "月间隔只支持 1、2、3、4、6、12。",
+        "endAtInvalid": "结束时间格式无效。",
+        "endAtNotAfterRunAt": "结束时间必须晚于首次触发时间。"
+      }
+    },
     "plan": {
       "mode": "计划模式",
       "confirmAction": "我同意，并执行计划",

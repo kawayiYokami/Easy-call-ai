@@ -4680,7 +4680,7 @@
         let idx = ensure_main_conversation_index(&mut data, "", DEFAULT_AGENT_ID);
 
         assert_eq!(data.conversations[idx].id, SYSTEM_NOTIFICATION_CONVERSATION_ID);
-        assert_eq!(data.conversations[idx].title, "系统通知");
+        assert_eq!(data.conversations[idx].title, "P-ai系统");
         assert_eq!(
             data.conversations[idx].conversation_kind,
             CONVERSATION_KIND_SYSTEM_NOTIFICATION

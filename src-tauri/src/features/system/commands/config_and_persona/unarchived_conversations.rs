@@ -529,7 +529,7 @@ fn build_branch_conversation_title(
 ) -> String {
     let base_title = source_title.trim();
     let prefix = if source_is_main_conversation {
-        "系统通知"
+        "P-ai系统"
     } else if base_title.is_empty() {
         "未命名会话"
     } else {
@@ -2661,7 +2661,7 @@ mod unarchived_conversations_tests {
         );
         assert_eq!(
             build_branch_conversation_title("Chat 2026-04-18T10:00", 3, true),
-            "系统通知[会话分支自第3条对话]"
+            "P-ai系统[会话分支自第3条对话]"
         );
     }
 

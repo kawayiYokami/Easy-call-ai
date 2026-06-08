@@ -45,7 +45,7 @@ fn latest_main_conversation_index(data: &AppData, _agent_id: &str) -> Option<usi
 }
 
 fn system_notification_conversation_title() -> String {
-    "系统通知".to_string()
+    "P-ai系统".to_string()
 }
 
 fn normalize_system_notification_conversation(conversation: &mut Conversation) -> bool {
@@ -59,7 +59,7 @@ fn normalize_system_notification_conversation(conversation: &mut Conversation) -
         changed = true;
     }
     let title = conversation.title.trim();
-    if title.is_empty() || title == "主会话" {
+    if title.is_empty() || title == "主会话" || title == "系统通知" {
         conversation.title = system_notification_conversation_title();
         changed = true;
     }

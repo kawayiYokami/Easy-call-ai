@@ -268,6 +268,7 @@
             @remove-ide-context-reference="handleRemoveIdeContextReference"
             @send-chat="handleSendChat" @stop-chat="$emit('stopChat')"
             @open-delegate-selection="openDelegateSelectionMenu"
+            @open-task-create="openTaskCreateDialog"
             @open-supervision-task="$emit('openSupervisionTask')"
             @exit-selection-mode="handleExitMessageSelectionMode"
             @selection-action-copy="copySelectedMessages"
@@ -299,6 +300,12 @@
           :active-task="activeSupervisionTask" :recent-history="recentSupervisionTaskHistory"
           @close="$emit('closeSupervisionTask')" @save="$emit('saveSupervisionTask', $event)"
           @stop="$emit('stopSupervisionTask')"
+        />
+        <ChatTaskCreateDialog
+          v-if="!sidebarMode"
+          :open="taskCreateDialogOpen"
+          @close="closeTaskCreateDialog"
+          @created="handleTaskCreated"
         />
       </div>
 
@@ -423,6 +430,7 @@ import ToolReviewSidebar from "../components/ToolReviewSidebar.vue";
 import FileReaderPanel from "../../file-reader/components/FileReaderPanel.vue";
 import ChatImagePreviewDialog from "../components/dialogs/ChatImagePreviewDialog.vue";
 import ChatSupervisionTaskDialog from "../components/dialogs/ChatSupervisionTaskDialog.vue";
+import ChatTaskCreateDialog from "../components/dialogs/ChatTaskCreateDialog.vue";
 import ConversationTodoDropdown from "../components/ConversationTodoDropdown.vue";
 import CompactionSummaryCard from "../components/CompactionSummaryCard.vue";
 import { useChatImagePreview } from "../composables/use-chat-image-preview";
@@ -443,6 +451,7 @@ import { useChatConversationCtx } from "../composables/use-chat-conversation-ctx
 import { useChatScrollOrchestration } from "../composables/use-chat-scroll-orchestration";
 import { useChatToolReviewHandlers } from "../composables/use-chat-tool-review-handlers";
 import { useChatBlockTracking } from "../composables/use-chat-block-tracking";
+import type { TaskEntry } from "../../config/views/config-tabs/task-editor";
 
 // ==================== props / emits ====================
 
@@ -515,6 +524,7 @@ const emit = defineEmits<{
   (e: "detachConversation"): void; (e: "closeSupervisionTask"): void;
   (e: "saveSupervisionTask", payload: { durationHours: number; goal: string; why: string; todo: string }): void;
   (e: "stopSupervisionTask"): void;
+  (e: "taskCreated", task: TaskEntry): void;
   (e: "switchConversation", payload: { conversationId: string; kind?: "local_unarchived" | "remote_im_contact"; remoteContactId?: string }): void;
   (e: "renameConversation", payload: { conversationId: string; title: string }): void;
   (e: "togglePinConversation", conversationId: string): void;
@@ -546,6 +556,7 @@ const chatScrollbarRef = ref<InstanceType<typeof FloatingScrollbar> | null>(null
 const linkOpenErrorText = ref("");
 const conversationSummaryCard = ref<{ visible: boolean; text: string }>({ visible: false, text: "" });
 const composerPanelRef = ref<{ focusInput: (opts?: FocusOptions) => void } | null>(null);
+const taskCreateDialogOpen = ref(false);
 
 // ==================== context computed ====================
 
@@ -612,6 +623,20 @@ const openBranchSelectionMenu = () => openSelectionMenu();
 const openDelegateSelectionMenu = () => openSelectionMenu({ delegateOnly: true });
 const openForwardSelectionMenu = () => openSelectionMenu();
 const openShareSelectionMenu = () => openSelectionMenu();
+
+function openTaskCreateDialog() {
+  if (props.chatting || props.frozen || props.conversationBusy) return;
+  taskCreateDialogOpen.value = true;
+}
+
+function closeTaskCreateDialog() {
+  taskCreateDialogOpen.value = false;
+}
+
+function handleTaskCreated(task: TaskEntry) {
+  taskCreateDialogOpen.value = false;
+  emit("taskCreated", task);
+}
 
 function openConversationSummary(block: ChatMessageBlock, event?: MouseEvent) {
   event?.stopPropagation();

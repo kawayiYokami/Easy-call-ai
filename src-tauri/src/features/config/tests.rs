@@ -1218,7 +1218,7 @@ model = "gpt-4.1"
         )
         .expect("read system notification conversation");
         assert_eq!(system_notification.id, SYSTEM_NOTIFICATION_CONVERSATION_ID);
-        assert_eq!(system_notification.title, "系统通知");
+        assert_eq!(system_notification.title, "P-ai系统");
         assert_eq!(
             system_notification.conversation_kind,
             CONVERSATION_KIND_SYSTEM_NOTIFICATION

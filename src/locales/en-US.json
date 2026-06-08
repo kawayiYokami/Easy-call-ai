@@ -1126,6 +1126,7 @@
     "attach": "Attach",
     "send": "Send",
     "newConversation": "New Conversation",
+    "newTask": "New Task",
     "conversationList": "Conversation List",
     "untitledConversation": "Untitled",
     "mainConversationPinned": "System notification conversation is always pinned",
@@ -1293,6 +1294,31 @@
     "audioCount": "[Audio {count}]",
     "attachmentList": "[Attachment {names}]",
     "taskTrigger": {},
+    "taskCreate": {
+      "title": "New Task",
+      "contentLabel": "Task Content",
+      "contentPlaceholder": "Write the task to run at the scheduled time",
+      "titleLabel": "Task Title",
+      "titlePlaceholder": "Defaults to the first line",
+      "intervalLabel": "Repeat Every",
+      "intervalUnits": {
+        "minutes": "Minutes",
+        "hours": "Hours",
+        "days": "Days",
+        "weeks": "Weeks",
+        "months": "Months"
+      },
+      "validation": {
+        "contentRequired": "Task content is required.",
+        "runAtRequired": "Trigger time is required.",
+        "runAtInvalid": "Trigger time format is invalid.",
+        "runAtPast": "Trigger time cannot be earlier than the current time.",
+        "intervalInvalid": "Repeat interval must be an integer greater than 0.",
+        "monthIntervalInvalid": "Month interval only supports 1, 2, 3, 4, 6, or 12.",
+        "endAtInvalid": "End time format is invalid.",
+        "endAtNotAfterRunAt": "End time must be later than the first trigger time."
+      }
+    },
     "plan": {
       "mode": "Plan Mode",
       "confirmAction": "I agree, execute the plan",
