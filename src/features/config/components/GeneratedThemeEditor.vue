@@ -215,12 +215,12 @@ const emit = defineEmits<{
   (e: "reset"): void;
 }>();
 
-const { t } = useI18n();
+const { t, te } = useI18n();
 
 const sizePresets: GeneratedUiSizePreset[] = ["compact", "default", "comfortable"];
 
 const previewStyle = computed(() => generatedThemeTokensToCssVariables(props.tokens));
-const sizePresetLabel = computed(() => t(`appearance.sizePresets.${props.controls.uiSizePreset}`));
+const sizePresetLabel = computed(() => sizePresetLabelFor(props.controls.uiSizePreset));
 const modeOptions = computed(() => [
   { value: "light" as const, label: t("appearance.modeOptions.light") },
   { value: "dark" as const, label: t("appearance.modeOptions.dark") },
@@ -228,7 +228,7 @@ const modeOptions = computed(() => [
 const sizePresetOptions = computed(() =>
   sizePresets.map((preset) => ({
     value: preset,
-    label: t(`appearance.sizePresets.${preset}`),
+    label: sizePresetLabelFor(preset),
   })),
 );
 const brightnessLabel = computed(() =>
@@ -245,6 +245,11 @@ function patchMode(mode: "light" | "dark") {
 
 function patchUiSizePreset(uiSizePreset: GeneratedUiSizePreset) {
   patchControls({ uiSizePreset });
+}
+
+function sizePresetLabelFor(preset: GeneratedUiSizePreset) {
+  const key = `appearance.sizePresets.${preset}`;
+  return te(key) ? t(key) : preset;
 }
 
 function patchSlider(key: "themeHue" | "contrast" | "brightness" | "tint" | "tone" | "textStrength" | "radius", event: Event) {

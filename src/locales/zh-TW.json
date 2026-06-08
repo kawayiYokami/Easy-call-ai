@@ -1683,12 +1683,37 @@
     "textStrength": "文字強度",
     "radius": "統一圓角",
     "uiSizePreset": "介面尺寸",
-    "sizePresets": {},
+    "sizePresets": {
+      "compact": "緊湊",
+      "default": "預設",
+      "comfortable": "寬鬆"
+    },
     "depthEnabled": "層次效果",
     "noiseEnabled": "紋理效果",
     "language": "界面语言",
     "fontOptions": {},
-    "themeNames": {}
+    "themeNames": {
+      "light": "淺色",
+      "dark": "深色",
+      "cupcake": "紙杯蛋糕",
+      "emerald": "翡翠",
+      "corporate": "商務藍",
+      "halloween": "萬聖節",
+      "garden": "花園",
+      "forest": "森林",
+      "lofi": "低保真",
+      "pastel": "粉彩",
+      "luxury": "奢華",
+      "dracula": "德古拉",
+      "autumn": "秋日",
+      "business": "商務",
+      "night": "夜晚",
+      "coffee": "咖啡",
+      "winter": "冬日",
+      "dim": "暗調",
+      "generated-light": "自訂淺色",
+      "generated-dark": "自訂深色"
+    }
   },
   "quickSetup": {
     "title": "快速設定",

@@ -1683,12 +1683,37 @@
     "textStrength": "Text Strength",
     "radius": "Unified Radius",
     "uiSizePreset": "UI Size",
-    "sizePresets": {},
+    "sizePresets": {
+      "compact": "Compact",
+      "default": "Default",
+      "comfortable": "Comfortable"
+    },
     "depthEnabled": "Depth Effect",
     "noiseEnabled": "Noise Effect",
     "language": "UI Language",
     "fontOptions": {},
-    "themeNames": {}
+    "themeNames": {
+      "light": "Light",
+      "dark": "Dark",
+      "cupcake": "Cupcake",
+      "emerald": "Emerald",
+      "corporate": "Corporate",
+      "halloween": "Halloween",
+      "garden": "Garden",
+      "forest": "Forest",
+      "lofi": "Lo-Fi",
+      "pastel": "Pastel",
+      "luxury": "Luxury",
+      "dracula": "Dracula",
+      "autumn": "Autumn",
+      "business": "Business",
+      "night": "Night",
+      "coffee": "Coffee",
+      "winter": "Winter",
+      "dim": "Dim",
+      "generated-light": "Custom Light",
+      "generated-dark": "Custom Dark"
+    }
   },
   "quickSetup": {
     "title": "Quick Setup",

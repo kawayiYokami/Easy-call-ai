@@ -1683,12 +1683,37 @@
     "textStrength": "文字强度",
     "radius": "统一圆角",
     "uiSizePreset": "界面尺寸",
-    "sizePresets": {},
+    "sizePresets": {
+      "compact": "紧凑",
+      "default": "默认",
+      "comfortable": "宽松"
+    },
     "depthEnabled": "层次效果",
     "noiseEnabled": "纹理效果",
     "language": "界面语言",
     "fontOptions": {},
-    "themeNames": {}
+    "themeNames": {
+      "light": "浅色",
+      "dark": "深色",
+      "cupcake": "纸杯蛋糕",
+      "emerald": "翡翠",
+      "corporate": "商务蓝",
+      "halloween": "万圣节",
+      "garden": "花园",
+      "forest": "森林",
+      "lofi": "低保真",
+      "pastel": "粉彩",
+      "luxury": "奢华",
+      "dracula": "德古拉",
+      "autumn": "秋日",
+      "business": "商务",
+      "night": "夜晚",
+      "coffee": "咖啡",
+      "winter": "冬日",
+      "dim": "暗调",
+      "generated-light": "自定义浅色",
+      "generated-dark": "自定义深色"
+    }
   },
   "quickSetup": {
     "title": "快速设置",
