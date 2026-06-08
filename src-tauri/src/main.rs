@@ -1048,6 +1048,7 @@ fn main() {
             refresh_models,
             quick_genai_chat,
             test_embedding_connection,
+            test_rerank_connection,
             test_voice_connection,
             resolve_model_adapter_kind,
             fetch_model_metadata,

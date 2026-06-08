@@ -305,6 +305,26 @@ struct TestEmbeddingConnectionResult {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+struct TestRerankConnectionInput {
+    base_url: String,
+    api_key: String,
+    request_format: RequestFormat,
+    model: String,
+    #[serde(default)]
+    query: Option<String>,
+    #[serde(default)]
+    documents: Option<Vec<String>>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct TestRerankConnectionResult {
+    result_count: usize,
+    elapsed_ms: u128,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 struct TestVoiceConnectionInput {
     base_url: String,
     api_key: String,

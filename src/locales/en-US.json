@@ -117,6 +117,7 @@
       "capabilityText": "Text",
       "capabilityVoice": "Voice",
       "capabilityEmbedding": "Embedding",
+      "capabilityRerank": "Rerank",
       "protocolAuto": "Auto (by model name)",
       "reasoningEffort": "Reasoning Effort",
       "googleReasoningEffort": "Google Reasoning Effort",

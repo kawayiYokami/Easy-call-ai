@@ -749,6 +749,67 @@ async fn test_embedding_connection(
 }
 
 #[tauri::command]
+async fn test_rerank_connection(
+    _state: State<'_, AppState>,
+    input: TestRerankConnectionInput,
+) -> Result<TestRerankConnectionResult, String> {
+    let base_url = input.base_url.trim();
+    let api_key = input.api_key.trim();
+    let model = input.model.trim();
+    if base_url.is_empty() {
+        return Err("Base URL is empty.".to_string());
+    }
+    if model.is_empty() {
+        return Err("Model name is empty.".to_string());
+    }
+    if !matches!(input.request_format, RequestFormat::OpenAIRerank) {
+        return Err("Request format is not rerank.".to_string());
+    }
+    let cfg = MemoryProviderApiConfig {
+        base_url: base_url.to_string(),
+        api_key: api_key.to_string(),
+        model: model.to_string(),
+    };
+    let provider = memory_create_rerank_provider(MemoryProviderKind::VllmRerank, &cfg, Some(model))?;
+    let query = input
+        .query
+        .as_deref()
+        .map(str::trim)
+        .filter(|v| !v.is_empty())
+        .unwrap_or("rerank connectivity test")
+        .to_string();
+    let documents = input.documents.unwrap_or_else(|| {
+        vec![
+            "The user prefers concise answers with direct conclusions.".to_string(),
+            "The weather forecast is unrelated to the current test.".to_string(),
+            "Memory retrieval and rerank settings are being configured.".to_string(),
+        ]
+    });
+    if documents.is_empty() {
+        return Err("Rerank documents are empty.".to_string());
+    }
+    let started = std::time::Instant::now();
+    let results = tokio::task::spawn_blocking(move || provider.rerank(&query, &documents, Some(3)))
+        .await
+        .map_err(|err| format!("Rerank test failed: {err}"))?
+        .map_err(|err| format!("Rerank test failed: {err}"))?;
+    if results.is_empty() {
+        return Err("Rerank returned empty results.".to_string());
+    }
+    let elapsed_ms = started.elapsed().as_millis();
+    runtime_log_info(format!(
+        "[连通性测试] 类型=重排 模型={} 结果数={} 耗时={}ms",
+        model,
+        results.len(),
+        elapsed_ms
+    ));
+    Ok(TestRerankConnectionResult {
+        result_count: results.len(),
+        elapsed_ms,
+    })
+}
+
+#[tauri::command]
 async fn test_voice_connection(input: TestVoiceConnectionInput) -> Result<TestVoiceConnectionResult, String> {
     let base_url = input.base_url.trim();
     let api_key = input.api_key.trim();

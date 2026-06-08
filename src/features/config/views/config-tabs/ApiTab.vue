@@ -460,7 +460,7 @@ import { invokeTauri } from "../../../../services/tauri-api";
 import CodexProviderPanel from "./CodexProviderPanel.vue";
 import { normalizeApiRequestFormat } from "../../utils/api-request-format";
 
-type ApiCapability = "text" | "voice" | "embedding";
+type ApiCapability = "text" | "voice" | "embedding" | "rerank";
 type ProviderPresetCategory = "official" | "domestic" | "openaiCompatible" | "local";
 type ProviderPreset = {
   id: string;
@@ -557,6 +557,7 @@ const capabilityTabs = computed<Array<{ id: ApiCapability; label: string }>>(() 
   { id: "text", label: t("config.api.capabilityText") },
   { id: "voice", label: t("config.api.capabilityVoice") },
   { id: "embedding", label: t("config.api.capabilityEmbedding") },
+  { id: "rerank", label: t("config.api.capabilityRerank") },
 ]);
 const protocolOptionsByCapability: Record<ApiCapability, ProtocolOption[]> = {
   text: [
@@ -594,6 +595,8 @@ const protocolOptionsByCapability: Record<ApiCapability, ProtocolOption[]> = {
   embedding: [
     { value: "openai_embedding", label: "OpenAI Embedding" },
     { value: "gemini_embedding", label: "Gemini Embedding" },
+  ],
+  rerank: [
     { value: "openai_rerank", label: "OpenAI Rerank" },
   ],
 };
@@ -601,6 +604,7 @@ const capabilityDefaultProtocol: Record<ApiCapability, ApiRequestFormat> = {
   text: "auto",
   voice: "openai_stt",
   embedding: "openai_embedding",
+  rerank: "openai_rerank",
 };
 
 const providerPresets: ProviderPreset[] = [
@@ -858,13 +862,10 @@ function capabilityFromRequestFormat(format: ApiRequestFormat | string): ApiCapa
   if (normalized === "openai_stt" || normalized === "openai_tts" || normalized === "stt" || normalized === "tts") {
     return "voice";
   }
-  if (
-    normalized === "openai_embedding"
-    || normalized === "gemini_embedding"
-    || normalized === "openai_rerank"
-    || normalized === "embedding"
-    || normalized === "rerank"
-  ) {
+  if (normalized === "openai_rerank" || normalized === "rerank") {
+    return "rerank";
+  }
+  if (normalized === "openai_embedding" || normalized === "gemini_embedding" || normalized === "embedding") {
     return "embedding";
   }
   if (isTextRequestFormat(normalized)) {
@@ -1594,7 +1595,7 @@ async function testModelConnection(modelCardId: string) {
   }
   const modelName = modelCard.model.trim();
   const cap = capabilityFromRequestFormat(provider.requestFormat);
-  if (cap === "embedding" && !modelName) {
+  if ((cap === "embedding" || cap === "rerank") && !modelName) {
     modelConnectionResult.value = {
       ...modelConnectionResult.value,
       [modelCardId]: { success: false, error: "Model name is empty" },
@@ -1603,49 +1604,12 @@ async function testModelConnection(modelCardId: string) {
   }
   modelConnectionTesting.value = { ...modelConnectionTesting.value, [modelCardId]: true };
   modelConnectionResult.value = { ...modelConnectionResult.value, [modelCardId]: undefined as unknown as ModelConnectionResult };
-  const started = Date.now();
   try {
-    if (cap === "voice") {
-      const result = await invokeTauri<{ elapsedMs: number }>("test_voice_connection", {
-        input: {
-          baseUrl: provider.baseUrl.trim(),
-          apiKey: apiKey.trim(),
-          requestFormat: provider.requestFormat,
-        },
-      });
-      modelConnectionResult.value = {
-        ...modelConnectionResult.value,
-        [modelCardId]: { success: true, latencyMs: result.elapsedMs },
-      };
-    } else if (cap === "embedding") {
-      const result = await invokeTauri<{ vectorDim: number; elapsedMs: number }>("test_embedding_connection", {
-        input: {
-          baseUrl: provider.baseUrl.trim(),
-          apiKey: apiKey.trim(),
-          requestFormat: provider.requestFormat,
-          model: modelName,
-        },
-      });
-      modelConnectionResult.value = {
-        ...modelConnectionResult.value,
-        [modelCardId]: { success: true, latencyMs: result.elapsedMs },
-      };
-    } else {
-      await invokeTauri<string>("quick_genai_chat", {
-        input: {
-          baseUrl: provider.baseUrl.trim(),
-          apiKey: apiKey.trim(),
-          requestFormat: provider.requestFormat,
-          model: modelName,
-          prompt: "连通性测试，恢复1代表连通",
-          providerId: provider.id,
-        },
-      });
-      modelConnectionResult.value = {
-        ...modelConnectionResult.value,
-        [modelCardId]: { success: true, latencyMs: Date.now() - started },
-      };
-    }
+    const latencyMs = await runProviderConnectionProbe(provider, apiKey, modelName);
+    modelConnectionResult.value = {
+      ...modelConnectionResult.value,
+      [modelCardId]: { success: true, latencyMs },
+    };
   } catch (err) {
     modelConnectionResult.value = {
       ...modelConnectionResult.value,
@@ -1654,6 +1618,58 @@ async function testModelConnection(modelCardId: string) {
   } finally {
     modelConnectionTesting.value = { ...modelConnectionTesting.value, [modelCardId]: false };
   }
+}
+
+async function runProviderConnectionProbe(
+  provider: ApiProviderConfigItem,
+  apiKey: string,
+  modelName: string,
+): Promise<number> {
+  const cap = capabilityFromRequestFormat(provider.requestFormat);
+  const started = Date.now();
+  if (cap === "voice") {
+    const result = await invokeTauri<{ elapsedMs: number }>("test_voice_connection", {
+      input: {
+        baseUrl: provider.baseUrl.trim(),
+        apiKey: apiKey.trim(),
+        requestFormat: provider.requestFormat,
+      },
+    });
+    return result.elapsedMs;
+  }
+  if (cap === "embedding") {
+    const result = await invokeTauri<{ vectorDim: number; elapsedMs: number }>("test_embedding_connection", {
+      input: {
+        baseUrl: provider.baseUrl.trim(),
+        apiKey: apiKey.trim(),
+        requestFormat: provider.requestFormat,
+        model: modelName,
+      },
+    });
+    return result.elapsedMs;
+  }
+  if (cap === "rerank") {
+    const result = await invokeTauri<{ resultCount: number; elapsedMs: number }>("test_rerank_connection", {
+      input: {
+        baseUrl: provider.baseUrl.trim(),
+        apiKey: apiKey.trim(),
+        requestFormat: provider.requestFormat,
+        model: modelName,
+      },
+    });
+    return result.elapsedMs;
+  }
+  await invokeTauri<string>("quick_genai_chat", {
+    input: {
+      baseUrl: provider.baseUrl.trim(),
+      apiKey: apiKey.trim(),
+      requestFormat: provider.requestFormat,
+      model: modelName,
+      prompt: "连通性测试，恢复1代表连通",
+      providerId: provider.id,
+    },
+  });
+  return Date.now() - started;
 }
 
 function maskKeyPreview(key: string): string {
@@ -1666,25 +1682,9 @@ async function runSingleConnectionTest(apiKey: string): Promise<ConnectionTestRe
   const provider = selectedProvider.value!;
   const modelCard = provider.models.find((m) => m.id === connectionTestModelId.value) ?? provider.models[0];
   const modelName = modelCard?.model.trim() ?? "";
-  const cap = capabilityFromRequestFormat(provider.requestFormat);
-  const started = Date.now();
   try {
-    if (cap === "voice") {
-      const result = await invokeTauri<{ elapsedMs: number }>("test_voice_connection", {
-        input: { baseUrl: provider.baseUrl.trim(), apiKey: apiKey.trim(), requestFormat: provider.requestFormat },
-      });
-      return { keyPreview: maskKeyPreview(apiKey), success: true, latencyMs: result.elapsedMs };
-    } else if (cap === "embedding") {
-      const result = await invokeTauri<{ vectorDim: number; elapsedMs: number }>("test_embedding_connection", {
-        input: { baseUrl: provider.baseUrl.trim(), apiKey: apiKey.trim(), requestFormat: provider.requestFormat, model: modelName },
-      });
-      return { keyPreview: maskKeyPreview(apiKey), success: true, latencyMs: result.elapsedMs };
-    } else {
-      await invokeTauri<string>("quick_genai_chat", {
-        input: { baseUrl: provider.baseUrl.trim(), apiKey: apiKey.trim(), requestFormat: provider.requestFormat, model: modelName, prompt: "连通性测试，恢复1代表连通", providerId: provider.id },
-      });
-      return { keyPreview: maskKeyPreview(apiKey), success: true, latencyMs: Date.now() - started };
-    }
+    const latencyMs = await runProviderConnectionProbe(provider, apiKey, modelName);
+    return { keyPreview: maskKeyPreview(apiKey), success: true, latencyMs };
   } catch (err) {
     return { keyPreview: maskKeyPreview(apiKey), success: false, error: String(err || "Unknown error") };
   }
