@@ -1405,7 +1405,7 @@
       "share": "分享",
       "forwardHint": "会把当前选中的原消息插入到目标会话末尾；如果目标会话正在流式输出，会直接失败。",
       "confirmForward": "确定转发",
-      "asyncDelegate": "发起异步委托",
+      "asyncDelegate": "发起委托",
       "delegateHint": "选中消息会作为纯文本背景发送给子代理；不选消息也可以直接委托。",
       "quickDelegate": "快捷委托",
       "reviewPreset": "审查",

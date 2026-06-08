@@ -1405,7 +1405,7 @@
       "share": "分享",
       "forwardHint": "會把目前選中的原訊息插入到目標會話末尾；如果目標會話正在流式輸出，會直接失敗。",
       "confirmForward": "確認轉發",
-      "asyncDelegate": "發起非同步委託",
+      "asyncDelegate": "發起委託",
       "delegateHint": "選中訊息會作為純文字背景發送給子代理；不選訊息也可以直接委託。",
       "quickDelegate": "快速委託",
       "reviewPreset": "審查",

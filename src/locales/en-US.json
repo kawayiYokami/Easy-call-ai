@@ -1411,7 +1411,7 @@
       "share": "Share",
       "forwardHint": "Selected source messages will be appended to the target conversation. If the target conversation is streaming, this will fail.",
       "confirmForward": "Confirm Forward",
-      "asyncDelegate": "Start Async Delegation",
+      "asyncDelegate": "Start Delegation",
       "delegateHint": "Selected messages are sent to the sub-agent as plain-text background. You can also delegate without selecting messages.",
       "quickDelegate": "Quick Delegation",
       "reviewPreset": "Review",
