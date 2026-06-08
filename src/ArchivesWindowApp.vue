@@ -157,7 +157,8 @@
 </template>
 
 <script setup lang="ts">
-import { computed, reactive, ref, watch } from "vue";
+import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from "vue";
+import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { useI18n } from "vue-i18n";
 import { invokeTauri } from "./services/tauri-api";
 import type { AppBootstrapSnapshot, AppConfig } from "./types/app";
@@ -311,6 +312,25 @@ const {
   buildArchiveImportPreview,
   importArchivePayload,
   setStatusError,
+});
+
+let unlistenConversationOverviewUpdated: UnlistenFn | null = null;
+
+onMounted(() => {
+  void listen("easy-call:conversation-overview-updated", () => {
+    void loadArchives();
+  }).then((unlisten) => {
+    unlistenConversationOverviewUpdated = unlisten;
+  }).catch((error) => {
+    console.error("[归档窗口] 监听会话概览失败", error);
+  });
+});
+
+onBeforeUnmount(() => {
+  if (unlistenConversationOverviewUpdated) {
+    unlistenConversationOverviewUpdated();
+    unlistenConversationOverviewUpdated = null;
+  }
 });
 
 const personaNameMap = computed<Record<string, string>>(() => {

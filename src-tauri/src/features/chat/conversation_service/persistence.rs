@@ -387,6 +387,7 @@ impl ConversationService {
         Ok(conversation)
     }
 
+    #[allow(dead_code)]
     fn set_conversation_lifecycle_metadata(
         &self,
         state: &AppState,

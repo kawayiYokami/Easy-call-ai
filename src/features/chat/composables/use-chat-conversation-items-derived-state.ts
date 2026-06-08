@@ -30,6 +30,7 @@ export function useChatConversationItemsDerivedState(bindings: Record<string, an
         summaryTitle: item.summaryTitle,
         kind: "local_unarchived" as const,
         messageCount: Number(item.messageCount || 0),
+        hasAssistantReply: item.hasAssistantReply !== false,
         unreadCount: Number(item.unreadCount || 0),
         agentId: String(item.agentId || "").trim(),
         departmentId: String(item.departmentId || "").trim(),

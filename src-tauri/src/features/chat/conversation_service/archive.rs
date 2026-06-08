@@ -242,6 +242,72 @@ impl ConversationService {
         Ok((selected_api, resolved_api, source, effective_agent_id))
     }
 
+    fn resolve_archive_request_conversation(
+        &self,
+        state: &AppState,
+        input: &SessionSelector,
+    ) -> Result<(ApiConfig, ResolvedApiConfig, Conversation, String), String> {
+        let guard = state.conversation_lock.lock().map_err(|err| {
+            format!(
+                "Failed to lock state mutex at {}:{} {}: {err}",
+                file!(),
+                line!(),
+                module_path!()
+            )
+        })?;
+        let runtime_snapshot = load_runtime_organization_snapshot(state)?;
+        let app_config = runtime_snapshot.config;
+        let runtime = state_read_runtime_state_cached(state)?;
+        let runtime_agents = runtime_snapshot.agents;
+        let selected_api = resolve_selected_api_config(&app_config, input.api_config_id.as_deref())
+            .ok_or_else(|| "No API config configured. Please add one.".to_string())?;
+        let resolved_api = resolve_api_config(&app_config, Some(selected_api.id.as_str()))?;
+        let requested_agent_id = input.agent_id.trim();
+        let effective_agent_id = if runtime_agents
+            .iter()
+            .any(|agent| agent.id == requested_agent_id && !agent.is_built_in_user)
+        {
+            requested_agent_id.to_string()
+        } else if runtime_agents.iter().any(|agent| {
+            agent.id == runtime.assistant_department_agent_id && !agent.is_built_in_user
+        }) {
+            runtime.assistant_department_agent_id.clone()
+        } else {
+            runtime_agents
+                .iter()
+                .find(|agent| !agent.is_built_in_user)
+                .map(|agent| agent.id.clone())
+                .ok_or_else(|| "Selected agent not found.".to_string())?
+        };
+        let source_conversation_id = input
+            .conversation_id
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty());
+        let source_conversation_id = if let Some(conversation_id) = source_conversation_id {
+            let conversation = state_read_conversation_cached(state, conversation_id)
+                .map_err(|_| "当前没有可归档的活动对话。".to_string())?;
+            if conversation_is_unarchived_foreground(&conversation)
+                || conversation_is_archived(&conversation)
+            {
+                Some(conversation.id)
+            } else {
+                None
+            }
+        } else {
+            self.resolve_latest_foreground_conversation_id(state, &effective_agent_id)?
+        }
+        .ok_or_else(|| "当前没有可归档的活动对话。".to_string())?;
+        let source = state_read_conversation_cached(state, &source_conversation_id)
+            .map_err(|_| "当前没有可归档的活动对话。".to_string())?;
+        if !conversation_is_unarchived_foreground(&source) && !conversation_is_archived(&source) {
+            drop(guard);
+            return Err("当前没有可归档的活动对话。".to_string());
+        }
+        drop(guard);
+        Ok((selected_api, resolved_api, source, effective_agent_id))
+    }
+
     fn delete_archive(&self, state: &AppState, archive_id: &str) -> Result<(), String> {
         let normalized_archive_id = archive_id.trim();
         if normalized_archive_id.is_empty() {
@@ -261,12 +327,13 @@ impl ConversationService {
         Ok(())
     }
 
-    fn prepare_background_archive_active_conversation(
+    fn instant_archive_conversation(
         &self,
         state: &AppState,
         selected_api: &ApiConfig,
         source: &Conversation,
-    ) -> Result<String, String> {
+        archive_reason: &str,
+    ) -> Result<InstantArchiveConversationMutationResult, String> {
         let guard = state.conversation_lock.lock().map_err(|err| {
             format!(
                 "Failed to lock state mutex at {}:{} {}: {err}",
@@ -277,7 +344,8 @@ impl ConversationService {
         })?;
         let source_conversation = state_read_conversation_cached(state, &source.id)
             .map_err(|err| format!("当前没有可归档的活动对话：{}", err))?;
-        if !conversation_is_unarchived_foreground(&source_conversation) {
+        let already_archived = conversation_is_archived(&source_conversation);
+        if !already_archived && !conversation_is_unarchived_foreground(&source_conversation) {
             drop(guard);
             return Err("当前没有可归档的活动对话。".to_string());
         }
@@ -336,20 +404,45 @@ impl ConversationService {
             conversation_id
         };
 
+        let archived_conversation = if already_archived {
+            source_conversation
+        } else {
+            let previous_status = source_conversation.status.clone();
+            let now = now_iso();
+            let (conversation, (), _) = state_update_conversation_metadata_cached(
+                state,
+                &source.id,
+                |conversation| {
+                    conversation.status = "archived".to_string();
+                    conversation.summary.clear();
+                    conversation.archived_at = Some(now.clone());
+                    conversation.updated_at = now.clone();
+                    Ok(())
+                },
+            )?;
+            runtime_log_info(format!(
+                "[归档] 完成，任务=即时标记归档，conversation_id={}，previous_status={}，reason={}，archived_at={}",
+                conversation.id,
+                previous_status,
+                archive_reason,
+                conversation.archived_at.as_deref().unwrap_or("")
+            ));
+            conversation
+        };
         let app_config = state_read_config_cached(state)?;
         let unarchived_conversations =
             self.collect_unarchived_conversation_summaries_cached(state, &app_config)?;
+        let overview_payload = UnarchivedConversationOverviewUpdatedPayload {
+            preferred_conversation_id: Some(active_conversation_id.clone()),
+            unarchived_conversations,
+        };
         drop(guard);
-        emit_unarchived_conversation_overview_updated_payload(
-            state,
-            &UnarchivedConversationOverviewUpdatedPayload {
-                preferred_conversation_id: unarchived_conversations
-                    .first()
-                    .map(|item| item.conversation_id.clone()),
-                unarchived_conversations,
-            },
-        );
-        Ok(active_conversation_id)
+        Ok(InstantArchiveConversationMutationResult {
+            archived_conversation,
+            active_conversation_id,
+            overview_payload,
+            already_archived,
+        })
     }
 
     fn import_archives(

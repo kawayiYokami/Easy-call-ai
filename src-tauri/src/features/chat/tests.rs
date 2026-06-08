@@ -3902,6 +3902,64 @@
     }
 
     #[test]
+    fn instant_archive_conversation_should_remove_from_unarchived_and_keep_messages() {
+        let state = test_chat_runtime_state();
+        write_config(&state.config_path, &AppConfig::default()).expect("write config");
+        let now = now_iso();
+        let active = test_chat_conversation("conversation-active-next", "active", &now);
+        let mut source = test_chat_conversation("conversation-instant-archive", "active", &now);
+        source.messages = vec![
+            test_text_message("user", "第一轮问题", &now),
+            test_text_message("assistant", "第一轮回复", &now),
+            test_text_message("user", "第二轮问题", &now),
+            test_text_message("assistant", "第二轮回复", &now),
+        ];
+        write_conversation_shard(&state.data_path, &active).expect("write active conversation");
+        write_conversation_shard(&state.data_path, &source).expect("write source conversation");
+
+        let result = conversation_service()
+            .instant_archive_conversation(&state, &ApiConfig::default(), &source, "test")
+            .expect("instant archive");
+
+        assert_eq!(result.active_conversation_id, active.id);
+        assert!(!result.already_archived);
+        assert_eq!(result.archived_conversation.status, "archived");
+        assert!(result.archived_conversation.archived_at.is_some());
+        assert!(result
+            .overview_payload
+            .unarchived_conversations
+            .iter()
+            .all(|item| item.conversation_id != source.id));
+
+        let summaries = conversation_service()
+            .list_unarchived_conversation_summaries(&state)
+            .expect("list unarchived")
+            .summaries;
+        assert_eq!(summaries.len(), 1);
+        assert_eq!(summaries[0].conversation_id, active.id);
+
+        let archives = conversation_service().list_archives(&state).expect("list archives");
+        assert!(archives.iter().any(|item| item.archive_id == source.id));
+        let archive_messages = conversation_service()
+            .read_archive_messages(&state, &source.id)
+            .expect("read archive messages");
+        assert_eq!(archive_messages.len(), source.messages.len());
+
+        let second = conversation_service()
+            .instant_archive_conversation(&state, &ApiConfig::default(), &source, "test")
+            .expect("idempotent instant archive");
+        assert!(second.already_archived);
+        assert_eq!(second.archived_conversation.status, "archived");
+
+        flush_pending_persists_blocking(&state).expect("flush pending persists");
+        let restored = read_conversation_shard(&state.data_path, &source.id)
+            .expect("read restored archived conversation");
+        assert_eq!(restored.status, "archived");
+        assert!(restored.archived_at.is_some());
+        assert_eq!(restored.messages.len(), source.messages.len());
+    }
+
+    #[test]
     fn list_remote_im_contact_conversations_should_create_and_bind_missing_conversation() {
         let state = test_chat_runtime_state();
         write_config(&state.config_path, &AppConfig::default()).expect("write config");

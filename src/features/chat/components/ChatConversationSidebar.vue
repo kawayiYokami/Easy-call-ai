@@ -529,7 +529,11 @@ function canToggleConversationPin(item: ChatConversationOverviewItem): boolean {
 }
 
 function canArchiveConversation(item: ChatConversationOverviewItem): boolean {
-  return isLocalConversation(item) && !item.isMainConversation && !isConversationDisabled(item);
+  return isLocalConversation(item)
+    && !item.isMainConversation
+    && Number(item.messageCount || 0) > 3
+    && item.hasAssistantReply !== false
+    && !isConversationDisabled(item);
 }
 
 function canExportConversation(item: ChatConversationOverviewItem): boolean {

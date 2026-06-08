@@ -61,6 +61,7 @@ export function useChatRuntime(options: UseChatRuntimeOptions) {
 
   async function runConversationMaintenance(
     action: ConversationMaintenanceAction,
+    targetConversationId?: string | null,
   ) {
     const apiConfigId = String(options.activeChatApiConfigId.value || "").trim();
     const agentId = String(options.assistantDepartmentAgentId.value || "").trim();
@@ -70,28 +71,38 @@ export function useChatRuntime(options: UseChatRuntimeOptions) {
       options.setChatError(text);
       return;
     }
-    if (options.trimming.value || options.compactingConversation.value) {
+    const currentConversationId = currentConversationIdOrNull();
+    const sourceConversationId = String(targetConversationId || currentConversationId || "").trim() || null;
+    const targetIsForeground = !currentConversationId || !sourceConversationId || sourceConversationId === currentConversationId;
+    const shouldLockForeground = action.lockForeground && targetIsForeground;
+    const instantArchiveAction = action.command === "trim_current_conversation";
+    if (targetIsForeground && options.compactingConversation.value) {
       const text = options.t("status.conversationActionInProgress");
       options.setStatus(text);
       options.setChatError(text);
       return;
     }
-    if (options.chatting.value) {
+    if (!instantArchiveAction && targetIsForeground && options.trimming.value) {
+      const text = options.t("status.conversationActionInProgress");
+      options.setStatus(text);
+      options.setChatError(text);
+      return;
+    }
+    if (targetIsForeground && options.chatting.value) {
       const text = options.t("status.conversationActionBusy");
       options.setStatus(text);
       options.setChatError(text);
       return;
     }
 
-    const sourceConversationId = currentConversationIdOrNull();
     options.setStatus("");
     options.setChatError("");
-    if (action.lockForeground) {
+    if (shouldLockForeground && !instantArchiveAction) {
       options.trimming.value = true;
       if (options.trimmingConversationId) {
         options.trimmingConversationId.value = sourceConversationId || "";
       }
-    } else {
+    } else if (!action.lockForeground) {
       options.compactingConversation.value = true;
       if (options.compactingConversationId) {
         options.compactingConversationId.value = sourceConversationId || "";
@@ -114,7 +125,7 @@ export function useChatRuntime(options: UseChatRuntimeOptions) {
           },
       });
       const activeConversationId = String(result.activeConversationId || "").trim();
-      if (action.lockForeground && activeConversationId && options.currentConversationId) {
+      if (shouldLockForeground && activeConversationId && options.currentConversationId) {
         const previousConversationId = String(options.currentConversationId.value || "").trim();
         console.info("[CHAT] conversation switched", {
           previousConversationId,
@@ -145,6 +156,9 @@ export function useChatRuntime(options: UseChatRuntimeOptions) {
       if (options.refreshUnarchivedConversations) {
         await options.refreshUnarchivedConversations();
       }
+      if (action.lockForeground && !targetIsForeground) {
+        return;
+      }
       if (!action.lockForeground && result.compactionMessage) {
         const messageId = String(result.compactionMessage.id || "").trim();
         if (messageId && !options.allMessages.value.some((message) => String(message.id || "").trim() === messageId)) {
@@ -167,12 +181,12 @@ export function useChatRuntime(options: UseChatRuntimeOptions) {
         options.setChatError(options.t(action.failedKey, { err: String(e) }));
       }
     } finally {
-      if (action.lockForeground) {
+      if (shouldLockForeground && !instantArchiveAction) {
         options.trimming.value = false;
         if (options.trimmingConversationId) {
           options.trimmingConversationId.value = "";
         }
-      } else {
+      } else if (!action.lockForeground) {
         options.compactingConversation.value = false;
         if (options.compactingConversationId) {
           options.compactingConversationId.value = "";
@@ -181,7 +195,7 @@ export function useChatRuntime(options: UseChatRuntimeOptions) {
     }
   }
 
-  async function trimNow() {
+  async function trimNow(targetConversationId?: string | null) {
     await runConversationMaintenance({
       command: "trim_current_conversation",
       runningKey: "status.trimArchiveRunning",
@@ -190,7 +204,7 @@ export function useChatRuntime(options: UseChatRuntimeOptions) {
       failedKey: "status.trimArchiveFailed",
       isDone: (result) => result.archived,
       lockForeground: true,
-    });
+    }, targetConversationId);
   }
 
   async function trimCompactNow() {

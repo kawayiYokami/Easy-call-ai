@@ -38,6 +38,7 @@ struct UnarchivedConversationSummary {
     #[serde(skip_serializing_if = "Option::is_none")]
     last_message_at: Option<String>,
     message_count: usize,
+    has_assistant_reply: bool,
     unread_count: usize,
     agent_id: String,
     department_id: String,
@@ -469,6 +470,9 @@ fn build_unarchived_conversation_summary(
     let item_state = build_conversation_list_item_state(state, conversation_id, unread_count);
     let (workspace_label, workspace_root_path) =
         conversation_default_workspace_summary(state, conversation);
+    let has_assistant_reply = conversation.messages.iter().any(|message| {
+        message.role.trim().eq_ignore_ascii_case("assistant")
+    });
     UnarchivedConversationSummary {
         conversation_id: conversation.id.clone(),
         title: conversation.title.clone(),
@@ -476,6 +480,7 @@ fn build_unarchived_conversation_summary(
         updated_at: conversation.updated_at.clone(),
         last_message_at,
         message_count: conversation.messages.len(),
+        has_assistant_reply,
         unread_count,
         agent_id: conversation.agent_id.clone(),
         department_id,
@@ -1042,6 +1047,7 @@ mod conversation_snapshot_api_tests {
             updated_at: updated_at.to_string(),
             last_message_at: Some(updated_at.to_string()),
             message_count: 1,
+            has_assistant_reply: true,
             unread_count: 0,
             agent_id: "agent-a".to_string(),
             department_id: "dept-a".to_string(),

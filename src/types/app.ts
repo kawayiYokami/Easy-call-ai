@@ -739,6 +739,7 @@ export type UnarchivedConversationSummary = {
   updatedAt: string;
   lastMessageAt?: string;
   messageCount: number;
+  hasAssistantReply?: boolean;
   unreadCount: number;
   agentId: string;
   departmentId: string;
@@ -795,6 +796,7 @@ export type ChatConversationOverviewItem = {
   channelId?: string;
   channelName?: string;
   messageCount: number;
+  hasAssistantReply?: boolean;
   unreadCount?: number;
   agentId?: string;
   departmentId?: string;

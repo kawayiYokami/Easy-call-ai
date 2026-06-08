@@ -45,11 +45,8 @@ export function useChatConversationDialogGlue(bindings: Record<string, any>) {
   async function archiveConversationFromList(conversationId: string) {
     const normalizedConversationId = String(conversationId || "").trim();
     if (!normalizedConversationId) return;
-    if (normalizedConversationId !== String(bindings.currentChatConversationId.value || "").trim()) {
-      await bindings.switchUnarchivedConversation(normalizedConversationId);
-    }
     try {
-      await bindings.archiveCurrentConversation();
+      await bindings.archiveCurrentConversation(normalizedConversationId);
     } catch (error) {
       bindings.setStatusError("status.trimArchiveFailed", error);
     }

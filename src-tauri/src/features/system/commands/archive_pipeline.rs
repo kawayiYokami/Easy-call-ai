@@ -414,15 +414,23 @@ fn resolve_archive_target_conversation(
     conversation_service().resolve_archive_target_conversation(state, input)
 }
 
-fn prepare_background_archive_active_conversation(
+fn resolve_archive_request_conversation(
+    state: &AppState,
+    input: &SessionSelector,
+) -> Result<(ApiConfig, ResolvedApiConfig, Conversation, String), String> {
+    conversation_service().resolve_archive_request_conversation(state, input)
+}
+
+fn instant_archive_conversation(
     state: &AppState,
     selected_api: &ApiConfig,
     source: &Conversation,
-) -> Result<String, String> {
-    conversation_service().prepare_background_archive_active_conversation(
+) -> Result<InstantArchiveConversationMutationResult, String> {
+    conversation_service().instant_archive_conversation(
         state,
         selected_api,
         source,
+        "manual_trim_conversation",
     )
 }
 
@@ -873,6 +881,7 @@ fn compose_summary_context_summary(
     }
 }
 
+#[allow(dead_code)]
 fn emit_archive_history_flushed_event(
     state: &AppState,
     source_conversation_id: &str,
@@ -1694,91 +1703,100 @@ async fn trim_current_conversation(
         return Err("归档目标投放已停用：归档只保留原会话正文，并在归档反思中处理记忆。".to_string());
     }
     let (selected_api, resolved_api, source, effective_agent_id) =
-        resolve_archive_target_conversation(state.inner(), &input.session)?;
+        resolve_archive_request_conversation(state.inner(), &input.session)?;
+    let already_archived = conversation_is_archived(&source);
     let runtime = state_read_runtime_state_cached(state.inner())?;
     let main_conversation_id = runtime
         .main_conversation_id
         .as_deref()
         .map(str::trim)
         .unwrap_or_default();
-    if source.id.trim() == main_conversation_id {
+    if !already_archived && source.id.trim() == main_conversation_id {
         return Err("主会话暂不支持归档。".to_string());
     }
-    if get_conversation_runtime_state(state.inner(), &source.id)?
+    if !already_archived && get_conversation_runtime_state(state.inner(), &source.id)?
         == MainSessionState::OrganizingContext
     {
         return Err("强制归档正在进行中，请稍候。".to_string());
     }
-    let active_conversation_id =
-        prepare_background_archive_active_conversation(state.inner(), &selected_api, &source)?;
-
-    let state_cloned = state.inner().clone();
-    let selected_api_cloned = selected_api.clone();
-    let resolved_api_cloned = resolved_api.clone();
-    let source_cloned = source.clone();
-    let effective_agent_id_cloned = effective_agent_id.clone();
-    let active_conversation_id_for_background = active_conversation_id.clone();
-    tauri::async_runtime::spawn(async move {
-        let panic_safe_task = std::panic::AssertUnwindSafe(async {
-            let result = run_archive_pipeline(
-                &state_cloned,
-                &selected_api_cloned,
-                &resolved_api_cloned,
-                &source_cloned,
-                &effective_agent_id_cloned,
-                Some(active_conversation_id_for_background.as_str()),
-                None,
-                "manual_trim_conversation",
-                "ARCHIVE-FORCE",
-            )
-            .await;
-            if let Err(err) = result {
-                eprintln!(
-                    "[TRIM] 失败，任务=background_trim_conversation，conversation_id={}，error={}",
-                    source_cloned.id, err
-                );
-            }
-            trigger_chat_queue_processing(&state_cloned);
-        });
-        if futures_util::FutureExt::catch_unwind(panic_safe_task)
-            .await
-            .is_err()
-        {
-            eprintln!(
-                "[TRIM] 失败，任务=background_trim_conversation，conversation_id={}，error=panic",
-                source_cloned.id
-            );
-            if let Err(err) = set_conversation_runtime_state(
-                &state_cloned,
-                &source_cloned.id,
-                MainSessionState::Idle,
-            ) {
-                eprintln!(
-                    "[TRIM] 警告，任务=background_trim_conversation_reset_state，conversation_id={}，error={}",
-                    source_cloned.id, err
-                );
-            } else {
-                emit_conversation_runtime_state_updated_payload(
-                    &state_cloned,
-                    &ConversationRuntimeStateUpdatedPayload {
-                        conversation_id: source_cloned.id.clone(),
-                        runtime_state: MainSessionState::Idle,
-                    },
-                );
-            }
-            trigger_chat_queue_processing(&state_cloned);
+    if !already_archived {
+        let message_count = archive_pipeline_message_count_for_delete(&source);
+        if source.messages.is_empty() {
+            return Err("当前会话为空，不能归档。".to_string());
         }
-    });
+        if !archive_pipeline_has_assistant_reply(&source) {
+            return Err("当前会话还没有助理回复，不能归档。".to_string());
+        }
+        if message_count <= SHORT_CONVERSATION_DELETE_THRESHOLD {
+            return Err(format!(
+                "当前会话过短（仅 {} 条用户/助理消息），暂不建议归档。",
+                message_count
+            ));
+        }
+    }
+    let archive_result = instant_archive_conversation(state.inner(), &selected_api, &source)?;
+    flush_pending_persists_blocking(state.inner())
+        .map_err(|err| format!("归档状态写入失败：{}", err))?;
+    emit_unarchived_conversation_overview_updated_payload(
+        state.inner(),
+        &archive_result.overview_payload,
+    );
+    let active_conversation_id = archive_result.active_conversation_id.clone();
 
+    if !archive_result.already_archived {
+        let state_cloned = state.inner().clone();
+        let selected_api_cloned = selected_api.clone();
+        let resolved_api_cloned = resolved_api.clone();
+        let source_cloned = archive_result.archived_conversation.clone();
+        let effective_agent_id_cloned = effective_agent_id.clone();
+        let active_conversation_id_for_background = active_conversation_id.clone();
+        tauri::async_runtime::spawn(async move {
+            let panic_safe_task = std::panic::AssertUnwindSafe(async {
+                let result = run_archive_pipeline(
+                    &state_cloned,
+                    &selected_api_cloned,
+                    &resolved_api_cloned,
+                    &source_cloned,
+                    &effective_agent_id_cloned,
+                    Some(active_conversation_id_for_background.as_str()),
+                    None,
+                    "manual_trim_conversation",
+                    "ARCHIVE-FORCE",
+                )
+                .await;
+                if let Err(err) = result {
+                    runtime_log_warn(format!(
+                        "[归档] 失败，任务=后台归档维护，conversation_id={}，error={}",
+                        source_cloned.id, err
+                    ));
+                }
+                trigger_chat_queue_processing(&state_cloned);
+            });
+            if futures_util::FutureExt::catch_unwind(panic_safe_task)
+                .await
+                .is_err()
+            {
+                eprintln!(
+                    "[归档] 失败，任务=后台归档维护，conversation_id={}，error=panic",
+                    source_cloned.id
+                );
+                trigger_chat_queue_processing(&state_cloned);
+            }
+        });
+    }
+
+    let archive_id = archive_result.archived_conversation.id.clone();
     Ok(ForceArchiveResult {
-        archived: false,
-        archive_id: None,
+        archived: true,
+        archive_id: Some(archive_id),
         active_conversation_id: Some(active_conversation_id),
         compaction_message: None,
         summary: String::new(),
         merged_memories: 0,
         warning: None,
-        reason_code: Some("background_started".to_string()),
+        reason_code: archive_result
+            .already_archived
+            .then(|| "already_archived".to_string()),
         elapsed_ms: None,
         memory_feedback: None,
         merge_groups: Some(0),
@@ -1883,21 +1901,11 @@ pub(crate) async fn run_archive_pipeline(
     let started_at = std::time::Instant::now();
     let trace_id = Uuid::new_v4().to_string();
 
-    // 设置状态为 OrganizingContext（仅影响所属会话）
-    set_conversation_runtime_state(state, &source.id, MainSessionState::OrganizingContext)?;
-    emit_conversation_runtime_state_updated_payload(
-        state,
-        &ConversationRuntimeStateUpdatedPayload {
-            conversation_id: source.id.clone(),
-            runtime_state: MainSessionState::OrganizingContext,
-        },
-    );
     eprintln!(
-        "[ARCHIVE-PIPELINE] 开始: task=archive_pipeline, trace_id={}, agent_id={}, api_id={}, started_at={}",
+        "[ARCHIVE-PIPELINE] 开始: task=archive_maintenance, trace_id={}, agent_id={}, api_id={}, started_at={}",
         trace_id, effective_agent_id, selected_api.id, started_at.elapsed().as_millis()
     );
 
-    // 确保在所有退出路径都恢复状态
     let result = run_archive_pipeline_inner(
         state,
         selected_api,
@@ -1913,28 +1921,11 @@ pub(crate) async fn run_archive_pipeline(
     )
     .await;
 
-    // 归档完成，切换回 Idle（即使内部失败也要恢复状态）
     let elapsed_ms = started_at.elapsed().as_millis();
-    if let Err(state_err) =
-        set_conversation_runtime_state(state, &source.id, MainSessionState::Idle)
-    {
-        eprintln!(
-            "[ARCHIVE-PIPELINE] 警告: 状态恢复失败, trace_id={}, elapsed_ms={}, error={}",
-            trace_id, elapsed_ms, state_err
-        );
-    } else {
-        emit_conversation_runtime_state_updated_payload(
-            state,
-            &ConversationRuntimeStateUpdatedPayload {
-                conversation_id: source.id.clone(),
-                runtime_state: MainSessionState::Idle,
-            },
-        );
-        eprintln!(
-            "[ARCHIVE-PIPELINE] 完成: task=archive_pipeline, trace_id={}, agent_id={}, api_id={}, elapsed_ms={}",
-            trace_id, effective_agent_id, selected_api.id, elapsed_ms
-        );
-    }
+    eprintln!(
+        "[ARCHIVE-PIPELINE] 完成: task=archive_maintenance, trace_id={}, agent_id={}, api_id={}, elapsed_ms={}",
+        trace_id, effective_agent_id, selected_api.id, elapsed_ms
+    );
 
     // 注意：不在这里触发 process_chat_queue，由调用方负责
 
@@ -2198,102 +2189,20 @@ async fn run_archive_pipeline_inner(
     started_at: std::time::Instant,
     trace_id: &str,
 ) -> Result<ForceArchiveResult, String> {
-    let runtime = state_read_runtime_state_cached(state)?;
-    let is_main_conversation = runtime
-        .main_conversation_id
-        .as_deref()
-        .map(str::trim)
-        == Some(source.id.as_str());
-
     if source.messages.is_empty() {
-        if !is_main_conversation {
-            mark_tasks_as_session_lost(&state.data_path, &source.id);
-        }
-        let active_conversation_id =
-            delete_main_conversation_and_activate_latest(state, selected_api, source)?;
-        emit_deleted_history_flushed_event(
-            state,
-            &source.id,
-            &active_conversation_id,
-            "empty_conversation_deleted",
-        );
-        return Ok(ForceArchiveResult {
-            archived: false,
-            archive_id: None,
-            active_conversation_id: Some(active_conversation_id),
-            compaction_message: None,
-            summary: String::new(),
-            merged_memories: 0,
-            warning: None,
-            reason_code: Some("empty_conversation_deleted".to_string()),
-            elapsed_ms: Some(started_at.elapsed().as_millis().min(u128::from(u64::MAX)) as u64),
-            memory_feedback: None,
-            merge_groups: None,
-        });
+        return Err("归档后维护跳过：当前会话为空。".to_string());
     }
 
     if !archive_pipeline_has_assistant_reply(source) {
-        if !is_main_conversation {
-            mark_tasks_as_session_lost(&state.data_path, &source.id);
-        }
-        let active_conversation_id =
-            delete_main_conversation_and_activate_latest(state, selected_api, source)?;
-        emit_deleted_history_flushed_event(
-            state,
-            &source.id,
-            &active_conversation_id,
-            "no_assistant_reply_deleted",
-        );
-        eprintln!(
-            "[ARCHIVE-PIPELINE] 无助理回复会话直接删除: conversation_id={}, next_conversation_id={}",
-            source.id, active_conversation_id
-        );
-        return Ok(ForceArchiveResult {
-            archived: false,
-            archive_id: None,
-            active_conversation_id: Some(active_conversation_id),
-            compaction_message: None,
-            summary: String::new(),
-            merged_memories: 0,
-            warning: None,
-            reason_code: Some("no_assistant_reply_deleted".to_string()),
-            elapsed_ms: Some(started_at.elapsed().as_millis().min(u128::from(u64::MAX)) as u64),
-            memory_feedback: None,
-            merge_groups: None,
-        });
+        return Err("归档后维护跳过：当前会话还没有助理回复。".to_string());
     }
 
     let message_count = archive_pipeline_message_count_for_delete(source);
     if message_count <= SHORT_CONVERSATION_DELETE_THRESHOLD {
-        if !is_main_conversation {
-            mark_tasks_as_session_lost(&state.data_path, &source.id);
-        }
-        let active_conversation_id =
-            delete_main_conversation_and_activate_latest(state, selected_api, source)?;
-        emit_deleted_history_flushed_event(
-            state,
-            &source.id,
-            &active_conversation_id,
-            "short_conversation_deleted",
-        );
-        eprintln!(
-            "[ARCHIVE-PIPELINE] 短对话直接删除: conversation_id={}, message_count={}, next_conversation_id={}",
-            source.id, message_count, active_conversation_id
-        );
-
-        return Ok(ForceArchiveResult {
-            archived: false,
-            archive_id: None,
-            active_conversation_id: Some(active_conversation_id),
-            compaction_message: None,
-            summary: String::new(),
-            merged_memories: 0,
-            warning: None,
-            reason_code: Some("short_conversation_deleted".to_string()),
-            elapsed_ms: Some(started_at.elapsed().as_millis().min(u128::from(u64::MAX)) as u64),
-            memory_feedback: None,
-            merge_groups: None,
-        });
+        return Err(format!(
+            "归档后维护跳过：当前会话过短（{} 条用户/助理消息）。",
+            message_count
+        ));
     }
 
     let (owner_agent, owner_agent_id, user_alias) = resolve_archive_owner_context(state, source)?;
@@ -2348,32 +2257,19 @@ async fn run_archive_pipeline_inner(
             (None, None)
         };
 
-    let mut archived_conversation = state_read_conversation_cached(state, &source.id)
-        .map_err(|_| "归档前会话已变化，请重试归档。".to_string())?;
-    if !archived_conversation.summary.trim().is_empty() {
-        return Err("归档前会话已变化，请重试归档。".to_string());
+    let archived_conversation = state_read_conversation_cached(state, &source.id)
+        .map_err(|_| "归档后维护失败：会话已不存在。".to_string())?;
+    if !conversation_is_archived(&archived_conversation) {
+        return Err("归档后维护失败：会话尚未标记为已归档。".to_string());
     }
-    let previous_status = archived_conversation.status.clone();
-    let now = now_iso();
-    archived_conversation = conversation_service().set_conversation_lifecycle_metadata(
-        state,
-        &source.id,
-        Some("archived"),
-        Some(""),
-        Some(Some(now.clone())),
-        Some(now),
-    )?;
     let archive_id = archived_conversation.id.clone();
     eprintln!(
-        "[会话] 已归档: conversation_id={}, previous_status={}, reason=\"{}\"",
+        "[归档] 开始，任务=后台维护，conversation_id={}，reason=\"{}\"",
         archived_conversation.id,
-        previous_status,
         archive_reason
     );
     clear_screenshot_artifact_cache();
-    if !is_main_conversation {
-        mark_tasks_as_session_lost(&state.data_path, &source.id);
-    }
+    mark_tasks_as_session_lost(&state.data_path, &source.id);
     let active_conversation_id = prepared_active_conversation_id
         .map(str::trim)
         .filter(|value| !value.is_empty())
@@ -2426,14 +2322,6 @@ async fn run_archive_pipeline_inner(
             source.id, e
         );
     }
-
-    emit_archive_history_flushed_event(
-        state,
-        &source.id,
-        &active_conversation_id,
-        &archive_id,
-        archive_reason,
-    );
 
     if let Some(applied_report) = applied_report.as_ref() {
         eprintln!(

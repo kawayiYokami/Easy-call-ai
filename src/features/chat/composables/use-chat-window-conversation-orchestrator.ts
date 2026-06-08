@@ -45,7 +45,7 @@ export function useChatWindowConversationOrchestrator(bindings: Record<string, a
     applyConversationMessageAppended,
     applyConversationSnapshot,
     applyConversationTodosUpdated,
-    applyConversationOverviewUpdated,
+    applyConversationOverviewUpdated: applyConversationOverviewUpdatedRaw,
     applyConversationPinUpdated,
     applyConversationRuntimeStateUpdated,
     isOverviewDraftMessage,
@@ -110,6 +110,23 @@ export function useChatWindowConversationOrchestrator(bindings: Record<string, a
     freezeForegroundConversation: bindings.freezeForegroundConversation,
     getChatFlow: bindings.getChatFlow,
   });
+
+  function applyConversationOverviewUpdated(payload?: Record<string, any> | null) {
+    applyConversationOverviewUpdatedRaw(payload);
+    const currentConversationId = String(bindings.currentChatConversationId.value || "").trim();
+    if (!currentConversationId) return;
+    const stillVisible = bindings.unarchivedConversations.value.some(
+      (item: any) => String(item.conversationId || "").trim() === currentConversationId,
+    );
+    if (stillVisible) return;
+    const preferredConversationId = String(payload?.preferredConversationId || "").trim() || null;
+    void chatForeground.recoverForegroundConversationFromOverview(
+      "conversation_overview_updated_missing_current",
+      preferredConversationId,
+    ).catch((error: unknown) => {
+      bindings.setStatusError("status.loadMessagesFailed", error);
+    });
+  }
 
   const chatRemoteConversation = useChatRemoteConversationOrchestrator({
     remoteImContactConversations: bindings.remoteImContactConversations,
