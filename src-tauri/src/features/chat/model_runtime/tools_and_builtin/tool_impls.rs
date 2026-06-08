@@ -679,7 +679,7 @@ impl RuntimeToolMetadata for BuiltinDelegateTool {
               "type": "object",
               "properties": {
                 "department_id": { "type": "string", "description": "要委托给哪个下级部门的 ID。应选择与当前任务最匹配的直接下级部门。" },
-                "mode": { "type": "string", "enum": ["async", "sync"], "description": "委托方式。sync 会等待子代理返回结果；async 会后台执行并稍后写回当前主会话。默认 sync。", "default": "sync" },
+                "mode": { "type": "string", "enum": ["async", "sync"], "description": "委托方式。sync 会等待子代理返回结果；async 会后台执行并稍后写回当前来源会话。默认 sync。", "default": "sync" },
                 "background": { "type": "string", "description": "提供给子代理的背景信息、已知事实、已有线索或上下文，帮助它更快进入问题。" },
                 "question": { "type": "string", "description": "这次委托要子代理查清的核心问题，最好写成明确的调查目标或待回答的问题。" },
                 "focus": { "type": "string", "description": "告诉子代理优先关注哪些方向、关键词、对象或比对点；用于缩小搜索范围、避免跑偏。" }

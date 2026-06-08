@@ -496,8 +496,8 @@ export function useArchivesView(options: UseArchivesViewOptions) {
     const summary = unarchivedConversations.value.find(
       (item) => String(item.conversationId || "").trim() === conversationId,
     );
-    if (summary?.isMainConversation) {
-      options.setStatus("主会话暂不支持删除。");
+    if (summary?.isSystemNotificationConversation) {
+      options.setStatus("系统通知会话暂不支持删除。");
       return null;
     }
     try {

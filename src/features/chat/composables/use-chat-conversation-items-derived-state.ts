@@ -19,6 +19,8 @@ export function useChatConversationItemsDerivedState(bindings: Record<string, an
     const items = bindings.unarchivedConversations.value
       .map((item: any) => {
         const conversationId = String(item.conversationId || "").trim();
+        const isSystemNotificationConversation =
+          !!item.isSystemNotificationConversation || !!item.isMainConversation;
         const localRuntimeState = conversationId && conversationId === trimmingConversationId
           ? "archiving"
           : conversationId && conversationId === compactingConversationId
@@ -40,7 +42,7 @@ export function useChatConversationItemsDerivedState(bindings: Record<string, an
         workspaceLabel: String(item.workspaceLabel || "").trim() || "默认会话目录",
         workspaceRootPath: String(item.workspaceRootPath || "").trim() || undefined,
         isActive: !!item.isActive,
-        isMainConversation: !!item.isMainConversation,
+        isSystemNotificationConversation,
         isPinned: !!item.isPinned,
         pinIndex: Number.isFinite(Number(item.pinIndex)) ? Number(item.pinIndex) : undefined,
         runtimeState: localRuntimeState || item.runtimeState,

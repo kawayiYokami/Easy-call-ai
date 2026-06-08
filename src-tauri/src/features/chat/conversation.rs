@@ -44,6 +44,41 @@ fn latest_main_conversation_index(data: &AppData, _agent_id: &str) -> Option<usi
         .map(|(idx, _)| idx)
 }
 
+fn system_notification_conversation_title() -> String {
+    "系统通知".to_string()
+}
+
+fn normalize_system_notification_conversation(conversation: &mut Conversation) -> bool {
+    let mut changed = false;
+    if conversation.id.trim() != SYSTEM_NOTIFICATION_CONVERSATION_ID {
+        conversation.id = SYSTEM_NOTIFICATION_CONVERSATION_ID.to_string();
+        changed = true;
+    }
+    if conversation.conversation_kind.trim() != CONVERSATION_KIND_SYSTEM_NOTIFICATION {
+        conversation.conversation_kind = CONVERSATION_KIND_SYSTEM_NOTIFICATION.to_string();
+        changed = true;
+    }
+    let title = conversation.title.trim();
+    if title.is_empty() || title == "主会话" {
+        conversation.title = system_notification_conversation_title();
+        changed = true;
+    }
+    if conversation.department_id.trim().is_empty() {
+        conversation.department_id = ASSISTANT_DEPARTMENT_ID.to_string();
+        changed = true;
+    }
+    if conversation.status.trim().is_empty() {
+        conversation.status = "active".to_string();
+        changed = true;
+    }
+    changed
+}
+
+fn conversation_is_system_notification(conversation: &Conversation) -> bool {
+    conversation.id.trim() == SYSTEM_NOTIFICATION_CONVERSATION_ID
+        || conversation.conversation_kind.trim() == CONVERSATION_KIND_SYSTEM_NOTIFICATION
+}
+
 fn fallback_foreground_department_id() -> String {
     ASSISTANT_DEPARTMENT_ID.to_string()
 }
@@ -134,13 +169,33 @@ fn main_conversation_index(data: &AppData, _agent_id: &str) -> Option<usize> {
 }
 
 fn normalize_main_conversation_marker(data: &mut AppData, _agent_id: &str) -> bool {
-    if main_conversation_index(data, "").is_some() {
-        return false;
+    let fixed_id = SYSTEM_NOTIFICATION_CONVERSATION_ID;
+    if let Some(idx) = data.conversations.iter().position(|conversation| {
+        conversation.id.trim() == fixed_id
+            && conversation.summary.trim().is_empty()
+            && conversation_visible_in_foreground_lists(conversation)
+    }) {
+        let mut changed = normalize_system_notification_conversation(&mut data.conversations[idx]);
+        if data.main_conversation_id.as_deref().map(str::trim) != Some(fixed_id) {
+            data.main_conversation_id = Some(fixed_id.to_string());
+            changed = true;
+        }
+        return changed;
     }
-    if data.main_conversation_id.is_none() {
-        return false;
+    if let Some(idx) = data.conversations.iter().position(|conversation| {
+        conversation.summary.trim().is_empty()
+            && conversation_visible_in_foreground_lists(conversation)
+            && conversation_is_system_notification(conversation)
+    }) {
+        let mut changed = normalize_system_notification_conversation(&mut data.conversations[idx]);
+        if data.main_conversation_id.as_deref().map(str::trim) != Some(fixed_id) {
+            data.main_conversation_id = Some(fixed_id.to_string());
+            changed = true;
+        }
+        return changed;
     }
-    data.main_conversation_id = None;
+    data.conversations.push(build_system_notification_conversation_record());
+    data.main_conversation_id = Some(fixed_id.to_string());
     true
 }
 
@@ -169,7 +224,7 @@ fn normalize_single_active_main_conversation(data: &mut AppData) -> bool {
             .map(|item| item.id.clone())
             .unwrap_or_default();
         eprintln!(
-            "[会话] 归一化未归档主会话激活标记: active_conversation_id={}",
+            "[会话] 归一化未归档会话激活标记: active_conversation_id={}",
             keep_id
         );
     }
@@ -241,6 +296,7 @@ const SUMMARY_CONTEXT_TITLE_MAX_CHARS: usize = 20;
 
 fn conversation_is_local_normal_chat(conversation: &Conversation) -> bool {
     conversation.conversation_kind.trim() == CONVERSATION_KIND_CHAT
+        && !conversation_is_system_notification(conversation)
         && !conversation_is_delegate(conversation)
         && !conversation_is_remote_im_contact(conversation)
 }
@@ -935,53 +991,20 @@ fn build_conversation_record(
     }
 }
 
-fn build_foreground_chat_conversation_record(
-    data_path: &PathBuf,
-    data: &AppData,
-    api_config_id: &str,
-    agent_id: &str,
-    department_id: &str,
-    title: &str,
-) -> Conversation {
+fn build_system_notification_conversation_record() -> Conversation {
     let mut conversation = build_conversation_record(
-        api_config_id,
-        agent_id,
-        department_id,
-        title,
-        CONVERSATION_KIND_CHAT,
+        "",
+        DEFAULT_AGENT_ID,
+        ASSISTANT_DEPARTMENT_ID,
+        &system_notification_conversation_title(),
+        CONVERSATION_KIND_SYSTEM_NOTIFICATION,
         None,
         None,
     );
-    let snapshot_agent_id = agent_id
-        .trim()
-        .is_empty()
-        .then(|| data.assistant_department_agent_id.trim().to_string())
-        .unwrap_or_else(|| agent_id.trim().to_string());
-    let user_profile_snapshot = data
-        .agents
-        .iter()
-        .find(|item| item.id == snapshot_agent_id)
-        .and_then(|agent| match build_user_profile_snapshot_block(data_path, agent, 12) {
-            Ok(snapshot) => snapshot,
-            Err(err) => {
-                runtime_log_error(format!(
-                    "[用户画像] 失败，任务=build_foreground_chat_conversation_record，agent_id={}，error={}",
-                    agent.id, err
-                ));
-                None
-            }
-        });
-    if let Some(snapshot) = user_profile_snapshot.clone() {
-        conversation.user_profile_snapshot = snapshot;
-    }
-    let summary_message = build_initial_summary_context_message(
-        user_profile_snapshot.as_deref(),
-        Some(&conversation.current_todos),
-        None,
-    );
-    conversation.last_user_at = Some(summary_message.created_at.clone());
-    conversation.updated_at = summary_message.created_at.clone();
-    conversation.messages.push(summary_message);
+    conversation.id = SYSTEM_NOTIFICATION_CONVERSATION_ID.to_string();
+    conversation.messages = Vec::new();
+    conversation.last_user_at = None;
+    conversation.last_assistant_at = None;
     conversation
 }
 
@@ -1007,15 +1030,7 @@ fn ensure_active_conversation_index(
         return idx;
     }
 
-    let conversation = build_conversation_record(
-        api_config_id,
-        "",
-        "",
-        "",
-        CONVERSATION_KIND_CHAT,
-        None,
-        None,
-    );
+    let conversation = build_system_notification_conversation_record();
 
     for item in &mut data.conversations {
         if !conversation_visible_in_foreground_lists(item) || !item.summary.trim().is_empty() {
@@ -1031,7 +1046,7 @@ fn ensure_active_conversation_index(
         .filter(|value| !value.is_empty())
         .is_none()
     {
-        data.main_conversation_id = data.conversations.last().map(|item| item.id.clone());
+        data.main_conversation_id = Some(SYSTEM_NOTIFICATION_CONVERSATION_ID.to_string());
     }
     data.conversations.len() - 1
 }
@@ -1039,23 +1054,14 @@ fn ensure_active_conversation_index(
 #[cfg(test)]
 fn ensure_main_conversation_index(
     data: &mut AppData,
-    api_config_id: &str,
+    _api_config_id: &str,
     agent_id: &str,
 ) -> usize {
     let _ = normalize_main_conversation_marker(data, agent_id);
     if let Some(idx) = main_conversation_index(data, agent_id) {
         return idx;
     }
-    let conversation = build_conversation_record(
-        api_config_id,
-        agent_id,
-        ASSISTANT_DEPARTMENT_ID,
-        "",
-        CONVERSATION_KIND_CHAT,
-        None,
-        None,
-    );
-    let conversation_id = conversation.id.clone();
+    let conversation = build_system_notification_conversation_record();
     for item in &mut data.conversations {
         if !conversation_visible_in_foreground_lists(item) || !item.summary.trim().is_empty() {
             continue;
@@ -1063,14 +1069,14 @@ fn ensure_main_conversation_index(
         item.status = "active".to_string();
     }
     data.conversations.push(conversation);
-    data.main_conversation_id = Some(conversation_id);
+    data.main_conversation_id = Some(SYSTEM_NOTIFICATION_CONVERSATION_ID.to_string());
     data.conversations.len() - 1
 }
 
 fn ensure_active_foreground_conversation_index_atomic(
     data: &mut AppData,
-    data_path: &PathBuf,
-    api_config_id: &str,
+    _data_path: &PathBuf,
+    _api_config_id: &str,
     agent_id: &str,
 ) -> usize {
     let _ = normalize_main_conversation_marker(data, agent_id);
@@ -1087,15 +1093,7 @@ fn ensure_active_foreground_conversation_index_atomic(
         return idx;
     }
 
-    let conversation =
-        build_foreground_chat_conversation_record(
-            data_path,
-            data,
-            api_config_id,
-            agent_id,
-            ASSISTANT_DEPARTMENT_ID,
-            "",
-        );
+    let conversation = build_system_notification_conversation_record();
     for item in &mut data.conversations {
         if !conversation_visible_in_foreground_lists(item) || !item.summary.trim().is_empty() {
             continue;
@@ -1110,7 +1108,7 @@ fn ensure_active_foreground_conversation_index_atomic(
         .filter(|value| !value.is_empty())
         .is_none()
     {
-        data.main_conversation_id = data.conversations.last().map(|item| item.id.clone());
+        data.main_conversation_id = Some(SYSTEM_NOTIFICATION_CONVERSATION_ID.to_string());
     }
     data.conversations.len() - 1
 }
@@ -2621,7 +2619,7 @@ fn build_builtin_tool_rule_block(tool_id: &str) -> Option<String> {
             "delegate tool rule",
             "何时必须用：当子任务过于模糊，需要先探索再收敛结论时，可以使用 delegate。模糊探索既可以是本地探索，也可以是网络探索；当当前工作与某个直接下级部门的职责或能力更吻合时，应优先委托给该下级部门。\n\
              何时不要用：如果主线程立刻需要这个结果来继续下一步，通常不要委托；边界明确、可直接动手的任务，也不要滥用 delegate。\n\
-             如何使用：delegate 默认走 sync；只有主会话中才允许显式使用 async。若目标岗位由你本人兼任，只允许使用 sync。若当前已经在委托线程中，再次委托时也只允许 sync。先快速扫描少量关键文件或关键信息形成初步理解；先写骨架计划并尽早和用户完成第一轮对齐；不要在和用户建立共识前做穷尽式探索。质量优先于数量，最多只允许有限数量的 explore 代理，一般应尽量少，通常一个就够。\n\
+             如何使用：delegate 默认走 sync；只有普通来源会话中才允许显式使用 async。若目标岗位由你本人兼任，只允许使用 sync。若当前已经在委托线程中，再次委托时也只允许 sync。先快速扫描少量关键文件或关键信息形成初步理解；先写骨架计划并尽早和用户完成第一轮对齐；不要在和用户建立共识前做穷尽式探索。质量优先于数量，最多只允许有限数量的 explore 代理，一般应尽量少，通常一个就够。\n\
              为什么：delegate 负责高不确定性的探索任务，不是把核心决策责任直接甩出去。",
         ),
         "task" => (

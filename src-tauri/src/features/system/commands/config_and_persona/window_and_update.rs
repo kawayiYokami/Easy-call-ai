@@ -252,7 +252,7 @@ struct DetachedChatWindowOutput {
     conversation_id: String,
     window_label: String,
     #[serde(skip_serializing_if = "Option::is_none")]
-    main_conversation_id: Option<String>,
+    system_notification_conversation_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -288,18 +288,18 @@ fn detach_current_conversation_to_window(
         return Err("当前会话正在整理上下文，暂时不能独立出去。".to_string());
     }
     let runtime = state_read_runtime_state_cached(&state)?;
-    let main_conversation_id = runtime
+    let system_notification_conversation_id = runtime
         .main_conversation_id
         .as_deref()
         .map(str::trim)
         .filter(|value| !value.is_empty())
         .map(ToOwned::to_owned);
-    if main_conversation_id.as_deref() == Some(conversation_id) {
+    if system_notification_conversation_id.as_deref() == Some(conversation_id) {
         eprintln!(
-            "[独立聊天窗口] 拒绝：主会话不能独立打开 conversation_id={}",
+            "[独立聊天窗口] 拒绝：系统通知会话不能独立打开 conversation_id={}",
             conversation_id
         );
-        return Err("主会话不能独立打开，请选择一个子会话。".to_string());
+        return Err("系统通知会话不能独立打开，请选择一个普通会话。".to_string());
     }
 
     let conversation = state_read_conversation_cached(&state, conversation_id)?;
@@ -336,7 +336,7 @@ fn detach_current_conversation_to_window(
     Ok(DetachedChatWindowOutput {
         conversation_id: conversation_id.to_string(),
         window_label,
-        main_conversation_id,
+        system_notification_conversation_id,
     })
 }
 

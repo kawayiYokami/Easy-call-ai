@@ -64,7 +64,7 @@ export function useChatRemoteConversationOrchestrator(bindings: Record<string, a
       });
     }
     try {
-      await invokeTauri<{ conversationId: string; windowLabel: string; mainConversationId?: string | null }>("detach_current_conversation_to_window", {
+      await invokeTauri<{ conversationId: string; windowLabel: string; systemNotificationConversationId?: string | null }>("detach_current_conversation_to_window", {
         input: { conversationId: cid },
       });
     } catch (error) {

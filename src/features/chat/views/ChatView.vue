@@ -112,7 +112,7 @@
                       :hide-toggle-enabled="canToggleBubbleBackground(entry.item.block)"
                       :disable-markdown-render="sidebarMode"
                       @recall-turn="$emit('recallTurn', $event)" @regenerate-turn="$emit('regenerateTurn', $event)"
-                      @confirm-plan="$emit('confirmPlan', $event)" @enter-selection-mode="enterMessageSelectionMode"
+                      @confirm-plan="$emit('confirmPlan', $event)" @enter-selection-mode="handleEnterMessageSelectionMode"
                       @toggle-message-selected="toggleMessageSelected" @copy-message="copyMessage"
                       @open-image-preview="openImagePreview"
                       @toggle-audio-playback="toggleAudioPlayback($event.id, $event.audio)"
@@ -143,7 +143,7 @@
                         :hide-toggle-enabled="canToggleBubbleBackground(groupItem.block)"
                         :disable-markdown-render="sidebarMode"
                         @recall-turn="$emit('recallTurn', $event)" @regenerate-turn="$emit('regenerateTurn', $event)"
-                        @confirm-plan="$emit('confirmPlan', $event)" @enter-selection-mode="enterMessageSelectionMode"
+                        @confirm-plan="$emit('confirmPlan', $event)" @enter-selection-mode="handleEnterMessageSelectionMode"
                         @toggle-message-selected="toggleMessageSelected" @copy-message="copyMessage"
                         @open-image-preview="openImagePreview"
                         @toggle-audio-playback="toggleAudioPlayback($event.id, $event.audio)"
@@ -157,7 +157,11 @@
             </div>
 
             <div :style="{ minHeight: `${latestOwnTailSpacerMinHeight}px` }"></div>
-            <div ref="toolbarContainer" class="ecall-chat-toolbar-shell px-2 pt-1 pb-2">
+            <div
+              v-if="!activeConversationSummary?.isSystemNotificationConversation"
+              ref="toolbarContainer"
+              class="ecall-chat-toolbar-shell px-2 pt-1 pb-2"
+            >
               <ChatWorkspaceToolbar
                 :chatting="chatting" :frozen="frozen" :conversation-busy="conversationBusy"
                 :workspace-button-label="t('chat.allowedWorkspaceButton')" :workspace-button-name="currentWorkspaceName"
@@ -169,8 +173,8 @@
                 :show-workspace-menu-item="true"
                 :show-code-review-menu-item="sidebarMode"
                 :mention-entries="mentionEntries" :selected-mention-keys="selectedMentionKeys"
-                :show-detach-button="!detachedChatWindow && !activeConversationSummary?.isMainConversation"
-                :detach-disabled="!activeConversationId || activeConversationSummary?.isMainConversation || chatting || frozen || conversationBusy"
+                :show-detach-button="!detachedChatWindow && !activeConversationSummary?.isSystemNotificationConversation"
+                :detach-disabled="!activeConversationId || activeConversationSummary?.isSystemNotificationConversation || chatting || frozen || conversationBusy"
                 @lock-workspace="$emit('lockWorkspace')" @open-branch-selection="openBranchSelectionMenu"
                 @open-delegate-selection="openDelegateSelectionMenu" @open-forward-selection="openForwardSelectionMenu"
                 @open-share-selection="openShareSelectionMenu"
@@ -242,6 +246,8 @@
             :supervision-active="supervisionActive"
             :supervision-title="supervisionButtonTitle"
             :supervision-disabled="activeConversationSummary?.kind === 'remote_im_contact'"
+            :system-notification-mode="!!activeConversationSummary?.isSystemNotificationConversation"
+            :selection-delegate-only="messageSelectionDelegateOnly"
             :show-side-conversation-list="detachedChatWindow ? false : showSideConversationList"
             :active-conversation-id="activeConversationId" :unarchived-conversation-items="unarchivedConversationItems"
             :user-alias="userAlias" :user-avatar-url="userAvatarUrl"
@@ -261,8 +267,9 @@
             @attach-ide-context-reference="handleAttachIdeContextReference"
             @remove-ide-context-reference="handleRemoveIdeContextReference"
             @send-chat="handleSendChat" @stop-chat="$emit('stopChat')"
+            @open-delegate-selection="openDelegateSelectionMenu"
             @open-supervision-task="$emit('openSupervisionTask')"
-            @exit-selection-mode="exitMessageSelectionMode"
+            @exit-selection-mode="handleExitMessageSelectionMode"
             @selection-action-copy="copySelectedMessages"
             @selection-action-branch="emitSelectionAction('branch')"
             @selection-action-forward="emitSelectionAction('forward', $event)"
@@ -592,16 +599,19 @@ function canConfirmPlan(block: ChatMessageBlock): boolean {
   return !props.messageBlocks.slice(blockIndex + 1).some((item) => !item.isExtraTextBlock && item.role === "user");
 }
 
-function openSelectionMenu() {
+const messageSelectionDelegateOnly = ref(false);
+
+function openSelectionMenu(options: { delegateOnly?: boolean } = {}) {
   if (props.chatting || props.frozen || props.conversationBusy) return;
+  messageSelectionDelegateOnly.value = !!options.delegateOnly;
   messageSelectionModeEnabled.value = true;
   selectedMessageRenderIds.value = [];
   void nextTick(() => composerPanelRef.value?.focusInput?.({ preventScroll: true }));
 }
-const openBranchSelectionMenu = openSelectionMenu;
-const openDelegateSelectionMenu = openSelectionMenu;
-const openForwardSelectionMenu = openSelectionMenu;
-const openShareSelectionMenu = openSelectionMenu;
+const openBranchSelectionMenu = () => openSelectionMenu();
+const openDelegateSelectionMenu = () => openSelectionMenu({ delegateOnly: true });
+const openForwardSelectionMenu = () => openSelectionMenu();
+const openShareSelectionMenu = () => openSelectionMenu();
 
 function openConversationSummary(block: ChatMessageBlock, event?: MouseEvent) {
   event?.stopPropagation();
@@ -701,7 +711,7 @@ const { isOwnMessage, latestOwnMessageId, latestOwnElasticItemId } =
 
 const {
   selectedMessageBlocks, enterMessageSelectionMode, toggleMessageSelected,
-  exitMessageSelectionMode, copySelectedMessages, emitSelectionAction,
+  exitMessageSelectionMode: resetMessageSelectionMode, copySelectedMessages, emitSelectionAction,
 } = useChatSelection({
   chatRenderItems: computed(() => chatRenderItems.value.flatMap((item) => {
     if (item.kind === "message") return [{ renderId: item.renderId, block: item.block }];
@@ -721,7 +731,17 @@ const {
   },
 });
 
-defineExpose({ exitMessageSelectionMode });
+function handleEnterMessageSelectionMode(selectionKey: string) {
+  messageSelectionDelegateOnly.value = false;
+  enterMessageSelectionMode(selectionKey);
+}
+
+function handleExitMessageSelectionMode() {
+  messageSelectionDelegateOnly.value = false;
+  resetMessageSelectionMode();
+}
+
+defineExpose({ exitMessageSelectionMode: handleExitMessageSelectionMode });
 
 // ==================== scroll layout ====================
 

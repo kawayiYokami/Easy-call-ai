@@ -750,6 +750,7 @@ export type UnarchivedConversationSummary = {
   workspaceLabel?: string;
   workspaceRootPath?: string;
   isActive?: boolean;
+  isSystemNotificationConversation?: boolean;
   isMainConversation?: boolean;
   isPinned?: boolean;
   pinIndex?: number;
@@ -808,6 +809,7 @@ export type ChatConversationOverviewItem = {
   workspaceLabel?: string;
   workspaceRootPath?: string;
   isActive?: boolean;
+  isSystemNotificationConversation?: boolean;
   isMainConversation?: boolean;
   isPinned?: boolean;
   pinIndex?: number;

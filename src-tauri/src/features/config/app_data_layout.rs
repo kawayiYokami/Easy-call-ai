@@ -161,7 +161,12 @@ struct RuntimeStateFile {
     background_voice_screenshot_mode: String,
     #[serde(default)]
     instruction_presets: Vec<PromptCommandPreset>,
-    #[serde(default)]
+    #[serde(
+        default,
+        rename = "systemNotificationConversationId",
+        alias = "mainConversationId",
+        alias = "main_conversation_id"
+    )]
     main_conversation_id: Option<String>,
     #[serde(default)]
     pinned_conversation_ids: Vec<String>,
@@ -189,7 +194,7 @@ impl Default for RuntimeStateFile {
             background_voice_screenshot_keywords: default_background_voice_screenshot_keywords(),
             background_voice_screenshot_mode: default_background_voice_screenshot_mode(),
             instruction_presets: Vec::new(),
-            main_conversation_id: None,
+            main_conversation_id: Some(SYSTEM_NOTIFICATION_CONVERSATION_ID.to_string()),
             pinned_conversation_ids: Vec::new(),
             image_text_cache: Vec::new(),
             pdf_text_cache: Vec::new(),
@@ -276,6 +281,47 @@ fn normalize_runtime_state_contact_communication(runtime: &mut RuntimeStateFile)
     }
 }
 
+fn normalize_runtime_state_system_notification_pointer(runtime: &mut RuntimeStateFile) -> bool {
+    if runtime.main_conversation_id.as_deref().map(str::trim)
+        == Some(SYSTEM_NOTIFICATION_CONVERSATION_ID)
+    {
+        return false;
+    }
+    runtime.main_conversation_id = Some(SYSTEM_NOTIFICATION_CONVERSATION_ID.to_string());
+    true
+}
+
+fn system_notification_conversation_shard_has_artifacts(path: &PathBuf) -> Result<bool, String> {
+    if app_layout_chat_conversation_path(path, SYSTEM_NOTIFICATION_CONVERSATION_ID).exists() {
+        return Ok(true);
+    }
+    let store_paths = message_store::message_store_paths(path, SYSTEM_NOTIFICATION_CONVERSATION_ID)?;
+    Ok(message_store::message_store_shard_modified_time(&store_paths).is_some())
+}
+
+fn ensure_system_notification_conversation_shard(path: &PathBuf) -> Result<bool, String> {
+    match read_conversation_shard(path, SYSTEM_NOTIFICATION_CONVERSATION_ID) {
+        Ok(mut conversation) => {
+            if normalize_system_notification_conversation(&mut conversation) {
+                return write_conversation_shard(path, &conversation);
+            }
+            Ok(false)
+        }
+        Err(err) => {
+            if system_notification_conversation_shard_has_artifacts(path)? {
+                runtime_log_warn(format!(
+                    "[系统通知会话] 跳过，任务=确保固定会话分片，原因=固定会话分片已存在但暂不可读，conversation_id={}，error={}",
+                    SYSTEM_NOTIFICATION_CONVERSATION_ID,
+                    err
+                ));
+                return Ok(false);
+            }
+            let conversation = build_system_notification_conversation_record();
+            write_conversation_shard(path, &conversation)
+        }
+    }
+}
+
 fn build_runtime_state_file(data: &AppData) -> RuntimeStateFile {
     let mut runtime = RuntimeStateFile {
         version: APP_DATA_SCHEMA_VERSION,
@@ -287,7 +333,7 @@ fn build_runtime_state_file(data: &AppData) -> RuntimeStateFile {
         background_voice_screenshot_keywords: data.background_voice_screenshot_keywords.clone(),
         background_voice_screenshot_mode: data.background_voice_screenshot_mode.clone(),
         instruction_presets: data.instruction_presets.clone(),
-        main_conversation_id: data.main_conversation_id.clone(),
+        main_conversation_id: Some(SYSTEM_NOTIFICATION_CONVERSATION_ID.to_string()),
         pinned_conversation_ids: data.pinned_conversation_ids.clone(),
         image_text_cache: data.image_text_cache.clone(),
         pdf_text_cache: data.pdf_text_cache.clone(),
@@ -296,6 +342,7 @@ fn build_runtime_state_file(data: &AppData) -> RuntimeStateFile {
         remote_im_contact_checkpoints: data.remote_im_contact_checkpoints.clone(),
     };
     normalize_runtime_state_contact_communication(&mut runtime);
+    let _ = normalize_runtime_state_system_notification_pointer(&mut runtime);
     runtime
 }
 
@@ -367,7 +414,7 @@ fn apply_runtime_state_to_app_data(data: &mut AppData, runtime: &RuntimeStateFil
         runtime.background_voice_screenshot_keywords.clone();
     data.background_voice_screenshot_mode = runtime.background_voice_screenshot_mode.clone();
     data.instruction_presets = runtime.instruction_presets.clone();
-    data.main_conversation_id = runtime.main_conversation_id.clone();
+    data.main_conversation_id = Some(SYSTEM_NOTIFICATION_CONVERSATION_ID.to_string());
     data.pinned_conversation_ids = runtime.pinned_conversation_ids.clone();
     data.image_text_cache = runtime.image_text_cache.clone();
     data.pdf_text_cache = runtime.pdf_text_cache.clone();
@@ -407,6 +454,8 @@ fn read_runtime_state_shard(path: &PathBuf) -> Result<RuntimeStateFile, String> 
         RuntimeStateFile::default()
     };
     normalize_runtime_state_contact_communication(&mut runtime);
+    let _ = normalize_runtime_state_system_notification_pointer(&mut runtime);
+    ensure_system_notification_conversation_shard(path)?;
     Ok(runtime)
 }
 
@@ -415,11 +464,14 @@ fn write_runtime_state_shard(path: &PathBuf, runtime: &RuntimeStateFile) -> Resu
         .map_err(|err| format!("Create state layout dir failed: {err}"))?;
     let mut normalized = runtime.clone();
     normalize_runtime_state_contact_communication(&mut normalized);
-    write_json_file_atomic_if_changed(
+    let _ = normalize_runtime_state_system_notification_pointer(&mut normalized);
+    let conversation_written = ensure_system_notification_conversation_shard(path)?;
+    let runtime_written = write_json_file_atomic_if_changed(
         &app_layout_runtime_state_path(path),
         &normalized,
         "runtime state file",
-    )
+    )?;
+    Ok(runtime_written || conversation_written)
 }
 
 fn read_conversation_shard(path: &PathBuf, conversation_id: &str) -> Result<Conversation, String> {
@@ -912,26 +964,50 @@ fn write_app_data_with_stats(path: &PathBuf, data: &AppData) -> Result<AppDataWr
         "runtime state file",
     )?;
     let mut expected_ids = std::collections::HashSet::<String>::new();
+    let mut system_notification_in_input = false;
     for conv in &data.conversations {
-        expected_ids.insert(conv.id.clone());
-        if write_conversation_shard(path, conv)? {
+        let mut conversation = conv.clone();
+        if conversation.id.trim() == SYSTEM_NOTIFICATION_CONVERSATION_ID {
+            system_notification_in_input = true;
+            let _ = normalize_system_notification_conversation(&mut conversation);
+        }
+        expected_ids.insert(conversation.id.clone());
+        if write_conversation_shard(path, &conversation)? {
             stats.conversation_writes += 1;
         }
+    }
+    expected_ids.insert(SYSTEM_NOTIFICATION_CONVERSATION_ID.to_string());
+    if !system_notification_in_input && ensure_system_notification_conversation_shard(path)? {
+        stats.conversation_writes += 1;
     }
     if let Ok(entries) = fs::read_dir(app_layout_chat_conversations_dir(path)) {
         for entry in entries.flatten() {
             let p = entry.path();
-            if p.extension().and_then(|v| v.to_str()) != Some("json") {
+            let shard_id = if p.extension().and_then(|v| v.to_str()) == Some("json") {
+                p.file_stem()
+                    .and_then(|v| v.to_str())
+                    .unwrap_or_default()
+                    .to_string()
+            } else if p.is_dir() {
+                p.file_name()
+                    .and_then(|v| v.to_str())
+                    .unwrap_or_default()
+                    .to_string()
+            } else {
                 continue;
-            }
-            let stem = p
-                .file_stem()
-                .and_then(|v| v.to_str())
-                .unwrap_or_default()
-                .to_string();
-            if !expected_ids.contains(&stem) {
-                if fs::remove_file(p).is_ok() {
-                    stats.conversation_deletes += 1;
+            };
+            if !expected_ids.contains(&shard_id) {
+                match delete_conversation_shard(path, &shard_id) {
+                    Ok(true) => {
+                        stats.conversation_deletes += 1;
+                    }
+                    Ok(false) => {}
+                    Err(err) => runtime_log_warn(format!(
+                        "[应用数据写入] 状态=失败，任务=清理孤立会话分片，conversation_id={}，path={}，error={}",
+                        shard_id,
+                        p.display(),
+                        err
+                    )),
                 }
             }
         }

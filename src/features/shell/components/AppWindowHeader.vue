@@ -738,7 +738,7 @@ const currentWorkspaceAccessByPath = computed(() => {
 
 const selectableCreateConversationWorkspaces = computed<ShellWorkspace[]>(() => {
   const localConversationItems = props.conversationItems.filter((item) =>
-    item.kind !== "remote_im_contact" && !item.isPinned && !item.isMainConversation,
+    item.kind !== "remote_im_contact" && !item.isPinned && !item.isSystemNotificationConversation,
   );
   const options: ShellWorkspace[] = [];
   for (const section of buildWorkspaceConversationSections(localConversationItems, {

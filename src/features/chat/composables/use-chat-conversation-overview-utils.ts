@@ -41,8 +41,8 @@ export function useChatConversationOverviewUtils(options: ConversationOverviewUt
 
   function sortUnarchivedConversationOverviewItems(items: any[]): any[] {
     return [...items].sort((a, b) => {
-      if (!!a.isMainConversation !== !!b.isMainConversation) {
-        return Number(!!b.isMainConversation) - Number(!!a.isMainConversation);
+      if (!!a.isSystemNotificationConversation !== !!b.isSystemNotificationConversation) {
+        return Number(!!b.isSystemNotificationConversation) - Number(!!a.isSystemNotificationConversation);
       }
       if (!!a.isPinned !== !!b.isPinned) {
         return Number(!!b.isPinned) - Number(!!a.isPinned);

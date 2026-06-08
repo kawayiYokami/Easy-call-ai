@@ -352,23 +352,6 @@ impl ConversationService {
         agent_id: &str,
     ) -> Result<Option<String>, String> {
         let normalized_agent_id = agent_id.trim();
-        if normalized_agent_id.is_empty() {
-            let runtime = state_read_runtime_state_cached(state)?;
-            if let Some(main_conversation_id) = runtime
-                .main_conversation_id
-                .as_deref()
-                .map(str::trim)
-                .filter(|value| !value.is_empty())
-            {
-                if let Some(conversation) =
-                    self.try_read_unarchived_conversation(state, main_conversation_id)?
-                {
-                    if conversation_visible_in_foreground_lists(&conversation) {
-                        return Ok(Some(conversation.id));
-                    }
-                }
-            }
-        }
         let chat_index = state_read_chat_index_cached(state)?;
         Ok(chat_index
             .conversations
@@ -379,7 +362,9 @@ impl ConversationService {
                     return None;
                 }
                 let conversation = state_read_conversation_cached(state, &item.id).ok()?;
-                if !conversation_visible_in_foreground_lists(&conversation) {
+                if !conversation_visible_in_foreground_lists(&conversation)
+                    || !conversation_is_local_normal_chat(&conversation)
+                {
                     return None;
                 }
                 if !normalized_agent_id.is_empty()

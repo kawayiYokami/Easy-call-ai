@@ -529,7 +529,7 @@ fn build_branch_conversation_title(
 ) -> String {
     let base_title = source_title.trim();
     let prefix = if source_is_main_conversation {
-        "主会话"
+        "系统通知"
     } else if base_title.is_empty() {
         "未命名会话"
     } else {
@@ -1852,7 +1852,7 @@ fn delete_unarchived_conversation(
     ) {
         Ok(result) => result,
         Err(err) => {
-            let reason = if err.contains("主会话暂不支持删除") {
+            let reason = if err.contains("系统通知会话暂不支持删除") {
                 "main_conversation_locked"
             } else if err.contains("Unarchived conversation not found") {
                 "not_found"
@@ -2661,7 +2661,7 @@ mod unarchived_conversations_tests {
         );
         assert_eq!(
             build_branch_conversation_title("Chat 2026-04-18T10:00", 3, true),
-            "主会话[会话分支自第3条对话]"
+            "系统通知[会话分支自第3条对话]"
         );
     }
 

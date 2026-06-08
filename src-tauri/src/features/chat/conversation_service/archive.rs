@@ -390,17 +390,6 @@ impl ConversationService {
                 )?;
             let conversation_id = conversation.id.clone();
             state_schedule_conversation_persist(state, &conversation)?;
-            if runtime
-                .main_conversation_id
-                .as_deref()
-                .map(str::trim)
-                .filter(|value| !value.is_empty())
-                .is_none()
-            {
-                let mut next_runtime = runtime.clone();
-                next_runtime.main_conversation_id = Some(conversation_id.clone());
-                state_write_runtime_state_cached(state, &next_runtime)?;
-            }
             conversation_id
         };
 

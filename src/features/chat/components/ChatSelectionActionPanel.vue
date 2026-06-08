@@ -1,12 +1,12 @@
 <template>
   <div class="rounded-box border border-base-300 bg-base-100 px-3 py-3">
-    <div class="text-xs opacity-70">{{ t("chat.selection.selectedCount", { count: selectedMessageCount }) }}</div>
+    <div v-if="!delegateOnly || selectedMessageCount > 0" class="text-xs opacity-70">{{ t("chat.selection.selectedCount", { count: selectedMessageCount }) }}</div>
     <div class="mt-3 flex flex-wrap items-center gap-2">
-      <button type="button" class="btn btn-sm" :disabled="selectedMessageCount === 0" @click="emit('selectionActionBranch')">
+      <button v-if="!delegateOnly" type="button" class="btn btn-sm" :disabled="selectedMessageCount === 0" @click="emit('selectionActionBranch')">
         {{ t("chat.selection.branch") }}
       </button>
       <button
-        v-if="!sidebarMode"
+        v-if="!delegateOnly && !sidebarMode"
         type="button"
         class="btn btn-sm"
         :class="{ 'btn-primary': selectionDeliverCardOpen }"
@@ -24,11 +24,11 @@
       >
         {{ t("chat.selection.delegate") }}
       </button>
-      <button type="button" class="btn btn-sm" :disabled="selectedMessageCount === 0" @click="emit('selectionActionCopy')">
+      <button v-if="!delegateOnly" type="button" class="btn btn-sm" :disabled="selectedMessageCount === 0" @click="emit('selectionActionCopy')">
         {{ t("common.copy") }}
       </button>
       <button
-        v-if="!sidebarMode"
+        v-if="!delegateOnly && !sidebarMode"
         type="button"
         class="btn btn-sm"
         :class="{ 'btn-primary': selectionShareCardOpen }"
@@ -42,7 +42,7 @@
       </button>
     </div>
 
-    <div v-if="!sidebarMode && selectionDeliverCardOpen" class="mt-3 rounded-box border border-base-300 bg-base-200/50 px-3 py-3">
+    <div v-if="!delegateOnly && !sidebarMode && selectionDeliverCardOpen" class="mt-3 rounded-box border border-base-300 bg-base-200/50 px-3 py-3">
       <div class="text-sm font-medium">{{ t("chat.selection.forward") }}</div>
       <div class="mt-1 text-xs opacity-70">{{ t("chat.selection.forwardHint") }}</div>
       <select v-model="selectionDeliverTargetConversationId" class="select select-bordered select-sm mt-3 w-full" :disabled="selectionDeliverTargetOptions.length === 0">
@@ -84,14 +84,14 @@
       <textarea v-model="selectionDelegateQuestion" class="textarea textarea-bordered mt-2 min-h-20 w-full resize-y text-sm" :placeholder="t('chat.selection.questionPlaceholder')"></textarea>
       <textarea v-model="selectionDelegateFocus" class="textarea textarea-bordered mt-2 min-h-20 w-full resize-y text-sm" :placeholder="t('chat.selection.focusPlaceholder')"></textarea>
       <div class="mt-3 flex items-center justify-end gap-2">
-        <button type="button" class="btn btn-sm" @click="closeSelectionDelegateCard">{{ t("common.cancel") }}</button>
+        <button type="button" class="btn btn-sm" @click="cancelSelectionDelegate">{{ t("common.cancel") }}</button>
         <button type="button" class="btn btn-sm btn-primary" :disabled="!canSubmitSelectionDelegate" @click="confirmSelectionDelegate">
           {{ t("chat.selection.delegate") }}
         </button>
       </div>
     </div>
 
-    <div v-if="!sidebarMode && selectionShareCardOpen" class="mt-3 rounded-box border border-base-300 bg-base-200/50 px-3 py-3">
+    <div v-if="!delegateOnly && !sidebarMode && selectionShareCardOpen" class="mt-3 rounded-box border border-base-300 bg-base-200/50 px-3 py-3">
       <div class="text-sm font-medium">{{ t("chat.selection.share") }}</div>
       <div class="mt-1 text-xs opacity-70">{{ t("chat.selection.shareHint") }}</div>
       <div class="mt-3 flex flex-wrap items-center gap-2">
@@ -104,7 +104,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref } from "vue";
+import { computed, onMounted, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 import type { ChatConversationOverviewItem, SkillListResult } from "../../../types/app";
 import { invokeTauri, isTauriRuntimeAvailable } from "../../../services/tauri-api";
@@ -132,6 +132,7 @@ type RecentDelegateRequest = {
 
 const props = defineProps<{
   sidebarMode?: boolean;
+  delegateOnly?: boolean;
   selectedMessageCount: number;
   activeConversationId: string;
   unarchivedConversationItems: ChatConversationOverviewItem[];
@@ -149,6 +150,7 @@ const emit = defineEmits<{
 
 const { t, locale } = useI18n();
 const sidebarMode = computed(() => !!props.sidebarMode);
+const delegateOnly = computed(() => !!props.delegateOnly);
 const USER_ASYNC_DELEGATE_RECENT_STORAGE_KEY = "easy_call.user_async_delegate_recent.v1";
 const USER_ASYNC_DELEGATE_RECENT_LIMIT = 3;
 const DELEGATE_REVIEW_FALLBACK_BACKGROUND = [
@@ -178,6 +180,7 @@ const recentDelegateRequests = ref<RecentDelegateRequest[]>([]);
 const selectionDeliverTargetOptions = computed(() =>
   (Array.isArray(props.unarchivedConversationItems) ? props.unarchivedConversationItems : [])
     .filter((item) => String(item.conversationId || "").trim() !== String(props.activeConversationId || "").trim())
+    .filter((item) => !item.isSystemNotificationConversation)
     .map((item) => ({
       conversationId: String(item.conversationId || "").trim(),
       title: resolveConversationDisplayTitle(item, {
@@ -220,6 +223,7 @@ function selectionDeliverOptionLabel(item: { title: string; departmentName?: str
 }
 
 function openSelectionDeliverCard() {
+  if (delegateOnly.value) return;
   if (selectionDeliverTargetOptions.value.length === 0) return;
   closeSelectionDelegateCard();
   closeSelectionShareCard();
@@ -378,7 +382,16 @@ function closeSelectionDelegateCard() {
   selectionDelegateCardOpen.value = false;
 }
 
+function cancelSelectionDelegate() {
+  if (delegateOnly.value) {
+    handleExitSelectionMode();
+    return;
+  }
+  closeSelectionDelegateCard();
+}
+
 function openSelectionShareCard() {
+  if (delegateOnly.value) return;
   if (props.selectedMessageCount <= 0) return;
   closeSelectionDeliverCard();
   closeSelectionDelegateCard();
@@ -415,5 +428,16 @@ function handleExitSelectionMode() {
   emit("exitSelectionMode");
 }
 
-onMounted(loadRecentDelegateRequests);
+function syncDelegateOnlyPanel() {
+  if (delegateOnly.value) {
+    openSelectionDelegateCard();
+  }
+}
+
+onMounted(() => {
+  loadRecentDelegateRequests();
+  syncDelegateOnlyPanel();
+});
+
+watch(delegateOnly, syncDelegateOnlyPanel);
 </script>

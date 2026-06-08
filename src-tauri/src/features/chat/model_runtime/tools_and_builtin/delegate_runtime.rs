@@ -77,7 +77,7 @@ fn delegate_enqueue_result_message(
     provider_meta: Value,
     notify_assistant: bool,
 ) -> Result<(), String> {
-    // 优先回发原始会话；若原会话已归档/消失，则回退到主会话。
+    // 优先回发原始会话；若原会话已归档/消失，则回退到系统通知会话。
     let resolved_target = conversation_service()
         .resolve_delegate_result_target_conversation(app_state, root_conversation_id)?;
     let department_id = resolved_target.department_id;

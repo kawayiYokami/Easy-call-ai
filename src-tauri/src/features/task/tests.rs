@@ -338,7 +338,7 @@
     }
 
     #[test]
-    fn task_dispatch_conversation_should_prefer_bound_then_fallback_to_main() {
+    fn task_dispatch_conversation_should_prefer_bound_then_create_task_fallback() {
         let state = task_test_state("dispatch_prefer_bound");
         let mut runtime = RuntimeStateFile::default();
         let api_id = "api-a";
@@ -391,11 +391,22 @@
             Some("missing-conversation"),
             TASK_TARGET_SCOPE_DESKTOP,
         )
-        .expect("fallback to main conversation")
+        .expect("fallback to task conversation")
         .expect("fallback conversation");
-        assert_eq!(fallback.conversation_id, main.id);
+        assert_ne!(fallback.conversation_id, main.id);
+        assert_ne!(fallback.conversation_id, SYSTEM_NOTIFICATION_CONVERSATION_ID);
         assert_eq!(fallback.target_scope, TASK_TARGET_SCOPE_DESKTOP);
         assert!(fallback.fallback_to_main);
+        assert_eq!(
+            runtime.main_conversation_id.as_deref(),
+            Some(SYSTEM_NOTIFICATION_CONVERSATION_ID)
+        );
+        let fallback_conversation = state_read_conversation_cached(
+            &state,
+            &fallback.conversation_id,
+        )
+        .expect("read fallback conversation");
+        assert!(conversation_is_local_normal_chat(&fallback_conversation));
 
         let _ = fs::remove_dir_all(app_root_from_data_path(&state.data_path));
     }

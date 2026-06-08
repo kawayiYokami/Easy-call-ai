@@ -26,7 +26,7 @@ export function useChatPersonaConversationDerivedState(bindings: Record<string, 
       if (matched) return matched;
     }
     return (
-      bindings.unarchivedConversations.value.find((item: any) => !!item.isMainConversation)
+      bindings.unarchivedConversations.value.find((item: any) => !!item.isSystemNotificationConversation)
       || bindings.unarchivedConversations.value[0]
       || null
     );

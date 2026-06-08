@@ -1712,7 +1712,7 @@ async fn trim_current_conversation(
         .map(str::trim)
         .unwrap_or_default();
     if !already_archived && source.id.trim() == main_conversation_id {
-        return Err("主会话暂不支持归档。".to_string());
+        return Err("系统通知会话暂不支持归档。".to_string());
     }
     if !already_archived && get_conversation_runtime_state(state.inner(), &source.id)?
         == MainSessionState::OrganizingContext
@@ -1849,7 +1849,7 @@ fn preview_trim_current_conversation(
     let has_assistant_reply = archive_pipeline_has_assistant_reply(&source);
     let is_empty = source.messages.is_empty();
     let archive_disabled_reason = if is_main_conversation {
-        Some("主会话暂不支持归档。".to_string())
+        Some("系统通知会话暂不支持归档。".to_string())
     } else if get_conversation_runtime_state(state.inner(), &source.id)?
         == MainSessionState::OrganizingContext
     {

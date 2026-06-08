@@ -132,7 +132,7 @@
                         @click.stop
                         @mousedown.stop
                       >
-                        <li v-if="!item.isMainConversation">
+                        <li v-if="!item.isSystemNotificationConversation">
                           <button
                             type="button"
                             :disabled="!canToggleConversationPin(item)"
@@ -163,7 +163,7 @@
                             <span>{{ t("chat.exportConversation") }}</span>
                           </button>
                         </li>
-                        <li v-if="!item.isMainConversation">
+                        <li v-if="!item.isSystemNotificationConversation">
                           <button
                             type="button"
                             :disabled="!canArchiveConversation(item)"
@@ -282,8 +282,8 @@ const conversationSections = computed<ConversationSection[]>(() => {
       ? kind === "remote_im_contact"
       : kind !== "remote_im_contact";
   });
-  const pinned = visibleItems.filter((item) => !!item.isPinned || !!item.isMainConversation);
-  const others = visibleItems.filter((item) => !item.isPinned && !item.isMainConversation);
+  const pinned = visibleItems.filter((item) => !!item.isPinned || !!item.isSystemNotificationConversation);
+  const others = visibleItems.filter((item) => !item.isPinned && !item.isSystemNotificationConversation);
   const sections: ConversationSection[] = [];
   if (pinned.length > 0) {
     sections.push({
@@ -450,12 +450,12 @@ function handleConversationCardClick(item: ChatConversationOverviewItem) {
 }
 
 function canToggleConversationPin(item: ChatConversationOverviewItem): boolean {
-  return isLocalConversation(item) && !item.isMainConversation && !isConversationItemDisabled(item);
+  return isLocalConversation(item) && !item.isSystemNotificationConversation && !isConversationItemDisabled(item);
 }
 
 function canArchiveConversation(item: ChatConversationOverviewItem): boolean {
   return isLocalConversation(item)
-    && !item.isMainConversation
+    && !item.isSystemNotificationConversation
     && Number(item.messageCount || 0) > 3
     && item.hasAssistantReply !== false
     && !isConversationItemDisabled(item);
@@ -466,7 +466,7 @@ function canExportConversation(item: ChatConversationOverviewItem): boolean {
 }
 
 function pinConversationTitle(item: ChatConversationOverviewItem): string {
-  if (item.isMainConversation) return t("chat.mainConversationPinned");
+  if (item.isSystemNotificationConversation) return t("chat.mainConversationPinned");
   return item.isPinned ? t("chat.unpinConversation") : t("chat.pinConversation");
 }
 

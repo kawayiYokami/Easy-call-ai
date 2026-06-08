@@ -106,7 +106,12 @@ struct AppData {
     background_voice_screenshot_mode: String,
     #[serde(default)]
     instruction_presets: Vec<PromptCommandPreset>,
-    #[serde(default)]
+    #[serde(
+        default,
+        rename = "systemNotificationConversationId",
+        alias = "mainConversationId",
+        alias = "main_conversation_id"
+    )]
     main_conversation_id: Option<String>,
     #[serde(default)]
     pinned_conversation_ids: Vec<String>,

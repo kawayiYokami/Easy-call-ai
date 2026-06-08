@@ -22,32 +22,22 @@ impl ConversationService {
             .is_some()
         {
             root_conversation_id.trim().to_string()
-        } else if let Some(conversation_id) =
-            self.resolve_latest_foreground_conversation_id(state, &assistant_agent_id)?
-        {
-            eprintln!(
-                "[委托线程] 原始会话不可用，委托结果回退到前台会话: requested_conversation_id={}, fallback_conversation_id={}",
-                root_conversation_id,
-                conversation_id
-            );
-            conversation_id
         } else {
-            let conversation = build_conversation_record(
-                "",
-                &assistant_agent_id,
-                &department_id,
-                "",
-                CONVERSATION_KIND_CHAT,
-                None,
-                None,
-            );
+            let conversation = state_read_conversation_cached(state, SYSTEM_NOTIFICATION_CONVERSATION_ID)
+                .ok()
+                .filter(|conversation| {
+                    conversation.summary.trim().is_empty()
+                        && conversation_visible_in_foreground_lists(conversation)
+                        && conversation_is_system_notification(conversation)
+                })
+                .unwrap_or_else(build_system_notification_conversation_record);
             let conversation_id = conversation.id.clone();
             state_schedule_conversation_persist(state, &conversation)?;
             let mut runtime = state_read_runtime_state_cached(state)?;
-            runtime.main_conversation_id = Some(conversation_id.clone());
+            runtime.main_conversation_id = Some(SYSTEM_NOTIFICATION_CONVERSATION_ID.to_string());
             state_write_runtime_state_cached(state, &runtime)?;
             eprintln!(
-                "[委托线程] 原始会话不可用，委托结果新建主会话: requested_conversation_id={}, fallback_conversation_id={}",
+                "[委托线程] 原始会话不可用，委托结果回退到系统通知会话: requested_conversation_id={}, fallback_conversation_id={}",
                 root_conversation_id,
                 conversation_id
             );
@@ -92,7 +82,7 @@ impl ConversationService {
                             && !conversation_is_delegate(conversation)
                     })
                     .ok_or_else(|| {
-                        format!("未找到指定主会话，conversationId={conversation_id}")
+                        format!("未找到指定来源会话，conversationId={conversation_id}")
                     })?,
             )
         } else {

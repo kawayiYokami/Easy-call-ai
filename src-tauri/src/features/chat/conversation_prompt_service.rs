@@ -338,19 +338,6 @@ impl ConversationPromptService {
         usage
     }
 
-    fn resolve_runtime_trusted_prompt_usage_or_estimate(
-        &self,
-        runtime_context: &RuntimeContext,
-        prepared: &PreparedPrompt,
-        selected_api: &ApiConfig,
-        current_agent: &AgentProfile,
-    ) -> PromptUsageResolution {
-        if let Some(usage) = runtime_context.trusted_prompt_usage {
-            return self.prompt_usage_from_runtime_usage(usage, "trusted_prompt_usage");
-        }
-        self.resolve_prompt_usage_from_estimate(prepared, selected_api, current_agent)
-    }
-
     fn resolve_shared_trusted_prompt_usage_or_estimate(
         &self,
         trusted_prompt_usage: &std::sync::Mutex<Option<TrustedPromptUsage>>,

@@ -2367,16 +2367,23 @@ async fn send_chat_message_inner(
                 &selected_api,
                 &effective_agent_id,
             )?
-            .ok_or_else(|| format!("主会话不存在或不可用：{main_conversation_id}"))?;
+            .ok_or_else(|| format!("系统通知会话不存在或不可用：{main_conversation_id}"))?;
             log_run_stage("prepare_context.foreground_conversation_ready");
             snapshot
         } else {
             eprintln!(
-                "[聊天发送] 缺少 conversation_id 且未找到 runtime 主会话，拒绝构建请求上下文"
+                "[聊天发送] 缺少 conversation_id 且未找到系统通知会话，拒绝构建请求上下文"
             );
             return Err("缺少 conversation_id".to_string());
         };
         log_run_stage("prepare_context.conversation_snapshot_ready");
+        if !trigger_only && conversation_is_system_notification(&snapshot.prompt_conversation_before) {
+            eprintln!(
+                "[聊天发送] 拒绝，原因=系统通知会话不支持发言，conversation_id={}",
+                snapshot.prompt_conversation_before.id
+            );
+            return Err("系统通知会话不支持发言。".to_string());
+        }
         log_run_stage("prepare_context.archive_summary_ready");
         log_run_stage("prepare_context.prompt_conversation_ready");
         log_run_stage("prepare_context.base_context_ready");

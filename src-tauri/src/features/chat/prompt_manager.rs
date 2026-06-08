@@ -463,7 +463,7 @@ fn build_core_system_prompt_text(
     } else {
         let delegate_role_line = "- 这是一条委托线程。此线程不存在默认用户人格。";
         let delegate_scope_line =
-            "- 只依据本轮委托任务块与本线程历史处理工作，不要自行补充用户设定、昵称或主会话背景。";
+            "- 只依据本轮委托任务块与本线程历史处理工作，不要自行补充用户设定、昵称或来源会话背景。";
         [
             highest_instruction_md.to_string(),
             prompt_xml_block(assistant_settings_label, agent.system_prompt.trim()),

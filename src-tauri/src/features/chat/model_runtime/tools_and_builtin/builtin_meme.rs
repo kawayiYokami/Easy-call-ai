@@ -857,53 +857,6 @@ fn persist_meme_segments_into_provider_meta(
     *provider_meta = Some(meta);
 }
 
-fn meme_segments_to_remote_im_content_items(
-    segments: &[PersistedMemeSegment],
-) -> Vec<Value> {
-    let mut out = Vec::<Value>::new();
-    for segment in segments {
-        match segment {
-            PersistedMemeSegment::Text { text } => {
-                if !text.is_empty() {
-                    out.push(serde_json::json!({
-                        "type": "text",
-                        "text": text,
-                    }));
-                }
-            }
-            PersistedMemeSegment::Meme {
-                mime,
-                relative_path,
-                bytes_base64,
-                ..
-            } => {
-                let file_name = std::path::Path::new(relative_path)
-                    .file_name()
-                    .and_then(|value| value.to_str())
-                    .map(str::trim)
-                    .filter(|value| !value.is_empty())
-                    .unwrap_or("meme")
-                    .to_string();
-                out.push(serde_json::json!({
-                    "type": "image",
-                    "mime": mime,
-                    "name": file_name,
-                    "bytesBase64": bytes_base64,
-                }));
-            }
-        }
-    }
-    out
-}
-
-fn meme_segments_from_remote_im_text(
-    state: &AppState,
-    text: &str,
-    seed_source: &str,
-) -> Result<Option<Vec<PersistedMemeSegment>>, String> {
-    resolve_text_to_persisted_meme_segments(state, text, seed_source)
-}
-
 fn meme_resolve_source_path(state: &AppState, raw: &str) -> Result<PathBuf, String> {
     let trimmed = raw.trim();
     if trimmed.is_empty() {

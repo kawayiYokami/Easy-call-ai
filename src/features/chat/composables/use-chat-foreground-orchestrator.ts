@@ -32,7 +32,7 @@ export function useChatForegroundOrchestrator(bindings: Record<string, any>) {
   function pickForegroundConversationId(candidates: any[]): string {
     const target =
       candidates.find((item) => !!item.isActive)
-      || candidates.find((item) => !!item.isMainConversation)
+      || candidates.find((item) => !!item.isSystemNotificationConversation)
       || candidates[0];
     return String(target?.conversationId || "").trim();
   }
@@ -256,7 +256,7 @@ export function useChatForegroundOrchestrator(bindings: Record<string, any>) {
       chatting: bindings.chatting.value,
       trimming: bindings.trimming.value,
       compactingConversation: bindings.compactingConversation.value,
-      isMainConversation: !!bindings.currentForegroundConversationSummary.value?.isMainConversation,
+      isSystemNotificationConversation: !!bindings.currentForegroundConversationSummary.value?.isSystemNotificationConversation,
     });
     bindings.setStatus(t('chat.foregroundOrchestrator.openingDetached'));
     if (bindings.detachedChatWindow.value) {
@@ -273,8 +273,8 @@ export function useChatForegroundOrchestrator(bindings: Record<string, any>) {
       });
       return;
     }
-    if (bindings.currentForegroundConversationSummary.value?.isMainConversation) {
-      console.warn("[独立聊天窗口][前端链路] 主会话不允许独立窗口", { conversationId });
+    if (bindings.currentForegroundConversationSummary.value?.isSystemNotificationConversation) {
+      console.warn("[独立聊天窗口][前端链路] 系统通知会话不允许独立窗口", { conversationId });
       bindings.setStatus(t('chat.foregroundOrchestrator.mainConversationNotAllowed'));
       return;
     }
@@ -282,7 +282,7 @@ export function useChatForegroundOrchestrator(bindings: Record<string, any>) {
       console.info("[独立聊天窗口][前端链路] 准备 invoke detach_current_conversation_to_window", {
         conversationId,
       });
-      void invokeTauri<{ conversationId: string; windowLabel: string; mainConversationId?: string | null }>("detach_current_conversation_to_window", {
+      void invokeTauri<{ conversationId: string; windowLabel: string; systemNotificationConversationId?: string | null }>("detach_current_conversation_to_window", {
         input: { conversationId },
       }).then((result) => {
         console.info("[独立聊天窗口][前端链路] invoke detach_current_conversation_to_window 已返回", result);
@@ -293,9 +293,9 @@ export function useChatForegroundOrchestrator(bindings: Record<string, any>) {
         void refreshUnarchivedConversationOverview();
       });
       clearForegroundConversation("detach_current_conversation");
-      const mainConversationId = String(bindings.unarchivedConversations.value.find((item: any) => !!item.isMainConversation)?.conversationId || "").trim();
-      if (mainConversationId) {
-        await switchUnarchivedConversation(mainConversationId);
+      const systemNotificationConversationId = String(bindings.unarchivedConversations.value.find((item: any) => !!item.isSystemNotificationConversation)?.conversationId || "").trim();
+      if (systemNotificationConversationId) {
+        await switchUnarchivedConversation(systemNotificationConversationId);
       } else {
         await refreshChatUnarchivedConversations();
       }

@@ -1,7 +1,7 @@
 <template>
   <div>
     <ChatQueuePreview
-      v-if="!sidebarMode"
+      v-if="!sidebarMode && !systemNotificationMode"
       :queue-events="visibleQueueEvents"
       :session-state="sessionState"
       @recall-to-input="handleRecallToInput"
@@ -17,6 +17,7 @@
     <ChatSelectionActionPanel
       v-if="selectionModeEnabled"
       :sidebar-mode="sidebarMode"
+      :delegate-only="selectionDelegateOnly || systemNotificationMode"
       :selected-message-count="selectedMessageCount"
       :active-conversation-id="activeConversationId"
       :unarchived-conversation-items="unarchivedConversationItems"
@@ -28,6 +29,27 @@
       @selection-action-copy="emit('selectionActionCopy')"
       @selection-action-share="emit('selectionActionShare', $event)"
     />
+    <template v-else>
+    <div v-if="systemNotificationMode" class="flex flex-wrap items-center justify-center gap-2">
+      <button
+        type="button"
+        class="btn btn-sm btn-primary gap-2"
+        :disabled="chatting || frozen || busy"
+        @click="emit('openDelegateSelection')"
+      >
+        <ClipboardList class="h-3.5 w-3.5" />
+        {{ t("chat.conversationMenu.startDelegate") }}
+      </button>
+      <button
+        type="button"
+        class="btn btn-sm gap-2"
+        :disabled="chatting || frozen || busy"
+        @click="openCreateConversationDialog"
+      >
+        <Plus class="h-3.5 w-3.5" />
+        {{ t("chat.newConversation") }}
+      </button>
+    </div>
     <template v-else>
     <div v-if="clipboardImages.length > 0 || queuedAttachmentNotices.length > 0" class="mb-2 flex flex-wrap gap-1">
       <div v-for="(img, idx) in clipboardImages" :key="`${img.mime}-${idx}`" class="badge badge-ghost gap-1 py-3">
@@ -289,13 +311,14 @@
       </div>
     </div>
     </template>
+    </template>
   </div>
 </template>
 
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
-import { Bot, ChevronDown, FileText, History, Image as ImageIcon, Layers2, Menu, Mic, Minus, Paperclip, Plus, Send, Settings, Square, Target, X } from "@lucide/vue";
+import { Bot, ChevronDown, ClipboardList, FileText, History, Image as ImageIcon, Layers2, Menu, Mic, Minus, Paperclip, Plus, Send, Settings, Square, Target, X } from "@lucide/vue";
 import type { ApiConfigItem, ChatConversationOverviewItem, ChatMentionEntry, ChatMentionTarget, IdeContextReferenceItem, IdeContextWorkspaceGroup, PromptCommandPreset } from "../../../types/app";
 import { invokeTauri } from "../../../services/tauri-api";
 import ChatQueuePreview from "./ChatQueuePreview.vue";
@@ -325,6 +348,7 @@ type MentionOptionView = {
 
 const props = defineProps<{
   selectionModeEnabled: boolean;
+  selectionDelegateOnly?: boolean;
   selectedMessageCount: number;
   chatInput: string;
   instructionPresets: PromptCommandPreset[];
@@ -353,6 +377,7 @@ const props = defineProps<{
   supervisionActive: boolean;
   supervisionTitle: string;
   supervisionDisabled?: boolean;
+  systemNotificationMode?: boolean;
   showSideConversationList: boolean;
   activeConversationId: string;
   unarchivedConversationItems: ChatConversationOverviewItem[];
@@ -391,14 +416,25 @@ const emit = defineEmits<{
   (e: "removeIdeContextReference", value: string): void;
   (e: "sendChat"): void;
   (e: "stopChat"): void;
+  (e: "openDelegateSelection"): void;
   (e: "openSupervisionTask"): void;
   (e: "open-conversation-list"): void;
   (e: "open-settings"): void;
   (e: "trim-conversation"): void;
+  (e: "createConversation", input?: { departmentId?: string }): void;
 }>();
 
 const { t } = useI18n();
 const sidebarMode = computed(() => !!props.sidebarMode);
+const systemNotificationMode = computed(() => !!props.systemNotificationMode);
+
+function openCreateConversationDialog() {
+  if (typeof window === "undefined") {
+    emit("createConversation", { departmentId: props.defaultCreateConversationDepartmentId });
+    return;
+  }
+  window.dispatchEvent(new CustomEvent("easy-call:open-create-conversation-dialog"));
+}
 
 const menuOpen = ref(false);
 const menuTriggerRef = ref<HTMLButtonElement | null>(null);

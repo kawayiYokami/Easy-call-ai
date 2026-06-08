@@ -106,11 +106,11 @@ export function useShellDialogFlows(options: UseShellDialogFlowsOptions) {
   function buildTrimPreview(conversationId: string): TrimPreviewResult {
     const messages = options.allMessages.value || [];
     const summary = currentUnarchivedConversationSummary();
-    const isMainConversation = summary?.isMainConversation === true;
+    const isSystemNotificationConversation = summary?.isSystemNotificationConversation === true;
     const messageCount = countArchiveCandidateMessages(messages);
     const assistantReplyPresent = hasAssistantReply(messages);
     const isEmpty = messages.length === 0;
-    const archiveDisabledReason = isMainConversation
+    const archiveDisabledReason = isSystemNotificationConversation
       ? t('sidebar.archiveMainNotAllowed')
       : summary?.runtimeState === "organizing_context"
       ? t('sidebar.archiveRunning')

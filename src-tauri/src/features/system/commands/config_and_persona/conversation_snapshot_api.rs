@@ -53,7 +53,7 @@ struct UnarchivedConversationSummary {
     #[serde(default)]
     is_active: bool,
     #[serde(default)]
-    is_main_conversation: bool,
+    is_system_notification_conversation: bool,
     #[serde(default)]
     is_pinned: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -452,14 +452,15 @@ fn build_unarchived_conversation_summary(
 ) -> UnarchivedConversationSummary {
     let last_message_at = conversation.messages.last().map(|m| m.created_at.clone());
     let conversation_id = conversation.id.trim();
-    let is_main_conversation = conversation_id == main_conversation_id;
+    let is_system_notification_conversation =
+        conversation_id == main_conversation_id || conversation_is_system_notification(conversation);
     let pin_index = pinned_conversation_ids
         .iter()
         .position(|item| item.trim() == conversation_id);
     let department_id = resolved_foreground_department_id_for_conversation(
         app_config,
         conversation,
-        is_main_conversation,
+        is_system_notification_conversation,
     );
     let department_name = department_by_id(app_config, &department_id)
         .map(|department| department.name.trim().to_string())
@@ -500,8 +501,8 @@ fn build_unarchived_conversation_summary(
         workspace_label,
         workspace_root_path,
         is_active: conversation.status.trim() == "active",
-        is_main_conversation,
-        is_pinned: is_main_conversation || pin_index.is_some(),
+        is_system_notification_conversation,
+        is_pinned: is_system_notification_conversation || pin_index.is_some(),
         pin_index,
         runtime_state: None,
         current_todo: None,
@@ -528,8 +529,10 @@ fn sort_unarchived_conversation_summaries(
 ) -> Vec<UnarchivedConversationSummary> {
     let mut ordered = summaries;
     ordered.sort_by(|a, b| {
-        if a.is_main_conversation != b.is_main_conversation {
-            return b.is_main_conversation.cmp(&a.is_main_conversation);
+        if a.is_system_notification_conversation != b.is_system_notification_conversation {
+            return b
+                .is_system_notification_conversation
+                .cmp(&a.is_system_notification_conversation);
         }
         if a.is_pinned != b.is_pinned {
             return b.is_pinned.cmp(&a.is_pinned);
@@ -1057,7 +1060,7 @@ mod conversation_snapshot_api_tests {
             workspace_label: "默认会话目录".to_string(),
             workspace_root_path: None,
             is_active: false,
-            is_main_conversation: false,
+            is_system_notification_conversation: false,
             is_pinned: false,
             pin_index: None,
             runtime_state: None,
@@ -1082,7 +1085,7 @@ mod conversation_snapshot_api_tests {
     #[test]
     fn sort_unarchived_conversation_summaries_should_group_main_pinned_and_recent() {
         let mut main = test_summary("main", "2026-04-18T10:00:00Z", None);
-        main.is_main_conversation = true;
+        main.is_system_notification_conversation = true;
         main.is_pinned = true;
         let mut pinned = test_summary("pinned", "2026-04-18T10:01:00Z", None);
         pinned.is_pinned = true;

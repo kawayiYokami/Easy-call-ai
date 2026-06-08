@@ -1,5 +1,7 @@
 fn task_conversation_available_for_dispatch(conversation: &Conversation) -> bool {
-    conversation.summary.trim().is_empty() && !conversation_is_delegate(conversation)
+    conversation.summary.trim().is_empty()
+        && !conversation_is_delegate(conversation)
+        && !conversation_is_system_notification(conversation)
 }
 
 #[derive(Debug, Clone)]
@@ -73,6 +75,7 @@ fn task_resolve_main_dispatch_conversation_id(
     agent_id: &str,
     fallback_to_main: bool,
 ) -> Result<TaskResolvedConversation, String> {
+    let _ = normalize_runtime_state_system_notification_pointer(runtime);
     let conversation_id = if let Some(existing_id) = runtime
         .main_conversation_id
         .as_deref()
@@ -103,8 +106,6 @@ fn task_resolve_main_dispatch_conversation_id(
         );
         let conversation_id = conversation.id.clone();
         conversation_service().persist_conversation(state, &conversation)?;
-        runtime.main_conversation_id = Some(conversation_id.clone());
-        state_write_runtime_state_cached(state, runtime)?;
         conversation_id
     };
     Ok(TaskResolvedConversation {
@@ -460,7 +461,7 @@ async fn task_dispatch_due_task(
     {
         if session.fallback_to_main {
             eprintln!(
-                "[任务调度] 原会话不可用，回退到主会话: task_id={}, requested_conversation_id={}, fallback_conversation_id={}",
+                "[任务调度] 原会话不可用，回退到任务会话: task_id={}, requested_conversation_id={}, fallback_conversation_id={}",
                 task.task_id,
                 requested,
                 session.conversation_id

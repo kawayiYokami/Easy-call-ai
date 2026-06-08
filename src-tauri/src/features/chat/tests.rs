@@ -3129,26 +3129,18 @@
         );
         assert_eq!(primed.source, "assistant_message_effective_prompt_tokens");
 
-        let first = conversation_prompt_service().resolve_runtime_trusted_prompt_usage_or_estimate(
-            &runtime_context,
-            &prepared,
-            &ApiConfig::default(),
-            &agent,
-        );
-        assert_eq!(first.source, "trusted_prompt_usage");
-        assert_eq!(first.effective_prompt_tokens, 640);
-        assert!(first.estimated_prompt_tokens.is_none());
         assert!(runtime_context.trusted_prompt_usage.is_some());
 
-        let second = conversation_prompt_service().resolve_runtime_trusted_prompt_usage_or_estimate(
-            &runtime_context,
+        let reused = conversation_prompt_service().prime_runtime_trusted_prompt_usage(
+            &mut runtime_context,
+            &conversation,
             &prepared,
             &ApiConfig::default(),
             &agent,
         );
-        assert_eq!(second.source, "trusted_prompt_usage");
-        assert_eq!(second.effective_prompt_tokens, 640);
-        assert!(second.estimated_prompt_tokens.is_none());
+        assert_eq!(reused.source, "trusted_prompt_usage");
+        assert_eq!(reused.effective_prompt_tokens, 640);
+        assert!(reused.estimated_prompt_tokens.is_none());
     }
 
     #[test]
@@ -4687,11 +4679,22 @@
 
         let idx = ensure_main_conversation_index(&mut data, "", DEFAULT_AGENT_ID);
 
-        assert_eq!(data.conversations[idx].id, "conversation-main");
+        assert_eq!(data.conversations[idx].id, SYSTEM_NOTIFICATION_CONVERSATION_ID);
+        assert_eq!(data.conversations[idx].title, "系统通知");
+        assert_eq!(
+            data.conversations[idx].conversation_kind,
+            CONVERSATION_KIND_SYSTEM_NOTIFICATION
+        );
         assert_eq!(
             data.main_conversation_id.as_deref(),
-            Some("conversation-main")
+            Some(SYSTEM_NOTIFICATION_CONVERSATION_ID)
         );
+        let previous_main = data
+            .conversations
+            .iter()
+            .find(|conversation| conversation.id == "conversation-main")
+            .expect("previous main conversation should stay as a normal chat");
+        assert!(conversation_is_local_normal_chat(previous_main));
     }
 
     #[test]
@@ -4839,7 +4842,7 @@
     }
 
     #[test]
-    fn task_resolve_dispatch_session_should_fallback_to_main_when_bound_conversation_missing() {
+    fn task_resolve_dispatch_session_should_create_task_conversation_when_bound_conversation_missing() {
         let state = test_chat_runtime_state();
         write_config(&state.config_path, &AppConfig::default()).expect("write config");
         let data = test_user_switched_to_sub_conversation_data();
@@ -4876,19 +4879,21 @@
         let session = task_resolve_dispatch_session(&state, &task)
             .expect("resolve task session")
             .expect("dispatch session");
-        let updated = state_read_app_data_cached(&state).expect("read app data");
+        let runtime = state_read_runtime_state_cached(&state).expect("read runtime");
+        let task_conversation =
+            state_read_conversation_cached(&state, &session.conversation_id).expect("read task conversation");
+        let sub_conversation =
+            state_read_conversation_cached(&state, "conversation-sub").expect("read sub conversation");
 
-        assert_eq!(session.conversation_id, "conversation-main");
+        assert_ne!(session.conversation_id, "conversation-main");
+        assert_ne!(session.conversation_id, SYSTEM_NOTIFICATION_CONVERSATION_ID);
         assert!(session.fallback_to_main);
-        assert_eq!(updated.main_conversation_id.as_deref(), Some("conversation-main"));
         assert_eq!(
-            updated
-                .conversations
-                .iter()
-                .find(|item| item.id == "conversation-sub")
-                .map(|item| item.status.as_str()),
-            Some("active")
+            runtime.main_conversation_id.as_deref(),
+            Some(SYSTEM_NOTIFICATION_CONVERSATION_ID)
         );
+        assert!(conversation_is_local_normal_chat(&task_conversation));
+        assert_eq!(sub_conversation.status, "active");
     }
 
     #[test]
@@ -6256,14 +6261,23 @@
 
         let next_id = delete_main_conversation_and_activate_latest(&state, &selected_api, &source)
             .expect("delete main conversation");
-        let updated = state_read_app_data_cached(&state).expect("read app data");
+        let runtime = state_read_runtime_state_cached(&state).expect("read runtime");
+        let system_notification = state_read_conversation_cached(
+            &state,
+            SYSTEM_NOTIFICATION_CONVERSATION_ID,
+        )
+        .expect("read system notification conversation");
+        let promoted = state_read_conversation_cached(&state, &next_id)
+            .expect("read promoted conversation");
 
         assert_eq!(next_id, "conversation-sub");
-        assert_eq!(updated.main_conversation_id.as_deref(), Some(next_id.as_str()));
-        assert_eq!(updated.conversations.len(), 1);
-        assert_eq!(updated.conversations[0].id, next_id);
-        assert_eq!(updated.conversations[0].status, "inactive");
-        assert_eq!(updated.conversations[0].summary, "");
+        assert_eq!(
+            runtime.main_conversation_id.as_deref(),
+            Some(SYSTEM_NOTIFICATION_CONVERSATION_ID)
+        );
+        assert!(conversation_is_system_notification(&system_notification));
+        assert_eq!(promoted.status, "inactive");
+        assert_eq!(promoted.summary, "");
     }
 
     #[test]
@@ -6285,14 +6299,24 @@
 
         let next_id = delete_main_conversation_and_activate_latest(&state, &selected_api, &source)
             .expect("delete last main conversation");
-        let updated = state_read_app_data_cached(&state).expect("read app data");
+        let runtime = state_read_runtime_state_cached(&state).expect("read runtime");
+        let system_notification = state_read_conversation_cached(
+            &state,
+            SYSTEM_NOTIFICATION_CONVERSATION_ID,
+        )
+        .expect("read system notification conversation");
+        let replacement = state_read_conversation_cached(&state, &next_id)
+            .expect("read replacement conversation");
 
         assert_ne!(next_id, "conversation-main");
-        assert_eq!(updated.main_conversation_id.as_deref(), Some(next_id.as_str()));
-        assert_eq!(updated.conversations.len(), 1);
-        assert_eq!(updated.conversations[0].id, next_id);
-        assert_eq!(updated.conversations[0].status, "active");
-        assert!(updated.conversations[0].summary.is_empty());
+        assert_ne!(next_id, SYSTEM_NOTIFICATION_CONVERSATION_ID);
+        assert_eq!(
+            runtime.main_conversation_id.as_deref(),
+            Some(SYSTEM_NOTIFICATION_CONVERSATION_ID)
+        );
+        assert!(conversation_is_system_notification(&system_notification));
+        assert_eq!(replacement.status, "active");
+        assert!(replacement.summary.is_empty());
     }
 
     #[test]
@@ -6312,11 +6336,14 @@
             .expect("archive current main");
         let idx = ensure_main_conversation_index(&mut data, "", DEFAULT_AGENT_ID);
 
-        assert_ne!(data.conversations[idx].id, "conversation-main");
-        assert_ne!(data.conversations[idx].id, "conversation-sub");
+        assert_eq!(data.conversations[idx].id, SYSTEM_NOTIFICATION_CONVERSATION_ID);
+        assert_eq!(
+            data.conversations[idx].conversation_kind,
+            CONVERSATION_KIND_SYSTEM_NOTIFICATION
+        );
         assert_eq!(
             data.main_conversation_id.as_deref(),
-            Some(data.conversations[idx].id.as_str())
+            Some(SYSTEM_NOTIFICATION_CONVERSATION_ID)
         );
     }
 
@@ -6331,10 +6358,10 @@
             .expect("archive last main");
         let idx = ensure_main_conversation_index(&mut data, "api-default", DEFAULT_AGENT_ID);
 
-        assert_ne!(data.conversations[idx].id, "conversation-main");
+        assert_eq!(data.conversations[idx].id, SYSTEM_NOTIFICATION_CONVERSATION_ID);
         assert_eq!(
             data.main_conversation_id.as_deref(),
-            Some(data.conversations[idx].id.as_str())
+            Some(SYSTEM_NOTIFICATION_CONVERSATION_ID)
         );
         assert_eq!(data.conversations[idx].status, "active");
         assert!(data.conversations[idx].summary.is_empty());

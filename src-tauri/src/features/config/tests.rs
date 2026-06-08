@@ -1102,9 +1102,18 @@ model = "gpt-4.1"
         let first = write_app_data_with_stats(&data_path, &data).expect("write first layout");
         assert!(first.agents_written);
         assert!(first.runtime_written);
-        assert_eq!(first.conversation_writes, 2);
+        assert_eq!(first.conversation_writes, 3);
         assert_eq!(first.conversation_deletes, 0);
         assert!(!app_layout_chat_index_path(&data_path).exists());
+        let system_notification = read_conversation_shard(
+            &data_path,
+            SYSTEM_NOTIFICATION_CONVERSATION_ID,
+        )
+        .expect("system notification conversation should be materialized");
+        assert_eq!(
+            system_notification.conversation_kind,
+            CONVERSATION_KIND_SYSTEM_NOTIFICATION
+        );
 
         let second = write_app_data_with_stats(&data_path, &data).expect("write same layout");
         assert!(!second.agents_written);
@@ -1180,6 +1189,49 @@ model = "gpt-4.1"
     }
 
     #[test]
+    fn read_runtime_state_shard_should_materialize_fixed_system_notification_conversation() {
+        let root = std::env::temp_dir().join(format!("eca-system-notification-shard-{}", Uuid::new_v4()));
+        std::fs::create_dir_all(root.join("config")).expect("create temp config dir");
+        let data_path = root.join("config").join("app_data.json");
+
+        let old_main = build_test_conversation("conversation-main", "主会话");
+        write_conversation_shard(&data_path, &old_main).expect("write old main conversation");
+        let mut runtime = RuntimeStateFile::default();
+        runtime.main_conversation_id = Some("conversation-main".to_string());
+        write_json_file_atomic(
+            &app_layout_runtime_state_path(&data_path),
+            &runtime,
+            "runtime state file",
+        )
+        .expect("write runtime state directly");
+        assert!(read_conversation_shard(&data_path, SYSTEM_NOTIFICATION_CONVERSATION_ID).is_err());
+
+        let restored = read_runtime_state_shard(&data_path).expect("read runtime shard");
+
+        assert_eq!(
+            restored.main_conversation_id.as_deref(),
+            Some(SYSTEM_NOTIFICATION_CONVERSATION_ID)
+        );
+        let system_notification = read_conversation_shard(
+            &data_path,
+            SYSTEM_NOTIFICATION_CONVERSATION_ID,
+        )
+        .expect("read system notification conversation");
+        assert_eq!(system_notification.id, SYSTEM_NOTIFICATION_CONVERSATION_ID);
+        assert_eq!(system_notification.title, "系统通知");
+        assert_eq!(
+            system_notification.conversation_kind,
+            CONVERSATION_KIND_SYSTEM_NOTIFICATION
+        );
+        assert!(system_notification.messages.is_empty());
+        let old_main_after =
+            read_conversation_shard(&data_path, "conversation-main").expect("read old main");
+        assert_eq!(old_main_after.id, "conversation-main");
+        assert_eq!(old_main_after.title, "主会话");
+        assert_eq!(old_main_after.conversation_kind, CONVERSATION_KIND_CHAT);
+    }
+
+    #[test]
     fn runtime_state_shard_should_sync_remote_im_contact_communication_flags() {
         let root = std::env::temp_dir().join(format!("eca-app-data-contact-sync-{}", Uuid::new_v4()));
         std::fs::create_dir_all(root.join("config")).expect("create temp config dir");
@@ -1223,6 +1275,15 @@ model = "gpt-4.1"
         let contact = restored.remote_im_contacts.first().expect("contact exists");
         assert!(contact.allow_send);
         assert!(contact.allow_receive);
+        let system_notification = read_conversation_shard(
+            &data_path,
+            SYSTEM_NOTIFICATION_CONVERSATION_ID,
+        )
+        .expect("read system notification conversation");
+        assert_eq!(
+            system_notification.conversation_kind,
+            CONVERSATION_KIND_SYSTEM_NOTIFICATION
+        );
     }
 
     #[test]

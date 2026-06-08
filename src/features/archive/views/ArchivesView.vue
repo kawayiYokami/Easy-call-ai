@@ -46,7 +46,7 @@
         <button class="btn bg-base-100 border-base-300 hover:bg-base-200" :disabled="viewMode !== 'archive' || !selectedArchiveId" @click="$emit('exportArchive', { format: 'json' })">{{ t("archives.exportJson") }}</button>
         <button
           class="btn bg-base-100 border-base-300 hover:bg-base-200 text-error"
-          :disabled="(viewMode === 'delegate' && !selectedDelegateConversationId) || (viewMode === 'archive' && !selectedArchiveId) || (viewMode === 'current' && (!selectedUnarchivedConversationId || selectedCurrentConversationSummary?.isMainConversation)) || (viewMode === 'remoteIm' && !selectedRemoteImContactId)"
+          :disabled="(viewMode === 'delegate' && !selectedDelegateConversationId) || (viewMode === 'archive' && !selectedArchiveId) || (viewMode === 'current' && (!selectedUnarchivedConversationId || selectedCurrentConversationSummary?.isSystemNotificationConversation)) || (viewMode === 'remoteIm' && !selectedRemoteImContactId)"
           @click="viewMode === 'archive' ? onDeleteArchiveClick(selectedArchiveId) : viewMode === 'delegate' ? onDeleteDelegateClick(selectedDelegateConversationId) : viewMode === 'remoteIm' ? onDeleteRemoteImContactClick(selectedRemoteImContactId) : onDeleteUnarchivedClick(selectedUnarchivedConversationId)"
         >
           <Trash2 class="h-4 w-4" />
