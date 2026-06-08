@@ -355,7 +355,6 @@
           :workspaces="workspaces" :current-department-id="currentDepartmentId"
           :department-options="toolReviewDepartmentOptions"
           :delegate-statuses="delegateStatuses"
-          :delegate-statuses-loading="delegateStatusesLoading"
           :delegate-statuses-error-text="delegateStatusesErrorText"
           :persona-avatar-url-map="personaAvatarUrlMap"
           @select-batch="setToolReviewCurrentBatchKey" @load-item-detail="loadToolReviewItemDetail"
@@ -788,7 +787,7 @@ const effectiveToolReviewPanelOpen = computed(() => !sidebarMode.value && toolRe
 // ==================== delegate status ====================
 
 const {
-  delegateStatuses, delegateStatusesLoading, delegateStatusesErrorText,
+  delegateStatuses, delegateStatusesErrorText,
   openDelegateArchiveDetail, abortDelegate,
 } = useDelegateStatus({
   activeConversationId: toRef(props, "activeConversationId"),

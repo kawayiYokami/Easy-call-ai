@@ -1332,7 +1332,6 @@
       "resultsTab": "Code review",
       "toolsTab": "Tool assessment",
       "delegatesTab": "Delegates",
-      "delegateLoading": "Loading delegate status",
       "delegateEmpty": "No delegates in this conversation",
       "departmentLabel": "Review department",
       "noDescription": "No description",

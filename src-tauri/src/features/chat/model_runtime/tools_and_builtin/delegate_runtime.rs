@@ -339,6 +339,19 @@ async fn delegate_run_thread_to_completion(
                     err
                 );
             }
+            if let Err(err) = emit_conversation_delegate_status_updated(
+                &app_state,
+                &delegate.conversation_id,
+                &delegate.delegate_id,
+                DELEGATE_STATUS_COMPLETED,
+            ) {
+                eprintln!(
+                    "[委托状态] 广播失败: 阶段=完成, root_conversation_id={}, delegate_id={}, error={}",
+                    delegate.conversation_id,
+                    delegate.delegate_id,
+                    err
+                );
+            }
             if let Err(err) = emit_agent_work_signal(
                 &app_state,
                 AGENT_WORK_EVENT_STOP,
@@ -380,6 +393,19 @@ async fn delegate_run_thread_to_completion(
                     delegate_thread_id,
                     delegate.delegate_id,
                     DELEGATE_STATUS_FAILED,
+                    status_err
+                );
+            }
+            if let Err(status_err) = emit_conversation_delegate_status_updated(
+                &app_state,
+                &delegate.conversation_id,
+                &delegate.delegate_id,
+                DELEGATE_STATUS_FAILED,
+            ) {
+                eprintln!(
+                    "[委托状态] 广播失败: 阶段=失败, root_conversation_id={}, delegate_id={}, error={}",
+                    delegate.conversation_id,
+                    delegate.delegate_id,
                     status_err
                 );
             }

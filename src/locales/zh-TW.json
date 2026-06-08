@@ -1326,7 +1326,6 @@
       "resultsTab": "代碼審查",
       "toolsTab": "工具評估",
       "delegatesTab": "委託",
-      "delegateLoading": "正在載入委託狀態",
       "delegateEmpty": "目前會話暫無委託",
       "departmentLabel": "審查部門",
       "noDescription": "暫無說明",

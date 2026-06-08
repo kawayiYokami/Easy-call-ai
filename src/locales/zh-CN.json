@@ -1326,7 +1326,6 @@
       "resultsTab": "代码审查",
       "toolsTab": "工具评估",
       "delegatesTab": "委托",
-      "delegateLoading": "正在加载委托状态",
       "delegateEmpty": "当前会话暂无委托",
       "departmentLabel": "审查部门",
       "noDescription": "暂无说明",

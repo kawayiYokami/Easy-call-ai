@@ -3,10 +3,6 @@
     <div v-if="errorText" class="mx-4 my-4 rounded-box border border-error/30 bg-error/10 px-3 py-2 text-sm text-error">
       {{ errorText }}
     </div>
-    <div v-if="loading && statuses.length === 0" class="flex min-h-0 flex-1 items-center justify-center text-sm text-base-content/65">
-      <span class="loading loading-spinner loading-sm mr-2"></span>
-      {{ t("chat.toolReview.delegateLoading") }}
-    </div>
     <div v-else-if="statuses.length === 0" class="flex min-h-0 flex-1 items-center justify-center px-4 py-8 text-sm text-base-content/65">
       {{ t("chat.toolReview.delegateEmpty") }}
     </div>
@@ -58,7 +54,6 @@ import type { ConversationDelegateStatusSummary } from "../../../types/app";
 
 defineProps<{
   statuses: ConversationDelegateStatusSummary[];
-  loading: boolean;
   errorText: string;
 }>();
 

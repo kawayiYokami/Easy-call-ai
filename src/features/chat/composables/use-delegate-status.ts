@@ -1,37 +1,42 @@
-import { ref, watch, onBeforeUnmount, type Ref } from "vue";
+import { ref, watch, onMounted, onBeforeUnmount, type Ref } from "vue";
+import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { invokeTauri } from "../../../services/tauri-api";
 import type { ConversationDelegateStatusSummary } from "../../../types/app";
 
 const ARCHIVE_FOCUS_REQUEST_STORAGE_KEY = "easy_call.archives.focus_request.v1";
-const POLL_INTERVAL_MS = 5000;
+const DELEGATE_STATUS_UPDATED_EVENT = "easy-call:conversation-delegate-status-updated";
 
 interface UseDelegateStatusOptions {
   activeConversationId: Ref<string>;
   panelOpen: Ref<boolean>;
 }
 
+type DelegateStatusUpdatedPayload = {
+  rootConversationId?: string;
+  conversationId?: string;
+  delegateId?: string;
+  status?: string;
+};
+
 export function useDelegateStatus(options: UseDelegateStatusOptions) {
   const { activeConversationId, panelOpen } = options;
 
   const delegateStatuses = ref<ConversationDelegateStatusSummary[]>([]);
-  const delegateStatusesLoading = ref(false);
   const delegateStatusesErrorText = ref("");
 
-  let pollTimer: number | null = null;
+  let delegateStatusUpdatedUnlisten: UnlistenFn | null = null;
+  let disposed = false;
   let requestSeq = 0;
 
   async function refresh() {
     const conversationId = String(activeConversationId.value || "").trim();
     if (!conversationId || !panelOpen.value) {
+      requestSeq += 1;
       delegateStatuses.value = [];
       delegateStatusesErrorText.value = "";
       return;
     }
     const seq = ++requestSeq;
-    // 仅首次（列表为空）显示 loading，常规轮询不闪烁
-    if (delegateStatuses.value.length === 0) {
-      delegateStatusesLoading.value = true;
-    }
     try {
       const statuses = await invokeTauri<ConversationDelegateStatusSummary[]>(
         "list_conversation_delegate_statuses",
@@ -43,22 +48,19 @@ export function useDelegateStatus(options: UseDelegateStatusOptions) {
     } catch (error) {
       if (seq !== requestSeq) return;
       delegateStatusesErrorText.value = `委托状态加载失败：${String(error)}`;
-    } finally {
-      if (seq === requestSeq) delegateStatusesLoading.value = false;
     }
   }
 
-  function clearPollTimer() {
-    if (pollTimer === null) return;
-    window.clearInterval(pollTimer);
-    pollTimer = null;
+  function payloadMatchesActiveConversation(payload: DelegateStatusUpdatedPayload | null | undefined) {
+    const activeId = String(activeConversationId.value || "").trim();
+    if (!activeId) return false;
+    const rootConversationId = String(payload?.rootConversationId || "").trim();
+    if (rootConversationId) return rootConversationId === activeId;
+    return String(payload?.conversationId || "").trim() === activeId;
   }
 
-  function syncPolling() {
-    clearPollTimer();
-    if (!panelOpen.value || !String(activeConversationId.value || "").trim()) return;
+  function syncPanelState() {
     void refresh();
-    pollTimer = window.setInterval(() => void refresh(), POLL_INTERVAL_MS);
   }
 
   async function openDelegateArchiveDetail(status: ConversationDelegateStatusSummary) {
@@ -93,15 +95,34 @@ export function useDelegateStatus(options: UseDelegateStatusOptions) {
 
   watch(
     () => [panelOpen.value, String(activeConversationId.value || "").trim()],
-    () => syncPolling(),
+    () => syncPanelState(),
     { immediate: true },
   );
 
-  onBeforeUnmount(() => clearPollTimer());
+  onMounted(() => {
+    void listen<DelegateStatusUpdatedPayload>(DELEGATE_STATUS_UPDATED_EVENT, (event) => {
+      if (!panelOpen.value || !payloadMatchesActiveConversation(event.payload)) return;
+      void refresh();
+    }).then((unlisten) => {
+      if (disposed) {
+        unlisten();
+        return;
+      }
+      delegateStatusUpdatedUnlisten = unlisten;
+    }).catch((error) => {
+      console.error("[委托状态] 监听器注册失败", error);
+    });
+  });
+
+  onBeforeUnmount(() => {
+    disposed = true;
+    if (!delegateStatusUpdatedUnlisten) return;
+    delegateStatusUpdatedUnlisten();
+    delegateStatusUpdatedUnlisten = null;
+  });
 
   return {
     delegateStatuses,
-    delegateStatusesLoading,
     delegateStatusesErrorText,
     openDelegateArchiveDetail,
     abortDelegate,
