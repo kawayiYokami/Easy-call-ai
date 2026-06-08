@@ -1,6 +1,9 @@
 import { computed, type ComputedRef, type Ref, type ShallowRef } from "vue";
 import type { ApiConfigItem, ChatMessage, ChatMessageBlock } from "../../../types/app";
-import type { ContextUsageUpdatePayload } from "./use-chat-flow-events";
+import {
+  readContextUsageRatioFromRecord,
+  type ContextUsageUpdatePayload,
+} from "./use-chat-flow-events";
 import {
   estimateConversationTokens,
 } from "../../../utils/chat-message";
@@ -85,13 +88,19 @@ export function useChatMessageBlocks(options: UseChatMessageBlocksOptions) {
     return signature;
   }
 
-  function latestBackendContextUsagePercent(messages: ChatMessage[]): number | null {
+  function latestBackendContextUsageRatio(
+    messages: ChatMessage[],
+    fallbackContextWindowTokens: number,
+  ): number | null {
     for (let idx = messages.length - 1; idx >= 0; idx -= 1) {
       const message = messages[idx];
       if (message.role !== "assistant") continue;
-      const raw = Number((message.providerMeta || {}).contextUsagePercent);
-      if (!Number.isFinite(raw)) continue;
-      return Math.min(100, Math.max(0, Math.round(raw)));
+      const ratio = readContextUsageRatioFromRecord(
+        (message.providerMeta || {}) as Record<string, unknown>,
+        fallbackContextWindowTokens,
+      );
+      if (ratio === null) continue;
+      return Math.max(0, ratio);
     }
     return null;
   }
@@ -330,13 +339,15 @@ export function useChatMessageBlocks(options: UseChatMessageBlocksOptions) {
     if (previewRatio !== null) {
       return previewRatio;
     }
-    const backendPercent = latestBackendContextUsagePercent(options.allMessages.value);
-    if (backendPercent !== null) {
-      return backendPercent / 100;
-    }
     const api = options.activeChatApiConfig.value;
+    const maxTokens = api
+      ? Math.max(16000, Math.round(Number(api.contextWindowTokens ?? 256000)))
+      : 0;
+    const backendRatio = latestBackendContextUsageRatio(options.allMessages.value, maxTokens);
+    if (backendRatio !== null) {
+      return backendRatio;
+    }
     if (!api) return 0;
-    const maxTokens = Math.max(16000, Math.round(Number(api.contextWindowTokens ?? 256000)));
     const used = estimateConversationTokens(options.allMessages.value);
     return used / Math.max(1, maxTokens);
   });

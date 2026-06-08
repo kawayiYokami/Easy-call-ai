@@ -1173,6 +1173,10 @@ struct ConversationDelegateStatusSummary {
     tool_call_count: usize,
     last_tool_name: String,
     token_count: u64,
+    input_token_count: u64,
+    output_token_count: u64,
+    cache_read_token_count: u64,
+    cache_write_token_count: u64,
     #[serde(skip_serializing_if = "Option::is_none")]
     target_agent_id: Option<String>,
 }
@@ -1183,6 +1187,7 @@ struct DelegateConversationStats {
     tool_call_count: usize,
     last_tool_name: String,
     token_count: u64,
+    cumulative_usage: ConversationCumulativeUsage,
 }
 
 fn conversation_delegate_effective_prompt_tokens(message: &ChatMessage) -> Option<u64> {
@@ -1233,15 +1238,24 @@ fn conversation_delegate_text_message_has_content(message: &ChatMessage) -> bool
         || message.extra_text_blocks.iter().any(|item| !item.trim().is_empty())
 }
 
-fn conversation_delegate_stats_from_messages(
-    messages: &[ChatMessage],
+fn conversation_delegate_stats_from_conversation(
+    conversation: &Conversation,
     inflight_tool_history: &[Value],
 ) -> DelegateConversationStats {
+    let cumulative_usage = if conversation.cumulative_usage.is_empty() {
+        ConversationCumulativeUsage {
+            input_tokens: conversation_delegate_token_count(&conversation.messages),
+            ..ConversationCumulativeUsage::default()
+        }
+    } else {
+        conversation.cumulative_usage.clone()
+    };
     let mut stats = DelegateConversationStats {
-        token_count: conversation_delegate_token_count(messages),
+        token_count: conversation_cumulative_usage_weighted_tokens(&cumulative_usage),
+        cumulative_usage,
         ..DelegateConversationStats::default()
     };
-    for message in messages {
+    for message in &conversation.messages {
         if message.role != "assistant" || conversation_delegate_compaction_kind(message).is_some() {
             continue;
         }
@@ -1368,10 +1382,8 @@ fn conversation_delegate_summary_from_thread(
     } else {
         Vec::new()
     };
-    let stats = conversation_delegate_stats_from_messages(
-        &thread.conversation.messages,
-        &inflight_tool_history,
-    );
+    let stats =
+        conversation_delegate_stats_from_conversation(&thread.conversation, &inflight_tool_history);
     let (status, stored_started_at, stored_completed_at) =
         conversation_delegate_status_from_entry(app_state, &delegate_id, active);
     let started_at = if stored_started_at.trim().is_empty() {
@@ -1403,6 +1415,10 @@ fn conversation_delegate_summary_from_thread(
         tool_call_count: stats.tool_call_count,
         last_tool_name: stats.last_tool_name,
         token_count: stats.token_count,
+        input_token_count: stats.cumulative_usage.input_tokens,
+        output_token_count: stats.cumulative_usage.output_tokens,
+        cache_read_token_count: stats.cumulative_usage.cache_read_tokens,
+        cache_write_token_count: stats.cumulative_usage.cache_write_tokens,
         target_agent_id: delegate_store_get_delegate(&app_state.data_path, &delegate_id)
             .ok()
             .map(|entry| entry.target_agent_id),
@@ -1417,7 +1433,7 @@ fn conversation_delegate_summary_from_persisted(
         .delegate_id
         .clone()
         .unwrap_or_else(|| conversation.id.clone());
-    let stats = conversation_delegate_stats_from_messages(&conversation.messages, &[]);
+    let stats = conversation_delegate_stats_from_conversation(conversation, &[]);
     let (status, stored_started_at, stored_completed_at) =
         conversation_delegate_status_from_entry(app_state, &delegate_id, false);
     let started_at = if stored_started_at.trim().is_empty() {
@@ -1447,6 +1463,10 @@ fn conversation_delegate_summary_from_persisted(
         tool_call_count: stats.tool_call_count,
         last_tool_name: stats.last_tool_name,
         token_count: stats.token_count,
+        input_token_count: stats.cumulative_usage.input_tokens,
+        output_token_count: stats.cumulative_usage.output_tokens,
+        cache_read_token_count: stats.cumulative_usage.cache_read_tokens,
+        cache_write_token_count: stats.cumulative_usage.cache_write_tokens,
         target_agent_id: delegate_store_get_delegate(&app_state.data_path, &delegate_id)
             .ok()
             .map(|entry| entry.target_agent_id),
@@ -2384,6 +2404,7 @@ mod unarchived_conversations_tests {
             memory_recall_table: Vec::new(),
             plan_mode_enabled: true,
             preferred_api_config_id: None,
+            cumulative_usage: ConversationCumulativeUsage::default(),
         }
     }
 
@@ -2450,6 +2471,25 @@ mod unarchived_conversations_tests {
     }
 
     #[test]
+    fn conversation_delegate_stats_should_use_weighted_cumulative_usage() {
+        let mut conversation = build_test_conversation();
+        conversation.cumulative_usage = ConversationCumulativeUsage {
+            input_tokens: 100,
+            output_tokens: 50,
+            cache_read_tokens: 1000,
+            cache_write_tokens: 30,
+        };
+
+        let stats = conversation_delegate_stats_from_conversation(&conversation, &[]);
+
+        assert_eq!(stats.token_count, 150);
+        assert_eq!(stats.cumulative_usage.input_tokens, 100);
+        assert_eq!(stats.cumulative_usage.output_tokens, 50);
+        assert_eq!(stats.cumulative_usage.cache_read_tokens, 1000);
+        assert_eq!(stats.cumulative_usage.cache_write_tokens, 30);
+    }
+
+    #[test]
     fn conversation_delegate_stats_should_count_tool_rounds_and_final_reply() {
         let mut message = build_test_message("assistant-1", "最终答复");
         message.tool_call = Some(vec![
@@ -2484,7 +2524,9 @@ mod unarchived_conversations_tests {
             }),
         ]);
 
-        let stats = conversation_delegate_stats_from_messages(&[message], &[]);
+        let mut conversation = build_test_conversation();
+        conversation.messages = vec![message];
+        let stats = conversation_delegate_stats_from_conversation(&conversation, &[]);
 
         assert_eq!(stats.request_count, 3);
         assert_eq!(stats.tool_call_count, 2);

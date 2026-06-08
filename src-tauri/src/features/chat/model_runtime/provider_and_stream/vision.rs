@@ -17,9 +17,9 @@ async fn describe_image_with_vision_api(
         );
     let reply = if vision_resolved.request_format.is_genai_chat() || vision_resolved.request_format.is_auto() {
         if prefer_non_stream {
-            call_model_openai_non_stream(vision_resolved, &vision_api.model, prepared, Some(state)).await?
+            call_model_openai_non_stream(vision_resolved, &vision_api.model, prepared, Some(state), None).await?
         } else {
-            match call_model_openai_stream(vision_resolved, &vision_api.model, prepared.clone(), Some(state)).await {
+            match call_model_openai_stream(vision_resolved, &vision_api.model, prepared.clone(), Some(state), None).await {
                 Ok(reply) => {
                     if let Err(clear_err) = provider_clear_streaming_disabled(
                         Some(state),
@@ -53,7 +53,7 @@ async fn describe_image_with_vision_api(
                         "[视觉] 流式失败，已在本次运行内切换非流式重试: base_url={}, model={}, err={}",
                         vision_resolved.base_url, vision_api.model, err
                     ));
-                    call_model_openai_non_stream(vision_resolved, &vision_api.model, prepared, Some(state)).await?
+                    call_model_openai_non_stream(vision_resolved, &vision_api.model, prepared, Some(state), None).await?
                 }
                 Err(err) => return Err(err),
             }

@@ -1681,6 +1681,7 @@ async fn send_chat_message_inner(
             memory_recall_table: Vec::new(),
             plan_mode_enabled: false,
             preferred_api_config_id: None,
+            cumulative_usage: ConversationCumulativeUsage::default(),
         }
     };
     let requested_conversation_id_for_prepare = requested_conversation_id.clone();
@@ -1782,6 +1783,7 @@ async fn send_chat_message_inner(
                     memory_recall_table: Vec::new(),
                     plan_mode_enabled: false,
                     preferred_api_config_id: None,
+                    cumulative_usage: ConversationCumulativeUsage::default(),
                 });
             }
             return build_prepare_snapshot_read_only(
@@ -1848,6 +1850,7 @@ async fn send_chat_message_inner(
                 memory_recall_table: Vec::new(),
                 plan_mode_enabled: false,
                 preferred_api_config_id: None,
+                cumulative_usage: ConversationCumulativeUsage::default(),
             });
         }
         build_prepare_snapshot_read_only(&data, runtime_agents, selected_api, effective_agent_id)
@@ -2973,6 +2976,7 @@ async fn send_chat_message_inner(
                 on_delta,
                 app_config.tool_max_iterations as usize,
                 &chat_session_key,
+                Some(&conversation_id),
             )
             .await;
             let restart_after_compaction = matches!(
@@ -3046,44 +3050,47 @@ async fn send_chat_message_inner(
             }
 
             let (reason_text, final_error_text) = match chat_round_execution.result {
-                Ok(reply) => match model_reply_content_state(&reply) {
-                    ModelReplyContentState::Visible => {
-                        active_selected_api = candidate_selected_api.clone();
-                        active_resolved_api = candidate_resolved_api.clone();
-                        model_reply = Some(reply);
-                        candidate_final_error = None;
-                        break;
+                Ok(reply) => {
+                    let content_state = model_reply_content_state(&reply);
+                    match content_state {
+                        ModelReplyContentState::Visible => {
+                            active_selected_api = candidate_selected_api.clone();
+                            active_resolved_api = candidate_resolved_api.clone();
+                            model_reply = Some(reply);
+                            candidate_final_error = None;
+                            break;
+                        }
+                        ModelReplyContentState::ReasoningOnly => {
+                            runtime_log_warn(format!(
+                                "[聊天] 模型返回思考但缺少最终回答，按空回重试: conversation_id={}，api_config_id={}，model={}，attempt={}，activity_reasoning_len={}",
+                                conversation_id,
+                                candidate_selected_api.id,
+                                candidate_selected_api.model,
+                                attempt + 1,
+                                reply.activity_reasoning_text.chars().count()
+                            ));
+                            (
+                                "模型只返回了思维链但没有最终回答".to_string(),
+                                "模型只返回了思维链但没有最终回答，已停止重试；请稍后重试或切换模型。"
+                                    .to_string(),
+                            )
+                        }
+                        ModelReplyContentState::Empty => {
+                            runtime_log_warn(format!(
+                                "[聊天] 模型返回空响应，按空回重试: conversation_id={}，api_config_id={}，model={}，attempt={}",
+                                conversation_id,
+                                candidate_selected_api.id,
+                                candidate_selected_api.model,
+                                attempt + 1
+                            ));
+                            (
+                                "模型权限/套餐不支持（上游返回空响应）".to_string(),
+                                "模型权限/套餐不支持（上游返回空响应），已停止重试，请检查当前 API Key 是否支持该模型，或切换模型。"
+                                    .to_string(),
+                            )
+                        }
                     }
-                    ModelReplyContentState::ReasoningOnly => {
-                        runtime_log_warn(format!(
-                            "[聊天] 模型返回思考但缺少最终回答，按空回重试: conversation_id={}，api_config_id={}，model={}，attempt={}，activity_reasoning_len={}",
-                            conversation_id,
-                            candidate_selected_api.id,
-                            candidate_selected_api.model,
-                            attempt + 1,
-                            reply.activity_reasoning_text.chars().count()
-                        ));
-                        (
-                            "模型只返回了思维链但没有最终回答".to_string(),
-                            "模型只返回了思维链但没有最终回答，已停止重试；请稍后重试或切换模型。"
-                                .to_string(),
-                        )
-                    }
-                    ModelReplyContentState::Empty => {
-                        runtime_log_warn(format!(
-                            "[聊天] 模型返回空响应，按空回重试: conversation_id={}，api_config_id={}，model={}，attempt={}",
-                            conversation_id,
-                            candidate_selected_api.id,
-                            candidate_selected_api.model,
-                            attempt + 1
-                        ));
-                        (
-                            "模型权限/套餐不支持（上游返回空响应）".to_string(),
-                            "模型权限/套餐不支持（上游返回空响应），已停止重试，请检查当前 API Key 是否支持该模型，或切换模型。"
-                                .to_string(),
-                        )
-                    }
-                },
+                }
                 Err(error) => {
                     if candidate_selected_api.enable_image
                         && error_indicates_image_input_unsupported(&error)
@@ -3339,11 +3346,11 @@ async fn send_chat_message_inner(
                 ));
                 conversation_service()
                     .sync_conversation_metadata_from_snapshot(&state, &conversation)?;
+                conversation_service().persist_conversation(
+                    &state,
+                    &conversation,
+                )?;
             }
-            conversation_service().persist_conversation(
-                &state,
-                &conversation,
-            )?;
         } else if let Some(mut conversation) =
             delegate_runtime_thread_conversation_get(&state, &conversation_id)?
         {
@@ -4065,6 +4072,7 @@ mod core_send_inner_tests {
             memory_recall_table: Vec::new(),
             plan_mode_enabled: false,
             preferred_api_config_id: None,
+            cumulative_usage: ConversationCumulativeUsage::default(),
         };
         let final_message = build_assistant_message_from_request_sequence(
             "assistant-new".to_string(),

@@ -9,6 +9,7 @@ async fn call_model_anthropic_with_tools(
     tool_abort_state: Option<&AppState>,
     auto_compaction_context: Option<&ToolLoopAutoCompactionContext>,
     chat_session_key: &str,
+    usage_conversation_id: Option<&str>,
 ) -> Result<ModelReply, String> {
     let adapter_kind = resolve_provider_genai_adapter_kind(api_config, model_name, genai::adapter::AdapterKind::Anthropic);
     run_genai_tool_loop(
@@ -24,6 +25,7 @@ async fn call_model_anthropic_with_tools(
         max_tool_iterations,
         tool_abort_state,
         chat_session_key,
+        usage_conversation_id,
     )
     .await
 }

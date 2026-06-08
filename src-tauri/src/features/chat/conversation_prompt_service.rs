@@ -59,6 +59,94 @@ fn conversation_prompt_service() -> &'static ConversationPromptService {
     SERVICE.get_or_init(ConversationPromptService::default)
 }
 
+fn prompt_usage_u64(value: &Value) -> Option<u64> {
+    value
+        .as_u64()
+        .or_else(|| value.as_i64().and_then(|item| u64::try_from(item).ok()))
+}
+
+fn prompt_usage_f64(value: &Value) -> Option<f64> {
+    value
+        .as_f64()
+        .or_else(|| value.as_i64().map(|item| item as f64))
+        .or_else(|| value.as_u64().map(|item| item as f64))
+        .filter(|item| item.is_finite())
+}
+
+fn prompt_usage_meta_u64(provider_meta: &Value, keys: &[&str]) -> Option<u64> {
+    keys.iter()
+        .find_map(|key| provider_meta.get(*key).and_then(prompt_usage_u64))
+        .or_else(|| {
+            provider_meta.get("usage").and_then(|usage| {
+                keys.iter()
+                    .find_map(|key| usage.get(*key).and_then(prompt_usage_u64))
+            })
+        })
+        .filter(|value| *value > 0)
+}
+
+fn prompt_usage_meta_f64(provider_meta: &Value, keys: &[&str]) -> Option<f64> {
+    keys.iter()
+        .find_map(|key| provider_meta.get(*key).and_then(prompt_usage_f64))
+        .or_else(|| {
+            provider_meta.get("usage").and_then(|usage| {
+                keys.iter()
+                    .find_map(|key| usage.get(*key).and_then(prompt_usage_f64))
+            })
+        })
+        .filter(|value| *value > 0.0)
+}
+
+fn prompt_usage_tokens_from_provider_meta(provider_meta: &Value) -> Option<(u64, &'static str)> {
+    if let Some(value) = prompt_usage_meta_u64(provider_meta, &["effectivePromptTokens"]) {
+        return Some((value, "assistant_message_effective_prompt_tokens"));
+    }
+    if let Some(value) = prompt_usage_meta_u64(provider_meta, &["providerPromptTokens"]) {
+        return Some((value, "assistant_message_provider_prompt_tokens"));
+    }
+    prompt_usage_meta_u64(
+        provider_meta,
+        &["promptTokens", "prompt_tokens", "inputTokens", "input_tokens"],
+    )
+    .map(|value| (value, "assistant_message_usage_prompt_tokens"))
+}
+
+fn prompt_usage_ratio_from_provider_meta(provider_meta: &Value) -> Option<(f64, &'static str)> {
+    if let Some(value) = prompt_usage_meta_f64(provider_meta, &["contextUsageRatio"]) {
+        return Some((value, "assistant_message_context_usage_ratio"));
+    }
+    prompt_usage_meta_f64(provider_meta, &["contextUsagePercent"])
+        .map(|value| (value / 100.0, "assistant_message_context_usage_percent"))
+}
+
+fn prompt_usage_resolution_from_provider_meta(
+    provider_meta: &Value,
+    selected_api: &ApiConfig,
+) -> Option<PromptUsageResolution> {
+    let context_window = f64::from(selected_api.context_window_tokens.max(1));
+    if let Some((value, source)) = prompt_usage_tokens_from_provider_meta(provider_meta) {
+        let usage_ratio = prompt_usage_ratio_from_provider_meta(provider_meta)
+            .map(|(ratio, _)| ratio)
+            .unwrap_or_else(|| value as f64 / context_window);
+        return Some(PromptUsageResolution {
+            effective_prompt_tokens: value,
+            usage_ratio,
+            estimated_prompt_tokens: None,
+            source,
+        });
+    }
+    prompt_usage_ratio_from_provider_meta(provider_meta).map(|(value, source)| {
+        PromptUsageResolution {
+            effective_prompt_tokens: (value * context_window)
+                .round()
+                .clamp(0.0, u64::MAX as f64) as u64,
+            usage_ratio: value,
+            estimated_prompt_tokens: None,
+            source,
+        }
+    })
+}
+
 fn abstract_message_projection_cache(
 ) -> &'static Mutex<std::collections::HashMap<String, AbstractMessageProjectionCacheEntry>> {
     static CACHE: OnceLock<
@@ -358,7 +446,6 @@ impl ConversationPromptService {
         conversation: &Conversation,
         selected_api: &ApiConfig,
     ) -> Option<PromptUsageResolution> {
-        let context_window = f64::from(selected_api.context_window_tokens.max(1));
         for message in conversation.messages.iter().rev() {
             if is_context_compaction_message(message, &message.role) {
                 return None;
@@ -369,36 +456,10 @@ impl ConversationPromptService {
             let Some(provider_meta) = message.provider_meta.as_ref() else {
                 continue;
             };
-            if let Some(value) = provider_meta
-                .get("effectivePromptTokens")
-                .and_then(Value::as_u64)
-                .filter(|value| *value > 0)
+            if let Some(usage) =
+                prompt_usage_resolution_from_provider_meta(provider_meta, selected_api)
             {
-                let usage_ratio = provider_meta
-                    .get("contextUsageRatio")
-                    .and_then(Value::as_f64)
-                    .filter(|value| value.is_finite() && *value > 0.0)
-                    .unwrap_or_else(|| value as f64 / context_window);
-                return Some(PromptUsageResolution {
-                    effective_prompt_tokens: value,
-                    usage_ratio,
-                    estimated_prompt_tokens: None,
-                    source: "assistant_message_effective_prompt_tokens",
-                });
-            }
-            if let Some(value) = provider_meta
-                .get("contextUsageRatio")
-                .and_then(Value::as_f64)
-                .filter(|value| value.is_finite() && *value > 0.0)
-            {
-                return Some(PromptUsageResolution {
-                    effective_prompt_tokens: (value * context_window)
-                        .round()
-                        .clamp(0.0, u64::MAX as f64) as u64,
-                    usage_ratio: value,
-                    estimated_prompt_tokens: None,
-                    source: "assistant_message_context_usage_ratio",
-                });
+                return Some(usage);
             }
         }
         None

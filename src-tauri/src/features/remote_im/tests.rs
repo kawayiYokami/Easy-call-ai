@@ -146,6 +146,7 @@
                 memory_recall_table: Vec::new(),
                 plan_mode_enabled: false,
                 preferred_api_config_id: None,
+                cumulative_usage: ConversationCumulativeUsage::default(),
             },
             Conversation {
                 id: "conversation-sub".to_string(),
@@ -176,6 +177,7 @@
                 memory_recall_table: Vec::new(),
                 plan_mode_enabled: false,
                 preferred_api_config_id: None,
+                cumulative_usage: ConversationCumulativeUsage::default(),
             },
         ];
         let input = RemoteImEnqueueInput {
@@ -291,6 +293,7 @@
                 memory_recall_table: Vec::new(),
                 plan_mode_enabled: false,
                 preferred_api_config_id: None,
+                cumulative_usage: ConversationCumulativeUsage::default(),
             },
             Conversation {
                 id: "conversation-sub".to_string(),
@@ -321,6 +324,7 @@
                 memory_recall_table: Vec::new(),
                 plan_mode_enabled: false,
                 preferred_api_config_id: None,
+                cumulative_usage: ConversationCumulativeUsage::default(),
             },
         ];
         let input = RemoteImEnqueueInput {
@@ -461,6 +465,7 @@
             memory_recall_table: Vec::new(),
             plan_mode_enabled: false,
             preferred_api_config_id: None,
+            cumulative_usage: ConversationCumulativeUsage::default(),
         };
 
         assert!(conversation_has_remote_im_platform_message(
@@ -531,6 +536,7 @@
             memory_recall_table: Vec::new(),
             plan_mode_enabled: false,
             preferred_api_config_id: None,
+            cumulative_usage: ConversationCumulativeUsage::default(),
         };
 
         assert!(!conversation_has_remote_im_platform_message(
@@ -1169,6 +1175,7 @@
             memory_recall_table: Vec::new(),
             plan_mode_enabled: false,
             preferred_api_config_id: None,
+            cumulative_usage: ConversationCumulativeUsage::default(),
         }
     }
 

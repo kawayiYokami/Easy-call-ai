@@ -46,6 +46,60 @@ fn genai_usage_to_log_value(usage: &genai::chat::Usage) -> Option<Value> {
     }))
 }
 
+fn add_provider_usage_delta_to_conversation(
+    app_state: Option<&AppState>,
+    conversation_id: Option<&str>,
+    usage: &Value,
+) {
+    let Some(app_state) = app_state else {
+        return;
+    };
+    let Some(conversation_id) = conversation_id
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    else {
+        return;
+    };
+
+    let result = match delegate_runtime_thread_conversation_get(app_state, conversation_id) {
+        Ok(Some(mut conversation)) => {
+            let changed = conversation_cumulative_usage_add_provider_usage(
+                &mut conversation.cumulative_usage,
+                usage,
+            );
+            if changed {
+                delegate_runtime_thread_conversation_update(
+                    app_state,
+                    conversation_id,
+                    conversation,
+                )
+                .map(|_| true)
+            } else {
+                Ok(false)
+            }
+        }
+        Ok(None) => conversation_service()
+            .add_conversation_cumulative_usage_delta(app_state, conversation_id, usage),
+        Err(err) => Err(err),
+    };
+
+    match result {
+        Ok(true) => {
+            if let Err(err) = emit_unarchived_conversation_overview_updated_from_state(app_state) {
+                runtime_log_warn(format!(
+                    "[聊天用量] 跳过，任务=推送累计使用量更新，conversation_id={}，error={}",
+                    conversation_id, err
+                ));
+            }
+        }
+        Ok(false) => {}
+        Err(err) => runtime_log_warn(format!(
+            "[聊天用量] 失败，任务=累加供应商用量，conversation_id={}，error={}",
+            conversation_id, err
+        )),
+    }
+}
+
 fn normalize_openai_genai_base_url(raw: &str) -> String {
     let trimmed = raw.trim().trim_end_matches('/');
     if trimmed.is_empty() {
@@ -572,6 +626,7 @@ async fn call_model_openai_stream_internal(
     kind: OpenAiApiKind,
     on_delta: Option<&tauri::ipc::Channel<AssistantDeltaEvent>>,
     app_state: Option<&AppState>,
+    usage_conversation_id: Option<&str>,
 ) -> Result<ModelReply, String> {
     let api_config = resolve_request_api_config(api_config).await?;
     let _provider_concurrency_guard =
@@ -609,7 +664,13 @@ async fn call_model_openai_stream_internal(
         .await
         .map_err(|err| format!("genai openai stream build failed: {err}"))?
         .stream;
-    collect_streaming_model_reply_genai(&mut stream, on_delta).await
+    collect_streaming_model_reply_genai(
+        &mut stream,
+        on_delta,
+        app_state,
+        usage_conversation_id,
+    )
+    .await
 }
 
 async fn call_model_openai_stream(
@@ -617,6 +678,7 @@ async fn call_model_openai_stream(
     model_name: &str,
     prepared: PreparedPrompt,
     app_state: Option<&AppState>,
+    usage_conversation_id: Option<&str>,
 ) -> Result<ModelReply, String> {
     call_model_openai_stream_internal(
         api_config,
@@ -625,6 +687,7 @@ async fn call_model_openai_stream(
         OpenAiApiKind::ChatCompletions,
         None,
         app_state,
+        usage_conversation_id,
     )
     .await
 }
@@ -634,6 +697,7 @@ async fn call_model_openai_non_stream(
     model_name: &str,
     prepared: PreparedPrompt,
     app_state: Option<&AppState>,
+    usage_conversation_id: Option<&str>,
 ) -> Result<ModelReply, String> {
     let api_config = resolve_request_api_config(api_config).await?;
     let _provider_concurrency_guard =
@@ -663,6 +727,9 @@ async fn call_model_openai_non_stream(
         .await
         .map_err(|err| format!("genai openai non-stream failed: {err}"))?;
     let usage = genai_usage_to_log_value(&response.usage);
+    if let Some(usage) = usage.as_ref() {
+        add_provider_usage_delta_to_conversation(app_state, usage_conversation_id, usage);
+    }
     let response_texts = response.content.into_texts();
     let assistant_text = join_model_text_blocks(response_texts.iter().map(String::as_str));
     let activity_reasoning_text = response.reasoning_content.unwrap_or_default();
@@ -690,6 +757,7 @@ async fn call_model_openai_responses(
     prepared: PreparedPrompt,
     on_delta: Option<&tauri::ipc::Channel<AssistantDeltaEvent>>,
     app_state: Option<&AppState>,
+    usage_conversation_id: Option<&str>,
 ) -> Result<ModelReply, String> {
     let api_config = resolve_request_api_config(api_config).await?;
     let _provider_concurrency_guard =
@@ -718,7 +786,13 @@ async fn call_model_openai_responses(
         .await
         .map_err(|err| format!("genai responses stream build failed: {err}"))?
         .stream;
-    collect_streaming_model_reply_genai(&mut stream, on_delta).await
+    collect_streaming_model_reply_genai(
+        &mut stream,
+        on_delta,
+        app_state,
+        usage_conversation_id,
+    )
+    .await
 }
 
 async fn call_model_gemini(
@@ -726,6 +800,7 @@ async fn call_model_gemini(
     model_name: &str,
     prepared: PreparedPrompt,
     app_state: Option<&AppState>,
+    usage_conversation_id: Option<&str>,
 ) -> Result<ModelReply, String> {
     let request = build_genai_chat_request(&prepared)?;
     let api_config = resolve_request_api_config(api_config).await?;
@@ -754,6 +829,9 @@ async fn call_model_gemini(
         .await
         .map_err(|err| format!("genai gemini non-stream failed: {err}"))?;
     let usage = genai_usage_to_log_value(&response.usage);
+    if let Some(usage) = usage.as_ref() {
+        add_provider_usage_delta_to_conversation(app_state, usage_conversation_id, usage);
+    }
     let response_texts = response.content.into_texts();
     let assistant_text = join_model_text_blocks(response_texts.iter().map(String::as_str));
     Ok(ModelReply {
@@ -778,6 +856,7 @@ async fn call_model_anthropic(
     model_name: &str,
     prepared: PreparedPrompt,
     app_state: Option<&AppState>,
+    usage_conversation_id: Option<&str>,
 ) -> Result<ModelReply, String> {
     let api_config = resolve_request_api_config(api_config).await?;
     let _provider_concurrency_guard =
@@ -806,7 +885,13 @@ async fn call_model_anthropic(
         .await
         .map_err(|err| format!("genai anthropic stream build failed: {err}"))?
         .stream;
-    collect_streaming_model_reply_genai(&mut stream, None).await
+    collect_streaming_model_reply_genai(
+        &mut stream,
+        None,
+        app_state,
+        usage_conversation_id,
+    )
+    .await
 }
 
 #[cfg(test)]

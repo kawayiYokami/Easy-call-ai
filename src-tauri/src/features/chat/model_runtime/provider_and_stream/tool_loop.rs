@@ -1661,6 +1661,7 @@ async fn run_genai_tool_loop(
     _max_tool_iterations: usize,
     tool_abort_state: Option<&AppState>,
     chat_session_key: &str,
+    usage_conversation_id: Option<&str>,
 ) -> Result<ModelReply, String> {
     let api_config = resolve_request_api_config(api_config).await?;
     let request_api_key = consume_api_key_for_request(&api_config);
@@ -1779,6 +1780,13 @@ async fn run_genai_tool_loop(
                             .and_then(|value| u64::try_from(value).ok())
                             .filter(|value| *value > 0);
                         round_usage = end.captured_usage.as_ref().and_then(genai_usage_to_log_value);
+                        if let Some(usage) = round_usage.as_ref() {
+                            add_provider_usage_delta_to_conversation(
+                                tool_abort_state,
+                                usage_conversation_id,
+                                usage,
+                            );
+                        }
                         if turn_text.is_empty() {
                             if let Some(captured_texts) = end
                                 .captured_content
@@ -2218,6 +2226,8 @@ async fn execute_genai_non_stream_round(
     options: &genai::chat::ChatOptions,
     on_delta: &tauri::ipc::Channel<AssistantDeltaEvent>,
     prefix_text_boundary: bool,
+    app_state: Option<&AppState>,
+    usage_conversation_id: Option<&str>,
 ) -> Result<GenaiToolLoopRoundOutput, String> {
     let response = client
         .exec_chat(model_spec.clone(), request, Some(options))
@@ -2233,6 +2243,9 @@ async fn execute_genai_non_stream_round(
         .and_then(|value| u64::try_from(value).ok())
         .filter(|value| *value > 0);
     let usage = genai_usage_to_log_value(&response.usage);
+    if let Some(usage) = usage.as_ref() {
+        add_provider_usage_delta_to_conversation(app_state, usage_conversation_id, usage);
+    }
 
     if !turn_reasoning.is_empty() {
         send_reasoning_delta_event(on_delta, &turn_reasoning);
@@ -2267,6 +2280,7 @@ async fn run_genai_tool_loop_non_stream(
     _max_tool_iterations: usize,
     tool_abort_state: Option<&AppState>,
     chat_session_key: &str,
+    usage_conversation_id: Option<&str>,
 ) -> Result<ModelReply, String> {
     let api_config = resolve_request_api_config(api_config).await?;
     let request_api_key = consume_api_key_for_request(&api_config);
@@ -2347,6 +2361,8 @@ async fn run_genai_tool_loop_non_stream(
                 &options,
                 on_delta,
                 !full_assistant_text.trim().is_empty(),
+                tool_abort_state,
+                usage_conversation_id,
             )
             .await?
         };

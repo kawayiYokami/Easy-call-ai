@@ -107,6 +107,34 @@ impl ConversationService {
         Ok(conversation)
     }
 
+    fn add_conversation_cumulative_usage_delta(
+        &self,
+        state: &AppState,
+        conversation_id: &str,
+        usage: &Value,
+    ) -> Result<bool, String> {
+        let normalized_conversation_id = conversation_id.trim();
+        if normalized_conversation_id.is_empty() {
+            return Ok(false);
+        }
+        let mut probe = ConversationCumulativeUsage::default();
+        if !conversation_cumulative_usage_add_provider_usage(&mut probe, usage) {
+            return Ok(false);
+        }
+        let _guard = lock_conversation_with_metrics(state, "add_conversation_cumulative_usage")?;
+        let (_, changed, _) = state_update_conversation_metadata_cached(
+            state,
+            normalized_conversation_id,
+            |conversation| {
+                Ok(conversation_cumulative_usage_add_provider_usage(
+                    &mut conversation.cumulative_usage,
+                    usage,
+                ))
+            },
+        )?;
+        Ok(changed)
+    }
+
     fn set_conversation_preferred_api_config_id(
         &self,
         state: &AppState,
@@ -382,7 +410,7 @@ impl ConversationService {
         if normalized_conversation_id.is_empty() {
             return Err("conversationId is required.".to_string());
         }
-        let _guard = lock_conversation_with_metrics(state, "append_tool_group_result")?;
+        let guard = lock_conversation_with_metrics(state, "append_tool_group_result")?;
         let conversation = state_read_conversation_cached(state, normalized_conversation_id)?;
         self.ensure_unarchived_conversation(&conversation, normalized_conversation_id)?;
         let append = message_store::apply_message_store_tool_group_result(
@@ -393,6 +421,7 @@ impl ConversationService {
             provider_meta_patch,
         )?;
         state_schedule_conversation_persist(state, &append.conversation)?;
+        drop(guard);
         Ok(append)
     }
 

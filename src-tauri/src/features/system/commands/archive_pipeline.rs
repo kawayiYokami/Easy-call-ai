@@ -2393,6 +2393,7 @@ mod archive_pipeline_tests {
             memory_recall_table: Vec::new(),
             plan_mode_enabled: false,
             preferred_api_config_id: None,
+            cumulative_usage: ConversationCumulativeUsage::default(),
         }
     }
 

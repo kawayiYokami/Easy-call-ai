@@ -1,6 +1,6 @@
 <template>
   <div class="mt-1 text-xs text-base-content/65">
-    <template v-if="running">
+    <template v-if="hasProgress">
       <span>{{ elapsedText }}</span>
       <span class="mx-1">·</span>
       <span>{{ requestCount }}步</span>
@@ -11,13 +11,7 @@
         <span>{{ lastToolName }}</span>
       </template>
     </template>
-    <template v-else>
-      <span>--</span>
-      <span class="mx-1">·</span>
-      <span>--步</span>
-      <span class="mx-1">·</span>
-      <span>--K</span>
-    </template>
+    <span v-else>{{ text || "--" }}</span>
   </div>
 </template>
 
@@ -36,6 +30,7 @@ const props = defineProps<{
 const elapsedText = computed(() => formatElapsedMs(props.elapsedMs ?? 0));
 const requestCount = computed(() => props.requestCount ?? 0);
 const tokenText = computed(() => formatTokenK(props.tokenCount ?? 0));
+const hasProgress = computed(() => props.running || props.elapsedMs != null || props.requestCount != null || props.tokenCount != null);
 
 function formatTokenK(value: number) {
   if (!Number.isFinite(value) || value <= 0) return "0K";

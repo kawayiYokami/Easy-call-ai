@@ -1917,7 +1917,7 @@ async fn submit_tool_review_code_internal(
 #[cfg(test)]
 mod tool_review_tests {
     use super::{tool_review_build_context, tool_review_cleanup_legacy_artifacts, tool_review_preview_for_item, tool_review_prune_legacy_batch_report_records, ChatMessage, Conversation, MessagePart, ToolReviewCollectedItem, ToolReviewReportRecord};
-    use crate::{app_root_from_data_path, ASSISTANT_DEPARTMENT_ID, DEFAULT_AGENT_ID};
+    use crate::{app_root_from_data_path, ConversationCumulativeUsage, ASSISTANT_DEPARTMENT_ID, DEFAULT_AGENT_ID};
     use std::{env, fs};
     use uuid::Uuid;
 
@@ -1979,6 +1979,7 @@ mod tool_review_tests {
             memory_recall_table: Vec::new(),
             plan_mode_enabled: false,
             preferred_api_config_id: None,
+            cumulative_usage: ConversationCumulativeUsage::default(),
         }
     }
 

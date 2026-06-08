@@ -1165,7 +1165,18 @@ fn state_schedule_conversation_persist(
         .conversation_persist_latest_seq
         .fetch_add(1, std::sync::atomic::Ordering::AcqRel)
         + 1;
-    let conversation_for_cache = conversation_with_cached_metadata(state, conversation)?;
+    let mut conversation_for_cache = conversation_with_cached_metadata(state, conversation)?;
+    {
+        let cached = state
+            .cached_conversations
+            .lock()
+            .map_err(|_| "Failed to lock cached conversations".to_string())?;
+        if let Some(current) = cached.get(&conversation.id) {
+            conversation_for_cache
+                .cumulative_usage
+                .keep_at_least(&current.cumulative_usage);
+        }
+    }
     let conversation_disk_mtime = conversation_shard_modified_time(&state.data_path, &conversation.id);
     {
         let mut cached = state

@@ -132,6 +132,96 @@ struct ConversationTodoItem {
     status: String,
 }
 
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ConversationCumulativeUsage {
+    #[serde(default)]
+    input_tokens: u64,
+    #[serde(default)]
+    output_tokens: u64,
+    #[serde(default)]
+    cache_read_tokens: u64,
+    #[serde(default)]
+    cache_write_tokens: u64,
+}
+
+impl ConversationCumulativeUsage {
+    fn is_empty(&self) -> bool {
+        self.input_tokens == 0
+            && self.output_tokens == 0
+            && self.cache_read_tokens == 0
+            && self.cache_write_tokens == 0
+    }
+
+    fn keep_at_least(&mut self, other: &ConversationCumulativeUsage) {
+        self.input_tokens = self.input_tokens.max(other.input_tokens);
+        self.output_tokens = self.output_tokens.max(other.output_tokens);
+        self.cache_read_tokens = self.cache_read_tokens.max(other.cache_read_tokens);
+        self.cache_write_tokens = self.cache_write_tokens.max(other.cache_write_tokens);
+    }
+}
+
+fn conversation_cumulative_usage_add_provider_usage(
+    target: &mut ConversationCumulativeUsage,
+    usage: &Value,
+) -> bool {
+    fn read_u64(usage: &Value, keys: &[&str]) -> u64 {
+        keys.iter()
+            .find_map(|key| {
+                let value = usage.get(*key)?;
+                value
+                    .as_u64()
+                    .or_else(|| value.as_i64().and_then(|item| u64::try_from(item).ok()))
+            })
+            .unwrap_or(0)
+    }
+
+    let delta = ConversationCumulativeUsage {
+        input_tokens: read_u64(usage, &["promptTokens", "prompt_tokens"]),
+        output_tokens: read_u64(usage, &["completionTokens", "completion_tokens"]),
+        cache_read_tokens: read_u64(usage, &["cachedTokens", "cached_tokens"]),
+        cache_write_tokens: read_u64(
+            usage,
+            &["cacheCreationTokens", "cache_creation_tokens"],
+        )
+        .saturating_add(read_u64(
+            usage,
+            &["cacheCreation5mTokens", "cache_creation_5m_tokens"],
+        ))
+        .saturating_add(read_u64(
+            usage,
+            &["cacheCreation1hTokens", "cache_creation_1h_tokens"],
+        )),
+    };
+    if delta.is_empty() {
+        return false;
+    }
+    target.input_tokens = target.input_tokens.saturating_add(delta.input_tokens);
+    target.output_tokens = target.output_tokens.saturating_add(delta.output_tokens);
+    target.cache_read_tokens = target
+        .cache_read_tokens
+        .saturating_add(delta.cache_read_tokens);
+    target.cache_write_tokens = target
+        .cache_write_tokens
+        .saturating_add(delta.cache_write_tokens);
+    true
+}
+
+fn conversation_cumulative_usage_weighted_tokens(
+    cumulative_usage: &ConversationCumulativeUsage,
+) -> u64 {
+    let weighted = (cumulative_usage.output_tokens as f64 * 2.0)
+        + (cumulative_usage.cache_read_tokens as f64 * 0.02)
+        + cumulative_usage.cache_write_tokens as f64;
+    if !weighted.is_finite() || weighted <= 0.0 {
+        0
+    } else if weighted >= u64::MAX as f64 {
+        u64::MAX
+    } else {
+        weighted.round() as u64
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct Conversation {
@@ -183,6 +273,8 @@ struct Conversation {
     plan_mode_enabled: bool,
     #[serde(default)]
     preferred_api_config_id: Option<String>,
+    #[serde(default, alias = "usageSummary")]
+    cumulative_usage: ConversationCumulativeUsage,
 }
 
 #[derive(Debug, Clone)]

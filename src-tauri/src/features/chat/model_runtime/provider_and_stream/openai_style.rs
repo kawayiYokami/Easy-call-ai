@@ -9,6 +9,7 @@ async fn call_model_openai_with_tools(
     tool_abort_state: Option<&AppState>,
     auto_compaction_context: Option<&ToolLoopAutoCompactionContext>,
     chat_session_key: &str,
+    usage_conversation_id: Option<&str>,
 ) -> Result<ModelReply, String> {
     let adapter_kind = resolve_provider_genai_adapter_kind(api_config, model_name, genai::adapter::AdapterKind::OpenAI);
     run_genai_tool_loop(
@@ -24,6 +25,7 @@ async fn call_model_openai_with_tools(
         max_tool_iterations,
         tool_abort_state,
         chat_session_key,
+        usage_conversation_id,
     )
     .await
 }
@@ -56,6 +58,7 @@ async fn call_model_openai_responses_with_tools(
     tool_abort_state: Option<&AppState>,
     auto_compaction_context: Option<&ToolLoopAutoCompactionContext>,
     chat_session_key: &str,
+    usage_conversation_id: Option<&str>,
 ) -> Result<ModelReply, String> {
     let adapter_kind = resolve_provider_genai_adapter_kind(api_config, model_name, genai::adapter::AdapterKind::OpenAIResp);
     run_genai_tool_loop(
@@ -71,6 +74,7 @@ async fn call_model_openai_responses_with_tools(
         max_tool_iterations,
         tool_abort_state,
         chat_session_key,
+        usage_conversation_id,
     )
     .await
 }
@@ -86,6 +90,7 @@ async fn call_model_deepseek_kimi_with_tools(
     tool_abort_state: Option<&AppState>,
     auto_compaction_context: Option<&ToolLoopAutoCompactionContext>,
     chat_session_key: &str,
+    usage_conversation_id: Option<&str>,
 ) -> Result<ModelReply, String> {
     let adapter_kind = resolve_provider_genai_adapter_kind(
         api_config,
@@ -105,6 +110,7 @@ async fn call_model_deepseek_kimi_with_tools(
         max_tool_iterations,
         tool_abort_state,
         chat_session_key,
+        usage_conversation_id,
     )
     .await
 }
@@ -120,6 +126,7 @@ async fn call_model_openai_non_stream_with_tools(
     tool_abort_state: Option<&AppState>,
     auto_compaction_context: Option<&ToolLoopAutoCompactionContext>,
     chat_session_key: &str,
+    usage_conversation_id: Option<&str>,
 ) -> Result<ModelReply, String> {
     let adapter_kind = resolve_provider_genai_adapter_kind(api_config, model_name, genai::adapter::AdapterKind::OpenAI);
     run_genai_tool_loop_non_stream(
@@ -135,6 +142,7 @@ async fn call_model_openai_non_stream_with_tools(
         max_tool_iterations,
         tool_abort_state,
         chat_session_key,
+        usage_conversation_id,
     )
     .await
 }
@@ -150,6 +158,7 @@ async fn call_model_deepseek_kimi_non_stream_with_tools(
     tool_abort_state: Option<&AppState>,
     auto_compaction_context: Option<&ToolLoopAutoCompactionContext>,
     chat_session_key: &str,
+    usage_conversation_id: Option<&str>,
 ) -> Result<ModelReply, String> {
     let adapter_kind = resolve_provider_genai_adapter_kind(
         api_config,
@@ -169,6 +178,7 @@ async fn call_model_deepseek_kimi_non_stream_with_tools(
         max_tool_iterations,
         tool_abort_state,
         chat_session_key,
+        usage_conversation_id,
     )
     .await
 }

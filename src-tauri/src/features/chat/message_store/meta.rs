@@ -27,6 +27,7 @@ pub(super) struct ConversationPersistMeta {
     memory_recall_table: Vec<String>,
     plan_mode_enabled: bool,
     preferred_api_config_id: Option<String>,
+    cumulative_usage: ConversationCumulativeUsage,
 }
 
 impl ConversationPersistMeta {
@@ -103,6 +104,8 @@ pub(super) struct ConversationShardMeta {
     plan_mode_enabled: bool,
     #[serde(default)]
     preferred_api_config_id: Option<String>,
+    #[serde(default, alias = "usageSummary")]
+    cumulative_usage: ConversationCumulativeUsage,
 }
 
 impl ConversationShardMeta {
@@ -179,6 +182,7 @@ impl ConversationShardMeta {
             memory_recall_table: conversation.memory_recall_table.clone(),
             plan_mode_enabled: conversation.plan_mode_enabled,
             preferred_api_config_id: conversation.preferred_api_config_id.clone(),
+            cumulative_usage: conversation.cumulative_usage.clone(),
         }
     }
 
@@ -211,6 +215,7 @@ impl ConversationShardMeta {
             memory_recall_table: meta.memory_recall_table.clone(),
             plan_mode_enabled: meta.plan_mode_enabled,
             preferred_api_config_id: meta.preferred_api_config_id.clone(),
+            cumulative_usage: meta.cumulative_usage.clone(),
         }
     }
 
@@ -243,6 +248,7 @@ impl ConversationShardMeta {
             memory_recall_table: self.memory_recall_table.clone(),
             plan_mode_enabled: self.plan_mode_enabled,
             preferred_api_config_id: self.preferred_api_config_id.clone(),
+            cumulative_usage: self.cumulative_usage.clone(),
         }
     }
 
@@ -276,6 +282,7 @@ impl ConversationShardMeta {
             memory_recall_table: self.memory_recall_table,
             plan_mode_enabled: self.plan_mode_enabled,
             preferred_api_config_id: self.preferred_api_config_id,
+            cumulative_usage: self.cumulative_usage,
         }
     }
 }
@@ -361,6 +368,12 @@ mod message_store_meta_tests {
             memory_recall_table: vec!["memory-a".to_string()],
             plan_mode_enabled: true,
             preferred_api_config_id: Some("api-c".to_string()),
+            cumulative_usage: ConversationCumulativeUsage {
+                input_tokens: 10,
+                output_tokens: 20,
+                cache_read_tokens: 30,
+                cache_write_tokens: 40,
+            },
         }
     }
 
@@ -378,6 +391,7 @@ mod message_store_meta_tests {
         assert_eq!(restored.messages.len(), 2);
         assert_eq!(restored.id, conversation.id);
         assert_eq!(restored.preferred_api_config_id, conversation.preferred_api_config_id);
+        assert_eq!(restored.cumulative_usage, conversation.cumulative_usage);
     }
 
     #[test]

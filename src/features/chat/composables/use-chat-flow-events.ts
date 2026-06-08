@@ -72,6 +72,63 @@ function optionalPositiveInteger(value: unknown): number | undefined {
   return next > 0 ? next : undefined;
 }
 
+function finiteNumber(value: unknown): number | null {
+  const next = Number(value);
+  return Number.isFinite(next) ? next : null;
+}
+
+function numberFromKeys(record: Record<string, unknown>, keys: string[]): number | null {
+  for (const key of keys) {
+    const value = finiteNumber(record[key]);
+    if (value !== null) return value;
+  }
+  const usage = record.usage && typeof record.usage === "object"
+    ? record.usage as Record<string, unknown>
+    : null;
+  if (!usage) return null;
+  for (const key of keys) {
+    const value = finiteNumber(usage[key]);
+    if (value !== null) return value;
+  }
+  return null;
+}
+
+export function readContextPromptTokensFromRecord(record: Record<string, unknown>): number {
+  const value = numberFromKeys(record, [
+    "effectivePromptTokens",
+    "providerPromptTokens",
+    "promptTokens",
+    "prompt_tokens",
+    "inputTokens",
+    "input_tokens",
+  ]);
+  return Math.max(0, Math.round(value ?? 0));
+}
+
+export function readContextWindowTokensFromRecord(
+  record: Record<string, unknown>,
+  fallback = 0,
+): number {
+  const value = numberFromKeys(record, ["contextWindowTokens", "context_window_tokens"]);
+  return Math.max(0, Math.round(value ?? fallback));
+}
+
+export function readContextUsageRatioFromRecord(
+  record: Record<string, unknown>,
+  fallbackContextWindowTokens = 0,
+): number | null {
+  const ratio = numberFromKeys(record, ["contextUsageRatio", "context_usage_ratio"]);
+  if (ratio !== null && ratio >= 0) return ratio;
+  const percent = numberFromKeys(record, ["contextUsagePercent", "context_usage_percent"]);
+  if (percent !== null && percent >= 0) return percent / 100;
+  const promptTokens = readContextPromptTokensFromRecord(record);
+  const contextWindowTokens = readContextWindowTokensFromRecord(record, fallbackContextWindowTokens);
+  if (promptTokens > 0 && contextWindowTokens > 0) {
+    return promptTokens / contextWindowTokens;
+  }
+  return null;
+}
+
 export function readRoundStartedPayload(raw: string | undefined): RoundStartedPayload | null {
   const text = String(raw || "").trim();
   if (!text) return null;
@@ -158,16 +215,16 @@ export function readContextUsageUpdatePayload(raw: string | undefined): ContextU
     const parsed = JSON.parse(text) as Record<string, unknown>;
     const conversationId = String(parsed.conversationId || "").trim();
     if (!conversationId) return null;
-    const ratio = Number(parsed.contextUsageRatio);
-    const percent = Math.round(Number(parsed.contextUsagePercent) || 0);
-    const effectivePromptTokens = Math.round(Number(parsed.effectivePromptTokens) || 0);
-    const contextWindowTokens = Math.round(Number(parsed.contextWindowTokens) || 0);
+    const ratio = readContextUsageRatioFromRecord(parsed) ?? 0;
+    const percent = Math.round(ratio * 100);
+    const effectivePromptTokens = readContextPromptTokensFromRecord(parsed);
+    const contextWindowTokens = readContextWindowTokensFromRecord(parsed);
     return {
       conversationId,
       contextUsagePercent: Math.min(100, Math.max(0, percent)),
-      contextUsageRatio: Number.isFinite(ratio) ? Math.max(0, ratio) : 0,
-      effectivePromptTokens: Math.max(0, effectivePromptTokens),
-      contextWindowTokens: Math.max(0, contextWindowTokens),
+      contextUsageRatio: Math.max(0, ratio),
+      effectivePromptTokens,
+      contextWindowTokens,
       estimatedPromptTokens: optionalPositiveInteger(parsed.estimatedPromptTokens),
       latestToolResultEstimatedTokens: optionalPositiveInteger(parsed.latestToolResultEstimatedTokens),
       source: typeof parsed.source === "string" ? parsed.source : undefined,

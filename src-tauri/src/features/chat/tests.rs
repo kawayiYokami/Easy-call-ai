@@ -2920,6 +2920,40 @@
     }
 
     #[test]
+    fn latest_real_prompt_usage_should_read_compatible_prompt_usage_fields() {
+        let now = now_iso();
+        let mut conversation = test_chat_conversation("conversation-main", "active", &now);
+        conversation.messages.push(ChatMessage {
+            id: "assistant-1".to_string(),
+            role: "assistant".to_string(),
+            created_at: now.clone(),
+            speaker_agent_id: Some(DEFAULT_AGENT_ID.to_string()),
+            parts: vec![MessagePart::Text {
+                text: "兼容字段".to_string(),
+                reasoning_content: None,
+            }],
+            extra_text_blocks: Vec::new(),
+            provider_meta: Some(serde_json::json!({
+                "providerPromptTokens": 250,
+                "contextUsagePercent": 30
+            })),
+            tool_call: None,
+            mcp_call: None,
+        });
+        let mut api = ApiConfig::default();
+        api.context_window_tokens = 1000;
+
+        let usage = conversation_prompt_service()
+            .latest_real_prompt_usage(&conversation, &api)
+            .expect("latest real prompt usage");
+
+        assert_eq!(usage.source, "assistant_message_provider_prompt_tokens");
+        assert_eq!(usage.effective_prompt_tokens, 250);
+        assert!((usage.usage_ratio - 0.3).abs() < f64::EPSILON);
+        assert!(usage.estimated_prompt_tokens.is_none());
+    }
+
+    #[test]
     fn latest_real_prompt_usage_should_not_cross_context_compaction_boundary() {
         let now = now_iso();
         let mut conversation = test_chat_conversation("conversation-main", "active", &now);
@@ -3340,6 +3374,7 @@
             memory_recall_table: Vec::new(),
             plan_mode_enabled: false,
             preferred_api_config_id: None,
+            cumulative_usage: ConversationCumulativeUsage::default(),
         }
     }
 
@@ -3728,6 +3763,43 @@
         assert_ne!(
             cached.last_user_at.as_deref(),
             Some("2020-01-01T00:00:00Z")
+        );
+        assert_eq!(cached.messages.len(), 1);
+    }
+
+    #[test]
+    fn state_schedule_conversation_persist_should_not_decrease_cumulative_usage() {
+        let state = test_chat_runtime_state();
+        let now = now_iso();
+        let conversation = test_chat_conversation("conversation-usage-add-only", "active", &now);
+        state_schedule_conversation_persist(&state, &conversation).expect("schedule persist");
+        conversation_service()
+            .add_conversation_cumulative_usage_delta(
+                &state,
+                &conversation.id,
+                &serde_json::json!({
+                    "completionTokens": 20,
+                    "cachedTokens": 100,
+                    "cacheCreationTokens": 5
+                }),
+            )
+            .expect("add cumulative usage");
+
+        let mut stale_full_snapshot = conversation.clone();
+        stale_full_snapshot
+            .messages
+            .push(test_text_message("user", "hello", &now));
+        state_schedule_conversation_persist(&state, &stale_full_snapshot)
+            .expect("schedule stale full persist");
+
+        let cached = state_read_conversation_cached(&state, &conversation.id)
+            .expect("read cached conversation");
+        assert_eq!(cached.cumulative_usage.output_tokens, 20);
+        assert_eq!(cached.cumulative_usage.cache_read_tokens, 100);
+        assert_eq!(cached.cumulative_usage.cache_write_tokens, 5);
+        assert_eq!(
+            conversation_cumulative_usage_weighted_tokens(&cached.cumulative_usage),
+            47
         );
         assert_eq!(cached.messages.len(), 1);
     }
@@ -4953,6 +5025,7 @@
             memory_recall_table: Vec::new(),
             plan_mode_enabled: false,
             preferred_api_config_id: None,
+            cumulative_usage: ConversationCumulativeUsage::default(),
         }];
         state_write_app_data_cached(&state, &data).expect("write app data");
 
@@ -5944,6 +6017,7 @@
             memory_recall_table: Vec::new(),
             plan_mode_enabled: false,
             preferred_api_config_id: None,
+            cumulative_usage: ConversationCumulativeUsage::default(),
         });
         state_write_app_data_cached(&state, &data).expect("write app data");
 
@@ -6017,6 +6091,7 @@
             memory_recall_table: Vec::new(),
             plan_mode_enabled: false,
             preferred_api_config_id: None,
+            cumulative_usage: ConversationCumulativeUsage::default(),
         });
         state_write_app_data_cached(&state, &data).expect("write app data");
 

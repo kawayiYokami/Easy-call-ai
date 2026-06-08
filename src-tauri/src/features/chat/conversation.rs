@@ -578,6 +578,7 @@ mod summary_context_title_tests {
             memory_recall_table: Vec::new(),
             plan_mode_enabled: false,
             preferred_api_config_id: None,
+            cumulative_usage: ConversationCumulativeUsage::default(),
         }
     }
 
@@ -930,6 +931,7 @@ fn build_conversation_record(
         memory_recall_table: Vec::new(),
         plan_mode_enabled: false,
         preferred_api_config_id: None,
+        cumulative_usage: ConversationCumulativeUsage::default(),
     }
 }
 
@@ -3357,6 +3359,7 @@ fn build_prompt_with_mode(
         memory_recall_table: conversation.memory_recall_table.clone(),
         plan_mode_enabled: conversation.plan_mode_enabled,
         preferred_api_config_id: conversation.preferred_api_config_id.clone(),
+        cumulative_usage: conversation.cumulative_usage.clone(),
     };
     let recall_memory_ids = collect_prompt_retrieved_memory_ids(&enriched_conversation.messages);
     let recall_memories = if recall_memory_ids.is_empty() {

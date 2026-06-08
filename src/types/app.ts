@@ -850,6 +850,10 @@ export type ConversationDelegateStatusSummary = {
   toolCallCount: number;
   lastToolName: string;
   tokenCount: number;
+  inputTokenCount?: number;
+  outputTokenCount?: number;
+  cacheReadTokenCount?: number;
+  cacheWriteTokenCount?: number;
   targetAgentId?: string;
 };
 

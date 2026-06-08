@@ -310,7 +310,7 @@ async fn invoke_model_by_format(
     app_state: Option<&AppState>,
 ) -> Result<ModelReply, String> {
     if resolved_api.request_format.is_genai_chat() || resolved_api.request_format.is_auto() {
-        return call_model_openai_stream(resolved_api, model_name, prepared, app_state).await;
+        return call_model_openai_stream(resolved_api, model_name, prepared, app_state, None).await;
     }
     Err(format!(
         "Request format '{}' is not supported for inference gateway.",
@@ -325,7 +325,7 @@ async fn invoke_model_non_stream_by_format(
     app_state: Option<&AppState>,
 ) -> Result<ModelReply, String> {
     if resolved_api.request_format.is_genai_chat() || resolved_api.request_format.is_auto() {
-        return call_model_openai_non_stream(resolved_api, model_name, prepared, app_state).await;
+        return call_model_openai_non_stream(resolved_api, model_name, prepared, app_state, None).await;
     }
     invoke_model_by_format(resolved_api, model_name, prepared, app_state).await
 }

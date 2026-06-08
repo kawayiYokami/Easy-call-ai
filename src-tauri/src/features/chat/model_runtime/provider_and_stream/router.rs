@@ -92,6 +92,7 @@ async fn retry_openai_responses_with_system_message_user_fallback(
     chat_session_key: &str,
     tool_manifest_for_log: &mut Option<Value>,
     allow_tools: bool,
+    usage_conversation_id: Option<&str>,
 ) -> Result<ModelReply, String> {
     if let Err(mark_err) =
         provider_mark_system_message_user_fallback(app_state, &api_config.base_url)
@@ -132,10 +133,19 @@ async fn retry_openai_responses_with_system_message_user_fallback(
             app_state,
             auto_compaction_context,
             chat_session_key,
+            usage_conversation_id,
         )
         .await
     } else {
-        call_model_openai_responses(api_config, model_name, fallback, Some(on_delta), app_state).await
+        call_model_openai_responses(
+            api_config,
+            model_name,
+            fallback,
+            Some(on_delta),
+            app_state,
+            usage_conversation_id,
+        )
+        .await
     }
 }
 
@@ -150,6 +160,7 @@ async fn dispatch_openai_style_call(
     app_state: Option<&AppState>,
     auto_compaction_context: Option<&ToolLoopAutoCompactionContext>,
     chat_session_key: &str,
+    usage_conversation_id: Option<&str>,
 ) -> Result<ModelReply, String> {
     if matches!(selected_api.request_format, RequestFormat::DeepSeek | RequestFormat::DeepSeekKimi) {
         call_model_deepseek_kimi_with_tools(
@@ -163,6 +174,7 @@ async fn dispatch_openai_style_call(
             app_state,
             auto_compaction_context,
             chat_session_key,
+            usage_conversation_id,
         )
         .await
     } else if selected_api.request_format.is_openai_responses_family() {
@@ -177,6 +189,7 @@ async fn dispatch_openai_style_call(
             app_state,
             auto_compaction_context,
             chat_session_key,
+            usage_conversation_id,
         )
         .await
     } else {
@@ -191,6 +204,7 @@ async fn dispatch_openai_style_call(
             app_state,
             auto_compaction_context,
             chat_session_key,
+            usage_conversation_id,
         )
         .await
     }
@@ -236,6 +250,7 @@ async fn execute_openai_style_request(
     app_state: Option<&AppState>,
     auto_compaction_context: Option<&ToolLoopAutoCompactionContext>,
     chat_session_key: &str,
+    usage_conversation_id: Option<&str>,
 ) -> Result<ModelReply, String> {
     match tool_assembly {
         Some(tool_assembly) if !tool_assembly.tools.is_empty() => {
@@ -253,6 +268,7 @@ async fn execute_openai_style_request(
                             app_state,
                             auto_compaction_context,
                             chat_session_key,
+                            usage_conversation_id,
                         )
                         .await
                     }
@@ -268,6 +284,7 @@ async fn execute_openai_style_request(
                             app_state,
                             auto_compaction_context,
                             chat_session_key,
+                            usage_conversation_id,
                         )
                         .await
                     }
@@ -288,17 +305,40 @@ async fn execute_openai_style_request(
                     app_state,
                     auto_compaction_context,
                     chat_session_key,
+                    usage_conversation_id,
                 )
                 .await
             }
         }
         _ => {
             if selected_api.request_format.is_openai_responses_family() {
-                call_model_openai_responses(api_config, model_name, prepared, Some(on_delta), app_state).await
+                call_model_openai_responses(
+                    api_config,
+                    model_name,
+                    prepared,
+                    Some(on_delta),
+                    app_state,
+                    usage_conversation_id,
+                )
+                .await
             } else if prefer_non_stream {
-                call_model_openai_non_stream(api_config, model_name, prepared, app_state).await
+                call_model_openai_non_stream(
+                    api_config,
+                    model_name,
+                    prepared,
+                    app_state,
+                    usage_conversation_id,
+                )
+                .await
             } else {
-                call_model_openai_stream(api_config, model_name, prepared, app_state).await
+                call_model_openai_stream(
+                    api_config,
+                    model_name,
+                    prepared,
+                    app_state,
+                    usage_conversation_id,
+                )
+                .await
             }
         }
     }
@@ -317,6 +357,7 @@ async fn call_openai_style_non_stream_fallback(
     max_tool_iterations: usize,
     chat_session_key: &str,
     tool_manifest_for_log: &mut Option<Value>,
+    usage_conversation_id: Option<&str>,
 ) -> Result<ModelReply, String> {
     let tool_assembly = prepare_openai_style_tool_assembly(
         app_config,
@@ -340,6 +381,7 @@ async fn call_openai_style_non_stream_fallback(
         app_state,
         auto_compaction_context,
         chat_session_key,
+        usage_conversation_id,
     )
     .await
 }
@@ -356,6 +398,7 @@ async fn call_model_openai_style(
     on_delta: &tauri::ipc::Channel<AssistantDeltaEvent>,
     max_tool_iterations: usize,
     chat_session_key: &str,
+    usage_conversation_id: Option<&str>,
 ) -> ModelCallExecutionResult {
     let mut prepared = prepared;
     let _ = replace_disabled_multimodal_with_text(
@@ -395,7 +438,14 @@ async fn call_model_openai_style(
                 &tool_assembly.unavailable_tool_notices,
             );
             if tool_assembly.tools.is_empty() {
-                call_model_gemini(api_config, model_name, prepared, app_state).await
+                call_model_gemini(
+                    api_config,
+                    model_name,
+                    prepared,
+                    app_state,
+                    usage_conversation_id,
+                )
+                .await
             } else {
                 tool_manifest_for_log = runtime_tool_names_for_log(&tool_assembly);
                 call_model_gemini_with_tools(
@@ -409,11 +459,19 @@ async fn call_model_openai_style(
                     app_state,
                     auto_compaction_context,
                     chat_session_key,
+                    usage_conversation_id,
                 )
                 .await
             }
         } else {
-            call_model_gemini(api_config, model_name, prepared, app_state).await
+            call_model_gemini(
+                api_config,
+                model_name,
+                prepared,
+                app_state,
+                usage_conversation_id,
+            )
+            .await
         }
     } else if selected_api.request_format.is_anthropic() {
         if selected_api.enable_tools
@@ -427,7 +485,14 @@ async fn call_model_openai_style(
                 &tool_assembly.unavailable_tool_notices,
             );
             if tool_assembly.tools.is_empty() {
-                call_model_anthropic(api_config, model_name, prepared, app_state).await
+                call_model_anthropic(
+                    api_config,
+                    model_name,
+                    prepared,
+                    app_state,
+                    usage_conversation_id,
+                )
+                .await
             } else {
                 tool_manifest_for_log = runtime_tool_names_for_log(&tool_assembly);
                 call_model_anthropic_with_tools(
@@ -441,11 +506,19 @@ async fn call_model_openai_style(
                     app_state,
                     auto_compaction_context,
                     chat_session_key,
+                    usage_conversation_id,
                 )
                 .await
             }
         } else {
-            call_model_anthropic(api_config, model_name, prepared, app_state).await
+            call_model_anthropic(
+                api_config,
+                model_name,
+                prepared,
+                app_state,
+                usage_conversation_id,
+            )
+            .await
         }
     } else if is_openai_style_request_format(selected_api.request_format) {
         if prefer_non_stream {
@@ -468,6 +541,7 @@ async fn call_model_openai_style(
                 max_tool_iterations,
                 chat_session_key,
                 &mut tool_manifest_for_log,
+                usage_conversation_id,
             )
             .await
         } else {
@@ -493,6 +567,7 @@ async fn call_model_openai_style(
                 app_state,
                 auto_compaction_context,
                 chat_session_key,
+                usage_conversation_id,
             )
             .await;
             match stream_result {
@@ -531,6 +606,7 @@ async fn call_model_openai_style(
                         chat_session_key,
                         &mut tool_manifest_for_log,
                         true,
+                        usage_conversation_id,
                     )
                     .await
                 }
@@ -575,6 +651,7 @@ async fn call_model_openai_style(
                         max_tool_iterations,
                         chat_session_key,
                         &mut tool_manifest_for_log,
+                        usage_conversation_id,
                     )
                     .await
                 }
@@ -610,6 +687,7 @@ async fn call_model_openai_style(
                         app_state,
                         auto_compaction_context,
                         chat_session_key,
+                        usage_conversation_id,
                     )
                     .await
                 }

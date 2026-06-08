@@ -1260,6 +1260,7 @@ mod terminal_workspace_tests {
             memory_recall_table: Vec::new(),
             plan_mode_enabled: false,
             preferred_api_config_id: None,
+            cumulative_usage: ConversationCumulativeUsage::default(),
         });
         state_write_app_data_cached(&state, &data).expect("write app data");
 
@@ -1337,6 +1338,7 @@ mod terminal_workspace_tests {
             memory_recall_table: Vec::new(),
             plan_mode_enabled: false,
             preferred_api_config_id: None,
+            cumulative_usage: ConversationCumulativeUsage::default(),
         });
         state_write_app_data_cached(&state, &data).expect("write app data");
 
