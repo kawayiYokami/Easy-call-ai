@@ -56,6 +56,18 @@
         }
     }
 
+    fn task_optimize_input(title: &str, content: &str) -> TaskOptimizeDraftInput {
+        TaskOptimizeDraftInput {
+            title: title.to_string(),
+            content: content.to_string(),
+            schedule_mode: "once".to_string(),
+            run_at: "2026-06-10T17:00:00+08:00".to_string(),
+            repeat_every: "1".to_string(),
+            repeat_unit: "hours".to_string(),
+            end_at: String::new(),
+        }
+    }
+
     #[test]
     fn task_todo_from_legacy_fields_should_dedupe_same_status_and_todos() {
         let todo = task_todo_from_legacy_fields("请自行判断", &["请自行判断".to_string()]);
@@ -117,6 +129,83 @@
         assert!(!prompt.contains("run_at:"));
         assert!(!prompt.contains("{\"action\":\"complete\""));
         assert!(!prompt.contains("task complete"));
+    }
+
+    #[test]
+    fn task_optimize_draft_prompt_should_require_content() {
+        let err = task_optimize_draft_prompt(&task_optimize_input("", "   "))
+        .expect_err("empty content should fail");
+
+        assert!(err.contains("任务内容不能为空"));
+    }
+
+    #[test]
+    fn task_optimize_draft_output_should_parse_title_and_content() {
+        let parsed = task_optimize_draft_output_from_value(
+            &serde_json::json!({
+                "title": "提醒提交周报",
+                "content": "到点后提醒用户整理并提交本周周报。",
+                "scheduleMode": "interval",
+                "runAt": "2026-06-12T10:00:00+08:00",
+                "repeatEvery": "1",
+                "repeatUnit": "weeks",
+                "endAt": "2026-07-12T10:00:00+08:00"
+            }),
+            &task_optimize_input("", "每周五提醒我交周报"),
+        )
+        .expect("parse optimize draft output");
+
+        assert_eq!(parsed.title, "提醒提交周报");
+        assert_eq!(parsed.content, "到点后提醒用户整理并提交本周周报。");
+        assert_eq!(parsed.schedule_mode, "interval");
+        assert!(parse_rfc3339_time(&parsed.run_at).is_some());
+        assert_eq!(parsed.repeat_every, "1");
+        assert_eq!(parsed.repeat_unit, "weeks");
+        assert!(parse_rfc3339_time(&parsed.end_at).is_some());
+    }
+
+    #[test]
+    fn task_optimize_draft_output_should_fallback_title_but_require_content() {
+        let parsed = task_optimize_draft_output_from_value(
+            &serde_json::json!({
+                "content": "提醒用户检查会议纪要并同步下一步。"
+            }),
+            &task_optimize_input("会议纪要跟进", "检查会议纪要"),
+        )
+        .expect("parse output with fallback title");
+        assert_eq!(parsed.title, "会议纪要跟进");
+        assert_eq!(parsed.schedule_mode, "once");
+        assert!(parse_rfc3339_time(&parsed.run_at).is_some());
+
+        let err = task_optimize_draft_output_from_value(
+            &serde_json::json!({
+                "title": "缺内容"
+            }),
+            &task_optimize_input("", "原始内容"),
+        )
+        .expect_err("missing content should fail");
+        assert!(err.contains("有效任务内容"));
+    }
+
+    #[test]
+    fn task_optimize_draft_output_should_normalize_invalid_repeat_months() {
+        let parsed = task_optimize_draft_output_from_value(
+            &serde_json::json!({
+                "title": "月度提醒",
+                "content": "提醒用户做月度复盘。",
+                "scheduleMode": "interval",
+                "runAt": "2026-06-10T09:00:00+08:00",
+                "repeatEvery": "5",
+                "repeatUnit": "months"
+            }),
+            &task_optimize_input("", "每5个月提醒我复盘"),
+        )
+        .expect("parse normalized monthly interval");
+
+        assert_eq!(parsed.schedule_mode, "interval");
+        assert_eq!(parsed.repeat_every, "1");
+        assert_eq!(parsed.repeat_unit, "months");
+        assert!(parsed.end_at.is_empty());
     }
 
     #[test]

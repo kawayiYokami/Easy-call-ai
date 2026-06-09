@@ -75,6 +75,13 @@ impl CallPolicy {
         }
     }
 
+    fn quick_json(scene: &'static str, timeout_secs: Option<u64>) -> Self {
+        Self {
+            scene,
+            timeout_secs,
+            json_only: true,
+        }
+    }
 }
 
 const PROVIDER_STREAMING_DISABLED_TTL_SECS: i64 = 10 * 60;
@@ -569,6 +576,119 @@ async fn invoke_model_with_policy(
     ModelCallExecutionResult { result, log_parts }
 }
 
+fn quick_json_prepared_prompt(prompt: &str) -> PreparedPrompt {
+    PreparedPrompt {
+        preamble: "只返回一个 JSON 对象，不要解释，不要 Markdown，不要代码块。".to_string(),
+        history_messages: Vec::new(),
+        latest_user_text: prompt.trim().to_string(),
+        latest_user_meta_text: String::new(),
+        latest_user_extra_text: String::new(),
+        latest_user_extra_blocks: Vec::new(),
+        latest_images: Vec::new(),
+        latest_audios: Vec::new(),
+    }
+}
+
+fn parse_quick_model_json_response(
+    raw: &str,
+    required_fields: &[&str],
+    optional_fields: &[&str],
+) -> Result<Value, String> {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return Err("快速模型返回为空，未得到 JSON".to_string());
+    }
+    if let Ok(value) = serde_json::from_str::<Value>(trimmed) {
+        if required_fields.is_empty() {
+            return Ok(value);
+        }
+        if value
+            .as_object()
+            .map(|object| {
+                required_fields
+                    .iter()
+                    .all(|field| object.contains_key(*field))
+            })
+            .unwrap_or(false)
+        {
+            return Ok(value);
+        }
+    }
+    extract_best_json_object_value(trimmed, "---JSON---", required_fields, optional_fields)
+        .ok_or_else(|| {
+            if required_fields.is_empty() {
+                "快速模型未返回可解析的 JSON 对象".to_string()
+            } else {
+                format!(
+                    "快速模型未返回包含必要字段的 JSON 对象：{}",
+                    required_fields.join(", ")
+                )
+            }
+        })
+}
+
+async fn invoke_quick_model_json_with_prepared_prompt(
+    state: &AppState,
+    scene: &'static str,
+    prepared: PreparedPrompt,
+    timeout_secs: Option<u64>,
+    required_fields: &[&str],
+    optional_fields: &[&str],
+) -> Result<Value, String> {
+    let quick_api_config_id = current_tool_review_api_config_id(state)?
+        .ok_or_else(|| "未配置快速模型".to_string())?;
+    let app_config = state_read_config_cached(state)?;
+    let selected_api = resolve_selected_api_config(&app_config, Some(&quick_api_config_id))
+        .ok_or_else(|| format!("快速模型配置不存在：{}", quick_api_config_id))?;
+    if !selected_api.enable_text || !selected_api.request_format.is_chat_text() {
+        return Err("快速模型不支持文本对话".to_string());
+    }
+    let resolved_api = resolve_api_config(&app_config, Some(&quick_api_config_id))?;
+    let model_name = if selected_api.model.trim().is_empty() {
+        resolved_api.model.clone()
+    } else {
+        selected_api.model.trim().to_string()
+    };
+    let execution = invoke_model_with_policy(
+        &resolved_api,
+        &model_name,
+        prepared,
+        CallPolicy::quick_json(scene, timeout_secs),
+        Some(state),
+    )
+    .await;
+    push_model_call_log_parts(Some(state), &execution);
+    let reply = execution.result?;
+    let candidate = if reply.final_response_text.trim().is_empty() {
+        reply.assistant_text.trim()
+    } else {
+        reply.final_response_text.trim()
+    };
+    parse_quick_model_json_response(candidate, required_fields, optional_fields)
+}
+
+async fn invoke_quick_model_json(
+    state: &AppState,
+    scene: &'static str,
+    prompt: &str,
+    timeout_secs: Option<u64>,
+    required_fields: &[&str],
+    optional_fields: &[&str],
+) -> Result<Value, String> {
+    if prompt.trim().is_empty() {
+        return Err("快速模型 JSON 请求提示词不能为空".to_string());
+    }
+    invoke_quick_model_json_with_prepared_prompt(
+        state,
+        scene,
+        quick_json_prepared_prompt(prompt),
+        timeout_secs,
+        required_fields,
+        optional_fields,
+    )
+    .await
+}
+
 async fn call_archive_summary_model_with_timeout(
     state: &AppState,
     resolved_api: &ResolvedApiConfig,
@@ -649,5 +769,43 @@ mod inference_gateway_tests {
         assert!(prepared.latest_user_extra_text.contains("你是严谨助手"));
         assert!(prepared.latest_user_extra_text.starts_with("<system prompt>"));
         assert!(prepared.latest_user_extra_text.ends_with("原有补充"));
+    }
+
+    #[test]
+    fn parse_quick_model_json_response_should_accept_direct_json_value() {
+        let parsed = parse_quick_model_json_response(
+            r#"{"allow":true,"review_opinion":"可以执行"}"#,
+            &["allow"],
+            &["review_opinion"],
+        )
+        .expect("parse quick json");
+
+        assert_eq!(parsed["allow"], true);
+        assert_eq!(parsed["review_opinion"], "可以执行");
+    }
+
+    #[test]
+    fn parse_quick_model_json_response_should_extract_wrapped_json_object() {
+        let parsed = parse_quick_model_json_response(
+            "说明\n```json\n{\"has_topic\":true,\"title\":\"任务语义\"}\n```",
+            &["has_topic"],
+            &["title"],
+        )
+        .expect("extract quick json");
+
+        assert_eq!(parsed["has_topic"], true);
+        assert_eq!(parsed["title"], "任务语义");
+    }
+
+    #[test]
+    fn parse_quick_model_json_response_should_require_fields() {
+        let err = parse_quick_model_json_response(
+            r#"{"title":"缺字段"}"#,
+            &["has_topic"],
+            &["title"],
+        )
+        .expect_err("missing required field should fail");
+
+        assert!(err.contains("必要字段"));
     }
 }

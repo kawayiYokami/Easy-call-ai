@@ -60,7 +60,12 @@
 
     <div
       v-if="selectionDelegateCardOpen"
-      :class="delegateOnly ? 'mt-2' : 'mt-3 rounded-box border border-base-300 bg-base-200/50 px-3 py-3'"
+      :class="[
+        delegateOnly && selectedMessageCount > 0 ? 'mt-2' : '',
+        !delegateOnly ? 'mt-3' : '',
+        'rounded-box border border-base-300 px-3 py-3',
+        delegateOnly ? 'bg-base-100' : 'bg-base-200/50',
+      ]"
     >
       <div class="flex items-center justify-between gap-3">
         <div>
@@ -68,8 +73,6 @@
           <div class="mt-1 text-xs opacity-70">{{ t("chat.selection.delegateHint") }}</div>
         </div>
         <div class="flex shrink-0 items-center gap-2">
-          <span class="text-sm opacity-70">{{ t("chat.selection.quickDelegate") }}</span>
-          <button type="button" class="btn btn-sm" @click="applyDelegateReviewPreset">{{ t("chat.selection.reviewPreset") }}</button>
           <button type="button" class="btn btn-sm btn-ghost" @click="clearSelectionDelegateFields">{{ t("common.clear") }}</button>
         </div>
       </div>
@@ -126,8 +129,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
-import type { ChatConversationOverviewItem, SkillListResult } from "../../../types/app";
-import { invokeTauri, isTauriRuntimeAvailable } from "../../../services/tauri-api";
+import type { ChatConversationOverviewItem } from "../../../types/app";
 import { resolveConversationDisplayTitle } from "../utils/conversation-title";
 
 type ConversationDepartmentOption = {
@@ -173,18 +175,6 @@ const sidebarMode = computed(() => !!props.sidebarMode);
 const delegateOnly = computed(() => !!props.delegateOnly);
 const USER_ASYNC_DELEGATE_RECENT_STORAGE_KEY = "easy_call.user_async_delegate_recent.v1";
 const USER_ASYNC_DELEGATE_RECENT_LIMIT = 3;
-const DELEGATE_REVIEW_FALLBACK_BACKGROUND = [
-  t('chat.selection.codeReviewSkillPrefix'),
-  "",
-  t('chat.selection.codeReviewCoreRequirements'),
-  t('chat.selection.codeReviewRequirement1'),
-  t('chat.selection.codeReviewRequirement2'),
-  t('chat.selection.codeReviewRequirement3'),
-  t('chat.selection.codeReviewRequirement4'),
-  "",
-  t('chat.selection.codeReviewOutputConstraint'),
-].join("\n");
-let delegateReviewBackgroundCache = "";
 
 const selectionDeliverCardOpen = ref(false);
 const selectionDeliverTargetConversationId = ref("");
@@ -275,42 +265,6 @@ function selectionDelegateDepartmentLabel(item: ConversationDepartmentOption): s
   return parts.join(" / ");
 }
 
-function delegateReviewPreset() {
-  return {
-    presetId: "review",
-    background: delegateReviewBackgroundCache || DELEGATE_REVIEW_FALLBACK_BACKGROUND,
-    question: t('chat.selection.codeReviewPrompt'),
-    focus: t('chat.selection.codeReviewFocus'),
-  };
-}
-
-async function loadDelegateReviewBackground(): Promise<string> {
-  if (delegateReviewBackgroundCache.trim()) return delegateReviewBackgroundCache;
-  if (!isTauriRuntimeAvailable()) {
-    delegateReviewBackgroundCache = DELEGATE_REVIEW_FALLBACK_BACKGROUND;
-    return delegateReviewBackgroundCache;
-  }
-  try {
-    const result = await invokeTauri<SkillListResult>("mcp_list_skills");
-    const skill = (result.skills || []).find((item) => String(item.name || "").trim() === "code-review");
-    const content = String(skill?.content || "").trim();
-    if (content) {
-      delegateReviewBackgroundCache = [
-        t('chat.selection.codeReviewSkillPrefix'),
-        "",
-        content,
-        "",
-        t('chat.selection.codeReviewOutputConstraint'),
-      ].join("\n");
-      return delegateReviewBackgroundCache;
-    }
-  } catch (error) {
-    console.error("[用户异步委托][前端] 读取 code-review skill 失败", error);
-  }
-  delegateReviewBackgroundCache = DELEGATE_REVIEW_FALLBACK_BACKGROUND;
-  return delegateReviewBackgroundCache;
-}
-
 function normalizeRecentDelegateRequest(raw: unknown): RecentDelegateRequest | null {
   const item = raw as Partial<RecentDelegateRequest> | null;
   if (!item) return null;
@@ -363,15 +317,6 @@ function rememberDelegateRequest(raw: Omit<RecentDelegateRequest, "id" | "label"
     ...recentDelegateRequests.value.filter((item) => `${item.departmentId}\n${item.presetId}\n${item.background}\n${item.question}\n${item.focus}` !== key),
   ].slice(0, USER_ASYNC_DELEGATE_RECENT_LIMIT);
   saveRecentDelegateRequests();
-}
-
-async function applyDelegateReviewPreset() {
-  const preset = delegateReviewPreset();
-  selectionDelegatePresetId.value = preset.presetId;
-  selectionDelegateBackground.value = preset.background;
-  selectionDelegateQuestion.value = preset.question;
-  selectionDelegateFocus.value = preset.focus;
-  selectionDelegateBackground.value = await loadDelegateReviewBackground();
 }
 
 function clearSelectionDelegateFields() {

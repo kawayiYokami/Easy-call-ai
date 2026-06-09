@@ -200,6 +200,36 @@ struct TaskDeleteInput {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+struct TaskOptimizeDraftInput {
+    #[serde(default)]
+    title: String,
+    content: String,
+    #[serde(default)]
+    schedule_mode: String,
+    #[serde(default)]
+    run_at: String,
+    #[serde(default)]
+    repeat_every: String,
+    #[serde(default)]
+    repeat_unit: String,
+    #[serde(default)]
+    end_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct TaskOptimizeDraftOutput {
+    title: String,
+    content: String,
+    schedule_mode: String,
+    run_at: String,
+    repeat_every: String,
+    repeat_unit: String,
+    end_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 struct TaskGetInput {
     task_id: String,
 }

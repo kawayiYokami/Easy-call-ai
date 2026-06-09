@@ -1115,6 +1115,7 @@ fn main() {
             query_ide_context_references,
             task_list_tasks,
             task_get_task,
+            task_optimize_draft,
             task_create_task,
             task_dispatch_task_now,
             task_update_task,

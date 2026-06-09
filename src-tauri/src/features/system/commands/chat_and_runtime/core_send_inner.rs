@@ -916,32 +916,23 @@ fn should_schedule_conversation_auto_title_generation(
         && (10..=100).contains(&char_count)
 }
 
-fn build_auto_conversation_title_prepared_prompt(user_message: &str) -> PreparedPrompt {
-    PreparedPrompt {
-        preamble: "你是会话话题探测器。只根据本次用户发言判断是否能提取明确话题。\
+fn build_auto_conversation_title_prompt(user_message: &str) -> String {
+    format!(
+        "你是会话话题探测器。只根据本次用户发言判断是否能提取明确话题。\
 只能输出 JSON，不要解释，不要 Markdown。\
-能提取则返回 {\"has_topic\":true,\"title\":\"简洁标题\"}。\
-不能提取、内容模糊、寒暄或承接上文但无法独立成题，则返回 {\"has_topic\":false,\"title\":\"\"}。\
-title 尽量 10 个汉字以内，绝不超过 20 个字，不要引号外文本，不要收尾标点。"
-            .to_string(),
-        history_messages: Vec::new(),
-        latest_user_text: format!("用户发言：\n{}", user_message.trim()),
-        latest_user_meta_text: String::new(),
-        latest_user_extra_text: String::new(),
-        latest_user_extra_blocks: Vec::new(),
-        latest_images: Vec::new(),
-        latest_audios: Vec::new(),
-    }
+能提取则返回 {{\"has_topic\":true,\"title\":\"简洁标题\"}}。\
+不能提取、内容模糊、寒暄或承接上文但无法独立成题，则返回 {{\"has_topic\":false,\"title\":\"\"}}。\
+title 尽量 10 个汉字以内，绝不超过 20 个字，不要引号外文本，不要收尾标点。\n\n用户发言：\n{}",
+        user_message.trim()
+    )
 }
 
 fn parse_auto_conversation_title_probe_result(raw: &str) -> Option<String> {
-    let trimmed = raw.trim();
-    if trimmed.is_empty() {
-        return None;
-    }
-    let value = serde_json::from_str::<Value>(trimmed).ok().or_else(|| {
-        extract_best_json_object_value(trimmed, "---JSON---", &["has_topic"], &["title"])
-    })?;
+    let value = parse_quick_model_json_response(raw, &["has_topic"], &["title"]).ok()?;
+    parse_auto_conversation_title_probe_value(&value)
+}
+
+fn parse_auto_conversation_title_probe_value(value: &Value) -> Option<String> {
     let has_topic = value
         .get("has_topic")
         .or_else(|| value.get("hasTopic"))
@@ -960,40 +951,16 @@ async fn run_auto_conversation_title_generation(
     state: &AppState,
     user_message: &str,
 ) -> Result<String, String> {
-    let review_api_config_id = current_tool_review_api_config_id(state)?
-        .ok_or_else(|| "未配置快速模型".to_string())?;
-    let app_config = state_read_config_cached(state)?;
-    let selected_api = resolve_selected_api_config(&app_config, Some(&review_api_config_id))
-        .ok_or_else(|| format!("快速模型配置不存在：{}", review_api_config_id))?;
-    if !selected_api.enable_text || !selected_api.request_format.is_chat_text() {
-        return Err("快速模型不支持文本对话".to_string());
-    }
-    let resolved_api = resolve_api_config(&app_config, Some(&review_api_config_id))?;
-    let model_name = if selected_api.model.trim().is_empty() {
-        resolved_api.model.clone()
-    } else {
-        selected_api.model.trim().to_string()
-    };
-    let execution = invoke_model_with_policy(
-        &resolved_api,
-        &model_name,
-        build_auto_conversation_title_prepared_prompt(user_message),
-        CallPolicy {
-            scene: "Conversation auto title",
-            timeout_secs: Some(12),
-            json_only: true,
-        },
-        Some(state),
+    let value = invoke_quick_model_json(
+        state,
+        "Conversation auto title",
+        &build_auto_conversation_title_prompt(user_message),
+        Some(12),
+        &["has_topic"],
+        &["title"],
     )
-    .await;
-    push_model_call_log_parts(Some(state), &execution);
-    let reply = execution.result?;
-    let candidate = if reply.final_response_text.trim().is_empty() {
-        reply.assistant_text.trim()
-    } else {
-        reply.final_response_text.trim()
-    };
-    parse_auto_conversation_title_probe_result(candidate)
+    .await?;
+    parse_auto_conversation_title_probe_value(&value)
         .ok_or_else(|| "快速模型未返回有效标题".to_string())
 }
 

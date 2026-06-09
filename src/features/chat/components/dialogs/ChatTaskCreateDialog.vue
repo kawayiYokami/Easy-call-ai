@@ -6,7 +6,7 @@
         <button
           type="button"
           class="btn btn-ghost btn-sm btn-circle"
-          :disabled="saving"
+          :disabled="dialogBusy"
           :title="t('common.close')"
           @click="handleClose"
         >
@@ -24,14 +24,28 @@
           </div>
 
           <label class="block space-y-2">
-            <span class="block text-sm font-medium">{{ t("chat.taskCreate.contentLabel") }}</span>
+            <span class="flex items-center justify-between gap-2">
+              <span class="block text-sm font-medium">{{ t("chat.taskCreate.contentLabel") }}</span>
+              <button
+                v-if="!isEditMode"
+                type="button"
+                class="btn btn-ghost btn-xs"
+                :disabled="dialogBusy || !content.trim()"
+                :title="t('chat.taskCreate.optimizeTitle')"
+                @click="handleOptimizeDraft"
+              >
+                <span v-if="optimizing" class="loading loading-spinner loading-xs"></span>
+                <WandSparkles v-else class="h-3.5 w-3.5" />
+                {{ t("chat.taskCreate.optimizeAction") }}
+              </button>
+            </span>
             <textarea
               ref="contentInputRef"
               v-model="content"
               class="textarea textarea-bordered min-h-36 w-full resize-none"
               rows="6"
               :placeholder="t('chat.taskCreate.contentPlaceholder')"
-              :disabled="saving"
+              :disabled="dialogBusy"
             ></textarea>
           </label>
 
@@ -42,7 +56,7 @@
               class="input input-bordered w-full"
               type="text"
               :placeholder="t('chat.taskCreate.titlePlaceholder')"
-              :disabled="saving"
+              :disabled="dialogBusy"
             />
           </label>
 
@@ -51,14 +65,14 @@
             <SegmentedControl
               v-model="scheduleMode"
               :options="scheduleModeOptions"
-              :disabled="saving"
+              :disabled="dialogBusy"
               size="sm"
             />
           </label>
 
           <label class="block space-y-2">
             <span class="block text-sm font-medium">{{ t("config.task.fields.runAt") }}</span>
-            <TaskDateTimeInput v-model="runAt" :disabled="saving" />
+            <TaskDateTimeInput v-model="runAt" :disabled="dialogBusy" />
           </label>
 
           <div v-if="scheduleMode === 'interval'" class="space-y-3">
@@ -72,12 +86,12 @@
                   min="1"
                   :max="repeatUnit === 'months' ? 12 : undefined"
                   step="1"
-                  :disabled="saving"
+                  :disabled="dialogBusy"
                 />
                 <select
                   v-model="repeatUnit"
                   class="select select-bordered join-item w-32 shrink-0"
-                  :disabled="saving"
+                  :disabled="dialogBusy"
                 >
                   <option value="minutes">{{ t("chat.taskCreate.intervalUnits.minutes") }}</option>
                   <option value="hours">{{ t("chat.taskCreate.intervalUnits.hours") }}</option>
@@ -89,7 +103,7 @@
             </label>
             <label class="block space-y-2">
               <span class="block text-sm font-medium">{{ t("config.task.fields.endAt") }}</span>
-              <TaskDateTimeInput v-model="endAt" :disabled="saving" />
+              <TaskDateTimeInput v-model="endAt" :disabled="dialogBusy" />
             </label>
           </div>
         </div>
@@ -100,7 +114,7 @@
               v-if="isEditMode"
               type="button"
               class="btn btn-error btn-outline"
-              :disabled="saving"
+              :disabled="dialogBusy"
               @click="requestDeleteConfirm"
             >
               <Trash2 class="h-4 w-4" />
@@ -108,10 +122,10 @@
             </button>
             <span v-else class="hidden sm:block"></span>
             <div class="flex items-center justify-end gap-2">
-              <button type="button" class="btn btn-ghost" :disabled="saving" @click="handleClose">
+              <button type="button" class="btn btn-ghost" :disabled="dialogBusy" @click="handleClose">
                 {{ t("common.cancel") }}
               </button>
-              <button type="submit" class="btn btn-primary" :disabled="saving">
+              <button type="submit" class="btn btn-primary" :disabled="dialogBusy">
                 <span v-if="saving" class="loading loading-spinner loading-sm"></span>
                 {{ submitButtonLabel }}
               </button>
@@ -130,10 +144,10 @@
       <h3 class="text-sm font-semibold">{{ t("common.delete") }}</h3>
       <p class="mt-3 whitespace-pre-wrap text-sm">{{ t("config.task.deleteConfirm") }}</p>
       <div class="modal-action mt-4">
-        <button class="btn btn-sm btn-ghost" type="button" :disabled="saving" @click="closeDeleteConfirm">
+        <button class="btn btn-sm btn-ghost" type="button" :disabled="dialogBusy" @click="closeDeleteConfirm">
           {{ t("common.cancel") }}
         </button>
-        <button class="btn btn-sm btn-error" type="button" :disabled="saving" @click="handleDeleteConfirmed">
+        <button class="btn btn-sm btn-error" type="button" :disabled="dialogBusy" @click="handleDeleteConfirmed">
           <span v-if="saving" class="loading loading-spinner loading-xs"></span>
           {{ t("common.confirm") }}
         </button>
@@ -148,7 +162,7 @@
 <script setup lang="ts">
 import { computed, nextTick, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
-import { Trash2, X } from "@lucide/vue";
+import { Trash2, WandSparkles, X } from "@lucide/vue";
 import { invokeTauri } from "../../../../services/tauri-api";
 import { formatDateToLocalRfc3339 } from "../../../../utils/time";
 import { toErrorMessage } from "../../../../utils/error";
@@ -187,6 +201,26 @@ type TaskDeleteInputWire = {
   taskId: string;
 };
 
+type TaskOptimizeDraftInputWire = {
+  title: string;
+  content: string;
+  scheduleMode: TaskScheduleMode;
+  runAt: string;
+  repeatEvery: string;
+  repeatUnit: RepeatIntervalUnit;
+  endAt: string;
+};
+
+type TaskOptimizeDraftOutputWire = {
+  title: string;
+  content: string;
+  scheduleMode: TaskScheduleMode;
+  runAt: string;
+  repeatEvery: string;
+  repeatUnit: RepeatIntervalUnit;
+  endAt: string;
+};
+
 const DEFAULT_RUN_AT_DELAY_MINUTES = 10;
 const DERIVED_TITLE_LIMIT = 80;
 
@@ -206,6 +240,7 @@ const emit = defineEmits<{
 const { t } = useI18n();
 const contentInputRef = ref<HTMLTextAreaElement | null>(null);
 const saving = ref(false);
+const optimizing = ref(false);
 const deleteConfirmOpen = ref(false);
 const errorText = ref("");
 const title = ref("");
@@ -219,6 +254,7 @@ const preservedCronExpression = ref("");
 const initialScheduleSnapshot = ref("");
 const dialogMode = computed(() => props.mode === "edit" ? "edit" : "create");
 const isEditMode = computed(() => dialogMode.value === "edit");
+const dialogBusy = computed(() => saving.value || optimizing.value);
 const existingRecurringTask = computed(() =>
   isEditMode.value
   && (
@@ -348,6 +384,38 @@ function setRepeatFromEveryMinutes(value: number) {
   const matchedUnit = preferredUnits.find((unit) => minuteValue % unitToMinutes[unit] === 0) || "minutes";
   repeatUnit.value = matchedUnit;
   repeatEvery.value = String(Math.max(1, Math.floor(minuteValue / unitToMinutes[matchedUnit])));
+}
+
+function normalizeOptimizedScheduleMode(value: string): TaskScheduleMode | null {
+  return value === "once" || value === "interval" ? value : null;
+}
+
+function normalizeOptimizedRepeatUnit(value: string): RepeatIntervalUnit | null {
+  const normalized = String(value || "").trim();
+  if (
+    normalized === "minutes"
+    || normalized === "hours"
+    || normalized === "days"
+    || normalized === "weeks"
+    || normalized === "months"
+  ) {
+    return normalized;
+  }
+  return null;
+}
+
+function normalizeOptimizedRepeatEvery(value: string, unit: RepeatIntervalUnit): string | null {
+  const parsed = Number.parseInt(String(value || "").trim(), 10);
+  if (!Number.isInteger(parsed) || parsed <= 0) return null;
+  if (unit === "months" && ![1, 2, 3, 4, 6, 12].includes(parsed)) return null;
+  return String(parsed);
+}
+
+function normalizeOptimizedDateTime(value: string): string | null {
+  const normalized = String(value || "").trim();
+  if (!normalized) return null;
+  const parsed = new Date(normalized);
+  return Number.isFinite(parsed.getTime()) ? normalized : null;
 }
 
 function scheduleInputSnapshot(): string {
@@ -494,7 +562,7 @@ function dispatchTaskDeletedEvent(taskId: string) {
 }
 
 async function handleSubmit() {
-  if (saving.value) return;
+  if (dialogBusy.value) return;
   const payload = buildPayload();
   if (!payload) return;
 
@@ -519,18 +587,60 @@ async function handleSubmit() {
   }
 }
 
+async function handleOptimizeDraft() {
+  if (dialogBusy.value || isEditMode.value) return;
+  const normalizedContent = content.value.trim();
+  if (!normalizedContent) {
+    errorText.value = t("chat.taskCreate.validation.contentRequired");
+    void nextTick(() => contentInputRef.value?.focus());
+    return;
+  }
+  const payload: TaskOptimizeDraftInputWire = {
+    title: title.value.trim(),
+    content: normalizedContent,
+    scheduleMode: scheduleMode.value,
+    runAt: runAt.value.trim(),
+    repeatEvery: repeatEvery.value.trim(),
+    repeatUnit: repeatUnit.value,
+    endAt: endAt.value.trim(),
+  };
+  optimizing.value = true;
+  errorText.value = "";
+  try {
+    const optimized = await invokeTauri<TaskOptimizeDraftOutputWire>("task_optimize_draft", { input: payload });
+    const nextContent = String(optimized.content || "").trim();
+    const nextTitle = String(optimized.title || "").trim();
+    if (nextContent) content.value = nextContent;
+    if (nextTitle) title.value = nextTitle;
+    const nextScheduleMode = normalizeOptimizedScheduleMode(String(optimized.scheduleMode || ""));
+    if (nextScheduleMode) scheduleMode.value = nextScheduleMode;
+    const nextRunAt = normalizeOptimizedDateTime(String(optimized.runAt || ""));
+    if (nextRunAt) runAt.value = nextRunAt;
+    const nextRepeatUnit = normalizeOptimizedRepeatUnit(String(optimized.repeatUnit || ""));
+    if (nextRepeatUnit) repeatUnit.value = nextRepeatUnit;
+    const nextRepeatEvery = normalizeOptimizedRepeatEvery(String(optimized.repeatEvery || ""), repeatUnit.value);
+    if (nextRepeatEvery) repeatEvery.value = nextRepeatEvery;
+    const nextEndAt = normalizeOptimizedDateTime(String(optimized.endAt || ""));
+    endAt.value = scheduleMode.value === "interval" && nextEndAt ? nextEndAt : "";
+  } catch (error) {
+    errorText.value = `${t("chat.taskCreate.optimizeFailed")}: ${toErrorMessage(error)}`;
+  } finally {
+    optimizing.value = false;
+  }
+}
+
 function requestDeleteConfirm() {
-  if (saving.value || !isEditMode.value) return;
+  if (dialogBusy.value || !isEditMode.value) return;
   deleteConfirmOpen.value = true;
 }
 
 function closeDeleteConfirm() {
-  if (saving.value) return;
+  if (dialogBusy.value) return;
   deleteConfirmOpen.value = false;
 }
 
 async function handleDeleteConfirmed() {
-  if (saving.value || !isEditMode.value) return;
+  if (dialogBusy.value || !isEditMode.value) return;
   const taskId = String(props.task?.taskId || "").trim();
   if (!taskId) {
     deleteConfirmOpen.value = false;
@@ -554,7 +664,7 @@ async function handleDeleteConfirmed() {
 }
 
 function handleClose() {
-  if (saving.value) return;
+  if (dialogBusy.value) return;
   deleteConfirmOpen.value = false;
   emit("close");
 }
