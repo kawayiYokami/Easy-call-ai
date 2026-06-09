@@ -1,4 +1,5 @@
 import { watch } from "vue";
+import { writeLastActiveConversationId } from "../utils/last-active-conversation";
 
 export function useChatWindowWatchersGlue(bindings: Record<string, any>) {
   watch(
@@ -10,8 +11,14 @@ export function useChatWindowWatchersGlue(bindings: Record<string, any>) {
 
   watch(
     () => bindings.currentChatConversationId.value,
-    () => {
+    (conversationId) => {
       bindings.handleSupervisionConversationChanged();
+      const cid = String(conversationId || "").trim();
+      if (!cid) return;
+      if (bindings.detachedChatWindow?.value) return;
+      if (bindings.viewMode.value !== "chat") return;
+      if (!bindings.unarchivedConversations.value.some((item: any) => String(item?.conversationId || "").trim() === cid)) return;
+      writeLastActiveConversationId(cid);
     },
     { immediate: true },
   );

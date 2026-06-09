@@ -112,6 +112,7 @@ export function useChatWindowLifecycleOrchestrator(bindings: Record<string, any>
 
   useChatWindowWatchersGlue({
     viewMode: bindings.viewMode,
+    detachedChatWindow: bindings.detachedChatWindow,
     config: bindings.config,
     currentChatConversationId: bindings.currentChatConversationId,
     currentForegroundApiConfigId: bindings.currentForegroundApiConfigId,

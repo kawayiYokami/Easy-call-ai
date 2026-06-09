@@ -214,7 +214,13 @@ export function useChatWindowConversationOrchestrator(bindings: Record<string, a
     // 后端 snapshot 天然包含 persistedAssistantMessageId，去重逻辑只需在 resumeForegroundRuntimeRound 中做一次。
     const runtimeState = await resumeForegroundRuntimeFromBackend(cid, reason);
     if (runtimeState === "idle") {
-      bindings.getChatFlow().clearForegroundRoundState();
+      const snapshot = await chatForeground.requestConversationLightSnapshot(cid);
+      if (cid !== String(bindings.currentChatConversationId.value || "").trim()) return;
+      bindings.applyConversationSnapshot(snapshot);
+      const snapshotRuntimeState = String(snapshot?.runtimeState || "").trim();
+      if (snapshotRuntimeState !== "assistant_streaming") {
+        bindings.getChatFlow().clearForegroundRoundState();
+      }
     }
   }
 

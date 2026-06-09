@@ -2,6 +2,7 @@ import { nextTick } from "vue";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { i18n } from "../../../i18n";
 import { invokeTauri } from "../../../services/tauri-api";
+import { readLastActiveConversationId } from "../utils/last-active-conversation";
 
 const t = i18n.global.t;
 
@@ -30,9 +31,14 @@ export function useChatForegroundOrchestrator(bindings: Record<string, any>) {
   }
 
   function pickForegroundConversationId(candidates: any[]): string {
+    const storedConversationId = readLastActiveConversationId();
+    if (storedConversationId) {
+      const stored = candidates.find((item) => String(item?.conversationId || "").trim() === storedConversationId);
+      if (stored) return storedConversationId;
+    }
     const target =
-      candidates.find((item) => !!item.isActive)
-      || candidates.find((item) => !!item.isSystemNotificationConversation)
+      candidates.find((item) => !!item.isSystemNotificationConversation)
+      || candidates.find((item) => !!item.isActive)
       || candidates[0];
     return String(target?.conversationId || "").trim();
   }
