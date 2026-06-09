@@ -238,7 +238,9 @@ struct TrimPreviewResult {
     conversation_id: String,
     can_archive: bool,
     can_drop_conversation: bool,
+    delete_only: bool,
     message_count: usize,
+    body_text_length: usize,
     has_assistant_reply: bool,
     is_empty: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -269,7 +271,8 @@ struct TrimCompactionPreviewResult {
     compaction_disabled_reason: Option<String>,
 }
 
-const SHORT_CONVERSATION_DELETE_THRESHOLD: usize = 3;
+const ARCHIVE_MIN_BODY_MESSAGE_COUNT: usize = 3;
+const ARCHIVE_MIN_BODY_TEXT_LENGTH: usize = 10_000;
 const ARCHIVE_REFLECTION_MIN_BODY_TOKENS: f64 = 1_000.0;
 
 fn build_archive_reporting_conversation(
@@ -463,10 +466,8 @@ fn build_trim_compaction_preview_result(
         == MainSessionState::OrganizingContext
     {
         Some("当前会话正在整理上下文或归档处理中，请稍候。".to_string())
-    } else if is_empty {
-        Some("当前会话为空，无需整理。".to_string())
-    } else if !has_assistant_reply {
-        Some("当前会话还没有助理回复，暂不建议压缩。".to_string())
+    } else if let Some(reason) = archive_delete_only_reason(source) {
+        Some(reason)
     } else {
         None
     };
@@ -492,6 +493,40 @@ fn archive_pipeline_message_count_for_delete(source: &Conversation) -> usize {
             )
         })
         .count()
+}
+
+fn archive_pipeline_body_text_length(source: &Conversation) -> usize {
+    source
+        .messages
+        .iter()
+        .filter(|message| {
+            matches!(
+                message.role.trim().to_ascii_lowercase().as_str(),
+                "user" | "assistant"
+            )
+        })
+        .map(archive_message_body_text)
+        .map(|text| text.chars().count())
+        .sum()
+}
+
+fn archive_delete_only_reason(source: &Conversation) -> Option<String> {
+    if source.messages.is_empty() {
+        return Some("当前会话为空，只能删除。".to_string());
+    }
+    if !archive_pipeline_has_assistant_reply(source) {
+        return Some("当前会话还没有助理回复，只能删除。".to_string());
+    }
+    let message_count = archive_pipeline_message_count_for_delete(source);
+    let body_text_length = archive_pipeline_body_text_length(source);
+    (message_count < ARCHIVE_MIN_BODY_MESSAGE_COUNT
+        || body_text_length < ARCHIVE_MIN_BODY_TEXT_LENGTH)
+        .then(|| {
+            format!(
+                "消息少于 {} 条或正文少于 10K，只能删除。",
+                ARCHIVE_MIN_BODY_MESSAGE_COUNT
+            )
+        })
 }
 
 fn archive_pipeline_has_assistant_reply(source: &Conversation) -> bool {
@@ -1771,27 +1806,8 @@ async fn trim_current_conversation(
         ));
     }
     if !already_archived {
-        let message_count = archive_pipeline_message_count_for_delete(&source);
-        if source.messages.is_empty() {
-            return Err(log_manual_archive_failure(
-                &source.id,
-                "当前会话为空，不能归档。".to_string(),
-            ));
-        }
-        if !archive_pipeline_has_assistant_reply(&source) {
-            return Err(log_manual_archive_failure(
-                &source.id,
-                "当前会话还没有助理回复，不能归档。".to_string(),
-            ));
-        }
-        if message_count <= SHORT_CONVERSATION_DELETE_THRESHOLD {
-            return Err(log_manual_archive_failure(
-                &source.id,
-                format!(
-                    "当前会话过短（仅 {} 条用户/助理消息），暂不建议归档。",
-                    message_count
-                ),
-            ));
+        if let Some(reason) = archive_delete_only_reason(&source) {
+            return Err(log_manual_archive_failure(&source.id, reason));
         }
     }
     let archive_result = instant_archive_conversation(state.inner(), &selected_api, &source)
@@ -1943,38 +1959,39 @@ fn preview_trim_current_conversation(
         .unwrap_or_default();
     let is_main_conversation = source.id.trim() == main_conversation_id;
     let message_count = archive_pipeline_message_count_for_delete(&source);
+    let body_text_length = archive_pipeline_body_text_length(&source);
     let has_assistant_reply = archive_pipeline_has_assistant_reply(&source);
     let is_empty = source.messages.is_empty();
+    let delete_only_reason = archive_delete_only_reason(&source);
+    let runtime_busy = get_conversation_runtime_state(state.inner(), &source.id)
+        .map_err(|err| log_manual_archive_failure(&source.id, err))?
+        == MainSessionState::OrganizingContext;
     let archive_disabled_reason = if is_main_conversation {
         Some("系统通知会话暂不支持归档。".to_string())
-    } else if get_conversation_runtime_state(state.inner(), &source.id)
-        .map_err(|err| log_manual_archive_failure(&source.id, err))?
-        == MainSessionState::OrganizingContext
-    {
+    } else if runtime_busy {
         Some("当前会话正在后台归档或整理上下文，请稍候。".to_string())
-    } else if is_empty {
-        Some("当前会话为空，不能归档。".to_string())
-    } else if !has_assistant_reply {
-        Some("当前会话还没有助理回复，不能归档。".to_string())
-    } else if message_count <= SHORT_CONVERSATION_DELETE_THRESHOLD {
-        Some(format!(
-            "当前会话过短（仅 {} 条用户/助理消息），暂不建议归档。",
-            message_count
-        ))
+    } else if let Some(reason) = delete_only_reason.clone() {
+        Some(reason)
     } else {
         None
     };
+    let delete_only = !is_main_conversation && !runtime_busy && delete_only_reason.is_some();
     runtime_log_info(format!(
-        "[归档] 完成，任务=手动归档预览，conversation_id={}，can_archive={}，reason={}",
+        "[归档] 完成，任务=手动归档预览，conversation_id={}，can_archive={}，delete_only={}，message_count={}，body_text_length={}，reason={}",
         source.id,
         archive_disabled_reason.is_none(),
+        delete_only,
+        message_count,
+        body_text_length,
         archive_disabled_reason.as_deref().unwrap_or("")
     ));
     Ok(TrimPreviewResult {
         conversation_id: source.id,
         can_archive: archive_disabled_reason.is_none(),
         can_drop_conversation: !is_main_conversation,
+        delete_only,
         message_count,
+        body_text_length,
         has_assistant_reply,
         is_empty,
         archive_disabled_reason,
@@ -2293,20 +2310,8 @@ async fn run_archive_pipeline_inner(
     started_at: std::time::Instant,
     trace_id: &str,
 ) -> Result<ForceArchiveResult, String> {
-    if source.messages.is_empty() {
-        return Err("归档后维护跳过：当前会话为空。".to_string());
-    }
-
-    if !archive_pipeline_has_assistant_reply(source) {
-        return Err("归档后维护跳过：当前会话还没有助理回复。".to_string());
-    }
-
-    let message_count = archive_pipeline_message_count_for_delete(source);
-    if message_count <= SHORT_CONVERSATION_DELETE_THRESHOLD {
-        return Err(format!(
-            "归档后维护跳过：当前会话过短（{} 条用户/助理消息）。",
-            message_count
-        ));
+    if let Some(reason) = archive_delete_only_reason(source) {
+        return Err(format!("归档后维护跳过：{}", reason));
     }
 
     let (owner_agent, owner_agent_id, user_alias) = resolve_archive_owner_context(state, source)?;
@@ -2565,6 +2570,31 @@ mod archive_pipeline_tests {
             tool_review_api_config_id: Some(quick_api_id.to_string()),
             ..AppConfig::default()
         }
+    }
+
+    #[test]
+    fn archive_delete_only_reason_should_require_three_messages_and_10k_body() {
+        let mut source = test_conversation();
+        source.messages = vec![
+            test_message("m1", "user", "短问题"),
+            test_message("m2", "assistant", "短回答"),
+            test_message("m3", "user", "补充"),
+        ];
+
+        assert!(archive_delete_only_reason(&source).is_some());
+
+        let long_user = "甲".repeat(4000);
+        let long_assistant = "乙".repeat(4000);
+        let long_follow_up = "丙".repeat(2000);
+        source.messages = vec![
+            test_message("m1", "user", &long_user),
+            test_message("m2", "assistant", &long_assistant),
+            test_message("m3", "user", &long_follow_up),
+        ];
+
+        assert_eq!(archive_pipeline_message_count_for_delete(&source), 3);
+        assert_eq!(archive_pipeline_body_text_length(&source), 10_000);
+        assert!(archive_delete_only_reason(&source).is_none());
     }
 
     #[test]

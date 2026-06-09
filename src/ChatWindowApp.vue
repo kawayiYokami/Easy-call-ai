@@ -386,6 +386,7 @@
       @close-skill-placeholder-dialog="closeSkillPlaceholderDialog"
       @confirm-trim-compaction-action="confirmTrimCompactionAction"
       @confirm-trim-action="handleConfirmTrimAction()"
+      @confirm-trim-delete-action="confirmTrimDeleteAction"
       @close-trim-action-dialog="closeTrimActionDialog"
     />
     <Win10ResizeHandles :enabled="resizeHandlesEnabled" />

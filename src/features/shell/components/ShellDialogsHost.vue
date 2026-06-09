@@ -13,9 +13,14 @@ type ArchiveImportPreview = {
   replaced: number;
 } | null;
 type TrimPreviewResult = {
+  conversationId?: string;
   canArchive: boolean;
+  canDropConversation?: boolean;
+  deleteOnly?: boolean;
   messageCount: number;
+  bodyTextLength?: number;
   hasAssistantReply: boolean;
+  isEmpty?: boolean;
   archiveDisabledReason?: string | null;
 } | null;
 type TrimCompactionPreviewResult = {
@@ -69,6 +74,7 @@ const emit = defineEmits<{
   closeSkillPlaceholderDialog: [];
   confirmTrimCompactionAction: [];
   confirmTrimAction: [];
+  confirmTrimDeleteAction: [];
   closeTrimActionDialog: [];
 }>();
 
@@ -76,6 +82,10 @@ const { t } = useI18n();
 
 function handleConfirmTrimAction() {
   emit("confirmTrimAction");
+}
+
+function handleConfirmTrimDeleteAction() {
+  emit("confirmTrimDeleteAction");
 }
 
 function handleCloseTrimActionDialog() {
@@ -229,28 +239,38 @@ function handleConfirmTrimCompactionAction() {
       <h3 class="font-semibold text-base">{{ t("dialogs.trim.title") }}</h3>
       <div v-if="trimPreviewLoading" class="mt-3 text-sm opacity-70">{{ t("dialogs.trim.loading") }}</div>
       <template v-else>
-        <div class="mt-3 rounded-box border border-base-300 bg-base-200/40 px-3 py-3 text-sm">
-          <div class="font-medium">{{ t("dialogs.trim.compactTitle") }}</div>
-          <div class="mt-1 opacity-80">{{ t("dialogs.trim.compactSummary") }}</div>
-          <div class="mt-2 text-xs opacity-70">{{ t("dialogs.trim.compactHint") }}</div>
-          <div
-            v-if="trimCompactionPreview?.compactionDisabledReason"
-            class="mt-3 rounded border border-warning/30 bg-warning/10 px-3 py-2 text-sm text-warning-content"
-          >
-            {{ trimCompactionPreview.compactionDisabledReason }}
+        <template v-if="trimPreview?.deleteOnly">
+          <div class="mt-3 rounded-box border border-error/30 bg-error/10 px-3 py-3 text-sm">
+            <div class="font-medium">{{ t("common.delete") }}</div>
+            <div class="mt-1 opacity-80">
+              {{ trimPreview.archiveDisabledReason || "消息少于 3 条或正文少于 10K，只能删除。" }}
+            </div>
           </div>
-        </div>
-        <div class="mt-3 rounded-box border border-base-300 bg-base-200/40 px-3 py-3 text-sm">
-          <div class="font-medium">{{ t("dialogs.trim.archiveTitle") }}</div>
-          <div class="mt-1 opacity-80">{{ t("dialogs.trim.archiveSummary") }}</div>
-          <div class="mt-2 text-xs opacity-70">{{ t("dialogs.trim.archiveHint") }}</div>
-          <div
-            v-if="trimPreview?.archiveDisabledReason"
-            class="mt-3 rounded border border-warning/30 bg-warning/10 px-3 py-2 text-sm text-warning-content"
-          >
-            {{ trimPreview.archiveDisabledReason }}
+        </template>
+        <template v-else>
+          <div class="mt-3 rounded-box border border-base-300 bg-base-200/40 px-3 py-3 text-sm">
+            <div class="font-medium">{{ t("dialogs.trim.compactTitle") }}</div>
+            <div class="mt-1 opacity-80">{{ t("dialogs.trim.compactSummary") }}</div>
+            <div class="mt-2 text-xs opacity-70">{{ t("dialogs.trim.compactHint") }}</div>
+            <div
+              v-if="trimCompactionPreview?.compactionDisabledReason"
+              class="mt-3 rounded border border-warning/30 bg-warning/10 px-3 py-2 text-sm text-warning-content"
+            >
+              {{ trimCompactionPreview.compactionDisabledReason }}
+            </div>
           </div>
-        </div>
+          <div class="mt-3 rounded-box border border-base-300 bg-base-200/40 px-3 py-3 text-sm">
+            <div class="font-medium">{{ t("dialogs.trim.archiveTitle") }}</div>
+            <div class="mt-1 opacity-80">{{ t("dialogs.trim.archiveSummary") }}</div>
+            <div class="mt-2 text-xs opacity-70">{{ t("dialogs.trim.archiveHint") }}</div>
+            <div
+              v-if="trimPreview?.archiveDisabledReason"
+              class="mt-3 rounded border border-warning/30 bg-warning/10 px-3 py-2 text-sm text-warning-content"
+            >
+              {{ trimPreview.archiveDisabledReason }}
+            </div>
+          </div>
+        </template>
       </template>
       <div class="mt-4 flex items-end justify-between gap-4">
         <div class="text-xs opacity-60">
@@ -258,20 +278,31 @@ function handleConfirmTrimCompactionAction() {
           <div>{{ t("dialogs.trim.contextUsage", { percent: trimCompactionPreview?.contextUsagePercent ?? 0 }) }}</div>
         </div>
         <div class="modal-action mt-0">
-        <button
-          class="btn btn-sm btn-primary"
-          :disabled="trimPreviewLoading || !trimCompactionPreview?.canCompact || trimming"
-          @click="handleConfirmTrimCompactionAction"
-        >
-          {{ t("dialogs.trim.compactTitle") }}
-        </button>
-        <button
-          class="btn btn-sm btn-secondary"
-          :disabled="trimPreviewLoading || !trimPreview?.canArchive || trimming"
-          @click="handleConfirmTrimAction"
-        >
-          {{ t("dialogs.trim.archiveTitle") }}
-        </button>
+        <template v-if="trimPreview?.deleteOnly">
+          <button
+            class="btn btn-sm btn-error"
+            :disabled="trimPreviewLoading || !trimPreview?.canDropConversation || trimming"
+            @click="handleConfirmTrimDeleteAction"
+          >
+            {{ t("common.delete") }}
+          </button>
+        </template>
+        <template v-else>
+          <button
+            class="btn btn-sm btn-primary"
+            :disabled="trimPreviewLoading || !trimCompactionPreview?.canCompact || trimming"
+            @click="handleConfirmTrimCompactionAction"
+          >
+            {{ t("dialogs.trim.compactTitle") }}
+          </button>
+          <button
+            class="btn btn-sm btn-secondary"
+            :disabled="trimPreviewLoading || !trimPreview?.canArchive || trimming"
+            @click="handleConfirmTrimAction"
+          >
+            {{ t("dialogs.trim.archiveTitle") }}
+          </button>
+        </template>
         <button class="btn btn-sm" :disabled="trimPreviewLoading || trimming" @click="handleCloseTrimActionDialog">
           {{ t("common.cancel") }}
         </button>

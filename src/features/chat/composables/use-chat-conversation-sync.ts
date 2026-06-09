@@ -40,6 +40,36 @@ export function useChatConversationSync(bindings: Record<string, any>) {
     draftAssistantIdPrefix: bindings.DRAFT_ASSISTANT_ID_PREFIX,
   });
 
+  function conversationBodyRole(message: any): string {
+    return String(message?.role || "").trim().toLowerCase();
+  }
+
+  function isConversationBodyMessage(message: any): boolean {
+    const role = conversationBodyRole(message);
+    return role === "user" || role === "assistant";
+  }
+
+  function conversationMessageBodyTextLength(message: any): number {
+    if (!isConversationBodyMessage(message)) return 0;
+    const parts = Array.isArray(message?.parts) ? message.parts : [];
+    return parts
+      .filter((part: any) => part && typeof part === "object" && String(part.type || "").trim() === "text")
+      .map((part: any) => Array.from(String(part.text || "").trim()).length)
+      .reduce((total: number, count: number) => total + count, 0);
+  }
+
+  function conversationBodyStats(messages: any[]): { messageCount: number; textLength: number; hasAssistantReply: boolean } {
+    return (Array.isArray(messages) ? messages : []).reduce((stats, message) => {
+      if (!isConversationBodyMessage(message)) return stats;
+      stats.messageCount += 1;
+      stats.textLength += conversationMessageBodyTextLength(message);
+      if (conversationBodyRole(message) === "assistant") {
+        stats.hasAssistantReply = true;
+      }
+      return stats;
+    }, { messageCount: 0, textLength: 0, hasAssistantReply: false });
+  }
+
   function matchesForegroundConversation(conversationId?: string | null): boolean {
     const currentConversationId = String(bindings.currentChatConversationId.value || "").trim();
     if (!currentConversationId) return false;
@@ -196,9 +226,14 @@ export function useChatConversationSync(bindings: Record<string, any>) {
       }
       changed = true;
       const shouldMarkUnread = cid !== String(bindings.currentChatConversationId.value || "").trim();
+      const isBodyMessage = isConversationBodyMessage(message);
+      const isAssistantReply = conversationBodyRole(message) === "assistant";
       return {
         ...item,
         messageCount: Math.max(0, Number(item.messageCount || 0)) + 1,
+        bodyMessageCount: Math.max(0, Number(item.bodyMessageCount ?? item.messageCount ?? 0)) + (isBodyMessage ? 1 : 0),
+        bodyTextLength: Math.max(0, Number(item.bodyTextLength || 0)) + conversationMessageBodyTextLength(message),
+        hasAssistantReply: item.hasAssistantReply !== false || isAssistantReply,
         unreadCount: Math.max(0, Number(item.unreadCount || 0)) + (shouldMarkUnread ? 1 : 0),
         updatedAt: messageAt || item.updatedAt,
         lastMessageAt: messageAt || item.lastMessageAt,
@@ -631,6 +666,7 @@ export function useChatConversationSync(bindings: Record<string, any>) {
     const previewMessages = nextMessages.slice(-2).map(previewMessageFromChatMessage);
     const lastMessage = nextMessages[nextMessages.length - 1];
     const lastMessageAt = String(lastMessage?.createdAt || "").trim();
+    const bodyStats = conversationBodyStats(nextMessages);
     let changed = false;
     const nextItems = bindings.unarchivedConversations.value.map((item: any) => {
       if (String(item.conversationId || "").trim() !== cid) {
@@ -640,6 +676,9 @@ export function useChatConversationSync(bindings: Record<string, any>) {
       return {
         ...item,
         messageCount: nextMessages.length,
+        bodyMessageCount: bodyStats.messageCount,
+        bodyTextLength: bodyStats.textLength,
+        hasAssistantReply: bodyStats.hasAssistantReply,
         updatedAt: lastMessageAt || item.updatedAt,
         lastMessageAt: lastMessageAt || item.lastMessageAt,
         previewMessages,

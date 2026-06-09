@@ -10,7 +10,10 @@ const t = i18n.global.t;
 export type TrimPreviewResult = {
   conversationId: string;
   canArchive: boolean;
+  canDropConversation?: boolean;
+  deleteOnly?: boolean;
   messageCount: number;
+  bodyTextLength?: number;
   hasAssistantReply: boolean;
   isEmpty: boolean;
   archiveDisabledReason?: string | null;
@@ -44,6 +47,7 @@ type UseShellDialogFlowsOptions = {
   setStatusError: (key: string, error: unknown) => void;
   trimCompactNow: () => Promise<void>;
   trimNow: (conversationId?: string | null) => Promise<void>;
+  deleteConversation: (conversationId: string) => Promise<void> | void;
 };
 
 export function useShellDialogFlows(options: UseShellDialogFlowsOptions) {
@@ -102,7 +106,7 @@ export function useShellDialogFlows(options: UseShellDialogFlowsOptions) {
     return 0;
   }
 
-  function buildTrimCompactionPreview(conversationId: string): TrimCompactionPreviewResult {
+  function buildTrimCompactionPreview(conversationId: string, archivePreview?: TrimPreviewResult | null): TrimCompactionPreviewResult {
     const messages = options.allMessages.value || [];
     const summary = currentUnarchivedConversationSummary();
     const messageCount = countArchiveCandidateMessages(messages);
@@ -111,17 +115,20 @@ export function useShellDialogFlows(options: UseShellDialogFlowsOptions) {
     const contextUsagePercent = latestBackendContextUsagePercent(messages);
     const conversationLongEnough = messageCount >= SHORT_CONVERSATION_COMPACTION_THRESHOLD;
     const contextUsageHighEnough = contextUsagePercent >= 10;
-    const compactionDisabledReason = summary?.runtimeState === "organizing_context"
-      ? t('sidebar.compactRunning')
-      : isEmpty
-        ? t('sidebar.compactEmpty')
-        : !assistantReplyPresent
-          ? t('sidebar.compactNoAssistant')
-          : !conversationLongEnough && !contextUsageHighEnough
-            ? contextUsagePercent > 0
-              ? t('sidebar.compactShortWithUsage', { count: messageCount, percent: contextUsagePercent })
-              : t('sidebar.compactShort', { count: messageCount })
-            : null;
+    let compactionDisabledReason: string | null = null;
+    if (archivePreview?.deleteOnly) {
+      compactionDisabledReason = archivePreview.archiveDisabledReason || "消息少于 3 条或正文少于 10K，只能删除。";
+    } else if (summary?.runtimeState === "organizing_context") {
+      compactionDisabledReason = t('sidebar.compactRunning');
+    } else if (isEmpty) {
+      compactionDisabledReason = t('sidebar.compactEmpty');
+    } else if (!assistantReplyPresent) {
+      compactionDisabledReason = t('sidebar.compactNoAssistant');
+    } else if (!conversationLongEnough && !contextUsageHighEnough) {
+      compactionDisabledReason = contextUsagePercent > 0
+        ? t('sidebar.compactShortWithUsage', { count: messageCount, percent: contextUsagePercent })
+        : t('sidebar.compactShort', { count: messageCount });
+    }
     return {
       conversationId,
       canCompact: !compactionDisabledReason,
@@ -148,7 +155,7 @@ export function useShellDialogFlows(options: UseShellDialogFlowsOptions) {
       const archivePreview = await invokeTauri<TrimPreviewResult>("preview_trim_current_conversation", {
         input: { conversationId },
       });
-      const compactionPreview = buildTrimCompactionPreview(conversationId);
+      const compactionPreview = buildTrimCompactionPreview(conversationId, archivePreview);
       trimPreview.value = archivePreview;
       trimCompactionPreview.value = compactionPreview;
       trimActionDialogOpen.value = true;
@@ -175,6 +182,20 @@ export function useShellDialogFlows(options: UseShellDialogFlowsOptions) {
     });
     closeTrimActionDialog();
     await options.trimNow(conversationId || null);
+  }
+
+  async function confirmTrimDeleteAction() {
+    const preview = trimPreview.value;
+    if (!preview?.deleteOnly || !preview.canDropConversation) return;
+    const conversationId = String(preview.conversationId || "").trim();
+    if (!conversationId) return;
+    console.info("[会话归档] 确认删除短会话", {
+      conversationId,
+      messageCount: Number(preview.messageCount || 0),
+      bodyTextLength: Number(preview.bodyTextLength || 0),
+    });
+    closeTrimActionDialog();
+    await options.deleteConversation(conversationId);
   }
 
   function openSkillPlaceholderDialog() {
@@ -322,6 +343,7 @@ export function useShellDialogFlows(options: UseShellDialogFlowsOptions) {
     closeTrimActionDialog,
     confirmTrimCompactionAction,
     confirmTrimAction,
+    confirmTrimDeleteAction,
     openSkillPlaceholderDialog,
     closeSkillPlaceholderDialog,
     requestRecallMode,

@@ -38,6 +38,8 @@ struct UnarchivedConversationSummary {
     #[serde(skip_serializing_if = "Option::is_none")]
     last_message_at: Option<String>,
     message_count: usize,
+    body_message_count: usize,
+    body_text_length: usize,
     has_assistant_reply: bool,
     unread_count: usize,
     agent_id: String,
@@ -474,6 +476,8 @@ fn build_unarchived_conversation_summary(
     let has_assistant_reply = conversation.messages.iter().any(|message| {
         message.role.trim().eq_ignore_ascii_case("assistant")
     });
+    let body_message_count = conversation_body_message_count(conversation);
+    let body_text_length = conversation_body_text_length(conversation);
     UnarchivedConversationSummary {
         conversation_id: conversation.id.clone(),
         title: conversation.title.clone(),
@@ -481,6 +485,8 @@ fn build_unarchived_conversation_summary(
         updated_at: conversation.updated_at.clone(),
         last_message_at,
         message_count: conversation.messages.len(),
+        body_message_count,
+        body_text_length,
         has_assistant_reply,
         unread_count,
         agent_id: conversation.agent_id.clone(),
@@ -512,6 +518,38 @@ fn build_unarchived_conversation_summary(
         state: item_state,
         preview_messages: build_conversation_preview_messages(conversation, 2),
     }
+}
+
+fn conversation_body_text_length(conversation: &Conversation) -> usize {
+    conversation
+        .messages
+        .iter()
+        .filter(|message| {
+            matches!(
+                message.role.trim().to_ascii_lowercase().as_str(),
+                "user" | "assistant"
+            )
+        })
+        .flat_map(|message| message.parts.iter())
+        .filter_map(|part| match part {
+            MessagePart::Text { text, .. } => Some(text.trim()),
+            _ => None,
+        })
+        .map(|text| text.chars().count())
+        .sum()
+}
+
+fn conversation_body_message_count(conversation: &Conversation) -> usize {
+    conversation
+        .messages
+        .iter()
+        .filter(|message| {
+            matches!(
+                message.role.trim().to_ascii_lowercase().as_str(),
+                "user" | "assistant"
+            )
+        })
+        .count()
 }
 
 fn unarchived_conversation_sort_key(summary: &UnarchivedConversationSummary) -> (&str, &str) {
@@ -1050,6 +1088,8 @@ mod conversation_snapshot_api_tests {
             updated_at: updated_at.to_string(),
             last_message_at: Some(updated_at.to_string()),
             message_count: 1,
+            body_message_count: 1,
+            body_text_length: 0,
             has_assistant_reply: true,
             unread_count: 0,
             agent_id: "agent-a".to_string(),

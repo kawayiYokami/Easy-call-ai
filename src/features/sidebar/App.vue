@@ -197,6 +197,8 @@ type ConversationSummary = {
   updatedAt: string;
   lastMessageAt?: string;
   messageCount?: number;
+  bodyMessageCount?: number;
+  bodyTextLength?: number;
   unreadCount?: number;
   agentId?: string;
   departmentId?: string;

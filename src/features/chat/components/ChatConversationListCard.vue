@@ -166,12 +166,12 @@
                         <li v-if="!item.isSystemNotificationConversation">
                           <button
                             type="button"
-                            :disabled="!canArchiveConversation(item)"
+                            :disabled="!canRunArchiveMenuAction(item)"
                             class="text-error"
                             @click.stop="requestConversationArchive(item)"
                           >
                             <Trash2 class="h-4 w-4" />
-                            <span>{{ t("common.archive") }}</span>
+                            <span>{{ archiveMenuActionTitle(item) }}</span>
                           </button>
                         </li>
                       </ul>
@@ -245,6 +245,8 @@ const emit = defineEmits<{
 
 const { t, locale } = useI18n();
 const SYSTEM_PERSONA_ID = "system-persona";
+const ARCHIVE_MIN_BODY_MESSAGE_COUNT = 3;
+const ARCHIVE_MIN_BODY_TEXT_LENGTH = 10_000;
 const { conversationStatusById } = usePipelineStatus({
   activeConversationId: computed(() => String(props.activeConversationId || "").trim()),
 });
@@ -460,9 +462,34 @@ function canToggleConversationPin(item: ChatConversationOverviewItem): boolean {
 function canArchiveConversation(item: ChatConversationOverviewItem): boolean {
   return isLocalConversation(item)
     && !item.isSystemNotificationConversation
-    && Number(item.messageCount || 0) > 3
-    && item.hasAssistantReply !== false
-    && !isConversationItemDisabled(item);
+    && !isConversationDeleteOnly(item);
+}
+
+function canDeleteConversation(item: ChatConversationOverviewItem): boolean {
+  return isLocalConversation(item) && !item.isSystemNotificationConversation;
+}
+
+function canRunArchiveMenuAction(item: ChatConversationOverviewItem): boolean {
+  return isConversationDeleteOnly(item) ? canDeleteConversation(item) : canArchiveConversation(item);
+}
+
+function conversationBodyMessageCount(item: ChatConversationOverviewItem): number {
+  return Math.max(0, Number(item.bodyMessageCount ?? item.messageCount ?? 0));
+}
+
+function conversationBodyTextLength(item: ChatConversationOverviewItem): number {
+  return Math.max(0, Number(item.bodyTextLength || 0));
+}
+
+function isConversationDeleteOnly(item: ChatConversationOverviewItem): boolean {
+  if (!isLocalConversation(item) || item.isSystemNotificationConversation) return false;
+  return item.hasAssistantReply === false
+    || conversationBodyMessageCount(item) < ARCHIVE_MIN_BODY_MESSAGE_COUNT
+    || conversationBodyTextLength(item) < ARCHIVE_MIN_BODY_TEXT_LENGTH;
+}
+
+function archiveMenuActionTitle(item: ChatConversationOverviewItem): string {
+  return isConversationDeleteOnly(item) ? t("common.delete") : t("common.archive");
 }
 
 function canExportConversation(item: ChatConversationOverviewItem): boolean {
@@ -480,8 +507,25 @@ function toggleConversationPin(item: ChatConversationOverviewItem) {
 }
 
 function requestConversationArchive(item: ChatConversationOverviewItem) {
-  if (!canArchiveConversation(item)) return;
-  emit("archiveConversation", String(item.conversationId || "").trim());
+  const conversationId = String(item.conversationId || "").trim();
+  const deleteOnly = isConversationDeleteOnly(item);
+  console.info("[会话归档] 点击会话列表归档/删除菜单", {
+    conversationId,
+    canArchive: canArchiveConversation(item),
+    deleteOnly,
+    messageCount: Number(item.messageCount || 0),
+    bodyMessageCount: conversationBodyMessageCount(item),
+    bodyTextLength: conversationBodyTextLength(item),
+    hasAssistantReply: item.hasAssistantReply !== false,
+    runtimeState: String(item.runtimeState || "").trim(),
+    kind: String(item.kind || "local_unarchived").trim(),
+  });
+  if (!conversationId || !canRunArchiveMenuAction(item)) return;
+  if (deleteOnly) {
+    emit("deleteConversation", conversationId);
+    return;
+  }
+  emit("archiveConversation", conversationId);
 }
 
 function requestConversationExport(item: ChatConversationOverviewItem) {
