@@ -444,7 +444,7 @@ import {
 import { validateDepartmentConfig } from "../../utils/department-validation";
 import { normalizeDepartmentChildIds } from "../../utils/department-graph";
 import { MODEL_ROLE_EXPERT_API_CONFIG_ID, MODEL_ROLE_QUICK_API_CONFIG_ID, isModelRoleApiConfigId } from "../../utils/model-role-options";
-import { EXPLORER_DEPARTMENT_DEFAULT, REMOTE_CUSTOMER_SERVICE_DEPARTMENT_DEFAULT } from "../../constants/department-defaults";
+import { EXPLORER_DEPARTMENT_DEFAULT, LEADER_DEPARTMENT_DEFAULT, REMOTE_CUSTOMER_SERVICE_DEPARTMENT_DEFAULT } from "../../constants/department-defaults";
 import SettingsStickyLayout from "../../components/SettingsStickyLayout.vue";
 
 const props = defineProps<{
@@ -465,6 +465,7 @@ const { t } = useI18n();
 const selectedDepartmentId = ref("assistant-department");
 const SYSTEM_DEPARTMENT_IDS = new Set([
   "assistant-department",
+  "leader-department",
   "deputy-department",
   "remote-customer-service-department",
 ]);
@@ -572,7 +573,7 @@ const permissionCatalogError = ref("");
 const sortedDepartments = computed(() =>
   [...departmentDrafts.value].sort((a, b) => {
     const rank = (id: string) =>
-      id === "assistant-department" ? 0 : id === "deputy-department" ? 1 : id === "remote-customer-service-department" ? 2 : 3;
+      id === "assistant-department" ? 0 : id === "leader-department" ? 1 : id === "deputy-department" ? 2 : id === "remote-customer-service-department" ? 3 : 4;
     const aRank = rank(String(a.id || "").trim());
     const bRank = rank(String(b.id || "").trim());
     return aRank - bRank || a.orderIndex - b.orderIndex;
@@ -992,6 +993,9 @@ function departmentDefaultSeed(department: DepartmentConfig | null | undefined):
   }
   if (id === "deputy-department") {
     return EXPLORER_DEPARTMENT_DEFAULT;
+  }
+  if (id === "leader-department") {
+    return LEADER_DEPARTMENT_DEFAULT;
   }
   if (id === "remote-customer-service-department") {
     return {
