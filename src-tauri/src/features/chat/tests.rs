@@ -6448,9 +6448,16 @@
         let parent_rules = build_system_tools_rule_blocks("dept-tool-parent", &departments);
         let child_rules = build_system_tools_rule_blocks("dept-tool-child", &departments);
 
-        assert!(parent_rules
+        let parent_delegate_rule = parent_rules
             .iter()
-            .any(|block| block.contains("<delegate tool rule>")));
+            .find(|block| block.contains("<delegate tool rule>"))
+            .expect("parent delegate tool rule");
+        assert!(parent_delegate_rule.contains("当前工作有职责或能力更匹配的直属下级部门时，优先使用 delegate"));
+        assert!(parent_delegate_rule.contains("简单但繁琐"));
+        assert!(parent_delegate_rule.contains("除非用户明确指示后台执行或异步处理，否则一律使用"));
+        assert!(parent_delegate_rule.contains("关键结论"));
+        assert!(parent_delegate_rule.contains("不要盲目相信"));
+        assert!(!parent_delegate_rule.contains("滥用 delegate"));
         assert!(!child_rules
             .iter()
             .any(|block| block.contains("<delegate tool rule>")));

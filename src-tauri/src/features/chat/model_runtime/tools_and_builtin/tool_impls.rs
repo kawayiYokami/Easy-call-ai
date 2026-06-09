@@ -684,12 +684,12 @@ impl RuntimeToolMetadata for BuiltinDelegateTool {
     fn provider_tool_definition(&self) -> ProviderToolDefinition {
         ProviderToolDefinition::new(
             "delegate",
-            "在下级部门开启一个子代理，协助处理当前工作。当当前任务与某个下级部门的职责或能力更吻合时，应优先向该下级部门发起委托。",
+            "在下级部门开启一个子代理，协助处理当前工作。当当前工作有更匹配的直属下级部门，或子任务能用简明背景独立说明清楚时，应优先发起委托。",
             serde_json::json!({
               "type": "object",
               "properties": {
                 "department_id": { "type": "string", "description": "要委托给哪个下级部门的 ID。应选择与当前任务最匹配的直接下级部门。" },
-                "mode": { "type": "string", "enum": ["async", "sync"], "description": "委托方式。sync 会等待子代理返回结果；async 会后台执行并稍后写回当前来源会话。默认 sync。", "default": "sync" },
+                "mode": { "type": "string", "enum": ["async", "sync"], "description": "委托方式。除非用户明确要求后台执行或异步处理，否则一律使用 sync。sync 会等待子代理返回结果；async 会后台执行并稍后写回当前来源会话。", "default": "sync" },
                 "background": { "type": "string", "description": "提供给子代理的背景信息、已知事实、已有线索或上下文，帮助它更快进入问题。" },
                 "question": { "type": "string", "description": "这次委托要子代理查清的核心问题，最好写成明确的调查目标或待回答的问题。" },
                 "focus": { "type": "string", "description": "告诉子代理优先关注哪些方向、关键词、对象或比对点；用于缩小搜索范围、避免跑偏。" }

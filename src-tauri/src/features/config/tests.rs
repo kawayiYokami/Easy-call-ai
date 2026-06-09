@@ -502,8 +502,15 @@
             .expect("leader department");
         assert_eq!(leader.name, "leader");
         assert_eq!(leader.agent_ids, vec![DEFAULT_AGENT_ID.to_string()]);
-        assert!(leader.summary.contains("盘问需求"));
-        assert!(leader.guide.contains("指派合适的下级部门"));
+        assert!(leader.summary.contains("协调下级部门"));
+        assert!(leader.guide.contains("`delegate`"));
+        assert!(leader.guide.contains("`mode` 固定使用 `sync`"));
+        assert!(leader.guide.contains("`task(action=create)`"));
+        assert!(leader.guide.contains("当前会话没有完成工具"));
+        assert!(leader.guide.contains("不要盲目相信未经核验的下级结论"));
+        assert!(!leader.guide.contains("async"));
+        assert!(!leader.guide.contains("new_task"));
+        assert!(!leader.guide.contains("attempt_completion"));
         assert_eq!(
             leader.child_department_ids,
             vec![
