@@ -1726,6 +1726,7 @@ async fn ide_chat_compact_conversation(state: &AppState, params: Value) -> Resul
         &effective_agent_id,
         "manual_trim_compaction",
         "COMPACTION-FORCE",
+        &[],
         false,
     )
     .await?;

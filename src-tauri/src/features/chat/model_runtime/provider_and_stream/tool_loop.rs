@@ -1402,7 +1402,7 @@ async fn maybe_apply_auto_compaction_before_tool_continue_genai(
     )
     .await?;
 
-    let refreshed_source = persist_tool_loop_compaction_checkpoint(
+    let checkpoint = persist_tool_loop_compaction_checkpoint(
         state,
         context,
         on_delta,
@@ -1416,10 +1416,11 @@ async fn maybe_apply_auto_compaction_before_tool_continue_genai(
         state,
         selected_api,
         resolved_api,
-        &refreshed_source,
+        &checkpoint.refreshed_source,
         &context.agent.id,
         &decision.reason,
         "COMPACTION-BEFORE-TOOL-CONTINUE",
+        &checkpoint.boundary_messages,
         false,
     )
     .await;
@@ -1457,6 +1458,11 @@ async fn maybe_apply_auto_compaction_before_tool_continue_genai(
     Err(CHAT_DISPATCH_RESTART_AFTER_COMPACTION.to_string())
 }
 
+struct ToolLoopCompactionCheckpoint {
+    refreshed_source: Conversation,
+    boundary_messages: Vec<ChatMessage>,
+}
+
 fn persist_tool_loop_compaction_checkpoint(
     state: &AppState,
     context: &ToolLoopAutoCompactionContext,
@@ -1466,7 +1472,7 @@ fn persist_tool_loop_compaction_checkpoint(
     partial_activity_reasoning_text: &str,
     chat_session_key: &str,
     reason: &str,
-) -> Result<Conversation, String> {
+) -> Result<ToolLoopCompactionCheckpoint, String> {
     let history_for_checkpoint = tool_history_without_organize_context(transient_tool_history.to_vec());
     let should_persist = !partial_assistant_text.trim().is_empty()
         || !partial_activity_reasoning_text.trim().is_empty()
@@ -1513,14 +1519,23 @@ fn persist_tool_loop_compaction_checkpoint(
         partial_assistant_text,
         persist_result.assistant_message.as_ref(),
     ));
+    let boundary_messages = persist_result
+        .assistant_message
+        .clone()
+        .into_iter()
+        .collect::<Vec<_>>();
     if let Err(err) = clear_conversation_stream_runtime_cache(state, &context.conversation_id) {
         runtime_log_warn(format!(
             "[聊天流式缓存] 压缩前清理失败 conversation_id={} reason={} error={}",
             context.conversation_id, reason, err
         ));
     }
-    tool_loop_active_conversation_snapshot(state, &context.conversation_id)?
-        .ok_or_else(|| "上下文整理前重新读取会话失败：会话不存在或已归档。".to_string())
+    let refreshed_source = tool_loop_active_conversation_snapshot(state, &context.conversation_id)?
+        .ok_or_else(|| "上下文整理前重新读取会话失败：会话不存在或已归档。".to_string())?;
+    Ok(ToolLoopCompactionCheckpoint {
+        refreshed_source,
+        boundary_messages,
+    })
 }
 
 async fn apply_organize_context_compaction_checkpoint(
@@ -1547,7 +1562,7 @@ async fn apply_organize_context_compaction_checkpoint(
     )
     .await?;
 
-    let refreshed_source = persist_tool_loop_compaction_checkpoint(
+    let checkpoint = persist_tool_loop_compaction_checkpoint(
         state,
         context,
         on_delta,
@@ -1561,10 +1576,11 @@ async fn apply_organize_context_compaction_checkpoint(
         state,
         selected_api,
         resolved_api,
-        &refreshed_source,
+        &checkpoint.refreshed_source,
         &context.agent.id,
         "organize_context",
         "ORGANIZE-CONTEXT-AUTO",
+        &checkpoint.boundary_messages,
         false,
     )
     .await;

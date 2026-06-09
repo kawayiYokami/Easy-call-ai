@@ -30,7 +30,7 @@
     <div class="flex min-h-0 min-w-0 flex-1 overflow-hidden">
       <div class="relative flex min-h-0 min-w-0 flex-1 flex-col">
         <div
-          v-if="mediaDragActive && !chatting && !frozen && !conversationBusy"
+          v-if="mediaDragActive && !chatting && !frozen && !conversationInteractionBusy"
           class="pointer-events-none absolute inset-0 z-40 flex items-center justify-center bg-base-100/70 backdrop-blur-[1px]"
         >
           <div class="rounded-box border border-primary/40 bg-base-100 px-4 py-2 text-sm font-medium text-primary">
@@ -42,8 +42,8 @@
           <div
             ref="scrollContainer"
             class="ecall-chat-scroll-container relative flex flex-1 min-h-0 flex-col overflow-x-hidden overflow-y-auto px-0 py-3"
-            :class="chatting || frozen || conversationBusy ? 'pointer-events-auto' : ''"
-            :data-chat-interaction-locked="chatting || frozen || conversationBusy ? 'true' : undefined"
+            :class="chatting || frozen || conversationInteractionBusy ? 'pointer-events-auto' : ''"
+            :data-chat-interaction-locked="chatting || frozen || conversationInteractionBusy ? 'true' : undefined"
             @scroll="onConversationScroll"
             @wheel="handleShiftWheel"
           >
@@ -99,7 +99,7 @@
                       :active-conversation-id="activeConversationId" :block="entry.item.block"
                       :selection-key="entry.item.renderId" :selection-mode-enabled="messageSelectionModeEnabled"
                       :selected="selectedMessageRenderIdSet.has(entry.item.renderId)"
-                      :chatting="chatting" :busy="conversationBusy" :frozen="frozen"
+                      :chatting="chatting" :busy="conversationInteractionBusy" :frozen="frozen"
                       :user-alias="userAlias" :user-avatar-url="userAvatarUrl"
                       :persona-name-map="personaNameMap" :persona-avatar-url-map="personaAvatarUrlMap"
                       :markdown-is-dark="markdownIsDark"
@@ -130,7 +130,7 @@
                         :active-conversation-id="activeConversationId" :block="groupItem.block"
                         :selection-key="groupItem.renderId" :selection-mode-enabled="messageSelectionModeEnabled"
                         :selected="selectedMessageRenderIdSet.has(groupItem.renderId)"
-                        :chatting="chatting" :busy="conversationBusy" :frozen="frozen"
+                        :chatting="chatting" :busy="conversationInteractionBusy" :frozen="frozen"
                         :user-alias="userAlias" :user-avatar-url="userAvatarUrl"
                         :persona-name-map="personaNameMap" :persona-avatar-url-map="personaAvatarUrlMap"
                         :markdown-is-dark="markdownIsDark"
@@ -164,7 +164,7 @@
               class="ecall-chat-toolbar-shell px-2 pt-1 pb-2"
             >
               <ChatWorkspaceToolbar
-                :chatting="chatting" :frozen="frozen" :conversation-busy="conversationBusy"
+                :chatting="chatting" :frozen="frozen" :conversation-busy="conversationInteractionBusy"
                 :workspace-button-label="t('chat.allowedWorkspaceButton')" :workspace-button-name="currentWorkspaceName"
                 :workspace-button-disabled="!activeConversationId || activeConversationSummary?.kind === 'remote_im_contact'"
                 :hide-menu-button="activeConversationSummary?.kind === 'remote_im_contact'"
@@ -175,7 +175,7 @@
                 :show-code-review-menu-item="sidebarMode"
                 :mention-entries="mentionEntries" :selected-mention-keys="selectedMentionKeys"
                 :show-detach-button="!detachedChatWindow && !activeConversationSummary?.isSystemNotificationConversation"
-                :detach-disabled="!activeConversationId || activeConversationSummary?.isSystemNotificationConversation || chatting || frozen || conversationBusy"
+                :detach-disabled="!activeConversationId || activeConversationSummary?.isSystemNotificationConversation || chatting || frozen || conversationInteractionBusy"
                 @lock-workspace="$emit('lockWorkspace')" @open-branch-selection="openBranchSelectionMenu"
                 @open-delegate-selection="openDelegateSelectionMenu" @open-forward-selection="openForwardSelectionMenu"
                 @open-share-selection="openShareSelectionMenu"
@@ -242,7 +242,7 @@
             :chat-model-options="chatModelOptions" :plan-mode-enabled="planModeEnabled"
             :workspace-access="workspaceAccess"
             :frontend-round-phase="frontendRoundPhase" :chat-usage-percent="chatUsagePercent"
-            :trim-tip="trimTip" :chatting="chatting" :busy="conversationBusy"
+            :trim-tip="trimTip" :chatting="chatting" :busy="conversationInteractionBusy"
             :stop-chat-disabled="isOrganizingContextBusy" :frozen="frozen"
             :supervision-active="supervisionActive"
             :supervision-title="supervisionButtonTitle"
@@ -575,6 +575,9 @@ const {
   isOrganizingContextBusy, chatStatusBanner, selectedMentionKeys,
   latestPendingPlanMessageId,
 } = useChatConversationCtx(props, isDarkAppTheme, t);
+const conversationInteractionBusy = computed(() =>
+  props.conversationBusy || isOrganizingContextBusy.value,
+);
 
 const toolReviewDepartmentOptions = computed(() =>
   // 用户主动发起代码审查不受 AI delegate 工具的“直接下级部门”限制。
@@ -621,7 +624,7 @@ function canConfirmPlan(block: ChatMessageBlock): boolean {
 const messageSelectionDelegateOnly = ref(false);
 
 function openSelectionMenu(options: { delegateOnly?: boolean } = {}) {
-  if (props.chatting || props.frozen || props.conversationBusy) return;
+  if (props.chatting || props.frozen || conversationInteractionBusy.value) return;
   messageSelectionDelegateOnly.value = !!options.delegateOnly;
   messageSelectionModeEnabled.value = true;
   selectedMessageRenderIds.value = [];
@@ -633,7 +636,7 @@ const openForwardSelectionMenu = () => openSelectionMenu();
 const openShareSelectionMenu = () => openSelectionMenu();
 
 function openTaskCreateDialog() {
-  if (props.chatting || props.frozen || props.conversationBusy) return;
+  if (props.chatting || props.frozen || conversationInteractionBusy.value) return;
   taskDialogMode.value = "create";
   taskDialogTask.value = null;
   taskDialogOpen.value = true;
@@ -740,7 +743,7 @@ const { chatRenderItems, messageMemoKey } = useChatVirtualList({
   messageBlocks: toRef(props, "messageBlocks"), markdownIsDark, playingAudioId,
   userAlias: toRef(props, "userAlias"), userAvatarUrl: toRef(props, "userAvatarUrl"),
   personaNameMap: toRef(props, "personaNameMap"), personaAvatarUrlMap: toRef(props, "personaAvatarUrlMap"),
-  chatting: toRef(props, "chatting"), conversationBusy: toRef(props, "conversationBusy"),
+  chatting: toRef(props, "chatting"), conversationBusy: conversationInteractionBusy,
   frozen: toRef(props, "frozen"), messageSelectionModeEnabled,
   selectedMessageRenderIdSet,
   isBubbleBackgroundHidden, canToggleBubbleBackground, canRegenerateBlock, canConfirmPlan,
@@ -797,7 +800,7 @@ const {
   prepareBottomAlignmentLayout,
 } = useChatScrollLayout({
   activeConversationId: toRef(props, "activeConversationId"),
-  chatting: toRef(props, "chatting"), busy: toRef(props, "conversationBusy"),
+  chatting: toRef(props, "chatting"), busy: conversationInteractionBusy,
   frozen: toRef(props, "frozen"),
   messageBlockCount: computed(() => props.messageBlocks.length),
   onReachedBottom: () => emit("reachedBottom"),
@@ -904,7 +907,7 @@ const {
   latestOwnElasticItemId,
   props: {
     hasMoreHistory: toRef(props, "hasMoreHistory"), loadingOlderHistory: toRef(props, "loadingOlderHistory"),
-    chatting: toRef(props, "chatting"), conversationBusy: toRef(props, "conversationBusy"), frozen: toRef(props, "frozen"),
+    chatting: toRef(props, "chatting"), conversationBusy: conversationInteractionBusy, frozen: toRef(props, "frozen"),
     activeConversationId: toRef(props, "activeConversationId"),
     conversationScrollToBottomRequest: toRef(props, "conversationScrollToBottomRequest"),
     latestOwnMessageAlignRequest: toRef(props, "latestOwnMessageAlignRequest"),

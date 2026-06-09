@@ -9,6 +9,24 @@ export function useChatRuntimeSetup(bindings: Record<string, any>) {
   const chatFlow = useChatFlow({
       chatting: bindings.chatting,
       trimming: bindings.trimming,
+      isConversationBusy: () => {
+        const conversationId = String(bindings.currentChatConversationId.value || "").trim();
+        if (!conversationId) return false;
+        const runtimeState = String(
+          typeof bindings.currentConversationRuntimeState === "function"
+            ? bindings.currentConversationRuntimeState(conversationId)
+            : "",
+        ).trim();
+        if (runtimeState === "assistant_streaming" || runtimeState === "organizing_context" || runtimeState === "compacting") {
+          return true;
+        }
+        const trimmingId = String(bindings.trimmingConversationId?.value || "").trim();
+        if (bindings.trimming?.value && (!trimmingId || trimmingId === conversationId)) {
+          return true;
+        }
+        const compactingId = String(bindings.compactingConversationId?.value || "").trim();
+        return !!bindings.compactingConversation?.value && (!compactingId || compactingId === conversationId);
+      },
       getSession: () => {
         const apiConfigId = String(bindings.currentForegroundApiConfigId.value || "").trim();
         const agentId = String(bindings.currentForegroundAgentId.value || "").trim();

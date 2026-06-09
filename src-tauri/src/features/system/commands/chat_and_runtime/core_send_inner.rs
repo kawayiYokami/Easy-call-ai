@@ -1354,6 +1354,59 @@ fn persist_failed_chat_completed_tool_history(
     Ok(persist_result.persisted)
 }
 
+fn restart_dispatch_round_after_context_compaction(
+    state: &AppState,
+    runtime_context: &mut RuntimeContext,
+    conversation_id: &str,
+    department_id: &str,
+    agent_id: &str,
+    dispatch_reason: &str,
+) -> Result<(), String> {
+    let request_id = format!("chat-{}", Uuid::new_v4());
+    let dispatch_id = Uuid::new_v4().to_string();
+    runtime_context.request_id = Some(request_id.clone());
+    runtime_context.dispatch_id = Some(dispatch_id);
+    runtime_context.event_source = runtime_context_trimmed(Some("compaction_restart"));
+    runtime_context.dispatch_reason = runtime_context_trimmed(Some(dispatch_reason));
+    runtime_context.trusted_prompt_usage = None;
+
+    let stream_started_at = now_iso();
+    let stream_started_at_ms = now_unix_ms();
+    reset_conversation_stream_runtime_cache(
+        state,
+        conversation_id,
+        request_id.as_str(),
+        request_id.as_str(),
+        stream_started_at.as_str(),
+        stream_started_at_ms,
+    )?;
+    let activation_reason = resolve_activation_reason(runtime_context);
+    emit_round_started_event(
+        state,
+        conversation_id,
+        request_id.as_str(),
+        request_id.as_str(),
+        activation_reason.as_str(),
+        department_id,
+        agent_id,
+        stream_started_at.as_str(),
+        stream_started_at_ms,
+    );
+    set_conversation_runtime_state(state, conversation_id, MainSessionState::AssistantStreaming)?;
+    emit_conversation_runtime_state_updated_payload(
+        state,
+        &ConversationRuntimeStateUpdatedPayload {
+            conversation_id: conversation_id.to_string(),
+            runtime_state: MainSessionState::AssistantStreaming,
+        },
+    );
+    runtime_log_info(format!(
+        "[聊天调度] 压缩后新一轮开始事件已发送 conversation_id={} request_id={} department_id={} agent_id={} reason={}",
+        conversation_id, request_id, department_id, agent_id, activation_reason
+    ));
+    Ok(())
+}
+
 async fn send_chat_message_inner(
     input: SendChatRequest,
     state: &AppState,
@@ -2807,6 +2860,7 @@ async fn send_chat_message_inner(
                 &current_agent_id_for_compaction,
                 &decision.reason,
                 "COMPACTION-AUTO",
+                &[],
                 false,
             )
             .await;
@@ -2838,13 +2892,14 @@ async fn send_chat_message_inner(
                         compaction_restart_count,
                         decision.reason
                     ));
-                    runtime_context.request_id = Some(format!("chat-{}", Uuid::new_v4()));
-                    runtime_context.dispatch_id = Some(Uuid::new_v4().to_string());
-                    runtime_context.event_source =
-                        runtime_context_trimmed(Some("compaction_restart"));
-                    runtime_context.dispatch_reason =
-                        runtime_context_trimmed(Some("after_auto_compaction"));
-                    runtime_context.trusted_prompt_usage = None;
+                    restart_dispatch_round_after_context_compaction(
+                        &state,
+                        &mut runtime_context,
+                        &conversation_for_compaction.id,
+                        &effective_department_id,
+                        &current_agent_id_for_compaction,
+                        "after_auto_compaction",
+                    )?;
                     preloaded_prepare_snapshot = None;
                     persist_user_message_on_next_prepare = false;
                     continue 'dispatch;
@@ -3018,13 +3073,14 @@ async fn send_chat_message_inner(
                     conversation_id,
                     compaction_restart_count
                 ));
-                runtime_context.request_id = Some(format!("chat-{}", Uuid::new_v4()));
-                runtime_context.dispatch_id = Some(Uuid::new_v4().to_string());
-                runtime_context.event_source =
-                    runtime_context_trimmed(Some("compaction_restart"));
-                runtime_context.dispatch_reason =
-                    runtime_context_trimmed(Some("after_tool_continue_compaction"));
-                runtime_context.trusted_prompt_usage = None;
+                restart_dispatch_round_after_context_compaction(
+                    &state,
+                    &mut runtime_context,
+                    &conversation_id,
+                    &effective_department_id,
+                    &current_agent.id,
+                    "after_tool_continue_compaction",
+                )?;
                 preloaded_prepare_snapshot = None;
                 persist_user_message_on_next_prepare = false;
                 continue 'dispatch;

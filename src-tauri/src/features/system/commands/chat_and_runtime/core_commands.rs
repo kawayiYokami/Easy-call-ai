@@ -292,6 +292,7 @@ async fn confirm_plan_and_continue_inner(
             &agent_id,
             "confirm_plan_before_continue",
             "COMPACTION-CONFIRM-PLAN",
+            &[],
             false,
         )
         .await;

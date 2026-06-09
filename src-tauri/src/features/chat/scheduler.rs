@@ -1472,6 +1472,9 @@ fn resolve_activation_reason(runtime_context: &RuntimeContext) -> String {
         "task_due" => "task_due",
         "remote_im_followup" => "remote_im_followup",
         "context_compaction_followup" => "context_compaction_followup",
+        "after_auto_compaction" | "after_tool_continue_compaction" => {
+            "context_compaction_followup"
+        }
         "guided_queue" => "guided_queue",
         "delegate_continue" => "delegate_continue",
         _ => "queue_dispatch",

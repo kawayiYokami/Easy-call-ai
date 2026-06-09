@@ -979,6 +979,7 @@ fn emit_archive_history_flushed_event(
 fn emit_compaction_history_flushed_event(
     state: &AppState,
     conversation_id: &str,
+    boundary_messages: &[ChatMessage],
     compression_message: &ChatMessage,
     activate_after_flush: bool,
 ) {
@@ -992,10 +993,13 @@ fn emit_compaction_history_flushed_event(
             return;
         }
     };
+    let messages =
+        build_compaction_history_flushed_messages(boundary_messages, compression_message);
+    let message_count = messages.len();
     let payload = serde_json::json!({
         "conversationId": conversation_id,
-        "messageCount": 1,
-        "messages": [compression_message],
+        "messageCount": message_count,
+        "messages": messages,
         "activateAssistant": activate_after_flush,
         "compactionApplied": true,
     });
@@ -1006,8 +1010,8 @@ fn emit_compaction_history_flushed_event(
         );
     } else {
         eprintln!(
-            "[ARCHIVE-PIPELINE] 上下文整理 history_flushed 已发送: conversation_id={}",
-            conversation_id
+            "[ARCHIVE-PIPELINE] 上下文整理 history_flushed 已发送: conversation_id={}, message_count={}",
+            conversation_id, message_count
         );
     }
     if let Err(err) = emit_unarchived_conversation_overview_updated_from_state(state) {
@@ -1016,6 +1020,26 @@ fn emit_compaction_history_flushed_event(
             conversation_id, err
         );
     }
+}
+
+fn build_compaction_history_flushed_messages(
+    boundary_messages: &[ChatMessage],
+    compression_message: &ChatMessage,
+) -> Vec<ChatMessage> {
+    let mut messages = Vec::<ChatMessage>::new();
+    let mut seen_ids = HashSet::<String>::new();
+    for message in boundary_messages {
+        let id = message.id.trim();
+        if !id.is_empty() && !seen_ids.insert(id.to_string()) {
+            continue;
+        }
+        messages.push(message.clone());
+    }
+    let compression_id = compression_message.id.trim();
+    if compression_id.is_empty() || seen_ids.insert(compression_id.to_string()) {
+        messages.push(compression_message.clone());
+    }
+    messages
 }
 
 fn emit_deleted_history_flushed_event(
@@ -1908,6 +1932,7 @@ async fn trim_compact_current(
         &effective_agent_id,
         "manual_trim_compaction",
         "COMPACTION-FORCE",
+        &[],
         false,
     )
     .await?;
@@ -2061,6 +2086,7 @@ pub(crate) async fn run_context_compaction_pipeline(
     effective_agent_id: &str,
     compaction_reason: &str,
     trace_tag: &str,
+    boundary_messages: &[ChatMessage],
     activate_after_flush: bool,
 ) -> Result<ForceArchiveResult, String> {
     let started_at = std::time::Instant::now();
@@ -2094,6 +2120,7 @@ pub(crate) async fn run_context_compaction_pipeline(
         effective_agent_id,
         compaction_reason,
         trace_tag,
+        boundary_messages,
         activate_after_flush,
         started_at,
         &trace_id,
@@ -2133,6 +2160,7 @@ async fn run_context_compaction_pipeline_inner(
     _effective_agent_id: &str,
     compaction_reason: &str,
     trace_tag: &str,
+    boundary_messages: &[ChatMessage],
     activate_after_flush: bool,
     started_at: std::time::Instant,
     trace_id: &str,
@@ -2267,7 +2295,13 @@ async fn run_context_compaction_pipeline_inner(
             );
         }
     }
-    emit_compaction_history_flushed_event(state, &source.id, &compression_message, activate_after_flush);
+    emit_compaction_history_flushed_event(
+        state,
+        &source.id,
+        boundary_messages,
+        &compression_message,
+        activate_after_flush,
+    );
 
     eprintln!(
         "[SummaryContext] 完成，场景=compaction，trace_id={}，conversation_id={}，merged_memories={}，merged_groups={}，profile_applied={}，profile_skipped={}，useful_accept={}，penalized={}，natural_decay={}",
@@ -2843,6 +2877,29 @@ mod archive_pipeline_tests {
         assert!(text.contains("## 摘要正文"));
         assert!(text.contains("## 当前进展\n\n- 已完成摘要格式优化"));
         assert!(!text.contains("[上下文整理]"));
+    }
+
+    #[test]
+    fn compaction_history_flushed_messages_should_keep_boundary_before_summary() {
+        let checkpoint = test_message("assistant-checkpoint", "assistant", "压缩前流式草稿");
+        let duplicate_checkpoint =
+            test_message("assistant-checkpoint", "assistant", "重复边界消息");
+        let compression = test_message("compaction-summary", "assistant", "压缩摘要");
+
+        let messages = build_compaction_history_flushed_messages(
+            &[checkpoint.clone(), duplicate_checkpoint],
+            &compression,
+        );
+        let ids = messages
+            .iter()
+            .map(|message| message.id.as_str())
+            .collect::<Vec<_>>();
+
+        assert_eq!(ids, vec!["assistant-checkpoint", "compaction-summary"]);
+        assert_eq!(
+            render_message_content_for_model(&messages[0]),
+            "压缩前流式草稿"
+        );
     }
 
     #[test]

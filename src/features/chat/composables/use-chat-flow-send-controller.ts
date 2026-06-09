@@ -3,6 +3,7 @@ import type { Ref } from "vue";
 import type { AssistantStreamBlock, ChatMentionTarget, ChatMessage } from "../../../types/app";
 import {
   DRAFT_ASSISTANT_ID_PREFIX,
+  DRAFT_USER_ID_PREFIX,
 } from "./use-chat-flow-drafts";
 import type { AssistantDeltaEvent } from "./use-chat-flow-events";
 import type { PreparedChatSendInput } from "./use-chat-flow-send-input";
@@ -13,6 +14,7 @@ type StreamUserImageAttachment = { mime: string; bytesBase64: string; savedPath?
 
 type UseChatFlowSendControllerOptions = {
   chatting: Ref<boolean>;
+  isConversationBusy?: () => boolean;
   toolStatusText: Ref<string>;
   toolStatusState: Ref<"running" | "done" | "failed" | "">;
   streamBlocks?: Ref<AssistantStreamBlock[]>;
@@ -46,6 +48,7 @@ type UseChatFlowSendControllerOptions = {
   setPendingTerminalEventNull: () => void;
   sendStartedAtMsByGen: Map<number, number>;
   startFrontendDispatchTimer: (gen: number, startedAtMs?: number, elapsedMs?: number) => void;
+  clearFrontendDispatchTimer: () => void;
   clearConversationStreamCache: (conversationId?: string | null) => void;
   clearChatErrorText: (conversationId?: string | null) => void;
   applyPreparedSendInput: (input: PreparedChatSendInput) => void;
@@ -98,7 +101,10 @@ export function useChatFlowSendController(options: UseChatFlowSendControllerOpti
       sendConversationId,
     } = prepared;
 
-    const hasForegroundRoundInFlight = options.chatting.value || options.getRound().phase !== "idle";
+    const hasForegroundRoundInFlight =
+      options.chatting.value
+      || options.getRound().phase !== "idle"
+      || !!options.isConversationBusy?.();
     if (!hasForegroundRoundInFlight) {
       options.clearConversationStreamCache(sendConversationId);
       options.setActiveActivationId("");
@@ -147,7 +153,7 @@ export function useChatFlowSendController(options: UseChatFlowSendControllerOpti
       : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
 
     try {
-      await options.invokeSendChatMessage({
+      const submitResult = await options.invokeSendChatMessage({
         text: plainText,
         displayText:
           overrides && typeof overrides.displayText === "string"
@@ -164,6 +170,15 @@ export function useChatFlowSendController(options: UseChatFlowSendControllerOpti
         traceId,
         onDelta: deltaChannel,
       });
+      if (!hasForegroundRoundInFlight && (submitResult.ingress === "queued" || !submitResult.accepted)) {
+        options.removeDraft(`${DRAFT_USER_ID_PREFIX}${gen}`);
+        options.removeDraft(`${DRAFT_ASSISTANT_ID_PREFIX}${gen}`);
+        if (options.getRound().phase !== "idle") {
+          options.setRound({ phase: "idle" });
+        }
+        options.chatting.value = false;
+        options.clearFrontendDispatchTimer();
+      }
     } catch (error) {
       if (isChatAbortedByUser(error)) {
         options.sendRecovery.handleAbortedSend(gen, sendConversationId);

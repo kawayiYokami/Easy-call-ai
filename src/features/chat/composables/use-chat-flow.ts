@@ -431,6 +431,7 @@ export function useChatFlow(options: UseChatFlowOptions) {
   });
   const sendController = useChatFlowSendController({
     chatting: options.chatting,
+    isConversationBusy: options.isConversationBusy,
     toolStatusText: options.toolStatusText,
     toolStatusState: options.toolStatusState,
     streamBlocks: options.streamBlocks,
@@ -453,6 +454,7 @@ export function useChatFlow(options: UseChatFlowOptions) {
     },
     sendStartedAtMsByGen,
     startFrontendDispatchTimer,
+    clearFrontendDispatchTimer,
     clearConversationStreamCache,
     clearChatErrorText,
     applyPreparedSendInput: sendInput.applyPreparedSendInput,
