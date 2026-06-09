@@ -2,7 +2,7 @@ import type { ChatConversationOverviewItem } from "../../../types/app";
 
 type ConversationTitleLike = Pick<
   ChatConversationOverviewItem,
-  "kind" | "title" | "summaryTitle" | "remoteContactDisplayName" | "updatedAt" | "lastMessageAt" | "isSystemNotificationConversation"
+  "conversationId" | "kind" | "title" | "summaryTitle" | "remoteContactDisplayName" | "updatedAt" | "lastMessageAt" | "isSystemNotificationConversation"
 >;
 
 type ResolveConversationDisplayTitleOptions = {
@@ -10,8 +10,12 @@ type ResolveConversationDisplayTitleOptions = {
   untitledLabel: string;
 };
 
-function normalizedTitlePart(value?: string): string {
-  return String(value || "").trim();
+function normalizedTitlePart(value?: string, conversationId?: string): string {
+  const title = String(value || "").trim();
+  if (!title) return "";
+  const normalizedConversationId = String(conversationId || "").trim();
+  if (normalizedConversationId && title === normalizedConversationId) return "";
+  return title;
 }
 
 export const SYSTEM_NOTIFICATION_DISPLAY_TITLE = "P-ai系统";
@@ -49,11 +53,11 @@ export function resolveConversationDisplayTitle(
   }
   if (item.kind === "remote_im_contact") {
     return normalizedTitlePart(item.remoteContactDisplayName)
-      || normalizedTitlePart(item.title)
+      || normalizedTitlePart(item.title, item.conversationId)
       || options.untitledLabel;
   }
-  return normalizedTitlePart(item.title)
-    || normalizedTitlePart(item.summaryTitle)
+  return normalizedTitlePart(item.title, item.conversationId)
+    || normalizedTitlePart(item.summaryTitle, item.conversationId)
     || formatConversationFallbackTitle(item.lastMessageAt || item.updatedAt, options.locale)
     || options.untitledLabel;
 }

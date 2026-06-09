@@ -3,6 +3,7 @@ import type { ComputedRef, Ref } from "vue";
 import { invokeTauri } from "../../../services/tauri-api";
 import { formatI18nError } from "../../../utils/error";
 import type { UnarchivedConversationSummary } from "../../../types/app";
+import { resolveConversationDisplayTitle } from "../utils/conversation-title";
 
 type TrFn = (key: string, params?: Record<string, unknown>) => string;
 
@@ -41,10 +42,24 @@ export function usePromptPreview(options: UsePromptPreviewOptions) {
 
   function localConversationOptionsFromSource(source: UnarchivedConversationSummary[]) {
     return (source || [])
-      .map((item) => ({
-        conversationId: String(item.conversationId || "").trim(),
-        title: String(item.title || "").trim(),
-      }))
+      .map((item) => {
+        const conversationId = String(item.conversationId || "").trim();
+        return {
+          conversationId,
+          title: conversationId
+            ? resolveConversationDisplayTitle(
+              {
+                ...item,
+                conversationId,
+                kind: "local_unarchived",
+              },
+              {
+                untitledLabel: options.t("chat.untitledConversation"),
+              },
+            )
+            : "",
+        };
+      })
       .filter((item) => !!item.conversationId);
   }
 
