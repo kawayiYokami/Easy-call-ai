@@ -2,7 +2,6 @@ import { ref, type Ref } from "vue";
 import { i18n } from "../../../i18n";
 import { invokeTauri } from "../../../services/tauri-api";
 import type { ChatMessage, RuntimeLogEntry, UnarchivedConversationSummary } from "../../../types/app";
-import { inspectUndoablePatchCalls } from "../../../utils/chat-message-semantics";
 import { useConfigSaveErrorDialog } from "./use-config-save-error-dialog";
 
 const t = i18n.global.t;
@@ -30,6 +29,12 @@ export type TrimCompactionPreviewResult = {
 };
 
 type RecallMode = "with_patch" | "message_only" | "cancel";
+
+type RewindConversationPreviewResult = {
+  conversationId: string;
+  canUndoPatch: boolean;
+  hint: string;
+};
 
 const SHORT_CONVERSATION_COMPACTION_THRESHOLD = 10;
 
@@ -206,35 +211,43 @@ export function useShellDialogFlows(options: UseShellDialogFlowsOptions) {
     skillPlaceholderDialogOpen.value = false;
   }
 
-  function isApplyPatchArgsUndoable(rawArgs: string): boolean {
-    const text = String(rawArgs || "").trim();
-    if (!text) return false;
-    if (text.startsWith("*** Begin Patch")) return true;
-    if (!text.startsWith("{")) return false;
+  async function getUndoAvailabilityForTurn(targetUserMessageId: string): Promise<{ canUndo: boolean; hint: string }> {
+    const conversationId = String(options.currentChatConversationId.value || "").trim();
+    const messageId = String(targetUserMessageId || "").trim();
+    if (!messageId || !conversationId) {
+      return { canUndo: false, hint: "缺少撤回预览所需的会话上下文。" };
+    }
     try {
-      const parsed = JSON.parse(text) as { input?: unknown; operations?: unknown };
-      if (typeof parsed.input === "string" && parsed.input.trim().startsWith("*** Begin Patch")) return true;
-      if (Array.isArray(parsed.operations) && parsed.operations.length > 0) return true;
-      if (typeof parsed.input === "string") {
-        const inner = JSON.parse(parsed.input) as { operations?: unknown };
-        if (Array.isArray(inner.operations) && inner.operations.length > 0) return true;
-      }
-      return false;
-    } catch {
-      return false;
+      const preview = await invokeTauri<RewindConversationPreviewResult>("preview_rewind_conversation_from_message", {
+        input: {
+          session: {
+            agentId: "",
+            conversationId,
+          },
+          messageId,
+          undoApplyPatch: false,
+        },
+      });
+      return {
+        canUndo: !!preview.canUndoPatch,
+        hint: String(preview.hint || "").trim(),
+      };
+    } catch (error) {
+      console.warn("[会话撤回] 撤回预览失败，隐藏文件修改撤回入口", {
+        messageId,
+        conversationId,
+        error,
+      });
+      return { canUndo: false, hint: "撤回预览失败，仅撤回消息。" };
     }
   }
 
-  function getUndoAvailabilityForTurn(turnId: string): { canUndo: boolean; hint: string } {
-    return inspectUndoablePatchCalls(options.allMessages.value || [], turnId, {
-      isApplyPatchArgsUndoable,
-    });
-  }
-
-  function requestRecallMode(payload: { turnId: string }): Promise<RecallMode> {
-    const availability = getUndoAvailabilityForTurn(payload.turnId);
+  async function requestRecallMode(payload: { turnId: string; targetUserMessageId: string }): Promise<RecallMode> {
+    cancelPendingRewindConfirm();
+    const availability = await getUndoAvailabilityForTurn(payload.targetUserMessageId);
     console.info("[会话撤回] 打开撤回弹窗", {
       turnId: payload.turnId,
+      targetUserMessageId: payload.targetUserMessageId,
       canUndoPatch: availability.canUndo,
       hint: availability.hint || "",
     });
@@ -255,6 +268,7 @@ export function useShellDialogFlows(options: UseShellDialogFlowsOptions) {
     const resolver = rewindConfirmResolver;
     rewindConfirmResolver = null;
     rewindConfirmDialogOpen.value = false;
+    rewindConfirmCanUndoPatch.value = false;
     rewindConfirmUndoHint.value = "";
     if (resolver) {
       resolver(mode);
@@ -279,12 +293,14 @@ export function useShellDialogFlows(options: UseShellDialogFlowsOptions) {
   function cancelPendingRewindConfirm() {
     if (!rewindConfirmResolver) {
       rewindConfirmDialogOpen.value = false;
+      rewindConfirmCanUndoPatch.value = false;
       rewindConfirmUndoHint.value = "";
       return;
     }
     const resolver = rewindConfirmResolver;
     rewindConfirmResolver = null;
     rewindConfirmDialogOpen.value = false;
+    rewindConfirmCanUndoPatch.value = false;
     rewindConfirmUndoHint.value = "";
     resolver("cancel");
   }

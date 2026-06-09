@@ -37,11 +37,13 @@ type UseChatRewindActionsOptions = {
   removeBinaryPlaceholders: (text: string) => string;
   messageText: (message: ChatMessage) => string;
   extractMessageImages: (message: ChatMessage) => Array<{ mime: string; bytesBase64?: string; mediaRef?: string }>;
-  requestRecallMode: (payload: { turnId: string }) => Promise<RecallConfirmMode>;
+  requestRecallMode: (payload: { turnId: string; targetUserMessageId: string }) => Promise<RecallConfirmMode>;
   refreshForegroundConversationAfterRewind: (conversationId: string) => Promise<void>;
 };
 
 export function useChatRewindActions(options: UseChatRewindActionsOptions) {
+  let rewindInFlight = false;
+
   function extractRecallableImages(message: ChatMessage): Array<{ mime: string; bytesBase64: string; savedPath?: string }> {
     return options.extractMessageImages(message)
       .filter((image) => !!String(image.bytesBase64 || "").trim())
@@ -116,18 +118,14 @@ export function useChatRewindActions(options: UseChatRewindActionsOptions) {
 
   async function rewindConversationFromTurn(turnId: string, undoApplyPatch: boolean): Promise<ChatMessage | null> {
     const startedAt = Date.now();
-    const apiConfigId = String(options.activeApiConfigId.value || "").trim();
-    const agentId = String(options.activeAgentId.value || "").trim();
     const conversationId = String(options.currentConversationId.value || "").trim();
     console.info("[会话撤回] 开始执行", {
       turnId,
       undoApplyPatch,
-      apiConfigId,
-      agentId,
       conversationId: conversationId || "(empty)",
     });
-    if (!agentId) {
-      console.warn("[会话撤回] 失败：缺少 agentId");
+    if (!conversationId) {
+      console.warn("[会话撤回] 失败：缺少 conversationId");
       options.setChatErrorText(t('dialogs.rewind.failedMissingAgentId'));
       options.setStatusError("status.rewindConversationFailed", t('dialogs.rewind.failedMissingAgentId'));
       return null;
@@ -152,9 +150,8 @@ export function useChatRewindActions(options: UseChatRewindActionsOptions) {
       const result = await invokeTauri<RewindConversationResult>("rewind_conversation_from_message", {
         input: {
           session: {
-            apiConfigId,
-            agentId,
-            conversationId: conversationId || null,
+            agentId: "",
+            conversationId,
           },
           messageId: target.targetUserMessageId,
           undoApplyPatch,
@@ -204,7 +201,12 @@ export function useChatRewindActions(options: UseChatRewindActionsOptions) {
       chatting: options.chatting.value,
       trimming: options.trimming.value,
       compactingConversation: options.compactingConversation.value,
+      rewindInFlight,
     });
+    if (rewindInFlight) {
+      console.info("[会话撤回] 跳过：已有撤回流程正在进行", { turnId: payload?.turnId });
+      return;
+    }
     if (options.chatting.value || options.trimming.value || options.compactingConversation.value) {
       const message = t('dialogs.rewind.failedBusy');
       console.info("[会话撤回] 失败：当前会话处于忙碌状态", {
@@ -217,45 +219,81 @@ export function useChatRewindActions(options: UseChatRewindActionsOptions) {
       options.setStatusError("status.rewindConversationFailed", message);
       return;
     }
-    const mode = await options.requestRecallMode({ turnId: payload.turnId });
-    console.info("[会话撤回] 弹窗选择结果", { mode, turnId: payload.turnId });
-    if (mode === "cancel") return;
-    options.setChatErrorText("");
-    const recalledUserMessage = await rewindConversationFromTurn(payload.turnId, mode === "with_patch");
-    if (!recalledUserMessage) {
-      console.warn("[会话撤回] 结束：未拿到可回填消息", { turnId: payload.turnId, mode });
-      if (options.chatErrorText.value.trim()) return;
-      const message = mode === "with_patch"
-        ? t('dialogs.rewind.failedFileChanged')
-        : t('dialogs.rewind.failedNoMessage');
-      options.setChatErrorText(message);
-      options.setStatusError("status.rewindConversationFailed", `${message}（可查看运行日志）`);
-      return;
+    rewindInFlight = true;
+    try {
+      const currentMessages = [...options.allMessages.value];
+      const target = resolveRewindTargetUserMessage(currentMessages, payload.turnId);
+      if (!target || !target.targetUserMessageId) {
+        console.warn("[会话撤回] 失败：未找到可撤回的用户消息", {
+          turnId: payload.turnId,
+          messageCount: currentMessages.length,
+        });
+        options.setChatErrorText(t('dialogs.rewind.failedNoTarget'));
+        options.setStatusError("status.rewindConversationFailed", t('dialogs.rewind.failedNoTarget'));
+        return;
+      }
+      const mode = await options.requestRecallMode({
+        turnId: payload.turnId,
+        targetUserMessageId: target.targetUserMessageId,
+      });
+      console.info("[会话撤回] 弹窗选择结果", { mode, turnId: payload.turnId });
+      if (mode === "cancel") return;
+      options.setChatErrorText("");
+      const recalledUserMessage = await rewindConversationFromTurn(payload.turnId, mode === "with_patch");
+      if (!recalledUserMessage) {
+        console.warn("[会话撤回] 结束：未拿到可回填消息", { turnId: payload.turnId, mode });
+        if (options.chatErrorText.value.trim()) return;
+        const message = mode === "with_patch"
+          ? t('dialogs.rewind.failedFileChanged')
+          : t('dialogs.rewind.failedNoMessage');
+        options.setChatErrorText(message);
+        options.setStatusError("status.rewindConversationFailed", `${message}（可查看运行日志）`);
+        return;
+      }
+      options.chatInput.value = options.removeBinaryPlaceholders(options.messageText(recalledUserMessage));
+      options.selectedMentions.value = extractRecallableMentions(recalledUserMessage);
+      options.clipboardImages.value = extractRecallableImages(recalledUserMessage);
+      console.info("[会话撤回] 已回填输入框", {
+        textLength: options.chatInput.value.length,
+        mentionCount: options.selectedMentions.value.length,
+        imageCount: options.clipboardImages.value.length,
+        turnId: payload.turnId,
+      });
+    } catch (error) {
+      const detail = errorText(error);
+      console.error("[会话撤回] 失败：前端撤回流程异常", {
+        turnId: payload?.turnId,
+        error: detail,
+      });
+      options.setChatErrorText(t('dialogs.rewind.failedBackendError', { error: detail || t('dialogs.rewind.failedBackendError') }));
+      options.setStatusError("status.rewindConversationFailed", detail);
+    } finally {
+      rewindInFlight = false;
     }
-    options.chatInput.value = options.removeBinaryPlaceholders(options.messageText(recalledUserMessage));
-    options.selectedMentions.value = extractRecallableMentions(recalledUserMessage);
-    options.clipboardImages.value = extractRecallableImages(recalledUserMessage);
-    console.info("[会话撤回] 已回填输入框", {
-      textLength: options.chatInput.value.length,
-      mentionCount: options.selectedMentions.value.length,
-      imageCount: options.clipboardImages.value.length,
-      turnId: payload.turnId,
-    });
   }
 
   async function handleRegenerateTurn(payload: { turnId: string }) {
+    if (rewindInFlight) {
+      console.info("[重新生成] 跳过：已有撤回/重新生成流程正在进行", { turnId: payload?.turnId });
+      return;
+    }
     if (options.chatting.value || options.trimming.value || options.compactingConversation.value) {
       const message = t('dialogs.rewind.regenerateBusy');
       options.setChatErrorText(`重新生成失败：${message}`);
       options.setStatusError("status.rewindConversationFailed", message);
       return;
     }
-    const recalledUserMessage = await rewindConversationFromTurn(payload.turnId, false);
-    if (!recalledUserMessage) return;
-    options.chatInput.value = options.removeBinaryPlaceholders(options.messageText(recalledUserMessage));
-    options.selectedMentions.value = extractRecallableMentions(recalledUserMessage);
-    options.clipboardImages.value = extractRecallableImages(recalledUserMessage);
-    await options.sendChat();
+    rewindInFlight = true;
+    try {
+      const recalledUserMessage = await rewindConversationFromTurn(payload.turnId, false);
+      if (!recalledUserMessage) return;
+      options.chatInput.value = options.removeBinaryPlaceholders(options.messageText(recalledUserMessage));
+      options.selectedMentions.value = extractRecallableMentions(recalledUserMessage);
+      options.clipboardImages.value = extractRecallableImages(recalledUserMessage);
+      await options.sendChat();
+    } finally {
+      rewindInFlight = false;
+    }
   }
 
   return {

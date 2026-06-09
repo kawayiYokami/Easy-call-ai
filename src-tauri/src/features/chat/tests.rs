@@ -4274,7 +4274,6 @@
             .rewind_conversation_from_message(
                 &state,
                 &input,
-                DEFAULT_AGENT_ID,
                 &recalled_user.id,
                 &std::time::Instant::now(),
             )
@@ -4366,7 +4365,6 @@
         let result = conversation_service().rewind_conversation_from_message(
             &state,
             &input,
-            DEFAULT_AGENT_ID,
             &recalled_user_id,
             &std::time::Instant::now(),
         );
@@ -4404,7 +4402,6 @@
         let result = conversation_service().rewind_conversation_from_message(
             &state,
             &input,
-            DEFAULT_AGENT_ID,
             &recalled_user_id,
             &std::time::Instant::now(),
         );

@@ -1906,7 +1906,7 @@
       "hint": "Choose what this rewind should affect:",
       "withPatch": "Rewind message and revert changes",
       "messageOnly": "Rewind message only",
-      "failedMissingAgentId": "Rewind failed: Missing session info (agentId)",
+      "failedMissingAgentId": "Rewind failed: Missing session info",
       "failedNoTarget": "Rewind failed: No rewoundable user message found",
       "failedBackendError": "Rewind failed: {error} (check runtime logs)",
       "failedBusy": "Current session is running or compacting context, please wait.",

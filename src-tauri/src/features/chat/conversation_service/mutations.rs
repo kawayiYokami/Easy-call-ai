@@ -416,7 +416,6 @@ impl ConversationService {
         &self,
         state: &AppState,
         input: &RewindConversationInput,
-        requested_agent_id: &str,
         message_id: &str,
         started_at: &std::time::Instant,
     ) -> Result<RewindConversationMutationResult, String> {
@@ -433,23 +432,20 @@ impl ConversationService {
             })?;
 
         let requested_conversation_id = trimmed_option(input.session.conversation_id.as_deref());
-        let conversation_id = if let Some(conversation_id) = requested_conversation_id.as_deref() {
-            let conversation = state_read_conversation_cached(state, conversation_id)
-                .map_err(|_| {
-                    "Target user message not found in active conversation.".to_string()
-                })?;
-            if conversation.summary.trim().is_empty()
-                && (conversation_visible_in_foreground_lists(&conversation)
-                    || conversation_is_remote_im_contact(&conversation))
-            {
-                conversation.id
-            } else {
-                drop(guard);
-                return Err("Target user message not found in active conversation.".to_string());
-            }
+        let Some(requested_conversation_id) = requested_conversation_id.as_deref() else {
+            drop(guard);
+            return Err("conversationId is required.".to_string());
+        };
+        let conversation = state_read_conversation_cached(state, requested_conversation_id)
+            .map_err(|_| "Target user message not found in active conversation.".to_string())?;
+        let conversation_id = if conversation.summary.trim().is_empty()
+            && (conversation_visible_in_foreground_lists(&conversation)
+                || conversation_is_remote_im_contact(&conversation))
+        {
+            conversation.id
         } else {
-            self.resolve_latest_foreground_conversation_id(state, requested_agent_id)?
-                .ok_or_else(|| "No conversation found for current agent.".to_string())?
+            drop(guard);
+            return Err("Target user message not found in active conversation.".to_string());
         };
         let mut conversation = state_read_conversation_cached(state, &conversation_id)
             .map_err(|_| "Target user message not found in active conversation.".to_string())?;
@@ -511,6 +507,87 @@ impl ConversationService {
         drop(guard);
 
         Ok(result)
+    }
+
+    fn preview_rewind_conversation_from_message(
+        &self,
+        state: &AppState,
+        input: &RewindConversationInput,
+        message_id: &str,
+    ) -> Result<RewindConversationPreviewResult, String> {
+        let guard = state
+            .conversation_lock
+            .lock()
+            .map_err(|err| {
+                format!(
+                    "Failed to lock state mutex at {}:{} {}: {err}",
+                    file!(),
+                    line!(),
+                    module_path!()
+                )
+            })?;
+
+        let requested_conversation_id = trimmed_option(input.session.conversation_id.as_deref());
+        let Some(requested_conversation_id) = requested_conversation_id.as_deref() else {
+            drop(guard);
+            return Err("conversationId is required.".to_string());
+        };
+        let conversation = state_read_conversation_cached(state, requested_conversation_id)
+            .map_err(|_| "Target user message not found in active conversation.".to_string())?;
+        let conversation_id = if conversation.summary.trim().is_empty()
+            && (conversation_visible_in_foreground_lists(&conversation)
+                || conversation_is_remote_im_contact(&conversation))
+        {
+            conversation.id
+        } else {
+            drop(guard);
+            return Err("Target user message not found in active conversation.".to_string());
+        };
+        let mut conversation = state_read_conversation_cached(state, &conversation_id)
+            .map_err(|_| "Target user message not found in active conversation.".to_string())?;
+        if !conversation.summary.trim().is_empty()
+            || (!conversation_visible_in_foreground_lists(&conversation)
+                && !conversation_is_remote_im_contact(&conversation))
+        {
+            drop(guard);
+            return Err("Target user message not found in active conversation.".to_string());
+        }
+        let runtime_state = get_conversation_runtime_state(state, &conversation_id)?;
+        if runtime_state != MainSessionState::Idle {
+            drop(guard);
+            return Ok(RewindConversationPreviewResult {
+                conversation_id,
+                can_undo_patch: false,
+                hint: "当前会话正在运行或整理上下文，完成后再撤回。".to_string(),
+            });
+        }
+        hydrate_rewind_conversation_messages_from_store(state, &mut conversation)?;
+        let remove_from = resolve_rewind_remove_from(&conversation, message_id)?;
+        let removed_messages = &conversation.messages[remove_from..];
+        let backup_record_ids = collect_backup_record_ids_from_messages(removed_messages);
+        let existing_backup_count = backup_record_ids
+            .iter()
+            .filter(|record_id| apply_patch_record_path(&state.data_path, record_id).exists())
+            .count();
+        drop(guard);
+
+        if existing_backup_count > 0 {
+            return Ok(RewindConversationPreviewResult {
+                conversation_id,
+                can_undo_patch: true,
+                hint: String::new(),
+            });
+        }
+        let hint = if backup_record_ids.is_empty() {
+            "该范围内没有检测到可撤回的工具修改。"
+        } else {
+            "检测到工具修改记录，但对应备份已不存在，无法撤回文件修改。"
+        };
+        Ok(RewindConversationPreviewResult {
+            conversation_id,
+            can_undo_patch: false,
+            hint: hint.to_string(),
+        })
     }
 
     fn persist_stop_chat_partial_message(

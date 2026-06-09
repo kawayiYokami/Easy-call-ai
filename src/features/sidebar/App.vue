@@ -251,6 +251,12 @@ type RewindConversationResult = {
   conversation?: OpenConversationResult;
 };
 
+type RewindConversationPreviewResult = {
+  conversationId: string;
+  canUndoPatch: boolean;
+  hint?: string | null;
+};
+
 type BlockPageResult = {
   selectedBlockId: number;
   messages: ChatMessage[];
@@ -394,6 +400,7 @@ const view = ref<"list" | "chat">("list");
 const rewindConfirmDialogOpen = ref(false);
 const rewindConfirmCanUndoPatch = ref(false);
 let rewindConfirmResolver: ((mode: "message_only" | "with_patch" | "cancel") => void) | null = null;
+let rewindInFlight = false;
 const currentWorkspaceName = ref("");
 const workspacePickerOpen = ref(false);
 const workspacePickerSaving = ref(false);
@@ -1190,6 +1197,10 @@ function resolveRewindTargetUserMessage(turnId: string): { targetUserMessageId: 
 
 async function recallTurn(payload: { turnId: string }) {
   if (!activeConversationId.value) return;
+  if (rewindInFlight) {
+    console.info("[会话撤回] 跳过：已有撤回流程正在进行", { turnId: payload?.turnId });
+    return;
+  }
   if (busy.value || compacting.value) {
     transport.errorText.value = t('sidebar.rewindRunning');
     return;
@@ -1199,12 +1210,12 @@ async function recallTurn(payload: { turnId: string }) {
     transport.errorText.value = t('sidebar.rewindNotFound');
     return;
   }
-  const mode = await requestRecallMode(target.keepCount);
-  if (mode === "cancel") return;
+  rewindInFlight = true;
   try {
+    const mode = await requestRecallMode(target.targetUserMessageId);
+    if (mode === "cancel") return;
     const result = await transport.request<RewindConversationResult>("conversation.rewind", {
       conversationId: activeConversationId.value,
-      agentId: activeAgentId.value,
       messageId: target.targetUserMessageId,
       undoApplyPatch: mode === "with_patch",
     });
@@ -1224,6 +1235,8 @@ async function recallTurn(payload: { turnId: string }) {
     await refreshList();
   } catch (error) {
     transport.errorText.value = String(error || t('sidebar.rewindFailed'));
+  } finally {
+    rewindInFlight = false;
   }
 }
 
@@ -1259,27 +1272,36 @@ async function readPlanFileContent(input: { conversationId: string; path: string
   return String(result.content || "");
 }
 
-function hasBackupRecordIdInMessages(fromIndex: number): boolean {
-  for (const message of messages.value.slice(fromIndex)) {
-    const events = (message as any).tool_call as any[] | undefined;
-    if (!Array.isArray(events)) continue;
-    for (const event of events) {
-      if (event?.role !== "tool") continue;
-      const content = String(event?.content || "").trim();
-      if (!content) continue;
-      try {
-        const parsed = JSON.parse(content);
-        if (typeof parsed?.backupRecordId === "string" && parsed.backupRecordId.trim()) {
-          return true;
-        }
-      } catch { /* ignore */ }
-    }
+async function getRewindPreview(targetUserMessageId: string): Promise<RewindConversationPreviewResult> {
+  const conversationId = String(activeConversationId.value || "").trim();
+  const messageId = String(targetUserMessageId || "").trim();
+  if (!conversationId || !messageId) {
+    return { conversationId, canUndoPatch: false, hint: "缺少撤回预览所需的会话上下文。" };
   }
-  return false;
+  return await transport.request<RewindConversationPreviewResult>("conversation.rewindPreview", {
+    conversationId,
+    messageId,
+  });
 }
 
-function requestRecallMode(keepCount: number): Promise<"message_only" | "with_patch" | "cancel"> {
-  rewindConfirmCanUndoPatch.value = hasBackupRecordIdInMessages(keepCount);
+async function requestRecallMode(targetUserMessageId: string): Promise<"message_only" | "with_patch" | "cancel"> {
+  cancelPendingRewindConfirm();
+  try {
+    const preview = await getRewindPreview(targetUserMessageId);
+    rewindConfirmCanUndoPatch.value = !!preview.canUndoPatch;
+    console.info("[会话撤回] 完成：侧边栏撤回预览", {
+      conversationId: preview.conversationId,
+      messageId: targetUserMessageId,
+      canUndoPatch: preview.canUndoPatch,
+      hint: String(preview.hint || "").trim(),
+    });
+  } catch (error) {
+    rewindConfirmCanUndoPatch.value = false;
+    console.warn("[会话撤回] 失败：侧边栏撤回预览失败，仅撤回消息", {
+      messageId: targetUserMessageId,
+      error,
+    });
+  }
   rewindConfirmDialogOpen.value = true;
   return new Promise((resolve) => {
     rewindConfirmResolver = resolve;
@@ -1303,6 +1325,10 @@ function confirmRewindMessageOnly() {
 }
 
 function cancelRewindConfirm() {
+  cancelPendingRewindConfirm();
+}
+
+function cancelPendingRewindConfirm() {
   const resolver = rewindConfirmResolver;
   rewindConfirmResolver = null;
   rewindConfirmDialogOpen.value = false;
@@ -1587,6 +1613,7 @@ onMounted(() => {
 
 onBeforeUnmount(() => {
   clearDiscoveryRefreshTimer();
+  cancelPendingRewindConfirm();
   window.removeEventListener("message", handleWindowMessage);
   window.removeEventListener("paste", handleWindowPaste);
 });

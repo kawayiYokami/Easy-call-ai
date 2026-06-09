@@ -24,6 +24,7 @@ function buildRewindActions(overrides: {
   trimming?: boolean;
   compacting?: boolean;
   messages?: ChatMessage[];
+  requestRecallMode?: (payload: { turnId: string; targetUserMessageId: string }) => Promise<"message_only" | "with_patch" | "cancel">;
 } = {}) {
   const allMessages = shallowRef<ChatMessage[]>(
     overrides.messages ?? [
@@ -57,7 +58,8 @@ function buildRewindActions(overrides: {
     removeBinaryPlaceholders: (text) => text,
     messageText: (message) => String(message.parts?.[0]?.text || ""),
     extractMessageImages: () => [],
-    requestRecallMode: vi.fn(async () => "message_only"),
+    requestRecallMode: vi.fn(overrides.requestRecallMode ?? (async () => "message_only")),
+    refreshForegroundConversationAfterRewind: vi.fn(),
   });
   return { actions, allMessages, chatErrorText, statusErrors };
 }
@@ -89,5 +91,26 @@ describe("useChatRewindActions", () => {
     );
     expect(allMessages.value).toBe(before);
     expect(chatErrorText.value).toContain("当前会话正在运行或整理上下文");
+  });
+
+  it("ignores duplicate rewind clicks while confirmation is pending", async () => {
+    hoisted.invokeTauriMock.mockReset();
+    let resolveMode: ((mode: "message_only") => void) | null = null;
+    const requestRecallMode = vi.fn((_payload: { turnId: string; targetUserMessageId: string }) => new Promise<"message_only">((resolve) => {
+      resolveMode = resolve;
+    }));
+    const { actions } = buildRewindActions({ requestRecallMode });
+
+    const first = actions.handleRecallTurn({ turnId: "assistant-2" });
+    const second = actions.handleRecallTurn({ turnId: "assistant-2" });
+    resolveMode?.("message_only");
+    await Promise.all([first, second]);
+
+    expect(requestRecallMode).toHaveBeenCalledTimes(1);
+    expect(requestRecallMode).toHaveBeenCalledWith({
+      turnId: "assistant-2",
+      targetUserMessageId: "user-2",
+    });
+    expect(hoisted.invokeTauriMock).toHaveBeenCalledTimes(1);
   });
 });

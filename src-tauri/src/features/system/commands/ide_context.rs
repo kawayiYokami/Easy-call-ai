@@ -246,7 +246,8 @@ struct IdeChatWorkspacePermissionInput {
 struct IdeChatRewindInput {
     conversation_id: String,
     message_id: String,
-    agent_id: String,
+    #[serde(default, rename = "agentId")]
+    _agent_id: Option<String>,
     #[serde(default)]
     undo_apply_patch: bool,
 }
@@ -1643,33 +1644,24 @@ fn ide_chat_session_for_conversation(state: &AppState, conversation_id: &str) ->
 async fn ide_chat_rewind_conversation(state: &AppState, params: Value) -> Result<Value, String> {
     let input = ide_chat_parse_params::<IdeChatRewindInput>(params)?;
     let conversation_id = input.conversation_id.trim().to_string();
-    let agent_id = input.agent_id.trim().to_string();
     let message_id = input.message_id.trim().to_string();
     if conversation_id.is_empty() {
         return Err("conversationId is required".to_string());
-    }
-    if agent_id.is_empty() {
-        return Err("agentId is required".to_string());
     }
     if message_id.is_empty() {
         return Err("messageId is required".to_string());
     }
 
     let started_at = std::time::Instant::now();
+    let session = ide_chat_session_for_conversation(state, &conversation_id)?;
     let request = RewindConversationInput {
-        session: SessionSelector {
-            api_config_id: None,
-            department_id: None,
-            agent_id,
-            conversation_id: Some(conversation_id.clone()),
-        },
+        session,
         message_id: message_id.clone(),
         undo_apply_patch: input.undo_apply_patch,
     };
     let result = conversation_service().rewind_conversation_from_message(
         state,
         &request,
-        &request.session.agent_id,
         &message_id,
         &started_at,
     )?;
@@ -1695,6 +1687,47 @@ async fn ide_chat_rewind_conversation(state: &AppState, params: Value) -> Result
         "remainingCount": result.remaining_count,
         "recalledUserMessage": recalled_user_message,
         "conversation": conversation,
+    }))
+}
+
+async fn ide_chat_rewind_preview(state: &AppState, params: Value) -> Result<Value, String> {
+    let input = ide_chat_parse_params::<IdeChatRewindInput>(params)?;
+    let conversation_id = input.conversation_id.trim().to_string();
+    let message_id = input.message_id.trim().to_string();
+    if conversation_id.is_empty() {
+        return Err("conversationId is required".to_string());
+    }
+    if message_id.is_empty() {
+        return Err("messageId is required".to_string());
+    }
+
+    let started_at = std::time::Instant::now();
+    runtime_log_info(format!(
+        "[会话撤回] 开始，任务=ide_chat_rewind_preview，conversation_id={}，message_id={}",
+        conversation_id,
+        message_id
+    ));
+    let session = ide_chat_session_for_conversation(state, &conversation_id)?;
+    let request = RewindConversationInput {
+        session,
+        message_id: message_id.clone(),
+        undo_apply_patch: false,
+    };
+    let result = conversation_service().preview_rewind_conversation_from_message(
+        state,
+        &request,
+        &message_id,
+    )?;
+    runtime_log_info(format!(
+        "[会话撤回] 完成，任务=ide_chat_rewind_preview，conversation_id={}，can_undo_patch={}，duration_ms={}",
+        result.conversation_id,
+        result.can_undo_patch,
+        started_at.elapsed().as_millis()
+    ));
+    Ok(serde_json::json!({
+        "conversationId": result.conversation_id,
+        "canUndoPatch": result.can_undo_patch,
+        "hint": result.hint,
     }))
 }
 
@@ -1956,6 +1989,7 @@ async fn ide_chat_handle_jsonrpc_request(
         })(),
         "conversation.createOptions" => ide_chat_create_conversation_options(state),
         "conversation.delete" => ide_chat_delete_conversation(state, request.params),
+        "conversation.rewindPreview" => ide_chat_rewind_preview(state, request.params).await,
         "conversation.rewind" => ide_chat_rewind_conversation(state, request.params).await,
         "conversation.branchFromSelection" => ide_chat_branch_conversation(state, request.params).await,
         "delegate.submit" => ide_chat_submit_delegate(state, request.params).await,

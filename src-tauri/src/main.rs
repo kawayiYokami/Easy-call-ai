@@ -983,6 +983,7 @@ fn main() {
             run_tool_review_for_batch,
             submit_tool_review_code,
             request_conversation_messages_after_async,
+            preview_rewind_conversation_from_message,
             rewind_conversation_from_message,
             get_prompt_preview,
             get_system_prompt_preview,

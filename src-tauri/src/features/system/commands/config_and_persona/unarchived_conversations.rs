@@ -2163,10 +2163,18 @@ struct RewindConversationResult {
     recalled_user_message: Option<ChatMessage>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct RewindConversationPreviewResultPayload {
+    conversation_id: String,
+    can_undo_patch: bool,
+    hint: String,
+}
+
 fn validate_rewind_input(
     input: &RewindConversationInput,
     started_at: &std::time::Instant,
-) -> Result<(String, String), String> {
+) -> Result<String, String> {
     let message_id = input.message_id.trim().to_string();
     if message_id.is_empty() {
         let elapsed_ms = started_at.elapsed().as_millis();
@@ -2177,17 +2185,17 @@ fn validate_rewind_input(
         return Err("messageId is required.".to_string());
     }
 
-    let requested_agent_id = input.session.agent_id.trim().to_string();
-    if requested_agent_id.is_empty() {
+    let requested_conversation_id = trimmed_option(input.session.conversation_id.as_deref());
+    if requested_conversation_id.is_none() {
         let elapsed_ms = started_at.elapsed().as_millis();
         runtime_log_error(format!(
-            "[会话撤回] 失败，任务=validate_rewind_input，reason=agent_id_empty，duration_ms={}",
+            "[会话撤回] 失败，任务=validate_rewind_input，reason=conversation_id_empty，duration_ms={}",
             elapsed_ms
         ));
-        return Err("agentId is required.".to_string());
+        return Err("conversationId is required.".to_string());
     }
 
-    Ok((message_id, requested_agent_id))
+    Ok(message_id)
 }
 
 fn persist_rewind_conversation_state(
@@ -2265,12 +2273,41 @@ fn restore_conversation_todos_after_rewind(conversation: &mut Conversation) -> R
 }
 
 #[tauri::command]
+async fn preview_rewind_conversation_from_message(
+    input: RewindConversationInput,
+    state: State<'_, AppState>,
+) -> Result<RewindConversationPreviewResultPayload, String> {
+    let started_at = std::time::Instant::now();
+    let message_id = validate_rewind_input(&input, &started_at)?;
+    runtime_log_info(format!(
+        "[会话撤回] 开始，任务=preview_rewind_conversation_from_message，message_id={}",
+        message_id
+    ));
+    let result = conversation_service().preview_rewind_conversation_from_message(
+        state.inner(),
+        &input,
+        &message_id,
+    )?;
+    runtime_log_info(format!(
+        "[会话撤回] 完成，任务=preview_rewind_conversation_from_message，conversation_id={}，can_undo_patch={}，duration_ms={}",
+        result.conversation_id,
+        result.can_undo_patch,
+        started_at.elapsed().as_millis()
+    ));
+    Ok(RewindConversationPreviewResultPayload {
+        conversation_id: result.conversation_id,
+        can_undo_patch: result.can_undo_patch,
+        hint: result.hint,
+    })
+}
+
+#[tauri::command]
 async fn rewind_conversation_from_message(
     input: RewindConversationInput,
     state: State<'_, AppState>,
 ) -> Result<RewindConversationResult, String> {
     let started_at = std::time::Instant::now();
-    let (message_id, requested_agent_id) = validate_rewind_input(&input, &started_at)?;
+    let message_id = validate_rewind_input(&input, &started_at)?;
     runtime_log_info(format!(
         "[会话撤回] 开始，任务=rewind_conversation_from_message，message_id={}，undo_apply_patch={}",
         message_id, input.undo_apply_patch
@@ -2279,7 +2316,6 @@ async fn rewind_conversation_from_message(
     let result = conversation_service().rewind_conversation_from_message(
         state.inner(),
         &input,
-        &requested_agent_id,
         &message_id,
         &started_at,
     )?;

@@ -88,6 +88,12 @@ struct RewindConversationMutationResult {
     git_snapshot: Option<git_ghost_snapshot::UserMessageGitGhostSnapshotRecord>,
 }
 
+struct RewindConversationPreviewResult {
+    conversation_id: String,
+    can_undo_patch: bool,
+    hint: String,
+}
+
 struct StopChatPersistResult {
     persisted: bool,
     conversation_id: Option<String>,
