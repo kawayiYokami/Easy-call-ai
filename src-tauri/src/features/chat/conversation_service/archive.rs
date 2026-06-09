@@ -178,6 +178,84 @@ impl ConversationService {
         Ok(summary)
     }
 
+    fn resolve_archive_request_conversation_by_id(
+        &self,
+        state: &AppState,
+        conversation_id: &str,
+    ) -> Result<(ApiConfig, ResolvedApiConfig, Conversation, String), String> {
+        let normalized_conversation_id = conversation_id.trim();
+        if normalized_conversation_id.is_empty() {
+            return Err("conversationId is required".to_string());
+        }
+        let guard = state.conversation_lock.lock().map_err(|err| {
+            format!(
+                "Failed to lock state mutex at {}:{} {}: {err}",
+                file!(),
+                line!(),
+                module_path!()
+            )
+        })?;
+        let runtime_snapshot = load_runtime_organization_snapshot(state)?;
+        let app_config = &runtime_snapshot.config;
+        let source = state_read_conversation_cached(state, normalized_conversation_id)
+            .map_err(|_| "当前没有可归档的活动对话。".to_string())?;
+        if !conversation_is_unarchived_foreground(&source) && !conversation_is_archived(&source) {
+            drop(guard);
+            return Err("当前没有可归档的活动对话。".to_string());
+        }
+        let department_id = source.department_id.trim();
+        if department_id.is_empty() {
+            drop(guard);
+            return Err(format!(
+                "会话未绑定部门，无法归档: conversation_id={}",
+                source.id
+            ));
+        }
+        let department = runtime_department_by_id(&runtime_snapshot, department_id).ok_or_else(|| {
+            format!(
+                "会话绑定部门不存在，无法归档: conversation_id={}, department_id={}",
+                source.id, department_id
+            )
+        })?;
+        let effective_agent_id = department
+            .agent_ids
+            .iter()
+            .map(|item| item.trim())
+            .filter(|agent_id| !agent_id.is_empty())
+            .find(|agent_id| {
+                runtime_snapshot
+                    .agents
+                    .iter()
+                    .any(|agent| agent.id == *agent_id && !agent.is_built_in_user)
+            })
+            .map(str::to_string)
+            .ok_or_else(|| {
+                format!(
+                    "会话归属部门未配置可用执行人格，无法归档: conversation_id={}, department_id={}",
+                    source.id, department_id
+                )
+            })?;
+        let preferred_api_id = source
+            .preferred_api_config_id
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .and_then(|api_id| resolve_department_chat_api_config_id(app_config, api_id));
+        let selected_api_id = preferred_api_id
+            .or_else(|| department_primary_chat_api_config_id(app_config, department))
+            .ok_or_else(|| {
+                format!(
+                    "会话归属部门没有可用聊天模型，无法归档: conversation_id={}, department_id={}",
+                    source.id, department_id
+                )
+            })?;
+        let selected_api = resolve_selected_api_config(app_config, Some(selected_api_id.as_str()))
+            .ok_or_else(|| "No API config configured. Please add one.".to_string())?;
+        let resolved_api = resolve_api_config(app_config, Some(selected_api.id.as_str()))?;
+        drop(guard);
+        Ok((selected_api, resolved_api, source, effective_agent_id))
+    }
+
     fn resolve_archive_target_conversation(
         &self,
         state: &AppState,
@@ -235,72 +313,6 @@ impl ConversationService {
         let source = state_read_conversation_cached(state, &source_conversation_id)
             .map_err(|_| "当前没有可归档的活动对话。".to_string())?;
         if !conversation_is_unarchived_foreground(&source) {
-            drop(guard);
-            return Err("当前没有可归档的活动对话。".to_string());
-        }
-        drop(guard);
-        Ok((selected_api, resolved_api, source, effective_agent_id))
-    }
-
-    fn resolve_archive_request_conversation(
-        &self,
-        state: &AppState,
-        input: &SessionSelector,
-    ) -> Result<(ApiConfig, ResolvedApiConfig, Conversation, String), String> {
-        let guard = state.conversation_lock.lock().map_err(|err| {
-            format!(
-                "Failed to lock state mutex at {}:{} {}: {err}",
-                file!(),
-                line!(),
-                module_path!()
-            )
-        })?;
-        let runtime_snapshot = load_runtime_organization_snapshot(state)?;
-        let app_config = runtime_snapshot.config;
-        let runtime = state_read_runtime_state_cached(state)?;
-        let runtime_agents = runtime_snapshot.agents;
-        let selected_api = resolve_selected_api_config(&app_config, input.api_config_id.as_deref())
-            .ok_or_else(|| "No API config configured. Please add one.".to_string())?;
-        let resolved_api = resolve_api_config(&app_config, Some(selected_api.id.as_str()))?;
-        let requested_agent_id = input.agent_id.trim();
-        let effective_agent_id = if runtime_agents
-            .iter()
-            .any(|agent| agent.id == requested_agent_id && !agent.is_built_in_user)
-        {
-            requested_agent_id.to_string()
-        } else if runtime_agents.iter().any(|agent| {
-            agent.id == runtime.assistant_department_agent_id && !agent.is_built_in_user
-        }) {
-            runtime.assistant_department_agent_id.clone()
-        } else {
-            runtime_agents
-                .iter()
-                .find(|agent| !agent.is_built_in_user)
-                .map(|agent| agent.id.clone())
-                .ok_or_else(|| "Selected agent not found.".to_string())?
-        };
-        let source_conversation_id = input
-            .conversation_id
-            .as_deref()
-            .map(str::trim)
-            .filter(|value| !value.is_empty());
-        let source_conversation_id = if let Some(conversation_id) = source_conversation_id {
-            let conversation = state_read_conversation_cached(state, conversation_id)
-                .map_err(|_| "当前没有可归档的活动对话。".to_string())?;
-            if conversation_is_unarchived_foreground(&conversation)
-                || conversation_is_archived(&conversation)
-            {
-                Some(conversation.id)
-            } else {
-                None
-            }
-        } else {
-            self.resolve_latest_foreground_conversation_id(state, &effective_agent_id)?
-        }
-        .ok_or_else(|| "当前没有可归档的活动对话。".to_string())?;
-        let source = state_read_conversation_cached(state, &source_conversation_id)
-            .map_err(|_| "当前没有可归档的活动对话。".to_string())?;
-        if !conversation_is_unarchived_foreground(&source) && !conversation_is_archived(&source) {
             drop(guard);
             return Err("当前没有可归档的活动对话。".to_string());
         }

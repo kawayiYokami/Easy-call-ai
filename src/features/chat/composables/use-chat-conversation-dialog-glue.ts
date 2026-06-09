@@ -45,9 +45,17 @@ export function useChatConversationDialogGlue(bindings: Record<string, any>) {
   async function archiveConversationFromList(conversationId: string) {
     const normalizedConversationId = String(conversationId || "").trim();
     if (!normalizedConversationId) return;
+    console.info("[会话归档] 点击归档会话", {
+      conversationId: normalizedConversationId,
+      source: "conversation_list",
+    });
     try {
       await bindings.archiveCurrentConversation(normalizedConversationId);
     } catch (error) {
+      console.warn("[会话归档] 归档会话失败", {
+        conversationId: normalizedConversationId,
+        error,
+      });
       bindings.setStatusError("status.trimArchiveFailed", error);
     }
   }
@@ -58,21 +66,19 @@ export function useChatConversationDialogGlue(bindings: Record<string, any>) {
       return;
     }
     const conversationId = String(bindings.currentChatConversationId.value || "").trim();
-    const apiConfigId = String(bindings.currentForegroundApiConfigId.value || "").trim();
-    const agentId = String(bindings.currentForegroundAgentId.value || "").trim();
-    if (!conversationId || !apiConfigId || !agentId) {
+    if (!conversationId) {
       bindings.setStatus("当前没有可归档的会话。");
       bindings.getCloseTrimActionDialog()();
       return;
     }
     bindings.getCloseTrimActionDialog()();
+    console.info("[会话归档] 点击归档会话", {
+      conversationId,
+      source: "detached_chat_window",
+    });
     void invokeTauri("trim_current_conversation", {
       input: {
-        session: {
-          apiConfigId,
-          agentId,
-          conversationId,
-        },
+        conversationId,
       },
     }).catch((error) => {
       console.error("[独立聊天窗口] 后台归档会话失败", error);

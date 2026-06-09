@@ -248,7 +248,10 @@ struct TrimPreviewResult {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct ForceArchiveCurrentInput {
-    session: SessionSelector,
+    #[serde(default)]
+    conversation_id: Option<String>,
+    #[serde(default)]
+    session: Option<SessionSelector>,
     #[serde(default)]
     target_conversation_id: Option<String>,
 }
@@ -414,11 +417,20 @@ fn resolve_archive_target_conversation(
     conversation_service().resolve_archive_target_conversation(state, input)
 }
 
-fn resolve_archive_request_conversation(
+fn resolve_archive_request_conversation_by_id(
     state: &AppState,
-    input: &SessionSelector,
+    conversation_id: &str,
 ) -> Result<(ApiConfig, ResolvedApiConfig, Conversation, String), String> {
-    conversation_service().resolve_archive_request_conversation(state, input)
+    conversation_service().resolve_archive_request_conversation_by_id(state, conversation_id)
+}
+
+fn log_manual_archive_failure(conversation_id: &str, reason: String) -> String {
+    runtime_log_warn(format!(
+        "[归档] 失败，任务=手动归档，conversation_id={}，error={}",
+        conversation_id.trim(),
+        reason
+    ));
+    reason
 }
 
 fn instant_archive_conversation(
@@ -1694,6 +1706,30 @@ async fn trim_current_conversation(
     input: ForceArchiveCurrentInput,
     state: State<'_, AppState>,
 ) -> Result<ForceArchiveResult, String> {
+    let requested_conversation_id = input
+        .conversation_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .or_else(|| {
+            input
+                .session
+                .as_ref()
+                .and_then(|session| session.conversation_id.as_deref())
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+        })
+        .map(str::to_string);
+    let Some(requested_conversation_id) = requested_conversation_id else {
+        return Err(log_manual_archive_failure(
+            "",
+            "conversationId is required".to_string(),
+        ));
+    };
+    runtime_log_info(format!(
+        "[归档] 开始，任务=手动归档，conversation_id={}",
+        requested_conversation_id
+    ));
     if input
         .target_conversation_id
         .as_deref()
@@ -1701,43 +1737,67 @@ async fn trim_current_conversation(
         .filter(|value| !value.is_empty())
         .is_some()
     {
-        return Err("归档目标投放已停用：归档只保留原会话正文，并在归档反思中处理记忆。".to_string());
+        return Err(log_manual_archive_failure(
+            &requested_conversation_id,
+            "归档目标投放已停用：归档只保留原会话正文，并在归档反思中处理记忆。".to_string(),
+        ));
     }
     let (selected_api, resolved_api, source, effective_agent_id) =
-        resolve_archive_request_conversation(state.inner(), &input.session)?;
+        match resolve_archive_request_conversation_by_id(state.inner(), &requested_conversation_id)
+        {
+            Ok(resolved) => resolved,
+            Err(err) => return Err(log_manual_archive_failure(&requested_conversation_id, err)),
+        };
     let already_archived = conversation_is_archived(&source);
-    let runtime = state_read_runtime_state_cached(state.inner())?;
+    let runtime = state_read_runtime_state_cached(state.inner())
+        .map_err(|err| log_manual_archive_failure(&source.id, err))?;
     let main_conversation_id = runtime
         .main_conversation_id
         .as_deref()
         .map(str::trim)
         .unwrap_or_default();
     if !already_archived && source.id.trim() == main_conversation_id {
-        return Err("系统通知会话暂不支持归档。".to_string());
+        return Err(log_manual_archive_failure(
+            &source.id,
+            "系统通知会话暂不支持归档。".to_string(),
+        ));
     }
-    if !already_archived && get_conversation_runtime_state(state.inner(), &source.id)?
-        == MainSessionState::OrganizingContext
-    {
-        return Err("强制归档正在进行中，请稍候。".to_string());
+    let conversation_runtime_state = get_conversation_runtime_state(state.inner(), &source.id)
+        .map_err(|err| log_manual_archive_failure(&source.id, err))?;
+    if !already_archived && conversation_runtime_state == MainSessionState::OrganizingContext {
+        return Err(log_manual_archive_failure(
+            &source.id,
+            "强制归档正在进行中，请稍候。".to_string(),
+        ));
     }
     if !already_archived {
         let message_count = archive_pipeline_message_count_for_delete(&source);
         if source.messages.is_empty() {
-            return Err("当前会话为空，不能归档。".to_string());
+            return Err(log_manual_archive_failure(
+                &source.id,
+                "当前会话为空，不能归档。".to_string(),
+            ));
         }
         if !archive_pipeline_has_assistant_reply(&source) {
-            return Err("当前会话还没有助理回复，不能归档。".to_string());
+            return Err(log_manual_archive_failure(
+                &source.id,
+                "当前会话还没有助理回复，不能归档。".to_string(),
+            ));
         }
         if message_count <= SHORT_CONVERSATION_DELETE_THRESHOLD {
-            return Err(format!(
-                "当前会话过短（仅 {} 条用户/助理消息），暂不建议归档。",
-                message_count
+            return Err(log_manual_archive_failure(
+                &source.id,
+                format!(
+                    "当前会话过短（仅 {} 条用户/助理消息），暂不建议归档。",
+                    message_count
+                ),
             ));
         }
     }
-    let archive_result = instant_archive_conversation(state.inner(), &selected_api, &source)?;
+    let archive_result = instant_archive_conversation(state.inner(), &selected_api, &source)
+        .map_err(|err| log_manual_archive_failure(&source.id, err))?;
     flush_pending_persists_blocking(state.inner())
-        .map_err(|err| format!("归档状态写入失败：{}", err))?;
+        .map_err(|err| log_manual_archive_failure(&source.id, format!("归档状态写入失败：{}", err)))?;
     emit_unarchived_conversation_overview_updated_payload(
         state.inner(),
         &archive_result.overview_payload,
@@ -1787,6 +1847,13 @@ async fn trim_current_conversation(
     }
 
     let archive_id = archive_result.archived_conversation.id.clone();
+    runtime_log_info(format!(
+        "[归档] 完成，任务=手动归档，conversation_id={}，archive_id={}，active_conversation_id={}，already_archived={}",
+        source.id,
+        archive_id,
+        active_conversation_id,
+        archive_result.already_archived
+    ));
     Ok(ForceArchiveResult {
         archived: true,
         archive_id: Some(archive_id),
@@ -1834,12 +1901,41 @@ async fn trim_compact_current(
 
 #[tauri::command]
 fn preview_trim_current_conversation(
-    input: SessionSelector,
+    input: ForceArchiveCurrentInput,
     state: State<'_, AppState>,
 ) -> Result<TrimPreviewResult, String> {
+    let requested_conversation_id = input
+        .conversation_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .or_else(|| {
+            input
+                .session
+                .as_ref()
+                .and_then(|session| session.conversation_id.as_deref())
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+        })
+        .map(str::to_string);
+    let Some(requested_conversation_id) = requested_conversation_id else {
+        return Err(log_manual_archive_failure(
+            "",
+            "conversationId is required".to_string(),
+        ));
+    };
+    runtime_log_info(format!(
+        "[归档] 开始，任务=手动归档预览，conversation_id={}",
+        requested_conversation_id
+    ));
     let (_selected_api, _resolved_api, source, _effective_agent_id) =
-        resolve_archive_target_conversation(state.inner(), &input)?;
-    let runtime = state_read_runtime_state_cached(state.inner())?;
+        match resolve_archive_request_conversation_by_id(state.inner(), &requested_conversation_id)
+        {
+            Ok(resolved) => resolved,
+            Err(err) => return Err(log_manual_archive_failure(&requested_conversation_id, err)),
+        };
+    let runtime = state_read_runtime_state_cached(state.inner())
+        .map_err(|err| log_manual_archive_failure(&source.id, err))?;
     let main_conversation_id = runtime
         .main_conversation_id
         .as_deref()
@@ -1851,7 +1947,8 @@ fn preview_trim_current_conversation(
     let is_empty = source.messages.is_empty();
     let archive_disabled_reason = if is_main_conversation {
         Some("系统通知会话暂不支持归档。".to_string())
-    } else if get_conversation_runtime_state(state.inner(), &source.id)?
+    } else if get_conversation_runtime_state(state.inner(), &source.id)
+        .map_err(|err| log_manual_archive_failure(&source.id, err))?
         == MainSessionState::OrganizingContext
     {
         Some("当前会话正在后台归档或整理上下文，请稍候。".to_string())
@@ -1867,6 +1964,12 @@ fn preview_trim_current_conversation(
     } else {
         None
     };
+    runtime_log_info(format!(
+        "[归档] 完成，任务=手动归档预览，conversation_id={}，can_archive={}，reason={}",
+        source.id,
+        archive_disabled_reason.is_none(),
+        archive_disabled_reason.as_deref().unwrap_or("")
+    ));
     Ok(TrimPreviewResult {
         conversation_id: source.id,
         can_archive: archive_disabled_reason.is_none(),

@@ -28,7 +28,6 @@ export type TrimCompactionPreviewResult = {
 
 type RecallMode = "with_patch" | "message_only" | "cancel";
 
-const SHORT_CONVERSATION_DELETE_THRESHOLD = 3;
 const SHORT_CONVERSATION_COMPACTION_THRESHOLD = 10;
 
 type UseShellDialogFlowsOptions = {
@@ -44,7 +43,7 @@ type UseShellDialogFlowsOptions = {
   setStatus: (message: string) => void;
   setStatusError: (key: string, error: unknown) => void;
   trimCompactNow: () => Promise<void>;
-  trimNow: () => Promise<void>;
+  trimNow: (conversationId?: string | null) => Promise<void>;
 };
 
 export function useShellDialogFlows(options: UseShellDialogFlowsOptions) {
@@ -103,34 +102,6 @@ export function useShellDialogFlows(options: UseShellDialogFlowsOptions) {
     return 0;
   }
 
-  function buildTrimPreview(conversationId: string): TrimPreviewResult {
-    const messages = options.allMessages.value || [];
-    const summary = currentUnarchivedConversationSummary();
-    const isSystemNotificationConversation = summary?.isSystemNotificationConversation === true;
-    const messageCount = countArchiveCandidateMessages(messages);
-    const assistantReplyPresent = hasAssistantReply(messages);
-    const isEmpty = messages.length === 0;
-    const archiveDisabledReason = isSystemNotificationConversation
-      ? t('sidebar.archiveMainNotAllowed')
-      : summary?.runtimeState === "organizing_context"
-      ? t('sidebar.archiveRunning')
-      : isEmpty
-        ? t('sidebar.archiveEmpty')
-        : !assistantReplyPresent
-          ? t('sidebar.archiveNoAssistant')
-          : messageCount <= SHORT_CONVERSATION_DELETE_THRESHOLD
-            ? t('sidebar.archiveTooShort', { count: messageCount })
-            : null;
-    return {
-      conversationId,
-      canArchive: !archiveDisabledReason,
-      messageCount,
-      hasAssistantReply: assistantReplyPresent,
-      isEmpty,
-      archiveDisabledReason,
-    };
-  }
-
   function buildTrimCompactionPreview(conversationId: string): TrimCompactionPreviewResult {
     const messages = options.allMessages.value || [];
     const summary = currentUnarchivedConversationSummary();
@@ -168,17 +139,21 @@ export function useShellDialogFlows(options: UseShellDialogFlowsOptions) {
       options.setStatus(t('sidebar.noConversation'));
       return;
     }
+    console.info("[会话归档] 打开归档/压缩面板", { conversationId });
     trimActionDialogOpen.value = false;
     trimPreviewLoading.value = true;
     trimPreview.value = null;
     trimCompactionPreview.value = null;
     try {
-      const archivePreview = buildTrimPreview(conversationId);
+      const archivePreview = await invokeTauri<TrimPreviewResult>("preview_trim_current_conversation", {
+        input: { conversationId },
+      });
       const compactionPreview = buildTrimCompactionPreview(conversationId);
       trimPreview.value = archivePreview;
       trimCompactionPreview.value = compactionPreview;
       trimActionDialogOpen.value = true;
     } catch (error) {
+      console.warn("[会话归档] 加载归档/压缩面板失败", { conversationId, error });
       closeTrimActionDialog();
       options.setStatusError("status.loadConversationActionPreviewFailed", error);
     } finally {
@@ -194,8 +169,12 @@ export function useShellDialogFlows(options: UseShellDialogFlowsOptions) {
 
   async function confirmTrimAction() {
     if (!trimPreview.value?.canArchive) return;
+    const conversationId = String(trimPreview.value.conversationId || "").trim();
+    console.info("[会话归档] 确认归档当前会话", {
+      conversationId,
+    });
     closeTrimActionDialog();
-    await options.trimNow();
+    await options.trimNow(conversationId || null);
   }
 
   function openSkillPlaceholderDialog() {

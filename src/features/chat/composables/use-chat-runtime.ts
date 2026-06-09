@@ -63,26 +63,37 @@ export function useChatRuntime(options: UseChatRuntimeOptions) {
     action: ConversationMaintenanceAction,
     targetConversationId?: string | null,
   ) {
-    const apiConfigId = String(options.activeChatApiConfigId.value || "").trim();
-    const agentId = String(options.assistantDepartmentAgentId.value || "").trim();
-    if (!apiConfigId || !agentId) {
-      const text = options.t("status.conversationActionNoTarget");
-      options.setStatus(text);
-      options.setChatError(text);
-      return;
-    }
     const currentConversationId = currentConversationIdOrNull();
     const sourceConversationId = String(targetConversationId || currentConversationId || "").trim() || null;
     const targetIsForeground = !currentConversationId || !sourceConversationId || sourceConversationId === currentConversationId;
     const shouldLockForeground = action.lockForeground && targetIsForeground;
     const instantArchiveAction = action.command === "trim_current_conversation";
+    const apiConfigId = String(options.activeChatApiConfigId.value || "").trim();
+    const agentId = String(options.assistantDepartmentAgentId.value || "").trim();
+    if (!sourceConversationId) {
+      const text = options.t("status.conversationActionNoTarget");
+      options.setStatus(text);
+      options.setChatError(text);
+      console.warn("[会话归档] 跳过，缺少 conversationId", {
+        command: action.command,
+        currentConversationId,
+        targetConversationId,
+      });
+      return;
+    }
+    if (!instantArchiveAction && (!apiConfigId || !agentId)) {
+      const text = options.t("status.conversationActionNoTarget");
+      options.setStatus(text);
+      options.setChatError(text);
+      return;
+    }
     if (targetIsForeground && options.compactingConversation.value) {
       const text = options.t("status.conversationActionInProgress");
       options.setStatus(text);
       options.setChatError(text);
       return;
     }
-    if (!instantArchiveAction && targetIsForeground && options.trimming.value) {
+    if (targetIsForeground && options.trimming.value) {
       const text = options.t("status.conversationActionInProgress");
       options.setStatus(text);
       options.setChatError(text);
@@ -95,9 +106,14 @@ export function useChatRuntime(options: UseChatRuntimeOptions) {
       return;
     }
 
-    options.setStatus("");
+    options.setStatus(instantArchiveAction ? options.t(action.runningKey) : "");
     options.setChatError("");
-    if (shouldLockForeground && !instantArchiveAction) {
+    console.info("[会话归档] 开始执行会话维护", {
+      command: action.command,
+      conversationId: sourceConversationId,
+      foreground: targetIsForeground,
+    });
+    if (shouldLockForeground) {
       options.trimming.value = true;
       if (options.trimmingConversationId) {
         options.trimmingConversationId.value = sourceConversationId || "";
@@ -112,11 +128,7 @@ export function useChatRuntime(options: UseChatRuntimeOptions) {
       const result = await invokeTauri<ForceArchiveResult>(action.command, {
         input: action.command === "trim_current_conversation"
           ? {
-            session: {
-              apiConfigId,
-              agentId,
-              conversationId: sourceConversationId,
-            },
+            conversationId: sourceConversationId,
           }
           : {
             apiConfigId,
@@ -171,6 +183,11 @@ export function useChatRuntime(options: UseChatRuntimeOptions) {
       }
       await loadAllMessages(action.lockForeground ? undefined : sourceConversationId);
     } catch (e) {
+      console.warn("[会话归档] 会话维护失败", {
+        command: action.command,
+        conversationId: sourceConversationId,
+        error: e,
+      });
       const errText = String(e ?? "");
       if (errText.includes("活动对话已变化")) {
         const text = options.t("status.conversationActionConflict");
@@ -181,7 +198,7 @@ export function useChatRuntime(options: UseChatRuntimeOptions) {
         options.setChatError(options.t(action.failedKey, { err: String(e) }));
       }
     } finally {
-      if (shouldLockForeground && !instantArchiveAction) {
+      if (shouldLockForeground) {
         options.trimming.value = false;
         if (options.trimmingConversationId) {
           options.trimmingConversationId.value = "";
