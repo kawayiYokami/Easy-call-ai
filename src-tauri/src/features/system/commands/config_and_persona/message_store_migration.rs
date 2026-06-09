@@ -1,6 +1,5 @@
 const MESSAGE_STORE_MIGRATION_PROGRESS_EVENT: &str = "easy-call:message-store-migration-progress";
 const CURRENT_MESSAGE_STORE_MIGRATION_VERSION: u32 = 1;
-const ACTIVE_BUILDING_MANIFEST_GRACE_SECONDS: i64 = 300;
 
 fn message_store_migration_lock() -> &'static std::sync::Mutex<()> {
     static LOCK: std::sync::OnceLock<std::sync::Mutex<()>> = std::sync::OnceLock::new();
@@ -164,6 +163,57 @@ fn preflight_legacy_conversation(
     }
 }
 
+fn preflight_ready_message_store_conversation(
+    paths: &message_store::MessageStorePaths,
+    conversation_id: &str,
+    fallback_message_count: usize,
+) -> MessageStoreMigrationPreflightItem {
+    let ready_status = match message_store::read_ready_message_store_status(paths) {
+        Ok(Some(ready_status)) => ready_status,
+        Ok(None) => {
+            return MessageStoreMigrationPreflightItem {
+                conversation_id: conversation_id.to_string(),
+                title: String::new(),
+                status: "blocked".to_string(),
+                message_count: fallback_message_count,
+                reason: Some("ready JSONL 会话状态不可读".to_string()),
+            };
+        }
+        Err(err) => {
+            return MessageStoreMigrationPreflightItem {
+                conversation_id: conversation_id.to_string(),
+                title: String::new(),
+                status: "blocked".to_string(),
+                message_count: fallback_message_count,
+                reason: Some(err),
+            };
+        }
+    };
+    match message_store::read_ready_message_store_meta(paths) {
+        Ok(Some(meta)) => MessageStoreMigrationPreflightItem {
+            conversation_id: conversation_id.to_string(),
+            title: meta.title().to_string(),
+            status: "ready".to_string(),
+            message_count: ready_status.source_message_count,
+            reason: None,
+        },
+        Ok(None) => MessageStoreMigrationPreflightItem {
+            conversation_id: conversation_id.to_string(),
+            title: String::new(),
+            status: "blocked".to_string(),
+            message_count: ready_status.source_message_count,
+            reason: Some("ready JSONL 会话缺少 meta".to_string()),
+        },
+        Err(err) => MessageStoreMigrationPreflightItem {
+            conversation_id: conversation_id.to_string(),
+            title: String::new(),
+            status: "blocked".to_string(),
+            message_count: ready_status.source_message_count,
+            reason: Some(err),
+        },
+    }
+}
+
 fn preflight_message_store_conversation(
     data_path: &PathBuf,
     conversation_id: &str,
@@ -182,64 +232,13 @@ fn preflight_message_store_conversation(
     };
     match message_store::read_message_store_manifest_status(&paths) {
         Ok(Some(status)) if status.ready_jsonl => {
-            let ready_status = match message_store::read_ready_message_store_status(&paths) {
-                Ok(Some(ready_status)) => ready_status,
-                Ok(None) => {
-                    return MessageStoreMigrationPreflightItem {
-                        conversation_id: conversation_id.to_string(),
-                        title: String::new(),
-                        status: "blocked".to_string(),
-                        message_count: status.source_message_count,
-                        reason: Some("ready JSONL 会话状态不可读".to_string()),
-                    };
-                }
-                Err(err) => {
-                    return MessageStoreMigrationPreflightItem {
-                        conversation_id: conversation_id.to_string(),
-                        title: String::new(),
-                        status: "blocked".to_string(),
-                        message_count: status.source_message_count,
-                        reason: Some(err),
-                    };
-                }
-            };
-            match message_store::read_ready_message_store_meta(&paths) {
-                Ok(Some(meta)) => MessageStoreMigrationPreflightItem {
-                    conversation_id: conversation_id.to_string(),
-                    title: meta.title().to_string(),
-                    status: "ready".to_string(),
-                    message_count: ready_status.source_message_count,
-                    reason: None,
-                },
-                Ok(None) => MessageStoreMigrationPreflightItem {
-                    conversation_id: conversation_id.to_string(),
-                    title: String::new(),
-                    status: "blocked".to_string(),
-                    message_count: ready_status.source_message_count,
-                    reason: Some("ready JSONL 会话缺少 meta".to_string()),
-                },
-                Err(err) => MessageStoreMigrationPreflightItem {
-                    conversation_id: conversation_id.to_string(),
-                    title: String::new(),
-                    status: "blocked".to_string(),
-                    message_count: ready_status.source_message_count,
-                    reason: Some(err),
-                },
-            }
+            preflight_ready_message_store_conversation(
+                &paths,
+                conversation_id,
+                status.source_message_count,
+            )
         }
         Ok(Some(status)) => {
-            if status.migration_state == "building" && message_store_manifest_recently_updated(&status.updated_at) {
-                return MessageStoreMigrationPreflightItem {
-                    conversation_id: conversation_id.to_string(),
-                    title: String::new(),
-                    status: "busy".to_string(),
-                    message_count: status.source_message_count,
-                    reason: Some(format!(
-                        "消息仓库正在写入，暂不参与迁移预检：kind={}，state={}",
-                        status.message_store_kind, status.migration_state
-                    )),
-                };
-            }
             let legacy_path = app_layout_chat_conversation_path(data_path, conversation_id);
             if legacy_path.exists() {
                 let mut item = preflight_legacy_conversation(data_path, conversation_id);
@@ -250,6 +249,25 @@ fn preflight_message_store_conversation(
                     ));
                 }
                 return item;
+            }
+            match message_store::recover_ready_jsonl_snapshot_manifest_from_directory(&paths) {
+                Ok(Some(manifest)) => {
+                    return preflight_ready_message_store_conversation(
+                        &paths,
+                        conversation_id,
+                        manifest.source_message_count(),
+                    );
+                }
+                Ok(None) => {}
+                Err(err) => {
+                    return MessageStoreMigrationPreflightItem {
+                        conversation_id: conversation_id.to_string(),
+                        title: String::new(),
+                        status: "blocked".to_string(),
+                        message_count: status.source_message_count,
+                        reason: Some(err),
+                    };
+                }
             }
             MessageStoreMigrationPreflightItem {
                 conversation_id: conversation_id.to_string(),
@@ -283,15 +301,6 @@ fn empty_message_store_migration_preflight_report() -> MessageStoreMigrationPref
         can_auto_migrate: true,
         items: Vec::new(),
     }
-}
-
-fn message_store_manifest_recently_updated(updated_at: &str) -> bool {
-    let Some(updated_at) = parse_iso(updated_at) else {
-        return false;
-    };
-    let elapsed = now_utc() - updated_at;
-    elapsed.whole_seconds() >= 0
-        && elapsed.whole_seconds() <= ACTIVE_BUILDING_MANIFEST_GRACE_SECONDS
 }
 
 fn message_store_migration_version_recorded(state: &AppState) -> Result<bool, String> {
@@ -509,7 +518,7 @@ fn run_message_store_migration(
             "conversation file",
         )?;
         let paths = message_store::message_store_paths(&state.data_path, &item.conversation_id)?;
-        match message_store::run_jsonl_snapshot_migration(&paths, &conversation, false) {
+        match message_store::resume_jsonl_snapshot_migration(&paths, &conversation) {
             Ok(_) => {
                 report.migrated_count += 1;
                 emit_message_store_migration_progress(
@@ -543,4 +552,148 @@ fn run_message_store_migration(
     refresh_message_store_migration_caches(&state)?;
     record_message_store_migration_version(&state)?;
     Ok(report)
+}
+
+#[cfg(test)]
+mod message_store_migration_gate_tests {
+    use super::*;
+
+    fn test_message(id: &str, role: &str) -> ChatMessage {
+        ChatMessage {
+            id: id.to_string(),
+            role: role.to_string(),
+            created_at: "2026-06-09T00:00:00Z".to_string(),
+            speaker_agent_id: None,
+            parts: vec![MessagePart::Text {
+                text: format!("message {id}"),
+                reasoning_content: None,
+            }],
+            extra_text_blocks: Vec::new(),
+            provider_meta: None,
+            tool_call: None,
+            mcp_call: None,
+        }
+    }
+
+    fn test_conversation(id: &str) -> Conversation {
+        Conversation {
+            id: id.to_string(),
+            title: "迁移测试会话".to_string(),
+            agent_id: DEFAULT_AGENT_ID.to_string(),
+            department_id: ASSISTANT_DEPARTMENT_ID.to_string(),
+            bound_conversation_id: None,
+            parent_conversation_id: None,
+            child_conversation_ids: Vec::new(),
+            fork_message_cursor: None,
+            unread_count: 0,
+            conversation_kind: String::new(),
+            root_conversation_id: None,
+            delegate_id: None,
+            created_at: now_iso(),
+            updated_at: now_iso(),
+            last_user_at: None,
+            last_assistant_at: None,
+            status: String::new(),
+            summary: String::new(),
+            user_profile_snapshot: String::new(),
+            shell_workspace_path: None,
+            shell_workspaces: Vec::new(),
+            shell_autonomous_mode: false,
+            archived_at: None,
+            messages: vec![test_message("m1", "user"), test_message("m2", "assistant")],
+            current_todos: Vec::new(),
+            memory_recall_table: Vec::new(),
+            plan_mode_enabled: false,
+            preferred_api_config_id: None,
+            cumulative_usage: ConversationCumulativeUsage::default(),
+        }
+    }
+
+    fn temp_data_path(label: &str) -> (PathBuf, PathBuf) {
+        let root = std::env::temp_dir().join(format!(
+            "eca-message-store-migration-{label}-{}",
+            Uuid::new_v4()
+        ));
+        let data_path = root.join("config").join("app_data.json");
+        (root, data_path)
+    }
+
+    #[test]
+    fn message_store_preflight_should_retry_legacy_when_manifest_building() {
+        let (root, data_path) = temp_data_path("legacy-building");
+        let conversation = test_conversation("conversation-building-legacy");
+        let legacy_path = app_layout_chat_conversation_path(&data_path, &conversation.id);
+        write_json_file_atomic(&legacy_path, &conversation, "conversation file")
+            .expect("write legacy conversation");
+        let manifest_file = app_layout_chat_conversations_dir(&data_path)
+            .join(&conversation.id)
+            .join(message_store::MESSAGE_STORE_MANIFEST_FILE_NAME);
+        let building = message_store::MessageStoreManifest::jsonl_snapshot_building(&conversation);
+        message_store::write_message_store_manifest_atomic(&manifest_file, &building)
+            .expect("write building manifest");
+
+        let item = preflight_message_store_conversation(&data_path, &conversation.id);
+
+        assert_eq!(item.status, "legacyReadyToMigrate");
+        assert!(item
+            .reason
+            .as_deref()
+            .unwrap_or_default()
+            .contains("未完成的消息仓库迁移"));
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn message_store_preflight_should_recover_complete_building_directory() {
+        let (root, data_path) = temp_data_path("recover-building");
+        let conversation = test_conversation("conversation-building-ready");
+        let paths = message_store::message_store_paths(&data_path, &conversation.id)
+            .expect("message store paths");
+        message_store::run_jsonl_snapshot_migration(&paths, &conversation, false)
+            .expect("seed ready message store");
+        let manifest_file = app_layout_chat_conversations_dir(&data_path)
+            .join(&conversation.id)
+            .join(message_store::MESSAGE_STORE_MANIFEST_FILE_NAME);
+        let building = message_store::MessageStoreManifest::jsonl_snapshot_building(&conversation);
+        message_store::write_message_store_manifest_atomic(&manifest_file, &building)
+            .expect("write building manifest");
+
+        let item = preflight_message_store_conversation(&data_path, &conversation.id);
+        let status = message_store::read_message_store_manifest_status(&paths)
+            .expect("read manifest status")
+            .expect("manifest exists");
+
+        assert_eq!(item.status, "ready");
+        assert_eq!(item.title, conversation.title);
+        assert!(status.ready_jsonl);
+        assert_eq!(status.migration_state, "ready");
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn message_store_read_shard_should_recover_complete_building_directory() {
+        let (root, data_path) = temp_data_path("read-recover-building");
+        let conversation = test_conversation("conversation-building-read");
+        let paths = message_store::message_store_paths(&data_path, &conversation.id)
+            .expect("message store paths");
+        message_store::run_jsonl_snapshot_migration(&paths, &conversation, false)
+            .expect("seed ready message store");
+        let manifest_file = app_layout_chat_conversations_dir(&data_path)
+            .join(&conversation.id)
+            .join(message_store::MESSAGE_STORE_MANIFEST_FILE_NAME);
+        let building = message_store::MessageStoreManifest::jsonl_snapshot_building(&conversation);
+        message_store::write_message_store_manifest_atomic(&manifest_file, &building)
+            .expect("write building manifest");
+
+        let loaded = read_conversation_shard(&data_path, &conversation.id)
+            .expect("read recovered conversation");
+        let status = message_store::read_message_store_manifest_status(&paths)
+            .expect("read manifest status")
+            .expect("manifest exists");
+
+        assert_eq!(loaded.id, conversation.id);
+        assert_eq!(loaded.messages.len(), conversation.messages.len());
+        assert!(status.ready_jsonl);
+        let _ = fs::remove_dir_all(root);
+    }
 }

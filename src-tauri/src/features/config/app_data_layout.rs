@@ -485,6 +485,15 @@ fn read_conversation_shard(path: &PathBuf, conversation_id: &str) -> Result<Conv
     {
         return Ok(conversation);
     }
+    let recovered_manifest =
+        message_store::recover_ready_jsonl_snapshot_manifest_from_directory(&store_paths)?;
+    if recovered_manifest.is_some() {
+        if let Some(conversation) =
+            message_store::read_ready_message_store_directory_conversation(&store_paths)?
+        {
+            return Ok(conversation);
+        }
+    }
     if let Some(status) = message_store::read_message_store_manifest_status(&store_paths)? {
         return Err(format!(
             "会话消息仓库未处于可读取状态，conversation_id={}，kind={}，state={}",

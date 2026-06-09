@@ -170,6 +170,76 @@ pub(super) fn resume_jsonl_snapshot_migration(
     }
 }
 
+pub(super) fn recover_ready_jsonl_snapshot_manifest_from_directory(
+    paths: &MessageStorePaths,
+) -> Result<Option<MessageStoreManifest>, String> {
+    let Some(manifest) = read_message_store_manifest(&paths.manifest_file)? else {
+        return Ok(None);
+    };
+    if manifest.should_read_jsonl() {
+        validate_ready_message_store_snapshot_integrity(paths, &manifest)?;
+        return Ok(Some(manifest));
+    }
+    if !matches!(
+        (manifest.message_store_kind, manifest.migration_state),
+        (
+            MessageStoreKind::JsonlSnapshot,
+            MessageStoreMigrationState::Building
+                | MessageStoreMigrationState::Failed
+                | MessageStoreMigrationState::Rollback
+                | MessageStoreMigrationState::None
+        )
+    ) {
+        return Ok(None);
+    }
+    let meta = match read_conversation_shard_meta(&paths.meta_file) {
+        Ok(meta) => meta,
+        Err(_) => return Ok(None),
+    };
+    validate_conversation_shard_meta_id(paths, &meta)?;
+    let index = match read_message_store_index_file(&paths.index_file) {
+        Ok(index) => index,
+        Err(_) => return Ok(None),
+    };
+    if index.items.len() != manifest.source_message_count() {
+        return Ok(None);
+    }
+    let last_message_id = index
+        .items
+        .last()
+        .map(|item| item.message_id.trim().to_string())
+        .unwrap_or_default();
+    if last_message_id != manifest.last_message_id().trim() {
+        return Ok(None);
+    }
+    let messages = read_jsonl_snapshot_messages_by_index_items(&paths.messages_file, &index.items)?;
+    if messages.len() != manifest.source_message_count() {
+        return Ok(None);
+    }
+    let actual_last_message_id = messages
+        .last()
+        .map(|message| message.id.trim().to_string())
+        .unwrap_or_default();
+    if actual_last_message_id != manifest.last_message_id().trim() {
+        return Ok(None);
+    }
+    let total_bytes = message_store_index_total_bytes(paths, &index)?;
+    let ready_manifest = MessageStoreManifest::jsonl_snapshot_ready_for_messages(
+        manifest.source_message_count(),
+        manifest.last_message_id().trim().to_string(),
+        total_bytes,
+        manifest.messages_index_revision.max(1),
+    );
+    write_message_store_manifest_atomic(&paths.manifest_file, &ready_manifest)?;
+    eprintln!(
+        "[消息存储迁移] 完成 task=恢复目录型会话 ready manifest conversation_id={} message_count={} bytes={}",
+        paths.conversation_id,
+        ready_manifest.source_message_count(),
+        ready_manifest.messages_jsonl_bytes()
+    );
+    Ok(Some(ready_manifest))
+}
+
 pub(super) fn rollback_jsonl_snapshot_migration(
     paths: &MessageStorePaths,
     conversation: &Conversation,
