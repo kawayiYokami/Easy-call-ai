@@ -2474,54 +2474,9 @@ fn departments_only_config(departments: &[DepartmentConfig]) -> AppConfig {
     }
 }
 
-#[allow(dead_code)]
-fn prompt_department_context_from_provider_meta(
-    conversation: &Conversation,
-    agent: &AgentProfile,
-    departments: &[DepartmentConfig],
-    empty_summary: &str,
-) -> Option<PromptDepartmentContext> {
-    let temp_config = departments_only_config(departments);
-    let current_department = department_for_agent_id(&temp_config, &agent.id)?;
-    let latest_user = conversation
-        .messages
-        .iter()
-        .rev()
-        .find(|message| prompt_role_for_message(message, &agent.id).as_deref() == Some("user"))?;
-    let meta = latest_user.provider_meta.as_ref()?.as_object()?;
-    let target_department_id = meta.get("targetDepartmentId").and_then(Value::as_str)?.trim();
-    if target_department_id != current_department.id {
-        return None;
-    }
-    let call_stack = meta
-        .get("callStack")
-        .and_then(Value::as_array)
-        .map(|items| {
-            items
-                .iter()
-                .filter_map(Value::as_str)
-                .map(str::trim)
-                .filter(|value| !value.is_empty())
-                .map(ToOwned::to_owned)
-                .collect::<HashSet<String>>()
-        })
-        .unwrap_or_default();
-    let mut available = department_direct_child_departments(&temp_config, current_department)
-        .into_iter()
-        .filter(|department| department.id != current_department.id)
-        .filter(|department| !call_stack.contains(department.id.as_str()))
-        .map(|department| prompt_department_card_from_config(department, empty_summary))
-        .collect::<Vec<_>>();
-    available.sort_by(|a, b| a.name.cmp(&b.name));
-    Some(PromptDepartmentContext {
-        current: prompt_department_card_from_config(current_department, empty_summary),
-        available,
-    })
-}
-
 fn build_departments_prompt_block(
     _conversation: &Conversation,
-    agent: &AgentProfile,
+    current_department_id: &str,
     departments: &[DepartmentConfig],
     ui_language: &str,
 ) -> String {
@@ -2530,7 +2485,7 @@ fn build_departments_prompt_block(
     }
     let labels = department_prompt_labels(ui_language);
     let config = departments_only_config(departments);
-    let current_department = department_for_agent_id(&config, &agent.id);
+    let current_department = department_by_id(&config, current_department_id);
     let prompt_context = current_department.map(|department| PromptDepartmentContext {
         current: prompt_department_card_from_config(department, labels.empty_summary),
         available: department_direct_child_departments(&config, department)
@@ -2730,11 +2685,11 @@ fn department_builtin_tool_enabled(
 }
 
 fn build_system_tools_rule_blocks(
-    agent: &AgentProfile,
+    current_department_id: &str,
     departments: &[DepartmentConfig],
 ) -> Vec<String> {
     let department_config = departments_only_config(departments);
-    let current_department = department_for_agent_id(&department_config, &agent.id);
+    let current_department = department_by_id(&department_config, current_department_id);
     let mut blocks = Vec::<String>::new();
     let mut any_builtin_enabled = false;
     for tool_id in ["delegate", "task", "exec", "apply_patch"] {

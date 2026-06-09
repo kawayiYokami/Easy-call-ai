@@ -619,7 +619,7 @@ fn delegate_builtin_tool_unavailable_reason(
     department: Option<&DepartmentConfig>,
 ) -> Option<String> {
     let Some(department) = department else {
-        return Some("当前人格未归属部门，无法使用委托".to_string());
+        return Some("缺少当前执行部门，无法使用委托".to_string());
     };
     if !department_direct_child_ids(config, department).is_empty() {
         return None;
@@ -813,7 +813,7 @@ mod types_storage_tests {
 
         assert_eq!(
             delegate_builtin_tool_unavailable_reason(&config, None),
-            Some("当前人格未归属部门，无法使用委托".to_string())
+            Some("缺少当前执行部门，无法使用委托".to_string())
         );
 
         let mut parent = default_assistant_department("api-a");

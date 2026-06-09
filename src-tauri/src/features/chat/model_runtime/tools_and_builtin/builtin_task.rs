@@ -165,10 +165,11 @@ fn task_tool_how_from_args(args: &TaskToolArgsWire) -> Option<String> {
 async fn builtin_task(
     app_state: &AppState,
     session_id: &str,
+    model_config_id: &str,
+    executor_agent_id: &str,
     args: TaskToolArgsWire,
 ) -> Result<Value, String> {
-    let (model_config_id, executor_agent_id, bound_conversation_id) =
-        delegate_parse_session_parts(session_id);
+    let (_, _, bound_conversation_id) = delegate_parse_session_parts(session_id);
     match args.action.trim() {
         "list" => {
             let data_path = app_state.data_path.clone();
@@ -190,8 +191,8 @@ async fn builtin_task(
             runtime_context.request_id = Some(format!("task-create-{}", Uuid::new_v4()));
             runtime_context.origin_conversation_id = bound_conversation_id.clone();
             runtime_context.root_conversation_id = bound_conversation_id.clone();
-            runtime_context.executor_agent_id = runtime_context_trimmed(Some(&executor_agent_id));
-            runtime_context.model_config_id = runtime_context_trimmed(Some(&model_config_id));
+            runtime_context.executor_agent_id = runtime_context_trimmed(Some(executor_agent_id));
+            runtime_context.model_config_id = runtime_context_trimmed(Some(model_config_id));
             let target_scope = task_tool_target_scope_from_conversation(
                 app_state,
                 bound_conversation_id.as_deref(),

@@ -56,6 +56,7 @@ impl ConversationService {
         &self,
         app_state: &AppState,
         source_agent_id: &str,
+        source_department_id: Option<&str>,
         source_conversation_id: Option<&str>,
         target_department_id: &str,
     ) -> Result<DelegateContextResolution, String> {
@@ -89,18 +90,31 @@ impl ConversationService {
         } else {
             None
         };
-        let source_department = source_conversation
-            .as_ref()
-            .and_then(|conversation| {
-                let department_id = conversation.department_id.trim();
-                if department_id.is_empty() {
-                    None
-                } else {
-                    runtime_department_by_id(&runtime_snapshot, department_id).cloned()
-                }
-            })
-            .or_else(|| runtime_department_for_agent(&runtime_snapshot, source_agent_id).cloned())
-            .ok_or_else(|| format!("未找到发起部门，agentId={source_agent_id}"))?;
+        let requested_source_department_id = source_department_id
+            .map(str::trim)
+            .filter(|department_id| !department_id.is_empty());
+        let source_department = if let Some(department_id) = requested_source_department_id {
+            runtime_department_by_id(&runtime_snapshot, department_id)
+                .cloned()
+                .ok_or_else(|| {
+                    format!(
+                        "未找到发起部门，departmentId={}，agentId={}",
+                        department_id, source_agent_id
+                    )
+                })?
+        } else {
+            source_conversation
+                .as_ref()
+                .and_then(|conversation| {
+                    let department_id = conversation.department_id.trim();
+                    if department_id.is_empty() {
+                        None
+                    } else {
+                        runtime_department_by_id(&runtime_snapshot, department_id).cloned()
+                    }
+                })
+                .ok_or_else(|| format!("未找到发起部门，agentId={source_agent_id}"))?
+        };
         let target_department = runtime_department_by_id(&runtime_snapshot, target_department_id)
             .cloned()
             .ok_or_else(|| format!("目标部门不存在，departmentId={target_department_id}"))?;

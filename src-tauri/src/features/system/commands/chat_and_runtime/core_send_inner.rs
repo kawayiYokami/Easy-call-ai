@@ -927,6 +927,7 @@ title 尽量 10 个汉字以内，绝不超过 20 个字，不要引号外文本
     )
 }
 
+#[cfg(test)]
 fn parse_auto_conversation_title_probe_result(raw: &str) -> Option<String> {
     let value = parse_quick_model_json_response(raw, &["has_topic"], &["title"]).ok()?;
     parse_auto_conversation_title_probe_value(&value)
@@ -1569,7 +1570,15 @@ async fn send_chat_message_inner(
         .and_then(|s| s.department_id.as_deref())
         .map(str::trim)
         .filter(|v| !v.is_empty())
-        .map(ToOwned::to_owned);
+        .map(ToOwned::to_owned)
+        .or_else(|| {
+            runtime_context
+                .executor_department_id
+                .as_deref()
+                .map(str::trim)
+                .filter(|v| !v.is_empty())
+                .map(ToOwned::to_owned)
+        });
     let requested_api_config_id = input
         .session
         .as_ref()
@@ -1577,11 +1586,6 @@ async fn send_chat_message_inner(
         .map(str::trim)
         .filter(|v| !v.is_empty())
         .map(ToOwned::to_owned);
-    let requested_agent_id = input
-        .session
-        .as_ref()
-        .map(|s| s.agent_id.trim().to_string())
-        .filter(|v| !v.is_empty());
     let requested_conversation_id = input
         .session
         .as_ref()
@@ -1846,7 +1850,7 @@ async fn send_chat_message_inner(
         app_config,
         selected_api,
         resolved_api,
-        _effective_department_id,
+        effective_department_id,
         effective_agent_id,
         candidate_api_ids,
         runtime_main_conversation_id,
@@ -1913,47 +1917,44 @@ async fn send_chat_message_inner(
         runtime_agents = runtime_org.agents.clone();
         prepare_detail_parts.push(format!("组织运行态构建={}ms", runtime_org_ms));
         log_chat_stage("runtime_and_session_ready.runtime_org_ready");
-        let agent_resolve_started = std::time::Instant::now();
-        let effective_agent_id = if let Some(agent_id) = requested_agent_id.as_deref() {
-            if runtime_agents
-                .iter()
-                .any(|a| a.id == agent_id && !a.is_built_in_user)
-            {
-                agent_id.to_string()
-            } else {
-                return Err(format!("Selected agent '{agent_id}' not found."));
-            }
-        } else if runtime_agents
-            .iter()
-            .any(|a| a.id == assistant_department_agent_id && !a.is_built_in_user)
-        {
-            assistant_department_agent_id.clone()
-        } else {
-            runtime_agents
-                .iter()
-                .find(|a| !a.is_built_in_user)
-                .map(|a| a.id.clone())
-                .ok_or_else(|| "No assistant agent configured.".to_string())?
-        };
-        let agent_resolve_ms = agent_resolve_started
-            .elapsed()
-            .as_millis()
-            .min(u128::from(u64::MAX)) as u64;
-        prepare_detail_parts.push(format!("人格解析={}ms", agent_resolve_ms));
-        log_chat_stage("runtime_and_session_ready.agent_resolved");
         let department_resolve_started = std::time::Instant::now();
         let effective_department = if let Some(department_id) = requested_department_id.as_deref() {
             runtime_department_by_id(&runtime_org, department_id)
                 .ok_or_else(|| format!("Department '{department_id}' not found."))?
         } else {
-            runtime_department_for_agent(&runtime_org, &effective_agent_id)
+            runtime_department_by_id(&runtime_org, ASSISTANT_DEPARTMENT_ID)
                 .or_else(|| assistant_department(&app_config))
                 .ok_or_else(|| "No assistant department configured.".to_string())?
         };
-        if !effective_department
+        let effective_department_id = effective_department.id.clone();
+        let department_resolve_ms = department_resolve_started
+            .elapsed()
+            .as_millis()
+            .min(u128::from(u64::MAX)) as u64;
+        prepare_detail_parts.push(format!("部门解析={}ms", department_resolve_ms));
+        log_chat_stage("runtime_and_session_ready.department_resolved");
+        let agent_resolve_started = std::time::Instant::now();
+        let effective_agent_id = effective_department
             .agent_ids
             .iter()
-            .any(|id| id.trim() == effective_agent_id)
+            .map(|id| id.trim())
+            .find(|id| !id.is_empty())
+            .map(ToOwned::to_owned)
+            .ok_or_else(|| {
+                let department_name = effective_department.name.trim();
+                let department_name = if department_name.is_empty() {
+                    effective_department.id.as_str()
+                } else {
+                    department_name
+                };
+                format!(
+                    "部门人格配置不合法：部门“{}”（{}）未配置可用人格。",
+                    department_name, effective_department.id
+                )
+            })?;
+        if !runtime_agents
+            .iter()
+            .any(|a| a.id == effective_agent_id && !a.is_built_in_user)
         {
             let effective_agent_name = runtime_agents
                 .iter()
@@ -1975,13 +1976,12 @@ async fn send_chat_message_inner(
                 effective_agent_id
             ));
         }
-        let effective_department_id = effective_department.id.clone();
-        let department_resolve_ms = department_resolve_started
+        let agent_resolve_ms = agent_resolve_started
             .elapsed()
             .as_millis()
             .min(u128::from(u64::MAX)) as u64;
-        prepare_detail_parts.push(format!("部门解析={}ms", department_resolve_ms));
-        log_chat_stage("runtime_and_session_ready.department_resolved");
+        prepare_detail_parts.push(format!("人格解析={}ms", agent_resolve_ms));
+        log_chat_stage("runtime_and_session_ready.agent_resolved");
         let candidate_models_started = std::time::Instant::now();
         let department_model_fallback_enabled =
             department_model_failure_fallback_enabled(effective_department);
@@ -2099,10 +2099,12 @@ async fn send_chat_message_inner(
             preloaded_prepare_snapshot,
         )
     };
+    runtime_context.executor_department_id = Some(effective_department_id.clone());
+    runtime_context.executor_agent_id = Some(effective_agent_id.clone());
     log_chat_stage("runtime_and_session_ready");
 
     let chat_key = inflight_chat_key(
-        &effective_agent_id,
+        &effective_department_id,
         requested_conversation_id.as_deref(),
     );
     let (abort_handle, abort_registration) = AbortHandle::new_pair();
@@ -2123,7 +2125,7 @@ async fn send_chat_message_inner(
     let selected_api_for_log = selected_api.clone();
     let resolved_api_for_log = resolved_api.clone();
     let requested_conversation_id_for_failure_persist = requested_conversation_id.clone();
-    let requested_department_id_for_failure_persist = requested_department_id.clone();
+    let effective_department_id_for_failure_persist = effective_department_id.clone();
     let effective_agent_id_for_failure_persist = effective_agent_id.clone();
     let failure_persist_target =
         std::sync::Arc::new(std::sync::Mutex::new(None::<(String, String)>));
@@ -2354,12 +2356,12 @@ async fn send_chat_message_inner(
         log_run_stage("prepare_context.archive_summary_ready");
         log_run_stage("prepare_context.prompt_conversation_ready");
         log_run_stage("prepare_context.base_context_ready");
-        let current_agent = resolve_conversation_bound_agent(
-            &snapshot.prompt_conversation_before,
-            &snapshot.agents,
-            &app_config.departments,
-        )?
-        .clone();
+        let current_agent = snapshot
+            .agents
+            .iter()
+            .find(|agent| agent.id == effective_agent_id.as_str() && !agent.is_built_in_user)
+            .cloned()
+            .ok_or_else(|| format!("执行部门解析出的人格不可用：agent_id={effective_agent_id}"))?;
         let is_delegate_conversation =
             snapshot.prompt_conversation_before.conversation_kind.trim() == CONVERSATION_KIND_DELEGATE;
         let requested_plan_mode_enabled = get_conversation_plan_mode_enabled(
@@ -2552,7 +2554,9 @@ async fn send_chat_message_inner(
                 latest_user_message_for_title,
             );
         }
-        let conversation = trim_conversation_for_prompt_request(&storage_conversation);
+        let mut conversation = trim_conversation_for_prompt_request(&storage_conversation);
+        conversation.agent_id = effective_agent_id.clone();
+        conversation.department_id = effective_department_id.clone();
         let (latest_user_text, effective_images, effective_audios) = if trigger_only {
             (
                 conversation
@@ -2591,9 +2595,10 @@ async fn send_chat_message_inner(
                 &prepared_audios,
             )?
         };
-        let current_department = department_for_agent_id(&app_config, &current_agent.id);
+        let current_department = department_by_id(&app_config, &effective_department_id)
+            .ok_or_else(|| format!("执行部门不存在：department_id={effective_department_id}"))?;
         let todo_enabled =
-            tool_enabled(&selected_api, &current_agent, current_department, "todo");
+            tool_enabled(&selected_api, &current_agent, Some(current_department), "todo");
         let attachment_relative_paths = normalize_payload_attachments(input.payload.attachments.as_ref())
             .into_iter()
             .filter_map(|item| {
@@ -2605,6 +2610,7 @@ async fn send_chat_message_inner(
             })
             .collect::<Vec<_>>();
         let chat_overrides = ChatPromptOverrides {
+            executor_department_id: Some(effective_department_id.clone()),
             latest_user_intent: Some(LatestUserPayloadIntent::ChatRequest {
                 trigger_only,
                 submitted_user_text: latest_user_text.clone(),
@@ -2950,6 +2956,7 @@ async fn send_chat_message_inner(
                 on_delta,
                 app_config.tool_max_iterations as usize,
                 &chat_session_key,
+                Some(effective_department_id.as_str()),
                 Some(&conversation_id),
             )
             .await;
@@ -3433,7 +3440,7 @@ async fn send_chat_message_inner(
             match persist_failed_chat_completed_tool_history(
                 state,
                 failure_persist_conversation_id,
-                requested_department_id_for_failure_persist.as_deref(),
+                Some(effective_department_id_for_failure_persist.as_str()),
                 failure_persist_agent_id,
                 &chat_key,
                 err,

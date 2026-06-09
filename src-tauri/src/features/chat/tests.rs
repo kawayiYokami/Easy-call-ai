@@ -5299,7 +5299,108 @@
     }
 
     #[test]
-    fn assemble_runtime_tools_should_gate_delegate_by_session_conversation_department() {
+    fn inflight_chat_key_should_use_department_not_agent() {
+        assert_eq!(
+            inflight_chat_key("dept-a", Some("conversation-main")),
+            "dept-a::conversation-main"
+        );
+        assert_eq!(
+            inflight_chat_key("agent-a", Some("conversation-main")),
+            "agent-a::conversation-main"
+        );
+        assert_ne!(
+            inflight_chat_key("dept-a", Some("conversation-main")),
+            inflight_chat_key("agent-a", Some("conversation-main"))
+        );
+    }
+
+    #[test]
+    fn delegate_thread_chat_key_should_use_thread_department() {
+        let mut conversation = build_conversation_record(
+            "api-a",
+            "agent-a",
+            "dept-delegate",
+            "委托线程",
+            CONVERSATION_KIND_DELEGATE,
+            Some("conversation-root".to_string()),
+            Some("delegate-a".to_string()),
+        );
+        conversation.id = "delegate-a".to_string();
+        let thread = DelegateRuntimeThread {
+            delegate_id: "delegate-a".to_string(),
+            root_conversation_id: "conversation-root".to_string(),
+            target_agent_id: "agent-a".to_string(),
+            title: "委托线程".to_string(),
+            call_stack: vec!["dept-parent".to_string(), "dept-delegate".to_string()],
+            parent_chat_session_key: Some("dept-parent::conversation-root".to_string()),
+            archived_at: None,
+            conversation,
+        };
+
+        assert_eq!(
+            delegate_thread_chat_key(&thread),
+            "dept-delegate::delegate-a"
+        );
+    }
+
+    #[test]
+    fn runtime_control_should_ignore_stale_session_agent() {
+        let state = test_chat_runtime_state();
+        let mut old_agent = default_agent();
+        old_agent.id = "old-agent".to_string();
+        let mut new_agent = default_agent();
+        new_agent.id = "new-agent".to_string();
+
+        let mut department = default_assistant_department("api-a");
+        department.id = "dept-stop".to_string();
+        department.name = "停止测试部门".to_string();
+        department.is_built_in_assistant = false;
+        department.agent_ids = vec![new_agent.id.clone()];
+        let config = AppConfig {
+            departments: vec![department],
+            ..AppConfig::default()
+        };
+        write_config(&state.config_path, &config).expect("write config");
+        state_write_agents_cached(
+            &state,
+            &[old_agent.clone(), new_agent.clone(), default_user_persona()],
+        )
+        .expect("write agents");
+
+        let mut conversation = build_conversation_record(
+            "api-a",
+            &old_agent.id,
+            "dept-stop",
+            "旧人格会话",
+            CONVERSATION_KIND_CHAT,
+            None,
+            None,
+        );
+        conversation.id = "conversation-stop".to_string();
+        state_schedule_conversation_persist(&state, &conversation)
+            .expect("persist conversation");
+
+        let (department_id, agent_id) = resolve_runtime_control_department_and_agent(
+            &state,
+            Some("dept-stop"),
+            Some("conversation-stop"),
+        )
+        .expect("resolve runtime control identity");
+
+        assert_eq!(department_id, "dept-stop");
+        assert_eq!(agent_id, "new-agent");
+        assert_eq!(
+            inflight_chat_key(&department_id, Some("conversation-stop")),
+            "dept-stop::conversation-stop"
+        );
+        assert_ne!(
+            inflight_chat_key(&department_id, Some("conversation-stop")),
+            inflight_chat_key(&old_agent.id, Some("conversation-stop"))
+        );
+    }
+
+    #[test]
+    fn assemble_runtime_tools_should_gate_delegate_by_executor_department() {
         let state = test_chat_runtime_state();
         let mut shared_agent = default_agent();
         shared_agent.id = "shared-agent".to_string();
@@ -5360,6 +5461,7 @@
                 &shared_agent,
                 Some(&state),
                 &session_id,
+                Some("dept-child"),
             ))
             .expect("assemble runtime tools");
 
@@ -5449,6 +5551,7 @@
         let preflight = common_delegate_preflight(
             &state,
             &shared_agent.id,
+            None,
             Some("delegate-child"),
             "dept-grandchild",
         )
@@ -5472,6 +5575,60 @@
                 "dept-grandchild".to_string(),
             ]
         );
+    }
+
+    #[test]
+    fn common_delegate_preflight_should_prefer_explicit_source_department() {
+        let state = test_chat_runtime_state();
+        let mut shared_agent = default_agent();
+        shared_agent.id = "shared-agent-explicit-source".to_string();
+        shared_agent.name = "共享人格".to_string();
+
+        let mut parent = default_assistant_department("api-a");
+        parent.id = "dept-explicit-parent".to_string();
+        parent.name = "显式源部门".to_string();
+        parent.is_built_in_assistant = false;
+        parent.agent_ids = vec![shared_agent.id.clone()];
+        parent.child_department_ids = vec!["dept-explicit-child".to_string()];
+
+        let mut child = default_assistant_department("api-a");
+        child.id = "dept-explicit-child".to_string();
+        child.name = "会话原部门".to_string();
+        child.is_built_in_assistant = false;
+        child.agent_ids = vec![shared_agent.id.clone()];
+        child.child_department_ids = Vec::new();
+
+        let config = AppConfig {
+            departments: vec![parent, child],
+            ..AppConfig::default()
+        };
+        write_config(&state.config_path, &config).expect("write config");
+        state_write_agents_cached(&state, &[shared_agent.clone(), default_user_persona()])
+            .expect("write agents");
+
+        let conversation = build_conversation_record(
+            "api-a",
+            &shared_agent.id,
+            "dept-explicit-child",
+            "会话部门不是执行部门",
+            CONVERSATION_KIND_CHAT,
+            None,
+            None,
+        );
+        state_schedule_conversation_persist(&state, &conversation)
+            .expect("persist conversation");
+
+        let preflight = common_delegate_preflight(
+            &state,
+            &shared_agent.id,
+            Some("dept-explicit-parent"),
+            Some(&conversation.id),
+            "dept-explicit-child",
+        )
+        .expect("resolve delegate preflight");
+
+        assert_eq!(preflight.source_department.id, "dept-explicit-parent");
+        assert_eq!(preflight.target_department.id, "dept-explicit-child");
     }
 
     #[test]
@@ -5528,6 +5685,7 @@
         let preflight = common_delegate_preflight(
             &state,
             &source_agent.id,
+            None,
             Some(&conversation.id),
             "dept-target",
         )
@@ -5604,6 +5762,7 @@
         let preflight = common_delegate_preflight(
             &state,
             &parent_agent.id,
+            None,
             Some(&conversation.id),
             "dept-private",
         )
@@ -6011,8 +6170,8 @@
             None,
         );
         let mentions = vec![UserMentionTargetInput {
-            agent_id: target_agent.id.clone(),
-            agent_name: Some(target_agent.name.clone()),
+            agent_id: "forged-agent".to_string(),
+            agent_name: Some("伪造人格".to_string()),
             department_id: "dept-target".to_string(),
             department_name: Some("目标部门".to_string()),
         }];
@@ -6032,6 +6191,7 @@
         assert!(failures.is_empty());
         assert_eq!(plans[0].target_department_id, "dept-target");
         assert_eq!(plans[0].target_agent_id, "target-agent");
+        assert_eq!(plans[0].target_agent_name, "被@人格");
     }
 
     #[test]
@@ -6065,7 +6225,7 @@
 
         let block = build_departments_prompt_block(
             &conversation,
-            &agent,
+            "dept-parent",
             &[parent, child],
             "zh-CN",
         );
@@ -6075,6 +6235,184 @@
         assert!(!block.contains("部门概述：当任务需要总控时叫我"));
         assert!(block.contains("同人格子部门"));
         assert!(block.contains("概述：当任务需要专项摸底时叫我"));
+    }
+
+    #[test]
+    fn department_prompt_cache_should_include_executor_department_id() {
+        let mut agent = default_agent();
+        agent.id = "shared-agent-cache".to_string();
+        agent.name = "共享人格".to_string();
+        let conversation = build_conversation_record(
+            "api-a",
+            &agent.id,
+            "dept-alpha",
+            "缓存测试会话",
+            CONVERSATION_KIND_CHAT,
+            None,
+            None,
+        );
+
+        let mut alpha = default_assistant_department("api-a");
+        alpha.id = "dept-alpha".to_string();
+        alpha.name = "Alpha 部门".to_string();
+        alpha.guide = "Alpha 专属指南".to_string();
+        alpha.is_built_in_assistant = false;
+        alpha.agent_ids = vec![agent.id.clone()];
+
+        let mut beta = default_assistant_department("api-a");
+        beta.id = "dept-beta".to_string();
+        beta.name = "Beta 部门".to_string();
+        beta.guide = "Beta 专属指南".to_string();
+        beta.is_built_in_assistant = false;
+        beta.agent_ids = vec![agent.id.clone()];
+
+        let departments = vec![alpha.clone(), beta.clone()];
+        let alpha_snapshot = get_or_build_department_system_prompt_snapshot(
+            None,
+            &conversation,
+            &agent,
+            &departments,
+            "dept-alpha",
+            "zh-CN",
+        );
+        let beta_snapshot = get_or_build_department_system_prompt_snapshot(
+            None,
+            &conversation,
+            &agent,
+            &departments,
+            "dept-beta",
+            "zh-CN",
+        );
+
+        assert!(alpha_snapshot
+            .department_prompt_block
+            .contains("Alpha 专属指南"));
+        assert!(!alpha_snapshot
+            .department_prompt_block
+            .contains("Beta 专属指南"));
+        assert!(beta_snapshot
+            .department_prompt_block
+            .contains("Beta 专属指南"));
+        assert!(!beta_snapshot
+            .department_prompt_block
+            .contains("Alpha 专属指南"));
+    }
+
+    #[test]
+    fn final_system_prompt_cache_should_include_executor_department_id() {
+        let mut agent = default_agent();
+        agent.id = "shared-agent-final-cache".to_string();
+        agent.name = "共享人格".to_string();
+        agent.system_prompt = "人格系统提示词".to_string();
+        let user = default_user_persona();
+        let conversation = build_conversation_record(
+            "api-a",
+            &agent.id,
+            "dept-alpha-final",
+            "最终提示词缓存测试",
+            CONVERSATION_KIND_CHAT,
+            None,
+            None,
+        );
+
+        let mut alpha = default_assistant_department("api-a");
+        alpha.id = "dept-alpha-final".to_string();
+        alpha.name = "Alpha 最终部门".to_string();
+        alpha.guide = "Alpha 最终指南".to_string();
+        alpha.is_built_in_assistant = false;
+        alpha.agent_ids = vec![agent.id.clone()];
+
+        let mut beta = default_assistant_department("api-a");
+        beta.id = "dept-beta-final".to_string();
+        beta.name = "Beta 最终部门".to_string();
+        beta.guide = "Beta 最终指南".to_string();
+        beta.is_built_in_assistant = false;
+        beta.agent_ids = vec![agent.id.clone()];
+
+        let departments = vec![alpha.clone(), beta.clone()];
+        let agents = vec![agent.clone(), user];
+        let selected_api = ApiConfig::default();
+
+        let alpha_prepared = build_prepared_prompt_for_mode(
+            PromptBuildMode::Chat,
+            &conversation,
+            &agent,
+            &agents,
+            &departments,
+            "用户",
+            "",
+            DEFAULT_RESPONSE_STYLE_ID,
+            "zh-CN",
+            None,
+            None,
+            None,
+            Some(ChatPromptOverrides {
+                executor_department_id: Some("dept-alpha-final".to_string()),
+                ..Default::default()
+            }),
+            None,
+            Some(&selected_api),
+            None,
+            Some(false),
+        );
+        let beta_prepared = build_prepared_prompt_for_mode(
+            PromptBuildMode::Chat,
+            &conversation,
+            &agent,
+            &agents,
+            &departments,
+            "用户",
+            "",
+            DEFAULT_RESPONSE_STYLE_ID,
+            "zh-CN",
+            None,
+            None,
+            None,
+            Some(ChatPromptOverrides {
+                executor_department_id: Some("dept-beta-final".to_string()),
+                ..Default::default()
+            }),
+            None,
+            Some(&selected_api),
+            None,
+            Some(false),
+        );
+
+        assert!(alpha_prepared.preamble.contains("Alpha 最终指南"));
+        assert!(!alpha_prepared.preamble.contains("Beta 最终指南"));
+        assert!(beta_prepared.preamble.contains("Beta 最终指南"));
+        assert!(!beta_prepared.preamble.contains("Alpha 最终指南"));
+    }
+
+    #[test]
+    fn system_tool_rules_should_use_executor_department_not_shared_agent() {
+        let mut agent = default_agent();
+        agent.id = "shared-agent-tools".to_string();
+
+        let mut parent = default_assistant_department("api-a");
+        parent.id = "dept-tool-parent".to_string();
+        parent.name = "工具父部门".to_string();
+        parent.is_built_in_assistant = false;
+        parent.agent_ids = vec![agent.id.clone()];
+        parent.child_department_ids = vec!["dept-tool-child".to_string()];
+
+        let mut child = default_assistant_department("api-a");
+        child.id = "dept-tool-child".to_string();
+        child.name = "工具子部门".to_string();
+        child.is_built_in_assistant = false;
+        child.agent_ids = vec![agent.id.clone()];
+        child.child_department_ids = Vec::new();
+
+        let departments = vec![parent, child];
+        let parent_rules = build_system_tools_rule_blocks("dept-tool-parent", &departments);
+        let child_rules = build_system_tools_rule_blocks("dept-tool-child", &departments);
+
+        assert!(parent_rules
+            .iter()
+            .any(|block| block.contains("<delegate tool rule>")));
+        assert!(!child_rules
+            .iter()
+            .any(|block| block.contains("<delegate tool rule>")));
     }
 
     #[test]

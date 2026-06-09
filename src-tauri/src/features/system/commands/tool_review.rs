@@ -1702,6 +1702,11 @@ async fn submit_tool_review_code_internal(
     } else {
         conversation.agent_id.trim().to_string()
     };
+    let source_department_id = if conversation.department_id.trim().is_empty() {
+        ASSISTANT_DEPARTMENT_ID.to_string()
+    } else {
+        conversation.department_id.trim().to_string()
+    };
     let requested_department_id = input
         .department_id
         .as_deref()
@@ -1740,6 +1745,7 @@ async fn submit_tool_review_code_internal(
     let scope_owned = scope.to_string();
     let target_owned = if target_text.trim().is_empty() { None } else { Some(target_text.clone()) };
     let source_agent_id_owned = source_agent_id.clone();
+    let source_department_id_owned = source_department_id.clone();
     let target_department_id_owned = target_department_id.clone();
     tauri::async_runtime::spawn(async move {
         runtime_log_info(format!(
@@ -1793,7 +1799,15 @@ async fn submit_tool_review_code_internal(
             source_agent_id_owned,
             target_department_id_owned
         ));
-        let delegate_result = match delegate_execute_sync(&app_state, &session_id, delegate_args).await {
+        let delegate_result = match delegate_execute_sync(
+            &app_state,
+            &session_id,
+            Some(source_agent_id_owned.as_str()),
+            Some(source_department_id_owned.as_str()),
+            delegate_args,
+        )
+        .await
+        {
             Ok(result) => result,
             Err(err) => {
                 let _ = tool_review_update_report_record(

@@ -134,8 +134,12 @@ fn prompt_cache_scope_key(state: Option<&AppState>) -> String {
         .unwrap_or_else(|| "<global>".to_string())
 }
 
-fn department_id_for_agent(departments: &[DepartmentConfig], agent_id: &str) -> String {
-    department_for_agent_id(&departments_only_config(departments), agent_id)
+fn normalize_executor_department_id(departments: &[DepartmentConfig], department_id: &str) -> String {
+    let trimmed = department_id.trim();
+    if trimmed.is_empty() {
+        return String::new();
+    }
+    department_by_id(&departments_only_config(departments), trimmed)
         .map(|item| item.id.trim().to_string())
         .unwrap_or_default()
 }
@@ -143,11 +147,13 @@ fn department_id_for_agent(departments: &[DepartmentConfig], agent_id: &str) -> 
 fn build_department_system_prompt_cache_key(
     state: Option<&AppState>,
     agent: &AgentProfile,
+    executor_department_id: &str,
     ui_language: &str,
 ) -> String {
     format!(
-        "scope={}|agent={}|ui={}",
+        "scope={}|department={}|agent={}|ui={}",
         prompt_cache_scope_key(state),
+        executor_department_id.trim(),
         agent.id.trim(),
         ui_language.trim(),
     )
@@ -156,13 +162,19 @@ fn build_department_system_prompt_cache_key(
 fn build_department_system_prompt_snapshot_uncached(
     _state: Option<&AppState>,
     conversation: &Conversation,
-    agent: &AgentProfile,
+    _agent: &AgentProfile,
     departments: &[DepartmentConfig],
+    executor_department_id: &str,
     ui_language: &str,
 ) -> DepartmentSystemPromptSnapshot {
-    let department_prompt_block =
-        build_departments_prompt_block(conversation, agent, departments, ui_language);
-    let department_tool_rule_blocks = build_system_tools_rule_blocks(agent, departments);
+    let department_prompt_block = build_departments_prompt_block(
+        conversation,
+        executor_department_id,
+        departments,
+        ui_language,
+    );
+    let department_tool_rule_blocks =
+        build_system_tools_rule_blocks(executor_department_id, departments);
     DepartmentSystemPromptSnapshot {
         department_prompt_block,
         department_tool_rule_blocks,
@@ -174,9 +186,12 @@ fn get_or_build_department_system_prompt_snapshot(
     conversation: &Conversation,
     agent: &AgentProfile,
     departments: &[DepartmentConfig],
+    executor_department_id: &str,
     ui_language: &str,
 ) -> DepartmentSystemPromptSnapshot {
-    let cache_key = build_department_system_prompt_cache_key(state, agent, ui_language);
+    let department_id = normalize_executor_department_id(departments, executor_department_id);
+    let cache_key =
+        build_department_system_prompt_cache_key(state, agent, &department_id, ui_language);
     let mut rebuild_reason = "cache_miss";
     {
         let cache = cache_lock_recover(
@@ -195,7 +210,7 @@ fn get_or_build_department_system_prompt_snapshot(
     }
     runtime_log_info(format!(
         "[部门提示词] 开始重建 department_id={} reason={}",
-        department_id_for_agent(departments, &agent.id),
+        department_id,
         rebuild_reason
     ));
     let snapshot = build_department_system_prompt_snapshot_uncached(
@@ -203,6 +218,7 @@ fn get_or_build_department_system_prompt_snapshot(
         conversation,
         agent,
         departments,
+        &department_id,
         ui_language,
     );
     let mut cache = cache_lock_recover(
@@ -213,7 +229,7 @@ fn get_or_build_department_system_prompt_snapshot(
         cache_key,
         DepartmentSystemPromptCacheEntry {
             agent_id: agent.id.trim().to_string(),
-            department_id: department_id_for_agent(departments, &agent.id),
+            department_id,
             snapshot: snapshot.clone(),
             dirty_reason: None,
         },
@@ -527,6 +543,7 @@ fn finalize_system_prompt_with_manager(
         user_profile_memory_block,
         terminal_block,
         &ChatPromptOverrides {
+            executor_department_id: Some(conversation.department_id.trim().to_string()),
             latest_user_intent: None,
             todo_tool_enabled: false,
             remote_im_activation_sources: Vec::new(),

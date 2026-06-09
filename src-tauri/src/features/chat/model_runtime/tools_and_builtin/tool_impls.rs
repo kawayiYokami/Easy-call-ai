@@ -516,6 +516,8 @@ struct BuiltinPlanTool {
 struct BuiltinTaskTool {
     app_state: AppState,
     session_id: String,
+    api_config_id: String,
+    executor_agent_id: String,
 }
 
 #[derive(Debug, Clone)]
@@ -649,7 +651,13 @@ impl RuntimeJsonTool for BuiltinTaskTool {
             "[TOOL-DEBUG] execute_builtin_tool.start name=task args={}",
             debug_value_snippet(&serde_json::to_value(&args).unwrap_or(Value::Null), 240)
         ));
-        let result = builtin_task(&self.app_state, &self.session_id, args)
+        let result = builtin_task(
+            &self.app_state,
+            &self.session_id,
+            &self.api_config_id,
+            &self.executor_agent_id,
+            args,
+        )
             .await
             .map_err(ToolInvokeError::from);
         match &result {
@@ -668,6 +676,8 @@ impl RuntimeJsonTool for BuiltinTaskTool {
 struct BuiltinDelegateTool {
     app_state: AppState,
     session_id: String,
+    source_agent_id: String,
+    source_department_id: String,
 }
 
 impl RuntimeToolMetadata for BuiltinDelegateTool {
@@ -701,7 +711,13 @@ impl RuntimeJsonTool for BuiltinDelegateTool {
             "[TOOL-DEBUG] execute_builtin_tool.start name=delegate args={}",
             debug_value_snippet(&serde_json::to_value(&args).unwrap_or(Value::Null), 240)
         ));
-        let result = builtin_delegate(&self.app_state, &self.session_id, args)
+        let result = builtin_delegate(
+            &self.app_state,
+            &self.session_id,
+            Some(self.source_agent_id.as_str()),
+            Some(self.source_department_id.as_str()),
+            args,
+        )
             .await
             .map_err(ToolInvokeError::from);
         match &result {

@@ -544,6 +544,7 @@ async fn summarize_archived_conversation_with_model_v2(
         None,
         None,
         Some(ChatPromptOverrides {
+            executor_department_id: Some(source_conversation.department_id.trim().to_string()),
             latest_user_intent: Some(LatestUserPayloadIntent::SummaryContext {
                 scene,
                 user_alias: user_alias.to_string(),

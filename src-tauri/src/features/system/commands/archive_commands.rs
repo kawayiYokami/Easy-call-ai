@@ -101,7 +101,10 @@ async fn get_prompt_preview(
             Some(&state.data_path),
             last_archive_summary.as_deref(),
             None,
-            Some(ChatPromptOverrides::default()),
+            Some(ChatPromptOverrides {
+                executor_department_id: Some(conversation.department_id.trim().to_string()),
+                ..Default::default()
+            }),
             Some(&*state),
             Some(&api_config),
             Some(&resolved_api),
@@ -130,6 +133,7 @@ async fn get_prompt_preview(
                 last_archive_summary.as_deref(),
                 None,
                 Some(ChatPromptOverrides {
+                    executor_department_id: Some(conversation.department_id.trim().to_string()),
                     latest_user_intent: Some(LatestUserPayloadIntent::SummaryContext {
                         scene: if preview_mode == PromptPreviewMode::Compaction {
                             SummaryContextScene::Compaction

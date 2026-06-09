@@ -690,7 +690,17 @@ fn resolve_chat_tool_session_id(
         return Err(format!("Selected agent '{agent}' not found."));
     }
 
-    let session_id = inflight_chat_key(agent, conversation_id);
+    let department_id = conversation_id
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .and_then(|conversation_id| state_read_conversation_cached(state, conversation_id).ok())
+        .and_then(|conversation| {
+            let department_id = conversation.department_id.trim();
+            (!department_id.is_empty()).then(|| department_id.to_string())
+        })
+        .or_else(|| department_for_agent_id(&config, agent).map(|department| department.id.clone()))
+        .unwrap_or_else(|| agent.to_string());
+    let session_id = inflight_chat_key(&department_id, conversation_id);
     Ok(normalize_terminal_tool_session_id(&session_id))
 }
 

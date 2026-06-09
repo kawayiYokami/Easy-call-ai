@@ -7,6 +7,7 @@ enum PromptBuildMode {
 
 #[derive(Debug, Clone, Default)]
 struct ChatPromptOverrides {
+    executor_department_id: Option<String>,
     latest_user_intent: Option<LatestUserPayloadIntent>,
     // 会话主链不允许外部直接注入系统侧块；系统提示词相关块必须由提示词服务内部生成。
     todo_tool_enabled: bool,
@@ -841,6 +842,7 @@ mod prompt_assembly_tests {
         let cache_key = build_department_system_prompt_cache_key(
             Some(&state),
             &agent,
+            &conversation.department_id,
             "zh-CN",
         );
         {
@@ -1161,6 +1163,7 @@ mod prompt_assembly_tests {
         let cache_key = build_department_system_prompt_cache_key(
             Some(&state),
             &agent,
+            &conversation.department_id,
             "zh-CN",
         );
         let _ = finalize_system_prompt_with_manager(

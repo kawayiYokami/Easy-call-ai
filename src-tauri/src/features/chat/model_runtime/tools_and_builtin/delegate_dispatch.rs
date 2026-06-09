@@ -1,6 +1,7 @@
 fn delegate_resolve_context(
     app_state: &AppState,
     source_agent_id: &str,
+    source_department_id: Option<&str>,
     source_conversation_id: Option<&str>,
     target_department_id: &str,
 ) -> Result<
@@ -18,6 +19,7 @@ fn delegate_resolve_context(
     let resolved = conversation_service().resolve_delegate_context(
         app_state,
         source_agent_id,
+        source_department_id,
         source_conversation_id,
         target_department_id,
     )?;
@@ -195,6 +197,7 @@ struct DelegatePreflight {
 fn common_delegate_preflight(
     app_state: &AppState,
     source_agent_id: &str,
+    source_department_id: Option<&str>,
     source_conversation_id: Option<&str>,
     target_department_id: &str,
 ) -> Result<DelegatePreflight, String> {
@@ -202,6 +205,7 @@ fn common_delegate_preflight(
         delegate_resolve_context(
             app_state,
             source_agent_id,
+            source_department_id,
             source_conversation_id,
             target_department_id,
         )?;
@@ -400,16 +404,24 @@ fn resolve_delegate_call_stack(
 async fn builtin_delegate(
     app_state: &AppState,
     session_id: &str,
+    source_agent_id: Option<&str>,
+    source_department_id: Option<&str>,
     args: DelegateToolArgs,
 ) -> Result<Value, String> {
     let validated = match validate_delegate_args(&args) {
         Ok(value) => value,
         Err(err) => return Ok(delegate_failed_result(err)),
     };
-    let (_, source_agent_id, source_conversation_id) = delegate_parse_session_parts(session_id);
+    let (_, session_agent_id, source_conversation_id) = delegate_parse_session_parts(session_id);
+    let source_agent_id = source_agent_id
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToOwned::to_owned)
+        .unwrap_or(session_agent_id);
     let preflight = match common_delegate_preflight(
         app_state,
         &source_agent_id,
+        source_department_id,
         source_conversation_id.as_deref(),
         &validated.target_department_id,
     ) {
@@ -420,7 +432,14 @@ async fn builtin_delegate(
         return Ok(delegate_failed_result(err));
     }
     if validated.mode == DelegateMode::Sync {
-        return delegate_execute_sync(app_state, session_id, args).await;
+        return delegate_execute_sync(
+            app_state,
+            session_id,
+            Some(source_agent_id.as_str()),
+            source_department_id,
+            args,
+        )
+        .await;
     }
 
     if preflight.current_thread.is_some() {
@@ -489,16 +508,24 @@ async fn builtin_delegate(
 async fn delegate_execute_sync(
     app_state: &AppState,
     session_id: &str,
+    source_agent_id: Option<&str>,
+    source_department_id: Option<&str>,
     args: DelegateToolArgs,
 ) -> Result<Value, String> {
     let validated = match validate_delegate_args(&args) {
         Ok(value) => value,
         Err(err) => return Ok(delegate_failed_result(err)),
     };
-    let (_, source_agent_id, source_conversation_id) = delegate_parse_session_parts(session_id);
+    let (_, session_agent_id, source_conversation_id) = delegate_parse_session_parts(session_id);
+    let source_agent_id = source_agent_id
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToOwned::to_owned)
+        .unwrap_or(session_agent_id);
     let preflight = match common_delegate_preflight(
         app_state,
         &source_agent_id,
+        source_department_id,
         source_conversation_id.as_deref(),
         &validated.target_department_id,
     ) {

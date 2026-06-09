@@ -644,10 +644,15 @@ impl ConversationPromptService {
             conversation,
             agent,
             departments,
+            chat_overrides
+                .and_then(|overrides| overrides.executor_department_id.as_deref())
+                .unwrap_or_default(),
             ui_language,
         );
         let department_config = departments_only_config(departments);
-        let current_department = department_for_agent_id(&department_config, &agent.id);
+        let current_department = chat_overrides
+            .and_then(|overrides| overrides.executor_department_id.as_deref())
+            .and_then(|department_id| department_by_id(&department_config, department_id));
         let mut tool_rule_blocks = Vec::<String>::new();
         tool_rule_blocks.push(build_memory_rag_rule_block());
         let mut deferred_tool_blocks = Vec::<String>::new();
@@ -794,7 +799,7 @@ impl ConversationPromptService {
         mode: PromptBuildMode,
         state: Option<&AppState>,
         conversation: &Conversation,
-        agent: &AgentProfile,
+        _agent: &AgentProfile,
         departments: &[DepartmentConfig],
         ui_language: &str,
         overrides: &ChatPromptOverrides,
@@ -803,11 +808,16 @@ impl ConversationPromptService {
         let mut blocks = Vec::<String>::new();
         if let Some(state) = state {
             let department_config = departments_only_config(departments);
-            let current_department = department_for_agent_id(&department_config, &agent.id);
-            blocks.push(build_hidden_skill_snapshot_block_for_department(
-                state,
-                current_department,
-            ));
+            if let Some(current_department) = overrides
+                .executor_department_id
+                .as_deref()
+                .and_then(|department_id| department_by_id(&department_config, department_id))
+            {
+                blocks.push(build_hidden_skill_snapshot_block_for_department(
+                    state,
+                    Some(current_department),
+                ));
+            }
             if let Some(log_stage) = stage_logger {
                 log_stage("prepare_context.skill_snapshot_ready");
             }
@@ -1037,10 +1047,18 @@ impl ConversationPromptService {
         overrides: &ChatPromptOverrides,
         stage_logger: Option<&dyn Fn(&str)>,
     ) -> String {
+        let department_id = normalize_executor_department_id(
+            departments,
+            overrides
+                .executor_department_id
+                .as_deref()
+                .unwrap_or_default(),
+        );
         let final_cache_key = format!(
-            "scope={}|conversation_id={}|agent={}",
+            "scope={}|conversation_id={}|department={}|agent={}",
             prompt_cache_scope_key(state),
             conversation.id.trim(),
+            department_id,
             agent.id.trim(),
         );
         let mut rebuild_reason = "cache_miss";
@@ -1056,7 +1074,6 @@ impl ConversationPromptService {
                 rebuild_reason = entry.dirty_state.rebuild_reason();
             }
         }
-        let department_id = department_id_for_agent(departments, &agent.id);
         runtime_log_info(format!(
             "[系统提示词] 开始重建 conversation_id={} agent_id={} department_id={} reason={}",
             conversation.id.trim(),

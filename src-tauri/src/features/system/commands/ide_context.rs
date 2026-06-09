@@ -1528,11 +1528,12 @@ fn ide_chat_stop_conversation(state: &AppState, params: Value) -> Result<Value, 
         return Err("conversationId is required".to_string());
     }
     let conversation = state_read_conversation_cached(state, conversation_id)?;
-    let agent_id = conversation.agent_id.trim().to_string();
-    if agent_id.is_empty() {
-        return Err("Missing session.agentId".to_string());
-    }
-    let chat_key = inflight_chat_key(&agent_id, Some(conversation_id));
+    let (department_id, agent_id) = resolve_runtime_control_department_and_agent(
+        state,
+        Some(conversation.department_id.as_str()),
+        Some(conversation_id),
+    )?;
+    let chat_key = inflight_chat_key(&department_id, Some(conversation_id));
     let aborted_chat = {
         let mut inflight = state
             .inflight_chat_abort_handles
@@ -1584,7 +1585,7 @@ fn ide_chat_stop_conversation(state: &AppState, params: Value) -> Result<Value, 
         let result = conversation_service().persist_stop_chat_partial_message(
             state,
             Some(conversation_id),
-            Some(conversation.department_id.as_str()),
+            Some(department_id.as_str()),
             &agent_id,
             &partial_assistant_text,
             &partial_activity_text,

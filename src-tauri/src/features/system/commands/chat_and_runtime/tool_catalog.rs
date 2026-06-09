@@ -89,6 +89,8 @@ async fn builtin_tool_definitions_for_frontend(
             BuiltinTaskTool {
                 app_state: state.clone(),
                 session_id: preview_session_id.clone(),
+                api_config_id: String::new(),
+                executor_agent_id: String::new(),
             }
             .provider_tool_definition(),
         ),
@@ -96,6 +98,8 @@ async fn builtin_tool_definitions_for_frontend(
             BuiltinDelegateTool {
                 app_state: state.clone(),
                 session_id: preview_session_id,
+                source_agent_id: String::new(),
+                source_department_id: String::new(),
             }
             .provider_tool_definition(),
         ),

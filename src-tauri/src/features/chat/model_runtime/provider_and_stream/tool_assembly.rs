@@ -162,11 +162,15 @@ fn build_global_tool_schema_cache(state: &AppState) -> Vec<ProviderToolDefinitio
         BuiltinTaskTool {
             app_state: state.clone(),
             session_id: preview_session_id.clone(),
+            api_config_id: String::new(),
+            executor_agent_id: preview_agent_id.clone(),
         }
         .provider_tool_definition(),
         BuiltinDelegateTool {
             app_state: state.clone(),
             session_id: preview_session_id.clone(),
+            source_agent_id: preview_agent_id,
+            source_department_id: String::new(),
         }
         .provider_tool_definition(),
         BuiltinMemeTool { app_state: state.clone() }.provider_tool_definition(),
@@ -237,31 +241,12 @@ fn read_global_tool_schema_cache(_state: Option<&AppState>) -> Vec<ProviderToolD
 
 fn resolve_runtime_tool_current_department<'a>(
     app_config: &'a AppConfig,
-    app_state: Option<&AppState>,
-    agent: &AgentProfile,
-    tool_session_id: &str,
+    executor_department_id: Option<&str>,
 ) -> Option<&'a DepartmentConfig> {
-    let conversation_department_id = app_state.and_then(|state| {
-        let (_, _, conversation_id) = delegate_parse_session_parts(tool_session_id);
-        let conversation_id = conversation_id?;
-        if let Ok(Some(conversation)) = delegate_runtime_thread_conversation_get(&state, &conversation_id) {
-            let department_id = conversation.department_id.trim();
-            if !department_id.is_empty() {
-                return Some(department_id.to_string());
-            }
-        }
-        let conversation = state_read_conversation_cached(state, &conversation_id).ok()?;
-        let department_id = conversation.department_id.trim();
-        if department_id.is_empty() {
-            None
-        } else {
-            Some(department_id.to_string())
-        }
-    });
-    conversation_department_id
-        .as_deref()
+    executor_department_id
+        .map(str::trim)
+        .filter(|department_id| !department_id.is_empty())
         .and_then(|department_id| department_by_id(app_config, department_id))
-        .or_else(|| department_for_agent_id(app_config, &agent.id))
 }
 
 async fn assemble_runtime_tools(
@@ -270,9 +255,10 @@ async fn assemble_runtime_tools(
     agent: &AgentProfile,
     app_state: Option<&AppState>,
     tool_session_id: &str,
+    executor_department_id: Option<&str>,
 ) -> Result<RuntimeToolAssembly, String> {
     let current_department =
-        resolve_runtime_tool_current_department(app_config, app_state, agent, tool_session_id);
+        resolve_runtime_tool_current_department(app_config, executor_department_id);
     let delegate_unavailable_reason =
         delegate_builtin_tool_unavailable_reason(app_config, current_department);
     let tool_definitions = read_global_tool_schema_cache(app_state)
@@ -304,6 +290,7 @@ async fn assemble_runtime_tools(
             tool_session_id,
             delegate_unavailable_reason.is_none(),
             selected_api.enable_image,
+            executor_department_id,
         )?;
     }
     Ok(RuntimeToolAssembly {
@@ -322,6 +309,7 @@ fn push_runtime_tool_executors(
     tool_session_id: &str,
     enable_delegate: bool,
     model_supports_image: bool,
+    executor_department_id: Option<&str>,
 ) -> Result<(), String> {
     let state = app_state
         .ok_or_else(|| "runtime tool execution requires app state".to_string())?
@@ -365,11 +353,19 @@ fn push_runtime_tool_executors(
     tools.push(Box::new(BuiltinTaskTool {
         app_state: state.clone(),
         session_id: tool_session_id.to_string(),
+        api_config_id: api_config_id.to_string(),
+        executor_agent_id: agent.id.trim().to_string(),
     }));
     if enable_delegate {
         tools.push(Box::new(BuiltinDelegateTool {
             app_state: state.clone(),
             session_id: tool_session_id.to_string(),
+            source_agent_id: agent.id.trim().to_string(),
+            source_department_id: executor_department_id
+                .map(str::trim)
+                .filter(|department_id| !department_id.is_empty())
+                .unwrap_or_default()
+                .to_string(),
         }));
     }
     tools.push(Box::new(BuiltinMemeTool { app_state: state.clone() }));
