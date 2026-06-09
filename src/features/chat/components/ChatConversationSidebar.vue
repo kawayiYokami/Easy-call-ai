@@ -70,6 +70,7 @@
               :count="section.items.length"
               :model-value="isConversationSectionCollapsed(section.key)"
               @update:model-value="toggleConversationSection(section.key)"
+              @collapse-all="collapseAllConversationSections"
               @after-enter="scheduleConversationListScrollbarUpdate"
               @after-leave="scheduleConversationListScrollbarUpdate"
             >
@@ -80,12 +81,13 @@
                 class="btn btn-ghost btn-xs ml-auto h-6 min-h-6 w-6 min-w-6 shrink-0 p-0 text-base-content opacity-0 transition-opacity group-hover/section:opacity-100"
                 :title="t('chat.newConversation')"
                 @click.stop="createConversationInSection(section)"
+                @dblclick.stop
               >
                 <SquarePen class="h-3.5 w-3.5" />
               </button>
             </template>
             <div
-              v-for="(item, itemIndex) in section.items"
+              v-for="item in section.items"
               :key="item.conversationId"
               class="group relative mx-1"
             >
@@ -156,32 +158,16 @@
                           <span class="conversation-time-label text-[11px] text-base-content/60">
                             {{ formatConversationTime(item.updatedAt) }}
                           </span>
-                          <div
+                          <FloatingConversationMenu
                             v-if="shouldShowConversationMenu(item) && !isEditingTitle(item)"
-                            class="dropdown dropdown-end"
-                            :class="conversationMenuPlacementClass(itemIndex, section.items.length)"
+                            :title="t('common.more')"
                           >
-                            <button
-                              type="button"
-                              tabindex="0"
-                              class="btn btn-ghost btn-xs h-6 min-h-6 w-6 min-w-6 p-0 text-base-content/55 opacity-0 pointer-events-none transition-opacity group-hover:opacity-100 group-hover:pointer-events-auto group-focus-within:opacity-100 group-focus-within:pointer-events-auto hover:text-base-content"
-                              :title="t('common.more')"
-                              @click.stop
-                              @mousedown.stop
-                            >
-                              <Ellipsis class="h-3.5 w-3.5" />
-                            </button>
-                            <ul
-                              tabindex="0"
-                              class="menu dropdown-content z-60 mt-2 w-40 rounded-box border border-base-300 bg-base-100 p-1 shadow-xl"
-                              @click.stop
-                              @mousedown.stop
-                            >
+                            <template #default="{ close }">
                               <li v-if="!item.isSystemNotificationConversation">
                                 <button
                                   type="button"
                                   :disabled="!canToggleConversationPin(item)"
-                                  @click.stop="toggleConversationPin(item)"
+                                  @click.stop="close(); toggleConversationPin(item)"
                                 >
                                   <PinOff v-if="item.isPinned" class="h-4 w-4" />
                                   <Pin v-else class="h-4 w-4" />
@@ -192,7 +178,7 @@
                                 <button
                                   type="button"
                                   :disabled="!canRenameConversation(item)"
-                                  @click.stop="startConversationTitleEdit(item)"
+                                  @click.stop="close(); startConversationTitleEdit(item)"
                                 >
                                   <PencilLine class="h-4 w-4" />
                                   <span>{{ t("common.rename") }}</span>
@@ -202,7 +188,7 @@
                                 <button
                                   type="button"
                                   :disabled="!canExportConversation(item)"
-                                  @click.stop="requestConversationExport(item)"
+                                  @click.stop="close(); requestConversationExport(item)"
                                 >
                                   <Upload class="h-4 w-4" />
                                   <span>{{ t("chat.exportConversation") }}</span>
@@ -213,14 +199,14 @@
                                   type="button"
                                   :disabled="!canRunArchiveMenuAction(item)"
                                   class="text-error"
-                                  @click.stop="requestConversationArchive(item)"
+                                  @click.stop="close(); requestConversationArchive(item)"
                                 >
                                   <Trash2 class="h-4 w-4" />
                                   <span>{{ archiveMenuActionTitle(item) }}</span>
                                 </button>
                               </li>
-                            </ul>
-                          </div>
+                            </template>
+                          </FloatingConversationMenu>
                         </div>
                       </div>
 
@@ -262,8 +248,9 @@
 <script setup lang="ts">
 import { computed, nextTick, ref, watch, watchEffect } from "vue";
 import { useI18n } from "vue-i18n";
-import { Ellipsis, PencilLine, Pin, PinOff, Search, SquarePen, Trash2, Upload } from "@lucide/vue";
+import { PencilLine, Pin, PinOff, Search, SquarePen, Trash2, Upload } from "@lucide/vue";
 import CollapsibleGroup from "./CollapsibleGroup.vue";
+import FloatingConversationMenu from "./FloatingConversationMenu.vue";
 import type { ChatConversationOverviewItem, ConversationPreviewMessage } from "../../../types/app";
 import type { TaskEntry } from "../../config/views/config-tabs/task-editor";
 import { usePipelineStatus } from "../../shell/composables/use-pipeline-status";
@@ -436,6 +423,15 @@ function toggleConversationSection(key: string) {
     ...collapsedConversationSectionKeys.value,
     [key]: !collapsedConversationSectionKeys.value[key],
   };
+  scheduleConversationListScrollbarUpdate();
+}
+
+function collapseAllConversationSections() {
+  collapsedConversationSectionKeys.value = conversationSections.value.reduce((next, section) => {
+    next[section.key] = true;
+    return next;
+  }, { ...collapsedConversationSectionKeys.value } as Record<string, boolean>);
+  scheduleConversationListScrollbarUpdate();
 }
 
 function conversationTabOrder(value: ConversationSidebarTab): number {
@@ -651,11 +647,6 @@ function requestConversationArchive(item: ChatConversationOverviewItem) {
 function requestConversationExport(item: ChatConversationOverviewItem) {
   if (!canExportConversation(item)) return;
   emit("exportConversation", String(item.conversationId || "").trim());
-}
-
-function conversationMenuPlacementClass(itemIndex: number, total: number): string {
-  if (total <= 0) return "dropdown-bottom";
-  return itemIndex < Math.ceil(total / 2) ? "dropdown-bottom" : "dropdown-top";
 }
 
 async function startConversationTitleEdit(item: ChatConversationOverviewItem) {

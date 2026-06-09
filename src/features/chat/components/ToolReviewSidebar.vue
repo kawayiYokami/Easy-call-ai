@@ -32,6 +32,7 @@
               :count="group.items.length"
               :model-value="isToolAssessmentSectionCollapsed(group.key)"
               @update:model-value="toggleToolAssessmentSection(group.key)"
+              @collapse-all="collapseAllToolAssessmentSections"
             >
               <div v-if="!isToolAssessmentSectionCollapsed(group.key)">
                 <ToolAssessmentCard
@@ -94,6 +95,7 @@
           :count="section.items.length"
           :model-value="isDelegateSectionCollapsed(section.key)"
           @update:model-value="toggleDelegateSection(section.key)"
+          @collapse-all="collapseAllDelegateSections"
         >
           <div v-if="!isDelegateSectionCollapsed(section.key)">
             <section v-for="delegate in section.items" :key="delegate.delegateId">
@@ -138,6 +140,7 @@
             :count="section.items.length"
             :model-value="isCodeReviewSectionCollapsed(section.key)"
             @update:model-value="toggleCodeReviewSection(section.key)"
+            @collapse-all="collapseAllCodeReviewSections"
           >
             <div v-if="!isCodeReviewSectionCollapsed(section.key)">
               <CodeReviewCard
@@ -476,6 +479,13 @@ function toggleToolAssessmentSection(key: string) {
   };
 }
 
+function collapseAllToolAssessmentSections() {
+  collapsedToolAssessmentSectionKeys.value = reviewGroups.value.reduce((next, section) => {
+    next[section.key] = true;
+    return next;
+  }, { ...collapsedToolAssessmentSectionKeys.value } as Record<string, boolean>);
+}
+
 function isDelegateSectionCollapsed(key: string) {
   return !!collapsedDelegateSectionKeys.value[key];
 }
@@ -487,6 +497,13 @@ function toggleDelegateSection(key: string) {
   };
 }
 
+function collapseAllDelegateSections() {
+  collapsedDelegateSectionKeys.value = delegateStatusSections.value.reduce((next, section) => {
+    next[section.key] = true;
+    return next;
+  }, { ...collapsedDelegateSectionKeys.value } as Record<string, boolean>);
+}
+
 function isCodeReviewSectionCollapsed(key: string) {
   return !!collapsedCodeReviewSectionKeys.value[key];
 }
@@ -496,6 +513,13 @@ function toggleCodeReviewSection(key: string) {
     ...collapsedCodeReviewSectionKeys.value,
     [key]: !collapsedCodeReviewSectionKeys.value[key],
   };
+}
+
+function collapseAllCodeReviewSections() {
+  collapsedCodeReviewSectionKeys.value = codeReviewSections.value.reduce((next, section) => {
+    next[section.key] = true;
+    return next;
+  }, { ...collapsedCodeReviewSectionKeys.value } as Record<string, boolean>);
 }
 
 function reportSummary(report: ToolReviewReportRecord) {

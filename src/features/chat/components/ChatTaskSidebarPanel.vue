@@ -14,6 +14,7 @@
         :count="section.items.length"
         :model-value="isTaskSectionCollapsed(section.key)"
         @update:model-value="toggleTaskSection(section.key)"
+        @collapse-all="collapseAllTaskSections"
         @after-enter="emit('layoutChange')"
         @after-leave="emit('layoutChange')"
       >
@@ -196,6 +197,14 @@ function toggleTaskSection(key: string) {
     ...collapsedTaskSectionKeys.value,
     [key]: !collapsedTaskSectionKeys.value[key],
   };
+  emit("layoutChange");
+}
+
+function collapseAllTaskSections() {
+  collapsedTaskSectionKeys.value = groupedTaskSections.value.reduce((next, section) => {
+    next[section.key] = true;
+    return next;
+  }, { ...collapsedTaskSectionKeys.value } as Record<string, boolean>);
   emit("layoutChange");
 }
 
