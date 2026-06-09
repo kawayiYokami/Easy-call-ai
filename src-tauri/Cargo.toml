@@ -73,6 +73,20 @@ zip = { version = "8.5.1", default-features = false, features = ["deflate", "aes
 default = ["custom-protocol"]
 custom-protocol = ["tauri/custom-protocol"]
 
+[profile.dev]
+debug = 1
+incremental = false
+
+[profile.dev.package."*"]
+debug = 0
+
+[profile.test]
+debug = 1
+incremental = false
+
+[profile.test.package."*"]
+debug = 0
+
 [profile.release]
 opt-level = "z"
 lto = false
