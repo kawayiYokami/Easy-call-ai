@@ -488,6 +488,32 @@
     }
 
     #[test]
+    fn normalize_app_config_should_restore_leader_department_with_default_children() {
+        let mut cfg = AppConfig::default();
+        cfg.departments
+            .retain(|item| item.id != LEADER_DEPARTMENT_ID);
+
+        normalize_app_config(&mut cfg);
+
+        let leader = cfg
+            .departments
+            .iter()
+            .find(|item| item.id == LEADER_DEPARTMENT_ID)
+            .expect("leader department");
+        assert_eq!(leader.name, "leader");
+        assert_eq!(leader.agent_ids, vec![DEFAULT_AGENT_ID.to_string()]);
+        assert!(leader.summary.contains("盘问需求"));
+        assert!(leader.guide.contains("指派合适的下级部门"));
+        assert_eq!(
+            leader.child_department_ids,
+            vec![
+                ASSISTANT_DEPARTMENT_ID.to_string(),
+                DEPUTY_DEPARTMENT_ID.to_string(),
+            ]
+        );
+    }
+
+    #[test]
     fn app_data_default_should_include_deputy_agent() {
         let data = AppData::default();
         assert!(data.agents.iter().any(|agent| agent.id == DEPUTY_AGENT_ID));

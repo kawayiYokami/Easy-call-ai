@@ -228,6 +228,37 @@ fn default_assistant_department(api_config_id: &str) -> DepartmentConfig {
     }
 }
 
+fn default_leader_department(api_config_id: &str) -> DepartmentConfig {
+    let now = now_iso();
+    let api_config_id = api_config_id.trim().to_string();
+    DepartmentConfig {
+        id: LEADER_DEPARTMENT_ID.to_string(),
+        name: "leader".to_string(),
+        summary: "当任务需要先盘问需求、确定方案、拆解任务并指派不同部门完成时，请委托给我。".to_string(),
+        guide: "你是 leader 部门。你的职责是盘问用户的需求，明确目标、范围、约束、成功标准和风险；在方案确定后拆解任务，指派合适的下级部门完成，并汇总结果继续推进。需求没有问清前不要急着执行；任务边界没有收敛前不要直接甩给下级。需要用户协作、默认助理能力或主线推进时委托助理部门；需要大范围摸底、搜集证据、定位影响面时委托 explorer。".to_string(),
+        api_config_ids: if api_config_id.is_empty() {
+            Vec::new()
+        } else {
+            vec![api_config_id.clone()]
+        },
+        api_config_id,
+        model_failure_fallback_enabled: false,
+        agent_ids: vec![DEFAULT_AGENT_ID.to_string()],
+        child_department_ids: vec![
+            ASSISTANT_DEPARTMENT_ID.to_string(),
+            DEPUTY_DEPARTMENT_ID.to_string(),
+        ],
+        created_at: now.clone(),
+        updated_at: now,
+        order_index: 2,
+        is_built_in_assistant: false,
+        is_deputy: false,
+        source: default_main_source(),
+        scope: default_global_scope(),
+        permission_control: DepartmentPermissionControl::default(),
+    }
+}
+
 #[allow(dead_code)]
 fn default_deputy_department(api_config_id: &str) -> DepartmentConfig {
     let now = now_iso();
@@ -248,7 +279,7 @@ fn default_deputy_department(api_config_id: &str) -> DepartmentConfig {
         child_department_ids: Vec::new(),
         created_at: now.clone(),
         updated_at: now,
-        order_index: 2,
+        order_index: 3,
         is_built_in_assistant: false,
         is_deputy: false,
         source: default_main_source(),
@@ -276,7 +307,7 @@ fn default_remote_customer_service_department(api_config_id: &str) -> Department
         child_department_ids: Vec::new(),
         created_at: now.clone(),
         updated_at: now,
-        order_index: 3,
+        order_index: 4,
         is_built_in_assistant: false,
         is_deputy: false,
         source: default_main_source(),
@@ -296,9 +327,10 @@ fn default_assistant_department_name(ui_language: &str) -> String {
 fn built_in_department_rank(id: &str) -> i32 {
     match id.trim() {
         ASSISTANT_DEPARTMENT_ID => 0,
-        DEPUTY_DEPARTMENT_ID => 1,
-        REMOTE_CUSTOMER_SERVICE_DEPARTMENT_ID => 2,
-        _ => 3,
+        LEADER_DEPARTMENT_ID => 1,
+        DEPUTY_DEPARTMENT_ID => 2,
+        REMOTE_CUSTOMER_SERVICE_DEPARTMENT_ID => 3,
+        _ => 4,
     }
 }
 
@@ -310,6 +342,7 @@ fn default_departments(api_config_id: &str) -> Vec<DepartmentConfig> {
     };
     vec![
         default_assistant_department(default_api_config_id),
+        default_leader_department(default_api_config_id),
         default_deputy_department(default_api_config_id),
         default_remote_customer_service_department(default_api_config_id),
     ]

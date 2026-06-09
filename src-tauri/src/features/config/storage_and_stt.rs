@@ -951,6 +951,8 @@ fn normalize_departments(config: &mut AppConfig) {
         if item.name.is_empty() {
             item.name = if item.id == DEPUTY_DEPARTMENT_ID {
                 "explorer".to_string()
+            } else if item.id == LEADER_DEPARTMENT_ID {
+                "leader".to_string()
             } else if item.id == REMOTE_CUSTOMER_SERVICE_DEPARTMENT_ID {
                 "远程客服".to_string()
             } else if item.is_built_in_assistant {
@@ -970,6 +972,9 @@ fn normalize_departments(config: &mut AppConfig) {
 
     if !out.iter().any(|item| item.is_built_in_assistant || item.id == ASSISTANT_DEPARTMENT_ID) {
         out.push(default_assistant_department(MODEL_ROLE_EXPERT_API_CONFIG_ID));
+    }
+    if !out.iter().any(|item| item.id == LEADER_DEPARTMENT_ID) {
+        out.push(default_leader_department(MODEL_ROLE_EXPERT_API_CONFIG_ID));
     }
     let injected_missing_deputy =
         !out.iter().any(|item| item.id == DEPUTY_DEPARTMENT_ID);
@@ -1020,6 +1025,22 @@ fn normalize_departments(config: &mut AppConfig) {
             normalize_department_api_bindings(item, &valid_text_chat_api_ids);
             if item.agent_ids.is_empty() {
                 item.agent_ids = vec![DEPUTY_AGENT_ID.to_string()];
+            }
+        } else if item.id == LEADER_DEPARTMENT_ID {
+            item.is_deputy = false;
+            let defaults = default_leader_department(MODEL_ROLE_EXPERT_API_CONFIG_ID);
+            if item.name.trim().is_empty() {
+                item.name = defaults.name;
+            }
+            if item.summary.trim().is_empty() {
+                item.summary = defaults.summary;
+            }
+            if item.guide.trim().is_empty() {
+                item.guide = defaults.guide;
+            }
+            normalize_department_api_bindings(item, &valid_text_chat_api_ids);
+            if item.agent_ids.is_empty() {
+                item.agent_ids = vec![DEFAULT_AGENT_ID.to_string()];
             }
         } else if item.id == REMOTE_CUSTOMER_SERVICE_DEPARTMENT_ID {
             item.is_deputy = false;

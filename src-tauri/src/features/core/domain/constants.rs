@@ -6,6 +6,7 @@ const DEPUTY_AGENT_ID: &str = "deputy-agent";
 const USER_PERSONA_ID: &str = "user-persona";
 const SYSTEM_PERSONA_ID: &str = "system-persona";
 const ASSISTANT_DEPARTMENT_ID: &str = "assistant-department";
+const LEADER_DEPARTMENT_ID: &str = "leader-department";
 const DEPUTY_DEPARTMENT_ID: &str = "deputy-department";
 const REMOTE_CUSTOMER_SERVICE_DEPARTMENT_ID: &str = "remote-customer-service-department";
 const DELEGATE_TOOL_KIND_DELEGATE: &str = "delegate";
