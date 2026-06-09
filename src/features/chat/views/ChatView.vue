@@ -306,6 +306,7 @@
           v-if="!sidebarMode"
           :open="taskDialogOpen"
           :mode="taskDialogMode"
+          :conversation-id="activeConversationId"
           :task="taskDialogTask"
           @close="closeTaskDialog"
           @created="handleTaskCreated"

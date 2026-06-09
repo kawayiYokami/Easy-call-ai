@@ -850,7 +850,8 @@
       "validation": {
         "goalRequired": "任务目标不能为空。",
         "repeatIntervalRequired": "定时任务至少要填写一个大于 0 的周、天或小时。",
-        "repeatIntervalInvalid": "周、天、小时必须填写 0 或更大的整数。"
+        "repeatIntervalInvalid": "周、天、小时必须填写 0 或更大的整数。",
+        "recurringToOnceNotAllowed": "定时任务不能切换为一次性任务。"
       },
       "todoPlaceholder": "写当前下一步要做什么",
       "scheduleModes": {
@@ -1293,7 +1294,7 @@
       "searchPlaceholder": "搜索任务或会话",
       "empty": "暂无进行中的任务",
       "searchEmpty": "没有匹配的任务",
-      "unlinkedConversation": "未关联会话",
+      "systemConversation": "P-ai系统",
       "unknownConversation": "未知会话"
     },
     "taskCreate": {
@@ -1318,7 +1319,8 @@
         "intervalInvalid": "重复间隔必须是大于 0 的整数。",
         "monthIntervalInvalid": "月间隔只支持 1、2、3、4、6、12。",
         "endAtInvalid": "结束时间格式无效。",
-        "endAtNotAfterRunAt": "结束时间必须晚于首次触发时间。"
+        "endAtNotAfterRunAt": "结束时间必须晚于首次触发时间。",
+        "noConversation": "当前没有会话，无法创建任务。"
       }
     },
     "plan": {

@@ -4698,6 +4698,17 @@
     }
 
     #[test]
+    fn normalize_system_notification_conversation_should_restore_fixed_title() {
+        let mut conversation = build_system_notification_conversation_record();
+        conversation.title = "用户改过的名字".to_string();
+
+        let changed = normalize_system_notification_conversation(&mut conversation);
+
+        assert!(changed);
+        assert_eq!(conversation.title, "P-ai系统");
+    }
+
+    #[test]
     fn normalize_single_active_main_conversation_should_keep_all_foreground_chats_active() {
         let now = now_iso();
         let later = (now_utc() + time::Duration::minutes(1))
@@ -4842,7 +4853,7 @@
     }
 
     #[test]
-    fn task_resolve_dispatch_session_should_create_task_conversation_when_bound_conversation_missing() {
+    fn task_resolve_dispatch_session_should_return_none_when_bound_conversation_missing() {
         let state = test_chat_runtime_state();
         write_config(&state.config_path, &AppConfig::default()).expect("write config");
         let data = test_user_switched_to_sub_conversation_data();
@@ -4877,27 +4888,59 @@
         };
 
         let session = task_resolve_dispatch_session(&state, &task)
-            .expect("resolve task session")
-            .expect("dispatch session");
-        let runtime = state_read_runtime_state_cached(&state).expect("read runtime");
-        let task_conversation =
-            state_read_conversation_cached(&state, &session.conversation_id).expect("read task conversation");
+            .expect("resolve task session");
         let sub_conversation =
             state_read_conversation_cached(&state, "conversation-sub").expect("read sub conversation");
 
-        assert_ne!(session.conversation_id, "conversation-main");
-        assert_ne!(session.conversation_id, SYSTEM_NOTIFICATION_CONVERSATION_ID);
-        assert!(session.fallback_to_main);
-        assert_eq!(
-            runtime.main_conversation_id.as_deref(),
-            Some(SYSTEM_NOTIFICATION_CONVERSATION_ID)
-        );
-        assert!(conversation_is_local_normal_chat(&task_conversation));
+        assert!(session.is_none());
         assert_eq!(sub_conversation.status, "active");
     }
 
     #[test]
-    fn task_resolve_dispatch_session_should_skip_missing_contact_conversation() {
+    fn task_resolve_dispatch_session_should_treat_system_conversation_as_system_task() {
+        let state = test_chat_runtime_state();
+        write_config(&state.config_path, &AppConfig::default()).expect("write config");
+        let data = test_user_switched_to_sub_conversation_data();
+        state_write_app_data_cached(&state, &data).expect("write app data");
+        let task = TaskRecordStored {
+            task_id: "task-system".to_string(),
+            conversation_id: Some(SYSTEM_NOTIFICATION_CONVERSATION_ID.to_string()),
+            target_scope: TASK_TARGET_SCOPE_DESKTOP.to_string(),
+            order_index: 1,
+            title: "系统任务".to_string(),
+            cause: String::new(),
+            goal: String::new(),
+            flow: String::new(),
+            todos: Vec::new(),
+            status_summary: String::new(),
+            completion_state: TASK_STATE_ACTIVE.to_string(),
+            completion_conclusion: String::new(),
+            progress_notes: Vec::new(),
+            stage_key: String::new(),
+            stage_updated_at_utc: None,
+            trigger: TaskTriggerStored {
+                run_at_utc: None,
+                cron_expression: None,
+                legacy_every_minutes: None,
+                end_at_utc: None,
+                next_run_at_utc: None,
+            },
+            created_at_utc: now_utc_rfc3339(),
+            updated_at_utc: now_utc_rfc3339(),
+            last_triggered_at_utc: None,
+            completed_at_utc: None,
+        };
+
+        let session = task_resolve_dispatch_session(&state, &task)
+            .expect("resolve task session")
+            .expect("dispatch session");
+
+        assert_eq!(session.conversation_id, SYSTEM_NOTIFICATION_CONVERSATION_ID);
+        assert!(session.system_task);
+    }
+
+    #[test]
+    fn task_resolve_dispatch_session_should_not_resolve_missing_contact_conversation() {
         let state = test_chat_runtime_state();
         write_config(&state.config_path, &AppConfig::default()).expect("write config");
 
@@ -5036,8 +5079,10 @@
             state_read_conversation_cached(&state, &session.conversation_id).expect("read conversation");
 
         assert_eq!(session.department_id, "dept-private");
-        assert_eq!(conversation.department_id, "dept-private");
-        assert_eq!(conversation.agent_id, "private-agent");
+        assert_eq!(session.agent_id, "private-agent");
+        assert_eq!(session.conversation_id, SYSTEM_NOTIFICATION_CONVERSATION_ID);
+        assert!(session.system_task);
+        assert!(conversation_is_system_notification(&conversation));
     }
 
     #[test]
@@ -5138,6 +5183,48 @@
         assert_eq!(candidates[0].session.conversation_id, "conversation-main");
         assert_eq!(candidates[1].task.task_id, task_3.task_id);
         assert_eq!(candidates[1].session.conversation_id, "conversation-sub");
+    }
+
+    #[test]
+    fn task_build_dispatch_candidates_should_not_dedupe_system_tasks_by_conversation() {
+        let state = test_chat_runtime_state();
+        write_config(&state.config_path, &AppConfig::default()).expect("write config");
+        let data = test_user_switched_to_sub_conversation_data();
+        state_write_app_data_cached(&state, &data).expect("write app data");
+
+        let create_system_task = |goal: &str| {
+            task_store_create_task(&state.data_path, &TaskCreateInput {
+                goal: goal.to_string(),
+                conversation_id: Some(SYSTEM_NOTIFICATION_CONVERSATION_ID.to_string()),
+                target_scope: Some(TASK_TARGET_SCOPE_DESKTOP.to_string()),
+                why: String::new(),
+                todo: String::new(),
+                trigger: TaskTriggerInputLocal {
+                    run_at: Some("2026-04-10T10:00:00+08:00".to_string()),
+                    cron_expression: Some("0,30 * * * *".to_string()),
+                    end_at: Some("2099-04-10T12:00:00+08:00".to_string()),
+                    legacy_every_minutes: None,
+                },
+            })
+            .expect("create system task")
+        };
+        let task_1 = create_system_task("system task 1");
+        let task_2 = create_system_task("system task 2");
+        let tasks = vec![
+            task_store_get_task_record(&state.data_path, &task_1.task_id)
+                .expect("get system task 1"),
+            task_store_get_task_record(&state.data_path, &task_2.task_id)
+                .expect("get system task 2"),
+        ];
+
+        let candidates =
+            task_build_dispatch_candidates(&state, tasks, now_utc()).expect("build dispatch candidates");
+
+        assert_eq!(candidates.len(), 2);
+        assert!(candidates.iter().all(|item| item.session.system_task));
+        assert!(candidates
+            .iter()
+            .all(|item| item.session.conversation_id == SYSTEM_NOTIFICATION_CONVERSATION_ID));
     }
 
     #[test]

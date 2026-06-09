@@ -259,12 +259,42 @@ async fn delegate_run_thread_to_completion(
         .first()
         .cloned()
         .ok_or_else(|| format!("部门没有可用模型，departmentId={}", delegate.target_department_id))?;
-    let delegate_thread_id = delegate_runtime_thread_create(
+    let delegate_thread_id = match delegate_runtime_thread_create(
         &app_state,
         &delegate,
         &primary_api_config_id,
         parent_chat_session_key,
-    )?;
+    ) {
+        Ok(value) => value,
+        Err(err) => {
+            if let Err(status_err) = delegate_store_update_status(
+                &app_state.data_path,
+                &delegate.delegate_id,
+                DELEGATE_STATUS_FAILED,
+            ) {
+                eprintln!(
+                    "[委托线程] 创建失败后更新委托状态失败: delegate_id={}, status={}, error={}",
+                    delegate.delegate_id,
+                    DELEGATE_STATUS_FAILED,
+                    status_err
+                );
+            }
+            if let Err(status_err) = emit_conversation_delegate_status_updated(
+                &app_state,
+                &delegate.conversation_id,
+                &delegate.delegate_id,
+                DELEGATE_STATUS_FAILED,
+            ) {
+                eprintln!(
+                    "[委托状态] 广播失败: 阶段=创建失败, root_conversation_id={}, delegate_id={}, error={}",
+                    delegate.conversation_id,
+                    delegate.delegate_id,
+                    status_err
+                );
+            }
+            return Err(err);
+        }
+    };
     if let Err(err) = emit_agent_work_signal(
         &app_state,
         AGENT_WORK_EVENT_START,

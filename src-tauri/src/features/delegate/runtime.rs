@@ -181,6 +181,23 @@ fn delegate_runtime_thread_create(
             delegate.delegate_id
         ));
     }
+    if task_conversation_id_is_system_notification(&delegate.conversation_id) {
+        task_ensure_system_notification_conversation(app_state)?;
+    } else {
+        state_read_conversation_cached(app_state, &delegate.conversation_id)
+            .ok()
+            .filter(|conversation| {
+                conversation.summary.trim().is_empty()
+                    && !conversation_is_delegate(conversation)
+                    && !conversation_is_system_notification(conversation)
+            })
+            .ok_or_else(|| {
+                format!(
+                    "委托绑定会话不存在，delegateId={}，conversationId={}",
+                    delegate.delegate_id, delegate.conversation_id
+                )
+            })?;
+    }
     let thread = delegate_runtime_thread_build(
         app_state,
         delegate,

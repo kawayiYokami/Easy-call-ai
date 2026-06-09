@@ -6,6 +6,7 @@ const TASK_SCHEDULER_INTERVAL_SECONDS: u64 = 30;
 const TASK_MAX_BOARD_ITEMS: usize = 4;
 const TASK_TARGET_SCOPE_DESKTOP: &str = "desktop";
 const TASK_TARGET_SCOPE_CONTACT: &str = "contact";
+const TASK_BOUND_CONVERSATION_MISSING_CONCLUSION: &str = "绑定会话不存在，任务已终止。";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct TaskTriggerInputLocal {
@@ -793,10 +794,38 @@ fn task_target_scope_normalized(value: &str) -> &'static str {
     }
 }
 
+fn task_conversation_id_is_system_notification(conversation_id: &str) -> bool {
+    conversation_id.trim() == SYSTEM_NOTIFICATION_CONVERSATION_ID
+}
+
+fn task_trigger_is_one_time(trigger: &TaskTriggerStored) -> bool {
+    trigger
+        .cron_expression
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .is_none()
+        && trigger.legacy_every_minutes.is_none()
+}
+
+fn task_record_is_one_time(task: &TaskRecordStored) -> bool {
+    task_trigger_is_one_time(&task.trigger)
+}
+
+fn task_normalize_bound_conversation_id(value: Option<&str>) -> String {
+    value
+        .map(str::trim)
+        .filter(|item| !item.is_empty())
+        .unwrap_or(SYSTEM_NOTIFICATION_CONVERSATION_ID)
+        .to_string()
+}
+
 fn task_entry_view_from_stored(record: &TaskRecordStored) -> TaskEntry {
     TaskEntry {
         task_id: record.task_id.clone(),
-        conversation_id: record.conversation_id.clone(),
+        conversation_id: Some(task_normalize_bound_conversation_id(
+            record.conversation_id.as_deref(),
+        )),
         order_index: record.order_index,
         goal: task_goal_from_legacy_fields(&record.title, &record.goal),
         why: task_why_from_legacy_record(record),

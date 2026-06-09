@@ -850,7 +850,8 @@
       "validation": {
         "goalRequired": "Task goal is required.",
         "repeatIntervalRequired": "Recurring tasks need at least one value greater than 0 for weeks, days, or hours.",
-        "repeatIntervalInvalid": "Weeks, days, and hours must be integers greater than or equal to 0."
+        "repeatIntervalInvalid": "Weeks, days, and hours must be integers greater than or equal to 0.",
+        "recurringToOnceNotAllowed": "Recurring tasks cannot be changed to one-time tasks."
       },
       "todoPlaceholder": "Describe the current next step",
       "scheduleModes": {
@@ -1299,7 +1300,7 @@
       "searchPlaceholder": "Search tasks or conversations",
       "empty": "No active tasks",
       "searchEmpty": "No matching tasks",
-      "unlinkedConversation": "Unlinked Conversation",
+      "systemConversation": "P-ai系统",
       "unknownConversation": "Unknown Conversation"
     },
     "taskCreate": {
@@ -1324,7 +1325,8 @@
         "intervalInvalid": "Repeat interval must be an integer greater than 0.",
         "monthIntervalInvalid": "Month interval only supports 1, 2, 3, 4, 6, or 12.",
         "endAtInvalid": "End time format is invalid.",
-        "endAtNotAfterRunAt": "End time must be later than the first trigger time."
+        "endAtNotAfterRunAt": "End time must be later than the first trigger time.",
+        "noConversation": "No conversation is available for this task."
       }
     },
     "plan": {

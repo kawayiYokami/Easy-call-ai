@@ -189,7 +189,9 @@ fn task_row_to_record_stored(row: &rusqlite::Row<'_>) -> rusqlite::Result<TaskRe
         });
     Ok(TaskRecordStored {
         task_id: row.get("task_id")?,
-        conversation_id: row.get("conversation_id")?,
+        conversation_id: Some(task_normalize_bound_conversation_id(
+            row.get::<_, Option<String>>("conversation_id")?.as_deref(),
+        )),
         target_scope: task_target_scope_normalized(&row.get::<_, String>("target_scope")?).to_string(),
         order_index: row.get("order_index")?,
         title: row.get("title")?,
@@ -280,12 +282,7 @@ fn task_store_create_task(data_path: &PathBuf, input: &TaskCreateInput) -> Resul
     let task_id = format!("task-{}", Uuid::new_v4());
     let now_utc = now_utc_rfc3339();
     let order_index = task_store_next_order_index(&conn)?;
-    let conversation_id = input
-        .conversation_id
-        .as_deref()
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .map(ToOwned::to_owned);
+    let conversation_id = task_normalize_bound_conversation_id(input.conversation_id.as_deref());
     let target_scope = task_target_scope_normalized(
         input
             .target_scope
@@ -340,6 +337,9 @@ fn task_store_update_task(data_path: &PathBuf, input: &TaskUpdateInput) -> Resul
     } else {
         existing.trigger.clone()
     };
+    if !task_record_is_one_time(&existing) && task_trigger_is_one_time(&trigger) {
+        return Err("定时任务不能切换为一次性任务".to_string());
+    }
     let next_goal = input
         .goal
         .as_deref()
@@ -362,13 +362,12 @@ fn task_store_update_task(data_path: &PathBuf, input: &TaskUpdateInput) -> Resul
         .map(str::trim)
         .map(ToOwned::to_owned)
         .unwrap_or_else(|| task_todo_from_legacy_fields(&existing.status_summary, &existing.todos));
-    let conversation_id = input
-        .conversation_id
-        .as_ref()
-        .or(existing.conversation_id.as_ref())
-        .map(|value| value.trim())
-        .filter(|value| !value.is_empty())
-        .map(ToOwned::to_owned);
+    let conversation_id = task_normalize_bound_conversation_id(
+        input
+            .conversation_id
+            .as_deref()
+            .or(existing.conversation_id.as_deref()),
+    );
     let target_scope = input
         .target_scope
         .as_deref()
@@ -462,6 +461,98 @@ fn task_store_complete_task(data_path: &PathBuf, input: &TaskCompleteInput) -> R
     )
     .map_err(|err| format!("Complete task failed: {err}"))?;
     task_store_get_task(data_path, &input.task_id)
+}
+
+fn task_store_complete_one_time_dispatch(
+    data_path: &PathBuf,
+    task_id: &str,
+) -> Result<bool, String> {
+    let normalized_task_id = task_id.trim();
+    if normalized_task_id.is_empty() {
+        return Err("task.taskId is required".to_string());
+    }
+    let conn = task_store_open(data_path)?;
+    let now_utc = now_utc_rfc3339();
+    let affected = conn
+        .execute(
+            "UPDATE task_record
+             SET completion_state = ?2,
+                 last_triggered_at_utc = CASE
+                     WHEN last_triggered_at_utc IS NULL OR TRIM(last_triggered_at_utc) = '' THEN ?3
+                     ELSE last_triggered_at_utc
+                 END,
+                 completed_at_utc = CASE
+                     WHEN completed_at_utc IS NULL OR TRIM(completed_at_utc) = '' THEN ?3
+                     ELSE completed_at_utc
+                 END,
+                 updated_at_utc = ?3
+             WHERE task_id = ?1
+               AND completion_state = ?4
+               AND (cron_expression IS NULL OR TRIM(cron_expression) = '')
+               AND every_minutes IS NULL",
+            params![
+                normalized_task_id,
+                TASK_STATE_COMPLETED,
+                now_utc,
+                TASK_STATE_ACTIVE,
+            ],
+        )
+        .map_err(|err| format!("Complete one-time task dispatch failed: {err}"))?;
+    Ok(affected > 0)
+}
+
+fn task_store_fail_active_task(
+    data_path: &PathBuf,
+    task_id: &str,
+    conclusion: &str,
+    log_note: &str,
+) -> Result<bool, String> {
+    let normalized_task_id = task_id.trim();
+    if normalized_task_id.is_empty() {
+        return Err("task.taskId is required".to_string());
+    }
+    let conn = task_store_open(data_path)?;
+    let now_utc = now_utc_rfc3339();
+    conn.execute_batch("BEGIN IMMEDIATE;")
+        .map_err(|err| format!("Begin task fail transaction failed: {err}"))?;
+    let result = (|| -> Result<bool, String> {
+        let affected = conn
+            .execute(
+                "UPDATE task_record
+                 SET completion_state = ?2,
+                     completion_conclusion = ?3,
+                     completed_at_utc = ?4,
+                     updated_at_utc = ?4
+                 WHERE task_id = ?1 AND completion_state = ?5",
+                params![
+                    normalized_task_id,
+                    TASK_STATE_FAILED_COMPLETED,
+                    conclusion.trim(),
+                    now_utc.as_str(),
+                    TASK_STATE_ACTIVE,
+                ],
+            )
+            .map_err(|err| format!("Mark task failed failed: {err}"))?;
+        if affected > 0 {
+            conn.execute(
+                "INSERT INTO task_run_log (task_id, triggered_at_utc, outcome, note) VALUES (?1, ?2, ?3, ?4)",
+                params![normalized_task_id, now_utc.as_str(), "failed", log_note.trim()],
+            )
+            .map_err(|err| format!("Insert task failed run log failed: {err}"))?;
+        }
+        Ok(affected > 0)
+    })();
+    match result {
+        Ok(value) => {
+            conn.execute_batch("COMMIT;")
+                .map_err(|err| format!("Commit task fail transaction failed: {err}"))?;
+            Ok(value)
+        }
+        Err(err) => {
+            let _ = conn.execute_batch("ROLLBACK;");
+            Err(err)
+        }
+    }
 }
 
 fn task_store_delete_task(data_path: &PathBuf, task_id: &str) -> Result<(), String> {

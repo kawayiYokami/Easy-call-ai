@@ -14,35 +14,36 @@ impl ConversationService {
         let department_id = runtime_department_for_agent(&runtime_snapshot, &assistant_agent_id)
             .map(|item| item.id.clone())
             .unwrap_or_else(|| ASSISTANT_DEPARTMENT_ID.to_string());
-        let target_conversation_id = if state_read_conversation_cached(state, root_conversation_id)
-            .ok()
-            .filter(|conversation| {
-                conversation.summary.trim().is_empty() && !conversation_is_delegate(conversation)
-            })
-            .is_some()
-        {
-            root_conversation_id.trim().to_string()
-        } else {
-            let conversation = state_read_conversation_cached(state, SYSTEM_NOTIFICATION_CONVERSATION_ID)
+        let normalized_root_conversation_id = root_conversation_id.trim();
+        let target_conversation_id =
+            if task_conversation_id_is_system_notification(normalized_root_conversation_id) {
+                let conversation =
+                    state_read_conversation_cached(state, SYSTEM_NOTIFICATION_CONVERSATION_ID)
+                        .ok()
+                        .filter(|conversation| {
+                            conversation.summary.trim().is_empty()
+                                && conversation_visible_in_foreground_lists(conversation)
+                                && conversation_is_system_notification(conversation)
+                        })
+                        .unwrap_or_else(build_system_notification_conversation_record);
+                let conversation_id = conversation.id.clone();
+                state_schedule_conversation_persist(state, &conversation)?;
+                conversation_id
+            } else if state_read_conversation_cached(state, normalized_root_conversation_id)
                 .ok()
                 .filter(|conversation| {
                     conversation.summary.trim().is_empty()
-                        && conversation_visible_in_foreground_lists(conversation)
-                        && conversation_is_system_notification(conversation)
+                        && !conversation_is_delegate(conversation)
+                        && !conversation_is_system_notification(conversation)
                 })
-                .unwrap_or_else(build_system_notification_conversation_record);
-            let conversation_id = conversation.id.clone();
-            state_schedule_conversation_persist(state, &conversation)?;
-            let mut runtime = state_read_runtime_state_cached(state)?;
-            runtime.main_conversation_id = Some(SYSTEM_NOTIFICATION_CONVERSATION_ID.to_string());
-            state_write_runtime_state_cached(state, &runtime)?;
-            eprintln!(
-                "[委托线程] 原始会话不可用，委托结果回退到系统通知会话: requested_conversation_id={}, fallback_conversation_id={}",
-                root_conversation_id,
-                conversation_id
-            );
-            conversation_id
-        };
+                .is_some()
+            {
+                normalized_root_conversation_id.to_string()
+            } else {
+                return Err(format!(
+                    "委托绑定会话不存在，无法写回结果，conversationId={normalized_root_conversation_id}"
+                ));
+            };
         drop(guard);
         Ok(DelegateResultTargetConversationResolution {
             department_id,

@@ -64,7 +64,7 @@
               <label class="block space-y-2">
                 <span class="block text-sm font-medium">{{ t("config.task.fields.scheduleMode") }}</span>
                 <select v-model="form.scheduleMode" class="select select-bordered w-full" :disabled="!editable || saving">
-                  <option value="once">{{ t("config.task.scheduleModes.once") }}</option>
+                  <option value="once" :disabled="existingRecurringTask">{{ t("config.task.scheduleModes.once") }}</option>
                   <option value="interval">{{ t("config.task.scheduleModes.interval") }}</option>
                 </select>
               </label>
@@ -229,6 +229,13 @@ const { t } = useI18n();
 const accordionName = "task-editor-accordion";
 
 const showLoadError = computed(() => props.mode === "edit" && !props.loading && !!props.errorText && !props.task);
+const existingRecurringTask = computed(() =>
+  props.mode === "edit"
+  && (
+    !!String(props.task?.trigger?.cron_expression || "").trim()
+    || (Number.isFinite(Number(props.task?.trigger?.every_minutes)) && Number(props.task?.trigger?.every_minutes) > 0)
+  ),
+);
 const showLegacyScheduleHint = computed(() => {
   if (props.form.scheduleMode !== "once" && (props.form.repeatWeeks !== "0" || props.form.repeatDays !== "0" || props.form.repeatHours !== "0")) {
     return false;

@@ -96,11 +96,12 @@
 
         assert_eq!(
             prompt,
-            "<task_remind>\n背景：用户希望你能独立完成任务达成目标\n目标：整理发布清单\n要求：一直持续工作，直到达成目标，最后进行工作汇报。明确已经完成任务并且做出汇报之后，才允许 complete 本任务，否则禁止调用 task 工具。\n</task_remind>"
+            "<task_remind>\n背景：用户希望你能独立完成任务达成目标\n目标：整理发布清单\n要求：一直持续工作，直到达成目标，最后在当前会话进行工作汇报。\n</task_remind>"
         );
         assert!(!prompt.contains("task_id:"));
         assert!(!prompt.contains("run_at:"));
         assert!(!prompt.contains("cron_expression:"));
+        assert!(!prompt.contains("task complete"));
     }
 
     #[test]
@@ -111,10 +112,11 @@
 
         assert_eq!(
             prompt,
-            "<task_remind>\n背景：用户稍后需要结果\n目标：跟进模型刷新\n要求：检查缓存并汇报\n\n完成：task complete(id=task-llm)\n</task_remind>"
+            "<task_remind>\n背景：用户稍后需要结果\n目标：跟进模型刷新\n要求：检查缓存并汇报\n</task_remind>"
         );
         assert!(!prompt.contains("run_at:"));
         assert!(!prompt.contains("{\"action\":\"complete\""));
+        assert!(!prompt.contains("task complete"));
     }
 
     #[test]
@@ -139,6 +141,38 @@
 
         let fetched = task_store_get_task(&data_path, &created.task_id).expect("get task");
         assert_eq!(fetched.conversation_id.as_deref(), Some("conversation-a"));
+
+        let _ = fs::remove_dir_all(app_root_from_data_path(&data_path));
+    }
+
+    #[test]
+    fn task_store_should_normalize_empty_conversation_id_to_system() {
+        let data_path = test_task_data_path("normalize_empty_conversation_id");
+        let input = TaskCreateInput {
+            goal: "系统任务".to_string(),
+            conversation_id: None,
+            target_scope: Some(TASK_TARGET_SCOPE_DESKTOP.to_string()),
+            why: String::new(),
+            todo: "全局入口创建".to_string(),
+            trigger: TaskTriggerInputLocal {
+                run_at: Some("2026-04-10T10:00:00+08:00".to_string()),
+                cron_expression: None,
+                end_at: None,
+                legacy_every_minutes: None,
+            },
+        };
+
+        let created = task_store_create_task(&data_path, &input).expect("create task");
+        assert_eq!(
+            created.conversation_id.as_deref(),
+            Some(SYSTEM_NOTIFICATION_CONVERSATION_ID)
+        );
+
+        let fetched = task_store_get_task(&data_path, &created.task_id).expect("get task");
+        assert_eq!(
+            fetched.conversation_id.as_deref(),
+            Some(SYSTEM_NOTIFICATION_CONVERSATION_ID)
+        );
 
         let _ = fs::remove_dir_all(app_root_from_data_path(&data_path));
     }
@@ -198,6 +232,169 @@
             .expect("list logs");
         assert_eq!(logs.len(), 1);
         assert_eq!(logs[0].outcome, "skipped");
+
+        let _ = fs::remove_dir_all(app_root_from_data_path(&data_path));
+    }
+
+    #[test]
+    fn task_store_complete_one_time_dispatch_should_finish_task_without_conclusion() {
+        let data_path = test_task_data_path("complete_one_time_dispatch");
+        let input = TaskCreateInput {
+            goal: "一次性调度".to_string(),
+            conversation_id: Some("conversation-a".to_string()),
+            target_scope: Some(TASK_TARGET_SCOPE_DESKTOP.to_string()),
+            why: String::new(),
+            todo: "发起一次就结束".to_string(),
+            trigger: TaskTriggerInputLocal {
+                run_at: Some("2026-04-10T10:00:00+08:00".to_string()),
+                cron_expression: None,
+                end_at: None,
+                legacy_every_minutes: None,
+            },
+        };
+        let created = task_store_create_task(&data_path, &input).expect("create task");
+
+        let changed = task_store_complete_one_time_dispatch(
+            &data_path,
+            &created.task_id,
+        )
+        .expect("complete one-time dispatch");
+
+        assert!(changed);
+        let completed = task_store_get_task_record(&data_path, &created.task_id)
+            .expect("get completed task");
+        assert_eq!(completed.completion_state, TASK_STATE_COMPLETED);
+        assert!(completed.completion_conclusion.is_empty());
+        assert!(completed.last_triggered_at_utc.is_some());
+        assert!(completed.completed_at_utc.is_some());
+
+        let err = task_store_complete_task(&data_path, &TaskCompleteInput {
+            task_id: created.task_id.clone(),
+            completion_state: TASK_STATE_FAILED_COMPLETED.to_string(),
+            completion_conclusion: "委托返回的最终结论".to_string(),
+        })
+        .expect_err("completed dispatch task should not accept hidden conclusion");
+        assert!(err.contains("already completed"));
+
+        let _ = fs::remove_dir_all(app_root_from_data_path(&data_path));
+    }
+
+    #[test]
+    fn task_store_migration_should_complete_triggered_one_time_tasks() {
+        let data_path = test_task_data_path("migrate_triggered_once_completed");
+        let input = TaskCreateInput {
+            goal: "历史一次性任务".to_string(),
+            conversation_id: Some("conversation-a".to_string()),
+            target_scope: Some(TASK_TARGET_SCOPE_DESKTOP.to_string()),
+            why: String::new(),
+            todo: "已经触发过".to_string(),
+            trigger: TaskTriggerInputLocal {
+                run_at: Some("2026-04-10T10:00:00+08:00".to_string()),
+                cron_expression: None,
+                end_at: None,
+                legacy_every_minutes: None,
+            },
+        };
+        let created = task_store_create_task(&data_path, &input).expect("create task");
+        let conn = task_store_open(&data_path).expect("open task db");
+        conn.execute(
+            "UPDATE task_record
+             SET last_triggered_at_utc = '2026-04-10T02:00:00Z',
+                 completion_state = ?2
+             WHERE task_id = ?1",
+            params![created.task_id.as_str(), TASK_STATE_ACTIVE],
+        )
+        .expect("seed triggered once task");
+
+        task_store_apply_migrations(&conn).expect("apply task migrations");
+
+        let migrated = task_store_get_task_record(&data_path, &created.task_id)
+            .expect("read migrated task");
+        assert_eq!(migrated.completion_state, TASK_STATE_COMPLETED);
+        assert!(migrated.completion_conclusion.is_empty());
+        assert_eq!(
+            migrated.completed_at_utc.as_deref(),
+            Some("2026-04-10T02:00:00Z")
+        );
+
+        let _ = fs::remove_dir_all(app_root_from_data_path(&data_path));
+    }
+
+    #[test]
+    fn task_store_migration_should_keep_future_one_time_tasks_active() {
+        let data_path = test_task_data_path("migrate_future_once_active");
+        let input = TaskCreateInput {
+            goal: "未来一次性任务".to_string(),
+            conversation_id: Some("conversation-a".to_string()),
+            target_scope: Some(TASK_TARGET_SCOPE_DESKTOP.to_string()),
+            why: String::new(),
+            todo: "不要误完成".to_string(),
+            trigger: TaskTriggerInputLocal {
+                run_at: Some("2099-04-10T10:00:00+08:00".to_string()),
+                cron_expression: None,
+                end_at: None,
+                legacy_every_minutes: None,
+            },
+        };
+        let created = task_store_create_task(&data_path, &input).expect("create task");
+        let conn = task_store_open(&data_path).expect("open task db");
+        conn.execute(
+            "UPDATE task_record
+             SET last_triggered_at_utc = '2026-04-10T02:00:00Z',
+                 completion_state = ?2
+             WHERE task_id = ?1",
+            params![created.task_id.as_str(), TASK_STATE_ACTIVE],
+        )
+        .expect("seed future once task with stale trigger");
+
+        task_store_apply_migrations(&conn).expect("apply task migrations");
+
+        let migrated = task_store_get_task_record(&data_path, &created.task_id)
+            .expect("read migrated task");
+        assert_eq!(migrated.completion_state, TASK_STATE_ACTIVE);
+        assert!(migrated.completed_at_utc.is_none());
+
+        let _ = fs::remove_dir_all(app_root_from_data_path(&data_path));
+    }
+
+    #[test]
+    fn task_store_update_should_reject_recurring_to_one_time() {
+        let data_path = test_task_data_path("reject_recurring_to_once");
+        let input = TaskCreateInput {
+            goal: "定时任务".to_string(),
+            conversation_id: Some("conversation-a".to_string()),
+            target_scope: Some(TASK_TARGET_SCOPE_DESKTOP.to_string()),
+            why: String::new(),
+            todo: "保持定时".to_string(),
+            trigger: TaskTriggerInputLocal {
+                run_at: Some("2026-04-10T10:00:00+08:00".to_string()),
+                cron_expression: Some("0 10 * * *".to_string()),
+                end_at: None,
+                legacy_every_minutes: None,
+            },
+        };
+        let created = task_store_create_task(&data_path, &input).expect("create task");
+
+        let err = task_store_update_task(&data_path, &TaskUpdateInput {
+            task_id: created.task_id.clone(),
+            conversation_id: Some("conversation-a".to_string()),
+            target_scope: Some(TASK_TARGET_SCOPE_DESKTOP.to_string()),
+            goal: Some("定时任务".to_string()),
+            why: Some(String::new()),
+            todo: Some("保持定时".to_string()),
+            trigger: Some(TaskTriggerInputLocal {
+                run_at: Some("2026-04-11T10:00:00+08:00".to_string()),
+                cron_expression: None,
+                end_at: None,
+                legacy_every_minutes: None,
+            }),
+        })
+        .expect_err("recurring task cannot switch to one-time");
+        assert!(err.contains("定时任务不能切换为一次性任务"));
+
+        let fetched = task_store_get_task_record(&data_path, &created.task_id).expect("read task");
+        assert_eq!(fetched.completion_state, TASK_STATE_ACTIVE);
+        assert!(fetched.trigger.cron_expression.is_some());
 
         let _ = fs::remove_dir_all(app_root_from_data_path(&data_path));
     }
@@ -338,7 +535,7 @@
     }
 
     #[test]
-    fn task_dispatch_conversation_should_prefer_bound_then_create_task_fallback() {
+    fn task_dispatch_conversation_should_prefer_bound_and_not_fallback_missing() {
         let state = task_test_state("dispatch_prefer_bound");
         let mut runtime = RuntimeStateFile::default();
         let api_id = "api-a";
@@ -369,51 +566,37 @@
 
         let preferred = task_resolve_dispatch_conversation(
             &state,
-            &mut runtime,
-            api_id,
-            ASSISTANT_DEPARTMENT_ID,
-            agent_id,
             Some(side.id.as_str()),
-            TASK_TARGET_SCOPE_DESKTOP,
         )
         .expect("resolve bound conversation")
         .expect("preferred conversation");
         assert_eq!(preferred.conversation_id, side.id);
         assert_eq!(preferred.target_scope, TASK_TARGET_SCOPE_DESKTOP);
-        assert!(!preferred.fallback_to_main);
+        assert!(!preferred.system_task);
 
-        let fallback = task_resolve_dispatch_conversation(
+        let missing = task_resolve_dispatch_conversation(
             &state,
-            &mut runtime,
-            api_id,
-            ASSISTANT_DEPARTMENT_ID,
-            agent_id,
             Some("missing-conversation"),
-            TASK_TARGET_SCOPE_DESKTOP,
         )
-        .expect("fallback to task conversation")
-        .expect("fallback conversation");
-        assert_ne!(fallback.conversation_id, main.id);
-        assert_ne!(fallback.conversation_id, SYSTEM_NOTIFICATION_CONVERSATION_ID);
-        assert_eq!(fallback.target_scope, TASK_TARGET_SCOPE_DESKTOP);
-        assert!(fallback.fallback_to_main);
-        assert_eq!(
-            runtime.main_conversation_id.as_deref(),
-            Some(SYSTEM_NOTIFICATION_CONVERSATION_ID)
-        );
-        let fallback_conversation = state_read_conversation_cached(
+        .expect("resolve missing conversation");
+        assert!(missing.is_none());
+
+        let system = task_resolve_dispatch_conversation(
             &state,
-            &fallback.conversation_id,
+            Some(SYSTEM_NOTIFICATION_CONVERSATION_ID),
         )
-        .expect("read fallback conversation");
-        assert!(conversation_is_local_normal_chat(&fallback_conversation));
+        .expect("resolve system task")
+        .expect("system task");
+        assert_eq!(system.conversation_id, SYSTEM_NOTIFICATION_CONVERSATION_ID);
+        assert_eq!(system.target_scope, TASK_TARGET_SCOPE_DESKTOP);
+        assert!(system.system_task);
 
         let _ = fs::remove_dir_all(app_root_from_data_path(&state.data_path));
     }
 
     #[test]
-    fn task_dispatch_conversation_should_skip_missing_contact_conversation() {
-        let state = task_test_state("dispatch_skip_missing_contact");
+    fn task_dispatch_conversation_should_not_resolve_missing_contact_conversation() {
+        let state = task_test_state("dispatch_missing_contact");
         let mut runtime = RuntimeStateFile::default();
         let api_id = "api-a";
         let agent_id = DEFAULT_AGENT_ID;
@@ -464,12 +647,7 @@
 
         let resolved = task_resolve_dispatch_conversation(
             &state,
-            &mut runtime,
-            api_id,
-            ASSISTANT_DEPARTMENT_ID,
-            agent_id,
             Some("missing-contact-conversation"),
-            TASK_TARGET_SCOPE_CONTACT,
         )
         .expect("resolve missing contact conversation");
 

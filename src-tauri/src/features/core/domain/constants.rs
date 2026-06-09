@@ -10,6 +10,7 @@ const DEPUTY_DEPARTMENT_ID: &str = "deputy-department";
 const REMOTE_CUSTOMER_SERVICE_DEPARTMENT_ID: &str = "remote-customer-service-department";
 const DELEGATE_TOOL_KIND_DELEGATE: &str = "delegate";
 const DELEGATE_TOOL_KIND_USER_MENTION: &str = "user_async_delegate";
+const DELEGATE_TOOL_KIND_TASK: &str = "task";
 const SYSTEM_NOTIFICATION_CONVERSATION_ID: &str = "system-notification-conversation";
 const CONVERSATION_KIND_CHAT: &str = "chat";
 const CONVERSATION_KIND_SYSTEM_NOTIFICATION: &str = "system_notification";

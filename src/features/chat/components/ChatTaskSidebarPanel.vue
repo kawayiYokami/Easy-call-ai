@@ -64,6 +64,8 @@ import CollapsibleGroup from "./CollapsibleGroup.vue";
 import { formatConversationListTime } from "../utils/conversation-time";
 import { resolveConversationDisplayTitle } from "../utils/conversation-title";
 
+const SYSTEM_NOTIFICATION_CONVERSATION_ID = "system-notification-conversation";
+
 type TaskSection = {
   key: string;
   title: string;
@@ -120,18 +122,20 @@ const groupedTaskSections = computed<TaskSection[]>(() => {
   const sections = new Map<string, TaskSection>();
   for (const task of tasks.value) {
     if (String(task.completionState || "").trim() !== "active") continue;
-    const conversationId = String(task.conversationId || "").trim();
-    const sectionKey = conversationId ? `conversation:${conversationId}` : "conversation:unlinked";
-    const title = conversationId
-      ? conversationTitleById.value.get(conversationId) || t("chat.taskSidebar.unknownConversation")
-      : t("chat.taskSidebar.unlinkedConversation");
+    const rawConversationId = String(task.conversationId || "").trim();
+    const conversationId = rawConversationId || SYSTEM_NOTIFICATION_CONVERSATION_ID;
+    const isSystemTask = conversationId === SYSTEM_NOTIFICATION_CONVERSATION_ID;
+    const sectionKey = `conversation:${conversationId}`;
+    const title = isSystemTask
+      ? t("chat.taskSidebar.systemConversation")
+      : conversationTitleById.value.get(conversationId) || t("chat.taskSidebar.unknownConversation");
     if (query && !taskMatchesSearch(task, title, query)) continue;
     if (!sections.has(sectionKey)) {
       sections.set(sectionKey, {
         key: sectionKey,
         title,
         items: [],
-        order: conversationId ? conversationOrderById.value.get(conversationId) ?? 1_000_000 : 1_000_001,
+        order: isSystemTask ? -1 : conversationOrderById.value.get(conversationId) ?? 1_000_000,
       });
     }
     sections.get(sectionKey)?.items.push(task);

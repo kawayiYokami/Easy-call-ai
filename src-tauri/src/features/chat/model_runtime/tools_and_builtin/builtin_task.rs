@@ -216,7 +216,7 @@ async fn builtin_task(
                 !create_input.todo.trim().is_empty()
             );
             let data_path = app_state.data_path.clone();
-            let create_input_for_io = create_input.clone();
+            let create_input_for_io = task_create_input_for_write(app_state, &create_input)?;
             let task = run_task_store_io(move || {
                 task_store_create_task(&data_path, &create_input_for_io)
             })

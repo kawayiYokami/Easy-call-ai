@@ -58,9 +58,9 @@ fn normalize_system_notification_conversation(conversation: &mut Conversation) -
         conversation.conversation_kind = CONVERSATION_KIND_SYSTEM_NOTIFICATION.to_string();
         changed = true;
     }
-    let title = conversation.title.trim();
-    if title.is_empty() || title == "主会话" || title == "系统通知" {
-        conversation.title = system_notification_conversation_title();
+    let expected_title = system_notification_conversation_title();
+    if conversation.title.trim() != expected_title {
+        conversation.title = expected_title;
         changed = true;
     }
     if conversation.department_id.trim().is_empty() {

@@ -152,6 +152,7 @@ type TaskTriggerInputLocalWire = {
 };
 
 type TaskCreateInputWire = {
+  conversationId: string;
   goal: string;
   why: string;
   todo: string;
@@ -177,6 +178,7 @@ type TaskDeleteInputWire = {
 };
 
 const PAGE_SIZE = 5;
+const SYSTEM_NOTIFICATION_CONVERSATION_ID = "system-notification-conversation";
 
 const { t } = useI18n();
 const message = ref("");
@@ -261,6 +263,12 @@ function completionStateLabel(value: string): string {
   if (value === "failed_completed") return t("config.task.completionStates.failedCompleted");
   if (value === "active") return t("config.task.filters.active");
   return value || "-";
+}
+
+function taskIsRecurring(task: TaskEntry | null): boolean {
+  if (!task) return false;
+  return !!String(task.trigger?.cron_expression || "").trim()
+    || (Number.isFinite(Number(task.trigger?.every_minutes)) && Number(task.trigger?.every_minutes) > 0);
 }
 
 function resetEditorForm(mode: TaskEditorMode, task: TaskEntry | null) {
@@ -362,9 +370,14 @@ function editorCreatePayload(): TaskCreateInputWire | null {
     editorError.value = t("config.task.validation.goalRequired");
     return null;
   }
+  if (taskIsRecurring(editorTask.value) && editorForm.value.scheduleMode !== "interval") {
+    editorError.value = t("config.task.validation.recurringToOnceNotAllowed");
+    return null;
+  }
   const trigger = buildTriggerInputFromForm();
   if (!trigger) return null;
   return {
+    conversationId: SYSTEM_NOTIFICATION_CONVERSATION_ID,
     goal: editorForm.value.goal.trim(),
     why: editorForm.value.why.trim(),
     todo: editorForm.value.todo.trim(),

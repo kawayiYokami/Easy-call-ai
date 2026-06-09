@@ -72,7 +72,9 @@ fn task_store_apply_migrations(conn: &Connection) -> Result<(), String> {
         task_store_rename_column_if_needed(conn, "task_record", "completed_at", "completed_at_utc")?;
         task_store_rename_column_if_needed(conn, "task_runtime_state", "updated_at", "updated_at_utc")?;
         task_store_rename_column_if_needed(conn, "task_run_log", "triggered_at", "triggered_at_utc")?;
+        task_store_migrate_empty_conversation_id_to_system(conn)?;
         task_store_migrate_legacy_task_triggers(conn)?;
+        task_store_migrate_triggered_one_time_tasks_to_completed(conn)?;
         Ok(())
     })();
 
@@ -86,6 +88,48 @@ fn task_store_apply_migrations(conn: &Connection) -> Result<(), String> {
         }
     }
 
+    Ok(())
+}
+
+fn task_store_migrate_empty_conversation_id_to_system(conn: &Connection) -> Result<(), String> {
+    conn.execute(
+        "UPDATE task_record
+         SET conversation_id = ?1
+         WHERE conversation_id IS NULL OR TRIM(conversation_id) = ''",
+        params![SYSTEM_NOTIFICATION_CONVERSATION_ID],
+    )
+    .map_err(|err| format!("Migrate empty task conversation_id failed: {err}"))?;
+    Ok(())
+}
+
+fn task_store_migrate_triggered_one_time_tasks_to_completed(conn: &Connection) -> Result<(), String> {
+    conn.execute(
+        "UPDATE task_record
+         SET completion_state = ?1,
+             completed_at_utc = COALESCE(
+                 NULLIF(TRIM(completed_at_utc), ''),
+                 NULLIF(TRIM(last_triggered_at_utc), ''),
+                 updated_at_utc,
+                 created_at_utc
+             ),
+             updated_at_utc = COALESCE(
+                 NULLIF(TRIM(last_triggered_at_utc), ''),
+                 updated_at_utc,
+                 created_at_utc
+             )
+         WHERE completion_state = ?2
+           AND last_triggered_at_utc IS NOT NULL
+           AND TRIM(last_triggered_at_utc) <> ''
+           AND (
+               run_at_utc IS NULL
+               OR TRIM(run_at_utc) = ''
+               OR TRIM(run_at_utc) <= TRIM(last_triggered_at_utc)
+           )
+           AND (cron_expression IS NULL OR TRIM(cron_expression) = '')
+           AND every_minutes IS NULL",
+        params![TASK_STATE_COMPLETED, TASK_STATE_ACTIVE],
+    )
+    .map_err(|err| format!("Migrate triggered one-time tasks failed: {err}"))?;
     Ok(())
 }
 

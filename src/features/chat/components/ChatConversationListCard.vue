@@ -143,7 +143,7 @@
                             <span>{{ pinConversationTitle(item) }}</span>
                           </button>
                         </li>
-                        <li>
+                        <li v-if="!item.isSystemNotificationConversation">
                           <button
                             type="button"
                             :disabled="!canRenameConversation(item)"
@@ -244,6 +244,7 @@ const emit = defineEmits<{
 }>();
 
 const { t, locale } = useI18n();
+const SYSTEM_PERSONA_ID = "system-persona";
 const { conversationStatusById } = usePipelineStatus({
   activeConversationId: computed(() => String(props.activeConversationId || "").trim()),
 });
@@ -414,7 +415,10 @@ function shouldShowConversationMenu(item: ChatConversationOverviewItem): boolean
 }
 
 function canRenameConversation(item: ChatConversationOverviewItem): boolean {
-  return isLocalConversation(item) && !isConversationItemDisabled(item) && isCurrentConversation(item);
+  return isLocalConversation(item)
+    && !item.isSystemNotificationConversation
+    && !isConversationItemDisabled(item)
+    && isCurrentConversation(item);
 }
 
 function isEditingTitle(item: ChatConversationOverviewItem): boolean {
@@ -627,7 +631,20 @@ function formatConversationTime(value?: string): string {
   return formatConversationListTime(value, locale.value);
 }
 
+function systemPersonaLabel(): string {
+  return props.personaNameMap?.[SYSTEM_PERSONA_ID] || "P-ai系统";
+}
+
+function systemPersonaInitial(): string {
+  return systemPersonaLabel().charAt(0).toUpperCase() || "P";
+}
+
+function systemPersonaAvatarUrl(): string {
+  return props.personaAvatarUrlMap?.[SYSTEM_PERSONA_ID] || "";
+}
+
 function lastSpeakerInitial(item: ChatConversationOverviewItem): string {
+  if (item.isSystemNotificationConversation) return systemPersonaInitial();
   const previews = normalizedPreviewMessages(item);
   if (previews.length === 0) return "?";
 
@@ -637,6 +654,7 @@ function lastSpeakerInitial(item: ChatConversationOverviewItem): string {
 }
 
 function lastSpeakerLabel(item: ChatConversationOverviewItem): string {
+  if (item.isSystemNotificationConversation) return systemPersonaLabel();
   const previews = normalizedPreviewMessages(item);
   if (previews.length === 0) return "";
 
@@ -645,6 +663,7 @@ function lastSpeakerLabel(item: ChatConversationOverviewItem): string {
 }
 
 function lastSpeakerAvatarUrl(item: ChatConversationOverviewItem): string {
+  if (item.isSystemNotificationConversation) return systemPersonaAvatarUrl();
   const previews = normalizedPreviewMessages(item);
   if (previews.length === 0) return "";
 

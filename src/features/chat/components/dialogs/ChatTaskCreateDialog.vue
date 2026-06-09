@@ -95,14 +95,27 @@
         </div>
 
         <div class="border-t border-base-300/70 bg-base-100 px-5 py-4">
-          <div class="flex items-center justify-end gap-2">
-            <button type="button" class="btn btn-ghost" :disabled="saving" @click="handleClose">
-              {{ t("common.cancel") }}
+          <div class="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+            <button
+              v-if="isEditMode"
+              type="button"
+              class="btn btn-error btn-outline"
+              :disabled="saving"
+              @click="requestDeleteConfirm"
+            >
+              <Trash2 class="h-4 w-4" />
+              {{ t("common.delete") }}
             </button>
-            <button type="submit" class="btn btn-primary" :disabled="saving">
-              <span v-if="saving" class="loading loading-spinner loading-sm"></span>
-              {{ submitButtonLabel }}
-            </button>
+            <span v-else class="hidden sm:block"></span>
+            <div class="flex items-center justify-end gap-2">
+              <button type="button" class="btn btn-ghost" :disabled="saving" @click="handleClose">
+                {{ t("common.cancel") }}
+              </button>
+              <button type="submit" class="btn btn-primary" :disabled="saving">
+                <span v-if="saving" class="loading loading-spinner loading-sm"></span>
+                {{ submitButtonLabel }}
+              </button>
+            </div>
           </div>
         </div>
       </form>
@@ -111,12 +124,31 @@
       <button @click.prevent="handleClose">close</button>
     </form>
   </dialog>
+
+  <dialog class="modal" :class="{ 'modal-open': deleteConfirmOpen }" @cancel.prevent="closeDeleteConfirm">
+    <div class="modal-box max-w-md p-4">
+      <h3 class="text-sm font-semibold">{{ t("common.delete") }}</h3>
+      <p class="mt-3 whitespace-pre-wrap text-sm">{{ t("config.task.deleteConfirm") }}</p>
+      <div class="modal-action mt-4">
+        <button class="btn btn-sm btn-ghost" type="button" :disabled="saving" @click="closeDeleteConfirm">
+          {{ t("common.cancel") }}
+        </button>
+        <button class="btn btn-sm btn-error" type="button" :disabled="saving" @click="handleDeleteConfirmed">
+          <span v-if="saving" class="loading loading-spinner loading-xs"></span>
+          {{ t("common.confirm") }}
+        </button>
+      </div>
+    </div>
+    <form method="dialog" class="modal-backdrop">
+      <button @click.prevent="closeDeleteConfirm">close</button>
+    </form>
+  </dialog>
 </template>
 
 <script setup lang="ts">
 import { computed, nextTick, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
-import { X } from "@lucide/vue";
+import { Trash2, X } from "@lucide/vue";
 import { invokeTauri } from "../../../../services/tauri-api";
 import { formatDateToLocalRfc3339 } from "../../../../utils/time";
 import { toErrorMessage } from "../../../../utils/error";
@@ -134,6 +166,7 @@ type TaskTriggerInputWire = {
 };
 
 type TaskCreateInputWire = {
+  conversationId: string;
   targetScope: "desktop";
   goal: string;
   why: string;
@@ -150,12 +183,17 @@ type TaskUpdateInputWire = {
   trigger: TaskTriggerInputWire;
 };
 
+type TaskDeleteInputWire = {
+  taskId: string;
+};
+
 const DEFAULT_RUN_AT_DELAY_MINUTES = 10;
 const DERIVED_TITLE_LIMIT = 80;
 
 const props = defineProps<{
   open: boolean;
   mode?: "create" | "edit";
+  conversationId?: string;
   task?: TaskEntry | null;
 }>();
 
@@ -168,6 +206,7 @@ const emit = defineEmits<{
 const { t } = useI18n();
 const contentInputRef = ref<HTMLTextAreaElement | null>(null);
 const saving = ref(false);
+const deleteConfirmOpen = ref(false);
 const errorText = ref("");
 const title = ref("");
 const content = ref("");
@@ -178,12 +217,19 @@ const repeatUnit = ref<RepeatIntervalUnit>("hours");
 const endAt = ref("");
 const preservedCronExpression = ref("");
 const initialScheduleSnapshot = ref("");
-const scheduleModeOptions = computed(() => [
-  { value: "once" as const, label: t("config.task.scheduleModes.once") },
-  { value: "interval" as const, label: t("config.task.scheduleModes.interval") },
-]);
 const dialogMode = computed(() => props.mode === "edit" ? "edit" : "create");
 const isEditMode = computed(() => dialogMode.value === "edit");
+const existingRecurringTask = computed(() =>
+  isEditMode.value
+  && (
+    !!String(props.task?.trigger?.cron_expression || "").trim()
+    || (Number.isFinite(Number(props.task?.trigger?.every_minutes)) && Number(props.task?.trigger?.every_minutes) > 0)
+  ),
+);
+const scheduleModeOptions = computed(() => [
+  { value: "once" as const, label: t("config.task.scheduleModes.once"), disabled: existingRecurringTask.value },
+  { value: "interval" as const, label: t("config.task.scheduleModes.interval") },
+]);
 const dialogTitle = computed(() => isEditMode.value ? t("config.task.editorEditTitle") : t("chat.taskCreate.title"));
 const submitButtonLabel = computed(() => {
   if (saving.value) return t("config.task.saving");
@@ -340,6 +386,10 @@ function buildPayload(): TaskCreateInputWire | TaskUpdateInputWire | null {
   const trigger: TaskTriggerInputWire = {
     run_at: normalizedRunAt,
   };
+  if (existingRecurringTask.value && scheduleMode.value !== "interval") {
+    errorText.value = t("config.task.validation.recurringToOnceNotAllowed");
+    return null;
+  }
   if (scheduleMode.value === "interval") {
     const existingEveryMinutes = Number(props.task?.trigger?.every_minutes);
     if (
@@ -388,12 +438,17 @@ function buildPayload(): TaskCreateInputWire | TaskUpdateInputWire | null {
   }
 
   const basePayload: TaskCreateInputWire = {
+    conversationId: String(props.conversationId || props.task?.conversationId || "").trim(),
     targetScope: "desktop",
     goal: title.value.trim() || deriveTitleFromContent(normalizedContent),
     why: "",
     todo: normalizedContent,
     trigger,
   };
+  if (!basePayload.conversationId) {
+    errorText.value = t("chat.taskCreate.validation.noConversation");
+    return null;
+  }
   if (!isEditMode.value) return basePayload;
   const taskId = String(props.task?.taskId || "").trim();
   if (!taskId) {
@@ -429,6 +484,15 @@ function dispatchTaskUpdatedEvent(task: TaskEntry) {
   }));
 }
 
+function dispatchTaskDeletedEvent(taskId: string) {
+  if (typeof window === "undefined") return;
+  window.dispatchEvent(new CustomEvent("easy-call:task-deleted", {
+    detail: {
+      taskId: String(taskId || "").trim(),
+    },
+  }));
+}
+
 async function handleSubmit() {
   if (saving.value) return;
   const payload = buildPayload();
@@ -455,8 +519,43 @@ async function handleSubmit() {
   }
 }
 
+function requestDeleteConfirm() {
+  if (saving.value || !isEditMode.value) return;
+  deleteConfirmOpen.value = true;
+}
+
+function closeDeleteConfirm() {
+  if (saving.value) return;
+  deleteConfirmOpen.value = false;
+}
+
+async function handleDeleteConfirmed() {
+  if (saving.value || !isEditMode.value) return;
+  const taskId = String(props.task?.taskId || "").trim();
+  if (!taskId) {
+    deleteConfirmOpen.value = false;
+    errorText.value = t("config.task.detailLoadFailed");
+    return;
+  }
+  const payload: TaskDeleteInputWire = { taskId };
+  saving.value = true;
+  errorText.value = "";
+  try {
+    await invokeTauri("task_delete_task", { input: payload });
+    dispatchTaskDeletedEvent(taskId);
+    deleteConfirmOpen.value = false;
+    emit("close");
+  } catch (error) {
+    deleteConfirmOpen.value = false;
+    errorText.value = `${t("config.task.deleteFailed")}: ${toErrorMessage(error)}`;
+  } finally {
+    saving.value = false;
+  }
+}
+
 function handleClose() {
   if (saving.value) return;
+  deleteConfirmOpen.value = false;
   emit("close");
 }
 

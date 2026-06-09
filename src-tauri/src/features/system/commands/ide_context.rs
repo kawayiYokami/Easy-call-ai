@@ -1890,6 +1890,7 @@ async fn ide_chat_submit_delegate(state: &AppState, params: Value) -> Result<Val
 
 fn ide_chat_task_create(state: &AppState, params: Value) -> Result<Value, String> {
     let input = ide_chat_parse_params::<TaskCreateInput>(params)?;
+    let input = task_create_input_for_write(state, &input)?;
     serde_json::to_value(task_store_create_task(&state.data_path, &input)?)
         .map_err(|err| format!("Serialize task create result failed: {err}"))
 }
@@ -1898,6 +1899,7 @@ async fn ide_chat_task_dispatch_now(state: &AppState, params: Value) -> Result<V
     let input = ide_chat_parse_params::<TaskDispatchNowInput>(params)?;
     let task = task_store_get_task_record(&state.data_path, input.task_id.trim())?;
     let Some(session) = task_resolve_dispatch_session(state, &task)? else {
+        task_fail_missing_bound_conversation(state, &task)?;
         return Ok(serde_json::json!(false));
     };
     task_dispatch_due_task(state, &task, &session).await?;

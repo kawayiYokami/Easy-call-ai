@@ -2,7 +2,7 @@ import type { ChatConversationOverviewItem } from "../../../types/app";
 
 type ConversationTitleLike = Pick<
   ChatConversationOverviewItem,
-  "kind" | "title" | "summaryTitle" | "remoteContactDisplayName" | "updatedAt" | "lastMessageAt"
+  "kind" | "title" | "summaryTitle" | "remoteContactDisplayName" | "updatedAt" | "lastMessageAt" | "isSystemNotificationConversation"
 >;
 
 type ResolveConversationDisplayTitleOptions = {
@@ -13,6 +13,8 @@ type ResolveConversationDisplayTitleOptions = {
 function normalizedTitlePart(value?: string): string {
   return String(value || "").trim();
 }
+
+export const SYSTEM_NOTIFICATION_DISPLAY_TITLE = "P-ai系统";
 
 export function formatConversationFallbackTitle(value?: string, locale?: string): string {
   const rawValue = normalizedTitlePart(value);
@@ -42,6 +44,9 @@ export function resolveConversationDisplayTitle(
   item: ConversationTitleLike,
   options: ResolveConversationDisplayTitleOptions,
 ): string {
+  if (item.isSystemNotificationConversation) {
+    return SYSTEM_NOTIFICATION_DISPLAY_TITLE;
+  }
   if (item.kind === "remote_im_contact") {
     return normalizedTitlePart(item.remoteContactDisplayName)
       || normalizedTitlePart(item.title)
