@@ -107,6 +107,12 @@ export function useChatRuntimeSetup(bindings: Record<string, any>) {
           onDelta,
         }),
       onReloadMessages: () => bindings.reloadForegroundConversationMessages("chat_flow_reload"),
+      onAssistantMessageCompleted: async ({ conversationId, assistantMessage }) => {
+        bindings.applyConversationMessageAppended({
+          conversationId,
+          message: assistantMessage,
+        });
+      },
       onHistoryFlushed: async ({ conversationId, pendingMessages }) => {
         const flushedConversationId = String(conversationId || "").trim();
         if (flushedConversationId && bindings.isChatWindowActiveNow()) {
@@ -164,11 +170,11 @@ export function useChatRuntimeSetup(bindings: Record<string, any>) {
               return [message];
             });
             if (remainingOwnIncoming.length > 0) {
-              nextMessages = bindings.insertMessagesBeforeAssistantDraft(nextMessages, remainingOwnIncoming);
+              nextMessages = bindings.mergeMessagesIntoTimeline(nextMessages, remainingOwnIncoming);
             }
           }
           if (appendedOthers.length > 0) {
-            nextMessages = bindings.insertMessagesBeforeAssistantDraft(nextMessages, appendedOthers);
+            nextMessages = bindings.mergeMessagesIntoTimeline(nextMessages, appendedOthers);
           }
           nextMessages = bindings.reuseStableMessageReferences(nextMessages, bindings.allMessages.value);
           bindings.allMessages.value = nextMessages;

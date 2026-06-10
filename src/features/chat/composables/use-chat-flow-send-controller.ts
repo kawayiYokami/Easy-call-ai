@@ -45,6 +45,7 @@ type UseChatFlowSendControllerOptions = {
   nextGeneration: () => number;
   setSendChatActiveGen: (gen: number) => void;
   setActiveActivationId: (value: string) => void;
+  setActiveRoundAgentId: (value: string) => void;
   setPendingTerminalEventNull: () => void;
   sendStartedAtMsByGen: Map<number, number>;
   startFrontendDispatchTimer: (gen: number, startedAtMs?: number, elapsedMs?: number) => void;
@@ -118,6 +119,7 @@ export function useChatFlowSendController(options: UseChatFlowSendControllerOpti
 
     const gen = options.nextGeneration();
     options.setSendChatActiveGen(gen);
+    options.setActiveRoundAgentId(sendSession.agentId);
     options.sendStartedAtMsByGen.set(gen, Date.now());
     if (!hasForegroundRoundInFlight) {
       options.startFrontendDispatchTimer(gen, options.sendStartedAtMsByGen.get(gen));

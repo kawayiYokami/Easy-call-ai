@@ -24,6 +24,7 @@ export function useChatConversationSync(bindings: Record<string, any>) {
     freezeConversationMessages,
     insertMessagesBeforeAssistantDraft,
     isAssistantDraftMessage,
+    mergeMessagesIntoTimeline,
     messageContentSignature,
     replaceConversationMessage,
     reuseStableMessageReferences,
@@ -261,11 +262,7 @@ export function useChatConversationSync(bindings: Record<string, any>) {
     if (incoming.length <= 0) return;
     const cachedDisplay = freezeConversationMessages(bindings.conversationMessageCache.value[cid] || []);
     const cachedFormal = formalizeConversationMessages(cachedDisplay);
-    const incomingIds = new Set(incoming.map((message) => String(message.id || "").trim()));
-    const nextCached = [
-      ...cachedFormal.filter((message) => !incomingIds.has(String(message?.id || "").trim())),
-      ...incoming,
-    ];
+    const nextCached = mergeMessagesIntoTimeline(cachedFormal, incoming);
     cacheConversationMessages(cid, nextCached);
     const latestMessage = incoming[incoming.length - 1];
     if (latestMessage) applyConversationOverviewAppendedMessage(cid, latestMessage);
@@ -430,16 +427,9 @@ export function useChatConversationSync(bindings: Record<string, any>) {
     if (fallback === "recent_limit") {
       return nextPayloadMessages;
     }
-    const merged = [...cachedFormal];
-    const existingIds = new Set(merged.map((item) => String(item?.id || "").trim()).filter(Boolean));
-    for (const message of nextPayloadMessages) {
-      const messageId = String(message?.id || "").trim();
-      if (!messageId || existingIds.has(messageId)) continue;
-      existingIds.add(messageId);
-      merged.push(message);
-    }
-    const nextMerged = merged.length > 0 ? merged : cachedDisplay;
-    return reuseStableMessageReferences(nextMerged, cachedDisplay);
+    const nextMerged = mergeMessagesIntoTimeline(cachedFormal, nextPayloadMessages);
+    const fallbackMerged = nextMerged.length > 0 ? nextMerged : cachedDisplay;
+    return reuseStableMessageReferences(fallbackMerged, cachedDisplay);
   }
 
   async function applyConversationMessagesAfterSynced(payload: Record<string, any>) {
@@ -494,9 +484,7 @@ export function useChatConversationSync(bindings: Record<string, any>) {
     const cachedDisplay = freezeConversationMessages(bindings.conversationMessageCache.value[conversationId] || []);
     const cachedFormal = formalizeConversationMessages(cachedDisplay);
     const messageAlreadyCached = cachedFormal.some((item) => String(item?.id || "").trim() === messageId);
-    const nextCached = messageAlreadyCached
-      ? cachedFormal
-      : [...cachedFormal, message];
+    const nextCached = mergeMessagesIntoTimeline(cachedFormal, [message]);
     cacheConversationMessages(conversationId, nextCached);
 
     const currentConversationId = String(bindings.currentChatConversationId.value || "").trim();
@@ -508,9 +496,7 @@ export function useChatConversationSync(bindings: Record<string, any>) {
       return;
     }
 
-    const existing = bindings.allMessages.value.filter((item: any) => String(item?.id || "").trim() !== messageId);
-    const stableMessage = reuseStableMessageReferences([message], bindings.allMessages.value)[0] || message;
-    bindings.allMessages.value = [...existing, stableMessage];
+    bindings.allMessages.value = mergeMessagesIntoTimeline(bindings.allMessages.value, [message]);
     bindings.foregroundTailLatestReady.value = true;
     clearConversationBadge(conversationId);
     updateForegroundConversationOverviewFromMessages(conversationId, message);
@@ -733,6 +719,7 @@ export function useChatConversationSync(bindings: Record<string, any>) {
     freezeConversationMessages,
     isAssistantDraftMessage,
     insertMessagesBeforeAssistantDraft,
+    mergeMessagesIntoTimeline,
     currentConversationRuntimeState,
     maybeResumeForegroundStreamingDraft,
     conversationRuntimeSnapshotIsBusy,

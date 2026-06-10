@@ -31,6 +31,7 @@ type UseChatFlowExternalEventsOptions = {
   clearConversationStreamCache: (conversationId?: string | null) => void;
   clearFrontendDispatchTimer: () => void;
   onReloadMessages: () => Promise<void>;
+  onAssistantMessageCompleted?: (input: { conversationId: string; assistantMessage: any }) => Promise<void> | void;
   setChatErrorText: (text: string, conversationId?: string | null) => void;
   formatRequestFailed: (error: unknown) => string;
   latestAssistantText: { value: string };
@@ -153,7 +154,12 @@ export function useChatFlowExternalEvents(options: UseChatFlowExternalEventsOpti
       return;
     }
     if (!options.payloadMatchesActiveActivation(parsed)) {
-      options.clearConversationStreamCache(payloadConversationId || currentConversationId);
+      if (parsed.assistantMessage) {
+        await options.onAssistantMessageCompleted?.({
+          conversationId: payloadConversationId || currentConversationId,
+          assistantMessage: parsed.assistantMessage,
+        });
+      }
       return;
     }
     const round = options.getRound();
@@ -184,7 +190,6 @@ export function useChatFlowExternalEvents(options: UseChatFlowExternalEventsOpti
       return;
     }
     if (!options.payloadMatchesActiveActivation(parsed)) {
-      options.clearConversationStreamCache(payloadConversationId || currentConversationId);
       return;
     }
     const round = options.getRound();

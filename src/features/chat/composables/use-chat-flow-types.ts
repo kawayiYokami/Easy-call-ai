@@ -70,6 +70,10 @@ export type UseChatFlowOptions = {
     pendingMessages: ChatMessage[];
     activateAssistant: boolean;
   }) => Promise<void>;
+  onAssistantMessageCompleted?: (input: {
+    conversationId: string;
+    assistantMessage: ChatMessage;
+  }) => Promise<void> | void;
 };
 
 export type RoundState =

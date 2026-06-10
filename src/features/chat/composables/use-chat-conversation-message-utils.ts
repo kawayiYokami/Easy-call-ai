@@ -9,46 +9,108 @@ type ConversationMessageUtilsOptions = {
   ensureConversationMessageIds: (messages: any[]) => any[];
 };
 
+const TRANSIENT_PROVIDER_META_KEYS = [
+  "_streaming",
+  "_streamSegments",
+  "_streamTail",
+  "_streamAnimatedDelta",
+  "_preStreamingStatusText",
+  "_frontendDispatchStartedAtMs",
+  "_frontendDispatchElapsedMs",
+  "_streamBlocks",
+  "_stableRenderId",
+];
+
 export function useChatConversationMessageUtils(options: ConversationMessageUtilsOptions) {
   function isAssistantDraftMessage(message?: any): boolean {
     return String(message?.id || "").trim().startsWith(options.draftAssistantIdPrefix);
   }
 
+  function messageCreatedAtMs(message?: any): number | null {
+    const raw = String(message?.createdAt || "").trim();
+    if (!raw) return null;
+    const ms = Date.parse(raw);
+    return Number.isFinite(ms) ? ms : null;
+  }
+
+  function stripTransientProviderMeta(message: any): any {
+    const rawProviderMeta = message?.providerMeta;
+    if (!rawProviderMeta || typeof rawProviderMeta !== "object") return message;
+    const providerMeta = { ...(rawProviderMeta as Record<string, unknown>) };
+    let changed = false;
+    for (const key of TRANSIENT_PROVIDER_META_KEYS) {
+      if (key in providerMeta) {
+        delete providerMeta[key];
+        changed = true;
+      }
+    }
+    return changed ? { ...message, providerMeta } : message;
+  }
+
   function formalizeConversationMessages(messages: any[]): any[] {
     return options.ensureConversationMessageIds(messages)
       .filter((item: any) => !isAssistantDraftMessage(item))
-      .map((item: any) => messageWithoutStableRenderId(item));
+      .map((item: any) => stripTransientProviderMeta(messageWithoutStableRenderId(item)));
   }
 
   function freezeConversationMessages(messages: any[]): any[] {
-    return options.ensureConversationMessageIds(messages).map((message: any) => {
-      const messageId = String(message?.id || "").trim();
-      if (!messageId.startsWith(options.draftAssistantIdPrefix)) {
-        return messageWithoutStableRenderId(message);
-      }
-      const providerMeta = { ...((message.providerMeta || {}) as Record<string, unknown>) };
-      delete providerMeta._streaming;
-      delete providerMeta._streamSegments;
-      delete providerMeta._streamTail;
-      delete providerMeta._stableRenderId;
-      return {
-        ...message,
-        providerMeta,
-      };
+    return options.ensureConversationMessageIds(messages)
+      .map((message: any) => stripTransientProviderMeta(messageWithoutStableRenderId(message)));
+  }
+
+  function insertMessageIntoTimeline(messages: any[], incoming: any): any[] {
+    const incomingAtMs = messageCreatedAtMs(incoming);
+    if (incomingAtMs === null) {
+      return [...messages, incoming];
+    }
+    const insertIdx = messages.findIndex((message) => {
+      const existingAtMs = messageCreatedAtMs(message);
+      return existingAtMs !== null && existingAtMs > incomingAtMs;
     });
+    if (insertIdx < 0) {
+      return [...messages, incoming];
+    }
+    return [
+      ...messages.slice(0, insertIdx),
+      incoming,
+      ...messages.slice(insertIdx),
+    ];
+  }
+
+  function mergeMessagesIntoTimeline(messages: any[], incoming: any[]): any[] {
+    if (!Array.isArray(incoming) || incoming.length <= 0) return messages;
+    let nextMessages = Array.isArray(messages) ? [...messages] : [];
+    for (const rawIncoming of incoming) {
+      const incomingMessage = stripTransientProviderMeta(messageWithoutStableRenderId(rawIncoming));
+      const incomingId = String(incomingMessage?.id || "").trim();
+      if (!incomingId) {
+        nextMessages = insertMessageIntoTimeline(nextMessages, incomingMessage);
+        continue;
+      }
+      const existingIdx = nextMessages.findIndex((message) =>
+        String(message?.id || "").trim() === incomingId
+      );
+      if (existingIdx >= 0) {
+        let replaced = false;
+        nextMessages = nextMessages.flatMap((message) => {
+          if (String(message?.id || "").trim() !== incomingId) {
+            return [message];
+          }
+          if (replaced) {
+            return [];
+          }
+          replaced = true;
+          return [incomingMessage];
+        });
+        continue;
+      }
+      nextMessages = insertMessageIntoTimeline(nextMessages, incomingMessage);
+    }
+    return reuseStableMessageReferences(nextMessages, messages);
   }
 
   function insertMessagesBeforeAssistantDraft(messages: any[], incoming: any[]): any[] {
-    if (!Array.isArray(incoming) || incoming.length <= 0) return messages;
-    const draftIdx = messages.findIndex((message) => isAssistantDraftMessage(message));
-    if (draftIdx < 0) {
-      return [...messages, ...incoming];
-    }
-    return [
-      ...messages.slice(0, draftIdx),
-      ...incoming,
-      ...messages.slice(draftIdx),
-    ];
+    return mergeMessagesIntoTimeline(messages, incoming);
   }
 
   function areMessagesEquivalent(left: any[], right: any[]): boolean {
@@ -130,6 +192,7 @@ export function useChatConversationMessageUtils(options: ConversationMessageUtil
     freezeConversationMessages,
     insertMessagesBeforeAssistantDraft,
     isAssistantDraftMessage,
+    mergeMessagesIntoTimeline,
     messageContentSignature,
     replaceConversationMessage,
     reuseStableMessageReferences,

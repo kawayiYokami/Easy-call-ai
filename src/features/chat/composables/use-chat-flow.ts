@@ -316,6 +316,7 @@ export function useChatFlow(options: UseChatFlowOptions) {
     clearConversationStreamCache,
     clearFrontendDispatchTimer,
     onReloadMessages: options.onReloadMessages,
+    onAssistantMessageCompleted: options.onAssistantMessageCompleted,
     setChatErrorText,
     formatRequestFailed: options.formatRequestFailed,
     latestAssistantText: options.latestAssistantText,
@@ -464,6 +465,9 @@ export function useChatFlow(options: UseChatFlowOptions) {
     },
     setActiveActivationId: (value) => {
       activeActivationId = value;
+    },
+    setActiveRoundAgentId: (value) => {
+      activeRoundAgentId = value;
     },
     setPendingTerminalEventNull: () => {
       pendingTerminalEvent = null;
