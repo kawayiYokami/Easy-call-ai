@@ -78,6 +78,7 @@ export function useChatMessageBlocks(options: UseChatMessageBlocksOptions) {
     const signature = [
       String(message.id || "").trim(),
       String(message.createdAt || "").trim(),
+      String(message.speakerAgentId || "").trim(),
       JSON.stringify(message.parts || []),
       JSON.stringify(message.extraTextBlocks || []),
       JSON.stringify(message.providerMeta || {}),

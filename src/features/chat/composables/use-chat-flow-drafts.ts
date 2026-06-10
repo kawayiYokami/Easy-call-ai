@@ -37,7 +37,7 @@ type UseChatFlowDraftsOptions = {
   latestAssistantText: Ref<string>;
   toolStatusText: Ref<string>;
   streamBlocks?: Ref<AssistantStreamBlock[]>;
-  getSession: () => { apiConfigId: string; agentId: string; departmentId?: string } | null;
+  getActiveRoundAgentId?: () => string;
   getConversationId?: () => string;
   buildImageAttachmentPayload: (
     images: Array<{ mime: string; bytesBase64: string; savedPath?: string }>,
@@ -50,6 +50,14 @@ type UseChatFlowDraftsOptions = {
 
 export function useChatFlowDrafts(options: UseChatFlowDraftsOptions) {
   let pendingUserDraftId = "";
+
+  function resolveAssistantDraftSpeakerAgentId(existingDraft?: ChatMessage | null): string {
+    const existing = String(existingDraft?.speakerAgentId || "").trim();
+    if (existing && existing !== "assistant-draft") return existing;
+    const activeRoundAgentId = String(options.getActiveRoundAgentId ? options.getActiveRoundAgentId() : "").trim();
+    if (activeRoundAgentId) return activeRoundAgentId;
+    return "assistant-draft";
+  }
 
   function getPendingUserDraftId(): string {
     return pendingUserDraftId;
@@ -143,12 +151,12 @@ export function useChatFlowDrafts(options: UseChatFlowDraftsOptions) {
       activeHistoryMessageCount: options.getActiveHistoryMessageCount(),
       latestUserTextLength: String(options.latestUserText.value || "").length,
     });
-    const agentId = String(options.getSession()?.agentId || "").trim();
+    const agentId = resolveAssistantDraftSpeakerAgentId();
     const msg = messageWithStableRenderId({
       id: draftId,
       role: "assistant",
       createdAt: new Date().toISOString(),
-      speakerAgentId: agentId || "assistant-draft",
+      speakerAgentId: agentId,
       parts: [{ type: "text", text: "" }],
       providerMeta: {
         _streaming: true,
@@ -181,15 +189,15 @@ export function useChatFlowDrafts(options: UseChatFlowDraftsOptions) {
 
   function updateQueuedAssistantDraftStatus(draftId: string, statusText: string) {
     if (!draftId) return;
-    const agentId = String(options.getSession()?.agentId || "").trim();
     const existingDraft = options.allMessages.value.find((item) => item.id === draftId);
+    const agentId = resolveAssistantDraftSpeakerAgentId(existingDraft);
     const existingMeta = ((existingDraft?.providerMeta || {}) as Record<string, unknown>);
     const stableRenderId = stableRenderIdFromMessage(existingDraft) || draftId;
     const msg = messageWithStableRenderId({
       id: draftId,
       role: "assistant",
       createdAt: String(existingDraft?.createdAt || new Date().toISOString()),
-      speakerAgentId: agentId || "assistant-draft",
+      speakerAgentId: agentId,
       parts: [{ type: "text", text: "" }],
       providerMeta: {
         ...existingMeta,
@@ -266,8 +274,8 @@ export function useChatFlowDrafts(options: UseChatFlowDraftsOptions) {
     updateOptions?: UpdateDraftTextOptions,
   ) {
     if (!draftId) return;
-    const agentId = String(options.getSession()?.agentId || "").trim();
     const existingDraft = options.allMessages.value.find((item) => item.id === draftId);
+    const agentId = resolveAssistantDraftSpeakerAgentId(existingDraft);
     const existingDraftText = readMessagePlainText(existingDraft);
     const nextAssistantText = String(options.latestAssistantText.value || "");
     const shouldPreserveExistingDraftText =
@@ -303,7 +311,7 @@ export function useChatFlowDrafts(options: UseChatFlowDraftsOptions) {
       id: draftId,
       role: "assistant",
       createdAt: String(existingDraft?.createdAt || new Date().toISOString()),
-      speakerAgentId: agentId || "assistant-draft",
+      speakerAgentId: agentId,
       parts: [{ type: "text", text: blockText || String(options.latestAssistantText.value || "") }],
       toolCall: preserveActivityProjection
         ? existingDraft?.toolCall
@@ -349,7 +357,12 @@ export function useChatFlowDrafts(options: UseChatFlowDraftsOptions) {
     const stableRenderId = stableRenderIdFromMessage(draft) || draftId;
 
     if (finalMessage) {
-      const messageToApply = messageWithStableRenderId(finalMessage, stableRenderId);
+      const draftSpeakerAgentId = resolveAssistantDraftSpeakerAgentId(draft);
+      const finalSpeakerAgentId = String(finalMessage.speakerAgentId || "").trim();
+      const messageToApply = messageWithStableRenderId({
+        ...finalMessage,
+        speakerAgentId: finalSpeakerAgentId || draftSpeakerAgentId,
+      }, stableRenderId);
       const deduped = current.filter((m, idx) => idx === draftIdx || m.id !== finalMessage.id);
       const nextDraftIdx = deduped.findIndex((m) => m.id === draftId);
       if (nextDraftIdx < 0) {

@@ -63,6 +63,7 @@ export function useChatFlow(options: UseChatFlowOptions) {
   let deferredRoundCompletion: DeferredRoundCompletion | null = null;
   let foregroundRounds: ReturnType<typeof useChatFlowForegroundRounds> | null = null;
   let activeActivationId = "";
+  let activeRoundAgentId = "";
   let queuedStreamingState: {
     assistantText: string;
     toolStatusText: string;
@@ -125,7 +126,7 @@ export function useChatFlow(options: UseChatFlowOptions) {
     latestAssistantText: options.latestAssistantText,
     toolStatusText: options.toolStatusText,
     streamBlocks: options.streamBlocks,
-    getSession: options.getSession,
+    getActiveRoundAgentId: () => activeRoundAgentId,
     getConversationId: options.getConversationId,
     buildImageAttachmentPayload,
     getSendStartedAtMs: (gen) => sendStartedAtMsByGen.get(gen) || 0,
@@ -152,6 +153,9 @@ export function useChatFlow(options: UseChatFlowOptions) {
     getFrontendDispatchElapsedMs: frontendDispatch.getElapsedMs,
     currentFrontendDispatchElapsedMs: frontendDispatch.currentElapsedMs,
     restoreFrontendDispatchTimerFromCache,
+    setActiveRoundAgentId: (value: string) => {
+      activeRoundAgentId = String(value || "").trim();
+    },
   });
   const reasoningStartedAtMs = ref(0);
   const roundFinalizers = useChatFlowRoundFinalizers({
@@ -175,6 +179,9 @@ export function useChatFlow(options: UseChatFlowOptions) {
     clearFrontendDispatchTimer,
     setActiveActivationId: (value: string) => {
       activeActivationId = value;
+    },
+    setActiveRoundAgentId: (value: string) => {
+      activeRoundAgentId = String(value || "").trim();
     },
     onReloadMessages: options.onReloadMessages,
     removeDraft,
@@ -245,6 +252,9 @@ export function useChatFlow(options: UseChatFlowOptions) {
     getActiveActivationId: () => activeActivationId,
     setActiveActivationId: (value: string) => {
       activeActivationId = value;
+    },
+    setActiveRoundAgentId: (value: string) => {
+      activeRoundAgentId = String(value || "").trim();
     },
     setPendingTerminalEvent: (event: PendingTerminalEvent | null) => {
       pendingTerminalEvent = event;
@@ -349,6 +359,9 @@ export function useChatFlow(options: UseChatFlowOptions) {
     setActiveActivationId: (value) => {
       activeActivationId = value;
     },
+    setActiveRoundAgentId: (value: string) => {
+      activeRoundAgentId = String(value || "").trim();
+    },
     clearFrontendDispatchTimer,
     getPendingUserDraftId,
     removeDraft,
@@ -382,6 +395,9 @@ export function useChatFlow(options: UseChatFlowOptions) {
       sendStartedAtMsByGen.delete(gen);
     },
     failQueuedRoundWithoutDraft: roundFinalizers.failQueuedRoundWithoutDraft,
+    setActiveRoundAgentId: (value: string) => {
+      activeRoundAgentId = String(value || "").trim();
+    },
     onReloadMessages: options.onReloadMessages,
     t: options.t,
   });
@@ -486,6 +502,9 @@ export function useChatFlow(options: UseChatFlowOptions) {
     },
     setActiveActivationId: (value) => {
       activeActivationId = value;
+    },
+    setActiveRoundAgentId: (value: string) => {
+      activeRoundAgentId = String(value || "").trim();
     },
     setDeferredRoundCompletionNull: () => {
       deferredRoundCompletion = null;

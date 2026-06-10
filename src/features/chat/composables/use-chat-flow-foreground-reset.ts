@@ -16,6 +16,7 @@ type UseChatFlowForegroundResetOptions = {
   tickGeneration: () => void;
   setSendChatActiveGen: (value: number) => void;
   setActiveActivationId: (value: string) => void;
+  setActiveRoundAgentId: (value: string) => void;
   setDeferredRoundCompletionNull: () => void;
   setPendingTerminalEventNull: () => void;
   resetQueuedStreamingState: () => void;
@@ -45,6 +46,7 @@ export function useChatFlowForegroundReset(options: UseChatFlowForegroundResetOp
     options.tickGeneration();
     options.setSendChatActiveGen(0);
     options.setActiveActivationId("");
+    options.setActiveRoundAgentId("");
     options.setDeferredRoundCompletionNull();
     options.clearFrontendDispatchTimer();
     const pendingUserDraftId = options.getPendingUserDraftId();
@@ -69,6 +71,7 @@ export function useChatFlowForegroundReset(options: UseChatFlowForegroundResetOp
     const conversationId = options.getConversationId ? options.getConversationId() : "";
     options.setSendChatActiveGen(0);
     options.setActiveActivationId("");
+    options.setActiveRoundAgentId("");
     options.setPendingTerminalEventNull();
     options.setDeferredRoundCompletionNull();
     options.resetQueuedStreamingState();
@@ -89,6 +92,7 @@ export function useChatFlowForegroundReset(options: UseChatFlowForegroundResetOp
   function freezeForegroundRoundState() {
     options.tickGeneration();
     options.setSendChatActiveGen(0);
+    options.setActiveRoundAgentId("");
     const conversationId = options.getConversationId ? options.getConversationId() : "";
     const round = options.getRound();
     if (round.phase === "streaming") {

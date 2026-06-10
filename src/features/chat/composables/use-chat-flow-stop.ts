@@ -38,6 +38,7 @@ type UseChatFlowStopOptions = {
   clearDeferredRoundCompletion: () => void;
   clearPendingTerminalEvent: () => void;
   setActiveActivationId: (value: string) => void;
+  setActiveRoundAgentId: (value: string) => void;
   clearFrontendDispatchTimer: () => void;
   getPendingUserDraftId: () => string;
   removeDraft: (draftId: string) => void;
@@ -74,6 +75,7 @@ export function useChatFlowStop(options: UseChatFlowStopOptions) {
     options.clearDeferredRoundCompletion();
     options.clearPendingTerminalEvent();
     options.setActiveActivationId("");
+    options.setActiveRoundAgentId("");
     options.clearFrontendDispatchTimer();
 
     const pendingUserDraftId = options.getPendingUserDraftId();

@@ -300,6 +300,8 @@ struct ConversationRuntimeSlot {
 struct ConversationStreamRuntimeCache {
     activation_id: String,
     request_id: String,
+    department_id: String,
+    agent_id: String,
     assistant_text: String,
     activity_reasoning_text: String,
     tool_status_text: String,

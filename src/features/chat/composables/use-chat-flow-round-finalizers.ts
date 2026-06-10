@@ -33,6 +33,7 @@ export function useChatFlowRoundFinalizers(bindings: Record<string, any>) {
     bindings.clearConversationStreamCache(bindings.getConversationId ? bindings.getConversationId() : "");
     bindings.clearFrontendDispatchTimer();
     bindings.setActiveActivationId("");
+    bindings.setActiveRoundAgentId?.("");
     if (bindings.streamBlocks) bindings.streamBlocks.value = [];
     bindings.setRound({ phase: "idle" });
     bindings.chatting.value = false;
@@ -57,6 +58,7 @@ export function useChatFlowRoundFinalizers(bindings: Record<string, any>) {
     bindings.clearConversationStreamCache(bindings.getConversationId ? bindings.getConversationId() : "");
     bindings.clearFrontendDispatchTimer();
     bindings.setActiveActivationId("");
+    bindings.setActiveRoundAgentId?.("");
     bindings.clearChatErrorText();
     bindings.setRound({ phase: "idle" });
     bindings.chatting.value = false;
@@ -75,6 +77,7 @@ export function useChatFlowRoundFinalizers(bindings: Record<string, any>) {
     bindings.clearConversationStreamCache(bindings.getConversationId ? bindings.getConversationId() : "");
     bindings.clearFrontendDispatchTimer();
     bindings.setActiveActivationId("");
+    bindings.setActiveRoundAgentId?.("");
     bindings.latestAssistantText.value = "";
     if (bindings.streamBlocks) bindings.streamBlocks.value = [];
     bindings.setChatErrorText(bindings.formatRequestFailed(error));

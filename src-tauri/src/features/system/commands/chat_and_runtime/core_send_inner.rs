@@ -1377,6 +1377,8 @@ fn restart_dispatch_round_after_context_compaction(
         conversation_id,
         request_id.as_str(),
         request_id.as_str(),
+        department_id,
+        agent_id,
         stream_started_at.as_str(),
         stream_started_at_ms,
     )?;
@@ -1617,18 +1619,32 @@ async fn send_chat_message_inner(
     log_chat_stage("send_chat_message_inner.start");
 
     let trigger_only = input.trigger_only;
-    let requested_department_id = input
-        .session
-        .as_ref()
-        .and_then(|s| s.department_id.as_deref())
+    let requested_department_id = runtime_context
+        .executor_department_id
+        .as_deref()
         .map(str::trim)
         .filter(|v| !v.is_empty())
         .map(ToOwned::to_owned)
         .or_else(|| {
-            runtime_context
-                .executor_department_id
-                .as_deref()
+            input
+                .session
+                .as_ref()
+                .and_then(|s| s.department_id.as_deref())
                 .map(str::trim)
+                .filter(|v| !v.is_empty())
+                .map(ToOwned::to_owned)
+        });
+    let requested_agent_id = runtime_context
+        .executor_agent_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|v| !v.is_empty())
+        .map(ToOwned::to_owned)
+        .or_else(|| {
+            input
+                .session
+                .as_ref()
+                .map(|s| s.agent_id.trim())
                 .filter(|v| !v.is_empty())
                 .map(ToOwned::to_owned)
         });
@@ -1971,14 +1987,14 @@ async fn send_chat_message_inner(
         prepare_detail_parts.push(format!("组织运行态构建={}ms", runtime_org_ms));
         log_chat_stage("runtime_and_session_ready.runtime_org_ready");
         let department_resolve_started = std::time::Instant::now();
-        let effective_department = if let Some(department_id) = requested_department_id.as_deref() {
-            runtime_department_by_id(&runtime_org, department_id)
-                .ok_or_else(|| format!("Department '{department_id}' not found."))?
-        } else {
-            runtime_department_by_id(&runtime_org, ASSISTANT_DEPARTMENT_ID)
-                .or_else(|| assistant_department(&app_config))
-                .ok_or_else(|| "No assistant department configured.".to_string())?
-        };
+        let requested_department_id_snapshot = requested_department_id
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .ok_or_else(|| "缺少执行部门：调度上下文没有固化 department_id。".to_string())?;
+        let effective_department =
+            runtime_department_by_id(&runtime_org, requested_department_id_snapshot)
+                .ok_or_else(|| format!("执行部门已经消失：department_id={requested_department_id_snapshot}"))?;
         let effective_department_id = effective_department.id.clone();
         let department_resolve_ms = department_resolve_started
             .elapsed()
@@ -1987,24 +2003,23 @@ async fn send_chat_message_inner(
         prepare_detail_parts.push(format!("部门解析={}ms", department_resolve_ms));
         log_chat_stage("runtime_and_session_ready.department_resolved");
         let agent_resolve_started = std::time::Instant::now();
-        let effective_agent_id = effective_department
+        let requested_agent_id_snapshot = requested_agent_id
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .ok_or_else(|| format!("缺少执行人格：调度上下文没有固化 agent_id，department_id={effective_department_id}。"))?;
+        let effective_agent_id = if !effective_department
             .agent_ids
             .iter()
-            .map(|id| id.trim())
-            .find(|id| !id.is_empty())
-            .map(ToOwned::to_owned)
-            .ok_or_else(|| {
-                let department_name = effective_department.name.trim();
-                let department_name = if department_name.is_empty() {
-                    effective_department.id.as_str()
-                } else {
-                    department_name
-                };
-                format!(
-                    "部门人格配置不合法：部门“{}”（{}）未配置可用人格。",
-                    department_name, effective_department.id
-                )
-            })?;
+            .any(|item| item.trim() == requested_agent_id_snapshot)
+        {
+            return Err(format!(
+                "调度固化人格不属于执行部门：department_id={}，agent_id={}",
+                effective_department.id, requested_agent_id_snapshot
+            ));
+        } else {
+            requested_agent_id_snapshot.to_string()
+        };
         if !runtime_agents
             .iter()
             .any(|a| a.id == effective_agent_id && !a.is_built_in_user)

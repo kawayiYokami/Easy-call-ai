@@ -68,10 +68,14 @@ export function useChatFlowForegroundRounds(bindings: Record<string, any>) {
       bindings.writeConversationStreamCacheSnapshot(cid, {
         activationId: nextActivationId,
         requestId: String(payload.requestId || nextActivationId || "").trim(),
+        departmentId: String(payload.departmentId || "").trim(),
+        agentId: String(payload.agentId || "").trim(),
         startedAt: String(payload.startedAt || "").trim(),
         startedAtMs: positiveRoundedNumber(payload.startedAtMs),
       });
     }
+    const payloadAgentId = String(payload.agentId || "").trim();
+    if (payloadAgentId) bindings.setActiveRoundAgentId?.(payloadAgentId);
     let gen = round.phase === "queued" ? round.gen : bindings.getSendChatActiveGen();
     if (!gen) {
       gen = bindings.nextGeneration();

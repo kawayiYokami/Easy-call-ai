@@ -19,6 +19,8 @@ import {
 export type ConversationStreamCache = {
   activationId?: string;
   requestId?: string;
+  departmentId?: string;
+  speakerAgentId?: string;
   startedAt?: string;
   startedAtMs?: number;
   frontendDispatchStartedAtMs?: number;
@@ -33,6 +35,9 @@ export type ConversationStreamCache = {
 export type ConversationRuntimeStreamCacheSnapshot = {
   activationId?: string;
   requestId?: string;
+  departmentId?: string;
+  agentId?: string;
+  speakerAgentId?: string;
   startedAt?: string;
   startedAtMs?: number;
   frontendDispatchStartedAtMs?: number;
@@ -56,6 +61,7 @@ type UseChatFlowStreamCacheOptions = {
   getFrontendDispatchElapsedMs: () => number;
   currentFrontendDispatchElapsedMs: () => number;
   restoreFrontendDispatchTimerFromCache: (cache: ConversationStreamCache) => void;
+  setActiveRoundAgentId?: (value: string) => void;
 };
 
 function normalizeToolStatusState(value: unknown): "running" | "done" | "failed" | "" {
@@ -79,6 +85,8 @@ function emptyConversationStreamCache(): ConversationStreamCache {
   return {
     activationId: "",
     requestId: "",
+    departmentId: "",
+    speakerAgentId: "",
     startedAt: "",
     startedAtMs: 0,
     frontendDispatchStartedAtMs: 0,
@@ -102,6 +110,8 @@ export function useChatFlowStreamCache(options: UseChatFlowStreamCacheOptions) {
     return {
       activationId: String(cache.activationId || "").trim(),
       requestId: String(cache.requestId || "").trim(),
+      departmentId: String(cache.departmentId || "").trim(),
+      speakerAgentId: String(cache.speakerAgentId || "").trim(),
       startedAt: String(cache.startedAt || "").trim(),
       startedAtMs: positiveRoundedNumber(cache.startedAtMs),
       frontendDispatchStartedAtMs: positiveRoundedNumber(cache.frontendDispatchStartedAtMs),
@@ -125,6 +135,8 @@ export function useChatFlowStreamCache(options: UseChatFlowStreamCacheOptions) {
       ...next,
       activationId: String(next.activationId || "").trim(),
       requestId: String(next.requestId || "").trim(),
+      departmentId: String(next.departmentId || "").trim(),
+      speakerAgentId: String(next.speakerAgentId || "").trim(),
       startedAt: String(next.startedAt || "").trim(),
       startedAtMs: positiveRoundedNumber(next.startedAtMs),
       frontendDispatchStartedAtMs: positiveRoundedNumber(next.frontendDispatchStartedAtMs),
@@ -148,6 +160,8 @@ export function useChatFlowStreamCache(options: UseChatFlowStreamCacheOptions) {
       assistantText: String(options.latestAssistantText.value || ""),
       activationId: activeActivationId,
       requestId: activeActivationId,
+      departmentId: current.departmentId,
+      speakerAgentId: current.speakerAgentId,
       startedAt: current.startedAt,
       startedAtMs: current.startedAtMs,
       frontendDispatchStartedAtMs: options.getFrontendDispatchStartedAtMs(),
@@ -174,6 +188,9 @@ export function useChatFlowStreamCache(options: UseChatFlowStreamCacheOptions) {
     if (cache.assistantText || !options.latestAssistantText.value) {
       options.latestAssistantText.value = cache.assistantText;
     }
+    if (cache.speakerAgentId) {
+      options.setActiveRoundAgentId?.(cache.speakerAgentId);
+    }
     options.restoreFrontendDispatchTimerFromCache(cache);
     if (cache.toolStatusText || !options.toolStatusText.value) {
       options.toolStatusText.value = cache.toolStatusText;
@@ -195,9 +212,12 @@ export function useChatFlowStreamCache(options: UseChatFlowStreamCacheOptions) {
   ) {
     const cid = normalizeConversationId(conversationId);
     if (!cid || !snapshot) return;
+    const snapshotSpeakerAgentId = String(snapshot.speakerAgentId || snapshot.agentId || "").trim();
     writeConversationStreamCache(cid, (current) => ({
       activationId: String(snapshot.activationId || snapshot.requestId || current.activationId || "").trim(),
       requestId: String(snapshot.requestId || snapshot.activationId || current.requestId || "").trim(),
+      departmentId: String(snapshot.departmentId || current.departmentId || "").trim(),
+      speakerAgentId: String(snapshotSpeakerAgentId || current.speakerAgentId || "").trim(),
       startedAt: String(snapshot.startedAt || current.startedAt || "").trim(),
       startedAtMs: positiveRoundedNumber(snapshot.startedAtMs || current.startedAtMs),
       frontendDispatchStartedAtMs: positiveRoundedNumber(snapshot.startedAtMs || snapshot.frontendDispatchStartedAtMs || current.frontendDispatchStartedAtMs),
@@ -230,10 +250,14 @@ export function useChatFlowStreamCache(options: UseChatFlowStreamCacheOptions) {
     let changed = false;
     writeConversationStreamCache(cid, (current) => {
       const activeActivationId = options.getActiveActivationId();
+      const eventStreamCache = parsed.streamCache;
+      const eventSpeakerAgentId = String(eventStreamCache?.speakerAgentId || eventStreamCache?.agentId || "").trim();
       const next: ConversationStreamCache = {
         ...current,
         activationId: String(parsed.activationId || parsed.requestId || current.activationId || activeActivationId || "").trim(),
         requestId: String(parsed.requestId || parsed.activationId || current.requestId || activeActivationId || "").trim(),
+        departmentId: String(eventStreamCache?.departmentId || current.departmentId || "").trim(),
+        speakerAgentId: String(eventSpeakerAgentId || current.speakerAgentId || "").trim(),
         startedAt: current.startedAt,
         startedAtMs: current.startedAtMs,
         frontendDispatchStartedAtMs: options.getFrontendDispatchStartedAtMs(),

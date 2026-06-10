@@ -21,6 +21,7 @@ type UseChatFlowSendRecoveryOptions = {
   getSession: () => SendSession | null;
   getHistoryFlushedReceivedGen: () => number;
   setSendChatActiveGenIfCurrent: (gen: number, value: number) => void;
+  setActiveRoundAgentId: (value: string) => void;
   clearFrontendDispatchTimer: () => void;
   clearChatErrorText: (conversationId?: string | null) => void;
   setChatErrorText: (text: string, conversationId?: string | null) => void;
@@ -48,6 +49,7 @@ export function useChatFlowSendRecovery(options: UseChatFlowSendRecoveryOptions)
     const round = options.getRound();
     if ((round.phase === "streaming" || round.phase === "queued") && round.gen === gen) {
       options.setRound({ phase: "idle" });
+      options.setActiveRoundAgentId("");
       options.clearFrontendDispatchTimer();
     }
     options.chatting.value = false;
@@ -100,6 +102,7 @@ export function useChatFlowSendRecovery(options: UseChatFlowSendRecoveryOptions)
       }
       options.deleteSendStartedAtMs(gen);
       options.setRound({ phase: "idle" });
+      options.setActiveRoundAgentId("");
       options.clearFrontendDispatchTimer();
       options.chatting.value = false;
       options.reasoningStartedAtMs.value = 0;
@@ -115,6 +118,7 @@ export function useChatFlowSendRecovery(options: UseChatFlowSendRecoveryOptions)
       removePendingDraftsForGen(gen);
       options.deleteSendStartedAtMs(gen);
       options.setRound({ phase: "idle" });
+      options.setActiveRoundAgentId("");
       options.clearFrontendDispatchTimer();
       options.chatting.value = false;
       options.reasoningStartedAtMs.value = 0;
