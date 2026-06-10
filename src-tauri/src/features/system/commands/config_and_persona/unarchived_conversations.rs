@@ -1478,11 +1478,18 @@ fn list_conversation_delegate_statuses(
     input: ListConversationDelegateStatusesInput,
     state: State<'_, AppState>,
 ) -> Result<Vec<ConversationDelegateStatusSummary>, String> {
+    list_conversation_delegate_statuses_inner(input, state.inner())
+}
+
+fn list_conversation_delegate_statuses_inner(
+    input: ListConversationDelegateStatusesInput,
+    state: &AppState,
+) -> Result<Vec<ConversationDelegateStatusSummary>, String> {
     let root_conversation_id = input.conversation_id.trim();
     if root_conversation_id.is_empty() {
         return Err("conversationId 不能为空".to_string());
     }
-    let active_threads = delegate_runtime_thread_list(state.inner())?;
+    let active_threads = delegate_runtime_thread_list(state)?;
     let active_ids = active_threads
         .iter()
         .map(|thread| thread.delegate_id.clone())
@@ -1497,12 +1504,12 @@ fn list_conversation_delegate_statuses(
             continue;
         }
         summaries.push(conversation_delegate_summary_from_thread(
-            state.inner(),
+            state,
             &thread,
             true,
         )?);
     }
-    for thread in delegate_recent_thread_list(state.inner())? {
+    for thread in delegate_recent_thread_list(state)? {
         if thread.root_conversation_id.trim() != root_conversation_id {
             continue;
         }
@@ -1510,12 +1517,12 @@ fn list_conversation_delegate_statuses(
             continue;
         }
         summaries.push(conversation_delegate_summary_from_thread(
-            state.inner(),
+            state,
             &thread,
             active_ids.contains(&thread.delegate_id),
         )?);
     }
-    for conversation in delegate_persisted_conversation_list(state.inner())? {
+    for conversation in delegate_persisted_conversation_list(state)? {
         if conversation
             .root_conversation_id
             .as_deref()
@@ -1532,7 +1539,7 @@ fn list_conversation_delegate_statuses(
             continue;
         }
         summaries.push(conversation_delegate_summary_from_persisted(
-            state.inner(),
+            state,
             &conversation,
         )?);
     }
@@ -1561,8 +1568,15 @@ fn abort_delegate_conversation(
     input: AbortDelegateConversationInput,
     state: State<'_, AppState>,
 ) -> Result<AbortDelegateConversationResult, String> {
+    abort_delegate_conversation_inner(input, state.inner())
+}
+
+fn abort_delegate_conversation_inner(
+    input: AbortDelegateConversationInput,
+    state: &AppState,
+) -> Result<AbortDelegateConversationResult, String> {
     let aborted = abort_delegate_runtime_thread(
-        state.inner(),
+        state,
         &input.delegate_id,
         "用户从委托状态卡片打断",
     )?;
@@ -1784,6 +1798,13 @@ fn get_delegate_conversation_messages(
 fn get_delegate_conversation_block_page(
     input: GetConversationBlockPageInput,
     state: State<'_, AppState>,
+) -> Result<ConversationBlockPageOutput, String> {
+    get_delegate_conversation_block_page_inner(input, state.inner())
+}
+
+fn get_delegate_conversation_block_page_inner(
+    input: GetConversationBlockPageInput,
+    state: &AppState,
 ) -> Result<ConversationBlockPageOutput, String> {
     let conversation_id = input.conversation_id.trim();
     if conversation_id.is_empty() {

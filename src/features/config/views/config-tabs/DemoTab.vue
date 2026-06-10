@@ -63,21 +63,34 @@
           <h3 class="card-title text-base">DelegateProgressLine 预览</h3>
           <p class="text-sm text-base-content/70">折叠卡片第二行的实时进度组件样本。</p>
         </div>
+        <div class="flex flex-wrap items-center gap-2">
+          <button type="button" class="btn btn-xs" @click="toggleDemoDelegateActivity">
+            {{ demoHasRunningDelegates ? "结束活动委托" : "恢复活动委托" }}
+          </button>
+        </div>
+        <div class="flex w-full max-w-2xl">
+          <SessionControlPanel
+            class="flex-1"
+            workspace-button-label="工作空间"
+            workspace-button-name="easy_call_ai"
+            :delegates="demoDelegateStatuses"
+          />
+        </div>
         <div class="flex flex-col gap-1 py-2">
           <DelegateCard
             title="示例：代码审查（pending）"
             :running="true"
-            :elapsed-ms="45000"
-            :request-count="12"
-            :token-count="15600"
+            :elapsed-ms="demoDelegateStatuses[0]?.elapsedMs"
+            :request-count="demoDelegateStatuses[0]?.requestCount"
+            :token-count="demoDelegateStatuses[0]?.tokenCount"
             last-tool-name="apply_patch"
           />
           <DelegateCard
             title="示例：委托任务（运行中）"
             :running="true"
-            :elapsed-ms="120000"
-            :request-count="34"
-            :token-count="52800"
+            :elapsed-ms="demoDelegateStatuses[1]?.elapsedMs"
+            :request-count="demoDelegateStatuses[1]?.requestCount"
+            :token-count="demoDelegateStatuses[1]?.tokenCount"
             last-tool-name="shell_exec"
           />
           <DelegateCard
@@ -92,11 +105,12 @@
 
 <script setup lang="ts">
 import { RotateCcw } from "@lucide/vue";
-import { ref } from "vue";
+import { computed, onBeforeUnmount, onMounted, ref } from "vue";
 import { useI18n } from "vue-i18n";
 import { invokeTauri } from "../../../../services/tauri-api";
 import DelegateCard from "../../../chat/components/DelegateCard.vue";
-import DelegateProgressLine from "../../../chat/components/DelegateProgressLine.vue";
+import SessionControlPanel from "../../../chat/components/SessionControlPanel.vue";
+import type { ConversationDelegateStatusSummary } from "../../../../types/app";
 
 type NativeNotificationDemoResult = {
   permissionBefore: string;
@@ -111,6 +125,18 @@ const restarting = ref(false);
 const errorText = ref("");
 const resultText = ref("");
 const { t } = useI18n();
+const demoDelegateStatuses = ref<ConversationDelegateStatusSummary[]>([
+  createDemoDelegateStatus("demo-code-review", "示例：代码审查（pending）", 45000, 12, 15600, "apply_patch"),
+  createDemoDelegateStatus("demo-research", "示例：委托任务（运行中）", 120000, 34, 52800, "shell_exec"),
+  {
+    ...createDemoDelegateStatus("demo-report", "示例：审查报告（完成）", 347000, 18, 23600, ""),
+    status: "completed",
+    active: false,
+    completedAt: new Date().toISOString(),
+  },
+]);
+let delegateDemoTimer = 0;
+const demoHasRunningDelegates = computed(() => demoDelegateStatuses.value.some((delegate) => delegate.active));
 
 async function sendNativeNotification() {
   sending.value = true;
@@ -146,4 +172,71 @@ async function restartApp() {
     restarting.value = false;
   }
 }
+
+function createDemoDelegateStatus(
+  delegateId: string,
+  title: string,
+  elapsedMs: number,
+  requestCount: number,
+  tokenCount: number,
+  lastToolName: string,
+): ConversationDelegateStatusSummary {
+  const now = new Date().toISOString();
+  return {
+    delegateId,
+    conversationId: `${delegateId}-conversation`,
+    rootConversationId: "demo-root-conversation",
+    title,
+    status: "running",
+    active: true,
+    startedAt: now,
+    updatedAt: now,
+    elapsedMs,
+    requestCount,
+    toolCallCount: requestCount,
+    lastToolName,
+    tokenCount,
+    targetAgentId: "demo-agent",
+  };
+}
+
+function advanceDemoDelegateStatus() {
+  demoDelegateStatuses.value = demoDelegateStatuses.value.map((delegate, index) => {
+    if (!delegate.active) return delegate;
+    const nextStep = index === 0 ? 1 : 2;
+    const nextToken = index === 0 ? 680 : 1340;
+    return {
+      ...delegate,
+      elapsedMs: delegate.elapsedMs + 1000,
+      requestCount: delegate.requestCount + nextStep,
+      toolCallCount: delegate.toolCallCount + nextStep,
+      tokenCount: delegate.tokenCount + nextToken,
+      updatedAt: new Date().toISOString(),
+    };
+  });
+}
+
+function toggleDemoDelegateActivity() {
+  const nextActive = !demoHasRunningDelegates.value;
+  demoDelegateStatuses.value = demoDelegateStatuses.value.map((delegate, index) => {
+    if (index > 1) return delegate;
+    return {
+      ...delegate,
+      status: nextActive ? "running" : "completed",
+      active: nextActive,
+      completedAt: nextActive ? undefined : new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+  });
+}
+
+onMounted(() => {
+  delegateDemoTimer = window.setInterval(advanceDemoDelegateStatus, 1000);
+});
+
+onBeforeUnmount(() => {
+  if (!delegateDemoTimer) return;
+  window.clearInterval(delegateDemoTimer);
+  delegateDemoTimer = 0;
+});
 </script>

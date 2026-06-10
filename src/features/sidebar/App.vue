@@ -200,20 +200,133 @@
         <button @click.prevent="cancelRewindConfirm">close</button>
       </form>
     </dialog>
-    <ChatWorkspacePickerDialog
-      :open="workspacePickerOpen"
-      :saving="workspacePickerSaving"
-      :workspaces="workspaceDraftChoices"
-      :autonomous-mode="workspaceDraftAutonomousMode"
-      hide-add-workspace
-      @close="closeWorkspacePicker"
-      @set-main="setWorkspaceAsMain"
-      @set-access="setWorkspaceAccess"
-      @set-autonomous-mode="setWorkspaceAutonomousMode"
-      @remove-workspace="removeWorkspace"
-      @open-dir="openWorkspaceDir"
-      @save="saveWorkspacePicker"
-    />
+    <div
+      v-if="workspacePickerOpen"
+      class="fixed inset-0 z-80 flex items-center justify-center bg-black/30 px-4 py-8"
+      @click.self="closeWorkspacePicker"
+    >
+      <div class="w-full max-w-lg rounded-2xl border border-base-300 bg-base-100 shadow-2xl">
+        <div class="border-b border-base-300 px-4 py-3">
+          <div class="text-sm font-semibold">{{ t("chat.workspacePickerTitle") }}</div>
+          <div class="mt-1 text-xs opacity-70">Web 端请手动输入可由服务端访问的工作目录路径。</div>
+        </div>
+        <div class="space-y-4 px-4 py-4">
+          <label class="form-control w-full">
+            <div class="label">
+              <span class="label-text text-xs">工作目录路径</span>
+            </div>
+            <div class="join w-full">
+              <input
+                v-model.trim="workspaceManualPath"
+                class="input input-bordered input-sm join-item min-w-0 flex-1 font-mono"
+                type="text"
+                :disabled="workspacePickerSaving"
+                placeholder="例如 E:\\github\\easy_call_ai 或 /home/me/project"
+                @keydown.enter.prevent="loadWorkspaceDirectory(workspaceManualPath)"
+              />
+              <button
+                type="button"
+                class="btn btn-sm join-item"
+                :disabled="workspacePickerSaving || workspaceDirectoryLoading || !workspaceManualPath.trim()"
+                @click="loadWorkspaceDirectory(workspaceManualPath)"
+              >
+                浏览
+              </button>
+            </div>
+          </label>
+          <div class="rounded-box border border-base-300 bg-base-200/30">
+            <div class="flex items-center gap-2 border-b border-base-300 px-2 py-2">
+              <button
+                type="button"
+                class="btn btn-xs"
+                :disabled="workspacePickerSaving || workspaceDirectoryLoading || !workspaceParentPath"
+                @click="workspaceParentPath && loadWorkspaceDirectory(workspaceParentPath)"
+              >
+                上一级
+              </button>
+              <div class="min-w-0 flex-1 truncate font-mono text-xs" :title="workspaceBrowserPath || workspaceManualPath">
+                {{ workspaceBrowserPath || workspaceManualPath || "输入路径后开始浏览" }}
+              </div>
+              <button
+                type="button"
+                class="btn btn-xs btn-ghost"
+                :disabled="workspacePickerSaving || workspaceDirectoryLoading || !workspaceBrowserPath"
+                @click="loadWorkspaceDirectory(workspaceBrowserPath)"
+              >
+                刷新
+              </button>
+            </div>
+            <div class="max-h-64 overflow-y-auto py-1">
+              <div v-if="workspaceDirectoryLoading" class="flex items-center gap-2 px-3 py-3 text-sm text-base-content/65">
+                <span class="loading loading-spinner loading-xs"></span>
+                正在读取目录
+              </div>
+              <div v-else-if="workspaceDirectoryError" class="px-3 py-3 text-sm text-error">
+                {{ workspaceDirectoryError }}
+              </div>
+              <div v-else-if="workspaceDirectoryItems.length === 0" class="px-3 py-3 text-sm text-base-content/55">
+                当前目录没有可继续进入的子目录
+              </div>
+              <template v-else>
+                <button
+                  v-for="item in workspaceDirectoryItems"
+                  :key="item.path"
+                  type="button"
+                  class="flex min-h-8 w-full items-center gap-2 px-3 py-1.5 text-left text-sm hover:bg-base-300/60"
+                  :disabled="workspacePickerSaving"
+                  :title="item.path"
+                  @click="loadWorkspaceDirectory(item.path)"
+                >
+                  <span class="shrink-0 text-base-content/55">▸</span>
+                  <span class="min-w-0 flex-1 truncate">{{ item.name }}</span>
+                </button>
+              </template>
+            </div>
+          </div>
+          <div class="grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end">
+            <label class="form-control w-full">
+              <div class="label">
+                <span class="label-text text-xs">访问权限</span>
+              </div>
+              <select
+                v-model="workspaceManualAccess"
+                class="select select-bordered select-sm w-full"
+                :disabled="workspacePickerSaving"
+              >
+                <option value="approval">{{ t("config.tools.workspaceAccessApproval") }}</option>
+                <option value="full_access">{{ t("config.tools.workspaceAccessFullAccess") }}</option>
+                <option value="read_only">{{ t("config.tools.workspaceAccessReadOnly") }}</option>
+              </select>
+            </label>
+            <label
+              class="flex cursor-pointer items-center gap-2 rounded-box bg-base-200 px-3 py-2 text-xs"
+              :title="t('chat.workspacePickerAutonomousHint')"
+            >
+              <span>{{ t("chat.workspacePickerAutonomous") }}</span>
+              <input
+                v-model="workspaceDraftAutonomousMode"
+                type="checkbox"
+                class="checkbox checkbox-primary checkbox-sm"
+                :disabled="workspacePickerSaving"
+              />
+            </label>
+          </div>
+        </div>
+        <div class="flex items-center justify-end gap-2 border-t border-base-300 px-4 py-3">
+          <button class="btn btn-sm btn-ghost" type="button" :disabled="workspacePickerSaving" @click="closeWorkspacePicker">
+            {{ t("common.cancel") }}
+          </button>
+          <button
+            class="btn btn-sm btn-primary"
+            type="button"
+            :disabled="workspacePickerSaving || !workspaceManualPath.trim()"
+            @click="saveWorkspacePicker"
+          >
+            {{ workspacePickerSaving ? t("common.saving") : "使用此目录" }}
+          </button>
+        </div>
+      </div>
+    </div>
     <input
       ref="attachmentInputRef"
       class="hidden"
@@ -244,7 +357,6 @@ import CreateConversationDialog, { type SidebarCreateDepartmentOption } from "./
 import { useWsTransport, type SidebarBridgeConfig } from "./composables/use-ws-transport";
 import ToolReviewTargetDialog from "../chat/components/ToolReviewTargetDialog.vue";
 import ChatSupervisionTaskDialog from "../chat/components/dialogs/ChatSupervisionTaskDialog.vue";
-import ChatWorkspacePickerDialog from "../chat/components/dialogs/ChatWorkspacePickerDialog.vue";
 import type { ChatWorkspaceChoice } from "../chat/composables/use-chat-workspace";
 import type { ToolReviewCodeReviewScope, ToolReviewCommitOption, ToolReviewReportRecord } from "../chat/composables/use-chat-tool-review";
 import type { TerminalApprovalConversationItem, TerminalApprovalRequestPayload } from "../shell/composables/use-terminal-approval";
@@ -434,7 +546,14 @@ const sidebarViewerId = ref("");
 const activeConversationId = ref("");
 const activeTitle = computed(() => {
   const item = activeSummary.value;
-  if (!item) return "PAI";
+  if (!item) {
+    const remoteItem = remoteImContactConversations.value.find((entry) =>
+      String(entry.conversationId || "").trim() === String(activeConversationId.value || "").trim()
+    );
+    return String(remoteItem?.title || "").trim()
+      || String(remoteItem?.contactDisplayName || "").trim()
+      || "PAI";
+  }
   const title = String(item.title || "").trim();
   if (title) return title;
   const summary = String(item.summaryTitle || "").trim();
@@ -505,6 +624,13 @@ const workspacePickerOpen = ref(false);
 const workspacePickerSaving = ref(false);
 const workspaceDraftChoices = ref<ChatWorkspaceChoice[]>([]);
 const workspaceDraftAutonomousMode = ref(false);
+const workspaceManualPath = ref("");
+const workspaceManualAccess = ref<ChatWorkspaceChoice["access"]>("approval");
+const workspaceBrowserPath = ref("");
+const workspaceDirectoryItems = ref<Array<{ path: string; name: string }>>([]);
+const workspaceDirectoryLoading = ref(false);
+const workspaceDirectoryError = ref("");
+const workspaceParentPath = computed(() => parentWorkspaceDirectoryPath(workspaceBrowserPath.value || workspaceManualPath.value));
 const terminalApprovalQueue = ref<TerminalApprovalRequestPayload[]>([]);
 const terminalApprovalResolving = ref(false);
 const hideWorkspaceButton = computed(() => false);
@@ -834,6 +960,7 @@ async function refreshList() {
   remoteImContactConversations.value = Array.isArray(result.remoteImContactConversations)
     ? result.remoteImContactConversations
     : [];
+  syncConversationTabForRemoteContacts();
   sidebarViewerId.value = String(result.viewerId || sidebarViewerId.value || "").trim();
   if (result.persona && !activeConversationId.value) persona.value = result.persona;
   console.info("[Sidebar会话列表] 完成", {
@@ -1072,6 +1199,7 @@ async function openConversation(conversationId: string) {
   persona.value = result.persona || {};
   applyModelPayload(result.model || {});
   await refreshWorkspacePermission();
+  await refreshWorkspaceList();
   messages.value = Array.isArray(result.messages) ? result.messages : [];
   sidebarTodos.value = Array.isArray(result.currentTodos) ? result.currentTodos : [];
   clearStreamingState();
@@ -1079,7 +1207,36 @@ async function openConversation(conversationId: string) {
   selectedBlockId.value = null;
   hasPrevBlock.value = true;
   view.value = "chat";
+  syncConversationTabForActiveConversation();
   loadCreateConversationOptions();
+}
+
+function syncConversationTabForActiveConversation() {
+  const activeId = String(activeConversationId.value || "").trim();
+  if (!activeId) return;
+  const activeItem = chatConversationItems.value.find((item) =>
+    String(item.conversationId || "").trim() === activeId
+  );
+  if (activeItem?.kind === "remote_im_contact") {
+    updateConversationListTab("contact");
+  }
+}
+
+function syncConversationTabForRemoteContacts() {
+  if (remoteImContactConversations.value.length === 0) return;
+  const activeId = String(activeConversationId.value || "").trim();
+  if (activeId && remoteImContactConversations.value.some((item) =>
+    String(item.conversationId || "").trim() === activeId
+  )) {
+    updateConversationListTab("contact");
+    return;
+  }
+  const hasNonSystemLocalConversation = visibleConversations.value.some((item) =>
+    !isSidebarSystemConversation(item)
+  );
+  if (!hasNonSystemLocalConversation && conversationListTab.value === "local") {
+    updateConversationListTab("contact");
+  }
 }
 
 async function refreshWorkspacePermission() {
@@ -1860,6 +2017,12 @@ type WorkspaceListResult = {
   autonomousMode: boolean;
 };
 
+type WorkspaceDirectoryListResult = {
+  path: string;
+  name: string;
+  directories: Array<{ path: string; name: string }>;
+};
+
 async function refreshWorkspaceList() {
   if (!activeConversationId.value) return;
   try {
@@ -1877,13 +2040,31 @@ async function refreshWorkspaceList() {
     workspaceDraftAutonomousMode.value = Boolean(result.autonomousMode);
     currentWorkspaceName.value = String(result.workspaceName || "").trim();
     workspaceRootPath.value = String(result.rootPath || "").trim();
+    const mainWorkspace = workspaceDraftChoices.value.find((item) => item.level === "main")
+      || workspaceDraftChoices.value.find((item) => item.level !== "system")
+      || null;
+    workspaceManualPath.value = String(mainWorkspace?.path || result.rootPath || "").trim();
+    workspaceManualAccess.value = normalizeWorkspaceAccess(mainWorkspace?.access || workspaceAccess.value || "approval");
+    if (workspacePickerOpen.value && workspaceManualPath.value) {
+      void loadWorkspaceDirectory(workspaceManualPath.value);
+    }
   } catch {
     workspaceDraftChoices.value = [];
+    workspaceManualPath.value = String(workspaceRootPath.value || "").trim();
+    workspaceManualAccess.value = normalizeWorkspaceAccess(workspaceAccess.value || "approval");
   }
 }
 
 function openWorkspacePicker() {
-  refreshWorkspaceList();
+  workspaceManualPath.value = String(workspaceRootPath.value || "").trim();
+  workspaceManualAccess.value = normalizeWorkspaceAccess(workspaceAccess.value || "approval");
+  workspaceBrowserPath.value = "";
+  workspaceDirectoryItems.value = [];
+  workspaceDirectoryError.value = "";
+  if (workspaceManualPath.value) {
+    void loadWorkspaceDirectory(workspaceManualPath.value);
+  }
+  void refreshWorkspaceList();
   workspacePickerOpen.value = true;
 }
 
@@ -1892,82 +2073,47 @@ function closeWorkspacePicker() {
   workspacePickerOpen.value = false;
 }
 
-function cloneWorkspaceDraft(items: ChatWorkspaceChoice[]): ChatWorkspaceChoice[] {
-  return (items || []).map((item) => ({
-    id: String(item.id || "").trim(),
-    name: String(item.name || "").trim(),
-    path: String(item.path || "").trim(),
-    level: item.level,
-    access: item.access,
-  }));
-}
-
-function setWorkspaceAsMain(workspaceId: string) {
-  const draft = cloneWorkspaceDraft(workspaceDraftChoices.value).map((item): ChatWorkspaceChoice => {
-    if (item.level === "system") return item;
-    if (item.id === workspaceId) return { ...item, level: "main", access: item.access || "approval" };
-    if (item.level === "main") return { ...item, level: "secondary" };
-    return item;
-  });
-  workspaceDraftChoices.value = draft;
-}
-
-function setWorkspaceAccess(workspaceId: string, access: ChatWorkspaceChoice["access"]) {
-  const draft = cloneWorkspaceDraft(workspaceDraftChoices.value);
-  const target = draft.find((item) => item.id === workspaceId);
-  if (!target || target.level === "system") return;
-  target.access = access;
-  workspaceDraftChoices.value = draft;
-}
-
-function setWorkspaceAutonomousMode(enabled: boolean) {
-  workspaceDraftAutonomousMode.value = Boolean(enabled);
-}
-
-function removeWorkspace(workspaceId: string) {
-  const current = cloneWorkspaceDraft(workspaceDraftChoices.value);
-  const removing = current.find((item) => item.id === workspaceId);
-  const draft = current.filter((item) => item.id !== workspaceId || item.level === "system");
-  if (removing?.level === "main") {
-    const promoteTarget = draft.find((item) => item.level === "secondary");
-    if (promoteTarget) {
-      draft.forEach((item) => {
-        if (item.level === "system") return;
-        if (item.id === promoteTarget.id) item.level = "main";
-        else if (item.level === "main") item.level = "secondary";
-      });
-    }
+async function loadWorkspaceDirectory(pathInput: string) {
+  const path = String(pathInput || "").trim();
+  if (!path || workspaceDirectoryLoading.value) return;
+  workspaceDirectoryLoading.value = true;
+  workspaceDirectoryError.value = "";
+  try {
+    const result = await transport.request<WorkspaceDirectoryListResult>("workspace.directory.list", { path }, 10000);
+    workspaceBrowserPath.value = String(result.path || path).trim();
+    workspaceManualPath.value = workspaceBrowserPath.value;
+    workspaceDirectoryItems.value = (Array.isArray(result.directories) ? result.directories : [])
+      .map((item) => ({
+        path: String(item.path || "").trim(),
+        name: String(item.name || "").trim(),
+      }))
+      .filter((item) => !!item.path && !!item.name);
+  } catch (error) {
+    workspaceDirectoryError.value = String(error || "读取目录失败");
+    workspaceDirectoryItems.value = [];
+  } finally {
+    workspaceDirectoryLoading.value = false;
   }
-  workspaceDraftChoices.value = draft;
-}
-
-async function openWorkspaceDir(workspaceId: string) {
-  const target = workspaceDraftChoices.value.find((item) => item.id === workspaceId);
-  if (!target?.path) return;
-  console.info("[Sidebar工作区] 跳过打开目录：web/sidebar 不允许唤起本机目录", {
-    workspaceId,
-    workspacePath: target.path,
-  });
-  transport.errorText.value = t("sidebar.openDirectoryRestricted");
 }
 
 async function saveWorkspacePicker() {
   if (workspacePickerSaving.value || !activeConversationId.value) return;
+  const path = String(workspaceManualPath.value || "").trim();
+  if (!path) return;
   workspacePickerSaving.value = true;
   try {
-    const draft = cloneWorkspaceDraft(workspaceDraftChoices.value);
+    const id = stableManualWorkspaceId(path);
+    const name = workspaceNameFromPath(path);
     await transport.request("workspace.layout.save", {
       conversationId: activeConversationId.value,
-      workspaces: draft
-        .filter((item) => item.level !== "system")
-        .map((item) => ({
-          id: item.id,
-          name: item.name,
-          path: item.path,
-          level: item.level,
-          access: item.access,
-          builtIn: false,
-        })),
+      workspaces: [{
+        id,
+        name,
+        path,
+        level: "main",
+        access: normalizeWorkspaceAccess(workspaceManualAccess.value),
+        builtIn: false,
+      }],
       autonomousMode: workspaceDraftAutonomousMode.value,
     });
     workspacePickerOpen.value = false;
@@ -1978,6 +2124,36 @@ async function saveWorkspacePicker() {
   } finally {
     workspacePickerSaving.value = false;
   }
+}
+
+function normalizeWorkspaceAccess(access: string): ChatWorkspaceChoice["access"] {
+  if (access === "read_only" || access === "full_access") return access;
+  return "approval";
+}
+
+function stableManualWorkspaceId(path: string): string {
+  let hash = 0;
+  for (let index = 0; index < path.length; index += 1) {
+    hash = ((hash << 5) - hash + path.charCodeAt(index)) | 0;
+  }
+  return `manual-workspace-${Math.abs(hash).toString(36)}`;
+}
+
+function workspaceNameFromPath(path: string): string {
+  const normalized = String(path || "").trim().replace(/[\\/]+$/, "");
+  const parts = normalized.split(/[\\/]+/).filter(Boolean);
+  return parts[parts.length - 1] || normalized || "workspace";
+}
+
+function parentWorkspaceDirectoryPath(path: string): string {
+  const normalized = String(path || "").trim().replace(/[\\/]+$/, "");
+  if (!normalized) return "";
+  const separatorIndex = Math.max(normalized.lastIndexOf("/"), normalized.lastIndexOf("\\"));
+  if (separatorIndex < 0) return "";
+  if (separatorIndex === 0) return normalized.slice(0, 1);
+  const windowsDriveRoot = /^[A-Za-z]:[\\/]?$/.test(normalized.slice(0, separatorIndex + 1));
+  if (windowsDriveRoot) return normalized.slice(0, separatorIndex + 1);
+  return normalized.slice(0, separatorIndex);
 }
 
 function appendMessages(next: unknown) {
@@ -2096,6 +2272,11 @@ function registerNotifications() {
     if (String(value.conversationId || "").trim() === activeConversationId.value) {
       sidebarTodos.value = Array.isArray(value.currentTodos) ? value.currentTodos : [];
     }
+  });
+  transport.onNotification("conversation.delegateStatusUpdated", (payload) => {
+    window.dispatchEvent(new CustomEvent("easy-call:conversation-delegate-status-updated", {
+      detail: payload,
+    }));
   });
   transport.onNotification("conversation.messageAppended", appendMessages);
   transport.onNotification("terminalApproval.requested", (payload) => {

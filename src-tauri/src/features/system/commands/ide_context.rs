@@ -502,6 +502,12 @@ struct IdeChatWorkspaceListInput {
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
+struct IdeChatWorkspaceDirectoryListInput {
+    path: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
 struct IdeChatReadPlanFileInput {
     conversation_id: String,
     path: String,
@@ -545,6 +551,45 @@ fn ide_chat_workspace_list(state: &AppState, params: Value) -> Result<Value, Str
         "workspaceName": workspace_name,
         "autonomousMode": autonomous_mode,
     }))
+}
+
+fn ide_chat_workspace_directory_list(params: Value) -> Result<Value, String> {
+    let input = ide_chat_parse_params::<IdeChatWorkspaceDirectoryListInput>(params)?;
+    let payload = list_file_reader_directory(input.path)?;
+    let directories: Vec<Value> = payload
+        .entries
+        .into_iter()
+        .filter(|entry| entry.is_directory)
+        .map(|entry| {
+            serde_json::json!({
+                "path": entry.path,
+                "name": entry.name,
+            })
+        })
+        .collect();
+    Ok(serde_json::json!({
+        "path": payload.path,
+        "name": payload.name,
+        "directories": directories,
+    }))
+}
+
+fn ide_chat_delegate_statuses(state: &AppState, params: Value) -> Result<Value, String> {
+    let input = ide_chat_parse_params::<ListConversationDelegateStatusesInput>(params)?;
+    serde_json::to_value(list_conversation_delegate_statuses_inner(input, state)?)
+        .map_err(|err| format!("Serialize delegate statuses failed: {err}"))
+}
+
+fn ide_chat_delegate_abort(state: &AppState, params: Value) -> Result<Value, String> {
+    let input = ide_chat_parse_params::<AbortDelegateConversationInput>(params)?;
+    serde_json::to_value(abort_delegate_conversation_inner(input, state)?)
+        .map_err(|err| format!("Serialize delegate abort result failed: {err}"))
+}
+
+fn ide_chat_delegate_block_page(state: &AppState, params: Value) -> Result<Value, String> {
+    let input = ide_chat_parse_params::<GetConversationBlockPageInput>(params)?;
+    serde_json::to_value(get_delegate_conversation_block_page_inner(input, state)?)
+        .map_err(|err| format!("Serialize delegate block page failed: {err}"))
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -2707,6 +2752,9 @@ async fn ide_chat_handle_jsonrpc_request(
         "conversation.rewindPreview" => ide_chat_rewind_preview(state, request.params).await,
         "conversation.rewind" => ide_chat_rewind_conversation(state, request.params).await,
         "conversation.branchFromSelection" => ide_chat_branch_conversation(state, request.params).await,
+        "delegate.statuses" => ide_chat_delegate_statuses(state, request.params),
+        "delegate.abort" => ide_chat_delegate_abort(state, request.params),
+        "delegate.blockPage" => ide_chat_delegate_block_page(state, request.params),
         "delegate.submit" => ide_chat_submit_delegate(state, request.params).await,
         "task.list" => ide_chat_task_list(state),
         "task.create" => ide_chat_task_create(state, request.params),
@@ -2721,6 +2769,7 @@ async fn ide_chat_handle_jsonrpc_request(
         "workspace.permission" => ide_chat_workspace_permission(state, request.params),
         "workspace.permission.select" => ide_chat_select_workspace_permission(state, request.params),
         "workspace.list" => ide_chat_workspace_list(state, request.params),
+        "workspace.directory.list" => ide_chat_workspace_directory_list(request.params),
         "ideContext.query" => ide_chat_parse_params::<IdeContextWorkspaceQueryInput>(request.params)
             .and_then(|input| serde_json::to_value(query_ide_context_references_internal(input, ide_context_runtime)?)
                 .map_err(|err| format!("serialize IDE context query result failed: {err}"))),

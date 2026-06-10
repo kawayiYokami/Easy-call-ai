@@ -10,6 +10,7 @@ interface UseDelegateStatusOptions {
   activeConversationId: Ref<string>;
   panelOpen: Ref<boolean>;
   enabled?: Ref<boolean>;
+  bridgeRequest?: Ref<((method: string, params?: Record<string, unknown>, timeoutMs?: number) => Promise<unknown>) | undefined>;
 }
 
 type DelegateStatusUpdatedPayload = {
@@ -24,7 +25,8 @@ export function useDelegateStatus(options: UseDelegateStatusOptions) {
 
   const delegateStatuses = ref<ConversationDelegateStatusSummary[]>([]);
   const delegateStatusesErrorText = ref("");
-  const enabled = () => options.enabled?.value !== false && isTauriRuntimeAvailable();
+  const hasBridgeRequest = () => typeof options.bridgeRequest?.value === "function";
+  const enabled = () => options.enabled?.value !== false && (isTauriRuntimeAvailable() || hasBridgeRequest());
 
   let delegateStatusUpdatedUnlisten: UnlistenFn | null = null;
   let disposed = false;
@@ -40,10 +42,12 @@ export function useDelegateStatus(options: UseDelegateStatusOptions) {
     }
     const seq = ++requestSeq;
     try {
-      const statuses = await invokeTauri<ConversationDelegateStatusSummary[]>(
-        "list_conversation_delegate_statuses",
-        { input: { conversationId } },
-      );
+      const statuses = hasBridgeRequest()
+        ? await options.bridgeRequest!.value!("delegate.statuses", { conversationId }, 10000) as ConversationDelegateStatusSummary[]
+        : await invokeTauri<ConversationDelegateStatusSummary[]>(
+            "list_conversation_delegate_statuses",
+            { input: { conversationId } },
+          );
       if (seq !== requestSeq) return;
       delegateStatuses.value = statuses;
       delegateStatusesErrorText.value = "";
@@ -86,9 +90,13 @@ export function useDelegateStatus(options: UseDelegateStatusOptions) {
     const delegateId = String(status?.delegateId || "").trim();
     if (!delegateId) return;
     try {
-      await invokeTauri("abort_delegate_conversation", {
-        input: { delegateId },
-      });
+      if (hasBridgeRequest()) {
+        await options.bridgeRequest!.value!("delegate.abort", { delegateId }, 10000);
+      } else {
+        await invokeTauri("abort_delegate_conversation", {
+          input: { delegateId },
+        });
+      }
       await refresh();
     } catch (error) {
       delegateStatusesErrorText.value = `打断委托失败：${String(error)}`;
@@ -102,27 +110,41 @@ export function useDelegateStatus(options: UseDelegateStatusOptions) {
   );
 
   onMounted(() => {
-    if (!enabled()) return;
-    void listen<DelegateStatusUpdatedPayload>(DELEGATE_STATUS_UPDATED_EVENT, (event) => {
-      if (!panelOpen.value || !payloadMatchesActiveConversation(event.payload)) return;
-      void refresh();
-    }).then((unlisten) => {
-      if (disposed) {
-        unlisten();
-        return;
-      }
-      delegateStatusUpdatedUnlisten = unlisten;
-    }).catch((error) => {
-      console.error("[委托状态] 监听器注册失败", error);
-    });
+    if (isTauriRuntimeAvailable()) {
+      void listen<DelegateStatusUpdatedPayload>(DELEGATE_STATUS_UPDATED_EVENT, (event) => {
+        if (!panelOpen.value || !payloadMatchesActiveConversation(event.payload)) return;
+        void refresh();
+      }).then((unlisten) => {
+        if (disposed) {
+          unlisten();
+          return;
+        }
+        delegateStatusUpdatedUnlisten = unlisten;
+      }).catch((error) => {
+        console.error("[委托状态] 监听器注册失败", error);
+      });
+    }
+    if (typeof window !== "undefined") {
+      window.addEventListener(DELEGATE_STATUS_UPDATED_EVENT, handleBridgeDelegateStatusUpdated);
+    }
   });
 
   onBeforeUnmount(() => {
     disposed = true;
-    if (!delegateStatusUpdatedUnlisten) return;
-    delegateStatusUpdatedUnlisten();
-    delegateStatusUpdatedUnlisten = null;
+    if (delegateStatusUpdatedUnlisten) {
+      delegateStatusUpdatedUnlisten();
+      delegateStatusUpdatedUnlisten = null;
+    }
+    if (typeof window !== "undefined") {
+      window.removeEventListener(DELEGATE_STATUS_UPDATED_EVENT, handleBridgeDelegateStatusUpdated);
+    }
   });
+
+  function handleBridgeDelegateStatusUpdated(event: Event) {
+    const payload = (event as CustomEvent<DelegateStatusUpdatedPayload>).detail;
+    if (!panelOpen.value || !payloadMatchesActiveConversation(payload)) return;
+    void refresh();
+  }
 
   return {
     delegateStatuses,

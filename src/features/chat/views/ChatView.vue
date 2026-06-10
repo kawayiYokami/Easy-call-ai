@@ -162,7 +162,7 @@
             <div
               v-if="!activeConversationIsSystemNotification"
               ref="toolbarContainer"
-              class="ecall-chat-toolbar-shell px-2 pt-1 pb-2"
+              class="ecall-chat-toolbar-shell mx-auto w-full max-w-[900px] px-4 pt-1 pb-2"
             >
               <ChatWorkspaceToolbar
                 :chatting="chatting" :frozen="frozen" :conversation-busy="conversationInteractionBusy"
@@ -175,11 +175,13 @@
                 :show-workspace-menu-item="true"
                 :show-code-review-menu-item="true"
                 :mention-entries="mentionEntries" :selected-mention-keys="selectedMentionKeys"
+                :delegate-statuses="delegateStatuses"
                 :show-detach-button="!bridgeMode && !detachedChatWindow && !activeConversationIsSystemNotification"
                 :detach-disabled="bridgeMode || !activeConversationId || activeConversationIsSystemNotification || chatting || frozen || conversationInteractionBusy"
                 @lock-workspace="$emit('lockWorkspace')" @open-branch-selection="openBranchSelectionMenu"
                 @open-delegate-selection="openDelegateSelectionMenu" @open-forward-selection="openForwardSelectionMenu"
                 @open-share-selection="openShareSelectionMenu"
+                @open-delegate-summary="openDelegateSummaryPanel"
                 @open-code-review="$emit('openCodeReview')"
                 @mention-entry="(entry) => {
                   const agentId = String(entry?.agentId || '').trim();
@@ -378,6 +380,7 @@
           :delegate-statuses="delegateStatuses"
           :delegate-statuses-error-text="delegateStatusesErrorText"
           :persona-avatar-url-map="personaAvatarUrlMap"
+          :bridge-request="bridgeRequest"
           @select-batch="setToolReviewCurrentBatchKey" @load-item-detail="loadToolReviewItemDetail"
           @review-item="runToolReviewForCall" @review-batch="runToolReviewForBatch"
           @pick-commit-review="handlePickCommitReview" @review-code="handleToolReviewCode"
@@ -563,7 +566,10 @@ const emit = defineEmits<{
 // ==================== basic state ====================
 
 const { t } = useI18n();
-const toolReviewSidebarRef = ref<ComponentPublicInstance<{ setCommitOptions: (items: ToolReviewCommitOption[], loading?: boolean, total?: number, page?: number, pageSize?: number) => void }> | null>(null);
+const toolReviewSidebarRef = ref<ComponentPublicInstance<{
+  openDelegatesTab: () => void;
+  setCommitOptions: (items: ToolReviewCommitOption[], loading?: boolean, total?: number, page?: number, pageSize?: number) => void;
+}> | null>(null);
 const chatReaderPanelRef = ref<InstanceType<typeof FileReaderPanel> | null>(null);
 const chatScrollbarRef = ref<InstanceType<typeof FloatingScrollbar> | null>(null);
 const linkOpenErrorText = ref("");
@@ -888,8 +894,9 @@ const {
   openDelegateArchiveDetail, abortDelegate,
 } = useDelegateStatus({
   activeConversationId: toRef(props, "activeConversationId"),
-  panelOpen: effectiveToolReviewPanelOpen,
+  panelOpen: computed(() => !sidebarMode.value),
   enabled: computed(() => !sidebarMode.value),
+  bridgeRequest: toRef(props, "bridgeRequest"),
 });
 
 // ==================== panes ====================
@@ -984,6 +991,11 @@ async function handleSaveLocalImage(path: string) {
 // ==================== conversation actions ====================
 
 function handleDetachConversationRequest() { emit("detachConversation"); }
+function openDelegateSummaryPanel() {
+  emit("update:chatRightPanelMode", "delegate");
+  emit("toolReviewPanelOpenChange", true);
+  void nextTick(() => toolReviewSidebarRef.value?.openDelegatesTab());
+}
 function handleSendChat() {
   const extraTextBlocks = attachedIdeContextReferences.value.map((item) => String(item.textBlock || "").trim()).filter(Boolean);
   emit("sendChat", extraTextBlocks.length > 0 ? { extraTextBlocks } : undefined);

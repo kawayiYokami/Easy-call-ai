@@ -1,6 +1,6 @@
 <template>
-  <div ref="toolbarRootRef" class="rounded-box border border-base-300 bg-base-100/70 px-2 py-1.5 flex items-center justify-between gap-2 text-[11px]">
-    <div ref="toolbarLeftRef" class="flex min-w-0 items-center gap-1.5">
+  <div class="rounded-box border border-base-300 bg-base-100/70 px-2 py-1.5 flex items-center justify-between gap-2 text-[11px]">
+    <div class="flex min-w-0 flex-1 items-center gap-1.5">
       <div
         v-if="!hideMenuButton"
         class="dropdown dropdown-start"
@@ -71,26 +71,26 @@
           </li>
         </ul>
       </div>
-      <button
-        v-if="!hideWorkspaceButton"
-        class="btn btn-sm btn-ghost gap-1.5"
-        :disabled="busy || workspaceButtonDisabled"
-        @click="emit('lockWorkspace')"
-      >
-        <SquareTerminal class="h-3.5 w-3.5" />
-        {{ workspaceButtonName || workspaceButtonLabel }}
-      </button>
+      <SessionControlPanel
+        v-if="showSessionControlPanel"
+        class="min-w-0 flex-1"
+        :workspace-button-label="workspaceButtonLabel"
+        :workspace-button-name="workspaceButtonName"
+        :workspace-button-disabled="busy || workspaceButtonDisabled"
+        :delegates="delegateStatuses || []"
+        @lock-workspace="emit('lockWorkspace')"
+        @open-delegate-summary="emit('openDelegateSummary')"
+      />
     </div>
     <div class="flex min-w-0 items-center justify-end gap-1.5">
       <div
-        v-if="compactPersonaList"
+        v-if="uniqueMentionEntries.length > 0"
         class="dropdown dropdown-top dropdown-end"
       >
         <button
           type="button"
           tabindex="0"
           class="btn btn-ghost btn-sm btn-circle shrink-0 border border-base-300/70 bg-base-100/70 hover:border-base-300 hover:bg-base-200"
-          :disabled="chatting || frozen || uniqueMentionEntries.length === 0"
           :title="t('chat.toolbar.personaList')"
         >
           <Users class="h-4 w-4" />
@@ -153,59 +153,6 @@
           </li>
         </ul>
       </div>
-      <template v-else>
-        <button
-          v-for="entry in uniqueMentionEntries"
-          :key="entry.agentId"
-          type="button"
-          class="btn btn-ghost btn-sm btn-circle overflow-visible p-0 shrink-0 border relative"
-          :class="personaChipClass(entry)"
-          :title="mentionEntryTitle(entry)"
-          :disabled="chatting || frozen || !entry.mentionable"
-          @click="handleMentionEntryClick($event, entry)"
-        >
-          <div class="indicator">
-            <span
-              v-if="entry.selected"
-              class="indicator-item indicator-top indicator-end inline-flex h-4 w-4 translate-x-1/4 -translate-y-1/4 items-center justify-center rounded-full bg-primary text-[9px] font-bold text-primary-content"
-            >
-              @
-            </span>
-            <span
-              v-else-if="entry.hasBackgroundTask"
-              class="indicator-item indicator-bottom indicator-end inline-flex min-w-5 translate-x-1/4 translate-y-1/4 items-center justify-center rounded-full border border-base-300 bg-base-100 px-1 py-0.5 text-[9px] text-base-content shadow-sm"
-            >
-              <span class="loading loading-dots loading-xs"></span>
-            </span>
-            <span
-              v-if="props.selectedMentionKeys.length > 0 && entry.isFrontSpeaking"
-              class="indicator-item indicator-top indicator-start inline-flex h-4 w-4 -translate-x-1/4 -translate-y-1/4 items-center justify-center rounded-full bg-base-300 text-[9px] font-bold text-base-content"
-            >
-              {{ t("chat.mentionMutedBadge") }}
-            </span>
-            <div class="avatar">
-              <div class="w-7 rounded-full">
-                <img
-                  v-if="entry.avatarUrl"
-                  :src="entry.avatarUrl"
-                  :alt="entry.agentName"
-                  class="w-7 h-7 rounded-full object-cover"
-                  :class="frontSpeakingMuted(entry) ? 'grayscale opacity-75' : ''"
-                />
-                <div
-                  v-else
-                  class="w-7 h-7 rounded-full flex items-center justify-center text-[10px]"
-                  :class="frontSpeakingMuted(entry)
-                    ? 'bg-base-300 text-base-content/70'
-                    : 'bg-neutral text-neutral-content'"
-                >
-                  {{ avatarInitial(entry.agentName) }}
-                </div>
-              </div>
-            </div>
-          </div>
-        </button>
-      </template>
     </div>
   </div>
   <Teleport to="body">
@@ -253,10 +200,11 @@
 </template>
 
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
+import { computed, nextTick, onBeforeUnmount, onMounted, ref } from "vue";
 import { useI18n } from "vue-i18n";
-import { ClipboardCheck, ClipboardList, ExternalLink, Folder, GitBranchPlus, Grip, Package, SquareTerminal, Users } from "@lucide/vue";
-import type { ChatMentionEntry } from "../../../types/app";
+import { ClipboardCheck, ClipboardList, ExternalLink, Folder, GitBranchPlus, Grip, Package, Users } from "@lucide/vue";
+import type { ChatMentionEntry, ConversationDelegateStatusSummary } from "../../../types/app";
+import SessionControlPanel from "./SessionControlPanel.vue";
 
 const props = withDefaults(defineProps<{
   chatting: boolean;
@@ -277,6 +225,7 @@ const props = withDefaults(defineProps<{
   showWorkspaceMenuItem?: boolean;
   showDetachButton?: boolean;
   detachDisabled?: boolean;
+  delegateStatuses?: ConversationDelegateStatusSummary[];
 }>(), {
   showDelegateMenuItem: true,
   showBranchMenuItem: true,
@@ -291,6 +240,7 @@ const emit = defineEmits<{
   (e: "openBranchSelection"): void;
   (e: "openCodeReview"): void;
   (e: "openDelegateSelection"): void;
+  (e: "openDelegateSummary"): void;
   (e: "openForwardSelection"): void;
   (e: "openShareSelection"): void;
   (e: "detachConversation"): void;
@@ -305,13 +255,8 @@ const showCodeReviewMenuItem = computed(() => props.showCodeReviewMenuItem);
 const showForwardMenuItem = computed(() => props.showForwardMenuItem);
 const showShareMenuItem = computed(() => props.showShareMenuItem);
 const showWorkspaceMenuItem = computed(() => props.showWorkspaceMenuItem);
-const toolbarRootRef = ref<HTMLElement | null>(null);
-const toolbarLeftRef = ref<HTMLElement | null>(null);
-const compactPersonaList = ref(false);
-let toolbarResizeObserver: ResizeObserver | null = null;
-const PERSONA_BUTTON_SIZE = 32;
-const PERSONA_BUTTON_GAP = 6;
-const TOOLBAR_SECTION_GAP = 8;
+const hasDelegateStatuses = computed(() => (props.delegateStatuses || []).length > 0);
+const showSessionControlPanel = computed(() => !props.hideWorkspaceButton || hasDelegateStatuses.value);
 const POPUP_OFFSET = 8;
 const POPUP_VIEWPORT_PADDING = 8;
 
@@ -455,19 +400,6 @@ function updateMenuPlacement() {
   menuPlacement.value = rect.top >= window.innerHeight / 2 ? "top" : "bottom";
 }
 
-function updateToolbarPersonaLayout() {
-  const root = toolbarRootRef.value;
-  const left = toolbarLeftRef.value;
-  if (!root || !left) return;
-  const availableWidth = Math.round(root.getBoundingClientRect().width);
-  const leftWidth = Math.ceil(left.getBoundingClientRect().width);
-  const personaCount = uniqueMentionEntries.value.length;
-  const personaWidth = personaCount > 0
-    ? (personaCount * PERSONA_BUTTON_SIZE) + (Math.max(0, personaCount - 1) * PERSONA_BUTTON_GAP)
-    : 0;
-  compactPersonaList.value = personaCount > 0 && leftWidth + personaWidth + TOOLBAR_SECTION_GAP > availableWidth;
-}
-
 function handleDetachConversationMouseDown() {
   updateMenuPlacement();
   console.info("[独立聊天窗口][前端入口] 工具栏按钮 mousedown", {
@@ -492,71 +424,20 @@ function avatarInitial(name: string): string {
   return text[0].toUpperCase();
 }
 
-function mentionEntryKey(entry: ChatMentionEntry): string {
-  const agentId = String(entry.agentId || "").trim();
-  const departmentId = String(entry.departmentId || "").trim();
-  return departmentId ? `${agentId}:${departmentId}` : agentId;
-}
-
-function mentionEntryTitle(entry: ChatMentionEntry): string {
-  const lines = [
-    `${t('chat.toolbar.persona', { name: entry.agentName })}`,
-    `${t('chat.toolbar.department', { name: entry.departmentName })}`,
-  ];
-  const reason = String(entry.unavailableReason || "").trim();
-  if (reason) lines.push(t('chat.toolbar.unavailable', { reason }));
-  return lines.join("\n");
-}
-
-function personaChipClass(entry: ChatMentionEntry & { selected?: boolean }): string {
-  const selected = !!entry.selected;
-  const muted = frontSpeakingMuted(entry);
-  if (selected) {
-    return "border-primary/60 bg-primary/10 hover:border-primary hover:bg-primary/15";
-  }
-  if (muted) {
-    return "border-base-300/70 bg-base-200/70 hover:border-base-300 hover:bg-base-200";
-  }
-  if (!entry.mentionable) {
-    return "border-base-300/70 bg-base-200/70 text-base-content/55 hover:border-base-300 hover:bg-base-200";
-  }
-  return "border-base-300/70 bg-base-100/70 hover:border-base-300 hover:bg-base-200";
-}
-
 function frontSpeakingMuted(entry: ChatMentionEntry): boolean {
   return props.selectedMentionKeys.length > 0 && entry.isFrontSpeaking;
 }
 
 onMounted(() => {
   updateMenuPlacement();
-  updateToolbarPersonaLayout();
-  if (typeof ResizeObserver !== "undefined" && toolbarRootRef.value) {
-    toolbarResizeObserver = new ResizeObserver(() => updateToolbarPersonaLayout());
-    toolbarResizeObserver.observe(toolbarRootRef.value);
-  }
   window.addEventListener("resize", updateMenuPlacement);
-  window.addEventListener("resize", updateToolbarPersonaLayout);
   window.addEventListener("scroll", updateMenuPlacement, true);
   window.addEventListener("click", handleAvatarClickOutside, true);
 });
 
-watch(
-  () => [
-    uniqueMentionEntries.value.length,
-    props.selectedMentionKeys.join("|"),
-    props.mentionEntries.length,
-  ],
-  () => {
-    nextTick(() => updateToolbarPersonaLayout());
-  },
-);
-
 onBeforeUnmount(() => {
   window.removeEventListener("resize", updateMenuPlacement);
-  window.removeEventListener("resize", updateToolbarPersonaLayout);
   window.removeEventListener("scroll", updateMenuPlacement, true);
   window.removeEventListener("click", handleAvatarClickOutside, true);
-  toolbarResizeObserver?.disconnect();
-  toolbarResizeObserver = null;
 });
 </script>

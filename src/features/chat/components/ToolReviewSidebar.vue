@@ -370,6 +370,7 @@ const props = defineProps<{
   delegateStatuses: ConversationDelegateStatusSummary[];
   delegateStatusesErrorText: string;
   personaAvatarUrlMap: Record<string, string>;
+  bridgeRequest?: <T = unknown>(method: string, params?: Record<string, unknown>, timeoutMs?: number) => Promise<T>;
 }>();
 
 const emit = defineEmits<{
@@ -408,7 +409,8 @@ const reportPage = ref(1);
 const reportPageSize = 10;
 const collapsedToolAssessmentSectionKeys = ref<Record<string, boolean>>({});
 const collapsedDelegateSectionKeys = ref<Record<string, boolean>>({
-  running: true,
+  running: false,
+  completed: true,
   interrupted: true,
   failed: true,
 });
@@ -580,9 +582,11 @@ async function openDelegateResult(status: import("../../../types/app").Conversat
   delegateResultDialogOpen.value = true;
   delegateResultLoading.value = true;
   try {
-    const page = await invokeTauri<ArchiveBlockPage>("get_delegate_conversation_block_page", {
-      input: { conversationId },
-    });
+    const page = props.bridgeRequest
+      ? await props.bridgeRequest<ArchiveBlockPage>("delegate.blockPage", { conversationId }, 10000)
+      : await invokeTauri<ArchiveBlockPage>("get_delegate_conversation_block_page", {
+          input: { conversationId },
+        });
     delegateResultText.value = formatDelegateResultText(findLastAssistantText(Array.isArray(page?.messages) ? page.messages : []));
   } catch (error) {
     delegateResultText.value = `读取委托结果失败：${String(error)}`;
@@ -1055,8 +1059,13 @@ function handleReviewCode(input: { scope: ToolReviewCodeReviewScope; target?: st
   emit("reviewCode", input);
 }
 
+function openDelegatesTab() {
+  activeTab.value = "delegates";
+}
+
 defineExpose({
   handleReportAction,
+  openDelegatesTab,
   setCommitOptions,
 });
 
