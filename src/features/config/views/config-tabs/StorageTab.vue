@@ -1,5 +1,13 @@
 <template>
   <div class="space-y-5">
+    <input
+      ref="importPackageFileInput"
+      class="hidden"
+      type="file"
+      accept=".zip,application/zip"
+      @change="handleImportPackageFilePicked"
+    />
+
     <div class="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
       <div class="flex min-w-0 items-start gap-3">
         <div class="flex shrink-0 items-center justify-center rounded-box bg-primary/15 p-3 text-primary">
@@ -275,7 +283,7 @@ import { computed, onMounted, ref } from "vue";
 import { open } from "@tauri-apps/plugin-dialog";
 import { useI18n } from "vue-i18n";
 import { Download, Eye, EyeOff, FolderOpen, HardDrive, RefreshCw, Trash2, Upload } from "@lucide/vue";
-import { invokeTauri } from "../../../../services/tauri-api";
+import { invokeTauri, isTauriRuntimeAvailable } from "../../../../services/tauri-api";
 import { toErrorMessage } from "../../../../utils/error";
 
 type MigrationPreviewResult = {
@@ -315,6 +323,12 @@ type StorageCleanupResult = {
   freedBytes: number;
 };
 
+type MigrationExportResult = {
+  path: string;
+  fileName?: string;
+  bytesBase64?: string;
+};
+
 const { t, te } = useI18n();
 
 const busy = ref(false);
@@ -335,7 +349,10 @@ const storageMessage = ref("");
 const storageMessageIsError = ref(false);
 const cleanupBusyKind = ref("");
 const openingItemId = ref("");
+const importPackageFileInput = ref<HTMLInputElement | null>(null);
+const selectedImportPackageFile = ref<File | null>(null);
 const PASSWORD_REQUIRED_CODE = "MIGRATION_PASSWORD_REQUIRED";
+const tauriRuntimeAvailable = isTauriRuntimeAvailable();
 const STORAGE_PIE_COLORS = [
   "#2563eb",
   "#16a34a",
@@ -420,6 +437,34 @@ function storagePieColor(index: number) {
   return STORAGE_PIE_COLORS[index % STORAGE_PIE_COLORS.length];
 }
 
+function downloadBase64File(fileName: string, bytesBase64: string, mime = "application/zip") {
+  const binary = window.atob(bytesBase64);
+  const bytes = new Uint8Array(binary.length);
+  for (let index = 0; index < binary.length; index += 1) {
+    bytes[index] = binary.charCodeAt(index);
+  }
+  const url = URL.createObjectURL(new Blob([bytes], { type: mime }));
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = fileName || "p-ai-migration.zip";
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+}
+
+async function readFileAsBase64(file: File): Promise<string> {
+  const dataUrl = await new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result || ""));
+    reader.onerror = () => reject(reader.error);
+    reader.readAsDataURL(file);
+  });
+  const marker = "base64,";
+  const index = dataUrl.indexOf(marker);
+  return index >= 0 ? dataUrl.slice(index + marker.length) : dataUrl;
+}
+
 async function loadStorageOverview() {
   storageLoading.value = true;
   storageMessage.value = "";
@@ -474,10 +519,16 @@ async function handleExport() {
   previewResult.value = null;
   exportMessage.value = "";
   try {
-    const result = await invokeTauri<{ path: string }>("export_config_migration_package", {
+    const result = await invokeTauri<MigrationExportResult>("export_config_migration_package", {
       input: { password: exportPassword.value },
     });
-    setExportMessage(t("config.migration.exportSuccess", { path: result.path }));
+    if (!tauriRuntimeAvailable && result.bytesBase64) {
+      const fileName = result.fileName || "p-ai-migration.zip";
+      downloadBase64File(fileName, result.bytesBase64);
+      setExportMessage(t("config.migration.exportSuccess", { path: fileName }));
+    } else {
+      setExportMessage(t("config.migration.exportSuccess", { path: result.path }));
+    }
   } catch (error) {
     setExportMessage(toErrorMessage(error), true);
   } finally {
@@ -486,6 +537,18 @@ async function handleExport() {
 }
 
 async function handleSelectImportPackage() {
+  if (!tauriRuntimeAvailable) {
+    selectedImportPackagePath.value = "";
+    selectedImportPackageFile.value = null;
+    importPassword.value = "";
+    needImportPassword.value = false;
+    previewResult.value = null;
+    if (importPackageFileInput.value) {
+      importPackageFileInput.value.value = "";
+      importPackageFileInput.value.click();
+    }
+    return;
+  }
   const picked = await open({
     multiple: false,
     filters: [{ name: "P-AI Migration", extensions: ["zip"] }],
@@ -501,19 +564,45 @@ async function handleSelectImportPackage() {
   await handlePreviewImport();
 }
 
+async function handleImportPackageFilePicked(event: Event) {
+  const input = event.target as HTMLInputElement | null;
+  const file = input?.files?.[0] || null;
+  if (!file) {
+    setImportMessage(t("config.migration.importCancelled"));
+    return;
+  }
+  selectedImportPackageFile.value = file;
+  selectedImportPackagePath.value = file.name;
+  importPassword.value = "";
+  needImportPassword.value = false;
+  previewResult.value = null;
+  await handlePreviewImport();
+}
+
 async function handlePreviewImport() {
-  if (!selectedImportPackagePath.value) {
+  if (!selectedImportPackagePath.value && !selectedImportPackageFile.value) {
     setImportMessage(t("config.migration.importCancelled"));
     return;
   }
   busy.value = true;
   importMessage.value = "";
   try {
+    const input: {
+      password: string;
+      packagePath?: string;
+      packageFileName?: string;
+      packageBytesBase64?: string;
+    } = {
+      password: importPassword.value,
+    };
+    if (tauriRuntimeAvailable) {
+      input.packagePath = selectedImportPackagePath.value;
+    } else if (selectedImportPackageFile.value) {
+      input.packageFileName = selectedImportPackageFile.value.name;
+      input.packageBytesBase64 = await readFileAsBase64(selectedImportPackageFile.value);
+    }
     previewResult.value = await invokeTauri<MigrationPreviewResult>("preview_import_config_migration_package", {
-      input: {
-        password: importPassword.value,
-        packagePath: selectedImportPackagePath.value,
-      },
+      input,
     });
     needImportPassword.value = false;
     setImportMessage(t("config.migration.previewSuccess"));
@@ -521,7 +610,12 @@ async function handlePreviewImport() {
     previewResult.value = null;
     const raw = error as { code?: string; type?: string } | undefined;
     const text = toErrorMessage(error);
-    if (raw?.code === PASSWORD_REQUIRED_CODE || raw?.type === PASSWORD_REQUIRED_CODE) {
+    if (
+      raw?.code === PASSWORD_REQUIRED_CODE
+      || raw?.type === PASSWORD_REQUIRED_CODE
+      || text.includes(PASSWORD_REQUIRED_CODE)
+      || text.includes("需要密码")
+    ) {
       needImportPassword.value = true;
     }
     setImportMessage(text, true);

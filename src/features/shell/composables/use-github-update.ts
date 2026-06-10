@@ -1,7 +1,7 @@
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { computed, onBeforeUnmount, ref, type Ref } from "vue";
 import { i18n } from "../../../i18n";
-import { invokeTauri } from "../../../services/tauri-api";
+import { invokeTauri, isTauriRuntimeAvailable, onWebBridgeNotification } from "../../../services/tauri-api";
 import type { GithubUpdateInfo, UpdateProgressPayload } from "../types/update";
 import type { GithubUpdateMethod } from "../../../types/app";
 
@@ -46,6 +46,7 @@ export function useGithubUpdate(options: UseGithubUpdateOptions) {
   const updateUiMode = ref<"foreground" | "background" | null>(null);
 
   let updateProgressUnlisten: UnlistenFn | null = null;
+  let webUpdateProgressUnlisten: (() => void) | null = null;
   let dailyCheckTimer: number | null = null;
   let dailyCheckStarted = false;
 
@@ -193,6 +194,17 @@ export function useGithubUpdate(options: UseGithubUpdateOptions) {
     }
   }
 
+  function isUpdateProgressPayload(payload: unknown): payload is UpdateProgressPayload {
+    return !!payload && typeof payload === "object" && typeof (payload as UpdateProgressPayload).stage === "string";
+  }
+
+  function handleUpdateProgressPayload(payload: UpdateProgressPayload | null | undefined) {
+    if (!payload) return;
+    updateInProgress.value = !["failed", "completed", "ready"].includes(payload.stage);
+    syncDialogFromProgress(payload);
+    options.status.value = payload.error ? payload.error : payload.message;
+  }
+
   async function checkGithubUpdate(silent: boolean) {
     if (options.viewMode.value !== "config") return;
     if (checkingUpdate.value) return;
@@ -329,23 +341,29 @@ export function useGithubUpdate(options: UseGithubUpdateOptions) {
     await manualCheckGithubUpdate();
   }
 
-  void listen<UpdateProgressPayload>("easy-call:update-status", (event) => {
-    const payload = event.payload;
-    if (!payload) return;
-    updateInProgress.value = !["failed", "completed", "ready"].includes(payload.stage);
-    syncDialogFromProgress(payload);
-    options.status.value = payload.error ? payload.error : payload.message;
-  })
-    .then((unlisten) => {
-      updateProgressUnlisten = unlisten;
+  if (isTauriRuntimeAvailable()) {
+    void listen<UpdateProgressPayload>("easy-call:update-status", (event) => {
+      handleUpdateProgressPayload(event.payload);
     })
-    .catch((error) => {
-      console.warn("[UPDATE] listen easy-call:update-status failed:", error);
+      .then((unlisten) => {
+        updateProgressUnlisten = unlisten;
+      })
+      .catch((error) => {
+        console.warn("[UPDATE] listen easy-call:update-status failed:", error);
+      });
+  } else {
+    webUpdateProgressUnlisten = onWebBridgeNotification("easy-call:update-status", (payload) => {
+      if (isUpdateProgressPayload(payload)) {
+        handleUpdateProgressPayload(payload);
+      }
     });
+  }
 
   onBeforeUnmount(() => {
     updateProgressUnlisten?.();
     updateProgressUnlisten = null;
+    webUpdateProgressUnlisten?.();
+    webUpdateProgressUnlisten = null;
     clearDailyCheckTimer();
     dailyCheckStarted = false;
   });

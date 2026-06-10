@@ -1,0 +1,32 @@
+import { createApp } from "vue";
+import WebSettingsApp from "./apps/settings/WebSettingsApp.vue";
+import "./style.css";
+import "./features/chat/markdown/markdown-content.css";
+import "katex/dist/katex.min.css";
+import { i18n } from "./i18n";
+import { initMarkdownAppearance } from "./features/shell/composables/use-markdown-appearance";
+import { LUCIDE_CONTEXT } from "./lucide-context";
+
+initMarkdownAppearance();
+
+window.addEventListener("error", (event) => {
+  const error = event.error || event;
+  const message = error?.message || event.message || "未知错误";
+  const stack = error?.stack || "无堆栈信息";
+  console.error(`[全局错误] 消息: ${message}, 堆栈: ${stack}`);
+});
+
+window.addEventListener("unhandledrejection", (event) => {
+  let message: string;
+  let stack: string;
+  if (event.reason instanceof Error) {
+    message = event.reason.message || "未知错误";
+    stack = event.reason.stack || "无堆栈信息";
+  } else {
+    message = String(event.reason) || "未知拒绝原因";
+    stack = "无堆栈信息";
+  }
+  console.error(`[未处理的Promise拒绝] 消息: ${message}, 堆栈: ${stack}`);
+});
+
+createApp(WebSettingsApp).use(i18n).provide(LUCIDE_CONTEXT, {}).mount("#app");

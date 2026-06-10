@@ -23,6 +23,7 @@ export default defineConfig({
         fileReader: resolve(__dirname, "file-reader.html"),
         runtimeLogs: resolve(__dirname, "runtime-logs.html"),
         sidebar: resolve(__dirname, "sidebar.html"),
+        settings: resolve(__dirname, "settings.html"),
       },
     },
   },

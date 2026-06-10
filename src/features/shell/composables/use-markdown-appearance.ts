@@ -1,5 +1,6 @@
 import { ref } from "vue";
 import { emit, listen, type UnlistenFn } from "@tauri-apps/api/event";
+import { isTauriRuntimeAvailable } from "../../../services/tauri-api";
 
 const MARKDOWN_APPEARANCE_STORAGE_KEY = "easy-call.markdown-appearance.v1";
 const MARKDOWN_APPEARANCE_CHANGED_EVENT = "easy-call:markdown-appearance-changed";
@@ -84,11 +85,15 @@ export function initMarkdownAppearance() {
   if (typeof window !== "undefined") {
     window.addEventListener("storage", handleStorageEvent);
   }
-  void listen<MarkdownAppearancePayload>(MARKDOWN_APPEARANCE_CHANGED_EVENT, (event) => {
-    applyMarkdownFontScale(event.payload?.fontScale);
-  }).then((unlisten) => {
-    eventUnlisten = unlisten;
-  });
+  if (isTauriRuntimeAvailable()) {
+    void listen<MarkdownAppearancePayload>(MARKDOWN_APPEARANCE_CHANGED_EVENT, (event) => {
+      applyMarkdownFontScale(event.payload?.fontScale);
+    }).then((unlisten) => {
+      eventUnlisten = unlisten;
+    }).catch((error) => {
+      console.warn("[Markdown外观] 监听字体强度变化失败", error);
+    });
+  }
 }
 
 export function disposeMarkdownAppearance() {
@@ -108,6 +113,7 @@ export function useMarkdownAppearance() {
     const normalized = clampFontScale(value);
     applyMarkdownFontScale(normalized);
     persistMarkdownFontScale(normalized);
+    if (!isTauriRuntimeAvailable()) return;
     void emit(MARKDOWN_APPEARANCE_CHANGED_EVENT, { fontScale: normalized }).catch((error) => {
       console.warn("[Markdown外观] 同步字体强度失败", error);
     });

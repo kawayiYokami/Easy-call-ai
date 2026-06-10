@@ -79,6 +79,10 @@ struct ExportConfigMigrationPackageResult {
     provider_count: usize,
     api_config_count: usize,
     memory_count: usize,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    file_name: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    bytes_base64: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -86,6 +90,10 @@ struct ExportConfigMigrationPackageResult {
 struct PreviewImportConfigMigrationPackageInput {
     password: String,
     package_path: Option<String>,
+    #[serde(default)]
+    package_file_name: Option<String>,
+    #[serde(default)]
+    package_bytes_base64: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -810,6 +818,8 @@ async fn export_config_migration_package(
         provider_count: payload.config.api_providers.len(),
         api_config_count: payload.config.api_configs.len(),
         memory_count: payload.memories.len(),
+        file_name: String::new(),
+        bytes_base64: String::new(),
     })
 }
 

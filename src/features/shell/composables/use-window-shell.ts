@@ -1,6 +1,6 @@
 import { ref, shallowRef } from "vue";
 import { getCurrentWindow, Window as WebviewWindow } from "@tauri-apps/api/window";
-import { invokeTauri } from "../../../services/tauri-api";
+import { invokeTauri, isTauriRuntimeAvailable } from "../../../services/tauri-api";
 
 export function useWindowShell() {
   const appWindow = shallowRef<WebviewWindow | null>(null);
@@ -9,6 +9,11 @@ export function useWindowShell() {
   const maximized = ref(false);
 
   function initWindow(): "chat" | "archives" | "config" {
+    if (!isTauriRuntimeAvailable()) {
+      appWindow.value = null;
+      windowReady.value = true;
+      return "config";
+    }
     const win = getCurrentWindow();
     appWindow.value = win;
     windowReady.value = true;

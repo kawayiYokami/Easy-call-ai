@@ -579,6 +579,10 @@ fn set_ui_language(
 
 #[tauri::command]
 fn load_config(state: State<'_, AppState>) -> Result<AppConfig, String> {
+    load_config_inner(&state)
+}
+
+fn load_config_inner(state: &AppState) -> Result<AppConfig, String> {
     let mut result = state_read_config_cached(&state)?;
     normalize_app_config(&mut result);
     let workspace_changed = ensure_default_shell_workspace_in_config(&mut result, &state);
@@ -674,6 +678,15 @@ fn save_config(
     state: State<'_, AppState>,
     ide_context_runtime: State<'_, IdeContextRuntime>,
 ) -> Result<AppConfig, String> {
+    save_config_inner(config, &app, &state, &ide_context_runtime)
+}
+
+fn save_config_inner(
+    config: AppConfig,
+    app: &AppHandle,
+    state: &AppState,
+    ide_context_runtime: &IdeContextRuntime,
+) -> Result<AppConfig, String> {
     if config.api_configs.is_empty() {
         return Err("至少需要配置一个 API 配置。".to_string());
     }
@@ -738,8 +751,8 @@ fn save_config(
         );
         restart_ide_context_bridge_server(
             app.clone(),
-            state.inner().clone(),
-            ide_context_runtime.inner().clone(),
+            state.clone(),
+            ide_context_runtime.clone(),
         );
     }
     match apply_webview_zoom_percent(&app, main_config.webview_zoom_percent) {

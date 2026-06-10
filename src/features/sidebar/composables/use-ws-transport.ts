@@ -169,6 +169,7 @@ export function useWsTransport() {
     authRequired,
     authenticated,
     errorText,
+    bridgeConfig,
     canSend,
     connect,
     reconnect,

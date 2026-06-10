@@ -407,6 +407,13 @@ async fn fetch_model_metadata(
     state: State<'_, AppState>,
     input: FetchModelMetadataInput,
 ) -> Result<FetchModelMetadataOutput, String> {
+    fetch_model_metadata_inner(&state, input).await
+}
+
+async fn fetch_model_metadata_inner(
+    state: &AppState,
+    input: FetchModelMetadataInput,
+) -> Result<FetchModelMetadataOutput, String> {
     let requested_model = input.model.trim();
     if requested_model.is_empty() {
         return Err("Model is empty.".to_string());
@@ -511,6 +518,13 @@ async fn refresh_models(
     state: State<'_, AppState>,
     input: RefreshModelsInput,
 ) -> Result<Vec<String>, String> {
+    refresh_models_inner(&state, input).await
+}
+
+async fn refresh_models_inner(
+    state: &AppState,
+    input: RefreshModelsInput,
+) -> Result<Vec<String>, String> {
     let inferred_strategy = inferred_model_refresh_strategy_from_base_url(&input.base_url);
     let can_refresh_without_api_key = input.request_format.is_codex()
         || matches!(inferred_strategy, Some(ModelRefreshStrategy::CodexBuiltin));
@@ -561,6 +575,13 @@ async fn refresh_models(
 #[tauri::command]
 async fn quick_genai_chat(
     state: State<'_, AppState>,
+    input: QuickGenaiChatInput,
+) -> Result<String, String> {
+    quick_genai_chat_inner(&state, input).await
+}
+
+async fn quick_genai_chat_inner(
+    state: &AppState,
     input: QuickGenaiChatInput,
 ) -> Result<String, String> {
     let base_url = input.base_url.trim();
@@ -696,6 +717,12 @@ async fn test_embedding_connection(
     _state: State<'_, AppState>,
     input: TestEmbeddingConnectionInput,
 ) -> Result<TestEmbeddingConnectionResult, String> {
+    test_embedding_connection_inner(input).await
+}
+
+async fn test_embedding_connection_inner(
+    input: TestEmbeddingConnectionInput,
+) -> Result<TestEmbeddingConnectionResult, String> {
     let base_url = input.base_url.trim();
     let api_key = input.api_key.trim();
     let model = input.model.trim();
@@ -751,6 +778,12 @@ async fn test_embedding_connection(
 #[tauri::command]
 async fn test_rerank_connection(
     _state: State<'_, AppState>,
+    input: TestRerankConnectionInput,
+) -> Result<TestRerankConnectionResult, String> {
+    test_rerank_connection_inner(input).await
+}
+
+async fn test_rerank_connection_inner(
     input: TestRerankConnectionInput,
 ) -> Result<TestRerankConnectionResult, String> {
     let base_url = input.base_url.trim();
@@ -811,6 +844,10 @@ async fn test_rerank_connection(
 
 #[tauri::command]
 async fn test_voice_connection(input: TestVoiceConnectionInput) -> Result<TestVoiceConnectionResult, String> {
+    test_voice_connection_inner(input).await
+}
+
+async fn test_voice_connection_inner(input: TestVoiceConnectionInput) -> Result<TestVoiceConnectionResult, String> {
     let base_url = input.base_url.trim();
     let api_key = input.api_key.trim();
     if base_url.is_empty() {

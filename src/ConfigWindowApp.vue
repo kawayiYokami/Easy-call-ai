@@ -36,6 +36,7 @@
       :checking-update="checkingUpdate"
       :update-to-latest-label="updateToLatestLabel"
       :update-to-latest-title="updateToLatestTitle"
+      :window-controls-visible="tauriRuntimeAvailable"
       @update:config-search-query="updateConfigSearchQuery"
       @select-config-search-result="handleSelectConfigSearchResult"
       @update-to-latest="triggerUpdateToLatest"
@@ -253,7 +254,7 @@ import ShellDialogsHost from "./features/shell/components/ShellDialogsHost.vue";
 import Win10ResizeHandles from "./features/shell/components/Win10ResizeHandles.vue";
 import MemoryDialog from "./features/memory/components/dialogs/MemoryDialog.vue";
 import PromptPreviewDialog from "./features/chat/components/dialogs/PromptPreviewDialog.vue";
-import { invokeTauri } from "./services/tauri-api";
+import { invokeTauri, isTauriRuntimeAvailable } from "./services/tauri-api";
 import type { AppConfig, PromptCommandPreset } from "./types/app";
 import { normalizeLocale } from "./i18n";
 import { useWindowShell } from "./features/shell/composables/use-window-shell";
@@ -283,6 +284,7 @@ import { useConfigWindowBootstrap } from "./features/config/composables/use-conf
 const { t, locale } = useI18n();
 const tr = (key: string, params?: Record<string, unknown>) => t(key, params as never);
 const isMacPlatform = /Mac|iPhone|iPad|iPod/i.test(window.navigator.platform || "");
+const tauriRuntimeAvailable = isTauriRuntimeAvailable();
 
 type ConfigTab =
   | "welcome"

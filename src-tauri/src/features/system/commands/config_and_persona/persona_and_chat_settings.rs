@@ -1,5 +1,9 @@
 #[tauri::command]
 fn load_agents(state: State<'_, AppState>) -> Result<Vec<AgentProfile>, String> {
+    load_agents_inner(&state)
+}
+
+fn load_agents_inner(state: &AppState) -> Result<Vec<AgentProfile>, String> {
     let config = state_read_config_cached(&state)?;
     let data = state_read_agents_runtime_snapshot(&state)?;
     build_runtime_organization_snapshot_from_parts(&state.data_path, &config, &data.agents)
@@ -11,6 +15,14 @@ fn save_agents(
     input: SaveAgentsInput,
     app: AppHandle,
     state: State<'_, AppState>,
+) -> Result<Vec<AgentProfile>, String> {
+    save_agents_inner(input, &app, &state)
+}
+
+fn save_agents_inner(
+    input: SaveAgentsInput,
+    app: &AppHandle,
+    state: &AppState,
 ) -> Result<Vec<AgentProfile>, String> {
     if input.agents.is_empty() {
         return Err("At least one agent is required.".to_string());
@@ -528,6 +540,10 @@ fn import_agent_memories(
 
 #[tauri::command]
 fn load_chat_settings(state: State<'_, AppState>) -> Result<ChatSettings, String> {
+    load_chat_settings_inner(&state)
+}
+
+fn load_chat_settings_inner(state: &AppState) -> Result<ChatSettings, String> {
     let config = read_config(&state.config_path)?;
     let mut data = state_read_agents_runtime_snapshot(&state)?;
     let assistant_agent_id = assistant_department_agent_id(&config).unwrap_or_else(default_assistant_department_agent_id);
@@ -701,7 +717,7 @@ fn save_chat_settings(
     app: AppHandle,
     state: State<'_, AppState>,
 ) -> Result<ChatSettings, String> {
-    patch_chat_settings(
+    patch_chat_settings_inner(
         ChatSettingsPatch {
             assistant_department_agent_id: Some(input.assistant_department_agent_id),
             user_alias: Some(input.user_alias),
@@ -711,8 +727,8 @@ fn save_chat_settings(
             background_voice_screenshot_mode: Some(input.background_voice_screenshot_mode),
             instruction_presets: Some(input.instruction_presets),
         },
-        app,
-        state,
+        &app,
+        &state,
     )
 }
 
@@ -721,6 +737,14 @@ fn patch_chat_settings(
     input: ChatSettingsPatch,
     app: AppHandle,
     state: State<'_, AppState>,
+) -> Result<ChatSettings, String> {
+    patch_chat_settings_inner(input, &app, &state)
+}
+
+fn patch_chat_settings_inner(
+    input: ChatSettingsPatch,
+    app: &AppHandle,
+    state: &AppState,
 ) -> Result<ChatSettings, String> {
     let mut data = state_read_agents_runtime_snapshot(&state)?;
     let config = read_config(&state.config_path)?;
@@ -811,6 +835,13 @@ fn save_agent_avatar(
     input: SaveAgentAvatarInput,
     state: State<'_, AppState>,
 ) -> Result<AvatarMeta, String> {
+    save_agent_avatar_inner(input, &state)
+}
+
+fn save_agent_avatar_inner(
+    input: SaveAgentAvatarInput,
+    state: &AppState,
+) -> Result<AvatarMeta, String> {
     if input.agent_id.trim().is_empty() {
         return Err("agentId is required".to_string());
     }
@@ -876,6 +907,13 @@ fn clear_agent_avatar(
     input: ClearAgentAvatarInput,
     state: State<'_, AppState>,
 ) -> Result<(), String> {
+    clear_agent_avatar_inner(input, &state)
+}
+
+fn clear_agent_avatar_inner(
+    input: ClearAgentAvatarInput,
+    state: &AppState,
+) -> Result<(), String> {
     if input.agent_id.trim().is_empty() {
         return Err("agentId is required".to_string());
     }
@@ -924,6 +962,13 @@ fn clear_agent_avatar(
 fn read_avatar_data_url(
     input: AvatarDataPathInput,
     state: State<'_, AppState>,
+) -> Result<AvatarDataUrlOutput, String> {
+    read_avatar_data_url_inner(input, &state)
+}
+
+fn read_avatar_data_url_inner(
+    input: AvatarDataPathInput,
+    state: &AppState,
 ) -> Result<AvatarDataUrlOutput, String> {
     if input.path.trim().is_empty() {
         return Ok(AvatarDataUrlOutput {
@@ -1127,7 +1172,7 @@ fn save_conversation_api_settings(
     app: AppHandle,
     state: State<'_, AppState>,
 ) -> Result<ConversationApiSettings, String> {
-    patch_conversation_api_settings(
+    patch_conversation_api_settings_inner(
         ConversationApiSettingsPatch {
             assistant_department_api_config_id: Some(input.assistant_department_api_config_id),
             vision_api_config_id: Some(input.vision_api_config_id),
@@ -1135,8 +1180,8 @@ fn save_conversation_api_settings(
             stt_api_config_id: Some(input.stt_api_config_id),
             stt_auto_send: Some(input.stt_auto_send),
         },
-        app,
-        state,
+        &app,
+        &state,
     )
 }
 
@@ -1145,6 +1190,14 @@ fn patch_conversation_api_settings(
     input: ConversationApiSettingsPatch,
     app: AppHandle,
     state: State<'_, AppState>,
+) -> Result<ConversationApiSettings, String> {
+    patch_conversation_api_settings_inner(input, &app, &state)
+}
+
+fn patch_conversation_api_settings_inner(
+    input: ConversationApiSettingsPatch,
+    app: &AppHandle,
+    state: &AppState,
 ) -> Result<ConversationApiSettings, String> {
     let mut config = state_read_config_cached(&state)?;
     apply_conversation_api_settings_patch(&mut config, input);

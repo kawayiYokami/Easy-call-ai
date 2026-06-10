@@ -1,6 +1,7 @@
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import type { AgentWorkSignalPayload, AppConfig } from "../../../types/app";
 import type { AppThemeState } from "../theme/theme-types";
+import { isTauriRuntimeAvailable } from "../../../services/tauri-api";
 
 type ViewMode = "chat" | "archives" | "config";
 type ConversationApiSettingsPayload = {
@@ -61,6 +62,9 @@ export function useAppBootstrap(options: AppBootstrapOptions) {
     const mode = options.initWindowMode();
     const isChatWindow = mode === "chat";
     options.setViewMode(mode);
+    if (!isTauriRuntimeAvailable()) {
+      return;
+    }
     try {
       unlisteners.push(
         await listen<AppThemeState>("easy-call:theme-changed", (event) => {

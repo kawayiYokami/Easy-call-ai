@@ -177,75 +177,7 @@ async fn remote_im_restart_channel(
     channel_id: String,
     state: State<'_, AppState>,
 ) -> Result<ChannelConnectionStatus, String> {
-    eprintln!("[远程IM] 重启渠道: {}", channel_id);
-    onebot_v11_ws_manager()
-        .add_log(&channel_id, "info", "[远程IM] 收到渠道重启请求")
-        .await;
-    let config = state_read_config_cached(&state).map_err(|e| format!("{e:?}"))?;
-    let channel = config
-        .remote_im_channels
-        .iter()
-        .find(|ch| ch.id == channel_id)
-        .ok_or_else(|| format!("渠道 {} 未找到", channel_id))?
-        .clone();
-    onebot_v11_ws_manager()
-        .add_log(
-            &channel_id,
-            "info",
-            &format!(
-                "[远程IM] 当前渠道配置: enabled={}, platform={:?}",
-                channel.enabled, channel.platform
-            ),
-        )
-        .await;
-
-    let effective_channel = remote_im_channel_with_effective_credentials(state.inner(), &channel)?;
-    let manager = onebot_v11_ws_manager();
-    manager
-        .reconcile_channel_runtime(&effective_channel)
-        .await
-        .map_err(|err| format!("重启渠道失败: {}", err))?;
-    eprintln!(
-        "[远程IM] 渠道 {} 已按配置收敛: enabled={}, platform={:?}",
-        channel_id, channel.enabled, channel.platform
-    );
-
-    if channel.enabled && channel.platform == RemoteImPlatform::OnebotV11 {
-        manager
-            .start_event_consumer(channel_id.clone(), state.inner().clone())
-            .await
-            .map_err(|err| format!("重启事件消费器失败: {}", err))?;
-    } else if channel.enabled && channel.platform == RemoteImPlatform::Dingtalk {
-        let state_clone = state.inner().clone();
-        let manager = dingtalk_stream_manager();
-        let channel_clone = remote_im_channel_with_effective_credentials(&state_clone, &channel)?;
-        tauri::async_runtime::spawn(async move {
-            if let Err(err) = manager
-                .reconcile_channel_runtime(&channel_clone, state_clone)
-                .await
-            {
-                eprintln!(
-                    "[远程IM] 钉钉渠道收敛失败: channel_id={}, platform={:?}, error={}",
-                    channel_clone.id, channel_clone.platform, err
-                );
-            }
-        });
-    } else if channel.platform == RemoteImPlatform::WeixinOc {
-        let state_clone = state.inner().clone();
-        weixin_oc_manager()
-            .reconcile_channel_runtime(&effective_channel, state_clone)
-            .await?;
-    }
-
-    if channel.platform == RemoteImPlatform::Dingtalk {
-        Ok(dingtalk_stream_manager()
-            .get_channel_status(&channel_id)
-            .await)
-    } else if channel.platform == RemoteImPlatform::WeixinOc {
-        Ok(weixin_oc_manager().build_status(&channel_id).await)
-    } else {
-        Ok(manager.get_connection_status(&channel_id).await)
-    }
+    remote_im_restart_channel_inner(channel_id, state.inner()).await
 }
 
 #[tauri::command]

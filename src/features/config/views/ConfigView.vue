@@ -388,7 +388,7 @@ import AppearanceTab from "./config-tabs/AppearanceTab.vue";
 import StorageTab from "./config-tabs/StorageTab.vue";
 import AboutTab from "./config-tabs/AboutTab.vue";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
-import { invokeTauri } from "../../../services/tauri-api";
+import { invokeTauri, isTauriRuntimeAvailable } from "../../../services/tauri-api";
 import { toErrorMessage } from "../../../utils/error";
 import { ArrowLeftRight, Beaker, Bell, Building2, ClipboardList, Code, Cpu, Database, Home, Info, Keyboard, Menu, MessageSquare, Network, Palette, Puzzle, Radio, ScrollText, User, Wifi, Wrench } from "@lucide/vue";
 
@@ -860,6 +860,7 @@ function cancelWorkspaceMigration() {
 
 async function ensureWorkspaceMigrationListener() {
   if (workspaceMigrationProgressUnlisten) return;
+  if (!isTauriRuntimeAvailable()) return;
   workspaceMigrationProgressUnlisten = await listen<{
     taskId: string;
     stage: string;

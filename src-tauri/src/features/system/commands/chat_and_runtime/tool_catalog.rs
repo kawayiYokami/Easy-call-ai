@@ -151,15 +151,25 @@ fn sorted_unique_catalog_items(
 
 #[tauri::command]
 async fn list_tool_catalog(state: State<'_, AppState>) -> Result<Vec<FrontendToolDefinition>, String> {
-    Ok(builtin_tool_definitions_for_frontend(state.inner()).await)
+    list_tool_catalog_inner(&state).await
+}
+
+async fn list_tool_catalog_inner(state: &AppState) -> Result<Vec<FrontendToolDefinition>, String> {
+    Ok(builtin_tool_definitions_for_frontend(state).await)
 }
 
 #[tauri::command]
 async fn list_department_permission_catalog(
     state: State<'_, AppState>,
 ) -> Result<DepartmentPermissionCatalog, String> {
+    list_department_permission_catalog_inner(&state).await
+}
+
+async fn list_department_permission_catalog_inner(
+    state: &AppState,
+) -> Result<DepartmentPermissionCatalog, String> {
     let builtin_tools = sorted_unique_catalog_items(
-        builtin_tool_definitions_for_frontend(state.inner())
+        builtin_tool_definitions_for_frontend(state)
             .await
             .into_iter()
             .filter_map(|item| {
@@ -173,7 +183,7 @@ async fn list_department_permission_catalog(
             }),
     );
 
-    let skills = load_workspace_skill_summaries_with_errors(&state)
+    let skills = load_workspace_skill_summaries_with_errors(state)
         .map(|(skills, _errors)| {
             sorted_unique_catalog_items(skills.into_iter().filter_map(|item| {
                 department_permission_catalog_item(&item.name, &item.description)
@@ -181,7 +191,7 @@ async fn list_department_permission_catalog(
         })
         .unwrap_or_default();
     let mcp_tools = sorted_unique_catalog_items(
-        load_workspace_mcp_servers(&state)?
+        load_workspace_mcp_servers(state)?
             .into_iter()
             .flat_map(|server| {
                 let server_name = server.name.clone();

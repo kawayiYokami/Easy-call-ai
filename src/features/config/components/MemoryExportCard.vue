@@ -82,7 +82,7 @@
 import { ref } from "vue";
 import { useI18n } from "vue-i18n";
 import { save } from "@tauri-apps/plugin-dialog";
-import { invokeTauri } from "../../../services/tauri-api";
+import { invokeTauri, isTauriRuntimeAvailable } from "../../../services/tauri-api";
 
 type ExportPreviewScopeItem = {
   scope: string;
@@ -99,6 +99,11 @@ type ExportResult = {
   count: number;
 };
 
+type ExportPayload = {
+  records?: unknown[];
+  memories?: unknown[];
+};
+
 const { t } = useI18n();
 const emit = defineEmits<{
   (e: "exported", payload: ExportResult): void;
@@ -108,6 +113,7 @@ const loading = ref(false);
 const message = ref("");
 const preview = ref<ExportPreviewResult | null>(null);
 const selectedScopes = ref<string[]>([]);
+const tauriRuntimeAvailable = isTauriRuntimeAvailable();
 
 async function withLoading<T>(fn: () => Promise<T>): Promise<T | null> {
   loading.value = true;
@@ -147,8 +153,38 @@ function closeDialog() {
   resetDialogState();
 }
 
+function downloadJsonFile(fileName: string, payload: unknown) {
+  const body = JSON.stringify(payload, null, 2);
+  const url = URL.createObjectURL(new Blob([body], { type: "application/json;charset=utf-8" }));
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = fileName;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+}
+
 async function confirmExport() {
   if (!selectedScopes.value.length) return;
+  if (!tauriRuntimeAvailable) {
+    const fileName = `memory_backup-${new Date().toISOString().replace(/[:.]/g, "-")}.json`;
+    const payload = await withLoading(() =>
+      invokeTauri<ExportPayload>("export_memories", {
+        input: {
+          scopes: selectedScopes.value,
+        },
+      }),
+    );
+    if (!payload) return;
+    downloadJsonFile(fileName, payload);
+    closeDialog();
+    emit("exported", {
+      path: fileName,
+      count: Array.isArray(payload.records) ? payload.records.length : (payload.memories?.length || 0),
+    });
+    return;
+  }
   const path = await save({
     defaultPath: "memory_backup.json",
     filters: [{ name: "JSON", extensions: ["json"] }],

@@ -354,7 +354,11 @@ fn current_portable_target() -> String {
 }
 
 fn emit_update_progress(app: &AppHandle, payload: UpdateProgressPayload) {
-    let _ = app.emit(PORTABLE_UPDATE_EVENT_NAME, payload);
+    let _ = app.emit(PORTABLE_UPDATE_EVENT_NAME, payload.clone());
+    match serde_json::to_value(payload) {
+        Ok(value) => ide_chat_broadcast_notification(PORTABLE_UPDATE_EVENT_NAME, value),
+        Err(err) => eprintln!("[自动更新] 广播 Web 更新进度失败：{}", err),
+    }
 }
 
 fn build_update_progress(

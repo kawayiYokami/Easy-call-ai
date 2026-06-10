@@ -1396,11 +1396,33 @@ function handleCreateConversationRequest(input?: { title?: string; departmentId?
 }
 
 async function openSettings() {
+  if (!isVsCodeWebviewRuntime()) {
+    const opened = window.open(buildWebSettingsUrl(), "_blank", "noopener");
+    if (!opened) {
+      transport.errorText.value = t('sidebar.openSettingsFailed');
+    }
+    return;
+  }
   try {
     await transport.request("settings.open", {});
   } catch (error) {
     transport.errorText.value = String(error || t('sidebar.openSettingsFailed'));
   }
+}
+
+function isVsCodeWebviewRuntime(): boolean {
+  const maybeVsCodeApi = (window as Window & { acquireVsCodeApi?: unknown }).acquireVsCodeApi;
+  return typeof maybeVsCodeApi === "function" || window.location.protocol === "vscode-webview:";
+}
+
+function buildWebSettingsUrl(): string {
+  const path = window.location.pathname.endsWith(".html") ? "settings.html" : "/settings";
+  const url = new URL(path, window.location.href);
+  const config = transport.bridgeConfig.value;
+  if (config?.chatUrl) {
+    url.searchParams.set("chatUrl", config.chatUrl);
+  }
+  return url.toString();
 }
 
 async function openCodeReview() {

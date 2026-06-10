@@ -3,6 +3,13 @@ fn check_tools_status(
     input: CheckToolsStatusInput,
     state: State<'_, AppState>,
 ) -> Result<Vec<ToolLoadStatus>, String> {
+    check_tools_status_inner(input, &state)
+}
+
+fn check_tools_status_inner(
+    input: CheckToolsStatusInput,
+    state: &AppState,
+) -> Result<Vec<ToolLoadStatus>, String> {
     let runtime_org = load_runtime_organization_snapshot(&state)?;
     let mut config = runtime_org.config.clone();
     normalize_api_tools(&mut config);
@@ -176,6 +183,10 @@ fn check_tools_status(
 
 #[tauri::command]
 fn get_image_text_cache_stats(state: State<'_, AppState>) -> Result<ImageTextCacheStats, String> {
+    get_image_text_cache_stats_inner(&state)
+}
+
+fn get_image_text_cache_stats_inner(state: &AppState) -> Result<ImageTextCacheStats, String> {
     let runtime = state_read_runtime_state_cached(&state)?;
 
     let entries = runtime.image_text_cache.len();
@@ -199,6 +210,10 @@ fn get_image_text_cache_stats(state: State<'_, AppState>) -> Result<ImageTextCac
 
 #[tauri::command]
 fn clear_image_text_cache(state: State<'_, AppState>) -> Result<ImageTextCacheStats, String> {
+    clear_image_text_cache_inner(&state)
+}
+
+fn clear_image_text_cache_inner(state: &AppState) -> Result<ImageTextCacheStats, String> {
     let mut runtime = state_read_runtime_state_cached(&state)?;
     runtime.image_text_cache.clear();
     state_write_runtime_state_cached(&state, &runtime)?;

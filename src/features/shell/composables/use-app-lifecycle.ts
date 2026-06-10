@@ -1,6 +1,6 @@
 import { onBeforeUnmount, onMounted, type Ref } from "vue";
 import { listen } from "@tauri-apps/api/event";
-import { invokeTauri } from "../../../services/tauri-api";
+import { invokeTauri, isTauriRuntimeAvailable } from "../../../services/tauri-api";
 
 type UseAppLifecycleOptions = {
   appBootstrapMount: () => Promise<void>;
@@ -105,19 +105,23 @@ async function waitForBackendReady(): Promise<void> {
       reject(new Error(`等待后端就绪超时（${BACKEND_READY_TIMEOUT_MS / 1000}秒）`));
     }, BACKEND_READY_TIMEOUT_MS);
     pollTimer = setInterval(checkReady, BACKEND_READY_POLL_INTERVAL_MS);
-    listen("easy-call:backend-ready", () => {
-      finishReady("事件通知");
-    })
-      .then((fn) => {
-        unlisten = fn;
-        checkReady();
+    if (isTauriRuntimeAvailable()) {
+      listen("easy-call:backend-ready", () => {
+        finishReady("事件通知");
       })
-      .catch((error) => {
-        if (settled) return;
-        settled = true;
-        cleanup();
-        reject(error);
-      });
+        .then((fn) => {
+          unlisten = fn;
+          checkReady();
+        })
+        .catch((error) => {
+          if (settled) return;
+          settled = true;
+          cleanup();
+          reject(error);
+        });
+    } else {
+      checkReady();
+    }
     checkReady();
   });
 }
@@ -144,17 +148,19 @@ export function useAppLifecycle(options: UseAppLifecycleOptions) {
       }
 
       // 监听后端阶段 2 延迟初始化进度，实时显示卡在哪一步
-      try {
-        unlistenProgress = await listen<string>("easy-call:startup-progress", (event) => {
-          const step = event.payload;
-          if (step === "done") {
-            options.onStartupOverlayChange?.(true, "加载数据中...");
-          } else {
-            options.onStartupOverlayChange?.(true, `初始化: ${step}`);
-          }
-        });
-      } catch {
-        // 监听失败不影响启动
+      if (isTauriRuntimeAvailable()) {
+        try {
+          unlistenProgress = await listen<string>("easy-call:startup-progress", (event) => {
+            const step = event.payload;
+            if (step === "done") {
+              options.onStartupOverlayChange?.(true, "加载数据中...");
+            } else {
+              options.onStartupOverlayChange?.(true, `初始化: ${step}`);
+            }
+          });
+        } catch {
+          // 监听失败不影响启动
+        }
       }
 
       options.onStartupOverlayChange?.(true, "加载数据中...");
