@@ -120,46 +120,25 @@
       data-tauri-drag-region
       class="relative z-30 flex h-full min-w-0 flex-nowrap items-center justify-end gap-1 px-2"
     >
-      <div v-if="toolReviewPanelOpenVisible && rightHeaderInLayout" role="tablist" class="tabs tabs-border min-w-0 shrink-0" @mousedown.stop>
-        <button
-          type="button"
-          role="tab"
-          class="tab h-8 px-2"
-          :class="chatRightPanelMode === 'reader' ? 'tab-active font-semibold' : ''"
-          @click.stop="emit('update:chat-right-panel-mode', 'reader')"
-        >
-          {{ t("chat.readerPanelTab") }}
-        </button>
-        <button
-          type="button"
-          role="tab"
-          class="tab h-8 px-2"
-          :class="chatRightPanelMode !== 'reader' ? 'tab-active font-semibold' : ''"
-          @click.stop="emit('update:chat-right-panel-mode', 'delegate')"
-        >
-          {{ t("chat.delegatePanelTab") }}
-        </button>
-      </div>
       <button
-        v-else-if="toolReviewPanelOpenVisible"
         type="button"
         class="btn btn-ghost btn-sm btn-square h-8 min-h-8 w-8 shrink-0"
-        :title="chatRightPanelMode === 'reader' ? t('chat.readerPanelTab') : t('chat.delegatePanelTab')"
+        :class="toolReviewPanelOpenVisible && chatRightPanelMode === 'reader' ? 'btn-active' : ''"
+        :title="t('chat.readerPanelTab')"
         @mousedown.stop
-        @click.stop="emit('update:chat-right-panel-mode', chatRightPanelMode === 'reader' ? 'delegate' : 'reader')"
+        @click.stop="toggleChatRightPanelMode('reader')"
       >
-        <ArrowUpDown class="h-3.5 w-3.5" />
+        <Files class="h-3.5 w-3.5" />
       </button>
-
       <button
         type="button"
-        class="btn btn-ghost btn-sm h-8 min-h-8 px-2"
-        :class="toolReviewPanelOpenVisible ? 'btn-active' : ''"
-        :title="t('chat.rightSidebarToggle')"
+        class="btn btn-ghost btn-sm btn-square h-8 min-h-8 w-8 shrink-0"
+        :class="toolReviewPanelOpenVisible && chatRightPanelMode !== 'reader' ? 'btn-active' : ''"
+        :title="t('chat.delegatePanelTab')"
         @mousedown.stop
-        @click.stop="emit('toggle-tool-review-panel')"
+        @click.stop="toggleChatRightPanelMode('delegate')"
       >
-        <LayoutPanelLeft class="h-3.5 w-3.5 -scale-x-100" />
+        <View class="h-3.5 w-3.5" />
       </button>
 
       <button
@@ -485,7 +464,7 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue"
 import { useI18n } from "vue-i18n";
 import { invokeTauri } from "../../../services/tauri-api";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
-import { ArrowUpDown, Download, FoldVertical, FolderOpen, History, LayoutList, LayoutPanelLeft, Minus, ScrollText, Search, Settings, Square, SquarePen, X } from "@lucide/vue";
+import { Download, Files, FoldVertical, FolderOpen, History, LayoutList, Minus, ScrollText, Search, Settings, Square, SquarePen, View, X } from "@lucide/vue";
 import type { ChatConversationOverviewItem, ShellWorkspace, ShellWorkspaceAccess } from "../../../types/app";
 import { defaultWorkspaceNameFromPath } from "../../../utils/shell-workspaces";
 import { buildWorkspaceConversationSections } from "../../chat/utils/conversation-sections";
@@ -954,6 +933,15 @@ function handleConfigSearchKeydown(event: KeyboardEvent) {
     event.preventDefault();
     configSearchOpen.value = false;
   }
+}
+
+function toggleChatRightPanelMode(mode: "reader" | "delegate") {
+  const currentMode = props.chatRightPanelMode === "reader" ? "reader" : "delegate";
+  if (props.toolReviewPanelOpenVisible && currentMode === mode) {
+    emit("toggle-tool-review-panel");
+    return;
+  }
+  emit("update:chat-right-panel-mode", mode);
 }
 
 function handleCreateConversation() {
