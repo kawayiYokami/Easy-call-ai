@@ -217,7 +217,7 @@
       <label
         v-if="viewMode === 'config'"
         ref="configSearchPopoverRef"
-        class="input input-bordered input-sm relative flex h-8 w-[min(18rem,calc(100vw-8rem))] items-center gap-2 bg-base-100"
+        class="input input-bordered input-sm relative flex h-8 w-[clamp(9rem,24vw,13rem)] items-center gap-2 bg-base-100"
       >
         <Search class="h-3.5 w-3.5 opacity-70" />
         <input

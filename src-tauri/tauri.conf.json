@@ -17,9 +17,11 @@
         "title": "PAI - 配置窗口",
         "width": 900,
         "height": 900,
+        "minWidth": 520,
+        "minHeight": 520,
         "devtools": false,
         "dragDropEnabled": false,
-        "resizable": false,
+        "resizable": true,
         "visible": false,
         "decorations": false,
         "shadow": true

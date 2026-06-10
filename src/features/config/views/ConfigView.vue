@@ -1,132 +1,28 @@
 <template>
-  <div class="h-full min-h-0 flex">
-    <div class="w-36 shrink-0">
-      <ul class="menu w-full bg-base-200 rounded-box gap-1 [&>li>a]:min-w-30 [&>li>a]:w-full">
-        <li>
-          <a :class="{ 'active': props.configTab === 'welcome', 'menu-active': props.configTab === 'welcome', 'opacity-50 pointer-events-none': memorySyncLocked }" @click="requestTabChange('welcome')">
-            <Home class="w-4 h-4" />
-            {{ t("config.tabs.welcome") }}
-          </a>
-        </li>
-        <li>
-          <a :class="{ 'active': props.configTab === 'notification', 'menu-active': props.configTab === 'notification', 'opacity-50 pointer-events-none': memorySyncLocked }" @click="requestTabChange('notification')">
-            <Bell class="w-4 h-4" />
-            {{ t("config.tabs.notification") }}
-          </a>
-        </li>
-        <li>
-          <a :class="{ 'active': props.configTab === 'networkAccess', 'menu-active': props.configTab === 'networkAccess', 'opacity-50 pointer-events-none': memorySyncLocked }" @click="requestTabChange('networkAccess')">
-            <Wifi class="w-4 h-4" />
-            {{ t("config.tabs.networkAccess") }}
-          </a>
-        </li>
-        <li>
-          <a :class="{ 'active': props.configTab === 'hotkey', 'menu-active': props.configTab === 'hotkey', 'opacity-50 pointer-events-none': memorySyncLocked }" @click="requestTabChange('hotkey')">
-            <Keyboard class="w-4 h-4" />
-            {{ t("config.tabs.hotkey") }}
-          </a>
-        </li>
-        <li>
-          <a :class="{ 'active': props.configTab === 'api', 'menu-active': props.configTab === 'api', 'opacity-50 pointer-events-none': memorySyncLocked }" @click="requestTabChange('api')">
-            <Cpu class="w-4 h-4" />
-            {{ t("config.tabs.api") }}
-          </a>
-        </li>
-        <li>
-          <a :class="{ 'active': props.configTab === 'tools', 'menu-active': props.configTab === 'tools', 'opacity-50 pointer-events-none': memorySyncLocked }" @click="requestTabChange('tools')">
-            <Wrench class="w-4 h-4" />
-            {{ t("config.tabs.tools") }}
-          </a>
-        </li>
-        <li>
-          <a :class="{ 'active': props.configTab === 'mcp', 'menu-active': props.configTab === 'mcp', 'opacity-50 pointer-events-none': memorySyncLocked }" @click="requestTabChange('mcp')">
-            <Puzzle class="w-4 h-4" />
-            MCP
-          </a>
-        </li>
-        <li>
-          <a :class="{ 'active': props.configTab === 'skill', 'menu-active': props.configTab === 'skill', 'opacity-50 pointer-events-none': memorySyncLocked }" @click="requestTabChange('skill')">
-            <Code class="w-4 h-4" />
-            {{ t("config.tabs.skill") }}
-          </a>
-        </li>
-        <li>
-          <a :class="{ 'active': props.configTab === 'persona', 'menu-active': props.configTab === 'persona', 'opacity-50 pointer-events-none': memorySyncLocked }" @click="requestTabChange('persona')">
-            <User class="w-4 h-4" />
-            {{ t("config.tabs.persona") }}
-          </a>
-        </li>
-        <li>
-          <a :class="{ 'active': props.configTab === 'department', 'menu-active': props.configTab === 'department', 'opacity-50 pointer-events-none': memorySyncLocked }" @click="requestTabChange('department')">
-            <Building2 class="w-4 h-4" />
-            {{ t("config.tabs.department") }}
-          </a>
-        </li>
-        <li>
-          <a :class="{ 'active': props.configTab === 'departmentTree', 'menu-active': props.configTab === 'departmentTree', 'opacity-50 pointer-events-none': memorySyncLocked }" @click="requestTabChange('departmentTree')">
-            <Network class="w-4 h-4" />
-            {{ t("config.tabs.departmentTree") }}
-          </a>
-        </li>
-        <li>
-          <a :class="{ 'active': props.configTab === 'chatSettings', 'menu-active': props.configTab === 'chatSettings', 'opacity-50 pointer-events-none': memorySyncLocked }" @click="requestTabChange('chatSettings')">
-            <MessageSquare class="w-4 h-4" />
-            {{ t("config.tabs.chatSettings") }}
-          </a>
-        </li>
-        <li>
-          <a :class="{ 'active': props.configTab === 'remoteIm', 'menu-active': props.configTab === 'remoteIm', 'opacity-50 pointer-events-none': memorySyncLocked }" @click="requestTabChange('remoteIm')">
-            <Radio class="w-4 h-4" />
-            {{ t("config.tabs.remoteIm") }}
-          </a>
-        </li>
-        <li>
-          <a :class="{ 'active': props.configTab === 'memory', 'menu-active': props.configTab === 'memory' }" @click="requestTabChange('memory')">
-            <Database class="w-4 h-4" />
-            {{ t("config.tabs.memory") }}
-          </a>
-        </li>
-        <li>
-          <a :class="{ 'active': props.configTab === 'task', 'menu-active': props.configTab === 'task', 'opacity-50 pointer-events-none': memorySyncLocked }" @click="requestTabChange('task')">
-            <ClipboardList class="w-4 h-4" />
-            {{ t("config.tabs.task") }}
-          </a>
-        </li>
-        <li>
-          <a :class="{ 'active': props.configTab === 'logs', 'menu-active': props.configTab === 'logs', 'opacity-50 pointer-events-none': memorySyncLocked }" @click="requestTabChange('logs')">
-            <ScrollText class="w-4 h-4" />
-            {{ t("config.tabs.logs") }}
-          </a>
-        </li>
-        <li>
-          <a :class="{ 'active': props.configTab === 'appearance', 'menu-active': props.configTab === 'appearance', 'opacity-50 pointer-events-none': memorySyncLocked }" @click="requestTabChange('appearance')">
-            <Palette class="w-4 h-4" />
-            {{ t("config.tabs.appearance") }}
-          </a>
-        </li>
-        <li>
-          <a :class="{ 'active': props.configTab === 'migration', 'menu-active': props.configTab === 'migration', 'opacity-50 pointer-events-none': memorySyncLocked }" @click="requestTabChange('migration')">
-            <ArrowLeftRight class="w-4 h-4" />
-            {{ t("config.tabs.migration") }}
-          </a>
-        </li>
-        <li>
-          <a :class="{ 'active': props.configTab === 'about', 'menu-active': props.configTab === 'about', 'opacity-50 pointer-events-none': memorySyncLocked }" @click="requestTabChange('about')">
-            <Info class="w-4 h-4" />
-            <span>{{ t("config.tabs.about") }}</span>
-            <span v-if="props.hasAvailableUpdate" class="ml-2 inline-flex h-2.5 w-2.5 rounded-full bg-error shrink-0" :title="t('about.updateAvailableBadge')"></span>
-          </a>
-        </li>
-        <li v-if="SHOW_DEV_DEMO_TAB">
-          <a :class="{ 'active': props.configTab === 'demo', 'menu-active': props.configTab === 'demo', 'opacity-50 pointer-events-none': memorySyncLocked }" @click="requestTabChange('demo')">
-            <Beaker class="w-4 h-4" />
-            {{ t("config.tabs.demo") }}
-          </a>
-        </li>
-      </ul>
-    </div>
+  <div class="h-full min-h-0">
+  <div class="drawer md:drawer-open h-full min-h-0">
+    <input
+      id="config-drawer-toggle"
+      v-model="configDrawerOpen"
+      type="checkbox"
+      class="drawer-toggle"
+      aria-label="设置导航"
+    />
 
-    <div class="flex min-h-0 flex-1 min-w-0 flex-col overflow-hidden">
+    <div class="drawer-content flex min-h-0 min-w-0 flex-col overflow-hidden bg-base-200">
+      <div class="flex shrink-0 items-center gap-2 border-b border-base-300 bg-base-100/80 px-3 py-2 md:hidden">
+        <label
+          for="config-drawer-toggle"
+          class="btn btn-square btn-ghost btn-sm"
+          aria-label="打开设置导航"
+          title="打开设置导航"
+        >
+          <Menu class="h-4 w-4" />
+        </label>
+        <div class="min-w-0 truncate text-sm font-medium">{{ activeConfigTabTitle }}</div>
+      </div>
+
+      <div class="flex min-h-0 flex-1 min-w-0 flex-col overflow-hidden">
       <div v-if="props.configTab === 'api'" class="flex-1 min-h-0">
         <ApiTab
           :config="config"
@@ -335,6 +231,27 @@
           />
       </SettingsStickyLayout>
     </div>
+    </div>
+
+    <div class="drawer-side z-40">
+      <label for="config-drawer-toggle" aria-label="关闭设置导航" class="drawer-overlay"></label>
+      <aside class="min-h-full w-44 border-r border-base-300 bg-base-200 p-2">
+        <ul class="menu w-full gap-1 p-0 [&>li>a]:w-full">
+          <li v-for="item in visibleConfigNavItems" :key="item.tab">
+            <a :class="configNavLinkClass(item.tab)" @click="selectConfigNavTab(item.tab)">
+              <component :is="item.icon" class="h-4 w-4 shrink-0" />
+              <span class="min-w-0 truncate">{{ item.labelKey ? t(item.labelKey) : item.label }}</span>
+              <span
+                v-if="item.tab === 'about' && props.hasAvailableUpdate"
+                class="ml-auto inline-flex h-2.5 w-2.5 shrink-0 rounded-full bg-error"
+                :title="t('about.updateAvailableBadge')"
+              ></span>
+            </a>
+          </li>
+        </ul>
+      </aside>
+    </div>
+  </div>
 
     <!-- Dialogs -->
 
@@ -444,7 +361,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, onMounted, ref } from "vue";
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, type Component } from "vue";
 import { useI18n } from "vue-i18n";
 import type { ApiConfigItem, AppConfig, ChatSettingsPatch, ConversationApiSettingsPatch, ImageTextCacheStats, PersonaProfile, PromptCommandPreset, ResponseStyleOption, ToolLoadStatus } from "../../../types/app";
 import type { GeneratedThemeControls, GeneratedThemeTokens } from "../../shell/theme/theme-types";
@@ -473,11 +390,41 @@ import AboutTab from "./config-tabs/AboutTab.vue";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { invokeTauri } from "../../../services/tauri-api";
 import { toErrorMessage } from "../../../utils/error";
-import { ArrowLeftRight, Beaker, Bell, Building2, ClipboardList, Code, Cpu, Database, Home, Info, Keyboard, MessageSquare, Network, Palette, Puzzle, Radio, ScrollText, User, Wifi, Wrench } from "@lucide/vue";
+import { ArrowLeftRight, Beaker, Bell, Building2, ClipboardList, Code, Cpu, Database, Home, Info, Keyboard, Menu, MessageSquare, Network, Palette, Puzzle, Radio, ScrollText, User, Wifi, Wrench } from "@lucide/vue";
 
 type ConfigTab = "welcome" | "hotkey" | "api" | "tools" | "mcp" | "skill" | "persona" | "department" | "departmentTree" | "demo" | "chatSettings" | "notification" | "networkAccess" | "remoteIm" | "memory" | "task" | "logs" | "appearance" | "migration" | "about";
 type AvatarTarget = { agentId: string };
+type ConfigNavItem = {
+  tab: ConfigTab;
+  icon: Component;
+  labelKey?: string;
+  label?: string;
+  devOnly?: boolean;
+};
 const SHOW_DEV_DEMO_TAB = import.meta.env.DEV;
+
+const CONFIG_NAV_ITEMS: ConfigNavItem[] = [
+  { tab: "welcome", icon: Home, labelKey: "config.tabs.welcome" },
+  { tab: "notification", icon: Bell, labelKey: "config.tabs.notification" },
+  { tab: "networkAccess", icon: Wifi, labelKey: "config.tabs.networkAccess" },
+  { tab: "hotkey", icon: Keyboard, labelKey: "config.tabs.hotkey" },
+  { tab: "api", icon: Cpu, labelKey: "config.tabs.api" },
+  { tab: "tools", icon: Wrench, labelKey: "config.tabs.tools" },
+  { tab: "mcp", icon: Puzzle, label: "MCP" },
+  { tab: "skill", icon: Code, labelKey: "config.tabs.skill" },
+  { tab: "persona", icon: User, labelKey: "config.tabs.persona" },
+  { tab: "department", icon: Building2, labelKey: "config.tabs.department" },
+  { tab: "departmentTree", icon: Network, labelKey: "config.tabs.departmentTree" },
+  { tab: "chatSettings", icon: MessageSquare, labelKey: "config.tabs.chatSettings" },
+  { tab: "remoteIm", icon: Radio, labelKey: "config.tabs.remoteIm" },
+  { tab: "memory", icon: Database, labelKey: "config.tabs.memory" },
+  { tab: "task", icon: ClipboardList, labelKey: "config.tabs.task" },
+  { tab: "logs", icon: ScrollText, labelKey: "config.tabs.logs" },
+  { tab: "appearance", icon: Palette, labelKey: "config.tabs.appearance" },
+  { tab: "migration", icon: ArrowLeftRight, labelKey: "config.tabs.migration" },
+  { tab: "about", icon: Info, labelKey: "config.tabs.about" },
+  { tab: "demo", icon: Beaker, labelKey: "config.tabs.demo", devOnly: true },
+];
 
 const props = defineProps<{
   config: AppConfig;
@@ -605,6 +552,7 @@ let workspaceMigrationProgressUnlisten: UnlistenFn | null = null;
 const cropperReady = ref(false);
 const localCropError = ref("");
 const avatarEditorTargetId = ref("");
+const configDrawerOpen = ref(false);
 const memorySyncLocked = ref(false);
 const savingToolsConfig = ref(false);
 let cropper: Cropper | null = null;
@@ -625,6 +573,35 @@ const workspaceMigrationStageLabel = computed(() => {
   if (stage === "failed") return t("config.tools.migrateWorkspaceStageFailed");
   return t("config.tools.migrateWorkspacePreparing");
 });
+const visibleConfigNavItems = computed(() => CONFIG_NAV_ITEMS.filter((item) => !item.devOnly || SHOW_DEV_DEMO_TAB));
+const activeConfigNavItem = computed(() =>
+  visibleConfigNavItems.value.find((item) => item.tab === props.configTab)
+  ?? visibleConfigNavItems.value.find((item) => item.tab === "hotkey")
+  ?? null,
+);
+const activeConfigTabTitle = computed(() => {
+  const item = activeConfigNavItem.value;
+  if (!item) return "";
+  return item.labelKey ? t(item.labelKey) : (item.label || "");
+});
+
+function isConfigNavItemLocked(tab: ConfigTab): boolean {
+  return memorySyncLocked.value && tab !== "memory";
+}
+
+function configNavLinkClass(tab: ConfigTab) {
+  return {
+    active: props.configTab === tab,
+    "menu-active": props.configTab === tab,
+    "opacity-50 pointer-events-none": isConfigNavItemLocked(tab),
+  };
+}
+
+function selectConfigNavTab(tab: ConfigTab) {
+  if (isConfigNavItemLocked(tab)) return;
+  requestTabChange(tab);
+  configDrawerOpen.value = false;
+}
 
 function avatarInitial(name: string): string {
   const text = (name || "").trim();

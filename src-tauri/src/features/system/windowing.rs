@@ -103,7 +103,7 @@ fn minimum_window_size(label: &str) -> (u32, u32) {
 }
 
 fn is_fixed_window_size(label: &str) -> bool {
-    matches!(label, "main" | "quick-setup")
+    matches!(label, "quick-setup")
 }
 
 fn detached_chat_windows() -> &'static Mutex<std::collections::HashMap<String, String>> {
