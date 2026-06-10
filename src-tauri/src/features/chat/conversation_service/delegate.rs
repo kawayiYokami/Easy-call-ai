@@ -59,6 +59,7 @@ impl ConversationService {
         source_department_id: Option<&str>,
         source_conversation_id: Option<&str>,
         target_department_id: &str,
+        target_agent_id: Option<&str>,
     ) -> Result<DelegateContextResolution, String> {
         let guard = app_state
             .conversation_lock
@@ -118,20 +119,39 @@ impl ConversationService {
         let target_department = runtime_department_by_id(&runtime_snapshot, target_department_id)
             .cloned()
             .ok_or_else(|| format!("目标部门不存在，departmentId={target_department_id}"))?;
-        let target_agent_id = target_department
-            .agent_ids
-            .iter()
-            .find(|id| !id.trim().is_empty())
-            .cloned()
-            .ok_or_else(|| format!("目标部门没有可用委任人，departmentId={target_department_id}"))?;
-        if !runtime_snapshot
-            .agents
-            .iter()
-            .any(|agent| agent.id == target_agent_id && !agent.is_built_in_user)
+        let target_agent_id = if let Some(requested_agent_id) = target_agent_id
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
         {
-            drop(guard);
-            return Err(format!("目标委任人不存在，agentId={target_agent_id}"));
-        }
+            if !target_department
+                .agent_ids
+                .iter()
+                .any(|id| id.trim() == requested_agent_id)
+            {
+                drop(guard);
+                return Err(format!(
+                    "目标委任人不属于目标部门，departmentId={}，agentId={}",
+                    target_department_id, requested_agent_id
+                ));
+            }
+            if available_non_user_agent(&runtime_snapshot.agents, requested_agent_id).is_none() {
+                drop(guard);
+                return Err(format!("目标委任人不存在，agentId={requested_agent_id}"));
+            }
+            requested_agent_id.to_string()
+        } else if let Some(agent) =
+            first_available_department_agent(&target_department, &runtime_snapshot.agents)
+        {
+            agent.id.clone()
+        } else {
+            available_non_user_agent(&runtime_snapshot.agents, DEPUTY_AGENT_ID)
+                .map(|agent| agent.id.clone())
+                .ok_or_else(|| {
+                    format!(
+                        "目标部门没有可用委任人，且副手人格不可用，departmentId={target_department_id}"
+                    )
+                })?
+        };
         let source_conversation_id = if let Some(thread) = thread_context.as_ref() {
             thread.root_conversation_id.clone()
         } else {

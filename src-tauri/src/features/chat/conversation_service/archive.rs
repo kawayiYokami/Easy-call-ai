@@ -217,24 +217,23 @@ impl ConversationService {
                 source.id, department_id
             )
         })?;
-        let effective_agent_id = department
-            .agent_ids
+        let effective_agent_id = source.agent_id.trim();
+        if effective_agent_id.is_empty() {
+            drop(guard);
+            return Err(format!("会话未绑定人格，无法归档: conversation_id={}", source.id));
+        }
+        if !runtime_snapshot
+            .agents
             .iter()
-            .map(|item| item.trim())
-            .filter(|agent_id| !agent_id.is_empty())
-            .find(|agent_id| {
-                runtime_snapshot
-                    .agents
-                    .iter()
-                    .any(|agent| agent.id == *agent_id && !agent.is_built_in_user)
-            })
-            .map(str::to_string)
-            .ok_or_else(|| {
-                format!(
-                    "会话归属部门未配置可用执行人格，无法归档: conversation_id={}, department_id={}",
-                    source.id, department_id
-                )
-            })?;
+            .any(|agent| agent.id == effective_agent_id && !agent.is_built_in_user)
+        {
+            drop(guard);
+            return Err(format!(
+                "会话绑定人格不存在或不可用，无法归档: conversation_id={}, agent_id={}",
+                source.id, effective_agent_id
+            ));
+        }
+        let effective_agent_id = effective_agent_id.to_string();
         let preferred_api_id = source
             .preferred_api_config_id
             .as_deref()
@@ -316,6 +315,22 @@ impl ConversationService {
             drop(guard);
             return Err("当前没有可归档的活动对话。".to_string());
         }
+        let source_agent_id = source.agent_id.trim();
+        if source_agent_id.is_empty() {
+            drop(guard);
+            return Err(format!("会话未绑定人格，无法归档: conversation_id={}", source.id));
+        }
+        if !runtime_agents
+            .iter()
+            .any(|agent| agent.id == source_agent_id && !agent.is_built_in_user)
+        {
+            drop(guard);
+            return Err(format!(
+                "会话绑定人格不存在或不可用，无法归档: conversation_id={}, agent_id={}",
+                source.id, source_agent_id
+            ));
+        }
+        let effective_agent_id = source_agent_id.to_string();
         drop(guard);
         Ok((selected_api, resolved_api, source, effective_agent_id))
     }

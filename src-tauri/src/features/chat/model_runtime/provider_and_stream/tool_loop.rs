@@ -572,7 +572,7 @@ fn build_tool_loop_prepared_for_continuation(
         Some(selected_api),
         Some(resolved_api),
         Some(context.enable_pdf_images),
-    );
+    )?;
     append_tool_loop_transient_history_to_prepared(&mut prepared, transient_tool_history);
     Ok(Some((conversation, prepared)))
 }

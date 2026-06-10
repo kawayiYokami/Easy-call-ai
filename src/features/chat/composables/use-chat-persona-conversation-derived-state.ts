@@ -1,6 +1,7 @@
 import { computed } from "vue";
 import type { ChatMentionEntry } from "../../../types/app";
 import { resolveModelRoleApiConfigId } from "../../config/utils/model-role-options";
+import { buildDepartmentPersonaOptions } from "../../shared/department-persona-options";
 
 export function useChatPersonaConversationDerivedState(bindings: Record<string, any>) {
   const userPersona = computed(
@@ -32,7 +33,7 @@ export function useChatPersonaConversationDerivedState(bindings: Record<string, 
     );
   });
   const currentForegroundDepartmentId = computed(
-    () => String(currentForegroundConversationSummary.value?.departmentId || "").trim() || "assistant-department",
+    () => String(currentForegroundConversationSummary.value?.departmentId || "").trim(),
   );
   const currentForegroundDepartment = computed(
     () =>
@@ -41,10 +42,7 @@ export function useChatPersonaConversationDerivedState(bindings: Record<string, 
       || null,
   );
   const currentForegroundAgentId = computed(
-    () =>
-      String(currentForegroundConversationSummary.value?.agentId || "").trim()
-      || String(currentForegroundDepartment.value?.agentIds?.[0] || "").trim()
-      || String(bindings.assistantDepartmentAgentId.value || "").trim(),
+    () => String(currentForegroundConversationSummary.value?.agentId || "").trim(),
   );
   function resolveForegroundTextApiConfigId(apiConfigId: string): string {
     const resolvedId = resolveModelRoleApiConfigId(apiConfigId, bindings.config);
@@ -235,28 +233,13 @@ export function useChatPersonaConversationDerivedState(bindings: Record<string, 
     });
   });
   const createConversationDepartmentOptions = computed(() =>
-    (bindings.config.departments || [])
-      .filter((department: any) => {
-        const departmentId = String(department.id || "").trim();
-        if (!departmentId) return false;
-        const apiConfigId = bindings.departmentConversationApiConfigId(department);
-        if (!apiConfigId) return false;
-        return bindings.config.apiConfigs.some((api: any) => api.id === apiConfigId && api.enableText);
-      })
-      .map((department: any) => {
-        const ownerId = String((department.agentIds || [])[0] || "").trim();
-        const owner = bindings.personas.value.find((persona: any) => String(persona.id || "").trim() === ownerId) ?? null;
-        const apiConfigId = bindings.departmentConversationApiConfigId(department);
-        const apiConfig = bindings.config.apiConfigs.find((api: any) => api.id === apiConfigId) ?? null;
-        return {
-          id: String(department.id || "").trim(),
-          name: String(department.name || "").trim() || String(department.id || "").trim(),
-          ownerAgentId: ownerId,
-          ownerName: String(owner?.name || "").trim() || ownerId || "未设置负责人",
-          providerName: String(apiConfig?.name || apiConfig?.id || "").trim(),
-          modelName: String(apiConfig?.model || "").trim(),
-        };
-      }),
+    buildDepartmentPersonaOptions({
+      departments: bindings.config.departments || [],
+      personas: bindings.personas.value || [],
+      apiConfigs: bindings.config.apiConfigs || [],
+      assistantDepartmentApiConfigId: bindings.config.assistantDepartmentApiConfigId,
+      toolReviewApiConfigId: bindings.config.toolReviewApiConfigId,
+    }),
   );
   return {
     userPersona,

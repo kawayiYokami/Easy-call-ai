@@ -33,6 +33,220 @@ fn task_normalize_conversation_for_write(
     Ok(normalized)
 }
 
+fn task_validate_department_agent_for_write(
+    state: &AppState,
+    department_id: &str,
+    agent_id: &str,
+) -> Result<(String, String), String> {
+    let normalized_department_id = department_id.trim();
+    let normalized_agent_id = agent_id.trim();
+    if normalized_department_id.is_empty() {
+        return Err("task.departmentId is required".to_string());
+    }
+    if normalized_agent_id.is_empty() {
+        return Err("task.agentId is required".to_string());
+    }
+    let runtime_snapshot = load_runtime_organization_snapshot(state)?;
+    let department = runtime_department_by_id(&runtime_snapshot, normalized_department_id)
+        .ok_or_else(|| format!("任务绑定部门不存在：{normalized_department_id}"))?;
+    if !department
+        .agent_ids
+        .iter()
+        .any(|id| id.trim() == normalized_agent_id)
+    {
+        return Err(format!(
+            "任务绑定人格不属于指定部门：departmentId={normalized_department_id}, agentId={normalized_agent_id}"
+        ));
+    }
+    if !runtime_snapshot
+        .agents
+        .iter()
+        .any(|agent| agent.id == normalized_agent_id && !agent.is_built_in_user && !agent.is_built_in_system)
+    {
+        return Err(format!("任务绑定人格不存在或不可用：{normalized_agent_id}"));
+    }
+    Ok((normalized_department_id.to_string(), normalized_agent_id.to_string()))
+}
+
+fn task_resolve_department_agent_pair_for_write(
+    state: &AppState,
+    department_id: &str,
+    agent_id: Option<&str>,
+) -> Result<(String, String), String> {
+    let normalized_department_id = department_id.trim();
+    if normalized_department_id.is_empty() {
+        return Err("task.departmentId is required".to_string());
+    }
+    let runtime_snapshot = load_runtime_organization_snapshot(state)?;
+    let department = runtime_department_by_id(&runtime_snapshot, normalized_department_id)
+        .ok_or_else(|| format!("任务绑定部门不存在：{normalized_department_id}"))?;
+    let requested_agent_id = agent_id.map(str::trim).filter(|value| !value.is_empty());
+    let resolved_agent_id = if let Some(requested_agent_id) = requested_agent_id {
+        if !department
+            .agent_ids
+            .iter()
+            .any(|id| id.trim() == requested_agent_id)
+        {
+            return Err(format!(
+                "任务绑定人格不属于指定部门：departmentId={normalized_department_id}, agentId={requested_agent_id}"
+            ));
+        }
+        requested_agent_id.to_string()
+    } else {
+        department
+            .agent_ids
+            .iter()
+            .map(|id| id.trim())
+            .find(|id| {
+                !id.is_empty()
+                    && runtime_snapshot
+                        .agents
+                        .iter()
+                        .any(|agent| {
+                            agent.id == *id
+                                && !agent.is_built_in_user
+                                && !agent.is_built_in_system
+                        })
+            })
+            .map(ToOwned::to_owned)
+            .ok_or_else(|| format!("任务绑定部门没有可用人格：{normalized_department_id}"))?
+    };
+    if !runtime_snapshot.agents.iter().any(|agent| {
+        agent.id == resolved_agent_id && !agent.is_built_in_user && !agent.is_built_in_system
+    }) {
+        return Err(format!("任务绑定人格不存在或不可用：{resolved_agent_id}"));
+    }
+    Ok((normalized_department_id.to_string(), resolved_agent_id))
+}
+
+fn task_validate_stored_department_agent_for_dispatch(
+    state: &AppState,
+    department_id: &str,
+    agent_id: &str,
+) -> Result<(String, String), String> {
+    let normalized_department_id = department_id.trim();
+    let normalized_agent_id = agent_id.trim();
+    if normalized_department_id.is_empty() {
+        return Err("任务缺少绑定部门".to_string());
+    }
+    if normalized_agent_id.is_empty() {
+        return Err("任务缺少绑定人格".to_string());
+    }
+    let runtime_snapshot = load_runtime_organization_snapshot(state)?;
+    runtime_department_by_id(&runtime_snapshot, normalized_department_id)
+        .ok_or_else(|| format!("任务绑定部门不存在：{normalized_department_id}"))?;
+    if !runtime_snapshot.agents.iter().any(|agent| {
+        agent.id == normalized_agent_id && !agent.is_built_in_user && !agent.is_built_in_system
+    }) {
+        return Err(format!("任务绑定人格不存在或不可用：{normalized_agent_id}"));
+    }
+    Ok((
+        normalized_department_id.to_string(),
+        normalized_agent_id.to_string(),
+    ))
+}
+
+fn task_resolve_stored_department_agent_for_dispatch(
+    state: &AppState,
+    department_id: &str,
+    agent_id: Option<&str>,
+) -> Result<(String, String), String> {
+    if let Some(agent_id) = agent_id.map(str::trim).filter(|value| !value.is_empty()) {
+        return task_validate_stored_department_agent_for_dispatch(state, department_id, agent_id);
+    }
+    task_resolve_department_agent_pair_for_write(state, department_id, None)
+}
+
+fn task_default_department_agent_for_write(state: &AppState) -> Result<(String, String), String> {
+    let runtime_snapshot = load_runtime_organization_snapshot(state)?;
+    let runtime = state_read_runtime_state_cached(state)?;
+    let assistant_department_id = assistant_department(&runtime_snapshot.config)
+        .map(|department| department.id.clone())
+        .unwrap_or_else(|| ASSISTANT_DEPARTMENT_ID.to_string());
+    let runtime_agent_id = runtime
+        .assistant_department_agent_id
+        .trim()
+        .to_string();
+    if !runtime_agent_id.is_empty() {
+        if let Ok(pair) = task_resolve_department_agent_pair_for_write(
+            state,
+            &assistant_department_id,
+            Some(&runtime_agent_id),
+        ) {
+            return Ok(pair);
+        }
+    }
+    task_resolve_department_agent_pair_for_write(state, &assistant_department_id, None)
+        .map_err(|err| format!("任务缺少默认执行人格：{err}"))
+}
+
+fn task_conversation_has_system_owner(
+    state: &AppState,
+    conversation: &Conversation,
+) -> Result<bool, String> {
+    if conversation_is_system_notification(conversation) {
+        return Ok(true);
+    }
+    let agent_id = conversation.agent_id.trim();
+    if agent_id.is_empty() {
+        return Ok(false);
+    }
+    if agent_id == SYSTEM_PERSONA_ID {
+        return Ok(true);
+    }
+    let runtime_snapshot = load_runtime_organization_snapshot(state)?;
+    Ok(runtime_snapshot
+        .agents
+        .iter()
+        .find(|agent| agent.id == agent_id)
+        .map(|agent| agent.is_built_in_system)
+        .unwrap_or(false))
+}
+
+fn task_department_agent_from_conversation_for_write(
+    state: &AppState,
+    conversation_id: &str,
+) -> Result<Option<(String, String)>, String> {
+    if task_conversation_id_is_system_notification(conversation_id) {
+        return Ok(None);
+    }
+    let conversation = state_read_conversation_cached(state, conversation_id)
+        .map_err(|_| format!("绑定会话不存在：{conversation_id}"))?;
+    if task_conversation_has_system_owner(state, &conversation)? {
+        return Ok(None);
+    }
+    let department_id = conversation.department_id.trim();
+    let agent_id = conversation.agent_id.trim();
+    if department_id.is_empty() {
+        return Err(format!("绑定会话缺少部门：{conversation_id}"));
+    }
+    task_resolve_department_agent_pair_for_write(state, department_id, Some(agent_id)).map(Some)
+}
+
+fn task_resolve_department_agent_for_write(
+    state: &AppState,
+    conversation_id: &str,
+    requested_department_id: Option<&str>,
+    requested_agent_id: Option<&str>,
+) -> Result<(String, String), String> {
+    let requested_department_id = requested_department_id
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
+    let requested_agent_id = requested_agent_id
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
+    if let (Some(department_id), Some(agent_id)) = (requested_department_id, requested_agent_id) {
+        return task_validate_department_agent_for_write(state, department_id, agent_id);
+    }
+    if requested_department_id.is_some() || requested_agent_id.is_some() {
+        return Err("任务绑定部门和人格必须同时提供".to_string());
+    }
+    if let Some(pair) = task_department_agent_from_conversation_for_write(state, conversation_id)? {
+        return Ok(pair);
+    }
+    task_default_department_agent_for_write(state)
+}
+
 fn task_create_input_for_write(
     state: &AppState,
     input: &TaskCreateInput,
@@ -40,7 +254,15 @@ fn task_create_input_for_write(
     let mut next = input.clone();
     let conversation_id =
         task_normalize_conversation_for_write(state, input.conversation_id.as_deref())?;
+    let (department_id, agent_id) = task_resolve_department_agent_for_write(
+        state,
+        &conversation_id,
+        input.department_id.as_deref(),
+        input.agent_id.as_deref(),
+    )?;
     next.conversation_id = Some(conversation_id);
+    next.department_id = Some(department_id);
+    next.agent_id = Some(agent_id);
     Ok(next)
 }
 
@@ -57,7 +279,18 @@ fn task_update_input_for_write(
             .as_deref()
             .or(existing.conversation_id.as_deref()),
     )?;
+    let (department_id, agent_id) = task_resolve_department_agent_for_write(
+        state,
+        &conversation_id,
+        input
+            .department_id
+            .as_deref()
+            .or(existing.department_id.as_deref()),
+        input.agent_id.as_deref().or(existing.agent_id.as_deref()),
+    )?;
     next.conversation_id = Some(conversation_id);
+    next.department_id = Some(department_id);
+    next.agent_id = Some(agent_id);
     Ok(next)
 }
 

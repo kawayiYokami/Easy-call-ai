@@ -237,6 +237,8 @@
 
           <TaskTab
             v-else-if="props.configTab === 'task'"
+            :config="config"
+            :personas="personas"
           />
 
           <LogTab

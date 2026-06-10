@@ -462,6 +462,7 @@ import { useChatScrollOrchestration } from "../composables/use-chat-scroll-orche
 import { useChatToolReviewHandlers } from "../composables/use-chat-tool-review-handlers";
 import { useChatBlockTracking } from "../composables/use-chat-block-tracking";
 import type { TaskEntry } from "../../config/views/config-tabs/task-editor";
+import type { DepartmentPersonaOption } from "../../shared/department-persona-options";
 
 // ==================== props / emits ====================
 
@@ -496,7 +497,7 @@ const props = defineProps<{
   conversationListTab: "local" | "contact" | "task";
   chatLeftPanelMode: "local" | "contact" | "task";
   chatRightPanelMode: "reader" | "review" | "delegate";
-  createConversationDepartmentOptions: Array<{ id: string; name: string; ownerAgentId?: string; ownerName: string; providerName?: string; modelName?: string; childDepartmentIds?: string[] }>;
+  createConversationDepartmentOptions: DepartmentPersonaOption[];
   defaultCreateConversationDepartmentId: string;
   ideContextGroups: IdeContextWorkspaceGroup[]; attachedIdeContextReferences: IdeContextReferenceItem[];
   detachedChatWindow?: boolean; terminalApprovals?: TerminalApprovalConversationItem[];
@@ -546,7 +547,7 @@ const emit = defineEmits<{
   (e: "archiveConversation", conversationId: string): void;
   (e: "exportConversation", conversationId: string): void;
   (e: "deleteConversation", conversationId: string): void;
-  (e: "createConversation", input?: { title?: string; departmentId?: string; copyCurrent?: boolean; importPath?: string; shellWorkspaces?: ShellWorkspace[]; shellAutonomousMode?: boolean }): void;
+  (e: "createConversation", input?: { title?: string; departmentId?: string; agentId?: string; copyCurrent?: boolean; importPath?: string; shellWorkspaces?: ShellWorkspace[]; shellAutonomousMode?: boolean }): void;
   (e: "loadOlderHistory"): void; (e: "reachedBottom"): void;
   (e: "jumpToConversationBottom"): void;
   (e: "refreshToolReviewMessage", payload: { conversationId: string; messageId: string }): void;
@@ -555,7 +556,7 @@ const emit = defineEmits<{
   (e: "selectionActionCopyError", payload: { count: number; messageIds: string[]; blocks: ChatMessageBlock[]; error: string }): void;
   (e: "selectionActionBranch", payload: { count: number; messageIds: string[]; blocks: ChatMessageBlock[] }): void;
   (e: "selectionActionForward", payload: { count: number; messageIds: string[]; blocks: ChatMessageBlock[]; targetConversationId: string }): void;
-  (e: "selectionActionDelegate", payload: { count: number; messageIds: string[]; blocks: ChatMessageBlock[]; departmentId: string; presetId: string; background: string; question: string; focus: string }): void;
+  (e: "selectionActionDelegate", payload: { count: number; messageIds: string[]; blocks: ChatMessageBlock[]; departmentId: string; agentId: string; presetId: string; background: string; question: string; focus: string }): void;
   (e: "selectionActionShare", payload: { count: number; messageIds: string[]; blocks: ChatMessageBlock[]; exportFormat?: "html" | "png" }): void;
   (e: "approveTerminalApproval", requestId: string): void;
   (e: "denyTerminalApproval", requestId: string): void;

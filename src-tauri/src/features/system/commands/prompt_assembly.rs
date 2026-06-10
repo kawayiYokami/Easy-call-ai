@@ -64,7 +64,7 @@ fn build_prepared_prompt_for_mode(
     selected_api: Option<&ApiConfig>,
     resolved_api: Option<&ResolvedApiConfig>,
     enable_pdf_images: Option<bool>,
-) -> PreparedPrompt {
+) -> Result<PreparedPrompt, String> {
     build_prepared_prompt_for_mode_with_stage_logger(
         mode,
         conversation,
@@ -106,7 +106,7 @@ fn build_prepared_prompt_for_mode_with_stage_logger(
     selected_api: Option<&ApiConfig>,
     resolved_api: Option<&ResolvedApiConfig>,
     enable_pdf_images: Option<bool>,
-) -> PreparedPrompt {
+) -> Result<PreparedPrompt, String> {
     conversation_prompt_service().build_prepared_prompt_for_mode(
         mode,
         conversation,
@@ -758,7 +758,8 @@ mod prompt_assembly_tests {
             Some(&ApiConfig::default()),
             None,
             Some(false),
-        );
+        )
+        .expect("build prepared prompt");
 
         assert!(prepared.preamble.contains("当前 shell: PowerShell"));
         assert!(!prepared.preamble.contains("这一句只属于用户消息"));
@@ -1322,7 +1323,8 @@ mod prompt_assembly_tests {
             Some(&ApiConfig::default()),
             None,
             Some(false),
-        );
+        )
+        .expect("build prepared prompt");
 
         assert!(prepared.preamble.contains("</system rules>\n<persona settings>"));
         assert!(prepared.preamble.contains("</department context>\n<memory rag rule>"));

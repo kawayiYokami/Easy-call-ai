@@ -183,19 +183,20 @@ fn save_agents(
     let mut runtime_config = runtime_config_with_private_organization(&state, &config, &data)?;
     let mut config_changed = false;
     for dept in &mut runtime_config.departments {
-        let original_first = dept.agent_ids.first().cloned();
-        let original_len = dept.agent_ids.len();
+        let original_agent_ids = dept.agent_ids.clone();
         dept.agent_ids.retain(|id| valid_agent_ids.contains(id));
-        if dept.id == ASSISTANT_DEPARTMENT_ID && dept.agent_ids.is_empty() {
+        if dept.id == ASSISTANT_DEPARTMENT_ID
+            && !data.assistant_department_agent_id.trim().is_empty()
+            && valid_agent_ids.contains(&data.assistant_department_agent_id)
+            && !dept
+                .agent_ids
+                .iter()
+                .any(|id| id.trim() == data.assistant_department_agent_id)
+        {
             dept.agent_ids.push(data.assistant_department_agent_id.clone());
         }
-        if dept.agent_ids.len() != original_len
-            || (dept.id == ASSISTANT_DEPARTMENT_ID && original_first.as_deref() != Some(&data.assistant_department_agent_id))
-        {
+        if dept.agent_ids != original_agent_ids {
             config_changed = true;
-            if dept.id == ASSISTANT_DEPARTMENT_ID {
-                dept.agent_ids = vec![data.assistant_department_agent_id.clone()];
-            }
             dept.updated_at = now_iso();
         }
     }

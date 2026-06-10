@@ -4,6 +4,7 @@ fn delegate_resolve_context(
     source_department_id: Option<&str>,
     source_conversation_id: Option<&str>,
     target_department_id: &str,
+    target_agent_id: Option<&str>,
 ) -> Result<
     (
         AppConfig,
@@ -22,6 +23,7 @@ fn delegate_resolve_context(
         source_department_id,
         source_conversation_id,
         target_department_id,
+        target_agent_id,
     )?;
     Ok((
         resolved.config,
@@ -119,6 +121,7 @@ mod delegate_dispatch_tests {
 struct ValidatedDelegateArgs {
     mode: DelegateMode,
     target_department_id: String,
+    target_agent_id: Option<String>,
     instruction: String,
     title: String,
     background: String,
@@ -147,6 +150,12 @@ fn validate_delegate_args(args: &DelegateToolArgs) -> Result<ValidatedDelegateAr
     if target_department_id.is_empty() {
         return Err("delegate.department_id is required".to_string());
     }
+    let target_agent_id = args
+        .target_agent_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToOwned::to_owned);
     let instruction = args.question.trim().to_string();
     if instruction.is_empty() {
         return Err("delegate.question is required".to_string());
@@ -155,6 +164,7 @@ fn validate_delegate_args(args: &DelegateToolArgs) -> Result<ValidatedDelegateAr
     Ok(ValidatedDelegateArgs {
         mode,
         target_department_id,
+        target_agent_id,
         instruction,
         title,
         background: args.background.clone(),
@@ -200,6 +210,7 @@ fn common_delegate_preflight(
     source_department_id: Option<&str>,
     source_conversation_id: Option<&str>,
     target_department_id: &str,
+    target_agent_id: Option<&str>,
 ) -> Result<DelegatePreflight, String> {
     let (config, agents, source_department, target_department, target_agent_id, root_conversation_id, current_thread) =
         delegate_resolve_context(
@@ -208,6 +219,7 @@ fn common_delegate_preflight(
             source_department_id,
             source_conversation_id,
             target_department_id,
+            target_agent_id,
         )?;
     Ok(DelegatePreflight {
         config,
@@ -424,6 +436,7 @@ async fn builtin_delegate(
         source_department_id,
         source_conversation_id.as_deref(),
         &validated.target_department_id,
+        validated.target_agent_id.as_deref(),
     ) {
         Ok(value) => value,
         Err(err) => return Ok(delegate_failed_result(err)),
@@ -528,6 +541,7 @@ async fn delegate_execute_sync(
         source_department_id,
         source_conversation_id.as_deref(),
         &validated.target_department_id,
+        validated.target_agent_id.as_deref(),
     ) {
         Ok(value) => value,
         Err(err) => return Ok(delegate_failed_result(err)),

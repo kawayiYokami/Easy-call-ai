@@ -103,30 +103,24 @@
             <div class="px-4 py-4">
               <div class="mb-2 text-[11px] uppercase tracking-wide opacity-40">{{ t("config.department.assignee") }}</div>
               <div class="grid gap-2">
-                <select
-                  class="select select-bordered select-sm w-full"
-                  :value="selectedDepartmentAssigneeId"
-                  @change="updateDepartmentAssignee(($event.target as HTMLSelectElement).value)"
-                >
-                  <option value="">{{ t("config.department.assigneePlaceholder") }}</option>
-                  <option
-                    v-if="selectedDepartmentAssigneeId && !availableAssigneePersonas.some((persona) => persona.id === selectedDepartmentAssigneeId)"
-                    :value="selectedDepartmentAssigneeId"
+                <div v-if="availableAssigneePersonas.length === 0" class="text-sm opacity-60">
+                  {{ t("config.department.assigneePlaceholder") }}
+                </div>
+                <div v-else class="flex max-h-56 flex-wrap gap-y-2 overflow-y-auto">
+                  <label
+                    v-for="persona in availableAssigneePersonas"
+                    :key="persona.id"
+                    class="mr-3 flex min-h-6 max-w-full cursor-pointer items-center gap-1.5 last:mr-0"
                   >
-                    {{ personaNameById(selectedDepartmentAssigneeId) }}
-                  </option>
-                  <option v-for="persona in availableAssigneePersonas" :key="persona.id" :value="persona.id">
-                    {{ persona.name }}
-                  </option>
-                </select>
-                <div class="flex min-h-5 flex-wrap items-center gap-2 text-[11px] opacity-50">
-                  <span>{{ t("config.department.assigneePrimaryHint") }}</span>
-                  <span
-                    v-if="selectedDepartment.isBuiltInAssistant && selectedDepartmentAssigneeId === assistantDepartmentAgentId"
-                    class="badge badge-primary badge-sm"
-                  >
-                    {{ t("config.department.currentAssistant") }}
-                  </span>
+                    <input
+                      type="checkbox"
+                      class="checkbox checkbox-primary checkbox-sm"
+                      :checked="selectedDepartmentAssigneeIds.includes(persona.id)"
+                      :disabled="savingConfig"
+                      @change="toggleDepartmentAssignee(persona.id)"
+                    />
+                    <span class="min-w-0 truncate text-sm">{{ persona.name || persona.id }}</span>
+                  </label>
                 </div>
               </div>
             </div>
@@ -701,10 +695,6 @@ const availableAssigneePersonas = computed(() =>
 const selectedDepartmentAssigneeIds = computed(() =>
   normalizeNameList(selectedDepartment.value?.agentIds || []),
 );
-const selectedDepartmentAssigneeId = computed(() =>
-  selectedDepartmentAssigneeIds.value[0] || "",
-);
-
 function canServeAsRegularDepartmentPersona(persona: PersonaProfile): boolean {
   const id = String(persona.id || "").trim();
   return id !== "user-persona" && !persona.isBuiltInUser && (id === "deputy-agent" || !persona.isBuiltInSystem);
@@ -1026,22 +1016,25 @@ function handleSelectedDepartmentPrimaryAction() {
   removeSelectedDepartment();
 }
 
-function personaNameById(agentId: string): string {
-  const normalizedAgentId = String(agentId || "").trim();
-  if (!normalizedAgentId) return "";
-  return String(
-    props.personas.find((persona) => String(persona.id || "").trim() === normalizedAgentId)?.name || normalizedAgentId,
-  ).trim() || normalizedAgentId;
-}
-
-function updateDepartmentAssignee(agentId: string) {
+function updateDepartmentAssignees(agentIds: string[]) {
   const target = selectedDepartment.value;
   if (!target) return;
-  const nextAgentId = String(agentId || "").trim();
-  const nextAgentIds = nextAgentId ? [nextAgentId] : [];
+  const allowedIds = new Set(availableAssigneePersonas.value.map((persona) => String(persona.id || "").trim()).filter(Boolean));
+  const nextAgentIds = normalizeNameList(agentIds).filter((agentId) => allowedIds.has(agentId));
   if (JSON.stringify(nextAgentIds) === JSON.stringify(normalizeNameList(target.agentIds || []))) return;
   target.agentIds = nextAgentIds;
   touchSelectedDepartment();
+}
+
+function toggleDepartmentAssignee(agentId: string) {
+  const normalizedAgentId = String(agentId || "").trim();
+  if (!normalizedAgentId) return;
+  const current = selectedDepartmentAssigneeIds.value;
+  updateDepartmentAssignees(
+    current.includes(normalizedAgentId)
+      ? current.filter((item) => item !== normalizedAgentId)
+      : [...current, normalizedAgentId],
+  );
 }
 
 function currentDepartmentApiConfigIds(target: DepartmentConfig | null | undefined) {

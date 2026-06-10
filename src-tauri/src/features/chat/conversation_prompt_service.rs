@@ -1185,7 +1185,7 @@ impl ConversationPromptService {
         selected_api: Option<&ApiConfig>,
         resolved_api: Option<&ResolvedApiConfig>,
         enable_pdf_images: Option<bool>,
-    ) -> PreparedPrompt {
+    ) -> Result<PreparedPrompt, String> {
         match mode {
             PromptBuildMode::Chat => {
                 let mut prepared = build_prompt_with_stage_logger(
@@ -1202,7 +1202,7 @@ impl ConversationPromptService {
                     stage_logger,
                     resolved_api,
                     enable_pdf_images.unwrap_or(false),
-                );
+                )?;
                 let overrides = chat_overrides.unwrap_or_default();
                 prepared.preamble = self.finalize_system_prompt(
                     state,
@@ -1246,7 +1246,7 @@ impl ConversationPromptService {
                     overrides.latest_images,
                     overrides.latest_audios,
                 );
-                prepared
+                Ok(prepared)
             }
             PromptBuildMode::Delegate => {
                 let mut prepared = build_delegate_prompt_with_stage_logger(
@@ -1261,7 +1261,7 @@ impl ConversationPromptService {
                     stage_logger,
                     resolved_api,
                     enable_pdf_images.unwrap_or(false),
-                );
+                )?;
                 let overrides = chat_overrides.unwrap_or_default();
                 prepared.preamble = self.finalize_system_prompt(
                     state,
@@ -1305,7 +1305,7 @@ impl ConversationPromptService {
                     overrides.latest_images,
                     overrides.latest_audios,
                 );
-                prepared
+                Ok(prepared)
             }
             PromptBuildMode::SummaryContext => {
                 let mut prepared = build_prompt_with_stage_logger(
@@ -1322,7 +1322,7 @@ impl ConversationPromptService {
                     stage_logger,
                     resolved_api,
                     enable_pdf_images.unwrap_or(false),
-                );
+                )?;
                 for message in &mut prepared.history_messages {
                     message.images.clear();
                     message.audios.clear();
@@ -1375,7 +1375,7 @@ impl ConversationPromptService {
                     overrides.latest_images,
                     overrides.latest_audios,
                 );
-                prepared
+                Ok(prepared)
             }
         }
     }

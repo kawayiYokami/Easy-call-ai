@@ -783,13 +783,10 @@ impl ConversationService {
             .as_deref()
             .map(str::trim)
             .filter(|value| !value.is_empty());
-        let department = if let Some(department_id) = requested_department_id {
-            runtime_department_by_id(&runtime_snapshot, department_id)
-                .ok_or_else(|| format!("Department '{department_id}' not found."))?
-        } else {
-            assistant_department(&app_config)
-                .ok_or_else(|| "No assistant department configured.".to_string())?
-        };
+        let department_id = requested_department_id
+            .ok_or_else(|| "新建会话必须选择部门。".to_string())?;
+        let department = runtime_department_by_id(&runtime_snapshot, department_id)
+            .ok_or_else(|| format!("Department '{department_id}' not found."))?;
         let api_config_id = input
             .api_config_id
             .as_deref()
@@ -802,15 +799,20 @@ impl ConversationService {
             .as_deref()
             .map(str::trim)
             .filter(|value| !value.is_empty())
-            .map(ToOwned::to_owned)
-            .or_else(|| {
-                department
-                    .agent_ids
-                    .iter()
-                    .find(|id| !id.trim().is_empty())
-                    .cloned()
-            })
-            .unwrap_or_else(|| runtime.assistant_department_agent_id.clone());
+            .ok_or_else(|| format!("新建会话必须选择人格，department_id={}", department.id))?
+            .to_string();
+        if !department.agent_ids.iter().any(|id| id.trim() == agent_id) {
+            return Err(format!(
+                "新建会话的人格不属于所选部门: department_id={}，agent_id={}",
+                department.id, agent_id
+            ));
+        }
+        if !agents
+            .iter()
+            .any(|agent| agent.id == agent_id && !agent.is_built_in_user)
+        {
+            return Err(format!("新建会话的人格不存在或不可用: agent_id={agent_id}"));
+        }
         let conversation_title = input
             .title
             .as_deref()
@@ -936,13 +938,12 @@ impl ConversationService {
         let conversation = build_branch_conversation_record_from_selection_runtime(
             &state.data_path,
             &agents,
-            &runtime.assistant_department_agent_id,
             &source_conversation,
             &department,
             &branched_title,
             latest_compaction_message.as_ref(),
             &selected_messages,
-        );
+        )?;
         let conversation_id = conversation.id.clone();
         state_schedule_conversation_persist(state, &conversation)?;
         let overview_payload = UnarchivedConversationOverviewUpdatedPayload {
@@ -1480,42 +1481,35 @@ fn build_unarchived_conversation_record_from_runtime(
 }
 
 fn branch_conversation_settings_agent_id_runtime(
-    assistant_department_agent_id: &str,
+    agents: &[AgentProfile],
     department: &DepartmentConfig,
     requested_agent_id: &str,
-) -> String {
+) -> Result<String, String> {
     let normalized_requested_agent_id = requested_agent_id.trim();
-    if !normalized_requested_agent_id.is_empty()
-        && department
-            .agent_ids
-            .iter()
-            .any(|item| item.trim() == normalized_requested_agent_id)
-    {
-        return normalized_requested_agent_id.to_string();
+    if normalized_requested_agent_id.is_empty() {
+        return first_available_department_agent(department, agents)
+            .map(|agent| agent.id.clone())
+            .ok_or_else(|| format!("源会话绑定部门没有可用人格，无法创建分支: department_id={}", department.id));
     }
-    department
-        .agent_ids
-        .iter()
-        .find(|item| !item.trim().is_empty())
-        .map(|item| item.trim().to_string())
-        .unwrap_or_else(|| assistant_department_agent_id.trim().to_string())
+    if available_non_user_agent(agents, normalized_requested_agent_id).is_some() {
+        return Ok(normalized_requested_agent_id.to_string());
+    }
+    Err(format!(
+        "源会话绑定人格不存在或不可用，无法创建分支: agent_id={normalized_requested_agent_id}"
+    ))
 }
 
 fn build_branch_conversation_record_from_selection_runtime(
     data_path: &PathBuf,
     agents: &[AgentProfile],
-    assistant_department_agent_id: &str,
     source: &Conversation,
     department: &DepartmentConfig,
     title: &str,
     latest_compaction_message: Option<&ChatMessage>,
     selected_messages: &[ChatMessage],
-) -> Conversation {
-    let agent_id = branch_conversation_settings_agent_id_runtime(
-        assistant_department_agent_id,
-        department,
-        &source.agent_id,
-    );
+) -> Result<Conversation, String> {
+    let agent_id =
+        branch_conversation_settings_agent_id_runtime(agents, department, &source.agent_id)?;
     let mut conversation = build_conversation_record(
         &department_primary_api_config_id(department),
         &agent_id,
@@ -1576,7 +1570,7 @@ fn build_branch_conversation_record_from_selection_runtime(
         conversation.updated_at = last_message.created_at.clone();
         conversation.last_user_at = Some(last_message.created_at.clone());
     }
-    conversation
+    Ok(conversation)
 }
 
 fn read_latest_visible_foreground_conversation(

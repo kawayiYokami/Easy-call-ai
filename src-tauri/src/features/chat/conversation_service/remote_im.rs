@@ -18,8 +18,25 @@ impl ConversationService {
                 .map(str::trim)
                 .filter(|value| !value.is_empty())
                 .map(ToOwned::to_owned);
+            let previous_bound_department_id = contact
+                .bound_department_id
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(ToOwned::to_owned);
+            let previous_bound_agent_id = contact
+                .bound_agent_id
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(ToOwned::to_owned);
             let conversation_id = ensure_remote_im_contact_conversation_id(state, contact)?;
-            if previous_bound_conversation_id.as_deref() != Some(conversation_id.as_str()) {
+            let binding_changed = previous_bound_conversation_id.as_deref() != Some(conversation_id.as_str())
+                || previous_bound_department_id.as_deref()
+                    != contact.bound_department_id.as_deref().map(str::trim)
+                || previous_bound_agent_id.as_deref()
+                    != contact.bound_agent_id.as_deref().map(str::trim);
+            if binding_changed {
                 runtime_changed = true;
             }
             resolved_pairs.push((contact.clone(), conversation_id));
@@ -51,6 +68,7 @@ impl ConversationService {
                     platform: contact.platform.clone(),
                     contact_display_name: remote_im_contact_display_name(&contact),
                     bound_department_id: contact.bound_department_id.clone(),
+                    bound_agent_id: contact.bound_agent_id.clone(),
                     processing_mode: normalize_contact_processing_mode(&contact.processing_mode),
                     preview_messages: self
                         .read_remote_im_contact_preview_messages(state, &conversation_id, 2)
@@ -78,6 +96,7 @@ impl ConversationService {
                     platform: contact.platform.clone(),
                     contact_display_name: remote_im_contact_display_name(&contact),
                     bound_department_id: contact.bound_department_id.clone(),
+                    bound_agent_id: contact.bound_agent_id.clone(),
                     processing_mode: normalize_contact_processing_mode(&contact.processing_mode),
                     preview_messages: build_conversation_preview_messages(&conversation, 2),
                 })

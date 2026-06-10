@@ -8,7 +8,7 @@
         <div class="mb-4 grid gap-1.5">
           <div class="text-xs font-medium text-base-content/60">{{ t("chat.toolReview.departmentLabel") }}</div>
           <select v-model="selectedDepartmentId" class="select select-bordered select-sm w-full">
-            <option v-for="department in departmentOptions" :key="department.id" :value="department.id">
+            <option v-for="department in departmentSelectOptions" :key="department.departmentId" :value="department.departmentId">
               {{ departmentOptionLabel(department) }}
             </option>
           </select>
@@ -76,6 +76,8 @@ import type { ToolReviewCodeReviewScope, ToolReviewCommitOption } from "../compo
 
 type DepartmentOption = {
   id: string;
+  departmentId?: string;
+  agentId?: string;
   name: string;
   ownerName: string;
   providerName?: string;
@@ -107,12 +109,26 @@ const selectedCommitHashes = ref<string[]>([]);
 const customTargetText = ref("");
 const scope = ref<ToolReviewCodeReviewScope>("main");
 
+const departmentSelectOptions = computed(() => {
+  const seen = new Set<string>();
+  return (Array.isArray(props.departmentOptions) ? props.departmentOptions : [])
+    .map((item) => ({
+      ...item,
+      departmentId: String(item.departmentId || item.id || "").trim(),
+    }))
+    .filter((item) => {
+      if (!item.departmentId || seen.has(item.departmentId)) return false;
+      seen.add(item.departmentId);
+      return true;
+    });
+});
+
 const validDepartmentId = computed(() => {
   const selected = String(selectedDepartmentId.value || "").trim();
-  if (selected && props.departmentOptions.some((item) => item.id === selected)) return selected;
+  if (selected && departmentSelectOptions.value.some((item) => item.departmentId === selected)) return selected;
   const current = String(props.currentDepartmentId || "").trim();
-  if (current && props.departmentOptions.some((item) => item.id === current)) return current;
-  return String(props.departmentOptions[0]?.id || "").trim();
+  if (current && departmentSelectOptions.value.some((item) => item.departmentId === current)) return current;
+  return String(departmentSelectOptions.value[0]?.departmentId || "").trim();
 });
 
 const commitTotalPages = computed(() => Math.max(1, Math.ceil(props.commitTotal / Math.max(1, props.commitPageSize))));
@@ -125,12 +141,12 @@ const canConfirm = computed(() => {
 });
 
 watch(
-  () => [props.currentDepartmentId, props.departmentOptions.map((item) => item.id).join("|")] as const,
+  () => [props.currentDepartmentId, departmentSelectOptions.value.map((item) => item.departmentId).join("|")] as const,
   () => {
     const current = String(props.currentDepartmentId || "").trim();
-    selectedDepartmentId.value = props.departmentOptions.some((item) => item.id === current)
+    selectedDepartmentId.value = departmentSelectOptions.value.some((item) => item.departmentId === current)
       ? current
-      : String(props.departmentOptions[0]?.id || "").trim();
+      : String(departmentSelectOptions.value[0]?.departmentId || "").trim();
   },
   { immediate: true },
 );
@@ -140,9 +156,9 @@ watch(
   (open) => {
     if (!open) return;
     const current = String(props.currentDepartmentId || "").trim();
-    selectedDepartmentId.value = props.departmentOptions.some((item) => item.id === current)
+    selectedDepartmentId.value = departmentSelectOptions.value.some((item) => item.departmentId === current)
       ? current
-      : String(props.departmentOptions[0]?.id || "").trim();
+      : String(departmentSelectOptions.value[0]?.departmentId || "").trim();
   },
 );
 

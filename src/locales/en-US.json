@@ -549,7 +549,6 @@
       "permissionSkillsRequireExec": "Skills require the terminal tool (exec) to be allowed first.",
       "permissionMcpTools": "MCP Tools",
       "assignee": "Assignee",
-      "assigneePrimaryHint": "The selected persona is the primary executor for this department.",
       "assigneePlaceholder": "Not assigned",
       "selectHint": "Please select a department from the left"
     },
@@ -880,6 +879,7 @@
       },
       "scheduleIntervalHint": "Starting from the first run time, this task repeats by the combined interval of weeks, days, and hours.",
       "scheduleUnsupportedHint": "This task uses an older schedule that the simplified editor cannot fully map. If you leave weeks/days/hours unchanged, the original schedule will be preserved.",
+      "ownerDefault": "Default assistant",
       "filters": {
         "active": "Active",
         "completed": "Completed"
@@ -893,6 +893,7 @@
         "goal": "Goal",
         "why": "Why",
         "todo": "Current To-do",
+        "owner": "Owner",
         "completionConclusion": "Completion Conclusion",
         "completionState": "Completion State",
         "nextRunAt": "Next Run",

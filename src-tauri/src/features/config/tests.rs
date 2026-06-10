@@ -1310,6 +1310,7 @@ model = "gpt-4.1"
             activation_cooldown_seconds: 0,
             route_mode: "dedicated_contact_conversation".to_string(),
             bound_department_id: Some(REMOTE_CUSTOMER_SERVICE_DEPARTMENT_ID.to_string()),
+            bound_agent_id: None,
             bound_conversation_id: None,
             processing_mode: "continuous".to_string(),
             response_strategy: default_remote_im_contact_response_strategy(),

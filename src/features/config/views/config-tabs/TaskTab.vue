@@ -74,6 +74,8 @@
         :error-text="editorError"
         :form="editorForm"
         :task="editorTask"
+        :config="config"
+        :personas="personas"
         :logs="runLogs"
         :can-complete="editorCanComplete"
         :editable="editorEditable"
@@ -130,6 +132,7 @@ import { computed, nextTick, onMounted, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 import { invokeTauri } from "../../../../services/tauri-api";
 import { formatIsoToLocalDateTime } from "../../../../utils/time";
+import type { AppConfig, PersonaProfile } from "../../../../types/app";
 import SegmentedControl from "../../components/SegmentedControl.vue";
 import TaskEditorCard from "./TaskEditorCard.vue";
 import {
@@ -153,6 +156,8 @@ type TaskTriggerInputLocalWire = {
 
 type TaskCreateInputWire = {
   conversationId: string;
+  departmentId?: string;
+  agentId?: string;
   goal: string;
   why: string;
   todo: string;
@@ -161,6 +166,8 @@ type TaskCreateInputWire = {
 
 type TaskUpdateInputWire = {
   taskId: string;
+  departmentId?: string;
+  agentId?: string;
   goal?: string;
   why?: string;
   todo?: string;
@@ -179,6 +186,11 @@ type TaskDeleteInputWire = {
 
 const PAGE_SIZE = 5;
 const SYSTEM_NOTIFICATION_CONVERSATION_ID = "system-notification-conversation";
+
+const props = defineProps<{
+  config: AppConfig;
+  personas: PersonaProfile[];
+}>();
 
 const { t } = useI18n();
 const message = ref("");
@@ -365,6 +377,13 @@ function buildTriggerInputFromForm(): TaskTriggerInputLocalWire | null {
   return null;
 }
 
+function taskOwnerPayloadFromForm(): Pick<TaskCreateInputWire, "departmentId" | "agentId"> {
+  const departmentId = String(editorForm.value.departmentId || "").trim();
+  const agentId = String(editorForm.value.agentId || "").trim();
+  if (!departmentId || !agentId) return {};
+  return { departmentId, agentId };
+}
+
 function editorCreatePayload(): TaskCreateInputWire | null {
   if (!String(editorForm.value.goal || "").trim()) {
     editorError.value = t("config.task.validation.goalRequired");
@@ -378,6 +397,7 @@ function editorCreatePayload(): TaskCreateInputWire | null {
   if (!trigger) return null;
   return {
     conversationId: SYSTEM_NOTIFICATION_CONVERSATION_ID,
+    ...taskOwnerPayloadFromForm(),
     goal: editorForm.value.goal.trim(),
     why: editorForm.value.why.trim(),
     todo: editorForm.value.todo.trim(),
@@ -398,6 +418,7 @@ function editorUpdatePayload(): TaskUpdateInputWire | null {
   if (!trigger) return null;
   return {
     taskId: editorForm.value.taskId.trim(),
+    ...taskOwnerPayloadFromForm(),
     goal: editorForm.value.goal.trim(),
     why: editorForm.value.why.trim(),
     todo: editorForm.value.todo.trim(),

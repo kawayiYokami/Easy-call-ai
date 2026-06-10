@@ -29,6 +29,8 @@
         TaskRecordStored {
             task_id: task_id.to_string(),
             conversation_id: Some("conversation-a".to_string()),
+            department_id: None,
+            agent_id: None,
             target_scope: TASK_TARGET_SCOPE_DESKTOP.to_string(),
             order_index: 1,
             title: goal.to_string(),
@@ -214,6 +216,8 @@
         let input = TaskCreateInput {
             goal: "跟进并发会话".to_string(),
             conversation_id: Some("conversation-a".to_string()),
+            department_id: None,
+            agent_id: None,
             target_scope: Some(TASK_TARGET_SCOPE_DESKTOP.to_string()),
             why: String::new(),
             todo: "检查调度".to_string(),
@@ -240,6 +244,8 @@
         let input = TaskCreateInput {
             goal: "系统任务".to_string(),
             conversation_id: None,
+            department_id: None,
+            agent_id: None,
             target_scope: Some(TASK_TARGET_SCOPE_DESKTOP.to_string()),
             why: String::new(),
             todo: "全局入口创建".to_string(),
@@ -272,6 +278,8 @@
         let input = TaskCreateInput {
             goal: "跳过后重试".to_string(),
             conversation_id: Some("conversation-a".to_string()),
+            department_id: None,
+            agent_id: None,
             target_scope: Some(TASK_TARGET_SCOPE_DESKTOP.to_string()),
             why: String::new(),
             todo: "等待空闲后继续".to_string(),
@@ -331,6 +339,8 @@
         let input = TaskCreateInput {
             goal: "一次性调度".to_string(),
             conversation_id: Some("conversation-a".to_string()),
+            department_id: None,
+            agent_id: None,
             target_scope: Some(TASK_TARGET_SCOPE_DESKTOP.to_string()),
             why: String::new(),
             todo: "发起一次就结束".to_string(),
@@ -374,6 +384,8 @@
         let input = TaskCreateInput {
             goal: "历史一次性任务".to_string(),
             conversation_id: Some("conversation-a".to_string()),
+            department_id: None,
+            agent_id: None,
             target_scope: Some(TASK_TARGET_SCOPE_DESKTOP.to_string()),
             why: String::new(),
             todo: "已经触发过".to_string(),
@@ -415,6 +427,8 @@
         let input = TaskCreateInput {
             goal: "未来一次性任务".to_string(),
             conversation_id: Some("conversation-a".to_string()),
+            department_id: None,
+            agent_id: None,
             target_scope: Some(TASK_TARGET_SCOPE_DESKTOP.to_string()),
             why: String::new(),
             todo: "不要误完成".to_string(),
@@ -452,6 +466,8 @@
         let input = TaskCreateInput {
             goal: "定时任务".to_string(),
             conversation_id: Some("conversation-a".to_string()),
+            department_id: None,
+            agent_id: None,
             target_scope: Some(TASK_TARGET_SCOPE_DESKTOP.to_string()),
             why: String::new(),
             todo: "保持定时".to_string(),
@@ -467,6 +483,8 @@
         let err = task_store_update_task(&data_path, &TaskUpdateInput {
             task_id: created.task_id.clone(),
             conversation_id: Some("conversation-a".to_string()),
+            department_id: None,
+            agent_id: None,
             target_scope: Some(TASK_TARGET_SCOPE_DESKTOP.to_string()),
             goal: Some("定时任务".to_string()),
             why: Some(String::new()),
@@ -494,6 +512,8 @@
         let input = TaskCreateInput {
             goal: "兼容旧调度".to_string(),
             conversation_id: Some("conversation-a".to_string()),
+            department_id: None,
+            agent_id: None,
             target_scope: Some(TASK_TARGET_SCOPE_DESKTOP.to_string()),
             why: String::new(),
             todo: "迁移历史 every_minutes".to_string(),
@@ -546,6 +566,8 @@
         let input = TaskCreateInput {
             goal: "保留旧间隔".to_string(),
             conversation_id: Some("conversation-a".to_string()),
+            department_id: None,
+            agent_id: None,
             target_scope: Some(TASK_TARGET_SCOPE_DESKTOP.to_string()),
             why: String::new(),
             todo: "不要硬转错 cron".to_string(),
@@ -722,6 +744,7 @@
             activation_cooldown_seconds: 0,
             route_mode: "dedicated_contact_conversation".to_string(),
             bound_department_id: Some(REMOTE_CUSTOMER_SERVICE_DEPARTMENT_ID.to_string()),
+            bound_agent_id: None,
             bound_conversation_id: Some("missing-contact-conversation".to_string()),
             processing_mode: "continuous".to_string(),
             response_strategy: default_remote_im_contact_response_strategy(),

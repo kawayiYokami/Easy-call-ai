@@ -86,6 +86,43 @@
     }
 
     #[test]
+    fn resolve_department_agent_pair_should_validate_explicit_pair_and_keep_legacy_department_fallback() {
+        let mut api = ApiConfig::default();
+        api.id = "api-a".to_string();
+        api.enable_text = true;
+        api.model = "gpt-4o-mini".to_string();
+        let mut department = default_assistant_department(&api.id);
+        department.id = "dept-a".to_string();
+        department.is_built_in_assistant = false;
+        department.agent_ids = vec!["agent-a".to_string()];
+        let config = AppConfig {
+            departments: vec![department],
+            api_configs: vec![api],
+            ..AppConfig::default()
+        };
+
+        let explicit = resolve_department_agent_pair(
+            Some("dept-a"),
+            Some("agent-a"),
+            &config,
+        )
+        .expect("explicit pair");
+        assert_eq!(explicit, ("dept-a".to_string(), "agent-a".to_string()));
+
+        let legacy = resolve_department_agent_pair(Some("dept-a"), None, &config)
+            .expect("legacy department-only binding should be solidified");
+        assert_eq!(legacy, ("dept-a".to_string(), "agent-a".to_string()));
+
+        let err = resolve_department_agent_pair(
+            Some("dept-a"),
+            Some("agent-b"),
+            &config,
+        )
+        .expect_err("mismatched explicit pair should fail");
+        assert!(err.contains("agentId 与部门不匹配"));
+    }
+
+    #[test]
     fn remote_im_filter_channel_logs_for_contact_should_only_keep_matching_contact() {
         let logs = vec![
             ChannelLogEntry {
@@ -234,6 +271,7 @@
             activation_cooldown_seconds: 0,
             route_mode: "dedicated_contact_conversation".to_string(),
             bound_department_id: None,
+            bound_agent_id: None,
             bound_conversation_id: None,
             processing_mode: "continuous".to_string(),
             response_strategy: default_remote_im_contact_response_strategy(),
@@ -381,6 +419,7 @@
             activation_cooldown_seconds: 0,
             route_mode: "dedicated_contact_conversation".to_string(),
             bound_department_id: None,
+            bound_agent_id: None,
             bound_conversation_id: None,
             processing_mode: "continuous".to_string(),
             response_strategy: default_remote_im_contact_response_strategy(),
@@ -1074,6 +1113,7 @@
             activation_cooldown_seconds: 0,
             route_mode: "dedicated_contact_conversation".to_string(),
             bound_department_id: Some(REMOTE_CUSTOMER_SERVICE_DEPARTMENT_ID.to_string()),
+            bound_agent_id: None,
             bound_conversation_id: Some(conversation_id.to_string()),
             processing_mode: "continuous".to_string(),
             response_strategy: default_remote_im_contact_response_strategy(),

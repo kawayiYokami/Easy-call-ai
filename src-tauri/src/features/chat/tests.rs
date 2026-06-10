@@ -1660,7 +1660,7 @@
     }
 
     #[test]
-    fn resolve_conversation_bound_agent_should_fallback_to_department_when_agent_missing() {
+    fn resolve_conversation_bound_agent_should_error_when_agent_missing() {
         let now = now_iso();
         let agent = default_agent();
         let mut conv = test_active_conversation_with_messages(Vec::new(), Some(now));
@@ -1687,10 +1687,45 @@
             permission_control: DepartmentPermissionControl::default(),
         }];
 
-        let resolved = resolve_conversation_bound_agent(&conv, &agents, &departments)
-            .expect("department fallback should resolve bound agent");
+        let err = resolve_conversation_bound_agent(&conv, &agents, &departments)
+            .expect_err("missing bound agent should fail");
 
-        assert_eq!(resolved.id, agent.id);
+        assert!(err.contains("会话绑定人格不存在或不可用"));
+    }
+
+    #[test]
+    fn resolve_conversation_bound_agent_should_use_department_first_agent_when_agent_empty() {
+        let now = now_iso();
+        let mut agent = default_agent();
+        agent.id = "agent-a".to_string();
+        let mut conv = test_active_conversation_with_messages(Vec::new(), Some(now));
+        conv.agent_id = String::new();
+        conv.department_id = "dept-a".to_string();
+        let agents = vec![agent.clone(), default_user_persona()];
+        let departments = vec![DepartmentConfig {
+            id: "dept-a".to_string(),
+            name: "部门 A".to_string(),
+            summary: String::new(),
+            guide: String::new(),
+            api_config_ids: vec!["provider-a".to_string()],
+            api_config_id: "provider-a".to_string(),
+            model_failure_fallback_enabled: false,
+            agent_ids: vec![agent.id.clone()],
+            child_department_ids: Vec::new(),
+            created_at: now_utc_rfc3339(),
+            updated_at: now_utc_rfc3339(),
+            order_index: 1,
+            is_built_in_assistant: false,
+            is_deputy: false,
+            source: "main_config".to_string(),
+            scope: "global".to_string(),
+            permission_control: DepartmentPermissionControl::default(),
+        }];
+
+        let resolved = resolve_conversation_bound_agent(&conv, &agents, &departments)
+            .expect("empty bound agent should use department first agent");
+
+        assert_eq!(resolved.id, "agent-a");
     }
 
     #[test]
@@ -1708,7 +1743,7 @@
         )
         .expect_err("missing agent and department should fail");
 
-        assert!(err.contains("会话缺少有效人格绑定"));
+        assert!(err.contains("会话绑定人格不存在或不可用"));
     }
 
     #[test]
@@ -2614,6 +2649,7 @@
             activation_cooldown_seconds: 0,
             route_mode: "dedicated_contact_conversation".to_string(),
             bound_department_id: None,
+            bound_agent_id: None,
             bound_conversation_id: Some(conversation_id.clone()),
             processing_mode: "continuous".to_string(),
             response_strategy: default_remote_im_contact_response_strategy(),
@@ -4019,6 +4055,7 @@
             activation_cooldown_seconds: 0,
             route_mode: "dedicated_contact_conversation".to_string(),
             bound_department_id: Some(REMOTE_CUSTOMER_SERVICE_DEPARTMENT_ID.to_string()),
+            bound_agent_id: None,
             bound_conversation_id: None,
             processing_mode: "continuous".to_string(),
             response_strategy: default_remote_im_contact_response_strategy(),
@@ -4082,6 +4119,7 @@
             activation_cooldown_seconds: 0,
             route_mode: "dedicated_contact_conversation".to_string(),
             bound_department_id: Some(REMOTE_CUSTOMER_SERVICE_DEPARTMENT_ID.to_string()),
+            bound_agent_id: None,
             bound_conversation_id: None,
             processing_mode: "continuous".to_string(),
             response_strategy: default_remote_im_contact_response_strategy(),
@@ -4165,6 +4203,7 @@
             activation_cooldown_seconds: 0,
             route_mode: "dedicated_contact_conversation".to_string(),
             bound_department_id: Some(REMOTE_CUSTOMER_SERVICE_DEPARTMENT_ID.to_string()),
+            bound_agent_id: None,
             bound_conversation_id: Some("conversation-contact-old".to_string()),
             processing_mode: "continuous".to_string(),
             response_strategy: default_remote_im_contact_response_strategy(),
@@ -4851,11 +4890,20 @@
         let state = test_chat_runtime_state();
         write_config(&state.config_path, &AppConfig::default()).expect("write config");
 
-        let data = test_user_switched_to_sub_conversation_data();
+        let mut data = test_user_switched_to_sub_conversation_data();
+        if let Some(conversation) = data
+            .conversations
+            .iter_mut()
+            .find(|conversation| conversation.id == "conversation-sub")
+        {
+            conversation.department_id = ASSISTANT_DEPARTMENT_ID.to_string();
+        }
         state_write_app_data_cached(&state, &data).expect("write app data");
         let task = TaskRecordStored {
             task_id: "task-a".to_string(),
             conversation_id: Some("conversation-sub".to_string()),
+            department_id: Some(ASSISTANT_DEPARTMENT_ID.to_string()),
+            agent_id: Some(DEFAULT_AGENT_ID.to_string()),
             target_scope: TASK_TARGET_SCOPE_DESKTOP.to_string(),
             order_index: 1,
             title: "t".to_string(),
@@ -4891,14 +4939,77 @@
     }
 
     #[test]
+    fn task_resolve_dispatch_session_should_use_conversation_owner_when_task_owner_missing() {
+        let state = test_chat_runtime_state();
+        write_config(&state.config_path, &AppConfig::default()).expect("write config");
+
+        let mut data = test_user_switched_to_sub_conversation_data();
+        if let Some(conversation) = data
+            .conversations
+            .iter_mut()
+            .find(|conversation| conversation.id == "conversation-sub")
+        {
+            conversation.department_id = ASSISTANT_DEPARTMENT_ID.to_string();
+        }
+        state_write_app_data_cached(&state, &data).expect("write app data");
+        let task = TaskRecordStored {
+            task_id: "task-missing-owner".to_string(),
+            conversation_id: Some("conversation-sub".to_string()),
+            department_id: None,
+            agent_id: None,
+            target_scope: TASK_TARGET_SCOPE_DESKTOP.to_string(),
+            order_index: 1,
+            title: "t".to_string(),
+            cause: String::new(),
+            goal: String::new(),
+            flow: String::new(),
+            todos: Vec::new(),
+            status_summary: String::new(),
+            completion_state: TASK_STATE_ACTIVE.to_string(),
+            completion_conclusion: String::new(),
+            progress_notes: Vec::new(),
+            stage_key: String::new(),
+            stage_updated_at_utc: None,
+            trigger: TaskTriggerStored {
+                run_at_utc: None,
+                cron_expression: None,
+                legacy_every_minutes: None,
+                end_at_utc: None,
+                next_run_at_utc: None,
+            },
+            created_at_utc: now_utc_rfc3339(),
+            updated_at_utc: now_utc_rfc3339(),
+            last_triggered_at_utc: None,
+            completed_at_utc: None,
+        };
+
+        let session = task_resolve_dispatch_session(&state, &task)
+            .expect("resolve task session")
+            .expect("dispatch session");
+
+        assert_eq!(session.conversation_id, "conversation-sub");
+        assert_eq!(session.department_id, ASSISTANT_DEPARTMENT_ID);
+        assert_eq!(session.agent_id, DEFAULT_AGENT_ID);
+    }
+
+    #[test]
     fn task_resolve_dispatch_session_should_return_none_when_bound_conversation_missing() {
         let state = test_chat_runtime_state();
         write_config(&state.config_path, &AppConfig::default()).expect("write config");
-        let data = test_user_switched_to_sub_conversation_data();
+        let mut data = test_user_switched_to_sub_conversation_data();
+        if let Some(conversation) = data
+            .conversations
+            .iter_mut()
+            .find(|conversation| conversation.id == "conversation-main")
+        {
+            conversation.department_id = ASSISTANT_DEPARTMENT_ID.to_string();
+        }
         state_write_app_data_cached(&state, &data).expect("write app data");
         let task = TaskRecordStored {
             task_id: "task-b".to_string(),
             conversation_id: Some("conversation-missing".to_string()),
+            department_id: None,
+            agent_id: None,
             target_scope: TASK_TARGET_SCOPE_DESKTOP.to_string(),
             order_index: 1,
             title: "t".to_string(),
@@ -4943,6 +5054,8 @@
         let task = TaskRecordStored {
             task_id: "task-system".to_string(),
             conversation_id: Some(SYSTEM_NOTIFICATION_CONVERSATION_ID.to_string()),
+            department_id: None,
+            agent_id: None,
             target_scope: TASK_TARGET_SCOPE_DESKTOP.to_string(),
             order_index: 1,
             title: "系统任务".to_string(),
@@ -4974,6 +5087,8 @@
             .expect("dispatch session");
 
         assert_eq!(session.conversation_id, SYSTEM_NOTIFICATION_CONVERSATION_ID);
+        assert_eq!(session.department_id, ASSISTANT_DEPARTMENT_ID);
+        assert_eq!(session.agent_id, DEFAULT_AGENT_ID);
         assert!(session.system_task);
     }
 
@@ -5004,6 +5119,7 @@
             activation_cooldown_seconds: 0,
             route_mode: "dedicated_contact_conversation".to_string(),
             bound_department_id: Some(REMOTE_CUSTOMER_SERVICE_DEPARTMENT_ID.to_string()),
+            bound_agent_id: None,
             bound_conversation_id: Some("conversation-contact-missing".to_string()),
             processing_mode: "continuous".to_string(),
             response_strategy: default_remote_im_contact_response_strategy(),
@@ -5018,6 +5134,8 @@
         let task = TaskRecordStored {
             task_id: "task-contact".to_string(),
             conversation_id: Some("conversation-contact-missing".to_string()),
+            department_id: None,
+            agent_id: None,
             target_scope: TASK_TARGET_SCOPE_CONTACT.to_string(),
             order_index: 1,
             title: "t".to_string(),
@@ -5050,7 +5168,7 @@
     }
 
     #[test]
-    fn task_resolve_dispatch_session_should_use_private_department_for_runtime_assistant() {
+    fn task_resolve_dispatch_session_should_use_bound_private_department() {
         let state = test_chat_runtime_state();
         write_config(&state.config_path, &AppConfig::default()).expect("write config");
         let private_departments_dir = app_root_from_data_path(&state.data_path)
@@ -5084,6 +5202,8 @@
         let task = TaskRecordStored {
             task_id: "task-private-dept".to_string(),
             conversation_id: None,
+            department_id: Some("dept-private".to_string()),
+            agent_id: Some("private-agent".to_string()),
             target_scope: TASK_TARGET_SCOPE_DESKTOP.to_string(),
             order_index: 1,
             title: "t".to_string(),
@@ -5192,6 +5312,8 @@
             task_store_create_task(&state.data_path, &TaskCreateInput {
                 goal: goal.to_string(),
                 conversation_id: Some(conversation_id.to_string()),
+                department_id: Some(ASSISTANT_DEPARTMENT_ID.to_string()),
+                agent_id: Some(DEFAULT_AGENT_ID.to_string()),
                 target_scope: Some(TASK_TARGET_SCOPE_DESKTOP.to_string()),
                 why: String::new(),
                 todo: String::new(),
@@ -5224,7 +5346,73 @@
     }
 
     #[test]
-    fn task_build_dispatch_candidates_should_not_dedupe_system_tasks_by_conversation() {
+    fn task_build_dispatch_candidates_should_use_conversation_owner_for_legacy_task() {
+        let state = test_chat_runtime_state();
+        write_config(&state.config_path, &AppConfig::default()).expect("write config");
+        let mut data = test_user_switched_to_sub_conversation_data();
+        if let Some(conversation) = data
+            .conversations
+            .iter_mut()
+            .find(|conversation| conversation.id == "conversation-main")
+        {
+            conversation.department_id = ASSISTANT_DEPARTMENT_ID.to_string();
+        }
+        state_write_app_data_cached(&state, &data).expect("write app data");
+
+        let missing_owner = task_store_create_task(&state.data_path, &TaskCreateInput {
+            goal: "missing owner".to_string(),
+            conversation_id: Some("conversation-main".to_string()),
+            department_id: None,
+            agent_id: None,
+            target_scope: Some(TASK_TARGET_SCOPE_DESKTOP.to_string()),
+            why: String::new(),
+            todo: String::new(),
+            trigger: TaskTriggerInputLocal {
+                run_at: Some("2026-04-10T10:00:00+08:00".to_string()),
+                cron_expression: Some("0,30 * * * *".to_string()),
+                end_at: Some("2099-04-10T12:00:00+08:00".to_string()),
+                legacy_every_minutes: None,
+            },
+        })
+        .expect("create missing owner task");
+        let valid = task_store_create_task(&state.data_path, &TaskCreateInput {
+            goal: "valid".to_string(),
+            conversation_id: Some("conversation-sub".to_string()),
+            department_id: Some(ASSISTANT_DEPARTMENT_ID.to_string()),
+            agent_id: Some(DEFAULT_AGENT_ID.to_string()),
+            target_scope: Some(TASK_TARGET_SCOPE_DESKTOP.to_string()),
+            why: String::new(),
+            todo: String::new(),
+            trigger: TaskTriggerInputLocal {
+                run_at: Some("2026-04-10T10:00:00+08:00".to_string()),
+                cron_expression: Some("0,30 * * * *".to_string()),
+                end_at: Some("2099-04-10T12:00:00+08:00".to_string()),
+                legacy_every_minutes: None,
+            },
+        })
+        .expect("create valid task");
+        let tasks = vec![
+            task_store_get_task_record(&state.data_path, &missing_owner.task_id)
+                .expect("get missing owner task"),
+            task_store_get_task_record(&state.data_path, &valid.task_id)
+                .expect("get valid task"),
+        ];
+
+        let candidates =
+            task_build_dispatch_candidates(&state, tasks, now_utc()).expect("build dispatch candidates");
+
+        assert_eq!(candidates.len(), 2);
+        assert_eq!(candidates[0].task.task_id, missing_owner.task_id);
+        assert_eq!(candidates[0].session.department_id, ASSISTANT_DEPARTMENT_ID);
+        assert_eq!(candidates[0].session.agent_id, DEFAULT_AGENT_ID);
+        assert_eq!(candidates[1].task.task_id, valid.task_id);
+        let legacy_task = task_store_get_task_record(&state.data_path, &missing_owner.task_id)
+            .expect("get legacy task");
+        assert_eq!(legacy_task.completion_state, TASK_STATE_ACTIVE);
+    }
+
+    #[test]
+    fn task_build_dispatch_candidates_should_dedupe_system_tasks_by_conversation() {
         let state = test_chat_runtime_state();
         write_config(&state.config_path, &AppConfig::default()).expect("write config");
         let data = test_user_switched_to_sub_conversation_data();
@@ -5234,6 +5422,8 @@
             task_store_create_task(&state.data_path, &TaskCreateInput {
                 goal: goal.to_string(),
                 conversation_id: Some(SYSTEM_NOTIFICATION_CONVERSATION_ID.to_string()),
+                department_id: Some(ASSISTANT_DEPARTMENT_ID.to_string()),
+                agent_id: Some(DEFAULT_AGENT_ID.to_string()),
                 target_scope: Some(TASK_TARGET_SCOPE_DESKTOP.to_string()),
                 why: String::new(),
                 todo: String::new(),
@@ -5258,11 +5448,15 @@
         let candidates =
             task_build_dispatch_candidates(&state, tasks, now_utc()).expect("build dispatch candidates");
 
-        assert_eq!(candidates.len(), 2);
+        assert_eq!(candidates.len(), 1);
+        assert_eq!(candidates[0].task.task_id, task_1.task_id);
         assert!(candidates.iter().all(|item| item.session.system_task));
         assert!(candidates
             .iter()
             .all(|item| item.session.conversation_id == SYSTEM_NOTIFICATION_CONVERSATION_ID));
+        let skipped = task_store_get_task_record(&state.data_path, &task_2.task_id)
+            .expect("get skipped system task");
+        assert!(skipped.last_triggered_at_utc.is_some());
     }
 
     #[test]
@@ -5277,6 +5471,8 @@
         let created = task_store_create_task(&state.data_path, &TaskCreateInput {
             goal: "busy".to_string(),
             conversation_id: Some("conversation-main".to_string()),
+            department_id: Some(ASSISTANT_DEPARTMENT_ID.to_string()),
+            agent_id: Some(DEFAULT_AGENT_ID.to_string()),
             target_scope: Some(TASK_TARGET_SCOPE_DESKTOP.to_string()),
             why: String::new(),
             todo: String::new(),
@@ -5382,7 +5578,7 @@
     }
 
     #[test]
-    fn runtime_control_should_ignore_stale_session_agent() {
+    fn runtime_control_should_keep_conversation_agent_after_department_changes() {
         let state = test_chat_runtime_state();
         let mut old_agent = default_agent();
         old_agent.id = "old-agent".to_string();
@@ -5421,12 +5617,13 @@
         let (department_id, agent_id) = resolve_runtime_control_department_and_agent(
             &state,
             Some("dept-stop"),
+            Some("new-agent"),
             Some("conversation-stop"),
         )
         .expect("resolve runtime control identity");
 
         assert_eq!(department_id, "dept-stop");
-        assert_eq!(agent_id, "new-agent");
+        assert_eq!(agent_id, "old-agent");
         assert_eq!(
             inflight_chat_key(&department_id, Some("conversation-stop")),
             "dept-stop::conversation-stop"
@@ -5435,6 +5632,49 @@
             inflight_chat_key(&department_id, Some("conversation-stop")),
             inflight_chat_key(&old_agent.id, Some("conversation-stop"))
         );
+    }
+
+    #[test]
+    fn runtime_control_should_use_department_first_agent_when_conversation_agent_empty() {
+        let state = test_chat_runtime_state();
+        let mut agent = default_agent();
+        agent.id = "fallback-agent".to_string();
+        let mut department = default_assistant_department("api-a");
+        department.id = "dept-control".to_string();
+        department.is_built_in_assistant = false;
+        department.agent_ids = vec![agent.id.clone()];
+        let config = AppConfig {
+            departments: vec![department],
+            ..AppConfig::default()
+        };
+        write_config(&state.config_path, &config).expect("write config");
+        state_write_agents_cached(&state, &[agent.clone(), default_user_persona()])
+            .expect("write agents");
+
+        let mut conversation = build_conversation_record(
+            "api-a",
+            &agent.id,
+            "dept-control",
+            "缺少固化人格",
+            CONVERSATION_KIND_CHAT,
+            None,
+            None,
+        );
+        conversation.id = "conversation-empty-agent".to_string();
+        conversation.agent_id = String::new();
+        state_schedule_conversation_persist(&state, &conversation)
+            .expect("persist conversation");
+
+        let (department_id, agent_id) = resolve_runtime_control_department_and_agent(
+            &state,
+            Some("dept-control"),
+            Some(&agent.id),
+            Some("conversation-empty-agent"),
+        )
+        .expect("conversation legacy binding should use department first agent");
+
+        assert_eq!(department_id, "dept-control");
+        assert_eq!(agent_id, "fallback-agent");
     }
 
     #[test]
@@ -5592,6 +5832,7 @@
             None,
             Some("delegate-child"),
             "dept-grandchild",
+            Some(&target_agent.id),
         )
         .expect("resolve nested sync delegate preflight");
         let call_stack = resolve_delegate_call_stack(
@@ -5662,6 +5903,7 @@
             Some("dept-explicit-parent"),
             Some(&conversation.id),
             "dept-explicit-child",
+            Some(&shared_agent.id),
         )
         .expect("resolve delegate preflight");
 
@@ -5726,6 +5968,7 @@
             None,
             Some(&conversation.id),
             "dept-target",
+            Some(&target_agent.id),
         )
         .expect("delegate scheduling should allow any target department");
 
@@ -5734,6 +5977,133 @@
         assert_eq!(preflight.target_agent_id, target_agent.id);
         assert_eq!(preflight.root_conversation_id, conversation.id);
         assert!(validate_delegate_tool_direct_child_target(&preflight).is_err());
+    }
+
+    #[test]
+    fn common_delegate_preflight_should_default_to_target_department_first_agent() {
+        let state = test_chat_runtime_state();
+        let mut source_agent = default_agent();
+        source_agent.id = "source-agent-default-target".to_string();
+        source_agent.name = "源部门人格".to_string();
+
+        let mut first_agent = default_agent();
+        first_agent.id = "target-first-agent".to_string();
+        first_agent.name = "目标部门第一人格".to_string();
+
+        let mut second_agent = default_agent();
+        second_agent.id = "target-second-agent".to_string();
+        second_agent.name = "目标部门第二人格".to_string();
+
+        let mut source_department = default_assistant_department("api-a");
+        source_department.id = "dept-source-default-target".to_string();
+        source_department.name = "源部门".to_string();
+        source_department.is_built_in_assistant = false;
+        source_department.agent_ids = vec![source_agent.id.clone()];
+        source_department.child_department_ids = vec!["dept-target-default-agent".to_string()];
+
+        let mut target_department = default_assistant_department("api-a");
+        target_department.id = "dept-target-default-agent".to_string();
+        target_department.name = "目标部门".to_string();
+        target_department.is_built_in_assistant = false;
+        target_department.agent_ids = vec![first_agent.id.clone(), second_agent.id.clone()];
+
+        let config = AppConfig {
+            departments: vec![source_department, target_department],
+            ..AppConfig::default()
+        };
+        write_config(&state.config_path, &config).expect("write config");
+        state_write_agents_cached(
+            &state,
+            &[
+                source_agent.clone(),
+                first_agent.clone(),
+                second_agent,
+                default_user_persona(),
+            ],
+        )
+        .expect("write agents");
+
+        let conversation = build_conversation_record(
+            "api-a",
+            &source_agent.id,
+            "dept-source-default-target",
+            "源部门会话",
+            CONVERSATION_KIND_CHAT,
+            None,
+            None,
+        );
+        state_schedule_conversation_persist(&state, &conversation)
+            .expect("persist conversation");
+
+        let preflight = common_delegate_preflight(
+            &state,
+            &source_agent.id,
+            None,
+            Some(&conversation.id),
+            "dept-target-default-agent",
+            None,
+        )
+        .expect("resolve delegate preflight");
+
+        assert_eq!(preflight.target_agent_id, first_agent.id);
+    }
+
+    #[test]
+    fn common_delegate_preflight_should_fallback_to_deputy_agent_when_target_department_empty() {
+        let state = test_chat_runtime_state();
+        let mut source_agent = default_agent();
+        source_agent.id = "source-agent-empty-target".to_string();
+        source_agent.name = "源部门人格".to_string();
+
+        let deputy_agent = default_deputy_agent();
+
+        let mut source_department = default_assistant_department("api-a");
+        source_department.id = "dept-source-empty-target".to_string();
+        source_department.name = "源部门".to_string();
+        source_department.is_built_in_assistant = false;
+        source_department.agent_ids = vec![source_agent.id.clone()];
+        source_department.child_department_ids = vec!["dept-empty-target".to_string()];
+
+        let mut target_department = default_assistant_department("api-a");
+        target_department.id = "dept-empty-target".to_string();
+        target_department.name = "空目标部门".to_string();
+        target_department.is_built_in_assistant = false;
+        target_department.agent_ids = Vec::new();
+
+        let config = AppConfig {
+            departments: vec![source_department, target_department],
+            ..AppConfig::default()
+        };
+        write_config(&state.config_path, &config).expect("write config");
+        state_write_agents_cached(
+            &state,
+            &[source_agent.clone(), deputy_agent.clone(), default_user_persona()],
+        )
+        .expect("write agents");
+
+        let conversation = build_conversation_record(
+            "api-a",
+            &source_agent.id,
+            "dept-source-empty-target",
+            "源部门会话",
+            CONVERSATION_KIND_CHAT,
+            None,
+            None,
+        );
+        state_schedule_conversation_persist(&state, &conversation)
+            .expect("persist conversation");
+
+        let preflight = common_delegate_preflight(
+            &state,
+            &source_agent.id,
+            None,
+            Some(&conversation.id),
+            "dept-empty-target",
+            None,
+        )
+        .expect("resolve delegate preflight");
+
+        assert_eq!(preflight.target_agent_id, deputy_agent.id);
     }
 
     #[test]
@@ -5803,6 +6173,7 @@
             None,
             Some(&conversation.id),
             "dept-private",
+            Some(&private_agent.id),
         )
         .expect("resolve private child delegate preflight");
 
@@ -5892,6 +6263,7 @@
             &SubmitUserAsyncDelegateInput {
                 conversation_id: conversation.id.clone(),
                 target_department_id: "dept-private".to_string(),
+                target_agent_id: Some(private_agent.id.clone()),
                 preset_id: None,
                 background: String::new(),
                 question: "请调查这个问题".to_string(),
@@ -6392,7 +6764,8 @@
             Some(&selected_api),
             None,
             Some(false),
-        );
+        )
+        .expect("build alpha prepared prompt");
         let beta_prepared = build_prepared_prompt_for_mode(
             PromptBuildMode::Chat,
             &conversation,
@@ -6414,7 +6787,8 @@
             Some(&selected_api),
             None,
             Some(false),
-        );
+        )
+        .expect("build beta prepared prompt");
 
         assert!(alpha_prepared.preamble.contains("Alpha 最终指南"));
         assert!(!alpha_prepared.preamble.contains("Beta 最终指南"));
@@ -7049,7 +7423,8 @@
                 Some(&ApiConfig::default()),
                 None,
                 Some(false),
-            );
+            )
+            .expect("build perf probe prepared prompt");
             latest_extra_len = prepared.latest_user_extra_text.len();
             history_len = prepared.history_messages.len();
             assert!(!prepared.preamble.trim().is_empty());

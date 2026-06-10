@@ -81,11 +81,13 @@
           <span class="max-w-52 truncate">{{ item.label }}</span>
         </button>
       </div>
-      <select v-model="selectionDelegateDepartmentId" class="select select-bordered select-sm mt-3 w-full">
-        <option v-for="department in delegateDepartmentOptions" :key="department.id" :value="department.id">
-          {{ selectionDelegateDepartmentLabel(department) }}
-        </option>
-      </select>
+      <DepartmentPersonaSelect
+        v-model:department-id="selectionDelegateDepartmentId"
+        v-model:agent-id="selectionDelegateAgentId"
+        class="mt-3"
+        :options="delegateDepartmentOptions"
+        auto-select-first
+      />
       <label class="form-control mt-3">
         <span class="label py-1">
           <span class="label-text text-xs opacity-70">{{ t("chat.selection.delegateBodyLabel") }}</span>
@@ -130,22 +132,17 @@
 import { computed, onMounted, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 import type { ChatConversationOverviewItem } from "../../../types/app";
+import DepartmentPersonaSelect from "../../shared/components/DepartmentPersonaSelect.vue";
+import type { DepartmentPersonaOption } from "../../shared/department-persona-options";
 import { resolveConversationDisplayTitle } from "../utils/conversation-title";
 
-type ConversationDepartmentOption = {
-  id: string;
-  name: string;
-  ownerAgentId?: string;
-  ownerName: string;
-  providerName?: string;
-  modelName?: string;
-  childDepartmentIds?: string[];
-};
+type ConversationDepartmentOption = DepartmentPersonaOption;
 
 type RecentDelegateRequest = {
   id: string;
   label: string;
   departmentId: string;
+  agentId: string;
   presetId: string;
   background: string;
   question: string;
@@ -165,7 +162,7 @@ const emit = defineEmits<{
   exitSelectionMode: [];
   selectionActionBranch: [];
   selectionActionForward: [targetConversationId: string];
-  selectionActionDelegate: [payload: { departmentId: string; presetId: string; background: string; question: string; focus: string }];
+  selectionActionDelegate: [payload: { departmentId: string; agentId: string; presetId: string; background: string; question: string; focus: string }];
   selectionActionCopy: [];
   selectionActionShare: [format: "html" | "png"];
 }>();
@@ -181,6 +178,7 @@ const selectionDeliverTargetConversationId = ref("");
 const selectionDelegateCardOpen = ref(false);
 const selectionShareCardOpen = ref(false);
 const selectionDelegateDepartmentId = ref("");
+const selectionDelegateAgentId = ref("");
 const selectionDelegatePresetId = ref("review");
 const selectionDelegateBackground = ref("");
 const selectionDelegateQuestion = ref("");
@@ -208,18 +206,28 @@ const delegateDepartmentOptions = computed(() =>
   (Array.isArray(props.createConversationDepartmentOptions) ? props.createConversationDepartmentOptions : [])
     .map((item) => ({
       id: String(item.id || "").trim(),
+      departmentId: String(item.departmentId || "").trim(),
+      agentId: String(item.agentId || "").trim(),
+      departmentName: String(item.departmentName || "").trim(),
+      agentName: String(item.agentName || "").trim(),
+      label: String(item.label || "").trim(),
       name: String(item.name || "").trim() || String(item.id || "").trim(),
-      ownerAgentId: String(item.ownerAgentId || "").trim() || undefined,
+      ownerAgentId: String(item.ownerAgentId || item.agentId || "").trim(),
       ownerName: String(item.ownerName || "").trim(),
       providerName: String(item.providerName || "").trim() || undefined,
       modelName: String(item.modelName || "").trim() || undefined,
+      apiConfigId: String(item.apiConfigId || "").trim() || undefined,
+      childDepartmentIds: Array.isArray(item.childDepartmentIds) ? item.childDepartmentIds : [],
     }))
-    .filter((item) => !!item.id),
+    .filter((item) => !!item.id && !!item.departmentId && !!item.agentId),
 );
 
 const preferredDelegateDepartmentId = computed(() => String(delegateDepartmentOptions.value[0]?.id || "").trim());
 const canSubmitSelectionDelegate = computed(() =>
-  delegateDepartmentOptions.value.some((department) => department.id === String(selectionDelegateDepartmentId.value || "").trim())
+  delegateDepartmentOptions.value.some((department) =>
+    department.departmentId === String(selectionDelegateDepartmentId.value || "").trim()
+    && department.agentId === String(selectionDelegateAgentId.value || "").trim()
+  )
   && !!String(selectionDelegateQuestion.value || "").trim(),
 );
 
@@ -256,28 +264,21 @@ function confirmSelectionDeliver() {
   emit("selectionActionForward", targetConversationId);
 }
 
-function selectionDelegateDepartmentLabel(item: ConversationDepartmentOption): string {
-  const parts = [String(item.name || "").trim() || String(item.id || "").trim()];
-  const ownerName = String(item.ownerName || "").trim();
-  if (ownerName) parts.push(ownerName);
-  const modelName = String(item.modelName || "").trim();
-  if (modelName) parts.push(modelName);
-  return parts.join(" / ");
-}
-
 function normalizeRecentDelegateRequest(raw: unknown): RecentDelegateRequest | null {
   const item = raw as Partial<RecentDelegateRequest> | null;
   if (!item) return null;
   const departmentId = String(item.departmentId || "").trim();
+  const agentId = String(item.agentId || "").trim();
   const question = String(item.question || "").trim();
   const focus = String(item.focus || "").trim();
-  if (!departmentId || !question) return null;
+  if (!departmentId || !agentId || !question) return null;
   const presetId = String(item.presetId || "review").trim() || "review";
   const label = String(item.label || question).trim() || question;
   return {
     id: String(item.id || `${departmentId}:${presetId}:${question}`).trim(),
     label,
     departmentId,
+    agentId,
     presetId,
     background: String(item.background || "").trim(),
     question,
@@ -309,12 +310,12 @@ function loadRecentDelegateRequests() {
 }
 
 function rememberDelegateRequest(raw: Omit<RecentDelegateRequest, "id" | "label">) {
-  const request = normalizeRecentDelegateRequest({ ...raw, id: `${Date.now()}:${raw.departmentId}`, label: raw.question });
+  const request = normalizeRecentDelegateRequest({ ...raw, id: `${Date.now()}:${raw.departmentId}:${raw.agentId}`, label: raw.question });
   if (!request) return;
-  const key = `${request.departmentId}\n${request.presetId}\n${request.background}\n${request.question}\n${request.focus}`;
+  const key = `${request.departmentId}\n${request.agentId}\n${request.presetId}\n${request.background}\n${request.question}\n${request.focus}`;
   recentDelegateRequests.value = [
     request,
-    ...recentDelegateRequests.value.filter((item) => `${item.departmentId}\n${item.presetId}\n${item.background}\n${item.question}\n${item.focus}` !== key),
+    ...recentDelegateRequests.value.filter((item) => `${item.departmentId}\n${item.agentId}\n${item.presetId}\n${item.background}\n${item.question}\n${item.focus}` !== key),
   ].slice(0, USER_ASYNC_DELEGATE_RECENT_LIMIT);
   saveRecentDelegateRequests();
 }
@@ -327,8 +328,13 @@ function clearSelectionDelegateFields() {
 }
 
 function applyRecentDelegateRequest(item: RecentDelegateRequest) {
-  const departmentStillExists = delegateDepartmentOptions.value.some((department) => department.id === item.departmentId);
-  if (departmentStillExists) selectionDelegateDepartmentId.value = item.departmentId;
+  const optionStillExists = delegateDepartmentOptions.value.some((department) =>
+    department.departmentId === item.departmentId && department.agentId === item.agentId
+  );
+  if (optionStillExists) {
+    selectionDelegateDepartmentId.value = item.departmentId;
+    selectionDelegateAgentId.value = item.agentId;
+  }
   selectionDelegatePresetId.value = item.presetId || "review";
   selectionDelegateBackground.value = item.background;
   selectionDelegateQuestion.value = item.question;
@@ -338,8 +344,12 @@ function applyRecentDelegateRequest(item: RecentDelegateRequest) {
 function openSelectionDelegateCard() {
   closeSelectionDeliverCard();
   closeSelectionShareCard();
-  const preferredDepartmentId = preferredDelegateDepartmentId.value;
-  if (preferredDepartmentId) selectionDelegateDepartmentId.value = preferredDepartmentId;
+  const preferredOption = delegateDepartmentOptions.value.find((option) => option.id === preferredDelegateDepartmentId.value)
+    || delegateDepartmentOptions.value[0];
+  if (preferredOption) {
+    selectionDelegateDepartmentId.value = preferredOption.departmentId;
+    selectionDelegateAgentId.value = preferredOption.agentId;
+  }
   selectionDelegateCardOpen.value = true;
 }
 
@@ -376,6 +386,7 @@ function confirmSelectionDelegate() {
   if (!canSubmitSelectionDelegate.value) return;
   const payload = {
     departmentId: String(selectionDelegateDepartmentId.value || "").trim(),
+    agentId: String(selectionDelegateAgentId.value || "").trim(),
     presetId: String(selectionDelegatePresetId.value || "review").trim() || "review",
     background: String(selectionDelegateBackground.value || "").trim(),
     question: String(selectionDelegateQuestion.value || "").trim(),

@@ -47,6 +47,21 @@
                 <input v-model="form.todo" class="input input-bordered w-full" type="text" :placeholder="t('config.task.todoPlaceholder')" :disabled="!editable || saving" />
               </label>
 
+              <label class="block space-y-2">
+                <span class="block text-sm font-medium">{{ t("config.task.fields.owner") }}</span>
+                <DepartmentPersonaSelect
+                  v-model:department-id="form.departmentId"
+                  v-model:agent-id="form.agentId"
+                  :departments="config.departments"
+                  :personas="personas"
+                  :api-configs="config.apiConfigs"
+                  :assistant-department-api-config-id="config.assistantDepartmentApiConfigId"
+                  :tool-review-api-config-id="config.toolReviewApiConfigId"
+                  :placeholder="t('config.task.ownerDefault')"
+                  :disabled="!editable || saving"
+                />
+              </label>
+
               <div class="divider my-1"></div>
 
               <div class="text-sm">
@@ -202,6 +217,8 @@ import { useI18n } from "vue-i18n";
 import { Trash2 } from "@lucide/vue";
 import type { TaskEditorForm, TaskEditorMode, TaskEntry, TaskRunLogEntry } from "./task-editor";
 import { formatIsoToLocalDateTime } from "../../../../utils/time";
+import type { AppConfig, PersonaProfile } from "../../../../types/app";
+import DepartmentPersonaSelect from "../../../shared/components/DepartmentPersonaSelect.vue";
 import TaskDateTimeInput from "./TaskDateTimeInput.vue";
 
 const props = defineProps<{
@@ -211,6 +228,8 @@ const props = defineProps<{
   errorText: string;
   form: TaskEditorForm;
   task: TaskEntry | null;
+  config: AppConfig;
+  personas: PersonaProfile[];
   logs: TaskRunLogEntry[];
   canComplete: boolean;
   editable: boolean;

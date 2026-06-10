@@ -2008,18 +2008,7 @@ async fn send_chat_message_inner(
             .map(str::trim)
             .filter(|value| !value.is_empty())
             .ok_or_else(|| format!("缺少执行人格：调度上下文没有固化 agent_id，department_id={effective_department_id}。"))?;
-        let effective_agent_id = if !effective_department
-            .agent_ids
-            .iter()
-            .any(|item| item.trim() == requested_agent_id_snapshot)
-        {
-            return Err(format!(
-                "调度固化人格不属于执行部门：department_id={}，agent_id={}",
-                effective_department.id, requested_agent_id_snapshot
-            ));
-        } else {
-            requested_agent_id_snapshot.to_string()
-        };
+        let effective_agent_id = requested_agent_id_snapshot.to_string();
         if !runtime_agents
             .iter()
             .any(|a| a.id == effective_agent_id && !a.is_built_in_user)
@@ -2037,7 +2026,7 @@ async fn send_chat_message_inner(
                 effective_department_name
             };
             return Err(format!(
-                "部门人格配置不合法：部门“{}”（{}）不能使用人格“{}”（{}）。请到部门设置中为该部门选择已分配的人格。",
+                "调度固化人格不存在或不可用：部门“{}”（{}）绑定的人格“{}”（{}）不可用。",
                 effective_department_name,
                 effective_department.id,
                 effective_agent_name,
@@ -2719,7 +2708,7 @@ async fn send_chat_message_inner(
             Some(&selected_api),
             Some(&resolved_api),
             Some(snapshot.enable_pdf_images),
-        );
+        )?;
         if requested_plan_mode_enabled
             && !conversation_latest_user_has_plan_mode_block(&conversation, &current_agent.id)
         {

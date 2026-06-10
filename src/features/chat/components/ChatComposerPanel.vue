@@ -334,17 +334,11 @@ import ChatQueuePreview from "./ChatQueuePreview.vue";
 import ChatSelectionActionPanel from "./ChatSelectionActionPanel.vue";
 import FloatingScrollbar from "../../shell/components/FloatingScrollbar.vue";
 import { useChatQueue } from "../composables/use-chat-queue";
+import type { DepartmentPersonaOption } from "../../shared/department-persona-options";
 
 type BinaryAttachment = { mime: string; bytesBase64: string };
 type QueuedAttachmentNotice = { id: string; fileName: string; relativePath: string; mime: string };
-type ConversationDepartmentOption = {
-  id: string;
-  name: string;
-  ownerAgentId?: string;
-  ownerName: string;
-  providerName?: string;
-  modelName?: string;
-};
+type ConversationDepartmentOption = DepartmentPersonaOption;
 type MentionOptionView = {
   agentId: string;
   agentName: string;
@@ -407,7 +401,7 @@ const emit = defineEmits<{
   (e: "exitSelectionMode"): void;
   (e: "selectionActionBranch"): void;
   (e: "selectionActionForward", targetConversationId: string): void;
-  (e: "selectionActionDelegate", payload: { departmentId: string; presetId: string; background: string; question: string; focus: string }): void;
+  (e: "selectionActionDelegate", payload: { departmentId: string; agentId: string; presetId: string; background: string; question: string; focus: string }): void;
   (e: "selectionActionCopy"): void;
   (e: "selectionActionShare", format: "html" | "png"): void;
   (e: "update:chatInput", value: string): void;
@@ -431,7 +425,7 @@ const emit = defineEmits<{
   (e: "open-conversation-list"): void;
   (e: "open-settings"): void;
   (e: "trim-conversation"): void;
-  (e: "createConversation", input?: { departmentId?: string }): void;
+  (e: "createConversation", input?: { departmentId?: string; agentId?: string }): void;
 }>();
 
 const { t } = useI18n();
@@ -440,7 +434,13 @@ const systemNotificationMode = computed(() => !!props.systemNotificationMode);
 
 function openCreateConversationDialog() {
   if (typeof window === "undefined") {
-    emit("createConversation", { departmentId: props.defaultCreateConversationDepartmentId });
+    const defaultOption = props.createConversationDepartmentOptions.find((option) =>
+      String(option.departmentId || "").trim() === String(props.defaultCreateConversationDepartmentId || "").trim()
+    ) || props.createConversationDepartmentOptions[0];
+    emit("createConversation", {
+      departmentId: String(defaultOption?.departmentId || props.defaultCreateConversationDepartmentId || "").trim(),
+      agentId: String(defaultOption?.agentId || "").trim() || undefined,
+    });
     return;
   }
   window.dispatchEvent(new CustomEvent("easy-call:open-create-conversation-dialog"));

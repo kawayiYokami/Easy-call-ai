@@ -56,6 +56,8 @@ fn task_store_apply_migrations(conn: &Connection) -> Result<(), String> {
 
     let migration_result = (|| -> Result<(), String> {
         task_store_add_column_if_missing(conn, "task_record", "conversation_id TEXT", "conversation_id")?;
+        task_store_add_column_if_missing(conn, "task_record", "department_id TEXT", "department_id")?;
+        task_store_add_column_if_missing(conn, "task_record", "agent_id TEXT", "agent_id")?;
         task_store_add_column_if_missing(
             conn,
             "task_record",

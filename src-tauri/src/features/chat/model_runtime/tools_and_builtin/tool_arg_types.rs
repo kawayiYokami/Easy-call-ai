@@ -76,6 +76,8 @@ struct ContactNoReplyToolArgs {
 struct DelegateToolArgs {
     department_id: String,
     #[serde(default)]
+    target_agent_id: Option<String>,
+    #[serde(default)]
     mode: Option<String>,
     background: String,
     question: String,

@@ -147,6 +147,7 @@ import {
 import ChatView from "../../chat/views/ChatView.vue";
 import { useChatMessageBlocks } from "../../chat/composables/use-chat-turns";
 import type { TerminalApprovalConversationItem } from "../../shell/composables/use-terminal-approval";
+import type { DepartmentPersonaOption } from "../../shared/department-persona-options";
 
 type VsCodeApi = { postMessage: (message: unknown) => void };
 
@@ -191,7 +192,7 @@ const props = defineProps<{
   busy: boolean;
   runtimeState?: string;
   hasPrevBlock: boolean;
-  createConversationDepartmentOptions: Array<{ id: string; name: string; ownerAgentId?: string; ownerName: string; providerName?: string; modelName?: string; childDepartmentIds?: string[] }>;
+  createConversationDepartmentOptions: DepartmentPersonaOption[];
   defaultCreateConversationDepartmentId: string;
   currentDepartmentId: string;
   currentWorkspaceName: string;
@@ -229,9 +230,9 @@ defineEmits<{
   approveTerminalApproval: [requestId: string];
   denyTerminalApproval: [requestId: string];
   switchConversation: [payload: { conversationId: string; kind?: "local_unarchived" | "remote_im_contact"; remoteContactId?: string }];
-  createConversation: [input?: { title?: string; departmentId?: string; copyCurrent?: boolean; importPath?: string }];
+  createConversation: [input?: { title?: string; departmentId?: string; agentId?: string; copyCurrent?: boolean; importPath?: string }];
   selectionActionBranch: [payload: { count: number; messageIds: string[] }];
-  selectionActionDelegate: [payload: { count: number; messageIds: string[]; departmentId: string; presetId: string; background: string; question: string; focus: string }];
+  selectionActionDelegate: [payload: { count: number; messageIds: string[]; departmentId: string; agentId: string; presetId: string; background: string; question: string; focus: string }];
   sideConversationListVisibleChange: [value: boolean];
   toolReviewPanelOpenChange: [value: boolean];
   sidePanelWidthsChange: [value: { leftWidth: number; rightWidth: number }];

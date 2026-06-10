@@ -604,7 +604,7 @@ async fn summarize_archived_conversation_with_model_v2(
         Some(selected_api),
         Some(resolved_api),
         None,
-    );
+    )?;
     prepared.latest_images.clear();
     prepared.latest_audios.clear();
     let timeout_secs = 360u64;

@@ -10,10 +10,17 @@ export function useChatConversationActionsOrchestrator(bindings: Record<string, 
       : [];
   }
 
-  async function createUnarchivedConversation(input?: { title?: string; departmentId?: string; copyCurrent?: boolean; importPath?: string; shellWorkspaces?: ShellWorkspace[]; shellAutonomousMode?: boolean }) {
+  async function createUnarchivedConversation(input?: { title?: string; departmentId?: string; agentId?: string; copyCurrent?: boolean; importPath?: string; shellWorkspaces?: ShellWorkspace[]; shellAutonomousMode?: boolean }) {
     const departmentId =
       String(input?.departmentId || "").trim()
       || bindings.defaultCreateConversationDepartmentId.value;
+    const selectedOption = Array.isArray(bindings.createConversationDepartmentOptions?.value)
+      ? bindings.createConversationDepartmentOptions.value.find((item: any) =>
+        String(item.departmentId || item.id || "").trim() === departmentId
+        && (!input?.agentId || String(item.agentId || "").trim() === String(input.agentId || "").trim())
+      )
+      : null;
+    const agentId = String(input?.agentId || selectedOption?.agentId || "").trim();
     if (!departmentId) return;
     try {
       const copySourceConversationId = input?.copyCurrent
@@ -28,6 +35,7 @@ export function useChatConversationActionsOrchestrator(bindings: Record<string, 
           input: {
             path: importPath,
             departmentId,
+            agentId: agentId || null,
             title: String(input?.title || "").trim() || null,
             shellWorkspaces: input?.shellWorkspaces || null,
             shellAutonomousMode: Boolean(input?.shellAutonomousMode),
@@ -36,6 +44,7 @@ export function useChatConversationActionsOrchestrator(bindings: Record<string, 
         : {
           input: {
             departmentId,
+            agentId: agentId || null,
             title: String(input?.title || "").trim() || null,
             copySourceConversationId: copySourceConversationId || null,
             shellWorkspaces: input?.shellWorkspaces || null,
@@ -160,6 +169,7 @@ export function useChatConversationActionsOrchestrator(bindings: Record<string, 
     count: number;
     messageIds: string[];
     departmentId: string;
+    agentId: string;
     presetId: string;
     background: string;
     question: string;
@@ -167,15 +177,13 @@ export function useChatConversationActionsOrchestrator(bindings: Record<string, 
   }) {
     const conversationId = String(bindings.currentChatConversationId.value || "").trim();
     const targetDepartmentId = String(payload?.departmentId || "").trim();
+    const targetAgentId = String(payload?.agentId || "").trim();
     const selectedMessageIds = normalizeSelectedMessageIds(payload?.messageIds);
     const question = String(payload?.question || "").trim();
     const focus = String(payload?.focus || "").trim();
-    if (!conversationId || !targetDepartmentId || !question) return false;
+    if (!conversationId || !targetDepartmentId || !targetAgentId || !question) return false;
     const sourceAgentId = String(bindings.currentForegroundAgentId.value || "").trim();
-    const targetOwnerAgentId = String(
-      bindings.createConversationDepartmentOptions.value.find((item: any) => item.id === targetDepartmentId)?.ownerAgentId || "",
-    ).trim();
-    if (sourceAgentId && targetOwnerAgentId && sourceAgentId === targetOwnerAgentId) {
+    if (sourceAgentId && sourceAgentId === targetAgentId) {
       bindings.setStatus(bindings.tr("status.asyncDelegateSelfSyncOnly"));
       return false;
     }
@@ -190,6 +198,7 @@ export function useChatConversationActionsOrchestrator(bindings: Record<string, 
         input: {
           conversationId,
           targetDepartmentId,
+          targetAgentId,
           presetId: String(payload?.presetId || "review").trim() || "review",
           background: String(payload?.background || "").trim(),
           question,

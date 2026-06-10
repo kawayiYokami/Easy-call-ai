@@ -303,6 +303,8 @@ struct ExportConversationShareOutput {
 struct ImportConversationShareFromFileInput {
     path: String,
     #[serde(default)]
+    agent_id: Option<String>,
+    #[serde(default)]
     department_id: Option<String>,
     #[serde(default)]
     title: Option<String>,
@@ -568,25 +570,22 @@ fn collect_selected_messages_for_branch(
 
 #[cfg(test)]
 fn branch_conversation_settings_agent_id(
-    data: &AppData,
+    agents: &[AgentProfile],
     department: &DepartmentConfig,
     requested_agent_id: &str,
-) -> String {
+) -> Result<String, String> {
     let normalized_requested_agent_id = requested_agent_id.trim();
-    if !normalized_requested_agent_id.is_empty()
-        && department
-            .agent_ids
-            .iter()
-            .any(|item| item.trim() == normalized_requested_agent_id)
-    {
-        return normalized_requested_agent_id.to_string();
+    if normalized_requested_agent_id.is_empty() {
+        return first_available_department_agent(department, agents)
+            .map(|agent| agent.id.clone())
+            .ok_or_else(|| format!("源会话绑定部门没有可用人格，无法创建分支: department_id={}", department.id));
     }
-    department
-        .agent_ids
-        .iter()
-        .find(|item| !item.trim().is_empty())
-        .map(|item| item.trim().to_string())
-        .unwrap_or_else(|| data.assistant_department_agent_id.trim().to_string())
+    if available_non_user_agent(agents, normalized_requested_agent_id).is_some() {
+        return Ok(normalized_requested_agent_id.to_string());
+    }
+    Err(format!(
+        "源会话绑定人格不存在或不可用，无法创建分支: agent_id={normalized_requested_agent_id}"
+    ))
 }
 
 #[cfg(test)]
@@ -598,8 +597,8 @@ fn build_branch_conversation_record_from_selection(
     title: &str,
     latest_compaction_message: Option<&ChatMessage>,
     selected_messages: &[ChatMessage],
-) -> Conversation {
-    let agent_id = branch_conversation_settings_agent_id(data, department, &source.agent_id);
+) -> Result<Conversation, String> {
+    let agent_id = branch_conversation_settings_agent_id(&data.agents, department, &source.agent_id)?;
     let mut conversation = build_conversation_record(
         &department_primary_api_config_id(department),
         &agent_id,
@@ -661,7 +660,7 @@ fn build_branch_conversation_record_from_selection(
         conversation.updated_at = last_message.created_at.clone();
         conversation.last_user_at = Some(last_message.created_at.clone());
     }
-    conversation
+    Ok(conversation)
 }
 
 fn latest_compaction_message_for_branch(source: &Conversation) -> Option<ChatMessage> {
@@ -796,7 +795,7 @@ fn import_conversation_share_from_file(
         });
     let create_input = CreateUnarchivedConversationInput {
         api_config_id: None,
-        agent_id: None,
+        agent_id: input.agent_id.clone(),
         department_id: input.department_id.clone(),
         title: requested_title,
         copy_source_conversation_id: None,
@@ -2780,7 +2779,8 @@ mod unarchived_conversations_tests {
             "会话分支标题",
             latest_compaction_message_for_branch(&source).as_ref(),
             &[source.messages[1].clone(), source.messages[3].clone()],
-        );
+        )
+        .expect("build branch conversation");
 
         assert_eq!(branched.messages.len(), 3);
         assert_eq!(

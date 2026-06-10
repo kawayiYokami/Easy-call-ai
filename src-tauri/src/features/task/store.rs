@@ -20,6 +20,8 @@ fn task_store_init(conn: &Connection) -> Result<(), String> {
         CREATE TABLE IF NOT EXISTS task_record (
             task_id TEXT PRIMARY KEY,
             conversation_id TEXT,
+            department_id TEXT,
+            agent_id TEXT,
             target_scope TEXT NOT NULL DEFAULT 'desktop',
             order_index INTEGER NOT NULL,
             title TEXT NOT NULL,
@@ -192,6 +194,18 @@ fn task_row_to_record_stored(row: &rusqlite::Row<'_>) -> rusqlite::Result<TaskRe
         conversation_id: Some(task_normalize_bound_conversation_id(
             row.get::<_, Option<String>>("conversation_id")?.as_deref(),
         )),
+        department_id: row
+            .get::<_, Option<String>>("department_id")?
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(ToOwned::to_owned),
+        agent_id: row
+            .get::<_, Option<String>>("agent_id")?
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(ToOwned::to_owned),
         target_scope: task_target_scope_normalized(&row.get::<_, String>("target_scope")?).to_string(),
         order_index: row.get("order_index")?,
         title: row.get("title")?,
@@ -292,14 +306,16 @@ fn task_store_create_task(data_path: &PathBuf, input: &TaskCreateInput) -> Resul
     let todos = task_legacy_todos_from_todo(&input.todo);
     conn.execute(
         "INSERT INTO task_record (
-            task_id, conversation_id, target_scope, order_index, title, cause, goal, flow, todos_json, status_summary,
+            task_id, conversation_id, department_id, agent_id, target_scope, order_index, title, cause, goal, flow, todos_json, status_summary,
             completion_state, completion_conclusion, progress_notes_json, stage_key, stage_updated_at_utc,
             trigger_kind, run_at_utc, cron_expression, every_minutes, end_at_utc, created_at_utc, updated_at_utc,
             last_triggered_at_utc, completed_at_utc
-         ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, '', ?12, '', NULL, ?13, ?14, ?15, ?16, ?17, ?18, ?19, NULL, NULL)",
+         ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, '', ?14, '', NULL, ?15, ?16, ?17, ?18, ?19, ?20, ?21, NULL, NULL)",
         params![
             task_id,
             conversation_id,
+            input.department_id.as_deref().map(str::trim).filter(|value| !value.is_empty()),
+            input.agent_id.as_deref().map(str::trim).filter(|value| !value.is_empty()),
             target_scope,
             order_index,
             task_legacy_title_from_goal(goal),
@@ -368,6 +384,20 @@ fn task_store_update_task(data_path: &PathBuf, input: &TaskUpdateInput) -> Resul
             .as_deref()
             .or(existing.conversation_id.as_deref()),
     );
+    let department_id = input
+        .department_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToOwned::to_owned)
+        .or(existing.department_id.clone());
+    let agent_id = input
+        .agent_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToOwned::to_owned)
+        .or(existing.agent_id.clone());
     let target_scope = input
         .target_scope
         .as_deref()
@@ -381,26 +411,30 @@ fn task_store_update_task(data_path: &PathBuf, input: &TaskUpdateInput) -> Resul
     conn.execute(
         "UPDATE task_record SET
             conversation_id = ?2,
-            target_scope = ?3,
-            title = ?4,
-            cause = ?5,
-            goal = ?6,
-            flow = ?7,
-            todos_json = ?8,
-            status_summary = ?9,
-            progress_notes_json = ?10,
-            stage_key = ?11,
-            stage_updated_at_utc = ?12,
-            trigger_kind = ?13,
-            run_at_utc = ?14,
-            cron_expression = ?15,
-            every_minutes = ?16,
-            end_at_utc = ?17,
-            updated_at_utc = ?18
+            department_id = ?3,
+            agent_id = ?4,
+            target_scope = ?5,
+            title = ?6,
+            cause = ?7,
+            goal = ?8,
+            flow = ?9,
+            todos_json = ?10,
+            status_summary = ?11,
+            progress_notes_json = ?12,
+            stage_key = ?13,
+            stage_updated_at_utc = ?14,
+            trigger_kind = ?15,
+            run_at_utc = ?16,
+            cron_expression = ?17,
+            every_minutes = ?18,
+            end_at_utc = ?19,
+            updated_at_utc = ?20
          WHERE task_id = ?1",
         params![
             input.task_id,
             conversation_id,
+            department_id.as_deref(),
+            agent_id.as_deref(),
             target_scope,
             task_legacy_title_from_goal(&next_goal),
             task_legacy_cause_from_why(&next_why),

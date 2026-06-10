@@ -329,6 +329,7 @@ export type RemoteImContact = {
   responseGuidance?: string;
   routeMode?: "main_session" | "dedicated_contact_conversation";
   boundDepartmentId?: string;
+  boundAgentId?: string;
   boundConversationId?: string;
   processingMode?: "qa" | "continuous";
   lastActivatedAt?: string;
@@ -350,6 +351,7 @@ export type RemoteImContactConversationSummary = {
   platform: RemoteImPlatform;
   contactDisplayName: string;
   boundDepartmentId?: string;
+  boundAgentId?: string;
   processingMode: "qa" | "continuous";
   previewMessages?: ConversationPreviewMessage[];
 };

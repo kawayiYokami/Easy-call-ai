@@ -109,7 +109,7 @@ async fn get_prompt_preview(
             Some(&api_config),
             Some(&resolved_api),
             Some(data.pdf_read_mode == "image" && api_config.enable_image),
-        ),
+        )?,
         PromptPreviewMode::Compaction | PromptPreviewMode::Archive => {
             let owner_agent_id =
                 resolve_archive_owner_agent_id(&app_config, &data.agents, &conversation)?;
@@ -150,7 +150,7 @@ async fn get_prompt_preview(
                 Some(&api_config),
                 Some(&resolved_api),
                 Some(data.pdf_read_mode == "image" && api_config.enable_image),
-            )
+            )?
         }
     };
     let model_name = if api_config.model.trim().is_empty() {

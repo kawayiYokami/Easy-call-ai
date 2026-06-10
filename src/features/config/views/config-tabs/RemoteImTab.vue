@@ -550,13 +550,17 @@
               <li class="list-row flex items-start justify-between gap-3">
                 <div class="font-medium">{{ t("config.remoteIm.processingDepartment") }}</div>
                 <div class="flex w-64 flex-col gap-1">
-                  <select
-                    class="select select-bordered select-sm w-full"
-                    v-model="contactDraft.boundDepartmentId"
-                  >
-                    <option value="">{{ t("config.department.assistantBadge") }}</option>
-                    <option v-for="dept in remoteImDepartmentOptions" :key="dept.id" :value="dept.id">{{ dept.label }}</option>
-                  </select>
+                  <DepartmentPersonaSelect
+                    v-model:department-id="contactDraft.boundDepartmentId"
+                    v-model:agent-id="contactDraft.boundAgentId"
+                    :departments="config.departments"
+                    :personas="personas"
+                    :api-configs="config.apiConfigs"
+                    :assistant-department-api-config-id="config.assistantDepartmentApiConfigId"
+                    :tool-review-api-config-id="config.toolReviewApiConfigId"
+                    :placeholder="t('config.department.assistantBadge')"
+                    :disabled="contactsDisabled"
+                  />
                   <span class="text-[11px] opacity-60">{{ contactDraftRoutingHint }}</span>
                 </div>
               </li>
@@ -808,6 +812,7 @@ import { AlertTriangle, ChevronUp, Plus, RefreshCw, RotateCcw, Save, ScrollText,
 import { invokeTauri } from "../../../../services/tauri-api";
 import { open } from "@tauri-apps/plugin-dialog";
 import type { AppConfig, DepartmentConfig, PersonaProfile, RemoteImChannelConfig, RemoteImContact, RemoteImPlatform, ShellWorkspace } from "../../../../types/app";
+import DepartmentPersonaSelect from "../../../shared/components/DepartmentPersonaSelect.vue";
 import type { ChannelConnectionStatus, ChannelLogEntry, WeixinLoginStatus } from "./remote-im/types";
 import {
   contactCommunicationToggleClass,
@@ -1093,6 +1098,7 @@ const contactLogsTitle = computed(() => {
 });
 type ContactEditDraft = {
   boundDepartmentId: string;
+  boundAgentId: string;
   processingMode: "qa" | "continuous";
   activationMode: RemoteImContact["activationMode"];
   activationKeywordsText: string;
@@ -1163,20 +1169,12 @@ const contactLogDisplayLines = computed(() =>
   }),
 );
 
-const remoteImDepartmentOptions = computed(() =>
-  (props.config.departments || [])
-    .filter((dept) => dept.id !== "assistant-department" && !dept.isBuiltInAssistant)
-    .map((dept) => ({
-      id: dept.id,
-      label: departmentDisplayName(dept),
-    })),
-);
-
 const contactKeywordDrafts = ref<Record<string, string>>({});
 
 function buildContactDraftFromContact(item: RemoteImContact): ContactEditDraft {
   return {
     boundDepartmentId: String(item.boundDepartmentId || ""),
+    boundAgentId: String(item.boundAgentId || ""),
     processingMode: normalizeProcessingMode(item.processingMode),
     activationMode: normalizeActivationMode(item.activationMode || "never"),
     activationKeywordsText: item.activationKeywords.join(", "),
@@ -1744,21 +1742,27 @@ async function moveContactActivationMode(item: RemoteImContact, direction: -1 | 
 async function onContactDepartmentChange(
   item: RemoteImContact,
   departmentIdRaw: string,
+  agentIdRaw: string,
 ) {
-  const oldValue = item.boundDepartmentId;
+  const oldDepartmentId = item.boundDepartmentId;
+  const oldAgentId = item.boundAgentId;
   const nextDepartmentId = String(departmentIdRaw || "").trim() || "";
+  const nextAgentId = String(agentIdRaw || "").trim() || "";
   item.boundDepartmentId = nextDepartmentId || undefined;
+  item.boundAgentId = nextDepartmentId && nextAgentId ? nextAgentId : undefined;
   try {
     await invokeTauri<RemoteImContact>("remote_im_update_contact_department_binding", {
       input: {
         contactId: item.id,
         departmentId: nextDepartmentId || null,
+        agentId: nextDepartmentId && nextAgentId ? nextAgentId : null,
       },
     });
     props.setStatusAction(t('config.remoteIm.contactContinueSession'));
     await refreshContacts();
   } catch (error) {
-    item.boundDepartmentId = oldValue;
+    item.boundDepartmentId = oldDepartmentId;
+    item.boundAgentId = oldAgentId;
     props.setStatusAction(t("status.saveConfigFailed", { err: String(error) }));
   }
 }
@@ -1930,9 +1934,11 @@ async function saveContactDraft() {
   contactSaving.value = true;
   try {
     const nextDepartmentId = String(draft.boundDepartmentId || "").trim();
+    const nextAgentId = String(draft.boundAgentId || "").trim();
     const currentDepartmentId = String(item.boundDepartmentId || "").trim();
-    if (nextDepartmentId !== currentDepartmentId) {
-      await onContactDepartmentChange(item, nextDepartmentId);
+    const currentAgentId = String(item.boundAgentId || "").trim();
+    if (nextDepartmentId !== currentDepartmentId || nextAgentId !== currentAgentId) {
+      await onContactDepartmentChange(item, nextDepartmentId, nextAgentId);
     }
 
     const nextProcessingMode = normalizeProcessingMode(draft.processingMode);
@@ -2448,20 +2454,17 @@ async function deleteContact(item: RemoteImContact) {
 
 function contactDepartmentLabel(item: RemoteImContact): string {
   const departmentId = String(item.boundDepartmentId || "").trim();
+  const agentId = String(item.boundAgentId || "").trim();
   const department = departmentId
     ? (props.config.departments || []).find((dept) => String(dept.id || "").trim() === departmentId)
     : (props.config.departments || []).find((dept) => dept.id === "assistant-department" || dept.isBuiltInAssistant);
   const departmentName = department
     ? departmentDisplayName(department)
     : departmentId || t("config.department.assistantBadge");
-  const personaNames = (department?.agentIds || [])
-    .map((agentId) => {
-      const normalizedAgentId = String(agentId || "").trim();
-      return (props.personas || []).find((agent) => String(agent.id || "").trim() === normalizedAgentId)?.name || "";
-    })
-    .map((name) => String(name || "").trim())
-    .filter(Boolean);
-  return personaNames.length > 0 ? `${departmentName}（${personaNames.join(" / ")}）` : departmentName;
+  if (!agentId) return departmentName;
+  const persona = (props.personas || []).find((agent) => String(agent.id || "").trim() === agentId);
+  const personaName = String(persona?.name || "").trim() || agentId;
+  return `${departmentName} / ${personaName}`;
 }
 
 function departmentDisplayName(dept: DepartmentConfig): string {

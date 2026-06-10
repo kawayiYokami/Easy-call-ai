@@ -549,7 +549,6 @@
       "permissionSkillsRequireExec": "需要先允许终端（exec）工具，技能才可选。",
       "permissionMcpTools": "MCP 工具",
       "assignee": "任命",
-      "assigneePrimaryHint": "所选人格将作为当前部门的主执行人格。",
       "assigneePlaceholder": "暂不指定",
       "selectHint": "请从左侧选择一个部门"
     },
@@ -880,6 +879,7 @@
       },
       "scheduleIntervalHint": "从首次触发时间开始，按周、天、小时累加后的总时长循环触发。",
       "scheduleUnsupportedHint": "当前任务的旧调度无法完整映射到这个简化编辑器。不改周/天/小时就会按原调度保留；要修改的话，直接重新设置即可。",
+      "ownerDefault": "默认助理",
       "filters": {
         "active": "进行中",
         "completed": "已完成"
@@ -893,6 +893,7 @@
         "goal": "目标",
         "why": "为什么做",
         "todo": "当前待办",
+        "owner": "负责人",
         "completionConclusion": "完成结论",
         "completionState": "完成状态",
         "nextRunAt": "下次触发",

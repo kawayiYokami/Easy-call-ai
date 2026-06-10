@@ -166,6 +166,7 @@ async fn builtin_task(
     app_state: &AppState,
     session_id: &str,
     model_config_id: &str,
+    executor_department_id: &str,
     executor_agent_id: &str,
     args: TaskToolArgsWire,
 ) -> Result<Value, String> {
@@ -191,6 +192,8 @@ async fn builtin_task(
             runtime_context.request_id = Some(format!("task-create-{}", Uuid::new_v4()));
             runtime_context.origin_conversation_id = bound_conversation_id.clone();
             runtime_context.root_conversation_id = bound_conversation_id.clone();
+            runtime_context.executor_department_id =
+                runtime_context_trimmed(Some(executor_department_id));
             runtime_context.executor_agent_id = runtime_context_trimmed(Some(executor_agent_id));
             runtime_context.model_config_id = runtime_context_trimmed(Some(model_config_id));
             let target_scope = task_tool_target_scope_from_conversation(
@@ -200,6 +203,8 @@ async fn builtin_task(
             let create_input = TaskCreateInput {
                 goal: task_tool_goal_from_args(&args).unwrap_or_default(),
                 conversation_id: bound_conversation_id,
+                department_id: runtime_context_trimmed(Some(executor_department_id)),
+                agent_id: runtime_context_trimmed(Some(executor_agent_id)),
                 target_scope,
                 why: task_tool_why_from_args(&args).unwrap_or_default(),
                 todo: task_tool_how_from_args(&args).unwrap_or_default(),

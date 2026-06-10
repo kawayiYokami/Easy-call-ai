@@ -163,6 +163,7 @@ fn build_global_tool_schema_cache(state: &AppState) -> Vec<ProviderToolDefinitio
             app_state: state.clone(),
             session_id: preview_session_id.clone(),
             api_config_id: String::new(),
+            executor_department_id: String::new(),
             executor_agent_id: preview_agent_id.clone(),
         }
         .provider_tool_definition(),
@@ -354,6 +355,11 @@ fn push_runtime_tool_executors(
         app_state: state.clone(),
         session_id: tool_session_id.to_string(),
         api_config_id: api_config_id.to_string(),
+        executor_department_id: executor_department_id
+            .map(str::trim)
+            .filter(|department_id| !department_id.is_empty())
+            .unwrap_or_default()
+            .to_string(),
         executor_agent_id: agent.id.trim().to_string(),
     }));
     if enable_delegate {

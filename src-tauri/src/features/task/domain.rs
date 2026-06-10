@@ -7,6 +7,7 @@ const TASK_MAX_BOARD_ITEMS: usize = 4;
 const TASK_TARGET_SCOPE_DESKTOP: &str = "desktop";
 const TASK_TARGET_SCOPE_CONTACT: &str = "contact";
 const TASK_BOUND_CONVERSATION_MISSING_CONCLUSION: &str = "绑定会话不存在，任务已终止。";
+const TASK_BOUND_OWNER_UNAVAILABLE_CONCLUSION: &str = "任务负责人不可用，任务已终止。";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct TaskTriggerInputLocal {
@@ -75,6 +76,10 @@ struct TaskEntry {
     task_id: String,
     #[serde(default)]
     conversation_id: Option<String>,
+    #[serde(default)]
+    department_id: Option<String>,
+    #[serde(default)]
+    agent_id: Option<String>,
     order_index: i64,
     goal: String,
     why: String,
@@ -96,6 +101,8 @@ struct TaskEntry {
 struct TaskRecordStored {
     task_id: String,
     conversation_id: Option<String>,
+    department_id: Option<String>,
+    agent_id: Option<String>,
     target_scope: String,
     order_index: i64,
     title: String,
@@ -157,6 +164,10 @@ struct TaskCreateInput {
     #[serde(default)]
     conversation_id: Option<String>,
     #[serde(default)]
+    department_id: Option<String>,
+    #[serde(default)]
+    agent_id: Option<String>,
+    #[serde(default)]
     target_scope: Option<String>,
     #[serde(default)]
     why: String,
@@ -171,6 +182,10 @@ struct TaskUpdateInput {
     task_id: String,
     #[serde(default)]
     conversation_id: Option<String>,
+    #[serde(default)]
+    department_id: Option<String>,
+    #[serde(default)]
+    agent_id: Option<String>,
     #[serde(default)]
     target_scope: Option<String>,
     #[serde(default)]
@@ -856,6 +871,8 @@ fn task_entry_view_from_stored(record: &TaskRecordStored) -> TaskEntry {
         conversation_id: Some(task_normalize_bound_conversation_id(
             record.conversation_id.as_deref(),
         )),
+        department_id: record.department_id.clone(),
+        agent_id: record.agent_id.clone(),
         order_index: record.order_index,
         goal: task_goal_from_legacy_fields(&record.title, &record.goal),
         why: task_why_from_legacy_record(record),

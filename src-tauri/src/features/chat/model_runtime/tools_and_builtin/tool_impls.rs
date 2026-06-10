@@ -517,6 +517,7 @@ struct BuiltinTaskTool {
     app_state: AppState,
     session_id: String,
     api_config_id: String,
+    executor_department_id: String,
     executor_agent_id: String,
 }
 
@@ -655,6 +656,7 @@ impl RuntimeJsonTool for BuiltinTaskTool {
             &self.app_state,
             &self.session_id,
             &self.api_config_id,
+            &self.executor_department_id,
             &self.executor_agent_id,
             args,
         )

@@ -413,6 +413,7 @@ type RemoteImContactConversationSummary = {
   channelName?: string;
   contactDisplayName: string;
   boundDepartmentId?: string;
+  boundAgentId?: string;
   processingMode?: string;
   previewMessages?: ConversationSummary["previewMessages"];
 };
@@ -515,6 +516,7 @@ type SidebarAssistantDeltaPayload = {
 type CreateConversationOptionsResult = {
   departments: SidebarCreateDepartmentOption[];
   defaultDepartmentId: string;
+  defaultAgentId?: string;
 };
 
 type DiscoveryPayload = {
@@ -975,7 +977,7 @@ async function loadCreateConversationOptions() {
   const result = await transport.request<CreateConversationOptionsResult>("conversation.createOptions", {});
   createConversationDepartmentOptions.value = Array.isArray(result.departments) ? result.departments : [];
   defaultCreateConversationDepartmentId.value = String(result.defaultDepartmentId || "").trim()
-    || createConversationDepartmentOptions.value[0]?.id
+    || createConversationDepartmentOptions.value[0]?.departmentId
     || "";
 }
 
@@ -1028,7 +1030,7 @@ function resolveRemoteConversationDepartmentName(boundDepartmentId?: string): st
   const normalizedDepartmentId = String(boundDepartmentId || "").trim();
   if (!normalizedDepartmentId) return "主部门";
   return createConversationDepartmentOptions.value.find((item) =>
-    String(item.id || "").trim() === normalizedDepartmentId
+    String(item.departmentId || item.id || "").trim() === normalizedDepartmentId
   )?.name || normalizedDepartmentId;
 }
 
@@ -1361,15 +1363,17 @@ function closeCreateConversationDialog() {
   createConversationErrorText.value = "";
 }
 
-async function createConversation(input: { title?: string; departmentId: string }) {
+async function createConversation(input: { title?: string; departmentId: string; agentId: string }) {
   const departmentId = String(input.departmentId || "").trim();
-  if (!departmentId || creatingConversation.value) return;
+  const agentId = String(input.agentId || "").trim();
+  if (!departmentId || !agentId || creatingConversation.value) return;
   creatingConversation.value = true;
   createConversationErrorText.value = "";
   try {
     const result = await transport.request<{ conversationId: string; conversation?: OpenConversationResult }>("conversation.create", {
       title: input.title,
       departmentId,
+      agentId,
     });
     await refreshList();
     await openConversation(result.conversationId);
@@ -1381,10 +1385,11 @@ async function createConversation(input: { title?: string; departmentId: string 
   }
 }
 
-function handleCreateConversationRequest(input?: { title?: string; departmentId?: string; copyCurrent?: boolean; importPath?: string; shellWorkspaces?: ShellWorkspace[]; shellAutonomousMode?: boolean }) {
+function handleCreateConversationRequest(input?: { title?: string; departmentId?: string; agentId?: string; copyCurrent?: boolean; importPath?: string; shellWorkspaces?: ShellWorkspace[]; shellAutonomousMode?: boolean }) {
   const departmentId = String(input?.departmentId || "").trim();
-  if (departmentId) {
-    void createConversation({ title: input?.title, departmentId });
+  const agentId = String(input?.agentId || "").trim();
+  if (departmentId && agentId) {
+    void createConversation({ title: input?.title, departmentId, agentId });
     return;
   }
   void openCreateConversationDialog();
@@ -1555,17 +1560,19 @@ async function branchConversationFromSelection(payload: { count: number; message
   }
 }
 
-async function delegateFromSelection(payload: { count: number; messageIds: string[]; departmentId: string; presetId: string; background: string; question: string; focus: string }) {
+async function delegateFromSelection(payload: { count: number; messageIds: string[]; departmentId: string; agentId: string; presetId: string; background: string; question: string; focus: string }) {
   const selectedMessageIds = Array.isArray(payload?.messageIds)
     ? payload.messageIds.map((item) => String(item || "").trim()).filter((item, index, array) => !!item && array.indexOf(item) === index)
     : [];
   const targetDepartmentId = String(payload.departmentId || "").trim();
+  const targetAgentId = String(payload.agentId || "").trim();
   const question = String(payload.question || "").trim();
-  if (!activeConversationId.value || !targetDepartmentId || !question) return;
+  if (!activeConversationId.value || !targetDepartmentId || !targetAgentId || !question) return;
   try {
     await transport.request("delegate.submit", {
       conversationId: activeConversationId.value,
       targetDepartmentId,
+      targetAgentId,
       presetId: String(payload.presetId || "review").trim() || "review",
       background: String(payload.background || "").trim(),
       question,

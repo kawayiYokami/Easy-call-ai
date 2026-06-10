@@ -108,6 +108,7 @@ import { computed } from "vue";
 import { ChevronLeft, FileSearch, RefreshCcw, Settings, SquarePen } from "@lucide/vue";
 import AppWindowHeader from "../../shell/components/AppWindowHeader.vue";
 import type { ChatConversationOverviewItem, ShellWorkspace } from "../../../types/app";
+import type { DepartmentPersonaOption } from "../../shared/department-persona-options";
 
 const props = defineProps<{
   view: "list" | "chat";
@@ -131,7 +132,7 @@ const props = defineProps<{
   userAvatarUrl?: string;
   personaNameMap?: Record<string, string>;
   personaAvatarUrlMap?: Record<string, string>;
-  createConversationDepartmentOptions?: Array<{ id: string; name: string; ownerAgentId?: string; ownerName: string; providerName?: string; modelName?: string }>;
+  createConversationDepartmentOptions?: DepartmentPersonaOption[];
   defaultCreateConversationDepartmentId?: string;
 }>();
 
@@ -159,7 +160,7 @@ defineEmits<{
   updateConversationListTab: [value: "local" | "contact" | "task"];
   updateChatLeftPanelMode: [value: "local" | "contact" | "task"];
   updateChatRightPanelMode: [value: "reader" | "review" | "delegate"];
-  createConversation: [input?: { title?: string; departmentId?: string; copyCurrent?: boolean; importPath?: string; shellWorkspaces?: ShellWorkspace[]; shellAutonomousMode?: boolean }];
+  createConversation: [input?: { title?: string; departmentId?: string; agentId?: string; copyCurrent?: boolean; importPath?: string; shellWorkspaces?: ShellWorkspace[]; shellAutonomousMode?: boolean }];
   directoryPickRestricted: [];
 }>();
 </script>

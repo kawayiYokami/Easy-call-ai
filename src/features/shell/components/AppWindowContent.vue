@@ -394,6 +394,7 @@ import type {
   UnarchivedConversationSummary,
 } from "../../../types/app";
 import type { GeneratedThemeControls, GeneratedThemeTokens } from "../../shell/theme/theme-types";
+import type { DepartmentPersonaOption } from "../../shared/department-persona-options";
 import {
   buildShareExportFileName,
   buildShareHtmlDocument,
@@ -549,7 +550,7 @@ const props = defineProps<{
   }>;
   chatUnarchivedConversationItems: ChatConversationOverviewItem[];
   chatConversationItems?: ChatConversationOverviewItem[];
-  createConversationDepartmentOptions: Array<{ id: string; name: string; ownerAgentId?: string; ownerName: string; providerName?: string; modelName?: string }>;
+  createConversationDepartmentOptions: DepartmentPersonaOption[];
   defaultCreateConversationDepartmentId: string;
   archives: ArchiveSummary[];
   selectedArchiveId: string;
@@ -681,10 +682,10 @@ const props = defineProps<{
   onToggleConversationPin: (conversationId: string) => void;
   onArchiveConversation: (conversationId: string) => void;
   onDeleteConversation: (conversationId: string) => void;
-  onCreateConversation: (input?: { title?: string; departmentId?: string; copyCurrent?: boolean; importPath?: string; shellWorkspaces?: ShellWorkspace[]; shellAutonomousMode?: boolean }) => void;
+  onCreateConversation: (input?: { title?: string; departmentId?: string; agentId?: string; copyCurrent?: boolean; importPath?: string; shellWorkspaces?: ShellWorkspace[]; shellAutonomousMode?: boolean }) => void;
   onBranchConversationFromSelection: (payload: { count: number; messageIds: string[] }) => void;
   onForwardConversationFromSelection: (payload: { count: number; messageIds: string[]; targetConversationId: string }) => void;
-  onUserAsyncDelegateFromSelection: (payload: { count: number; messageIds: string[]; departmentId: string; presetId: string; background: string; question: string; focus: string }) => Promise<boolean> | boolean;
+  onUserAsyncDelegateFromSelection: (payload: { count: number; messageIds: string[]; departmentId: string; agentId: string; presetId: string; background: string; question: string; focus: string }) => Promise<boolean> | boolean;
   loadArchives: () => void;
   selectArchive: (id: string) => void;
   selectArchiveBlock: (blockId?: number | null) => void;
@@ -765,6 +766,7 @@ async function handleUserAsyncDelegateFromSelection(payload: {
   count: number;
   messageIds: string[];
   departmentId: string;
+  agentId: string;
   presetId: string;
   background: string;
   question: string;

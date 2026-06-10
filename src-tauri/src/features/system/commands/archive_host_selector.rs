@@ -17,33 +17,28 @@ fn resolve_archive_owner_agent_id(
             source.id, department_id
         )
     })?;
-    let owner_agent_ids = department
-        .agent_ids
-        .iter()
-        .map(|id| id.trim())
-        .filter(|id| !id.is_empty())
-        .collect::<Vec<_>>();
-    if owner_agent_ids.len() != 1 {
-        return Err(format!(
-            "归档记忆归属部门必须且只能绑定一个人格: conversation_id={}, department_id={}, agent_count={}",
-            source.id,
-            department_id,
-            owner_agent_ids.len()
-        ));
-    }
 
-    let owner_agent_id = owner_agent_ids[0];
-    if !agents
-        .iter()
-        .any(|agent| !agent.is_built_in_user && agent.id == owner_agent_id)
-    {
-        return Err(format!(
-            "归档记忆归属人格不存在: conversation_id={}, department_id={}, agent_id={}",
-            source.id, department_id, owner_agent_id
-        ));
-    }
+    let owner_agent_id = source.agent_id.trim();
+    let owner_agent_id = if owner_agent_id.is_empty() {
+        first_available_department_agent(department, agents)
+            .map(|agent| agent.id.clone())
+            .ok_or_else(|| {
+                format!(
+                    "会话归属部门没有可用人格，无法确定归档记忆归属人格: conversation_id={}, department_id={}",
+                    source.id, department_id
+                )
+            })?
+    } else {
+        if available_non_user_agent(agents, owner_agent_id).is_none() {
+            return Err(format!(
+                "归档记忆归属人格不存在: conversation_id={}, department_id={}, agent_id={}",
+                source.id, department_id, owner_agent_id
+            ));
+        }
+        owner_agent_id.to_string()
+    };
 
-    Ok(owner_agent_id.to_string())
+    Ok(owner_agent_id)
 }
 
 #[cfg(test)]
@@ -145,9 +140,9 @@ mod archive_host_selection_tests {
     }
 
     #[test]
-    fn archive_owner_should_come_only_from_conversation_department() {
+    fn archive_owner_should_come_from_conversation_agent() {
         let config = AppConfig {
-            departments: vec![mk_department("dept-main", vec!["owner-agent"])],
+            departments: vec![mk_department("dept-main", vec!["owner-agent", "message-agent"])],
             ..AppConfig::default()
         };
         let agents = vec![mk_agent("owner-agent"), mk_agent("message-agent")];
@@ -162,7 +157,7 @@ mod archive_host_selection_tests {
 
         let owner = resolve_archive_owner_agent_id(&config, &agents, &source).unwrap();
 
-        assert_eq!(owner, "owner-agent");
+        assert_eq!(owner, "message-agent");
     }
 
     #[test]
@@ -177,19 +172,17 @@ mod archive_host_selection_tests {
     }
 
     #[test]
-    fn archive_owner_should_reject_department_without_single_agent() {
+    fn archive_owner_should_use_department_first_agent_when_conversation_agent_missing() {
         let agents = vec![mk_agent("a1"), mk_agent("a2")];
-        for agent_ids in [Vec::<&str>::new(), vec!["a1", "a2"]] {
-            let config = AppConfig {
-                departments: vec![mk_department("dept-main", agent_ids)],
-                ..AppConfig::default()
-            };
-            let source = mk_source("dept-main", "a1", Vec::new());
+        let config = AppConfig {
+            departments: vec![mk_department("dept-main", vec!["a1", "a2"])],
+            ..AppConfig::default()
+        };
+        let source = mk_source("dept-main", "", Vec::new());
 
-            let err = resolve_archive_owner_agent_id(&config, &agents, &source).unwrap_err();
+        let owner = resolve_archive_owner_agent_id(&config, &agents, &source).unwrap();
 
-            assert!(err.contains("必须且只能绑定一个人格"));
-        }
+        assert_eq!(owner, "a1");
     }
 
     #[test]

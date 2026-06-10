@@ -80,28 +80,6 @@ fn task_resolve_dispatch_session(
     state: &AppState,
     task: &TaskRecordStored,
 ) -> Result<Option<TaskDispatchSessionResolved>, String> {
-    let runtime_snapshot = load_runtime_organization_snapshot(state)?;
-    let app_config = runtime_snapshot.config.clone();
-    let agents = runtime_snapshot.agents.clone();
-    let selected_api = resolve_selected_api_config(&app_config, None)
-        .ok_or_else(|| "No API config configured for task dispatch.".to_string())?;
-    let runtime = state_read_runtime_state_cached(state)?;
-    let agent_id = if agents
-        .iter()
-        .any(|a| a.id == runtime.assistant_department_agent_id && !a.is_built_in_user && !a.is_built_in_system)
-    {
-        runtime.assistant_department_agent_id.clone()
-    } else {
-        agents
-            .iter()
-            .find(|a| !a.is_built_in_user && !a.is_built_in_system)
-            .map(|a| a.id.clone())
-            .ok_or_else(|| "No assistant agent configured for task dispatch.".to_string())?
-    };
-    let department_id = runtime_department_for_agent(&runtime_snapshot, &agent_id)
-        .or_else(|| runtime_department_by_id(&runtime_snapshot, ASSISTANT_DEPARTMENT_ID))
-        .map(|item| item.id.clone())
-        .unwrap_or_else(|| ASSISTANT_DEPARTMENT_ID.to_string());
     let requested_conversation_id = task
         .conversation_id
         .as_deref()
@@ -111,8 +89,40 @@ fn task_resolve_dispatch_session(
     let Some(resolved) = resolved else {
         return Ok(None);
     };
+    let existing_department_id = task
+        .department_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
+    let existing_agent_id = task
+        .agent_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
+    let (department_id, agent_id) = if let Some(department_id) = existing_department_id {
+        task_resolve_stored_department_agent_for_dispatch(state, department_id, existing_agent_id)?
+    } else if let Some(agent_id) = existing_agent_id {
+        let runtime_snapshot = load_runtime_organization_snapshot(state)?;
+        let department = runtime_department_for_agent(&runtime_snapshot, agent_id)
+            .ok_or_else(|| format!("任务绑定人格缺少所属部门：agentId={agent_id}"))?;
+        task_validate_department_agent_for_write(state, &department.id, agent_id)?
+    } else if resolved.system_task {
+        task_default_department_agent_for_write(state)?
+    } else if let Some(pair) =
+        task_department_agent_from_conversation_for_write(state, &resolved.conversation_id)?
+    {
+        pair
+    } else {
+        task_default_department_agent_for_write(state)?
+    };
+    let runtime_snapshot = load_runtime_organization_snapshot(state)?;
+    let app_config = runtime_snapshot.config.clone();
+    let department = runtime_department_by_id(&runtime_snapshot, &department_id)
+        .ok_or_else(|| format!("任务绑定部门不存在：{department_id}"))?;
+    let model_config_id = department_primary_chat_api_config_id(&app_config, department)
+        .ok_or_else(|| format!("任务绑定部门没有可用模型：{department_id}"))?;
     Ok(Some(TaskDispatchSessionResolved {
-        model_config_id: selected_api.id.clone(),
+        model_config_id,
         department_id,
         agent_id,
         conversation_id: resolved.conversation_id,
@@ -253,6 +263,31 @@ fn task_fail_missing_bound_conversation(
             "[任务调度] 失败，任务=绑定会话丢失，task_id={}，conversation_id={}",
             task.task_id,
             conversation_id
+        ));
+    }
+    Ok(())
+}
+
+fn task_fail_unavailable_owner(
+    state: &AppState,
+    task: &TaskRecordStored,
+    reason: &str,
+) -> Result<(), String> {
+    let changed = task_store_fail_active_task(
+        &state.data_path,
+        &task.task_id,
+        TASK_BOUND_OWNER_UNAVAILABLE_CONCLUSION,
+        &format!(
+            "任务负责人不可用，任务已失败，taskId={}，reason={}",
+            task.task_id,
+            reason.trim()
+        ),
+    )?;
+    if changed {
+        runtime_log_info(format!(
+            "[任务调度] 失败，任务=负责人不可用，task_id={}，reason={}",
+            task.task_id,
+            reason.trim()
         ));
     }
     Ok(())
@@ -407,58 +442,6 @@ fn build_task_trigger_provider_meta(task: &TaskRecordStored) -> Value {
     })
 }
 
-fn task_system_delegate_title(task: &TaskRecordStored) -> String {
-    let goal = task_goal_from_legacy_fields(&task.title, &task.goal);
-    let compact = goal.trim().chars().take(32).collect::<String>();
-    if compact.trim().is_empty() {
-        format!("系统任务：{}", task.task_id.trim())
-    } else {
-        format!("系统任务：{}", compact)
-    }
-}
-
-fn build_system_task_delegate_instruction(task: &TaskRecordStored) -> String {
-    format!(
-        "{}\n\n这是系统任务，请在独立委托线程中完成，不要读取 `P-ai系统` 会话正文作为上下文。完成后直接汇报结果。",
-        build_task_trigger_hidden_prompt(task),
-    )
-}
-
-fn task_dispatch_system_delegate(
-    state: &AppState,
-    task: &TaskRecordStored,
-    session: &TaskDispatchSessionResolved,
-) -> Result<String, String> {
-    task_ensure_system_notification_conversation(state)?;
-    let title = task_system_delegate_title(task);
-    let instruction = build_system_task_delegate_instruction(task);
-    let delegate = delegate_create_record(
-        state,
-        DELEGATE_TOOL_KIND_TASK,
-        SYSTEM_NOTIFICATION_CONVERSATION_ID,
-        None,
-        &session.department_id,
-        &session.department_id,
-        &session.agent_id,
-        &session.agent_id,
-        &title,
-        &instruction,
-        String::new(),
-        "完成系统任务，并直接汇报结果。".to_string(),
-        "请直接汇报完成结果或失败原因。".to_string(),
-        false,
-        vec![session.department_id.clone()],
-    )?;
-    let delegate_id = delegate.delegate_id.clone();
-    spawn_delegate_task(
-        state.clone(),
-        delegate,
-        SYSTEM_NOTIFICATION_CONVERSATION_ID.to_string(),
-        vec![session.model_config_id.clone()],
-    );
-    Ok(delegate_id)
-}
-
 async fn task_dispatch_due_task(
     state: &AppState,
     task: &TaskRecordStored,
@@ -466,32 +449,6 @@ async fn task_dispatch_due_task(
 ) -> Result<(), String> {
     let started_at = std::time::Instant::now();
     task_complete_one_time_dispatch_if_needed(state, task)?;
-    if session.system_task {
-        let request_id = format!("task-dispatch-{}", Uuid::new_v4());
-        let delegate_id = task_dispatch_system_delegate(state, task, session)?;
-        task_mark_dispatch_sent(state, task)?;
-        let duration_ms = started_at.elapsed().as_millis();
-        let task_goal = task_goal_from_legacy_fields(&task.title, &task.goal);
-        task_store_insert_run_log(
-            &state.data_path,
-            &task.task_id,
-            "sent",
-            &format!(
-                "系统任务已发起独立委托，requestId={}，delegateId={}，goal={}，conversationId={}，trigger={}，todoCount={}，hasRunAt={}，cronExpression={}，durationMs={}，targetScope={}，systemTask=true",
-                request_id,
-                delegate_id,
-                task_goal.trim(),
-                SYSTEM_NOTIFICATION_CONVERSATION_ID,
-                task_trigger_label(task),
-                task_dispatch_todo_count(task),
-                task.trigger.run_at_utc.is_some(),
-                task.trigger.cron_expression.as_deref().unwrap_or(""),
-                duration_ms,
-                session.target_scope
-            ),
-        )?;
-        return Ok(());
-    }
 
     if let Some(requested) = task
         .conversation_id
@@ -574,7 +531,7 @@ async fn task_dispatch_due_task(
                 &task.task_id,
                 "sent",
                 &format!(
-                    "{}，requestId={}，dispatchId={}，goal={}，conversationId={}，trigger={}，todoCount={}，hasRunAt={}，cronExpression={}，durationMs={}，targetScope={}，systemTask=false",
+                    "{}，requestId={}，dispatchId={}，goal={}，conversationId={}，trigger={}，todoCount={}，hasRunAt={}，cronExpression={}，durationMs={}，targetScope={}，systemTask={}",
                     "任务已发送",
                     request_id,
                     event_id,
@@ -585,7 +542,8 @@ async fn task_dispatch_due_task(
                     task.trigger.run_at_utc.is_some(),
                     task.trigger.cron_expression.as_deref().unwrap_or(""),
                     duration_ms,
-                    session.target_scope
+                    session.target_scope,
+                    session.system_task
                 ),
             )?;
             Ok(())
@@ -643,23 +601,28 @@ fn task_build_dispatch_candidates(
     let mut used_conversation_ids = std::collections::HashSet::<String>::new();
     let mut candidates = Vec::<TaskDispatchCandidate>::new();
     for task in due_tasks {
-        let Some(session) = task_resolve_dispatch_session(state, &task)? else {
-            task_fail_missing_bound_conversation(state, &task)?;
-            continue;
+        let session = match task_resolve_dispatch_session(state, &task) {
+            Ok(Some(session)) => session,
+            Ok(None) => {
+                task_fail_missing_bound_conversation(state, &task)?;
+                continue;
+            }
+            Err(err) => {
+                task_fail_unavailable_owner(state, &task, &err)?;
+                continue;
+            }
         };
-        if !session.system_task {
-            if let Some(reason) = task_dispatch_block_reason(state, &session.conversation_id)? {
-                let context = task_skip_context_for_candidate_filter(&task, &session);
-                task_mark_dispatch_skipped(state, &task, reason, &context)?;
-                continue;
-            }
-            if task_conversation_last_message_is_system_persona(state, &session.conversation_id)? {
-                let context = task_skip_context_for_candidate_filter(&task, &session);
-                task_mark_dispatch_skipped(state, &task, "last_message_is_task_trigger", &context)?;
-                continue;
-            }
+        if let Some(reason) = task_dispatch_block_reason(state, &session.conversation_id)? {
+            let context = task_skip_context_for_candidate_filter(&task, &session);
+            task_mark_dispatch_skipped(state, &task, reason, &context)?;
+            continue;
         }
-        if !session.system_task && !used_conversation_ids.insert(session.conversation_id.clone()) {
+        if task_conversation_last_message_is_system_persona(state, &session.conversation_id)? {
+            let context = task_skip_context_for_candidate_filter(&task, &session);
+            task_mark_dispatch_skipped(state, &task, "last_message_is_task_trigger", &context)?;
+            continue;
+        }
+        if !used_conversation_ids.insert(session.conversation_id.clone()) {
             let context = task_skip_context_for_candidate_filter(&task, &session);
             task_mark_dispatch_skipped(state, &task, "same_conversation_already_selected", &context)?;
             continue;

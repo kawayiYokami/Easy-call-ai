@@ -331,18 +331,12 @@
             </div>
           </div>
         </div>
-        <select
-          v-model="createConversationDepartmentId"
-          class="select select-bordered w-full"
-        >
-          <option
-            v-for="department in createConversationDepartmentOptions"
-            :key="department.id"
-            :value="department.id"
-          >
-            {{ departmentOptionLabel(department) }}
-          </option>
-        </select>
+        <DepartmentPersonaSelect
+          v-model:department-id="createConversationDepartmentId"
+          v-model:agent-id="createConversationAgentId"
+          :options="createConversationDepartmentOptions"
+          auto-select-first
+        />
         <div class="grid grid-cols-[minmax(0,1fr)_5rem] gap-2">
           <div class="join min-w-0">
             <select
@@ -471,6 +465,8 @@ import { buildWorkspaceConversationSections } from "../../chat/utils/conversatio
 import { resolveConversationDisplayTitle } from "../../chat/utils/conversation-title";
 import { AppMarkdownRenderer, initKatex } from "../../chat/markdown";
 import type { ConfigSearchResult, ConfigSearchTab } from "../../config/search/config-search";
+import DepartmentPersonaSelect from "../../shared/components/DepartmentPersonaSelect.vue";
+import type { DepartmentPersonaOption } from "../../shared/department-persona-options";
 import { isDarkAppTheme } from "../composables/use-app-theme";
 import { usePipelineStatus } from "../composables/use-pipeline-status";
 
@@ -479,18 +475,12 @@ initKatex();
 const RING_RADIUS = 14;
 const RING_CIRCUMFERENCE = 2 * Math.PI * RING_RADIUS;
 
-type ConversationDepartmentOption = {
-  id: string;
-  name: string;
-  ownerAgentId?: string;
-  ownerName: string;
-  providerName?: string;
-  modelName?: string;
-};
+type ConversationDepartmentOption = DepartmentPersonaOption;
 
 type CreateConversationInput = {
   title?: string;
   departmentId?: string;
+  agentId?: string;
   copyCurrent?: boolean;
   importPath?: string;
   shellWorkspaces?: ShellWorkspace[];
@@ -664,7 +654,7 @@ const currentConversationDepartmentName = computed(() => {
   const departmentId = String(props.currentDepartmentId || "").trim();
   if (departmentId) {
     const department = props.createConversationDepartmentOptions.find(
-      (item) => String(item.id || "").trim() === departmentId,
+      (item) => String(item.departmentId || item.id || "").trim() === departmentId,
     );
     const departmentName = String(department?.name || "").trim();
     if (departmentName) return departmentName;
@@ -702,6 +692,7 @@ const recentConversationTopics = ref<string[]>([]);
 const createConversationDialogOpen = ref(false);
 const createConversationTitle = ref("");
 const createConversationDepartmentId = ref("");
+const createConversationAgentId = ref("");
 const createConversationCopyCurrent = ref(false);
 const createConversationTopicSuggestionsOpen = ref(false);
 const suppressNextCreateConversationTopicFocus = ref(false);
@@ -949,10 +940,12 @@ function handleCreateConversation() {
   const activeConversation = props.conversationItems.find(
     (item) => String(item.conversationId || "").trim() === String(props.activeConversationId || "").trim(),
   );
-  createConversationDepartmentId.value =
-    String(activeConversation?.departmentId || "").trim()
-    || String(props.defaultCreateConversationDepartmentId || "").trim()
-    || String(props.createConversationDepartmentOptions[0]?.id || "").trim();
+  const option = resolveCreateConversationOption(
+    String(activeConversation?.departmentId || "").trim() || String(props.defaultCreateConversationDepartmentId || "").trim(),
+    String(activeConversation?.agentId || "").trim(),
+  );
+  createConversationDepartmentId.value = option?.departmentId || "";
+  createConversationAgentId.value = option?.agentId || "";
   createConversationCopyCurrent.value = false;
   createConversationTopicSuggestionsOpen.value = false;
   suppressNextCreateConversationTopicFocus.value = true;
@@ -1019,6 +1012,7 @@ function closeCreateConversationDialog() {
   createConversationDialogOpen.value = false;
   createConversationTitle.value = "";
   createConversationDepartmentId.value = "";
+  createConversationAgentId.value = "";
   createConversationCopyCurrent.value = false;
   createConversationTopicSuggestionsOpen.value = false;
   resetCreateConversationWorkspace();
@@ -1039,15 +1033,26 @@ function handleCreateConversationTopicFocus() {
   createConversationTopicSuggestionsOpen.value = true;
 }
 
-function departmentOptionLabel(department: ConversationDepartmentOption): string {
-  const departmentName = String(department.name || "").trim();
-  const ownerName = String(department.ownerName || "").trim();
-  return ownerName ? `${departmentName} / ${ownerName}` : departmentName;
+function resolveCreateConversationOption(departmentId?: string, agentId?: string): ConversationDepartmentOption | null {
+  const did = String(departmentId || "").trim();
+  const aid = String(agentId || "").trim();
+  if (did && aid) {
+    const exact = props.createConversationDepartmentOptions.find(
+      (item) => item.departmentId === did && item.agentId === aid,
+    );
+    if (exact) return exact;
+  }
+  if (did) {
+    const byDepartment = props.createConversationDepartmentOptions.find((item) => item.departmentId === did);
+    if (byDepartment) return byDepartment;
+  }
+  return props.createConversationDepartmentOptions[0] || null;
 }
 
 function confirmCreateConversation() {
   const title = String(createConversationTitle.value || "").trim();
   const departmentId = String(createConversationDepartmentId.value || "").trim();
+  const agentId = String(createConversationAgentId.value || "").trim();
   const copyCurrent = !!createConversationCopyCurrent.value;
   if (title) {
     pushRecentConversationTopic(title);
@@ -1055,6 +1060,7 @@ function confirmCreateConversation() {
   createConversationDialogOpen.value = false;
   createConversationTitle.value = "";
   createConversationDepartmentId.value = "";
+  createConversationAgentId.value = "";
   createConversationCopyCurrent.value = false;
   createConversationTopicSuggestionsOpen.value = false;
   const shellWorkspaces = createConversationWorkspacePayload();
@@ -1063,6 +1069,7 @@ function confirmCreateConversation() {
   emit("create-conversation", {
     title,
     departmentId: departmentId || undefined,
+    agentId: agentId || undefined,
     copyCurrent,
     shellWorkspaces,
     shellAutonomousMode,
@@ -1083,12 +1090,14 @@ async function importConversationFromExternal() {
     if (!path) return;
     const title = String(createConversationTitle.value || "").trim();
     const departmentId = String(createConversationDepartmentId.value || "").trim();
+    const agentId = String(createConversationAgentId.value || "").trim();
     if (title) {
       pushRecentConversationTopic(title);
     }
     createConversationDialogOpen.value = false;
     createConversationTitle.value = "";
     createConversationDepartmentId.value = "";
+    createConversationAgentId.value = "";
     createConversationCopyCurrent.value = false;
     createConversationTopicSuggestionsOpen.value = false;
     const shellWorkspaces = createConversationWorkspacePayload();
@@ -1097,6 +1106,7 @@ async function importConversationFromExternal() {
     emit("create-conversation", {
       title,
       departmentId: departmentId || undefined,
+      agentId: agentId || undefined,
       copyCurrent: false,
       importPath: path,
       shellWorkspaces,

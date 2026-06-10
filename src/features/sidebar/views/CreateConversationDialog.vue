@@ -10,18 +10,19 @@
           placeholder="会话主题"
           @keydown.enter.prevent="confirm"
         />
-        <select v-model="localDepartmentId" class="select select-bordered w-full">
-          <option v-for="department in departments" :key="department.id" :value="department.id">
-            {{ departmentLabel(department) }}
-          </option>
-        </select>
+        <DepartmentPersonaSelect
+          v-model:department-id="localDepartmentId"
+          v-model:agent-id="localAgentId"
+          :options="departments"
+          auto-select-first
+        />
       </div>
       <div v-if="errorText" class="mt-3 rounded border border-error/30 bg-error/10 px-3 py-2 text-sm text-error">
         {{ errorText }}
       </div>
       <div class="modal-action">
         <button class="btn btn-sm" :disabled="creating" @click="emit('close')">取消</button>
-        <button class="btn btn-sm btn-primary" :disabled="creating || !localDepartmentId" @click="confirm">
+        <button class="btn btn-sm btn-primary" :disabled="creating || !localDepartmentId || !localAgentId" @click="confirm">
           <span v-if="creating" class="loading loading-spinner loading-xs"></span>
           <span>{{ creating ? "正在创建" : "创建" }}</span>
         </button>
@@ -35,16 +36,10 @@
 
 <script setup lang="ts">
 import { ref, watch } from "vue";
+import DepartmentPersonaSelect from "../../shared/components/DepartmentPersonaSelect.vue";
+import type { DepartmentPersonaOption } from "../../shared/department-persona-options";
 
-export type SidebarCreateDepartmentOption = {
-  id: string;
-  name: string;
-  ownerAgentId?: string;
-  ownerName: string;
-  providerName?: string;
-  modelName?: string;
-  childDepartmentIds?: string[];
-};
+export type SidebarCreateDepartmentOption = DepartmentPersonaOption;
 
 const props = defineProps<{
   open: boolean;
@@ -56,36 +51,35 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   close: [];
-  confirm: [input: { title?: string; departmentId: string }];
+  confirm: [input: { title?: string; departmentId: string; agentId: string }];
 }>();
 
 const localTitle = ref("");
 const localDepartmentId = ref("");
+const localAgentId = ref("");
 
 watch(
   () => [props.open, props.defaultDepartmentId, props.departments.map((item) => item.id).join("|")] as const,
   ([open]) => {
     if (!open) return;
     localTitle.value = "";
-    localDepartmentId.value = props.defaultDepartmentId || props.departments[0]?.id || "";
+    const option = props.departments.find((item) =>
+      String(item.departmentId || "").trim() === String(props.defaultDepartmentId || "").trim()
+    ) || props.departments[0];
+    localDepartmentId.value = String(option?.departmentId || props.defaultDepartmentId || "").trim();
+    localAgentId.value = String(option?.agentId || "").trim();
   },
   { immediate: true },
 );
 
-function departmentLabel(department: SidebarCreateDepartmentOption): string {
-  const name = String(department.name || "").trim() || department.id;
-  const owner = String(department.ownerName || "").trim();
-  const model = String(department.modelName || "").trim();
-  const suffix = [owner, model].filter(Boolean).join(" / ");
-  return suffix ? `${name} / ${suffix}` : name;
-}
-
 function confirm() {
   const departmentId = String(localDepartmentId.value || "").trim();
-  if (!departmentId) return;
+  const agentId = String(localAgentId.value || "").trim();
+  if (!departmentId || !agentId) return;
   emit("confirm", {
     title: String(localTitle.value || "").trim() || undefined,
     departmentId,
+    agentId,
   });
 }
 </script>

@@ -1719,6 +1719,22 @@ async fn submit_tool_review_code_internal(
     } else {
         conversation.department_id.trim().to_string()
     };
+    let runtime_snapshot = load_runtime_organization_snapshot(&app_state)?;
+    let target_department = runtime_department_by_id(&runtime_snapshot, &target_department_id)
+        .ok_or_else(|| format!("代码审查目标部门不存在，departmentId={target_department_id}"))?;
+    let target_agent_id = target_department
+        .agent_ids
+        .iter()
+        .map(|item| item.trim())
+        .find(|agent_id| {
+            !agent_id.is_empty()
+                && runtime_snapshot
+                    .agents
+                    .iter()
+                    .any(|agent| agent.id == *agent_id && !agent.is_built_in_user)
+        })
+        .map(ToOwned::to_owned)
+        .ok_or_else(|| format!("代码审查目标部门没有可用人格，departmentId={target_department_id}"))?;
     let pending_report = tool_review_create_pending_report(
         &app_state.data_path,
         conversation_id,
@@ -1747,6 +1763,7 @@ async fn submit_tool_review_code_internal(
     let source_agent_id_owned = source_agent_id.clone();
     let source_department_id_owned = source_department_id.clone();
     let target_department_id_owned = target_department_id.clone();
+    let target_agent_id_owned = target_agent_id.clone();
     tauri::async_runtime::spawn(async move {
         runtime_log_info(format!(
             "[工具审查][后端] 开始代码审查子任务 conversation_id={} scope={} report_id={} target={}",
@@ -1784,6 +1801,7 @@ async fn submit_tool_review_code_internal(
         );
         let delegate_args = DelegateToolArgs {
             department_id: target_department_id_owned.clone(),
+            target_agent_id: Some(target_agent_id_owned.clone()),
             mode: Some("sync".to_string()),
             background: tool_review_delegate_background(&scope_owned, target_owned.as_deref()),
             question: instruction,

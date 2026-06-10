@@ -620,52 +620,69 @@ fn ide_chat_workspace_layout_save(state: &AppState, params: Value) -> Result<Val
 }
 
 fn ide_chat_create_conversation_options(state: &AppState) -> Result<Value, String> {
-    let config = state_read_config_cached(state)?;
-    let agents = state_read_agents_cached(state)?;
+    let runtime_org = load_runtime_organization_snapshot(state)?;
+    let config = runtime_org.config;
+    let agents = runtime_org.agents;
     let options = config
         .departments
         .iter()
-        .filter_map(|department| {
+        .flat_map(|department| {
             let department_id = department.id.trim();
             if department_id.is_empty() {
-                return None;
+                return Vec::new();
             }
-            let api_config_id = department_primary_chat_api_config_id(&config, department)?;
-            let api_config = config
+            let Some(api_config_id) = department_primary_chat_api_config_id(&config, department) else {
+                return Vec::new();
+            };
+            let Some(api_config) = config
                 .api_configs
                 .iter()
-                .find(|api| api.id.trim() == api_config_id && is_text_chat_api(api))?;
-            let owner_id = department
+                .find(|api| api.id.trim() == api_config_id && is_text_chat_api(api)) else {
+                    return Vec::new();
+                };
+            let department_name = if department.name.trim().is_empty() {
+                department_id
+            } else {
+                department.name.trim()
+            };
+            department
                 .agent_ids
-                .first()
-                .map(|value| value.trim())
-                .unwrap_or_default();
-            let owner_name = agents
                 .iter()
-                .find(|agent| agent.id.trim() == owner_id)
-                .map(|agent| agent.name.trim().to_string())
-                .filter(|value| !value.is_empty())
-                .unwrap_or_else(|| {
-                    if owner_id.is_empty() {
-                        "未设置负责人".to_string()
+                .map(|value| value.trim())
+                .filter(|agent_id| !agent_id.is_empty())
+                .filter_map(|agent_id| {
+                    let agent = agents
+                        .iter()
+                        .find(|agent| agent.id.trim() == agent_id && !agent.is_built_in_user)?;
+                    let agent_name = if agent.name.trim().is_empty() {
+                        agent_id
                     } else {
-                        owner_id.to_string()
-                    }
-                });
-            Some(serde_json::json!({
-                "id": department_id,
-                "name": if department.name.trim().is_empty() { department_id } else { department.name.trim() },
-                "ownerAgentId": owner_id,
-                "ownerName": owner_name,
-                "providerName": if api_config.name.trim().is_empty() { api_config.id.trim() } else { api_config.name.trim() },
-                "modelName": api_config.model.trim(),
-                "childDepartmentIds": &department.child_department_ids,
-            }))
+                        agent.name.trim()
+                    };
+                    Some(serde_json::json!({
+                        "id": format!("{department_id}::{agent_id}"),
+                        "departmentId": department_id,
+                        "agentId": agent_id,
+                        "departmentName": department_name,
+                        "agentName": agent_name,
+                        "label": format!("{department_name} / {agent_name}"),
+                        "name": department_name,
+                        "ownerAgentId": agent_id,
+                        "ownerName": agent_name,
+                        "providerName": if api_config.name.trim().is_empty() { api_config.id.trim() } else { api_config.name.trim() },
+                        "modelName": api_config.model.trim(),
+                        "apiConfigId": api_config_id,
+                        "childDepartmentIds": &department.child_department_ids,
+                    }))
+                })
+                .collect::<Vec<_>>()
         })
         .collect::<Vec<_>>();
+    let default_agent_id = assistant_department_agent_id(&config).unwrap_or_else(default_assistant_department_agent_id);
     Ok(serde_json::json!({
         "departments": options,
         "defaultDepartmentId": ASSISTANT_DEPARTMENT_ID,
+        "defaultAgentId": default_agent_id,
     }))
 }
 
@@ -2161,6 +2178,7 @@ fn ide_chat_stop_conversation(state: &AppState, params: Value) -> Result<Value, 
     let (department_id, agent_id) = resolve_runtime_control_department_and_agent(
         state,
         Some(conversation.department_id.as_str()),
+        Some(conversation.agent_id.as_str()),
         Some(conversation_id),
     )?;
     let chat_key = inflight_chat_key(&department_id, Some(conversation_id));

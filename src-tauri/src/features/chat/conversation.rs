@@ -89,7 +89,7 @@ fn resolved_foreground_department_id_for_conversation(
     is_main_conversation: bool,
 ) -> String {
     let existing = conversation.department_id.trim();
-    if !existing.is_empty() && department_by_id(config, existing).is_some() {
+    if !existing.is_empty() {
         return existing.to_string();
     }
     if is_main_conversation {
@@ -101,58 +101,75 @@ fn resolved_foreground_department_id_for_conversation(
         .unwrap_or_else(fallback_foreground_department_id)
 }
 
+fn available_non_user_agent<'a>(
+    agents: &'a [AgentProfile],
+    agent_id: &str,
+) -> Option<&'a AgentProfile> {
+    let agent_id = agent_id.trim();
+    if agent_id.is_empty() {
+        return None;
+    }
+    agents
+        .iter()
+        .find(|agent| agent.id == agent_id && !agent.is_built_in_user)
+}
+
+fn first_available_department_agent<'a>(
+    department: &DepartmentConfig,
+    agents: &'a [AgentProfile],
+) -> Option<&'a AgentProfile> {
+    department
+        .agent_ids
+        .iter()
+        .map(|id| id.trim())
+        .find_map(|agent_id| available_non_user_agent(agents, agent_id))
+}
+
 fn resolve_conversation_bound_agent<'a>(
     conversation: &Conversation,
     agents: &'a [AgentProfile],
     departments: &[DepartmentConfig],
 ) -> Result<&'a AgentProfile, String> {
     let conversation_id = conversation.id.trim();
+    let department_id = conversation.department_id.trim();
+    let bound_department = if department_id.is_empty() {
+        None
+    } else {
+        Some(
+            departments
+                .iter()
+                .find(|department| department.id.trim() == department_id)
+                .ok_or_else(|| {
+                    format!(
+                        "会话绑定部门不存在: conversation_id={}, department_id={}",
+                        conversation_id, department_id
+                    )
+                })?,
+        )
+    };
     let bound_agent_id = conversation.agent_id.trim();
     if !bound_agent_id.is_empty() {
-        if let Some(agent) = agents
-            .iter()
-            .find(|agent| agent.id == bound_agent_id && !agent.is_built_in_user)
-        {
+        if let Some(agent) = available_non_user_agent(agents, bound_agent_id) {
             return Ok(agent);
         }
+        return Err(format!(
+            "会话绑定人格不存在或不可用: conversation_id={}, agent_id={}",
+            conversation_id, bound_agent_id
+        ));
     }
 
-    let department_id = conversation.department_id.trim();
-    if department_id.is_empty() {
-        return Err(format!(
-            "会话缺少有效人格绑定，且未绑定部门: conversation_id={}",
-            conversation_id
-        ));
-    }
-    let Some(department) = departments
-        .iter()
-        .find(|department| department.id.trim() == department_id)
-    else {
-        return Err(format!(
-            "会话绑定部门不存在: conversation_id={}, department_id={}",
-            conversation_id, department_id
-        ));
-    };
-    let Some(department_agent_id) = department
-        .agent_ids
-        .iter()
-        .map(|item| item.trim())
-        .find(|item| !item.is_empty())
-    else {
-        return Err(format!(
-            "会话绑定部门未配置人格: conversation_id={}, department_id={}",
-            conversation_id, department_id
-        ));
-    };
-    agents
-        .iter()
-        .find(|agent| agent.id == department_agent_id && !agent.is_built_in_user)
-        .ok_or_else(|| {
+    if let Some(department) = bound_department {
+        return first_available_department_agent(department, agents).ok_or_else(|| {
             format!(
-                "会话绑定部门的人格不存在或不可用: conversation_id={}, department_id={}, agent_id={}",
-                conversation_id, department_id, department_agent_id
+                "会话绑定部门没有可用人格: conversation_id={}, department_id={}",
+                conversation_id, department_id
             )
-        })
+        });
+    }
+    Err(format!(
+        "会话缺少有效人格绑定: conversation_id={}, department_id={}",
+        conversation_id, department_id
+    ))
 }
 
 fn main_conversation_index(data: &AppData, _agent_id: &str) -> Option<usize> {
@@ -2813,6 +2830,7 @@ fn build_prompt(
         resolved_api,
         enable_pdf_images,
     )
+    .expect("build prompt")
 }
 
 fn build_prompt_with_stage_logger(
@@ -2829,7 +2847,7 @@ fn build_prompt_with_stage_logger(
     stage_logger: Option<&dyn Fn(&str)>,
     resolved_api: Option<&ResolvedApiConfig>,
     enable_pdf_images: bool,
-) -> PreparedPrompt {
+) -> Result<PreparedPrompt, String> {
     build_prompt_with_mode(
         conversation,
         agent,
@@ -2872,6 +2890,7 @@ fn build_delegate_prompt(
         resolved_api,
         enable_pdf_images,
     )
+    .expect("build delegate prompt")
 }
 
 fn build_delegate_prompt_with_stage_logger(
@@ -2886,7 +2905,7 @@ fn build_delegate_prompt_with_stage_logger(
     stage_logger: Option<&dyn Fn(&str)>,
     resolved_api: Option<&ResolvedApiConfig>,
     enable_pdf_images: bool,
-) -> PreparedPrompt {
+) -> Result<PreparedPrompt, String> {
     build_prompt_with_mode(
         conversation,
         agent,
@@ -3178,7 +3197,7 @@ fn build_conversation_prompt_payload(
 
 fn build_prompt_with_mode(
     conversation: &Conversation,
-    agent: &AgentProfile,
+    _agent: &AgentProfile,
     agents: &[AgentProfile],
     departments: &[DepartmentConfig],
     user_profile: Option<(&str, &str)>,
@@ -3189,17 +3208,8 @@ fn build_prompt_with_mode(
     stage_logger: Option<&dyn Fn(&str)>,
     _resolved_api: Option<&ResolvedApiConfig>,
     enable_pdf_images: bool,
-) -> PreparedPrompt {
-    let prompt_agent = match resolve_conversation_bound_agent(conversation, agents, departments) {
-        Ok(bound_agent) => bound_agent,
-        Err(err) => {
-            runtime_log_warn(format!(
-                "[提示词] 会话绑定人格解析失败，回退到调用方人格: conversation_id={}, fallback_agent_id={}, error={}",
-                conversation.id, agent.id, err
-            ));
-            agent
-        }
-    };
+) -> Result<PreparedPrompt, String> {
+    let prompt_agent = resolve_conversation_bound_agent(conversation, agents, departments)?;
     let source_messages = match find_last_context_compaction_index(
         &conversation.messages,
         &prompt_agent.id,
@@ -3424,7 +3434,7 @@ fn build_prompt_with_mode(
         }
     }
 
-    PreparedPrompt {
+    Ok(PreparedPrompt {
         preamble,
         history_messages: conversation_payload.history_messages,
         latest_user_text: conversation_payload.latest_user_text,
@@ -3433,5 +3443,5 @@ fn build_prompt_with_mode(
         latest_user_extra_blocks,
         latest_images: conversation_payload.latest_images,
         latest_audios: conversation_payload.latest_audios,
-    }
+    })
 }
