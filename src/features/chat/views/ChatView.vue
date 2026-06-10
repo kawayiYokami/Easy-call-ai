@@ -445,7 +445,7 @@ import { useChatMessageActions } from "../composables/use-chat-message-actions";
 import { useChatScrollLayout } from "../composables/use-chat-scroll-layout";
 import { useChatToolReview, type ToolReviewCodeReviewScope, type ToolReviewCommitOption, type ToolReviewReportRecord } from "../composables/use-chat-tool-review";
 import type { TerminalApprovalConversationItem } from "../../shell/composables/use-terminal-approval";
-import { isAbsoluteLocalPath, normalizeLocalLinkHref } from "../utils/local-link";
+import { isAbsoluteLocalPath, normalizeLocalLinkHref, parseLocalFileReference } from "../utils/local-link";
 import { type ChatRenderItem, isRightAlignedMessage, canOpenInFileReader, fileExtensionFromPath } from "../utils/chat-render";
 import { useIdeContext } from "../composables/use-ide-context";
 import { useDelegateStatus } from "../composables/use-delegate-status";
@@ -500,6 +500,7 @@ const props = defineProps<{
   terminalApprovalResolving?: boolean;
   sidebarMode?: boolean;
   bridgeMode?: boolean;
+  openLocalFilesInHost?: boolean;
   bridgeRequest?: <T = unknown>(method: string, params?: Record<string, unknown>, timeoutMs?: number) => Promise<T>;
   systemNotificationMode?: boolean;
   hideWorkspaceButton?: boolean;
@@ -625,6 +626,7 @@ const { isHidden: isBubbleBackgroundHidden, canToggle: canToggleBubbleBackground
 const showSideConversationList = computed(() => !!props.sideConversationListVisible);
 const sidebarMode = computed(() => !!props.sidebarMode);
 const bridgeMode = computed(() => !!props.bridgeMode);
+const openLocalFilesInHost = computed(() => !!props.openLocalFilesInHost);
 
 function canRegenerateBlock(block: ChatMessageBlock, blockIndex: number): boolean {
   if (block.role !== "assistant" || block.isExtraTextBlock) return false;
@@ -1063,7 +1065,7 @@ async function handleAssistantLinkClick(event: MouseEvent) {
       if (root) path = `${root}/${path.replace(/^\.\//, "")}`;
     }
     event.preventDefault(); event.stopPropagation();
-    if (bridgeMode.value) {
+    if (bridgeMode.value && openLocalFilesInHost.value) {
       emit("openSidebarFileReference", path);
       return;
     }
@@ -1092,15 +1094,17 @@ async function handleAssistantLinkClick(event: MouseEvent) {
       href = `${root}/${href}`;
     }
   }
-  if (isAbsoluteLocalPath(href)) {
+  const localReference = parseLocalFileReference(href);
+  const localPath = localReference?.path || href;
+  if (isAbsoluteLocalPath(localPath)) {
     event.preventDefault(); event.stopPropagation();
-    if (bridgeMode.value) {
+    if (bridgeMode.value && openLocalFilesInHost.value) {
       emit("openSidebarFileReference", href);
       return;
     }
     try {
-      if (canOpenInFileReader(href) || !fileExtensionFromPath(href)) { await openLocalFileInChatReader(href); }
-      else { await invokeTauri("open_local_file_directory", { path: href }); }
+      if (canOpenInFileReader(localPath) || !fileExtensionFromPath(localPath)) { await openLocalFileInChatReader(localPath); }
+      else { await invokeTauri("open_local_file_directory", { path: localPath }); }
       linkOpenErrorText.value = "";
     } catch (error) { linkOpenErrorText.value = t("status.openLinkFailed", { err: String(error) }); }
     return;

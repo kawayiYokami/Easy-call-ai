@@ -70,6 +70,7 @@
     :detached-chat-window="false"
     :sidebar-mode="false"
     :bridge-mode="true"
+    :open-local-files-in-host="isVsCodeHost"
     :bridge-request="bridgeRequest"
     :system-notification-mode="systemNotificationMode"
     :hide-workspace-button="hideWorkspaceButton"
@@ -279,6 +280,7 @@ const sidebarMentionEntries = computed<ChatMentionEntry[]>(() => {
     });
 });
 const vscodeTheme = ref(resolveVsCodeTheme());
+const isVsCodeHost = !!getVsCodeApi();
 const scrollToBottomRequest = ref(0);
 const streamingDraftCreatedAt = ref("");
 const streamingDraftStartedAtMs = ref(0);

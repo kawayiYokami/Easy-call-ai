@@ -37,3 +37,22 @@ export function isAbsoluteLocalPath(href: string): boolean {
   const normalized = normalizeLocalLinkHref(href);
   return /^[A-Za-z]:[\\/]/.test(normalized) || normalized.startsWith("\\\\") || normalized.startsWith("/");
 }
+
+export type LocalFileReference = {
+  path: string;
+  line?: number;
+  column?: number;
+};
+
+export function parseLocalFileReference(href: string): LocalFileReference | null {
+  const normalized = normalizeLocalLinkHref(href);
+  if (!normalized) return null;
+  const match = normalized.match(/^(.*?)(?::(\d+))(?::(\d+))?$/);
+  const path = String(match ? match[1] : normalized).trim();
+  if (!path) return null;
+  return {
+    path,
+    line: match?.[2] ? Math.max(1, Number.parseInt(match[2], 10)) : undefined,
+    column: match?.[3] ? Math.max(1, Number.parseInt(match[3], 10)) : undefined,
+  };
+}
