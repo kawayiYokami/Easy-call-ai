@@ -604,7 +604,7 @@ fn build_user_mention_dispatch_plans(
                 target_department_id: target_department_id.clone(),
                 target_agent_id: target_agent_id.clone(),
                 target_agent_name: target_agent_name.clone(),
-                reason: SAME_PERSONA_ASYNC_DELEGATE_REASON.to_string(),
+                reason: SAME_PERSONA_BACKGROUND_DELEGATE_REASON.to_string(),
             });
             continue;
         }
@@ -819,7 +819,7 @@ fn resolve_user_async_delegate_plan(
         ));
     }
     if target_agent_id == source_agent_id {
-        return Err(SAME_PERSONA_ASYNC_DELEGATE_REASON.to_string());
+        return Err(SAME_PERSONA_BACKGROUND_DELEGATE_REASON.to_string());
     }
     let target_agent = agents
         .iter()
@@ -2149,7 +2149,11 @@ async fn stop_chat_message(
     };
     let aborted_tool = abort_inflight_tool_abort_handle(state.inner(), &chat_key)?;
     let aborted_delegate_children =
-        abort_delegate_runtime_descendants_by_parent_session(state.inner(), &chat_key)?;
+        abort_delegate_runtime_descendants_by_parent_context(
+            state.inner(),
+            &chat_key,
+            requested_conversation_id.as_deref(),
+        )?;
     let aborted = aborted_chat || aborted_tool || aborted_delegate_children > 0;
     if aborted_delegate_children > 0 {
         eprintln!(
@@ -2316,7 +2320,11 @@ async fn interrupt_conversation_runtime(
     };
     let aborted_tool = abort_inflight_tool_abort_handle(state.inner(), &chat_key)?;
     let aborted_delegate_children =
-        abort_delegate_runtime_descendants_by_parent_session(state.inner(), &chat_key)?;
+        abort_delegate_runtime_descendants_by_parent_context(
+            state.inner(),
+            &chat_key,
+            Some(&conversation_id),
+        )?;
     let cleared_queue_count = clear_conversation_queue(
         state.inner(),
         &conversation_id,

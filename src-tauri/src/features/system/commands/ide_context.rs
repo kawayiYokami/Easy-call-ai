@@ -2193,7 +2193,8 @@ fn ide_chat_stop_conversation(state: &AppState, params: Value) -> Result<Value, 
         }).unwrap_or(false)
     };
     let aborted_tool = abort_inflight_tool_abort_handle(state, &chat_key)?;
-    let aborted_delegate_children = abort_delegate_runtime_descendants_by_parent_session(state, &chat_key)?;
+    let aborted_delegate_children =
+        abort_delegate_runtime_descendants_by_parent_context(state, &chat_key, Some(conversation_id))?;
     let cleared_queue_count = clear_conversation_queue(
         state,
         conversation_id,

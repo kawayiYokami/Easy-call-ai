@@ -513,7 +513,8 @@
         assert_eq!(leader.agent_ids, vec![DEFAULT_AGENT_ID.to_string()]);
         assert!(leader.summary.contains("协调下级部门"));
         assert!(leader.guide.contains("`delegate`"));
-        assert!(leader.guide.contains("`mode` 固定使用 `sync`"));
+        assert!(leader.guide.contains("`mode` 固定使用 `wait`"));
+        assert!(leader.guide.contains("`wait` 可以并发发出多个委托"));
         assert!(leader.guide.contains("不要盲目相信未经核验的下级结论"));
         assert!(!leader.guide.contains("async"));
         assert!(!leader.guide.contains("`plan`"));

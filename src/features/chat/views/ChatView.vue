@@ -94,7 +94,7 @@
                   <div class="h-px flex-1 bg-base-300/70"></div>
                 </div>
                 <div v-else-if="entry.item.kind === 'message'"
-                  v-memo="messageMemoKey(entry.item.block, entry.item.renderId, entry.item.blockIndex, entry.item.compactWithPrevious)">
+                  v-memo="[...messageMemoKey(entry.item.block, entry.item.renderId, entry.item.blockIndex, entry.item.compactWithPrevious), departmentNameMapSignature]">
                   <div class="ecall-elastic-item-shell">
                     <ChatMessageItem
                       :active-conversation-id="activeConversationId" :block="entry.item.block"
@@ -103,6 +103,7 @@
                       :chatting="chatting" :busy="conversationInteractionBusy" :frozen="frozen"
                       :user-alias="userAlias" :user-avatar-url="userAvatarUrl"
                       :persona-name-map="personaNameMap" :persona-avatar-url-map="personaAvatarUrlMap"
+                      :department-name-map="departmentNameMap"
                       :markdown-is-dark="markdownIsDark"
                       :playing-audio-id="playingAudioId" :active-turn-user="false"
                       :compact-with-previous="entry.item.compactWithPrevious"
@@ -127,13 +128,14 @@
                   <div class="ecall-turn-stack">
                     <template v-for="groupItem in entry.item.items" :key="groupItem.renderId">
                       <ChatMessageItem
-                        v-memo="messageMemoKey(groupItem.block, groupItem.renderId, groupItem.blockIndex, groupItem.compactWithPrevious)"
+                        v-memo="[...messageMemoKey(groupItem.block, groupItem.renderId, groupItem.blockIndex, groupItem.compactWithPrevious), departmentNameMapSignature]"
                         :active-conversation-id="activeConversationId" :block="groupItem.block"
                         :selection-key="groupItem.renderId" :selection-mode-enabled="messageSelectionModeEnabled"
                         :selected="selectedMessageRenderIdSet.has(groupItem.renderId)"
                         :chatting="chatting" :busy="conversationInteractionBusy" :frozen="frozen"
                         :user-alias="userAlias" :user-avatar-url="userAvatarUrl"
                         :persona-name-map="personaNameMap" :persona-avatar-url-map="personaAvatarUrlMap"
+                        :department-name-map="departmentNameMap"
                         :markdown-is-dark="markdownIsDark"
                         :playing-audio-id="playingAudioId" :active-turn-user="false"
                         :compact-with-previous="groupItem.compactWithPrevious"
@@ -614,6 +616,23 @@ watch(
 const toolReviewDepartmentOptions = computed(() =>
   // 用户主动发起代码审查不受 AI delegate 工具的“直接下级部门”限制。
   (Array.isArray(props.createConversationDepartmentOptions) ? props.createConversationDepartmentOptions : []),
+);
+
+const departmentNameMap = computed<Record<string, string>>(() => {
+  const map: Record<string, string> = {};
+  for (const option of props.createConversationDepartmentOptions || []) {
+    const departmentId = String(option.departmentId || "").trim();
+    if (!departmentId || map[departmentId]) continue;
+    map[departmentId] = String(option.departmentName || option.name || departmentId).trim() || departmentId;
+  }
+  return map;
+});
+
+const departmentNameMapSignature = computed(() =>
+  Object.entries(departmentNameMap.value)
+    .map(([id, name]) => `${id}:${name}`)
+    .sort()
+    .join("|"),
 );
 
 const chatFileReaderSessionKey = computed(() => {

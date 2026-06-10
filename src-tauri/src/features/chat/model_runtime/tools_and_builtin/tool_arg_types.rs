@@ -86,17 +86,17 @@ struct DelegateToolArgs {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum DelegateMode {
-    Async,
-    Sync,
+    Background,
+    Wait,
 }
 
 fn parse_delegate_mode(raw: Option<&str>) -> Result<DelegateMode, String> {
     match raw.map(str::trim).filter(|value| !value.is_empty()) {
-        None => Ok(DelegateMode::Sync),
-        Some("async") => Ok(DelegateMode::Async),
-        Some("sync") => Ok(DelegateMode::Sync),
+        None => Ok(DelegateMode::Wait),
+        Some("background") => Ok(DelegateMode::Background),
+        Some("wait") => Ok(DelegateMode::Wait),
         Some(other) => Err(format!(
-            "delegate.mode 必须是 `async` 或 `sync`，当前收到：{other}"
+            "delegate.mode 必须是 `wait` 或 `background`，当前收到：{other}"
         )),
     }
 }
@@ -106,9 +106,15 @@ mod tool_arg_types_tests {
     use super::*;
 
     #[test]
-    fn parse_delegate_mode_should_default_to_sync() {
-        assert_eq!(parse_delegate_mode(None).expect("default mode"), DelegateMode::Sync);
-        assert_eq!(parse_delegate_mode(Some("")).expect("empty mode"), DelegateMode::Sync);
+    fn parse_delegate_mode_should_default_to_wait() {
+        assert_eq!(parse_delegate_mode(None).expect("default mode"), DelegateMode::Wait);
+        assert_eq!(parse_delegate_mode(Some("")).expect("empty mode"), DelegateMode::Wait);
+    }
+
+    #[test]
+    fn parse_delegate_mode_should_reject_legacy_values() {
+        assert!(parse_delegate_mode(Some("sync")).is_err());
+        assert!(parse_delegate_mode(Some("async")).is_err());
     }
 }
 

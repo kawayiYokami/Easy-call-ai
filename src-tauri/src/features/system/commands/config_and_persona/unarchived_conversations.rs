@@ -1329,21 +1329,6 @@ fn conversation_delegate_stats_from_conversation(
     stats
 }
 
-fn conversation_delegate_elapsed_ms(started_at: &str, completed_at: Option<&str>) -> u64 {
-    let Some(start) = parse_iso(started_at) else {
-        return 0;
-    };
-    let end = completed_at
-        .and_then(parse_iso)
-        .unwrap_or_else(now_utc);
-    let millis = (end - start).whole_milliseconds();
-    if millis <= 0 {
-        0
-    } else {
-        millis.min(i128::from(u64::MAX)) as u64
-    }
-}
-
 fn conversation_delegate_status_from_entry(
     app_state: &AppState,
     delegate_id: &str,
@@ -1409,7 +1394,7 @@ fn conversation_delegate_summary_from_thread(
         updated_at: thread.conversation.updated_at.clone(),
         completed_at: completed_at.clone(),
         archived_at: thread.archived_at.clone().or_else(|| thread.conversation.archived_at.clone()),
-        elapsed_ms: conversation_delegate_elapsed_ms(&started_at, completed_at.as_deref()),
+        elapsed_ms: 0,
         request_count: stats.request_count,
         tool_call_count: stats.tool_call_count,
         last_tool_name: stats.last_tool_name,
@@ -1457,7 +1442,7 @@ fn conversation_delegate_summary_from_persisted(
         updated_at: conversation.updated_at.clone(),
         completed_at: completed_at.clone(),
         archived_at: conversation.archived_at.clone(),
-        elapsed_ms: conversation_delegate_elapsed_ms(&started_at, completed_at.as_deref()),
+        elapsed_ms: 0,
         request_count: stats.request_count,
         tool_call_count: stats.tool_call_count,
         last_tool_name: stats.last_tool_name,

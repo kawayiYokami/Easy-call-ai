@@ -553,6 +553,7 @@ const props = defineProps<{
   userAvatarUrl: string;
   personaNameMap: Record<string, string>;
   personaAvatarUrlMap: Record<string, string>;
+  departmentNameMap?: Record<string, string>;
   markdownIsDark: boolean;
   playingAudioId: string;
   activeTurnUser: boolean;
@@ -1449,14 +1450,37 @@ function summarizePlanTool(args: unknown): string {
   ]) || compactObjectEntries(obj);
 }
 
+function delegateModeDisplayText(mode: string): string {
+  const normalized = mode.trim().toLowerCase();
+  if (normalized === "wait" || normalized === "sync") return "等待结果";
+  if (normalized === "background" || normalized === "async") return "后台运行";
+  return mode.trim();
+}
+
+function delegateDepartmentDisplayText(departmentId: string): string {
+  const normalized = departmentId.trim();
+  if (!normalized) return "";
+  return String(props.departmentNameMap?.[normalized] || "").trim() || normalized;
+}
+
 function summarizeDelegateTool(args: unknown): string {
   if (typeof args !== "object" || args === null) return compactText(toSingleLineJsonText(args) || toolTimelineText("missingArgs"));
   const obj = args as Record<string, unknown>;
+  const mode = delegateModeDisplayText(safeStringValue(obj, "mode") || "wait");
+  const department = delegateDepartmentDisplayText(safeStringValue(obj, "department_id"));
+  const content = compactText(
+    safeStringValue(obj, "question")
+      || safeStringValue(obj, "specific_goal")
+      || safeStringValue(obj, "instruction")
+      || safeStringValue(obj, "focus")
+      || safeStringValue(obj, "background"),
+    50,
+  );
   return joinNonEmpty([
     safeStringValue(obj, "task_name"),
-    safeStringValue(obj, "specific_goal"),
-    safeStringValue(obj, "department_id"),
-    safeStringValue(obj, "mode"),
+    department,
+    mode,
+    content,
   ]) || compactObjectEntries(obj);
 }
 

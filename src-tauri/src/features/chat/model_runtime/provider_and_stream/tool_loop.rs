@@ -127,6 +127,20 @@ fn register_tool_repeat_attempt(
     guard.same_call_streak
 }
 
+fn register_tool_repeat_attempt_once_per_batch(
+    guard: &mut ToolRepeatGuard,
+    batch_registered_signatures: &mut std::collections::HashSet<(String, String)>,
+    tool_name: &str,
+    tool_args: &str,
+) -> usize {
+    let args_signature = normalized_tool_args_signature(tool_args);
+    let batch_signature = (tool_name.to_string(), args_signature);
+    if !batch_registered_signatures.insert(batch_signature) {
+        return guard.same_call_streak;
+    }
+    register_tool_repeat_attempt(guard, tool_name, tool_args)
+}
+
 fn repeated_tool_call_block_reply(
     full_activity_reasoning_text: String,
     tool_history_events: Vec<Value>,
@@ -1895,9 +1909,11 @@ async fn run_genai_tool_loop(
         ) {
             let mut executable_calls = Vec::<PreparedToolCall>::new();
             let mut repeat_block = None::<(PreparedToolCall, String)>;
+            let mut batch_repeat_signatures = std::collections::HashSet::new();
             for call in batch.calls {
-                let repeat_streak = register_tool_repeat_attempt(
+                let repeat_streak = register_tool_repeat_attempt_once_per_batch(
                     &mut tool_repeat_guard,
+                    &mut batch_repeat_signatures,
                     &call.tool_name,
                     &call.tool_args,
                 );
@@ -2421,9 +2437,11 @@ async fn run_genai_tool_loop_non_stream(
         ) {
             let mut executable_calls = Vec::<PreparedToolCall>::new();
             let mut repeat_block = None::<(PreparedToolCall, String)>;
+            let mut batch_repeat_signatures = std::collections::HashSet::new();
             for call in batch.calls {
-                let repeat_streak = register_tool_repeat_attempt(
+                let repeat_streak = register_tool_repeat_attempt_once_per_batch(
                     &mut tool_repeat_guard,
+                    &mut batch_repeat_signatures,
                     &call.tool_name,
                     &call.tool_args,
                 );
@@ -3345,6 +3363,29 @@ mod tool_loop_tests {
 
         assert_eq!(streak, 4);
         assert!(streak > REPEATED_TOOL_CALL_BLOCK_THRESHOLD);
+    }
+
+    #[test]
+    fn tool_repeat_guard_should_count_identical_calls_once_per_batch() {
+        let mut guard = ToolRepeatGuard::default();
+        let mut batch_signatures = std::collections::HashSet::new();
+        let mut streak = 0usize;
+        for index in 0..4 {
+            streak = register_tool_repeat_attempt_once_per_batch(
+                &mut guard,
+                &mut batch_signatures,
+                "delegate",
+                r#"{"department_id":"deputy-department","mode":"sync"}"#,
+            );
+            assert!(
+                streak <= REPEATED_TOOL_CALL_BLOCK_THRESHOLD,
+                "同批第 {} 个相同委托不应触发重复调用熔断",
+                index + 1
+            );
+        }
+
+        assert_eq!(streak, 1);
+        assert_eq!(guard.same_call_streak, 1);
     }
 
     #[test]

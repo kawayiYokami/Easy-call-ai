@@ -10,12 +10,14 @@
       </div>
       <button
         type="button"
-        class="btn btn-ghost shrink-0 font-normal"
+        class="btn btn-ghost btn-sm h-8 min-h-8 shrink-0 gap-1.5 px-2 font-normal"
         :disabled="loading"
+        :title="t('chat.toolReview.view')"
         @click.stop="openChanges"
       >
         <span v-if="loading" class="loading loading-spinner loading-xs"></span>
-        {{ t("chat.toolReview.view") }}
+        <Eye v-else class="size-3.5" aria-hidden="true" />
+        <span>{{ t("chat.toolReview.view") }}</span>
       </button>
     </div>
   </section>
@@ -35,6 +37,7 @@
 <script setup lang="ts">
 import { computed, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
+import { Eye } from "@lucide/vue";
 import type { ToolReviewItemDetail, ToolReviewItemSummary } from "../composables/use-chat-tool-review";
 import ToolReviewChangesDialog from "./ToolReviewChangesDialog.vue";
 

@@ -96,14 +96,11 @@ fn delegate_thread_chat_key(thread: &DelegateRuntimeThread) -> String {
     )
 }
 
-fn abort_delegate_runtime_descendants_by_parent_session(
+fn abort_delegate_runtime_descendant_threads(
     state: &AppState,
     parent_chat_key: &str,
+    children: Vec<DelegateRuntimeThread>,
 ) -> Result<usize, String> {
-    let children = delegate_runtime_thread_list(state)?
-        .into_iter()
-        .filter(|thread| thread.parent_chat_session_key.as_deref() == Some(parent_chat_key))
-        .collect::<Vec<_>>();
     let mut aborted_count = 0usize;
     for thread in children {
         let child_chat_key = delegate_thread_chat_key(&thread);
@@ -132,6 +129,43 @@ fn abort_delegate_runtime_descendants_by_parent_session(
         aborted_count += abort_delegate_runtime_descendants_by_parent_session(state, &child_chat_key)?;
     }
     Ok(aborted_count)
+}
+
+fn abort_delegate_runtime_descendants_by_parent_session(
+    state: &AppState,
+    parent_chat_key: &str,
+) -> Result<usize, String> {
+    let children = delegate_runtime_thread_list(state)?
+        .into_iter()
+        .filter(|thread| thread.parent_chat_session_key.as_deref() == Some(parent_chat_key))
+        .collect::<Vec<_>>();
+    abort_delegate_runtime_descendant_threads(state, parent_chat_key, children)
+}
+
+fn abort_delegate_runtime_descendants_by_parent_context(
+    state: &AppState,
+    parent_chat_key: &str,
+    root_conversation_id: Option<&str>,
+) -> Result<usize, String> {
+    let root_conversation_id = root_conversation_id
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
+    let Some(root_conversation_id) = root_conversation_id else {
+        return abort_delegate_runtime_descendants_by_parent_session(state, parent_chat_key);
+    };
+
+    let mut seen_delegate_ids = std::collections::HashSet::new();
+    let children = delegate_runtime_thread_list(state)?
+        .into_iter()
+        .filter(|thread| {
+            let exact_child = thread.parent_chat_session_key.as_deref() == Some(parent_chat_key);
+            let same_root_sync_child = thread.root_conversation_id == root_conversation_id
+                && thread.parent_chat_session_key.is_some();
+            exact_child || same_root_sync_child
+        })
+        .filter(|thread| seen_delegate_ids.insert(thread.delegate_id.clone()))
+        .collect::<Vec<_>>();
+    abort_delegate_runtime_descendant_threads(state, parent_chat_key, children)
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

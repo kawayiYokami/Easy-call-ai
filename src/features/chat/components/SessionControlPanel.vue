@@ -16,49 +16,59 @@
       </Transition>
     </button>
 
-    <button
-      type="button"
-      class="btn btn-ghost btn-sm ml-auto h-8 min-h-8 flex-none gap-1.5 overflow-hidden px-2 transition-[max-width,background-color,color] duration-200 ease-out"
-      :class="expandedPanel === 'delegate' ? 'w-auto max-w-[min(23rem,58vw)] justify-start bg-base-200/80' : 'w-8 max-w-8 justify-center'"
-      :disabled="delegateCount <= 0"
-      :title="delegateTitle"
-      @click="handleDelegateClick"
-    >
-      <span class="indicator shrink-0">
-        <span
-          v-if="runningCount > 0"
-          class="indicator-item indicator-top indicator-end h-2.5 w-2.5 rounded-full bg-success"
-        ></span>
-        <Network class="size-3.5 shrink-0" :class="delegateCount > 0 ? 'text-base-content/70' : 'text-base-content/40'" aria-hidden="true" />
-      </span>
+    <div class="ml-auto flex min-w-0 flex-none items-center gap-0.5">
+      <button
+        type="button"
+        class="btn btn-ghost btn-sm h-8 min-h-8 flex-none gap-1.5 overflow-hidden px-2 transition-[max-width,background-color,color] duration-200 ease-out"
+        :class="expandedPanel === 'delegate' ? 'w-auto max-w-[min(21rem,52vw)] justify-start bg-base-200/80' : 'w-8 max-w-8 justify-center'"
+        :disabled="delegateCount <= 0"
+        :title="delegateTitle"
+        @click="handleDelegateClick"
+      >
+        <span class="indicator shrink-0">
+          <span
+            v-if="runningCount > 0"
+            class="indicator-item indicator-top indicator-end h-2.5 w-2.5 rounded-full bg-success"
+          ></span>
+          <Network class="size-3.5 shrink-0" :class="delegateCount > 0 ? 'text-base-content/70' : 'text-base-content/40'" aria-hidden="true" />
+        </span>
 
-      <Transition name="wdc-content">
-        <span v-if="expandedPanel === 'delegate'" class="flex min-w-0 items-center gap-1.5 overflow-hidden">
-          <span class="shrink-0 text-xs font-semibold tabular-nums">{{ delegateCount }} 委托</span>
-          <span class="h-4 w-px shrink-0 bg-base-300"></span>
-          <span class="flex min-w-0 items-center gap-2 overflow-hidden text-xs text-base-content/75">
-            <span class="inline-flex min-w-0 items-center gap-1" title="所有当前委托累计用时">
-              <Timer class="size-3.5 shrink-0 text-base-content/45" aria-hidden="true" />
-              <span class="truncate tabular-nums">{{ elapsedText }}</span>
-            </span>
-            <span class="inline-flex min-w-0 items-center gap-1" title="所有当前委托累计请求步数">
-              <Footprints class="size-3.5 shrink-0 text-base-content/45" aria-hidden="true" />
-              <span class="truncate tabular-nums">{{ requestCount }}步</span>
-            </span>
-            <span class="inline-flex min-w-0 items-center gap-1" title="所有当前委托累计词元">
-              <Coins class="size-3.5 shrink-0 text-base-content/45" aria-hidden="true" />
-              <span class="truncate tabular-nums">{{ tokenText }}词元</span>
+        <Transition name="wdc-content">
+          <span v-if="expandedPanel === 'delegate'" class="flex min-w-0 items-center gap-1.5 overflow-hidden">
+            <span class="shrink-0 text-xs font-semibold tabular-nums">{{ delegateCount }} 委托</span>
+            <span class="h-4 w-px shrink-0 bg-base-300"></span>
+            <span class="flex min-w-0 items-center gap-2 overflow-hidden text-xs text-base-content/75">
+              <span class="inline-flex min-w-0 items-center gap-1" title="所有当前委托累计用时">
+                <Timer class="size-3.5 shrink-0 text-base-content/45" aria-hidden="true" />
+                <span class="truncate tabular-nums">{{ elapsedText }}</span>
+              </span>
+              <span class="inline-flex min-w-0 items-center gap-1" title="所有当前委托累计请求步数">
+                <Footprints class="size-3.5 shrink-0 text-base-content/45" aria-hidden="true" />
+                <span class="truncate tabular-nums">{{ requestCount }}步</span>
+              </span>
+              <span class="inline-flex min-w-0 items-center gap-1" title="所有当前委托累计词元">
+                <Coins class="size-3.5 shrink-0 text-base-content/45" aria-hidden="true" />
+                <span class="truncate tabular-nums">{{ tokenText }}词元</span>
+              </span>
             </span>
           </span>
-        </span>
+        </Transition>
+      </button>
+
+      <Transition name="wdc-content">
+        <PanelRightOpen
+          v-if="expandedPanel === 'delegate' && delegateCount > 0"
+          class="size-3.5 flex-none text-base-content/45"
+          aria-hidden="true"
+        />
       </Transition>
-    </button>
+    </div>
   </div>
 </template>
 
 <script setup lang="ts">
 import { computed, ref, watch } from "vue";
-import { Coins, Footprints, Network, SquareTerminal, Timer } from "@lucide/vue";
+import { Coins, Footprints, Network, PanelRightOpen, SquareTerminal, Timer } from "@lucide/vue";
 import type { ConversationDelegateStatusSummary } from "../../../types/app";
 
 const props = defineProps<{
@@ -117,6 +127,7 @@ function handleDelegateClick() {
   if (delegateCount.value <= 0) return;
   if (expandedPanel.value !== "delegate") {
     expandedPanel.value = "delegate";
+    return;
   }
   emit("openDelegateSummary");
 }

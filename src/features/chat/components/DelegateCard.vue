@@ -17,21 +17,30 @@
         <button
           v-if="running"
           type="button"
-          class="btn btn-ghost shrink-0 font-normal hover:bg-warning hover:text-warning-content"
+          class="btn btn-ghost btn-sm h-8 min-h-8 shrink-0 gap-1.5 px-2 font-normal hover:bg-warning hover:text-warning-content"
+          title="打断委托"
           @click.stop="emit('abort')"
-        >打断</button>
+        >
+          <X class="size-3.5" aria-hidden="true" />
+          <span>打断</span>
+        </button>
         <button
           v-if="showResult"
           type="button"
-          class="btn btn-ghost shrink-0 font-normal"
+          class="btn btn-ghost btn-sm h-8 min-h-8 shrink-0 gap-1.5 px-2 font-normal"
+          title="查看结果"
           @click.stop="emit('openDetail')"
-        >结果</button>
+        >
+          <FileText class="size-3.5" aria-hidden="true" />
+          <span>结果</span>
+        </button>
       </div>
     </div>
   </section>
 </template>
 
 <script setup lang="ts">
+import { FileText, X } from "@lucide/vue";
 import DelegateProgressLine from "./DelegateProgressLine.vue";
 
 defineProps<{

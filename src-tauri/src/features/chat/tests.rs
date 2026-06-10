@@ -6825,7 +6825,8 @@
             .expect("parent delegate tool rule");
         assert!(parent_delegate_rule.contains("当前工作有职责或能力更匹配的直属下级部门时，优先使用 delegate"));
         assert!(parent_delegate_rule.contains("简单但繁琐"));
-        assert!(parent_delegate_rule.contains("除非用户明确指示后台执行或异步处理，否则一律使用"));
+        assert!(parent_delegate_rule.contains("除非用户明确指示后台运行，否则一律使用"));
+        assert!(parent_delegate_rule.contains("需要并发委托时，也应使用 `wait`"));
         assert!(parent_delegate_rule.contains("关键结论"));
         assert!(parent_delegate_rule.contains("不要盲目相信"));
         assert!(!parent_delegate_rule.contains("滥用 delegate"));

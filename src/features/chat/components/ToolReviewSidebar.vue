@@ -16,12 +16,13 @@
           <div class="sticky top-0 z-30 bg-base-200 px-4">
             <button
               type="button"
-              class="btn btn-sm w-full bg-base-100 hover:bg-base-100"
+              class="btn btn-sm w-full gap-1.5 bg-base-100 hover:bg-base-100"
               :disabled="batchReviewing || currentBatchUnreviewedCount <= 0"
               @click="emit('reviewBatch', currentBatch.batchKey)"
             >
               <span v-if="batchReviewing" class="loading loading-spinner loading-xs"></span>
-              {{ t("chat.toolReview.evaluateBatchWithCount", { count: currentBatchUnreviewedCount }) }}
+              <CircleCheckBig v-else class="size-4" aria-hidden="true" />
+              <span>{{ t("chat.toolReview.evaluateBatchWithCount", { count: currentBatchUnreviewedCount }) }}</span>
             </button>
           </div>
           <div class="flex min-h-0 flex-1 flex-col py-2">
@@ -119,12 +120,13 @@
         <div class="sticky top-0 z-30 bg-base-200 px-4">
           <button
             type="button"
-            class="btn btn-sm w-full bg-base-100 hover:bg-base-100"
+            class="btn btn-sm w-full gap-1.5 bg-base-100 hover:bg-base-100"
             :disabled="submitting"
             @click="reviewTargetDialogOpen = true"
           >
             <span v-if="submitting" class="loading loading-spinner loading-xs"></span>
-            {{ t("chat.toolReview.generateReviewReport") }}
+            <FileText v-else class="size-4" aria-hidden="true" />
+            <span>{{ t("chat.toolReview.generateReviewReport") }}</span>
           </button>
         </div>
         <div v-if="props.reports.length === 0" class="flex min-h-0 flex-1 flex-col overflow-y-auto py-2">
@@ -334,6 +336,7 @@
 <script setup lang="ts">
 import { computed, ref, useAttrs, watch } from "vue";
 import { useI18n } from "vue-i18n";
+import { CircleCheckBig, FileText } from "@lucide/vue";
 import { invokeTauri } from "../../../services/tauri-api";
 import type { ArchiveBlockPage, ChatMessage, ConversationDelegateStatusSummary, ShellWorkspace } from "../../../types/app";
 import { defaultWorkspaceNameFromPath, inferWorkspaceName, isLegacyGenericWorkspaceName, normalizeWorkspaceLevel } from "../../../utils/shell-workspaces";

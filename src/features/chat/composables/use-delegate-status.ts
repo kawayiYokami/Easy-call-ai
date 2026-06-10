@@ -1,4 +1,4 @@
-import { ref, watch, onMounted, onBeforeUnmount, type Ref } from "vue";
+import { computed, ref, watch, onMounted, onBeforeUnmount, type Ref } from "vue";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { invokeTauri, isTauriRuntimeAvailable } from "../../../services/tauri-api";
 import type { ConversationDelegateStatusSummary } from "../../../types/app";
@@ -23,12 +23,21 @@ type DelegateStatusUpdatedPayload = {
 export function useDelegateStatus(options: UseDelegateStatusOptions) {
   const { activeConversationId, panelOpen } = options;
 
-  const delegateStatuses = ref<ConversationDelegateStatusSummary[]>([]);
+  const rawDelegateStatuses = ref<ConversationDelegateStatusSummary[]>([]);
+  const delegateClockNowMs = ref(Date.now());
+  const delegateStatuses = computed<ConversationDelegateStatusSummary[]>(() => {
+    const nowMs = delegateClockNowMs.value;
+    return rawDelegateStatuses.value.map((status) => ({
+      ...status,
+      elapsedMs: delegateElapsedMs(status, nowMs),
+    }));
+  });
   const delegateStatusesErrorText = ref("");
   const hasBridgeRequest = () => typeof options.bridgeRequest?.value === "function";
   const enabled = () => options.enabled?.value !== false && (isTauriRuntimeAvailable() || hasBridgeRequest());
 
   let delegateStatusUpdatedUnlisten: UnlistenFn | null = null;
+  let delegateClockTimer: ReturnType<typeof window.setInterval> | null = null;
   let disposed = false;
   let requestSeq = 0;
 
@@ -36,7 +45,7 @@ export function useDelegateStatus(options: UseDelegateStatusOptions) {
     const conversationId = String(activeConversationId.value || "").trim();
     if (!enabled() || !conversationId || !panelOpen.value) {
       requestSeq += 1;
-      delegateStatuses.value = [];
+      rawDelegateStatuses.value = [];
       delegateStatusesErrorText.value = "";
       return;
     }
@@ -49,7 +58,8 @@ export function useDelegateStatus(options: UseDelegateStatusOptions) {
             { input: { conversationId } },
           );
       if (seq !== requestSeq) return;
-      delegateStatuses.value = statuses;
+      rawDelegateStatuses.value = statuses;
+      delegateClockNowMs.value = Date.now();
       delegateStatusesErrorText.value = "";
     } catch (error) {
       if (seq !== requestSeq) return;
@@ -67,6 +77,48 @@ export function useDelegateStatus(options: UseDelegateStatusOptions) {
 
   function syncPanelState() {
     void refresh();
+  }
+
+  function delegateElapsedMs(status: ConversationDelegateStatusSummary, nowMs: number) {
+    const startedAtMs = parseTimeMs(status?.startedAt);
+    if (startedAtMs <= 0) {
+      return positiveNumber(status?.elapsedMs);
+    }
+    const completedAtMs = parseTimeMs(status?.completedAt || status?.archivedAt);
+    const endAtMs = completedAtMs > 0 ? completedAtMs : nowMs;
+    if (endAtMs <= startedAtMs) return 0;
+    return endAtMs - startedAtMs;
+  }
+
+  function parseTimeMs(value: unknown) {
+    const raw = String(value || "").trim();
+    if (!raw) return 0;
+    const parsed = Date.parse(raw);
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
+  }
+
+  function positiveNumber(value: unknown) {
+    const normalized = Math.round(Number(value) || 0);
+    return Number.isFinite(normalized) && normalized > 0 ? normalized : 0;
+  }
+
+  function hasRunningDelegates() {
+    return rawDelegateStatuses.value.some((status) => {
+      const current = String(status?.status || "").trim();
+      return status.active && (current === "running" || current === "delivered");
+    });
+  }
+
+  function syncDelegateClockTimer() {
+    const shouldRun = enabled() && panelOpen.value && hasRunningDelegates();
+    if (shouldRun && delegateClockTimer == null && typeof window !== "undefined") {
+      delegateClockTimer = window.setInterval(() => {
+        delegateClockNowMs.value = Date.now();
+      }, 1000);
+    } else if (!shouldRun && delegateClockTimer != null) {
+      window.clearInterval(delegateClockTimer);
+      delegateClockTimer = null;
+    }
   }
 
   async function openDelegateArchiveDetail(status: ConversationDelegateStatusSummary) {
@@ -109,6 +161,12 @@ export function useDelegateStatus(options: UseDelegateStatusOptions) {
     { immediate: true },
   );
 
+  watch(
+    () => [enabled(), panelOpen.value, rawDelegateStatuses.value.map((status) => `${status.delegateId}:${status.active}:${status.status}:${status.startedAt}:${status.completedAt || ""}`).join("|")],
+    () => syncDelegateClockTimer(),
+    { immediate: true },
+  );
+
   onMounted(() => {
     if (isTauriRuntimeAvailable()) {
       void listen<DelegateStatusUpdatedPayload>(DELEGATE_STATUS_UPDATED_EVENT, (event) => {
@@ -134,6 +192,10 @@ export function useDelegateStatus(options: UseDelegateStatusOptions) {
     if (delegateStatusUpdatedUnlisten) {
       delegateStatusUpdatedUnlisten();
       delegateStatusUpdatedUnlisten = null;
+    }
+    if (delegateClockTimer != null) {
+      window.clearInterval(delegateClockTimer);
+      delegateClockTimer = null;
     }
     if (typeof window !== "undefined") {
       window.removeEventListener(DELEGATE_STATUS_UPDATED_EVENT, handleBridgeDelegateStatusUpdated);

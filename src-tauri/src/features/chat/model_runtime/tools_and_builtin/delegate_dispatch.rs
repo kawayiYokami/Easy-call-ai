@@ -84,11 +84,11 @@ fn delegate_failed_result(reason: impl Into<String>) -> Value {
     })
 }
 
-const SAME_PERSONA_ASYNC_DELEGATE_REASON: &str =
-    "你同时担任这个职位，只能发起同步委托";
-const DELEGATE_THREAD_ASYNC_ONLY_REASON: &str = "委托线程中只能发起同步委托";
+const SAME_PERSONA_BACKGROUND_DELEGATE_REASON: &str =
+    "你同时担任这个职位，只能使用 wait 等待结果";
+const DELEGATE_THREAD_BACKGROUND_ONLY_REASON: &str = "委托线程中只能使用 wait 等待结果";
 
-fn same_persona_async_delegate_block_reason(
+fn same_persona_background_delegate_block_reason(
     source_agent_id: &str,
     target_agent_id: &str,
 ) -> Option<&'static str> {
@@ -97,7 +97,7 @@ fn same_persona_async_delegate_block_reason(
     if source_agent_id.is_empty() || target_agent_id.is_empty() {
         return None;
     }
-    (source_agent_id == target_agent_id).then_some(SAME_PERSONA_ASYNC_DELEGATE_REASON)
+    (source_agent_id == target_agent_id).then_some(SAME_PERSONA_BACKGROUND_DELEGATE_REASON)
 }
 
 #[cfg(test)]
@@ -105,13 +105,13 @@ mod delegate_dispatch_tests {
     use super::*;
 
     #[test]
-    fn same_persona_async_delegate_block_reason_should_only_block_same_agent() {
+    fn same_persona_background_delegate_block_reason_should_only_block_same_agent() {
         assert_eq!(
-            same_persona_async_delegate_block_reason("agent-a", "agent-a"),
-            Some(SAME_PERSONA_ASYNC_DELEGATE_REASON)
+            same_persona_background_delegate_block_reason("agent-a", "agent-a"),
+            Some(SAME_PERSONA_BACKGROUND_DELEGATE_REASON)
         );
         assert_eq!(
-            same_persona_async_delegate_block_reason("agent-a", "agent-b"),
+            same_persona_background_delegate_block_reason("agent-a", "agent-b"),
             None
         );
     }
@@ -346,17 +346,34 @@ async fn run_sync_delegate_on_child_task(
     // 远程联系人路径会额外叠加一层上下文准备与 IM 规则处理，直接 await 容易把 tokio worker 栈顶爆。
     let abort_state = app_state.clone();
     let abort_delegate_id = delegate.delegate_id.clone();
-    let join = tokio::spawn(async move {
-        delegate_run_thread_to_completion(
-            app_state,
-            delegate,
-            target_api_config_ids,
-            Some(parent_chat_session_key),
-        )
-        .await
-    });
-    match join.await {
-        Ok(result) => result,
+    let (child_abort_handle, child_abort_registration) =
+        futures_util::future::AbortHandle::new_pair();
+    let mut child_abort_guard = SyncDelegateChildAbortGuard::new(child_abort_handle);
+    let run_child = futures_util::future::Abortable::new(
+        async move {
+            delegate_run_thread_to_completion(
+                app_state,
+                delegate,
+                target_api_config_ids,
+                Some(parent_chat_session_key),
+            )
+            .await
+        },
+        child_abort_registration,
+    );
+    let join = tokio::spawn(run_child);
+    let join_result = join.await;
+    child_abort_guard.complete();
+    match join_result {
+        Ok(Ok(result)) => result,
+        Ok(Err(_)) => {
+            let _ = abort_delegate_runtime_thread(
+                &abort_state,
+                &abort_delegate_id,
+                "同步委托子任务被取消",
+            );
+            Err(CHAT_ABORTED_BY_USER_ERROR.to_string())
+        }
         Err(err) => {
             let _ = abort_delegate_runtime_thread(
                 &abort_state,
@@ -364,6 +381,32 @@ async fn run_sync_delegate_on_child_task(
                 "同步委托子任务异常结束",
             );
             Err(format!("同步委托子任务异常结束: {err}"))
+        }
+    }
+}
+
+struct SyncDelegateChildAbortGuard {
+    abort_handle: futures_util::future::AbortHandle,
+    completed: bool,
+}
+
+impl SyncDelegateChildAbortGuard {
+    fn new(abort_handle: futures_util::future::AbortHandle) -> Self {
+        Self {
+            abort_handle,
+            completed: false,
+        }
+    }
+
+    fn complete(&mut self) {
+        self.completed = true;
+    }
+}
+
+impl Drop for SyncDelegateChildAbortGuard {
+    fn drop(&mut self) {
+        if !self.completed {
+            self.abort_handle.abort();
         }
     }
 }
@@ -444,7 +487,7 @@ async fn builtin_delegate(
     if let Err(err) = validate_delegate_tool_direct_child_target(&preflight) {
         return Ok(delegate_failed_result(err));
     }
-    if validated.mode == DelegateMode::Sync {
+    if validated.mode == DelegateMode::Wait {
         return delegate_execute_sync(
             app_state,
             session_id,
@@ -457,12 +500,12 @@ async fn builtin_delegate(
 
     if preflight.current_thread.is_some() {
         eprintln!(
-            "[工具][委托] 委托线程内禁止再次调用 delegate：mode=async, session_id={}",
+            "[工具][委托] 委托线程内禁止再次调用 delegate：mode=background, session_id={}",
             session_id
         );
-        return Ok(delegate_failed_result(DELEGATE_THREAD_ASYNC_ONLY_REASON));
+        return Ok(delegate_failed_result(DELEGATE_THREAD_BACKGROUND_ONLY_REASON));
     }
-    if let Some(reason) = same_persona_async_delegate_block_reason(
+    if let Some(reason) = same_persona_background_delegate_block_reason(
         &source_agent_id,
         &preflight.target_agent_id,
     ) {
