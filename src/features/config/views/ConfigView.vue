@@ -3,67 +3,125 @@
     <div class="w-36 shrink-0">
       <ul class="menu w-full bg-base-200 rounded-box gap-1 [&>li>a]:min-w-30 [&>li>a]:w-full">
         <li>
-          <a :class="{ 'active': props.configTab === 'welcome', 'menu-active': props.configTab === 'welcome', 'opacity-50 pointer-events-none': memorySyncLocked }" @click="requestTabChange('welcome')">{{ t("config.tabs.welcome") }}</a>
+          <a :class="{ 'active': props.configTab === 'welcome', 'menu-active': props.configTab === 'welcome', 'opacity-50 pointer-events-none': memorySyncLocked }" @click="requestTabChange('welcome')">
+            <Home class="w-4 h-4" />
+            {{ t("config.tabs.welcome") }}
+          </a>
         </li>
         <li>
-          <a :class="{ 'active': props.configTab === 'notification', 'menu-active': props.configTab === 'notification', 'opacity-50 pointer-events-none': memorySyncLocked }" @click="requestTabChange('notification')">{{ t("config.tabs.notification") }}</a>
+          <a :class="{ 'active': props.configTab === 'notification', 'menu-active': props.configTab === 'notification', 'opacity-50 pointer-events-none': memorySyncLocked }" @click="requestTabChange('notification')">
+            <Bell class="w-4 h-4" />
+            {{ t("config.tabs.notification") }}
+          </a>
         </li>
         <li>
-          <a :class="{ 'active': props.configTab === 'networkAccess', 'menu-active': props.configTab === 'networkAccess', 'opacity-50 pointer-events-none': memorySyncLocked }" @click="requestTabChange('networkAccess')">{{ t("config.tabs.networkAccess") }}</a>
+          <a :class="{ 'active': props.configTab === 'networkAccess', 'menu-active': props.configTab === 'networkAccess', 'opacity-50 pointer-events-none': memorySyncLocked }" @click="requestTabChange('networkAccess')">
+            <Wifi class="w-4 h-4" />
+            {{ t("config.tabs.networkAccess") }}
+          </a>
         </li>
         <li>
-          <a :class="{ 'active': props.configTab === 'hotkey', 'menu-active': props.configTab === 'hotkey', 'opacity-50 pointer-events-none': memorySyncLocked }" @click="requestTabChange('hotkey')">{{ t("config.tabs.hotkey") }}</a>
+          <a :class="{ 'active': props.configTab === 'hotkey', 'menu-active': props.configTab === 'hotkey', 'opacity-50 pointer-events-none': memorySyncLocked }" @click="requestTabChange('hotkey')">
+            <Keyboard class="w-4 h-4" />
+            {{ t("config.tabs.hotkey") }}
+          </a>
         </li>
         <li>
-          <a :class="{ 'active': props.configTab === 'api', 'menu-active': props.configTab === 'api', 'opacity-50 pointer-events-none': memorySyncLocked }" @click="requestTabChange('api')">{{ t("config.tabs.api") }}</a>
+          <a :class="{ 'active': props.configTab === 'api', 'menu-active': props.configTab === 'api', 'opacity-50 pointer-events-none': memorySyncLocked }" @click="requestTabChange('api')">
+            <Cpu class="w-4 h-4" />
+            {{ t("config.tabs.api") }}
+          </a>
         </li>
         <li>
-          <a :class="{ 'active': props.configTab === 'tools', 'menu-active': props.configTab === 'tools', 'opacity-50 pointer-events-none': memorySyncLocked }" @click="requestTabChange('tools')">{{ t("config.tabs.tools") }}</a>
+          <a :class="{ 'active': props.configTab === 'tools', 'menu-active': props.configTab === 'tools', 'opacity-50 pointer-events-none': memorySyncLocked }" @click="requestTabChange('tools')">
+            <Wrench class="w-4 h-4" />
+            {{ t("config.tabs.tools") }}
+          </a>
         </li>
         <li>
-          <a :class="{ 'active': props.configTab === 'mcp', 'menu-active': props.configTab === 'mcp', 'opacity-50 pointer-events-none': memorySyncLocked }" @click="requestTabChange('mcp')">MCP</a>
+          <a :class="{ 'active': props.configTab === 'mcp', 'menu-active': props.configTab === 'mcp', 'opacity-50 pointer-events-none': memorySyncLocked }" @click="requestTabChange('mcp')">
+            <Puzzle class="w-4 h-4" />
+            MCP
+          </a>
         </li>
         <li>
-          <a :class="{ 'active': props.configTab === 'skill', 'menu-active': props.configTab === 'skill', 'opacity-50 pointer-events-none': memorySyncLocked }" @click="requestTabChange('skill')">{{ t("config.tabs.skill") }}</a>
+          <a :class="{ 'active': props.configTab === 'skill', 'menu-active': props.configTab === 'skill', 'opacity-50 pointer-events-none': memorySyncLocked }" @click="requestTabChange('skill')">
+            <Code class="w-4 h-4" />
+            {{ t("config.tabs.skill") }}
+          </a>
         </li>
         <li>
-          <a :class="{ 'active': props.configTab === 'persona', 'menu-active': props.configTab === 'persona', 'opacity-50 pointer-events-none': memorySyncLocked }" @click="requestTabChange('persona')">{{ t("config.tabs.persona") }}</a>
+          <a :class="{ 'active': props.configTab === 'persona', 'menu-active': props.configTab === 'persona', 'opacity-50 pointer-events-none': memorySyncLocked }" @click="requestTabChange('persona')">
+            <User class="w-4 h-4" />
+            {{ t("config.tabs.persona") }}
+          </a>
         </li>
         <li>
-          <a :class="{ 'active': props.configTab === 'department', 'menu-active': props.configTab === 'department', 'opacity-50 pointer-events-none': memorySyncLocked }" @click="requestTabChange('department')">{{ t("config.tabs.department") }}</a>
+          <a :class="{ 'active': props.configTab === 'department', 'menu-active': props.configTab === 'department', 'opacity-50 pointer-events-none': memorySyncLocked }" @click="requestTabChange('department')">
+            <Building2 class="w-4 h-4" />
+            {{ t("config.tabs.department") }}
+          </a>
         </li>
         <li>
-          <a :class="{ 'active': props.configTab === 'departmentTree', 'menu-active': props.configTab === 'departmentTree', 'opacity-50 pointer-events-none': memorySyncLocked }" @click="requestTabChange('departmentTree')">{{ t("config.tabs.departmentTree") }}</a>
+          <a :class="{ 'active': props.configTab === 'departmentTree', 'menu-active': props.configTab === 'departmentTree', 'opacity-50 pointer-events-none': memorySyncLocked }" @click="requestTabChange('departmentTree')">
+            <Network class="w-4 h-4" />
+            {{ t("config.tabs.departmentTree") }}
+          </a>
         </li>
         <li>
-          <a :class="{ 'active': props.configTab === 'chatSettings', 'menu-active': props.configTab === 'chatSettings', 'opacity-50 pointer-events-none': memorySyncLocked }" @click="requestTabChange('chatSettings')">{{ t("config.tabs.chatSettings") }}</a>
+          <a :class="{ 'active': props.configTab === 'chatSettings', 'menu-active': props.configTab === 'chatSettings', 'opacity-50 pointer-events-none': memorySyncLocked }" @click="requestTabChange('chatSettings')">
+            <MessageSquare class="w-4 h-4" />
+            {{ t("config.tabs.chatSettings") }}
+          </a>
         </li>
         <li>
-          <a :class="{ 'active': props.configTab === 'remoteIm', 'menu-active': props.configTab === 'remoteIm', 'opacity-50 pointer-events-none': memorySyncLocked }" @click="requestTabChange('remoteIm')">{{ t("config.tabs.remoteIm") }}</a>
+          <a :class="{ 'active': props.configTab === 'remoteIm', 'menu-active': props.configTab === 'remoteIm', 'opacity-50 pointer-events-none': memorySyncLocked }" @click="requestTabChange('remoteIm')">
+            <Radio class="w-4 h-4" />
+            {{ t("config.tabs.remoteIm") }}
+          </a>
         </li>
         <li>
-          <a :class="{ 'active': props.configTab === 'memory', 'menu-active': props.configTab === 'memory' }" @click="requestTabChange('memory')">{{ t("config.tabs.memory") }}</a>
+          <a :class="{ 'active': props.configTab === 'memory', 'menu-active': props.configTab === 'memory' }" @click="requestTabChange('memory')">
+            <Database class="w-4 h-4" />
+            {{ t("config.tabs.memory") }}
+          </a>
         </li>
         <li>
-          <a :class="{ 'active': props.configTab === 'task', 'menu-active': props.configTab === 'task', 'opacity-50 pointer-events-none': memorySyncLocked }" @click="requestTabChange('task')">{{ t("config.tabs.task") }}</a>
+          <a :class="{ 'active': props.configTab === 'task', 'menu-active': props.configTab === 'task', 'opacity-50 pointer-events-none': memorySyncLocked }" @click="requestTabChange('task')">
+            <ClipboardList class="w-4 h-4" />
+            {{ t("config.tabs.task") }}
+          </a>
         </li>
         <li>
-          <a :class="{ 'active': props.configTab === 'logs', 'menu-active': props.configTab === 'logs', 'opacity-50 pointer-events-none': memorySyncLocked }" @click="requestTabChange('logs')">{{ t("config.tabs.logs") }}</a>
+          <a :class="{ 'active': props.configTab === 'logs', 'menu-active': props.configTab === 'logs', 'opacity-50 pointer-events-none': memorySyncLocked }" @click="requestTabChange('logs')">
+            <ScrollText class="w-4 h-4" />
+            {{ t("config.tabs.logs") }}
+          </a>
         </li>
         <li>
-          <a :class="{ 'active': props.configTab === 'appearance', 'menu-active': props.configTab === 'appearance', 'opacity-50 pointer-events-none': memorySyncLocked }" @click="requestTabChange('appearance')">{{ t("config.tabs.appearance") }}</a>
+          <a :class="{ 'active': props.configTab === 'appearance', 'menu-active': props.configTab === 'appearance', 'opacity-50 pointer-events-none': memorySyncLocked }" @click="requestTabChange('appearance')">
+            <Palette class="w-4 h-4" />
+            {{ t("config.tabs.appearance") }}
+          </a>
         </li>
         <li>
-          <a :class="{ 'active': props.configTab === 'migration', 'menu-active': props.configTab === 'migration', 'opacity-50 pointer-events-none': memorySyncLocked }" @click="requestTabChange('migration')">{{ t("config.tabs.migration") }}</a>
+          <a :class="{ 'active': props.configTab === 'migration', 'menu-active': props.configTab === 'migration', 'opacity-50 pointer-events-none': memorySyncLocked }" @click="requestTabChange('migration')">
+            <ArrowLeftRight class="w-4 h-4" />
+            {{ t("config.tabs.migration") }}
+          </a>
         </li>
         <li>
           <a :class="{ 'active': props.configTab === 'about', 'menu-active': props.configTab === 'about', 'opacity-50 pointer-events-none': memorySyncLocked }" @click="requestTabChange('about')">
+            <Info class="w-4 h-4" />
             <span>{{ t("config.tabs.about") }}</span>
             <span v-if="props.hasAvailableUpdate" class="ml-2 inline-flex h-2.5 w-2.5 rounded-full bg-error shrink-0" :title="t('about.updateAvailableBadge')"></span>
           </a>
         </li>
         <li v-if="SHOW_DEV_DEMO_TAB">
-          <a :class="{ 'active': props.configTab === 'demo', 'menu-active': props.configTab === 'demo', 'opacity-50 pointer-events-none': memorySyncLocked }" @click="requestTabChange('demo')">{{ t("config.tabs.demo") }}</a>
+          <a :class="{ 'active': props.configTab === 'demo', 'menu-active': props.configTab === 'demo', 'opacity-50 pointer-events-none': memorySyncLocked }" @click="requestTabChange('demo')">
+            <Beaker class="w-4 h-4" />
+            {{ t("config.tabs.demo") }}
+          </a>
         </li>
       </ul>
     </div>
@@ -415,6 +473,7 @@ import AboutTab from "./config-tabs/AboutTab.vue";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { invokeTauri } from "../../../services/tauri-api";
 import { toErrorMessage } from "../../../utils/error";
+import { ArrowLeftRight, Beaker, Bell, Building2, ClipboardList, Code, Cpu, Database, Home, Info, Keyboard, MessageSquare, Network, Palette, Puzzle, Radio, ScrollText, User, Wifi, Wrench } from "@lucide/vue";
 
 type ConfigTab = "welcome" | "hotkey" | "api" | "tools" | "mcp" | "skill" | "persona" | "department" | "departmentTree" | "demo" | "chatSettings" | "notification" | "networkAccess" | "remoteIm" | "memory" | "task" | "logs" | "appearance" | "migration" | "about";
 type AvatarTarget = { agentId: string };
