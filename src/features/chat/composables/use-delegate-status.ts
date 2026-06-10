@@ -1,6 +1,6 @@
 import { ref, watch, onMounted, onBeforeUnmount, type Ref } from "vue";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
-import { invokeTauri } from "../../../services/tauri-api";
+import { invokeTauri, isTauriRuntimeAvailable } from "../../../services/tauri-api";
 import type { ConversationDelegateStatusSummary } from "../../../types/app";
 
 const ARCHIVE_FOCUS_REQUEST_STORAGE_KEY = "easy_call.archives.focus_request.v1";
@@ -9,6 +9,7 @@ const DELEGATE_STATUS_UPDATED_EVENT = "easy-call:conversation-delegate-status-up
 interface UseDelegateStatusOptions {
   activeConversationId: Ref<string>;
   panelOpen: Ref<boolean>;
+  enabled?: Ref<boolean>;
 }
 
 type DelegateStatusUpdatedPayload = {
@@ -23,6 +24,7 @@ export function useDelegateStatus(options: UseDelegateStatusOptions) {
 
   const delegateStatuses = ref<ConversationDelegateStatusSummary[]>([]);
   const delegateStatusesErrorText = ref("");
+  const enabled = () => options.enabled?.value !== false && isTauriRuntimeAvailable();
 
   let delegateStatusUpdatedUnlisten: UnlistenFn | null = null;
   let disposed = false;
@@ -30,7 +32,7 @@ export function useDelegateStatus(options: UseDelegateStatusOptions) {
 
   async function refresh() {
     const conversationId = String(activeConversationId.value || "").trim();
-    if (!conversationId || !panelOpen.value) {
+    if (!enabled() || !conversationId || !panelOpen.value) {
       requestSeq += 1;
       delegateStatuses.value = [];
       delegateStatusesErrorText.value = "";
@@ -94,12 +96,13 @@ export function useDelegateStatus(options: UseDelegateStatusOptions) {
   }
 
   watch(
-    () => [panelOpen.value, String(activeConversationId.value || "").trim()],
+    () => [enabled(), panelOpen.value, String(activeConversationId.value || "").trim()],
     () => syncPanelState(),
     { immediate: true },
   );
 
   onMounted(() => {
+    if (!enabled()) return;
     void listen<DelegateStatusUpdatedPayload>(DELEGATE_STATUS_UPDATED_EVENT, (event) => {
       if (!panelOpen.value || !payloadMatchesActiveConversation(event.payload)) return;
       void refresh();

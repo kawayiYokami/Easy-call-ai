@@ -59,6 +59,7 @@
             v-if="activeConversationTab === 'task'"
             :conversation-items="items"
             :search-query="conversationSearchQuery"
+            :bridge-request="bridgeRequest"
             @edit-task="requestTaskEdit"
             @layout-change="scheduleConversationListScrollbarUpdate"
           />
@@ -275,6 +276,7 @@ const props = defineProps<{
   personaNameMap: Record<string, string>;
   personaAvatarUrlMap: Record<string, string>;
   activeTab: ConversationSidebarTab;
+  bridgeRequest?: <T = unknown>(method: string, params?: Record<string, unknown>, timeoutMs?: number) => Promise<T>;
 }>();
 
 const emit = defineEmits<{
@@ -524,7 +526,16 @@ function isConversationDisabled(item: ChatConversationOverviewItem): boolean {
   return item.runtimeState === "organizing_context"
     || item.runtimeState === "archiving"
     || item.runtimeState === "compacting"
-    || !!item.detachedWindowOpen;
+    || !!item.detachedWindowOpen
+    || conversationOpenedByAnotherViewer(item);
+}
+
+function conversationOpenedByAnotherViewer(item: ChatConversationOverviewItem): boolean {
+  if (item.isSystemNotificationConversation) return false;
+  const openState = String(item.state?.openState || "").trim();
+  const openViewerId = String(item.state?.openViewerId || "").trim();
+  const currentViewerId = String(item.state?.currentViewerId || "").trim();
+  return openState === "open" && !!openViewerId && !!currentViewerId && openViewerId !== currentViewerId;
 }
 
 function isLocalConversation(item: ChatConversationOverviewItem): boolean {
@@ -554,7 +565,7 @@ function conversationDisplayTitle(item: ChatConversationOverviewItem): string {
 }
 
 function conversationItemTitle(item: ChatConversationOverviewItem): string {
-  if (item.detachedWindowOpen) return t("chat.detachedWindowOpen");
+  if (item.detachedWindowOpen || conversationOpenedByAnotherViewer(item)) return t("chat.detachedWindowOpen");
   if (item.runtimeState === "archiving") return runtimeStateText("archiving");
   if (item.runtimeState === "compacting") return runtimeStateText("compacting");
   if (isConversationDisabled(item)) return t("chat.organizingContextDisabled");

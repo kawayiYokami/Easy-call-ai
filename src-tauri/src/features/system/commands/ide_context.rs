@@ -84,6 +84,7 @@ struct IdeContextQueryResultOutput {
 }
 
 const IDE_CONTEXT_BRIDGE_HOST: &str = "127.0.0.1";
+const IDE_CONTEXT_BRIDGE_BIND_HOST: &str = "0.0.0.0";
 const IDE_CONTEXT_BRIDGE_BASE_PORT: u16 = 43129;
 const IDE_CONTEXT_BRIDGE_MAX_PORT: u16 = 43139;
 const IDE_CONTEXT_BRIDGE_PATH: &str = "/ide-context";
@@ -92,7 +93,9 @@ const IDE_CONTEXT_BRIDGE_DISCOVERY_FILE: &str = "p-ai-ide-context-bridge.json";
 const IDE_CONTEXT_SNAPSHOT_TTL_SECS: i64 = 30;
 const IDE_CONTEXT_AUTH_TOKEN_TTL_SECS: i64 = 24 * 60 * 60;
 static IDE_CONTEXT_BRIDGE_STARTED: AtomicBool = AtomicBool::new(false);
-static IDE_CONTEXT_BRIDGE_SHUTDOWN: OnceLock<tokio_util::sync::CancellationToken> = OnceLock::new();
+static IDE_CONTEXT_BRIDGE_SHUTDOWN: OnceLock<
+    Arc<Mutex<Option<tokio_util::sync::CancellationToken>>>,
+> = OnceLock::new();
 static IDE_CONTEXT_CHAT_CLIENTS: OnceLock<
     Arc<Mutex<std::collections::HashMap<String, tokio::sync::mpsc::UnboundedSender<serde_json::Value>>>>,
 > = OnceLock::new();
@@ -101,18 +104,23 @@ static IDE_CONTEXT_CHAT_CLIENTS: OnceLock<
 struct IdeContextRuntime {
     snapshots: Arc<Mutex<std::collections::HashMap<String, IdeContextSnapshot>>>,
     bridge_auth: Arc<Mutex<IdeContextBridgeAuthRuntime>>,
+    current_port: Arc<Mutex<Option<u16>>>,
 }
 
 #[derive(Debug, Default)]
 struct IdeContextBridgeAuthRuntime {
     valid_tokens: std::collections::HashMap<String, OffsetDateTime>,
+    remote_password: String,
 }
 
 impl IdeContextRuntime {
     fn new() -> Self {
+        let mut bridge_auth = IdeContextBridgeAuthRuntime::default();
+        bridge_auth.remote_password = ide_context_generate_remote_password();
         Self {
             snapshots: Arc::new(Mutex::new(std::collections::HashMap::new())),
-            bridge_auth: Arc::new(Mutex::new(IdeContextBridgeAuthRuntime::default())),
+            bridge_auth: Arc::new(Mutex::new(bridge_auth)),
+            current_port: Arc::new(Mutex::new(None)),
         }
     }
 }
@@ -131,12 +139,26 @@ struct IdeContextBridgeDiscovery {
     bridge_url: String,
     chat_url: String,
     host: String,
+    bind_host: String,
     port: u16,
     path: String,
     chat_path: String,
     pid: u32,
     updated_at: String,
+    #[serde(default)]
     token: String,
+    remote_password: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct WebAccessInfoOutput {
+    running: bool,
+    configured_port: u16,
+    port: u16,
+    local_url: String,
+    remote_urls: Vec<String>,
+    remote_password: String,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -156,6 +178,13 @@ struct IdeChatJsonRpcRequest {
 struct IdeChatJsonRpcError {
     code: i32,
     message: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct IdeChatAuthLoginInput {
+    #[serde(default)]
+    password: String,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -598,6 +627,68 @@ fn ide_context_generate_bridge_token() -> String {
     Uuid::new_v4().to_string()
 }
 
+fn ide_context_generate_remote_password() -> String {
+    let raw = Uuid::new_v4().simple().to_string().to_uppercase();
+    format!("{}-{}", &raw[0..4], &raw[4..8])
+}
+
+fn ide_context_normalize_remote_password(raw: &str) -> String {
+    raw.chars()
+        .filter(|ch| ch.is_ascii_alphanumeric())
+        .flat_map(|ch| ch.to_uppercase())
+        .collect()
+}
+
+fn ide_context_remote_password(runtime: &IdeContextRuntime) -> Result<String, String> {
+    let auth = runtime
+        .bridge_auth
+        .lock()
+        .map_err(|_| "Failed to lock ide context bridge auth".to_string())?;
+    Ok(auth.remote_password.clone())
+}
+
+fn ide_context_current_port(runtime: &IdeContextRuntime) -> Option<u16> {
+    runtime.current_port.lock().ok().and_then(|guard| *guard)
+}
+
+fn ide_context_set_current_port(runtime: &IdeContextRuntime, port: Option<u16>) {
+    if let Ok(mut slot) = runtime.current_port.lock() {
+        *slot = port;
+    }
+}
+
+fn ide_context_verify_remote_password(
+    runtime: &IdeContextRuntime,
+    provided: &str,
+) -> Result<bool, String> {
+    let expected = ide_context_remote_password(runtime)?;
+    let provided = ide_context_normalize_remote_password(provided);
+    if provided.is_empty() {
+        return Ok(false);
+    }
+    Ok(provided == ide_context_normalize_remote_password(&expected))
+}
+
+fn ide_context_peer_is_local(peer_addr: &std::net::SocketAddr) -> bool {
+    peer_addr.ip().is_loopback()
+}
+
+fn ide_context_lan_hosts() -> Vec<String> {
+    let mut hosts = Vec::new();
+    if let Ok(socket) = std::net::UdpSocket::bind("0.0.0.0:0") {
+        let _ = socket.connect("8.8.8.8:80");
+        if let Ok(addr) = socket.local_addr() {
+            let ip = addr.ip();
+            if ip.is_ipv4() && !ip.is_loopback() && !ip.is_unspecified() {
+                hosts.push(ip.to_string());
+            }
+        }
+    }
+    hosts.sort();
+    hosts.dedup();
+    hosts
+}
+
 fn ide_context_chat_clients() -> Arc<Mutex<std::collections::HashMap<String, tokio::sync::mpsc::UnboundedSender<serde_json::Value>>>> {
     IDE_CONTEXT_CHAT_CLIENTS
         .get_or_init(|| Arc::new(Mutex::new(std::collections::HashMap::new())))
@@ -632,6 +723,7 @@ fn ide_context_prune_expired_bridge_tokens(auth: &mut IdeContextBridgeAuthRuntim
     auth.valid_tokens.retain(|_, expires_at| *expires_at > now);
 }
 
+#[cfg(test)]
 fn ide_context_issue_bridge_token(runtime: &IdeContextRuntime) -> Result<String, String> {
     let token = ide_context_generate_bridge_token();
     let mut auth = runtime
@@ -924,23 +1016,45 @@ fn ide_context_text_block(file_path: &str, reference: &IdeContextReference) -> S
     lines.join("\n")
 }
 
+fn ide_context_bridge_url_for_host(host: &str, port: u16) -> String {
+    format!("ws://{}:{}{}", host, port, IDE_CONTEXT_BRIDGE_PATH)
+}
+
+fn ide_context_chat_bridge_url_for_host(host: &str, port: u16) -> String {
+    format!("ws://{}:{}{}", host, port, IDE_CONTEXT_CHAT_BRIDGE_PATH)
+}
+
 fn ide_context_bridge_url(port: u16) -> String {
-    format!("ws://{}:{}{}", IDE_CONTEXT_BRIDGE_HOST, port, IDE_CONTEXT_BRIDGE_PATH)
+    ide_context_bridge_url_for_host(IDE_CONTEXT_BRIDGE_HOST, port)
 }
 
 fn ide_context_chat_bridge_url(port: u16) -> String {
-    format!("ws://{}:{}{}", IDE_CONTEXT_BRIDGE_HOST, port, IDE_CONTEXT_CHAT_BRIDGE_PATH)
+    ide_context_chat_bridge_url_for_host(IDE_CONTEXT_BRIDGE_HOST, port)
+}
+
+fn ide_context_sidebar_url_for_host(host: &str, port: u16) -> String {
+    format!("http://{}:{}/sidebar", host, port)
 }
 
 fn ide_context_bridge_discovery_path() -> std::path::PathBuf {
     std::env::temp_dir().join(IDE_CONTEXT_BRIDGE_DISCOVERY_FILE)
 }
 
-fn ide_context_bridge_shutdown_token() -> &'static tokio_util::sync::CancellationToken {
-    IDE_CONTEXT_BRIDGE_SHUTDOWN.get_or_init(tokio_util::sync::CancellationToken::new)
+fn ide_context_bridge_shutdown_slot() -> Arc<Mutex<Option<tokio_util::sync::CancellationToken>>> {
+    IDE_CONTEXT_BRIDGE_SHUTDOWN
+        .get_or_init(|| Arc::new(Mutex::new(None)))
+        .clone()
 }
 
-fn publish_ide_context_bridge_discovery(port: u16, token: &str) -> Result<(), String> {
+fn ide_context_bridge_create_shutdown_token() -> tokio_util::sync::CancellationToken {
+    let token = tokio_util::sync::CancellationToken::new();
+    if let Ok(mut slot) = ide_context_bridge_shutdown_slot().lock() {
+        *slot = Some(token.clone());
+    }
+    token
+}
+
+fn publish_ide_context_bridge_discovery(port: u16, remote_password: &str) -> Result<(), String> {
     let url = ide_context_bridge_url(port);
     let chat_url = ide_context_chat_bridge_url(port);
     let payload = IdeContextBridgeDiscovery {
@@ -948,12 +1062,14 @@ fn publish_ide_context_bridge_discovery(port: u16, token: &str) -> Result<(), St
         bridge_url: url,
         chat_url,
         host: IDE_CONTEXT_BRIDGE_HOST.to_string(),
+        bind_host: IDE_CONTEXT_BRIDGE_BIND_HOST.to_string(),
         port,
         path: IDE_CONTEXT_BRIDGE_PATH.to_string(),
         chat_path: IDE_CONTEXT_CHAT_BRIDGE_PATH.to_string(),
         pid: std::process::id(),
         updated_at: now_iso(),
-        token: token.to_string(),
+        token: String::new(),
+        remote_password: remote_password.to_string(),
     };
     let path = ide_context_bridge_discovery_path();
     let text = serde_json::to_string_pretty(&payload)
@@ -974,10 +1090,21 @@ fn clear_ide_context_bridge_discovery() {
     }
 }
 
-async fn bind_ide_context_bridge_listener() -> Result<(tokio::net::TcpListener, u16), String> {
+async fn bind_ide_context_bridge_listener(
+    preferred_port: u16,
+) -> Result<(tokio::net::TcpListener, u16), String> {
     let mut errors = Vec::new();
+    let mut candidate_ports = Vec::new();
+    if preferred_port >= 1024 {
+        candidate_ports.push(preferred_port);
+    }
     for port in IDE_CONTEXT_BRIDGE_BASE_PORT..=IDE_CONTEXT_BRIDGE_MAX_PORT {
-        let addr = format!("{}:{}", IDE_CONTEXT_BRIDGE_HOST, port);
+        if !candidate_ports.contains(&port) {
+            candidate_ports.push(port);
+        }
+    }
+    for port in candidate_ports {
+        let addr = format!("{}:{}", IDE_CONTEXT_BRIDGE_BIND_HOST, port);
         match tokio::net::TcpListener::bind(&addr).await {
             Ok(listener) => return Ok((listener, port)),
             Err(err) => {
@@ -992,11 +1119,180 @@ async fn bind_ide_context_bridge_listener() -> Result<(tokio::net::TcpListener, 
     }
     Err(format!(
         "No available IDE context bridge port in {}:{}-{} ({})",
-        IDE_CONTEXT_BRIDGE_HOST,
+        IDE_CONTEXT_BRIDGE_BIND_HOST,
         IDE_CONTEXT_BRIDGE_BASE_PORT,
         IDE_CONTEXT_BRIDGE_MAX_PORT,
         errors.join("; ")
     ))
+}
+
+async fn ide_context_stream_is_websocket(stream: &tokio::net::TcpStream) -> bool {
+    let mut buffer = [0_u8; 1024];
+    match tokio::time::timeout(std::time::Duration::from_millis(500), stream.peek(&mut buffer)).await
+    {
+        Ok(Ok(count)) if count > 0 => {
+            String::from_utf8_lossy(&buffer[..count])
+                .to_ascii_lowercase()
+                .contains("upgrade: websocket")
+        }
+        _ => false,
+    }
+}
+
+fn ide_context_http_status_text(status: u16) -> &'static str {
+    match status {
+        200 => "OK",
+        404 => "Not Found",
+        405 => "Method Not Allowed",
+        426 => "Upgrade Required",
+        _ => "Internal Server Error",
+    }
+}
+
+fn ide_context_http_header_value<'a>(headers: &'a str, name: &str) -> Option<&'a str> {
+    let prefix = format!("{}:", name.to_ascii_lowercase());
+    headers.lines().skip(1).find_map(|line| {
+        let trimmed = line.trim();
+        if trimmed.to_ascii_lowercase().starts_with(&prefix) {
+            trimmed.split_once(':').map(|(_, value)| value.trim())
+        } else {
+            None
+        }
+    })
+}
+
+fn ide_context_http_path_from_request(headers: &str) -> (&str, &str) {
+    let first_line = headers.lines().next().unwrap_or_default();
+    let mut parts = first_line.split_whitespace();
+    let method = parts.next().unwrap_or_default();
+    let uri = parts.next().unwrap_or("/");
+    let path = uri.split('?').next().unwrap_or("/");
+    (method, path)
+}
+
+fn ide_context_web_asset_path(path: &str) -> Option<String> {
+    let path = path.trim();
+    match path {
+        "/" | "/sidebar" | "/sidebar.html" => Some("sidebar.html".to_string()),
+        _ if path.starts_with("/assets/") && !path.contains("..") => {
+            Some(path.trim_start_matches('/').to_string())
+        }
+        _ => None,
+    }
+}
+
+fn ide_context_sidebar_html_with_bridge(asset_bytes: &[u8], host: &str) -> Vec<u8> {
+    let chat_url = format!("ws://{}{}", host, IDE_CONTEXT_CHAT_BRIDGE_PATH);
+    let injected = serde_json::json!({
+        "chatUrl": chat_url,
+        "workspaceRoots": [],
+    });
+    let script = format!(
+        "<script>window.__PAI_SIDEBAR_BRIDGE__ = {};</script>",
+        injected
+    );
+    let html = String::from_utf8_lossy(asset_bytes);
+    if html.contains("</head>") {
+        html.replacen("</head>", &format!("  {}\n  </head>", script), 1)
+            .into_bytes()
+    } else {
+        format!("{}\n{}", script, html).into_bytes()
+    }
+}
+
+async fn ide_context_http_write_response(
+    stream: &mut tokio::net::TcpStream,
+    status: u16,
+    content_type: &str,
+    body: Vec<u8>,
+) {
+    use tokio::io::AsyncWriteExt;
+
+    let headers = format!(
+        "HTTP/1.1 {} {}\r\nContent-Type: {}\r\nContent-Length: {}\r\nConnection: close\r\nCache-Control: no-store\r\n\r\n",
+        status,
+        ide_context_http_status_text(status),
+        content_type,
+        body.len()
+    );
+    let _ = stream.write_all(headers.as_bytes()).await;
+    let _ = stream.write_all(&body).await;
+    let _ = stream.shutdown().await;
+}
+
+async fn ide_context_http_handle_connection(
+    mut stream: tokio::net::TcpStream,
+    app: AppHandle,
+) {
+    use tokio::io::AsyncReadExt;
+
+    let mut buffer = vec![0_u8; 8192];
+    let count = match tokio::time::timeout(
+        std::time::Duration::from_secs(2),
+        stream.read(&mut buffer),
+    )
+    .await
+    {
+        Ok(Ok(count)) => count,
+        _ => 0,
+    };
+    let headers = String::from_utf8_lossy(&buffer[..count]);
+    let (method, path) = ide_context_http_path_from_request(&headers);
+    if method != "GET" {
+        ide_context_http_write_response(
+            &mut stream,
+            405,
+            "text/plain; charset=utf-8",
+            b"Method Not Allowed".to_vec(),
+        )
+        .await;
+        return;
+    }
+    if path == IDE_CONTEXT_BRIDGE_PATH || path == IDE_CONTEXT_CHAT_BRIDGE_PATH {
+        ide_context_http_write_response(
+            &mut stream,
+            426,
+            "text/plain; charset=utf-8",
+            b"WebSocket upgrade required".to_vec(),
+        )
+        .await;
+        return;
+    }
+    let Some(asset_path) = ide_context_web_asset_path(path) else {
+        ide_context_http_write_response(
+            &mut stream,
+            404,
+            "text/plain; charset=utf-8",
+            b"Not Found".to_vec(),
+        )
+        .await;
+        return;
+    };
+    let Some(asset) = app.asset_resolver().get(asset_path.clone()) else {
+        ide_context_http_write_response(
+            &mut stream,
+            404,
+            "text/plain; charset=utf-8",
+            b"Asset Not Found".to_vec(),
+        )
+        .await;
+        return;
+    };
+    let host = ide_context_http_header_value(&headers, "host")
+        .filter(|value| !value.is_empty())
+        .unwrap_or("127.0.0.1");
+    let body = if asset_path == "sidebar.html" {
+        ide_context_sidebar_html_with_bridge(asset.bytes(), host)
+    } else {
+        asset.bytes().to_vec()
+    };
+    ide_context_http_write_response(
+        &mut stream,
+        200,
+        asset.mime_type(),
+        body,
+    )
+    .await;
 }
 
 fn upsert_ide_context_snapshot_internal(
@@ -1088,6 +1384,38 @@ fn query_ide_context_references(
     ide_context_runtime: State<'_, IdeContextRuntime>,
 ) -> Result<IdeContextQueryResultOutput, String> {
     query_ide_context_references_internal(input, ide_context_runtime.inner())
+}
+
+#[tauri::command]
+fn get_web_access_info(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    ide_context_runtime: State<'_, IdeContextRuntime>,
+) -> Result<WebAccessInfoOutput, String> {
+    let config = state_read_config_cached(&state)?;
+    let configured_port = normalize_web_access_port(config.web_access_port);
+    if !IDE_CONTEXT_BRIDGE_STARTED.load(Ordering::SeqCst) {
+        start_ide_context_bridge_server(
+            app,
+            state.inner().clone(),
+            ide_context_runtime.inner().clone(),
+        );
+    }
+    let running = IDE_CONTEXT_BRIDGE_STARTED.load(Ordering::SeqCst);
+    let port = ide_context_current_port(ide_context_runtime.inner()).unwrap_or(configured_port);
+    let local_url = ide_context_sidebar_url_for_host(IDE_CONTEXT_BRIDGE_HOST, port);
+    let remote_urls = ide_context_lan_hosts()
+        .into_iter()
+        .map(|host| ide_context_sidebar_url_for_host(&host, port))
+        .collect::<Vec<_>>();
+    Ok(WebAccessInfoOutput {
+        running,
+        configured_port,
+        port,
+        local_url,
+        remote_urls,
+        remote_password: ide_context_remote_password(ide_context_runtime.inner())?,
+    })
 }
 
 fn query_ide_context_references_internal(
@@ -1251,6 +1579,14 @@ fn ide_chat_register_sidebar_conversation(
     if conversation_id.is_empty() {
         return Err("conversationId is required".to_string());
     }
+    let conversation = state_read_conversation_cached(state, conversation_id)?;
+    if conversation_is_system_notification(&conversation) {
+        if opened_conversation_id.as_deref() != Some(conversation_id) {
+            ide_chat_release_sidebar_conversation(state, sidebar_label)?;
+        }
+        *opened_conversation_id = Some(conversation_id.to_string());
+        return Ok(());
+    }
     if let Some(existing_label) = detached_chat_window_for_conversation(conversation_id) {
         if existing_label != sidebar_label {
             return Err("会话已在其他窗口打开。".to_string());
@@ -1335,7 +1671,8 @@ fn ide_chat_ensure_sidebar_workspace(
     Ok(())
 }
 
-fn ide_chat_conversation_list(state: &AppState) -> Result<Value, String> {
+fn ide_chat_conversation_list(state: &AppState, current_viewer_id: &str) -> Result<Value, String> {
+    let viewer_id = current_viewer_id.trim();
     let summaries = conversation_service()
         .list_unarchived_conversation_summaries(state)?
         .summaries
@@ -1343,11 +1680,19 @@ fn ide_chat_conversation_list(state: &AppState) -> Result<Value, String> {
         .map(|mut item| {
             item.runtime_state = ide_chat_runtime_for_conversation(state, &item.conversation_id)
                 .map(|snapshot| snapshot.runtime_state);
+            item.state.current_viewer_id = Some(viewer_id.to_string());
             item
         })
         .collect::<Vec<_>>();
+    let remote_im_contact_conversations = conversation_service().list_remote_im_contact_conversations(state)?;
     let persona = ide_chat_persona_payload(state, None)?;
-    Ok(serde_json::json!({ "conversations": summaries, "persona": persona }))
+    Ok(serde_json::json!({
+        "conversations": summaries,
+        "unarchivedConversations": summaries,
+        "remoteImContactConversations": remote_im_contact_conversations,
+        "persona": persona,
+        "viewerId": viewer_id,
+    }))
 }
 
 fn ide_chat_conversation_block_page(state: &AppState, params: Value) -> Result<Value, String> {
@@ -1911,6 +2256,111 @@ async fn ide_chat_tool_review_submit_code(state: &AppState, params: Value) -> Re
         .map_err(|err| format!("Serialize tool review submit result failed: {err}"))
 }
 
+fn ide_chat_tool_review_batches(state: &AppState, params: Value) -> Result<Value, String> {
+    let input = ide_chat_parse_params::<ToolReviewConversationInput>(params)?;
+    let conversation_id = input.conversation_id.trim();
+    if conversation_id.is_empty() {
+        return serde_json::to_value(ListToolReviewBatchesOutput {
+            batches: Vec::new(),
+            current_batch_key: None,
+        })
+        .map_err(|err| format!("Serialize tool review batches failed: {err}"));
+    }
+    let (batches, current_batch_key) = with_tool_review_conversation(state, conversation_id, |conversation| {
+        let batches = collect_tool_review_batches_internal(conversation);
+        let current_batch_key = conversation
+            .messages
+            .iter()
+            .rev()
+            .find(|message| message.role.trim().eq_ignore_ascii_case("user"))
+            .map(|message| message.id.clone());
+        Ok((batches, current_batch_key))
+    })?;
+    serde_json::to_value(ListToolReviewBatchesOutput {
+        current_batch_key,
+        batches: batches
+            .iter()
+            .map(tool_review_batch_summary_from_collected)
+            .collect(),
+    })
+    .map_err(|err| format!("Serialize tool review batches failed: {err}"))
+}
+
+fn ide_chat_tool_review_item_detail(state: &AppState, params: Value) -> Result<Value, String> {
+    let input = ide_chat_parse_params::<ToolReviewCallInput>(params)?;
+    let conversation_id = input.conversation_id.trim();
+    let call_id = input.call_id.trim();
+    if conversation_id.is_empty() || call_id.is_empty() {
+        return Err("conversationId 和 callId 不能为空。".to_string());
+    }
+    let detail = with_tool_review_conversation(state, conversation_id, |conversation| {
+        let item = tool_review_find_item(conversation, call_id)?;
+        Ok(tool_review_item_detail_from_collected(&item))
+    })?;
+    serde_json::to_value(detail)
+        .map_err(|err| format!("Serialize tool review item detail failed: {err}"))
+}
+
+async fn ide_chat_tool_review_item_review(state: &AppState, params: Value) -> Result<Value, String> {
+    let input = ide_chat_parse_params::<ToolReviewCallInput>(params)?;
+    let conversation_id = input.conversation_id.trim();
+    let call_id = input.call_id.trim();
+    if conversation_id.is_empty() || call_id.is_empty() {
+        return Err("conversationId 和 callId 不能为空。".to_string());
+    }
+    serde_json::to_value(tool_review_run_for_call_internal(state, conversation_id, call_id).await?)
+        .map_err(|err| format!("Serialize tool review item result failed: {err}"))
+}
+
+fn ide_chat_tool_review_item_decision(state: &AppState, params: Value) -> Result<Value, String> {
+    let input = ide_chat_parse_params::<ToolReviewSetUserDecisionInput>(params)?;
+    let conversation_id = input.conversation_id.trim().to_string();
+    let call_id = input.call_id.trim().to_string();
+    if conversation_id.is_empty() || call_id.is_empty() {
+        return Err("conversationId 和 callId 不能为空。".to_string());
+    }
+    let opinion = input.opinion.trim().to_string();
+    let user_decision_review = serde_json::json!({
+        "kind": "user_decision",
+        "allow": input.allow,
+        "reviewOpinion": if opinion.is_empty() {
+            if input.allow { "用户已批准本次工具执行" } else { "用户已否决本次工具执行" }
+        } else {
+            opinion.as_str()
+        },
+        "userOpinion": opinion,
+    });
+    let detail = conversation_service().update_unarchived_conversation_by_id(
+        state,
+        &conversation_id,
+        |conversation| {
+            tool_review_write_call_review(conversation, &call_id, &user_decision_review)?;
+            let refreshed = tool_review_find_item(conversation, &call_id)?;
+            Ok(tool_review_item_detail_from_collected(&refreshed))
+        },
+    )?;
+    serde_json::to_value(detail)
+        .map_err(|err| format!("Serialize tool review decision result failed: {err}"))
+}
+
+async fn ide_chat_tool_review_batch_review(state: &AppState, params: Value) -> Result<Value, String> {
+    let input = ide_chat_parse_params::<ToolReviewBatchActionInput>(params)?;
+    let conversation_id = input.conversation_id.trim();
+    if conversation_id.is_empty() {
+        return Err("conversationId 不能为空。".to_string());
+    }
+    let conversation = with_tool_review_conversation(state, conversation_id, |conversation| {
+        Ok(conversation.clone())
+    })?;
+    let (_batch_number, batch) = tool_review_find_batch_by_index(&conversation, input.batch_index)?;
+    let reviewed_call_ids = tool_review_run_missing_reviews_for_batch(state, conversation_id, &batch).await?;
+    serde_json::to_value(RunToolReviewBatchOutput {
+        batch_key: batch.batch_key,
+        reviewed_call_ids,
+    })
+    .map_err(|err| format!("Serialize tool review batch result failed: {err}"))
+}
+
 async fn ide_chat_branch_conversation(state: &AppState, params: Value) -> Result<Value, String> {
     let input = ide_chat_parse_params::<BranchUnarchivedConversationFromSelectionInput>(params)?;
     serde_json::to_value(branch_unarchived_conversation_from_selection_internal(input, state).await?)
@@ -1928,6 +2378,30 @@ fn ide_chat_task_create(state: &AppState, params: Value) -> Result<Value, String
     let input = task_create_input_for_write(state, &input)?;
     serde_json::to_value(task_store_create_task(&state.data_path, &input)?)
         .map_err(|err| format!("Serialize task create result failed: {err}"))
+}
+
+fn ide_chat_task_update(state: &AppState, params: Value) -> Result<Value, String> {
+    let input = ide_chat_parse_params::<TaskUpdateInput>(params)?;
+    let input = task_update_input_for_write(state, &input)?;
+    serde_json::to_value(task_store_update_task(&state.data_path, &input)?)
+        .map_err(|err| format!("Serialize task update result failed: {err}"))
+}
+
+fn ide_chat_task_delete(state: &AppState, params: Value) -> Result<Value, String> {
+    let input = ide_chat_parse_params::<TaskDeleteInput>(params)?;
+    task_store_delete_task(&state.data_path, input.task_id.trim())?;
+    Ok(serde_json::json!(true))
+}
+
+fn ide_chat_task_list(state: &AppState) -> Result<Value, String> {
+    serde_json::to_value(task_store_list_tasks(&state.data_path)?)
+        .map_err(|err| format!("Serialize task list result failed: {err}"))
+}
+
+async fn ide_chat_task_optimize_draft(state: &AppState, params: Value) -> Result<Value, String> {
+    let input = ide_chat_parse_params::<TaskOptimizeDraftInput>(params)?;
+    serde_json::to_value(task_optimize_draft_internal(input, state).await?)
+        .map_err(|err| format!("Serialize task optimize result failed: {err}"))
 }
 
 async fn ide_chat_task_dispatch_now(state: &AppState, params: Value) -> Result<Value, String> {
@@ -1953,8 +2427,10 @@ async fn ide_chat_handle_jsonrpc_request(
         return ide_chat_jsonrpc_error(request.id, -32600, "jsonrpc must be 2.0");
     }
     let sidebar_label = ide_chat_sidebar_window_label(client_id);
+    let sidebar_viewer_id = chat_viewer_id_for_window_label(&sidebar_label)
+        .unwrap_or_else(|| format!("web:{}", client_id.trim()));
     let result = match request.method.as_str() {
-        "conversation.list" => ide_chat_conversation_list(state),
+        "conversation.list" => ide_chat_conversation_list(state, &sidebar_viewer_id),
         "conversation.open" => ide_chat_parse_params::<IdeChatConversationInput>(request.params)
             .and_then(|input| {
                 let result = ide_chat_conversation_open_result(state, &input.conversation_id)?;
@@ -1993,7 +2469,11 @@ async fn ide_chat_handle_jsonrpc_request(
         "conversation.rewind" => ide_chat_rewind_conversation(state, request.params).await,
         "conversation.branchFromSelection" => ide_chat_branch_conversation(state, request.params).await,
         "delegate.submit" => ide_chat_submit_delegate(state, request.params).await,
+        "task.list" => ide_chat_task_list(state),
         "task.create" => ide_chat_task_create(state, request.params),
+        "task.update" => ide_chat_task_update(state, request.params),
+        "task.delete" => ide_chat_task_delete(state, request.params),
+        "task.optimizeDraft" => ide_chat_task_optimize_draft(state, request.params).await,
         "task.dispatchNow" => ide_chat_task_dispatch_now(state, request.params).await,
         "conversation.compactPreview" => ide_chat_compact_preview(state, request.params),
         "conversation.compact" => ide_chat_compact_conversation(state, request.params).await,
@@ -2017,6 +2497,11 @@ async fn ide_chat_handle_jsonrpc_request(
         "toolReview.report.delete" => ide_chat_tool_review_delete_report(state, request.params),
         "toolReview.commitOptions.list" => ide_chat_tool_review_commit_options(state, request.params).await,
         "toolReview.code.submit" => ide_chat_tool_review_submit_code(state, request.params).await,
+        "toolReview.batches.list" => ide_chat_tool_review_batches(state, request.params),
+        "toolReview.item.detail" => ide_chat_tool_review_item_detail(state, request.params),
+        "toolReview.item.review" => ide_chat_tool_review_item_review(state, request.params).await,
+        "toolReview.batch.review" => ide_chat_tool_review_batch_review(state, request.params).await,
+        "toolReview.item.decision" => ide_chat_tool_review_item_decision(state, request.params),
         _ => return ide_chat_jsonrpc_error(request.id, -32601, "method not found"),
     };
     match result {
@@ -2032,29 +2517,42 @@ fn start_ide_context_bridge_server(app: AppHandle, state: AppState, ide_context_
     {
         return;
     }
-    let shutdown_token = ide_context_bridge_shutdown_token().clone();
+    let shutdown_token = ide_context_bridge_create_shutdown_token();
     tauri::async_runtime::spawn(async move {
-        let (listener, port) = match bind_ide_context_bridge_listener().await {
+        let preferred_port = state_read_config_cached(&state)
+            .map(|config| normalize_web_access_port(config.web_access_port))
+            .unwrap_or_else(|err| {
+                eprintln!(
+                    "[网络访问] 读取端口配置失败，使用默认端口: {}",
+                    err
+                );
+                default_web_access_port()
+            });
+        let (listener, port) = match bind_ide_context_bridge_listener(preferred_port).await {
             Ok(result) => result,
             Err(err) => {
                 IDE_CONTEXT_BRIDGE_STARTED.store(false, Ordering::SeqCst);
+                ide_context_set_current_port(&ide_context_runtime, None);
                 clear_ide_context_bridge_discovery();
                 eprintln!("[IDE 上下文桥] 监听失败: {}", err);
                 return;
             }
         };
+        ide_context_set_current_port(&ide_context_runtime, Some(port));
         let bridge_url = ide_context_bridge_url(port);
-        let token = match ide_context_issue_bridge_token(&ide_context_runtime) {
-            Ok(token) => token,
+        let remote_password = match ide_context_remote_password(&ide_context_runtime) {
+            Ok(password) => password,
             Err(err) => {
                 IDE_CONTEXT_BRIDGE_STARTED.store(false, Ordering::SeqCst);
+                ide_context_set_current_port(&ide_context_runtime, None);
                 clear_ide_context_bridge_discovery();
-                eprintln!("[IDE 上下文桥] 初始化鉴权 token 失败: {}", err);
+                eprintln!("[IDE 上下文桥] 初始化远程访问密码失败: {}", err);
                 return;
             }
         };
-        if let Err(err) = publish_ide_context_bridge_discovery(port, &token) {
+        if let Err(err) = publish_ide_context_bridge_discovery(port, &remote_password) {
             IDE_CONTEXT_BRIDGE_STARTED.store(false, Ordering::SeqCst);
+            ide_context_set_current_port(&ide_context_runtime, None);
             clear_ide_context_bridge_discovery();
             eprintln!("[IDE 上下文桥] 写入发现文件失败: {}", err);
             return;
@@ -2065,6 +2563,7 @@ fn start_ide_context_bridge_server(app: AppHandle, state: AppState, ide_context_
                 _ = shutdown_token.cancelled() => {
                     clear_ide_context_bridge_discovery();
                     IDE_CONTEXT_BRIDGE_STARTED.store(false, Ordering::SeqCst);
+                    ide_context_set_current_port(&ide_context_runtime, None);
                     eprintln!("[IDE 上下文桥] 收到停机信号，停止监听 {}", bridge_url);
                     break;
                 }
@@ -2099,7 +2598,11 @@ pub(crate) async fn shutdown_ide_context_bridge_server() {
         clear_ide_context_bridge_discovery();
         return;
     }
-    ide_context_bridge_shutdown_token().cancel();
+    if let Ok(slot) = ide_context_bridge_shutdown_slot().lock() {
+        if let Some(token) = slot.as_ref() {
+            token.cancel();
+        }
+    }
     clear_ide_context_bridge_discovery();
     if let Some(clients) = IDE_CONTEXT_CHAT_CLIENTS.get() {
         if let Ok(mut clients) = clients.lock() {
@@ -2117,6 +2620,13 @@ pub(crate) async fn shutdown_ide_context_bridge_server() {
     eprintln!("[IDE 上下文桥] 停止等待超时，已清理发现文件");
 }
 
+fn restart_ide_context_bridge_server(app: AppHandle, state: AppState, ide_context_runtime: IdeContextRuntime) {
+    tauri::async_runtime::spawn(async move {
+        shutdown_ide_context_bridge_server().await;
+        start_ide_context_bridge_server(app, state, ide_context_runtime);
+    });
+}
+
 async fn ide_context_ws_handle_connection(
     stream: tokio::net::TcpStream,
     peer_addr: std::net::SocketAddr,
@@ -2125,6 +2635,10 @@ async fn ide_context_ws_handle_connection(
     state: AppState,
     ide_context_runtime: IdeContextRuntime,
 ) {
+    if !ide_context_stream_is_websocket(&stream).await {
+        ide_context_http_handle_connection(stream, app).await;
+        return;
+    }
     let path_holder = std::sync::Arc::new(std::sync::Mutex::new(String::new()));
     let path_holder_clone = path_holder.clone();
     let ws_stream = match accept_hdr_async(stream, move |request: &Request, response: Response| {
@@ -2160,10 +2674,14 @@ async fn ide_context_ws_handle_connection(
     eprintln!("[IDE 上下文桥] 客户端已连接: {}", peer_addr);
     let (mut ws_sender, mut ws_receiver) = ws_stream.split();
     let mut connected_client_id = String::new();
-    let mut authenticated = false;
+    let mut authenticated = ide_context_peer_is_local(&peer_addr);
     let _ = ws_sender
         .send(tokio_tungstenite::tungstenite::Message::Text(
-            serde_json::json!({"type": "ready", "path": IDE_CONTEXT_BRIDGE_PATH, "authRequired": true})
+            serde_json::json!({
+                "type": "ready",
+                "path": IDE_CONTEXT_BRIDGE_PATH,
+                "authRequired": !authenticated,
+            })
                 .to_string()
                 .into(),
         ))
@@ -2182,14 +2700,16 @@ async fn ide_context_ws_handle_connection(
                                     authenticated = true;
                                 }
                                 Err((err, refreshed_token)) => {
-                                    if let Some(refreshed_token) = refreshed_token.as_deref() {
-                                        if let Err(publish_err) =
-                                            publish_ide_context_bridge_discovery(port, refreshed_token)
-                                        {
-                                            eprintln!(
-                                                "[IDE 上下文桥] 过期后重写发现 token 失败: {}",
-                                                publish_err
-                                            );
+                                    if let Some(_refreshed_token) = refreshed_token.as_deref() {
+                                        if let Ok(remote_password) = ide_context_remote_password(&ide_context_runtime) {
+                                            if let Err(publish_err) =
+                                                publish_ide_context_bridge_discovery(port, &remote_password)
+                                            {
+                                                eprintln!(
+                                                    "[IDE 上下文桥] 过期后重写发现文件失败: {}",
+                                                    publish_err
+                                                );
+                                            }
                                         }
                                     }
                                     let _ = ws_sender
@@ -2266,6 +2786,7 @@ async fn ide_context_chat_ws_handle_connection(
 ) {
     eprintln!("[VSCode 侧边栏] 客户端已连接: {}", peer_addr);
     let client_id = Uuid::new_v4().to_string();
+    let mut authenticated = ide_context_peer_is_local(&peer_addr);
     let (mut ws_sender, mut ws_receiver) = ws_stream.split();
     let (outbound_tx, mut outbound_rx) = tokio::sync::mpsc::unbounded_channel::<serde_json::Value>();
     let writer_client_id = client_id.clone();
@@ -2288,26 +2809,64 @@ async fn ide_context_chat_ws_handle_connection(
         "method": "bridge.ready",
         "params": {
             "path": IDE_CONTEXT_CHAT_BRIDGE_PATH,
-            "authRequired": false,
+            "authRequired": !authenticated,
+            "authMode": if authenticated { "none" } else { "password" },
         },
     }));
-    if let Ok(mut clients) = ide_context_chat_clients().lock() {
-        clients.insert(client_id.clone(), outbound_tx.clone());
+    let mut registered_client = false;
+    if authenticated {
+        if let Ok(mut clients) = ide_context_chat_clients().lock() {
+            clients.insert(client_id.clone(), outbound_tx.clone());
+            registered_client = true;
+        }
     }
     let mut opened_conversation_id: Option<String> = None;
     while let Some(message) = ws_receiver.next().await {
         match message {
             Ok(tokio_tungstenite::tungstenite::Message::Text(text)) => {
                 let response = match serde_json::from_str::<IdeChatJsonRpcRequest>(&text) {
-                    Ok(request) => ide_chat_handle_jsonrpc_request(
-                        request,
-                        &state,
-                        &app,
-                        &ide_context_runtime,
-                        &client_id,
-                        &mut opened_conversation_id,
-                    )
-                    .await,
+                    Ok(request) => {
+                        if !authenticated {
+                            if request.jsonrpc.trim() != "2.0" {
+                                ide_chat_jsonrpc_error(request.id, -32600, "jsonrpc must be 2.0")
+                            } else if request.method.as_str() == "auth.login" {
+                                match ide_chat_parse_params::<IdeChatAuthLoginInput>(request.params) {
+                                    Ok(input) => match ide_context_verify_remote_password(
+                                        &ide_context_runtime,
+                                        &input.password,
+                                    ) {
+                                        Ok(true) => {
+                                            authenticated = true;
+                                            if !registered_client {
+                                                if let Ok(mut clients) = ide_context_chat_clients().lock() {
+                                                    clients.insert(client_id.clone(), outbound_tx.clone());
+                                                    registered_client = true;
+                                                }
+                                            }
+                                            ide_chat_jsonrpc_success(request.id, serde_json::json!({
+                                                "authenticated": true,
+                                            }))
+                                        }
+                                        Ok(false) => ide_chat_jsonrpc_error(request.id, -32001, "远程访问密码错误"),
+                                        Err(err) => ide_chat_jsonrpc_error(request.id, -32000, err),
+                                    },
+                                    Err(err) => ide_chat_jsonrpc_error(request.id, -32602, err),
+                                }
+                            } else {
+                                ide_chat_jsonrpc_error(request.id, -32001, "远程访问需要先输入密码")
+                            }
+                        } else {
+                            ide_chat_handle_jsonrpc_request(
+                                request,
+                                &state,
+                                &app,
+                                &ide_context_runtime,
+                                &client_id,
+                                &mut opened_conversation_id,
+                            )
+                            .await
+                        }
+                    }
                     Err(err) => ide_chat_jsonrpc_error(None, -32700, format!("invalid json: {err}")),
                 };
                 let _ = outbound_tx.send(response);
@@ -2343,6 +2902,32 @@ async fn ide_context_chat_ws_handle_connection(
 #[cfg(test)]
 mod ide_context_tests {
     use super::*;
+
+    #[test]
+    fn ide_context_remote_password_accepts_human_input_format() {
+        let runtime = IdeContextRuntime::new();
+        let password = ide_context_remote_password(&runtime).expect("remote password");
+        let compact_lowercase = password.replace('-', "").to_ascii_lowercase();
+
+        assert!(ide_context_verify_remote_password(&runtime, &password).expect("verify password"));
+        assert!(
+            ide_context_verify_remote_password(&runtime, &compact_lowercase)
+                .expect("verify compact password")
+        );
+        assert!(!ide_context_verify_remote_password(&runtime, "").expect("reject empty"));
+        assert!(!ide_context_verify_remote_password(&runtime, "wrong-password").expect("reject wrong"));
+    }
+
+    #[test]
+    fn ide_context_peer_is_local_only_allows_loopback() {
+        let ipv4_local: std::net::SocketAddr = "127.0.0.1:43129".parse().expect("ipv4 local");
+        let ipv6_local: std::net::SocketAddr = "[::1]:43129".parse().expect("ipv6 local");
+        let remote: std::net::SocketAddr = "192.168.1.10:43129".parse().expect("remote");
+
+        assert!(ide_context_peer_is_local(&ipv4_local));
+        assert!(ide_context_peer_is_local(&ipv6_local));
+        assert!(!ide_context_peer_is_local(&remote));
+    }
 
     #[test]
     fn ide_context_bridge_tokens_allow_concurrent_consumers_until_expiry() {

@@ -261,6 +261,13 @@ async fn task_optimize_draft(
     input: TaskOptimizeDraftInput,
     state: State<'_, AppState>,
 ) -> Result<TaskOptimizeDraftOutput, String> {
+    task_optimize_draft_internal(input, state.inner()).await
+}
+
+async fn task_optimize_draft_internal(
+    input: TaskOptimizeDraftInput,
+    state: &AppState,
+) -> Result<TaskOptimizeDraftOutput, String> {
     let started_at = std::time::Instant::now();
     runtime_log_info(format!(
         "[任务草稿优化] 开始，任务=结构化任务草稿，标题字符数={}，正文字符数={}，schedule_mode={}，run_at={}，repeat_every={}，repeat_unit={}，end_at={}",
@@ -275,7 +282,7 @@ async fn task_optimize_draft(
     let result = async {
         let prompt = task_optimize_draft_prompt(&input)?;
         let value = invoke_quick_model_json(
-            state.inner(),
+            state,
             "Task draft optimization",
             &prompt,
             None,

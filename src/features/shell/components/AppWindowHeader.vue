@@ -172,6 +172,7 @@
       </button>
 
       <button
+        v-if="showWindowControls"
         class="btn btn-ghost btn-sm"
         :title="t('window.minimize')"
         @mousedown.stop
@@ -181,6 +182,7 @@
         <Minus class="h-3.5 w-3.5" />
       </button>
       <button
+        v-if="showWindowControls"
         class="btn btn-ghost btn-sm"
         :title="maximized ? t('window.restore') : t('window.maximize')"
         @mousedown.stop
@@ -190,6 +192,7 @@
         <Square class="h-3.5 w-3.5" />
       </button>
       <button
+        v-if="showWindowControls"
         class="btn btn-sm btn-ghost hover:bg-error"
         :title="closeTitle || t('common.close')"
         @mousedown.stop
@@ -275,6 +278,7 @@
 
     <div v-if="viewMode !== 'chat'" class="relative z-10 flex shrink-0 flex-nowrap justify-self-end gap-1 px-2" @mousedown.stop>
       <button
+        v-if="showWindowControls"
         class="btn btn-ghost btn-sm"
         :title="t('window.minimize')"
         @click.stop="$emit('minimize-window')"
@@ -283,6 +287,7 @@
         <Minus class="h-3.5 w-3.5" />
       </button>
       <button
+        v-if="showWindowControls"
         class="btn btn-ghost btn-sm"
         :title="maximized ? t('window.restore') : t('window.maximize')"
         @click.stop="$emit('toggle-maximize-window')"
@@ -291,6 +296,7 @@
         <Square class="h-3.5 w-3.5" />
       </button>
       <button
+        v-if="showWindowControls"
         class="btn btn-sm btn-ghost hover:bg-error"
         :title="closeTitle || t('common.close')"
         @click.stop="$emit('close-window')"
@@ -521,7 +527,7 @@ const { markConversationRead } = usePipelineStatus({
 
 const markdownIsDark = computed(() => isDarkAppTheme(props.currentTheme));
 
-const props = defineProps<{
+const props = withDefaults(defineProps<{
   viewMode: "chat" | "archives" | "config";
   detachedChatWindow?: boolean;
   currentTheme: string;
@@ -559,7 +565,12 @@ const props = defineProps<{
   checkingUpdate?: boolean;
   updateToLatestLabel?: string;
   updateToLatestTitle?: string;
-}>();
+  windowControlsVisible?: boolean;
+  directoryPickRestricted?: boolean;
+}>(), {
+  windowControlsVisible: true,
+  directoryPickRestricted: false,
+});
 
 const emit = defineEmits<{
   (e: "open-settings"): void;
@@ -583,11 +594,13 @@ const emit = defineEmits<{
   (e: "update:config-search-query", value: string): void;
   (e: "select-config-search-result", tab: ConfigSearchTab): void;
   (e: "update-to-latest"): void;
+  (e: "directory-pick-restricted"): void;
 }>();
 
 const { t, locale } = useI18n();
 
 const circumference = RING_CIRCUMFERENCE;
+const showWindowControls = computed(() => props.windowControlsVisible !== false);
 
 const normalizedChatUsagePercent = computed(() =>
   Math.min(100, Math.max(0, Math.round(Number(props.chatUsagePercent || 0)))),
@@ -829,6 +842,10 @@ function handleCreateConversationWorkspaceChange() {
 }
 
 async function pickCreateConversationWorkspace() {
+  if (props.directoryPickRestricted) {
+    emit("directory-pick-restricted");
+    return;
+  }
   const selected = await openDialog({
     multiple: false,
     directory: true,

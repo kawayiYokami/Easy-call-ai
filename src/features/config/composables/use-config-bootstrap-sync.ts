@@ -19,6 +19,11 @@ function normalizeInstructionPresets(value: unknown): PromptCommandPreset[] {
     : [];
 }
 
+function normalizeWebAccessPort(value: unknown): number {
+  const port = Math.round(Number(value));
+  return Number.isFinite(port) && port >= 1024 && port <= 65535 ? port : 43129;
+}
+
 export function applyConversationApiBootstrapUpdate(bindings: {
   config: AppConfig;
 }, payload: Record<string, unknown>) {
@@ -73,6 +78,7 @@ export function applyConfigBootstrapUpdate(bindings: {
   if ("hotkey" in payload) bindings.config.hotkey = String(payload.hotkey ?? "").trim();
   if ("uiFont" in payload) bindings.config.uiFont = String(payload.uiFont ?? "");
   if ("webviewZoomPercent" in payload) bindings.config.webviewZoomPercent = bindings.normalizeWebviewZoomPercent(payload.webviewZoomPercent);
+  if ("webAccessPort" in payload) bindings.config.webAccessPort = normalizeWebAccessPort(payload.webAccessPort);
   if ("githubUpdateMethod" in payload) bindings.updateGithubUpdateMethod(payload.githubUpdateMethod);
   if ("recordHotkey" in payload) bindings.config.recordHotkey = String(payload.recordHotkey ?? "");
   if ("recordBackgroundWakeEnabled" in payload) bindings.config.recordBackgroundWakeEnabled = !!payload.recordBackgroundWakeEnabled;

@@ -264,6 +264,7 @@ export type AppConfig = {
   uiLanguage: "zh-CN" | "en-US" | "zh-TW";
   uiFont: string;
   webviewZoomPercent?: number;
+  webAccessPort?: number;
   githubUpdateMethod?: GithubUpdateMethod;
   recordHotkey: string;
   recordBackgroundWakeEnabled: boolean;
@@ -771,6 +772,8 @@ export type ConversationListItemState = {
   runtimeState: "idle" | "assistant_streaming" | "organizing_context";
   unreadCount: number;
   openState: "closed" | "open";
+  openViewerId?: string;
+  currentViewerId?: string;
   openedBy?: "main" | "detached" | "vscode";
   disabledReason?: "organizing_context" | "opened_elsewhere";
   failedMessage?: string;

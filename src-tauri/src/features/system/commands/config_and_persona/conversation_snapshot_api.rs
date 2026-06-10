@@ -83,6 +83,10 @@ struct ConversationListItemState {
     unread_count: usize,
     open_state: String,
     #[serde(skip_serializing_if = "Option::is_none")]
+    open_viewer_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    current_viewer_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     opened_by: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     disabled_reason: Option<String>,
@@ -90,6 +94,51 @@ struct ConversationListItemState {
     failed_message: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     completed_at: Option<String>,
+}
+
+const DESKTOP_CHAT_VIEWER_ID: &str = "desktop:chat";
+const VSCODE_SIDEBAR_WINDOW_LABEL_PREFIX: &str = "vscode-sidebar:";
+const LEGACY_IDE_CHAT_SIDEBAR_WINDOW_LABEL_PREFIX: &str = "ide-chat-sidebar-";
+
+fn chat_viewer_id_for_window_label(label: &str) -> Option<String> {
+    let window_label = label.trim();
+    if window_label.is_empty() {
+        return None;
+    }
+    if window_label == "chat" || window_label == "main" {
+        return Some(DESKTOP_CHAT_VIEWER_ID.to_string());
+    }
+    if is_detached_chat_window_label(window_label) {
+        return Some(format!("desktop:detached:{window_label}"));
+    }
+    if let Some(client_id) = window_label.strip_prefix(VSCODE_SIDEBAR_WINDOW_LABEL_PREFIX) {
+        let client_id = client_id.trim();
+        if !client_id.is_empty() {
+            return Some(format!("web:{client_id}"));
+        }
+    }
+    if let Some(client_id) = window_label.strip_prefix(LEGACY_IDE_CHAT_SIDEBAR_WINDOW_LABEL_PREFIX) {
+        let client_id = client_id.trim();
+        if !client_id.is_empty() {
+            return Some(format!("web:{client_id}"));
+        }
+    }
+    Some(format!("desktop:window:{window_label}"))
+}
+
+fn opened_by_for_window_label(label: &str) -> String {
+    let window_label = label.trim();
+    if window_label == "chat" || window_label == "main" {
+        "main".to_string()
+    } else if is_detached_chat_window_label(window_label) {
+        "detached".to_string()
+    } else if window_label.starts_with(VSCODE_SIDEBAR_WINDOW_LABEL_PREFIX)
+        || window_label.starts_with(LEGACY_IDE_CHAT_SIDEBAR_WINDOW_LABEL_PREFIX)
+    {
+        "vscode".to_string()
+    } else {
+        "main".to_string()
+    }
 }
 
 fn conversation_current_todo_text(conversation: &Conversation) -> Option<String> {
@@ -310,22 +359,17 @@ fn build_preview_messages_from_chat_messages(
 fn conversation_list_open_state(
     state: &AppState,
     conversation_id: &str,
-) -> (String, Option<String>, Option<String>) {
+) -> (String, Option<String>, Option<String>, Option<String>) {
     let cid = conversation_id.trim();
     if cid.is_empty() {
-        return ("closed".to_string(), None, None);
+        return ("closed".to_string(), None, None, None);
     }
     if let Some(label) = detached_chat_window_for_conversation(cid) {
-        let opened_by = if label.starts_with("ide-chat-sidebar-") {
-            "vscode"
-        } else if is_detached_chat_window_label(&label) {
-            "detached"
-        } else {
-            "main"
-        };
-        return ("open".to_string(), Some(opened_by.to_string()), Some(label));
+        let opened_by = opened_by_for_window_label(&label);
+        let open_viewer_id = chat_viewer_id_for_window_label(&label);
+        return ("open".to_string(), Some(opened_by), Some(label), open_viewer_id);
     }
-    let opened_by = state
+    let opened = state
         .active_chat_view_bindings
         .lock()
         .ok()
@@ -334,21 +378,13 @@ fn conversation_list_open_state(
                 if binding.conversation_id.trim() != cid {
                     return None;
                 }
-                if label == "chat" || label == "main" {
-                    Some("main".to_string())
-                } else if is_detached_chat_window_label(label) {
-                    Some("detached".to_string())
-                } else if label.starts_with("ide-chat-sidebar-") {
-                    Some("vscode".to_string())
-                } else {
-                    None
-                }
+                Some((opened_by_for_window_label(label), chat_viewer_id_for_window_label(label)))
             })
         });
-    if opened_by.is_some() {
-        ("open".to_string(), opened_by, None)
+    if let Some((opened_by, open_viewer_id)) = opened {
+        ("open".to_string(), Some(opened_by), None, open_viewer_id)
     } else {
-        ("closed".to_string(), None, None)
+        ("closed".to_string(), None, None, None)
     }
 }
 
@@ -383,10 +419,12 @@ fn build_conversation_list_item_state(
     state: &AppState,
     conversation_id: &str,
     unread_count: usize,
+    is_system_notification_conversation: bool,
+    current_viewer_id: Option<&str>,
 ) -> ConversationListItemState {
     let runtime_state = get_conversation_runtime_state(state, conversation_id)
         .unwrap_or(MainSessionState::Idle);
-    let (open_state, opened_by, _open_label) =
+    let (open_state, opened_by, _open_label, open_viewer_id) =
         conversation_list_open_state(state, conversation_id);
     let mark = conversation_list_activity_mark(state, conversation_id);
     let activity = if runtime_state != MainSessionState::Idle {
@@ -399,7 +437,11 @@ fn build_conversation_list_item_state(
     };
     let disabled_reason = if runtime_state == MainSessionState::OrganizingContext {
         Some("organizing_context".to_string())
-    } else if open_state == "open" && opened_by.as_deref() != Some("main") {
+    } else if !is_system_notification_conversation
+        && open_state == "open"
+        && open_viewer_id.as_deref().is_some()
+        && open_viewer_id.as_deref() != current_viewer_id
+    {
         Some("opened_elsewhere".to_string())
     } else {
         None
@@ -409,6 +451,8 @@ fn build_conversation_list_item_state(
         runtime_state,
         unread_count,
         open_state,
+        open_viewer_id,
+        current_viewer_id: current_viewer_id.map(ToOwned::to_owned),
         opened_by,
         disabled_reason,
         failed_message: mark.as_ref().and_then(|item| item.failed_message.clone()),
@@ -451,6 +495,7 @@ fn build_unarchived_conversation_summary(
     main_conversation_id: &str,
     pinned_conversation_ids: &[String],
     conversation: &Conversation,
+    current_viewer_id: Option<&str>,
 ) -> UnarchivedConversationSummary {
     let last_message_at = conversation.messages.last().map(|m| m.created_at.clone());
     let conversation_id = conversation.id.trim();
@@ -468,9 +513,19 @@ fn build_unarchived_conversation_summary(
         .map(|department| department.name.trim().to_string())
         .filter(|value| !value.is_empty())
         .unwrap_or_else(|| department_id.clone());
-    let detached_window_label = detached_chat_window_for_conversation(conversation_id);
+    let detached_window_label = if is_system_notification_conversation {
+        None
+    } else {
+        detached_chat_window_for_conversation(conversation_id)
+    };
     let unread_count = conversation_unread_count_for_overview(conversation);
-    let item_state = build_conversation_list_item_state(state, conversation_id, unread_count);
+    let item_state = build_conversation_list_item_state(
+        state,
+        conversation_id,
+        unread_count,
+        is_system_notification_conversation,
+        current_viewer_id,
+    );
     let (workspace_label, workspace_root_path) =
         conversation_default_workspace_summary(state, conversation);
     let has_assistant_reply = conversation.messages.iter().any(|message| {
@@ -619,6 +674,7 @@ fn collect_unarchived_conversation_summaries(
                 &main_conversation_id,
                 &pinned_conversation_ids,
                 conversation,
+                Some(DESKTOP_CHAT_VIEWER_ID),
             )
         })
         .collect::<Vec<_>>();
@@ -1113,6 +1169,8 @@ mod conversation_snapshot_api_tests {
                 runtime_state: MainSessionState::Idle,
                 unread_count: 0,
                 open_state: "closed".to_string(),
+                open_viewer_id: None,
+                current_viewer_id: Some(DESKTOP_CHAT_VIEWER_ID.to_string()),
                 opened_by: None,
                 disabled_reason: None,
                 failed_message: None,

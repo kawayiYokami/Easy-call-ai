@@ -127,6 +127,11 @@ function normalizeWebviewZoomPercent(value: unknown): number {
   ), 100);
 }
 
+function normalizeWebAccessPort(value: unknown): number {
+  const port = Math.round(Number(value));
+  return Number.isFinite(port) && port >= 1024 && port <= 65535 ? port : 43129;
+}
+
 function normalizeGithubUpdateMethod(value: unknown): AppConfig["githubUpdateMethod"] {
   const text = String(value || "").trim();
   return text === "direct" || text === "proxy" ? text : "auto";
@@ -258,6 +263,7 @@ export function useConfigPersistence(options: UseConfigPersistenceOptions) {
     options.config.uiLanguage = options.normalizeLocale(cfg.uiLanguage);
     options.config.uiFont = String((cfg as { uiFont?: unknown }).uiFont ?? "");
     options.config.webviewZoomPercent = normalizeWebviewZoomPercent((cfg as { webviewZoomPercent?: unknown }).webviewZoomPercent);
+    options.config.webAccessPort = normalizeWebAccessPort((cfg as { webAccessPort?: unknown }).webAccessPort);
     options.config.githubUpdateMethod = normalizeGithubUpdateMethod((cfg as { githubUpdateMethod?: unknown }).githubUpdateMethod);
     options.locale.value = options.config.uiLanguage;
     options.config.recordHotkey = String(cfg.recordHotkey ?? "");
@@ -471,6 +477,7 @@ export function useConfigPersistence(options: UseConfigPersistenceOptions) {
       options.config.uiLanguage = options.normalizeLocale(saved.uiLanguage);
       options.config.uiFont = String((saved as { uiFont?: unknown }).uiFont ?? "");
       options.config.webviewZoomPercent = normalizeWebviewZoomPercent((saved as { webviewZoomPercent?: unknown }).webviewZoomPercent);
+      options.config.webAccessPort = normalizeWebAccessPort((saved as { webAccessPort?: unknown }).webAccessPort);
       options.config.githubUpdateMethod = normalizeGithubUpdateMethod((saved as { githubUpdateMethod?: unknown }).githubUpdateMethod);
       options.locale.value = options.config.uiLanguage;
       options.config.recordHotkey = String(saved.recordHotkey ?? "");

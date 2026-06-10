@@ -15,6 +15,9 @@ export function useWsTransport() {
   const socket = ref<WebSocket | null>(null);
   const connected = ref(false);
   const connecting = ref(false);
+  const bridgeReady = ref(false);
+  const authRequired = ref(false);
+  const authenticated = ref(true);
   const errorText = ref("");
   const bridgeConfig = ref<SidebarBridgeConfig | null>(null);
   const notificationHandlers = new Map<string, Set<(payload: unknown) => void>>();
@@ -44,6 +47,10 @@ export function useWsTransport() {
       item.reject(new Error(message));
       return;
     }
+    if (payload.result && typeof payload.result === "object" && (payload.result as { authenticated?: unknown }).authenticated === true) {
+      authenticated.value = true;
+      authRequired.value = false;
+    }
     item.resolve(payload.result);
   }
 
@@ -59,6 +66,12 @@ export function useWsTransport() {
       return;
     }
     const method = String(payload.method || "");
+    if (method === "bridge.ready") {
+      const params = (payload.params || {}) as { authRequired?: unknown };
+      bridgeReady.value = true;
+      authRequired.value = !!params.authRequired;
+      authenticated.value = !authRequired.value;
+    }
     if (method) emitNotification(method, payload.params);
   }
 
@@ -67,6 +80,9 @@ export function useWsTransport() {
     socket.value = null;
     connected.value = false;
     connecting.value = false;
+    bridgeReady.value = false;
+    authRequired.value = false;
+    authenticated.value = true;
     if (current && current.readyState !== WebSocket.CLOSED) current.close();
   }
 
@@ -74,6 +90,9 @@ export function useWsTransport() {
     close();
     bridgeConfig.value = config;
     connecting.value = true;
+    bridgeReady.value = false;
+    authRequired.value = false;
+    authenticated.value = true;
     errorText.value = "";
     await new Promise<void>((resolve) => {
       const ws = new WebSocket(config.chatUrl);
@@ -103,6 +122,9 @@ export function useWsTransport() {
 
   function request<T>(method: string, params: Record<string, unknown> = {}, timeoutMs = 30000): Promise<T> {
     if (!canSend.value || !socket.value) return Promise.reject(new Error("PAI 未运行"));
+    if (authRequired.value && !authenticated.value && method !== "auth.login") {
+      return Promise.reject(new Error("远程访问需要先输入密码"));
+    }
     const id = requestId++;
     const authToken = String(bridgeConfig.value?.token || "").trim();
     const bodyParams = authToken ? { authToken, ...params } : params;
@@ -128,6 +150,10 @@ export function useWsTransport() {
     authRefreshHandler = handler;
   }
 
+  async function login(password: string): Promise<void> {
+    await request("auth.login", { password }, 10000);
+  }
+
   async function reconnect() {
     const config = bridgeConfig.value;
     if (!config) return;
@@ -139,11 +165,15 @@ export function useWsTransport() {
   return {
     connected,
     connecting,
+    bridgeReady,
+    authRequired,
+    authenticated,
     errorText,
     canSend,
     connect,
     reconnect,
     close,
+    login,
     request,
     onNotification,
     onAuthRefreshNeeded,

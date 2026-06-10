@@ -297,6 +297,7 @@ type ConfigTab =
   | "demo"
   | "chatSettings"
   | "notification"
+  | "networkAccess"
   | "remoteIm"
   | "memory"
   | "task"
@@ -310,6 +311,7 @@ const config = reactive<AppConfig>({
   uiLanguage: "zh-CN",
   uiFont: "auto",
   webviewZoomPercent: 100,
+  webAccessPort: 43129,
   githubUpdateMethod: "auto",
   recordHotkey: isMacPlatform ? "Option+Space" : "Alt",
   recordBackgroundWakeEnabled: true,

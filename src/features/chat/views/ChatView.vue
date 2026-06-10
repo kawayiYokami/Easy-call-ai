@@ -16,6 +16,7 @@
         :persona-name-map="personaNameMap"
         :persona-avatar-url-map="personaAvatarUrlMap"
         :active-tab="chatLeftPanelMode"
+        :bridge-request="bridgeRequest"
         @update:active-tab="$emit('update:conversation-list-tab', $event)"
         @edit-task="openTaskEditDialog"
         @select="handleConversationListSelect"
@@ -159,7 +160,7 @@
 
             <div :style="{ minHeight: `${latestOwnTailSpacerMinHeight}px` }"></div>
             <div
-              v-if="!activeConversationSummary?.isSystemNotificationConversation"
+              v-if="!activeConversationIsSystemNotification"
               ref="toolbarContainer"
               class="ecall-chat-toolbar-shell px-2 pt-1 pb-2"
             >
@@ -172,10 +173,10 @@
                 :show-forward-menu-item="!sidebarMode"
                 :show-share-menu-item="!sidebarMode"
                 :show-workspace-menu-item="true"
-                :show-code-review-menu-item="sidebarMode"
+                :show-code-review-menu-item="true"
                 :mention-entries="mentionEntries" :selected-mention-keys="selectedMentionKeys"
-                :show-detach-button="!detachedChatWindow && !activeConversationSummary?.isSystemNotificationConversation"
-                :detach-disabled="!activeConversationId || activeConversationSummary?.isSystemNotificationConversation || chatting || frozen || conversationInteractionBusy"
+                :show-detach-button="!bridgeMode && !detachedChatWindow && !activeConversationIsSystemNotification"
+                :detach-disabled="bridgeMode || !activeConversationId || activeConversationIsSystemNotification || chatting || frozen || conversationInteractionBusy"
                 @lock-workspace="$emit('lockWorkspace')" @open-branch-selection="openBranchSelectionMenu"
                 @open-delegate-selection="openDelegateSelectionMenu" @open-forward-selection="openForwardSelectionMenu"
                 @open-share-selection="openShareSelectionMenu"
@@ -247,7 +248,7 @@
             :supervision-active="supervisionActive"
             :supervision-title="supervisionButtonTitle"
             :supervision-disabled="activeConversationSummary?.kind === 'remote_im_contact'"
-            :system-notification-mode="!!activeConversationSummary?.isSystemNotificationConversation"
+            :system-notification-mode="activeConversationIsSystemNotification"
             :selection-delegate-only="messageSelectionDelegateOnly"
             :show-side-conversation-list="detachedChatWindow ? false : showSideConversationList"
             :active-conversation-id="activeConversationId" :unarchived-conversation-items="unarchivedConversationItems"
@@ -308,6 +309,7 @@
           :mode="taskDialogMode"
           :conversation-id="activeConversationId"
           :task="taskDialogTask"
+          :bridge-request="bridgeRequest"
           @close="closeTaskDialog"
           @created="handleTaskCreated"
           @updated="handleTaskUpdated"
@@ -497,6 +499,9 @@ const props = defineProps<{
   detachedChatWindow?: boolean; terminalApprovals?: TerminalApprovalConversationItem[];
   terminalApprovalResolving?: boolean;
   sidebarMode?: boolean;
+  bridgeMode?: boolean;
+  bridgeRequest?: <T = unknown>(method: string, params?: Record<string, unknown>, timeoutMs?: number) => Promise<T>;
+  systemNotificationMode?: boolean;
   hideWorkspaceButton?: boolean;
   workspaceAccess?: "read_only" | "approval" | "full_access" | "";
   readPlanFileContent?: (input: { conversationId: string; path: string }) => Promise<string>;
@@ -551,6 +556,7 @@ const emit = defineEmits<{
   (e: "approveTerminalApproval", requestId: string): void;
   (e: "denyTerminalApproval", requestId: string): void;
   (e: "openSidebarFileReference", href: string): void;
+  (e: "openSidebarExternalUrl", url: string): void;
 }>();
 
 // ==================== basic state ====================
@@ -578,6 +584,24 @@ const {
 const conversationInteractionBusy = computed(() =>
   props.conversationBusy || isOrganizingContextBusy.value,
 );
+const activeConversationIsSystemNotification = computed(() =>
+  !!props.systemNotificationMode || !!activeConversationSummary.value?.isSystemNotificationConversation,
+);
+
+watch(
+  () => ({
+    activeConversationId: props.activeConversationId,
+    propSystemNotificationMode: props.systemNotificationMode,
+    summarySystemNotificationMode: activeConversationSummary.value?.isSystemNotificationConversation,
+    effectiveSystemNotificationMode: activeConversationIsSystemNotification.value,
+    activeConversationSummary: activeConversationSummary.value,
+  }),
+  (snapshot) => {
+    if (!props.sidebarMode) return;
+    console.info("[Sidebar系统会话识别][ChatView]", snapshot);
+  },
+  { immediate: true, deep: true },
+);
 
 const toolReviewDepartmentOptions = computed(() =>
   // 用户主动发起代码审查不受 AI delegate 工具的“直接下级部门”限制。
@@ -600,6 +624,7 @@ const { playingAudioId, copyMessage, stopAudioPlayback, toggleAudioPlayback } = 
 const { isHidden: isBubbleBackgroundHidden, canToggle: canToggleBubbleBackground, toggle: toggleBubbleBackground } = useBubbleBackground(toRef(props, "activeConversationId"));
 const showSideConversationList = computed(() => !!props.sideConversationListVisible);
 const sidebarMode = computed(() => !!props.sidebarMode);
+const bridgeMode = computed(() => !!props.bridgeMode);
 
 function canRegenerateBlock(block: ChatMessageBlock, blockIndex: number): boolean {
   if (block.role !== "assistant" || block.isExtraTextBlock) return false;
@@ -846,6 +871,7 @@ const {
   currentDepartmentId: toRef(props, "currentDepartmentId"),
   departmentOptions: toolReviewDepartmentOptions,
   initialPanelOpen: toRef(props, "initialToolReviewPanelOpen"),
+  bridgeRequest: toRef(props, "bridgeRequest"),
   t, syncViewportMetrics,
   onRefreshMessage: (payload) => emit("refreshToolReviewMessage", payload),
   onToolReviewPanelOpenChange: (open) => emit("toolReviewPanelOpenChange", open),
@@ -861,6 +887,7 @@ const {
 } = useDelegateStatus({
   activeConversationId: toRef(props, "activeConversationId"),
   panelOpen: effectiveToolReviewPanelOpen,
+  enabled: computed(() => !sidebarMode.value),
 });
 
 // ==================== panes ====================
@@ -991,10 +1018,19 @@ function handleShiftWheel(event: WheelEvent) {
     const targetIndex = currentIndex + step;
     if (targetIndex < 0 || targetIndex >= items.length) break;
     const target = items[targetIndex];
+    const openState = String(target.state?.openState || "").trim();
+    const openViewerId = String(target.state?.openViewerId || "").trim();
+    const currentViewerId = String(target.state?.currentViewerId || "").trim();
+    const openedByAnotherViewer = !target.isSystemNotificationConversation
+      && openState === "open"
+      && !!openViewerId
+      && !!currentViewerId
+      && openViewerId !== currentViewerId;
     const isDisabled = target.runtimeState === "organizing_context"
       || target.runtimeState === "archiving"
       || target.runtimeState === "compacting"
-      || !!target.detachedWindowOpen;
+      || !!target.detachedWindowOpen
+      || openedByAnotherViewer;
     if (!isDisabled) {
       emit("switchConversation", {
         conversationId: String(target.conversationId || "").trim(),
@@ -1027,6 +1063,10 @@ async function handleAssistantLinkClick(event: MouseEvent) {
       if (root) path = `${root}/${path.replace(/^\.\//, "")}`;
     }
     event.preventDefault(); event.stopPropagation();
+    if (bridgeMode.value) {
+      emit("openSidebarFileReference", path);
+      return;
+    }
     try {
       const result = await invokeTauri<{ dataUrl: string; mime: string }>("read_local_chat_image_original", {
         input: { path },
@@ -1054,7 +1094,7 @@ async function handleAssistantLinkClick(event: MouseEvent) {
   }
   if (isAbsoluteLocalPath(href)) {
     event.preventDefault(); event.stopPropagation();
-    if (sidebarMode.value) {
+    if (bridgeMode.value) {
       emit("openSidebarFileReference", href);
       return;
     }
@@ -1067,6 +1107,10 @@ async function handleAssistantLinkClick(event: MouseEvent) {
   }
   if (href.startsWith("http://") || href.startsWith("https://")) {
     event.preventDefault(); event.stopPropagation();
+    if (bridgeMode.value) {
+      emit("openSidebarExternalUrl", href);
+      return;
+    }
     try { await invokeTauri("open_external_url", { url: href }); linkOpenErrorText.value = ""; }
     catch (error) { linkOpenErrorText.value = t("status.openLinkFailed", { err: String(error) }); }
   }

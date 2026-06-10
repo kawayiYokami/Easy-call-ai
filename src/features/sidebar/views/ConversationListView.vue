@@ -65,6 +65,8 @@ type ConversationListItem = {
   runtimeState?: string;
   detachedWindowOpen?: boolean;
   detachedWindowLabel?: string;
+  isSystemNotificationConversation?: boolean;
+  isMainConversation?: boolean;
   unreadCount?: number;
   previewMessages?: Array<{
     role: string;
@@ -185,7 +187,19 @@ function runtimeStateText(item: ConversationListItem): string {
 }
 
 function handleSelect(item: ConversationListItem) {
-  if (isConversationDisabled(item)) return;
+  const disabled = isConversationDisabled(item);
+  console.info("[Sidebar会话列表][select]", {
+    conversationId: item.conversationId,
+    title: item.title,
+    summaryTitle: item.summaryTitle,
+    isSystemNotificationConversation: item.isSystemNotificationConversation,
+    isMainConversation: item.isMainConversation,
+    runtimeState: item.runtimeState,
+    detachedWindowOpen: item.detachedWindowOpen,
+    activeConversationId: props.activeConversationId,
+    disabled,
+  });
+  if (disabled) return;
   emit("select", item.conversationId);
 }
 </script>

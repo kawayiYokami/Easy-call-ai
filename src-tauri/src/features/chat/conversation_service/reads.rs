@@ -58,6 +58,7 @@ impl ConversationService {
                     &main_conversation_id,
                     &pinned_conversation_ids,
                     conversation,
+                    Some(DESKTOP_CHAT_VIEWER_ID),
                 )
             })
             .collect::<Vec<_>>();

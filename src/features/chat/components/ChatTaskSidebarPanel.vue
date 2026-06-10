@@ -77,6 +77,7 @@ type TaskSection = {
 const props = defineProps<{
   conversationItems: ChatConversationOverviewItem[];
   searchQuery: string;
+  bridgeRequest?: <T = unknown>(method: string, params?: Record<string, unknown>, timeoutMs?: number) => Promise<T>;
 }>();
 
 const emit = defineEmits<{
@@ -212,7 +213,14 @@ async function loadTasks() {
   loading.value = true;
   errorText.value = "";
   try {
-    tasks.value = await invokeTauri<TaskEntry[]>("task_list_tasks");
+    tasks.value = props.bridgeRequest
+      ? await props.bridgeRequest<TaskEntry[]>("task.list", {})
+      : await invokeTauri<TaskEntry[]>("task_list_tasks");
+    console.info("[Sidebar任务列表] 完成", {
+      total: tasks.value.length,
+      active: tasks.value.filter((task) => String(task.completionState || "").trim() === "active").length,
+      bridgeMode: !!props.bridgeRequest,
+    });
   } catch (error) {
     errorText.value = `${t("config.task.listLoadFailed")}: ${toErrorMessage(error)}`;
   } finally {

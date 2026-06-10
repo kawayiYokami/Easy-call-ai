@@ -8,23 +8,35 @@
     :active-conversation-id="activeConversationId"
     :compacting="compacting"
     :chat-usage-percent="chatUsagePercent"
-    @show-list="view = 'list'"
-    @show-chat="view = 'chat'"
+    :side-conversation-list-visible="sideConversationListVisible"
+    :tool-review-panel-open-visible="toolReviewPanelOpenVisible"
+    :chat-side-panel-widths="chatSidePanelWidths"
+    :conversation-list-tab="conversationListTab"
+    :chat-left-panel-mode="chatLeftPanelMode"
+    :chat-right-panel-mode="chatRightPanelMode"
+    :current-department-id="activeDepartmentId"
+    :conversation-items="chatConversationItems"
+    :current-workspaces="sidebarShellWorkspaces"
+    :user-alias="sidebarUserAlias"
+    :user-avatar-url="sidebarUserAvatarUrl"
+    :persona-name-map="sidebarPersonaNameMap"
+    :persona-avatar-url-map="sidebarPersonaAvatarUrlMap"
+    :create-conversation-department-options="createConversationDepartmentOptions"
+    :default-create-conversation-department-id="defaultCreateConversationDepartmentId"
     @new-conversation="openCreateConversationDialog"
     @open-settings="openSettings"
     @compact-conversation="openCompactionDialog"
     @reconnect="refreshDiscovery"
     @toggle-review-panel="toggleReviewPanel"
+    @toggle-side-conversation-list="toggleSideConversationList"
+    @toggle-tool-review-panel="toggleToolReviewPanel"
+    @update-conversation-list-tab="updateConversationListTab"
+    @update-chat-left-panel-mode="updateChatLeftPanelMode"
+    @update-chat-right-panel-mode="chatRightPanelMode = $event"
+    @create-conversation="handleCreateConversationRequest"
+    @directory-pick-restricted="handleDirectoryPickRestricted"
   >
-    <ConversationListView
-      v-if="view === 'list'"
-      :items="conversations"
-      :active-conversation-id="activeConversationId"
-      :persona="listPersona"
-      @select="openConversation"
-    />
     <ChatViewWrapper
-      v-else
       ref="chatViewWrapperRef"
       v-model:input="inputText"
       :active-conversation-id="activeConversationId"
@@ -35,7 +47,9 @@
       :chat-model-options="chatModelOptions"
       :workspace-access="workspaceAccess"
       :plan-mode-enabled="activeConversationPlanModeEnabled"
+      :system-notification-mode="activeConversationSystemNotificationMode"
       :messages="messages"
+      :conversation-items="chatConversationItems"
       :clipboard-images="clipboardImages"
       :streaming-text="streamingText"
       :tool-status-text="toolStatusText"
@@ -48,18 +62,34 @@
       :default-create-conversation-department-id="defaultCreateConversationDepartmentId"
       :current-department-id="activeDepartmentId"
       :current-workspace-name="currentWorkspaceName"
+      :current-workspace-root-path="workspaceRootPath"
+      :current-workspaces="sidebarShellWorkspaces"
       :current-todos="sidebarTodos"
       :hide-workspace-button="hideWorkspaceButton"
       :terminal-approvals="activeConversationTerminalApprovals"
       :terminal-approval-resolving="terminalApprovalResolving"
       :ide-context-groups="vscodeIdeContextGroups"
       :read-plan-file-content="readPlanFileContent"
+      :bridge-request="transport.request"
+      :side-conversation-list-visible="sideConversationListVisible"
+      :tool-review-panel-open-visible="toolReviewPanelOpenVisible"
+      :conversation-list-tab="conversationListTab"
+      :chat-left-panel-mode="chatLeftPanelMode"
+      :chat-right-panel-mode="chatRightPanelMode"
       @send="send"
       @stop="stop"
       @remove-clipboard-image="removeClipboardImage"
+      @pick-attachments="pickAttachments"
       @load-prev-block="loadPrevBlock"
       @update:conversation-preferred-api-config-id="selectConversationPreferredModel"
       @update-workspace-access="selectWorkspaceAccess"
+      @side-conversation-list-visible-change="sideConversationListVisible = $event"
+      @tool-review-panel-open-change="toolReviewPanelOpenVisible = $event"
+      @side-panel-widths-change="chatSidePanelWidths = $event"
+      @side-panel-widths-commit="chatSidePanelWidths = $event"
+      @update-conversation-list-tab="updateConversationListTab"
+      @update-chat-left-panel-mode="updateChatLeftPanelMode"
+      @update-chat-right-panel-mode="chatRightPanelMode = $event"
       @recall-turn="recallTurn"
       @confirm-plan="confirmPlan"
       @lock-workspace="openWorkspacePicker"
@@ -67,6 +97,8 @@
       @open-supervision-task="openSupervisionTask"
       @approve-terminal-approval="approveTerminalApproval"
       @deny-terminal-approval="denyTerminalApproval"
+      @switch-conversation="openConversation($event.conversationId)"
+      @create-conversation="handleCreateConversationRequest"
       @selection-action-branch="branchConversationFromSelection"
       @selection-action-delegate="delegateFromSelection"
     />
@@ -100,6 +132,26 @@
       @close="closeCreateConversationDialog"
       @confirm="createConversation"
     />
+    <dialog class="modal" :class="{ 'modal-open': remoteAuthDialogOpen }">
+      <div class="modal-box max-w-sm">
+        <h3 class="font-semibold text-base">{{ t("sidebar.remoteAuthTitle") }}</h3>
+        <div class="mt-2 text-sm opacity-75">{{ t("sidebar.remoteAuthHint") }}</div>
+        <form class="mt-4 flex flex-col gap-3" @submit.prevent="submitRemoteAuth">
+          <input
+            v-model.trim="remoteAuthPassword"
+            class="input input-bordered input-sm w-full"
+            type="password"
+            autocomplete="current-password"
+            :placeholder="t('sidebar.remoteAuthPlaceholder')"
+            :disabled="remoteAuthSubmitting"
+          />
+          <div v-if="remoteAuthError" class="text-xs text-error">{{ remoteAuthError }}</div>
+          <button class="btn btn-sm btn-primary w-full" type="submit" :disabled="remoteAuthSubmitting || !remoteAuthPassword">
+            {{ remoteAuthSubmitting ? t("sidebar.remoteAuthSubmitting") : t("sidebar.remoteAuthSubmit") }}
+          </button>
+        </form>
+      </div>
+    </dialog>
     <ToolReviewTargetDialog
       :open="codeReviewDialogOpen"
       :submitting="codeReviewSubmitting"
@@ -162,12 +214,20 @@
       @open-dir="openWorkspaceDir"
       @save="saveWorkspacePicker"
     />
+    <input
+      ref="attachmentInputRef"
+      class="hidden"
+      type="file"
+      accept="image/*,application/pdf"
+      multiple
+      @change="handleAttachmentInputChange"
+    />
   </SidebarLayout>
 </template>
 
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref } from "vue";
-import type { ApiConfigItem, ChatMessage, ChatTodoItem, IdeContextWorkspaceGroup } from "../../types/app";
+import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
+import type { ApiConfigItem, ChatConversationOverviewItem, ChatMessage, ChatTodoItem, IdeContextWorkspaceGroup, ShellWorkspace } from "../../types/app";
 import { removeBinaryPlaceholders, messageText } from "../../utils/chat-message";
 import {
   applyAssistantToolEventToStreamBlocks,
@@ -177,7 +237,6 @@ import {
 import { formatConversationFallbackTitle } from "../chat/utils/conversation-title";
 import { useI18n } from "vue-i18n";
 import SidebarLayout from "./layouts/SidebarLayout.vue";
-import ConversationListView from "./views/ConversationListView.vue";
 import ChatViewWrapper from "./views/ChatViewWrapper.vue";
 import SidebarCompactionDialog from "./views/SidebarCompactionDialog.vue";
 import SidebarReviewPanel from "./views/SidebarReviewPanel.vue";
@@ -189,6 +248,7 @@ import ChatWorkspacePickerDialog from "../chat/components/dialogs/ChatWorkspaceP
 import type { ChatWorkspaceChoice } from "../chat/composables/use-chat-workspace";
 import type { ToolReviewCodeReviewScope, ToolReviewCommitOption, ToolReviewReportRecord } from "../chat/composables/use-chat-tool-review";
 import type { TerminalApprovalConversationItem, TerminalApprovalRequestPayload } from "../shell/composables/use-terminal-approval";
+import { readLastActiveConversationId, writeLastActiveConversationId } from "../chat/utils/last-active-conversation";
 
 type ConversationSummary = {
   conversationId: string;
@@ -207,9 +267,19 @@ type ConversationSummary = {
   planModeEnabled?: boolean;
   detachedWindowOpen?: boolean;
   detachedWindowLabel?: string;
+  isSystemNotificationConversation?: boolean;
+  isMainConversation?: boolean;
+  isActive?: boolean;
+  isPinned?: boolean;
+  pinIndex?: number;
+  workspaceLabel?: string;
+  workspaceRootPath?: string;
+  currentTodo?: string;
+  currentTodos?: ChatTodoItem[];
+  state?: ChatConversationOverviewItem["state"];
   previewMessages?: Array<{
     messageId: string;
-    role: string;
+    role: ChatMessage["role"];
     speakerAgentId?: string;
     createdAt?: string;
     textPreview?: string;
@@ -218,6 +288,21 @@ type ConversationSummary = {
     hasAudio?: boolean;
     hasAttachment?: boolean;
   }>;
+};
+
+type RemoteImContactConversationSummary = {
+  contactId: string;
+  conversationId: string;
+  title: string;
+  updatedAt: string;
+  lastMessageAt?: string;
+  messageCount: number;
+  channelId: string;
+  channelName?: string;
+  contactDisplayName: string;
+  boundDepartmentId?: string;
+  processingMode?: string;
+  previewMessages?: ConversationSummary["previewMessages"];
 };
 
 type OpenConversationResult = {
@@ -333,9 +418,19 @@ type IdeContextQueryResult = {
   updatedAt?: string;
 };
 
+const SYSTEM_NOTIFICATION_CONVERSATION_ID = "system-notification-conversation";
+const SYSTEM_NOTIFICATION_DISPLAY_TITLE = "P-ai系统";
+const CHAT_CONVERSATION_LIST_TAB_STORAGE_KEY = "easy_call.chat_conversation_list_tab.v1";
+const CHAT_LEFT_PANEL_MODE_STORAGE_KEY = "easy_call.chat_left_panel_mode.v1";
+const LEGACY_CHAT_LEFT_PANEL_MODE_STORAGE_KEY = "easy-call.chat.left-panel-mode";
+
+type SidebarConversationTab = "local" | "contact" | "task";
+
 const transport = useWsTransport();
 const { t } = useI18n();
 const conversations = ref<ConversationSummary[]>([]);
+const remoteImContactConversations = ref<RemoteImContactConversationSummary[]>([]);
+const sidebarViewerId = ref("");
 const activeConversationId = ref("");
 const activeTitle = computed(() => {
   const item = activeSummary.value;
@@ -348,7 +443,6 @@ const activeTitle = computed(() => {
 });
 const activeAgentId = ref("");
 const persona = ref<SidebarPersonaPayload>({});
-const listPersona = ref<SidebarPersonaPayload>({});
 const conversationCallPrimaryApiConfigId = ref("");
 const preferredChatModelId = ref("");
 const chatModelOptions = ref<ApiConfigItem[]>([]);
@@ -378,6 +472,10 @@ const creatingConversation = ref(false);
 const createConversationDepartmentOptions = ref<SidebarCreateDepartmentOption[]>([]);
 const defaultCreateConversationDepartmentId = ref("");
 const createConversationErrorText = ref("");
+const remoteAuthDialogOpen = ref(false);
+const remoteAuthPassword = ref("");
+const remoteAuthSubmitting = ref(false);
+const remoteAuthError = ref("");
 const codeReviewDialogOpen = ref(false);
 const codeReviewSubmitting = ref(false);
 const codeReviewErrorText = ref("");
@@ -396,12 +494,13 @@ const supervisionSaving = ref(false);
 const supervisionErrorText = ref("");
 const selectedBlockId = ref<number | null>(null);
 const hasPrevBlock = ref(false);
-const view = ref<"list" | "chat">("list");
+const view = ref<"list" | "chat">("chat");
 const rewindConfirmDialogOpen = ref(false);
 const rewindConfirmCanUndoPatch = ref(false);
 let rewindConfirmResolver: ((mode: "message_only" | "with_patch" | "cancel") => void) | null = null;
 let rewindInFlight = false;
 const currentWorkspaceName = ref("");
+const attachmentInputRef = ref<HTMLInputElement | null>(null);
 const workspacePickerOpen = ref(false);
 const workspacePickerSaving = ref(false);
 const workspaceDraftChoices = ref<ChatWorkspaceChoice[]>([]);
@@ -409,15 +508,212 @@ const workspaceDraftAutonomousMode = ref(false);
 const terminalApprovalQueue = ref<TerminalApprovalRequestPayload[]>([]);
 const terminalApprovalResolving = ref(false);
 const hideWorkspaceButton = computed(() => false);
+const sideConversationListVisible = ref(true);
+const toolReviewPanelOpenVisible = ref(true);
+const conversationListTab = ref<SidebarConversationTab>(loadStoredConversationListTab());
+const chatLeftPanelMode = ref<SidebarConversationTab>(loadStoredChatLeftPanelMode());
+const chatRightPanelMode = ref<"reader" | "review" | "delegate">("review");
+const chatSidePanelWidths = ref({ leftWidth: 320, rightWidth: 320 });
 let discoveryRefreshTimer: number | null = null;
 
 const activeSummary = computed(() => conversations.value.find((item) => item.conversationId === activeConversationId.value));
+const sidebarUserAlias = computed(() => String(persona.value?.userAlias || "我").trim() || "我");
+const sidebarUserAvatarUrl = computed(() => String(persona.value?.userAvatarUrl || "").trim());
+const sidebarAssistantName = computed(() => String(persona.value?.assistantName || "PAI").trim() || "PAI");
+const sidebarAssistantAvatarUrl = computed(() => String(persona.value?.assistantAvatarUrl || "").trim());
+const sidebarPersonaNameMap = computed<Record<string, string>>(() => ({
+  "user-persona": sidebarUserAlias.value,
+  ...(persona.value?.personaNameMap || {}),
+  ...(activeAgentId.value ? { [activeAgentId.value]: sidebarAssistantName.value } : {}),
+}));
+const sidebarPersonaAvatarUrlMap = computed<Record<string, string>>(() => {
+  const next = { ...(persona.value?.personaAvatarUrlMap || {}) };
+  if (activeAgentId.value && sidebarAssistantAvatarUrl.value) next[activeAgentId.value] = sidebarAssistantAvatarUrl.value;
+  return next;
+});
+const sidebarWorkspaceFilterPaths = computed(() =>
+  vscodeWorkspaceRoots.value
+    .map((item) => String(item.path || "").trim())
+    .filter(Boolean),
+);
+const visibleConversations = computed(() => {
+  if (sidebarWorkspaceFilterPaths.value.length === 0) return conversations.value;
+  return conversations.value.filter((item) =>
+    isSidebarSystemConversation(item) || conversationMatchesCurrentSidebarWorkspace(item)
+  );
+});
+const chatUnarchivedConversationItems = computed<ChatConversationOverviewItem[]>(() =>
+  visibleConversations.value
+    .map((item) => {
+      const conversationId = String(item.conversationId || "").trim();
+      const isSystemNotificationConversation = isSidebarSystemConversation(item);
+      return {
+        conversationId,
+        title: String(item.title || "").trim(),
+        summaryTitle: item.summaryTitle,
+        kind: "local_unarchived" as const,
+        messageCount: Number(item.messageCount || 0),
+        bodyMessageCount: item.bodyMessageCount,
+        bodyTextLength: item.bodyTextLength,
+        unreadCount: item.unreadCount,
+        agentId: item.agentId,
+        departmentId: item.departmentId,
+        departmentName: item.departmentName,
+        updatedAt: item.updatedAt,
+        lastMessageAt: item.lastMessageAt,
+        workspaceLabel: item.workspaceLabel,
+        workspaceRootPath: item.workspaceRootPath,
+        isSystemNotificationConversation,
+        isMainConversation: !!item.isMainConversation || isSystemNotificationConversation,
+        isPinned: !!item.isPinned || isSystemNotificationConversation,
+        pinIndex: item.pinIndex,
+        runtimeState: normalizeConversationRuntimeState(item.runtimeState),
+        currentTodo: item.currentTodo,
+        currentTodos: item.currentTodos,
+        planModeEnabled: !!item.planModeEnabled,
+        detachedWindowOpen: sidebarConversationUnavailableForCurrentViewer(item),
+        detachedWindowLabel: item.detachedWindowLabel,
+        previewMessages: Array.isArray(item.previewMessages) ? item.previewMessages : [],
+        state: item.state
+          ? {
+            ...item.state,
+            currentViewerId: sidebarViewerId.value || item.state.currentViewerId,
+          }
+          : item.state,
+      };
+    })
+    .filter((item) => !!item.conversationId),
+);
+const chatRemoteImConversationItems = computed<ChatConversationOverviewItem[]>(() =>
+  remoteImContactConversations.value
+    .map((item) => ({
+      conversationId: String(item.conversationId || "").trim(),
+      title: String(item.title || "").trim() || String(item.contactDisplayName || "").trim(),
+      kind: "remote_im_contact" as const,
+      remoteContactId: String(item.contactId || "").trim(),
+      remoteContactDisplayName: String(item.contactDisplayName || "").trim(),
+      channelId: String(item.channelId || "").trim() || undefined,
+      channelName: String(item.channelName || "").trim() || undefined,
+      messageCount: Number(item.messageCount || 0),
+      departmentId: String(item.boundDepartmentId || "").trim() || undefined,
+      departmentName: [
+        String(item.channelName || "").trim(),
+        resolveRemoteConversationDepartmentName(item.boundDepartmentId),
+      ].filter(Boolean).join(" · "),
+      updatedAt: item.lastMessageAt || item.updatedAt || "",
+      lastMessageAt: item.lastMessageAt || item.updatedAt || "",
+      previewMessages: Array.isArray(item.previewMessages) ? item.previewMessages : [],
+    }))
+    .filter((item) => !!item.conversationId),
+);
+const chatConversationItems = computed<ChatConversationOverviewItem[]>(() => ([
+  ...chatUnarchivedConversationItems.value,
+  ...chatRemoteImConversationItems.value,
+]));
 const activeConversationRuntimeState = computed(() => String(activeSummary.value?.runtimeState || "").trim());
 const activeConversationPlanModeEnabled = computed(() => !!activeSummary.value?.planModeEnabled);
+const activeConversationSystemNotificationMode = computed(() => {
+  const item = activeSummary.value;
+  return item ? isSidebarSystemConversation(item) : activeConversationId.value === SYSTEM_NOTIFICATION_CONVERSATION_ID;
+});
 const activeDepartmentId = computed(() => String(activeSummary.value?.departmentId || "").trim());
 const activeConversationTerminalApprovals = computed<TerminalApprovalConversationItem[]>(() =>
   listConversationTerminalApprovals(activeConversationId.value),
 );
+const sidebarShellWorkspaces = computed<ShellWorkspace[]>(() => {
+  const draftItems = workspaceDraftChoices.value
+    .map((item): ShellWorkspace | null => {
+      const path = String(item.path || "").trim();
+      if (!path) return null;
+      return {
+        id: String(item.id || "").trim() || path,
+        name: String(item.name || "").trim() || path,
+        path,
+        level: item.level,
+        access: item.access || "approval",
+      };
+    })
+    .filter((item): item is ShellWorkspace => !!item);
+  if (draftItems.length > 0) return draftItems;
+  return vscodeWorkspaceRoots.value
+    .map((item, index): ShellWorkspace | null => {
+      const path = String(item.path || "").trim();
+      if (!path) return null;
+      return {
+        id: `vscode-workspace-${index}`,
+        name: String(item.name || "").trim() || path,
+        path,
+        level: index === 0 ? "main" : "secondary",
+        access: workspaceAccess.value || "approval",
+      };
+    })
+    .filter((item): item is ShellWorkspace => !!item);
+});
+
+watch(
+  () => ({
+    activeConversationId: activeConversationId.value,
+    title: activeSummary.value?.title,
+    isSystemNotificationConversation: activeSummary.value?.isSystemNotificationConversation,
+    isMainConversation: activeSummary.value?.isMainConversation,
+    resolvedSystemMode: activeConversationSystemNotificationMode.value,
+    overviewItem: chatConversationItems.value.find((item) => item.conversationId === activeConversationId.value),
+  }),
+  (snapshot) => {
+    console.info("[Sidebar系统会话识别][App]", snapshot);
+  },
+  { immediate: true, deep: true },
+);
+
+watch(
+  () => ({
+    activeConversationId: activeConversationId.value,
+    view: view.value,
+    conversationIds: conversations.value.map((item) => String(item.conversationId || "").trim()).join("|"),
+  }),
+  ({ activeConversationId: conversationId, view }) => {
+    const cid = String(conversationId || "").trim();
+    if (!cid || view !== "chat") return;
+    if (!conversations.value.some((item) => String(item.conversationId || "").trim() === cid)) return;
+    writeLastActiveConversationId(cid);
+  },
+  { immediate: true },
+);
+
+function normalizeSidebarConversationTab(value: string): SidebarConversationTab {
+  if (value === "contact" || value === "task") return value;
+  return "local";
+}
+
+function loadStoredConversationListTab(): SidebarConversationTab {
+  if (typeof window === "undefined") return "local";
+  const stored = String(window.localStorage.getItem(CHAT_CONVERSATION_LIST_TAB_STORAGE_KEY) || "").trim();
+  return normalizeSidebarConversationTab(stored);
+}
+
+function loadStoredChatLeftPanelMode(): SidebarConversationTab {
+  if (typeof window === "undefined") return loadStoredConversationListTab();
+  const stored = String(
+    window.localStorage.getItem(CHAT_LEFT_PANEL_MODE_STORAGE_KEY)
+    || window.localStorage.getItem(LEGACY_CHAT_LEFT_PANEL_MODE_STORAGE_KEY)
+    || "",
+  ).trim();
+  return stored ? normalizeSidebarConversationTab(stored) : loadStoredConversationListTab();
+}
+
+function updateConversationListTab(value: SidebarConversationTab) {
+  const next = normalizeSidebarConversationTab(value);
+  conversationListTab.value = next;
+  chatLeftPanelMode.value = next;
+  if (typeof window !== "undefined") {
+    window.localStorage.setItem(CHAT_CONVERSATION_LIST_TAB_STORAGE_KEY, next);
+    window.localStorage.setItem(CHAT_LEFT_PANEL_MODE_STORAGE_KEY, next);
+  }
+}
+
+function updateChatLeftPanelMode(value: SidebarConversationTab) {
+  updateConversationListTab(value);
+}
 
 function normalizeDiscovery(payload: DiscoveryPayload): SidebarBridgeConfig | null {
   const chatUrl = String(payload.chatUrl || "").trim() || String(payload.url || "").trim().replace(/\/ide-context$/, "/chat");
@@ -522,9 +818,30 @@ function applyIdeContextGroups(rawGroups: IdeContextWorkspaceGroup[] | undefined
 }
 
 async function refreshList() {
-  const result = await transport.request<{ conversations: ConversationSummary[]; persona?: SidebarPersonaPayload }>("conversation.list");
-  conversations.value = Array.isArray(result.conversations) ? result.conversations : [];
-  if (result.persona) listPersona.value = result.persona;
+  const result = await transport.request<{
+    conversations?: ConversationSummary[];
+    unarchivedConversations?: ConversationSummary[];
+    remoteImContactConversations?: RemoteImContactConversationSummary[];
+    persona?: SidebarPersonaPayload;
+    viewerId?: string;
+  }>("conversation.list");
+  const localConversations = Array.isArray(result.unarchivedConversations)
+    ? result.unarchivedConversations
+    : Array.isArray(result.conversations)
+      ? result.conversations
+      : [];
+  conversations.value = localConversations;
+  remoteImContactConversations.value = Array.isArray(result.remoteImContactConversations)
+    ? result.remoteImContactConversations
+    : [];
+  sidebarViewerId.value = String(result.viewerId || sidebarViewerId.value || "").trim();
+  if (result.persona && !activeConversationId.value) persona.value = result.persona;
+  console.info("[Sidebar会话列表] 完成", {
+    local: conversations.value.length,
+    remote: remoteImContactConversations.value.length,
+    total: conversations.value.length + remoteImContactConversations.value.length,
+    viewerId: sidebarViewerId.value,
+  });
 }
 
 async function loadCreateConversationOptions() {
@@ -573,6 +890,117 @@ function normalizeToolStatusState(value: unknown): "running" | "done" | "failed"
   return state === "running" || state === "done" || state === "failed" ? state : "";
 }
 
+function isSidebarSystemConversation(item: ConversationSummary): boolean {
+  if (!!item.isSystemNotificationConversation || !!item.isMainConversation) return true;
+  const conversationId = String(item.conversationId || "").trim();
+  if (conversationId === SYSTEM_NOTIFICATION_CONVERSATION_ID) return true;
+  return String(item.title || "").trim() === SYSTEM_NOTIFICATION_DISPLAY_TITLE;
+}
+
+function resolveRemoteConversationDepartmentName(boundDepartmentId?: string): string {
+  const normalizedDepartmentId = String(boundDepartmentId || "").trim();
+  if (!normalizedDepartmentId) return "主部门";
+  return createConversationDepartmentOptions.value.find((item) =>
+    String(item.id || "").trim() === normalizedDepartmentId
+  )?.name || normalizedDepartmentId;
+}
+
+function sidebarConversationOpenedOutside(item: ConversationSummary): boolean {
+  if (isSidebarSystemConversation(item)) return false;
+  const openState = String(item.state?.openState || "").trim();
+  const openViewerId = String(item.state?.openViewerId || "").trim();
+  const currentViewerId = String(sidebarViewerId.value || item.state?.currentViewerId || "").trim();
+  return openState === "open" && !!openViewerId && !!currentViewerId && openViewerId !== currentViewerId;
+}
+
+function sidebarConversationUnavailableForCurrentViewer(item: ConversationSummary): boolean {
+  if (sidebarConversationOpenedOutside(item)) return true;
+  const openViewerId = String(item.state?.openViewerId || "").trim();
+  const currentViewerId = String(sidebarViewerId.value || item.state?.currentViewerId || "").trim();
+  if (openViewerId && currentViewerId) return false;
+  return !!item.detachedWindowOpen;
+}
+
+function normalizeSidebarWorkspacePath(path: string): string {
+  return String(path || "").trim().replace(/\\/g, "/").replace(/\/+$/, "").toLowerCase();
+}
+
+function sidebarWorkspacePathMatches(conversationPath: string, workspacePath: string): boolean {
+  const normalizedConversationPath = normalizeSidebarWorkspacePath(conversationPath);
+  const normalizedWorkspacePath = normalizeSidebarWorkspacePath(workspacePath);
+  if (!normalizedConversationPath || !normalizedWorkspacePath) return false;
+  return normalizedConversationPath === normalizedWorkspacePath
+    || normalizedConversationPath.startsWith(`${normalizedWorkspacePath}/`);
+}
+
+function conversationMatchesCurrentSidebarWorkspace(item: ConversationSummary): boolean {
+  const conversationPath = String(item.workspaceRootPath || "").trim();
+  if (!conversationPath) return false;
+  return sidebarWorkspaceFilterPaths.value.some((workspacePath) =>
+    sidebarWorkspacePathMatches(conversationPath, workspacePath)
+  );
+}
+
+function isSidebarConversationOpenable(item: ConversationSummary): boolean {
+  const state = String(item.runtimeState || "").trim();
+  return state !== "organizing_context"
+    && state !== "archiving"
+    && state !== "compacting"
+    && !sidebarConversationUnavailableForCurrentViewer(item);
+}
+
+function conversationActivityTime(item: ConversationSummary): number {
+  const timestamp = Date.parse(String(item.lastMessageAt || item.updatedAt || "").trim());
+  return Number.isFinite(timestamp) ? timestamp : 0;
+}
+
+function latestConversation(items: ConversationSummary[]): ConversationSummary | undefined {
+  return [...items].sort((left, right) =>
+    conversationActivityTime(right) - conversationActivityTime(left)
+    || String(right.conversationId || "").localeCompare(String(left.conversationId || ""))
+  )[0];
+}
+
+function pickInitialSidebarConversationId(items: ConversationSummary[]): string {
+  const candidates = items.filter((item) => !!String(item.conversationId || "").trim());
+  const openableCandidates = candidates.filter(isSidebarConversationOpenable);
+  const workspaceCandidates = sidebarWorkspaceFilterPaths.value.length > 0
+    ? openableCandidates.filter((item) =>
+      !isSidebarSystemConversation(item) && conversationMatchesCurrentSidebarWorkspace(item)
+    )
+    : [];
+  const latestWorkspaceConversation = latestConversation(workspaceCandidates);
+  if (latestWorkspaceConversation) {
+    return String(latestWorkspaceConversation.conversationId || "").trim();
+  }
+  const storedConversationId = readLastActiveConversationId();
+  if (storedConversationId) {
+    const stored = openableCandidates.find((item) => String(item.conversationId || "").trim() === storedConversationId);
+    if (stored) return storedConversationId;
+  }
+  const target =
+    openableCandidates.find(isSidebarSystemConversation)
+    || openableCandidates.find((item) => !!item.isActive)
+    || openableCandidates[0]
+    || candidates.find(isSidebarSystemConversation)
+    || candidates[0];
+  return String(target?.conversationId || "").trim();
+}
+
+function normalizeConversationRuntimeState(value: unknown): ChatConversationOverviewItem["runtimeState"] {
+  const state = String(value || "").trim();
+  if (
+    state === "idle"
+    || state === "assistant_streaming"
+    || state === "organizing_context"
+    || state === "archiving"
+    || state === "compacting"
+  ) {
+    return state;
+  }
+  return undefined;
+}
+
 function clearStreamingState() {
   streamingText.value = "";
   toolStatusText.value = "";
@@ -599,18 +1027,49 @@ function applyAssistantToolStatusEvent(event: NonNullable<SidebarAssistantDeltaP
 }
 
 async function openConversation(conversationId: string) {
+  const beforeSummary = conversations.value.find((item) => String(item.conversationId || "").trim() === String(conversationId || "").trim());
+  if (beforeSummary && String(beforeSummary.conversationId || "").trim() !== String(activeConversationId.value || "").trim() && !isSidebarConversationOpenable(beforeSummary)) {
+    console.info("[Sidebar会话打开] 跳过被占用会话", {
+      conversationId,
+      state: beforeSummary.state,
+      detachedWindowOpen: beforeSummary.detachedWindowOpen,
+      runtimeState: beforeSummary.runtimeState,
+    });
+    return;
+  }
+  console.info("[Sidebar会话打开][start]", {
+    conversationId,
+    activeConversationId: activeConversationId.value,
+    summary: beforeSummary,
+    isSystemBySummary: beforeSummary ? isSidebarSystemConversation(beforeSummary) : false,
+  });
   clearCompletedRuntimeStateForConversation(activeConversationId.value);
   const vscodeRoot = vscodeWorkspaceRoots.value[0];
-  const result = await transport.request<OpenConversationResult>("conversation.open", {
-    conversationId,
-    workspacePath: vscodeRoot?.path || undefined,
-    workspaceName: vscodeRoot?.name || undefined,
+  let result: OpenConversationResult;
+  try {
+    result = await transport.request<OpenConversationResult>("conversation.open", {
+      conversationId,
+      workspacePath: vscodeRoot?.path || undefined,
+      workspaceName: vscodeRoot?.name || undefined,
+    });
+  } catch (error) {
+    console.warn("[Sidebar会话打开][failed]", {
+      conversationId,
+      error,
+    });
+    throw error;
+  }
+  console.info("[Sidebar会话打开][success]", {
+    requestedConversationId: conversationId,
+    resultConversationId: result.conversationId,
+    title: result.title,
+    agentId: result.agentId,
+    departmentId: result.departmentId,
   });
   activeConversationId.value = result.conversationId;
   clearCompletedRuntimeStateForConversation(result.conversationId);
   activeAgentId.value = String(result.agentId || "").trim();
   persona.value = result.persona || {};
-  if (result.persona) listPersona.value = result.persona;
   applyModelPayload(result.model || {});
   await refreshWorkspacePermission();
   messages.value = Array.isArray(result.messages) ? result.messages : [];
@@ -765,6 +1224,15 @@ async function createConversation(input: { title?: string; departmentId: string 
   }
 }
 
+function handleCreateConversationRequest(input?: { title?: string; departmentId?: string; copyCurrent?: boolean; importPath?: string; shellWorkspaces?: ShellWorkspace[]; shellAutonomousMode?: boolean }) {
+  const departmentId = String(input?.departmentId || "").trim();
+  if (departmentId) {
+    void createConversation({ title: input?.title, departmentId });
+    return;
+  }
+  void openCreateConversationDialog();
+}
+
 async function openSettings() {
   try {
     await transport.request("settings.open", {});
@@ -841,6 +1309,21 @@ function toggleReviewPanel() {
     reviewPanelOpen.value = true;
     loadReviewReports();
   }
+}
+
+function toggleSideConversationList() {
+  view.value = "chat";
+  sideConversationListVisible.value = !sideConversationListVisible.value;
+}
+
+function toggleToolReviewPanel() {
+  view.value = "chat";
+  toolReviewPanelOpenVisible.value = !toolReviewPanelOpenVisible.value;
+}
+
+function handleDirectoryPickRestricted() {
+  console.info("[Sidebar工作区] 跳过选择目录：web/sidebar 不允许唤起本机目录");
+  transport.errorText.value = t("sidebar.openDirectoryRestricted");
 }
 
 function closeReviewPanel() {
@@ -1143,6 +1626,40 @@ function removeClipboardImage(index: number) {
   clipboardImages.value.splice(index, 1);
 }
 
+function pickAttachments() {
+  if (busy.value || compacting.value) return;
+  if (!attachmentInputRef.value) return;
+  attachmentInputRef.value.value = "";
+  attachmentInputRef.value.click();
+}
+
+async function appendAttachmentFiles(files: File[]) {
+  const supported = files.filter((file) => {
+    const mime = String(file.type || "").toLowerCase();
+    return mime.startsWith("image/") || mime === "application/pdf";
+  });
+  if (supported.length === 0) return;
+  try {
+    for (const file of supported) {
+      const dataUrl = await readBlobAsDataUrl(file);
+      const bytesBase64 = dataUrl.includes(",") ? dataUrl.split(",")[1] : "";
+      if (!bytesBase64) continue;
+      clipboardImages.value.push({
+        mime: String(file.type || "").trim() || "application/octet-stream",
+        bytesBase64,
+      });
+    }
+  } catch (error) {
+    transport.errorText.value = String(error || t('sidebar.readClipboardImageFailed'));
+  }
+}
+
+function handleAttachmentInputChange(event: Event) {
+  const target = event.target as HTMLInputElement | null;
+  const files = target?.files ? Array.from(target.files) : [];
+  void appendAttachmentFiles(files);
+}
+
 async function send(payload?: { extraTextBlocks?: string[] }) {
   const text = inputText.value.trim();
   const images = clipboardImages.value.map((item) => ({ ...item }));
@@ -1427,9 +1944,11 @@ function removeWorkspace(workspaceId: string) {
 async function openWorkspaceDir(workspaceId: string) {
   const target = workspaceDraftChoices.value.find((item) => item.id === workspaceId);
   if (!target?.path) return;
-  try {
-    await transport.request("workspace.openDir", { workspacePath: target.path });
-  } catch { /* ignore */ }
+  console.info("[Sidebar工作区] 跳过打开目录：web/sidebar 不允许唤起本机目录", {
+    workspaceId,
+    workspacePath: target.path,
+  });
+  transport.errorText.value = t("sidebar.openDirectoryRestricted");
 }
 
 async function saveWorkspacePicker() {
@@ -1470,11 +1989,92 @@ function appendMessages(next: unknown) {
   messages.value = [...messages.value, ...incoming.filter((item) => !existingIds.has(item.id))];
 }
 
+async function initializeAfterBridgeAuthenticated() {
+  if (!transport.connected.value || !transport.authenticated.value) return;
+  await refreshList();
+  const currentConversationId = String(activeConversationId.value || "").trim();
+  const initialConversationId = pickInitialSidebarConversationId(visibleConversations.value);
+  const initialSummary = visibleConversations.value.find((item) =>
+    String(item.conversationId || "").trim() === initialConversationId
+  );
+  const currentSummary = conversations.value.find((item) =>
+    String(item.conversationId || "").trim() === currentConversationId
+  );
+  const currentRemoteSummary = remoteImContactConversations.value.find((item) =>
+    String(item.conversationId || "").trim() === currentConversationId
+  );
+  const shouldSwitchForWorkspace =
+    sidebarWorkspaceFilterPaths.value.length > 0
+    && !!initialSummary
+    && !isSidebarSystemConversation(initialSummary)
+    && initialConversationId !== currentConversationId
+    && !currentRemoteSummary
+    && (!currentSummary || !conversationMatchesCurrentSidebarWorkspace(currentSummary));
+  if (!currentConversationId || shouldSwitchForWorkspace) {
+    if (initialConversationId) {
+      try {
+        await openConversation(initialConversationId);
+      } catch (error) {
+        const fallbackConversationId = String(visibleConversations.value.find((item) =>
+          isSidebarSystemConversation(item) && isSidebarConversationOpenable(item)
+        )?.conversationId || "").trim();
+        if (fallbackConversationId && fallbackConversationId !== initialConversationId) {
+          await openConversation(fallbackConversationId);
+        } else {
+          console.warn("[Sidebar首屏会话选择] 打开初始会话失败", {
+            initialConversationId,
+            error,
+          });
+        }
+      }
+    }
+  }
+  await refreshIdeContextGroups();
+}
+
+function openRemoteAuthDialog() {
+  remoteAuthDialogOpen.value = true;
+  remoteAuthPassword.value = "";
+  remoteAuthError.value = "";
+}
+
+async function submitRemoteAuth() {
+  const password = remoteAuthPassword.value.trim();
+  if (!password || remoteAuthSubmitting.value) return;
+  remoteAuthSubmitting.value = true;
+  remoteAuthError.value = "";
+  try {
+    await transport.login(password);
+    remoteAuthDialogOpen.value = false;
+    remoteAuthPassword.value = "";
+    await initializeAfterBridgeAuthenticated();
+  } catch (error) {
+    remoteAuthError.value = String(error || t("sidebar.remoteAuthFailed"));
+  } finally {
+    remoteAuthSubmitting.value = false;
+  }
+}
+
 function registerNotifications() {
+  transport.onNotification("bridge.ready", (payload) => {
+    const value = payload as { authRequired?: boolean };
+    if (value.authRequired && !transport.authenticated.value) {
+      openRemoteAuthDialog();
+      return;
+    }
+    void initializeAfterBridgeAuthenticated();
+  });
   transport.onNotification("conversation.overviewUpdated", (payload) => {
     const value = payload as { unarchivedConversations?: ConversationSummary[] };
     if (Array.isArray(value.unarchivedConversations)) {
-      conversations.value = value.unarchivedConversations;
+      const incomingLocalConversations = value.unarchivedConversations;
+      void refreshList().catch((error) => {
+        console.warn("[Sidebar会话列表] 刷新完整列表失败，使用通知中的本地会话", {
+          error,
+          incomingLocal: incomingLocalConversations.length,
+        });
+        conversations.value = incomingLocalConversations;
+      });
       clearCompletedRuntimeStateForConversation(activeConversationId.value);
     }
   });
@@ -1555,9 +2155,8 @@ async function bootstrap() {
     return;
   }
   await transport.connect(config);
-  if (transport.connected.value) {
-    await refreshList();
-    await refreshIdeContextGroups();
+  if (transport.connected.value && transport.bridgeReady.value && transport.authenticated.value) {
+    await initializeAfterBridgeAuthenticated();
   }
 }
 
@@ -1591,8 +2190,9 @@ function handleWindowMessage(event: MessageEvent) {
     applyWorkspaceRoots(data.discovery.workspaceRoots);
     const config = normalizeDiscovery(data.discovery);
     if (config) void transport.connect(config).then(async () => {
-      await refreshList();
-      await refreshIdeContextGroups();
+      if (transport.bridgeReady.value && transport.authenticated.value) {
+        await initializeAfterBridgeAuthenticated();
+      }
     });
     else {
       transport.connecting.value = false;

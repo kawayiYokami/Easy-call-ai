@@ -688,6 +688,18 @@ fn default_webview_zoom_percent() -> u32 {
     100
 }
 
+fn default_web_access_port() -> u16 {
+    43129
+}
+
+fn normalize_web_access_port(value: u16) -> u16 {
+    if value >= 1024 {
+        value
+    } else {
+        default_web_access_port()
+    }
+}
+
 fn default_github_update_method() -> String {
     "auto".to_string()
 }
@@ -844,6 +856,8 @@ struct AppConfig {
     ui_font: String,
     #[serde(default = "default_webview_zoom_percent")]
     webview_zoom_percent: u32,
+    #[serde(default = "default_web_access_port")]
+    web_access_port: u16,
     #[serde(default = "default_github_update_method")]
     github_update_method: String,
     #[serde(default = "default_record_hotkey")]
@@ -899,6 +913,7 @@ impl Default for AppConfig {
             ui_language: default_ui_language(),
             ui_font: default_ui_font(),
             webview_zoom_percent: default_webview_zoom_percent(),
+            web_access_port: default_web_access_port(),
             github_update_method: default_github_update_method(),
             record_hotkey: default_record_hotkey(),
             record_background_wake_enabled: default_record_background_wake_enabled(),

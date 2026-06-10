@@ -1,6 +1,47 @@
 <template>
   <div class="relative flex h-full min-h-0 flex-col bg-base-100 text-base-content">
-    <header class="flex h-10 shrink-0 items-center gap-1 border-b border-base-300 px-2">
+    <AppWindowHeader
+      v-if="connected"
+      view-mode="chat"
+      current-theme=""
+      :title-text="activeTitle"
+      :chat-usage-percent="chatUsagePercent || 0"
+      :trimming="compacting"
+      :chatting="false"
+      current-persona-name="PAI"
+      :side-conversation-list-visible="sideConversationListVisible"
+      :tool-review-panel-open-visible="toolReviewPanelOpenVisible"
+      :chat-side-panel-widths="chatSidePanelWidths || { leftWidth: 320, rightWidth: 320 }"
+      :conversation-list-tab="conversationListTab || 'local'"
+      :chat-left-panel-mode="chatLeftPanelMode || 'local'"
+      :chat-right-panel-mode="chatRightPanelMode || 'review'"
+      :active-conversation-id="activeConversationId"
+      :current-department-id="currentDepartmentId"
+      :conversation-items="conversationItems || []"
+      :current-chat-workspaces="currentWorkspaces || []"
+      :user-alias="userAlias || '我'"
+      :user-avatar-url="userAvatarUrl || ''"
+      :persona-name-map="personaNameMap || {}"
+      :persona-avatar-url-map="personaAvatarUrlMap || {}"
+      :create-conversation-department-options="createConversationDepartmentOptions || []"
+      :default-create-conversation-department-id="defaultCreateConversationDepartmentId || ''"
+      trim-tip=""
+      :maximized="false"
+      :window-ready="false"
+      :open-settings-title="'设置'"
+      :window-controls-visible="false"
+      directory-pick-restricted
+      @toggle-side-conversation-list="$emit('toggleSideConversationList')"
+      @toggle-tool-review-panel="$emit('toggleToolReviewPanel')"
+      @update:conversation-list-tab="$emit('updateConversationListTab', $event)"
+      @update:chat-left-panel-mode="$emit('updateChatLeftPanelMode', $event)"
+      @update:chat-right-panel-mode="$emit('updateChatRightPanelMode', $event)"
+      @open-settings="$emit('openSettings')"
+      @create-conversation="$emit('createConversation', $event)"
+      @trim-conversation="$emit('compactConversation')"
+      @directory-pick-restricted="$emit('directoryPickRestricted')"
+    />
+    <header v-else class="flex h-10 shrink-0 items-center gap-1 border-b border-base-300 px-2">
       <button
         class="btn btn-ghost btn-sm h-8 min-h-8 w-8 shrink-0 px-0"
         title="会话列表"
@@ -65,6 +106,8 @@
 <script setup lang="ts">
 import { computed } from "vue";
 import { ChevronLeft, FileSearch, RefreshCcw, Settings, SquarePen } from "@lucide/vue";
+import AppWindowHeader from "../../shell/components/AppWindowHeader.vue";
+import type { ChatConversationOverviewItem, ShellWorkspace } from "../../../types/app";
 
 const props = defineProps<{
   view: "list" | "chat";
@@ -75,6 +118,21 @@ const props = defineProps<{
   activeConversationId: string;
   compacting: boolean;
   chatUsagePercent?: number;
+  sideConversationListVisible?: boolean;
+  toolReviewPanelOpenVisible?: boolean;
+  chatSidePanelWidths?: { leftWidth: number; rightWidth: number };
+  conversationListTab?: "local" | "contact" | "task";
+  chatLeftPanelMode?: "local" | "contact" | "task";
+  chatRightPanelMode?: "reader" | "review" | "delegate";
+  currentDepartmentId?: string;
+  conversationItems?: ChatConversationOverviewItem[];
+  currentWorkspaces?: ShellWorkspace[];
+  userAlias?: string;
+  userAvatarUrl?: string;
+  personaNameMap?: Record<string, string>;
+  personaAvatarUrlMap?: Record<string, string>;
+  createConversationDepartmentOptions?: Array<{ id: string; name: string; ownerAgentId?: string; ownerName: string; providerName?: string; modelName?: string }>;
+  defaultCreateConversationDepartmentId?: string;
 }>();
 
 const usageRingCircumference = 2 * Math.PI * 14;
@@ -96,5 +154,12 @@ defineEmits<{
   compactConversation: [];
   reconnect: [];
   toggleReviewPanel: [];
+  toggleSideConversationList: [];
+  toggleToolReviewPanel: [];
+  updateConversationListTab: [value: "local" | "contact" | "task"];
+  updateChatLeftPanelMode: [value: "local" | "contact" | "task"];
+  updateChatRightPanelMode: [value: "reader" | "review" | "delegate"];
+  createConversation: [input?: { title?: string; departmentId?: string; copyCurrent?: boolean; importPath?: string; shellWorkspaces?: ShellWorkspace[]; shellAutonomousMode?: boolean }];
+  directoryPickRestricted: [];
 }>();
 </script>

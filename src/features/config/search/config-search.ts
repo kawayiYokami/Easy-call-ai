@@ -12,6 +12,7 @@ export type ConfigSearchTab =
   | "demo"
   | "chatSettings"
   | "notification"
+  | "networkAccess"
   | "remoteIm"
   | "memory"
   | "task"
@@ -51,6 +52,7 @@ const CONFIG_SEARCH_SOURCES: ConfigSearchSource[] = [
   ...(import.meta.env.DEV ? [{ tab: "demo", titleKey: "config.tabs.demo", titleFallback: "Demo", prefixes: ["config.demo"] } satisfies ConfigSearchSource] : []),
   { tab: "chatSettings", titleKey: "config.tabs.chatSettings", titleFallback: "Chat", prefixes: ["config.chatSettings"] },
   { tab: "notification", titleKey: "config.tabs.notification", titleFallback: "Notification", prefixes: ["config.notification"] },
+  { tab: "networkAccess", titleKey: "config.tabs.networkAccess", titleFallback: "Network Access", prefixes: ["config.networkAccess"] },
   { tab: "remoteIm", titleKey: "config.tabs.remoteIm", titleFallback: "Contacts", prefixes: ["config.remoteIm"] },
   { tab: "memory", titleKey: "config.tabs.memory", titleFallback: "Memory", prefixes: ["config.memory", "memory"] },
   { tab: "task", titleKey: "config.tabs.task", titleFallback: "Task", prefixes: ["config.task"] },

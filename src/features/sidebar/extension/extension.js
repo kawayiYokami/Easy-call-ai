@@ -25,7 +25,7 @@ function readDiscovery() {
     const parsed = JSON.parse(raw);
     const chatUrl = String(parsed.chatUrl || parsed.url || "").replace(/\/ide-context$/, "/chat");
     const token = String(parsed.token || "");
-    if (!chatUrl || !token) return null;
+    if (!chatUrl) return null;
     return { ...parsed, chatUrl, token };
   } catch {
     return null;
@@ -299,6 +299,15 @@ async function openLocalFileReference(rawHref) {
   }
 }
 
+async function openExternalUrl(rawUrl) {
+  const url = String(rawUrl || "").trim();
+  if (!/^https?:\/\//i.test(url)) {
+    void vscode.window.showWarningMessage("无法识别外部链接。");
+    return;
+  }
+  await vscode.env.openExternal(vscode.Uri.parse(url));
+}
+
 class PaiSidebarProvider {
   constructor(extensionUri) {
     this.extensionUri = extensionUri;
@@ -335,6 +344,13 @@ class PaiSidebarProvider {
         openLocalFileReference(message.href).catch((error) => {
           const detail = error && error.message ? error.message : String(error);
           void vscode.window.showWarningMessage(`打开文件引用失败：${detail}`);
+        });
+        return;
+      }
+      if (message && message.type === "pai-open-url") {
+        openExternalUrl(message.url).catch((error) => {
+          const detail = error && error.message ? error.message : String(error);
+          void vscode.window.showWarningMessage(`打开外部链接失败：${detail}`);
         });
       }
     });

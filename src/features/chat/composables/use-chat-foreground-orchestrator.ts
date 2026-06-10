@@ -30,15 +30,26 @@ export function useChatForegroundOrchestrator(bindings: Record<string, any>) {
     bindings.unarchivedConversations.value = Array.isArray(items) ? items : [];
   }
 
+  function isForegroundConversationOpenable(item: any): boolean {
+    const state = String(item?.runtimeState || "").trim();
+    return state !== "organizing_context"
+      && state !== "archiving"
+      && state !== "compacting"
+      && !item?.detachedWindowOpen;
+  }
+
   function pickForegroundConversationId(candidates: any[]): string {
+    const openableCandidates = candidates.filter(isForegroundConversationOpenable);
     const storedConversationId = readLastActiveConversationId();
     if (storedConversationId) {
-      const stored = candidates.find((item) => String(item?.conversationId || "").trim() === storedConversationId);
+      const stored = openableCandidates.find((item) => String(item?.conversationId || "").trim() === storedConversationId);
       if (stored) return storedConversationId;
     }
     const target =
-      candidates.find((item) => !!item.isSystemNotificationConversation)
-      || candidates.find((item) => !!item.isActive)
+      openableCandidates.find((item) => !!item.isSystemNotificationConversation)
+      || openableCandidates.find((item) => !!item.isActive)
+      || openableCandidates[0]
+      || candidates.find((item) => !!item.isSystemNotificationConversation)
       || candidates[0];
     return String(target?.conversationId || "").trim();
   }

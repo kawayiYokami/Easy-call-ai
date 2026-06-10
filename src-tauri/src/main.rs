@@ -331,6 +331,12 @@ async fn run_deferred_setup(app_handle: AppHandle) {
     if let Err(err) = delegate_store_open(&app_state.data_path) {
         eprintln!("[启动-延迟] 初始化委托存储失败：{err}");
     }
+    let ide_context_runtime = app_handle.state::<IdeContextRuntime>().inner().clone();
+    start_ide_context_bridge_server(
+        app_handle.clone(),
+        app_state.inner().clone(),
+        ide_context_runtime,
+    );
     let _ = sync_default_tray_icon(&app_handle);
     if should_enable_devtools() {
         eprintln!("[启动-延迟] 检测到 devtools 开关已开启，但当前构建未启用 open_devtools API，跳过打开 devtools");
@@ -344,7 +350,6 @@ async fn start_background_services_after_frontend_ready(
     app_handle: AppHandle,
     startup_state: AppState,
 ) {
-    let ide_context_runtime = app_handle.state::<IdeContextRuntime>().inner().clone();
     start_task_scheduler(startup_state.clone());
     tauri::async_runtime::spawn({
         let probe_state = startup_state.clone();
@@ -357,7 +362,6 @@ async fn start_background_services_after_frontend_ready(
         Err(err) => eprintln!("[工作区加载] 状态=失败，error={err}"),
     }
     start_remote_im_services_after_frontend_ready(app_handle.clone()).await;
-    start_ide_context_bridge_server(app_handle, startup_state, ide_context_runtime);
 }
 
 async fn start_remote_im_services_after_frontend_ready(app_handle: AppHandle) {
@@ -1114,6 +1118,7 @@ fn main() {
             update_chat_shell_workspace_layout,
             upsert_ide_context_snapshot,
             query_ide_context_references,
+            get_web_access_info,
             task_list_tasks,
             task_get_task,
             task_optimize_draft,

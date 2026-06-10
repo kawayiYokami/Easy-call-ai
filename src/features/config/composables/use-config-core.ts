@@ -16,6 +16,11 @@ function normalizeGithubUpdateMethod(value: unknown): AppConfig["githubUpdateMet
   return text === "direct" || text === "proxy" ? text : "auto";
 }
 
+function normalizeWebAccessPort(value: unknown): number {
+  const port = Math.round(Number(value));
+  return Number.isFinite(port) && port >= 1024 && port <= 65535 ? port : 43129;
+}
+
 type UseConfigCoreOptions = {
   config: AppConfig;
   textCapableApiConfigs: ComputedRef<ApiConfigItem[]>;
@@ -273,6 +278,7 @@ export function useConfigCore(options: UseConfigCoreOptions) {
       uiLanguage: options.config.uiLanguage,
       uiFont: options.config.uiFont,
       webviewZoomPercent: options.config.webviewZoomPercent,
+      webAccessPort: normalizeWebAccessPort(options.config.webAccessPort),
       githubUpdateMethod: normalizeGithubUpdateMethod(options.config.githubUpdateMethod),
       recordHotkey: options.config.recordHotkey,
       recordBackgroundWakeEnabled: !!options.config.recordBackgroundWakeEnabled,
@@ -390,6 +396,7 @@ export function useConfigCore(options: UseConfigCoreOptions) {
       uiLanguage: options.config.uiLanguage,
       uiFont: options.config.uiFont,
       webviewZoomPercent: options.config.webviewZoomPercent,
+      webAccessPort: normalizeWebAccessPort(options.config.webAccessPort),
       githubUpdateMethod: normalizeGithubUpdateMethod(options.config.githubUpdateMethod),
       recordHotkey: options.config.recordHotkey,
       recordBackgroundWakeEnabled: !!options.config.recordBackgroundWakeEnabled,

@@ -9,6 +9,9 @@
           <a :class="{ 'active': props.configTab === 'notification', 'menu-active': props.configTab === 'notification', 'opacity-50 pointer-events-none': memorySyncLocked }" @click="requestTabChange('notification')">{{ t("config.tabs.notification") }}</a>
         </li>
         <li>
+          <a :class="{ 'active': props.configTab === 'networkAccess', 'menu-active': props.configTab === 'networkAccess', 'opacity-50 pointer-events-none': memorySyncLocked }" @click="requestTabChange('networkAccess')">{{ t("config.tabs.networkAccess") }}</a>
+        </li>
+        <li>
           <a :class="{ 'active': props.configTab === 'hotkey', 'menu-active': props.configTab === 'hotkey', 'opacity-50 pointer-events-none': memorySyncLocked }" @click="requestTabChange('hotkey')">{{ t("config.tabs.hotkey") }}</a>
         </li>
         <li>
@@ -211,6 +214,13 @@
             :save-config-action="saveConfigAction"
             :last-saved-config-json="lastSavedConfigJson"
           />
+          <NetworkAccessTab
+            v-else-if="props.configTab === 'networkAccess'"
+            :config="config"
+            :saving-config="savingConfig"
+            :save-config-action="saveConfigAction"
+            :last-saved-config-json="lastSavedConfigJson"
+          />
           <RemoteImTab
             v-else-if="props.configTab === 'remoteIm'"
             :config="config"
@@ -392,6 +402,7 @@ import DepartmentTreeTab from "./config-tabs/DepartmentTreeTab.vue";
 import DemoTab from "./config-tabs/DemoTab.vue";
 import ChatSettingsTab from "./config-tabs/ChatSettingsTab.vue";
 import NotificationTab from "./config-tabs/NotificationTab.vue";
+import NetworkAccessTab from "./config-tabs/NetworkAccessTab.vue";
 import RemoteImTab from "./config-tabs/RemoteImTab.vue";
 import MemoryTab from "./config-tabs/MemoryTab.vue";
 import TaskTab from "./config-tabs/TaskTab.vue";
@@ -403,7 +414,7 @@ import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { invokeTauri } from "../../../services/tauri-api";
 import { toErrorMessage } from "../../../utils/error";
 
-type ConfigTab = "welcome" | "hotkey" | "api" | "tools" | "mcp" | "skill" | "persona" | "department" | "departmentTree" | "demo" | "chatSettings" | "notification" | "remoteIm" | "memory" | "task" | "logs" | "appearance" | "migration" | "about";
+type ConfigTab = "welcome" | "hotkey" | "api" | "tools" | "mcp" | "skill" | "persona" | "department" | "departmentTree" | "demo" | "chatSettings" | "notification" | "networkAccess" | "remoteIm" | "memory" | "task" | "logs" | "appearance" | "migration" | "about";
 type AvatarTarget = { agentId: string };
 const SHOW_DEV_DEMO_TAB = import.meta.env.DEV;
 

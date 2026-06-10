@@ -229,6 +229,7 @@ const props = defineProps<{
   mode?: "create" | "edit";
   conversationId?: string;
   task?: TaskEntry | null;
+  bridgeRequest?: <T = unknown>(method: string, params?: Record<string, unknown>, timeoutMs?: number) => Promise<T>;
 }>();
 
 const emit = defineEmits<{
@@ -561,6 +562,29 @@ function dispatchTaskDeletedEvent(taskId: string) {
   }));
 }
 
+async function requestTaskCreate(payload: TaskCreateInputWire): Promise<TaskEntry> {
+  if (props.bridgeRequest) return props.bridgeRequest<TaskEntry>("task.create", payload);
+  return invokeTauri<TaskEntry>("task_create_task", { input: payload });
+}
+
+async function requestTaskUpdate(payload: TaskUpdateInputWire): Promise<TaskEntry> {
+  if (props.bridgeRequest) return props.bridgeRequest<TaskEntry>("task.update", payload);
+  return invokeTauri<TaskEntry>("task_update_task", { input: payload });
+}
+
+async function requestTaskDelete(payload: TaskDeleteInputWire): Promise<void> {
+  if (props.bridgeRequest) {
+    await props.bridgeRequest("task.delete", payload);
+    return;
+  }
+  await invokeTauri("task_delete_task", { input: payload });
+}
+
+async function requestTaskOptimize(payload: TaskOptimizeDraftInputWire): Promise<TaskOptimizeDraftOutputWire> {
+  if (props.bridgeRequest) return props.bridgeRequest<TaskOptimizeDraftOutputWire>("task.optimizeDraft", payload, 60_000);
+  return invokeTauri<TaskOptimizeDraftOutputWire>("task_optimize_draft", { input: payload });
+}
+
 async function handleSubmit() {
   if (dialogBusy.value) return;
   const payload = buildPayload();
@@ -570,13 +594,13 @@ async function handleSubmit() {
   errorText.value = "";
   try {
     if (isEditMode.value) {
-      const updated = await invokeTauri<TaskEntry>("task_update_task", { input: payload });
+      const updated = await requestTaskUpdate(payload as TaskUpdateInputWire);
       dispatchTaskUpdatedEvent(updated);
       emit("updated", updated);
       emit("close");
       return;
     }
-    const created = await invokeTauri<TaskEntry>("task_create_task", { input: payload });
+    const created = await requestTaskCreate(payload as TaskCreateInputWire);
     dispatchTaskCreatedEvent(created);
     emit("created", created);
     emit("close");
@@ -607,7 +631,7 @@ async function handleOptimizeDraft() {
   optimizing.value = true;
   errorText.value = "";
   try {
-    const optimized = await invokeTauri<TaskOptimizeDraftOutputWire>("task_optimize_draft", { input: payload });
+    const optimized = await requestTaskOptimize(payload);
     const nextContent = String(optimized.content || "").trim();
     const nextTitle = String(optimized.title || "").trim();
     if (nextContent) content.value = nextContent;
@@ -651,7 +675,7 @@ async function handleDeleteConfirmed() {
   saving.value = true;
   errorText.value = "";
   try {
-    await invokeTauri("task_delete_task", { input: payload });
+    await requestTaskDelete(payload);
     dispatchTaskDeletedEvent(taskId);
     deleteConfirmOpen.value = false;
     emit("close");

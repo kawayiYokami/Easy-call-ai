@@ -1,5 +1,5 @@
 import { ref, watch, type Ref } from "vue";
-import { invokeTauri } from "../../../services/tauri-api";
+import { invokeTauri, isTauriRuntimeAvailable } from "../../../services/tauri-api";
 
 export type ToolReviewStoredReview = {
   kind: string;
@@ -116,9 +116,31 @@ type UseChatToolReviewOptions = {
   activeConversationId: Ref<string>;
   refreshTick: Ref<number>;
   initialPanelOpen?: Ref<boolean>;
+  bridgeRequest?: Ref<ToolReviewBridgeRequest | undefined>;
   t: (key: string, params?: Record<string, unknown>) => string;
   onRefreshMessage?: (input: { conversationId: string; messageId: string }) => void | Promise<void>;
 };
+
+export type ToolReviewBridgeRequest = <T = unknown>(
+  method: string,
+  params?: Record<string, unknown>,
+  timeoutMs?: number,
+) => Promise<T>;
+
+function bridgeMethodForCommand(command: string): string {
+  switch (command) {
+    case "list_tool_review_reports": return "toolReview.reports.list";
+    case "delete_tool_review_report": return "toolReview.report.delete";
+    case "list_tool_review_commit_options": return "toolReview.commitOptions.list";
+    case "submit_tool_review_code": return "toolReview.code.submit";
+    case "list_tool_review_batches": return "toolReview.batches.list";
+    case "get_tool_review_item_detail": return "toolReview.item.detail";
+    case "run_tool_review_for_call": return "toolReview.item.review";
+    case "run_tool_review_for_batch": return "toolReview.batch.review";
+    case "set_tool_review_item_user_decision": return "toolReview.item.decision";
+    default: return command;
+  }
+}
 
 export function useChatToolReview(options: UseChatToolReviewOptions) {
   const toolReviewPanelOpen = ref(!!options.initialPanelOpen?.value);
@@ -144,6 +166,17 @@ export function useChatToolReview(options: UseChatToolReviewOptions) {
     return message || "Unknown error";
   }
 
+  async function requestToolReview<T>(command: string, args?: { input?: Record<string, unknown> }): Promise<T> {
+    const bridgeRequest = options.bridgeRequest?.value;
+    if (bridgeRequest) {
+      return await bridgeRequest<T>(bridgeMethodForCommand(command), args?.input || {});
+    }
+    if (!isTauriRuntimeAvailable()) {
+      throw new Error("当前运行环境不支持工具审查接口。");
+    }
+    return await invokeTauri<T>(command, args);
+  }
+
   async function refreshToolReviewReports() {
     const conversationId = String(options.activeConversationId.value || "").trim();
     if (!conversationId) {
@@ -152,7 +185,7 @@ export function useChatToolReview(options: UseChatToolReviewOptions) {
       return;
     }
     try {
-      const result = await invokeTauri<ListToolReviewReportsOutput>("list_tool_review_reports", {
+      const result = await requestToolReview<ListToolReviewReportsOutput>("list_tool_review_reports", {
         input: { conversationId },
       });
       toolReviewReports.value = Array.isArray(result?.reports) ? result.reports : [];
@@ -178,7 +211,7 @@ export function useChatToolReview(options: UseChatToolReviewOptions) {
     if (!conversationId || !reportId) return;
     toolReviewReportErrorText.value = "";
     try {
-      await invokeTauri("delete_tool_review_report", {
+      await requestToolReview("delete_tool_review_report", {
         input: {
           conversationId,
           reportId,
@@ -199,7 +232,7 @@ export function useChatToolReview(options: UseChatToolReviewOptions) {
     if (!normalizedConversationId) {
       return { total: 0, page, pageSize, commits: [] } as ToolReviewCommitPage;
     }
-    const result = await invokeTauri<ListToolReviewCommitOptionsOutput>("list_tool_review_commit_options", {
+    const result = await requestToolReview<ListToolReviewCommitOptionsOutput>("list_tool_review_commit_options", {
       input: {
         conversationId: normalizedConversationId,
         page,
@@ -227,7 +260,7 @@ export function useChatToolReview(options: UseChatToolReviewOptions) {
         target: String(input.target || "").trim(),
         departmentId: String(input.departmentId || "").trim(),
       });
-      const result = await invokeTauri<SubmitToolReviewTaskOutput>("submit_tool_review_code", {
+      const result = await requestToolReview<SubmitToolReviewTaskOutput>("submit_tool_review_code", {
         input: {
           conversationId,
           scope,
@@ -285,7 +318,7 @@ export function useChatToolReview(options: UseChatToolReviewOptions) {
       return;
     }
     try {
-      const result = await invokeTauri<ToolReviewBatchListOutput>("list_tool_review_batches", {
+      const result = await requestToolReview<ToolReviewBatchListOutput>("list_tool_review_batches", {
         input: {
           conversationId,
         },
@@ -314,7 +347,7 @@ export function useChatToolReview(options: UseChatToolReviewOptions) {
     if (!force && cachedDetail) return cachedDetail;
     toolReviewDetailLoadingCallId.value = normalizedCallId;
     try {
-      const detail = await invokeTauri<ToolReviewItemDetail>("get_tool_review_item_detail", {
+      const detail = await requestToolReview<ToolReviewItemDetail>("get_tool_review_item_detail", {
         input: {
           conversationId,
           callId: normalizedCallId,
@@ -342,7 +375,7 @@ export function useChatToolReview(options: UseChatToolReviewOptions) {
     if (!normalizedCallId || !conversationId) return;
     toolReviewReviewingCallId.value = normalizedCallId;
     try {
-      const detail = await invokeTauri<ToolReviewItemDetail>("run_tool_review_for_call", {
+      const detail = await requestToolReview<ToolReviewItemDetail>("run_tool_review_for_call", {
         input: {
           conversationId,
           callId: normalizedCallId,
@@ -372,7 +405,7 @@ export function useChatToolReview(options: UseChatToolReviewOptions) {
     if (batchIndex < 0) return;
     toolReviewBatchReviewingKey.value = normalizedBatchKey;
     try {
-      const result = await invokeTauri<{ reviewedCallIds: string[] }>("run_tool_review_for_batch", {
+      const result = await requestToolReview<{ reviewedCallIds: string[] }>("run_tool_review_for_batch", {
         input: {
           conversationId,
           batchIndex,
@@ -403,7 +436,7 @@ export function useChatToolReview(options: UseChatToolReviewOptions) {
     if (!conversationId || !callId) return null;
     toolReviewDecisionCallId.value = callId;
     try {
-      const detail = await invokeTauri<ToolReviewItemDetail>("set_tool_review_item_user_decision", {
+      const detail = await requestToolReview<ToolReviewItemDetail>("set_tool_review_item_user_decision", {
         input: {
           conversationId,
           callId,

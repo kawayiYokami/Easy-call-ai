@@ -598,6 +598,8 @@ function defaultConfig(): AppConfig {
     hotkey: "Alt+·",
     uiLanguage: "zh-CN",
     uiFont: "auto",
+    webviewZoomPercent: 100,
+    webAccessPort: 43129,
     recordHotkey: isMacPlatform ? "Option+Space" : "Alt",
     recordBackgroundWakeEnabled: true,
     minRecordSeconds: 1,

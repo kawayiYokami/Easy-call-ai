@@ -672,6 +672,7 @@ fn save_config(
     config: AppConfig,
     app: AppHandle,
     state: State<'_, AppState>,
+    ide_context_runtime: State<'_, IdeContextRuntime>,
 ) -> Result<AppConfig, String> {
     if config.api_configs.is_empty() {
         return Err("至少需要配置一个 API 配置。".to_string());
@@ -713,6 +714,20 @@ fn save_config(
                 err
             );
         }
+    }
+    if base_config.web_access_port != main_config.web_access_port
+        && IDE_CONTEXT_BRIDGE_STARTED.load(Ordering::SeqCst)
+    {
+        eprintln!(
+            "[网络访问] 端口配置已变更，重启 Web 访问服务: old={}, new={}",
+            base_config.web_access_port,
+            main_config.web_access_port
+        );
+        restart_ide_context_bridge_server(
+            app.clone(),
+            state.inner().clone(),
+            ide_context_runtime.inner().clone(),
+        );
     }
     match apply_webview_zoom_percent(&app, main_config.webview_zoom_percent) {
         Ok(percent) => emit_webview_zoom_percent_updated(&app, percent),

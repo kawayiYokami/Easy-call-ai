@@ -395,7 +395,16 @@ function isConversationItemDisabled(item: ChatConversationOverviewItem): boolean
   return item.runtimeState === "organizing_context"
     || item.runtimeState === "archiving"
     || item.runtimeState === "compacting"
-    || !!item.detachedWindowOpen;
+    || !!item.detachedWindowOpen
+    || conversationOpenedByAnotherViewer(item);
+}
+
+function conversationOpenedByAnotherViewer(item: ChatConversationOverviewItem): boolean {
+  if (item.isSystemNotificationConversation) return false;
+  const openState = String(item.state?.openState || "").trim();
+  const openViewerId = String(item.state?.openViewerId || "").trim();
+  const currentViewerId = String(item.state?.currentViewerId || "").trim();
+  return openState === "open" && !!openViewerId && !!currentViewerId && openViewerId !== currentViewerId;
 }
 
 function isLocalConversation(item: ChatConversationOverviewItem): boolean {
@@ -425,7 +434,7 @@ function conversationItemTitle(item: ChatConversationOverviewItem): string {
   if (item.kind === "remote_im_contact") {
     return String(item.remoteContactDisplayName || item.title || "").trim();
   }
-  if (item.detachedWindowOpen) {
+  if (item.detachedWindowOpen || conversationOpenedByAnotherViewer(item)) {
     return t("chat.detachedWindowOpen");
   }
   if (item.runtimeState === "archiving") {
