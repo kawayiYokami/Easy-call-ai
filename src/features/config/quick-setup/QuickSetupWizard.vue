@@ -600,6 +600,8 @@ function defaultConfig(): AppConfig {
     uiFont: "auto",
     webviewZoomPercent: 100,
     webAccessPort: 43129,
+    webAccessEnabled: true,
+    webAccessPassword: "",
     recordHotkey: isMacPlatform ? "Option+Space" : "Alt",
     recordBackgroundWakeEnabled: true,
     minRecordSeconds: 1,

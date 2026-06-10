@@ -1132,6 +1132,7 @@ fn normalize_app_config(config: &mut AppConfig) {
     config.ui_font = default_ui_font();
     config.webview_zoom_percent = normalize_webview_zoom_percent(config.webview_zoom_percent);
     config.web_access_port = normalize_web_access_port(config.web_access_port);
+    config.web_access_password = normalize_web_access_password(&config.web_access_password);
     config.github_update_method = normalize_github_update_method(&config.github_update_method);
 
     normalize_api_tools(config);

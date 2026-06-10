@@ -79,6 +79,8 @@ export function applyConfigBootstrapUpdate(bindings: {
   if ("uiFont" in payload) bindings.config.uiFont = String(payload.uiFont ?? "");
   if ("webviewZoomPercent" in payload) bindings.config.webviewZoomPercent = bindings.normalizeWebviewZoomPercent(payload.webviewZoomPercent);
   if ("webAccessPort" in payload) bindings.config.webAccessPort = normalizeWebAccessPort(payload.webAccessPort);
+  if ("webAccessEnabled" in payload) bindings.config.webAccessEnabled = payload.webAccessEnabled !== false;
+  if ("webAccessPassword" in payload) bindings.config.webAccessPassword = String(payload.webAccessPassword || "").trim();
   if ("githubUpdateMethod" in payload) bindings.updateGithubUpdateMethod(payload.githubUpdateMethod);
   if ("recordHotkey" in payload) bindings.config.recordHotkey = String(payload.recordHotkey ?? "");
   if ("recordBackgroundWakeEnabled" in payload) bindings.config.recordBackgroundWakeEnabled = !!payload.recordBackgroundWakeEnabled;

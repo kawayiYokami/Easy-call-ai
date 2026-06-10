@@ -265,6 +265,8 @@ export type AppConfig = {
   uiFont: string;
   webviewZoomPercent?: number;
   webAccessPort?: number;
+  webAccessEnabled?: boolean;
+  webAccessPassword?: string;
   githubUpdateMethod?: GithubUpdateMethod;
   recordHotkey: string;
   recordBackgroundWakeEnabled: boolean;

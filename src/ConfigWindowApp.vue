@@ -312,6 +312,8 @@ const config = reactive<AppConfig>({
   uiFont: "auto",
   webviewZoomPercent: 100,
   webAccessPort: 43129,
+  webAccessEnabled: true,
+  webAccessPassword: "",
   githubUpdateMethod: "auto",
   recordHotkey: isMacPlatform ? "Option+Space" : "Alt",
   recordBackgroundWakeEnabled: true,

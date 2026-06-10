@@ -715,11 +715,24 @@ fn save_config(
             );
         }
     }
-    if base_config.web_access_port != main_config.web_access_port
-        && IDE_CONTEXT_BRIDGE_STARTED.load(Ordering::SeqCst)
+    if !main_config.web_access_enabled && IDE_CONTEXT_BRIDGE_STARTED.load(Ordering::SeqCst) {
+        eprintln!(
+            "[网络访问] 配置已关闭，停止 Web 访问服务: port={}",
+            base_config.web_access_port
+        );
+        tauri::async_runtime::spawn(async move {
+            shutdown_ide_context_bridge_server().await;
+        });
+    } else if main_config.web_access_enabled
+        && (!base_config.web_access_enabled
+            || ((base_config.web_access_port != main_config.web_access_port
+                || base_config.web_access_password != main_config.web_access_password)
+                && IDE_CONTEXT_BRIDGE_STARTED.load(Ordering::SeqCst)))
     {
         eprintln!(
-            "[网络访问] 端口配置已变更，重启 Web 访问服务: old={}, new={}",
+            "[网络访问] 配置已启用、端口或密码已变更，重启 Web 访问服务: old_enabled={}, new_enabled={}, old_port={}, new_port={}",
+            base_config.web_access_enabled,
+            main_config.web_access_enabled,
             base_config.web_access_port,
             main_config.web_access_port
         );

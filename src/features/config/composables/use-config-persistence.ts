@@ -264,6 +264,8 @@ export function useConfigPersistence(options: UseConfigPersistenceOptions) {
     options.config.uiFont = String((cfg as { uiFont?: unknown }).uiFont ?? "");
     options.config.webviewZoomPercent = normalizeWebviewZoomPercent((cfg as { webviewZoomPercent?: unknown }).webviewZoomPercent);
     options.config.webAccessPort = normalizeWebAccessPort((cfg as { webAccessPort?: unknown }).webAccessPort);
+    options.config.webAccessEnabled = (cfg as { webAccessEnabled?: unknown }).webAccessEnabled !== false;
+    options.config.webAccessPassword = String((cfg as { webAccessPassword?: unknown }).webAccessPassword || "").trim();
     options.config.githubUpdateMethod = normalizeGithubUpdateMethod((cfg as { githubUpdateMethod?: unknown }).githubUpdateMethod);
     options.locale.value = options.config.uiLanguage;
     options.config.recordHotkey = String(cfg.recordHotkey ?? "");
@@ -478,6 +480,8 @@ export function useConfigPersistence(options: UseConfigPersistenceOptions) {
       options.config.uiFont = String((saved as { uiFont?: unknown }).uiFont ?? "");
       options.config.webviewZoomPercent = normalizeWebviewZoomPercent((saved as { webviewZoomPercent?: unknown }).webviewZoomPercent);
       options.config.webAccessPort = normalizeWebAccessPort((saved as { webAccessPort?: unknown }).webAccessPort);
+      options.config.webAccessEnabled = (saved as { webAccessEnabled?: unknown }).webAccessEnabled !== false;
+      options.config.webAccessPassword = String((saved as { webAccessPassword?: unknown }).webAccessPassword || "").trim();
       options.config.githubUpdateMethod = normalizeGithubUpdateMethod((saved as { githubUpdateMethod?: unknown }).githubUpdateMethod);
       options.locale.value = options.config.uiLanguage;
       options.config.recordHotkey = String(saved.recordHotkey ?? "");

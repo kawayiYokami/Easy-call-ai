@@ -692,6 +692,27 @@ fn default_web_access_port() -> u16 {
     43129
 }
 
+fn default_web_access_enabled() -> bool {
+    true
+}
+
+fn default_web_access_password() -> String {
+    String::new()
+}
+
+fn generate_web_access_password() -> String {
+    let raw = Uuid::new_v4().simple().to_string().to_uppercase();
+    format!("{}-{}", &raw[0..4], &raw[4..8])
+}
+
+fn normalize_web_access_password(value: &str) -> String {
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        return generate_web_access_password();
+    }
+    trimmed.chars().take(64).collect::<String>()
+}
+
 fn normalize_web_access_port(value: u16) -> u16 {
     if value >= 1024 {
         value
@@ -858,6 +879,10 @@ struct AppConfig {
     webview_zoom_percent: u32,
     #[serde(default = "default_web_access_port")]
     web_access_port: u16,
+    #[serde(default = "default_web_access_enabled")]
+    web_access_enabled: bool,
+    #[serde(default = "default_web_access_password")]
+    web_access_password: String,
     #[serde(default = "default_github_update_method")]
     github_update_method: String,
     #[serde(default = "default_record_hotkey")]
@@ -914,6 +939,8 @@ impl Default for AppConfig {
             ui_font: default_ui_font(),
             webview_zoom_percent: default_webview_zoom_percent(),
             web_access_port: default_web_access_port(),
+            web_access_enabled: default_web_access_enabled(),
+            web_access_password: default_web_access_password(),
             github_update_method: default_github_update_method(),
             record_hotkey: default_record_hotkey(),
             record_background_wake_enabled: default_record_background_wake_enabled(),

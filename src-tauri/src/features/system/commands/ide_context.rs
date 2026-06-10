@@ -154,6 +154,7 @@ struct IdeContextBridgeDiscovery {
 #[serde(rename_all = "camelCase")]
 struct WebAccessInfoOutput {
     running: bool,
+    enabled: bool,
     configured_port: u16,
     port: u16,
     local_url: String,
@@ -628,8 +629,7 @@ fn ide_context_generate_bridge_token() -> String {
 }
 
 fn ide_context_generate_remote_password() -> String {
-    let raw = Uuid::new_v4().simple().to_string().to_uppercase();
-    format!("{}-{}", &raw[0..4], &raw[4..8])
+    generate_web_access_password()
 }
 
 fn ide_context_normalize_remote_password(raw: &str) -> String {
@@ -647,6 +647,18 @@ fn ide_context_remote_password(runtime: &IdeContextRuntime) -> Result<String, St
     Ok(auth.remote_password.clone())
 }
 
+fn ide_context_effective_remote_password(
+    state: &AppState,
+    runtime: &IdeContextRuntime,
+) -> Result<String, String> {
+    let config = state_read_config_cached(state)?;
+    let password = normalize_web_access_password(&config.web_access_password);
+    if !password.trim().is_empty() {
+        return Ok(password);
+    }
+    ide_context_remote_password(runtime)
+}
+
 fn ide_context_current_port(runtime: &IdeContextRuntime) -> Option<u16> {
     runtime.current_port.lock().ok().and_then(|guard| *guard)
 }
@@ -659,9 +671,13 @@ fn ide_context_set_current_port(runtime: &IdeContextRuntime, port: Option<u16>) 
 
 fn ide_context_verify_remote_password(
     runtime: &IdeContextRuntime,
+    state: Option<&AppState>,
     provided: &str,
 ) -> Result<bool, String> {
-    let expected = ide_context_remote_password(runtime)?;
+    let expected = match state {
+        Some(state) => ide_context_effective_remote_password(state, runtime)?,
+        None => ide_context_remote_password(runtime)?,
+    };
     let provided = ide_context_normalize_remote_password(provided);
     if provided.is_empty() {
         return Ok(false);
@@ -673,20 +689,209 @@ fn ide_context_peer_is_local(peer_addr: &std::net::SocketAddr) -> bool {
     peer_addr.ip().is_loopback()
 }
 
-fn ide_context_lan_hosts() -> Vec<String> {
+#[derive(Debug, Clone)]
+struct IdeContextLanHostCandidate {
+    ip: std::net::Ipv4Addr,
+    adapter_name: String,
+    adapter_description: String,
+    has_gateway: bool,
+    active: bool,
+}
+
+fn ide_context_ipv4_in_cidr(ip: std::net::Ipv4Addr, network: [u8; 4], prefix_len: u8) -> bool {
+    let ip_num = u32::from(ip);
+    let network_num = u32::from(std::net::Ipv4Addr::from(network));
+    let mask = if prefix_len == 0 {
+        0
+    } else {
+        u32::MAX << (32 - u32::from(prefix_len))
+    };
+    (ip_num & mask) == (network_num & mask)
+}
+
+fn ide_context_ipv4_is_private_lan(ip: std::net::Ipv4Addr) -> bool {
+    ip.is_private()
+}
+
+fn ide_context_ipv4_is_remote_link_candidate(ip: std::net::Ipv4Addr) -> bool {
+    !ip.is_loopback()
+        && !ip.is_unspecified()
+        && !ip.is_link_local()
+        && !ip.is_multicast()
+        && !ip.is_broadcast()
+        && !ide_context_ipv4_in_cidr(ip, [198, 18, 0, 0], 15)
+        && !ide_context_ipv4_in_cidr(ip, [100, 64, 0, 0], 10)
+        && !ide_context_ipv4_in_cidr(ip, [192, 0, 2, 0], 24)
+        && !ide_context_ipv4_in_cidr(ip, [198, 51, 100, 0], 24)
+        && !ide_context_ipv4_in_cidr(ip, [203, 0, 113, 0], 24)
+        && ide_context_ipv4_is_private_lan(ip)
+}
+
+fn ide_context_adapter_name_is_virtual(name: &str, description: &str) -> bool {
+    let text = format!("{name} {description}").to_ascii_lowercase();
+    [
+        "mihomo",
+        "clash",
+        "tun",
+        "tap",
+        "wintun",
+        "wireguard",
+        "tailscale",
+        "zerotier",
+        "vethernet",
+        "hyper-v",
+        "wsl",
+        "vmware",
+        "virtualbox",
+        "docker",
+        "loopback",
+        "bluetooth",
+    ]
+    .iter()
+    .any(|needle| text.contains(needle))
+}
+
+fn ide_context_lan_host_rank(candidate: &IdeContextLanHostCandidate) -> (u8, u8, u8, u32) {
+    let virtual_adapter = ide_context_adapter_name_is_virtual(
+        &candidate.adapter_name,
+        &candidate.adapter_description,
+    );
+    (
+        if virtual_adapter { 1 } else { 0 },
+        if candidate.has_gateway { 0 } else { 1 },
+        if candidate.active { 0 } else { 1 },
+        u32::from(candidate.ip),
+    )
+}
+
+fn ide_context_collect_default_route_lan_host() -> Vec<IdeContextLanHostCandidate> {
     let mut hosts = Vec::new();
     if let Ok(socket) = std::net::UdpSocket::bind("0.0.0.0:0") {
         let _ = socket.connect("8.8.8.8:80");
         if let Ok(addr) = socket.local_addr() {
-            let ip = addr.ip();
-            if ip.is_ipv4() && !ip.is_loopback() && !ip.is_unspecified() {
-                hosts.push(ip.to_string());
+            if let std::net::IpAddr::V4(ip) = addr.ip() {
+                hosts.push(IdeContextLanHostCandidate {
+                    ip,
+                    adapter_name: "default-route".to_string(),
+                    adapter_description: String::new(),
+                    has_gateway: true,
+                    active: true,
+                });
             }
         }
     }
-    hosts.sort();
-    hosts.dedup();
     hosts
+}
+
+fn ide_context_json_strings(value: Option<&serde_json::Value>) -> Vec<String> {
+    match value {
+        Some(serde_json::Value::String(text)) => vec![text.trim().to_string()],
+        Some(serde_json::Value::Array(items)) => items
+            .iter()
+            .filter_map(|item| item.as_str().map(|text| text.trim().to_string()))
+            .filter(|text| !text.is_empty())
+            .collect(),
+        _ => Vec::new(),
+    }
+}
+
+fn ide_context_parse_windows_lan_host_candidates(
+    value: serde_json::Value,
+) -> Vec<IdeContextLanHostCandidate> {
+    let entries = match value {
+        serde_json::Value::Array(items) => items,
+        serde_json::Value::Object(_) => vec![value],
+        _ => Vec::new(),
+    };
+    let mut candidates = Vec::new();
+    for entry in entries {
+        let Some(object) = entry.as_object() else {
+            continue;
+        };
+        let adapter_name = object
+            .get("InterfaceAlias")
+            .and_then(|value| value.as_str())
+            .unwrap_or("")
+            .trim()
+            .to_string();
+        let adapter_description = object
+            .get("InterfaceDescription")
+            .and_then(|value| value.as_str())
+            .unwrap_or("")
+            .trim()
+            .to_string();
+        let active = object
+            .get("Status")
+            .and_then(|value| value.as_str())
+            .map(|value| value.eq_ignore_ascii_case("up"))
+            .unwrap_or(true);
+        let has_gateway = !ide_context_json_strings(object.get("IPv4DefaultGateway")).is_empty();
+        for ip_text in ide_context_json_strings(object.get("IPv4Address")) {
+            if let Ok(ip) = ip_text.parse::<std::net::Ipv4Addr>() {
+                candidates.push(IdeContextLanHostCandidate {
+                    ip,
+                    adapter_name: adapter_name.clone(),
+                    adapter_description: adapter_description.clone(),
+                    has_gateway,
+                    active,
+                });
+            }
+        }
+    }
+    candidates
+}
+
+#[cfg(target_os = "windows")]
+fn ide_context_collect_windows_lan_hosts() -> Vec<IdeContextLanHostCandidate> {
+    let script = r#"
+$ErrorActionPreference = 'SilentlyContinue'
+Get-NetIPConfiguration | ForEach-Object {
+  [pscustomobject]@{
+    InterfaceAlias = $_.InterfaceAlias
+    InterfaceDescription = $_.InterfaceDescription
+    Status = $_.NetAdapter.Status
+    IPv4Address = @($_.IPv4Address | ForEach-Object { $_.IPAddress })
+    IPv4DefaultGateway = @($_.IPv4DefaultGateway | ForEach-Object { $_.NextHop })
+  }
+} | ConvertTo-Json -Depth 5 -Compress
+"#;
+    let output = std::process::Command::new("powershell")
+        .args(["-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", script])
+        .output();
+    let Ok(output) = output else {
+        return Vec::new();
+    };
+    if !output.status.success() {
+        return Vec::new();
+    }
+    let text = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    if text.is_empty() {
+        return Vec::new();
+    }
+    match serde_json::from_str::<serde_json::Value>(&text) {
+        Ok(value) => ide_context_parse_windows_lan_host_candidates(value),
+        Err(_) => Vec::new(),
+    }
+}
+
+#[cfg(not(target_os = "windows"))]
+fn ide_context_collect_windows_lan_hosts() -> Vec<IdeContextLanHostCandidate> {
+    Vec::new()
+}
+
+fn ide_context_lan_hosts() -> Vec<String> {
+    let mut candidates = ide_context_collect_windows_lan_hosts();
+    if candidates.is_empty() {
+        candidates = ide_context_collect_default_route_lan_host();
+    }
+    candidates.retain(|candidate| ide_context_ipv4_is_remote_link_candidate(candidate.ip));
+    candidates.sort_by_key(ide_context_lan_host_rank);
+    let mut seen = std::collections::HashSet::<String>::new();
+    candidates
+        .into_iter()
+        .map(|candidate| candidate.ip.to_string())
+        .filter(|host| seen.insert(host.clone()))
+        .collect::<Vec<_>>()
 }
 
 fn ide_context_chat_clients() -> Arc<Mutex<std::collections::HashMap<String, tokio::sync::mpsc::UnboundedSender<serde_json::Value>>>> {
@@ -1181,6 +1386,15 @@ fn ide_context_web_asset_path(path: &str) -> Option<String> {
     }
 }
 
+fn ide_context_web_icon_bytes(path: &str) -> Option<&'static [u8]> {
+    match path.trim() {
+        "/favicon.ico" | "/favicon.png" => {
+            Some(include_bytes!("../../../../icons/32x32.png").as_slice())
+        }
+        _ => None,
+    }
+}
+
 fn ide_context_sidebar_html_with_bridge(asset_bytes: &[u8], host: &str) -> Vec<u8> {
     let chat_url = format!("ws://{}{}", host, IDE_CONTEXT_CHAT_BRIDGE_PATH);
     let injected = serde_json::json!({
@@ -1191,12 +1405,15 @@ fn ide_context_sidebar_html_with_bridge(asset_bytes: &[u8], host: &str) -> Vec<u
         "<script>window.__PAI_SIDEBAR_BRIDGE__ = {};</script>",
         injected
     );
+    let icon_links = r#"<link rel="icon" type="image/png" href="/favicon.png">
+  <link rel="shortcut icon" type="image/png" href="/favicon.png">"#;
+    let injection = format!("{}\n  {}", icon_links, script);
     let html = String::from_utf8_lossy(asset_bytes);
     if html.contains("</head>") {
-        html.replacen("</head>", &format!("  {}\n  </head>", script), 1)
+        html.replacen("</head>", &format!("  {}\n  </head>", injection), 1)
             .into_bytes()
     } else {
-        format!("{}\n{}", script, html).into_bytes()
+        format!("{}\n{}", injection, html).into_bytes()
     }
 }
 
@@ -1254,6 +1471,16 @@ async fn ide_context_http_handle_connection(
             426,
             "text/plain; charset=utf-8",
             b"WebSocket upgrade required".to_vec(),
+        )
+        .await;
+        return;
+    }
+    if let Some(icon) = ide_context_web_icon_bytes(path) {
+        ide_context_http_write_response(
+            &mut stream,
+            200,
+            "image/png",
+            icon.to_vec(),
         )
         .await;
         return;
@@ -1394,6 +1621,17 @@ fn get_web_access_info(
 ) -> Result<WebAccessInfoOutput, String> {
     let config = state_read_config_cached(&state)?;
     let configured_port = normalize_web_access_port(config.web_access_port);
+    if !config.web_access_enabled {
+        return Ok(WebAccessInfoOutput {
+            running: false,
+            enabled: false,
+            configured_port,
+            port: configured_port,
+            local_url: String::new(),
+            remote_urls: Vec::new(),
+            remote_password: String::new(),
+        });
+    }
     if !IDE_CONTEXT_BRIDGE_STARTED.load(Ordering::SeqCst) {
         start_ide_context_bridge_server(
             app,
@@ -1410,11 +1648,12 @@ fn get_web_access_info(
         .collect::<Vec<_>>();
     Ok(WebAccessInfoOutput {
         running,
+        enabled: true,
         configured_port,
         port,
         local_url,
         remote_urls,
-        remote_password: ide_context_remote_password(ide_context_runtime.inner())?,
+        remote_password: ide_context_effective_remote_password(&state, ide_context_runtime.inner())?,
     })
 }
 
@@ -2519,15 +2758,24 @@ fn start_ide_context_bridge_server(app: AppHandle, state: AppState, ide_context_
     }
     let shutdown_token = ide_context_bridge_create_shutdown_token();
     tauri::async_runtime::spawn(async move {
-        let preferred_port = state_read_config_cached(&state)
-            .map(|config| normalize_web_access_port(config.web_access_port))
-            .unwrap_or_else(|err| {
+        let config = match state_read_config_cached(&state) {
+            Ok(config) => config,
+            Err(err) => {
                 eprintln!(
-                    "[网络访问] 读取端口配置失败，使用默认端口: {}",
+                    "[网络访问] 读取配置失败，使用默认端口: {}",
                     err
                 );
-                default_web_access_port()
-            });
+                AppConfig::default()
+            }
+        };
+        if !config.web_access_enabled {
+            IDE_CONTEXT_BRIDGE_STARTED.store(false, Ordering::SeqCst);
+            ide_context_set_current_port(&ide_context_runtime, None);
+            clear_ide_context_bridge_discovery();
+            eprintln!("[网络访问] 跳过启动：网络访问已关闭");
+            return;
+        }
+        let preferred_port = normalize_web_access_port(config.web_access_port);
         let (listener, port) = match bind_ide_context_bridge_listener(preferred_port).await {
             Ok(result) => result,
             Err(err) => {
@@ -2540,7 +2788,7 @@ fn start_ide_context_bridge_server(app: AppHandle, state: AppState, ide_context_
         };
         ide_context_set_current_port(&ide_context_runtime, Some(port));
         let bridge_url = ide_context_bridge_url(port);
-        let remote_password = match ide_context_remote_password(&ide_context_runtime) {
+        let remote_password = match ide_context_effective_remote_password(&state, &ide_context_runtime) {
             Ok(password) => password,
             Err(err) => {
                 IDE_CONTEXT_BRIDGE_STARTED.store(false, Ordering::SeqCst);
@@ -2701,7 +2949,7 @@ async fn ide_context_ws_handle_connection(
                                 }
                                 Err((err, refreshed_token)) => {
                                     if let Some(_refreshed_token) = refreshed_token.as_deref() {
-                                        if let Ok(remote_password) = ide_context_remote_password(&ide_context_runtime) {
+                                        if let Ok(remote_password) = ide_context_effective_remote_password(&state, &ide_context_runtime) {
                                             if let Err(publish_err) =
                                                 publish_ide_context_bridge_discovery(port, &remote_password)
                                             {
@@ -2833,6 +3081,7 @@ async fn ide_context_chat_ws_handle_connection(
                                 match ide_chat_parse_params::<IdeChatAuthLoginInput>(request.params) {
                                     Ok(input) => match ide_context_verify_remote_password(
                                         &ide_context_runtime,
+                                        Some(&state),
                                         &input.password,
                                     ) {
                                         Ok(true) => {
@@ -2909,13 +3158,13 @@ mod ide_context_tests {
         let password = ide_context_remote_password(&runtime).expect("remote password");
         let compact_lowercase = password.replace('-', "").to_ascii_lowercase();
 
-        assert!(ide_context_verify_remote_password(&runtime, &password).expect("verify password"));
+        assert!(ide_context_verify_remote_password(&runtime, None, &password).expect("verify password"));
         assert!(
-            ide_context_verify_remote_password(&runtime, &compact_lowercase)
+            ide_context_verify_remote_password(&runtime, None, &compact_lowercase)
                 .expect("verify compact password")
         );
-        assert!(!ide_context_verify_remote_password(&runtime, "").expect("reject empty"));
-        assert!(!ide_context_verify_remote_password(&runtime, "wrong-password").expect("reject wrong"));
+        assert!(!ide_context_verify_remote_password(&runtime, None, "").expect("reject empty"));
+        assert!(!ide_context_verify_remote_password(&runtime, None, "wrong-password").expect("reject wrong"));
     }
 
     #[test]
@@ -2927,6 +3176,39 @@ mod ide_context_tests {
         assert!(ide_context_peer_is_local(&ipv4_local));
         assert!(ide_context_peer_is_local(&ipv6_local));
         assert!(!ide_context_peer_is_local(&remote));
+    }
+
+    #[test]
+    fn ide_context_lan_host_filter_rejects_reserved_and_accepts_private_lan() {
+        let mihomo: std::net::Ipv4Addr = "198.18.0.1".parse().expect("mihomo ip");
+        let hyperv: std::net::Ipv4Addr = "192.168.240.1".parse().expect("hyperv ip");
+        let ethernet: std::net::Ipv4Addr = "192.168.5.23".parse().expect("ethernet ip");
+        let cgnat: std::net::Ipv4Addr = "100.64.1.2".parse().expect("cgnat ip");
+
+        assert!(!ide_context_ipv4_is_remote_link_candidate(mihomo));
+        assert!(!ide_context_ipv4_is_remote_link_candidate(cgnat));
+        assert!(ide_context_ipv4_is_remote_link_candidate(hyperv));
+        assert!(ide_context_ipv4_is_remote_link_candidate(ethernet));
+    }
+
+    #[test]
+    fn ide_context_lan_host_rank_prefers_real_gateway_adapter() {
+        let ethernet = IdeContextLanHostCandidate {
+            ip: "192.168.5.23".parse().expect("ethernet ip"),
+            adapter_name: "以太网".to_string(),
+            adapter_description: "Realtek PCIe GbE Family Controller".to_string(),
+            has_gateway: true,
+            active: true,
+        };
+        let hyperv = IdeContextLanHostCandidate {
+            ip: "192.168.240.1".parse().expect("hyperv ip"),
+            adapter_name: "vEthernet (Default Switch)".to_string(),
+            adapter_description: "Hyper-V Virtual Ethernet Adapter".to_string(),
+            has_gateway: false,
+            active: true,
+        };
+
+        assert!(ide_context_lan_host_rank(&ethernet) < ide_context_lan_host_rank(&hyperv));
     }
 
     #[test]

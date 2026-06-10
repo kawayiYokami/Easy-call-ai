@@ -2449,6 +2449,8 @@ fn departments_only_config(departments: &[DepartmentConfig]) -> AppConfig {
         ui_font: String::new(),
         webview_zoom_percent: default_webview_zoom_percent(),
         web_access_port: default_web_access_port(),
+        web_access_enabled: default_web_access_enabled(),
+        web_access_password: default_web_access_password(),
         github_update_method: default_github_update_method(),
         record_hotkey: String::new(),
         record_background_wake_enabled: false,
