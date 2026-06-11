@@ -1121,7 +1121,6 @@ function isDelegateRunning(delegate: ConversationDelegateStatusSummary) {
 
 function canShowDelegateResult(delegate: ConversationDelegateStatusSummary) {
   const status = String(delegate.status || "").trim();
-  if (status === "failed") return false;
   if (status === "running" || status === "delivered") return false;
   return true;
 }
