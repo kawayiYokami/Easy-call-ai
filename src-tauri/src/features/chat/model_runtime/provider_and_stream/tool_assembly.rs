@@ -357,7 +357,7 @@ async fn assemble_runtime_tools(
     }
     Ok(RuntimeToolAssembly {
         tools,
-        tool_definitions: base_tool_definitions,
+        tool_definitions: active_tool_definitions,
         tool_manifest,
         unavailable_tool_notices: Vec::new(),
     })

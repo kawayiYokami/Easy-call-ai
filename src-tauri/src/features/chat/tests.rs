@@ -5860,14 +5860,20 @@
         let has_executor = |assembly: &RuntimeToolAssembly, name: &str| {
             assembly.tools.iter().any(|tool| tool.name() == name)
         };
+        let has_definition = |assembly: &RuntimeToolAssembly, name: &str| {
+            assembly.tool_definitions.iter().any(|def| def.name == name)
+        };
 
         let local_without_goal_assembly = assemble_for(&local_without_goal.id);
         assert!(has_attached_schema(&local_without_goal_assembly, "create_goal"));
         assert!(has_executor(&local_without_goal_assembly, "create_goal"));
+        assert!(has_definition(&local_without_goal_assembly, "create_goal"));
         assert!(has_attached_schema(&local_without_goal_assembly, "update_goal"));
         assert!(has_executor(&local_without_goal_assembly, "update_goal"));
         assert!(!has_attached_schema(&local_without_goal_assembly, "contact_reply"));
         assert!(!has_executor(&local_without_goal_assembly, "contact_reply"));
+        assert!(!has_definition(&local_without_goal_assembly, "contact_reply"));
+        assert!(!has_definition(&local_without_goal_assembly, "contact_no_reply"));
 
         let local_with_goal_assembly = assemble_for(&local_with_goal.id);
         assert!(has_attached_schema(&local_with_goal_assembly, "create_goal"));
@@ -5876,6 +5882,8 @@
         assert!(has_executor(&local_with_goal_assembly, "update_goal"));
         assert!(!has_attached_schema(&local_with_goal_assembly, "contact_reply"));
         assert!(!has_executor(&local_with_goal_assembly, "contact_reply"));
+        assert!(!has_definition(&local_with_goal_assembly, "contact_reply"));
+        assert!(!has_definition(&local_with_goal_assembly, "contact_no_reply"));
 
         let remote_contact_assembly = assemble_for(&remote_contact.id);
         assert!(has_attached_schema(&remote_contact_assembly, "create_goal"));
