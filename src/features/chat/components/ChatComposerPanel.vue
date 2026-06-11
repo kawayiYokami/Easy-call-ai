@@ -1,7 +1,7 @@
 <template>
   <div>
     <ChatQueuePreview
-      v-if="!sidebarMode && !systemNotificationMode"
+      v-if="!sidebarMode && !systemNotificationMode && !remoteContactMode"
       :queue-events="visibleQueueEvents"
       :session-state="sessionState"
       @recall-to-input="handleRecallToInput"
@@ -17,7 +17,7 @@
     <ChatSelectionActionPanel
       v-if="selectionModeEnabled"
       :sidebar-mode="sidebarMode"
-      :delegate-only="selectionDelegateOnly || systemNotificationMode"
+      :delegate-only="selectionDelegateOnly || systemNotificationMode || remoteContactMode"
       :selected-message-count="selectedMessageCount"
       :active-conversation-id="activeConversationId"
       :unarchived-conversation-items="unarchivedConversationItems"
@@ -57,6 +57,17 @@
       >
         <Plus class="h-3.5 w-3.5" />
         {{ t("chat.newConversation") }}
+      </button>
+    </div>
+    <div v-else-if="remoteContactMode" class="flex flex-wrap items-center justify-center gap-2">
+      <button
+        type="button"
+        class="btn btn-sm gap-2"
+        :disabled="chatting || frozen || busy"
+        @click="emit('openTaskCreate')"
+      >
+        <CalendarPlus class="h-3.5 w-3.5" />
+        {{ t("chat.newTask") }}
       </button>
     </div>
     <template v-else>
@@ -381,6 +392,7 @@ const props = defineProps<{
   supervisionTitle: string;
   supervisionDisabled?: boolean;
   systemNotificationMode?: boolean;
+  remoteContactMode?: boolean;
   showSideConversationList: boolean;
   activeConversationId: string;
   unarchivedConversationItems: ChatConversationOverviewItem[];
@@ -431,6 +443,7 @@ const emit = defineEmits<{
 const { t } = useI18n();
 const sidebarMode = computed(() => !!props.sidebarMode);
 const systemNotificationMode = computed(() => !!props.systemNotificationMode);
+const remoteContactMode = computed(() => !!props.remoteContactMode);
 
 function openCreateConversationDialog() {
   if (typeof window === "undefined") {

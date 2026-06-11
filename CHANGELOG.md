@@ -2,7 +2,7 @@
 
 ## 发布：v0.11.5
 
-- 修复（chat）：修复 contact 工具 schema 在本地会话中被错误注入给 LLM 的问题；`assemble_runtime_tools` 返回的 `tool_definitions` 字段改用过滤后的 `active_tool_definitions`，确保非联系人会话不会收到 contact_reply/contact_send_files/contact_no_reply 工具定义。
+- 修复（chat）：远程联系人会话隐藏完整输入面板，改为只显示新建任务按钮的精简面板，与系统通知会话行为一致。
 
 - 修复（goal/archive）：移除应用启动时扫描 active goal 并自动续跑的行为；发送前上下文整理取消未设计的“空闲 30 分钟且用量 30%”触发条件，仅保留强制阈值保护。
 - 修复（goal）：用户手动中断当前回复后暂停会话 goal 自动续跑，下一条非 goal 调度再恢复；goal 续跑消息改由系统人格发送，气泡仅显示短提示，完整续跑提示仅作为隐藏提示进入模型上下文。

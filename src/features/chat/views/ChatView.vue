@@ -162,7 +162,7 @@
 
             <div :style="{ minHeight: `${latestOwnTailSpacerMinHeight}px` }"></div>
             <div
-              v-if="!activeConversationIsSystemNotification"
+              v-if="!activeConversationIsSystemNotification && !activeConversationIsRemoteContact"
               ref="toolbarContainer"
               class="ecall-chat-toolbar-shell mx-auto w-full max-w-[900px] px-4 pt-1 pb-2"
             >
@@ -253,6 +253,7 @@
             :supervision-title="supervisionButtonTitle"
             :supervision-disabled="activeConversationSummary?.kind === 'remote_im_contact'"
             :system-notification-mode="activeConversationIsSystemNotification"
+            :remote-contact-mode="activeConversationIsRemoteContact"
             :selection-delegate-only="messageSelectionDelegateOnly"
             :show-side-conversation-list="detachedChatWindow ? false : showSideConversationList"
             :active-conversation-id="activeConversationId" :unarchived-conversation-items="unarchivedConversationItems"
@@ -596,6 +597,9 @@ const conversationInteractionBusy = computed(() =>
 );
 const activeConversationIsSystemNotification = computed(() =>
   !!props.systemNotificationMode || !!activeConversationSummary.value?.isSystemNotificationConversation,
+);
+const activeConversationIsRemoteContact = computed(() =>
+  activeConversationSummary.value?.kind === 'remote_im_contact',
 );
 
 watch(
