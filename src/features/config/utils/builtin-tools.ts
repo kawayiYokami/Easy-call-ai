@@ -11,6 +11,8 @@ const BUILTIN_TOOL_DEFAULTS: ReadonlyArray<Readonly<ApiToolItem>> = [
   { id: "organize_context", command: "builtin", args: ["organize_context"], enabled: true, values: {} },
   { id: "task", command: "builtin", args: ["task"], enabled: true, values: {} },
   { id: "delegate", command: "builtin", args: ["delegate"], enabled: true, values: {} },
+  { id: "create_goal", command: "builtin", args: ["create_goal"], enabled: true, values: {} },
+  { id: "update_goal", command: "builtin", args: ["update_goal"], enabled: true, values: {} },
   { id: "meme", command: "builtin", args: ["meme"], enabled: true, values: {} },
 ];
 

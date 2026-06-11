@@ -25,39 +25,6 @@
         }
     }
 
-    fn task_prompt_test_record(task_id: &str, goal: &str, why: &str, todo: &str) -> TaskRecordStored {
-        TaskRecordStored {
-            task_id: task_id.to_string(),
-            conversation_id: Some("conversation-a".to_string()),
-            department_id: None,
-            agent_id: None,
-            target_scope: TASK_TARGET_SCOPE_DESKTOP.to_string(),
-            order_index: 1,
-            title: goal.to_string(),
-            cause: why.to_string(),
-            goal: goal.to_string(),
-            flow: String::new(),
-            todos: task_legacy_todos_from_todo(todo),
-            status_summary: task_legacy_status_summary_from_todo(todo),
-            completion_state: TASK_STATE_ACTIVE.to_string(),
-            completion_conclusion: String::new(),
-            progress_notes: Vec::new(),
-            stage_key: String::new(),
-            stage_updated_at_utc: None,
-            trigger: TaskTriggerStored {
-                run_at_utc: Some("2026-04-10T02:00:00Z".to_string()),
-                cron_expression: Some("0 * * * *".to_string()),
-                legacy_every_minutes: None,
-                end_at_utc: Some("2026-04-11T02:00:00Z".to_string()),
-                next_run_at_utc: Some("2026-04-10T02:00:00Z".to_string()),
-            },
-            created_at_utc: "2026-04-10T01:00:00Z".to_string(),
-            updated_at_utc: "2026-04-10T01:00:00Z".to_string(),
-            last_triggered_at_utc: None,
-            completed_at_utc: None,
-        }
-    }
-
     fn task_optimize_input(title: &str, content: &str) -> TaskOptimizeDraftInput {
         TaskOptimizeDraftInput {
             title: title.to_string(),
@@ -80,11 +47,12 @@
     }
 
     #[test]
-    fn task_tool_how_from_args_should_dedupe_same_status_and_todos() {
+    fn task_tool_todo_from_args_should_dedupe_same_status_and_todos() {
         let args = TaskToolArgsWire {
             action: "create".to_string(),
             task_id: None,
             goal: None,
+            todo: None,
             how: None,
             why: None,
             title: None,
@@ -99,38 +67,7 @@
             trigger: None,
         };
 
-        assert_eq!(task_tool_how_from_args(&args).as_deref(), Some("请自行判断"));
-    }
-
-    #[test]
-    fn task_trigger_prompt_should_use_goal_format_when_why_is_empty() {
-        let task = task_prompt_test_record("task-goal", "整理发布清单", "", "检查剩余风险");
-
-        let prompt = build_task_trigger_hidden_prompt(&task);
-
-        assert_eq!(
-            prompt,
-            "<task_remind>\n背景：用户希望你能独立完成任务达成目标\n目标：整理发布清单\n要求：一直持续工作，直到达成目标，最后在当前会话进行工作汇报。\n</task_remind>"
-        );
-        assert!(!prompt.contains("task_id:"));
-        assert!(!prompt.contains("run_at:"));
-        assert!(!prompt.contains("cron_expression:"));
-        assert!(!prompt.contains("task complete"));
-    }
-
-    #[test]
-    fn task_trigger_prompt_should_use_llm_task_format_when_why_exists() {
-        let task = task_prompt_test_record("task-llm", "跟进模型刷新", "用户稍后需要结果", "检查缓存并汇报");
-
-        let prompt = build_task_trigger_hidden_prompt(&task);
-
-        assert_eq!(
-            prompt,
-            "<task_remind>\n背景：用户稍后需要结果\n目标：跟进模型刷新\n要求：检查缓存并汇报\n</task_remind>"
-        );
-        assert!(!prompt.contains("run_at:"));
-        assert!(!prompt.contains("{\"action\":\"complete\""));
-        assert!(!prompt.contains("task complete"));
+        assert_eq!(task_tool_todo_from_args(&args).as_deref(), Some("请自行判断"));
     }
 
     #[test]

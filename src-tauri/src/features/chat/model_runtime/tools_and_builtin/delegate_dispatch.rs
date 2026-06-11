@@ -46,10 +46,9 @@ fn delegate_create_record(
     source_agent_id: &str,
     target_agent_id: &str,
     title: &str,
-    instruction: &str,
-    background: String,
-    specific_goal: String,
-    deliverable_requirement: String,
+    why: String,
+    goal: String,
+    todo: String,
     notify_assistant_when_done: bool,
     call_stack: Vec<String>,
 ) -> Result<DelegateEntry, String> {
@@ -64,10 +63,9 @@ fn delegate_create_record(
             source_agent_id: source_agent_id.to_string(),
             target_agent_id: target_agent_id.to_string(),
             title: title.to_string(),
-            instruction: instruction.to_string(),
-            background,
-            specific_goal,
-            deliverable_requirement,
+            why,
+            goal,
+            todo,
             notify_assistant_when_done,
             call_stack,
         },
@@ -122,15 +120,14 @@ struct ValidatedDelegateArgs {
     mode: DelegateMode,
     target_department_id: String,
     target_agent_id: Option<String>,
-    instruction: String,
     title: String,
-    background: String,
-    specific_goal: String,
-    deliverable_requirement: String,
+    why: String,
+    goal: String,
+    todo: String,
 }
 
-fn delegate_title_from_question(question: &str) -> String {
-    let compact = question
+fn delegate_title_from_goal(goal: &str) -> String {
+    let compact = goal
         .trim()
         .lines()
         .map(str::trim)
@@ -156,20 +153,21 @@ fn validate_delegate_args(args: &DelegateToolArgs) -> Result<ValidatedDelegateAr
         .map(str::trim)
         .filter(|value| !value.is_empty())
         .map(ToOwned::to_owned);
-    let instruction = args.question.trim().to_string();
-    if instruction.is_empty() {
-        return Err("delegate.question is required".to_string());
+    let why = delegate_arg_new_or_legacy(&args.why, &args.background);
+    let goal = delegate_arg_new_or_legacy(&args.goal, &args.question);
+    let todo = delegate_arg_new_or_legacy(&args.todo, &args.focus);
+    if goal.trim().is_empty() {
+        return Err("delegate.goal is required".to_string());
     }
-    let title = delegate_title_from_question(&instruction);
+    let title = delegate_title_from_goal(&goal);
     Ok(ValidatedDelegateArgs {
         mode,
         target_department_id,
         target_agent_id,
-        instruction,
         title,
-        background: args.background.clone(),
-        specific_goal: args.focus.clone(),
-        deliverable_requirement: String::new(),
+        why,
+        goal,
+        todo,
     })
 }
 
@@ -530,10 +528,9 @@ async fn builtin_delegate(
         &source_agent_id,
         &preflight.target_agent_id,
         &validated.title,
-        &validated.instruction,
-        validated.background,
-        validated.specific_goal,
-        validated.deliverable_requirement,
+        validated.why,
+        validated.goal,
+        validated.todo,
         false,
         call_stack,
     )?;
@@ -613,10 +610,9 @@ async fn delegate_execute_sync(
         &source_agent_id,
         &preflight.target_agent_id,
         &validated.title,
-        &validated.instruction,
-        validated.background,
-        validated.specific_goal,
-        validated.deliverable_requirement,
+        validated.why,
+        validated.goal,
+        validated.todo,
         false,
         call_stack,
     )?;

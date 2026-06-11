@@ -159,6 +159,16 @@ fn build_global_tool_schema_cache(state: &AppState) -> Vec<ProviderToolDefinitio
             session_id: preview_session_id.clone(),
         }
         .provider_tool_definition(),
+        BuiltinCreateGoalTool {
+            app_state: state.clone(),
+            session_id: preview_session_id.clone(),
+        }
+        .provider_tool_definition(),
+        BuiltinUpdateGoalTool {
+            app_state: state.clone(),
+            session_id: preview_session_id.clone(),
+        }
+        .provider_tool_definition(),
         BuiltinTaskTool {
             app_state: state.clone(),
             session_id: preview_session_id.clone(),
@@ -250,6 +260,50 @@ fn resolve_runtime_tool_current_department<'a>(
         .and_then(|department_id| department_by_id(app_config, department_id))
 }
 
+#[derive(Debug, Clone, Copy)]
+struct RuntimeToolPolicy {
+    remote_im_contact_conversation: bool,
+}
+
+impl RuntimeToolPolicy {
+    fn from_conversation(conversation: Option<&Conversation>) -> Self {
+        Self {
+            remote_im_contact_conversation: conversation
+                .map(conversation_is_remote_im_contact)
+                .unwrap_or(false),
+        }
+    }
+
+    fn tool_allowed(self, tool_name: &str) -> bool {
+        match tool_name.trim() {
+            "contact_reply" | "contact_send_files" | "contact_no_reply" => {
+                self.remote_im_contact_conversation
+            }
+            _ => true,
+        }
+    }
+}
+
+fn runtime_tool_policy_from_session(
+    app_state: Option<&AppState>,
+    tool_session_id: &str,
+) -> RuntimeToolPolicy {
+    let Some(state) = app_state else {
+        return RuntimeToolPolicy::from_conversation(None);
+    };
+    let Ok(conversation_id) = goal_tool_conversation_id(tool_session_id) else {
+        return RuntimeToolPolicy::from_conversation(None);
+    };
+    let conversation = state_read_conversation_cached(state, &conversation_id)
+        .ok()
+        .or_else(|| {
+            delegate_runtime_thread_conversation_get(state, &conversation_id)
+                .ok()
+                .flatten()
+        });
+    RuntimeToolPolicy::from_conversation(conversation.as_ref())
+}
+
 async fn assemble_runtime_tools(
     app_config: &AppConfig,
     selected_api: &ApiConfig,
@@ -262,13 +316,19 @@ async fn assemble_runtime_tools(
         resolve_runtime_tool_current_department(app_config, executor_department_id);
     let delegate_unavailable_reason =
         delegate_builtin_tool_unavailable_reason(app_config, current_department);
-    let tool_definitions = read_global_tool_schema_cache(app_state)
+    let runtime_tool_policy = runtime_tool_policy_from_session(app_state, tool_session_id);
+    let base_tool_definitions = read_global_tool_schema_cache(app_state)
         .into_iter()
         .filter(|definition| {
             definition.name != "delegate" || delegate_unavailable_reason.is_none()
         })
         .collect::<Vec<_>>();
-    let mut tool_manifest = tool_definitions
+    let active_tool_definitions = base_tool_definitions
+        .iter()
+        .filter(|definition| runtime_tool_policy.tool_allowed(&definition.name))
+        .cloned()
+        .collect::<Vec<_>>();
+    let mut tool_manifest = active_tool_definitions
         .iter()
         .map(tool_schema_definition_to_manifest_item)
         .collect::<Vec<_>>();
@@ -292,11 +352,12 @@ async fn assemble_runtime_tools(
             delegate_unavailable_reason.is_none(),
             selected_api.enable_image,
             executor_department_id,
+            runtime_tool_policy,
         )?;
     }
     Ok(RuntimeToolAssembly {
         tools,
-        tool_definitions,
+        tool_definitions: base_tool_definitions,
         tool_manifest,
         unavailable_tool_notices: Vec::new(),
     })
@@ -311,6 +372,7 @@ fn push_runtime_tool_executors(
     enable_delegate: bool,
     model_supports_image: bool,
     executor_department_id: Option<&str>,
+    runtime_tool_policy: RuntimeToolPolicy,
 ) -> Result<(), String> {
     let state = app_state
         .ok_or_else(|| "runtime tool execution requires app state".to_string())?
@@ -351,6 +413,14 @@ fn push_runtime_tool_executors(
         app_state: state.clone(),
         session_id: tool_session_id.to_string(),
     }));
+    tools.push(Box::new(BuiltinCreateGoalTool {
+        app_state: state.clone(),
+        session_id: tool_session_id.to_string(),
+    }));
+    tools.push(Box::new(BuiltinUpdateGoalTool {
+        app_state: state.clone(),
+        session_id: tool_session_id.to_string(),
+    }));
     tools.push(Box::new(BuiltinTaskTool {
         app_state: state.clone(),
         session_id: tool_session_id.to_string(),
@@ -375,20 +445,26 @@ fn push_runtime_tool_executors(
         }));
     }
     tools.push(Box::new(BuiltinMemeTool { app_state: state.clone() }));
-    tools.push(Box::new(BuiltinContactReplyTool {
-        app_state: state.clone(),
-        session_id: tool_session_id.to_string(),
-    }));
-    tools.push(Box::new(BuiltinContactSendFilesTool {
-        app_state: state.clone(),
-        session_id: tool_session_id.to_string(),
-    }));
-    tools.push(Box::new(BuiltinContactNoReplyTool));
-    push_cached_mcp_runtime_tools(tools, &state);
+    if runtime_tool_policy.tool_allowed("contact_reply") {
+        tools.push(Box::new(BuiltinContactReplyTool {
+            app_state: state.clone(),
+            session_id: tool_session_id.to_string(),
+        }));
+        tools.push(Box::new(BuiltinContactSendFilesTool {
+            app_state: state.clone(),
+            session_id: tool_session_id.to_string(),
+        }));
+        tools.push(Box::new(BuiltinContactNoReplyTool));
+    }
+    push_cached_mcp_runtime_tools(tools, &state, runtime_tool_policy);
     Ok(())
 }
 
-fn push_cached_mcp_runtime_tools(tools: &mut Vec<Box<dyn RuntimeToolDyn>>, state: &AppState) {
+fn push_cached_mcp_runtime_tools(
+    tools: &mut Vec<Box<dyn RuntimeToolDyn>>,
+    state: &AppState,
+    runtime_tool_policy: RuntimeToolPolicy,
+) {
     let servers = match load_workspace_mcp_servers(state) {
         Ok(servers) => servers,
         Err(err) => {
@@ -399,7 +475,10 @@ fn push_cached_mcp_runtime_tools(tools: &mut Vec<Box<dyn RuntimeToolDyn>>, state
     let existing_names = tools.iter().map(|tool| tool.name()).collect::<HashSet<_>>();
     let mut added_names = HashSet::<String>::new();
     for server in servers.into_iter().filter(|server| server.enabled) {
-        for descriptor in list_tools_from_runtime(&server).into_iter().filter(|tool| tool.enabled) {
+        for descriptor in list_tools_from_runtime(&server)
+            .into_iter()
+            .filter(|tool| tool.enabled && runtime_tool_policy.tool_allowed(&tool.tool_name))
+        {
             if existing_names.contains(&descriptor.tool_name) || !added_names.insert(descriptor.tool_name.clone()) {
                 continue;
             }

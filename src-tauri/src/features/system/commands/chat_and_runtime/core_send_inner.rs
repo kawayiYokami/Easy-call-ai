@@ -1722,6 +1722,7 @@ async fn send_chat_message_inner(
             plan_mode_enabled: false,
             preferred_api_config_id: None,
             cumulative_usage: ConversationCumulativeUsage::default(),
+            active_goal: None,
         }
     };
     let requested_conversation_id_for_prepare = requested_conversation_id.clone();
@@ -1824,6 +1825,7 @@ async fn send_chat_message_inner(
                     plan_mode_enabled: false,
                     preferred_api_config_id: None,
                     cumulative_usage: ConversationCumulativeUsage::default(),
+                    active_goal: None,
                 });
             }
             return build_prepare_snapshot_read_only(
@@ -1891,6 +1893,7 @@ async fn send_chat_message_inner(
                 plan_mode_enabled: false,
                 preferred_api_config_id: None,
                 cumulative_usage: ConversationCumulativeUsage::default(),
+                active_goal: None,
             });
         }
         build_prepare_snapshot_read_only(&data, runtime_agents, selected_api, effective_agent_id)
@@ -4113,6 +4116,7 @@ mod core_send_inner_tests {
             memory_recall_table: Vec::new(),
             plan_mode_enabled: false,
             preferred_api_config_id: None,
+            active_goal: None,
             cumulative_usage: ConversationCumulativeUsage::default(),
         };
         let final_message = build_assistant_message_from_request_sequence(

@@ -207,6 +207,25 @@ fn conversation_cumulative_usage_add_provider_usage(
     true
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ConversationGoalState {
+    goal_id: String,
+    status: String,
+    objective: String,
+    started_at: String,
+    #[serde(default)]
+    ended_at: Option<String>,
+    #[serde(default)]
+    usage_start: ConversationCumulativeUsage,
+    #[serde(default)]
+    usage_end: Option<ConversationCumulativeUsage>,
+}
+
+fn conversation_goal_is_active(goal: &ConversationGoalState) -> bool {
+    goal.status.trim() == "active"
+}
+
 fn conversation_cumulative_usage_weighted_tokens(
     cumulative_usage: &ConversationCumulativeUsage,
 ) -> u64 {
@@ -275,6 +294,8 @@ struct Conversation {
     preferred_api_config_id: Option<String>,
     #[serde(default, alias = "usageSummary")]
     cumulative_usage: ConversationCumulativeUsage,
+    #[serde(default)]
+    active_goal: Option<ConversationGoalState>,
 }
 
 #[derive(Debug, Clone)]

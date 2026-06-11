@@ -429,6 +429,20 @@ fn default_api_tools() -> Vec<ApiToolConfig> {
             values: serde_json::json!({}),
         },
         ApiToolConfig {
+            id: "create_goal".to_string(),
+            command: "builtin".to_string(),
+            args: vec!["create_goal".to_string()],
+            enabled: true,
+            values: serde_json::json!({}),
+        },
+        ApiToolConfig {
+            id: "update_goal".to_string(),
+            command: "builtin".to_string(),
+            args: vec!["update_goal".to_string()],
+            enabled: true,
+            values: serde_json::json!({}),
+        },
+        ApiToolConfig {
             id: "meme".to_string(),
             command: "builtin".to_string(),
             args: vec!["meme".to_string()],

@@ -73,6 +73,7 @@ include!("features/memory/providers.rs");
 // ==================== MCP ====================
 include!("features/mcp.rs");
 include!("features/skill.rs");
+include!("features/goal.rs");
 include!("features/task.rs");
 include!("features/delegate.rs");
 
@@ -292,6 +293,14 @@ async fn start_background_services_after_frontend_ready(
     match load_workspace(&startup_state).await {
         Ok(result) => log_workspace_load_result("[工作区加载]", &result),
         Err(err) => eprintln!("[工作区加载] 状态=失败，error={err}"),
+    }
+    match goal_resume_active_goals_once(&startup_state) {
+        Ok(count) => {
+            if count > 0 {
+                eprintln!("[目标续跑] 启动恢复完成，count={count}");
+            }
+        }
+        Err(err) => eprintln!("[目标续跑] 启动恢复失败，error={err}"),
     }
     start_remote_im_services_after_frontend_ready(app_handle.clone()).await;
 }
@@ -1060,6 +1069,9 @@ fn main() {
             task_complete_task,
             task_delete_task,
             task_list_run_logs,
+            goal_get_current,
+            goal_create_goal,
+            goal_cancel_goal,
             resolve_terminal_approval,
             open_file_reader_window_command,
             read_file_reader_file,

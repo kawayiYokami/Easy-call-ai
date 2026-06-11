@@ -1040,6 +1040,8 @@ const internalToolNames = new Set<string>([
   "search",
   "todo",
   "plan",
+  "create_goal",
+  "update_goal",
   "task",
   "delegate",
   "remember",
@@ -1441,6 +1443,17 @@ function summarizeTaskTool(args: unknown): string {
   ]) || compactObjectEntries(obj);
 }
 
+function summarizeGoalTool(args: unknown): string {
+  if (typeof args !== "object" || args === null) return compactText(toSingleLineJsonText(args) || toolTimelineText("missingArgs"));
+  const obj = args as Record<string, unknown>;
+  return joinNonEmpty([
+    safeStringValue(obj, "status"),
+    compactText(safeStringValue(obj, "objective"), 120),
+    compactText(safeStringValue(obj, "evidence"), 120),
+    compactText(safeStringValue(obj, "blocking_condition"), 120),
+  ]) || compactObjectEntries(obj);
+}
+
 function summarizePlanTool(args: unknown): string {
   if (typeof args !== "object" || args === null) return compactText(toSingleLineJsonText(args) || toolTimelineText("missingArgs"));
   const obj = args as Record<string, unknown>;
@@ -1529,6 +1542,7 @@ function summarizeBuiltinTool(toolName: string, args: unknown): string {
   if (toolName === "read" || toolName === "read_file") return summarizeReadFileTool(args);
   if (toolName === "todo") return summarizeTodoTool(args);
   if (toolName === "task") return summarizeTaskTool(args);
+  if (toolName === "create_goal" || toolName === "update_goal") return summarizeGoalTool(args);
   if (toolName === "plan") return summarizePlanTool(args);
   if (toolName === "delegate") return summarizeDelegateTool(args);
   if (toolName === "remember" || toolName === "recall") return summarizeMemoryTool(args);

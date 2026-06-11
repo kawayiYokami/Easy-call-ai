@@ -651,6 +651,7 @@ mod summary_context_title_tests {
             memory_recall_table: Vec::new(),
             plan_mode_enabled: false,
             preferred_api_config_id: None,
+            active_goal: None,
             cumulative_usage: ConversationCumulativeUsage::default(),
         }
     }
@@ -1005,6 +1006,7 @@ fn build_conversation_record(
         plan_mode_enabled: false,
         preferred_api_config_id: None,
         cumulative_usage: ConversationCumulativeUsage::default(),
+        active_goal: None,
     }
 }
 
@@ -2590,11 +2592,28 @@ fn build_builtin_tool_rule_block(tool_id: &str) -> Option<String> {
              - plan 负责阶段方案，todo 负责当前执行。\n\
              - todo 不是长期任务系统，也不是方案设计工具。",
         ),
+        "goal" => (
+            "goal tool rule",
+            "## 定位\n\
+             - goal 是绑定当前会话的持续执行状态，不是普通进度记录。\n\
+             - `create_goal` 只在用户明确要求启动目标时调用；已有 active goal 时不要覆盖。\n\
+             - `update_goal` 只允许在目标真正完成或严格阻塞审计成立时调用。\n\n\
+             ## 完成\n\
+             - 只有当前证据能证明原始目标的全部显式要求都满足，才调用 `update_goal` 并设置 `status: \"complete\"`。\n\
+             - complete 必须提供 evidence，说明哪些当前状态、文件、命令输出、测试或运行结果证明目标完成。\n\
+             - 不要把部分进展、当前轮能完成的小范围、测试暂时通过或最终答复本身当成完成证明。\n\n\
+             ## 阻塞\n\
+             - 不要在第一次遇到困难或不确定时标记 blocked。\n\
+             - 只有同一阻塞条件连续至少三轮 goal 轮次重复，且没有用户输入或外部状态变化就无法继续推进时，才调用 `update_goal` 并设置 `status: \"blocked\"`。\n\
+             - blocked 必须提供 `blocking_condition`，说明同一阻塞条件是什么。\n\n\
+             ## 活跃状态\n\
+             - 如果目标尚未被完整证明完成，也未满足严格阻塞条件，就保持 goal active，继续朝最终状态推进。",
+        ),
         "delegate" => (
             "delegate tool rule",
             "## 何时优先使用\n\
              - 当前工作有职责或能力更匹配的直属下级部门时，优先使用 delegate。\n\
-             - 子任务不需要完整当前上下文，只要用 `background`、`question`、`focus` 就能独立说明清楚时，优先委托。\n\
+             - 子任务不需要完整当前上下文，只要用 `why`、`goal`、`todo` 就能独立说明清楚时，优先委托。\n\
              - 简单但繁琐的搜索、排查、比对、整理、验证、资料收集、影响面摸底等工作，适合委托给下级部门完成。\n\
              - 主线程需要这个结果继续下一步时，也可以委托，但必须使用 `mode: \"wait\"` 等待结果。`wait` 可以并发发出多个委托，它只表示等待结果，不表示串行。\n\n\
              ## 何时不要使用\n\
@@ -2608,9 +2627,9 @@ fn build_builtin_tool_rule_block(tool_id: &str) -> Option<String> {
              - 当前已经在委托线程中再次委托时，只允许使用 `wait`。\n\
              - 若目标岗位由你本人兼任，只允许使用 `wait`。\n\
              - `department_id` 必须选择最匹配的直属下级部门。\n\
-             - `background` 写清父任务、已知事实、必要上下文、约束和前序结果；不要只写一句空泛背景。\n\
-             - `question` 写清本次子任务要完成或查明什么。\n\
-             - `focus` 写清优先关注点、范围边界、交付要求和需要避免的方向。\n\
+             - `why` 写清父任务、已知事实、必要上下文、约束和前序结果；不要只写一句空泛背景。\n\
+             - `goal` 写清本次子任务要完成什么，目标应可判断是否完成。\n\
+             - `todo` 写清优先关注点、范围边界、交付要求和需要避免的方向。\n\
              - 收到同步委托结果后，必须由你整合、判断、裁决并继续推进，不要机械转述。\n\
              - 对下级返回的关键结论、风险判断、文件定位、数据口径或会影响最终决策的发现，必须挑选重点亲自核验；可以信任下级完成繁琐工作，但不要盲目相信未经核验的关键结论。",
         ),
@@ -2700,7 +2719,7 @@ fn department_builtin_tool_enabled(
     id: &str,
 ) -> bool {
     if !builtin_tool_is_department_controlled(id) {
-        return false;
+        return builtin_tool_is_fixed_system(id);
     }
     if builtin_tool_unavailable_reason(department_config, current_department, id).is_some() {
         return false;
@@ -3343,6 +3362,7 @@ fn build_prompt_with_mode(
         plan_mode_enabled: conversation.plan_mode_enabled,
         preferred_api_config_id: conversation.preferred_api_config_id.clone(),
         cumulative_usage: conversation.cumulative_usage.clone(),
+        active_goal: conversation.active_goal.clone(),
     };
     let recall_memory_ids = collect_prompt_retrieved_memory_ids(&enriched_conversation.messages);
     let recall_memories = if recall_memory_ids.is_empty() {

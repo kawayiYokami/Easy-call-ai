@@ -76,6 +76,8 @@
       :conversation-list-tab="conversationListTab"
       :chat-left-panel-mode="chatLeftPanelMode"
       :chat-right-panel-mode="chatRightPanelMode"
+      :supervision-active="sidebarSupervisionActive"
+      :supervision-title="sidebarSupervisionTitle"
       @send="send"
       @stop="stop"
       @remove-clipboard-image="removeClipboardImage"
@@ -171,10 +173,11 @@
       :open="supervisionDialogOpen"
       :saving="supervisionSaving"
       :error-text="supervisionErrorText"
-      :active-task="null"
+      :active-task="sidebarActiveSupervisionTask"
       :recent-history="[]"
       @close="closeSupervisionTask"
       @save="saveSupervisionTask"
+      @stop="stopSupervisionTask"
     />
     <dialog class="modal" :class="{ 'modal-open': rewindConfirmDialogOpen }">
       <div class="modal-box max-w-md">
@@ -340,7 +343,7 @@
 
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
-import type { ApiConfigItem, ChatConversationOverviewItem, ChatMessage, ChatTodoItem, IdeContextWorkspaceGroup, ShellWorkspace } from "../../types/app";
+import type { ApiConfigItem, ChatConversationOverviewItem, ChatMessage, ChatTodoItem, ConversationGoalState, IdeContextWorkspaceGroup, ShellWorkspace } from "../../types/app";
 import { removeBinaryPlaceholders, messageText } from "../../utils/chat-message";
 import {
   applyAssistantToolEventToStreamBlocks,
@@ -387,6 +390,7 @@ type ConversationSummary = {
   workspaceLabel?: string;
   workspaceRootPath?: string;
   currentTodo?: string;
+  activeGoal?: ConversationGoalState | null;
   currentTodos?: ChatTodoItem[];
   state?: ChatConversationOverviewItem["state"];
   previewMessages?: Array<{
@@ -428,6 +432,7 @@ type OpenConversationResult = {
   persona?: SidebarPersonaPayload;
   model?: SidebarModelPayload;
   currentTodos?: ChatTodoItem[];
+  activeGoal?: ConversationGoalState | null;
 };
 
 type SidebarWorkspacePermission = {
@@ -497,6 +502,11 @@ type SidebarStreamCachePayload = {
 type SidebarConversationRuntimePayload = {
   runtimeState?: string;
   streamCache?: SidebarStreamCachePayload;
+};
+
+type GoalMutationOutput = {
+  conversationId: string;
+  goal: ConversationGoalState;
 };
 
 type SidebarAssistantDeltaPayload = {
@@ -613,6 +623,7 @@ const commitPageSize = ref(30);
 const supervisionDialogOpen = ref(false);
 const supervisionSaving = ref(false);
 const supervisionErrorText = ref("");
+const activeConversationGoal = ref<ConversationGoalState | null>(null);
 const selectedBlockId = ref<number | null>(null);
 const hasPrevBlock = ref(false);
 const view = ref<"list" | "chat">("chat");
@@ -645,6 +656,24 @@ const chatSidePanelWidths = ref({ leftWidth: 320, rightWidth: 320 });
 let discoveryRefreshTimer: number | null = null;
 
 const activeSummary = computed(() => conversations.value.find((item) => item.conversationId === activeConversationId.value));
+const sidebarSupervisionActive = computed(() => String(activeConversationGoal.value?.status || "").trim() === "active");
+const sidebarSupervisionTitle = computed(() =>
+  sidebarSupervisionActive.value
+    ? t("chat.supervision.activeHintShort", { goal: String(activeConversationGoal.value?.objective || "").trim() })
+    : t("chat.supervision.buttonHint"),
+);
+const sidebarActiveSupervisionTask = computed(() => {
+  const goal = activeConversationGoal.value;
+  if (String(goal?.status || "").trim() !== "active") return null;
+  return {
+    taskId: String(goal?.goalId || "").trim(),
+    goal: String(goal?.objective || "").trim(),
+    why: "",
+    todo: "",
+    endAtLocal: String(goal?.startedAt || "").trim(),
+    remainingHours: 0,
+  };
+});
 const sidebarUserAlias = computed(() => String(persona.value?.userAlias || "我").trim() || "我");
 const sidebarUserAvatarUrl = computed(() => String(persona.value?.userAvatarUrl || "").trim());
 const sidebarAssistantName = computed(() => String(persona.value?.assistantName || "PAI").trim() || "PAI");
@@ -697,6 +726,7 @@ const chatUnarchivedConversationItems = computed<ChatConversationOverviewItem[]>
         pinIndex: item.pinIndex,
         runtimeState: normalizeConversationRuntimeState(item.runtimeState),
         currentTodo: item.currentTodo,
+        activeGoal: item.activeGoal || null,
         currentTodos: item.currentTodos,
         planModeEnabled: !!item.planModeEnabled,
         detachedWindowOpen: sidebarConversationUnavailableForCurrentViewer(item),
@@ -962,6 +992,15 @@ async function refreshList() {
   remoteImContactConversations.value = Array.isArray(result.remoteImContactConversations)
     ? result.remoteImContactConversations
     : [];
+  const activeConversation = localConversations.find((item) =>
+    String(item.conversationId || "").trim() === String(activeConversationId.value || "").trim()
+  );
+  if (activeConversation) {
+    const goal = activeConversation.activeGoal || null;
+    activeConversationGoal.value = String(activeConversation.activeGoal?.status || "").trim() === "active"
+      ? goal
+      : null;
+  }
   syncConversationTabForRemoteContacts();
   sidebarViewerId.value = String(result.viewerId || sidebarViewerId.value || "").trim();
   if (result.persona && !activeConversationId.value) persona.value = result.persona;
@@ -1204,6 +1243,10 @@ async function openConversation(conversationId: string) {
   await refreshWorkspaceList();
   messages.value = Array.isArray(result.messages) ? result.messages : [];
   sidebarTodos.value = Array.isArray(result.currentTodos) ? result.currentTodos : [];
+  const resultActiveGoal = result.activeGoal || null;
+  activeConversationGoal.value = String(resultActiveGoal?.status || "").trim() === "active"
+    ? resultActiveGoal
+    : null;
   clearStreamingState();
   applyRuntimeStreamCache(result.runtime);
   selectedBlockId.value = null;
@@ -1582,23 +1625,23 @@ async function branchConversationFromSelection(payload: { count: number; message
   }
 }
 
-async function delegateFromSelection(payload: { count: number; messageIds: string[]; departmentId: string; agentId: string; presetId: string; background: string; question: string; focus: string }) {
+async function delegateFromSelection(payload: { count: number; messageIds: string[]; departmentId: string; agentId: string; presetId: string; why: string; goal: string; todo: string }) {
   const selectedMessageIds = Array.isArray(payload?.messageIds)
     ? payload.messageIds.map((item) => String(item || "").trim()).filter((item, index, array) => !!item && array.indexOf(item) === index)
     : [];
   const targetDepartmentId = String(payload.departmentId || "").trim();
   const targetAgentId = String(payload.agentId || "").trim();
-  const question = String(payload.question || "").trim();
-  if (!activeConversationId.value || !targetDepartmentId || !targetAgentId || !question) return;
+  const goal = String(payload.goal || "").trim();
+  if (!activeConversationId.value || !targetDepartmentId || !targetAgentId || !goal) return;
   try {
     await transport.request("delegate.submit", {
       conversationId: activeConversationId.value,
       targetDepartmentId,
       targetAgentId,
       presetId: String(payload.presetId || "review").trim() || "review",
-      background: String(payload.background || "").trim(),
-      question,
-      focus: String(payload.focus || "").trim(),
+      why: String(payload.why || "").trim(),
+      goal,
+      todo: String(payload.todo || "").trim(),
       selectedMessageIds,
     });
     chatViewWrapperRef.value?.exitMessageSelectionMode();
@@ -1622,45 +1665,52 @@ function closeSupervisionTask() {
   supervisionErrorText.value = "";
 }
 
-function formatDateToLocalRfc3339(date: Date): string {
-  const pad = (value: number) => String(value).padStart(2, "0");
-  const offsetMinutes = -date.getTimezoneOffset();
-  const offsetSign = offsetMinutes >= 0 ? "+" : "-";
-  const absOffset = Math.abs(offsetMinutes);
-  return [
-    `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`,
-    `T${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`,
-    `${offsetSign}${pad(Math.floor(absOffset / 60))}:${pad(absOffset % 60)}`,
-  ].join("");
-}
-
 async function saveSupervisionTask(payload: { durationHours: number; goal: string; why: string; todo: string }) {
   if (!activeConversationId.value || supervisionSaving.value) return;
+  const objective = String(payload.goal || "").trim();
+  if (!objective) {
+    supervisionErrorText.value = t('chat.supervision.goalPlaceholder');
+    return;
+  }
   supervisionSaving.value = true;
   supervisionErrorText.value = "";
   try {
-    const now = new Date();
-    now.setSeconds(0, 0);
-    const endAt = new Date(now.getTime() + payload.durationHours * 3_600_000);
-    const created = await transport.request<{ taskId?: string }>("task.create", {
-      conversationId: activeConversationId.value,
-      targetScope: "desktop",
-      goal: `Goal Task：${String(payload.goal || "").trim()}`,
-      why: String(payload.why || "").trim(),
-      todo: String(payload.todo || "").trim(),
-      trigger: {
-        runAt: formatDateToLocalRfc3339(now),
-        cronExpression: "* * * * *",
-        endAt: formatDateToLocalRfc3339(endAt),
-      },
-    });
-    const taskId = String(created.taskId || "").trim();
-    if (taskId) {
-      try { await transport.request("task.dispatchNow", { taskId }); } catch { /* best-effort */ }
+    if (sidebarSupervisionActive.value) {
+      await transport.request<GoalMutationOutput>("goal.cancel", {
+        conversationId: activeConversationId.value,
+      });
     }
+    const created = await transport.request<GoalMutationOutput>("goal.create", {
+      conversationId: activeConversationId.value,
+      objective,
+    });
+    activeConversationGoal.value = String(created.goal?.status || "").trim() === "active"
+      ? created.goal
+      : null;
     supervisionDialogOpen.value = false;
   } catch (error) {
-    supervisionErrorText.value = String(error || t('sidebar.taskSaveFailed'));
+    supervisionErrorText.value = String(error || t('chat.supervision.saveFailed'));
+  } finally {
+    supervisionSaving.value = false;
+  }
+}
+
+async function stopSupervisionTask() {
+  if (!activeConversationId.value || supervisionSaving.value) return;
+  if (!sidebarSupervisionActive.value) {
+    supervisionErrorText.value = t('chat.supervision.noActiveTask');
+    return;
+  }
+  supervisionSaving.value = true;
+  supervisionErrorText.value = "";
+  try {
+    await transport.request<GoalMutationOutput>("goal.cancel", {
+      conversationId: activeConversationId.value,
+    });
+    activeConversationGoal.value = null;
+    supervisionDialogOpen.value = false;
+  } catch (error) {
+    supervisionErrorText.value = String(error || t('chat.supervision.stopFailed'));
   } finally {
     supervisionSaving.value = false;
   }
@@ -2300,6 +2350,21 @@ function registerNotifications() {
     const value = payload as { conversationId?: string; currentTodos?: ChatTodoItem[] };
     if (String(value.conversationId || "").trim() === activeConversationId.value) {
       sidebarTodos.value = Array.isArray(value.currentTodos) ? value.currentTodos : [];
+    }
+  });
+  transport.onNotification("conversation.goalUpdated", (payload) => {
+    const value = payload as { conversationId?: string; goal?: ConversationGoalState | null };
+    const conversationId = String(value.conversationId || "").trim();
+    if (!conversationId) return;
+    conversations.value = conversations.value.map((item) =>
+      String(item.conversationId || "").trim() === conversationId
+        ? { ...item, activeGoal: value.goal || null }
+        : item,
+    );
+    if (conversationId === activeConversationId.value) {
+      activeConversationGoal.value = String(value.goal?.status || "").trim() === "active"
+        ? value.goal || null
+        : null;
     }
   });
   transport.onNotification("conversation.delegateStatusUpdated", (payload) => {

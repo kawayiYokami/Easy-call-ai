@@ -272,6 +272,7 @@ export function useChatWindowApp() {
     startSupervisionTaskPolling,
     clearSupervisionTaskPollTimer,
     handleConversationChanged: handleSupervisionConversationChanged,
+    applyConversationGoalUpdated,
   } = shellData.supervisionTask;
   const agentWorkPresence = shellData.agentWorkPresence;
   let refreshToolsStatus: () => void | Promise<void> = () => {};
@@ -687,6 +688,7 @@ export function useChatWindowApp() {
     clearSupervisionTaskPollTimer,
     startSupervisionTaskPolling,
     refreshActiveSupervisionTask,
+    applyConversationGoalUpdated,
     ...configDerived,
     ...configCore,
     ...configRuntime,

@@ -86,6 +86,20 @@ async fn builtin_tool_definitions_for_frontend(
             .provider_tool_definition(),
         ),
         frontend_tool_definition(
+            BuiltinCreateGoalTool {
+                app_state: state.clone(),
+                session_id: preview_session_id.clone(),
+            }
+            .provider_tool_definition(),
+        ),
+        frontend_tool_definition(
+            BuiltinUpdateGoalTool {
+                app_state: state.clone(),
+                session_id: preview_session_id.clone(),
+            }
+            .provider_tool_definition(),
+        ),
+        frontend_tool_definition(
             BuiltinTaskTool {
                 app_state: state.clone(),
                 session_id: preview_session_id.clone(),
@@ -276,6 +290,69 @@ mod tool_catalog_tests {
             frontend_definition_json(&todo_catalog),
             frontend_definition_json(&todo_runtime),
             "frontend catalog todo definition drifted from runtime builtin definition"
+        );
+
+        let goal_state = AppState::new().expect("create app state for goal definitions");
+        for (tool_name, runtime_definition) in [
+            (
+                "create_goal",
+                frontend_tool_definition(
+                    BuiltinCreateGoalTool {
+                        app_state: goal_state.clone(),
+                        session_id: "__frontend_tool_preview__".to_string(),
+                    }
+                    .provider_tool_definition(),
+                ),
+            ),
+            (
+                "update_goal",
+                frontend_tool_definition(
+                    BuiltinUpdateGoalTool {
+                        app_state: goal_state.clone(),
+                        session_id: "__frontend_tool_preview__".to_string(),
+                    }
+                    .provider_tool_definition(),
+                ),
+            ),
+        ] {
+            let catalog_definition = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .expect("build tokio runtime for goal catalog tests should succeed")
+                .block_on(catalog_tool_definition_by_name(tool_name))
+                .expect("load goal definition from frontend catalog should succeed");
+            assert_eq!(
+                frontend_definition_json(&catalog_definition),
+                frontend_definition_json(&runtime_definition),
+                "frontend catalog {tool_name} definition drifted from runtime builtin definition"
+            );
+        }
+    }
+
+    #[test]
+    fn department_permission_catalog_should_hide_fixed_session_tools() {
+        let state = AppState::new().expect("create app state for department catalog");
+        let catalog = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("build tokio runtime for department catalog tests should succeed")
+            .block_on(list_department_permission_catalog_inner(&state))
+            .expect("load department permission catalog");
+        let builtin_names = catalog
+            .builtin_tools
+            .iter()
+            .map(|item| item.name.as_str())
+            .collect::<std::collections::HashSet<_>>();
+
+        for hidden_name in ["todo", "plan", "task", "create_goal", "update_goal"] {
+            assert!(
+                !builtin_names.contains(hidden_name),
+                "department permission catalog should hide fixed session tool {hidden_name}"
+            );
+        }
+        assert!(
+            builtin_names.contains("exec"),
+            "department permission catalog should still include adjustable builtin tools"
         );
     }
 }

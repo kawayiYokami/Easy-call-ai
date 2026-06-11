@@ -12,7 +12,7 @@
           v-if="activeTask"
           class="rounded-box border border-primary/20 bg-primary/5 px-3 py-2 text-sm text-base-content/80"
         >
-          {{ t("chat.supervision.activeHint", { endAt: activeTask.endAtLocal }) }}
+          {{ t("chat.supervision.activeHint", { goal: activeTask.goal }) }}
         </div>
 
         <div

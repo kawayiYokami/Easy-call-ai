@@ -685,7 +685,7 @@ const props = defineProps<{
   onCreateConversation: (input?: { title?: string; departmentId?: string; agentId?: string; copyCurrent?: boolean; importPath?: string; shellWorkspaces?: ShellWorkspace[]; shellAutonomousMode?: boolean }) => void;
   onBranchConversationFromSelection: (payload: { count: number; messageIds: string[] }) => void;
   onForwardConversationFromSelection: (payload: { count: number; messageIds: string[]; targetConversationId: string }) => void;
-  onUserAsyncDelegateFromSelection: (payload: { count: number; messageIds: string[]; departmentId: string; agentId: string; presetId: string; background: string; question: string; focus: string }) => Promise<boolean> | boolean;
+  onUserAsyncDelegateFromSelection: (payload: { count: number; messageIds: string[]; departmentId: string; agentId: string; presetId: string; why: string; goal: string; todo: string }) => Promise<boolean> | boolean;
   loadArchives: () => void;
   selectArchive: (id: string) => void;
   selectArchiveBlock: (blockId?: number | null) => void;
@@ -768,9 +768,9 @@ async function handleUserAsyncDelegateFromSelection(payload: {
   departmentId: string;
   agentId: string;
   presetId: string;
-  background: string;
-  question: string;
-  focus: string;
+  why: string;
+  goal: string;
+  todo: string;
 }) {
   const ok = await props.onUserAsyncDelegateFromSelection(payload);
   if (ok) chatViewRef.value?.exitMessageSelectionMode();

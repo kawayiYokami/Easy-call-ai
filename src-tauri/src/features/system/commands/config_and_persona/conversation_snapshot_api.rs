@@ -814,6 +814,8 @@ struct SwitchActiveConversationSnapshotOutput {
     current_todos: Vec<ConversationTodoItem>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     preferred_api_config_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    active_goal: Option<ConversationGoalState>,
     unarchived_conversations: Vec<UnarchivedConversationSummary>,
 }
 
@@ -831,6 +833,8 @@ struct ForegroundConversationLightSnapshotOutput {
     current_todos: Vec<ConversationTodoItem>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     preferred_api_config_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    active_goal: Option<ConversationGoalState>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     unarchived_conversations: Vec<UnarchivedConversationSummary>,
 }
@@ -844,6 +848,7 @@ struct ForegroundConversationSnapshotCore {
     current_todo: Option<String>,
     current_todos: Vec<ConversationTodoItem>,
     preferred_api_config_id: Option<String>,
+    active_goal: Option<ConversationGoalState>,
 }
 
 const DEFAULT_FOREGROUND_SNAPSHOT_RECENT_LIMIT: usize = 4;

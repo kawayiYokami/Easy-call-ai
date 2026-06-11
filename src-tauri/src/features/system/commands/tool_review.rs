@@ -1802,10 +1802,13 @@ async fn submit_tool_review_code_internal(
         let delegate_args = DelegateToolArgs {
             department_id: target_department_id_owned.clone(),
             target_agent_id: Some(target_agent_id_owned.clone()),
-            mode: Some("sync".to_string()),
-            background: tool_review_delegate_background(&scope_owned, target_owned.as_deref()),
-            question: instruction,
-            focus: "输出符合协议的代码审查 JSON；仅返回纯 JSON，不要包 markdown。".to_string(),
+            mode: Some("wait".to_string()),
+            why: Some(tool_review_delegate_background(&scope_owned, target_owned.as_deref())),
+            goal: Some(instruction),
+            todo: Some("输出符合协议的代码审查 JSON；仅返回纯 JSON，不要包 markdown。".to_string()),
+            background: None,
+            question: None,
+            focus: None,
         };
         let session_id = format!("{}::{}", source_agent_id_owned, conversation_id_owned);
         runtime_log_info(format!(
@@ -2011,6 +2014,7 @@ mod tool_review_tests {
             memory_recall_table: Vec::new(),
             plan_mode_enabled: false,
             preferred_api_config_id: None,
+            active_goal: None,
             cumulative_usage: ConversationCumulativeUsage::default(),
         }
     }

@@ -28,6 +28,7 @@ pub(super) struct ConversationPersistMeta {
     plan_mode_enabled: bool,
     preferred_api_config_id: Option<String>,
     cumulative_usage: ConversationCumulativeUsage,
+    active_goal: Option<ConversationGoalState>,
 }
 
 impl ConversationPersistMeta {
@@ -106,6 +107,8 @@ pub(super) struct ConversationShardMeta {
     preferred_api_config_id: Option<String>,
     #[serde(default, alias = "usageSummary")]
     cumulative_usage: ConversationCumulativeUsage,
+    #[serde(default)]
+    active_goal: Option<ConversationGoalState>,
 }
 
 impl ConversationShardMeta {
@@ -183,6 +186,7 @@ impl ConversationShardMeta {
             plan_mode_enabled: conversation.plan_mode_enabled,
             preferred_api_config_id: conversation.preferred_api_config_id.clone(),
             cumulative_usage: conversation.cumulative_usage.clone(),
+            active_goal: conversation.active_goal.clone(),
         }
     }
 
@@ -216,6 +220,7 @@ impl ConversationShardMeta {
             plan_mode_enabled: meta.plan_mode_enabled,
             preferred_api_config_id: meta.preferred_api_config_id.clone(),
             cumulative_usage: meta.cumulative_usage.clone(),
+            active_goal: meta.active_goal.clone(),
         }
     }
 
@@ -249,6 +254,7 @@ impl ConversationShardMeta {
             plan_mode_enabled: self.plan_mode_enabled,
             preferred_api_config_id: self.preferred_api_config_id.clone(),
             cumulative_usage: self.cumulative_usage.clone(),
+            active_goal: self.active_goal.clone(),
         }
     }
 
@@ -283,6 +289,7 @@ impl ConversationShardMeta {
             plan_mode_enabled: self.plan_mode_enabled,
             preferred_api_config_id: self.preferred_api_config_id,
             cumulative_usage: self.cumulative_usage,
+            active_goal: self.active_goal,
         }
     }
 }
@@ -374,6 +381,15 @@ mod message_store_meta_tests {
                 cache_read_tokens: 30,
                 cache_write_tokens: 40,
             },
+            active_goal: Some(ConversationGoalState {
+                goal_id: "goal-a".to_string(),
+                status: "active".to_string(),
+                objective: "完成元数据测试".to_string(),
+                started_at: "2026-04-24T00:00:10Z".to_string(),
+                ended_at: None,
+                usage_start: ConversationCumulativeUsage::default(),
+                usage_end: None,
+            }),
         }
     }
 
@@ -392,6 +408,7 @@ mod message_store_meta_tests {
         assert_eq!(restored.id, conversation.id);
         assert_eq!(restored.preferred_api_config_id, conversation.preferred_api_config_id);
         assert_eq!(restored.cumulative_usage, conversation.cumulative_usage);
+        assert_eq!(restored.active_goal, conversation.active_goal);
     }
 
     #[test]

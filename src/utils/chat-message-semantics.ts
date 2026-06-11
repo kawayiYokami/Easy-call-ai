@@ -837,16 +837,6 @@ function resolveTaskTrigger(message: ChatMessage): TaskTriggerMessageCard | unde
   };
 }
 
-function stripGoalTaskPrefix(value: string): string {
-  const text = String(value || "").trim();
-  for (const prefix of ["Goal Task：", "Goal Task:", "督工任务：", "目标任务：", "目標任務："]) {
-    if (text.startsWith(prefix)) {
-      return text.slice(prefix.length).trim();
-    }
-  }
-  return text;
-}
-
 function resolvePlanCard(message: ChatMessage): PlanMessageCard | undefined {
   // fallback: providerMeta 无 planCard 时从 tool call 历史找
   if (!(message.providerMeta || {}).planCard) {
@@ -1031,7 +1021,7 @@ export function projectMessageForDisplay(
     taskTrigger && messageKind === "task_trigger"
       ? [
         `**${goalLabel}**`,
-        stripGoalTaskPrefix(taskTrigger.goal),
+        taskTrigger.goal,
         "",
         `**${todoLabel}**`,
         String(taskTrigger.todo || "").trim(),

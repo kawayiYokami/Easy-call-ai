@@ -53,8 +53,8 @@
     :current-department-id="currentDepartmentId"
     :active-conversation-id="activeConversationId"
     :current-todos="props.currentTodos"
-    :supervision-active="false"
-    supervision-title=""
+    :supervision-active="!!props.supervisionActive"
+    :supervision-title="props.supervisionTitle || ''"
     :supervision-dialog-open="false"
     :supervision-task-saving="false"
     supervision-task-error=""
@@ -210,6 +210,8 @@ const props = defineProps<{
   conversationListTab: "local" | "contact" | "task";
   chatLeftPanelMode: "local" | "contact" | "task";
   chatRightPanelMode: "reader" | "review" | "delegate";
+  supervisionActive?: boolean;
+  supervisionTitle?: string;
 }>();
 
 defineEmits<{
@@ -232,7 +234,7 @@ defineEmits<{
   switchConversation: [payload: { conversationId: string; kind?: "local_unarchived" | "remote_im_contact"; remoteContactId?: string }];
   createConversation: [input?: { title?: string; departmentId?: string; agentId?: string; copyCurrent?: boolean; importPath?: string }];
   selectionActionBranch: [payload: { count: number; messageIds: string[] }];
-  selectionActionDelegate: [payload: { count: number; messageIds: string[]; departmentId: string; agentId: string; presetId: string; background: string; question: string; focus: string }];
+  selectionActionDelegate: [payload: { count: number; messageIds: string[]; departmentId: string; agentId: string; presetId: string; why: string; goal: string; todo: string }];
   sideConversationListVisibleChange: [value: boolean];
   toolReviewPanelOpenChange: [value: boolean];
   sidePanelWidthsChange: [value: { leftWidth: number; rightWidth: number }];

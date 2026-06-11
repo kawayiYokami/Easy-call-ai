@@ -3402,6 +3402,7 @@
             memory_recall_table: Vec::new(),
             plan_mode_enabled: false,
             preferred_api_config_id: None,
+            active_goal: None,
             cumulative_usage: ConversationCumulativeUsage::default(),
         }
     }
@@ -5291,6 +5292,7 @@
             memory_recall_table: Vec::new(),
             plan_mode_enabled: false,
             preferred_api_config_id: None,
+            active_goal: None,
             cumulative_usage: ConversationCumulativeUsage::default(),
         }];
         state_write_app_data_cached(&state, &data).expect("write app data");
@@ -5494,22 +5496,6 @@
         let skipped = task_store_get_task_record(&state.data_path, &created.task_id)
             .expect("get skipped task record");
         assert!(skipped.last_triggered_at_utc.is_some());
-    }
-
-    #[test]
-    fn task_try_ingress_chat_event_direct_should_skip_when_queue_not_empty() {
-        let state = test_chat_runtime_state();
-        let existing = ingress_chat_event(&state, test_pending_event("conversation-main"))
-            .expect("existing ingress");
-        assert!(matches!(existing, ChatEventIngress::Direct(_)));
-        let queued = ingress_chat_event(&state, test_pending_event("conversation-main"))
-            .expect("queued ingress");
-        assert!(matches!(queued, ChatEventIngress::Queued { .. }));
-
-        let result = task_try_ingress_chat_event_direct(&state, test_pending_event("conversation-main"))
-            .expect("task direct ingress");
-
-        assert!(matches!(result, Err("conversation_queue_not_empty")));
     }
 
     #[test]
@@ -5751,6 +5737,131 @@
                     == Some("当前部门没有直接下级，无法使用委托")
         }));
         assert!(!assembly.tools.iter().any(|tool| tool.name() == "delegate"));
+    }
+
+    #[test]
+    fn assemble_runtime_tools_should_keep_goal_tools_and_gate_contact_tools_by_conversation_state() {
+        let state = test_chat_runtime_state();
+        let mut agent = default_agent();
+        agent.id = "state-agent".to_string();
+
+        let mut selected_api = ApiConfig::default();
+        selected_api.id = "api-a".to_string();
+        selected_api.name = "测试模型".to_string();
+        selected_api.request_format = RequestFormat::OpenAI;
+        selected_api.enable_text = true;
+        selected_api.enable_tools = true;
+        selected_api.base_url = "https://api.openai.com/v1".to_string();
+        selected_api.api_key = "k".to_string();
+        selected_api.model = "gpt-4o-mini".to_string();
+
+        let mut department = default_assistant_department(&selected_api.id);
+        department.id = "assistant-department".to_string();
+        department.is_built_in_assistant = true;
+        department.agent_ids = vec![agent.id.clone()];
+
+        let config = AppConfig {
+            departments: vec![department],
+            api_configs: vec![selected_api.clone()],
+            api_providers: Vec::new(),
+            ..AppConfig::default()
+        };
+        write_config(&state.config_path, &config).expect("write config");
+        state_write_agents_cached(&state, &[agent.clone(), default_user_persona()])
+            .expect("write agents");
+
+        let local_without_goal = build_conversation_record(
+            &selected_api.id,
+            &agent.id,
+            "assistant-department",
+            "普通会话",
+            CONVERSATION_KIND_CHAT,
+            None,
+            None,
+        );
+        let mut local_with_goal = build_conversation_record(
+            &selected_api.id,
+            &agent.id,
+            "assistant-department",
+            "目标会话",
+            CONVERSATION_KIND_CHAT,
+            None,
+            None,
+        );
+        local_with_goal.id = "conversation-with-goal".to_string();
+        local_with_goal.active_goal = Some(ConversationGoalState {
+            goal_id: "goal-a".to_string(),
+            status: "active".to_string(),
+            objective: "继续推进".to_string(),
+            started_at: now_iso(),
+            ended_at: None,
+            usage_start: ConversationCumulativeUsage::default(),
+            usage_end: None,
+        });
+        let mut remote_contact = build_conversation_record(
+            &selected_api.id,
+            &agent.id,
+            "assistant-department",
+            "联系人会话",
+            CONVERSATION_KIND_REMOTE_IM_CONTACT,
+            None,
+            None,
+        );
+        remote_contact.id = "conversation-remote-contact".to_string();
+
+        for conversation in [&local_without_goal, &local_with_goal, &remote_contact] {
+            state_schedule_conversation_persist(&state, conversation)
+                .expect("persist conversation");
+        }
+        refresh_global_tool_schema_cache(&state);
+
+        let assemble_for = |conversation_id: &str| {
+            let session_id = format!("{}::{}", agent.id, conversation_id);
+            test_runtime()
+                .block_on(assemble_runtime_tools(
+                    &config,
+                    &selected_api,
+                    &agent,
+                    Some(&state),
+                    &session_id,
+                    Some("assistant-department"),
+                ))
+                .expect("assemble runtime tools")
+        };
+        let has_attached_schema = |assembly: &RuntimeToolAssembly, name: &str| {
+            assembly.tool_manifest.iter().any(|item| {
+                item.get("name").and_then(Value::as_str) == Some(name)
+                    && item.get("enabled").and_then(Value::as_bool) == Some(true)
+                    && item.get("attached").and_then(Value::as_bool) == Some(true)
+            })
+        };
+        let has_executor = |assembly: &RuntimeToolAssembly, name: &str| {
+            assembly.tools.iter().any(|tool| tool.name() == name)
+        };
+
+        let local_without_goal_assembly = assemble_for(&local_without_goal.id);
+        assert!(has_attached_schema(&local_without_goal_assembly, "create_goal"));
+        assert!(has_executor(&local_without_goal_assembly, "create_goal"));
+        assert!(has_attached_schema(&local_without_goal_assembly, "update_goal"));
+        assert!(has_executor(&local_without_goal_assembly, "update_goal"));
+        assert!(!has_attached_schema(&local_without_goal_assembly, "contact_reply"));
+        assert!(!has_executor(&local_without_goal_assembly, "contact_reply"));
+
+        let local_with_goal_assembly = assemble_for(&local_with_goal.id);
+        assert!(has_attached_schema(&local_with_goal_assembly, "create_goal"));
+        assert!(has_executor(&local_with_goal_assembly, "create_goal"));
+        assert!(has_attached_schema(&local_with_goal_assembly, "update_goal"));
+        assert!(has_executor(&local_with_goal_assembly, "update_goal"));
+        assert!(!has_attached_schema(&local_with_goal_assembly, "contact_reply"));
+        assert!(!has_executor(&local_with_goal_assembly, "contact_reply"));
+
+        let remote_contact_assembly = assemble_for(&remote_contact.id);
+        assert!(has_attached_schema(&remote_contact_assembly, "create_goal"));
+        assert!(has_executor(&remote_contact_assembly, "create_goal"));
+        assert!(has_attached_schema(&remote_contact_assembly, "contact_reply"));
+        assert!(has_executor(&remote_contact_assembly, "contact_reply"));
+        assert!(has_attached_schema(&remote_contact_assembly, "contact_send_files"));
+        assert!(has_attached_schema(&remote_contact_assembly, "contact_no_reply"));
     }
 
     #[test]
@@ -6265,9 +6376,12 @@
                 target_department_id: "dept-private".to_string(),
                 target_agent_id: Some(private_agent.id.clone()),
                 preset_id: None,
-                background: String::new(),
-                question: "请调查这个问题".to_string(),
-                focus: String::new(),
+                why: None,
+                goal: Some("请调查这个问题".to_string()),
+                todo: None,
+                background: None,
+                question: None,
+                focus: None,
                 selected_message_ids: Vec::new(),
             },
         )
@@ -6925,6 +7039,7 @@
             memory_recall_table: Vec::new(),
             plan_mode_enabled: false,
             preferred_api_config_id: None,
+            active_goal: None,
             cumulative_usage: ConversationCumulativeUsage::default(),
         });
         state_write_app_data_cached(&state, &data).expect("write app data");
@@ -6999,6 +7114,7 @@
             memory_recall_table: Vec::new(),
             plan_mode_enabled: false,
             preferred_api_config_id: None,
+            active_goal: None,
             cumulative_usage: ConversationCumulativeUsage::default(),
         });
         state_write_app_data_cached(&state, &data).expect("write app data");

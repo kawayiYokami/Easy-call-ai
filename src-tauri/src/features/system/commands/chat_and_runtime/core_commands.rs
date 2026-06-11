@@ -437,9 +437,17 @@ struct SubmitUserAsyncDelegateInput {
     #[serde(default)]
     preset_id: Option<String>,
     #[serde(default)]
-    background: String,
-    question: String,
-    focus: String,
+    why: Option<String>,
+    #[serde(default)]
+    goal: Option<String>,
+    #[serde(default)]
+    todo: Option<String>,
+    #[serde(default)]
+    background: Option<String>,
+    #[serde(default)]
+    question: Option<String>,
+    #[serde(default)]
+    focus: Option<String>,
     #[serde(default)]
     selected_message_ids: Vec<String>,
 }
@@ -463,9 +471,9 @@ struct UserAsyncDelegatePlan {
     target_agent_id: String,
     target_agent_name: String,
     title: String,
-    question: String,
-    background: String,
-    focus: String,
+    goal: String,
+    why: String,
+    todo: String,
     target_api_config_ids: Vec<String>,
 }
 
@@ -703,8 +711,8 @@ fn build_user_async_delegate_selected_context(
     (user_async_delegate_truncate_chars(joined.trim(), 30000), count)
 }
 
-fn normalize_user_async_delegate_background(raw_background: &str) -> String {
-    let trimmed = raw_background.trim();
+fn normalize_user_async_delegate_why(raw_why: &str) -> String {
+    let trimmed = raw_why.trim();
     if trimmed.eq_ignore_ascii_case("请使用review skill")
         || trimmed.eq_ignore_ascii_case("请使用 review skill")
     {
@@ -713,14 +721,14 @@ fn normalize_user_async_delegate_background(raw_background: &str) -> String {
     trimmed.to_string()
 }
 
-fn build_user_async_delegate_background(
-    raw_background: &str,
+fn build_user_async_delegate_why(
+    raw_why: &str,
     selected_context: &str,
 ) -> String {
     let mut parts = Vec::<String>::new();
-    let raw_background = normalize_user_async_delegate_background(raw_background);
-    if !raw_background.is_empty() {
-        parts.push(format!("用户补充背景：\n{raw_background}"));
+    let raw_why = normalize_user_async_delegate_why(raw_why);
+    if !raw_why.is_empty() {
+        parts.push(format!("用户补充背景：\n{raw_why}"));
     }
     let selected_context = selected_context.trim();
     if !selected_context.is_empty() {
@@ -729,13 +737,13 @@ fn build_user_async_delegate_background(
     parts.join("\n\n")
 }
 
-fn user_async_delegate_title(question: &str, preset_id: Option<&str>) -> String {
+fn user_async_delegate_title(goal: &str, preset_id: Option<&str>) -> String {
     let prefix = match preset_id.map(str::trim).filter(|value| !value.is_empty()) {
         Some("review") => "审查委托",
         Some(_) => "异步委托",
         None => "异步委托",
     };
-    let first_line = question
+    let first_line = goal
         .trim()
         .lines()
         .map(str::trim)
@@ -767,11 +775,12 @@ fn resolve_user_async_delegate_plan(
         .map(str::trim)
         .filter(|value| !value.is_empty())
         .ok_or_else(|| "targetAgentId is required".to_string())?;
-    let question = input.question.trim();
-    if question.is_empty() {
-        return Err("question is required".to_string());
+    let goal = delegate_arg_new_or_legacy(&input.goal, &input.question);
+    if goal.trim().is_empty() {
+        return Err("goal is required".to_string());
     }
-    let focus = input.focus.trim();
+    let todo = delegate_arg_new_or_legacy(&input.todo, &input.focus);
+    let raw_why = delegate_arg_new_or_legacy(&input.why, &input.background);
     let selected_message_ids = input
         .selected_message_ids
         .iter()
@@ -832,8 +841,8 @@ fn resolve_user_async_delegate_plan(
 
     let (selected_context, selected_count) =
         build_user_async_delegate_selected_context(&conversation, agents, &selected_message_ids);
-    let background = build_user_async_delegate_background(&input.background, &selected_context);
-    let title = user_async_delegate_title(question, input.preset_id.as_deref());
+    let why = build_user_async_delegate_why(&raw_why, &selected_context);
+    let title = user_async_delegate_title(&goal, input.preset_id.as_deref());
     Ok((
         UserAsyncDelegatePlan {
             root_conversation_id: conversation.id.clone(),
@@ -843,9 +852,9 @@ fn resolve_user_async_delegate_plan(
             target_agent_id: target_agent_id.to_string(),
             target_agent_name: target_agent.name.trim().to_string(),
             title,
-            question: question.to_string(),
-            background,
-            focus: focus.to_string(),
+            goal,
+            why,
+            todo,
             target_api_config_ids,
         },
         selected_count,
@@ -1026,10 +1035,9 @@ fn spawn_user_async_delegate(app_state: AppState, plan: UserAsyncDelegatePlan) -
         &plan.source_agent_id,
         &plan.target_agent_id,
         &plan.title,
-        &plan.question,
-        plan.background.clone(),
-        plan.focus.clone(),
-        String::new(),
+        plan.why.clone(),
+        plan.goal.clone(),
+        plan.todo.clone(),
         false,
         vec![
             plan.source_department_id.clone(),
@@ -1128,9 +1136,8 @@ fn spawn_user_mention_delegate(app_state: AppState, plan: UserMentionPlan) {
             &plan.source_agent_id,
             &plan.target_agent_id,
             &format!("用户@委托：{}", plan.target_agent_name.trim()),
-            &plan.instruction,
             plan.background.clone(),
-            String::new(),
+            plan.instruction.clone(),
             "请直接基于当前上下文作答，不要复述委托框架。".to_string(),
             false,
             vec![

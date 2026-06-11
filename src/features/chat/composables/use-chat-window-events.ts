@@ -111,6 +111,14 @@ export function useChatWindowEvents(bindings: Record<string, any>) {
         console.error("[会话置顶] 监听器注册失败", error);
       });
 
+      void listen<any>("easy-call:conversation-goal-updated", (event) => {
+        bindings.applyConversationGoalUpdated(event.payload);
+      }).then((unlisten) => {
+        bindings.unlisteners.chatConversationGoalUpdated = unlisten;
+      }).catch((error) => {
+        console.error("[目标] 监听器注册失败", error);
+      });
+
       void listen<any>("easy-call:conversation-runtime-state-updated", (event) => {
         bindings.applyConversationRuntimeStateUpdated(event.payload);
       }).then((unlisten) => {
@@ -227,6 +235,10 @@ export function useChatWindowEvents(bindings: Record<string, any>) {
     if (bindings.unlisteners.chatConversationPinUpdated) {
       bindings.unlisteners.chatConversationPinUpdated();
       bindings.unlisteners.chatConversationPinUpdated = null;
+    }
+    if (bindings.unlisteners.chatConversationGoalUpdated) {
+      bindings.unlisteners.chatConversationGoalUpdated();
+      bindings.unlisteners.chatConversationGoalUpdated = null;
     }
     if (bindings.unlisteners.chatConversationRuntimeStateUpdated) {
       bindings.unlisteners.chatConversationRuntimeStateUpdated();

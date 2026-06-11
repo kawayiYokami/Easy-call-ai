@@ -737,6 +737,23 @@ export type ArchiveBlockPage = {
   hasNextBlock: boolean;
 };
 
+export type ConversationGoalUsage = {
+  inputTokens: number;
+  outputTokens: number;
+  cacheReadTokens: number;
+  cacheWriteTokens: number;
+};
+
+export type ConversationGoalState = {
+  goalId: string;
+  status: "active" | "complete" | "blocked" | "cancelled_by_user" | string;
+  objective: string;
+  startedAt: string;
+  endedAt?: string | null;
+  usageStart?: ConversationGoalUsage;
+  usageEnd?: ConversationGoalUsage | null;
+};
+
 export type UnarchivedConversationSummary = {
   conversationId: string;
   title: string;
@@ -764,6 +781,7 @@ export type UnarchivedConversationSummary = {
   runtimeState?: "idle" | "assistant_streaming" | "organizing_context" | "archiving" | "compacting";
   currentTodo?: string;
   planModeEnabled?: boolean;
+  activeGoal?: ConversationGoalState | null;
   currentTodos?: ChatTodoItem[];
   detachedWindowOpen?: boolean;
   detachedWindowLabel?: string;
@@ -826,6 +844,7 @@ export type ChatConversationOverviewItem = {
   pinIndex?: number;
   runtimeState?: "idle" | "assistant_streaming" | "organizing_context" | "archiving" | "compacting";
   currentTodo?: string;
+  activeGoal?: ConversationGoalState | null;
   currentTodos?: ChatTodoItem[];
   detachedWindowOpen?: boolean;
   detachedWindowLabel?: string;

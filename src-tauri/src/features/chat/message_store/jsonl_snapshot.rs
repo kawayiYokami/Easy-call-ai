@@ -545,6 +545,7 @@ mod jsonl_snapshot_conversation_block_tests {
             memory_recall_table: Vec::new(),
             plan_mode_enabled: false,
             preferred_api_config_id: None,
+            active_goal: None,
             cumulative_usage: ConversationCumulativeUsage::default(),
         }
     }

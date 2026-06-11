@@ -148,6 +148,15 @@ fn delegate_runtime_thread_build(
     conversation.updated_at = delegate.updated_at.clone();
     conversation.last_user_at = None;
     conversation.last_assistant_at = None;
+    conversation.active_goal = Some(ConversationGoalState {
+        goal_id: format!("goal-{}", Uuid::new_v4()),
+        status: GOAL_STATUS_ACTIVE.to_string(),
+        objective: delegate.goal.clone(),
+        started_at: delegate.created_at.clone(),
+        ended_at: None,
+        usage_start: conversation.cumulative_usage.clone(),
+        usage_end: None,
+    });
     if let Some(parent_workspace) = delegate_parent_shell_workspace(
         app_state,
         &delegate.conversation_id,

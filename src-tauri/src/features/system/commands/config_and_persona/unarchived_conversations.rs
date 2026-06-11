@@ -88,6 +88,7 @@ fn switch_active_conversation_snapshot(
         current_todo: snapshot.current_todo,
         current_todos: snapshot.current_todos,
         preferred_api_config_id: snapshot.preferred_api_config_id,
+        active_goal: snapshot.active_goal,
         unarchived_conversations,
     })
 }
@@ -116,7 +117,8 @@ fn get_foreground_conversation_light_snapshot(
             repair_conversation_preferred_model_for_snapshot(state.inner(), &conversation)?;
         snapshot.runtime_state = unarchived_conversation_runtime_state(state.inner(), &conversation.id);
         snapshot.current_todo = conversation_current_todo_text(&conversation);
-        snapshot.current_todos = conversation.current_todos;
+        snapshot.current_todos = conversation.current_todos.clone();
+        snapshot.active_goal = goal_active_goal_from_conversation(&conversation);
     }
     runtime_log_info(format!(
         "[前台轻量快照] 完成，conversation_id={}，message_count={}，has_more_history={}，duration_ms={}",
@@ -134,6 +136,7 @@ fn get_foreground_conversation_light_snapshot(
         current_todo: snapshot.current_todo,
         current_todos: snapshot.current_todos,
         preferred_api_config_id: snapshot.preferred_api_config_id,
+        active_goal: snapshot.active_goal,
         unarchived_conversations: conversation_service()
             .list_unarchived_conversation_summaries(state.inner())?
             .summaries,
@@ -1102,12 +1105,7 @@ fn delegate_display_title_from_entry(entry: &DelegateEntry) -> String {
     if !delegate_title_is_generic(&explicit_title) {
         return explicit_title;
     }
-    [
-        entry.specific_goal.as_str(),
-        entry.instruction.as_str(),
-        entry.deliverable_requirement.as_str(),
-        entry.background.as_str(),
-    ]
+    [entry.goal.as_str(), entry.todo.as_str(), entry.why.as_str()]
     .iter()
     .map(|value| clean_delegate_display_title(value))
     .find(|value| !value.is_empty())
@@ -2445,6 +2443,7 @@ mod unarchived_conversations_tests {
             memory_recall_table: Vec::new(),
             plan_mode_enabled: true,
             preferred_api_config_id: None,
+            active_goal: None,
             cumulative_usage: ConversationCumulativeUsage::default(),
         }
     }

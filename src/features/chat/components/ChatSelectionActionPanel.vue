@@ -77,7 +77,7 @@
         </div>
       </div>
       <div v-if="recentDelegateRequests.length > 0" class="mt-3 flex flex-wrap gap-2">
-        <button v-for="item in recentDelegateRequests" :key="item.id" type="button" class="btn btn-xs max-w-full justify-start" :title="item.question" @click="applyRecentDelegateRequest(item)">
+        <button v-for="item in recentDelegateRequests" :key="item.id" type="button" class="btn btn-xs max-w-full justify-start" :title="item.goal" @click="applyRecentDelegateRequest(item)">
           <span class="max-w-52 truncate">{{ item.label }}</span>
         </button>
       </div>
@@ -90,22 +90,22 @@
       />
       <label class="form-control mt-3">
         <span class="label py-1">
-          <span class="label-text text-xs opacity-70">{{ t("chat.selection.delegateBodyLabel") }}</span>
+          <span class="label-text text-xs opacity-70">{{ t("chat.selection.delegateGoalLabel") }}</span>
         </span>
-        <textarea v-model="selectionDelegateQuestion" class="textarea textarea-bordered min-h-24 w-full resize-y text-sm" :placeholder="t('chat.selection.questionPlaceholder')"></textarea>
+        <textarea v-model="selectionDelegateGoal" class="textarea textarea-bordered min-h-24 w-full resize-y text-sm" :placeholder="t('chat.selection.goalPlaceholder')"></textarea>
       </label>
       <div class="mt-2 grid grid-cols-2 gap-2">
         <label class="form-control min-w-0">
           <span class="label py-1">
-            <span class="label-text text-xs opacity-70">{{ t("chat.selection.backgroundLabel") }}</span>
+            <span class="label-text text-xs opacity-70">{{ t("chat.selection.delegateWhyLabel") }}</span>
           </span>
-          <textarea v-model="selectionDelegateBackground" class="textarea textarea-bordered min-h-20 w-full resize-y text-sm" :placeholder="t('chat.selection.backgroundPlaceholder')"></textarea>
+          <textarea v-model="selectionDelegateWhy" class="textarea textarea-bordered min-h-20 w-full resize-y text-sm" :placeholder="t('chat.selection.whyPlaceholder')"></textarea>
         </label>
         <label class="form-control min-w-0">
           <span class="label py-1">
-            <span class="label-text text-xs opacity-70">{{ t("chat.selection.focusLabel") }}</span>
+            <span class="label-text text-xs opacity-70">{{ t("chat.selection.delegateTodoLabel") }}</span>
           </span>
-          <textarea v-model="selectionDelegateFocus" class="textarea textarea-bordered min-h-20 w-full resize-y text-sm" :placeholder="t('chat.selection.focusPlaceholder')"></textarea>
+          <textarea v-model="selectionDelegateTodo" class="textarea textarea-bordered min-h-20 w-full resize-y text-sm" :placeholder="t('chat.selection.todoPlaceholder')"></textarea>
         </label>
       </div>
       <div class="mt-3 flex items-center justify-end gap-2">
@@ -144,9 +144,9 @@ type RecentDelegateRequest = {
   departmentId: string;
   agentId: string;
   presetId: string;
-  background: string;
-  question: string;
-  focus: string;
+  why: string;
+  goal: string;
+  todo: string;
 };
 
 const props = defineProps<{
@@ -162,7 +162,7 @@ const emit = defineEmits<{
   exitSelectionMode: [];
   selectionActionBranch: [];
   selectionActionForward: [targetConversationId: string];
-  selectionActionDelegate: [payload: { departmentId: string; agentId: string; presetId: string; background: string; question: string; focus: string }];
+  selectionActionDelegate: [payload: { departmentId: string; agentId: string; presetId: string; why: string; goal: string; todo: string }];
   selectionActionCopy: [];
   selectionActionShare: [format: "html" | "png"];
 }>();
@@ -180,9 +180,9 @@ const selectionShareCardOpen = ref(false);
 const selectionDelegateDepartmentId = ref("");
 const selectionDelegateAgentId = ref("");
 const selectionDelegatePresetId = ref("review");
-const selectionDelegateBackground = ref("");
-const selectionDelegateQuestion = ref("");
-const selectionDelegateFocus = ref("");
+const selectionDelegateWhy = ref("");
+const selectionDelegateGoal = ref("");
+const selectionDelegateTodo = ref("");
 const recentDelegateRequests = ref<RecentDelegateRequest[]>([]);
 
 const selectionDeliverTargetOptions = computed(() =>
@@ -228,7 +228,7 @@ const canSubmitSelectionDelegate = computed(() =>
     department.departmentId === String(selectionDelegateDepartmentId.value || "").trim()
     && department.agentId === String(selectionDelegateAgentId.value || "").trim()
   )
-  && !!String(selectionDelegateQuestion.value || "").trim(),
+  && !!String(selectionDelegateGoal.value || "").trim(),
 );
 
 function selectionDeliverOptionLabel(item: { title: string; departmentName?: string; runtimeState?: ChatConversationOverviewItem["runtimeState"] }): string {
@@ -265,24 +265,28 @@ function confirmSelectionDeliver() {
 }
 
 function normalizeRecentDelegateRequest(raw: unknown): RecentDelegateRequest | null {
-  const item = raw as Partial<RecentDelegateRequest> | null;
+  const item = raw as (Partial<RecentDelegateRequest> & {
+    background?: string;
+    question?: string;
+    focus?: string;
+  }) | null;
   if (!item) return null;
   const departmentId = String(item.departmentId || "").trim();
   const agentId = String(item.agentId || "").trim();
-  const question = String(item.question || "").trim();
-  const focus = String(item.focus || "").trim();
-  if (!departmentId || !agentId || !question) return null;
+  const goal = String(item.goal || item.question || "").trim();
+  const todo = String(item.todo || item.focus || "").trim();
+  if (!departmentId || !agentId || !goal) return null;
   const presetId = String(item.presetId || "review").trim() || "review";
-  const label = String(item.label || question).trim() || question;
+  const label = String(item.label || goal).trim() || goal;
   return {
-    id: String(item.id || `${departmentId}:${presetId}:${question}`).trim(),
+    id: String(item.id || `${departmentId}:${presetId}:${goal}`).trim(),
     label,
     departmentId,
     agentId,
     presetId,
-    background: String(item.background || "").trim(),
-    question,
-    focus,
+    why: String(item.why || item.background || "").trim(),
+    goal,
+    todo,
   };
 }
 
@@ -310,21 +314,21 @@ function loadRecentDelegateRequests() {
 }
 
 function rememberDelegateRequest(raw: Omit<RecentDelegateRequest, "id" | "label">) {
-  const request = normalizeRecentDelegateRequest({ ...raw, id: `${Date.now()}:${raw.departmentId}:${raw.agentId}`, label: raw.question });
+  const request = normalizeRecentDelegateRequest({ ...raw, id: `${Date.now()}:${raw.departmentId}:${raw.agentId}`, label: raw.goal });
   if (!request) return;
-  const key = `${request.departmentId}\n${request.agentId}\n${request.presetId}\n${request.background}\n${request.question}\n${request.focus}`;
+  const key = `${request.departmentId}\n${request.agentId}\n${request.presetId}\n${request.why}\n${request.goal}\n${request.todo}`;
   recentDelegateRequests.value = [
     request,
-    ...recentDelegateRequests.value.filter((item) => `${item.departmentId}\n${item.agentId}\n${item.presetId}\n${item.background}\n${item.question}\n${item.focus}` !== key),
+    ...recentDelegateRequests.value.filter((item) => `${item.departmentId}\n${item.agentId}\n${item.presetId}\n${item.why}\n${item.goal}\n${item.todo}` !== key),
   ].slice(0, USER_ASYNC_DELEGATE_RECENT_LIMIT);
   saveRecentDelegateRequests();
 }
 
 function clearSelectionDelegateFields() {
   selectionDelegatePresetId.value = "review";
-  selectionDelegateBackground.value = "";
-  selectionDelegateQuestion.value = "";
-  selectionDelegateFocus.value = "";
+  selectionDelegateWhy.value = "";
+  selectionDelegateGoal.value = "";
+  selectionDelegateTodo.value = "";
 }
 
 function applyRecentDelegateRequest(item: RecentDelegateRequest) {
@@ -336,9 +340,9 @@ function applyRecentDelegateRequest(item: RecentDelegateRequest) {
     selectionDelegateAgentId.value = item.agentId;
   }
   selectionDelegatePresetId.value = item.presetId || "review";
-  selectionDelegateBackground.value = item.background;
-  selectionDelegateQuestion.value = item.question;
-  selectionDelegateFocus.value = item.focus;
+  selectionDelegateWhy.value = item.why;
+  selectionDelegateGoal.value = item.goal;
+  selectionDelegateTodo.value = item.todo;
 }
 
 function openSelectionDelegateCard() {
@@ -388,9 +392,9 @@ function confirmSelectionDelegate() {
     departmentId: String(selectionDelegateDepartmentId.value || "").trim(),
     agentId: String(selectionDelegateAgentId.value || "").trim(),
     presetId: String(selectionDelegatePresetId.value || "review").trim() || "review",
-    background: String(selectionDelegateBackground.value || "").trim(),
-    question: String(selectionDelegateQuestion.value || "").trim(),
-    focus: String(selectionDelegateFocus.value || "").trim(),
+    why: String(selectionDelegateWhy.value || "").trim(),
+    goal: String(selectionDelegateGoal.value || "").trim(),
+    todo: String(selectionDelegateTodo.value || "").trim(),
   };
   rememberDelegateRequest(payload);
   closeSelectionDelegateCard();

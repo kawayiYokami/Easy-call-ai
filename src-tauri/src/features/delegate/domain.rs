@@ -16,13 +16,12 @@ struct DelegateEntry {
     source_agent_id: String,
     target_agent_id: String,
     title: String,
-    instruction: String,
     #[serde(default)]
-    background: String,
+    why: String,
     #[serde(default)]
-    specific_goal: String,
+    goal: String,
     #[serde(default)]
-    deliverable_requirement: String,
+    todo: String,
     notify_assistant_when_done: bool,
     call_stack: Vec<String>,
     status: String,
@@ -44,10 +43,9 @@ struct DelegateCreateInput {
     source_agent_id: String,
     target_agent_id: String,
     title: String,
-    instruction: String,
-    background: String,
-    specific_goal: String,
-    deliverable_requirement: String,
+    why: String,
+    goal: String,
+    todo: String,
     notify_assistant_when_done: bool,
     call_stack: Vec<String>,
 }

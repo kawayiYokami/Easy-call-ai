@@ -527,6 +527,18 @@ struct BuiltinTodoTool {
     session_id: String,
 }
 
+#[derive(Debug, Clone)]
+struct BuiltinCreateGoalTool {
+    app_state: AppState,
+    session_id: String,
+}
+
+#[derive(Debug, Clone)]
+struct BuiltinUpdateGoalTool {
+    app_state: AppState,
+    session_id: String,
+}
+
 impl RuntimeToolMetadata for BuiltinTodoTool {
     fn provider_tool_definition(&self) -> ProviderToolDefinition {
         todo_provider_tool_definition()
@@ -614,15 +626,15 @@ impl RuntimeToolMetadata for BuiltinTaskTool {
     fn provider_tool_definition(&self) -> ProviderToolDefinition {
         ProviderToolDefinition::new(
             "task",
-            "创建和管理会在未来自动触发、并回到会话继续推进的持久化任务。",
+            "创建和管理会在未来自动触发委托的持久化任务。任务到点后会启动一个委托，并在委托会话中绑定 goal；委托完成后结果回到来源会话。",
             serde_json::json!({
               "type": "object",
               "properties": {
                 "action": { "type": "string", "enum": ["list", "get", "create", "complete"], "description": "要执行的动作。" },
                 "task_id": { "type": "string", "description": "任务 ID。get、complete 时必填。" },
-                "goal": { "type": "string", "description": "任务目标，也是列表标题。" },
-                "how": { "type": "string", "description": "当前下一步要做什么，或准备如何推进；重点写下一步。" },
+                "goal": { "type": "string", "description": "任务到点后要交给委托完成的目标，也是列表标题。" },
                 "why": { "type": "string", "description": "为什么要做这件事，用来避免后续推进走偏。" },
+                "todo": { "type": "string", "description": "委托启动时要关注的下一步、范围边界或交付要求。" },
                 "completion_state": { "type": "string", "enum": ["completed", "failed_completed"], "description": "complete 时必填。completed 表示完成，failed_completed 表示结束但失败。" },
                 "completion_conclusion": { "type": "string", "description": "complete 时填写最终结果、失败原因或阻塞点。" },
                 "trigger": {
@@ -638,6 +650,92 @@ impl RuntimeToolMetadata for BuiltinTaskTool {
               "required": ["action"]
             }),
         )
+    }
+}
+
+impl RuntimeToolMetadata for BuiltinCreateGoalTool {
+    fn provider_tool_definition(&self) -> ProviderToolDefinition {
+        ProviderToolDefinition::new(
+            "create_goal",
+            "在当前会话启动一个持续执行的 goal。只在用户明确要求启动目标时使用；已有 active goal 时会失败。",
+            serde_json::json!({
+              "type": "object",
+              "properties": {
+                "objective": { "type": "string", "description": "用户提供的完整目标内容。" }
+              },
+              "required": ["objective"],
+              "additionalProperties": false
+            }),
+        )
+    }
+}
+
+impl RuntimeJsonTool for BuiltinCreateGoalTool {
+    const NAME: &'static str = "create_goal";
+    type Args = CreateGoalToolArgs;
+    type Error = ToolInvokeError;
+
+    fn call_typed(&self, args: Self::Args) -> RuntimeJsonValueFuture<'_, Self::Error> {
+        Box::pin(async move {
+            runtime_log_debug(format!(
+                "[TOOL-DEBUG] execute_builtin_tool.start name=create_goal args={}",
+                debug_value_snippet(&serde_json::to_value(&args).unwrap_or(Value::Null), 240)
+            ));
+            let result = goal_create_for_session(&self.app_state, &self.session_id, args)
+                .map_err(ToolInvokeError::from);
+            match &result {
+                Ok(v) => runtime_log_debug(format!(
+                    "[TOOL-DEBUG] execute_builtin_tool.ok name=create_goal result={}",
+                    debug_value_snippet(v, 240)
+                )),
+                Err(err) => eprintln!("[工具执行] 内置工具 create_goal 执行失败: 错误={err}"),
+            }
+            result
+        })
+    }
+}
+
+impl RuntimeToolMetadata for BuiltinUpdateGoalTool {
+    fn provider_tool_definition(&self) -> ProviderToolDefinition {
+        ProviderToolDefinition::new(
+            "update_goal",
+            "将当前会话 active goal 标记为终态。只允许 complete 或 blocked；不要用它记录普通进度。",
+            serde_json::json!({
+              "type": "object",
+              "properties": {
+                "status": { "type": "string", "enum": ["complete", "blocked"], "description": "goal 终态。" },
+                "evidence": { "type": "string", "description": "status=complete 时必填，说明证明目标已完成的证据。" },
+                "blocking_condition": { "type": "string", "description": "status=blocked 时必填，说明连续阻塞的同一条件。" }
+              },
+              "required": ["status"],
+              "additionalProperties": false
+            }),
+        )
+    }
+}
+
+impl RuntimeJsonTool for BuiltinUpdateGoalTool {
+    const NAME: &'static str = "update_goal";
+    type Args = UpdateGoalToolArgs;
+    type Error = ToolInvokeError;
+
+    fn call_typed(&self, args: Self::Args) -> RuntimeJsonValueFuture<'_, Self::Error> {
+        Box::pin(async move {
+            runtime_log_debug(format!(
+                "[TOOL-DEBUG] execute_builtin_tool.start name=update_goal args={}",
+                debug_value_snippet(&serde_json::to_value(&args).unwrap_or(Value::Null), 240)
+            ));
+            let result = goal_update_for_session(&self.app_state, &self.session_id, args)
+                .map_err(ToolInvokeError::from);
+            match &result {
+                Ok(v) => runtime_log_debug(format!(
+                    "[TOOL-DEBUG] execute_builtin_tool.ok name=update_goal result={}",
+                    debug_value_snippet(v, 240)
+                )),
+                Err(err) => eprintln!("[工具执行] 内置工具 update_goal 执行失败: 错误={err}"),
+            }
+            result
+        })
     }
 }
 
@@ -692,11 +790,11 @@ impl RuntimeToolMetadata for BuiltinDelegateTool {
               "properties": {
                 "department_id": { "type": "string", "description": "要委托给哪个下级部门的 ID。应选择与当前任务最匹配的直接下级部门。" },
                 "mode": { "type": "string", "enum": ["wait", "background"], "description": "委托方式。mode 只表示父调度是否等待结果，不表示是否并发。除非用户明确要求后台运行，否则一律使用 wait。wait 会等待子代理返回结果，多个 wait 委托可以同时发出并等待全部返回；background 会后台运行并稍后写回当前来源会话。", "default": "wait" },
-                "background": { "type": "string", "description": "提供给子代理的背景信息、已知事实、已有线索或上下文，帮助它更快进入问题。" },
-                "question": { "type": "string", "description": "这次委托要子代理查清的核心问题，最好写成明确的调查目标或待回答的问题。" },
-                "focus": { "type": "string", "description": "告诉子代理优先关注哪些方向、关键词、对象或比对点；用于缩小搜索范围、避免跑偏。" }
+                "why": { "type": "string", "description": "为什么要做、背景材料、已知事实、已有线索或必要上下文。" },
+                "goal": { "type": "string", "description": "这次委托要达成的目标，写成明确可执行、可判断完成的任务。" },
+                "todo": { "type": "string", "description": "优先关注点、范围边界、交付要求、下一步待办或需要避免的方向。" }
               },
-              "required": ["department_id", "background", "question", "focus"]
+              "required": ["department_id", "why", "goal", "todo"]
             }),
         )
     }

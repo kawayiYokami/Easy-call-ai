@@ -568,6 +568,33 @@ fn conversation_has_guided_queue_events(
         .unwrap_or(false))
 }
 
+fn conversation_has_pending_queue_events(
+    state: &AppState,
+    conversation_id: &str,
+) -> Result<bool, String> {
+    let slots = lock_conversation_runtime_slots(state)?;
+    Ok(slots
+        .get(conversation_id.trim())
+        .map(|slot| !slot.pending_queue.is_empty())
+        .unwrap_or(false))
+}
+
+fn conversation_is_idle_for_goal_fallback(
+    state: &AppState,
+    conversation_id: &str,
+) -> Result<bool, String> {
+    let conversation_id = conversation_id.trim();
+    let claims = lock_conversation_processing_claims(state)?;
+    if claims.contains(conversation_id) {
+        return Ok(false);
+    }
+    let slots = lock_conversation_runtime_slots(state)?;
+    Ok(slots
+        .get(conversation_id)
+        .map(|slot| slot.state == MainSessionState::Idle && slot.pending_queue.is_empty())
+        .unwrap_or(true))
+}
+
 fn tool_loop_should_close_for_guided_queue(
     state: Option<&AppState>,
     context: Option<&ToolLoopAutoCompactionContext>,
@@ -1448,6 +1475,107 @@ pub(crate) fn trigger_chat_event_after_ingress(state: &AppState, ingress: ChatEv
     });
 }
 
+fn goal_continue_turn_for_conversation(
+    conversation: &Conversation,
+    goal_id: &str,
+) -> usize {
+    conversation
+        .messages
+        .iter()
+        .filter(|message| {
+            message
+                .provider_meta
+                .as_ref()
+                .and_then(|meta| meta.get("messageKind"))
+                .and_then(Value::as_str)
+                .map(str::trim)
+                == Some("goal_continue")
+                && message
+                    .provider_meta
+                    .as_ref()
+                    .and_then(|meta| meta.get("goalId"))
+                    .and_then(Value::as_str)
+                    .map(str::trim)
+                    == Some(goal_id)
+        })
+        .count()
+        + 1
+}
+
+fn maybe_enqueue_goal_continue_after_idle(
+    state: &AppState,
+    conversation_id: &str,
+) -> Result<bool, String> {
+    let conversation_id = conversation_id.trim();
+    if conversation_id.is_empty() || !conversation_is_idle_for_goal_fallback(state, conversation_id)? {
+        return Ok(false);
+    }
+    let conversation = match state_read_conversation_cached(state, conversation_id) {
+        Ok(conversation) if conversation.summary.trim().is_empty() => conversation,
+        _ => return Ok(false),
+    };
+    let Some(goal) = goal_active_goal_from_conversation(&conversation) else {
+        return Ok(false);
+    };
+    let goal_turn = goal_continue_turn_for_conversation(&conversation, &goal.goal_id);
+    let now = now_iso();
+    let prompt = render_goal_continuation_prompt(&goal.objective);
+    let event_id = format!("goal-continue-{}", Uuid::new_v4());
+    let request_id = format!("goal-continue-request-{}", Uuid::new_v4());
+    let message = ChatMessage {
+        id: Uuid::new_v4().to_string(),
+        role: "user".to_string(),
+        created_at: now.clone(),
+        speaker_agent_id: None,
+        parts: vec![MessagePart::Text {
+            text: prompt.clone(),
+            reasoning_content: None,
+        }],
+        extra_text_blocks: Vec::new(),
+        provider_meta: Some(serde_json::json!({
+            "messageKind": "goal_continue",
+            "hiddenPromptText": prompt,
+            "goalId": goal.goal_id,
+            "goalTurn": goal_turn,
+        })),
+        tool_call: None,
+        mcp_call: None,
+    };
+    let mut runtime_context = runtime_context_new("goal_continue", "active_goal");
+    runtime_context.request_id = Some(request_id);
+    runtime_context.dispatch_id = Some(format!("goal-continue-dispatch-{}", Uuid::new_v4()));
+    runtime_context.origin_conversation_id = Some(conversation_id.to_string());
+    runtime_context.target_conversation_id = Some(conversation_id.to_string());
+    runtime_context.root_conversation_id = conversation
+        .root_conversation_id
+        .clone()
+        .or_else(|| Some(conversation_id.to_string()));
+    runtime_context.executor_agent_id = Some(conversation.agent_id.clone());
+    runtime_context.executor_department_id = Some(conversation.department_id.clone());
+    let event = ChatPendingEvent {
+        id: event_id,
+        conversation_id: conversation_id.to_string(),
+        created_at: now,
+        source: ChatEventSource::System,
+        queue_mode: ChatQueueMode::Normal,
+        messages: vec![message],
+        activate_assistant: true,
+        session_info: ChatSessionInfo {
+            department_id: conversation.department_id,
+            agent_id: conversation.agent_id,
+        },
+        runtime_context: Some(runtime_context),
+        sender_info: None,
+    };
+    let ingress = ingress_chat_event(state, event)?;
+    runtime_log_info(format!(
+        "[目标续跑] 开始，任务=goal_continue，conversation_id={}，goal_id={}，goal_turn={}",
+        conversation_id, goal.goal_id, goal_turn
+    ));
+    trigger_chat_event_after_ingress(state, ingress);
+    Ok(true)
+}
+
 async fn process_claimed_conversation_batch(
     state: &AppState,
     conversation_id: &str,
@@ -1463,6 +1591,12 @@ async fn process_claimed_conversation_batch(
     emit_chat_queue_snapshot(state);
     if conversation_has_guided_queue_events(state, conversation_id).unwrap_or(false) {
         trigger_guided_queue_processing(state, conversation_id);
+    } else if conversation_has_pending_queue_events(state, conversation_id).unwrap_or(false) {
+        trigger_chat_queue_processing(state);
+    } else if result.is_ok()
+        && maybe_enqueue_goal_continue_after_idle(state, conversation_id).unwrap_or(false)
+    {
+        trigger_chat_queue_processing(state);
     } else {
         trigger_chat_queue_processing(state);
     }
@@ -1479,6 +1613,7 @@ fn resolve_activation_reason(runtime_context: &RuntimeContext) -> String {
         "user_send" => "user_send",
         "task_due" => "task_due",
         "remote_im_followup" => "remote_im_followup",
+        "active_goal" => "active_goal",
         "context_compaction_followup" => "context_compaction_followup",
         "after_auto_compaction" | "after_tool_continue_compaction" => {
             "context_compaction_followup"

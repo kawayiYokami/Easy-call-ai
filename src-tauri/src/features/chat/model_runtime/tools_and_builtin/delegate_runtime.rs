@@ -32,23 +32,19 @@ fn delegate_parse_session_parts(session_id: &str) -> (String, String, Option<Str
 
 fn delegate_build_task_prompt_block(
     title: &str,
-    instruction: &str,
-    background: &str,
-    specific_goal: &str,
-    deliverable_requirement: &str,
+    why: &str,
+    goal: &str,
+    todo: &str,
 ) -> String {
     let mut lines = vec![format!("子代理咨询：{}", title.trim())];
-    lines.push(format!("提问：{}", instruction.trim()));
-    if !background.trim().is_empty() {
-        lines.push(format!("背景：{}", background.trim()));
+    if !why.trim().is_empty() {
+        lines.push(format!("背景：{}", why.trim()));
     }
-    if !specific_goal.trim().is_empty() {
-        lines.push(format!("关注重点：{}", specific_goal.trim()));
+    lines.push(format!("目标：{}", goal.trim()));
+    if !todo.trim().is_empty() {
+        lines.push(format!("要求：{}", todo.trim()));
     }
-    if !deliverable_requirement.trim().is_empty() {
-        lines.push(format!("交付要求：{}", deliverable_requirement.trim()));
-    }
-    prompt_xml_block("delegate task", lines.join("\n"))
+    prompt_xml_block("delegate goal", lines.join("\n"))
 }
 
 fn delegate_build_trigger_provider_meta(
@@ -183,20 +179,18 @@ impl<'a> Drop for NoApprovalDialogGuard<'a> {
     }
 }
 
-async fn delegate_execute_agent_run(
+async fn delegate_execute_agent_prompt(
     app_state: &AppState,
     delegate: &DelegateEntry,
     target_api_config_id: &str,
     root_conversation_id: &str,
     delegate_conversation_id: &str,
+    hidden_prompt: String,
+    provider_meta: Value,
+    event_source: &str,
+    dispatch_reason: &str,
+    request_id: String,
 ) -> Result<SendChatResult, String> {
-    let hidden_prompt = delegate_build_task_prompt_block(
-        &delegate.title,
-        &delegate.instruction,
-        &delegate.background,
-        &delegate.specific_goal,
-        &delegate.deliverable_requirement,
-    );
     let request = SendChatRequest {
         payload: ChatInputPayload {
             text: Some(hidden_prompt),
@@ -207,7 +201,7 @@ async fn delegate_execute_agent_run(
             model: None,
             extra_text_blocks: None,
             mentions: None,
-            provider_meta: Some(delegate_build_trigger_provider_meta(delegate, root_conversation_id)),
+            provider_meta: Some(provider_meta),
         },
         session: Some(SessionSelector {
             api_config_id: Some(target_api_config_id.to_string()),
@@ -216,11 +210,11 @@ async fn delegate_execute_agent_run(
             conversation_id: Some(delegate_conversation_id.to_string()),
         }),
         speaker_agent_id: Some(delegate.source_agent_id.clone()),
-        trace_id: Some(format!("delegate-{}", delegate.delegate_id)),
+        trace_id: Some(request_id.clone()),
         oldest_queue_created_at: None,
         remote_im_activation_sources: Vec::new(),
         runtime_context: Some(RuntimeContext {
-            request_id: Some(format!("delegate-request-{}", delegate.delegate_id)),
+            request_id: Some(request_id),
             dispatch_id: Some(format!("delegate-dispatch-{}", delegate.delegate_id)),
             origin_conversation_id: Some(root_conversation_id.to_string()),
             target_conversation_id: Some(delegate_conversation_id.to_string()),
@@ -228,8 +222,8 @@ async fn delegate_execute_agent_run(
             executor_agent_id: Some(delegate.target_agent_id.clone()),
             executor_department_id: Some(delegate.target_department_id.clone()),
             model_config_id: Some(target_api_config_id.to_string()),
-            event_source: runtime_context_trimmed(Some("delegate_trigger")),
-            dispatch_reason: runtime_context_trimmed(Some("delegate_send")),
+            event_source: runtime_context_trimmed(Some(event_source)),
+            dispatch_reason: runtime_context_trimmed(Some(dispatch_reason)),
             ..RuntimeContext::default()
         }),
         trigger_only: false,
@@ -237,6 +231,61 @@ async fn delegate_execute_agent_run(
     let noop_channel = tauri::ipc::Channel::new(|_| Ok(()));
     let _guard = NoApprovalDialogGuard::enter(app_state, delegate_conversation_id.to_string());
     send_chat_message_inner(request, app_state, &noop_channel).await
+}
+
+async fn delegate_execute_agent_initial_run(
+    app_state: &AppState,
+    delegate: &DelegateEntry,
+    target_api_config_id: &str,
+    root_conversation_id: &str,
+    delegate_conversation_id: &str,
+) -> Result<SendChatResult, String> {
+    delegate_execute_agent_prompt(
+        app_state,
+        delegate,
+        target_api_config_id,
+        root_conversation_id,
+        delegate_conversation_id,
+        delegate_build_task_prompt_block(&delegate.title, &delegate.why, &delegate.goal, &delegate.todo),
+        delegate_build_trigger_provider_meta(delegate, root_conversation_id),
+        "delegate_trigger",
+        "delegate_send",
+        format!("delegate-request-{}", delegate.delegate_id),
+    )
+    .await
+}
+
+async fn delegate_execute_goal_continue_run(
+    app_state: &AppState,
+    delegate: &DelegateEntry,
+    target_api_config_id: &str,
+    root_conversation_id: &str,
+    delegate_conversation_id: &str,
+    goal: &ConversationGoalState,
+    goal_turn: usize,
+) -> Result<SendChatResult, String> {
+    let prompt = render_goal_continuation_prompt(&goal.objective);
+    delegate_execute_agent_prompt(
+        app_state,
+        delegate,
+        target_api_config_id,
+        root_conversation_id,
+        delegate_conversation_id,
+        prompt.clone(),
+        serde_json::json!({
+            "messageKind": "goal_continue",
+            "hiddenPromptText": prompt,
+            "goalId": goal.goal_id,
+            "goalTurn": goal_turn,
+            "delegateId": delegate.delegate_id,
+            "delegateKind": delegate.kind,
+            "rootConversationId": root_conversation_id,
+        }),
+        "goal_continue",
+        "active_goal",
+        format!("delegate-goal-continue-{}-{}", delegate.delegate_id, goal_turn),
+    )
+    .await
 }
 
 fn delegate_runtime_thread_touch(
@@ -311,33 +360,115 @@ async fn delegate_run_thread_to_completion(
         );
     }
     let mut run_result = Err("未尝试任何候选模型".to_string());
-    let mut errors = Vec::<String>::new();
-    for api_config_id in target_api_config_ids {
-        if let Err(err) = delegate_runtime_thread_touch(&app_state, &delegate_thread_id) {
-            eprintln!(
-                "[委托线程] 更新运行模型失败: function=delegate_run_thread_to_completion, delegate_thread_id={}, delegate_id={}, api_config_id={}, error={}",
-                delegate_thread_id,
-                delegate.delegate_id,
-                api_config_id,
-                err
-            );
+    let mut first_turn = true;
+    loop {
+        let continue_goal = if first_turn {
+            None
+        } else {
+            let conversation = delegate_runtime_thread_conversation_get(&app_state, &delegate_thread_id)?
+                .ok_or_else(|| format!("委托会话不存在，delegateId={}", delegate.delegate_id))?;
+            match conversation.active_goal.as_ref() {
+                Some(goal) if goal.status.trim() == GOAL_STATUS_COMPLETE => {
+                    break;
+                }
+                Some(goal) if goal.status.trim() == GOAL_STATUS_BLOCKED => {
+                    run_result = Err(format!("委托目标阻塞：{}", goal.objective.trim()));
+                    break;
+                }
+                Some(goal) if goal.status.trim() == GOAL_STATUS_CANCELLED_BY_USER => {
+                    run_result = Err("委托目标已被用户取消".to_string());
+                    break;
+                }
+                Some(goal) if conversation_goal_is_active(goal) => {
+                    Some((goal.clone(), goal_continue_turn_for_conversation(&conversation, &goal.goal_id)))
+                }
+                Some(goal) => {
+                    run_result = Err(format!("委托目标状态非法：{}", goal.status.trim()));
+                    break;
+                }
+                None => {
+                    run_result = Err("委托会话缺少 active goal".to_string());
+                    break;
+                }
+            }
+        };
+        let mut turn_result = Err("未尝试任何候选模型".to_string());
+        let mut errors = Vec::<String>::new();
+        for api_config_id in target_api_config_ids.iter() {
+            if let Err(err) = delegate_runtime_thread_touch(&app_state, &delegate_thread_id) {
+                eprintln!(
+                    "[委托线程] 更新运行模型失败: function=delegate_run_thread_to_completion, delegate_thread_id={}, delegate_id={}, api_config_id={}, error={}",
+                    delegate_thread_id,
+                    delegate.delegate_id,
+                    api_config_id,
+                    err
+                );
+            }
+            let attempt = if let Some((goal, goal_turn)) = continue_goal.as_ref() {
+                delegate_execute_goal_continue_run(
+                    &app_state,
+                    &delegate,
+                    api_config_id,
+                    &delegate.conversation_id,
+                    &delegate_thread_id,
+                    goal,
+                    *goal_turn,
+                )
+                .await
+            } else {
+                delegate_execute_agent_initial_run(
+                    &app_state,
+                    &delegate,
+                    api_config_id,
+                    &delegate.conversation_id,
+                    &delegate_thread_id,
+                )
+                .await
+            };
+            match attempt {
+                Ok(result) => {
+                    turn_result = Ok(result);
+                    break;
+                }
+                Err(err) => {
+                    errors.push(format!("{api_config_id}: {err}"));
+                    turn_result = Err(format!("部门所有候选模型均失败：{}", errors.join(" | ")));
+                }
+            }
         }
-        match delegate_execute_agent_run(
-            &app_state,
-            &delegate,
-            &api_config_id,
-            &delegate.conversation_id,
-            &delegate_thread_id,
-        )
-        .await
-        {
-            Ok(result) => {
+        let result = match turn_result {
+            Ok(result) => result,
+            Err(err) => {
+                run_result = Err(err);
+                break;
+            }
+        };
+        run_result = Ok(result.clone());
+        let conversation = delegate_runtime_thread_conversation_get(&app_state, &delegate_thread_id)?
+            .ok_or_else(|| format!("委托会话不存在，delegateId={}", delegate.delegate_id))?;
+        match conversation.active_goal.as_ref() {
+            Some(goal) if goal.status.trim() == GOAL_STATUS_COMPLETE => {
                 run_result = Ok(result);
                 break;
             }
-            Err(err) => {
-                errors.push(format!("{api_config_id}: {err}"));
-                run_result = Err(format!("部门所有候选模型均失败：{}", errors.join(" | ")));
+            Some(goal) if goal.status.trim() == GOAL_STATUS_BLOCKED => {
+                run_result = Err(format!("委托目标阻塞：{}", goal.objective.trim()));
+                break;
+            }
+            Some(goal) if goal.status.trim() == GOAL_STATUS_CANCELLED_BY_USER => {
+                run_result = Err("委托目标已被用户取消".to_string());
+                break;
+            }
+            Some(goal) if conversation_goal_is_active(goal) => {
+                first_turn = false;
+            }
+            Some(goal) => {
+                run_result = Err(format!("委托目标状态非法：{}", goal.status.trim()));
+                break;
+            }
+            None => {
+                run_result = Err("委托会话缺少 active goal".to_string());
+                break;
             }
         }
     }

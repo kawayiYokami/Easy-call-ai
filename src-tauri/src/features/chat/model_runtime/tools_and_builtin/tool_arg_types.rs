@@ -79,9 +79,33 @@ struct DelegateToolArgs {
     target_agent_id: Option<String>,
     #[serde(default)]
     mode: Option<String>,
-    background: String,
-    question: String,
-    focus: String,
+    #[serde(default)]
+    why: Option<String>,
+    #[serde(default)]
+    goal: Option<String>,
+    #[serde(default)]
+    todo: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    background: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    question: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    focus: Option<String>,
+}
+
+fn delegate_arg_new_or_legacy(new_value: &Option<String>, legacy_value: &Option<String>) -> String {
+    new_value
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .or_else(|| {
+            legacy_value
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+        })
+        .unwrap_or_default()
+        .to_string()
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -167,6 +191,8 @@ struct TaskToolArgsWire {
     task_id: Option<String>,
     #[serde(default)]
     goal: Option<String>,
+    #[serde(default)]
+    todo: Option<String>,
     #[serde(default)]
     how: Option<String>,
     #[serde(default)]

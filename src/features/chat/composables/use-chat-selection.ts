@@ -13,7 +13,7 @@ export interface UseChatSelectionOptions {
     selectionActionCopyError: (payload: { count: number; messageIds: string[]; blocks: ChatMessageBlock[]; error: string }) => void;
     selectionActionBranch: (payload: { count: number; messageIds: string[]; blocks: ChatMessageBlock[] }) => void;
     selectionActionForward: (payload: { count: number; messageIds: string[]; blocks: ChatMessageBlock[]; targetConversationId: string }) => void;
-    selectionActionDelegate: (payload: { count: number; messageIds: string[]; blocks: ChatMessageBlock[]; departmentId: string; agentId: string; presetId: string; background: string; question: string; focus: string }) => void;
+    selectionActionDelegate: (payload: { count: number; messageIds: string[]; blocks: ChatMessageBlock[]; departmentId: string; agentId: string; presetId: string; why: string; goal: string; todo: string }) => void;
     selectionActionShare: (payload: { count: number; messageIds: string[]; blocks: ChatMessageBlock[]; exportFormat?: "html" | "png" }) => void;
   };
 }
@@ -118,7 +118,7 @@ export function useChatSelection(options: UseChatSelectionOptions) {
 
   function emitSelectionAction(
     kind: "branch" | "share" | "forward" | "delegate",
-    actionPayload: string | { departmentId: string; agentId: string; presetId: string; background: string; question: string; focus: string } = "",
+    actionPayload: string | { departmentId: string; agentId: string; presetId: string; why: string; goal: string; todo: string } = "",
   ) {
     const payload = selectionPayload();
     if (kind === "branch") {
@@ -140,9 +140,9 @@ export function useChatSelection(options: UseChatSelectionOptions) {
         departmentId: String(actionPayload.departmentId || "").trim(),
         agentId: String(actionPayload.agentId || "").trim(),
         presetId: String(actionPayload.presetId || "review").trim() || "review",
-        background: String(actionPayload.background || "").trim(),
-        question: String(actionPayload.question || "").trim(),
-        focus: String(actionPayload.focus || "").trim(),
+        why: String(actionPayload.why || "").trim(),
+        goal: String(actionPayload.goal || "").trim(),
+        todo: String(actionPayload.todo || "").trim(),
       });
       return;
     }

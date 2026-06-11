@@ -401,7 +401,7 @@ const emit = defineEmits<{
   (e: "exitSelectionMode"): void;
   (e: "selectionActionBranch"): void;
   (e: "selectionActionForward", targetConversationId: string): void;
-  (e: "selectionActionDelegate", payload: { departmentId: string; agentId: string; presetId: string; background: string; question: string; focus: string }): void;
+  (e: "selectionActionDelegate", payload: { departmentId: string; agentId: string; presetId: string; why: string; goal: string; todo: string }): void;
   (e: "selectionActionCopy"): void;
   (e: "selectionActionShare", format: "html" | "png"): void;
   (e: "update:chatInput", value: string): void;

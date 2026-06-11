@@ -116,12 +116,19 @@ fn task_tool_why_from_args(args: &TaskToolArgsWire) -> Option<String> {
         })
 }
 
-fn task_tool_how_from_args(args: &TaskToolArgsWire) -> Option<String> {
-    args.how
+fn task_tool_todo_from_args(args: &TaskToolArgsWire) -> Option<String> {
+    args.todo
         .as_deref()
         .map(str::trim)
         .filter(|value| !value.is_empty())
         .map(ToOwned::to_owned)
+        .or_else(|| {
+            args.how
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(ToOwned::to_owned)
+        })
         .or_else(|| {
             let status_summary = args
                 .status_summary
@@ -207,13 +214,13 @@ async fn builtin_task(
                 agent_id: runtime_context_trimmed(Some(executor_agent_id)),
                 target_scope,
                 why: task_tool_why_from_args(&args).unwrap_or_default(),
-                todo: task_tool_how_from_args(&args).unwrap_or_default(),
+                todo: task_tool_todo_from_args(&args).unwrap_or_default(),
                 trigger: args
                     .trigger
                     .ok_or_else(|| "task.trigger is required for action=create".to_string())?,
             };
             eprintln!(
-                "[任务] 状态=开始 action=create request_id={} goal={} origin_conversation_id={} trigger={} how_present={}",
+                "[任务] 状态=开始 action=create request_id={} goal={} origin_conversation_id={} trigger={} todo_present={}",
                 runtime_context.request_id.as_deref().unwrap_or(""),
                 create_input.goal.trim(),
                 create_input.conversation_id.as_deref().unwrap_or(""),

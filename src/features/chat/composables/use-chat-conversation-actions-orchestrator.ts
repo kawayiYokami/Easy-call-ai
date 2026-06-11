@@ -171,17 +171,17 @@ export function useChatConversationActionsOrchestrator(bindings: Record<string, 
     departmentId: string;
     agentId: string;
     presetId: string;
-    background: string;
-    question: string;
-    focus: string;
+    why: string;
+    goal: string;
+    todo: string;
   }) {
     const conversationId = String(bindings.currentChatConversationId.value || "").trim();
     const targetDepartmentId = String(payload?.departmentId || "").trim();
     const targetAgentId = String(payload?.agentId || "").trim();
     const selectedMessageIds = normalizeSelectedMessageIds(payload?.messageIds);
-    const question = String(payload?.question || "").trim();
-    const focus = String(payload?.focus || "").trim();
-    if (!conversationId || !targetDepartmentId || !targetAgentId || !question) return false;
+    const goal = String(payload?.goal || "").trim();
+    const todo = String(payload?.todo || "").trim();
+    if (!conversationId || !targetDepartmentId || !targetAgentId || !goal) return false;
     const sourceAgentId = String(bindings.currentForegroundAgentId.value || "").trim();
     if (sourceAgentId && sourceAgentId === targetAgentId) {
       bindings.setStatus(bindings.tr("status.asyncDelegateSelfSyncOnly"));
@@ -200,9 +200,9 @@ export function useChatConversationActionsOrchestrator(bindings: Record<string, 
           targetDepartmentId,
           targetAgentId,
           presetId: String(payload?.presetId || "review").trim() || "review",
-          background: String(payload?.background || "").trim(),
-          question,
-          focus,
+          why: String(payload?.why || "").trim(),
+          goal,
+          todo,
           selectedMessageIds,
         },
       });

@@ -720,7 +720,7 @@ function builtinPermissionNameForceHidden(name: string): boolean {
   if (!toolName) return true;
   const isAssistant = department.id === "assistant-department" || !!department.isBuiltInAssistant;
   if (isAssistant) return false;
-  return ["reload", "organize_context", "screenshot", "operate", "task"].includes(toolName);
+  return ["reload", "organize_context", "screenshot", "operate"].includes(toolName);
 }
 
 function ensureDepartmentPermissionControl(target: DepartmentConfig | null | undefined) {

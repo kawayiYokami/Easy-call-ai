@@ -60,6 +60,7 @@ fn build_foreground_conversation_snapshot_from_conversation(
         current_todo: conversation_current_todo_text(conversation),
         current_todos: conversation.current_todos.clone(),
         preferred_api_config_id: conversation.preferred_api_config_id.clone(),
+        active_goal: goal_active_goal_from_conversation(conversation),
     })
 }
 

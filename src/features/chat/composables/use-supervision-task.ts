@@ -1,11 +1,8 @@
 import { computed, ref, type Ref } from "vue";
 import { invokeTauri } from "../../../services/tauri-api";
-import { formatDateToLocalRfc3339 } from "../../../utils/time";
 import { toErrorMessage } from "../../../utils/error";
-import type { TaskEntry } from "../../config/views/config-tabs/task-editor";
+import type { ConversationGoalState } from "../../../types/app";
 
-const SUPERVISION_TASK_GOAL_PREFIX = "Goal Task：";
-const LEGACY_SUPERVISION_TASK_GOAL_PREFIX = "督工任务：";
 const SUPERVISION_TASK_HISTORY_STORAGE_KEY = "chat-supervision-task-history";
 const SUPERVISION_TASK_HISTORY_LIMIT = 3;
 
@@ -25,11 +22,36 @@ export type SupervisionTaskHistoryEntry = {
   durationHours: number;
 };
 
+type GoalMutationOutput = {
+  conversationId: string;
+  goal: ConversationGoalState;
+};
+
+type GoalUpdatedPayload = {
+  conversationId?: string;
+  goal?: ConversationGoalState | null;
+};
+
 type UseSupervisionTaskOptions = {
   t: (key: string, params?: Record<string, unknown>) => string;
   currentConversationId: Ref<string>;
   setStatus: (message: string) => void;
 };
+
+function goalIsActive(goal?: ConversationGoalState | null): goal is ConversationGoalState {
+  return String(goal?.status || "").trim() === "active";
+}
+
+function activeSupervisionTaskFromGoal(goal: ConversationGoalState): ActiveSupervisionTaskSummary {
+  return {
+    taskId: String(goal.goalId || "").trim(),
+    goal: String(goal.objective || "").trim(),
+    why: "",
+    todo: "",
+    endAtLocal: String(goal.startedAt || "").trim(),
+    remainingHours: 0,
+  };
+}
 
 export function useSupervisionTask(options: UseSupervisionTaskOptions) {
   const supervisionTaskDialogOpen = ref(false);
@@ -37,39 +59,9 @@ export function useSupervisionTask(options: UseSupervisionTaskOptions) {
   const supervisionTaskError = ref("");
   const activeSupervisionTask = ref<ActiveSupervisionTaskSummary | null>(null);
   const recentSupervisionTaskHistory = ref<SupervisionTaskHistoryEntry[]>([]);
-  let supervisionTaskPollTimer = 0;
 
   function clearSupervisionTaskPollTimer() {
-    if (supervisionTaskPollTimer) {
-      window.clearInterval(supervisionTaskPollTimer);
-      supervisionTaskPollTimer = 0;
-    }
-  }
-
-  function normalizeSupervisionGoal(goal: string): string {
-    const text = String(goal || "").trim();
-    if (!text) return SUPERVISION_TASK_GOAL_PREFIX;
-    if (text.startsWith(SUPERVISION_TASK_GOAL_PREFIX) || text.startsWith(LEGACY_SUPERVISION_TASK_GOAL_PREFIX)) {
-      return text;
-    }
-    return `${SUPERVISION_TASK_GOAL_PREFIX}${text}`;
-  }
-
-  function stripSupervisionGoalPrefix(goal: string): string {
-    const text = String(goal || "").trim();
-    for (const prefix of [SUPERVISION_TASK_GOAL_PREFIX, LEGACY_SUPERVISION_TASK_GOAL_PREFIX]) {
-      if (text.startsWith(prefix)) {
-        return text.slice(prefix.length).trim();
-      }
-    }
-    return text;
-  }
-
-  function parseTaskTime(value?: string | null): Date | null {
-    const raw = String(value || "").trim();
-    if (!raw) return null;
-    const parsed = new Date(raw);
-    return Number.isNaN(parsed.getTime()) ? null : parsed;
+    // Goal 状态由会话快照和 goalUpdated 事件驱动，不再轮询 task。
   }
 
   function normalizeSupervisionTaskHistoryEntry(entry: Partial<SupervisionTaskHistoryEntry>): SupervisionTaskHistoryEntry | null {
@@ -77,7 +69,7 @@ export function useSupervisionTask(options: UseSupervisionTaskOptions) {
     const why = String(entry.why || "").trim();
     const todo = String(entry.todo || "").trim();
     const durationHours = Math.min(24, Math.max(1, Number(entry.durationHours || 1)));
-    if (!goal || !todo) return null;
+    if (!goal) return null;
     return {
       goal,
       why,
@@ -139,52 +131,13 @@ export function useSupervisionTask(options: UseSupervisionTaskOptions) {
     saveRecentSupervisionTaskHistory();
   }
 
-  function dispatchTaskSidebarRefreshEvent(kind: "created" | "updated" | "completed", taskId: string) {
-    if (typeof window === "undefined") return;
-    window.dispatchEvent(new CustomEvent(`easy-call:task-${kind}`, {
-      detail: {
-        taskId: String(taskId || "").trim(),
-      },
-    }));
-  }
-
-  function supervisionTaskIsActive(task: TaskEntry, conversationId: string): boolean {
-    if (String(task.completionState || "").trim() !== "active") return false;
-    if (String(task.conversationId || "").trim() !== conversationId) return false;
-    const goal = String(task.goal || "").trim();
-    if (!goal.startsWith(SUPERVISION_TASK_GOAL_PREFIX) && !goal.startsWith(LEGACY_SUPERVISION_TASK_GOAL_PREFIX)) return false;
-    const runAt = parseTaskTime(task.trigger?.run_at);
-    const endAt = parseTaskTime(task.trigger?.end_at);
-    if (!endAt) return false;
-    const now = new Date();
-    if (runAt) {
-      return now >= runAt && now <= endAt;
-    }
-    return now <= endAt;
-  }
-
-  function activeSupervisionTaskFromEntry(task: TaskEntry): ActiveSupervisionTaskSummary {
-    const endAt = parseTaskTime(task.trigger?.end_at);
-    const remainingHours = endAt
-      ? Math.min(24, Math.max(1, Math.ceil((endAt.getTime() - Date.now()) / 3_600_000)))
-      : 1;
-    return {
-      taskId: String(task.taskId || "").trim(),
-      goal: stripSupervisionGoalPrefix(task.goal),
-      why: String(task.why || "").trim(),
-      todo: String(task.todo || "").trim(),
-      endAtLocal: String(task.trigger?.end_at || "").trim(),
-      remainingHours,
-    };
-  }
-
   const chatSupervisionActive = computed(() => !!activeSupervisionTask.value);
   const chatSupervisionTitle = computed(() => {
     const task = activeSupervisionTask.value;
     if (!task) {
       return options.t("chat.supervision.buttonHint");
     }
-    return options.t("chat.supervision.activeHintShort", { endAt: task.endAtLocal });
+    return options.t("chat.supervision.activeHintShort", { goal: task.goal });
   });
 
   async function refreshActiveSupervisionTask(params: { silent?: boolean } = {}) {
@@ -194,21 +147,23 @@ export function useSupervisionTask(options: UseSupervisionTaskOptions) {
       return;
     }
     try {
-      const tasks = await invokeTauri<TaskEntry[]>("task_list_tasks");
-      const nextTask = tasks
-        .filter((task) => supervisionTaskIsActive(task, conversationId))
-        .sort((left, right) => {
-          const leftTime = parseTaskTime(left.updatedAtLocal)?.getTime() ?? 0;
-          const rightTime = parseTaskTime(right.updatedAtLocal)?.getTime() ?? 0;
-          return rightTime - leftTime;
-        })[0];
-      activeSupervisionTask.value = nextTask ? activeSupervisionTaskFromEntry(nextTask) : null;
+      const goal = await invokeTauri<ConversationGoalState | null>("goal_get_current", {
+        conversationId,
+      });
+      activeSupervisionTask.value = goalIsActive(goal) ? activeSupervisionTaskFromGoal(goal) : null;
     } catch (error) {
       activeSupervisionTask.value = null;
       if (!params.silent) {
-        console.warn("[目标任务] 读取当前会话任务失败", error);
+        console.warn("[目标] 读取当前会话 goal 失败", error);
       }
     }
+  }
+
+  function applyConversationGoalUpdated(payload: GoalUpdatedPayload) {
+    const conversationId = String(payload?.conversationId || "").trim();
+    if (conversationId !== String(options.currentConversationId.value || "").trim()) return;
+    const goal = payload?.goal || null;
+    activeSupervisionTask.value = goalIsActive(goal) ? activeSupervisionTaskFromGoal(goal) : null;
   }
 
   function openSupervisionTaskDialog() {
@@ -234,70 +189,38 @@ export function useSupervisionTask(options: UseSupervisionTaskOptions) {
   }) {
     if (supervisionTaskSaving.value) return;
     const conversationId = String(options.currentConversationId.value || "").trim();
+    const objective = String(payload.goal || "").trim();
     if (!conversationId) {
       supervisionTaskError.value = options.t("chat.supervision.noConversation");
+      return;
+    }
+    if (!objective) {
+      supervisionTaskError.value = options.t("chat.supervision.goalPlaceholder");
       return;
     }
     supervisionTaskSaving.value = true;
     supervisionTaskError.value = "";
     try {
-      const now = new Date();
-      now.setSeconds(0, 0);
-      const endAt = new Date(now.getTime() + payload.durationHours * 3_600_000);
-      const trigger = {
-        run_at: formatDateToLocalRfc3339(now),
-        cron_expression: "* * * * *",
-        end_at: formatDateToLocalRfc3339(endAt),
-      };
-      let taskId = "";
-      if (activeSupervisionTask.value?.taskId) {
-        const updated = await invokeTauri<TaskEntry>("task_update_task", {
-          input: {
-            taskId: activeSupervisionTask.value.taskId,
-            conversationId,
-            targetScope: "desktop",
-            goal: normalizeSupervisionGoal(payload.goal),
-            why: payload.why,
-            todo: payload.todo,
-            trigger,
-          },
+      const hadActiveGoal = !!activeSupervisionTask.value;
+      if (hadActiveGoal) {
+        await invokeTauri<GoalMutationOutput>("goal_cancel_goal", {
+          input: { conversationId },
         });
-        taskId = String(updated.taskId || "").trim();
-        dispatchTaskSidebarRefreshEvent("updated", taskId);
-        options.setStatus(
-          options.t("chat.supervision.updatedStatus", {
-            hours: payload.durationHours,
-          }),
-        );
-      } else {
-        const created = await invokeTauri<TaskEntry>("task_create_task", {
-          input: {
-            conversationId,
-            targetScope: "desktop",
-            goal: normalizeSupervisionGoal(payload.goal),
-            why: payload.why,
-            todo: payload.todo,
-            trigger,
-          },
-        });
-        taskId = String(created.taskId || "").trim();
-        dispatchTaskSidebarRefreshEvent("created", taskId);
-        options.setStatus(
-          options.t("chat.supervision.createdStatus", {
-            hours: payload.durationHours,
-          }),
-        );
       }
-      if (taskId) {
-        try {
-          await invokeTauri<boolean>("task_dispatch_task_now", { input: { taskId } });
-        } catch (dispatchError) {
-          console.warn("[目标任务] 首次触发失败", dispatchError);
-        }
-      }
+      const created = await invokeTauri<GoalMutationOutput>("goal_create_goal", {
+        input: {
+          conversationId,
+          objective,
+        },
+      });
+      activeSupervisionTask.value = goalIsActive(created.goal)
+        ? activeSupervisionTaskFromGoal(created.goal)
+        : null;
+      options.setStatus(
+        options.t(hadActiveGoal ? "chat.supervision.updatedStatus" : "chat.supervision.createdStatus"),
+      );
       pushRecentSupervisionTaskHistory(payload);
       supervisionTaskDialogOpen.value = false;
-      await refreshActiveSupervisionTask({ silent: true });
     } catch (error) {
       supervisionTaskError.value = `${options.t("chat.supervision.saveFailed")}: ${toErrorMessage(error)}`;
     } finally {
@@ -307,22 +230,17 @@ export function useSupervisionTask(options: UseSupervisionTaskOptions) {
 
   async function stopSupervisionTask() {
     if (supervisionTaskSaving.value) return;
-    const taskId = String(activeSupervisionTask.value?.taskId || "").trim();
-    if (!taskId) {
+    const conversationId = String(options.currentConversationId.value || "").trim();
+    if (!conversationId || !activeSupervisionTask.value) {
       supervisionTaskError.value = options.t("chat.supervision.noActiveTask");
       return;
     }
     supervisionTaskSaving.value = true;
     supervisionTaskError.value = "";
     try {
-      const completed = await invokeTauri<TaskEntry>("task_complete_task", {
-        input: {
-          taskId,
-          completionState: "failed_completed",
-          completionConclusion: options.t("chat.supervision.stoppedConclusion"),
-        },
+      await invokeTauri<GoalMutationOutput>("goal_cancel_goal", {
+        input: { conversationId },
       });
-      dispatchTaskSidebarRefreshEvent("completed", completed.taskId);
       options.setStatus(options.t("chat.supervision.stoppedStatus"));
       activeSupervisionTask.value = null;
       supervisionTaskDialogOpen.value = false;
@@ -335,10 +253,7 @@ export function useSupervisionTask(options: UseSupervisionTaskOptions) {
   }
 
   function startSupervisionTaskPolling() {
-    clearSupervisionTaskPollTimer();
-    supervisionTaskPollTimer = window.setInterval(() => {
-      void refreshActiveSupervisionTask({ silent: true });
-    }, 30_000);
+    void refreshActiveSupervisionTask({ silent: true });
   }
 
   function handleConversationChanged() {
@@ -365,5 +280,6 @@ export function useSupervisionTask(options: UseSupervisionTaskOptions) {
     startSupervisionTaskPolling,
     clearSupervisionTaskPollTimer,
     handleConversationChanged,
+    applyConversationGoalUpdated,
   };
 }

@@ -4087,6 +4087,7 @@ fn ide_chat_conversation_open_result(state: &AppState, conversation_id: &str) ->
         "persona": persona,
         "model": model,
         "currentTodos": conversation.current_todos,
+        "activeGoal": goal_active_goal_from_conversation(&conversation),
     }))
 }
 
@@ -4879,6 +4880,28 @@ async fn ide_chat_task_dispatch_now(state: &AppState, params: Value) -> Result<V
     Ok(serde_json::json!(true))
 }
 
+fn ide_chat_goal_current(state: &AppState, params: Value) -> Result<Value, String> {
+    let input = ide_chat_parse_params::<GoalCancelInput>(params)?;
+    serde_json::to_value(goal_get_current_inner(state, &input.conversation_id)?)
+        .map_err(|err| format!("Serialize goal current result failed: {err}"))
+}
+
+fn ide_chat_goal_create(state: &AppState, params: Value) -> Result<Value, String> {
+    let input = ide_chat_parse_params::<GoalCreateInput>(params)?;
+    serde_json::to_value(goal_create_goal_inner(
+        state,
+        &input.conversation_id,
+        &input.objective,
+    )?)
+    .map_err(|err| format!("Serialize goal create result failed: {err}"))
+}
+
+fn ide_chat_goal_cancel(state: &AppState, params: Value) -> Result<Value, String> {
+    let input = ide_chat_parse_params::<GoalCancelInput>(params)?;
+    serde_json::to_value(goal_cancel_goal_inner(state, &input.conversation_id)?)
+        .map_err(|err| format!("Serialize goal cancel result failed: {err}"))
+}
+
 async fn ide_chat_handle_jsonrpc_request(
     request: IdeChatJsonRpcRequest,
     state: &AppState,
@@ -4942,6 +4965,9 @@ async fn ide_chat_handle_jsonrpc_request(
         "task.delete" => ide_chat_task_delete(state, request.params),
         "task.optimizeDraft" => ide_chat_task_optimize_draft(state, request.params).await,
         "task.dispatchNow" => ide_chat_task_dispatch_now(state, request.params).await,
+        "goal.current" => ide_chat_goal_current(state, request.params),
+        "goal.create" => ide_chat_goal_create(state, request.params),
+        "goal.cancel" => ide_chat_goal_cancel(state, request.params),
         "conversation.compactPreview" => ide_chat_compact_preview(state, request.params),
         "conversation.compact" => ide_chat_compact_conversation(state, request.params).await,
         "model.list" => ide_chat_model_list(state, request.params),

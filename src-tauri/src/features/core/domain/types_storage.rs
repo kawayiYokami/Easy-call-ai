@@ -378,7 +378,10 @@ enum DepartmentPermissionCategory {
 }
 
 fn builtin_tool_is_fixed_system(tool_id: &str) -> bool {
-    matches!(tool_id.trim(), "todo" | "remember" | "recall")
+    matches!(
+        tool_id.trim(),
+        "todo" | "task" | "create_goal" | "update_goal" | "remember" | "recall"
+    )
 }
 
 fn builtin_tool_is_local_conversation_fixed(tool_id: &str) -> bool {
@@ -594,10 +597,7 @@ fn tool_restricted_by_department(
     }
     let is_assistant = department.id == ASSISTANT_DEPARTMENT_ID || department.is_built_in_assistant;
     if !is_assistant
-        && matches!(
-            tool_id,
-            "reload" | "organize_context" | "screenshot" | "operate" | "task"
-        )
+        && matches!(tool_id, "reload" | "organize_context" | "screenshot" | "operate")
     {
         let department_name = department.name.trim();
         let department_name = if department_name.is_empty() {
