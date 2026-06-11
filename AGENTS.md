@@ -77,7 +77,7 @@ Vue 组件 → invokeTauri() → Tauri invoke() → Rust #[tauri::command] → �
 
 ### VS Code 侧边栏扩展
 
-- `sidebar.html` 是根 Vite 多入口之一，`pnpm build` 时和主应用前端一起产出到仓库根 `dist/`
+- `src/entries/sidebar.html` 是 Vite 多入口源码之一，`pnpm build` 时和主应用前端一起产出到仓库根 `dist/`
 - `src/features/sidebar/extension/` 只是 VS Code 扩展壳；打 `.vsix` 前必须先把仓库根 `dist/` 同步到该目录下的 `dist/`
 - 本地调试时扩展会优先读取 `src/features/sidebar/extension/dist/`，找不到才回退到仓库根 `dist/`；但 VSIX 打包只会收录扩展目录自己的 `dist/**`
 - 打包和发布步骤不要再手敲长命令，统一走 `pnpm package:vscode-sidebar` / `pnpm publish:vscode-sidebar`；详细说明放在 `docs/vscode-sidebar-build-publish.md`

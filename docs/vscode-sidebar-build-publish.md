@@ -3,7 +3,7 @@
 本文只覆盖本仓库里的 VS Code 侧边栏扩展：
 
 - 扩展壳目录：`src/features/sidebar/extension/`
-- 侧边栏前端入口：`sidebar.html`
+- 侧边栏前端入口源码：`src/entries/sidebar.html`
 - 侧边栏前端源码：`src/features/sidebar/`
 
 扩展壳同时承担两件事：
@@ -15,7 +15,7 @@
 
 这个扩展不是单独构建的。
 
-`sidebar.html` 是根 `vite.config.ts` 里的多入口之一，所以必须先在仓库根目录执行一次 `pnpm build`，让根 `dist/` 产出侧边栏页面和对应 assets。然后再把根 `dist/` 同步到 `src/features/sidebar/extension/dist/`，最后才能打 `.vsix` 或发布到 Marketplace。
+`src/entries/sidebar.html` 是 `vite.config.ts` 里的多入口源码之一，所以必须先在仓库根目录执行一次 `pnpm build`，让根 `dist/` 产出侧边栏页面和对应 assets。然后再把根 `dist/` 同步到 `src/features/sidebar/extension/dist/`，最后才能打 `.vsix` 或发布到 Marketplace。
 
 现在仓库已经提供了一键命令：
 
