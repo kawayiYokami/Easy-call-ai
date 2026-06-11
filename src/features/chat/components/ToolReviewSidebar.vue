@@ -1,9 +1,8 @@
 <template>
   <aside v-bind="rootAttrs" class="w-full flex h-full min-h-0 flex-col bg-base-200">
     <div role="tablist" class="tabs tabs-border px-2 pb-2">
-      <button type="button" role="tab" class="tab" :class="{ 'tab-active': activeTab === 'reports' }" @click="activeTab = 'reports'">{{ t("chat.toolReview.resultsTab") }}</button>
-      <button type="button" role="tab" class="tab" :class="{ 'tab-active': activeTab === 'tools' }" @click="activeTab = 'tools'">{{ t("chat.toolReview.toolsTab") }}</button>
       <button type="button" role="tab" class="tab" :class="{ 'tab-active': activeTab === 'delegates' }" @click="activeTab = 'delegates'">{{ t("chat.toolReview.delegatesTab") }}</button>
+      <button type="button" role="tab" class="tab" :class="{ 'tab-active': activeTab === 'tools' }" @click="activeTab = 'tools'">{{ t("chat.toolReview.toolsTab") }}</button>
     </div>
 
     <div ref="contentScroller" class="ecall-chat-scroll-container flex min-h-0 flex-1 flex-col overflow-y-auto p-1">
@@ -116,77 +115,6 @@
           </div>
         </CollapsibleGroup>
       </template>
-      <div v-else class="flex min-h-0 flex-1 flex-col">
-        <div class="sticky top-0 z-30 bg-base-200 px-4">
-          <button
-            type="button"
-            class="btn btn-sm w-full gap-1.5 bg-base-100 hover:bg-base-100"
-            :disabled="submitting"
-            @click="reviewTargetDialogOpen = true"
-          >
-            <span v-if="submitting" class="loading loading-spinner loading-xs"></span>
-            <FileText v-else class="size-4" aria-hidden="true" />
-            <span>{{ t("chat.toolReview.generateReviewReport") }}</span>
-          </button>
-        </div>
-        <div v-if="props.reports.length === 0" class="flex min-h-0 flex-1 flex-col overflow-y-auto py-2">
-          <div class="px-4 py-2 text-sm text-base-content/65">
-            {{ t("chat.toolReview.reportUnavailable") }}
-          </div>
-        </div>
-        <div v-else class="flex min-h-0 flex-1 flex-col py-2">
-          <CollapsibleGroup
-            v-for="section in codeReviewSections"
-            :key="section.key"
-            :title="section.title"
-            :count="section.items.length"
-            :model-value="isCodeReviewSectionCollapsed(section.key)"
-            @update:model-value="toggleCodeReviewSection(section.key)"
-            @collapse-all="collapseAllCodeReviewSections"
-          >
-            <div v-if="!isCodeReviewSectionCollapsed(section.key)">
-              <CodeReviewCard
-                v-for="report in section.items"
-                :key="report.id"
-                :report="report"
-                :title="report.title || report.target || formatReportScope(report.scope)"
-                :summary="reportSummary(report)"
-                :running="report.status === 'pending' && !!matchedReportProgress(report)"
-                :progress="matchedReportProgress(report)"
-                :avatar-url="codeReviewAvatarUrl(report)"
-                @open-detail="openReportDetail(report.id)"
-              />
-            </div>
-          </CollapsibleGroup>
-        </div>
-        <div v-if="props.reports.length > reportPageSize" class="px-4 py-3">
-          <div class="join flex justify-center">
-            <button
-              type="button"
-              class="join-item btn btn-sm bg-base-100 hover:bg-base-100"
-              :disabled="reportPage <= 1"
-              @click="reportPage = Math.max(1, reportPage - 1)"
-            >
-              «
-            </button>
-            <button
-              type="button"
-              class="join-item btn btn-sm bg-base-100 hover:bg-base-100"
-              @click.prevent
-            >
-              {{ t("chat.toolReview.pageLabel", { current: reportPage, total: reportTotalPages }) }}
-            </button>
-            <button
-              type="button"
-              class="join-item btn btn-sm bg-base-100 hover:bg-base-100"
-              :disabled="reportPage >= reportTotalPages"
-              @click="reportPage = Math.min(reportTotalPages, reportPage + 1)"
-            >
-              »
-            </button>
-          </div>
-        </div>
-      </div>
     </div>
     <FloatingScrollbar :target="contentScroller" />
   </aside>
@@ -213,138 +141,18 @@
     </form>
   </dialog>
 
-  <dialog class="modal" :class="{ 'modal-open': reportDialogOpen }">
-    <div class="modal-box h-[90vh] w-[90vw] max-w-none p-0">
-      <div class="flex items-center justify-between border-b border-base-300 px-4 py-3">
-        <div class="text-sm">{{ t("chat.toolReview.reportTitle") }}</div>
-        <button
-          type="button"
-          class="btn btn-sm btn-ghost"
-          @click="closeReportDialog"
-        >
-          {{ t("chat.toolReview.closeChanges") }}
-        </button>
-      </div>
-      <div class="assistant-markdown h-[calc(90vh-121px)] overflow-auto px-5 py-4">
-        <div v-if="reportErrorText" class="mb-4 rounded-box border border-error/30 bg-error/10 px-3 py-2 text-sm text-error">
-          {{ reportErrorText }}
-        </div>
-        <div v-if="currentReport?.status === 'pending'" class="flex h-full min-h-0 items-center justify-center text-sm text-base-content/70">
-          <span class="loading loading-spinner loading-sm mr-2"></span>
-          {{ t("chat.toolReview.generatingReviewReport") }}
-        </div>
-        <div v-else-if="!currentReport" class="flex h-full min-h-0 items-center justify-center text-sm text-base-content/70">
-          {{ t("chat.toolReview.reportUnavailable") }}
-        </div>
-        <div v-else-if="currentReportJson" class="flex flex-col gap-3">
-          <div v-if="currentReportOverallText" class="whitespace-pre-wrap rounded-box border border-base-300 bg-base-200 px-3 py-2 text-sm leading-7 text-base-content/75">
-            {{ currentReportOverallText }}
-          </div>
-          <div v-if="currentReportFindings.length === 0" class="rounded-box border border-base-300 bg-base-200 px-3 py-3 text-sm text-base-content/70">
-            {{ t('chat.toolReview.noIssues') }}
-          </div>
-          <details v-for="finding in currentReportFindings" :key="finding.id" class="collapse collapse-arrow rounded-box border border-base-300 bg-base-200">
-            <summary class="collapse-title min-h-0 px-3 py-3 pr-10">
-              <div class="flex min-w-0 items-center gap-3">
-                <input
-                  v-model="selectedFindingIds"
-                  type="checkbox"
-                  class="checkbox checkbox-sm shrink-0"
-                  :value="finding.id"
-                  @click.stop
-                />
-                <span
-                  v-if="finding.priorityLabel"
-                  class="inline-flex shrink-0 items-center"
-                  :title="finding.priorityTitle"
-                >
-                  <span class="inline-block h-2.5 w-2.5 rounded-full" :class="finding.priorityDotClass"></span>
-                </span>
-                <div class="min-w-0 flex-1 truncate text-sm font-medium text-base-content/85">
-                  {{ finding.title }}
-                </div>
-                <div v-if="finding.confidence" class="badge badge-sm shrink-0 whitespace-nowrap">
-                  {{ t('chat.toolReview.confidence', { value: finding.confidence }) }}
-                </div>
-              </div>
-            </summary>
-            <div class="collapse-content flex flex-col gap-3 px-3 pb-3">
-              <div class="whitespace-pre-wrap wrap-break-word text-sm leading-7 text-base-content/80">
-                {{ finding.body || t("chat.toolReview.noDescription") }}
-              </div>
-              <div v-if="finding.location" class="rounded-box border border-base-300 bg-base-100 px-3 py-2 text-xs leading-6 text-base-content/70">
-                {{ t("chat.toolReview.location", { location: finding.location }) }}
-              </div>
-            </div>
-          </details>
-        </div>
-        <pre
-          v-else-if="currentReport?.status === 'success'"
-          class="whitespace-pre-wrap wrap-break-word rounded-box border border-base-300 bg-base-200 px-3 py-3 text-sm leading-7 text-base-content/80"
-        >{{ currentReport.reportText || t("chat.toolReview.noReportContent") }}</pre>
-        <AppMarkdownRenderer
-          v-else
-          class="ecall-markdown-content tool-review-report-markdown max-w-none"
-          :text="reportMarkdownText"
-          :is-dark="markdownIsDark"
-        />
-      </div>
-      <div class="flex items-center justify-between gap-3 border-t border-base-300 px-4 py-3">
-        <div class="flex items-center gap-3">
-          <button
-            v-if="currentReport && selectedReportText"
-            type="button"
-            class="btn btn-sm"
-            @click="emit('copyReport', selectedReportText)"
-          >
-            {{ t("chat.toolReview.copyReport") }}
-          </button>
-          <button
-            v-if="currentReport && selectedReportText"
-            type="button"
-            class="btn btn-sm"
-            @click="emit('attachReport', selectedReportText)"
-          >
-            {{ t("chat.toolReview.attachReport") }}
-          </button>
-        </div>
-        <div></div>
-      </div>
-    </div>
-    <form method="dialog" class="modal-backdrop">
-      <button @click.prevent="closeReportDialog">{{ t("chat.toolReview.closeChanges") }}</button>
-    </form>
-  </dialog>
-
-  <ToolReviewTargetDialog
-    :open="reviewTargetDialogOpen"
-    :submitting="submitting"
-    :error-text="reportErrorText"
-    :current-department-id="currentDepartmentId"
-    :department-options="departmentOptions"
-    :commit-options="commitOptions"
-    :commit-options-loading="commitOptionsLoading"
-    :commit-total="commitTotal"
-    :commit-page="commitPage"
-    :commit-page-size="commitPageSize"
-    @close="reviewTargetDialogOpen = false"
-    @pick-commit-review="handlePickCommitReview"
-    @review-code="handleReviewCode"
-  />
 </template>
 
 <script setup lang="ts">
 import { computed, ref, useAttrs, watch } from "vue";
 import { useI18n } from "vue-i18n";
-import { CircleCheckBig, FileText } from "@lucide/vue";
+import { CircleCheckBig } from "@lucide/vue";
 import { invokeTauri } from "../../../services/tauri-api";
 import type { ArchiveBlockPage, ChatMessage, ConversationDelegateStatusSummary, ShellWorkspace } from "../../../types/app";
 import { defaultWorkspaceNameFromPath, inferWorkspaceName, isLegacyGenericWorkspaceName, normalizeWorkspaceLevel } from "../../../utils/shell-workspaces";
-import type { ToolReviewBatchSummary, ToolReviewCodeReviewScope, ToolReviewCommitOption, ToolReviewItemDetail, ToolReviewItemSummary, ToolReviewReportRecord } from "../composables/use-chat-tool-review";
+import type { ToolReviewBatchSummary, ToolReviewItemDetail, ToolReviewItemSummary } from "../composables/use-chat-tool-review";
 import { AppMarkdownRenderer, initKatex } from "../markdown";
 import ToolAssessmentCard from "./ToolAssessmentCard.vue";
-import CodeReviewCard from "./CodeReviewCard.vue";
-import ToolReviewTargetDialog from "./ToolReviewTargetDialog.vue";
 import DelegateCard from "./DelegateCard.vue";
 import DelegateProgressLine from "./DelegateProgressLine.vue";
 import FloatingScrollbar from "../../shell/components/FloatingScrollbar.vue";
@@ -359,11 +167,7 @@ const props = defineProps<{
   detailLoadingCallId: string;
   reviewingCallId: string;
   batchReviewingKey: string;
-  submittingBatchKey: string;
   errorText: string;
-  reportErrorText: string;
-  reports: ToolReviewReportRecord[];
-  currentReportId: string;
   markdownIsDark: boolean;
   currentWorkspaceName: string;
   currentWorkspaceRootPath: string;
@@ -381,35 +185,18 @@ const emit = defineEmits<{
   (e: "loadItemDetail", callId: string): void;
   (e: "reviewItem", callId: string): void;
   (e: "reviewBatch", batchKey: string): void;
-  (e: "pickCommitReview", page: number): void;
-  (e: "reviewCode", input: { scope: ToolReviewCodeReviewScope; target?: string; departmentId: string }): void;
-  (e: "retryReport", report: ToolReviewReportRecord): void;
-  (e: "deleteReport", report: ToolReviewReportRecord): void;
-  (e: "copyReport", reportText: string): void;
-  (e: "attachReport", reportText: string): void;
   (e: "openDelegateDetail", status: ConversationDelegateStatusSummary): void;
   (e: "abortDelegate", status: ConversationDelegateStatusSummary): void;
 }>();
 
 const { t } = useI18n();
-const reportDialogOpen = ref(false);
-const reviewTargetDialogOpen = ref(false);
-const activeTab = ref<"tools" | "reports" | "delegates">("reports");
+const activeTab = ref<"tools" | "delegates">("delegates");
 const contentScroller = ref<HTMLElement | null>(null);
 const delegateResultDialogOpen = ref(false);
 const delegateResultLoading = ref(false);
 const delegateResultTitle = ref("");
 const delegateResultText = ref("");
-const localCurrentReportId = ref("");
 const rootAttrs = useAttrs();
-const commitOptions = ref<ToolReviewCommitOption[]>([]);
-const commitOptionsLoading = ref(false);
-const selectedFindingIds = ref<string[]>([]);
-const commitPage = ref(1);
-const commitPageSize = ref(30);
-const commitTotal = ref(0);
-const reportPage = ref(1);
-const reportPageSize = 10;
 const collapsedToolAssessmentSectionKeys = ref<Record<string, boolean>>({});
 const collapsedDelegateSectionKeys = ref<Record<string, boolean>>({
   running: false,
@@ -417,21 +204,11 @@ const collapsedDelegateSectionKeys = ref<Record<string, boolean>>({
   interrupted: true,
   failed: true,
 });
-const collapsedCodeReviewSectionKeys = ref<Record<string, boolean>>({
-  completed: true,
-  failed: true,
-});
 
 type DelegateStatusSection = {
   key: string;
   title: string;
   items: ConversationDelegateStatusSummary[];
-};
-
-type CodeReviewSection = {
-  key: string;
-  title: string;
-  items: ToolReviewReportRecord[];
 };
 
 const delegateStatusSections = computed<DelegateStatusSection[]>(() => {
@@ -447,29 +224,11 @@ const delegateStatusSections = computed<DelegateStatusSection[]>(() => {
   return sections.filter((section) => section.items.length > 0);
 });
 
-const codeReviewSections = computed<CodeReviewSection[]>(() => {
-  const sections: CodeReviewSection[] = [
-    { key: "running", title: "进行中", items: [] },
-    { key: "completed", title: "已完成", items: [] },
-    { key: "failed", title: "已失败", items: [] },
-  ];
-  for (const report of pagedReports.value) {
-    sections[codeReviewSectionIndex(report)].items.push(report);
-  }
-  return sections.filter((section) => section.items.length > 0);
-});
-
 function delegateStatusSectionIndex(delegate: ConversationDelegateStatusSummary) {
   const status = String(delegate.status || "").trim();
   if (status === "failed") return 3;
   if ((status === "running" || status === "delivered") && delegate.active) return 0;
   if (status === "running" || status === "delivered") return 2;
-  return 1;
-}
-
-function codeReviewSectionIndex(report: ToolReviewReportRecord) {
-  if (report.status === "failed") return 2;
-  if (report.status === "pending") return 0;
   return 1;
 }
 
@@ -509,35 +268,6 @@ function collapseAllDelegateSections() {
   }, { ...collapsedDelegateSectionKeys.value } as Record<string, boolean>);
 }
 
-function isCodeReviewSectionCollapsed(key: string) {
-  return !!collapsedCodeReviewSectionKeys.value[key];
-}
-
-function toggleCodeReviewSection(key: string) {
-  collapsedCodeReviewSectionKeys.value = {
-    ...collapsedCodeReviewSectionKeys.value,
-    [key]: !collapsedCodeReviewSectionKeys.value[key],
-  };
-}
-
-function collapseAllCodeReviewSections() {
-  collapsedCodeReviewSectionKeys.value = codeReviewSections.value.reduce((next, section) => {
-    next[section.key] = true;
-    return next;
-  }, { ...collapsedCodeReviewSectionKeys.value } as Record<string, boolean>);
-}
-
-function reportSummary(report: ToolReviewReportRecord) {
-  if (report.status === "pending") return t("chat.toolReview.generating");
-  if (report.status === "failed") return report.errorText || t("chat.toolReview.statusFailed");
-  return reportJudgementSummary(report);
-}
-
-function codeReviewAvatarUrl(report: ToolReviewReportRecord) {
-  const progress = matchedReportProgress(report);
-  return props.personaAvatarUrlMap[progress?.targetAgentId || ""] || "";
-}
-
 const currentBatchIndex = computed(() => {
   const currentKey = String(props.currentBatchKey || "").trim();
   if (!currentKey) return -1;
@@ -568,14 +298,6 @@ const nextBatch = computed(() => {
 const batchReviewing = computed(() =>
   !!currentBatch.value && props.batchReviewingKey === currentBatch.value.batchKey
 );
-
-const submitting = computed(() =>
-  !!String(props.submittingBatchKey || "").trim()
-);
-
-const reportActionLabel = computed(() => {
-  return t("chat.toolReview.generateReviewReport");
-});
 
 async function openDelegateResult(status: import("../../../types/app").ConversationDelegateStatusSummary) {
   const conversationId = String(status?.conversationId || "").trim();
@@ -775,337 +497,13 @@ function workspaceDisplayName(workspace: ShellWorkspace, root: string, index: nu
   return inferWorkspaceName(level, root, index) || defaultWorkspaceNameFromPath(root) || root;
 }
 
-const currentReport = computed(() => {
-  const targetId = String(localCurrentReportId.value || props.currentReportId || "").trim();
-  if (!targetId) return props.reports[0] || null;
-  return props.reports.find((item) => item.id === targetId) || props.reports[0] || null;
-});
-
-const reportTotalPages = computed(() => Math.max(1, Math.ceil(props.reports.length / reportPageSize)));
-
-function matchedReportProgress(report: ToolReviewReportRecord) {
-  const targetId = String(report.delegateId || "").trim();
-  if (targetId) {
-    return props.delegateStatuses.find((d) => d.delegateId === targetId) || null;
-  }
-  // 委托刚创建、delegate_id 尚未写入报告时，按会话匹配运行中的委托
-  const convId = String(report.conversationId || "").trim();
-  if (!convId) return null;
-  return props.delegateStatuses.find(
-    (d) => (d.status === "running" || d.status === "delivered") && d.rootConversationId === convId,
-  ) || null;
-}
-
-const pagedReports = computed(() => {
-  const page = Math.min(Math.max(1, reportPage.value), reportTotalPages.value);
-  const start = (page - 1) * reportPageSize;
-  return props.reports.slice(start, start + reportPageSize);
-});
-
-const reportMarkdownText = computed(() =>
-  currentReport.value?.reportText || currentReport.value?.errorText || ""
-);
-
-type ReportFindingView = {
-  id: string;
-  raw: unknown;
-  title: string;
-  body: string;
-  confidence: string;
-  priorityLabel: string;
-  priorityTitle: string;
-  priorityDotClass: string;
-  location: string;
-};
-
-type ParsedToolReviewJson = {
-  raw: Record<string, unknown>;
-  findings: unknown[];
-};
-
-function parseToolReviewJson(reportText: string): ParsedToolReviewJson | null {
-  const text = String(reportText || "").trim();
-  if (!text) return null;
-  const jsonText = extractToolReviewJsonText(text);
-  if (!jsonText) return null;
-  try {
-    const raw = JSON.parse(jsonText) as unknown;
-    if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
-    const record = raw as Record<string, unknown>;
-    return {
-      raw: record,
-      findings: Array.isArray(record.findings) ? record.findings : [],
-    };
-  } catch {
-    return null;
-  }
-}
-
-function extractToolReviewJsonText(text: string): string {
-  const direct = text.trim();
-  if (!direct) return "";
-  if (direct.startsWith("{") && direct.endsWith("}")) return direct;
-  const fenced = extractFirstJsonFenceText(direct);
-  if (fenced) return fenced;
-  return extractLastJsonObjectText(direct);
-}
-
-function extractFirstJsonFenceText(text: string): string {
-  const fencePattern = /```(?:json|JSON)?\s*([\s\S]*?)```/g;
-  let match: RegExpExecArray | null;
-  while ((match = fencePattern.exec(text)) !== null) {
-    const candidate = String(match[1] || "").trim();
-    if (candidate.startsWith("{") && candidate.endsWith("}")) return candidate;
-  }
-  return "";
-}
-
-function extractLastJsonObjectText(text: string): string {
-  const starts: number[] = [];
-  for (let index = 0; index < text.length; index += 1) {
-    if (text[index] === "{") starts.push(index);
-  }
-  for (let startIndex = starts.length - 1; startIndex >= 0; startIndex -= 1) {
-    const candidate = balancedJsonObjectSlice(text, starts[startIndex]);
-    if (candidate) return candidate;
-  }
-  return "";
-}
-
-function balancedJsonObjectSlice(text: string, start: number): string {
-  let depth = 0;
-  let inString = false;
-  let escaped = false;
-  for (let index = start; index < text.length; index += 1) {
-    const ch = text[index];
-    if (inString) {
-      if (escaped) {
-        escaped = false;
-      } else if (ch === "\\") {
-        escaped = true;
-      } else if (ch === '"') {
-        inString = false;
-      }
-      continue;
-    }
-    if (ch === '"') {
-      inString = true;
-      continue;
-    }
-    if (ch === "{") {
-      depth += 1;
-      continue;
-    }
-    if (ch !== "}") continue;
-    depth -= 1;
-    if (depth === 0) return text.slice(start, index + 1).trim();
-    if (depth < 0) return "";
-  }
-  return "";
-}
-
-function parseReportFinding(raw: unknown, index: number): ReportFindingView {
-  const record = raw && typeof raw === "object" && !Array.isArray(raw) ? raw as Record<string, unknown> : {};
-  const title = stringField(record.title) || `Finding ${index + 1}`;
-  const body = stringField(record.body);
-  const confidenceValue = numberField(record.confidence_score);
-  const confidence = confidenceValue === null ? "" : confidenceValue.toFixed(2);
-  const priority = parseFindingPriority(record.priority);
-  const location = formatFindingLocation(record.code_location);
-  return {
-    id: `finding-${index + 1}`,
-    raw,
-    title,
-    body,
-    confidence,
-    priorityLabel: priority.label,
-    priorityTitle: priority.title,
-    priorityDotClass: priority.dotClass,
-    location,
-  };
-}
-
-function parseFindingPriority(value: unknown) {
-  const raw = typeof value === "number" && Number.isFinite(value)
-    ? Math.trunc(value)
-    : typeof value === "string"
-      ? Number.parseInt(value.trim().replace(/^p/i, ""), 10)
-      : null;
-  if (raw === 0) {
-    return { label: "P0", title: t('chat.toolReview.severityP0'), dotClass: "bg-error" };
-  }
-  if (raw === 1) {
-    return { label: "P1", title: t('chat.toolReview.severityP1'), dotClass: "bg-warning" };
-  }
-  if (raw === 2) {
-    return { label: "P2", title: t('chat.toolReview.severityP2'), dotClass: "bg-info" };
-  }
-  if (raw === 3) {
-    return { label: "P3", title: t('chat.toolReview.severityP3'), dotClass: "bg-success" };
-  }
-  return { label: "", title: "", dotClass: "" };
-}
-
-function stringField(value: unknown) {
-  return typeof value === "string" ? value.trim() : "";
-}
-
-function numberField(value: unknown) {
-  return typeof value === "number" && Number.isFinite(value) ? value : null;
-}
-
-function formatFindingLocation(value: unknown) {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return "";
-  const record = value as Record<string, unknown>;
-  const filePath = stringField(record.absolute_file_path);
-  const lineRange = record.line_range && typeof record.line_range === "object" && !Array.isArray(record.line_range)
-    ? record.line_range as Record<string, unknown>
-    : null;
-  const start = lineRange ? numberField(lineRange.start) : null;
-  const end = lineRange ? numberField(lineRange.end) : null;
-  if (!filePath) return "";
-  if (start !== null && end !== null && end >= start) return `${filePath}:${start}-${end}`;
-  return filePath;
-}
-
-const currentReportJson = computed(() => parseToolReviewJson(currentReport.value?.reportText || ""));
-
-const currentReportFindings = computed(() =>
-  (currentReportJson.value?.findings || []).map(parseReportFinding)
-);
-
-const currentReportOverallText = computed(() => {
-  const parsed = currentReportJson.value;
-  if (!parsed) return "";
-  const correctness = stringField(parsed.raw.overall_correctness);
-  const explanation = stringField(parsed.raw.overall_explanation);
-  const confidence = numberField(parsed.raw.overall_confidence_score);
-  return [
-    correctness ? t('chat.toolReview.overallJudgment', { value: formatJsonCorrectness(correctness) }) : "",
-    explanation ? t('chat.toolReview.judgmentExplanation', { value: explanation }) : "",
-    confidence === null ? "" : t('chat.toolReview.overallConfidence', { value: confidence.toFixed(2) }),
-  ].filter(Boolean).join("\n");
-});
-
-const selectedReportText = computed(() => {
-  const report = currentReport.value;
-  if (!report) return "";
-  if (report.status !== "success") return report.errorText || report.reportText || "";
-  const findings = currentReportFindings.value;
-  if (findings.length === 0) return report.reportText || "";
-  const selected = findings.filter((item) => selectedFindingIds.value.includes(item.id));
-  if (selected.length === 0) return "";
-  return selected.map(formatSelectedFindingText).join("\n\n");
-});
-
-function formatSelectedFindingText(finding: ReportFindingView) {
-  return [
-    `[${finding.title}]`,
-    finding.location ? t('chat.toolReview.findingLocation', { location: finding.location }) : "",
-    finding.body || "No description.",
-  ].filter(Boolean).join("\n");
-}
-
-function formatJsonCorrectness(value: string) {
-  if (value === "patch is correct") return t('chat.toolReview.patchCorrect');
-  if (value === "patch is incorrect") return t('chat.toolReview.patchIncorrect');
-  return value;
-}
-
-watch(() => props.currentBatchKey, () => {
-  reportDialogOpen.value = false;
-});
-
-watch(
-  () => ({
-    reportId: currentReport.value?.id || "",
-    reportStatus: currentReport.value?.status || "",
-    findingIds: currentReportFindings.value.map((item) => item.id).join("|"),
-  }),
-  (next, previous) => {
-    const reportChanged = next.reportId !== (previous?.reportId || "");
-    const statusChanged = next.reportStatus !== (previous?.reportStatus || "");
-    const findingsChanged = next.findingIds !== (previous?.findingIds || "");
-    if (!reportChanged && !statusChanged && !findingsChanged) {
-      return;
-    }
-    selectedFindingIds.value = currentReportFindings.value.map((item) => item.id);
-  },
-  { immediate: true },
-);
-
-watch(
-  () => props.reports.map((item) => `${item.id}:${item.status}:${item.updatedAt}`).join("|"),
-  () => {
-    reportPage.value = Math.min(reportPage.value, reportTotalPages.value);
-  }
-);
-
-function handleReportAction() {
-  reviewTargetDialogOpen.value = true;
-}
-
-function setCommitOptions(items: ToolReviewCommitOption[] = [], loading = false, total = 0, page = 1, pageSize = 30) {
-  commitOptions.value = items;
-  commitOptionsLoading.value = loading;
-  commitTotal.value = total;
-  commitPage.value = page;
-  commitPageSize.value = pageSize;
-}
-
-function handlePickCommitReview(page: number) {
-  commitOptionsLoading.value = true;
-  emit("pickCommitReview", page);
-}
-
-function handleReviewCode(input: { scope: ToolReviewCodeReviewScope; target?: string; departmentId: string }) {
-  emit("reviewCode", input);
-}
-
 function openDelegatesTab() {
   activeTab.value = "delegates";
 }
 
 defineExpose({
-  handleReportAction,
   openDelegatesTab,
-  setCommitOptions,
 });
-
-function closeReportDialog() {
-  reportDialogOpen.value = false;
-}
-
-function openReportDetail(reportId: string) {
-  localCurrentReportId.value = String(reportId || "").trim();
-  reportDialogOpen.value = true;
-}
-
-function retryFailedReport(report: ToolReviewReportRecord) {
-  emit("retryReport", report);
-}
-
-function canRetryReport(report: ToolReviewReportRecord) {
-  if (report.status !== "failed") return false;
-  const scope = String(report.scope || "").trim();
-  return scope === "commit" || scope === "main" || scope === "uncommitted" || scope === "custom";
-}
-
-function deleteReport(report: ToolReviewReportRecord) {
-  emit("deleteReport", report);
-}
-
-function formatReportStatus(status: string) {
-  if (status === "success") return t('chat.toolReview.statusCompleted');
-  if (status === "failed") return t('chat.toolReview.statusFailed');
-  return t('chat.toolReview.statusGenerating');
-}
-
-function reportStatusBadgeClass(status: string) {
-  if (status === "success") return "badge-primary";
-  if (status === "failed") return "badge-error";
-  return "badge-warning";
-}
 
 function formatDelegateStatus(status: string) {
   if (status === "running" || status === "delivered") return t('chat.toolReview.statusRunning');
@@ -1148,41 +546,6 @@ function formatElapsedMs(value: number) {
   if (hours > 0) return t('chat.toolReview.durationHoursMinutes', { hours, minutes });
   if (minutes > 0) return t('chat.toolReview.durationMinutesSeconds', { minutes, seconds });
   return t('chat.toolReview.durationSeconds', { seconds });
-}
-
-function formatReportScope(scope: string) {
-  if (scope === "commit") return "commit";
-  if (scope === "main") return t('chat.toolReview.scopeMain');
-  if (scope === "uncommitted") return t('chat.toolReview.scopeUncommitted');
-  if (scope === "custom") return t('chat.toolReview.scopeCustom');
-  return scope || t('chat.toolReview.scopeUnknown');
-}
-
-function reportMarkdownField(report: ToolReviewReportRecord, label: string) {
-  const text = String(report.reportText || "");
-  const escapedLabel = label.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  const matched = new RegExp(`^-\\s*${escapedLabel}：\\s*(.+)$`, "m").exec(text);
-  return String(matched?.[1] || "").trim();
-}
-
-function reportJudgementSummary(report: ToolReviewReportRecord) {
-  const parsed = parseToolReviewJson(report.reportText);
-  if (parsed) {
-    const judgement = formatJsonCorrectness(stringField(parsed.raw.overall_correctness) || t('chat.toolReview.unknownJudgment'));
-    const confidence = numberField(parsed.raw.overall_confidence_score);
-    return confidence === null ? judgement : t('chat.toolReview.judgmentWithConfidence', { judgement, confidence: confidence.toFixed(2) });
-  }
-  const judgement = reportMarkdownField(report, "整体判定") || t('chat.toolReview.unknownJudgment');
-  const confidence = reportMarkdownField(report, t('chat.toolReview.overallConfidenceLabel'));
-  return confidence ? t('chat.toolReview.judgmentWithConfidence', { judgement, confidence }) : judgement;
-}
-
-function reportExpandedText(report: ToolReviewReportRecord) {
-  if (report.status === "pending") return t('chat.toolReview.statusGenerating');
-  if (report.status === "failed") return report.errorText || t('chat.toolReview.statusFailed');
-  const parsed = parseToolReviewJson(report.reportText);
-  if (parsed) return stringField(parsed.raw.overall_explanation) || report.reportText || t("chat.toolReview.noReportContent");
-  return reportMarkdownField(report, "判定说明") || report.reportText || t("chat.toolReview.noReportContent");
 }
 </script>
 

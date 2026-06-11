@@ -374,9 +374,8 @@
           :batches="toolReviewBatches" :current-batch-key="toolReviewCurrentBatchKey"
           :detail-map="toolReviewDetailMap" :detail-loading-call-id="toolReviewDetailLoadingCallId"
           :reviewing-call-id="toolReviewReviewingCallId" :batch-reviewing-key="toolReviewBatchReviewingKey"
-          :submitting-batch-key="toolReviewSubmittingBatchKey" :error-text="toolReviewErrorText"
-          :report-error-text="toolReviewReportErrorText" :reports="toolReviewReports"
-          :current-report-id="toolReviewCurrentReportId" :markdown-is-dark="markdownIsDark"
+          :error-text="toolReviewErrorText"
+          :markdown-is-dark="markdownIsDark"
           :current-workspace-name="currentWorkspaceName" :current-workspace-root-path="currentWorkspaceRootPath"
           :workspaces="workspaces" :current-department-id="currentDepartmentId"
           :department-options="toolReviewDepartmentOptions"
@@ -386,9 +385,6 @@
           :bridge-request="bridgeRequest"
           @select-batch="setToolReviewCurrentBatchKey" @load-item-detail="loadToolReviewItemDetail"
           @review-item="runToolReviewForCall" @review-batch="runToolReviewForBatch"
-          @pick-commit-review="handlePickCommitReview" @review-code="handleToolReviewCode"
-          @retry-report="handleRetryToolReviewReport" @delete-report="handleDeleteToolReviewReport"
-          @copy-report="copyToolReviewReport" @attach-report="$emit('attachToolReviewReport', $event)"
           @open-delegate-detail="openDelegateArchiveDetail"
           @abort-delegate="abortDelegate"
         />
@@ -449,7 +445,6 @@ import CompactionSummaryCard from "../components/CompactionSummaryCard.vue";
 import { useChatImagePreview } from "../composables/use-chat-image-preview";
 import { useChatMessageActions } from "../composables/use-chat-message-actions";
 import { useChatScrollLayout } from "../composables/use-chat-scroll-layout";
-import { useChatToolReview, type ToolReviewCodeReviewScope, type ToolReviewCommitOption, type ToolReviewReportRecord } from "../composables/use-chat-tool-review";
 import type { TerminalApprovalConversationItem } from "../../shell/composables/use-terminal-approval";
 import { isAbsoluteLocalPath, normalizeLocalLinkHref, parseLocalFileReference } from "../utils/local-link";
 import { type ChatRenderItem, isRightAlignedMessage, canOpenInFileReader, fileExtensionFromPath } from "../utils/chat-render";
@@ -554,7 +549,6 @@ const emit = defineEmits<{
   (e: "loadOlderHistory"): void; (e: "reachedBottom"): void;
   (e: "jumpToConversationBottom"): void;
   (e: "refreshToolReviewMessage", payload: { conversationId: string; messageId: string }): void;
-  (e: "attachToolReviewReport", reportText: string): void;
   (e: "selectionActionCopy", payload: { count: number; messageIds: string[]; blocks: ChatMessageBlock[] }): void;
   (e: "selectionActionCopyError", payload: { count: number; messageIds: string[]; blocks: ChatMessageBlock[]; error: string }): void;
   (e: "selectionActionBranch", payload: { count: number; messageIds: string[]; blocks: ChatMessageBlock[] }): void;
@@ -572,7 +566,6 @@ const emit = defineEmits<{
 const { t } = useI18n();
 const toolReviewSidebarRef = ref<ComponentPublicInstance<{
   openDelegatesTab: () => void;
-  setCommitOptions: (items: ToolReviewCommitOption[], loading?: boolean, total?: number, page?: number, pageSize?: number) => void;
 }> | null>(null);
 const chatReaderPanelRef = ref<InstanceType<typeof FileReaderPanel> | null>(null);
 const chatScrollbarRef = ref<InstanceType<typeof FloatingScrollbar> | null>(null);
@@ -892,11 +885,8 @@ const {
   toolReviewPanelOpen, toolReviewBatches, toolReviewCurrentBatchKey,
   toolReviewDetailMap, toolReviewDetailLoadingCallId, toolReviewReviewingCallId,
   toolReviewBatchReviewingKey, toolReviewSubmittingBatchKey, toolReviewErrorText,
-  toolReviewReportErrorText, toolReviewReports, toolReviewCurrentReportId,
   setToolReviewCurrentBatchKey,
   loadToolReviewItemDetail, runToolReviewForCall, runToolReviewForBatch,
-  handlePickCommitReview, handleDeleteToolReviewReport, handleToolReviewCode,
-  handleRetryToolReviewReport,
 } = useChatToolReviewHandlers({
   activeConversationId: toRef(props, "activeConversationId"),
   toolReviewRefreshTick: toRef(props, "toolReviewRefreshTick"),
@@ -907,7 +897,6 @@ const {
   t, syncViewportMetrics,
   onRefreshMessage: (payload) => emit("refreshToolReviewMessage", payload),
   onToolReviewPanelOpenChange: (open) => emit("toolReviewPanelOpenChange", open),
-  toolReviewSidebarRef,
 });
 const effectiveToolReviewPanelOpen = computed(() => !sidebarMode.value && toolReviewPanelOpen.value);
 
@@ -1082,12 +1071,6 @@ function handleShiftWheel(event: WheelEvent) {
 }
 
 // ==================== link / copy ====================
-
-async function copyToolReviewReport(reportText: string) {
-  const text = String(reportText || "").trim();
-  if (!text) return;
-  try { await navigator.clipboard.writeText(text); } catch { /* best-effort */ }
-}
 
 async function handleAssistantLinkClick(event: MouseEvent) {
   const target = event.target as HTMLElement | null;

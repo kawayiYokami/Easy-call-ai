@@ -21,6 +21,12 @@
           class="dropdown-content menu z-50 w-64 rounded-box border border-base-300 bg-base-100 p-3 text-sm shadow-xl"
           :class="menuPlacement === 'top' ? 'mb-3' : 'mt-3'"
         >
+          <li v-if="showCodeReviewMenuItem && !busy">
+            <button type="button" class="flex min-h-10 items-center justify-start gap-3 px-4 py-2 text-left" :disabled="busy" @click="emit('openCodeReview')">
+              <ClipboardCheck class="h-4 w-4 shrink-0" />
+              <span class="leading-5">{{ t('chat.toolbar.codeReview') }}</span>
+            </button>
+          </li>
           <li v-if="!busy">
             <button v-if="showDelegateMenuItem" type="button" class="flex min-h-10 items-center justify-start gap-3 px-4 py-2 text-left" :disabled="busy" @click="emit('openDelegateSelection')">
               <ClipboardList class="h-4 w-4 shrink-0" />
@@ -33,11 +39,6 @@
               <span class="leading-5">{{ t("chat.conversationMenu.branchConversation") }}</span>
             </button>
           </li>
-          <li v-if="showCodeReviewMenuItem && !busy">
-            <button type="button" class="flex min-h-10 items-center justify-start gap-3 px-4 py-2 text-left" :disabled="busy" @click="emit('openCodeReview')">
-              <ClipboardCheck class="h-4 w-4 shrink-0" />
-              <span class="leading-5">{{ t('chat.toolbar.codeReview') }}</span>
-            </button>
           </li>
           <li v-if="!busy">
             <button v-if="showForwardMenuItem" type="button" class="flex min-h-10 items-center justify-start gap-3 px-4 py-2 text-left" :disabled="busy" @click="emit('openForwardSelection')">
@@ -229,7 +230,7 @@ const props = withDefaults(defineProps<{
 }>(), {
   showDelegateMenuItem: true,
   showBranchMenuItem: true,
-  showCodeReviewMenuItem: false,
+  showCodeReviewMenuItem: true,
   showForwardMenuItem: true,
   showShareMenuItem: true,
   showWorkspaceMenuItem: true,
