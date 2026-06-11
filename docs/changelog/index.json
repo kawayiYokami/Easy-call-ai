@@ -1,0 +1,541 @@
+{
+  "generatedAt": "2026-06-11T22:17:42.115Z",
+  "latestVersion": "v0.11.6",
+  "releases": [
+    {
+      "version": "v0.11.6",
+      "path": "docs/changelog/releases/v0.11.6.md",
+      "summary": "修复（chat）：撤回/重新生成补齐前端进行中保护，撤回预览改为以后端真实备份记录判断 `apply_patch` 可回滚状态，避免长会话工具历史在 UI 线程同步解析导致卡死、误判和重复触发。"
+    },
+    {
+      "version": "v0.11.5",
+      "path": "docs/changelog/releases/v0.11.5.md",
+      "summary": "重构（chat）：删除代码审查报告页面（reports tab），「发起审查」入口移至更多菜单（委托下方）；审查结果已通过委托面板展示，报告页面冗余。"
+    },
+    {
+      "version": "v0.11.3",
+      "path": "docs/changelog/releases/v0.11.3.md",
+      "summary": "修复（i18n）：请求失败状态会展开结构化错误里的真实 `message/detail/error`，并补齐请求失败友好文案，避免界面直接显示 `status.requestFailed` 等 i18n key。"
+    },
+    {
+      "version": "v0.11.2",
+      "path": "docs/changelog/releases/v0.11.2.md",
+      "summary": "修复（i18n）：GOAL_TASK_WHY 清空以对齐新的 task_remind 来源判断。"
+    },
+    {
+      "version": "v0.11.1",
+      "path": "docs/changelog/releases/v0.11.1.md",
+      "summary": "重构（task）：删除 LLM task 工具的 update action，LLM 只能 create/complete 来管理任务，不再支持原地修改。"
+    },
+    {
+      "version": "v0.11.0",
+      "path": "docs/changelog/releases/v0.11.0.md",
+      "summary": "功能（chat）：LLM 回复支持标准 Markdown 图片语法 `![说明](路径)` 引用本地图片；聊天内显示缩略图、单击打开 90% 视口原图预览，预览支持复制/保存原图，远程联系人回复按同一语法发送图片并在超大图时压缩。"
+    },
+    {
+      "version": "v0.10.22",
+      "path": "docs/changelog/releases/v0.10.22.md",
+      "summary": "优化（chat）：升级 `@tanstack/vue-virtual` 并启用末尾锚定，切换会话时直接显示最新消息；移除历史加载、宽度变化与流式高度变化中的手动滚动高度修正，仅保留用户新消息上推与必要的底部初始化。"
+    },
+    {
+      "version": "v0.10.21",
+      "path": "docs/changelog/releases/v0.10.21.md",
+      "summary": "修复（tool-review）：工具评估超时从 12s 硬编码改为 120s，超时后写回可读结论而非直接报错。"
+    },
+    {
+      "version": "v0.10.20",
+      "path": "docs/changelog/releases/v0.10.20.md",
+      "summary": "修复（chat）：修正会话列表导出与新建会话导入按钮图标方向；代码块标题栏复制按钮改为图标按钮，复制成功时短暂切换为确认图标。"
+    },
+    {
+      "version": "v0.10.19",
+      "path": "docs/changelog/releases/v0.10.19.md",
+      "summary": "修复（chat）：侧栏拖拽宽度规则收敛；左侧会话列表宽度限制为 `160~360`，左右侧栏拖拽进入窗口边缘 `10%` 区域时显示收起提示并可直接收起。"
+    },
+    {
+      "version": "v0.10.18",
+      "path": "docs/changelog/releases/v0.10.18.md",
+      "summary": "修复（chat-stream）：前端流式缓存读写改为保留 `persistedAssistantMessageId`，轻量快照在保留本地 streaming draft 前先按该标记去重，避免重连、切前后台或恢复运行态时偶发同时显示流式草稿与已持久化 assistant 历史消息。"
+    },
+    {
+      "version": "v0.10.17",
+      "path": "docs/changelog/releases/v0.10.17.md",
+      "summary": ""
+    },
+    {
+      "version": "v0.10.16",
+      "path": "docs/changelog/releases/v0.10.16.md",
+      "summary": "优化（prompt）：系统准则迁移为 Markdown 源文件并按事实、上下文工具、执行边界、代码设计与输出风格分组；强化反谄媚、文件引用、工具搜索、计划、任务、Todo、记忆召回与 meme 贴纸规则的结构化提示。"
+    },
+    {
+      "version": "v0.10.15",
+      "path": "docs/changelog/releases/v0.10.15.md",
+      "summary": "修复（reload）：LLM 工作区 reload 对不合法的 MCP、Skill、私有人格与私有部门配置改为跳过坏项并继续加载其它合法项；返回 `repairSummary` / `repairItems`，包含文件路径、错误原因与修复建议，便于 LLM 自行修复。兼容旧部门配置缺少 `createdAt` / `updatedAt` / `orderIndex` 的情况，避免配置解析失败卡住新手引导。"
+    },
+    {
+      "version": "v0.10.14",
+      "path": "docs/changelog/releases/v0.10.14.md",
+      "summary": "重构（persistence）：会话总索引（花名册）不再落盘为 `chat_index.json`，改为进程内由各会话分片 `meta.json` 派生的内存态；启动时扫描分片重建（含旧 `app_data.json` 回退），运行期随会话增删改做 O(1) 内存更新。移除读路径对账自愈、`include_chat_index` 开关与 `cached_chat_index_mtime`/`cached_chat_index_dirty`/索引修复门等冗余机制，消除索引与会话本体漂移导致的\"自愈频繁触发\"。"
+    },
+    {
+      "version": "v0.10.13",
+      "path": "docs/changelog/releases/v0.10.13.md",
+      "summary": "功能（memory）：记忆页面新增聊天记录搜索卡片，按人格关键字搜索已压缩/归档的本地与联系人对话切片；首版使用 BM25-only 和切片统计，暂不接入向量与主动 RAG。"
+    },
+    {
+      "version": "v0.10.12",
+      "path": "docs/changelog/releases/v0.10.12.md",
+      "summary": "重构（chat-stream）：前端流式恢复改为统一的历史消息覆盖投影，集中处理流式草稿替代已持久化半成品消息的去重逻辑，避免多个恢复入口重复过滤。"
+    },
+    {
+      "version": "v0.10.11",
+      "path": "docs/changelog/releases/v0.10.11.md",
+      "summary": "修复（remote-im）：远程联系人列表状态胶囊改为上拉菜单选择，菜单挂载到页面根部以避免被联系人列表滚动容器裁剪，并优化文件发送权限文案。"
+    },
+    {
+      "version": "v0.10.10",
+      "path": "docs/changelog/releases/v0.10.10.md",
+      "summary": "重构（remote-im）：OneBot v11 WS 服务器迁移至 axum serve，端口确定性释放，消除自占端口和长时间无响应。"
+    },
+    {
+      "version": "v0.10.9",
+      "path": "docs/changelog/releases/v0.10.9.md",
+      "summary": "修复（remote-im）：远程联系人忙碌期间收到新消息时，不再在当前轮收尾后抢先用旧历史触发待办续跑；改为等待排队消息先写入历史，再按该消息准确执行智能激活判定。"
+    },
+    {
+      "version": "v0.10.8",
+      "path": "docs/changelog/releases/v0.10.8.md",
+      "summary": "修复（remote-im）：OneBot v11 WS 事件总线改为渠道级生命周期，事件消费器可在 NapCat 客户端连接前完成订阅，避免重启后连接已建立但早到消息无人消费导致 QQ 消息收不到；同时兼容二进制 JSON WebSocket 帧。"
+    },
+    {
+      "version": "v0.10.7",
+      "path": "docs/changelog/releases/v0.10.7.md",
+      "summary": "修复（user-profile-memory）：本地用户画像改用消息链路中的 `user-persona` 作为真实用户 ID，并在最新用户请求元信息中注入 `user_id=user-persona`；整理/归档提示词改为使用用户称谓和后置身份片段生成画像标签，避免输出占位符 `用户ID`，并允许 `memoryActions` 多条保留不再静默截断。"
+    },
+    {
+      "version": "v0.10.6",
+      "path": "docs/changelog/releases/v0.10.6.md",
+      "summary": "修复（user-profile-memory）：本地用户画像改用消息链路中的 `user-persona` 作为真实用户 ID，并在最新用户请求元信息中注入 `user_id=user-persona`；整理/归档提示词改为使用用户称谓和后置身份片段生成画像标签，避免输出占位符 `用户ID`，并允许 `memoryActions` 多条保留不再静默截断。"
+    },
+    {
+      "version": "v0.10.5",
+      "path": "docs/changelog/releases/v0.10.5.md",
+      "summary": "修复（remote-im）：联系人列表合并收发开关改为正确识别“仅收信”状态，避免误把 `allowReceive` 写成关闭导致远程联系人无法收信。"
+    },
+    {
+      "version": "v0.10.4",
+      "path": "docs/changelog/releases/v0.10.4.md",
+      "summary": "修复（chat-layout）：侧栏拖拽与嵌入/覆盖切换改为更稳定的成对决策，支持从嵌入态直接拖到覆盖宽度，并在空间不足时优先让后来打开的侧栏以覆盖层显示，避免中间聊天区被异常挤压。"
+    },
+    {
+      "version": "v0.10.3",
+      "path": "docs/changelog/releases/v0.10.3.md",
+      "summary": "修复（config-api）：连通性测试切换供应商时清空残留结果；API Key 置顶时保留单个密钥可见状态映射，避免误将同供应商全部密钥显示为明文。"
+    },
+    {
+      "version": "v0.10.2",
+      "path": "docs/changelog/releases/v0.10.2.md",
+      "summary": "重构（frontend）：拆分统一窗口入口，按配置、对话、归档窗口分别组织入口组件，并将聊天流、窗口状态、配置同步、滚动、媒体、工具与生命周期逻辑拆入更细的 composable，降低 `UnifiedWindowApp` 与 `use-chat-flow` 的维护成本。"
+    },
+    {
+      "version": "v0.10.1",
+      "path": "docs/changelog/releases/v0.10.1.md",
+      "summary": "维护（deps）：前后端依赖全量更新，`lucide-vue-next` 迁移至 `@lucide/vue` v1.16，通过 `app.provide(LUCIDE_CONTEXT)` 修复函数式组件 inject 问题；修复 sandbox read-whitelist cwd 冲突与测试参数格式。"
+    },
+    {
+      "version": "v0.10.0",
+      "path": "docs/changelog/releases/v0.10.0.md",
+      "summary": "功能（runtime-logs）：运行日志独立窗口创建链路补齐本地诊断、布局恢复、显示与聚焦错误记录，窗口前端增加加载兜底与全局错误监听，避免日志窗口自身白屏时无法判断失败阶段。"
+    },
+    {
+      "version": "v0.9.99",
+      "path": "docs/changelog/releases/v0.9.99.md",
+      "summary": "修复（runtime-logs）：运行日志独立窗口创建链路补齐本地诊断、布局恢复、显示与聚焦错误记录，窗口前端增加加载兜底与全局错误监听，避免日志窗口自身白屏时无法判断失败阶段。"
+    },
+    {
+      "version": "v0.9.98",
+      "path": "docs/changelog/releases/v0.9.98.md",
+      "summary": "修复（startup）：启动等待后端就绪时增加顶层遮罩，后端事件与前端轮询双通道确认，避免首次启动露出空 UI 或等待失败后停止首轮数据加载。"
+    },
+    {
+      "version": "v0.9.97",
+      "path": "docs/changelog/releases/v0.9.97.md",
+      "summary": "调整（vscode-sidebar-settings）：VS Code 侧边栏扩展设置页新增 `paiSidebar.autoSendIdeContext` 与 `paiSidebar.includeVisibleRange` 两个用户意图开关，用于控制 IDE 上下文自动同步和无选区时是否同步可见代码。"
+    },
+    {
+      "version": "v0.9.96",
+      "path": "docs/changelog/releases/v0.9.96.md",
+      "summary": "修复（message-store-migration）：消息仓库迁移增加版本标记与后端互斥锁，避免多窗口启动并发检查读到 building 中间态导致误报，迁移完成后同版本不再重复扫描。"
+    },
+    {
+      "version": "v0.9.95",
+      "path": "docs/changelog/releases/v0.9.95.md",
+      "summary": "新增（file-reader-hover-tree）：地址栏面包屑目录按钮悬停时弹出浮动目录树面板，支持展开/收起子目录和点击打开文件，面板带边界检测确保不超出窗口可视区域。"
+    },
+    {
+      "version": "v0.9.94",
+      "path": "docs/changelog/releases/v0.9.94.md",
+      "summary": "重构（chat-right-panel）：合并审查/评估/委托为统一三标签面板，标题栏收窄为“阅读”与“委托”两个 tab，委托内容内联至 ToolReviewSidebar，去除独立 DelegateStatusSidebar 嵌套。"
+    },
+    {
+      "version": "v0.9.92",
+      "path": "docs/changelog/releases/v0.9.92.md",
+      "summary": "修复（chat-text-indent）：修复 `removeBinaryPlaceholders` 中 `.map(line => line.trim())` 误删所有行首缩进的问题，改为仅在 filter 判断时 trim，保留原始缩进。"
+    },
+    {
+      "version": "v0.9.91",
+      "path": "docs/changelog/releases/v0.9.91.md",
+      "summary": "修复（vscode-sidebar）：补齐 VS Code 边栏打包发布脚本与文档，修复边栏审批、工具调用流、计划确认与计划文件读取桥接，并统一审批卡片按钮样式。"
+    },
+    {
+      "version": "v0.9.90",
+      "path": "docs/changelog/releases/v0.9.90.md",
+      "summary": "发布（release-0.9.90）：同步前端 `package.json`、Tauri `tauri.conf.json` 与 Rust `Cargo.toml` / `Cargo.lock` 版本号到 `0.9.90`，纳入输入框覆盖式浮动滚动条。"
+    },
+    {
+      "version": "v0.9.89",
+      "path": "docs/changelog/releases/v0.9.89.md",
+      "summary": "发布（release-0.9.89）：同步前端 `package.json`、Tauri `tauri.conf.json` 与 Rust `Cargo.toml` / `Cargo.lock` 版本号到 `0.9.89`，纳入本轮输入面板模型下拉改为上拉、会话运行状态通知、文件引用阅读器与只读自动刷新、滚动条悬停显示修复。"
+    },
+    {
+      "version": "v0.9.87",
+      "path": "docs/changelog/releases/v0.9.87.md",
+      "summary": "发布（release-0.9.87）：同步前端 `package.json`、Tauri `tauri.conf.json` 与 Rust `Cargo.toml` / `Cargo.lock` 版本号到 `0.9.87`，纳入本轮三栏侧栏交互、界面语言持久化、遗漏 i18n 文案补齐、远程联系人设置本地化与聊天时间分割线等改动。"
+    },
+    {
+      "version": "v0.9.86",
+      "path": "docs/changelog/releases/v0.9.86.md",
+      "summary": "发布（release-0.9.86）：同步前端 `package.json`、Tauri `tauri.conf.json` 与 Rust `Cargo.toml` / `Cargo.lock` 版本号到 `0.9.86`，纳入本轮更新重启优雅停机、更新方式偏好后端持久化、热键冲突不阻断配置保存等修复。"
+    },
+    {
+      "version": "v0.9.85",
+      "path": "docs/changelog/releases/v0.9.85.md",
+      "summary": "发布（release-0.9.85）：同步前端 `package.json`、Tauri `tauri.conf.json` 与 Rust `Cargo.toml` / `Cargo.lock` 版本号到 `0.9.85`，纳入本轮文本工具自动编码、聊天滚底、本地记忆 recall/remember、MCP 非阻塞监督、终端执行超时与 schema 收口、Gemini/OpenAI reasoning effort 调整等改动。"
+    },
+    {
+      "version": "v0.9.83",
+      "path": "docs/changelog/releases/v0.9.83.md",
+      "summary": "发布（release-0.9.83）：同步前端 `package.json`、Tauri `tauri.conf.json` 与 Rust `Cargo.toml` / `Cargo.lock` 版本号到 `0.9.83`，纳入本轮本地会话原生通知、通知设置页与多语言兜底修复。"
+    },
+    {
+      "version": "v0.9.82",
+      "path": "docs/changelog/releases/v0.9.82.md",
+      "summary": "发布（release-0.9.82）：同步前端 `package.json`、Tauri `tauri.conf.json` 与 Rust `Cargo.toml` / `Cargo.lock` 版本号到 `0.9.82`，纳入本轮记忆页筛选/分页交互优化与外观自定义文字强度调节。"
+    },
+    {
+      "version": "v0.9.81",
+      "path": "docs/changelog/releases/v0.9.81.md",
+      "summary": "发布（release-0.9.81）：同步前端 `package.json`、Tauri `tauri.conf.json` 与 Rust `Cargo.toml` / `Cargo.lock` 版本号到 `0.9.81`，纳入本轮供应商并发控制修复与配置交互整理。"
+    },
+    {
+      "version": "v0.9.80",
+      "path": "docs/changelog/releases/v0.9.80.md",
+      "summary": "发布（release-0.9.80）：同步前端 `package.json`、Tauri `tauri.conf.json` 与 Rust `Cargo.toml` / `Cargo.lock` 版本号到 `0.9.80`，纳入本轮文件浏览器入口、目录树、拖拽打开、视图切换与重复读取诊断修复。"
+    },
+    {
+      "version": "v0.9.79",
+      "path": "docs/changelog/releases/v0.9.79.md",
+      "summary": "发布（release-0.9.79）：同步前端 `package.json`、Tauri `tauri.conf.json` 与 Rust `Cargo.toml` / `Cargo.lock` 版本号到 `0.9.79`，纳入本轮图片 MIME 内容识别、Windows Job Guard 抽取、旧版执行中计划兼容，以及仅思维链回复空回重试修复。"
+    },
+    {
+      "version": "v0.9.78",
+      "path": "docs/changelog/releases/v0.9.78.md",
+      "summary": "发布（release-0.9.78）：同步前端 `package.json`、Tauri `tauri.conf.json` 与 Rust `Cargo.toml` / `Cargo.lock` 版本号到 `0.9.78`，纳入本轮会话已读状态持久化与 OneBot v11 渠道连接任务收割修复。"
+    },
+    {
+      "version": "v0.9.77",
+      "path": "docs/changelog/releases/v0.9.77.md",
+      "summary": "发布（release-0.9.77）：同步前端 `package.json`、Tauri `tauri.conf.json` 与 Rust `Cargo.toml` / `Cargo.lock` 版本号到 `0.9.77`，纳入本轮远程联系人会话部门人格绑定同步、联系人会话撤回支持，以及统一会话人格绑定解析计划。"
+    },
+    {
+      "version": "v0.9.76",
+      "path": "docs/changelog/releases/v0.9.76.md",
+      "summary": "发布（release-0.9.76）：同步前端 `package.json`、Tauri `tauri.conf.json` 与 Rust `Cargo.toml` / `Cargo.lock` 版本号到 `0.9.76`，纳入本轮聊天消息流转断言、思维链展示拼接、配置页分段单选与布局收口，以及设置页文案与主题色修复。"
+    },
+    {
+      "version": "v0.9.75",
+      "path": "docs/changelog/releases/v0.9.75.md",
+      "summary": "发布（release-0.9.75）：同步前端 `package.json`、Tauri `tauri.conf.json` 与 Rust `Cargo.toml` / `Cargo.lock` 版本号到 `0.9.75`，纳入本轮远程联系人闭嘴机制、IDE bridge 鉴权与存活性修复、远程联系人会话与日志收口，以及流式滚动与工具状态稳定性修复。"
+    },
+    {
+      "version": "v0.9.74",
+      "path": "docs/changelog/releases/v0.9.74.md",
+      "summary": "发布（release-0.9.74）：同步前端 `package.json`、Tauri `tauri.conf.json` 与 Rust `Cargo.toml` / `Cargo.lock` 版本号到 `0.9.74`，纳入本轮归档索引自愈、远程秘书上下文修复、委托直属下级语义、工具评估与代码审查拆分及清理。"
+    },
+    {
+      "version": "v0.9.72",
+      "path": "docs/changelog/releases/v0.9.72.md",
+      "summary": "发布（release-0.9.72）：同步前端 `package.json`、Tauri `tauri.conf.json` 与 Rust `Cargo.toml` / `Cargo.lock` 版本号到 `0.9.72`，纳入本轮终端目录标识优化与 GitHub 更新方法选择。"
+    },
+    {
+      "version": "v0.9.71",
+      "path": "docs/changelog/releases/v0.9.71.md",
+      "summary": "发布（release-0.9.71）：同步前端 `package.json`、Tauri `tauri.conf.json` 与 Rust `Cargo.toml` / `Cargo.lock` 版本号到 `0.9.71`，纳入本轮表情贴纸入库 WebP 归一、图转文配置提示与清空保存、硬盘根目录工作区权限修复、会话最大权限开关，以及终端编辑工具提示词约束。"
+    },
+    {
+      "version": "v0.9.70",
+      "path": "docs/changelog/releases/v0.9.70.md",
+      "summary": "发布（release-0.9.70）：同步前端 `package.json`、Tauri `tauri.conf.json` 与 Rust `Cargo.toml` / `Cargo.lock` 版本号到 `0.9.70`，纳入本轮调度计时、界面缩放档位、README 多语言改写、失败时工具历史保留与流式工具列表累积显示修复。"
+    },
+    {
+      "version": "v0.9.69",
+      "path": "docs/changelog/releases/v0.9.69.md",
+      "summary": "修复（chat-loading-bubble-background-toggle）：助理流式回复前的三点等待气泡同步遵循隐藏气泡背景设置，避免简洁显示时仍保留气泡底色与边框。"
+    },
+    {
+      "version": "v0.9.68",
+      "path": "docs/changelog/releases/v0.9.68.md",
+      "summary": "优化（markdown-font-weight-toggle）：外观页新增 Markdown 字重切换，支持正常/粗体两档，并统一聊天、归档、审查报告与文件阅读等 Markdown 渲染的字重变量。"
+    },
+    {
+      "version": "v0.9.67",
+      "path": "docs/changelog/releases/v0.9.67.md",
+      "summary": "发布（release-0.9.67）：同步前端 `package.json`、Tauri `tauri.conf.json` 与 Rust `Cargo.toml` / `Cargo.lock` 版本号到 `0.9.67`，纳入本轮聊天窗口连续用户气泡聚合与悬浮滚动条优化、录音热键清空与失焦取消、托盘左键打开对话窗、废弃 Rust 死代码清理，以及应用图标更新并固定托盘使用应用图标。"
+    },
+    {
+      "version": "v0.9.66",
+      "path": "docs/changelog/releases/v0.9.66.md",
+      "summary": "发布（release-0.9.66）：同步前端 `package.json`、Tauri `tauri.conf.json` 与 Rust `Cargo.toml` / `Cargo.lock` 版本号到 `0.9.66`，纳入本轮独立快速设置窗口、启动路由、快速设置供应商连通性测试、头像设置弹卡，以及多选消息发起委托成功后退出多选菜单。"
+    },
+    {
+      "version": "v0.9.65",
+      "path": "docs/changelog/releases/v0.9.65.md",
+      "summary": "发布（release-0.9.65）：同步前端 `package.json`、Tauri `tauri.conf.json` 与 Rust `Cargo.toml` / `Cargo.lock` 版本号到 `0.9.65`，纳入本轮用户/助理气泡背景独立隐藏开关、无选中消息发起人工委托与会话列表悬浮滚动条优化。"
+    },
+    {
+      "version": "v0.9.64",
+      "path": "docs/changelog/releases/v0.9.64.md",
+      "summary": "发布（release-0.9.64）：同步前端 `package.json`、Tauri `tauri.conf.json` 与 Rust `Cargo.toml` / `Cargo.lock` 版本号到 `0.9.64`，纳入本轮启动白屏保护、用户异步委托、委托归档清理、genai 适配、Codex Spark 隐藏、模型重试状态与旧供应商协议兼容修复。"
+    },
+    {
+      "version": "v0.9.63",
+      "path": "docs/changelog/releases/v0.9.63.md",
+      "summary": "发布（release-0.9.63）：同步前端 `package.json`、Tauri `tauri.conf.json` 与 Rust `Cargo.toml` / `Cargo.lock` 版本号到 `0.9.63`，纳入本轮 GitHub 更新代理兜底顺序调整、聊天消息详情点击收起、无边框窗口自定义边缘缩放修复。"
+    },
+    {
+      "version": "v0.9.62",
+      "path": "docs/changelog/releases/v0.9.62.md",
+      "summary": "发布（release-0.9.62）：同步前端 `package.json`、Tauri `tauri.conf.json` 与 Rust `Cargo.toml` / `Cargo.lock` 版本号到 `0.9.62`，纳入本轮供应商草稿保存/还原与 Codex 本地平铺凭证兼容修复。"
+    },
+    {
+      "version": "v0.9.61",
+      "path": "docs/changelog/releases/v0.9.61.md",
+      "summary": "发布（release-0.9.61）：同步前端 `package.json`、Tauri `tauri.conf.json` 与 Rust `Cargo.toml` / `Cargo.lock` 版本号到 `0.9.61`，纳入本轮全局滚动条默认透明、聚焦/悬停显示的样式优化。"
+    },
+    {
+      "version": "v0.9.59",
+      "path": "docs/changelog/releases/v0.9.59.md",
+      "summary": "发布（release-0.9.59）：同步前端 `package.json`、Tauri `tauri.conf.json` 与 Rust `Cargo.toml` / `Cargo.lock` 版本号到 `0.9.59`。"
+    },
+    {
+      "version": "v0.9.58",
+      "path": "docs/changelog/releases/v0.9.58.md",
+      "summary": "发布（release-0.9.58）：同步前端 `package.json`、Tauri `tauri.conf.json` 与 Rust `Cargo.toml` / `Cargo.lock` 版本号到 `0.9.58`，纳入本轮整理上下文 banner 期间禁用停止按钮修复，并回退会触发 release 闪退的上下文压缩中断实现与首包前诊断日志。"
+    },
+    {
+      "version": "v0.9.57",
+      "path": "docs/changelog/releases/v0.9.57.md",
+      "summary": "发布（release-0.9.57）：同步前端 `package.json`、Tauri `tauri.conf.json` 与 Rust `Cargo.toml` / `Cargo.lock` 版本号到 `0.9.57`，纳入本轮 DeepSeek / Kimi / Mimo 协议提示扩展与工具思维链回灌修复。"
+    },
+    {
+      "version": "v0.9.56",
+      "path": "docs/changelog/releases/v0.9.56.md",
+      "summary": "发布（release-0.9.56）：同步前端 `package.json`、Tauri `tauri.conf.json` 与 Rust `Cargo.toml` / `Cargo.lock` 版本号到 `0.9.56`，纳入本轮聊天流式切换恢复修复。"
+    },
+    {
+      "version": "v0.9.55",
+      "path": "docs/changelog/releases/v0.9.55.md",
+      "summary": "发布（release-0.9.55）：同步前端 `package.json`、Tauri `tauri.conf.json` 与 Rust `Cargo.toml` / `Cargo.lock` 版本号到 `0.9.55`，纳入本轮工具审查部门选择与 JSON 兜底解析、终端 Git 只读白名单收紧、任务跳过后推进下次触发、队列去重与会话级展示、队列撤回完整原文回填、本地文件阅读窗口与聊天界面细节修复。"
+    },
+    {
+      "version": "v0.9.54",
+      "path": "docs/changelog/releases/v0.9.54.md",
+      "summary": "发布（release-0.9.54）：同步前端 `package.json`、Tauri `tauri.conf.json` 与 Rust `Cargo.toml` / `Cargo.lock` 版本号到 `0.9.54`，纳入本轮会话列表简约模式、上下文压缩计划块空行修复、README 致谢与能力描述调整，以及流式期间督工入口优化。"
+    },
+    {
+      "version": "v0.9.53",
+      "path": "docs/changelog/releases/v0.9.53.md",
+      "summary": "发布（release-0.9.53）：同步前端 `package.json`、Tauri `tauri.conf.json` 与 Rust `Cargo.toml` / `Cargo.lock` 版本号到 `0.9.53`，纳入本轮远程联系人“本轮绑定联系人”路由统一、聊天底部工具栏左右边距修复，以及流式/忙碌期间附件粘贴与拖拽入队放开。"
+    },
+    {
+      "version": "v0.9.52",
+      "path": "docs/changelog/releases/v0.9.52.md",
+      "summary": "发布（release-0.9.52）：同步前端 `package.json`、Tauri `tauri.conf.json` 与 Rust `Cargo.toml` / `Cargo.lock` 版本号到 `0.9.52`，纳入本轮未归档会话索引同步、message store 新格式写入收口、chat_index 脏数据清理、新建会话概览推送与远程联系人忙碌待办状态修复。"
+    },
+    {
+      "version": "v0.9.51",
+      "path": "docs/changelog/releases/v0.9.51.md",
+      "summary": "发布（release-0.9.51）：同步前端 `package.json`、Tauri `tauri.conf.json` 与 Rust `Cargo.toml` / `Cargo.lock` 版本号到 `0.9.51`，纳入本轮计划确认续调度激活、百炼 Coding 多模态 base64 回退、运行态拆分旧测试修复、终端会话绑定与审查报告列表样式收口。"
+    },
+    {
+      "version": "v0.9.50",
+      "path": "docs/changelog/releases/v0.9.50.md",
+      "summary": "发布（release-0.9.50）：同步前端 `package.json`、Tauri `tauri.conf.json` 与 Rust `Cargo.toml` / `Cargo.lock` 版本号到 `0.9.50`，纳入本轮聊天流式轮次边界、工具评估侧边栏分组与审查报告操作优化。"
+    },
+    {
+      "version": "v0.9.48",
+      "path": "docs/changelog/releases/v0.9.48.md",
+      "summary": "修复（manual-compaction-should-not-switch-foreground-conversation）：手动压缩沿用对话维护链路时，不再误消费归档语义下的 `activeConversationId` 切换前台会话；压缩完成后的消息刷新固定回到发起压缩的原会话，避免手动压缩后被错误跳回主会话"
+    },
+    {
+      "version": "v0.9.47",
+      "path": "docs/changelog/releases/v0.9.47.md",
+      "summary": "修复（foreground-snapshot-readback-sync）：前台轻量快照在标记会话已读后，立即回填该会话最新的运行态与 Todo 真值；前端清除会话角标时也同步把未归档列表中的 `unreadCount` 归零，避免切入会话后红点已清但列表运行态或未读数仍短暂残留旧值"
+    },
+    {
+      "version": "v0.9.46",
+      "path": "docs/changelog/releases/v0.9.46.md",
+      "summary": "修复（deepseek-kimi-reasoning-tool-history）：DeepSeek/Kimi 工具调用链路将 assistant `tool_calls` 对应的 `reasoning_content` 写入会话工具历史，并在会话 JSON -> 抽象 `PreparedHistoryMessage` -> genai 请求体的全过程中原样传递；带 `tool_calls` 的 assistant 历史消息不参与相邻 assistant 合并，避免思维链错位、被拼接或被清洗"
+    },
+    {
+      "version": "v0.9.45",
+      "path": "docs/changelog/releases/v0.9.45.md",
+      "summary": "功能（deepseek-kimi-protocol-and-reasoning-roundtrip）：API 供应商新增 `DeepSeek / Kimi` 协议选项与常见供应商预设，按 OpenAI-compatible 链路接入聊天、工具调用、视觉描述、模型列表刷新、推理网关与部门模型过滤；DeepSeek/Kimi 工具调用续轮会捕获并回传 assistant `reasoning_content`，即使为空也保留字段，避免工具调用后的 thinking-mode 上下文丢失"
+    },
+    {
+      "version": "v0.9.43",
+      "path": "docs/changelog/releases/v0.9.43.md",
+      "summary": "优化（chat-tool-running-indicator）：聊天消息工具摘要行在工具执行中时改用成功色 DaisyUI loading 指示器覆盖原绿点展示，完成后恢复普通成功色圆点，避免执行中与已完成状态观感混淆且不撑开布局"
+    },
+    {
+      "version": "v0.9.42",
+      "path": "docs/changelog/releases/v0.9.42.md",
+      "summary": "功能（chat-queue-guided-handoff）：队列消息新增“引导中”状态与前端引导按钮；当前轮次不被立即打断，而是在自然返回后先完成历史落盘，再由引导队列立即接管下一轮；引导消息在下一轮进入忙碌态后立刻从队列移除，不再依赖激活最终成功，避免已写入历史的引导消息因后续失败残留在队列中"
+    },
+    {
+      "version": "v0.9.41",
+      "path": "docs/changelog/releases/v0.9.41.md",
+      "summary": "优化（department-deputy-permission-and-reset-polish）：部门页收紧副手与权限配置交互，主部门隐藏副手开关，顶部回转按钮改为还原未保存部门草稿；副手部门默认只暴露调查型内置工具并隐藏预设 Skill，保留用户自建 Skill 与 MCP 按配置可用，同时统一人格下拉的用户/预设/普通排序与副手人格候选过滤"
+    },
+    {
+      "version": "v0.9.40",
+      "path": "docs/changelog/releases/v0.9.40.md",
+      "summary": "优化（chat-virtual-scroll-compensation-and-own-message-alignment）：聊天虚拟滚动继续收口动态高度与补历史补偿语义，首屏快照与历史分页保持前端可控条数，消息统一补稳定 id，向上补历史改为以 `scrollHeight` 差值做主补偿、消息头像锚点做兜底，向上滚动时旧项测量优先吃缓存避免二次顶动；同时恢复“用户消息正式落库后再平滑顶到上缘”的行为，保留群组渲染与工具栏同层布局，修复长消息历史补位、用户消息对齐与滚动稳定性问题"
+    },
+    {
+      "version": "v0.9.39",
+      "path": "docs/changelog/releases/v0.9.39.md",
+      "summary": "优化（chat-virtual-scroll-windowing-and-snapshot-throttle）：聊天窗口虚拟滚动切回更贴近现有成熟实现的 `@tanstack/vue-virtual` 结构，去掉 active turn 自动对齐与相关高频观察器，补齐稳定 `getItemKey`、只针对当前虚拟窗口取首个可见锚点、折叠态思维链/工具卡懒渲染、代码块与布局观察器延后一帧更新，并将首次切屏与向上补历史的消息页大小都收敛到 2 条，显著降低长消息会话中的滚动抖动、连续补历史和上滚卡顿"
+    },
+    {
+      "version": "v0.9.38",
+      "path": "docs/changelog/releases/v0.9.38.md",
+      "summary": "优化（chat-dynamic-scroller-migration）：聊天虚拟滚动底座切换到 `vue-virtual-scroller` 默认 `DynamicScroller / DynamicScrollerItem` 方案，移除自研虚拟列表 composable 与 TanStack 虚拟滚动依赖，统一由库接管动态高度测量、item 池化与滚动区渲染；同时将会话切换与“滚到底”锚定收口到 scroller 自身暴露的方法，修正 `ChatView` 模板层级，避免 `0.9.37` 中出现的长会话滚动异常"
+    },
+    {
+      "version": "v0.9.37",
+      "path": "docs/changelog/releases/v0.9.37.md",
+      "summary": "优化（chat-virtual-list-scroll-stability-and-render-keys）：聊天虚拟滚动收口为稳定 item key 渲染，去掉基于渲染区间的整段 subtree 重建；无 id 消息补稳定前端 renderId，向上滚动时仅对完全位于视口上方的高度修正做滚动补偿，并为加载更早历史补充锚点恢复，减少长会话中的闪烁、跳动与滚动抢夺"
+    },
+    {
+      "version": "v0.9.36",
+      "path": "docs/changelog/releases/v0.9.36.md",
+      "summary": "修复（chat-send-ingress-and-dispatch-stack-overflow）：发送链路从收到前端 `send_chat_message` 到调度结束这段，去掉了目标会话解析阶段的前置快速持久化与整份 `Conversation/agents` 按值返回；发送入口与用户@委托发送改为先完成 ingress 再触发后台调度，mention 计划直接基于当前 `AppData` 借用构造，不再额外背整份会话快照；调度层同步移除 `agents.clone()` 与 flush 后整会话 `clone()`，降低发送前准备与调度边界上的主线程/运行态栈压力，修复 release 新会话首发即闪退的问题"
+    },
+    {
+      "version": "v0.9.35",
+      "path": "docs/changelog/releases/v0.9.35.md",
+      "summary": "功能（parameterized-theme-generator-and-mode-presets）：主题系统新增“预设 / 自定义”双入口，支持以少量参数即时合成并预览自定义主题；自定义浅色与自定义深色各自独立缓存参数，切换明暗不会互相覆盖，并恢复与预设主题并存的切换能力；同时聊天消息、工具审查、标题栏与外观页样式联动改为跟随新的主题 token，补齐中英繁文案、运行时动态注入与相关前端测试"
+    },
+    {
+      "version": "v0.9.30",
+      "path": "docs/changelog/releases/v0.9.30.md",
+      "summary": "优化（chat-selection-branch-action-copywriting）：聊天窗口多选操作栏中的“会话分支”按钮文案调整为“创造会话分支”，让当前动作语义更直接"
+    },
+    {
+      "version": "v0.9.21",
+      "path": "docs/changelog/releases/v0.9.21.md",
+      "summary": "优化（chat-message-action-layout-tighten）：聊天消息最外层行间距与上下内边距进一步收紧，减少相邻消息之间的空白；同时把用户消息的撤回按钮移到气泡下方右侧，并去掉操作区额外顶部间距，让消息气泡与操作按钮整体更紧凑"
+    },
+    {
+      "version": "v0.9.20",
+      "path": "docs/changelog/releases/v0.9.20.md",
+      "summary": "发布（release-0.9.20）：同步前端 `package.json`、Tauri `tauri.conf.json` 与 Rust `Cargo.toml` / `Cargo.lock` 版本号到 `0.9.20`，纳入本轮已完成的“会话置顶分组、主会话常驻置顶、图钉快速切换与分割线分组展示”等更新"
+    },
+    {
+      "version": "v0.9.19",
+      "path": "docs/changelog/releases/v0.9.19.md",
+      "summary": "发布（release-0.9.19）：同步前端 `package.json`、Tauri `tauri.conf.json` 与 Rust `Cargo.toml` / `Cargo.lock` 版本号到 `0.9.19`，纳入本轮已完成的“页面缩放热键开放、配置页缩放布局修复、对话窗口切换模型改为替换首项、内置主题配色替换”等更新"
+    },
+    {
+      "version": "v0.9.18",
+      "path": "docs/changelog/releases/v0.9.18.md",
+      "summary": "发布（release-0.9.18）：同步前端 `package.json`、Tauri `tauri.conf.json` 与 Rust `Cargo.toml` / `Cargo.lock` 版本号到 `0.9.18`，纳入本轮已完成的“Shell 工作区提示词修正、助理私人目录命名统一、聊天气泡入场动画收口、撤回 Todo 恢复”等稳定性修复"
+    },
+    {
+      "version": "v0.9.17",
+      "path": "docs/changelog/releases/v0.9.17.md",
+      "summary": "发布（release-0.9.17）：同步前端 `package.json`、Tauri `tauri.conf.json` 与 Rust `Cargo.toml` / `Cargo.lock` 版本号到 `0.9.17`，纳入本轮“删除当前未归档会话时优先切换到相邻会话”的交互修复"
+    },
+    {
+      "version": "v0.9.16",
+      "path": "docs/changelog/releases/v0.9.16.md",
+      "summary": "发布（release-0.9.16）：同步前端 `package.json`、Tauri `tauri.conf.json` 与 Rust `Cargo.toml` / `Cargo.lock` 版本号到 `0.9.16`，纳入本轮已完成的“工具类型重做、系统工具目录全量展示、部门 skill 依赖 exec 前端限制、系统人格默认名调整”等收口"
+    },
+    {
+      "version": "v0.9.15",
+      "path": "docs/changelog/releases/v0.9.15.md",
+      "summary": "发布（release-0.9.15）：同步前端 `package.json`、Tauri `tauri.conf.json` 与 Rust `Cargo.toml` / `Cargo.lock` 版本号到 `0.9.15`，纳入本轮已验证通过的“部门权限白黑名单与工具页去人格化”相关实现与交互收口"
+    },
+    {
+      "version": "v0.9.14",
+      "path": "docs/changelog/releases/v0.9.14.md",
+      "summary": "修复（remote-im-bound-department-agent-fallback）：远程 IM 联系人已绑定部门但未显式绑定人格时，不再错误回退到全局 `default-agent`；现在会优先从目标部门自身的 `agent_ids` 中选择可用人格，避免出现 `agentId 与部门不匹配` 导致消息持续入队失败"
+    },
+    {
+      "version": "v0.9.13",
+      "path": "docs/changelog/releases/v0.9.13.md",
+      "summary": "修复（tool-review-sidebar-polish）：修正工具审查批次在 `currentBatchKey` 指向无效 key 时出现“计数为 0 仍可点开 / 明明有历史批次却打开空侧栏”的问题；同时收口工具审查侧栏列表与折叠卡层级，统一分页贴底、状态徽标、按钮样式与右侧面板留白"
+    },
+    {
+      "version": "v0.9.12",
+      "path": "docs/changelog/releases/v0.9.12.md",
+      "summary": "修复（chat-local-link-percent-decode）：聊天消息里的本地文件链接在浏览器自动编码中文文件名或 `file:` URL 后，现在会先做安全解码再交给本地打开链路；修正 `%E8%8E%89...` 这类 UTF-8 百分号编码路径无法被 Windows 资源管理器识别的问题，并兼容盘符路径、`file://` 形式与 UNC 路径"
+    },
+    {
+      "version": "v0.9.11",
+      "path": "docs/changelog/releases/v0.9.11.md",
+      "summary": "功能（user-mention-async-delegate）：聊天输入区新增结构化 `@人格` 异步委托链路；候选按人格去重，只允许选择存在部门归属的人格，点击工具栏头像或输入裸 `@` 均可 toggle mention；带 mention 的消息会走独立 `send_user_mention_message` 路径，不再触发当前会话负责部门主回答，而是按人格映射首部门并发派发用户级异步委托；mentions 会写入消息元数据、随撤回/重生恢复，并在用户气泡与发给模型的正文前缀中统一显示为 `@A,@B`"
+    },
+    {
+      "version": "v0.9.10",
+      "path": "docs/changelog/releases/v0.9.10.md",
+      "summary": "功能（config-migration-package）：新增数据迁移页与加密迁移包导入导出链路，支持同版本迁移包预检、供应商与记忆增量导入、配置备份后导入与自动重启，并收口迁移页交互与本地元数据/授权文件迁移边界"
+    },
+    {
+      "version": "v0.9.8",
+      "path": "docs/changelog/releases/v0.9.8.md",
+      "summary": "发布（release-0.9.8）：同步版本号，并纳入本轮聊天输入区模型切换与部门首位模型即时同步修复"
+    },
+    {
+      "version": "v0.9.7",
+      "path": "docs/changelog/releases/v0.9.7.md",
+      "summary": "发布（release-0.9.7）：同步版本号并纳入本轮 Codex 协议接入、百炼多模态缓存、会话主工作目录 `AGENTS.md` 注入、输入面板指令系统、流式工具历史与配置保存链路修复"
+    },
+    {
+      "version": "v0.9.5",
+      "path": "docs/changelog/releases/v0.9.5.md",
+      "summary": "发布（release-0.9.5）：同步版本号并纳入本轮标题栏环形进度条、会话标题合并显示与督工按钮图标优化"
+    },
+    {
+      "version": "v0.9.4",
+      "path": "docs/changelog/releases/v0.9.4.md",
+      "summary": "发布（release-0.9.4）：同步版本号并纳入本轮督工任务、任务调度与终止型任务完成回复修复"
+    },
+    {
+      "version": "v0.9.3",
+      "path": "docs/changelog/releases/v0.9.3.md",
+      "summary": "发布（release-0.9.3）：同步版本号并承接当前 `rust-genai` 运行时迁移成果"
+    },
+    {
+      "version": "v0.9.1",
+      "path": "docs/changelog/releases/v0.9.1.md",
+      "summary": "发布（release-0.9.1）：整合委托功能修复与聊天交互打磨后发布补丁版本"
+    },
+    {
+      "version": "v0.9.0",
+      "path": "docs/changelog/releases/v0.9.0.md",
+      "summary": "发布（release-0.9.0）：整理并发布当前这一轮聊天窗口、Markdown 渲染、流式输出与会话链路重构成果"
+    }
+  ]
+}

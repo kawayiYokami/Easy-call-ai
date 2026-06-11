@@ -130,7 +130,7 @@ Tauri 管理 3 个无边框窗口：`main`（配置，900×900）、`chat`（对
 - 当前仅支持 Windows 应用内自动更新；Linux 仍维护发布构建链路
 - `src-tauri/tauri.conf.json` 中的 `plugins.updater.pubkey` 只是启动期占位，真正使用的公钥由构建时 `TAURI_UPDATER_PUBLIC_KEY` 注入并在 Rust 侧覆盖
 - 便携版通过 `PORTABLE` 标记识别，自动更新走 `zip -> staging -> helper 替换 -> 备份回滚`
-- 修改版本号时，必须同步更新以下文件：`package.json`、`src-tauri/Cargo.toml`、`src-tauri/tauri.conf.json`、`src-tauri/Cargo.lock`、`CHANGELOG.md`
+- 修改版本号时，必须同步更新以下文件：`package.json`、`src-tauri/Cargo.toml`、`src-tauri/tauri.conf.json`、`src-tauri/Cargo.lock`，并新增/更新对应的 `docs/changelog/releases/vX.Y.Z.md` 后执行 `pnpm changelog:build`
 - 修改 `src-tauri/Cargo.lock` 时，只允许更新本项目包 `easy-call-ai` 的版本条目；禁止使用全局替换批量改第三方依赖版本号，避免引入错误 checksum
 
 ### 代码组织原则
@@ -184,7 +184,8 @@ Tauri 管理 3 个无边框窗口：`main`（配置，900×900）、`chat`（对
 - 采用约定式提交（Conventional Commits），推荐格式：`type(scope): 简要中文描述`。
 - 提交信息默认使用中文，便于与现有项目历史保持一致。
 - 常用类型：`feat`、`fix`、`perf`、`refactor`、`docs`、`chore`。
-- 每次 `git commit` 前默认应先更新 `CHANGELOG.md`，确保变更可追溯；但当用户明确要求直接提交、明确说明本次提交无需更新 `CHANGELOG.md`，或本次改动明确不面向生产环境（如纯调试、开发体验、脚手架、内部规则调整）时，可以跳过这一步。
+- Changelog 采用“版本明细为源、脚本生成汇总”的方式维护：`docs/changelog/releases/*.md` 是唯一手工维护来源；`CHANGELOG.md`、`docs/changelog/latest.md`、`docs/changelog/remote.md`、`docs/changelog/index.json` 都由 `pnpm changelog:build` 生成，默认不要手改生成文件。
+- 每次 `git commit` 前默认应先补上本次版本对应的 `docs/changelog/releases/vX.Y.Z.md` 并执行 `pnpm changelog:build`，确保变更可追溯；但当用户明确要求直接提交、明确说明本次提交无需更新 changelog，或本次改动明确不面向生产环境（如纯调试、开发体验、脚手架、内部规则调整）时，可以跳过这一步。
 - 每次 `git commit` 前必须先修复并跑通本次改动影响到的全部测试；存在失败项时禁止提交。
 - 不要把测试留到最后一次性再跑；开发过程中应边改边验证，尽早发现并修复失败。
 
