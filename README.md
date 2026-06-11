@@ -1,125 +1,123 @@
-# P-ai（PAI）
+# P-ai (PAI)
 
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](LICENSE)
 [![Tauri 2](https://img.shields.io/badge/Tauri-2-24C8D8?logo=tauri)](https://tauri.app)
 [![Vue 3](https://img.shields.io/badge/Vue-3-4FC08D?logo=vue.js)](https://vuejs.org)
 [![Rust](https://img.shields.io/badge/Rust-000000?logo=rust)](https://www.rust-lang.org)
-[![Release](https://img.shields.io/badge/Release-0.9.69-6366f1)](https://github.com/kawayiYokami/P-ai/releases)
+[![Release](https://img.shields.io/badge/Release-0.11.6-6366f1)](https://github.com/kawayiYokami/P-ai/releases)
 
-**Languages / 语言**
-[简体中文](README.md) | [繁體中文](docs/readme/README.zh-TW.md) | [English](docs/readme/README.en-US.md) | [日本語](docs/readme/README.ja-JP.md)
-
----
-
-> **A self-growing desktop AI work system — ready-to-use, long-running, with agent delegation, memory, tool review, MCP, and high-concurrency workspace automation.**
->
-> **开箱即用的自我成长型桌面 AI 工作系统 — 部门委派、长期记忆、工具审查、MCP、高并发工作区自动化。**
+**Languages / 语言**  
+[简体中文](docs/readme/README.zh-CN.md) | [繁體中文](docs/readme/README.zh-TW.md) | [English](README.md) | [日本語](docs/readme/README.ja-JP.md)
 
 ---
 
-PAI 是一个持续演进中的桌面 AI 工作系统。它不是一个聊天客户端，而是一套围绕会话、任务、记忆、部门、工具、审查、远程消息组织起来的完整桌面系统。底层用 Rust 异步并发和流式架构保证响应速度，前端用 Vue 3 + DaisyUI 保持简洁界面。所有数据本地存储，不经过中间服务器。
-
-### 入口与效率
-
-快捷键呼出、语音唤醒、后台语音输入、快速截图——PAI 把桌面 AI 的入口做到了「随时呼出、随时处理、随时继续」。支持本地会话、远程会话、多会话并行，快捷指令可以一键触发常用操作。
-
-### 组织与人格
-
-多种部门和人格可以独立配置，每套人格带头像、带私有记忆。任务和会话按部门、身份、职责分开，本地会话支持多 Agent 同时群聊，远程会话支持微信、飞书、钉钉、OneBot 等协议。
-
-### 界面与交互
-
-UI、对话样式、配色、字体都可以自定义，多窗口并行展开。响应速度快，界面干净但不简陋。
-
-### 能力与工具
-
-预设了完整的能力集：LLM 可以执行操作脚本控制电脑、主动发表情；常见 Skill 已经内置；支持全面图转文、PDF 和 Office 原生阅读；工具修改可回退；工具执行和代码修改可以多角度 AI 审查。API 供应商接入做了简化，开箱即用。
-
-### 记忆与上下文
-
-长对话会动态精简归档，单会话可以长期延续，上下文通过持续压缩和整理保持有效。记忆系统成本低、覆盖面全，AI 会越用越懂你。
-
-### 工程与可靠性
-
-高性能、支持并发、响应快。本地会话支持消息投送、会话分支、人工发起委托；远程会话支持收发文件和图片。内置主动计划模式、委托系统、人物系统，LLM 可以自主管理 MCP、技能、人格和部门。工具执行有审查链，代码修改可以多角度校验。
+> **A self-growing desktop AI work system — ready-to-use, with agent delegation, long-term memory, tool review, MCP, and high-concurrency workspace automation.**
 
 ---
 
-### 真实使用场景
+PAI is an actively evolving desktop AI work system. It is not a chat client — it is a complete desktop system organized around conversations, tasks, memory, departments, tools, review, and remote messaging. The backend uses Rust async concurrency and streaming architecture to guarantee response speed; the frontend uses Vue 3 + DaisyUI for a clean interface. All data is stored locally, with no intermediate servers.
 
-以下不是假设，是实际发生的事：
+### Entry & Efficiency
 
-- 从 v0.8 开始，PAI 被用来开发 PAI 自身超过 1 个月，期间产生了 407 次提交、496 个文件变更
-- 有用户持续用 PAI 处理财经问题和新闻舆论监督，超过 3 个月
-- 有用户通过微信远程联系人，用 PAI 生产小红书文案，超过 3 个月，累计更新上千条发布
-- 有用户用 PAI 分析研究论文超过 2 个月，并在此基础上发表了多篇论文
-- 有用户用 PAI 定时爬取网络资料，累计超过 500M
-- 有用户让 PAI 连续工作 20 小时执行一个编程任务，自行审查、自行解决、自行查阅网络资料，最终通过
-- 有用户长期用 PAI 制作游戏攻略
-- 有用户长期用 PAI 操作游戏完成日常任务
-- 有用户同时开启数十个会话，用 PAI 同时监控多个网络频道
-- 长期使用后，用户普遍反馈越用越顺，AI 越来越懂自己
+Global hotkey summon, voice wakeup, background voice input, quick screenshot — PAI brings desktop AI access to "summon anytime, handle anything, continue anywhere." Supports local sessions, remote sessions, and multiple parallel sessions; quick commands can trigger common operations in one keystroke.
+
+### Organization & Personas
+
+Multiple departments and personas can be independently configured, each with its own avatar and private memory. Tasks and sessions are separated by department, identity, and responsibility. Local sessions support multi-agent group chat; remote sessions support WeChat, Feishu, DingTalk, OneBot, and other protocols.
+
+### Interface & Interaction
+
+UI, chat style, colors, and fonts are all customizable, with multiple windows running in parallel. Fast response, clean but not bare-bones.
+
+### Capabilities & Tools
+
+A complete capability set is pre-built: LLM can execute operation scripts to control the computer and send reactions proactively; common Skills are built-in; full image-to-text, native PDF and Office reading are supported; tool modifications are reversible; tool execution and code changes can undergo multi-angle AI review. API provider onboarding is streamlined and ready to use.
+
+### Memory & Context
+
+Long conversations are dynamically compressed and archived; a single session can persist indefinitely, with context staying effective through continuous compression and organization. The memory system is low-cost and comprehensive — the more you use it, the better the AI understands you.
+
+### Engineering & Reliability
+
+High performance, concurrent, fast to respond. Local sessions support message delivery, session branching, and manual delegation; remote sessions support sending and receiving files and images. Built-in proactive planning mode, delegation system, and persona system; LLM can autonomously manage MCP, skills, personas, and departments. Tool execution has a review chain; code changes can be validated from multiple angles.
 
 ---
 
-### 项目数据
+### Real Usage Scenarios
 
-- 872 次提交，116 个版本发布
-- 79 份计划文档
-- 前后端跨 Vue、Rust、Tauri 2 持续演进
-- 本地会话、远程会话、记忆、审查、委派、多窗口、工作区能力均已落地
+The following are not hypotheticals — they actually happened:
+
+- Starting from v0.8, PAI has been used to develop PAI itself for over 1 month, producing 407 commits and 496 file changes
+- Users have been using PAI continuously for financial analysis and news monitoring for over 3 months
+- Users have been using PAI via WeChat remote contacts to produce Xiaohongshu content for over 3 months, with over a thousand published posts
+- Users have been using PAI to analyze research papers for over 2 months and published multiple papers based on it
+- Users have been using PAI for scheduled web scraping, accumulating over 500M of data
+- A user ran PAI continuously for 20 hours on a programming task — it reviewed, resolved, researched online, and passed on its own
+- Users have been using PAI long-term to create game guides
+- Users have been using PAI long-term to operate games and complete daily tasks
+- Users run dozens of sessions simultaneously, using PAI to monitor multiple online channels at once
+- After extended use, users consistently report it gets smoother over time — the AI understands them better
 
 ---
 
-## 技术栈
+### Project Stats
 
-- 桌面壳：Tauri 2
-- 后端：Rust（异步，tokio）
-- 前端：Vue 3 + TypeScript + Vite
-- UI：DaisyUI + Tailwind CSS
-- 包管理：pnpm
+- 872 commits, 116 releases
+- 79 plan documents
+- Full-stack evolution across Vue, Rust, and Tauri 2
+- Local sessions, remote sessions, memory, review, delegation, multi-window, and workspace capabilities all shipped
 
-## 平台与更新
+---
 
-当前发布策略：
+## Tech Stack
 
-- Windows：NSIS 安装版 + zip 便携版（`PORTABLE` 标记），应用内自动更新
-- Linux：`.deb` / `AppImage`，保留发布链路
+- Desktop shell: Tauri 2
+- Backend: Rust (async, tokio)
+- Frontend: Vue 3 + TypeScript + Vite
+- UI: DaisyUI + Tailwind CSS
+- Package manager: pnpm
 
-## 数据与隐私
+## Platform & Updates
 
-- API Key 保存在本地，不经过任何中间服务器
-- 对话、任务、归档、记忆、媒体全部本地存储
-- 便携版数据在可执行文件同级 `data/`，U 盘即插即用
-- 你可以自行管理、导出、清理所有数据
+Current release strategy:
 
-## 适合谁
+- Windows: NSIS installer + zip portable (`PORTABLE` marker), in-app auto-update
+- Linux: `.deb` / `AppImage`, release pipeline maintained
 
-- 想把 AI 真正放进桌面工作流的开发者
-- 不满足于"只会聊天"的 AI 工具的人
-- 需要长期任务推进、而不是一次一清的人
-- 希望 AI 有审查能力、不是盲目放权的人
-- 对 AI 组织化协作有想象力的人
+## Data & Privacy
 
-## 快速开始
+- API keys are stored locally, never passing through any intermediate server
+- Conversations, tasks, archives, memory, and media are all stored locally
+- Portable version data lives in `data/` next to the executable — plug-and-play from a USB drive
+- You can manage, export, and clean up all your data yourself
 
-从 [Releases](https://github.com/kawayiYokami/P-ai/releases) 下载安装版或便携版。
+## Who It Is For
 
-安装后主要文件位置：
+- Developers who want AI truly embedded in their desktop workflow
+- People not satisfied with AI tools that "can only chat"
+- People who need long-running task execution, not one-shot Q&A
+- People who want AI with review capability, not blind delegation
+- People with imagination for AI organizational collaboration
 
-- 可执行文件：`/usr/bin/p-ai`
-- 桌面启动项：`/usr/share/applications/p-ai.desktop`
-- 图标：`/usr/share/pixmaps/p-ai.png`
-- 默认数据目录：`~/.config/p-ai/`
+## Quick Start
 
-## 致谢
+Download the installer or portable version from [Releases](https://github.com/kawayiYokami/P-ai/releases).
 
-这个项目能走到今天，依赖这些优秀的上游项目与社区：[Tauri](https://tauri.app/) · [Vue 3](https://vuejs.org/) · [DaisyUI](https://daisyui.com/) · [Tailwind CSS](https://tailwindcss.com/) · [rust-genai](https://github.com/jeremychone/rust-genai) · [rmcp](https://github.com/modelcontextprotocol/rust-sdk) · [Shiki](https://shiki.style/) · [Mermaid](https://mermaid.js.org/) · [KaTeX](https://katex.org/) · [markstream-vue](https://www.npmjs.com/package/markstream-vue) · [tokio](https://tokio.rs/) · [reqwest](https://github.com/seanmonstar/reqwest) · [rusqlite](https://github.com/rusqlite/rusqlite) · [tantivy](https://github.com/quickwit-oss/tantivy) · [Linux.do](https://linux.do/) · [AstrBot](https://github.com/AstrBotDevs/AstrBot)
+Main file locations after installation:
 
-项目作者还为 AstrBot 生态开发了三款插件：[AngelHeart](https://github.com/kawayiYokami/astrbot_plugin_angel_heart)（智能群聊交互） · [AngelMemory](https://github.com/kawayiYokami/astrbot_plugin_angel_memory)（层级记忆检索） · [AngelSmile](https://github.com/kawayiYokami/astrbot_plugin_angel_smile)（表情包管理）
+- Executable: `/usr/bin/p-ai`
+- Desktop entry: `/usr/share/applications/p-ai.desktop`
+- Icon: `/usr/share/pixmaps/p-ai.png`
+- Default data directory: `~/.config/p-ai/`
 
-也感谢所有为本项目贡献想法、测试、反馈和代码的人。
+## Acknowledgments
 
-## 许可证
+This project relies on these excellent upstream projects and communities: [Tauri](https://tauri.app/) · [Vue 3](https://vuejs.org/) · [DaisyUI](https://daisyui.com/) · [Tailwind CSS](https://tailwindcss.com/) · [rust-genai](https://github.com/jeremychone/rust-genai) · [rmcp](https://github.com/modelcontextprotocol/rust-sdk) · [Shiki](https://shiki.style/) · [Mermaid](https://mermaid.js.org/) · [KaTeX](https://katex.org/) · [markstream-vue](https://www.npmjs.com/package/markstream-vue) · [tokio](https://tokio.rs/) · [reqwest](https://github.com/seanmonstar/reqwest) · [rusqlite](https://github.com/rusqlite/rusqlite) · [tantivy](https://github.com/quickwit-oss/tantivy) · [AstrBot](https://github.com/AstrBotDevs/AstrBot)
 
-本项目采用 [GNU General Public License v3.0](LICENSE)。
+The project author has also developed three plugins for the AstrBot ecosystem: [AngelHeart](https://github.com/kawayiYokami/astrbot_plugin_angel_heart) (intelligent group chat) · [AngelMemory](https://github.com/kawayiYokami/astrbot_plugin_angel_memory) (hierarchical memory retrieval) · [AngelSmile](https://github.com/kawayiYokami/astrbot_plugin_angel_smile) (sticker management)
+
+Thanks to everyone who has contributed ideas, testing, feedback, and code to this project.
+
+## License
+
+This project is licensed under [GNU General Public License v3.0](LICENSE).

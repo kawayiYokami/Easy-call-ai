@@ -7,7 +7,7 @@
 [![Release](https://img.shields.io/badge/Release-0.9.69-6366f1)](https://github.com/kawayiYokami/P-ai/releases)
 
 **Languages / 語言**
-[简体中文](../../README.md) | [繁體中文](README.zh-TW.md) | [English](README.en-US.md) | [日本語](README.ja-JP.md)
+[简体中文](README.zh-CN.md) | [繁體中文](README.zh-TW.md) | [English](../../README.md) | [日本語](README.ja-JP.md)
 
 ---
 

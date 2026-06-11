@@ -7,7 +7,7 @@
 [![Release](https://img.shields.io/badge/Release-0.9.69-6366f1)](https://github.com/kawayiYokami/P-ai/releases)
 
 **Languages / 言語**
-[简体中文](../../README.md) | [繁體中文](README.zh-TW.md) | [English](README.en-US.md) | [日本語](README.ja-JP.md)
+[简体中文](README.zh-CN.md) | [繁體中文](README.zh-TW.md) | [English](../../README.md) | [日本語](README.ja-JP.md)
 
 ---
 
@@ -112,7 +112,7 @@ UI、チャットスタイル、配色、フォントはすべてカスタマイ
 
 ## 謝辞
 
-本プロジェクトは、これらの優れたアップストリームプロジェクトとコミュニティに支えられています：[Tauri](https://tauri.app/) · [Vue 3](https://vuejs.org/) · [DaisyUI](https://daisyui.com/) · [Tailwind CSS](https://tailwindcss.com/) · [rust-genai](https://github.com/jeremychone/rust-genai) · [rmcp](https://github.com/modelcontextprotocol/rust-sdk) · [Shiki](https://shiki.style/) · [Mermaid](https://mermaid.js.org/) · [KaTeX](https://katex.org/) · [markstream-vue](https://www.npmjs.com/package/markstream-vue) · [tokio](https://tokio.rs/) · [reqwest](https://github.com/seanmonstar/reqwest) · [rusqlite](https://github.com/rusqlite/rusqlite) · [tantivy](https://github.com/quickwit-oss/tantivy) · [Linux.do](https://linux.do/) · [AstrBot](https://github.com/AstrBotDevs/AstrBot)
+本プロジェクトは、これらの優れたアップストリームプロジェクトとコミュニティに支えられています：[Tauri](https://tauri.app/) · [Vue 3](https://vuejs.org/) · [DaisyUI](https://daisyui.com/) · [Tailwind CSS](https://tailwindcss.com/) · [rust-genai](https://github.com/jeremychone/rust-genai) · [rmcp](https://github.com/modelcontextprotocol/rust-sdk) · [Shiki](https://shiki.style/) · [Mermaid](https://mermaid.js.org/) · [KaTeX](https://katex.org/) · [markstream-vue](https://www.npmjs.com/package/markstream-vue) · [tokio](https://tokio.rs/) · [reqwest](https://github.com/seanmonstar/reqwest) · [rusqlite](https://github.com/rusqlite/rusqlite) · [tantivy](https://github.com/quickwit-oss/tantivy) · [AstrBot](https://github.com/AstrBotDevs/AstrBot)
 
 プロジェクト作者は AstrBot エコシステム向けに 3 つのプラグインも開発しています：[AngelHeart](https://github.com/kawayiYokami/astrbot_plugin_angel_heart)（インテリジェントグループチャット） · [AngelMemory](https://github.com/kawayiYokami/astrbot_plugin_angel_memory)（階層記憶検索） · [AngelSmile](https://github.com/kawayiYokami/astrbot_plugin_angel_smile)（ステッカー管理）
 
