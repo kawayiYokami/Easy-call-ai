@@ -202,6 +202,7 @@ const CHAT_STREAM_REBIND_REQUIRED_EVENT: &str = "easy-call:stream-rebind-require
 const CHAT_CONVERSATION_MESSAGE_APPENDED_EVENT: &str = "easy-call:conversation-message-appended";
 const CHAT_CONVERSATION_OVERVIEW_UPDATED_EVENT: &str = "easy-call:conversation-overview-updated";
 const CHAT_CONCURRENCY_LIMIT: usize = 8;
+const GOAL_CONTINUE_DISPLAY_TEXT: &str = "继续完成目标";
 
 fn lock_conversation_runtime_slots(
     state: &AppState,
@@ -595,6 +596,80 @@ fn conversation_is_idle_for_goal_fallback(
         .unwrap_or(true))
 }
 
+fn message_is_goal_continue(message: &ChatMessage) -> bool {
+    message
+        .provider_meta
+        .as_ref()
+        .and_then(|meta| meta.get("messageKind"))
+        .and_then(Value::as_str)
+        .map(str::trim)
+        == Some("goal_continue")
+}
+
+fn event_is_goal_continue(event: &ChatPendingEvent) -> bool {
+    event.messages.iter().any(message_is_goal_continue)
+}
+
+fn goal_continue_is_suppressed(state: &AppState, conversation_id: &str) -> Result<bool, String> {
+    let conversation_id = conversation_id.trim();
+    if conversation_id.is_empty() {
+        return Ok(false);
+    }
+    let ids = state
+        .goal_continue_suppressed_conversation_ids
+        .lock()
+        .map_err(|_| "Failed to lock goal continue suppression ids".to_string())?;
+    Ok(ids.contains(conversation_id))
+}
+
+pub(crate) fn mark_goal_continue_suppressed_by_user_interrupt(
+    state: &AppState,
+    conversation_id: &str,
+    reason: &str,
+) -> Result<(), String> {
+    let conversation_id = conversation_id.trim();
+    if conversation_id.is_empty() {
+        return Ok(());
+    }
+    let mut ids = state
+        .goal_continue_suppressed_conversation_ids
+        .lock()
+        .map_err(|_| "Failed to lock goal continue suppression ids".to_string())?;
+    let inserted = ids.insert(conversation_id.to_string());
+    if inserted {
+        runtime_log_info(format!(
+            "[目标续跑] 暂停，任务=用户中断，conversation_id={}，reason={}",
+            conversation_id,
+            reason.trim()
+        ));
+    }
+    Ok(())
+}
+
+pub(crate) fn clear_goal_continue_suppression(
+    state: &AppState,
+    conversation_id: &str,
+    reason: &str,
+) -> Result<(), String> {
+    let conversation_id = conversation_id.trim();
+    if conversation_id.is_empty() {
+        return Ok(());
+    }
+    let mut ids = state
+        .goal_continue_suppressed_conversation_ids
+        .lock()
+        .map_err(|_| "Failed to lock goal continue suppression ids".to_string())?;
+    let removed = ids.remove(conversation_id);
+    if removed {
+        runtime_log_info(format!(
+            "[目标续跑] 恢复，任务=清除用户中断暂停，conversation_id={}，reason={}",
+            conversation_id,
+            reason.trim()
+        ));
+    }
+    Ok(())
+}
+
 fn tool_loop_should_close_for_guided_queue(
     state: Option<&AppState>,
     context: Option<&ToolLoopAutoCompactionContext>,
@@ -617,6 +692,13 @@ pub(crate) fn ingress_chat_event(
     state: &AppState,
     event: ChatPendingEvent,
 ) -> Result<ChatEventIngress, String> {
+    if !event_is_goal_continue(&event) {
+        clear_goal_continue_suppression(
+            state,
+            &event.conversation_id,
+            "new_non_goal_event",
+        )?;
+    }
     // 原子区间：阻塞判定 +（可选）入队，在同一把流程锁内完成。
     let _dequeue_guard = state
         .dequeue_lock
@@ -1502,12 +1584,42 @@ fn goal_continue_turn_for_conversation(
         + 1
 }
 
+fn build_goal_continue_message(
+    goal: &ConversationGoalState,
+    goal_turn: usize,
+    prompt: String,
+    now: String,
+) -> ChatMessage {
+    ChatMessage {
+        id: Uuid::new_v4().to_string(),
+        role: "system".to_string(),
+        created_at: now,
+        speaker_agent_id: Some(SYSTEM_PERSONA_ID.to_string()),
+        parts: vec![MessagePart::Text {
+            text: GOAL_CONTINUE_DISPLAY_TEXT.to_string(),
+            reasoning_content: None,
+        }],
+        extra_text_blocks: Vec::new(),
+        provider_meta: Some(serde_json::json!({
+            "messageKind": "goal_continue",
+            "hiddenPromptText": prompt,
+            "goalId": goal.goal_id,
+            "goalTurn": goal_turn,
+        })),
+        tool_call: None,
+        mcp_call: None,
+    }
+}
+
 fn maybe_enqueue_goal_continue_after_idle(
     state: &AppState,
     conversation_id: &str,
 ) -> Result<bool, String> {
     let conversation_id = conversation_id.trim();
     if conversation_id.is_empty() || !conversation_is_idle_for_goal_fallback(state, conversation_id)? {
+        return Ok(false);
+    }
+    if goal_continue_is_suppressed(state, conversation_id)? {
         return Ok(false);
     }
     let conversation = match state_read_conversation_cached(state, conversation_id) {
@@ -1522,25 +1634,7 @@ fn maybe_enqueue_goal_continue_after_idle(
     let prompt = render_goal_continuation_prompt(&goal.objective);
     let event_id = format!("goal-continue-{}", Uuid::new_v4());
     let request_id = format!("goal-continue-request-{}", Uuid::new_v4());
-    let message = ChatMessage {
-        id: Uuid::new_v4().to_string(),
-        role: "user".to_string(),
-        created_at: now.clone(),
-        speaker_agent_id: None,
-        parts: vec![MessagePart::Text {
-            text: prompt.clone(),
-            reasoning_content: None,
-        }],
-        extra_text_blocks: Vec::new(),
-        provider_meta: Some(serde_json::json!({
-            "messageKind": "goal_continue",
-            "hiddenPromptText": prompt,
-            "goalId": goal.goal_id,
-            "goalTurn": goal_turn,
-        })),
-        tool_call: None,
-        mcp_call: None,
-    };
+    let message = build_goal_continue_message(&goal, goal_turn, prompt, now.clone());
     let mut runtime_context = runtime_context_new("goal_continue", "active_goal");
     runtime_context.request_id = Some(request_id);
     runtime_context.dispatch_id = Some(format!("goal-continue-dispatch-{}", Uuid::new_v4()));

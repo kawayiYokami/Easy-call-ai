@@ -75,6 +75,8 @@ struct AppState {
     conversation_runtime_slots:
         Arc<Mutex<std::collections::HashMap<String, ConversationRuntimeSlot>>>,
     conversation_processing_claims: Arc<Mutex<std::collections::HashSet<String>>>,
+    goal_continue_suppressed_conversation_ids:
+        Arc<Mutex<std::collections::HashSet<String>>>,
     pending_chat_result_senders: Arc<
         Mutex<
             std::collections::HashMap<
@@ -313,6 +315,9 @@ impl AppState {
             llm_round_logs: Arc::new(Mutex::new(std::collections::VecDeque::new())),
             conversation_runtime_slots: Arc::new(Mutex::new(std::collections::HashMap::new())),
             conversation_processing_claims: Arc::new(Mutex::new(std::collections::HashSet::new())),
+            goal_continue_suppressed_conversation_ids: Arc::new(Mutex::new(
+                std::collections::HashSet::new(),
+            )),
             pending_chat_result_senders: Arc::new(Mutex::new(std::collections::HashMap::new())),
             pending_chat_delta_channels: Arc::new(Mutex::new(std::collections::HashMap::new())),
             accepted_submit_trace_ids: Arc::new(Mutex::new(std::collections::VecDeque::new())),

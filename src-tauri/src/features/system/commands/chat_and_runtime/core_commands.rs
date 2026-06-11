@@ -2162,6 +2162,15 @@ async fn stop_chat_message(
             requested_conversation_id.as_deref(),
         )?;
     let aborted = aborted_chat || aborted_tool || aborted_delegate_children > 0;
+    if aborted {
+        if let Some(conversation_id) = requested_conversation_id.as_deref() {
+            mark_goal_continue_suppressed_by_user_interrupt(
+                state.inner(),
+                conversation_id,
+                "stop_chat_message",
+            )?;
+        }
+    }
     if aborted_delegate_children > 0 {
         eprintln!(
             "[聊天] 停止请求已级联到同步委托子会话: session={}, child_count={}",
@@ -2342,6 +2351,13 @@ async fn interrupt_conversation_runtime(
     let _ = set_conversation_remote_im_activation_sources(state.inner(), &conversation_id, Vec::new());
 
     let aborted = aborted_chat || aborted_tool || aborted_delegate_children > 0;
+    if aborted || cleared_queue_count > 0 {
+        mark_goal_continue_suppressed_by_user_interrupt(
+            state.inner(),
+            &conversation_id,
+            "interrupt_conversation_runtime",
+        )?;
+    }
     eprintln!(
         "[聊天调度] 会话运行已中断: conversation_id={}, aborted={}, cleared_queue_count={}, child_abort_count={}",
         conversation_id,

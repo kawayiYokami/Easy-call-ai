@@ -1787,14 +1787,20 @@ fn xml_escape_prompt(input: &str) -> String {
 
 fn prompt_role_for_message(message: &ChatMessage, current_agent_id: &str) -> Option<String> {
     let raw_role = message.role.trim().to_lowercase();
-    if raw_role != "user" && raw_role != "assistant" {
-        return None;
-    }
     let speaker_id = message
         .speaker_agent_id
         .as_deref()
         .map(str::trim)
         .unwrap_or("");
+    if raw_role == "system"
+        && speaker_id == SYSTEM_PERSONA_ID
+        && message_is_goal_continue(message)
+    {
+        return Some("user".to_string());
+    }
+    if raw_role != "user" && raw_role != "assistant" {
+        return None;
+    }
     if !speaker_id.is_empty() && speaker_id == current_agent_id {
         return Some("assistant".to_string());
     }

@@ -552,6 +552,7 @@ mod prompt_assembly_tests {
             llm_round_logs: Arc::new(Mutex::new(VecDeque::new())),
             conversation_runtime_slots: Arc::new(Mutex::new(HashMap::new())),
             conversation_processing_claims: Arc::new(Mutex::new(HashSet::new())),
+            goal_continue_suppressed_conversation_ids: Arc::new(Mutex::new(HashSet::new())),
             pending_chat_result_senders: Arc::new(Mutex::new(HashMap::new())),
             pending_chat_delta_channels: Arc::new(Mutex::new(HashMap::new())),
             accepted_submit_trace_ids: Arc::new(Mutex::new(std::collections::VecDeque::new())),

@@ -196,6 +196,7 @@ fn goal_create_goal_inner(
     )?;
     drop(guard);
     emit_goal_updated(state, normalized_conversation_id, conversation.active_goal.as_ref());
+    clear_goal_continue_suppression(state, normalized_conversation_id, "goal_created")?;
     if let Err(err) = maybe_enqueue_goal_continue_after_idle(state, normalized_conversation_id) {
         runtime_log_warn(format!(
             "[目标续跑] 跳过，任务=创建目标后投递续跑，conversation_id={}，goal_id={}，error={}",
@@ -459,6 +460,63 @@ mod goal_tests {
         assert!(rendered.contains("&lt;tag&gt;"));
         assert!(rendered.contains("&amp;"));
         assert!(!rendered.contains("完成 <tag>"));
+    }
+
+    #[test]
+    fn build_goal_continue_message_should_use_system_persona_and_hidden_prompt() {
+        let goal = ConversationGoalState {
+            goal_id: "goal-message-shape".to_string(),
+            status: GOAL_STATUS_ACTIVE.to_string(),
+            objective: "完成目标".to_string(),
+            started_at: "2026-06-11T00:00:00Z".to_string(),
+            ended_at: None,
+            usage_start: ConversationCumulativeUsage::default(),
+            usage_end: None,
+        };
+        let message = build_goal_continue_message(
+            &goal,
+            2,
+            "隐藏的完整续跑提示".to_string(),
+            "2026-06-11T00:00:00Z".to_string(),
+        );
+
+        assert_eq!(message.role, "system");
+        assert_eq!(message.speaker_agent_id.as_deref(), Some(SYSTEM_PERSONA_ID));
+        let first_text = match message.parts.first() {
+            Some(MessagePart::Text { text, .. }) => text.as_str(),
+            _ => "",
+        };
+        assert_eq!(first_text, GOAL_CONTINUE_DISPLAY_TEXT);
+        let meta = message.provider_meta.as_ref().expect("provider meta");
+        assert_eq!(meta.get("messageKind").and_then(Value::as_str), Some("goal_continue"));
+        assert_eq!(
+            meta.get("hiddenPromptText").and_then(Value::as_str),
+            Some("隐藏的完整续跑提示")
+        );
+    }
+
+    #[test]
+    fn prompt_role_for_goal_continue_system_message_should_feed_model_as_user() {
+        let goal = ConversationGoalState {
+            goal_id: "goal-prompt-role".to_string(),
+            status: GOAL_STATUS_ACTIVE.to_string(),
+            objective: "完成目标".to_string(),
+            started_at: "2026-06-11T00:00:00Z".to_string(),
+            ended_at: None,
+            usage_start: ConversationCumulativeUsage::default(),
+            usage_end: None,
+        };
+        let message = build_goal_continue_message(
+            &goal,
+            1,
+            "继续推进当前目标。".to_string(),
+            "2026-06-11T00:00:00Z".to_string(),
+        );
+
+        assert_eq!(
+            prompt_role_for_message(&message, DEFAULT_AGENT_ID).as_deref(),
+            Some("user")
+        );
     }
 
     #[test]

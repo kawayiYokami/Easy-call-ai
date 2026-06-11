@@ -3322,6 +3322,9 @@
             llm_round_logs: Arc::new(Mutex::new(std::collections::VecDeque::new())),
             conversation_runtime_slots: Arc::new(Mutex::new(std::collections::HashMap::new())),
             conversation_processing_claims: Arc::new(Mutex::new(std::collections::HashSet::new())),
+            goal_continue_suppressed_conversation_ids: Arc::new(Mutex::new(
+                std::collections::HashSet::new(),
+            )),
             pending_chat_result_senders: Arc::new(Mutex::new(std::collections::HashMap::new())),
             pending_chat_delta_channels: Arc::new(Mutex::new(std::collections::HashMap::new())),
             accepted_submit_trace_ids: Arc::new(Mutex::new(std::collections::VecDeque::new())),
@@ -3370,6 +3373,23 @@
             runtime_context: None,
             sender_info: None,
         }
+    }
+
+    #[test]
+    fn goal_continue_suppression_should_clear_on_next_non_goal_event() {
+        let state = test_chat_runtime_state();
+        let conversation_id = "conversation-goal-interrupted";
+        mark_goal_continue_suppressed_by_user_interrupt(
+            &state,
+            conversation_id,
+            "test_user_interrupt",
+        )
+        .expect("mark suppressed");
+        assert!(goal_continue_is_suppressed(&state, conversation_id).expect("check suppressed"));
+
+        let _ = ingress_chat_event(&state, test_pending_event(conversation_id))
+            .expect("ingress event");
+        assert!(!goal_continue_is_suppressed(&state, conversation_id).expect("check cleared"));
     }
 
     fn test_chat_conversation(conversation_id: &str, status: &str, updated_at: &str) -> Conversation {
