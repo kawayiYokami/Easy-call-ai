@@ -80,7 +80,12 @@ export function useChatRemoteConversationOrchestrator(bindings: Record<string, a
   async function switchChatConversation(payload: { kind?: string; conversationId: string; remoteContactId?: string }) {
     const kind = payload.kind === "remote_im_contact" ? "remote_im_contact" : "local_unarchived";
     if (kind === "remote_im_contact") {
-      await openConversationInDetachedWindowById(payload.conversationId);
+      const contactId = String(payload.remoteContactId || "").trim();
+      if (contactId) {
+        await switchRemoteImContactConversation(contactId);
+      } else {
+        await bindings.switchUnarchivedConversation(payload.conversationId);
+      }
       return;
     }
     await bindings.switchUnarchivedConversation(payload.conversationId);
