@@ -48,6 +48,7 @@ urlencoding = "2.1"
 webbrowser = "1.0"
 futures-util = "0.3"
 socket2 = "0.6"
+os_info = "3"
 sse-stream = "0.2"
 sha2 = "0.10"
 pdf_oxide = { version = "0.3.33", default-features = false }

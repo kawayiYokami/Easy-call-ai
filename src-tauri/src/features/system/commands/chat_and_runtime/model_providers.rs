@@ -623,6 +623,10 @@ async fn quick_genai_chat_inner(
         prompt_cache_key: None,
         extra_headers: Vec::new(),
         codex_auth: None,
+        codex_auth_mode: None,
+        codex_originator: None,
+        codex_residency_requirement: None,
+        codex_custom_api_key: None,
     };
     let prepared = PreparedPrompt {
         preamble: String::new(),

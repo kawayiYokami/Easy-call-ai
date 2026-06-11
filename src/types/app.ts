@@ -32,7 +32,7 @@ export type ApiRequestFormat =
   | "openai_rerank"
   | "gemini_embedding";
 
-export type CodexAuthMode = "read_local" | "managed_oauth";
+export type CodexAuthMode = "read_local" | "managed_oauth" | "custom_url";
 
 export type CodexAuthStatus = {
   providerId: string;
@@ -99,6 +99,10 @@ export type ApiConfigItem = {
   apiKey: string;
   codexAuthMode?: CodexAuthMode;
   codexLocalAuthPath?: string;
+  codexCustomUrl?: string;
+  codexCustomApiKey?: string;
+  codexOriginator?: string;
+  codexResidencyRequirement?: string;
   model: string;
   reasoningEffort?: string;
   temperature: number;
@@ -135,6 +139,10 @@ export type ApiProviderConfigItem = {
   baseUrl: string;
   codexAuthMode?: CodexAuthMode;
   codexLocalAuthPath?: string;
+  codexCustomUrl?: string;
+  codexCustomApiKey?: string;
+  codexOriginator?: string;
+  codexResidencyRequirement?: string;
   apiKeys: string[];
   keyCursor?: number;
   cachedModelOptions: string[];

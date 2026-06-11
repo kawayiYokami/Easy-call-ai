@@ -2953,7 +2953,7 @@ async fn send_chat_message_inner(
             candidate_index, candidate_api_id
         );
         log_run_stage(&candidate_stage);
-        let mut candidate_selected_api = if candidate_api_id == &selected_api.id {
+        let candidate_selected_api = if candidate_api_id == &selected_api.id {
             selected_api.clone()
         } else {
             match resolve_selected_api_config(&app_config, Some(candidate_api_id.as_str())) {
@@ -3093,7 +3093,7 @@ async fn send_chat_message_inner(
                 continue 'dispatch;
             }
 
-            let (reason_text, final_error_text) = match chat_round_execution.result {
+            let (reason_text, final_error_text, allow_retry) = match chat_round_execution.result {
                 Ok(reply) => {
                     let content_state = model_reply_content_state(&reply);
                     match content_state {
@@ -3106,7 +3106,7 @@ async fn send_chat_message_inner(
                         }
                         ModelReplyContentState::ReasoningOnly => {
                             runtime_log_warn(format!(
-                                "[聊天] 模型返回思考但缺少最终回答，按空回重试: conversation_id={}，api_config_id={}，model={}，attempt={}，activity_reasoning_len={}",
+                                "[聊天] 模型返回思考但缺少最终回答，不重试: conversation_id={}，api_config_id={}，model={}，attempt={}，activity_reasoning_len={}",
                                 conversation_id,
                                 candidate_selected_api.id,
                                 candidate_selected_api.model,
@@ -3117,6 +3117,7 @@ async fn send_chat_message_inner(
                                 "模型只返回了思维链但没有最终回答".to_string(),
                                 "模型只返回了思维链但没有最终回答，已停止重试；请稍后重试或切换模型。"
                                     .to_string(),
+                                false,
                             )
                         }
                         ModelReplyContentState::Empty => {
@@ -3131,48 +3132,21 @@ async fn send_chat_message_inner(
                                 "模型权限/套餐不支持（上游返回空响应）".to_string(),
                                 "模型权限/套餐不支持（上游返回空响应），已停止重试，请检查当前 API Key 是否支持该模型，或切换模型。"
                                     .to_string(),
+                                true,
                             )
                         }
                     }
                 }
                 Err(error) => {
-                    if candidate_selected_api.enable_image
-                        && error_indicates_image_input_unsupported(&error)
-                    {
-                        match auto_disable_api_image_input(&state, &candidate_selected_api.id) {
-                            Ok(true) => {
-                                candidate_selected_api.enable_image = false;
-                                (
-                                    "检测到当前模型不支持图片输入，已自动关闭该模型的图片模态并重试"
-                                        .to_string(),
-                                    format!("模型请求重试后仍失败: {error}"),
-                                )
-                            }
-                            Ok(false) => (
-                                "模型请求失败".to_string(),
-                                format!("模型请求重试后仍失败: {error}"),
-                            ),
-                            Err(write_err) => {
-                                runtime_log_warn(format!(
-                                    "[聊天] 自动关闭图片模态失败: api_config_id={}, error={}",
-                                    candidate_selected_api.id, write_err
-                                ));
-                                (
-                                    "模型请求失败".to_string(),
-                                    format!("模型请求重试后仍失败: {error}"),
-                                )
-                            }
-                        }
-                    } else {
-                        (
-                            "模型请求失败".to_string(),
-                            format!("模型请求重试后仍失败: {error}"),
-                        )
-                    }
+                    (
+                        "模型请求失败".to_string(),
+                        format!("模型请求失败，已停止重试：{error}"),
+                        false,
+                    )
                 }
             };
 
-            if attempt < max_failure_retries {
+            if allow_retry && attempt < max_failure_retries {
                 let retry_index = attempt + 1;
                 let wait_seconds = FIXED_MODEL_RETRY_WAIT_SECONDS;
                 let _ = on_delta.send(AssistantDeltaEvent {
@@ -3610,6 +3584,10 @@ mod core_send_inner_tests {
             api_key: "k".to_string(),
             codex_auth_mode: default_codex_auth_mode(),
             codex_local_auth_path: default_codex_local_auth_path(),
+            codex_custom_url: None,
+            codex_custom_api_key: None,
+            codex_originator: default_codex_originator(),
+            codex_residency_requirement: None,
             model: format!("model-{id}"),
             reasoning_effort: default_reasoning_effort(),
             temperature: 0.7,
@@ -4273,33 +4251,4 @@ mod core_send_inner_tests {
         assert_eq!(images[0].content, B64.encode(b"normalized-webp"));
         assert_eq!(images[0].saved_path.as_deref(), Some("downloads/source.png"));
     }
-}
-fn error_indicates_image_input_unsupported(error: &str) -> bool {
-    let normalized = error.to_ascii_lowercase();
-    normalized.contains("no endpoints found that support image input")
-        || normalized.contains("does not support image input")
-        || normalized.contains("image input disabled")
-}
-
-fn auto_disable_api_image_input(
-    state: &AppState,
-    api_config_id: &str,
-) -> Result<bool, String> {
-    let mut config = read_config(&state.config_path)?;
-    let (api_id, api_name) = {
-        let Some(target) = config.api_configs.iter_mut().find(|item| item.id == api_config_id) else {
-            return Ok(false);
-        };
-        if !target.enable_image {
-            return Ok(false);
-        }
-        target.enable_image = false;
-        (target.id.clone(), target.name.clone())
-    };
-    state_write_config_cached(state, &config)?;
-    runtime_log_info(format!(
-        "[聊天] 自动关闭图片模态: api_config_id={}, api_name={}",
-        api_id, api_name
-    ));
-    Ok(true)
 }

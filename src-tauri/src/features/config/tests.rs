@@ -131,6 +131,10 @@
                     api_key: "k".to_string(),
                     codex_auth_mode: default_codex_auth_mode(),
                     codex_local_auth_path: default_codex_local_auth_path(),
+                    codex_custom_url: None,
+                    codex_custom_api_key: None,
+                    codex_originator: default_codex_originator(),
+                    codex_residency_requirement: None,
                     model: "m".to_string(),
                     reasoning_effort: default_reasoning_effort(),
                     temperature: 1.0,
@@ -155,6 +159,10 @@
                     api_key: "k".to_string(),
                     codex_auth_mode: default_codex_auth_mode(),
                     codex_local_auth_path: default_codex_local_auth_path(),
+                    codex_custom_url: None,
+                    codex_custom_api_key: None,
+                    codex_originator: default_codex_originator(),
+                    codex_residency_requirement: None,
                     model: "m".to_string(),
                     reasoning_effort: default_reasoning_effort(),
                     temperature: 1.0,
@@ -224,6 +232,10 @@
                     api_key: "k".to_string(),
                     codex_auth_mode: default_codex_auth_mode(),
                     codex_local_auth_path: default_codex_local_auth_path(),
+                    codex_custom_url: None,
+                    codex_custom_api_key: None,
+                    codex_originator: default_codex_originator(),
+                    codex_residency_requirement: None,
                     model: "m".to_string(),
                     reasoning_effort: default_reasoning_effort(),
                     temperature: 1.0,
@@ -248,6 +260,10 @@
                     api_key: "k".to_string(),
                     codex_auth_mode: default_codex_auth_mode(),
                     codex_local_auth_path: default_codex_local_auth_path(),
+                    codex_custom_url: None,
+                    codex_custom_api_key: None,
+                    codex_originator: default_codex_originator(),
+                    codex_residency_requirement: None,
                     model: "m".to_string(),
                     reasoning_effort: default_reasoning_effort(),
                     temperature: 1.0,
@@ -314,6 +330,10 @@
                 api_key: "k".to_string(),
                 codex_auth_mode: default_codex_auth_mode(),
                 codex_local_auth_path: default_codex_local_auth_path(),
+                codex_custom_url: None,
+                codex_custom_api_key: None,
+                codex_originator: default_codex_originator(),
+                codex_residency_requirement: None,
                 model: "m".to_string(),
                 reasoning_effort: default_reasoning_effort(),
                 temperature: 1.0,
@@ -624,6 +644,10 @@
                     api_key: "k".to_string(),
                     codex_auth_mode: default_codex_auth_mode(),
                     codex_local_auth_path: default_codex_local_auth_path(),
+                    codex_custom_url: None,
+                    codex_custom_api_key: None,
+                    codex_originator: default_codex_originator(),
+                    codex_residency_requirement: None,
                     model: "embed".to_string(),
                     reasoning_effort: default_reasoning_effort(),
                     temperature: 1.0,
@@ -648,6 +672,10 @@
                     api_key: "k".to_string(),
                     codex_auth_mode: default_codex_auth_mode(),
                     codex_local_auth_path: default_codex_local_auth_path(),
+                    codex_custom_url: None,
+                    codex_custom_api_key: None,
+                    codex_originator: default_codex_originator(),
+                    codex_residency_requirement: None,
                     model: "stt".to_string(),
                     reasoning_effort: default_reasoning_effort(),
                     temperature: 1.0,
@@ -672,6 +700,10 @@
                     api_key: "k".to_string(),
                     codex_auth_mode: default_codex_auth_mode(),
                     codex_local_auth_path: default_codex_local_auth_path(),
+                    codex_custom_url: None,
+                    codex_custom_api_key: None,
+                    codex_originator: default_codex_originator(),
+                    codex_residency_requirement: None,
                     model: "chat".to_string(),
                     reasoning_effort: default_reasoning_effort(),
                     temperature: 1.0,
@@ -771,6 +803,10 @@
                 api_key: "k".to_string(),
                 codex_auth_mode: default_codex_auth_mode(),
                 codex_local_auth_path: default_codex_local_auth_path(),
+                codex_custom_url: None,
+                codex_custom_api_key: None,
+                codex_originator: default_codex_originator(),
+                codex_residency_requirement: None,
                 model: "chat".to_string(),
                 reasoning_effort: default_reasoning_effort(),
                 temperature: 1.0,
@@ -904,6 +940,10 @@
                 api_key: "legacy-key".to_string(),
                 codex_auth_mode: default_codex_auth_mode(),
                 codex_local_auth_path: default_codex_local_auth_path(),
+                codex_custom_url: None,
+                codex_custom_api_key: None,
+                codex_originator: default_codex_originator(),
+                codex_residency_requirement: None,
                 model: "gpt-4.1".to_string(),
                 reasoning_effort: default_reasoning_effort(),
                 temperature: 0.7,
@@ -1083,6 +1123,10 @@ model = "gpt-4.1"
                 base_url: "https://api.openai.com/v1".to_string(),
                 codex_auth_mode: default_codex_auth_mode(),
                 codex_local_auth_path: default_codex_local_auth_path(),
+                codex_custom_url: None,
+                codex_custom_api_key: None,
+                codex_originator: default_codex_originator(),
+                codex_residency_requirement: None,
                 api_keys: vec!["key-1".to_string(), "key-2".to_string()],
                 key_cursor: 0,
                 cached_model_options: vec!["gpt-4.1".to_string(), "gpt-4.1-mini".to_string()],
@@ -1137,6 +1181,64 @@ model = "gpt-4.1"
         assert_eq!(first_sent, "key-1".to_string());
         assert_eq!(second_sent, "key-2".to_string());
         assert_eq!(third_sent, "key-1".to_string());
+    }
+
+    #[test]
+    fn resolve_api_config_should_use_codex_custom_api_key_for_custom_url_mode() {
+        let provider_id = "codex-custom-provider".to_string();
+        let model_id = "codex-model".to_string();
+        let mut cfg = AppConfig {
+            selected_api_config_id: api_endpoint_id(&provider_id, &model_id),
+            assistant_department_api_config_id: api_endpoint_id(&provider_id, &model_id),
+            api_providers: vec![ApiProviderConfig {
+                id: provider_id.clone(),
+                name: "SharedChat".to_string(),
+                request_format: RequestFormat::Codex,
+                allow_concurrent_requests: false,
+                max_concurrent_requests: None,
+                enable_text: true,
+                enable_image: false,
+                enable_audio: false,
+                enable_tools: true,
+                tools: default_api_tools(),
+                base_url: "https://new.sharedchat.cc/codex".to_string(),
+                codex_auth_mode: CODEX_AUTH_MODE_CUSTOM_URL.to_string(),
+                codex_local_auth_path: default_codex_local_auth_path(),
+                codex_custom_url: Some("https://new.sharedchat.cc/codex".to_string()),
+                codex_custom_api_key: Some("sharedchat-key".to_string()),
+                codex_originator: default_codex_originator(),
+                codex_residency_requirement: None,
+                api_keys: Vec::new(),
+                key_cursor: 0,
+                cached_model_options: vec!["gpt-5.4".to_string()],
+                models: vec![ApiModelConfig {
+                    id: model_id.clone(),
+                    model: "gpt-5.4".to_string(),
+                    enable_image: false,
+                    enable_tools: true,
+                    reasoning_effort: default_reasoning_effort(),
+                    temperature: 1.0,
+                    custom_temperature_enabled: false,
+                    context_window_tokens: 128_000,
+                    max_output_tokens: 4_096,
+                    custom_max_output_tokens_enabled: false,
+                }],
+                failure_retry_count: 0,
+            }],
+            api_configs: Vec::new(),
+            ..AppConfig::default()
+        };
+        normalize_app_config(&mut cfg);
+
+        let resolved = resolve_api_config(&cfg, Some(&api_endpoint_id(&provider_id, &model_id)))
+            .expect("custom url codex resolve");
+
+        assert_eq!(resolved.api_key, "sharedchat-key".to_string());
+        assert!(resolved.codex_auth.is_none());
+        assert!(resolved
+            .extra_headers
+            .iter()
+            .any(|(key, value)| key == "session_id" && !value.trim().is_empty()));
     }
 
     #[test]

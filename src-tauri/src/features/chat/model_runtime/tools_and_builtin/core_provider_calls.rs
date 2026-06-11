@@ -461,9 +461,35 @@ fn normalize_provider_genai_base_url(
 }
 
 fn provider_genai_headers(api_config: &ResolvedApiConfig) -> genai::Headers {
-    let mut headers = app_identity_genai_headers();
-    headers.merge(api_config.extra_headers.clone());
-    headers
+    match api_config.request_format {
+        RequestFormat::Codex => {
+            let mut headers = app_identity_genai_headers();
+            let auth_mode = api_config
+                .codex_auth_mode
+                .as_deref()
+                .map(normalize_codex_auth_mode)
+                .unwrap_or_else(default_codex_auth_mode);
+            if auth_mode == CODEX_AUTH_MODE_CUSTOM_URL {
+                let originator = api_config.codex_originator.as_deref().unwrap_or("codex-tui");
+                let session_id = api_config
+                    .extra_headers
+                    .iter()
+                    .find(|(key, _)| key.eq_ignore_ascii_case("session_id") || key.eq_ignore_ascii_case("session-id"))
+                    .map(|(_, value)| value.as_str())
+                    .or(api_config.prompt_cache_key.as_deref());
+                let thread_id = session_id;
+                let residency = api_config.codex_residency_requirement.as_deref();
+                headers = codex_genai_headers(originator, session_id, thread_id, residency);
+            }
+            headers.merge(api_config.extra_headers.clone());
+            headers
+        }
+        _ => {
+            let mut headers = app_identity_genai_headers();
+            headers.merge(api_config.extra_headers.clone());
+            headers
+        }
+    }
 }
 
 fn provider_genai_reasoning_effort(
@@ -604,6 +630,17 @@ fn build_provider_genai_chat_options(
 async fn resolve_request_api_config(
     api_config: &ResolvedApiConfig,
 ) -> Result<ResolvedApiConfig, String> {
+    // 如果是自定义URL模式，直接使用自定义API Key
+    if api_config.request_format == RequestFormat::Codex {
+        if let Some(custom_api_key) = &api_config.codex_custom_api_key {
+            if !custom_api_key.trim().is_empty() {
+                let mut next = api_config.clone();
+                next.api_key = custom_api_key.clone();
+                return Ok(next);
+            }
+        }
+    }
+    
     let Some(codex_auth) = &api_config.codex_auth else {
         return Ok(api_config.clone());
     };
@@ -1100,6 +1137,10 @@ mod openai_responses_genai_request_tests {
             prompt_cache_key: Some("conversation-1".to_string()),
             extra_headers: Vec::new(),
             codex_auth: None,
+            codex_auth_mode: None,
+            codex_originator: None,
+            codex_residency_requirement: None,
+            codex_custom_api_key: None,
         };
 
         let options = build_provider_genai_chat_options(&api_config, false, false);
@@ -1125,6 +1166,10 @@ mod openai_responses_genai_request_tests {
             prompt_cache_key: Some("conversation-codex".to_string()),
             extra_headers: Vec::new(),
             codex_auth: None,
+            codex_auth_mode: None,
+            codex_originator: None,
+            codex_residency_requirement: None,
+            codex_custom_api_key: None,
         };
 
         let options = build_provider_genai_chat_options(&api_config, true, true);
@@ -1150,6 +1195,10 @@ mod openai_responses_genai_request_tests {
             prompt_cache_key: Some("conversation-codex".to_string()),
             extra_headers: Vec::new(),
             codex_auth: None,
+            codex_auth_mode: None,
+            codex_originator: None,
+            codex_residency_requirement: None,
+            codex_custom_api_key: None,
         };
 
         let options = build_provider_genai_chat_options(&api_config, true, true);

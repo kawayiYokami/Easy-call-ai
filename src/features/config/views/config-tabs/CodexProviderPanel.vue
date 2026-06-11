@@ -30,6 +30,20 @@
           </div>
         </div>
 
+        <div v-else-if="provider.codexAuthMode === 'custom_url'" class="grid gap-3">
+          <div class="text-sm opacity-70">{{ t("config.api.codexCustomConfigHint") }}</div>
+          <label class="flex flex-col gap-1">
+            <span class="text-sm font-medium">{{ t("config.api.codexCustomUrl") }}</span>
+            <input v-model="provider.codexCustomUrl" class="input input-bordered input-sm" :placeholder="DEFAULT_CODEX_BASE_URL" />
+            <span class="text-xs opacity-60">{{ t("config.api.codexCustomUrlHint") }}</span>
+          </label>
+          <label class="flex flex-col gap-1">
+            <span class="text-sm font-medium">{{ t("config.api.codexCustomApiKey") }}</span>
+            <input v-model="provider.codexCustomApiKey" class="input input-bordered input-sm" type="password" placeholder="sk-..." />
+            <span class="text-xs opacity-60">{{ t("config.api.codexCustomApiKeyHint") }}</span>
+          </label>
+        </div>
+
         <div v-else class="grid gap-3">
           <div class="text-sm opacity-70">{{ t("config.api.codexOAuthHint") }}</div>
           <div class="flex flex-wrap gap-2">
@@ -43,7 +57,7 @@
           </div>
         </div>
 
-        <div class="rounded-box border border-base-300 bg-base-200/50 p-3 text-sm">
+        <div v-if="provider.codexAuthMode !== 'custom_url'" class="rounded-box border border-base-300 bg-base-200/50 p-3 text-sm">
           <div class="font-medium">{{ t("config.api.codexStatus", { status: currentCodexAuthStatus?.status || "unknown" }) }}</div>
           <div class="mt-1 opacity-80">{{ currentCodexAuthStatus?.message || t("config.api.codexStatusUnchecked") }}</div>
           <div class="mt-2 text-xs opacity-70">{{ t("config.api.codexResolvedPath", { path: currentCodexAuthStatus?.localAuthPath || provider.codexLocalAuthPath || DEFAULT_CODEX_LOCAL_AUTH_PATH }) }}</div>
@@ -53,7 +67,7 @@
           <div v-if="currentCodexAuthStatus?.managedAuthPath && provider.codexAuthMode === 'managed_oauth'" class="text-xs opacity-70">
             {{ t("config.api.codexManagedAuthPath", { path: currentCodexAuthStatus.managedAuthPath }) }}
           </div>
-          <div class="mt-3 rounded-box border border-base-300 bg-base-100/70 p-3">
+          <div v-if="showCodexRateLimits" class="mt-3 rounded-box border border-base-300 bg-base-100/70 p-3">
             <div class="flex items-center justify-between gap-2">
               <div>
                 <div class="text-xs font-medium uppercase tracking-wide opacity-70">Rate Limits</div>
@@ -195,6 +209,7 @@
         </div>
       </div>
     </div>
+
   </div>
 </template>
 
@@ -218,6 +233,7 @@ import { formatIsoToLocalDateTime } from "../../../../utils/time";
 const DEFAULT_CODEX_BASE_URL = "https://chatgpt.com/backend-api/codex";
 const DEFAULT_CODEX_AUTH_MODE: CodexAuthMode = "read_local";
 const DEFAULT_CODEX_LOCAL_AUTH_PATH = "~/.codex/auth.json";
+const DEFAULT_CODEX_ORIGINATOR = "codex-tui";
 const DEFAULT_REASONING_EFFORT = "medium";
 const DEFAULT_CODEX_MODELS = ["gpt-5.4", "gpt-5.4-mini", "gpt-5.3-codex", "gpt-5.2"];
 
@@ -248,8 +264,9 @@ const reasoningEffortOptions = computed(() => [
   { value: "xhigh", label: t("config.api.reasoningXHigh") },
 ]);
 const codexAuthModeOptions: Array<{ value: CodexAuthMode; label: string }> = [
-  { value: "read_local", label: "读取本地" },
-  { value: "managed_oauth", label: "自行登录" },
+  { value: "read_local", label: t("config.api.codexAuthModeReadLocal") },
+  { value: "managed_oauth", label: t("config.api.codexAuthModeManagedOauth") },
+  { value: "custom_url", label: t("config.api.codexAuthModeCustomUrl") },
 ];
 
 const currentCodexAuthStatus = computed(() => codexAuthStatusByProvider.value[props.provider.id] ?? null);
@@ -271,7 +288,11 @@ const currentCodexRateLimitCredits = computed(() => {
 });
 const currentCodexRateLimitError = computed(() => codexRateLimitErrorByProvider.value[props.provider.id] ?? "");
 const currentCodexRateLimitBusy = computed(() => Boolean(codexRateLimitBusyByProvider.value[props.provider.id]));
+const showCodexRateLimits = computed(() => props.provider.codexAuthMode !== "custom_url");
 const codexRateLimitPlaceholder = computed(() => {
+  if (!showCodexRateLimits.value) {
+    return "自定义 URL 模式不提供官方 Codex 用量查询。";
+  }
   if (currentCodexRateLimitBusy.value) {
     return "正在同步 Codex 周用量。";
   }
@@ -290,10 +311,25 @@ const providerModelOptions = computed(() => {
 });
 
 function applyCodexDefaults() {
-  props.provider.baseUrl = DEFAULT_CODEX_BASE_URL;
-  props.provider.codexAuthMode = (String(props.provider.codexAuthMode || DEFAULT_CODEX_AUTH_MODE).trim() === "managed_oauth" ? "managed_oauth" : "read_local");
+  const normalizedMode = String(props.provider.codexAuthMode || DEFAULT_CODEX_AUTH_MODE).trim();
+  if (normalizedMode === "managed_oauth") {
+    props.provider.codexAuthMode = "managed_oauth";
+    props.provider.baseUrl = DEFAULT_CODEX_BASE_URL;
+    props.provider.apiKeys = [];
+  } else if (normalizedMode === "custom_url") {
+    props.provider.codexAuthMode = "custom_url";
+    props.provider.baseUrl = props.provider.codexCustomUrl || DEFAULT_CODEX_BASE_URL;
+    props.provider.apiKeys = props.provider.codexCustomApiKey ? [props.provider.codexCustomApiKey] : [];
+  } else {
+    props.provider.codexAuthMode = "read_local";
+    props.provider.baseUrl = DEFAULT_CODEX_BASE_URL;
+    props.provider.apiKeys = [];
+  }
   props.provider.codexLocalAuthPath = String(props.provider.codexLocalAuthPath || DEFAULT_CODEX_LOCAL_AUTH_PATH).trim() || DEFAULT_CODEX_LOCAL_AUTH_PATH;
-  props.provider.apiKeys = [];
+  props.provider.codexOriginator = String(props.provider.codexOriginator || DEFAULT_CODEX_ORIGINATOR).trim() || DEFAULT_CODEX_ORIGINATOR;
+  props.provider.codexResidencyRequirement = props.provider.codexResidencyRequirement || "";
+  props.provider.codexCustomUrl = props.provider.codexCustomUrl || "";
+  props.provider.codexCustomApiKey = props.provider.codexCustomApiKey || "";
   props.provider.models = (props.provider.models || []).map((model) => ({
     ...model,
     reasoningEffort: String(model.reasoningEffort || DEFAULT_REASONING_EFFORT).trim() || DEFAULT_REASONING_EFFORT,
@@ -383,12 +419,17 @@ function codexAuthFailureStatus(error: unknown): CodexAuthStatus {
 }
 
 function shouldSyncCodexRateLimits(status?: CodexAuthStatus | null): boolean {
+  if (!showCodexRateLimits.value) return false;
   return Boolean(status?.authenticated || status?.status === "expired");
 }
 
 async function refreshCodexRateLimits(status?: CodexAuthStatus | null) {
   const providerId = String(props.provider.id || "").trim();
   if (!providerId) return null;
+  if (!showCodexRateLimits.value) {
+    clearCodexRateLimits(providerId);
+    return null;
+  }
   if (!shouldSyncCodexRateLimits(status)) {
     clearCodexRateLimits(providerId);
     return null;
@@ -401,7 +442,8 @@ async function refreshCodexRateLimits(status?: CodexAuthStatus | null) {
         providerId,
         authMode: props.provider.codexAuthMode || DEFAULT_CODEX_AUTH_MODE,
         localAuthPath: props.provider.codexLocalAuthPath || DEFAULT_CODEX_LOCAL_AUTH_PATH,
-        baseUrl: props.provider.baseUrl || DEFAULT_CODEX_BASE_URL,
+        baseUrl: props.provider.codexCustomUrl || props.provider.baseUrl || DEFAULT_CODEX_BASE_URL,
+        customApiKey: props.provider.codexCustomApiKey || "",
       },
     });
     storeCodexRateLimitSnapshot(providerId, result);
@@ -422,6 +464,7 @@ async function refreshCodexAuthStatus() {
         providerId: props.provider.id,
         authMode: props.provider.codexAuthMode || DEFAULT_CODEX_AUTH_MODE,
         localAuthPath: props.provider.codexLocalAuthPath || DEFAULT_CODEX_LOCAL_AUTH_PATH,
+        customApiKey: props.provider.codexCustomApiKey || "",
       },
     });
     storeCodexAuthStatus(status);

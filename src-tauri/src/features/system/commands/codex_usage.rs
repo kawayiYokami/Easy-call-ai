@@ -353,6 +353,9 @@ async fn codex_get_rate_limits(
     if provider_id.is_empty() {
         return Err("providerId 不能为空".to_string());
     }
+    if normalize_codex_auth_mode(&input.auth_mode) == CODEX_AUTH_MODE_CUSTOM_URL {
+        return Err("custom_url 模式不支持官方 Codex 用量查询".to_string());
+    }
 
     let started = std::time::Instant::now();
     let usage_url = codex_usage_endpoint(&input.base_url);

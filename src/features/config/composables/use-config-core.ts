@@ -43,7 +43,18 @@ export function useConfigCore(options: UseConfigCoreOptions) {
   }
 
   function normalizeCodexAuthMode(value: unknown): CodexAuthMode {
-    return String(value || "").trim() === "managed_oauth" ? "managed_oauth" : "read_local";
+    const normalized = String(value || "").trim();
+    if (normalized === "managed_oauth") return "managed_oauth";
+    if (normalized === "custom_url") return "custom_url";
+    return "read_local";
+  }
+
+  function effectiveProviderBaseUrl(provider: ApiProviderConfigItem): string {
+    const authMode = normalizeCodexAuthMode(provider.codexAuthMode);
+    if (normalizeApiRequestFormat(provider.requestFormat) === "codex" && authMode === "custom_url") {
+      return String(provider.codexCustomUrl || "").trim() || provider.baseUrl;
+    }
+    return provider.baseUrl;
   }
 
   function createApiModel(seed = Date.now().toString(), model = "gpt-4o-mini"): ApiModelConfigItem {
@@ -253,10 +264,14 @@ export function useConfigCore(options: UseConfigCoreOptions) {
         enableAudio: !!provider.enableAudio,
         enableTools: model.enableTools !== false,
         tools: providerTools,
-        baseUrl: provider.baseUrl,
+        baseUrl: effectiveProviderBaseUrl(provider),
         apiKey: providerApiKey,
         codexAuthMode: normalizeCodexAuthMode(provider.codexAuthMode),
         codexLocalAuthPath: String(provider.codexLocalAuthPath || DEFAULT_CODEX_LOCAL_AUTH_PATH).trim() || DEFAULT_CODEX_LOCAL_AUTH_PATH,
+        codexCustomUrl: String(provider.codexCustomUrl || "").trim() || undefined,
+        codexCustomApiKey: String(provider.codexCustomApiKey || "").trim() || undefined,
+        codexOriginator: String(provider.codexOriginator || "").trim() || undefined,
+        codexResidencyRequirement: String(provider.codexResidencyRequirement || "").trim() || undefined,
         model: model.model,
         reasoningEffort: String(model.reasoningEffort || DEFAULT_REASONING_EFFORT).trim() || DEFAULT_REASONING_EFFORT,
         temperature: Number(model.temperature ?? 1),
@@ -338,9 +353,13 @@ export function useConfigCore(options: UseConfigCoreOptions) {
           enabled: typeof t.enabled === "boolean" ? t.enabled : true,
           values: t.values ?? {},
         })),
-        baseUrl: provider.baseUrl,
+        baseUrl: effectiveProviderBaseUrl(provider),
         codexAuthMode: normalizeCodexAuthMode(provider.codexAuthMode),
         codexLocalAuthPath: String(provider.codexLocalAuthPath || DEFAULT_CODEX_LOCAL_AUTH_PATH).trim() || DEFAULT_CODEX_LOCAL_AUTH_PATH,
+        codexCustomUrl: String(provider.codexCustomUrl || "").trim() || undefined,
+        codexCustomApiKey: String(provider.codexCustomApiKey || "").trim() || undefined,
+        codexOriginator: String(provider.codexOriginator || "").trim() || undefined,
+        codexResidencyRequirement: String(provider.codexResidencyRequirement || "").trim() || undefined,
         apiKeys: Array.isArray(provider.apiKeys) ? provider.apiKeys.map((value) => String(value || "").trim()).filter(Boolean) : [],
         keyCursor: Math.max(0, Math.round(Number(provider.keyCursor ?? 0))),
         cachedModelOptions: Array.isArray(provider.cachedModelOptions)
@@ -381,6 +400,10 @@ export function useConfigCore(options: UseConfigCoreOptions) {
         apiKey: a.apiKey,
         codexAuthMode: normalizeCodexAuthMode(a.codexAuthMode),
         codexLocalAuthPath: String(a.codexLocalAuthPath || DEFAULT_CODEX_LOCAL_AUTH_PATH).trim() || DEFAULT_CODEX_LOCAL_AUTH_PATH,
+        codexCustomUrl: String(a.codexCustomUrl || "").trim() || undefined,
+        codexCustomApiKey: String(a.codexCustomApiKey || "").trim() || undefined,
+        codexOriginator: String(a.codexOriginator || "").trim() || undefined,
+        codexResidencyRequirement: String(a.codexResidencyRequirement || "").trim() || undefined,
         model: a.model,
         reasoningEffort: String(a.reasoningEffort || DEFAULT_REASONING_EFFORT).trim() || DEFAULT_REASONING_EFFORT,
         temperature: Number(a.temperature ?? 1),
@@ -440,6 +463,10 @@ export function useConfigCore(options: UseConfigCoreOptions) {
         apiKey: a.apiKey,
         codexAuthMode: normalizeCodexAuthMode(a.codexAuthMode),
         codexLocalAuthPath: String(a.codexLocalAuthPath || DEFAULT_CODEX_LOCAL_AUTH_PATH).trim() || DEFAULT_CODEX_LOCAL_AUTH_PATH,
+        codexCustomUrl: String(a.codexCustomUrl || "").trim() || undefined,
+        codexCustomApiKey: String(a.codexCustomApiKey || "").trim() || undefined,
+        codexOriginator: String(a.codexOriginator || "").trim() || undefined,
+        codexResidencyRequirement: String(a.codexResidencyRequirement || "").trim() || undefined,
         model: a.model,
         reasoningEffort: String(a.reasoningEffort || DEFAULT_REASONING_EFFORT).trim() || DEFAULT_REASONING_EFFORT,
         temperature: a.temperature,

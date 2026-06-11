@@ -16,6 +16,7 @@ fn default_shell_workspace_access() -> String {
 
 const CODEX_AUTH_MODE_READ_LOCAL: &str = "read_local";
 const CODEX_AUTH_MODE_MANAGED_OAUTH: &str = "managed_oauth";
+const CODEX_AUTH_MODE_CUSTOM_URL: &str = "custom_url";
 const DEFAULT_CODEX_BASE_URL: &str = "https://chatgpt.com/backend-api/codex";
 const MODEL_ROLE_EXPERT_API_CONFIG_ID: &str = "role:expert";
 const MODEL_ROLE_QUICK_API_CONFIG_ID: &str = "role:quick";
@@ -27,8 +28,13 @@ fn default_codex_auth_mode() -> String {
 fn normalize_codex_auth_mode(value: &str) -> String {
     match value.trim() {
         CODEX_AUTH_MODE_MANAGED_OAUTH => CODEX_AUTH_MODE_MANAGED_OAUTH.to_string(),
+        CODEX_AUTH_MODE_CUSTOM_URL => CODEX_AUTH_MODE_CUSTOM_URL.to_string(),
         _ => CODEX_AUTH_MODE_READ_LOCAL.to_string(),
     }
+}
+
+fn default_codex_originator() -> String {
+    "codex-tui".to_string()
 }
 
 fn default_codex_local_auth_path() -> String {
@@ -541,6 +547,14 @@ struct ApiProviderConfig {
     #[serde(default = "default_codex_local_auth_path")]
     codex_local_auth_path: String,
     #[serde(default)]
+    codex_custom_url: Option<String>,
+    #[serde(default)]
+    codex_custom_api_key: Option<String>,
+    #[serde(default = "default_codex_originator")]
+    codex_originator: String,
+    #[serde(default)]
+    codex_residency_requirement: Option<String>,
+    #[serde(default)]
     api_keys: Vec<String>,
     #[serde(default)]
     key_cursor: u32,
@@ -568,6 +582,10 @@ impl Default for ApiProviderConfig {
             base_url: "https://api.openai.com/v1".to_string(),
             codex_auth_mode: default_codex_auth_mode(),
             codex_local_auth_path: default_codex_local_auth_path(),
+            codex_custom_url: None,
+            codex_custom_api_key: None,
+            codex_originator: default_codex_originator(),
+            codex_residency_requirement: None,
             api_keys: Vec::new(),
             key_cursor: 0,
             cached_model_options: vec!["gpt-4o-mini".to_string()],
@@ -608,6 +626,14 @@ struct ApiConfig {
     codex_auth_mode: String,
     #[serde(default = "default_codex_local_auth_path")]
     codex_local_auth_path: String,
+    #[serde(default)]
+    codex_custom_url: Option<String>,
+    #[serde(default)]
+    codex_custom_api_key: Option<String>,
+    #[serde(default = "default_codex_originator")]
+    codex_originator: String,
+    #[serde(default)]
+    codex_residency_requirement: Option<String>,
     model: String,
     #[serde(default = "default_reasoning_effort")]
     reasoning_effort: String,
@@ -786,6 +812,10 @@ impl Default for ApiConfig {
             api_key: String::new(),
             codex_auth_mode: default_codex_auth_mode(),
             codex_local_auth_path: default_codex_local_auth_path(),
+            codex_custom_url: None,
+            codex_custom_api_key: None,
+            codex_originator: default_codex_originator(),
+            codex_residency_requirement: None,
             model: "gpt-4o-mini".to_string(),
             reasoning_effort: default_reasoning_effort(),
             temperature: default_api_temperature(),

@@ -589,10 +589,20 @@ fn read_codex_runtime_auth_snapshot(
     local_auth_path: &str,
 ) -> Result<CodexRuntimeAuth, String> {
     let normalized_mode = normalize_codex_auth_mode(auth_mode);
-    let mut credential = if normalized_mode == CODEX_AUTH_MODE_MANAGED_OAUTH {
-        read_managed_codex_auth(provider_id)?
-    } else {
-        codex_parse_local_auth_file(local_auth_path)?
+    let mut credential = match normalized_mode.as_str() {
+        CODEX_AUTH_MODE_MANAGED_OAUTH => read_managed_codex_auth(provider_id)?,
+        CODEX_AUTH_MODE_CUSTOM_URL => {
+            CodexStoredCredential {
+                access_token: String::new(),
+                refresh_token: String::new(),
+                account_id: String::new(),
+                email: String::new(),
+                expires_at_ms: 0,
+                updated_at: now_iso(),
+            }
+        }
+        CODEX_AUTH_MODE_READ_LOCAL => codex_parse_local_auth_file(local_auth_path)?,
+        _ => codex_parse_local_auth_file(local_auth_path)?,
     };
     if let Some(cached) = codex_runtime_auth_cache_get(provider_id, &normalized_mode, local_auth_path) {
         credential = codex_pick_newer_credential(credential, cached);

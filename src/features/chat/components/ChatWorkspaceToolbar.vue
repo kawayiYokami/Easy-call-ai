@@ -39,7 +39,6 @@
               <span class="leading-5">{{ t("chat.conversationMenu.branchConversation") }}</span>
             </button>
           </li>
-          </li>
           <li v-if="!busy">
             <button v-if="showForwardMenuItem" type="button" class="flex min-h-10 items-center justify-start gap-3 px-4 py-2 text-left" :disabled="busy" @click="emit('openForwardSelection')">
               <Package class="h-4 w-4 shrink-0" />

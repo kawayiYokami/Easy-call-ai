@@ -930,6 +930,10 @@ function cloneProvider(provider: ApiProviderConfigItem): ApiProviderConfigItem {
     baseUrl: String(provider.baseUrl || "").trim(),
     codexAuthMode: (String(provider.codexAuthMode || DEFAULT_CODEX_AUTH_MODE).trim() || DEFAULT_CODEX_AUTH_MODE) as CodexAuthMode,
     codexLocalAuthPath: String(provider.codexLocalAuthPath || DEFAULT_CODEX_LOCAL_AUTH_PATH).trim() || DEFAULT_CODEX_LOCAL_AUTH_PATH,
+    codexCustomUrl: String(provider.codexCustomUrl || "").trim() || undefined,
+    codexCustomApiKey: String(provider.codexCustomApiKey || "").trim() || undefined,
+    codexOriginator: String(provider.codexOriginator || "").trim() || undefined,
+    codexResidencyRequirement: String(provider.codexResidencyRequirement || "").trim() || undefined,
     apiKeys: Array.isArray(provider.apiKeys) ? provider.apiKeys.map((value) => String(value || "")) : [],
     keyCursor: Math.max(0, Math.round(Number(provider.keyCursor ?? 0))),
     cachedModelOptions: Array.isArray(provider.cachedModelOptions)
@@ -990,6 +994,10 @@ function normalizeProviderForCompare(provider: ApiProviderConfigItem) {
     baseUrl: String(provider.baseUrl || "").trim(),
     codexAuthMode: (String(provider.codexAuthMode || DEFAULT_CODEX_AUTH_MODE).trim() || DEFAULT_CODEX_AUTH_MODE) as CodexAuthMode,
     codexLocalAuthPath: String(provider.codexLocalAuthPath || DEFAULT_CODEX_LOCAL_AUTH_PATH).trim() || DEFAULT_CODEX_LOCAL_AUTH_PATH,
+    codexCustomUrl: String(provider.codexCustomUrl || "").trim() || undefined,
+    codexCustomApiKey: String(provider.codexCustomApiKey || "").trim() || undefined,
+    codexOriginator: String(provider.codexOriginator || "").trim() || undefined,
+    codexResidencyRequirement: String(provider.codexResidencyRequirement || "").trim() || undefined,
     apiKeys: Array.isArray(provider.apiKeys) ? provider.apiKeys.map((value) => String(value || "")) : [],
     cachedModelOptions: Array.isArray(provider.cachedModelOptions)
       ? provider.cachedModelOptions.map((value) => String(value || "").trim()).filter(Boolean)

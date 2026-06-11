@@ -42,6 +42,10 @@ struct ResolvedApiConfig {
     prompt_cache_key: Option<String>,
     extra_headers: Vec<(String, String)>,
     codex_auth: Option<CodexRuntimeAuth>,
+    codex_auth_mode: Option<String>,
+    codex_originator: Option<String>,
+    codex_residency_requirement: Option<String>,
+    codex_custom_api_key: Option<String>,
 }
 
 struct ProviderRequestGate {

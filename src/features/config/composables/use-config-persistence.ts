@@ -17,6 +17,8 @@ import type { SupportedLocale } from "../../../i18n";
 import { normalizeApiRequestFormat } from "../utils/api-request-format";
 import { normalizeDepartmentChildIds } from "../utils/department-graph";
 
+const DEFAULT_CODEX_ORIGINATOR = "codex-tui";
+
 type TrFn = (key: string, params?: Record<string, unknown>) => string;
 
 export type ConfigSaveErrorKind = "hotkey_conflict" | "backend_404" | "unknown";
@@ -175,7 +177,10 @@ export function useConfigPersistence(options: UseConfigPersistenceOptions) {
   const DEFAULT_REASONING_EFFORT = "medium";
 
   function normalizeCodexAuthMode(value: unknown): CodexAuthMode {
-    return String(value || "").trim() === "managed_oauth" ? "managed_oauth" : "read_local";
+    const normalized = String(value || "").trim();
+    if (normalized === "managed_oauth") return "managed_oauth";
+    if (normalized === "custom_url") return "custom_url";
+    return "read_local";
   }
 
   function extractHttpStatus(error: unknown): number | null {
@@ -356,6 +361,10 @@ export function useConfigPersistence(options: UseConfigPersistenceOptions) {
           codexAuthMode: normalizeCodexAuthMode((provider as { codexAuthMode?: unknown }).codexAuthMode),
           codexLocalAuthPath: String((provider as { codexLocalAuthPath?: unknown }).codexLocalAuthPath || DEFAULT_CODEX_LOCAL_AUTH_PATH).trim()
             || DEFAULT_CODEX_LOCAL_AUTH_PATH,
+          codexCustomUrl: String((provider as { codexCustomUrl?: unknown }).codexCustomUrl || "").trim(),
+          codexCustomApiKey: String((provider as { codexCustomApiKey?: unknown }).codexCustomApiKey || "").trim(),
+          codexOriginator: String((provider as { codexOriginator?: unknown }).codexOriginator || DEFAULT_CODEX_ORIGINATOR).trim() || DEFAULT_CODEX_ORIGINATOR,
+          codexResidencyRequirement: String((provider as { codexResidencyRequirement?: unknown }).codexResidencyRequirement || "").trim() || undefined,
           apiKeys: Array.isArray((provider as { apiKeys?: unknown[] }).apiKeys)
             ? ((provider as { apiKeys?: unknown[] }).apiKeys || []).map((value) => String(value || "").trim()).filter(Boolean)
             : [],

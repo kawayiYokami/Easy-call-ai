@@ -138,6 +138,10 @@ fn consume_api_key_for_request(resolved_api: &ResolvedApiConfig) -> String {
         base_url: resolved_api.base_url.clone(),
         codex_auth_mode: default_codex_auth_mode(),
         codex_local_auth_path: default_codex_local_auth_path(),
+        codex_custom_url: None,
+        codex_custom_api_key: None,
+        codex_originator: default_codex_originator(),
+        codex_residency_requirement: None,
         api_keys: resolved_api.provider_api_keys.clone(),
         key_cursor: resolved_api.provider_key_cursor as u32,
         cached_model_options: Vec::new(),
@@ -185,6 +189,10 @@ fn migrate_legacy_api_configs_into_providers(config: &mut AppConfig) {
                 base_url: legacy.base_url.clone(),
                 codex_auth_mode: legacy.codex_auth_mode.clone(),
                 codex_local_auth_path: legacy.codex_local_auth_path.clone(),
+                codex_custom_url: legacy.codex_custom_url.clone(),
+                codex_custom_api_key: legacy.codex_custom_api_key.clone(),
+                codex_originator: legacy.codex_originator.clone(),
+                codex_residency_requirement: legacy.codex_residency_requirement.clone(),
                 api_keys: legacy
                     .api_key
                     .trim()
@@ -309,6 +317,10 @@ fn expand_api_configs_from_providers(config: &mut AppConfig) {
                 api_key: provider.api_keys.first().cloned().unwrap_or_default(),
                 codex_auth_mode: provider.codex_auth_mode.clone(),
                 codex_local_auth_path: provider.codex_local_auth_path.clone(),
+                codex_custom_url: provider.codex_custom_url.clone(),
+                codex_custom_api_key: provider.codex_custom_api_key.clone(),
+                codex_originator: provider.codex_originator.clone(),
+                codex_residency_requirement: provider.codex_residency_requirement.clone(),
                 model: model.model.clone(),
                 reasoning_effort: model.reasoning_effort.clone(),
                 temperature: model.temperature,
@@ -1639,6 +1651,10 @@ fn resolve_api_config(
                 prompt_cache_key: None,
                 extra_headers: Vec::new(),
                 codex_auth: None,
+                codex_auth_mode: None,
+                codex_originator: None,
+                codex_residency_requirement: None,
+                codex_custom_api_key: None,
             });
         }
     }
@@ -1671,24 +1687,39 @@ fn resolve_api_config(
         let provider = selected_provider.ok_or_else(|| {
             "Codex provider not found. Please save the provider config first.".to_string()
         })?;
-        let resolved = read_codex_runtime_auth_snapshot(
-            &provider.id,
-            &provider.codex_auth_mode,
-            &provider.codex_local_auth_path,
-        )?;
-        if let Some(account_id) = resolved
-            .account_id
-            .as_deref()
-            .filter(|value| !value.is_empty())
-        {
-            extra_headers.push((
-                "ChatGPT-Account-Id".to_string(),
-                account_id.to_string(),
-            ));
+        let normalized_mode = normalize_codex_auth_mode(&provider.codex_auth_mode);
+        match normalized_mode.as_str() {
+            CODEX_AUTH_MODE_CUSTOM_URL => {
+                selected_api_key = provider
+                    .codex_custom_api_key
+                    .as_deref()
+                    .map(str::trim)
+                    .filter(|value| !value.is_empty())
+                    .unwrap_or("")
+                    .to_string();
+            }
+            CODEX_AUTH_MODE_MANAGED_OAUTH | CODEX_AUTH_MODE_READ_LOCAL => {
+                let resolved = read_codex_runtime_auth_snapshot(
+                    &provider.id,
+                    normalized_mode.as_str(),
+                    &provider.codex_local_auth_path,
+                )?;
+                if let Some(account_id) = resolved
+                    .account_id
+                    .as_deref()
+                    .filter(|value| !value.is_empty())
+                {
+                    extra_headers.push((
+                        "ChatGPT-Account-Id".to_string(),
+                        account_id.to_string(),
+                    ));
+                }
+                selected_api_key = resolved.access_token.clone();
+                codex_auth = Some(resolved);
+            }
+            _ => {}
         }
         extra_headers.push(("session_id".to_string(), Uuid::new_v4().to_string()));
-        selected_api_key = resolved.access_token.clone();
-        codex_auth = Some(resolved);
     }
 
     if selected_api_key.trim().is_empty() {
@@ -1710,7 +1741,24 @@ fn resolve_api_config(
         max_concurrent_requests: selected_provider
             .and_then(|provider| provider.max_concurrent_requests)
             .or(selected.max_concurrent_requests),
-        base_url: selected.base_url.trim().to_string(),
+        base_url: selected_provider
+            .map(|provider| {
+                if selected.request_format.is_codex()
+                    && normalize_codex_auth_mode(&provider.codex_auth_mode)
+                        == CODEX_AUTH_MODE_CUSTOM_URL
+                {
+                    provider
+                        .codex_custom_url
+                        .as_deref()
+                        .map(str::trim)
+                        .filter(|value| !value.is_empty())
+                        .unwrap_or(selected.base_url.trim())
+                        .to_string()
+                } else {
+                    selected.base_url.trim().to_string()
+                }
+            })
+            .unwrap_or_else(|| selected.base_url.trim().to_string()),
         api_key: selected_api_key,
         model: selected.model.trim().to_string(),
         reasoning_effort: selected_reasoning_effort_for_runtime(&selected),
@@ -1725,6 +1773,10 @@ fn resolve_api_config(
         prompt_cache_key: None,
         extra_headers,
         codex_auth,
+        codex_auth_mode: Some(selected.codex_auth_mode.clone()),
+        codex_originator: Some(selected.codex_originator.clone()),
+        codex_residency_requirement: selected.codex_residency_requirement.clone(),
+        codex_custom_api_key: selected.codex_custom_api_key.clone(),
     })
 }
 
