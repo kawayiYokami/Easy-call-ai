@@ -2824,19 +2824,20 @@
     }
 
     #[test]
-    fn archive_decision_should_archive_after_30m_and_30pct() {
+    fn archive_decision_should_not_archive_after_idle_when_usage_below_force_threshold() {
         let now = now_utc();
         let old = (now - time::Duration::minutes(31))
             .format(&Rfc3339)
             .expect("format old time");
         let d = decide_archive_before_model_request(300, 1000, Some(&old), true);
-        assert!(d.should_archive);
+        assert!(!d.should_archive);
         assert!(!d.forced);
         assert!(d.usage_ratio >= 0.30);
+        assert_eq!(d.reason, "context_usage_below_force_threshold");
     }
 
     #[test]
-    fn archive_decision_should_not_archive_when_usage_below_30pct() {
+    fn archive_decision_should_not_archive_when_usage_below_force_threshold() {
         let now = now_utc();
         let old = (now - time::Duration::minutes(31))
             .format(&Rfc3339)
@@ -2845,6 +2846,7 @@
         assert!(!d.should_archive);
         assert!(!d.forced);
         assert!(d.usage_ratio < 0.30);
+        assert_eq!(d.reason, "context_usage_below_force_threshold");
     }
 
     #[test]

@@ -306,43 +306,6 @@ fn goal_cancel_goal_inner(
     Ok(goal_output(normalized_conversation_id, goal))
 }
 
-fn goal_resume_active_goals_once(state: &AppState) -> Result<usize, String> {
-    let chat_index = state_read_chat_index_cached(state)?;
-    let mut enqueued_count = 0usize;
-    for item in chat_index.conversations.iter() {
-        if chat_index_item_is_archived(item) {
-            continue;
-        }
-        let conversation = match state_read_conversation_cached(state, &item.id) {
-            Ok(conversation) => conversation,
-            Err(err) => {
-                runtime_log_warn(format!(
-                    "[目标续跑] 跳过，任务=启动恢复，conversation_id={}，error={}",
-                    item.id,
-                    err
-                ));
-                continue;
-            }
-        };
-        if conversation_is_delegate(&conversation)
-            || conversation_is_system_notification(&conversation)
-            || goal_active_goal_from_conversation(&conversation).is_none()
-        {
-            continue;
-        }
-        if maybe_enqueue_goal_continue_after_idle(state, &conversation.id)? {
-            enqueued_count = enqueued_count.saturating_add(1);
-        }
-    }
-    if enqueued_count > 0 {
-        runtime_log_info(format!(
-            "[目标续跑] 完成，任务=启动恢复，enqueued_count={}",
-            enqueued_count
-        ));
-    }
-    Ok(enqueued_count)
-}
-
 fn goal_tool_conversation_id(session_id: &str) -> Result<String, String> {
     let (_, _, conversation_id) = delegate_parse_session_parts(session_id);
     conversation_id

@@ -1179,7 +1179,7 @@ fn estimated_tokens_for_text(text: &str) -> f64 {
 
 fn build_archive_decision_from_usage_ratio(
     usage_ratio: f64,
-    last_user_at: Option<&str>,
+    _last_user_at: Option<&str>,
     has_assistant_reply: bool,
 ) -> ArchiveDecision {
     if !has_assistant_reply {
@@ -1199,46 +1199,17 @@ fn build_archive_decision_from_usage_ratio(
         };
     }
 
-    let Some(last_user_at) = last_user_at.and_then(parse_iso) else {
-        return ArchiveDecision {
-            should_archive: false,
-            forced: false,
-            reason: "no_last_user_timestamp".to_string(),
-            usage_ratio,
-        };
-    };
-
-    let now = now_utc();
-    let idle_seconds = now.unix_timestamp() - last_user_at.unix_timestamp();
-    if idle_seconds < ARCHIVE_IDLE_SECONDS {
-        return ArchiveDecision {
-            should_archive: false,
-            forced: false,
-            reason: "idle_not_reached_30m".to_string(),
-            usage_ratio,
-        };
-    }
-
-    if usage_ratio >= 0.30 {
-        return ArchiveDecision {
-            should_archive: true,
-            forced: false,
-            reason: "idle_30m_and_usage_30pct".to_string(),
-            usage_ratio,
-        };
-    }
-
     ArchiveDecision {
         should_archive: false,
         forced: false,
-        reason: "usage_below_30pct".to_string(),
+        reason: "context_usage_below_force_threshold".to_string(),
         usage_ratio,
     }
 }
 
 fn build_archive_decision_from_estimated_usage_ratio(
     usage_ratio: f64,
-    last_user_at: Option<&str>,
+    _last_user_at: Option<&str>,
     has_assistant_reply: bool,
 ) -> ArchiveDecision {
     if !has_assistant_reply {
@@ -1258,39 +1229,10 @@ fn build_archive_decision_from_estimated_usage_ratio(
         };
     }
 
-    let Some(last_user_at) = last_user_at.and_then(parse_iso) else {
-        return ArchiveDecision {
-            should_archive: false,
-            forced: false,
-            reason: "no_last_user_timestamp".to_string(),
-            usage_ratio,
-        };
-    };
-
-    let now = now_utc();
-    let idle_seconds = now.unix_timestamp() - last_user_at.unix_timestamp();
-    if idle_seconds < ARCHIVE_IDLE_SECONDS {
-        return ArchiveDecision {
-            should_archive: false,
-            forced: false,
-            reason: "idle_not_reached_30m".to_string(),
-            usage_ratio,
-        };
-    }
-
-    if usage_ratio >= 0.30 {
-        return ArchiveDecision {
-            should_archive: true,
-            forced: false,
-            reason: "idle_30m_and_usage_30pct".to_string(),
-            usage_ratio,
-        };
-    }
-
     ArchiveDecision {
         should_archive: false,
         forced: false,
-        reason: "usage_below_30pct".to_string(),
+        reason: "estimated_context_usage_below_force_threshold".to_string(),
         usage_ratio,
     }
 }

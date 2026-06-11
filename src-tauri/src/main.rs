@@ -294,14 +294,6 @@ async fn start_background_services_after_frontend_ready(
         Ok(result) => log_workspace_load_result("[工作区加载]", &result),
         Err(err) => eprintln!("[工作区加载] 状态=失败，error={err}"),
     }
-    match goal_resume_active_goals_once(&startup_state) {
-        Ok(count) => {
-            if count > 0 {
-                eprintln!("[目标续跑] 启动恢复完成，count={count}");
-            }
-        }
-        Err(err) => eprintln!("[目标续跑] 启动恢复失败，error={err}"),
-    }
     start_remote_im_services_after_frontend_ready(app_handle.clone()).await;
 }
 
