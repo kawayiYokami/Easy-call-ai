@@ -7,12 +7,16 @@ import { readLastActiveConversationId } from "../utils/last-active-conversation"
 const t = i18n.global.t;
 
 export function useChatForegroundOrchestrator(bindings: Record<string, any>) {
-  async function requestConversationLightSnapshot(conversationId?: string | null) {
+  async function requestConversationLightSnapshot(
+    conversationId?: string | null,
+    options?: { resumeProjection?: boolean },
+  ) {
     return invokeTauri<any>("get_foreground_conversation_light_snapshot", {
       input: {
         conversationId: String(conversationId || "").trim() || null,
         agentId: String(bindings.currentForegroundAgentId.value || "").trim() || null,
         limit: bindings.FOREGROUND_SNAPSHOT_RECENT_LIMIT,
+        resumeProjection: !!options?.resumeProjection,
       },
     });
   }

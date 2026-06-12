@@ -801,6 +801,8 @@ struct ForegroundConversationLightSnapshotInput {
     agent_id: Option<String>,
     #[serde(default)]
     limit: Option<usize>,
+    #[serde(default)]
+    resume_projection: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -840,6 +842,12 @@ struct ForegroundConversationLightSnapshotOutput {
     active_goal: Option<ConversationGoalState>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     unarchived_conversations: Vec<UnarchivedConversationSummary>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    stream_cache: Option<ConversationStreamRuntimeCacheSnapshot>,
+    #[serde(default)]
+    should_bind_stream: bool,
+    #[serde(default)]
+    resume_projection_authoritative: bool,
 }
 
 #[derive(Debug, Clone)]

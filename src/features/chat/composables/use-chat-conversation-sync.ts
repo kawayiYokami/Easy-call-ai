@@ -530,8 +530,9 @@ export function useChatConversationSync(bindings: Record<string, any>) {
     const previousMessages = Array.isArray(bindings.allMessages.value) ? bindings.allMessages.value : [];
     let rawNextMessages = freezeConversationMessages(Array.isArray(snapshot.messages) ? snapshot.messages : []);
     const nextRuntimeState = String(snapshot.runtimeState || "").trim();
+    const resumeProjectionAuthoritative = !!snapshot.resumeProjectionAuthoritative;
     const hasAssistantDraftInSnapshot = rawNextMessages.some((message) => isAssistantDraftMessage(message));
-    if (!hasAssistantDraftInSnapshot && nextRuntimeState === "assistant_streaming") {
+    if (!resumeProjectionAuthoritative && !hasAssistantDraftInSnapshot && nextRuntimeState === "assistant_streaming") {
       const preservedDraft = [...previousMessages].reverse().find((message) => messageIsActiveStreamingDraft(message));
       if (preservedDraft) {
         rawNextMessages = [...rawNextMessages, preservedDraft];
@@ -562,7 +563,7 @@ export function useChatConversationSync(bindings: Record<string, any>) {
     if (Array.isArray(snapshot.unarchivedConversations)) {
       bindings.unarchivedConversations.value = snapshot.unarchivedConversations;
     }
-    if (nextRuntimeState === "assistant_streaming") {
+    if (!resumeProjectionAuthoritative && nextRuntimeState === "assistant_streaming") {
       maybeResumeForegroundStreamingDraft(nextConversationId, "apply_snapshot");
       void resumeForegroundRuntimeFromBackend(nextConversationId, "apply_snapshot");
     }
