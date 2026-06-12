@@ -155,6 +155,7 @@ mod rewind_apply_patch_tests {
             provider_meta: None,
             tool_call: Some(events),
             mcp_call: None,
+        meme_annotations: None,
         }
     }
 

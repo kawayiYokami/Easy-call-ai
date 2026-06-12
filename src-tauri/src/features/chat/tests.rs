@@ -274,6 +274,7 @@
                 provider_meta: None,
                 tool_call: None,
                 mcp_call: None,
+            meme_annotations: None,
             },
             ChatMessage {
                 id: Uuid::new_v4().to_string(),
@@ -288,6 +289,7 @@
                 provider_meta: None,
                 tool_call: None,
                 mcp_call: None,
+            meme_annotations: None,
             },
             ChatMessage {
                 id: Uuid::new_v4().to_string(),
@@ -302,6 +304,7 @@
                 provider_meta: None,
                 tool_call: None,
                 mcp_call: None,
+            meme_annotations: None,
             },
         ];
         let conv = test_active_conversation_with_messages(messages, Some(now));
@@ -475,6 +478,7 @@
                 })),
                 tool_call: None,
                 mcp_call: None,
+            meme_annotations: None,
             },
             ChatMessage {
                 id: Uuid::new_v4().to_string(),
@@ -489,6 +493,7 @@
                 provider_meta: None,
                 tool_call: None,
                 mcp_call: None,
+            meme_annotations: None,
             },
             ChatMessage {
                 id: Uuid::new_v4().to_string(),
@@ -505,6 +510,7 @@
                 })),
                 tool_call: None,
                 mcp_call: None,
+            meme_annotations: None,
             },
         ];
         let conv = test_active_conversation_with_messages(messages, Some(now));
@@ -564,6 +570,7 @@
             provider_meta: None,
             tool_call: None,
             mcp_call: None,
+        meme_annotations: None,
         };
 
         let recall_payload = collect_recall_payload_for_user_message(
@@ -619,6 +626,7 @@
             provider_meta: None,
             tool_call: None,
             mcp_call: None,
+        meme_annotations: None,
         };
 
         let recall_payload = collect_recall_payload_for_user_message(
@@ -1989,6 +1997,7 @@
                 })),
                 tool_call: None,
                 mcp_call: None,
+            meme_annotations: None,
             },
         ];
         let conv = test_active_conversation_with_messages(messages, Some(now));
@@ -2040,6 +2049,7 @@
                 })),
                 tool_call: None,
                 mcp_call: None,
+            meme_annotations: None,
             },
             test_text_message("user", "中间用户消息", &now),
             test_text_message("assistant", "中间助手消息", &now),
@@ -2062,6 +2072,7 @@
                 })),
                 tool_call: None,
                 mcp_call: None,
+            meme_annotations: None,
             },
             trailing_assistant,
         ];
@@ -2137,6 +2148,7 @@
             })),
             tool_call: None,
             mcp_call: None,
+        meme_annotations: None,
         };
         let messages = vec![
             test_text_message("user", "请读取 README 并继续处理", &now),
@@ -2206,6 +2218,7 @@
                 })),
                 tool_call: None,
                 mcp_call: None,
+            meme_annotations: None,
             },
             trailing_assistant,
             test_text_message("user", "这是压缩后的最新用户消息", &now),
@@ -2624,6 +2637,7 @@
             })),
             tool_call: None,
             mcp_call: None,
+        meme_annotations: None,
         });
 
         let mut data = AppData::default();
@@ -2912,6 +2926,7 @@
             })),
             tool_call: None,
             mcp_call: None,
+        meme_annotations: None,
         });
         let agent = AgentProfile {
             id: DEFAULT_AGENT_ID.to_string(),
@@ -2977,6 +2992,7 @@
             })),
             tool_call: None,
             mcp_call: None,
+        meme_annotations: None,
         });
         let mut api = ApiConfig::default();
         api.context_window_tokens = 1000;
@@ -3012,6 +3028,7 @@
             })),
             tool_call: None,
             mcp_call: None,
+        meme_annotations: None,
         });
         conversation.messages.push(ChatMessage {
             id: "compaction-boundary".to_string(),
@@ -3030,6 +3047,7 @@
             })),
             tool_call: None,
             mcp_call: None,
+        meme_annotations: None,
         });
         conversation.messages.push(ChatMessage {
             id: "user-after-compaction".to_string(),
@@ -3044,6 +3062,7 @@
             provider_meta: None,
             tool_call: None,
             mcp_call: None,
+        meme_annotations: None,
         });
 
         let usage =
@@ -3068,6 +3087,7 @@
             provider_meta: None,
             tool_call: None,
             mcp_call: None,
+        meme_annotations: None,
         });
         let agent = AgentProfile {
             id: DEFAULT_AGENT_ID.to_string(),
@@ -3130,6 +3150,7 @@
             })),
             tool_call: None,
             mcp_call: None,
+        meme_annotations: None,
         });
         let agent = AgentProfile {
             id: DEFAULT_AGENT_ID.to_string(),
@@ -5190,6 +5211,7 @@
                 provider_meta: None,
                 tool_call: None,
                 mcp_call: None,
+            meme_annotations: None,
             },
             ChatMessage {
                 id: "msg-2".to_string(),
@@ -5204,6 +5226,7 @@
                 provider_meta: None,
                 tool_call: None,
                 mcp_call: None,
+            meme_annotations: None,
             },
             ChatMessage {
                 id: "msg-3".to_string(),
@@ -5225,6 +5248,7 @@
                 })),
                 tool_call: None,
                 mcp_call: None,
+            meme_annotations: None,
             },
         ];
         data.conversations = vec![conversation];
@@ -5644,11 +5668,13 @@
                 provider_meta: None,
                 tool_call: None,
                 mcp_call: None,
+            meme_annotations: None,
             }],
             current_todos: Vec::new(),
             memory_recall_table: Vec::new(),
             plan_mode_enabled: false,
             preferred_api_config_id: None,
+            auto_push_remote_contact_id: None,
             active_goal: None,
             cumulative_usage: ConversationCumulativeUsage::default(),
         }];
@@ -6777,6 +6803,7 @@
                 enable_text: true,
                 enable_image: false,
                 enable_audio: false,
+                enable_video: false,
                 enable_tools: true,
                 tools: vec![],
                 base_url: "https://api.openai.com/v1".to_string(),
@@ -6839,6 +6866,7 @@
                     enable_text: true,
                     enable_image: false,
                     enable_audio: false,
+                    enable_video: false,
                     enable_tools: true,
                     tools: vec![],
                     base_url: "https://api.openai.com/v1".to_string(),
@@ -6867,6 +6895,7 @@
                     enable_text: true,
                     enable_image: false,
                     enable_audio: false,
+                    enable_video: false,
                     enable_tools: true,
                     tools: vec![],
                     base_url: "https://api.openai.com/v1".to_string(),
@@ -6935,6 +6964,7 @@
                     enable_text: true,
                     enable_image: false,
                     enable_audio: false,
+                    enable_video: false,
                     enable_tools: true,
                     tools: vec![],
                     base_url: "https://api.openai.com/v1".to_string(),
@@ -6963,6 +6993,7 @@
                     enable_text: true,
                     enable_image: false,
                     enable_audio: false,
+                    enable_video: false,
                     enable_tools: true,
                     tools: vec![],
                     base_url: "https://api.openai.com/v1".to_string(),
@@ -7050,6 +7081,7 @@
                 enable_text: true,
                 enable_image: false,
                 enable_audio: false,
+                enable_video: false,
                 enable_tools: true,
                 tools: vec![],
                 base_url: "https://api.openai.com/v1".to_string(),
@@ -7350,6 +7382,7 @@
                 enable_text: true,
                 enable_image: false,
                 enable_audio: false,
+                enable_video: false,
                 enable_tools: true,
                 tools: vec![],
                 base_url: "https://api.openai.com/v1".to_string(),
@@ -7432,6 +7465,7 @@
             memory_recall_table: Vec::new(),
             plan_mode_enabled: false,
             preferred_api_config_id: None,
+            auto_push_remote_contact_id: None,
             active_goal: None,
             cumulative_usage: ConversationCumulativeUsage::default(),
         });
@@ -7507,6 +7541,7 @@
             memory_recall_table: Vec::new(),
             plan_mode_enabled: false,
             preferred_api_config_id: None,
+            auto_push_remote_contact_id: None,
             active_goal: None,
             cumulative_usage: ConversationCumulativeUsage::default(),
         });
@@ -7889,6 +7924,7 @@
                 provider_meta,
                 tool_call: None,
                 mcp_call: None,
+            meme_annotations: None,
             });
         }
 

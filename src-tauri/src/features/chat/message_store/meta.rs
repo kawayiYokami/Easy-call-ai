@@ -339,6 +339,7 @@ mod message_store_meta_tests {
             provider_meta: None,
             tool_call: None,
             mcp_call: None,
+        meme_annotations: None,
         }
     }
 

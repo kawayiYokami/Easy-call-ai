@@ -183,6 +183,7 @@
                 memory_recall_table: Vec::new(),
                 plan_mode_enabled: false,
                 preferred_api_config_id: None,
+            auto_push_remote_contact_id: None,
             active_goal: None,
                 cumulative_usage: ConversationCumulativeUsage::default(),
             },
@@ -215,6 +216,7 @@
                 memory_recall_table: Vec::new(),
                 plan_mode_enabled: false,
                 preferred_api_config_id: None,
+            auto_push_remote_contact_id: None,
             active_goal: None,
                 cumulative_usage: ConversationCumulativeUsage::default(),
             },
@@ -333,6 +335,7 @@
                 memory_recall_table: Vec::new(),
                 plan_mode_enabled: false,
                 preferred_api_config_id: None,
+            auto_push_remote_contact_id: None,
             active_goal: None,
                 cumulative_usage: ConversationCumulativeUsage::default(),
             },
@@ -365,6 +368,7 @@
                 memory_recall_table: Vec::new(),
                 plan_mode_enabled: false,
                 preferred_api_config_id: None,
+            auto_push_remote_contact_id: None,
             active_goal: None,
                 cumulative_usage: ConversationCumulativeUsage::default(),
             },
@@ -503,11 +507,13 @@
                 })),
                 tool_call: None,
                 mcp_call: None,
+            meme_annotations: None,
             }],
             current_todos: Vec::new(),
             memory_recall_table: Vec::new(),
             plan_mode_enabled: false,
             preferred_api_config_id: None,
+            auto_push_remote_contact_id: None,
             active_goal: None,
             cumulative_usage: ConversationCumulativeUsage::default(),
         };
@@ -575,11 +581,13 @@
                 })),
                 tool_call: None,
                 mcp_call: None,
+            meme_annotations: None,
             }],
             current_todos: Vec::new(),
             memory_recall_table: Vec::new(),
             plan_mode_enabled: false,
             preferred_api_config_id: None,
+            auto_push_remote_contact_id: None,
             active_goal: None,
             cumulative_usage: ConversationCumulativeUsage::default(),
         };
@@ -1224,6 +1232,7 @@
             memory_recall_table: Vec::new(),
             plan_mode_enabled: false,
             preferred_api_config_id: None,
+            auto_push_remote_contact_id: None,
             active_goal: None,
             cumulative_usage: ConversationCumulativeUsage::default(),
         }
@@ -1433,6 +1442,7 @@
                 },
                 tool_call: None,
                 mcp_call: None,
+            meme_annotations: None,
             });
         }
 
@@ -1483,6 +1493,7 @@
             })),
             tool_call: None,
             mcp_call: None,
+        meme_annotations: None,
         }, &contact, &Vec::new(), &current_assistant)
         .expect("digest");
 
@@ -2027,6 +2038,7 @@
             provider_meta: None,
             tool_call: None,
             mcp_call: None,
+        meme_annotations: None,
         });
         data.conversations.push(conversation);
         {
@@ -2059,6 +2071,7 @@
             provider_meta: None,
             tool_call: None,
             mcp_call: None,
+        meme_annotations: None,
         };
         let event = ChatPendingEvent {
             id: "event-1".to_string(),
@@ -2163,6 +2176,7 @@
                 provider_meta: None,
                 tool_call: None,
                 mcp_call: None,
+            meme_annotations: None,
             }],
             activate_assistant: false,
             session_info: ChatSessionInfo {

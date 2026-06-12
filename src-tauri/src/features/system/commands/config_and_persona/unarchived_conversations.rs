@@ -2574,6 +2574,7 @@ mod unarchived_conversations_tests {
             memory_recall_table: Vec::new(),
             plan_mode_enabled: true,
             preferred_api_config_id: None,
+            auto_push_remote_contact_id: None,
             active_goal: None,
             cumulative_usage: ConversationCumulativeUsage::default(),
         }

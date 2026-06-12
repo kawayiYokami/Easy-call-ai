@@ -1175,6 +1175,7 @@ mod conversation_snapshot_api_tests {
             body_text_length: 0,
             has_assistant_reply: true,
             unread_count: 0,
+            auto_push_remote_contact_id: None,
             agent_id: "agent-a".to_string(),
             department_id: "dept-a".to_string(),
             department_name: "部门A".to_string(),

@@ -1429,6 +1429,7 @@ mod openai_responses_genai_request_tests {
                 }),
             ]),
             mcp_call: None,
+        meme_annotations: None,
         };
         let prepared = prepared_prompt_from_aggregated_assistant(&assistant);
 
