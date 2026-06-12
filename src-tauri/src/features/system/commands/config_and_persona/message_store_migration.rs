@@ -362,45 +362,9 @@ fn check_message_store_migration(
     Ok(report)
 }
 
-fn message_store_discard_backup_root(state: &AppState) -> Result<PathBuf, String> {
-    let root = app_layout_backups_dir(&state.data_path)
-        .join("discarded-message-store-migration")
-        .join(format!("{}", now_utc().unix_timestamp()));
-    fs::create_dir_all(&root).map_err(|err| {
-        format!(
-            "创建消息仓库迁移异常备份目录失败，path={}，error={err}",
-            root.display()
-        )
-    })?;
-    Ok(root)
-}
-
-fn move_path_to_backup(path: &PathBuf, backup_path: &PathBuf, label: &str) -> Result<bool, String> {
-    if !path.exists() {
-        return Ok(false);
-    }
-    if let Some(parent) = backup_path.parent() {
-        fs::create_dir_all(parent).map_err(|err| {
-            format!(
-                "创建{label}备份父目录失败，path={}，error={err}",
-                parent.display()
-            )
-        })?;
-    }
-    fs::rename(path, backup_path).map_err(|err| {
-        format!(
-            "移动{label}到备份失败，source={}，target={}，error={err}",
-            path.display(),
-            backup_path.display()
-        )
-    })?;
-    Ok(true)
-}
-
 fn discard_message_store_migration_item(
     state: &AppState,
     item: &MessageStoreMigrationPreflightItem,
-    backup_root: &PathBuf,
 ) -> Result<bool, String> {
     let conversation_id = item.conversation_id.trim();
     if conversation_id.is_empty() {
@@ -408,23 +372,20 @@ fn discard_message_store_migration_item(
     }
     let _ = message_store::message_store_paths(&state.data_path, conversation_id)?;
     let conversation_file = app_layout_chat_conversation_path(&state.data_path, conversation_id);
-    let directory_shard = app_layout_chat_conversations_dir(&state.data_path).join(conversation_id);
-    let item_backup_root = backup_root.join(conversation_id);
     let mut changed = false;
-    changed |= move_path_to_backup(
-        &conversation_file,
-        &item_backup_root.join(format!("{conversation_id}.json")),
-        "异常旧会话文件",
-    )?;
-    changed |= move_path_to_backup(
-        &directory_shard,
-        &item_backup_root.join(conversation_id),
-        "异常目录型会话",
-    )?;
+    if conversation_file.exists() {
+        fs::remove_file(&conversation_file).map_err(|err| {
+            format!(
+                "删除异常旧会话文件失败，path={}，error={err}",
+                conversation_file.display()
+            )
+        })?;
+        changed = true;
+    }
+    changed |= delete_conversation_shard(&state.data_path, conversation_id)?;
     eprintln!(
-        "[消息存储迁移] 抛弃异常会话：conversation_id={}，backup={}，reason={}",
+        "[消息存储迁移] 抛弃异常会话：conversation_id={}，mode=delete，reason={}",
         conversation_id,
-        item_backup_root.display(),
         item.reason.as_deref().unwrap_or("未提供原因")
     );
     Ok(changed)
@@ -483,9 +444,8 @@ fn run_message_store_migration(
         ));
     }
     if !blocked.is_empty() {
-        let backup_root = message_store_discard_backup_root(&state)?;
         for item in &blocked {
-            if discard_message_store_migration_item(&state, item, &backup_root)? {
+            if discard_message_store_migration_item(&state, item)? {
                 report.discarded_count += 1;
             }
         }
