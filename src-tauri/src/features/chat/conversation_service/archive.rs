@@ -204,36 +204,44 @@ impl ConversationService {
             return Err("当前没有可归档的活动对话。".to_string());
         }
         let department_id = source.department_id.trim();
-        if department_id.is_empty() {
-            drop(guard);
-            return Err(format!(
-                "会话未绑定部门，无法归档: conversation_id={}",
+        let department = if department_id.is_empty() {
+            runtime_log_warn(format!(
+                "[归档] 跳过部门校验，任务=resolve_archive_request_conversation_by_id，conversation_id={}，原因=会话未绑定部门，改为直接归档并跳过归档反思",
                 source.id
             ));
-        }
-        let department = runtime_department_by_id(&runtime_snapshot, department_id).ok_or_else(|| {
-            format!(
-                "会话绑定部门不存在，无法归档: conversation_id={}, department_id={}",
-                source.id, department_id
-            )
-        })?;
+            None
+        } else {
+            match runtime_department_by_id(&runtime_snapshot, department_id) {
+                Some(department) => Some(department),
+                None => {
+                    runtime_log_warn(format!(
+                        "[归档] 跳过部门校验，任务=resolve_archive_request_conversation_by_id，conversation_id={}，department_id={}，原因=会话绑定部门不存在，改为直接归档并跳过归档反思",
+                        source.id, department_id
+                    ));
+                    None
+                }
+            }
+        };
         let effective_agent_id = source.agent_id.trim();
-        if effective_agent_id.is_empty() {
-            drop(guard);
-            return Err(format!("会话未绑定人格，无法归档: conversation_id={}", source.id));
-        }
-        if !runtime_snapshot
+        let effective_agent_id = if effective_agent_id.is_empty() {
+            runtime_log_warn(format!(
+                "[归档] 跳过人格校验，任务=resolve_archive_request_conversation_by_id，conversation_id={}，原因=会话未绑定人格，不再回退到其他人格；后续如无法确定归档归属，将直接跳过归档反思",
+                source.id
+            ));
+            String::new()
+        } else if runtime_snapshot
             .agents
             .iter()
             .any(|agent| agent.id == effective_agent_id && !agent.is_built_in_user)
         {
-            drop(guard);
-            return Err(format!(
-                "会话绑定人格不存在或不可用，无法归档: conversation_id={}, agent_id={}",
+            effective_agent_id.to_string()
+        } else {
+            runtime_log_warn(format!(
+                "[归档] 跳过人格校验，任务=resolve_archive_request_conversation_by_id，conversation_id={}，agent_id={}，原因=会话绑定人格不存在或不可用，不再回退到其他人格；后续如无法确定归档归属，将直接跳过归档反思",
                 source.id, effective_agent_id
             ));
-        }
-        let effective_agent_id = effective_agent_id.to_string();
+            effective_agent_id.to_string()
+        };
         let preferred_api_id = source
             .preferred_api_config_id
             .as_deref()
@@ -241,14 +249,11 @@ impl ConversationService {
             .filter(|value| !value.is_empty())
             .and_then(|api_id| resolve_department_chat_api_config_id(app_config, api_id));
         let selected_api_id = preferred_api_id
-            .or_else(|| department_primary_chat_api_config_id(app_config, department))
-            .ok_or_else(|| {
-                format!(
-                    "会话归属部门没有可用聊天模型，无法归档: conversation_id={}, department_id={}",
-                    source.id, department_id
-                )
-            })?;
-        let selected_api = resolve_selected_api_config(app_config, Some(selected_api_id.as_str()))
+            .or_else(|| department.and_then(|department| department_primary_chat_api_config_id(app_config, department)));
+        let selected_api = resolve_selected_api_config(
+            app_config,
+            selected_api_id.as_deref(),
+        )
             .ok_or_else(|| "No API config configured. Please add one.".to_string())?;
         let resolved_api = resolve_api_config(app_config, Some(selected_api.id.as_str()))?;
         drop(guard);

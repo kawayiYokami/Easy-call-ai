@@ -4048,7 +4048,42 @@
 
         assert_eq!(resolved_source.id, source.id);
         assert_eq!(selected_api.id, expected_api_id);
-        assert_eq!(effective_agent_id, DEFAULT_AGENT_ID);
+        assert!(effective_agent_id.is_empty());
+    }
+
+    #[test]
+    fn resolve_archive_request_by_id_should_allow_missing_department() {
+        let state = test_chat_runtime_state();
+        let mut config = AppConfig::default();
+        if let Some(api_config) = config.api_configs.get_mut(0) {
+            api_config.id = "api-archive".to_string();
+            api_config.base_url = "https://api.openai.com/v1".to_string();
+            api_config.api_key = "k".to_string();
+            api_config.model = "gpt-4o-mini".to_string();
+        }
+        config.assistant_department_api_config_id = "api-archive".to_string();
+        let expected_api_id = api_endpoint_id("api-archive", "api-archive-model-default");
+        write_config(&state.config_path, &config).expect("write config");
+        let now = now_iso();
+        let mut source = test_chat_conversation("conversation-archive-missing-dept", "active", &now);
+        source.agent_id = String::new();
+        source.department_id = String::new();
+        source.messages = vec![
+            test_text_message("user", "第一轮问题", &now),
+            test_text_message("assistant", "第一轮回复", &now),
+            test_text_message("user", "第二轮问题", &now),
+            test_text_message("assistant", "第二轮回复", &now),
+        ];
+        write_conversation_shard(&state.data_path, &source).expect("write source conversation");
+
+        let (selected_api, _resolved_api, resolved_source, effective_agent_id) =
+            conversation_service()
+                .resolve_archive_request_conversation_by_id(&state, &source.id)
+                .expect("resolve archive request without department");
+
+        assert_eq!(resolved_source.id, source.id);
+        assert_eq!(selected_api.id, expected_api_id);
+        assert!(effective_agent_id.is_empty());
     }
 
     #[test]

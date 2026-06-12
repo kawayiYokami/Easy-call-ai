@@ -2350,56 +2350,71 @@ async fn run_archive_pipeline_inner(
         return Err(format!("归档后维护跳过：{}", reason));
     }
 
-    let (owner_agent, owner_agent_id, user_alias) = resolve_archive_owner_context(state, source)?;
-    let memories = memory_store_list_memories_visible_for_agent(
-        &state.data_path,
-        &owner_agent_id,
-        owner_agent.private_memory_enabled,
-    )?;
-
-    eprintln!(
-        "[{}] trace={} begin api={} model={} format={} conversation={} ownerAgent={}",
-        trace_tag,
-        trace_id,
-        selected_api.id,
-        selected_api.model,
-        resolved_api.request_format,
-        source.id,
-        owner_agent_id
-    );
-
     let reporting_source = build_archive_reporting_conversation(source);
-    let body_reporting_source =
-        build_archive_body_reporting_conversation(reporting_source.as_ref(), &memories);
-    let archive_body_tokens = archive_body_token_count(&body_reporting_source);
-    let (archive_warning, applied_report) =
-        if archive_body_tokens >= ARCHIVE_REFLECTION_MIN_BODY_TOKENS {
-            let (summary_draft, archive_warning) = summarize_archive_summary_with_fallback(
-                state,
-                resolved_api,
-                selected_api,
-                &owner_agent,
-                &user_alias,
-                &body_reporting_source,
-                &memories,
-            )
-            .await;
-            let deduped_recall = archive_pipeline_dedup_recall_table(&source.memory_recall_table);
-            let applied_report = apply_summary_context_result(
-                &state.data_path,
-                &owner_agent,
-                &deduped_recall,
-                &summary_draft,
-            )?;
-            (archive_warning, Some(applied_report))
-        } else {
-            runtime_log_info(format!(
-                "[SummaryContext] 跳过，场景=archive，conversation_id={}，原因=正文不足1000token，body_tokens={:.0}，threshold={:.0}",
-                source.id,
-                archive_body_tokens,
-                ARCHIVE_REFLECTION_MIN_BODY_TOKENS
-            ));
-            (None, None)
+    let (archive_warning, applied_report, archive_body_tokens) =
+        match resolve_archive_owner_context(state, source) {
+            Ok((owner_agent, owner_agent_id, user_alias)) => {
+                let memories = memory_store_list_memories_visible_for_agent(
+                    &state.data_path,
+                    &owner_agent_id,
+                    owner_agent.private_memory_enabled,
+                )?;
+
+                eprintln!(
+                    "[{}] trace={} begin api={} model={} format={} conversation={} ownerAgent={}",
+                    trace_tag,
+                    trace_id,
+                    selected_api.id,
+                    selected_api.model,
+                    resolved_api.request_format,
+                    source.id,
+                    owner_agent_id
+                );
+
+                let body_reporting_source =
+                    build_archive_body_reporting_conversation(reporting_source.as_ref(), &memories);
+                let archive_body_tokens = archive_body_token_count(&body_reporting_source);
+                if archive_body_tokens >= ARCHIVE_REFLECTION_MIN_BODY_TOKENS {
+                    let (summary_draft, archive_warning) = summarize_archive_summary_with_fallback(
+                        state,
+                        resolved_api,
+                        selected_api,
+                        &owner_agent,
+                        &user_alias,
+                        &body_reporting_source,
+                        &memories,
+                    )
+                    .await;
+                    let deduped_recall =
+                        archive_pipeline_dedup_recall_table(&source.memory_recall_table);
+                    let applied_report = apply_summary_context_result(
+                        &state.data_path,
+                        &owner_agent,
+                        &deduped_recall,
+                        &summary_draft,
+                    )?;
+                    (archive_warning, Some(applied_report), archive_body_tokens)
+                } else {
+                    runtime_log_info(format!(
+                        "[SummaryContext] 跳过，场景=archive，conversation_id={}，原因=正文不足1000token，body_tokens={:.0}，threshold={:.0}",
+                        source.id,
+                        archive_body_tokens,
+                        ARCHIVE_REFLECTION_MIN_BODY_TOKENS
+                    ));
+                    (None, None, archive_body_tokens)
+                }
+            }
+            Err(err) => {
+                runtime_log_warn(format!(
+                    "[归档] 跳过归档反思，任务=后台归档维护，conversation_id={}，原因={}，行为=直接完成归档，不阻塞主流程",
+                    source.id, err
+                ));
+                (
+                    Some(format!("归档反思已跳过：{}", err)),
+                    None,
+                    archive_body_token_count(reporting_source.as_ref()),
+                )
+            }
         };
 
     let archived_conversation = state_read_conversation_cached(state, &source.id)
