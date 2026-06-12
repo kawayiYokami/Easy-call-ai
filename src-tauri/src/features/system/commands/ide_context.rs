@@ -5943,21 +5943,23 @@ mod ide_context_tests {
     #[test]
     fn ide_context_bridge_tokens_allow_concurrent_consumers_until_expiry() {
         let runtime = IdeContextRuntime::new();
-        let token = ide_context_issue_bridge_token(&runtime).expect("issue token");
+        let token = ide_context_issue_bridge_token_with_state(&runtime, None).expect("issue token");
 
-        let next_token = ide_context_consume_bridge_token(&runtime, &token).expect("first consume");
+        let next_token = ide_context_consume_bridge_token_with_state(&runtime, None, &token)
+            .expect("first consume");
         assert_eq!(next_token, token);
 
-        let second_next =
-            ide_context_consume_bridge_token(&runtime, &token).expect("second consume with same token");
+        let second_next = ide_context_consume_bridge_token_with_state(&runtime, None, &token)
+            .expect("second consume with same token");
         assert_eq!(second_next, token);
     }
 
     #[test]
     fn ide_context_bridge_tokens_reject_unknown_token() {
         let runtime = IdeContextRuntime::new();
-        let _ = ide_context_issue_bridge_token(&runtime).expect("issue token");
-        let err = ide_context_consume_bridge_token(&runtime, "bad-token").expect_err("invalid token");
+        let _ = ide_context_issue_bridge_token_with_state(&runtime, None).expect("issue token");
+        let err = ide_context_consume_bridge_token_with_state(&runtime, None, "bad-token")
+            .expect_err("invalid token");
         assert!(err.0.contains("invalid authToken"));
     }
 
@@ -5972,7 +5974,7 @@ mod ide_context_tests {
             );
         }
 
-        let err = ide_context_consume_bridge_token(&runtime, "expired-token")
+        let err = ide_context_consume_bridge_token_with_state(&runtime, None, "expired-token")
             .expect_err("expired token should refresh discovery");
         assert!(err.0.contains("expired"));
         let refreshed = err.1.expect("should issue refreshed token");

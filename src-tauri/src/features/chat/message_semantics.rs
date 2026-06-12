@@ -811,6 +811,7 @@ mod message_semantics_tests {
             "2026-06-03T21:41:00Z".to_string(),
             &request_messages,
             None,
+            None,
         );
 
         assert_eq!(request_messages.len(), 3);
@@ -930,6 +931,7 @@ mod message_semantics_tests {
             "2026-05-08T12:00:00Z".to_string(),
             &request_messages,
             None,
+            None,
         );
 
         assert_eq!(request_messages, tool_history_events);
@@ -980,6 +982,7 @@ mod message_semantics_tests {
             "2026-05-08T12:00:00Z".to_string(),
             &request_messages,
             None,
+            None,
         );
 
         assert_eq!(request_messages.len(), 3);
@@ -1028,6 +1031,7 @@ mod message_semantics_tests {
             Some(serde_json::json!({
                 "dispatchElapsedMs": 1234
             })),
+            None,
         );
 
         assert_eq!(message.parts.len(), 1);
@@ -1076,6 +1080,7 @@ mod message_semantics_tests {
             "agent-a",
             "2026-05-08T12:00:00Z".to_string(),
             &request_messages,
+            None,
             None,
         );
 

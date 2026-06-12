@@ -4275,6 +4275,7 @@ mod core_send_inner_tests {
             Some(serde_json::json!({
                 "effectivePromptTokens": 128_u64
             })),
+            None,
         );
 
         let persisted = conversation_upsert_final_assistant_message(
