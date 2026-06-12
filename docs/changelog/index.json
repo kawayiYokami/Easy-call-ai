@@ -1,7 +1,12 @@
 {
-  "generatedAt": "2026-06-11T22:17:42.115Z",
-  "latestVersion": "v0.11.6",
+  "generatedAt": "2026-06-12T01:23:21.789Z",
+  "latestVersion": "v0.11.7",
   "releases": [
+    {
+      "version": "v0.11.7",
+      "path": "docs/changelog/releases/v0.11.7.md",
+      "summary": "功能（bridge）：Web 桥接与侧边栏 WebView 断连恢复、认证持久化、文件阅读器桥接支持"
+    },
     {
       "version": "v0.11.6",
       "path": "docs/changelog/releases/v0.11.6.md",
