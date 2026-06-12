@@ -61,6 +61,7 @@
     :active-supervision-task="null"
     :recent-supervision-task-history="[]"
     :unarchived-conversation-items="effectiveConversationItems"
+    :remote-im-contact-conversations="remoteImContactConversations"
     :conversation-items="effectiveConversationItems"
     :create-conversation-department-options="createConversationDepartmentOptions"
     :default-create-conversation-department-id="defaultCreateConversationDepartmentId"
@@ -137,7 +138,7 @@
 
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, shallowRef, watch } from "vue";
-import type { ApiConfigItem, AssistantStreamBlock, ChatConversationOverviewItem, ChatMentionEntry, ChatMessage, ChatTodoItem, IdeContextWorkspaceGroup } from "../../../types/app";
+import type { ApiConfigItem, AssistantStreamBlock, ChatConversationOverviewItem, ChatMentionEntry, ChatMessage, ChatTodoItem, IdeContextWorkspaceGroup, RemoteImContactConversationOption } from "../../../types/app";
 import {
   assistantTextFromStreamBlocks,
   normalizeAssistantStreamBlocks,
@@ -185,6 +186,7 @@ const props = defineProps<{
   input: string;
   messages: ChatMessage[];
   conversationItems: ChatConversationOverviewItem[];
+  remoteImContactConversations: RemoteImContactConversationOption[];
   clipboardImages: Array<{ mime: string; bytesBase64: string }>;
   streamingText: string;
   toolStatusText: string;

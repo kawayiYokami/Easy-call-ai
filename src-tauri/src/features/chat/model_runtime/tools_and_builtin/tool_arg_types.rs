@@ -80,6 +80,18 @@ struct ContactNoReplyToolArgs {
     reason: Option<String>,
 }
 
+#[derive(Debug, Clone, Deserialize, Serialize, Default)]
+struct GetSessionToolArgs {
+    #[serde(default)]
+    keyword: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+struct InformSessionToolArgs {
+    session_id: String,
+    content: String,
+}
+
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 struct DelegateToolArgs {

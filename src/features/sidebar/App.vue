@@ -50,6 +50,7 @@
       :system-notification-mode="activeConversationSystemNotificationMode"
       :messages="messages"
       :conversation-items="chatConversationItems"
+      :remote-im-contact-conversations="remoteImContactConversations"
       :clipboard-images="clipboardImages"
       :streaming-text="streamingText"
       :tool-status-text="toolStatusText"

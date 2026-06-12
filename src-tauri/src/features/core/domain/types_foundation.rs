@@ -422,6 +422,20 @@ fn default_api_tools() -> Vec<ApiToolConfig> {
             values: serde_json::json!({}),
         },
         ApiToolConfig {
+            id: "get_session".to_string(),
+            command: "builtin".to_string(),
+            args: vec!["get_session".to_string()],
+            enabled: true,
+            values: serde_json::json!({}),
+        },
+        ApiToolConfig {
+            id: "inform_session".to_string(),
+            command: "builtin".to_string(),
+            args: vec!["inform_session".to_string()],
+            enabled: true,
+            values: serde_json::json!({}),
+        },
+        ApiToolConfig {
             id: "delegate".to_string(),
             command: "builtin".to_string(),
             args: vec!["delegate".to_string()],

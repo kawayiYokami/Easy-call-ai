@@ -2557,6 +2557,17 @@ fn build_builtin_tool_rule_block(tool_id: &str) -> Option<String> {
              ## 活跃状态\n\
              - 如果目标尚未被完整证明完成，也未满足严格阻塞条件，就保持 goal active，继续朝最终状态推进。",
         ),
+        "get_session" | "inform_session" => (
+            "session tool rule",
+            "## 定位\n\
+             - `get_session` 用来查询可投递的会话列表，只返回本地普通未归档会话和远程联系人会话。\n\
+             - `inform_session` 用来向指定会话投递一条系统助理通知。\n\n\
+             ## 使用原则\n\
+             - 只有在确实需要跨会话同步信息、提醒、续接上下文或通知远程联系人时才使用。\n\
+             - 先用 `get_session` 缩小目标范围，再调用 `inform_session`。\n\
+             - `inform_session` 只负责投递，不会自动让目标会话继续推理。\n\
+             - 通知正文应简洁、可执行、可读，不要把整轮冗长思考原样倾倒给别的会话。",
+        ),
         "delegate" => (
             "delegate tool rule",
             "## 何时优先使用\n\

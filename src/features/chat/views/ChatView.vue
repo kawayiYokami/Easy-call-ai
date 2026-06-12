@@ -257,6 +257,7 @@
             :selection-delegate-only="messageSelectionDelegateOnly"
             :show-side-conversation-list="detachedChatWindow ? false : showSideConversationList"
             :active-conversation-id="activeConversationId" :unarchived-conversation-items="unarchivedConversationItems"
+            :remote-im-contact-conversations="remoteImContactConversations"
             :user-alias="userAlias" :user-avatar-url="userAvatarUrl"
             :persona-name-map="personaNameMap" :persona-avatar-url-map="personaAvatarUrlMap"
             :create-conversation-department-options="createConversationDepartmentOptions"
@@ -429,7 +430,7 @@ import { useI18n } from "vue-i18n";
 import { isDarkAppTheme } from "../../shell/composables/use-app-theme";
 import { ChevronsDown, History, X } from "@lucide/vue";
 import { invokeTauri } from "../../../services/tauri-api";
-import type { ApiConfigItem, ChatConversationOverviewItem, ChatMentionEntry, ChatMentionTarget, ChatMessageBlock, ChatPersonaPresenceChip, ChatTodoItem, ConversationDelegateStatusSummary, IdeContextReferenceItem, IdeContextWorkspaceGroup, PromptCommandPreset, ShellWorkspace } from "../../../types/app";
+import type { ApiConfigItem, ChatConversationOverviewItem, ChatMentionEntry, ChatMentionTarget, ChatMessageBlock, ChatPersonaPresenceChip, ChatTodoItem, ConversationDelegateStatusSummary, ConversationForwardTarget, IdeContextReferenceItem, IdeContextWorkspaceGroup, PromptCommandPreset, RemoteImContactConversationOption, ShellWorkspace } from "../../../types/app";
 import ChatMessageItem from "../components/ChatMessageItem.vue";
 import ChatApprovalPanel from "../components/ChatApprovalPanel.vue";
 import ChatComposerPanel from "../components/ChatComposerPanel.vue";
@@ -491,6 +492,7 @@ const props = defineProps<{
   activeSupervisionTask: { taskId: string; goal: string; why: string; todo: string; endAtLocal: string; remainingHours: number } | null;
   recentSupervisionTaskHistory: Array<{ goal: string; why: string; todo: string; durationHours: number }>;
   currentTheme: string; unarchivedConversationItems: ChatConversationOverviewItem[];
+  remoteImContactConversations: RemoteImContactConversationOption[];
   conversationItems?: ChatConversationOverviewItem[]; sideConversationListVisible: boolean;
   initialToolReviewPanelOpen: boolean;
   conversationListTab: "local" | "contact" | "task";
@@ -553,7 +555,7 @@ const emit = defineEmits<{
   (e: "selectionActionCopy", payload: { count: number; messageIds: string[]; blocks: ChatMessageBlock[] }): void;
   (e: "selectionActionCopyError", payload: { count: number; messageIds: string[]; blocks: ChatMessageBlock[]; error: string }): void;
   (e: "selectionActionBranch", payload: { count: number; messageIds: string[]; blocks: ChatMessageBlock[] }): void;
-  (e: "selectionActionForward", payload: { count: number; messageIds: string[]; blocks: ChatMessageBlock[]; targetConversationId: string }): void;
+  (e: "selectionActionForward", payload: { count: number; messageIds: string[]; blocks: ChatMessageBlock[]; target: ConversationForwardTarget }): void;
   (e: "selectionActionDelegate", payload: { count: number; messageIds: string[]; blocks: ChatMessageBlock[]; departmentId: string; agentId: string; presetId: string; why: string; goal: string; todo: string }): void;
   (e: "selectionActionShare", payload: { count: number; messageIds: string[]; blocks: ChatMessageBlock[]; exportFormat?: "html" | "png" }): void;
   (e: "approveTerminalApproval", requestId: string): void;

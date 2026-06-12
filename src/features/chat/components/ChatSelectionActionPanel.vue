@@ -45,14 +45,14 @@
     <div v-if="!delegateOnly && !sidebarMode && selectionDeliverCardOpen" class="mt-3 rounded-box border border-base-300 bg-base-200/50 px-3 py-3">
       <div class="text-sm font-medium">{{ t("chat.selection.forward") }}</div>
       <div class="mt-1 text-xs opacity-70">{{ t("chat.selection.forwardHint") }}</div>
-      <select v-model="selectionDeliverTargetConversationId" class="select select-bordered select-sm mt-3 w-full" :disabled="selectionDeliverTargetOptions.length === 0">
-        <option v-for="item in selectionDeliverTargetOptions" :key="item.conversationId" :value="item.conversationId">
+      <select v-model="selectionDeliverTargetKey" class="select select-bordered select-sm mt-3 w-full" :disabled="selectionDeliverTargetOptions.length === 0">
+        <option v-for="item in selectionDeliverTargetOptions" :key="item.targetKey" :value="item.targetKey">
           {{ selectionDeliverOptionLabel(item) }}
         </option>
       </select>
       <div class="mt-3 flex items-center justify-end gap-2">
         <button type="button" class="btn btn-sm" @click="closeSelectionDeliverCard">{{ t("common.cancel") }}</button>
-        <button type="button" class="btn btn-sm btn-primary" :disabled="!selectionDeliverTargetConversationId" @click="confirmSelectionDeliver">
+        <button type="button" class="btn btn-sm btn-primary" :disabled="!selectionDeliverTargetKey" @click="confirmSelectionDeliver">
           {{ t("chat.selection.confirmForward") }}
         </button>
       </div>
@@ -131,7 +131,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
-import type { ChatConversationOverviewItem } from "../../../types/app";
+import type { ChatConversationOverviewItem, ConversationForwardTarget, RemoteImContactConversationOption } from "../../../types/app";
 import DepartmentPersonaSelect from "../../shared/components/DepartmentPersonaSelect.vue";
 import type { DepartmentPersonaOption } from "../../shared/department-persona-options";
 import { resolveConversationDisplayTitle } from "../utils/conversation-title";
@@ -155,13 +155,14 @@ const props = defineProps<{
   selectedMessageCount: number;
   activeConversationId: string;
   unarchivedConversationItems: ChatConversationOverviewItem[];
+  remoteImContactConversations: RemoteImContactConversationOption[];
   createConversationDepartmentOptions: ConversationDepartmentOption[];
 }>();
 
 const emit = defineEmits<{
   exitSelectionMode: [];
   selectionActionBranch: [];
-  selectionActionForward: [targetConversationId: string];
+  selectionActionForward: [target: ConversationForwardTarget];
   selectionActionDelegate: [payload: { departmentId: string; agentId: string; presetId: string; why: string; goal: string; todo: string }];
   selectionActionCopy: [];
   selectionActionShare: [format: "html" | "png"];
@@ -174,7 +175,7 @@ const USER_ASYNC_DELEGATE_RECENT_STORAGE_KEY = "easy_call.user_async_delegate_re
 const USER_ASYNC_DELEGATE_RECENT_LIMIT = 3;
 
 const selectionDeliverCardOpen = ref(false);
-const selectionDeliverTargetConversationId = ref("");
+const selectionDeliverTargetKey = ref("");
 const selectionDelegateCardOpen = ref(false);
 const selectionShareCardOpen = ref(false);
 const selectionDelegateDepartmentId = ref("");
@@ -185,12 +186,18 @@ const selectionDelegateGoal = ref("");
 const selectionDelegateTodo = ref("");
 const recentDelegateRequests = ref<RecentDelegateRequest[]>([]);
 
-const selectionDeliverTargetOptions = computed(() =>
-  (Array.isArray(props.unarchivedConversationItems) ? props.unarchivedConversationItems : [])
-    .filter((item) => String(item.conversationId || "").trim() !== String(props.activeConversationId || "").trim())
+const selectionDeliverTargetOptions = computed(() => {
+  const activeConversationId = String(props.activeConversationId || "").trim();
+  const localTargets = (Array.isArray(props.unarchivedConversationItems) ? props.unarchivedConversationItems : [])
+    .filter((item) => String(item.conversationId || "").trim() !== activeConversationId)
     .filter((item) => !item.isSystemNotificationConversation)
+    .filter((item) => String(item.kind || "local_unarchived").trim() !== "remote_im_contact")
     .map((item) => ({
-      conversationId: String(item.conversationId || "").trim(),
+      targetKey: `local:${String(item.conversationId || "").trim()}`,
+      target: {
+        kind: "local_unarchived" as const,
+        conversationId: String(item.conversationId || "").trim(),
+      },
       title: resolveConversationDisplayTitle(item, {
         locale: locale.value,
         untitledLabel: t("chat.untitledConversation"),
@@ -198,8 +205,23 @@ const selectionDeliverTargetOptions = computed(() =>
       departmentName: String(item.departmentName || "").trim() || undefined,
       runtimeState: item.runtimeState,
     }))
-    .filter((item) => !!item.conversationId),
-);
+    .filter((item) => !!item.target.conversationId);
+  const remoteTargets = (Array.isArray(props.remoteImContactConversations) ? props.remoteImContactConversations : [])
+    .filter((item) => String(item.conversationId || "").trim() !== activeConversationId)
+    .map((item) => ({
+      targetKey: `remote:${String(item.contactId || "").trim()}:${String(item.conversationId || "").trim()}`,
+      target: {
+        kind: "remote_im_contact" as const,
+        conversationId: String(item.conversationId || "").trim(),
+        remoteContactId: String(item.contactId || "").trim(),
+      },
+      title: String(item.title || "").trim() || String(item.contactDisplayName || "").trim(),
+      remoteContactName: String(item.contactDisplayName || "").trim() || undefined,
+      channelName: String(item.channelName || "").trim() || undefined,
+    }))
+    .filter((item) => !!item.target.conversationId && !!item.target.remoteContactId);
+  return [...localTargets, ...remoteTargets];
+});
 
 const delegateDepartmentOptions = computed(() =>
   // 用户主动发起异步委托不受 AI delegate 工具的“直接下级部门”限制。
@@ -231,12 +253,26 @@ const canSubmitSelectionDelegate = computed(() =>
   && !!String(selectionDelegateGoal.value || "").trim(),
 );
 
-function selectionDeliverOptionLabel(item: { title: string; departmentName?: string; runtimeState?: ChatConversationOverviewItem["runtimeState"] }): string {
+function selectionDeliverOptionLabel(item: {
+  target: ConversationForwardTarget;
+  title: string;
+  departmentName?: string;
+  runtimeState?: ChatConversationOverviewItem["runtimeState"];
+  remoteContactName?: string;
+  channelName?: string;
+}): string {
   const parts = [String(item.title || "").trim() || t('chat.selection.unnamedConversation')];
-  const departmentName = String(item.departmentName || "").trim();
-  if (departmentName) parts.push(departmentName);
-  if (item.runtimeState === "assistant_streaming") parts.push(t('chat.selection.streaming'));
-  if (item.runtimeState === "organizing_context") parts.push(t('chat.selection.organizing'));
+  if (item.target.kind === "remote_im_contact") {
+    const remoteContactName = String(item.remoteContactName || "").trim();
+    const channelName = String(item.channelName || "").trim();
+    if (remoteContactName) parts.push(remoteContactName);
+    if (channelName) parts.push(channelName);
+  } else {
+    const departmentName = String(item.departmentName || "").trim();
+    if (departmentName) parts.push(departmentName);
+    if (item.runtimeState === "assistant_streaming") parts.push(t('chat.selection.streaming'));
+    if (item.runtimeState === "organizing_context") parts.push(t('chat.selection.organizing'));
+  }
   return parts.join(" / ");
 }
 
@@ -245,10 +281,10 @@ function openSelectionDeliverCard() {
   if (selectionDeliverTargetOptions.value.length === 0) return;
   closeSelectionDelegateCard();
   closeSelectionShareCard();
-  const currentTargetConversationId = String(selectionDeliverTargetConversationId.value || "").trim();
-  const hasValidTarget = selectionDeliverTargetOptions.value.some((item) => item.conversationId === currentTargetConversationId);
-  if (!currentTargetConversationId || !hasValidTarget) {
-    selectionDeliverTargetConversationId.value = selectionDeliverTargetOptions.value[0]?.conversationId || "";
+  const currentTargetKey = String(selectionDeliverTargetKey.value || "").trim();
+  const hasValidTarget = selectionDeliverTargetOptions.value.some((item) => item.targetKey === currentTargetKey);
+  if (!currentTargetKey || !hasValidTarget) {
+    selectionDeliverTargetKey.value = selectionDeliverTargetOptions.value[0]?.targetKey || "";
   }
   selectionDeliverCardOpen.value = true;
 }
@@ -258,10 +294,11 @@ function closeSelectionDeliverCard() {
 }
 
 function confirmSelectionDeliver() {
-  const targetConversationId = String(selectionDeliverTargetConversationId.value || "").trim();
-  if (!targetConversationId) return;
+  const targetKey = String(selectionDeliverTargetKey.value || "").trim();
+  const target = selectionDeliverTargetOptions.value.find((item) => item.targetKey === targetKey)?.target;
+  if (!target?.conversationId) return;
   closeSelectionDeliverCard();
-  emit("selectionActionForward", targetConversationId);
+  emit("selectionActionForward", target);
 }
 
 function normalizeRecentDelegateRequest(raw: unknown): RecentDelegateRequest | null {

@@ -21,6 +21,7 @@
       :selected-message-count="selectedMessageCount"
       :active-conversation-id="activeConversationId"
       :unarchived-conversation-items="unarchivedConversationItems"
+      :remote-im-contact-conversations="remoteImContactConversations"
       :create-conversation-department-options="createConversationDepartmentOptions"
       @exit-selection-mode="emit('exitSelectionMode')"
       @selection-action-branch="emit('selectionActionBranch')"
@@ -339,7 +340,7 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 import { Bot, CalendarPlus, ChevronDown, ClipboardList, FileText, History, Image as ImageIcon, Layers2, Menu, Mic, Minus, Paperclip, Plus, Send, Settings, Square, Target, X } from "@lucide/vue";
-import type { ApiConfigItem, ChatConversationOverviewItem, ChatMentionEntry, ChatMentionTarget, IdeContextReferenceItem, IdeContextWorkspaceGroup, PromptCommandPreset } from "../../../types/app";
+import type { ApiConfigItem, ChatConversationOverviewItem, ChatMentionEntry, ChatMentionTarget, ConversationForwardTarget, IdeContextReferenceItem, IdeContextWorkspaceGroup, PromptCommandPreset, RemoteImContactConversationOption } from "../../../types/app";
 import { invokeTauri } from "../../../services/tauri-api";
 import ChatQueuePreview from "./ChatQueuePreview.vue";
 import ChatSelectionActionPanel from "./ChatSelectionActionPanel.vue";
@@ -396,6 +397,7 @@ const props = defineProps<{
   showSideConversationList: boolean;
   activeConversationId: string;
   unarchivedConversationItems: ChatConversationOverviewItem[];
+  remoteImContactConversations: RemoteImContactConversationOption[];
   userAlias: string;
   userAvatarUrl: string;
   personaNameMap: Record<string, string>;
@@ -412,7 +414,7 @@ const props = defineProps<{
 const emit = defineEmits<{
   (e: "exitSelectionMode"): void;
   (e: "selectionActionBranch"): void;
-  (e: "selectionActionForward", targetConversationId: string): void;
+  (e: "selectionActionForward", target: ConversationForwardTarget): void;
   (e: "selectionActionDelegate", payload: { departmentId: string; agentId: string; presetId: string; why: string; goal: string; todo: string }): void;
   (e: "selectionActionCopy"): void;
   (e: "selectionActionShare", format: "html" | "png"): void;

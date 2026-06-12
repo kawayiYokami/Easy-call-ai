@@ -125,14 +125,21 @@ export function useChatConversationActionsOrchestrator(bindings: Record<string, 
   async function forwardConversationFromSelection(payload: {
     count: number;
     messageIds: string[];
-    targetConversationId: string;
+    target: {
+      kind: "local_unarchived" | "remote_im_contact";
+      conversationId: string;
+      remoteContactId?: string;
+    };
   }) {
     const sourceConversationId = String(bindings.currentChatConversationId.value || "").trim();
-    const targetConversationId = String(payload?.targetConversationId || "").trim();
+    const targetKind = payload?.target?.kind === "remote_im_contact" ? "remote_im_contact" : "local_unarchived";
+    const targetConversationId = String(payload?.target?.conversationId || "").trim();
+    const remoteContactId = String(payload?.target?.remoteContactId || "").trim();
     const selectedMessageIds = normalizeSelectedMessageIds(payload?.messageIds);
     if (
       !sourceConversationId
       || !targetConversationId
+      || (targetKind === "remote_im_contact" && !remoteContactId)
       || selectedMessageIds.length === 0
       || bindings.trimming.value
       || bindings.branchingConversation.value
@@ -140,24 +147,49 @@ export function useChatConversationActionsOrchestrator(bindings: Record<string, 
     ) return;
     bindings.forwardingConversationSelection.value = true;
     try {
-      const result = await invokeTauri<{
-        targetConversationId: string;
-        forwardedCount: number;
-      }>("forward_unarchived_conversation_selection", {
-        input: {
-          sourceConversationId,
-          targetConversationId,
-          selectedMessageIds,
-        },
-      });
-      const effectiveTargetConversationId = String(result?.targetConversationId || targetConversationId).trim();
-      if (!effectiveTargetConversationId) return;
-      await bindings.refreshUnarchivedConversationOverview();
-      const snapshot = await bindings.requestConversationLightSnapshot(effectiveTargetConversationId);
-      bindings.applyConversationSnapshot(snapshot);
-      bindings.setStatus(bindings.tr("status.conversationSelectionForwarded", {
-        count: Number(result?.forwardedCount || selectedMessageIds.length),
-      }));
+      if (targetKind === "remote_im_contact") {
+        const result = await invokeTauri<{
+          targetConversationId: string;
+          remoteContactId: string;
+          forwardedCount: number;
+        }>("forward_selection_to_remote_im_contact", {
+          input: {
+            sourceConversationId,
+            targetConversationId,
+            remoteContactId,
+            selectedMessageIds,
+          },
+        });
+        const effectiveTargetConversationId = String(result?.targetConversationId || targetConversationId).trim();
+        if (!effectiveTargetConversationId) return;
+        await bindings.refreshUnarchivedConversationOverview();
+        await bindings.refreshRemoteImConversationOverview();
+        await bindings.switchRemoteImContactConversation(
+          String(result?.remoteContactId || remoteContactId).trim(),
+        );
+        bindings.setStatus(bindings.tr("status.conversationSelectionForwardedToRemoteContact", {
+          count: Number(result?.forwardedCount || selectedMessageIds.length),
+        }));
+      } else {
+        const result = await invokeTauri<{
+          targetConversationId: string;
+          forwardedCount: number;
+        }>("forward_unarchived_conversation_selection", {
+          input: {
+            sourceConversationId,
+            targetConversationId,
+            selectedMessageIds,
+          },
+        });
+        const effectiveTargetConversationId = String(result?.targetConversationId || targetConversationId).trim();
+        if (!effectiveTargetConversationId) return;
+        await bindings.refreshUnarchivedConversationOverview();
+        const snapshot = await bindings.requestConversationLightSnapshot(effectiveTargetConversationId);
+        bindings.applyConversationSnapshot(snapshot);
+        bindings.setStatus(bindings.tr("status.conversationSelectionForwarded", {
+          count: Number(result?.forwardedCount || selectedMessageIds.length),
+        }));
+      }
     } catch (error) {
       bindings.setStatusError("status.loadMessagesFailed", error);
     } finally {

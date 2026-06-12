@@ -4151,6 +4151,244 @@
         assert_eq!(conversation.root_conversation_id.as_deref(), Some(expected_key.as_str()));
     }
 
+    fn seed_session_forward_test_state() -> (AppState, String, String, String) {
+        let state = test_chat_runtime_state();
+        let now = now_iso();
+        let mut config = AppConfig::default();
+        config.departments.push(DepartmentConfig {
+            id: "dept-session".to_string(),
+            name: "通知部门".to_string(),
+            summary: String::new(),
+            guide: String::new(),
+            agent_ids: vec![DEFAULT_AGENT_ID.to_string()],
+            api_config_id: "api-session".to_string(),
+            api_config_ids: vec!["api-session".to_string()],
+            model_failure_fallback_enabled: false,
+            child_department_ids: Vec::new(),
+            order_index: 0,
+            is_built_in_assistant: false,
+            is_deputy: false,
+            created_at: now.clone(),
+            updated_at: now.clone(),
+            source: "main_config".to_string(),
+            scope: "global".to_string(),
+            permission_control: DepartmentPermissionControl::default(),
+        });
+        config.remote_im_channels.push(RemoteImChannelConfig {
+            id: "remote-channel-a".to_string(),
+            name: "测试渠道".to_string(),
+            platform: RemoteImPlatform::OnebotV11,
+            enabled: true,
+            credentials: serde_json::json!({ "mockSend": true }),
+            activate_assistant: true,
+            receive_files: true,
+            streaming_send: false,
+            show_tool_calls: false,
+            allow_send_files: false,
+        });
+        write_config(&state.config_path, &config).expect("write config");
+
+        let mut agent = default_agent();
+        agent.id = DEFAULT_AGENT_ID.to_string();
+        agent.name = "通知人格".to_string();
+        state_write_agents_cached(&state, &[agent, default_user_persona()])
+            .expect("write agents");
+
+        let mut source = test_chat_conversation("source-session", "active", &now);
+        source.title = "源会话".to_string();
+        source.department_id = "dept-session".to_string();
+        source.messages.push(test_text_message("user", "第一条原消息", &now));
+        source.messages.push(test_text_message("assistant", "第二条原消息", &now));
+        source.last_assistant_at = Some(now.clone());
+        state_schedule_conversation_persist(&state, &source).expect("persist source");
+
+        let mut target_local = test_chat_conversation("target-local-session", "active", &now);
+        target_local.title = "本地目标".to_string();
+        target_local.department_id = "dept-session".to_string();
+        state_schedule_conversation_persist(&state, &target_local).expect("persist local target");
+
+        let contact = RemoteImContact {
+            id: "contact-session-a".to_string(),
+            channel_id: "remote-channel-a".to_string(),
+            platform: RemoteImPlatform::OnebotV11,
+            remote_contact_type: "private".to_string(),
+            remote_contact_id: "remote-user-a".to_string(),
+            remote_contact_name: "联系人乙".to_string(),
+            avatar_url: String::new(),
+            remark_name: String::new(),
+            allow_send: true,
+            allow_send_files: false,
+            allow_receive: true,
+            activation_mode: "never".to_string(),
+            activation_keywords: Vec::new(),
+            mute_keywords: default_remote_im_contact_mute_keywords(),
+            unmute_keywords: default_remote_im_contact_unmute_keywords(),
+            patience_seconds: default_remote_im_contact_patience_seconds(),
+            mute_duration_seconds: default_remote_im_contact_mute_duration_seconds(),
+            activation_cooldown_seconds: 0,
+            route_mode: "dedicated_contact_conversation".to_string(),
+            bound_department_id: Some("dept-session".to_string()),
+            bound_agent_id: Some(DEFAULT_AGENT_ID.to_string()),
+            bound_conversation_id: Some("target-remote-session".to_string()),
+            processing_mode: "continuous".to_string(),
+            response_strategy: default_remote_im_contact_response_strategy(),
+            response_guidance: default_remote_im_contact_response_guidance(),
+            last_activated_at: None,
+            last_message_at: Some(now.clone()),
+            dingtalk_session_webhook: None,
+            dingtalk_session_webhook_expired_time: None,
+            shell_workspaces: Vec::new(),
+        };
+        let mut target_remote = build_conversation_record(
+            "",
+            DEFAULT_AGENT_ID,
+            "dept-session",
+            "联系人会话",
+            CONVERSATION_KIND_REMOTE_IM_CONTACT,
+            Some(remote_im_contact_conversation_key(&contact)),
+            None,
+        );
+        target_remote.id = "target-remote-session".to_string();
+        target_remote.updated_at = now.clone();
+        state_schedule_conversation_persist(&state, &target_remote).expect("persist remote target");
+
+        let mut runtime = RuntimeStateFile::default();
+        runtime.remote_im_contacts.push(contact);
+        state_write_runtime_state_cached(&state, &runtime).expect("write runtime state");
+
+        (
+            state,
+            "source-session".to_string(),
+            "target-local-session".to_string(),
+            "target-remote-session".to_string(),
+        )
+    }
+
+    #[test]
+    fn list_tool_session_targets_should_include_local_and_remote_sessions() {
+        let (state, _source_id, _local_target_id, remote_target_id) = seed_session_forward_test_state();
+
+        let all_items = conversation_service()
+            .list_tool_session_targets(&state, None)
+            .expect("list session targets");
+        assert_eq!(all_items.len(), 3);
+        assert!(all_items.iter().any(|item| item.session_id == remote_target_id && item.kind == "remote_im_contact"));
+        assert!(all_items.iter().any(|item| item.title == "本地目标" && item.kind == "local_unarchived"));
+
+        let remote_items = conversation_service()
+            .list_tool_session_targets(&state, Some("联系人乙"))
+            .expect("filter remote session targets");
+        assert_eq!(remote_items.len(), 1);
+        assert_eq!(remote_items[0].kind, "remote_im_contact");
+        assert_eq!(remote_items[0].remote_contact_name.as_deref(), Some("联系人乙"));
+        assert_eq!(remote_items[0].channel_name.as_deref(), Some("测试渠道"));
+    }
+
+    #[test]
+    fn inform_session_should_append_notification_to_local_conversation() {
+        let (state, source_id, target_local_id, _remote_target_id) = seed_session_forward_test_state();
+
+        let result = conversation_service()
+            .inform_session(&state, &source_id, &target_local_id, "请跟进")
+            .expect("inform local session");
+
+        assert_eq!(result.target_kind, "queued");
+        assert!(!result.pushed_to_remote);
+        let mut target = state_read_conversation_cached(&state, &target_local_id).expect("read local target");
+        for _ in 0..20 {
+            if !target.messages.is_empty() {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(50));
+            target = state_read_conversation_cached(&state, &target_local_id).expect("read local target");
+        }
+        assert_eq!(target.messages.len(), 1);
+        assert_eq!(target.messages[0].role, "assistant");
+        assert_eq!(
+            target.messages[0].speaker_agent_id.as_deref(),
+            Some(SYSTEM_PERSONA_ID)
+        );
+        match &target.messages[0].parts[0] {
+            MessagePart::Text { text, .. } => {
+                assert_eq!(text, "[源会话·通知部门·通知人格]:请跟进");
+            }
+            _ => panic!("expected text notification"),
+        }
+    }
+
+    #[test]
+    fn inform_session_should_append_notification_to_remote_contact_conversation() {
+        let (state, source_id, _target_local_id, remote_target_id) = seed_session_forward_test_state();
+
+        let result = conversation_service()
+            .inform_session(&state, &source_id, &remote_target_id, "同步一下")
+            .expect("inform remote session");
+
+        assert_eq!(result.target_kind, "queued");
+        assert!(!result.pushed_to_remote);
+        let mut target = state_read_conversation_cached(&state, &remote_target_id).expect("read remote target");
+        for _ in 0..20 {
+            if !target.messages.is_empty() {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(50));
+            target = state_read_conversation_cached(&state, &remote_target_id).expect("read remote target");
+        }
+        assert_eq!(target.messages.len(), 1);
+        match &target.messages[0].parts[0] {
+            MessagePart::Text { text, .. } => {
+                assert_eq!(text, "[源会话·通知部门·通知人格]:同步一下");
+            }
+            _ => panic!("expected text notification"),
+        }
+    }
+
+    #[test]
+    fn forward_selection_to_remote_im_contact_should_append_single_notification_message() {
+        let (state, source_id, _target_local_id, remote_target_id) = seed_session_forward_test_state();
+        let source = state_read_conversation_cached(&state, &source_id).expect("read source");
+        let selected_message_ids = source
+            .messages
+            .iter()
+            .map(|message| message.id.clone())
+            .collect::<Vec<_>>();
+
+        let result = conversation_service()
+            .forward_selection_to_remote_im_contact(
+                &state,
+                &source_id,
+                &remote_target_id,
+                "contact-session-a",
+                &selected_message_ids,
+            )
+            .expect("forward selection to remote contact");
+
+        assert_eq!(result.forwarded_count, 2);
+        let mut target = state_read_conversation_cached(&state, &remote_target_id).expect("read remote target");
+        for _ in 0..20 {
+            if !target.messages.is_empty() {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(50));
+            target = state_read_conversation_cached(&state, &remote_target_id).expect("read remote target");
+        }
+        assert_eq!(target.messages.len(), 1);
+        assert_eq!(target.messages[0].role, "assistant");
+        assert_eq!(
+            target.messages[0].speaker_agent_id.as_deref(),
+            Some(SYSTEM_PERSONA_ID)
+        );
+        match &target.messages[0].parts[0] {
+            MessagePart::Text { text, .. } => {
+                assert_eq!(
+                    text,
+                    "[源会话·通知部门·通知人格]:[用户]: 第一条原消息\n\n[助手]: 第二条原消息"
+                );
+            }
+            _ => panic!("expected text notification"),
+        }
+    }
+
     #[test]
     fn list_remote_im_contact_conversations_should_reuse_existing_history_and_rebind_contact() {
         let state = test_chat_runtime_state();

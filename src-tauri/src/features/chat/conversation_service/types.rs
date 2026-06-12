@@ -24,6 +24,35 @@ struct ForwardUnarchivedConversationMutationResult {
     overview_payload: UnarchivedConversationOverviewUpdatedPayload,
 }
 
+struct ForwardSelectionToRemoteImContactMutationResult {
+    target_conversation_id: String,
+    remote_contact_id: String,
+    forwarded_count: usize,
+    overview_payload: UnarchivedConversationOverviewUpdatedPayload,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ToolSessionTargetSummary {
+    session_id: String,
+    kind: String,
+    title: String,
+    department_name: Option<String>,
+    persona_name: Option<String>,
+    remote_contact_id: Option<String>,
+    remote_contact_name: Option<String>,
+    channel_name: Option<String>,
+    updated_at: String,
+}
+
+struct InformSessionMutationResult {
+    target_conversation_id: String,
+    target_kind: String,
+    remote_contact_id: Option<String>,
+    pushed_to_remote: bool,
+    message: ChatMessage,
+}
+
 struct DeleteUnarchivedConversationMutationResult {
     deleted_conversation_id: String,
     active_conversation_id: String,

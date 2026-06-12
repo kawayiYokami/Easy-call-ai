@@ -1556,6 +1556,8 @@
     "hotkeyUpdated": "呼唤热键已更新为 {hotkey}",
     "personaSaved": "人格已保存。",
     "conversationRenamed": "会话标题已更新。",
+    "conversationSelectionForwarded": "已转发 {count} 条消息到会话。",
+    "conversationSelectionForwardedToRemoteContact": "已推送 {count} 条消息到远程联系人。",
     "personaUnsavedSwitchHint": "人格「{name}」有未保存改动，切换后仍需手动保存。",
     "departmentUnsavedSwitchHint": "部门「{name}」有未保存改动，切换后仍需手动保存。",
     "savingChatSettings": "正在保存对话设置...",

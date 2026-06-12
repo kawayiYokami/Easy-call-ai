@@ -4,6 +4,7 @@ include!("core.rs");
 include!("delegate.rs");
 include!("archive.rs");
 include!("remote_im.rs");
+include!("session_tools.rs");
 include!("reads.rs");
 include!("mutations.rs");
 include!("scheduler.rs");

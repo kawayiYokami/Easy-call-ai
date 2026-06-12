@@ -191,6 +191,16 @@ fn build_global_tool_schema_cache(state: &AppState) -> Vec<ProviderToolDefinitio
             session_id: preview_session_id.clone(),
         }
         .provider_tool_definition(),
+        BuiltinGetSessionTool {
+            app_state: state.clone(),
+            session_id: preview_session_id.clone(),
+        }
+        .provider_tool_definition(),
+        BuiltinInformSessionTool {
+            app_state: state.clone(),
+            session_id: preview_session_id.clone(),
+        }
+        .provider_tool_definition(),
         BuiltinTaskTool {
             app_state: state.clone(),
             session_id: preview_session_id.clone(),
@@ -443,6 +453,14 @@ fn push_runtime_tool_executors(
         session_id: tool_session_id.to_string(),
     }));
     tools.push(Box::new(BuiltinUpdateGoalTool {
+        app_state: state.clone(),
+        session_id: tool_session_id.to_string(),
+    }));
+    tools.push(Box::new(BuiltinGetSessionTool {
+        app_state: state.clone(),
+        session_id: tool_session_id.to_string(),
+    }));
+    tools.push(Box::new(BuiltinInformSessionTool {
         app_state: state.clone(),
         session_id: tool_session_id.to_string(),
     }));

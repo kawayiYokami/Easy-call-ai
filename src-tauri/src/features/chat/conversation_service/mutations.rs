@@ -667,6 +667,17 @@ impl ConversationService {
         })
     }
 
+    fn build_forward_selection_notification_message(
+        &self,
+        state: &AppState,
+        source_conversation_id: &str,
+        selected_messages: &[ChatMessage],
+    ) -> Result<ChatMessage, String> {
+        let content = selected_messages_notification_content(selected_messages);
+        let body = build_session_notification_body(state, source_conversation_id, &content)?;
+        Ok(build_session_notification_message(&body))
+    }
+
 
     fn mark_conversation_read(
         &self,
@@ -1053,6 +1064,94 @@ impl ConversationService {
         drop(guard);
         Ok(ForwardUnarchivedConversationMutationResult {
             target_conversation_id: target_conversation_id.to_string(),
+            forwarded_count: selected_messages.len(),
+            overview_payload,
+        })
+    }
+
+    fn forward_selection_to_remote_im_contact(
+        &self,
+        state: &AppState,
+        source_conversation_id: &str,
+        target_conversation_id: &str,
+        remote_contact_id: &str,
+        selected_message_ids: &[String],
+    ) -> Result<ForwardSelectionToRemoteImContactMutationResult, String> {
+        let normalized_remote_contact_id = remote_contact_id.trim();
+        if normalized_remote_contact_id.is_empty() {
+            return Err("remoteContactId 不能为空".to_string());
+        }
+        let app_config = state_read_config_cached(state)?;
+        let source_conversation = state_read_conversation_cached(state, source_conversation_id)
+            .ok()
+            .filter(|conversation| {
+                conversation.summary.trim().is_empty()
+                    && conversation_visible_in_foreground_lists(conversation)
+                    && conversation_is_local_normal_chat(conversation)
+            })
+            .ok_or_else(|| "源会话不存在或已归档".to_string())?;
+        let (selected_messages, _) =
+            collect_selected_messages_for_branch(&source_conversation, selected_message_ids);
+        if selected_messages.is_empty() {
+            return Err("未找到可推送到远程联系人的已选消息".to_string());
+        }
+
+        let _target_conversation = state_read_conversation_cached(state, target_conversation_id)
+            .ok()
+            .filter(conversation_is_remote_im_contact)
+            .ok_or_else(|| "目标远程联系人会话不存在".to_string())?;
+        let runtime = state_read_runtime_state_cached(state)?;
+        let contact = runtime
+            .remote_im_contacts
+            .iter()
+            .find(|item| item.id.trim() == normalized_remote_contact_id)
+            .cloned()
+            .ok_or_else(|| "目标远程联系人不存在".to_string())?;
+        if contact.bound_conversation_id.as_deref().map(str::trim) != Some(target_conversation_id) {
+            return Err("远程联系人与目标会话不匹配".to_string());
+        }
+        if !contact.allow_send {
+            return Err("当前联系人不允许发送消息".to_string());
+        }
+        let channel = remote_im_channel_by_id(&app_config, &contact.channel_id)
+            .cloned()
+            .ok_or_else(|| format!("远程 IM 渠道不存在: {}", contact.channel_id))?;
+        if !channel.enabled {
+            return Err(format!("远程 IM 渠道未启用: {}", contact.channel_id));
+        }
+
+        let notification_message = self.build_forward_selection_notification_message(
+            state,
+            source_conversation_id,
+            &selected_messages,
+        )?;
+        let notification_body = notification_message
+            .parts
+            .iter()
+            .filter_map(|part| match part {
+                MessagePart::Text { text, .. } => Some(text.trim().to_string()),
+                _ => None,
+            })
+            .filter(|text| !text.is_empty())
+            .collect::<Vec<_>>()
+            .join("\n");
+        enqueue_session_notification_dispatch(
+            state,
+            target_conversation_id,
+            &notification_body,
+            &notification_message,
+            "forward_selection_to_remote_im_contact",
+        )?;
+        let overview_payload = UnarchivedConversationOverviewUpdatedPayload {
+            preferred_conversation_id: Some(target_conversation_id.to_string()),
+            unarchived_conversations: self.collect_unarchived_conversation_summaries_cached(
+                state,
+                &app_config,
+            )?,
+        };
+        Ok(ForwardSelectionToRemoteImContactMutationResult {
+            target_conversation_id: target_conversation_id.to_string(),
+            remote_contact_id: normalized_remote_contact_id.to_string(),
             forwarded_count: selected_messages.len(),
             overview_payload,
         })

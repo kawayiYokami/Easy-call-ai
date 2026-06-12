@@ -382,6 +382,23 @@ struct ForwardUnarchivedConversationSelectionOutput {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+struct ForwardSelectionToRemoteImContactInput {
+    source_conversation_id: String,
+    target_conversation_id: String,
+    remote_contact_id: String,
+    selected_message_ids: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ForwardSelectionToRemoteImContactOutput {
+    target_conversation_id: String,
+    remote_contact_id: String,
+    forwarded_count: usize,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 struct RenameUnarchivedConversationInput {
     conversation_id: String,
     title: String,
@@ -949,6 +966,60 @@ fn forward_unarchived_conversation_selection(
 
     Ok(ForwardUnarchivedConversationSelectionOutput {
         target_conversation_id: result.target_conversation_id,
+        forwarded_count: result.forwarded_count,
+    })
+}
+
+#[tauri::command]
+fn forward_selection_to_remote_im_contact(
+    input: ForwardSelectionToRemoteImContactInput,
+    state: State<'_, AppState>,
+) -> Result<ForwardSelectionToRemoteImContactOutput, String> {
+    let source_conversation_id = input.source_conversation_id.trim();
+    let target_conversation_id = input.target_conversation_id.trim();
+    let remote_contact_id = input.remote_contact_id.trim();
+    if source_conversation_id.is_empty() {
+        return Err("sourceConversationId 不能为空".to_string());
+    }
+    if target_conversation_id.is_empty() {
+        return Err("targetConversationId 不能为空".to_string());
+    }
+    if remote_contact_id.is_empty() {
+        return Err("remoteContactId 不能为空".to_string());
+    }
+    if source_conversation_id == target_conversation_id {
+        return Err("目标会话不能是当前会话".to_string());
+    }
+    let normalized_selected_message_ids = input
+        .selected_message_ids
+        .iter()
+        .map(|item| item.trim())
+        .filter(|item| !item.is_empty())
+        .map(ToOwned::to_owned)
+        .collect::<Vec<_>>();
+    if normalized_selected_message_ids.is_empty() {
+        return Err("selectedMessageIds 不能为空".to_string());
+    }
+
+    let result = conversation_service().forward_selection_to_remote_im_contact(
+        state.inner(),
+        source_conversation_id,
+        target_conversation_id,
+        remote_contact_id,
+        &normalized_selected_message_ids,
+    )?;
+    emit_unarchived_conversation_overview_updated_payload(state.inner(), &result.overview_payload);
+    runtime_log_info(format!(
+        "[转发到远程联系人] 完成，任务=转发已选消息到远程联系人会话，source_conversation_id={}，target_conversation_id={}，remote_contact_id={}，message_count={}",
+        source_conversation_id,
+        result.target_conversation_id,
+        result.remote_contact_id,
+        result.forwarded_count
+    ));
+
+    Ok(ForwardSelectionToRemoteImContactOutput {
+        target_conversation_id: result.target_conversation_id,
+        remote_contact_id: result.remote_contact_id,
         forwarded_count: result.forwarded_count,
     })
 }

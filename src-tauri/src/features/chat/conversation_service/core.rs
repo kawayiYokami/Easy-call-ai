@@ -282,6 +282,21 @@ impl ConversationService {
         })
     }
 
+    fn find_remote_im_contact_by_conversation_in_runtime<'a>(
+        &self,
+        runtime: &'a RuntimeStateFile,
+        conversation_id: &str,
+    ) -> Option<&'a RemoteImContact> {
+        runtime.remote_im_contacts.iter().find(|contact| {
+            contact
+                .bound_conversation_id
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                == Some(conversation_id)
+        })
+    }
+
     fn with_unarchived_conversation_by_id<T>(
         &self,
         state: &AppState,

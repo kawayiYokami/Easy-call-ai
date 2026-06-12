@@ -539,6 +539,18 @@ struct BuiltinUpdateGoalTool {
     session_id: String,
 }
 
+#[derive(Debug, Clone)]
+struct BuiltinGetSessionTool {
+    app_state: AppState,
+    session_id: String,
+}
+
+#[derive(Debug, Clone)]
+struct BuiltinInformSessionTool {
+    app_state: AppState,
+    session_id: String,
+}
+
 impl RuntimeToolMetadata for BuiltinTodoTool {
     fn provider_tool_definition(&self) -> ProviderToolDefinition {
         todo_provider_tool_definition()
@@ -733,6 +745,90 @@ impl RuntimeJsonTool for BuiltinUpdateGoalTool {
                     debug_value_snippet(v, 240)
                 )),
                 Err(err) => eprintln!("[工具执行] 内置工具 update_goal 执行失败: 错误={err}"),
+            }
+            result
+        })
+    }
+}
+
+impl RuntimeToolMetadata for BuiltinGetSessionTool {
+    fn provider_tool_definition(&self) -> ProviderToolDefinition {
+        ProviderToolDefinition::new(
+            "get_session",
+            "查询可投递的会话。默认返回本地普通未归档会话和远程联系人会话；可用 keyword 按标题、联系人、部门、人格筛选。",
+            serde_json::json!({
+              "type": "object",
+              "properties": {
+                "keyword": { "type": "string", "description": "可选，会话检索关键字。" }
+              },
+              "additionalProperties": false
+            }),
+        )
+    }
+}
+
+impl RuntimeJsonTool for BuiltinGetSessionTool {
+    const NAME: &'static str = "get_session";
+    type Args = GetSessionToolArgs;
+    type Error = ToolInvokeError;
+
+    fn call_typed(&self, args: Self::Args) -> RuntimeJsonValueFuture<'_, Self::Error> {
+        Box::pin(async move {
+            runtime_log_debug(format!(
+                "[TOOL-DEBUG] execute_builtin_tool.start name=get_session args={}",
+                debug_value_snippet(&serde_json::to_value(&args).unwrap_or(Value::Null), 240)
+            ));
+            let result =
+                builtin_get_session(&self.app_state, &self.session_id, args).map_err(ToolInvokeError::from);
+            match &result {
+                Ok(v) => runtime_log_debug(format!(
+                    "[TOOL-DEBUG] execute_builtin_tool.ok name=get_session result={}",
+                    debug_value_snippet(v, 240)
+                )),
+                Err(err) => eprintln!("[工具执行] 内置工具 get_session 执行失败: 错误={err}"),
+            }
+            result
+        })
+    }
+}
+
+impl RuntimeToolMetadata for BuiltinInformSessionTool {
+    fn provider_tool_definition(&self) -> ProviderToolDefinition {
+        ProviderToolDefinition::new(
+            "inform_session",
+            "向指定会话投递一条系统助理通知。目标为远程联系人时，会同时写入联系人会话并外发到远端。",
+            serde_json::json!({
+              "type": "object",
+              "properties": {
+                "session_id": { "type": "string", "description": "目标会话 ID。" },
+                "content": { "type": "string", "description": "要通知的正文。" }
+              },
+              "required": ["session_id", "content"],
+              "additionalProperties": false
+            }),
+        )
+    }
+}
+
+impl RuntimeJsonTool for BuiltinInformSessionTool {
+    const NAME: &'static str = "inform_session";
+    type Args = InformSessionToolArgs;
+    type Error = ToolInvokeError;
+
+    fn call_typed(&self, args: Self::Args) -> RuntimeJsonValueFuture<'_, Self::Error> {
+        Box::pin(async move {
+            runtime_log_debug(format!(
+                "[TOOL-DEBUG] execute_builtin_tool.start name=inform_session args={}",
+                debug_value_snippet(&serde_json::to_value(&args).unwrap_or(Value::Null), 240)
+            ));
+            let result = builtin_inform_session(&self.app_state, &self.session_id, args)
+                .map_err(ToolInvokeError::from);
+            match &result {
+                Ok(v) => runtime_log_debug(format!(
+                    "[TOOL-DEBUG] execute_builtin_tool.ok name=inform_session result={}",
+                    debug_value_snippet(v, 240)
+                )),
+                Err(err) => eprintln!("[工具执行] 内置工具 inform_session 执行失败: 错误={err}"),
             }
             result
         })

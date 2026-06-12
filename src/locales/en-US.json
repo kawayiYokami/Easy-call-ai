@@ -1556,6 +1556,8 @@
     "hotkeyUpdated": "Summon hotkey updated to {hotkey}",
     "personaSaved": "Persona saved.",
     "conversationRenamed": "Conversation title updated.",
+    "conversationSelectionForwarded": "Forwarded {count} message(s) to the conversation.",
+    "conversationSelectionForwardedToRemoteContact": "Pushed {count} message(s) to the remote contact.",
     "personaUnsavedSwitchHint": "Persona \"{name}\" has unsaved changes. You still need to save it manually after switching.",
     "departmentUnsavedSwitchHint": "Department \"{name}\" has unsaved changes. You still need to save it manually after switching.",
     "savingChatSettings": "Saving chat settings...",

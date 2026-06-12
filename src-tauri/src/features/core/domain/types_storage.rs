@@ -389,7 +389,14 @@ enum DepartmentPermissionCategory {
 fn builtin_tool_is_fixed_system(tool_id: &str) -> bool {
     matches!(
         tool_id.trim(),
-        "todo" | "task" | "create_goal" | "update_goal" | "remember" | "recall"
+        "todo"
+            | "task"
+            | "create_goal"
+            | "update_goal"
+            | "remember"
+            | "recall"
+            | "get_session"
+            | "inform_session"
     )
 }
 

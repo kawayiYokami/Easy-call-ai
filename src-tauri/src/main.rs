@@ -893,6 +893,7 @@ fn main() {
             import_conversation_share_from_file,
             branch_unarchived_conversation_from_selection,
             forward_unarchived_conversation_selection,
+            forward_selection_to_remote_im_contact,
             rename_unarchived_conversation,
             toggle_unarchived_conversation_pin,
             get_unarchived_conversation_messages,

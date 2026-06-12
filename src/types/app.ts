@@ -367,6 +367,14 @@ export type RemoteImContactConversationSummary = {
   previewMessages?: ConversationPreviewMessage[];
 };
 
+export type RemoteImContactConversationOption = {
+  contactId: string;
+  conversationId: string;
+  title: string;
+  contactDisplayName: string;
+  channelName?: string;
+};
+
 export type McpDefinitionValidateResult = {
   ok: boolean;
   transport?: string;
@@ -867,6 +875,12 @@ export type ChatConversationOverviewItem = {
   backgroundStatus?: "completed" | "failed";
   previewMessages?: ConversationPreviewMessage[];
   state?: ConversationListItemState;
+};
+
+export type ConversationForwardTarget = {
+  kind: "local_unarchived" | "remote_im_contact";
+  conversationId: string;
+  remoteContactId?: string;
 };
 
 export type DelegateConversationSummary = {

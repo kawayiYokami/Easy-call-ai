@@ -101,6 +101,20 @@ async fn builtin_tool_definitions_for_frontend(
             .provider_tool_definition(),
         ),
         frontend_tool_definition(
+            BuiltinGetSessionTool {
+                app_state: state.clone(),
+                session_id: preview_session_id.clone(),
+            }
+            .provider_tool_definition(),
+        ),
+        frontend_tool_definition(
+            BuiltinInformSessionTool {
+                app_state: state.clone(),
+                session_id: preview_session_id.clone(),
+            }
+            .provider_tool_definition(),
+        ),
+        frontend_tool_definition(
             BuiltinTaskTool {
                 app_state: state.clone(),
                 session_id: preview_session_id.clone(),
@@ -345,7 +359,7 @@ mod tool_catalog_tests {
             .map(|item| item.name.as_str())
             .collect::<std::collections::HashSet<_>>();
 
-        for hidden_name in ["todo", "plan", "task", "create_goal", "update_goal"] {
+        for hidden_name in ["todo", "plan", "task", "create_goal", "update_goal", "get_session", "inform_session"] {
             assert!(
                 !builtin_names.contains(hidden_name),
                 "department permission catalog should hide fixed session tool {hidden_name}"

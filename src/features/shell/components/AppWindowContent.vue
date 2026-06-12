@@ -170,6 +170,7 @@
         :active-supervision-task="activeSupervisionTask"
         :recent-supervision-task-history="recentSupervisionTaskHistory"
         :unarchived-conversation-items="chatUnarchivedConversationItems"
+        :remote-im-contact-conversations="remoteImContactConversations"
         :conversation-items="chatConversationItems || chatUnarchivedConversationItems"
         :create-conversation-department-options="createConversationDepartmentOptions"
         :default-create-conversation-department-id="defaultCreateConversationDepartmentId"
@@ -684,7 +685,7 @@ const props = defineProps<{
   onDeleteConversation: (conversationId: string) => void;
   onCreateConversation: (input?: { title?: string; departmentId?: string; agentId?: string; copyCurrent?: boolean; importPath?: string; shellWorkspaces?: ShellWorkspace[]; shellAutonomousMode?: boolean }) => void;
   onBranchConversationFromSelection: (payload: { count: number; messageIds: string[] }) => void;
-  onForwardConversationFromSelection: (payload: { count: number; messageIds: string[]; targetConversationId: string }) => void;
+  onForwardConversationFromSelection: (payload: { count: number; messageIds: string[]; target: { kind: "local_unarchived" | "remote_im_contact"; conversationId: string; remoteContactId?: string } }) => void;
   onUserAsyncDelegateFromSelection: (payload: { count: number; messageIds: string[]; departmentId: string; agentId: string; presetId: string; why: string; goal: string; todo: string }) => Promise<boolean> | boolean;
   loadArchives: () => void;
   selectArchive: (id: string) => void;

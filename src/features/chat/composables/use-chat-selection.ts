@@ -1,5 +1,5 @@
 import { computed, watch, type Ref } from "vue";
-import type { ChatMessageBlock } from "../../../types/app";
+import type { ChatMessageBlock, ConversationForwardTarget } from "../../../types/app";
 
 export interface UseChatSelectionOptions {
   chatRenderItems: Ref<{ renderId: string; block: ChatMessageBlock }[]>;
@@ -12,11 +12,20 @@ export interface UseChatSelectionOptions {
     selectionActionCopy: (payload: { count: number; messageIds: string[]; blocks: ChatMessageBlock[] }) => void;
     selectionActionCopyError: (payload: { count: number; messageIds: string[]; blocks: ChatMessageBlock[]; error: string }) => void;
     selectionActionBranch: (payload: { count: number; messageIds: string[]; blocks: ChatMessageBlock[] }) => void;
-    selectionActionForward: (payload: { count: number; messageIds: string[]; blocks: ChatMessageBlock[]; targetConversationId: string }) => void;
+    selectionActionForward: (payload: { count: number; messageIds: string[]; blocks: ChatMessageBlock[]; target: ConversationForwardTarget }) => void;
     selectionActionDelegate: (payload: { count: number; messageIds: string[]; blocks: ChatMessageBlock[]; departmentId: string; agentId: string; presetId: string; why: string; goal: string; todo: string }) => void;
     selectionActionShare: (payload: { count: number; messageIds: string[]; blocks: ChatMessageBlock[]; exportFormat?: "html" | "png" }) => void;
   };
 }
+
+type DelegateActionPayload = {
+  departmentId: string;
+  agentId: string;
+  presetId: string;
+  why: string;
+  goal: string;
+  todo: string;
+};
 
 export function useChatSelection(options: UseChatSelectionOptions) {
   const {
@@ -118,7 +127,7 @@ export function useChatSelection(options: UseChatSelectionOptions) {
 
   function emitSelectionAction(
     kind: "branch" | "share" | "forward" | "delegate",
-    actionPayload: string | { departmentId: string; agentId: string; presetId: string; why: string; goal: string; todo: string } = "",
+    actionPayload: ConversationForwardTarget | DelegateActionPayload | "" | "html" | "png" = "",
   ) {
     const payload = selectionPayload();
     if (kind === "branch") {
@@ -128,13 +137,19 @@ export function useChatSelection(options: UseChatSelectionOptions) {
     }
     if (kind === "forward") {
       if (payload.count === 0) return;
-      const normalizedTargetConversationId = String(actionPayload || "").trim();
-      if (!normalizedTargetConversationId) return;
-      onEmit.selectionActionForward({ ...payload, targetConversationId: normalizedTargetConversationId });
+      if (!actionPayload || typeof actionPayload === "string" || !("conversationId" in actionPayload)) return;
+      const target = {
+        kind: actionPayload.kind === "remote_im_contact" ? "remote_im_contact" : "local_unarchived",
+        conversationId: String(actionPayload.conversationId || "").trim(),
+        remoteContactId: String(actionPayload.remoteContactId || "").trim() || undefined,
+      } satisfies ConversationForwardTarget;
+      if (!target.conversationId) return;
+      if (target.kind === "remote_im_contact" && !target.remoteContactId) return;
+      onEmit.selectionActionForward({ ...payload, target });
       return;
     }
     if (kind === "delegate") {
-      if (!actionPayload || typeof actionPayload === "string") return;
+      if (!actionPayload || typeof actionPayload === "string" || !("departmentId" in actionPayload)) return;
       onEmit.selectionActionDelegate({
         ...payload,
         departmentId: String(actionPayload.departmentId || "").trim(),
