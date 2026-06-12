@@ -1,11 +1,16 @@
 {
-  "generatedAt": "2026-06-12T05:27:34.477Z",
-  "latestVersion": "v0.11.8",
+  "generatedAt": "2026-06-12T11:08:59.001Z",
+  "latestVersion": "v0.11.9",
   "releases": [
+    {
+      "version": "v0.11.9",
+      "path": "docs/changelog/releases/v0.11.9.md",
+      "summary": "功能（chat）：新增会话“自动推送”，可在普通本地会话中选择远程联系人，将本会话后续所有 LLM 发言自动异步通知到目标联系人会话，并在会话控制面板显示激活提示。"
+    },
     {
       "version": "v0.11.8",
       "path": "docs/changelog/releases/v0.11.8.md",
-      "summary": "修复（meme）：后端扫描贴纸token生成标注，前端按标注替换渲染"
+      "summary": "修复（meme）：后端扫描贴纸 token 生成标注，前端按标注替换渲染；远程联系人提示词移除不存在的 `contact_send_files` 工具提示，避免模型误判能力。"
     },
     {
       "version": "v0.11.6",
