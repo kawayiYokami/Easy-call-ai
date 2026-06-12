@@ -34,6 +34,13 @@ type UseConfigRuntimeOptions = {
 };
 
 export function useConfigRuntime(options: UseConfigRuntimeOptions) {
+  function maskKeyPreview(key: string): string {
+    const trimmed = String(key || "").trim();
+    if (!trimmed) return "(empty)";
+    if (trimmed.length <= 8) return `${trimmed.slice(0, 2)}***${trimmed.slice(-2)}`;
+    return `${trimmed.slice(0, 4)}***${trimmed.slice(-4)}`;
+  }
+
   function normalizeAvatarError(error: unknown): string {
     const raw = String(error ?? "").trim();
     if (!raw) return "unknown";
@@ -159,7 +166,7 @@ export function useConfigRuntime(options: UseConfigRuntimeOptions) {
           const stack = String(err.stack || "").trim();
           errors.push(
             [
-              `Key ${apiKey} 刷新模型失败：${err.message}`,
+              `Key ${maskKeyPreview(apiKey)} 刷新模型失败：${err.message}`,
               stack ? `堆栈：${stack}` : "",
             ].filter(Boolean).join("\n"),
           );
@@ -247,4 +254,3 @@ export function useConfigRuntime(options: UseConfigRuntimeOptions) {
     clearImageCache,
   };
 }
-

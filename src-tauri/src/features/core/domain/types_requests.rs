@@ -240,7 +240,7 @@ struct SystemPromptPreview {
     system_prompt: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct RefreshModelsInput {
     base_url: String,
