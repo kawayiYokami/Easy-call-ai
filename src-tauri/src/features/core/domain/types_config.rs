@@ -487,6 +487,8 @@ struct ApiModelConfig {
     model: String,
     #[serde(default = "default_false")]
     enable_image: bool,
+    #[serde(default = "default_false")]
+    enable_video: bool,
     #[serde(default = "default_true")]
     enable_tools: bool,
     #[serde(default = "default_reasoning_effort")]
@@ -509,6 +511,7 @@ impl Default for ApiModelConfig {
             id: "default-model".to_string(),
             model: "gpt-4o-mini".to_string(),
             enable_image: false,
+            enable_video: false,
             enable_tools: true,
             reasoning_effort: default_reasoning_effort(),
             temperature: default_api_temperature(),
@@ -537,6 +540,8 @@ struct ApiProviderConfig {
     enable_image: bool,
     #[serde(default = "default_false")]
     enable_audio: bool,
+    #[serde(default = "default_false")]
+    enable_video: bool,
     #[serde(default = "default_true")]
     enable_tools: bool,
     #[serde(default = "default_api_tools")]
@@ -577,6 +582,7 @@ impl Default for ApiProviderConfig {
             enable_text: true,
             enable_image: false,
             enable_audio: false,
+            enable_video: false,
             enable_tools: true,
             tools: default_api_tools(),
             base_url: "https://api.openai.com/v1".to_string(),
@@ -616,6 +622,8 @@ struct ApiConfig {
     enable_image: bool,
     #[serde(default = "default_false")]
     enable_audio: bool,
+    #[serde(default = "default_false")]
+    enable_video: bool,
     #[serde(default = "default_true")]
     enable_tools: bool,
     #[serde(default = "default_api_tools")]
@@ -806,6 +814,7 @@ impl Default for ApiConfig {
             enable_text: true,
             enable_image: false,
             enable_audio: false,
+            enable_video: false,
             enable_tools: true,
             tools: default_api_tools(),
             base_url: "https://api.openai.com/v1".to_string(),

@@ -143,7 +143,11 @@ fn check_tools_status_inner(
             ),
             "read" | "read_file" => (
                 "loaded".to_string(),
-                "本地文件读取工具可用（文本/图片/PDF/Office）".to_string(),
+                "本地文件读取工具可用（文本/PDF/Office）".to_string(),
+            ),
+            "read_media" => (
+                "loaded".to_string(),
+                "本地多媒体解析工具可用（图片/音频/视频）".to_string(),
             ),
             "exec" => {
                 #[cfg(target_os = "windows")]

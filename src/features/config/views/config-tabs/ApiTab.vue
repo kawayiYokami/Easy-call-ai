@@ -313,11 +313,18 @@
                       </div>
                     </div>
 
-                    <div v-if="activeCapability === 'text'" class="grid gap-2 md:grid-cols-4">
+                    <div v-if="activeCapability === 'text'" class="grid gap-2 md:grid-cols-5">
                       <label
+                        v-if="supportsModelMultimodalToggles(modelCard)"
                         class="flex items-center justify-between rounded-box border border-base-300 bg-base-300 px-3 py-2">
                         <span class="text-sm">{{ t("config.api.capImage") }}</span>
                         <input v-model="modelCard.enableImage" type="checkbox" class="checkbox checkbox-sm" />
+                      </label>
+                      <label
+                        v-if="supportsModelMultimodalToggles(modelCard)"
+                        class="flex items-center justify-between rounded-box border border-base-300 bg-base-300 px-3 py-2">
+                        <span class="text-sm">{{ t("config.api.capVideo") }}</span>
+                        <input v-model="modelCard.enableVideo" type="checkbox" class="checkbox checkbox-sm" />
                       </label>
                       <label
                         class="flex items-center justify-between rounded-box border border-base-300 bg-base-300 px-3 py-2">
@@ -459,6 +466,7 @@ import SettingsStickyLayout from "../../components/SettingsStickyLayout.vue";
 import { invokeTauri } from "../../../../services/tauri-api";
 import CodexProviderPanel from "./CodexProviderPanel.vue";
 import { normalizeApiRequestFormat } from "../../utils/api-request-format";
+import { supportsMultimodalCapabilityToggles } from "../../utils/multimodal-routing";
 
 type ApiCapability = "text" | "voice" | "embedding" | "rerank";
 type ProviderPresetCategory = "official" | "domestic" | "openaiCompatible" | "local";
@@ -478,6 +486,7 @@ type FetchModelMetadataResult = {
   contextWindowTokens?: number | null;
   maxOutputTokens?: number | null;
   enableImage?: boolean | null;
+  enableVideo?: boolean | null;
   enableTools?: boolean | null;
   enableAudio?: boolean | null;
 };
@@ -837,6 +846,12 @@ function isDeepSeekModelAdapter(adapter: string | undefined): boolean {
   return String(adapter || "").trim().toLowerCase() === "deepseek";
 }
 
+function supportsModelMultimodalToggles(modelCard: ApiModelConfigItem): boolean {
+  const provider = selectedProvider.value;
+  if (!provider) return false;
+  return supportsMultimodalCapabilityToggles(provider.requestFormat, modelCard.model);
+}
+
 function openaiReasoningEffortValue(modelCard: ApiModelConfigItem): string {
   return openaiReasoningEffortOptions.value.some((item) => item.value === String(modelCard.reasoningEffort || "").trim().toLowerCase())
     ? String(modelCard.reasoningEffort || "").trim().toLowerCase()
@@ -917,6 +932,7 @@ function cloneProvider(provider: ApiProviderConfigItem): ApiProviderConfigItem {
     enableText: !!provider.enableText,
     enableImage: !!provider.enableImage,
     enableAudio: !!provider.enableAudio,
+    enableVideo: !!provider.enableVideo,
     enableTools: provider.enableTools !== false,
     tools: Array.isArray(provider.tools)
       ? provider.tools.map((tool) => ({
@@ -944,6 +960,7 @@ function cloneProvider(provider: ApiProviderConfigItem): ApiProviderConfigItem {
         id: String(model.id || "").trim(),
         model: String(model.model || "").trim(),
         enableImage: !!model.enableImage,
+        enableVideo: !!model.enableVideo,
         enableTools: model.enableTools !== false,
         reasoningEffort: normalizedModelReasoningEffort(provider, model),
         temperature: Number(model.temperature ?? 1),
@@ -981,6 +998,7 @@ function normalizeProviderForCompare(provider: ApiProviderConfigItem) {
     enableText: !!provider.enableText,
     enableImage: !!provider.enableImage,
     enableAudio: !!provider.enableAudio,
+    enableVideo: !!provider.enableVideo,
     enableTools: provider.enableTools !== false,
     tools: Array.isArray(provider.tools)
       ? provider.tools.map((tool) => ({
@@ -1007,6 +1025,7 @@ function normalizeProviderForCompare(provider: ApiProviderConfigItem) {
         id: String(model.id || "").trim(),
         model: String(model.model || "").trim(),
         enableImage: !!model.enableImage,
+        enableVideo: !!model.enableVideo,
         enableTools: model.enableTools !== false,
         reasoningEffort: normalizedModelReasoningEffort(provider, model),
         temperature: Number(model.temperature ?? 1),
@@ -1073,6 +1092,7 @@ function createModel(seed: string, name = "gpt-4o-mini"): ApiModelConfigItem {
     id: `api-model-${seed}`,
     model: name,
     enableImage: false,
+    enableVideo: false,
     enableTools: true,
     reasoningEffort: DEFAULT_REASONING_EFFORT,
     temperature: 1,
@@ -1095,6 +1115,7 @@ function createProvider(seed: string, capability: ApiCapability = activeCapabili
     enableText: capability === "text",
     enableImage: false,
     enableAudio: capability === "voice",
+    enableVideo: false,
     enableTools: capability === "text",
     tools: [],
     baseUrl: providerPresets.find((preset) => preset.urls[requestFormat])?.urls[requestFormat] || (isCodex ? DEFAULT_CODEX_BASE_URL : "https://api.openai.com/v1"),

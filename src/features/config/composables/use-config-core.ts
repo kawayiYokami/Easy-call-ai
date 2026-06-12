@@ -82,6 +82,7 @@ export function useConfigCore(options: UseConfigCoreOptions) {
       enableText: true,
       enableImage: true,
       enableAudio: false,
+      enableVideo: false,
       enableTools: true,
       tools: defaultApiTools(),
       baseUrl: "https://api.openai.com/v1",
@@ -107,6 +108,7 @@ export function useConfigCore(options: UseConfigCoreOptions) {
       enableText: provider.enableText,
       enableImage: model.enableImage,
       enableAudio: provider.enableAudio,
+      enableVideo: model.enableVideo,
       enableTools: model.enableTools,
       tools: defaultApiTools(),
       baseUrl: provider.baseUrl,
@@ -139,6 +141,7 @@ export function useConfigCore(options: UseConfigCoreOptions) {
           enableText: !!api.enableText,
           enableImage: !!api.enableImage,
           enableAudio: !!api.enableAudio,
+          enableVideo: !!api.enableVideo,
           enableTools: !!api.enableTools,
           tools: (api.tools || []).map((tool) => ({ ...tool, args: [...(tool.args || [])], values: { ...(tool.values || {}) } })),
           baseUrl: api.baseUrl,
@@ -151,6 +154,7 @@ export function useConfigCore(options: UseConfigCoreOptions) {
             id: `api-model-legacy-${index + 1}`,
             model: api.model,
             enableImage: !!api.enableImage,
+            enableVideo: !!api.enableVideo,
             enableTools: !!api.enableTools,
             reasoningEffort: String(api.reasoningEffort || DEFAULT_REASONING_EFFORT).trim() || DEFAULT_REASONING_EFFORT,
             temperature: Number(api.temperature ?? 1),
@@ -173,9 +177,13 @@ export function useConfigCore(options: UseConfigCoreOptions) {
       provider.requestFormat = normalizeApiRequestFormat(provider.requestFormat);
       const models = Array.isArray(provider.models) ? provider.models : [];
       provider.enableImage = models.some((model) => !!model.enableImage);
+      provider.enableVideo = models.some((model) => !!model.enableVideo);
+      provider.enableAudio = !!provider.enableAudio || provider.enableVideo;
       provider.enableTools = models.some((model) => model.enableTools !== false);
       if (provider.requestFormat === "codex") {
         provider.enableImage = true;
+        provider.enableVideo = false;
+        provider.enableAudio = false;
         provider.enableTools = true;
       }
       for (const model of provider.models || []) {
@@ -187,7 +195,8 @@ export function useConfigCore(options: UseConfigCoreOptions) {
         provider.allowConcurrentRequests = !!draft.allowConcurrentRequests;
         provider.maxConcurrentRequests = draft.maxConcurrentRequests ?? null;
         provider.enableText = !!draft.enableText;
-        provider.enableAudio = !!draft.enableAudio;
+        provider.enableAudio = !!draft.enableAudio || !!draft.enableVideo;
+        provider.enableVideo = !!draft.enableVideo;
         provider.baseUrl = String(draft.baseUrl || "").trim();
         provider.codexAuthMode = normalizeCodexAuthMode(draft.codexAuthMode || provider.codexAuthMode);
         provider.codexLocalAuthPath = String(draft.codexLocalAuthPath || provider.codexLocalAuthPath || DEFAULT_CODEX_LOCAL_AUTH_PATH).trim()
@@ -197,9 +206,11 @@ export function useConfigCore(options: UseConfigCoreOptions) {
         }
         model.model = String(draft.model || "").trim();
         model.enableImage = !!draft.enableImage;
+        model.enableVideo = !!draft.enableVideo;
         model.enableTools = !!draft.enableTools;
         if (provider.requestFormat === "codex") {
           model.enableImage = true;
+          model.enableVideo = false;
           model.enableTools = true;
         }
         model.reasoningEffort = String(draft.reasoningEffort || model.reasoningEffort || DEFAULT_REASONING_EFFORT).trim() || DEFAULT_REASONING_EFFORT;
@@ -229,7 +240,8 @@ export function useConfigCore(options: UseConfigCoreOptions) {
           maxConcurrentRequests: provider.maxConcurrentRequests ?? null,
           enableText: !!provider.enableText,
           enableImage: !!model.enableImage,
-          enableAudio: !!provider.enableAudio,
+          enableVideo: !!model.enableVideo,
+          enableAudio: !!provider.enableAudio || !!model.enableVideo,
           enableTools: model.enableTools !== false,
           tools: (provider.tools || []).map((tool) => ({ ...tool, args: [...(tool.args || [])], values: { ...(tool.values || {}) } })),
           baseUrl: provider.baseUrl,
@@ -261,7 +273,8 @@ export function useConfigCore(options: UseConfigCoreOptions) {
         maxConcurrentRequests: provider.maxConcurrentRequests ?? null,
         enableText: !!provider.enableText,
         enableImage: !!model.enableImage,
-        enableAudio: !!provider.enableAudio,
+        enableVideo: !!model.enableVideo,
+        enableAudio: !!provider.enableAudio || !!model.enableVideo,
         enableTools: model.enableTools !== false,
         tools: providerTools,
         baseUrl: effectiveProviderBaseUrl(provider),
@@ -344,7 +357,8 @@ export function useConfigCore(options: UseConfigCoreOptions) {
         maxConcurrentRequests: provider.maxConcurrentRequests ?? null,
         enableText: !!provider.enableText,
         enableImage: (provider.models || []).some((model) => !!model.enableImage),
-        enableAudio: !!provider.enableAudio,
+        enableVideo: (provider.models || []).some((model) => !!model.enableVideo),
+        enableAudio: !!provider.enableAudio || (provider.models || []).some((model) => !!model.enableVideo),
         enableTools: (provider.models || []).some((model) => model.enableTools !== false),
         tools: (provider.tools || []).map((t) => ({
           id: t.id,
@@ -369,6 +383,7 @@ export function useConfigCore(options: UseConfigCoreOptions) {
           id: model.id,
           model: model.model,
           enableImage: !!model.enableImage,
+          enableVideo: !!model.enableVideo,
           enableTools: model.enableTools !== false,
           reasoningEffort: String(model.reasoningEffort || DEFAULT_REASONING_EFFORT).trim() || DEFAULT_REASONING_EFFORT,
           temperature: Number(model.temperature ?? 1),
@@ -387,7 +402,8 @@ export function useConfigCore(options: UseConfigCoreOptions) {
         maxConcurrentRequests: a.maxConcurrentRequests ?? null,
         enableText: !!a.enableText,
         enableImage: !!a.enableImage,
-        enableAudio: !!a.enableAudio,
+        enableAudio: !!a.enableAudio || !!a.enableVideo,
+        enableVideo: !!a.enableVideo,
         enableTools: a.enableTools !== false,
         tools: (a.tools || []).map((t) => ({
           id: t.id,
@@ -450,7 +466,8 @@ export function useConfigCore(options: UseConfigCoreOptions) {
         requestFormat: normalizeApiRequestFormat(a.requestFormat),
         enableText: a.enableText,
         enableImage: a.enableImage,
-        enableAudio: a.enableAudio,
+        enableAudio: a.enableAudio || a.enableVideo,
+        enableVideo: a.enableVideo,
         enableTools: a.enableTools,
         tools: (a.tools || []).map((t) => ({
           id: t.id,

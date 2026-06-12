@@ -347,6 +347,7 @@ export function useConfigPersistence(options: UseConfigPersistenceOptions) {
           enableText: !!(provider as { enableText?: unknown }).enableText,
           enableImage: !!(provider as { enableImage?: unknown }).enableImage,
           enableAudio: !!(provider as { enableAudio?: unknown }).enableAudio,
+          enableVideo: !!(provider as { enableVideo?: unknown }).enableVideo,
           enableTools: (provider as { enableTools?: unknown }).enableTools !== false,
           tools: Array.isArray((provider as { tools?: unknown[] }).tools)
             ? ((provider as { tools?: unknown[] }).tools || []).map((tool) => ({
@@ -377,6 +378,7 @@ export function useConfigPersistence(options: UseConfigPersistenceOptions) {
                 id: String((model as { id?: unknown }).id || "").trim(),
                 model: String((model as { model?: unknown }).model || "").trim(),
                 enableImage: !!(model as { enableImage?: unknown }).enableImage,
+                enableVideo: !!(model as { enableVideo?: unknown }).enableVideo,
                 enableTools: (model as { enableTools?: unknown }).enableTools !== false,
                 reasoningEffort: String((model as { reasoningEffort?: unknown }).reasoningEffort || DEFAULT_REASONING_EFFORT).trim() || DEFAULT_REASONING_EFFORT,
                 temperature: Number((model as { temperature?: unknown }).temperature ?? 1),

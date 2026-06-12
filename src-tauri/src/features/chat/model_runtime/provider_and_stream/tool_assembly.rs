@@ -77,7 +77,7 @@ fn operate_provider_tool_definition() -> ProviderToolDefinition {
 fn read_provider_tool_definition() -> ProviderToolDefinition {
     ProviderToolDefinition::new(
         READ_TOOL_NAME,
-        "读取本地文件内容。自动识别文本、图片、PDF 与 Office 文件；path 必须是绝对路径；对文本、代码、Office 等非 PDF 内容，offset 表示跳过行，limit 表示返回行数；对 PDF 则代表页。",
+        "读取本地文档内容。支持文本、代码、PDF 与 Office 文件；path 必须是绝对路径；对文本、代码、Office 等非 PDF 内容，offset 表示跳过行，limit 表示返回行数；对 PDF 则代表页。图片、音频、视频请改用 read_media。",
         serde_json::json!({
             "type": "object",
             "properties": {
@@ -94,6 +94,27 @@ fn read_provider_tool_definition() -> ProviderToolDefinition {
                     "type": "integer",
                     "minimum": 1,
                     "description": "返回数。"
+                }
+            },
+            "required": ["path"]
+        }),
+    )
+}
+
+fn read_media_provider_tool_definition() -> ProviderToolDefinition {
+    ProviderToolDefinition::new(
+        READ_MEDIA_TOOL_NAME,
+        "解析本地图片、音频或视频。path 必须是绝对路径；description 用于告诉多模态分析模型重点关注什么。",
+        serde_json::json!({
+            "type": "object",
+            "properties": {
+                "path": {
+                    "type": "string",
+                    "description": "要解析的本地媒体文件绝对路径。"
+                },
+                "description": {
+                    "type": "string",
+                    "description": "解析侧重点，例如要看什么、听什么、提取什么。"
                 }
             },
             "required": ["path"]
@@ -139,6 +160,7 @@ fn build_global_tool_schema_cache(state: &AppState) -> Vec<ProviderToolDefinitio
         operate_provider_tool_definition(),
         BuiltinReloadTool { app_state: state.clone() }.provider_tool_definition(),
         read_provider_tool_definition(),
+        read_media_provider_tool_definition(),
         BuiltinTerminalExecTool {
             app_state: state.clone(),
             session_id: preview_session_id.clone(),
@@ -397,6 +419,9 @@ fn push_runtime_tool_executors(
         session_id: tool_session_id.to_string(),
         api_config_id: api_config_id.to_string(),
     }));
+    tools.push(Box::new(BuiltinReadMediaTool {
+        app_state: state.clone(),
+    }));
     tools.push(Box::new(BuiltinTerminalExecTool {
         app_state: state.clone(),
         session_id: tool_session_id.to_string(),
@@ -511,6 +536,11 @@ struct BuiltinReadFileTool {
     api_config_id: String,
 }
 
+#[derive(Debug, Clone)]
+struct BuiltinReadMediaTool {
+    app_state: AppState,
+}
+
 impl RuntimeToolMetadata for BuiltinOperateTool {
     fn provider_tool_definition(&self) -> ProviderToolDefinition {
         operate_provider_tool_definition()
@@ -595,6 +625,49 @@ impl RuntimeJsonTool for BuiltinReadFileTool {
                     debug_value_snippet(v, 240)
                 )),
                 Err(err) => eprintln!("[工具执行] 内置工具 read 执行失败: 错误={err}"),
+            }
+            result
+        })
+    }
+}
+
+impl RuntimeToolMetadata for BuiltinReadMediaTool {
+    fn provider_tool_definition(&self) -> ProviderToolDefinition {
+        read_media_provider_tool_definition()
+    }
+}
+
+impl RuntimeJsonTool for BuiltinReadMediaTool {
+    const NAME: &'static str = READ_MEDIA_TOOL_NAME;
+    type Args = ReadMediaToolArgs;
+    type Error = ToolInvokeError;
+
+    fn timeout_override(_args_json: &str) -> Option<std::time::Duration> {
+        Some(std::time::Duration::from_secs(60 * 60))
+    }
+
+    fn call_typed(&self, args: Self::Args) -> RuntimeJsonValueFuture<'_, Self::Error> {
+        Box::pin(async move {
+            let args_value = serde_json::to_value(&args).unwrap_or(Value::Null);
+            runtime_log_debug(format!(
+                "[TOOL-DEBUG] execute_builtin_tool.start name=read_media args={}",
+                debug_value_snippet(&args_value, 240)
+            ));
+            let result = builtin_read_media(
+                &self.app_state,
+                ReadMediaRequest {
+                    path: args.path,
+                    description: args.description,
+                },
+            )
+            .await
+            .map_err(ToolInvokeError::from);
+            match &result {
+                Ok(v) => runtime_log_debug(format!(
+                    "[TOOL-DEBUG] execute_builtin_tool.ok name=read_media result={}",
+                    debug_value_snippet(v, 240)
+                )),
+                Err(err) => eprintln!("[工具执行] 内置工具 read_media 执行失败: 错误={err}"),
             }
             result
         })

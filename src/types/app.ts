@@ -93,6 +93,7 @@ export type ApiConfigItem = {
   enableText: boolean;
   enableImage: boolean;
   enableAudio: boolean;
+  enableVideo?: boolean;
   enableTools: boolean;
   tools: ApiToolItem[];
   baseUrl: string;
@@ -116,6 +117,7 @@ export type ApiModelConfigItem = {
   id: string;
   model: string;
   enableImage: boolean;
+  enableVideo?: boolean;
   enableTools: boolean;
   reasoningEffort?: string;
   temperature: number;
@@ -134,6 +136,7 @@ export type ApiProviderConfigItem = {
   enableText: boolean;
   enableImage: boolean;
   enableAudio: boolean;
+  enableVideo?: boolean;
   enableTools: boolean;
   tools: ApiToolItem[];
   baseUrl: string;

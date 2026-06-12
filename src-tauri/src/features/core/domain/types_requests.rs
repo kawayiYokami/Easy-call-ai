@@ -283,6 +283,7 @@ struct FetchModelMetadataOutput {
     enable_image: Option<bool>,
     enable_tools: Option<bool>,
     enable_audio: Option<bool>,
+    enable_video: Option<bool>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

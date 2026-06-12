@@ -6,6 +6,7 @@ const BUILTIN_TOOL_DEFAULTS: ReadonlyArray<Readonly<ApiToolItem>> = [
   { id: "operate", command: "builtin", args: ["operate"], enabled: true, values: {} },
   { id: "exec", command: "builtin", args: ["exec"], enabled: true, values: {} },
   { id: "read", command: "builtin", args: ["read"], enabled: true, values: {} },
+  { id: "read_media", command: "builtin", args: ["read_media"], enabled: true, values: {} },
   { id: "apply_patch", command: "builtin", args: ["apply_patch"], enabled: true, values: {} },
   { id: "reload", command: "builtin", args: ["reload"], enabled: true, values: {} },
   { id: "organize_context", command: "builtin", args: ["organize_context"], enabled: true, values: {} },

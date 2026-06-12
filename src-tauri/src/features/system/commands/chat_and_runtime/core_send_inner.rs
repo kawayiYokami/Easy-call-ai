@@ -223,7 +223,12 @@ fn find_runtime_image_text_cache(
     runtime
         .image_text_cache
         .iter()
-        .find(|entry| entry.hash == hash && entry.vision_api_id == vision_api_id)
+        .find(|entry| {
+            entry.hash == hash
+                && entry.model_api_id == vision_api_id
+                && entry.media_type == "image"
+                && entry.description.is_empty()
+        })
         .map(|entry| entry.text.clone())
 }
 
@@ -236,7 +241,12 @@ fn upsert_runtime_image_text_cache(
     if let Some(entry) = runtime
         .image_text_cache
         .iter_mut()
-        .find(|entry| entry.hash == hash && entry.vision_api_id == vision_api_id)
+        .find(|entry| {
+            entry.hash == hash
+                && entry.model_api_id == vision_api_id
+                && entry.media_type == "image"
+                && entry.description.is_empty()
+        })
     {
         entry.text = text.to_string();
         entry.updated_at = now_iso();
@@ -245,7 +255,9 @@ fn upsert_runtime_image_text_cache(
 
     runtime.image_text_cache.push(ImageTextCacheEntry {
         hash: hash.to_string(),
-        vision_api_id: vision_api_id.to_string(),
+        model_api_id: vision_api_id.to_string(),
+        media_type: "image".to_string(),
+        description: String::new(),
         text: text.to_string(),
         updated_at: now_iso(),
     });
@@ -533,7 +545,7 @@ fn recent_user_image_fallback_plan(prepared: &PreparedPrompt) -> (Vec<bool>, boo
         .saturating_sub(usize::from(latest_user_in_window));
     let mut history_in_window = vec![false; prepared.history_messages.len()];
 
-    // 远程联系人可能连续刷大量图片。图转文按“最近用户消息条数”限流：
+    // 远程联系人可能连续刷大量图片。多模态图片回退按“最近用户消息条数”限流：
     // 最新消息优先占 1 条，历史消息再从后向前补齐，旧图片只保留路径引用。
     for (idx, message) in prepared.history_messages.iter().enumerate().rev() {
         if message.role.trim() != "user" {
@@ -583,7 +595,7 @@ async fn apply_prompt_image_fallbacks_to_prepared(
     let vision_resolved = resolve_api_config(app_config, Some(vision_api.id.as_str()))?;
     if !vision_resolved.request_format.is_chat_text() {
         return Err(format!(
-            "图转文模型请求格式 '{}' 暂未接入图片转文字链路。",
+            "多模态分析模型请求格式 '{}' 暂未接入图片回退链路。",
             vision_resolved.request_format
         ));
     }

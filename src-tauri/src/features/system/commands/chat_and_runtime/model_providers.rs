@@ -460,6 +460,7 @@ async fn fetch_model_metadata_inner(
                 .unwrap_or_default();
             let enable_image = input_modalities.iter().any(|item| item.contains("image"));
             let enable_audio = input_modalities.iter().any(|item| item.contains("audio"));
+            let enable_video = input_modalities.iter().any(|item| item.contains("video"));
             let enable_tools = model_obj
                 .get("tool_call")
                 .and_then(Value::as_bool)
@@ -467,7 +468,8 @@ async fn fetch_model_metadata_inner(
 
             // 冲突时优先“可用信息更完整”，其次“上限更大”。
             let numeric_count = context_window_tokens.is_some() as u8 + max_output_tokens.is_some() as u8;
-            let capability_count = enable_image as u8 + enable_tools as u8 + enable_audio as u8;
+            let capability_count =
+                enable_image as u8 + enable_tools as u8 + enable_audio as u8 + enable_video as u8;
             let has_any_usable = (numeric_count > 0 || capability_count > 0) as u8;
             let context_value = context_window_tokens.unwrap_or(0);
             let output_value = max_output_tokens.unwrap_or(0);
@@ -495,6 +497,7 @@ async fn fetch_model_metadata_inner(
                     enable_image: Some(enable_image),
                     enable_tools: Some(enable_tools),
                     enable_audio: Some(enable_audio),
+                    enable_video: Some(enable_video),
                 });
             }
         }
@@ -508,6 +511,7 @@ async fn fetch_model_metadata_inner(
             enable_image: None,
             enable_tools: None,
             enable_audio: None,
+            enable_video: None,
         });
     };
     Ok(best_match)

@@ -133,6 +133,7 @@ fn consume_api_key_for_request(resolved_api: &ResolvedApiConfig) -> String {
         enable_text: true,
         enable_image: false,
         enable_audio: false,
+        enable_video: false,
         enable_tools: false,
         tools: Vec::new(),
         base_url: resolved_api.base_url.clone(),
@@ -184,6 +185,7 @@ fn migrate_legacy_api_configs_into_providers(config: &mut AppConfig) {
                 enable_text: legacy.enable_text,
                 enable_image: legacy.enable_image,
                 enable_audio: legacy.enable_audio,
+                enable_video: legacy.enable_video,
                 enable_tools: legacy.enable_tools,
                 tools: legacy.tools.clone(),
                 base_url: legacy.base_url.clone(),
@@ -210,6 +212,7 @@ fn migrate_legacy_api_configs_into_providers(config: &mut AppConfig) {
                     id: model_id,
                     model: legacy.model.clone(),
                     enable_image: legacy.enable_image,
+                    enable_video: legacy.enable_video,
                     enable_tools: legacy.enable_tools,
                     reasoning_effort: legacy.reasoning_effort.clone(),
                     temperature: legacy.temperature,
@@ -248,6 +251,7 @@ fn is_default_placeholder_provider(provider: &ApiProviderConfig) -> bool {
         && provider.enable_text
         && !provider.enable_image
         && !provider.enable_audio
+        && !provider.enable_video
         && provider.enable_tools
         && tools_match
         && provider.base_url == "https://api.openai.com/v1"
@@ -260,6 +264,7 @@ fn is_default_placeholder_provider(provider: &ApiProviderConfig) -> bool {
         && model.id == "default-model"
         && model.model == "gpt-4o-mini"
         && !model.enable_image
+        && !model.enable_video
         && model.enable_tools
         && model.reasoning_effort == default_reasoning_effort()
         && (model.temperature - default_api_temperature()).abs() < f64::EPSILON
@@ -310,7 +315,8 @@ fn expand_api_configs_from_providers(config: &mut AppConfig) {
                 max_concurrent_requests: provider.max_concurrent_requests,
                 enable_text: provider.enable_text,
                 enable_image: model.enable_image,
-                enable_audio: provider.enable_audio,
+                enable_audio: provider.enable_audio || model.enable_video,
+                enable_video: model.enable_video,
                 enable_tools: model.enable_tools,
                 tools: provider.tools.clone(),
                 base_url: provider.base_url.clone(),
@@ -446,7 +452,6 @@ fn selected_reasoning_effort_for_runtime(selected: &ApiConfig) -> Option<String>
 
 fn normalize_api_tools(config: &mut AppConfig) {
     for provider in &mut config.api_providers {
-        provider.enable_audio = false;
         provider.key_cursor = provider.key_cursor.min(1_000_000);
         provider.failure_retry_count = provider.failure_retry_count.clamp(0, 20);
         provider.codex_auth_mode = normalize_codex_auth_mode(&provider.codex_auth_mode);
@@ -474,6 +479,7 @@ fn normalize_api_tools(config: &mut AppConfig) {
             model.max_output_tokens = model.max_output_tokens.clamp(256, 32_768);
             if provider.request_format.is_codex() {
                 model.enable_image = true;
+                model.enable_video = false;
                 model.enable_tools = true;
                 model.temperature = default_api_temperature();
                 model.custom_temperature_enabled = false;
@@ -487,8 +493,11 @@ fn normalize_api_tools(config: &mut AppConfig) {
                 }
             }
         }
+        provider.enable_audio = provider.enable_audio || provider.models.iter().any(|model| model.enable_video);
         if provider.request_format.is_codex() {
             provider.enable_image = true;
+            provider.enable_video = false;
+            provider.enable_audio = false;
             provider.enable_tools = true;
             provider.base_url = DEFAULT_CODEX_BASE_URL.to_string();
             provider.api_keys.clear();
@@ -515,7 +524,6 @@ fn normalize_api_tools(config: &mut AppConfig) {
     }
 
     for api in &mut config.api_configs {
-        api.enable_audio = false;
         api.codex_auth_mode = normalize_codex_auth_mode(&api.codex_auth_mode);
         api.codex_local_auth_path =
             normalize_terminal_path_input_for_current_platform(&api.codex_local_auth_path);
@@ -526,8 +534,11 @@ fn normalize_api_tools(config: &mut AppConfig) {
         api.temperature = api.temperature.clamp(0.0, 2.0);
         api.context_window_tokens = api.context_window_tokens.clamp(16_000, 2_000_000);
         api.max_output_tokens = api.max_output_tokens.clamp(256, 32_768);
+        api.enable_audio = api.enable_audio || api.enable_video;
         if api.request_format.is_codex() {
             api.enable_image = true;
+            api.enable_video = false;
+            api.enable_audio = false;
             api.enable_tools = true;
             api.base_url = DEFAULT_CODEX_BASE_URL.to_string();
             api.api_key.clear();
@@ -1213,7 +1224,7 @@ fn normalize_app_config(config: &mut AppConfig) {
             config
                 .api_configs
                 .iter()
-                .any(|a| a.id == *id && a.enable_image)
+                .any(|a| a.id == *id && (a.enable_image || a.enable_audio || a.enable_video))
         })
         .map(ToOwned::to_owned);
 
@@ -1782,7 +1793,7 @@ fn resolve_api_config(
 
 fn resolve_vision_api_config(app_config: &AppConfig) -> Result<ApiConfig, String> {
     let vision_id = app_config.vision_api_config_id.as_deref().ok_or_else(|| {
-        "Current chat API does not support image and no 图转文AI is configured.".to_string()
+        "当前未配置多模态分析模型。".to_string()
     })?;
 
     let api = app_config
@@ -1790,19 +1801,19 @@ fn resolve_vision_api_config(app_config: &AppConfig) -> Result<ApiConfig, String
         .iter()
         .find(|a| a.id == vision_id)
         .cloned()
-        .ok_or_else(|| "Configured 图转文AI not found.".to_string())?;
+        .ok_or_else(|| "已配置的多模态分析模型不存在。".to_string())?;
 
-    if !api.enable_image {
-        return Err("Configured 图转文AI has image disabled.".to_string());
+    if !api.enable_image && !api.enable_audio && !api.enable_video {
+        return Err("当前多模态分析模型未启用图片、音频或视频输入。".to_string());
     }
     if api.base_url.trim().is_empty() {
-        return Err("图转文AI Base URL is empty.".to_string());
+        return Err("多模态分析模型 Base URL 不能为空。".to_string());
     }
     if api.api_key.trim().is_empty() {
-        return Err("图转文AI API key is empty.".to_string());
+        return Err("多模态分析模型 API key 不能为空。".to_string());
     }
     if api.model.trim().is_empty() {
-        return Err("图转文AI model is empty.".to_string());
+        return Err("多模态分析模型 model 不能为空。".to_string());
     }
 
     Ok(api)
@@ -1830,7 +1841,7 @@ fn find_image_text_cache(
 ) -> Option<String> {
     data.image_text_cache
         .iter()
-        .find(|entry| entry.hash == hash && entry.vision_api_id == vision_api_id)
+        .find(|entry| entry.hash == hash && entry.model_api_id == vision_api_id)
         .map(|entry| entry.text.clone())
 }
 
@@ -1839,7 +1850,7 @@ fn upsert_image_text_cache(data: &mut AppData, hash: &str, vision_api_id: &str, 
     if let Some(entry) = data
         .image_text_cache
         .iter_mut()
-        .find(|entry| entry.hash == hash && entry.vision_api_id == vision_api_id)
+        .find(|entry| entry.hash == hash && entry.model_api_id == vision_api_id)
     {
         entry.text = text.to_string();
         entry.updated_at = now_iso();
@@ -1848,7 +1859,9 @@ fn upsert_image_text_cache(data: &mut AppData, hash: &str, vision_api_id: &str, 
 
     data.image_text_cache.push(ImageTextCacheEntry {
         hash: hash.to_string(),
-        vision_api_id: vision_api_id.to_string(),
+        model_api_id: vision_api_id.to_string(),
+        media_type: "image".to_string(),
+        description: String::new(),
         text: text.to_string(),
         updated_at: now_iso(),
     });

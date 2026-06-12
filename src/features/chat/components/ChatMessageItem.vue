@@ -1410,6 +1410,14 @@ function summarizeReadFileTool(args: unknown): string {
   ]) || toCompactValue(obj) || toolTimelineText("missingArgs");
 }
 
+function summarizeReadMediaTool(args: unknown): string {
+  if (!args || typeof args !== "object") return summarizeReadFileTool(args);
+  const obj = args as Record<string, unknown>;
+  const path = safeTextFromRecord(obj, ["path", "absolute_path", "absolutePath", "file"]);
+  const description = safeTextFromRecord(obj, ["description", "focus", "prompt"]);
+  return joinNonEmpty([path, description ? `description: ${description}` : ""]) || compactObjectEntries(obj);
+}
+
 function summarizeTodoTool(args: unknown): string {
   if (typeof args !== "object" || args === null) return compactText(toSingleLineJsonText(args) || toolTimelineText("missingArgs"));
   const todos = (args as Record<string, unknown>).todos;
@@ -1540,6 +1548,7 @@ function summarizeOperateTool(args: unknown): string {
 
 function summarizeBuiltinTool(toolName: string, args: unknown): string {
   if (toolName === "read" || toolName === "read_file") return summarizeReadFileTool(args);
+  if (toolName === "read_media") return summarizeReadMediaTool(args);
   if (toolName === "todo") return summarizeTodoTool(args);
   if (toolName === "task") return summarizeTaskTool(args);
   if (toolName === "create_goal" || toolName === "update_goal") return summarizeGoalTool(args);
@@ -1583,6 +1592,7 @@ function toolCallSummaryText(toolCall: { name: string; argsText: string; status?
     if (toolName === "read" || toolName === "read_file") {
       return summarizeReadFileTool(args);
     }
+    if (toolName === "read_media") return summarizeReadMediaTool(args);
     if (toolName === "apply_patch") return summarizeApplyPatchTool(args);
     if (toolName === "exec" || toolName === "shell_exec") return summarizeCommandTool(args);
     if (toolName.includes("file")) {

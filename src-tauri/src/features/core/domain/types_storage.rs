@@ -2,9 +2,18 @@
 #[serde(rename_all = "camelCase")]
 struct ImageTextCacheEntry {
     hash: String,
-    vision_api_id: String,
+    #[serde(alias = "visionApiId")]
+    model_api_id: String,
+    #[serde(default = "default_media_cache_entry_type")]
+    media_type: String,
+    #[serde(default)]
+    description: String,
     text: String,
     updated_at: String,
+}
+
+fn default_media_cache_entry_type() -> String {
+    "image".to_string()
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

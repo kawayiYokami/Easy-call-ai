@@ -1,5 +1,107 @@
 const READ_FILE_TEXT_LIMIT_CHARS: usize = 30_000;
 const READ_TOOL_NAME: &str = "read";
+const READ_MEDIA_TOOL_NAME: &str = "read_media";
+const READ_MEDIA_AUDIO_VIDEO_HTTP_TIMEOUT_SECS: u64 = 60 * 60;
+const GEMINI_INLINE_AUDIO_LIMIT_BYTES: usize = 20 * 1024 * 1024;
+const GEMINI_INLINE_VIDEO_LIMIT_BYTES: usize = 100 * 1024 * 1024;
+const OPENAI_FAMILY_VIDEO_DATA_URL_LIMIT_BYTES: usize = 50 * 1024 * 1024;
+const MIMO_VIDEO_BASE64_LIMIT_BYTES: usize = 50 * 1024 * 1024;
+const MINIMAX_VIDEO_BASE64_LIMIT_BYTES: usize = 50 * 1024 * 1024;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ReadMediaDetectedType {
+    Image,
+    Audio,
+    Video,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ReadMediaRouteFamily {
+    OpenAI,
+    Gemini,
+    Anthropic,
+}
+
+impl ReadMediaDetectedType {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Image => "image",
+            Self::Audio => "audio",
+            Self::Video => "video",
+        }
+    }
+}
+
+fn detect_read_media_model_family(model_name: &str) -> Option<ReadMediaRouteFamily> {
+    let normalized = model_name.trim().to_ascii_lowercase();
+    if normalized.is_empty() {
+        return None;
+    }
+    if normalized.contains("gemini") || normalized.contains("gemma") {
+        return Some(ReadMediaRouteFamily::Gemini);
+    }
+    if normalized.contains("minimax") {
+        return Some(ReadMediaRouteFamily::Anthropic);
+    }
+    if normalized.contains("qwen") || normalized.contains("mimo") || normalized.contains("gpt") {
+        return Some(ReadMediaRouteFamily::OpenAI);
+    }
+    None
+}
+
+fn is_mimo_multimodal_model(model_name: &str) -> bool {
+    model_name.trim().to_ascii_lowercase().contains("mimo")
+}
+
+fn resolve_read_media_protocol_family(
+    request_format: RequestFormat,
+    model_name: &str,
+) -> Option<ReadMediaRouteFamily> {
+    let model_family = detect_read_media_model_family(model_name)?;
+    match request_format {
+        RequestFormat::Auto => Some(model_family),
+        RequestFormat::Gemini => Some(ReadMediaRouteFamily::Gemini),
+        RequestFormat::Anthropic => Some(ReadMediaRouteFamily::Anthropic),
+        RequestFormat::OpenAI | RequestFormat::OpenAIResponses => Some(ReadMediaRouteFamily::OpenAI),
+        _ => None,
+    }
+}
+
+fn validate_read_media_route(api: &ApiConfig) -> Result<ReadMediaRouteFamily, String> {
+    let model_family = detect_read_media_model_family(&api.model).ok_or_else(|| {
+        format!(
+            "当前多模态模型协议配置错误：模型 '{}' 暂不在受支持的多模态路由名单中。",
+            api.model.trim()
+        )
+    })?;
+    let protocol_family = resolve_read_media_protocol_family(api.request_format, &api.model).ok_or_else(|| {
+        match model_family {
+            ReadMediaRouteFamily::Gemini => {
+                "当前多模态模型协议配置错误：gemini/gemma 模型只能使用 Gemini 协议。".to_string()
+            }
+            ReadMediaRouteFamily::OpenAI => {
+                "当前多模态模型协议配置错误：qwen/mimo/gpt 模型只能使用 OpenAI 协议。".to_string()
+            }
+            ReadMediaRouteFamily::Anthropic => {
+                "当前多模态模型协议配置错误：MiniMax 模型只能使用 Anthropic 协议。".to_string()
+            }
+        }
+    })?;
+    if protocol_family != model_family {
+        return Err(match model_family {
+            ReadMediaRouteFamily::Gemini => {
+                "当前多模态模型协议配置错误：gemini/gemma 模型只能使用 Gemini 协议。".to_string()
+            }
+            ReadMediaRouteFamily::OpenAI => {
+                "当前多模态模型协议配置错误：qwen/mimo/gpt 模型只能使用 OpenAI 协议。".to_string()
+            }
+            ReadMediaRouteFamily::Anthropic => {
+                "当前多模态模型协议配置错误：MiniMax 模型只能使用 Anthropic 协议。".to_string()
+            }
+        });
+    }
+    Ok(model_family)
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum ReadFileDetectedType {
@@ -58,6 +160,14 @@ struct ReadFileRequest {
     limit: Option<usize>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct ReadMediaRequest {
+    #[serde(alias = "absolute_path", alias = "absolutePath")]
+    path: String,
+    #[serde(default)]
+    description: Option<String>,
+}
+
 trait ReadFileReader {
     fn reader_kind(&self) -> &'static str;
     fn supports(&self, detected: ReadFileDetectedType) -> bool;
@@ -103,6 +213,28 @@ fn detect_read_file_type(path: &std::path::Path) -> ReadFileDetectedType {
     }
 }
 
+fn detect_read_media_type(path: &std::path::Path) -> Option<ReadMediaDetectedType> {
+    match read_file_ext(path).as_str() {
+        "png" | "jpg" | "jpeg" | "gif" | "webp" | "bmp" => Some(ReadMediaDetectedType::Image),
+        "mp3" | "wav" | "wave" | "m4a" | "aac" | "ogg" | "flac" | "webm" => {
+            Some(ReadMediaDetectedType::Audio)
+        }
+        "mp4" | "mov" | "avi" | "mkv" | "m4v" => Some(ReadMediaDetectedType::Video),
+        _ => media_mime_from_path(path).and_then(|mime| {
+            let lower = mime.to_ascii_lowercase();
+            if lower.starts_with("image/") {
+                Some(ReadMediaDetectedType::Image)
+            } else if lower.starts_with("audio/") {
+                Some(ReadMediaDetectedType::Audio)
+            } else if lower.starts_with("video/") {
+                Some(ReadMediaDetectedType::Video)
+            } else {
+                None
+            }
+        }),
+    }
+}
+
 fn read_file_conversation_cache_key(session_id: &str) -> String {
     session_id
         .split_once("::")
@@ -140,6 +272,25 @@ fn ensure_absolute_file_path(request: &ReadFileRequest) -> Result<std::path::Pat
     }
     if matches!(request.limit, Some(0)) {
         return Err("limit 必须大于等于 1".to_string());
+    }
+    let path = std::path::PathBuf::from(trimmed);
+    if !path.is_absolute() {
+        return Err("path 必须是绝对路径".to_string());
+    }
+    if !path.exists() {
+        return Err(format!("文件不存在：{}", path.display()));
+    }
+    let metadata = std::fs::metadata(&path).map_err(|err| format!("读取文件信息失败: {err}"))?;
+    if !metadata.is_file() {
+        return Err(format!("目标不是文件：{}", path.display()));
+    }
+    Ok(path)
+}
+
+fn ensure_absolute_media_path(request: &ReadMediaRequest) -> Result<std::path::PathBuf, String> {
+    let trimmed = request.path.trim();
+    if trimmed.is_empty() {
+        return Err("path 不能为空".to_string());
     }
     let path = std::path::PathBuf::from(trimmed);
     if !path.is_absolute() {
@@ -419,7 +570,7 @@ async fn read_image_file_result(
     }
 
     eprintln!(
-        "[read] 完成，任务=read_image_file，session_id={}，api_config_id={}，reader=image_vision_fallback，detected_type={}，action=使用图转文回退",
+        "[read] 完成，任务=read_image_file，session_id={}，api_config_id={}，reader=image_vision_fallback，detected_type={}，action=使用多模态分析模型回退",
         session_id,
         api_config_id,
         detected.as_str()
@@ -528,6 +679,891 @@ fn build_image_read_fallback_text_result(
     )
 }
 
+fn read_file_media_cache_lookup(
+    runtime: &RuntimeStateFile,
+    hash: &str,
+    model_api_id: &str,
+    media_type: ReadMediaDetectedType,
+    description: &str,
+) -> Option<String> {
+    runtime
+        .image_text_cache
+        .iter()
+        .find(|entry| {
+            entry.hash == hash
+                && entry.model_api_id == model_api_id
+                && entry.media_type == media_type.as_str()
+                && entry.description == description
+        })
+        .map(|entry| entry.text.clone())
+}
+
+fn read_file_media_cache_upsert(
+    runtime: &mut RuntimeStateFile,
+    hash: &str,
+    model_api_id: &str,
+    media_type: ReadMediaDetectedType,
+    description: &str,
+    text: &str,
+) {
+    if let Some(entry) = runtime
+        .image_text_cache
+        .iter_mut()
+        .find(|entry| {
+            entry.hash == hash
+                && entry.model_api_id == model_api_id
+                && entry.media_type == media_type.as_str()
+                && entry.description == description
+        })
+    {
+        entry.text = text.to_string();
+        entry.updated_at = now_iso();
+        return;
+    }
+    runtime.image_text_cache.push(ImageTextCacheEntry {
+        hash: hash.to_string(),
+        model_api_id: model_api_id.to_string(),
+        media_type: media_type.as_str().to_string(),
+        description: description.to_string(),
+        text: text.to_string(),
+        updated_at: now_iso(),
+    });
+    if runtime.image_text_cache.len() <= MAX_IMAGE_TEXT_CACHE_ENTRIES {
+        return;
+    }
+    if let Some((oldest_idx, _)) = runtime
+        .image_text_cache
+        .iter()
+        .enumerate()
+        .min_by(|(_, a), (_, b)| a.updated_at.cmp(&b.updated_at))
+    {
+        runtime.image_text_cache.remove(oldest_idx);
+    }
+}
+
+fn build_read_media_prepared_prompt(
+    media_type: ReadMediaDetectedType,
+    mime: &str,
+    content_base64: &str,
+    saved_path: Option<String>,
+    description: &str,
+) -> PreparedPrompt {
+    let description = description.trim();
+    let user_text = build_read_media_user_text(media_type, description);
+    let payload = PreparedBinaryPayload {
+        mime: mime.to_string(),
+        content: content_base64.to_string(),
+        saved_path,
+    };
+    PreparedPrompt {
+        preamble: format!(
+            "[SYSTEM PROMPT]\n你是多媒体理解助手。请阅读用户提供的{}，优先完成用户要求，输出简洁、结构清楚的中文结果。",
+            media_type.as_str()
+        ),
+        history_messages: Vec::new(),
+        latest_user_text: user_text,
+        latest_user_meta_text: String::new(),
+        latest_user_extra_text: String::new(),
+        latest_user_extra_blocks: Vec::new(),
+        latest_images: if matches!(media_type, ReadMediaDetectedType::Image | ReadMediaDetectedType::Video) {
+            vec![payload.clone()]
+        } else {
+            Vec::new()
+        },
+        latest_audios: if matches!(media_type, ReadMediaDetectedType::Audio) {
+            vec![payload]
+        } else {
+            Vec::new()
+        },
+    }
+}
+
+fn build_read_media_user_text(
+    media_type: ReadMediaDetectedType,
+    description: &str,
+) -> String {
+    let description = description.trim();
+    if description.is_empty() {
+        match media_type {
+            ReadMediaDetectedType::Image => "请理解这张图片并输出可复用的中文分析结果。".to_string(),
+            ReadMediaDetectedType::Audio => "请理解这段音频并输出可复用的中文分析结果。".to_string(),
+            ReadMediaDetectedType::Video => "请理解这个视频并输出可复用的中文分析结果。".to_string(),
+        }
+    } else {
+        format!("请按以下要求解析这份{}：{}", media_type.as_str(), description)
+    }
+}
+
+fn mimo_chat_completions_url(base_url: &str) -> String {
+    let trimmed = base_url.trim().trim_end_matches('/');
+    if trimmed.ends_with("/chat/completions") {
+        trimmed.to_string()
+    } else {
+        format!("{trimmed}/chat/completions")
+    }
+}
+
+fn openai_family_chat_completions_url(base_url: &str) -> String {
+    let normalized = normalize_openai_genai_base_url(base_url);
+    format!("{}chat/completions", normalized)
+}
+
+fn gemini_generate_content_url(base_url: &str, model_name: &str) -> String {
+    let normalized = normalize_gemini_genai_base_url(base_url);
+    format!("{normalized}models/{model_name}:generateContent")
+}
+
+fn minimax_messages_url(base_url: &str) -> String {
+    let normalized = normalize_minimax_genai_base_url(base_url);
+    format!("{normalized}messages")
+}
+
+fn openai_input_audio_format_from_mime_for_read_media(mime: &str) -> String {
+    let normalized = mime.trim().to_ascii_lowercase();
+    match normalized.as_str() {
+        "audio/wav" | "audio/wave" | "audio/x-wav" => "wav".to_string(),
+        "audio/mp3" | "audio/mpeg" => "mp3".to_string(),
+        _ => normalized
+            .split('/')
+            .nth(1)
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .unwrap_or("wav")
+            .to_string(),
+    }
+}
+
+fn apply_extra_headers(
+    mut request_builder: reqwest::RequestBuilder,
+    headers: &[(String, String)],
+) -> reqwest::RequestBuilder {
+    for (key, value) in headers {
+        request_builder = request_builder.header(key, value);
+    }
+    request_builder
+}
+
+fn apply_read_media_audio_video_timeout(
+    request_builder: reqwest::RequestBuilder,
+) -> reqwest::RequestBuilder {
+    request_builder.timeout(std::time::Duration::from_secs(
+        READ_MEDIA_AUDIO_VIDEO_HTTP_TIMEOUT_SECS,
+    ))
+}
+
+fn extract_text_from_json_value(value: &serde_json::Value) -> String {
+    match value {
+        serde_json::Value::String(text) => text.trim().to_string(),
+        serde_json::Value::Array(items) => items
+            .iter()
+            .filter_map(|item| match item {
+                serde_json::Value::String(text) => Some(text.trim().to_string()),
+                serde_json::Value::Object(map) => map
+                    .get("text")
+                    .and_then(serde_json::Value::as_str)
+                    .map(|text| text.trim().to_string()),
+                _ => None,
+            })
+            .filter(|text| !text.is_empty())
+            .collect::<Vec<_>>()
+            .join("\n"),
+        serde_json::Value::Object(map) => map
+            .get("text")
+            .and_then(serde_json::Value::as_str)
+            .map(str::trim)
+            .unwrap_or_default()
+            .to_string(),
+        _ => String::new(),
+    }
+}
+
+fn extract_openai_family_message_text(payload: &serde_json::Value) -> String {
+    payload
+        .get("choices")
+        .and_then(serde_json::Value::as_array)
+        .and_then(|choices| choices.first())
+        .and_then(|choice| choice.get("message"))
+        .and_then(|message| message.get("content"))
+        .map(extract_text_from_json_value)
+        .unwrap_or_default()
+}
+
+fn extract_gemini_text(payload: &serde_json::Value) -> String {
+    payload
+        .get("candidates")
+        .and_then(serde_json::Value::as_array)
+        .and_then(|candidates| candidates.first())
+        .and_then(|candidate| candidate.get("content"))
+        .and_then(|content| content.get("parts"))
+        .and_then(serde_json::Value::as_array)
+        .map(|parts| {
+            parts
+                .iter()
+                .filter_map(|part| part.get("text").and_then(serde_json::Value::as_str))
+                .map(str::trim)
+                .filter(|text| !text.is_empty())
+                .collect::<Vec<_>>()
+                .join("\n")
+        })
+        .unwrap_or_default()
+}
+
+fn extract_anthropic_text(payload: &serde_json::Value) -> String {
+    payload
+        .get("content")
+        .and_then(serde_json::Value::as_array)
+        .map(|parts| {
+            parts
+                .iter()
+                .filter(|part| part.get("type").and_then(serde_json::Value::as_str) == Some("text"))
+                .filter_map(|part| part.get("text").and_then(serde_json::Value::as_str))
+                .map(str::trim)
+                .filter(|text| !text.is_empty())
+                .collect::<Vec<_>>()
+                .join("\n")
+        })
+        .unwrap_or_default()
+}
+
+fn format_reqwest_error_diagnostics(err: &reqwest::Error) -> String {
+    let mut parts = Vec::<String>::new();
+    parts.push(err.to_string());
+    if let Some(url) = err.url() {
+        parts.push(format!("url={url}"));
+    }
+    let kind = if err.is_timeout() {
+        Some("timeout")
+    } else if err.is_connect() {
+        Some("connect")
+    } else if err.is_request() {
+        Some("request")
+    } else if err.is_body() {
+        Some("body")
+    } else if err.is_decode() {
+        Some("decode")
+    } else if err.is_status() {
+        Some("status")
+    } else if err.is_redirect() {
+        Some("redirect")
+    } else {
+        None
+    };
+    if let Some(kind) = kind {
+        parts.push(format!("kind={kind}"));
+    }
+    let mut source = std::error::Error::source(err);
+    let mut source_chain = Vec::<String>::new();
+    while let Some(item) = source {
+        source_chain.push(item.to_string());
+        source = std::error::Error::source(item);
+    }
+    if !source_chain.is_empty() {
+        parts.push(format!("sources={}", source_chain.join(" -> ")));
+    }
+    parts.join(" | ")
+}
+
+async fn describe_openai_family_media_with_multimodal_api(
+    state: &AppState,
+    resolved_api: &ResolvedApiConfig,
+    selected_api: &ApiConfig,
+    media_type: ReadMediaDetectedType,
+    mime: &str,
+    content_base64: &str,
+    description: &str,
+) -> Result<String, String> {
+    let request_api = resolve_request_api_config(resolved_api).await?;
+    let api_key = consume_api_key_for_request(&request_api);
+    let url = openai_family_chat_completions_url(&request_api.base_url);
+    let user_text = build_read_media_user_text(media_type, description);
+    let system_text = "[SYSTEM PROMPT]\n你是多媒体理解助手。请优先完成用户要求，输出简洁、结构清楚的中文结果。";
+    let media_block = match media_type {
+        ReadMediaDetectedType::Audio => serde_json::json!({
+            "type": "input_audio",
+            "input_audio": {
+                "data": content_base64,
+                "format": openai_input_audio_format_from_mime_for_read_media(mime)
+            }
+        }),
+        ReadMediaDetectedType::Video => {
+            let data_url = format!("data:{mime};base64,{content_base64}");
+            if data_url.len() > OPENAI_FAMILY_VIDEO_DATA_URL_LIMIT_BYTES {
+                return Err(format!(
+                    "当前视频的 Base64 Data URL 超过 50MB，无法按 OpenAI 兼容视频协议发送。当前大小={} bytes，上限={} bytes。",
+                    data_url.len(),
+                    OPENAI_FAMILY_VIDEO_DATA_URL_LIMIT_BYTES
+                ));
+            }
+            serde_json::json!({
+                "type": "video_url",
+                "video_url": {
+                    "url": data_url
+                },
+                "fps": 2.0
+            })
+        }
+        ReadMediaDetectedType::Image => {
+            return Err("OpenAI 兼容多媒体手工适配不处理图片分支".to_string());
+        }
+    };
+    let max_tokens = request_api
+        .max_output_tokens
+        .unwrap_or_else(|| selected_api.max_output_tokens.clamp(256, 32_768));
+    let body = serde_json::json!({
+        "model": selected_api.model,
+        "messages": [
+            {
+                "role": "system",
+                "content": system_text
+            },
+            {
+                "role": "user",
+                "content": [
+                    media_block,
+                    {
+                        "type": "text",
+                        "text": user_text
+                    }
+                ]
+            }
+        ],
+        "max_tokens": max_tokens
+    });
+    let mut request_builder = state
+        .shared_http_client
+        .post(&url)
+        .header(reqwest::header::CONTENT_TYPE, "application/json");
+    if is_mimo_multimodal_model(&selected_api.model) {
+        let api_key_header = reqwest::header::HeaderValue::from_str(api_key.trim())
+            .map_err(|err| format!("构建 Mimo api-key 请求头失败: {err}"))?;
+        request_builder = request_builder.header("api-key", api_key_header);
+    } else {
+        request_builder = request_builder.bearer_auth(api_key.trim());
+    }
+    let response = apply_read_media_audio_video_timeout(apply_extra_headers(
+        request_builder,
+        &request_api.extra_headers,
+    ))
+        .json(&body)
+        .send()
+        .await
+        .map_err(|err| format!("请求 OpenAI 兼容多媒体接口失败: {}", format_reqwest_error_diagnostics(&err)))?;
+    if !response.status().is_success() {
+        let status = response.status();
+        let raw = response.text().await.unwrap_or_default();
+        let snippet = raw.chars().take(1000).collect::<String>();
+        return Err(format!(
+            "OpenAI 兼容多媒体请求失败：{} | {}",
+            status,
+            snippet
+        ));
+    }
+    let payload = response
+        .json::<serde_json::Value>()
+        .await
+        .map_err(|err| format!("解析 OpenAI 兼容多媒体响应失败: {err}"))?;
+    let text = extract_openai_family_message_text(&payload);
+    if text.is_empty() {
+        return Err(format!("OpenAI 兼容多媒体响应为空：{payload}"));
+    }
+    Ok(text)
+}
+
+async fn describe_gemini_media_with_multimodal_api(
+    state: &AppState,
+    resolved_api: &ResolvedApiConfig,
+    selected_api: &ApiConfig,
+    media_type: ReadMediaDetectedType,
+    mime: &str,
+    content_base64: &str,
+    description: &str,
+) -> Result<String, String> {
+    let inline_size = content_base64.len();
+    match media_type {
+        ReadMediaDetectedType::Audio if inline_size > GEMINI_INLINE_AUDIO_LIMIT_BYTES => {
+            return Err(format!(
+                "Gemini 音频内联请求体超过 20MB，请改用更小的音频文件。当前大小={} bytes，上限={} bytes。",
+                inline_size,
+                GEMINI_INLINE_AUDIO_LIMIT_BYTES
+            ));
+        }
+        ReadMediaDetectedType::Video if inline_size > GEMINI_INLINE_VIDEO_LIMIT_BYTES => {
+            return Err(format!(
+                "Gemini 视频内联请求体超过 100MB，请改用更小的视频文件。当前大小={} bytes，上限={} bytes。",
+                inline_size,
+                GEMINI_INLINE_VIDEO_LIMIT_BYTES
+            ));
+        }
+        _ => {}
+    }
+    let request_api = resolve_request_api_config(resolved_api).await?;
+    let api_key = consume_api_key_for_request(&request_api);
+    let url = gemini_generate_content_url(&request_api.base_url, &selected_api.model);
+    let user_text = build_read_media_user_text(media_type, description);
+    let body = serde_json::json!({
+        "contents": [{
+            "role": "user",
+            "parts": [
+                {
+                    "inlineData": {
+                        "mimeType": mime,
+                        "data": content_base64
+                    }
+                },
+                {
+                    "text": user_text
+                }
+            ]
+        }],
+        "systemInstruction": {
+            "parts": [{
+                "text": "你是多媒体理解助手。请优先完成用户要求，输出简洁、结构清楚的中文结果。"
+            }]
+        }
+    });
+    let api_key_header = reqwest::header::HeaderValue::from_str(api_key.trim())
+        .map_err(|err| format!("构建 Gemini x-goog-api-key 请求头失败: {err}"))?;
+    let request_builder = state
+        .shared_http_client
+        .post(&url)
+        .header(reqwest::header::CONTENT_TYPE, "application/json")
+        .header("x-goog-api-key", api_key_header);
+    let response = apply_read_media_audio_video_timeout(apply_extra_headers(
+        request_builder,
+        &request_api.extra_headers,
+    ))
+        .json(&body)
+        .send()
+        .await
+        .map_err(|err| format!("请求 Gemini 多媒体接口失败: {}", format_reqwest_error_diagnostics(&err)))?;
+    if !response.status().is_success() {
+        let status = response.status();
+        let raw = response.text().await.unwrap_or_default();
+        let snippet = raw.chars().take(1000).collect::<String>();
+        return Err(format!("Gemini 多媒体请求失败：{} | {}", status, snippet));
+    }
+    let payload = response
+        .json::<serde_json::Value>()
+        .await
+        .map_err(|err| format!("解析 Gemini 多媒体响应失败: {err}"))?;
+    let text = extract_gemini_text(&payload);
+    if text.is_empty() {
+        return Err(format!("Gemini 多媒体响应为空：{payload}"));
+    }
+    Ok(text)
+}
+
+async fn describe_minimax_video_with_multimodal_api(
+    state: &AppState,
+    resolved_api: &ResolvedApiConfig,
+    selected_api: &ApiConfig,
+    mime: &str,
+    content_base64: &str,
+    description: &str,
+) -> Result<String, String> {
+    if content_base64.len() > MINIMAX_VIDEO_BASE64_LIMIT_BYTES {
+        return Err(format!(
+            "MiniMax 视频 Base64 超过 50MB，无法按 Anthropic 兼容视频协议发送。当前大小={} bytes，上限={} bytes。",
+            content_base64.len(),
+            MINIMAX_VIDEO_BASE64_LIMIT_BYTES
+        ));
+    }
+    let request_api = resolve_request_api_config(resolved_api).await?;
+    let api_key = consume_api_key_for_request(&request_api);
+    let url = minimax_messages_url(&request_api.base_url);
+    let user_text = build_read_media_user_text(ReadMediaDetectedType::Video, description);
+    let max_tokens = request_api
+        .max_output_tokens
+        .unwrap_or_else(|| selected_api.max_output_tokens.clamp(256, 32_768));
+    let body = serde_json::json!({
+        "model": selected_api.model,
+        "max_tokens": max_tokens,
+        "system": "你是多媒体理解助手。请优先完成用户要求，输出简洁、结构清楚的中文结果。",
+        "messages": [{
+            "role": "user",
+            "content": [
+                {
+                    "type": "video",
+                    "source": {
+                        "type": "base64",
+                        "media_type": mime,
+                        "data": content_base64
+                    }
+                },
+                {
+                    "type": "text",
+                    "text": user_text
+                }
+            ]
+        }]
+    });
+    let api_key_header = reqwest::header::HeaderValue::from_str(api_key.trim())
+        .map_err(|err| format!("构建 MiniMax x-api-key 请求头失败: {err}"))?;
+    let request_builder = state
+        .shared_http_client
+        .post(&url)
+        .header(reqwest::header::CONTENT_TYPE, "application/json")
+        .header("x-api-key", api_key_header)
+        .header("anthropic-version", "2023-06-01");
+    let response = apply_read_media_audio_video_timeout(apply_extra_headers(
+        request_builder,
+        &request_api.extra_headers,
+    ))
+        .json(&body)
+        .send()
+        .await
+        .map_err(|err| format!("请求 MiniMax 视频理解接口失败: {}", format_reqwest_error_diagnostics(&err)))?;
+    if !response.status().is_success() {
+        let status = response.status();
+        let raw = response.text().await.unwrap_or_default();
+        let snippet = raw.chars().take(1000).collect::<String>();
+        return Err(format!("MiniMax 视频理解请求失败：{} | {}", status, snippet));
+    }
+    let payload = response
+        .json::<serde_json::Value>()
+        .await
+        .map_err(|err| format!("解析 MiniMax 视频理解响应失败: {err}"))?;
+    let text = extract_anthropic_text(&payload);
+    if text.is_empty() {
+        return Err(format!("MiniMax 视频理解响应为空：{payload}"));
+    }
+    Ok(text)
+}
+
+async fn describe_mimo_video_with_multimodal_api(
+    state: &AppState,
+    resolved_api: &ResolvedApiConfig,
+    selected_api: &ApiConfig,
+    mime: &str,
+    content_base64: &str,
+    description: &str,
+) -> Result<String, String> {
+    let data_url = format!("data:{mime};base64,{content_base64}");
+    if data_url.len() > MIMO_VIDEO_BASE64_LIMIT_BYTES {
+        return Err(format!(
+            "当前视频的 Base64 编码结果超过 50MB，无法按 Mimo 视频协议发送。当前大小={} bytes，上限={} bytes。",
+            data_url.len(),
+            MIMO_VIDEO_BASE64_LIMIT_BYTES
+        ));
+    }
+    let request_api = resolve_request_api_config(resolved_api).await?;
+    let api_key = consume_api_key_for_request(&request_api);
+    let url = mimo_chat_completions_url(&request_api.base_url);
+    let system_text = "[SYSTEM PROMPT]\n你是多媒体理解助手。请阅读用户提供的视频，优先完成用户要求，输出简洁、结构清楚的中文结果。";
+    let user_text = build_read_media_user_text(ReadMediaDetectedType::Video, description);
+    let max_completion_tokens = request_api
+        .max_output_tokens
+        .unwrap_or_else(|| selected_api.max_output_tokens.clamp(256, 32_768));
+    let body = serde_json::json!({
+        "model": selected_api.model,
+        "messages": [
+            {
+                "role": "system",
+                "content": system_text
+            },
+            {
+                "role": "user",
+                "content": [
+                    {
+                        "type": "video_url",
+                        "video_url": {
+                            "url": data_url
+                        },
+                        "fps": 2,
+                        "media_resolution": "default"
+                    },
+                    {
+                        "type": "text",
+                        "text": user_text
+                    }
+                ]
+            }
+        ],
+        "max_completion_tokens": max_completion_tokens
+    });
+    let api_key_header = reqwest::header::HeaderValue::from_str(api_key.trim())
+        .map_err(|err| format!("构建 Mimo api-key 请求头失败: {err}"))?;
+    let mut request_builder = state
+        .shared_http_client
+        .post(&url)
+        .header(reqwest::header::CONTENT_TYPE, "application/json")
+        .header("api-key", api_key_header);
+    for (key, value) in &request_api.extra_headers {
+        request_builder = request_builder.header(key, value);
+    }
+    let response = apply_read_media_audio_video_timeout(request_builder)
+        .json(&body)
+        .send()
+        .await
+        .map_err(|err| format!("请求 Mimo 视频理解接口失败: {}", format_reqwest_error_diagnostics(&err)))?;
+    if !response.status().is_success() {
+        let status = response.status();
+        let raw = response.text().await.unwrap_or_default();
+        let snippet = raw.chars().take(1000).collect::<String>();
+        return Err(format!(
+            "Mimo 视频理解请求失败：{} | {}",
+            status,
+            snippet
+        ));
+    }
+    let payload = response
+        .json::<serde_json::Value>()
+        .await
+        .map_err(|err| format!("解析 Mimo 视频理解响应失败: {err}"))?;
+    let text = payload
+        .get("choices")
+        .and_then(serde_json::Value::as_array)
+        .and_then(|choices| choices.first())
+        .and_then(|choice| choice.get("message"))
+        .and_then(|message| message.get("content"))
+        .and_then(serde_json::Value::as_str)
+        .map(str::trim)
+        .unwrap_or_default()
+        .to_string();
+    if text.is_empty() {
+        return Err(format!(
+            "Mimo 视频理解响应为空：{}",
+            payload
+        ));
+    }
+    Ok(text)
+}
+
+async fn describe_media_with_multimodal_api(
+    state: &AppState,
+    resolved_api: &ResolvedApiConfig,
+    selected_api: &ApiConfig,
+    media_type: ReadMediaDetectedType,
+    mime: &str,
+    content_base64: &str,
+    saved_path: Option<String>,
+    description: &str,
+) -> Result<String, String> {
+    let prepared = build_read_media_prepared_prompt(
+        media_type,
+        mime,
+        content_base64,
+        saved_path,
+        description,
+    );
+    let supports_non_stream_fallback =
+        request_format_supports_non_stream_fallback(resolved_api.request_format);
+    let prefer_non_stream = supports_non_stream_fallback
+        && provider_streaming_disabled(
+            Some(state),
+            resolved_api.request_format,
+            &resolved_api.base_url,
+            &selected_api.model,
+        );
+    let reply = if resolved_api.request_format.is_genai_chat() || resolved_api.request_format.is_auto() {
+        if prefer_non_stream {
+            call_model_openai_non_stream(
+                resolved_api,
+                &selected_api.model,
+                prepared,
+                Some(state),
+                None,
+            )
+            .await?
+        } else {
+            match call_model_openai_stream(
+                resolved_api,
+                &selected_api.model,
+                prepared.clone(),
+                Some(state),
+                None,
+            )
+            .await
+            {
+                Ok(reply) => reply,
+                Err(err)
+                    if supports_non_stream_fallback
+                        && is_streaming_request_payload_format_error(&err) =>
+                {
+                    call_model_openai_non_stream(
+                        resolved_api,
+                        &selected_api.model,
+                        prepared,
+                        Some(state),
+                        None,
+                    )
+                    .await?
+                }
+                Err(err) => return Err(err),
+            }
+        }
+    } else {
+        return Err(format!(
+            "多模态分析模型请求格式 '{}' 暂未接入 read_media。",
+            resolved_api.request_format
+        ));
+    };
+    Ok(reply.assistant_text.trim().to_string())
+}
+
+async fn builtin_read_media(
+    state: &AppState,
+    request: ReadMediaRequest,
+) -> Result<Value, String> {
+    let path = ensure_absolute_media_path(&request)?;
+    let detected = detect_read_media_type(&path).ok_or_else(|| "read_media 仅支持图片、音频或视频文件".to_string())?;
+    let app_config = state_read_config_cached(state)?;
+    let selected_api = resolve_vision_api_config(&app_config)?;
+    let route_family = validate_read_media_route(&selected_api)?;
+    match detected {
+        ReadMediaDetectedType::Image if !selected_api.enable_image => {
+            return Err("当前多模态模型未启用图片输入".to_string());
+        }
+        ReadMediaDetectedType::Audio if !selected_api.enable_audio => {
+            return Err("当前多模态模型未启用音频输入".to_string());
+        }
+        ReadMediaDetectedType::Video if !selected_api.enable_video => {
+            return Err("当前多模态模型未启用视频输入".to_string());
+        }
+        _ => {}
+    }
+    let resolved_api = resolve_api_config(&app_config, Some(selected_api.id.as_str()))?;
+    let raw = tokio::fs::read(&path)
+        .await
+        .map_err(|err| format!("读取媒体文件失败: {err}"))?;
+    let mime = media_mime_from_path(&path)
+        .unwrap_or(match detected {
+            ReadMediaDetectedType::Image => "image/png",
+            ReadMediaDetectedType::Audio => "audio/mpeg",
+            ReadMediaDetectedType::Video => "video/mp4",
+        })
+        .to_string();
+    let content_base64 = B64.encode(&raw);
+    let description = request.description.unwrap_or_default().trim().to_string();
+    use sha2::{Digest, Sha256};
+    let mut hasher = Sha256::new();
+    hasher.update(&raw);
+    let hash = format!("{:x}", hasher.finalize());
+    if let Some(cached) = {
+        let runtime = state_read_runtime_state_cached(state)?;
+        read_file_media_cache_lookup(&runtime, &hash, &selected_api.id, detected, &description)
+    } {
+        return Ok(serde_json::json!({
+            "ok": true,
+            "mediaType": detected.as_str(),
+            "modelId": selected_api.id,
+            "path": path.to_string_lossy().to_string(),
+            "description": description,
+            "text": cached,
+            "cached": true
+        }));
+    }
+    let text = match detected {
+        ReadMediaDetectedType::Image => {
+            describe_media_with_multimodal_api(
+                state,
+                &resolved_api,
+                &selected_api,
+                detected,
+                &mime,
+                &content_base64,
+                Some(path.to_string_lossy().to_string()),
+                &description,
+            )
+            .await?
+        }
+        ReadMediaDetectedType::Audio => match route_family {
+            ReadMediaRouteFamily::OpenAI => {
+                describe_openai_family_media_with_multimodal_api(
+                    state,
+                    &resolved_api,
+                    &selected_api,
+                    detected,
+                    &mime,
+                    &content_base64,
+                    &description,
+                )
+                .await?
+            }
+            ReadMediaRouteFamily::Gemini => {
+                describe_gemini_media_with_multimodal_api(
+                    state,
+                    &resolved_api,
+                    &selected_api,
+                    detected,
+                    &mime,
+                    &content_base64,
+                    &description,
+                )
+                .await?
+            }
+            ReadMediaRouteFamily::Anthropic => {
+                return Err("当前 MiniMax Anthropic 多模态链路暂不支持音频解析，请改用支持音频的 OpenAI 或 Gemini 多模态模型。".to_string());
+            }
+        },
+        ReadMediaDetectedType::Video => match route_family {
+            ReadMediaRouteFamily::OpenAI if is_mimo_multimodal_model(&selected_api.model) => {
+                describe_mimo_video_with_multimodal_api(
+                    state,
+                    &resolved_api,
+                    &selected_api,
+                    &mime,
+                    &content_base64,
+                    &description,
+                )
+                .await?
+            }
+            ReadMediaRouteFamily::OpenAI => {
+                describe_openai_family_media_with_multimodal_api(
+                    state,
+                    &resolved_api,
+                    &selected_api,
+                    detected,
+                    &mime,
+                    &content_base64,
+                    &description,
+                )
+                .await?
+            }
+            ReadMediaRouteFamily::Gemini => {
+                describe_gemini_media_with_multimodal_api(
+                    state,
+                    &resolved_api,
+                    &selected_api,
+                    detected,
+                    &mime,
+                    &content_base64,
+                    &description,
+                )
+                .await?
+            }
+            ReadMediaRouteFamily::Anthropic => {
+                describe_minimax_video_with_multimodal_api(
+                    state,
+                    &resolved_api,
+                    &selected_api,
+                    &mime,
+                    &content_base64,
+                    &description,
+                )
+                .await?
+            }
+        },
+    };
+    if text.is_empty() {
+        return Err("多模态分析模型返回了空结果".to_string());
+    }
+    {
+        let mut runtime = state_read_runtime_state_cached(state)?;
+        read_file_media_cache_upsert(&mut runtime, &hash, &selected_api.id, detected, &description, &text);
+        state_write_runtime_state_cached(state, &runtime)?;
+    }
+    Ok(serde_json::json!({
+        "ok": true,
+        "mediaType": detected.as_str(),
+        "modelId": selected_api.id,
+        "path": path.to_string_lossy().to_string(),
+        "description": description,
+        "text": text,
+        "cached": false
+    }))
+}
+
 async fn read_image_direct(
     _state: &AppState,
     session_id: &str,
@@ -592,11 +1628,13 @@ async fn read_image_via_vision(
     let hash = compute_image_hash_hex(&image)?;
     let cached = {
         let runtime = state_read_runtime_state_cached(state)?;
-        runtime
-            .image_text_cache
-            .iter()
-            .find(|entry| entry.hash == hash && entry.vision_api_id == vision_api.id)
-            .map(|entry| entry.text.clone())
+        read_file_media_cache_lookup(
+            &runtime,
+            &hash,
+            &vision_api.id,
+            ReadMediaDetectedType::Image,
+            "",
+        )
     };
     let described = if let Some(text) = cached {
         text
@@ -609,31 +1647,14 @@ async fn read_image_via_vision(
             return Err("Vision fallback returned empty text for the image.".to_string());
         }
         let mut runtime = state_read_runtime_state_cached(state)?;
-        if let Some(entry) = runtime
-            .image_text_cache
-            .iter_mut()
-            .find(|entry| entry.hash == hash && entry.vision_api_id == vision_api.id)
-        {
-            entry.text = converted.clone();
-            entry.updated_at = now_iso();
-        } else {
-            runtime.image_text_cache.push(ImageTextCacheEntry {
-                hash: hash.clone(),
-                vision_api_id: vision_api.id.clone(),
-                text: converted.clone(),
-                updated_at: now_iso(),
-            });
-            if runtime.image_text_cache.len() > MAX_IMAGE_TEXT_CACHE_ENTRIES {
-                if let Some((oldest_idx, _)) = runtime
-                    .image_text_cache
-                    .iter()
-                    .enumerate()
-                    .min_by(|(_, a), (_, b)| a.updated_at.cmp(&b.updated_at))
-                {
-                    runtime.image_text_cache.remove(oldest_idx);
-                }
-            }
-        }
+        read_file_media_cache_upsert(
+            &mut runtime,
+            &hash,
+            &vision_api.id,
+            ReadMediaDetectedType::Image,
+            "",
+            &converted,
+        );
         state_write_runtime_state_cached(state, &runtime)?;
         converted
     };
@@ -905,27 +1926,17 @@ async fn builtin_read_file(
         ));
     }
     if matches!(detected, ReadFileDetectedType::Image) {
-        let result = read_image_file_result(state, session_id, api_config_id, &request, detected).await;
-        let elapsed_ms = started.elapsed().as_millis().min(u128::from(u64::MAX)) as u64;
-        match &result {
-            Ok(value) => eprintln!(
-                "[read] 完成，任务=read，session_id={}，api_config_id={}，reader={}，detected_type={}，elapsed_ms={}",
-                session_id,
-                api_config_id,
-                value.get("readerKind").and_then(Value::as_str).unwrap_or("image"),
-                detected.as_str(),
-                elapsed_ms
-            ),
-            Err(err) => eprintln!(
-                "[read] 失败，任务=read，session_id={}，api_config_id={}，detected_type={}，elapsed_ms={}，error={}",
-                session_id,
-                api_config_id,
-                detected.as_str(),
-                elapsed_ms,
-                err
-            ),
-        }
-        return result;
+        return Ok(build_text_read_result(
+            &path,
+            detected,
+            "media_redirect_notice",
+            "该文件被识别为图片。`read_file` 现在只负责文本、PDF 和 Office 等文档读取；请改用 `read_media` 解析图片、音频或视频。",
+            request.offset,
+            request.limit,
+            serde_json::json!({
+                "redirectTool": READ_MEDIA_TOOL_NAME
+            }),
+        ));
     }
     let readers: [&dyn ReadFileReader; 3] = [
         &TextFileReader,
@@ -1096,6 +2107,78 @@ fn detect_read_file_type_should_classify_common_formats() {
 
 #[cfg(test)]
 #[test]
+fn detect_read_media_type_should_classify_common_formats() {
+        assert_eq!(
+            detect_read_media_type(std::path::Path::new("a.png")),
+            Some(ReadMediaDetectedType::Image)
+        );
+        assert_eq!(
+            detect_read_media_type(std::path::Path::new("a.mp3")),
+            Some(ReadMediaDetectedType::Audio)
+        );
+        assert_eq!(
+            detect_read_media_type(std::path::Path::new("a.mp4")),
+            Some(ReadMediaDetectedType::Video)
+        );
+        assert_eq!(detect_read_media_type(std::path::Path::new("a.txt")), None);
+}
+
+#[cfg(test)]
+#[test]
+fn validate_read_media_route_should_accept_supported_protocol_and_model_pairs() {
+        let mut api = ApiConfig::default();
+        api.request_format = RequestFormat::Gemini;
+        api.model = "gemini-2.5-pro".to_string();
+        assert_eq!(
+            validate_read_media_route(&api),
+            Ok(ReadMediaRouteFamily::Gemini)
+        );
+
+        api.request_format = RequestFormat::OpenAI;
+        api.model = "mimo-v2.5".to_string();
+        assert_eq!(
+            validate_read_media_route(&api),
+            Ok(ReadMediaRouteFamily::OpenAI)
+        );
+
+        api.request_format = RequestFormat::Anthropic;
+        api.model = "MiniMax-M3".to_string();
+        assert_eq!(
+            validate_read_media_route(&api),
+            Ok(ReadMediaRouteFamily::Anthropic)
+        );
+
+        api.request_format = RequestFormat::Auto;
+        api.model = "qwen3.7-plus".to_string();
+        assert_eq!(
+            validate_read_media_route(&api),
+            Ok(ReadMediaRouteFamily::OpenAI)
+        );
+}
+
+#[cfg(test)]
+#[test]
+fn validate_read_media_route_should_reject_protocol_mismatches() {
+        let mut api = ApiConfig::default();
+        api.request_format = RequestFormat::Anthropic;
+        api.model = "mimo-v2.5".to_string();
+        assert!(
+            validate_read_media_route(&api)
+                .expect_err("mimo should require openai")
+                .contains("只能使用 OpenAI 协议")
+        );
+
+        api.request_format = RequestFormat::OpenAI;
+        api.model = "gemini-2.5-pro".to_string();
+        assert!(
+            validate_read_media_route(&api)
+                .expect_err("gemini should require gemini protocol")
+                .contains("只能使用 Gemini 协议")
+        );
+}
+
+#[cfg(test)]
+#[test]
 fn image_mime_from_bytes_should_detect_common_images_without_extension() {
         assert_eq!(
             image_mime_from_bytes(&[0x89, b'P', b'N', b'G', 0x0d, 0x0a, 0x1a, 0x0a]),
@@ -1227,19 +2310,11 @@ fn builtin_read_file_should_decode_gbk_text_file() {
 
 #[cfg(test)]
 #[test]
-fn builtin_read_file_should_return_root_image_payload_when_model_supports_image() {
+fn builtin_read_file_should_redirect_image_input_to_read_media() {
         let root = std::env::temp_dir().join(format!("eca-read-file-image-{}", Uuid::new_v4()));
         std::fs::create_dir_all(&root).expect("create temp dir");
         let file = root.join("sample.png");
-        let mut cursor = std::io::Cursor::new(Vec::<u8>::new());
-        image::DynamicImage::ImageRgba8(image::RgbaImage::from_pixel(
-            1,
-            1,
-            image::Rgba([255, 0, 0, 255]),
-        ))
-        .write_to(&mut cursor, image::ImageFormat::Png)
-        .expect("encode png");
-        std::fs::write(&file, cursor.into_inner()).expect("write sample image");
+        std::fs::write(&file, b"fake-png").expect("write sample image");
         let state = test_read_file_state();
         let config = AppConfig {
             selected_api_config_id: "vision-a".to_string(),
@@ -1253,6 +2328,7 @@ fn builtin_read_file_should_return_root_image_payload_when_model_supports_image(
                 enable_text: true,
                 enable_image: true,
                 enable_audio: false,
+                enable_video: false,
                 enable_tools: true,
                 tools: vec![],
                 base_url: "https://example.com/v1".to_string(),
@@ -1296,23 +2372,61 @@ fn builtin_read_file_should_return_root_image_payload_when_model_supports_image(
             })
             .expect("read image");
 
-        assert_eq!(value.get("readerKind").and_then(Value::as_str), Some("image_direct"));
-        assert_eq!(value.get("imageMime").and_then(Value::as_str), Some("image/webp"));
-        assert!(value.get("imageBase64").and_then(Value::as_str).is_some());
-        assert!(value.get("content").is_none());
+        assert_eq!(
+            value.get("readerKind").and_then(Value::as_str),
+            Some("media_redirect_notice")
+        );
+        assert_eq!(
+            value.get("metadata")
+                .and_then(|item| item.get("extra"))
+                .and_then(|item| item.get("redirectTool"))
+                .and_then(Value::as_str),
+            Some(READ_MEDIA_TOOL_NAME)
+        );
+        assert!(
+            value.get("content")
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .contains("请改用 `read_media`")
+        );
     }
 
 #[cfg(test)]
 #[test]
-fn builtin_read_file_should_downgrade_bad_image_to_text_notice() {
-        let root = std::env::temp_dir().join(format!("eca-read-file-image-bad-{}", Uuid::new_v4()));
+fn builtin_read_media_should_reject_non_media_file() {
+        let root = std::env::temp_dir().join(format!("eca-read-media-text-{}", Uuid::new_v4()));
         std::fs::create_dir_all(&root).expect("create temp dir");
-        let file = root.join("sample.png");
-        std::fs::write(&file, b"not-a-real-png").expect("write bad image");
+        let file = root.join("sample.txt");
+        std::fs::write(&file, b"hello").expect("write text");
+        let state = test_read_file_state();
+        let err = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .expect("build tokio runtime")
+        .block_on(builtin_read_media(
+            &state,
+            ReadMediaRequest {
+                path: file.to_string_lossy().to_string(),
+                description: None,
+            },
+        ))
+        .expect_err("reject non-media");
+
+        assert!(err.contains("read_media 仅支持图片、音频或视频文件"));
+    }
+
+#[cfg(test)]
+#[test]
+fn builtin_read_media_should_fail_when_audio_capability_is_disabled() {
+        let root = std::env::temp_dir().join(format!("eca-read-media-audio-{}", Uuid::new_v4()));
+        std::fs::create_dir_all(&root).expect("create temp dir");
+        let file = root.join("sample.mp3");
+        std::fs::write(&file, b"fake-mp3").expect("write audio");
         let state = test_read_file_state();
         let config = AppConfig {
             selected_api_config_id: "vision-a".to_string(),
             assistant_department_api_config_id: "vision-a".to_string(),
+            vision_api_config_id: Some("vision-a".to_string()),
             api_configs: vec![ApiConfig {
                 id: "vision-a".to_string(),
                 name: "vision-a".to_string(),
@@ -1322,6 +2436,7 @@ fn builtin_read_file_should_downgrade_bad_image_to_text_notice() {
                 enable_text: true,
                 enable_image: true,
                 enable_audio: false,
+                enable_video: false,
                 enable_tools: true,
                 tools: vec![],
                 base_url: "https://example.com/v1".to_string(),
@@ -1345,32 +2460,20 @@ fn builtin_read_file_should_downgrade_bad_image_to_text_notice() {
         };
         state_write_config_cached(&state, &config).expect("write config");
 
-        let value = tokio::runtime::Builder::new_current_thread()
+        let err = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
         .expect("build tokio runtime")
-        .block_on(builtin_read_file(
+        .block_on(builtin_read_media(
             &state,
-            "assistant::conversation-a",
-            "vision-a",
-            ReadFileRequest {
+            ReadMediaRequest {
                 path: file.to_string_lossy().to_string(),
-                offset: None,
-                limit: None,
+                description: Some("只关注语音内容".to_string()),
             },
         ))
-        .expect("read image fallback");
+        .expect_err("audio capability should be rejected");
 
-        assert_eq!(
-            value.get("readerKind").and_then(Value::as_str),
-            Some("image_fallback_notice")
-        );
-        assert!(
-            value.get("content")
-                .and_then(Value::as_str)
-                .unwrap_or_default()
-                .contains("未能作为图片输入直接提供给模型")
-        );
+        assert_eq!(err, "当前多模态模型未启用音频输入");
     }
 
 #[cfg(test)]

@@ -1,6 +1,7 @@
 import { computed } from "vue";
 import type { ApiRequestFormat, AppConfig } from "../../../types/app";
 import { isModelRoleApiConfigId, resolveModelRoleApiConfigId } from "../../config/utils/model-role-options";
+import { supportsMultimodalRouting } from "../../config/utils/multimodal-routing";
 
 export function useChatConfigDerivedState(config: AppConfig) {
   const TEXT_REQUEST_FORMATS = new Set<ApiRequestFormat>([
@@ -45,7 +46,12 @@ export function useChatConfigDerivedState(config: AppConfig) {
   const textCapableApiConfigs = computed(() =>
     config.apiConfigs.filter((a) => a.enableText && isTextRequestFormat(a.requestFormat)),
   );
-  const imageCapableApiConfigs = computed(() => config.apiConfigs.filter((a) => a.enableImage));
+  const imageCapableApiConfigs = computed(() =>
+    config.apiConfigs.filter((a) =>
+      (a.enableImage || a.enableAudio || a.enableVideo)
+      && supportsMultimodalRouting(a.requestFormat, a.model),
+    ),
+  );
   const sttCapableApiConfigs = computed(() =>
     config.apiConfigs.filter((a) => a.requestFormat === "openai_stt"),
   );
@@ -150,7 +156,11 @@ export function useChatConfigDerivedState(config: AppConfig) {
   );
   const hasVisionFallback = computed(() =>
     !!config.visionApiConfigId
-    && config.apiConfigs.some((a) => a.id === config.visionApiConfigId && a.enableImage),
+    && config.apiConfigs.some((a) =>
+      a.id === config.visionApiConfigId
+      && (a.enableImage || a.enableAudio || a.enableVideo)
+      && supportsMultimodalRouting(a.requestFormat, a.model),
+    ),
   );
   const activeSttApiConfig = computed(
     () => sttCapableApiConfigs.value.find((a) => a.id === config.sttApiConfigId) ?? null,
