@@ -205,7 +205,7 @@ export function useChatWindowConversationOrchestrator(bindings: Record<string, a
     if (!cid) return;
     const snapshot = await chatForeground.requestConversationLightSnapshot(cid, { resumeProjection: true });
     if (cid !== String(bindings.currentChatConversationId.value || "").trim()) return;
-    bindings.applyConversationSnapshot(snapshot);
+    applyConversationSnapshot(snapshot);
     if (cid !== String(bindings.currentChatConversationId.value || "").trim()) return;
     const shouldBindStream = !!snapshot?.shouldBindStream;
     if (shouldBindStream) {
