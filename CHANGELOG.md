@@ -5,7 +5,7 @@
 
 ## 最近版本
 
-- [v0.11.7](docs/changelog/releases/v0.11.7.md) - 功能（bridge）：Web 桥接与侧边栏 WebView 断连恢复、认证持久化、文件阅读器桥接支持
+- [v0.11.8](docs/changelog/releases/v0.11.8.md) - 修复（meme）：后端扫描贴纸token生成标注，前端按标注替换渲染
 - [v0.11.6](docs/changelog/releases/v0.11.6.md) - 修复（chat）：撤回/重新生成补齐前端进行中保护，撤回预览改为以后端真实备份记录判断 `apply_patch` 可回滚状态，避免长会话工具历史在 UI 线程同步解析导致卡死、误判和重复触发。
 - [v0.11.5](docs/changelog/releases/v0.11.5.md) - 重构（chat）：删除代码审查报告页面（reports tab），「发起审查」入口移至更多菜单（委托下方）；审查结果已通过委托面板展示，报告页面冗余。
 - [v0.11.3](docs/changelog/releases/v0.11.3.md) - 修复（i18n）：请求失败状态会展开结构化错误里的真实 `message/detail/error`，并补齐请求失败友好文案，避免界面直接显示 `status.requestFailed` 等 i18n key。

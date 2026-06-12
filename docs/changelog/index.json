@@ -1,11 +1,11 @@
 {
-  "generatedAt": "2026-06-12T01:23:21.789Z",
-  "latestVersion": "v0.11.7",
+  "generatedAt": "2026-06-12T03:12:57.671Z",
+  "latestVersion": "v0.11.8",
   "releases": [
     {
-      "version": "v0.11.7",
-      "path": "docs/changelog/releases/v0.11.7.md",
-      "summary": "功能（bridge）：Web 桥接与侧边栏 WebView 断连恢复、认证持久化、文件阅读器桥接支持"
+      "version": "v0.11.8",
+      "path": "docs/changelog/releases/v0.11.8.md",
+      "summary": "修复（meme）：后端扫描贴纸token生成标注，前端按标注替换渲染"
     },
     {
       "version": "v0.11.6",
