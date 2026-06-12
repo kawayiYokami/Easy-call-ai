@@ -66,7 +66,7 @@
     :default-create-conversation-department-id="defaultCreateConversationDepartmentId"
     :ide-context-groups="ideContextGroups"
     :attached-ide-context-references="[]"
-    :current-theme="vscodeTheme"
+    :current-theme="effectiveCurrentTheme"
     :detached-chat-window="false"
     :sidebar-mode="false"
     :bridge-mode="true"
@@ -148,6 +148,7 @@ import ChatView from "../../chat/views/ChatView.vue";
 import { useChatMessageBlocks } from "../../chat/composables/use-chat-turns";
 import type { TerminalApprovalConversationItem } from "../../shell/composables/use-terminal-approval";
 import type { DepartmentPersonaOption } from "../../shared/department-persona-options";
+import { useAppTheme } from "../../shell/composables/use-app-theme";
 
 type VsCodeApi = { postMessage: (message: unknown) => void };
 
@@ -282,8 +283,10 @@ const sidebarMentionEntries = computed<ChatMentionEntry[]>(() => {
       };
     });
 });
+const { currentTheme: appCurrentTheme } = useAppTheme();
 const vscodeTheme = ref(resolveVsCodeTheme());
 const isVsCodeHost = !!getVsCodeApi();
+const effectiveCurrentTheme = computed(() => isVsCodeHost ? vscodeTheme.value : String(appCurrentTheme.value || "light"));
 const scrollToBottomRequest = ref(0);
 const streamingDraftCreatedAt = ref("");
 const streamingDraftStartedAtMs = ref(0);

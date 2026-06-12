@@ -355,6 +355,7 @@
           ref="chatReaderPanelRef"
           class="h-full w-full"
           :initial-root-path="currentWorkspaceRootPath"
+          :bridge-request="bridgeRequest"
           :session-key="chatFileReaderSessionKey"
           :legacy-session-key="legacyChatFileReaderSessionKey"
           :enable-global-drop="false"

@@ -32,7 +32,7 @@
     @toggle-tool-review-panel="toggleToolReviewPanel"
     @update-conversation-list-tab="updateConversationListTab"
     @update-chat-left-panel-mode="updateChatLeftPanelMode"
-    @update-chat-right-panel-mode="chatRightPanelMode = $event"
+    @update-chat-right-panel-mode="updateChatRightPanelMode"
     @create-conversation="handleCreateConversationRequest"
     @directory-pick-restricted="handleDirectoryPickRestricted"
   >
@@ -91,7 +91,7 @@
       @side-panel-widths-commit="chatSidePanelWidths = $event"
       @update-conversation-list-tab="updateConversationListTab"
       @update-chat-left-panel-mode="updateChatLeftPanelMode"
-      @update-chat-right-panel-mode="chatRightPanelMode = $event"
+      @update-chat-right-panel-mode="updateChatRightPanelMode"
       @recall-turn="recallTurn"
       @confirm-plan="confirmPlan"
       @lock-workspace="openWorkspacePicker"
@@ -647,8 +647,8 @@ const workspaceParentPath = computed(() => parentWorkspaceDirectoryPath(workspac
 const terminalApprovalQueue = ref<TerminalApprovalRequestPayload[]>([]);
 const terminalApprovalResolving = ref(false);
 const hideWorkspaceButton = computed(() => false);
-const sideConversationListVisible = ref(true);
-const toolReviewPanelOpenVisible = ref(true);
+const sideConversationListVisible = ref(false);
+const toolReviewPanelOpenVisible = ref(false);
 const conversationListTab = ref<SidebarConversationTab>(loadStoredConversationListTab());
 const chatLeftPanelMode = ref<SidebarConversationTab>(loadStoredChatLeftPanelMode());
 const chatRightPanelMode = ref<"reader" | "review" | "delegate">("review");
@@ -871,6 +871,12 @@ function updateConversationListTab(value: SidebarConversationTab) {
 
 function updateChatLeftPanelMode(value: SidebarConversationTab) {
   updateConversationListTab(value);
+}
+
+function updateChatRightPanelMode(value: "reader" | "review" | "delegate") {
+  chatRightPanelMode.value = value;
+  view.value = "chat";
+  toolReviewPanelOpenVisible.value = true;
 }
 
 function normalizeDiscovery(payload: DiscoveryPayload): SidebarBridgeConfig | null {
@@ -1176,6 +1182,18 @@ function clearStreamingState() {
   streamBlocks.value = [];
 }
 
+function resetActiveConversationTransientState(reason: string) {
+  console.info("[Sidebar会话恢复] 重置前端瞬时流式状态", {
+    reason,
+    activeConversationId: activeConversationId.value,
+    busy: busy.value,
+    streamingTextLength: String(streamingText.value || "").length,
+    streamBlockCount: Array.isArray(streamBlocks.value) ? streamBlocks.value.length : 0,
+  });
+  busy.value = false;
+  clearStreamingState();
+}
+
 function applyRuntimeStreamCache(runtime: SidebarConversationRuntimePayload | null | undefined) {
   const cache = runtime?.streamCache;
   if (!cache) return;
@@ -1195,6 +1213,7 @@ function applyAssistantToolStatusEvent(event: NonNullable<SidebarAssistantDeltaP
 }
 
 async function openConversation(conversationId: string) {
+  sideConversationListVisible.value = false;
   const beforeSummary = conversations.value.find((item) => String(item.conversationId || "").trim() === String(conversationId || "").trim());
   if (beforeSummary && String(beforeSummary.conversationId || "").trim() !== String(activeConversationId.value || "").trim() && !isSidebarConversationOpenable(beforeSummary)) {
     console.info("[Sidebar会话打开] 跳过被占用会话", {
@@ -1211,6 +1230,9 @@ async function openConversation(conversationId: string) {
     summary: beforeSummary,
     isSystemBySummary: beforeSummary ? isSidebarSystemConversation(beforeSummary) : false,
   });
+  if (String(activeConversationId.value || "").trim() === String(conversationId || "").trim()) {
+    resetActiveConversationTransientState("reload_current_conversation");
+  }
   clearCompletedRuntimeStateForConversation(activeConversationId.value);
   const vscodeRoot = vscodeWorkspaceRoots.value[0];
   let result: OpenConversationResult;
@@ -2287,6 +2309,52 @@ async function initializeAfterBridgeAuthenticated() {
   await refreshIdeContextGroups();
 }
 
+async function reloadActiveSidebarConversation(reason: string) {
+  const currentConversationId = String(activeConversationId.value || "").trim();
+  if (!currentConversationId) return;
+  try {
+    await openConversation(currentConversationId);
+  } catch (error) {
+    console.warn("[Sidebar会话恢复] 重新加载当前会话失败", {
+      conversationId: currentConversationId,
+      reason,
+      error,
+    });
+  }
+}
+
+async function reconnectSidebarBridge(options?: { forceReloadActiveConversation?: boolean; reason?: string }) {
+  const reason = String(options?.reason || "unknown").trim() || "unknown";
+  const forceReloadActiveConversation = !!options?.forceReloadActiveConversation;
+  transport.errorText.value = "";
+  if (forceReloadActiveConversation) {
+    resetActiveConversationTransientState(`${reason}_before_reconnect`);
+  }
+  const existingConfig = transport.bridgeConfig.value;
+  if (existingConfig) {
+    await transport.reconnect();
+    if (transport.connected.value && transport.bridgeReady.value && transport.authenticated.value) {
+      await initializeAfterBridgeAuthenticated();
+      if (forceReloadActiveConversation) {
+        await reloadActiveSidebarConversation(reason);
+      }
+      return;
+    }
+  }
+  const config = await loadDiscovery();
+  if (!config) {
+    transport.errorText.value = t('sidebar.paiNotRunning');
+    return;
+  }
+  await transport.connect(config);
+  if (transport.connected.value && transport.bridgeReady.value && transport.authenticated.value) {
+    await initializeAfterBridgeAuthenticated();
+    if (forceReloadActiveConversation) {
+      await reloadActiveSidebarConversation(reason);
+    }
+  }
+}
+
 function openRemoteAuthDialog() {
   remoteAuthDialogOpen.value = true;
   remoteAuthPassword.value = "";
@@ -2443,6 +2511,23 @@ function clearDiscoveryRefreshTimer() {
 
 function refreshDiscovery() {
   clearDiscoveryRefreshTimer();
+  if (transport.bridgeConfig.value) {
+    void reconnectSidebarBridge({
+      forceReloadActiveConversation: true,
+      reason: "manual_reconnect",
+    }).catch((error) => {
+      console.warn("[Sidebar桥接] 直接重连失败，回退 discovery 刷新", error);
+      transport.connecting.value = true;
+      window.parent.postMessage({ type: "pai-refresh-discovery" }, "*");
+    });
+    discoveryRefreshTimer = window.setTimeout(() => {
+      discoveryRefreshTimer = null;
+      if (transport.connected.value) return;
+      transport.connecting.value = false;
+      transport.errorText.value = t('sidebar.paiNotRunning');
+    }, 3000);
+    return;
+  }
   transport.errorText.value = "";
   transport.connecting.value = true;
   window.parent.postMessage({ type: "pai-refresh-discovery" }, "*");
@@ -2476,6 +2561,22 @@ function handleWindowMessage(event: MessageEvent) {
   }
 }
 
+function handleDocumentVisibilityChange() {
+  if (document.visibilityState !== "visible") {
+    resetActiveConversationTransientState("visibility_hidden");
+    // 手机浏览器 / WebView 切后台后，旧 websocket 很容易变成僵尸连接。
+    // 先主动关闭，回前台时再走“重连 + 重开当前会话”，避免旧流式态和新流式态并存。
+    transport.close();
+    return;
+  }
+  void reconnectSidebarBridge({
+    forceReloadActiveConversation: true,
+    reason: "visibility_visible",
+  }).catch((error) => {
+    console.warn("[Sidebar桥接] 前台恢复重连失败", error);
+  });
+}
+
 onMounted(() => {
   registerNotifications();
   transport.onAuthRefreshNeeded(() => {
@@ -2483,6 +2584,7 @@ onMounted(() => {
   });
   window.addEventListener("message", handleWindowMessage);
   window.addEventListener("paste", handleWindowPaste);
+  document.addEventListener("visibilitychange", handleDocumentVisibilityChange);
   void bootstrap();
 });
 
@@ -2491,5 +2593,6 @@ onBeforeUnmount(() => {
   cancelPendingRewindConfirm();
   window.removeEventListener("message", handleWindowMessage);
   window.removeEventListener("paste", handleWindowPaste);
+  document.removeEventListener("visibilitychange", handleDocumentVisibilityChange);
 });
 </script>

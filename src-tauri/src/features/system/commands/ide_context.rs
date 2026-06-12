@@ -91,10 +91,13 @@ const IDE_CONTEXT_BRIDGE_PATH: &str = "/ide-context";
 const IDE_CONTEXT_CHAT_BRIDGE_PATH: &str = "/chat";
 const IDE_CONTEXT_BRIDGE_DISCOVERY_FILE: &str = "p-ai-ide-context-bridge.json";
 const IDE_CONTEXT_SNAPSHOT_TTL_SECS: i64 = 30;
-const IDE_CONTEXT_AUTH_TOKEN_TTL_SECS: i64 = 24 * 60 * 60;
+const IDE_CONTEXT_AUTH_TOKEN_TTL_SECS: i64 = 7 * 24 * 60 * 60;
 static IDE_CONTEXT_BRIDGE_STARTED: AtomicBool = AtomicBool::new(false);
 static IDE_CONTEXT_BRIDGE_SHUTDOWN: OnceLock<
     Arc<Mutex<Option<tokio_util::sync::CancellationToken>>>,
+> = OnceLock::new();
+static IDE_CONTEXT_BRIDGE_SERVER_TASK: OnceLock<
+    Arc<Mutex<Option<tauri::async_runtime::JoinHandle<()>>>>,
 > = OnceLock::new();
 static IDE_CONTEXT_CHAT_CLIENTS: OnceLock<
     Arc<Mutex<std::collections::HashMap<String, tokio::sync::mpsc::UnboundedSender<serde_json::Value>>>>,
@@ -111,6 +114,13 @@ struct IdeContextRuntime {
 struct IdeContextBridgeAuthRuntime {
     valid_tokens: std::collections::HashMap<String, OffsetDateTime>,
     remote_password: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct IdeContextPersistedBridgeToken {
+    token: String,
+    expires_at: String,
 }
 
 impl IdeContextRuntime {
@@ -508,6 +518,12 @@ struct IdeChatWorkspaceDirectoryListInput {
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
+struct IdeChatFileReaderReadInput {
+    path: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
 struct IdeChatReadPlanFileInput {
     conversation_id: String,
     path: String,
@@ -572,6 +588,69 @@ fn ide_chat_workspace_directory_list(params: Value) -> Result<Value, String> {
         "name": payload.name,
         "directories": directories,
     }))
+}
+
+fn ide_chat_file_reader_directory_list(params: Value) -> Result<Value, String> {
+    let input = ide_chat_parse_params::<IdeChatWorkspaceDirectoryListInput>(params)?;
+    serde_json::to_value(list_file_reader_directory(input.path)?)
+        .map_err(|err| format!("serialize file reader directory failed: {err}"))
+}
+
+fn ide_chat_file_reader_read(params: Value) -> Result<Value, String> {
+    let input = ide_chat_parse_params::<IdeChatFileReaderReadInput>(params)?;
+    let path = input.path.trim();
+    if path.is_empty() {
+        return Err("path is required".to_string());
+    }
+    let file_path = PathBuf::from(path);
+    if !file_path.exists() {
+        return Err(format!("文件不存在：{path}"));
+    }
+    if !file_path.is_file() {
+        return Err(format!("目标不是文件：{path}"));
+    }
+    let metadata = fs::metadata(&file_path).map_err(|err| format!("读取文件信息失败：{err}"))?;
+    let file_size = metadata.len();
+    let force_plain = file_size > FILE_READER_PLAIN_TEXT_THRESHOLD;
+    let content = match decode_text_file_from_path(&file_path) {
+        Ok(decoded) => {
+            if force_plain {
+                truncate_long_lines(&decoded.text, FILE_READER_LINE_TRUNCATE_CHARS)
+            } else {
+                decoded.text
+            }
+        }
+        Err(_) => {
+            let bytes = fs::read(&file_path).map_err(|err| format!("读取文件失败：{err}"))?;
+            format_hex_dump(&bytes)
+        }
+    };
+    let resolved_path = file_path.canonicalize().unwrap_or_else(|_| file_path.clone());
+    let extension = file_path
+        .extension()
+        .and_then(|value| value.to_str())
+        .unwrap_or_default()
+        .trim()
+        .to_ascii_lowercase();
+    let name = file_path
+        .file_name()
+        .and_then(|value| value.to_str())
+        .unwrap_or(path)
+        .to_string();
+    let file_key = if extension.is_empty() {
+        name.trim().to_ascii_lowercase()
+    } else {
+        extension.clone()
+    };
+    serde_json::to_value(FileReaderFilePayload {
+        path: resolved_path.to_string_lossy().replace('\\', "/"),
+        name,
+        extension: file_key.clone(),
+        kind: file_reader_file_kind(&file_key).to_string(),
+        content,
+        force_plain,
+    })
+    .map_err(|err| format!("serialize file reader payload failed: {err}"))
 }
 
 fn ide_chat_delegate_statuses(state: &AppState, params: Value) -> Result<Value, String> {
@@ -1043,29 +1122,133 @@ fn ide_context_prune_expired_bridge_tokens(auth: &mut IdeContextBridgeAuthRuntim
     auth.valid_tokens.retain(|_, expires_at| *expires_at > now);
 }
 
-#[cfg(test)]
-fn ide_context_issue_bridge_token(runtime: &IdeContextRuntime) -> Result<String, String> {
-    let token = ide_context_generate_bridge_token();
+fn ide_context_bridge_token_store_path(state: &AppState) -> PathBuf {
+    app_root_from_data_path(&state.data_path)
+        .join("web-access")
+        .join("bridge-auth-token.json")
+}
+
+fn ide_context_clear_persisted_bridge_token(state: &AppState) -> Result<(), String> {
+    let path = ide_context_bridge_token_store_path(state);
+    if !path.exists() {
+        return Ok(());
+    }
+    fs::remove_file(&path)
+        .map_err(|err| format!("删除 Web 访问令牌失败，path={}，error={err}", path.display()))
+}
+
+fn ide_context_persist_bridge_token(
+    state: &AppState,
+    token: &str,
+    expires_at: OffsetDateTime,
+) -> Result<(), String> {
+    let path = ide_context_bridge_token_store_path(state);
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)
+            .map_err(|err| format!("创建 Web 访问令牌目录失败，path={}，error={err}", parent.display()))?;
+    }
+    let payload = IdeContextPersistedBridgeToken {
+        token: token.trim().to_string(),
+        expires_at: expires_at
+            .format(&Rfc3339)
+            .map_err(|err| format!("格式化 Web 访问令牌过期时间失败: {err}"))?,
+    };
+    let text = serde_json::to_string_pretty(&payload)
+        .map_err(|err| format!("序列化 Web 访问令牌失败: {err}"))?;
+    fs::write(&path, text)
+        .map_err(|err| format!("写入 Web 访问令牌失败，path={}，error={err}", path.display()))
+}
+
+fn ide_context_try_restore_persisted_bridge_token(
+    state: &AppState,
+    runtime: &IdeContextRuntime,
+) -> Result<(), String> {
+    let path = ide_context_bridge_token_store_path(state);
+    if !path.exists() {
+        return Ok(());
+    }
+    let text = fs::read_to_string(&path)
+        .map_err(|err| format!("读取 Web 访问令牌失败，path={}，error={err}", path.display()))?;
+    let payload: IdeContextPersistedBridgeToken = serde_json::from_str(&text)
+        .map_err(|err| format!("解析 Web 访问令牌失败，path={}，error={err}", path.display()))?;
+    let token = payload.token.trim().to_string();
+    if token.is_empty() {
+        let _ = ide_context_clear_persisted_bridge_token(state);
+        return Ok(());
+    }
+    let Some(expires_at) = parse_iso(&payload.expires_at) else {
+        let _ = ide_context_clear_persisted_bridge_token(state);
+        return Ok(());
+    };
+    let now = now_utc();
+    if expires_at <= now {
+        let _ = ide_context_clear_persisted_bridge_token(state);
+        return Ok(());
+    }
     let mut auth = runtime
         .bridge_auth
         .lock()
         .map_err(|_| "Failed to lock ide context bridge auth".to_string())?;
+    auth.valid_tokens.clear();
+    auth.valid_tokens.insert(token, expires_at);
+    Ok(())
+}
+
+fn ide_context_store_bridge_token(
+    runtime: &IdeContextRuntime,
+    state: Option<&AppState>,
+    token: &str,
+    expires_at: OffsetDateTime,
+) -> Result<(), String> {
+    let normalized_token = token.trim().to_string();
+    if normalized_token.is_empty() {
+        return Err("Web 访问令牌为空，无法保存".to_string());
+    }
+    {
+        let mut auth = runtime
+            .bridge_auth
+            .lock()
+            .map_err(|_| "Failed to lock ide context bridge auth".to_string())?;
+        auth.valid_tokens.clear();
+        auth.valid_tokens.insert(normalized_token.clone(), expires_at);
+    }
+    if let Some(state) = state {
+        ide_context_persist_bridge_token(state, &normalized_token, expires_at)?;
+    }
+    Ok(())
+}
+
+fn ide_context_issue_bridge_token_with_state(
+    runtime: &IdeContextRuntime,
+    state: Option<&AppState>,
+) -> Result<String, String> {
+    let token = ide_context_generate_bridge_token();
     let now = now_utc();
-    ide_context_prune_expired_bridge_tokens(&mut auth, now);
-    auth.valid_tokens.insert(
-        token.clone(),
-        now + time::Duration::seconds(IDE_CONTEXT_AUTH_TOKEN_TTL_SECS),
-    );
+    let expires_at = now + time::Duration::seconds(IDE_CONTEXT_AUTH_TOKEN_TTL_SECS);
+    ide_context_store_bridge_token(runtime, state, &token, expires_at)?;
     Ok(token)
 }
 
-fn ide_context_consume_bridge_token(
+fn ide_context_consume_bridge_token_with_state(
     runtime: &IdeContextRuntime,
+    state: Option<&AppState>,
     provided: &str,
 ) -> Result<String, (String, Option<String>)> {
     let provided = provided.trim();
     if provided.is_empty() {
         return Err(("authToken is required".to_string(), None));
+    }
+    if let Some(state) = state {
+        let should_restore = runtime
+            .bridge_auth
+            .lock()
+            .map(|auth| auth.valid_tokens.is_empty())
+            .unwrap_or(false);
+        if should_restore {
+            if let Err(err) = ide_context_try_restore_persisted_bridge_token(state, runtime) {
+                eprintln!("[IDE 上下文桥] 恢复持久化 Web 访问令牌失败: {}", err);
+            }
+        }
     }
     let mut auth = runtime
         .bridge_auth
@@ -1074,11 +1257,12 @@ fn ide_context_consume_bridge_token(
     let now = now_utc();
     ide_context_prune_expired_bridge_tokens(&mut auth, now);
     if auth.valid_tokens.is_empty() {
-        let refreshed_token = ide_context_generate_bridge_token();
-        auth.valid_tokens.insert(
-            refreshed_token.clone(),
-            now + time::Duration::seconds(IDE_CONTEXT_AUTH_TOKEN_TTL_SECS),
-        );
+        drop(auth);
+        if let Some(state) = state {
+            let _ = ide_context_clear_persisted_bridge_token(state);
+        }
+        let refreshed_token = ide_context_issue_bridge_token_with_state(runtime, state)
+            .map_err(|err| (err, None))?;
         return Err((
             "IDE context bridge token expired, discovery refreshed".to_string(),
             Some(refreshed_token),
@@ -1087,10 +1271,10 @@ fn ide_context_consume_bridge_token(
     if !auth.valid_tokens.contains_key(provided) {
         return Err(("invalid authToken".to_string(), None));
     }
-    auth.valid_tokens.insert(
-        provided.to_string(),
-        now + time::Duration::seconds(IDE_CONTEXT_AUTH_TOKEN_TTL_SECS),
-    );
+    let expires_at = now + time::Duration::seconds(IDE_CONTEXT_AUTH_TOKEN_TTL_SECS);
+    drop(auth);
+    ide_context_store_bridge_token(runtime, state, provided, expires_at)
+        .map_err(|err| (err, None))?;
     Ok(provided.to_string())
 }
 
@@ -1372,6 +1556,25 @@ fn ide_context_bridge_create_shutdown_token() -> tokio_util::sync::CancellationT
         *slot = Some(token.clone());
     }
     token
+}
+
+fn ide_context_bridge_server_task_slot() -> Arc<Mutex<Option<tauri::async_runtime::JoinHandle<()>>>> {
+    IDE_CONTEXT_BRIDGE_SERVER_TASK
+        .get_or_init(|| Arc::new(Mutex::new(None)))
+        .clone()
+}
+
+fn ide_context_bridge_set_server_task(handle: tauri::async_runtime::JoinHandle<()>) {
+    if let Ok(mut slot) = ide_context_bridge_server_task_slot().lock() {
+        *slot = Some(handle);
+    }
+}
+
+fn ide_context_bridge_take_server_task() -> Option<tauri::async_runtime::JoinHandle<()>> {
+    ide_context_bridge_server_task_slot()
+        .lock()
+        .ok()
+        .and_then(|mut slot| slot.take())
 }
 
 fn publish_ide_context_bridge_discovery(port: u16, remote_password: &str) -> Result<(), String> {
@@ -4976,6 +5179,8 @@ async fn ide_chat_handle_jsonrpc_request(
         "workspace.permission.select" => ide_chat_select_workspace_permission(state, request.params),
         "workspace.list" => ide_chat_workspace_list(state, request.params),
         "workspace.directory.list" => ide_chat_workspace_directory_list(request.params),
+        "fileReader.directory.list" => ide_chat_file_reader_directory_list(request.params),
+        "fileReader.readFile" => ide_chat_file_reader_read(request.params),
         "ideContext.query" => ide_chat_parse_params::<IdeContextWorkspaceQueryInput>(request.params)
             .and_then(|input| serde_json::to_value(query_ide_context_references_internal(input, ide_context_runtime)?)
                 .map_err(|err| format!("serialize IDE context query result failed: {err}"))),
@@ -5144,7 +5349,7 @@ fn start_ide_context_bridge_server(app: AppHandle, state: AppState, ide_context_
         return;
     }
     let shutdown_token = ide_context_bridge_create_shutdown_token();
-    tauri::async_runtime::spawn(async move {
+    let server_task = tauri::async_runtime::spawn(async move {
         let config = match state_read_config_cached(&state) {
             Ok(config) => config,
             Err(err) => {
@@ -5199,6 +5404,9 @@ fn start_ide_context_bridge_server(app: AppHandle, state: AppState, ide_context_
                     clear_ide_context_bridge_discovery();
                     IDE_CONTEXT_BRIDGE_STARTED.store(false, Ordering::SeqCst);
                     ide_context_set_current_port(&ide_context_runtime, None);
+                    if let Ok(mut slot) = ide_context_bridge_shutdown_slot().lock() {
+                        slot.take();
+                    }
                     eprintln!("[IDE 上下文桥] 收到停机信号，停止监听 {}", bridge_url);
                     break;
                 }
@@ -5226,11 +5434,13 @@ fn start_ide_context_bridge_server(app: AppHandle, state: AppState, ide_context_
             });
         }
     });
+    ide_context_bridge_set_server_task(server_task);
 }
 
 pub(crate) async fn shutdown_ide_context_bridge_server() {
     if !IDE_CONTEXT_BRIDGE_STARTED.load(Ordering::SeqCst) {
         clear_ide_context_bridge_discovery();
+        let _ = ide_context_bridge_take_server_task();
         return;
     }
     if let Ok(slot) = ide_context_bridge_shutdown_slot().lock() {
@@ -5244,15 +5454,29 @@ pub(crate) async fn shutdown_ide_context_bridge_server() {
             clients.clear();
         }
     }
-    for _ in 0..40 {
-        if !IDE_CONTEXT_BRIDGE_STARTED.load(Ordering::SeqCst) {
-            eprintln!("[IDE 上下文桥] 已停止");
-            return;
+    let task = ide_context_bridge_take_server_task();
+    match task {
+        Some(handle) => match tokio::time::timeout(std::time::Duration::from_secs(3), handle).await {
+            Ok(Ok(())) => {
+                eprintln!("[IDE 上下文桥] 已停止");
+            }
+            Ok(Err(err)) => {
+                IDE_CONTEXT_BRIDGE_STARTED.store(false, Ordering::SeqCst);
+                eprintln!("[IDE 上下文桥] 等待服务任务退出失败: {}", err);
+            }
+            Err(_) => {
+                IDE_CONTEXT_BRIDGE_STARTED.store(false, Ordering::SeqCst);
+                eprintln!("[IDE 上下文桥] 等待服务任务退出超时，已强制清理状态");
+            }
+        },
+        None => {
+            IDE_CONTEXT_BRIDGE_STARTED.store(false, Ordering::SeqCst);
+            eprintln!("[IDE 上下文桥] 停机时未找到服务任务句柄，已清理状态");
         }
-        tokio::time::sleep(std::time::Duration::from_millis(25)).await;
     }
-    IDE_CONTEXT_BRIDGE_STARTED.store(false, Ordering::SeqCst);
-    eprintln!("[IDE 上下文桥] 停止等待超时，已清理发现文件");
+    if let Ok(mut slot) = ide_context_bridge_shutdown_slot().lock() {
+        slot.take();
+    }
 }
 
 fn restart_ide_context_bridge_server(app: AppHandle, state: AppState, ide_context_runtime: IdeContextRuntime) {
@@ -5330,8 +5554,9 @@ async fn ide_context_ws_handle_connection(
                 match serde_json::from_str::<UpsertIdeContextSnapshotInput>(&text) {
                     Ok(input) => {
                         if !authenticated {
-                            match ide_context_consume_bridge_token(
+                            match ide_context_consume_bridge_token_with_state(
                                 &ide_context_runtime,
+                                Some(&state),
                                 input.auth_token.as_deref().unwrap_or(""),
                             ) {
                                 Ok(_token) => {
@@ -5474,25 +5699,80 @@ async fn ide_context_chat_ws_handle_connection(
                                         Some(&state),
                                         &input.password,
                                     ) {
-                                        Ok(true) => {
-                                            authenticated = true;
-                                            if !registered_client {
-                                                if let Ok(mut clients) = ide_context_chat_clients().lock() {
-                                                    clients.insert(client_id.clone(), outbound_tx.clone());
-                                                    registered_client = true;
+                                        Ok(true) => match ide_context_issue_bridge_token_with_state(
+                                            &ide_context_runtime,
+                                            Some(&state),
+                                        ) {
+                                            Ok(auth_token) => {
+                                                authenticated = true;
+                                                if !registered_client {
+                                                    if let Ok(mut clients) = ide_context_chat_clients().lock() {
+                                                        clients.insert(client_id.clone(), outbound_tx.clone());
+                                                        registered_client = true;
+                                                    }
                                                 }
+                                                ide_chat_jsonrpc_success(request.id, serde_json::json!({
+                                                    "authenticated": true,
+                                                    "authToken": auth_token,
+                                                }))
                                             }
-                                            ide_chat_jsonrpc_success(request.id, serde_json::json!({
-                                                "authenticated": true,
-                                            }))
-                                        }
+                                            Err(err) => ide_chat_jsonrpc_error(request.id, -32000, err),
+                                        },
                                         Ok(false) => ide_chat_jsonrpc_error(request.id, -32001, "远程访问密码错误"),
                                         Err(err) => ide_chat_jsonrpc_error(request.id, -32000, err),
                                     },
                                     Err(err) => ide_chat_jsonrpc_error(request.id, -32602, err),
                                 }
                             } else {
-                                ide_chat_jsonrpc_error(request.id, -32001, "远程访问需要先输入密码")
+                                let provided_auth_token = request
+                                    .params
+                                    .as_object()
+                                    .and_then(|params| params.get("authToken"))
+                                    .and_then(Value::as_str)
+                                    .unwrap_or("");
+                                match ide_context_consume_bridge_token_with_state(
+                                    &ide_context_runtime,
+                                    Some(&state),
+                                    provided_auth_token,
+                                ) {
+                                    Ok(_token) => {
+                                        authenticated = true;
+                                        if !registered_client {
+                                            if let Ok(mut clients) = ide_context_chat_clients().lock() {
+                                                clients.insert(client_id.clone(), outbound_tx.clone());
+                                                registered_client = true;
+                                            }
+                                        }
+                                        ide_chat_handle_jsonrpc_request(
+                                            request,
+                                            &state,
+                                            &app,
+                                            &ide_context_runtime,
+                                            &client_id,
+                                            &mut opened_conversation_id,
+                                        )
+                                        .await
+                                    }
+                                    Err((err, refreshed_token)) => {
+                                        if let Some(_refreshed_token) = refreshed_token.as_deref() {
+                                            if let Some(current_port) = ide_context_current_port(&ide_context_runtime) {
+                                                if let Ok(remote_password) =
+                                                    ide_context_effective_remote_password(&state, &ide_context_runtime)
+                                                {
+                                                    if let Err(publish_err) =
+                                                        publish_ide_context_bridge_discovery(current_port, &remote_password)
+                                                    {
+                                                        eprintln!(
+                                                            "[VSCode 侧边栏] 过期后重写发现文件失败: {}",
+                                                            publish_err
+                                                        );
+                                                    }
+                                                }
+                                            }
+                                        }
+                                        ide_chat_jsonrpc_error(request.id, -32001, err)
+                                    }
+                                }
                             }
                         } else {
                             ide_chat_handle_jsonrpc_request(

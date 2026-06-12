@@ -28,6 +28,33 @@ type WebBridgeGlobals = Window & {
   __PAI_SETTINGS_BRIDGE__?: WebBridgeConfig;
 };
 
+const WEB_BRIDGE_TOKEN_STORAGE_PREFIX = "easy_call.web_bridge_token.v1:";
+
+function webBridgeTokenStorageKey(chatUrl: string): string {
+  return `${WEB_BRIDGE_TOKEN_STORAGE_PREFIX}${chatUrl.trim()}`;
+}
+
+function readPersistedWebBridgeToken(chatUrl: string): string {
+  if (typeof window === "undefined") return "";
+  return String(window.localStorage.getItem(webBridgeTokenStorageKey(chatUrl)) || "").trim();
+}
+
+function persistWebBridgeToken(chatUrl: string, token: string) {
+  if (typeof window === "undefined") return;
+  const normalizedChatUrl = String(chatUrl || "").trim();
+  if (!normalizedChatUrl) return;
+  const normalizedToken = String(token || "").trim();
+  if (!normalizedToken) {
+    window.localStorage.removeItem(webBridgeTokenStorageKey(normalizedChatUrl));
+    return;
+  }
+  window.localStorage.setItem(webBridgeTokenStorageKey(normalizedChatUrl), normalizedToken);
+}
+
+function clearPersistedWebBridgeToken(chatUrl: string) {
+  persistWebBridgeToken(chatUrl, "");
+}
+
 let webBridgeConfig: WebBridgeConfig | null = null;
 let webBridgeSocket: WebSocket | null = null;
 let webBridgeConnectPromise: Promise<void> | null = null;
@@ -161,7 +188,8 @@ function normalizeWebBridgeConfig(config: WebBridgeConfig | null): WebBridgeConf
   const fallbackUrl = String(config?.url || "").trim();
   const resolvedChatUrl = chatUrl || fallbackUrl.replace(/\/ide-context$/, "/chat");
   if (!resolvedChatUrl) return null;
-  const token = String(config?.token || "").trim();
+  const persistedToken = config?.token ? "" : readPersistedWebBridgeToken(resolvedChatUrl);
+  const token = String(config?.token || persistedToken || "").trim();
   return {
     ...config,
     chatUrl: resolvedChatUrl,
@@ -216,6 +244,15 @@ function settleWebBridgeRequest(id: number, payload: Record<string, unknown>) {
     const error = payload.error as { message?: string };
     const message = String(error?.message || "请求失败");
     const rejected = new Error(message) as Error & { code?: string; type?: string };
+    if (message.includes("token expired") || message.includes("discovery refreshed") || message.includes("invalid authToken")) {
+      const currentChatUrl = String(webBridgeConfig?.chatUrl || "").trim();
+      if (currentChatUrl) {
+        clearPersistedWebBridgeToken(currentChatUrl);
+      }
+      if (webBridgeConfig) {
+        webBridgeConfig = { ...webBridgeConfig, token: undefined };
+      }
+    }
     const codeMatch = message.match(/^([A-Z][A-Z0-9_]+):\s*/);
     if (codeMatch?.[1]) {
       rejected.code = codeMatch[1];
@@ -225,6 +262,14 @@ function settleWebBridgeRequest(id: number, payload: Record<string, unknown>) {
     return;
   }
   if (payload.result && typeof payload.result === "object" && (payload.result as { authenticated?: unknown }).authenticated === true) {
+    const authToken = String((payload.result as { authToken?: unknown }).authToken || "").trim();
+    const currentChatUrl = String(webBridgeConfig?.chatUrl || "").trim();
+    if (authToken && currentChatUrl) {
+      persistWebBridgeToken(currentChatUrl, authToken);
+      if (webBridgeConfig) {
+        webBridgeConfig = { ...webBridgeConfig, token: authToken };
+      }
+    }
     webBridgeState.authenticated = true;
     webBridgeState.authRequired = false;
   }
@@ -251,9 +296,10 @@ function handleWebBridgeMessage(event: MessageEvent<string>, ready: () => void) 
   const method = String(payload.method || "");
   if (method === "bridge.ready") {
     const params = (payload.params || {}) as { authRequired?: unknown };
+    const hasAuthToken = !!String(webBridgeConfig?.token || "").trim();
     webBridgeState.bridgeReady = true;
     webBridgeState.authRequired = !!params.authRequired;
-    webBridgeState.authenticated = !webBridgeState.authRequired;
+    webBridgeState.authenticated = !webBridgeState.authRequired || hasAuthToken;
     ready();
     return;
   }

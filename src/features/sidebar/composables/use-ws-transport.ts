@@ -11,6 +11,33 @@ export type SidebarBridgeConfig = {
   token?: string;
 };
 
+const SIDEBAR_BRIDGE_TOKEN_STORAGE_PREFIX = "easy_call.sidebar.bridge_token.v1:";
+
+function sidebarBridgeTokenStorageKey(chatUrl: string): string {
+  return `${SIDEBAR_BRIDGE_TOKEN_STORAGE_PREFIX}${chatUrl.trim()}`;
+}
+
+function readPersistedSidebarBridgeToken(chatUrl: string): string {
+  if (typeof window === "undefined") return "";
+  return String(window.localStorage.getItem(sidebarBridgeTokenStorageKey(chatUrl)) || "").trim();
+}
+
+function persistSidebarBridgeToken(chatUrl: string, token: string) {
+  if (typeof window === "undefined") return;
+  const normalizedChatUrl = String(chatUrl || "").trim();
+  if (!normalizedChatUrl) return;
+  const normalizedToken = String(token || "").trim();
+  if (!normalizedToken) {
+    window.localStorage.removeItem(sidebarBridgeTokenStorageKey(normalizedChatUrl));
+    return;
+  }
+  window.localStorage.setItem(sidebarBridgeTokenStorageKey(normalizedChatUrl), normalizedToken);
+}
+
+function clearPersistedSidebarBridgeToken(chatUrl: string) {
+  persistSidebarBridgeToken(chatUrl, "");
+}
+
 export function useWsTransport() {
   const socket = ref<WebSocket | null>(null);
   const connected = ref(false);
@@ -42,19 +69,34 @@ export function useWsTransport() {
       const error = payload.error as { message?: string };
       const message = String(error?.message || "请求失败");
       if (message.includes("token expired") || message.includes("discovery refreshed") || message.includes("invalid authToken")) {
+        const currentChatUrl = String(bridgeConfig.value?.chatUrl || "").trim();
+        if (currentChatUrl) {
+          clearPersistedSidebarBridgeToken(currentChatUrl);
+        }
+        if (bridgeConfig.value) {
+          bridgeConfig.value = { ...bridgeConfig.value, token: undefined };
+        }
         authRefreshHandler?.();
       }
       item.reject(new Error(message));
       return;
     }
     if (payload.result && typeof payload.result === "object" && (payload.result as { authenticated?: unknown }).authenticated === true) {
+      const authToken = String((payload.result as { authToken?: unknown }).authToken || "").trim();
+      const currentChatUrl = String(bridgeConfig.value?.chatUrl || "").trim();
+      if (authToken && currentChatUrl) {
+        persistSidebarBridgeToken(currentChatUrl, authToken);
+        if (bridgeConfig.value) {
+          bridgeConfig.value = { ...bridgeConfig.value, token: authToken };
+        }
+      }
       authenticated.value = true;
       authRequired.value = false;
     }
     item.resolve(payload.result);
   }
 
-  function handleMessage(event: MessageEvent<string>) {
+  function handleMessage(event: MessageEvent<string>, ready?: () => void) {
     let payload: Record<string, unknown>;
     try {
       payload = JSON.parse(String(event.data || "{}"));
@@ -68,9 +110,11 @@ export function useWsTransport() {
     const method = String(payload.method || "");
     if (method === "bridge.ready") {
       const params = (payload.params || {}) as { authRequired?: unknown };
+      const hasAuthToken = !!String(bridgeConfig.value?.token || "").trim();
       bridgeReady.value = true;
       authRequired.value = !!params.authRequired;
-      authenticated.value = !authRequired.value;
+      authenticated.value = !authRequired.value || hasAuthToken;
+      ready?.();
     }
     if (method) emitNotification(method, payload.params);
   }
@@ -83,40 +127,80 @@ export function useWsTransport() {
     bridgeReady.value = false;
     authRequired.value = false;
     authenticated.value = true;
+    for (const [id, item] of pending.entries()) {
+      window.clearTimeout(item.timer);
+      item.reject(new Error("连接已断开"));
+      pending.delete(id);
+    }
     if (current && current.readyState !== WebSocket.CLOSED) current.close();
   }
 
   async function connect(config: SidebarBridgeConfig) {
     close();
-    bridgeConfig.value = config;
+    const persistedToken = config.token ? "" : readPersistedSidebarBridgeToken(config.chatUrl);
+    const nextConfig: SidebarBridgeConfig = {
+      ...config,
+      token: String(config.token || persistedToken || "").trim() || undefined,
+    };
+    bridgeConfig.value = nextConfig;
     connecting.value = true;
     bridgeReady.value = false;
     authRequired.value = false;
     authenticated.value = true;
     errorText.value = "";
-    await new Promise<void>((resolve) => {
-      const ws = new WebSocket(config.chatUrl);
-      socket.value = ws;
-      ws.onopen = () => {
+    await new Promise<void>((resolve, reject) => {
+      let settled = false;
+      let readyTimer: number | null = null;
+      const finishReady = () => {
+        if (settled) return;
+        settled = true;
+        if (readyTimer !== null) window.clearTimeout(readyTimer);
         connected.value = true;
         connecting.value = false;
         resolve();
       };
-      ws.onerror = () => {
-        errorText.value = "PAI 未运行";
-      };
-      ws.onclose = () => {
+      const fail = (error: unknown) => {
+        if (readyTimer !== null) window.clearTimeout(readyTimer);
         connected.value = false;
         connecting.value = false;
-        if (socket.value === ws) errorText.value = "PAI 未运行";
+        if (socket.value?.readyState !== WebSocket.OPEN) {
+          bridgeReady.value = false;
+        }
+        errorText.value = String(error || "PAI 未运行");
+        if (!settled) {
+          settled = true;
+          reject(error instanceof Error ? error : new Error(String(error || "PAI 未运行")));
+        }
+      };
+      const ws = new WebSocket(nextConfig.chatUrl);
+      socket.value = ws;
+      ws.onopen = () => {
+        connected.value = true;
+        readyTimer = window.setTimeout(() => {
+          if (!bridgeReady.value) fail(new Error("等待 PAI 侧边栏桥接就绪超时"));
+        }, 5000);
+      };
+      ws.onerror = () => {
+        fail(new Error("PAI 未运行"));
+      };
+      ws.onclose = () => {
         for (const [id, item] of pending.entries()) {
           window.clearTimeout(item.timer);
           item.reject(new Error("连接已断开"));
           pending.delete(id);
         }
-        resolve();
+        if (!settled) {
+          fail(new Error("PAI 未运行"));
+        } else if (socket.value === ws) {
+          connected.value = false;
+          connecting.value = false;
+          bridgeReady.value = false;
+          authRequired.value = false;
+          authenticated.value = true;
+          errorText.value = "连接已断开";
+        }
       };
-      ws.onmessage = handleMessage;
+      ws.onmessage = (event) => handleMessage(event, finishReady);
     });
   }
 

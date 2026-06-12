@@ -105,6 +105,15 @@ export function useChatConversationSync(bindings: Record<string, any>) {
       || streamCacheHasVisibleProgress(snapshot.streamCache);
   }
 
+  function messageIsActiveStreamingDraft(message: any): boolean {
+    const messageId = String(message?.id || "").trim();
+    if (!messageId.startsWith(bindings.DRAFT_ASSISTANT_ID_PREFIX)) return false;
+    const meta = message?.providerMeta && typeof message.providerMeta === "object"
+      ? message.providerMeta as Record<string, unknown>
+      : null;
+    return !!meta?._streaming;
+  }
+
   async function requestConversationRuntimeSnapshot(conversationId: string) {
     return invokeTauri<any>("get_conversation_runtime_snapshot", {
       conversationId,
@@ -523,7 +532,7 @@ export function useChatConversationSync(bindings: Record<string, any>) {
     const nextRuntimeState = String(snapshot.runtimeState || "").trim();
     const hasAssistantDraftInSnapshot = rawNextMessages.some((message) => isAssistantDraftMessage(message));
     if (!hasAssistantDraftInSnapshot && nextRuntimeState === "assistant_streaming") {
-      const preservedDraft = [...previousMessages].reverse().find((message) => isAssistantDraftMessage(message));
+      const preservedDraft = [...previousMessages].reverse().find((message) => messageIsActiveStreamingDraft(message));
       if (preservedDraft) {
         rawNextMessages = [...rawNextMessages, preservedDraft];
         if (typeof bindings.readConversationStreamCache === "function") {

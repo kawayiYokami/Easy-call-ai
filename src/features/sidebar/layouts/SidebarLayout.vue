@@ -1,5 +1,5 @@
 <template>
-  <div class="relative flex h-full min-h-0 flex-col bg-base-100 text-base-content">
+  <div class="relative flex h-full min-h-0 flex-col bg-base-200 text-base-content">
     <AppWindowHeader
       v-if="connected"
       view-mode="chat"

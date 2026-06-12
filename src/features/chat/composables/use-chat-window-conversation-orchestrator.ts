@@ -211,17 +211,17 @@ export function useChatWindowConversationOrchestrator(bindings: Record<string, a
   async function restoreForegroundConversationProjection(conversationId: string, reason: string) {
     const cid = String(conversationId || "").trim();
     if (!cid) return;
-    // 不再从前端本地缓存恢复流式投影，统一只从后端读取。
-    // 后端 snapshot 天然包含 persistedAssistantMessageId，去重逻辑只需在 resumeForegroundRuntimeRound 中做一次。
-    const runtimeState = await resumeForegroundRuntimeFromBackend(cid, reason);
-    if (runtimeState === "idle") {
-      const snapshot = await chatForeground.requestConversationLightSnapshot(cid);
-      if (cid !== String(bindings.currentChatConversationId.value || "").trim()) return;
-      bindings.applyConversationSnapshot(snapshot);
-      const snapshotRuntimeState = String(snapshot?.runtimeState || "").trim();
-      if (snapshotRuntimeState !== "assistant_streaming") {
-        bindings.getChatFlow().clearForegroundRoundState();
-      }
+    const snapshot = await chatForeground.requestConversationLightSnapshot(cid);
+    if (cid !== String(bindings.currentChatConversationId.value || "").trim()) return;
+    bindings.applyConversationSnapshot(snapshot);
+    // 前台恢复统一复用“切换会话后的后端真实快照”作为显示真源。
+    // 这样无论 WebView / 浏览器标签页 / 手机 WebView 是否冻结，都先回到准确会话投影，
+    // 再按需要恢复后台运行态，而不是继续沿用前端冻结前的局部流式状态。
+    const runtimeState = await resumeForegroundRuntimeFromBackend(cid, `${reason}_reload_snapshot`);
+    if (cid !== String(bindings.currentChatConversationId.value || "").trim()) return;
+    const snapshotRuntimeState = String(snapshot?.runtimeState || "").trim();
+    if (runtimeState !== "busy" && snapshotRuntimeState !== "assistant_streaming") {
+      bindings.getChatFlow().clearForegroundRoundState();
     }
   }
 
