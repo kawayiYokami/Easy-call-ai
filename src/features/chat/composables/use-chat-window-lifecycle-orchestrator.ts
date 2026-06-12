@@ -102,7 +102,6 @@ export function useChatWindowLifecycleOrchestrator(bindings: Record<string, any>
     clearChatWindowActiveSyncTimer: bindings.clearChatWindowActiveSyncTimer,
     clearChatMicPrewarmTimer: bindings.clearChatMicPrewarmTimer,
     clearSupervisionTaskPollTimer: bindings.clearSupervisionTaskPollTimer,
-    clearForegroundConversationCacheRaf: bindings.clearForegroundConversationCacheRaf,
     clearRecordHotkeyProbeState: bindings.clearRecordHotkeyProbeState,
     agentWorkPresence: bindings.agentWorkPresence,
     chatWindowActiveSynced: bindings.chatWindowActiveSynced,
@@ -144,7 +143,6 @@ export function useChatWindowLifecycleOrchestrator(bindings: Record<string, any>
     getChatFlow: bindings.getChatFlow,
     maybeResumeForegroundStreamingDraft: bindings.maybeResumeForegroundStreamingDraft,
     resumeForegroundRuntimeFromBackend: bindings.resumeForegroundRuntimeFromBackend,
-    scheduleForegroundConversationCachePersist: bindings.scheduleForegroundConversationCachePersist,
   });
 
   useChatWindowLifecycleSetup({

@@ -38,18 +38,4 @@ export function useChatRuntimeWatchers(bindings: Record<string, any>) {
     },
     { immediate: true },
   );
-
-  watch(
-    [() => String(bindings.currentChatConversationId.value || "").trim(), () => bindings.allMessages.value],
-    ([conversationId, messages]) => {
-      if (!conversationId) return;
-      const nextMessages = Array.isArray(messages) ? messages : [];
-      const hasStreamingDraft = nextMessages.some((item: any) => {
-        const meta = (item?.providerMeta || {}) as Record<string, unknown>;
-        return !!meta._streaming;
-      });
-      if (hasStreamingDraft) return;
-      bindings.scheduleForegroundConversationCachePersist(conversationId, nextMessages);
-    },
-  );
 }

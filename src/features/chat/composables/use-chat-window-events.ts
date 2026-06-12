@@ -254,7 +254,6 @@ export function useChatWindowEvents(bindings: Record<string, any>) {
     bindings.clearChatWindowActiveSyncTimer();
     bindings.clearChatMicPrewarmTimer();
     bindings.clearSupervisionTaskPollTimer();
-    bindings.clearForegroundConversationCacheRaf();
     bindings.clearRecordHotkeyProbeState();
     bindings.agentWorkPresence.cleanup();
     bindings.chatWindowActiveSynced.value = null;

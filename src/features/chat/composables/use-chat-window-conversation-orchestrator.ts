@@ -3,7 +3,6 @@ import { formatI18nError } from "../../../utils/error";
 import { useChatConversationActionsOrchestrator } from "./use-chat-conversation-actions-orchestrator";
 import { useChatConversationDialogGlue } from "./use-chat-conversation-dialog-glue";
 import { useChatConversationSync } from "./use-chat-conversation-sync";
-import { useChatForegroundCacheScheduler } from "./use-chat-foreground-cache-scheduler";
 import { useChatForegroundOrchestrator } from "./use-chat-foreground-orchestrator";
 import { useChatRemoteConversationOrchestrator } from "./use-chat-remote-conversation-orchestrator";
 
@@ -56,13 +55,6 @@ export function useChatWindowConversationOrchestrator(bindings: Record<string, a
     updateForegroundConversationOverviewFromMessages,
     maybeUpdateForegroundConversationOverviewFromLoadedMessages,
   } = useChatConversationSync(bindings.sync);
-
-  const {
-    clearForegroundConversationCacheRaf,
-    scheduleForegroundConversationCachePersist,
-  } = useChatForegroundCacheScheduler({
-    cacheConversationMessages,
-  });
 
   const chatForeground = useChatForegroundOrchestrator({
     FOREGROUND_SNAPSHOT_RECENT_LIMIT: bindings.FOREGROUND_SNAPSHOT_RECENT_LIMIT,
@@ -237,8 +229,6 @@ export function useChatWindowConversationOrchestrator(bindings: Record<string, a
   }
 
   return {
-    clearForegroundConversationCacheRaf,
-    scheduleForegroundConversationCachePersist,
     matchesForegroundConversation,
     formalizeConversationMessages,
     freezeConversationMessages,
