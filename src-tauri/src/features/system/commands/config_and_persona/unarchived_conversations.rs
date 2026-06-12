@@ -249,6 +249,8 @@ fn build_foreground_stream_projection_message(
         extra_text_blocks: Vec::new(),
         provider_meta: Some(serde_json::json!({
             "_streaming": true,
+            "_toolStatusText": stream_cache.tool_status_text,
+            "_toolStatusState": stream_cache.tool_status_state,
             "_streamBlocks": stream_cache.stream_blocks,
             "_streamTail": "",
             "_frontendDispatchStartedAtMs": stream_cache.started_at_ms,
@@ -319,6 +321,37 @@ mod foreground_resume_projection_tests {
             .filter(|message| message.id.starts_with("__draft_assistant__:"))
             .count()
             == 1);
+    }
+
+    #[test]
+    fn foreground_stream_projection_preserves_tool_status_meta() {
+        let stream_cache = ConversationStreamRuntimeCacheSnapshot {
+            activation_id: "round-7".to_string(),
+            request_id: "request-7".to_string(),
+            department_id: "department-1".to_string(),
+            agent_id: "agent-1".to_string(),
+            assistant_text: String::new(),
+            tool_status_text: "正在调用工具".to_string(),
+            tool_status_state: "running".to_string(),
+            stream_blocks: Vec::new(),
+            started_at: "2026-06-12T00:00:01Z".to_string(),
+            started_at_ms: 1000,
+            updated_at: "2026-06-12T00:00:02Z".to_string(),
+            has_visible_progress: true,
+            persisted_assistant_message_id: String::new(),
+        };
+
+        let projected = build_foreground_stream_projection_message(&stream_cache);
+        let meta = projected.provider_meta.unwrap_or_default();
+
+        assert_eq!(
+            meta.get("_toolStatusText").and_then(serde_json::Value::as_str),
+            Some("正在调用工具")
+        );
+        assert_eq!(
+            meta.get("_toolStatusState").and_then(serde_json::Value::as_str),
+            Some("running")
+        );
     }
 }
 
