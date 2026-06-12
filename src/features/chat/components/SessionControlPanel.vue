@@ -16,6 +16,16 @@
       </Transition>
     </button>
 
+    <Transition name="wdc-content">
+      <span
+        v-if="autoPushActive"
+        class="inline-flex h-8 flex-none items-center rounded-full bg-info/15 px-2 text-[11px] font-medium text-info"
+        :title="autoPushTitle"
+      >
+        {{ autoPushLabel }}
+      </span>
+    </Transition>
+
     <div class="ml-auto flex min-w-0 flex-none items-center gap-0.5">
       <button
         type="button"
@@ -68,6 +78,7 @@
 
 <script setup lang="ts">
 import { computed, ref, watch } from "vue";
+import { useI18n } from "vue-i18n";
 import { Coins, Footprints, Network, PanelRightOpen, SquareTerminal, Timer } from "@lucide/vue";
 import type { ConversationDelegateStatusSummary } from "../../../types/app";
 
@@ -75,6 +86,7 @@ const props = defineProps<{
   workspaceButtonLabel: string;
   workspaceButtonName: string;
   workspaceButtonDisabled?: boolean;
+  autoPushActive?: boolean;
   delegates: ConversationDelegateStatusSummary[];
 }>();
 
@@ -83,6 +95,7 @@ const emit = defineEmits<{
   openDelegateSummary: [];
 }>();
 
+const { t } = useI18n();
 const expandedPanel = ref<"workspace" | "delegate">("workspace");
 const normalizedDelegates = computed(() => Array.isArray(props.delegates) ? props.delegates : []);
 const runningDelegates = computed(() => normalizedDelegates.value.filter(isDelegateRunning));
@@ -95,6 +108,8 @@ const tokenCount = computed(() => sumBy(displayedDelegates.value, (delegate) => 
 const elapsedText = computed(() => formatElapsedMs(elapsedMs.value));
 const tokenText = computed(() => formatTokenK(tokenCount.value));
 const workspaceTitle = computed(() => props.workspaceButtonName || props.workspaceButtonLabel);
+const autoPushLabel = computed(() => t("chat.autoPush.activeChip"));
+const autoPushTitle = computed(() => t("chat.autoPush.activeHint"));
 const delegateTitle = computed(() => {
   if (delegateCount.value <= 0) return "当前暂无委托";
   if (runningCount.value > 0) return `查看 ${runningCount.value} 个运行中委托`;

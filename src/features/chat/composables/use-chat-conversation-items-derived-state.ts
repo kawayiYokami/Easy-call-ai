@@ -49,6 +49,7 @@ export function useChatConversationItemsDerivedState(bindings: Record<string, an
         pinIndex: Number.isFinite(Number(item.pinIndex)) ? Number(item.pinIndex) : undefined,
         runtimeState: localRuntimeState || item.runtimeState,
         currentTodo: String(item.currentTodo || "").trim(),
+        autoPushRemoteContactId: String(item.autoPushRemoteContactId || "").trim() || undefined,
         currentTodos: Array.isArray(item.currentTodos) ? item.currentTodos : [],
         detachedWindowOpen: !!item.detachedWindowOpen,
         detachedWindowLabel: String(item.detachedWindowLabel || "").trim() || undefined,

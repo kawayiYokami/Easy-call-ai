@@ -40,6 +40,12 @@
             </button>
           </li>
           <li v-if="!busy">
+            <button v-if="showAutoPushMenuItem" type="button" class="flex min-h-10 items-center justify-start gap-3 px-4 py-2 text-left" :disabled="busy" @click="emit('openAutoPush')">
+              <Send class="h-4 w-4 shrink-0" />
+              <span class="leading-5">{{ t("chat.conversationMenu.autoPush") }}</span>
+            </button>
+          </li>
+          <li v-if="!busy">
             <button v-if="showForwardMenuItem" type="button" class="flex min-h-10 items-center justify-start gap-3 px-4 py-2 text-left" :disabled="busy" @click="emit('openForwardSelection')">
               <Package class="h-4 w-4 shrink-0" />
               <span class="leading-5">{{ t("chat.conversationMenu.forwardConversation") }}</span>
@@ -77,6 +83,7 @@
         :workspace-button-label="workspaceButtonLabel"
         :workspace-button-name="workspaceButtonName"
         :workspace-button-disabled="busy || workspaceButtonDisabled"
+        :auto-push-active="autoPushActive"
         :delegates="delegateStatuses || []"
         @lock-workspace="emit('lockWorkspace')"
         @open-delegate-summary="emit('openDelegateSummary')"
@@ -202,7 +209,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref } from "vue";
 import { useI18n } from "vue-i18n";
-import { ClipboardCheck, ClipboardList, ExternalLink, Folder, GitBranchPlus, Grip, Package, Users } from "@lucide/vue";
+import { ClipboardCheck, ClipboardList, ExternalLink, Folder, GitBranchPlus, Grip, Package, Send, Users } from "@lucide/vue";
 import type { ChatMentionEntry, ConversationDelegateStatusSummary } from "../../../types/app";
 import SessionControlPanel from "./SessionControlPanel.vue";
 
@@ -213,6 +220,7 @@ const props = withDefaults(defineProps<{
   workspaceButtonLabel: string;
   workspaceButtonName: string;
   workspaceButtonDisabled?: boolean;
+  autoPushActive?: boolean;
   mentionEntries: ChatMentionEntry[];
   selectedMentionKeys: string[];
   hideMenuButton?: boolean;
@@ -221,6 +229,7 @@ const props = withDefaults(defineProps<{
   showBranchMenuItem?: boolean;
   showCodeReviewMenuItem?: boolean;
   showForwardMenuItem?: boolean;
+  showAutoPushMenuItem?: boolean;
   showShareMenuItem?: boolean;
   showWorkspaceMenuItem?: boolean;
   showDetachButton?: boolean;
@@ -231,6 +240,7 @@ const props = withDefaults(defineProps<{
   showBranchMenuItem: true,
   showCodeReviewMenuItem: true,
   showForwardMenuItem: true,
+  showAutoPushMenuItem: true,
   showShareMenuItem: true,
   showWorkspaceMenuItem: true,
 });
@@ -242,6 +252,7 @@ const emit = defineEmits<{
   (e: "openDelegateSelection"): void;
   (e: "openDelegateSummary"): void;
   (e: "openForwardSelection"): void;
+  (e: "openAutoPush"): void;
   (e: "openShareSelection"): void;
   (e: "detachConversation"): void;
   (e: "mentionEntry", entry: ChatMentionEntry): void;
@@ -253,6 +264,7 @@ const showDelegateMenuItem = computed(() => props.showDelegateMenuItem);
 const showBranchMenuItem = computed(() => props.showBranchMenuItem);
 const showCodeReviewMenuItem = computed(() => props.showCodeReviewMenuItem);
 const showForwardMenuItem = computed(() => props.showForwardMenuItem);
+const showAutoPushMenuItem = computed(() => props.showAutoPushMenuItem);
 const showShareMenuItem = computed(() => props.showShareMenuItem);
 const showWorkspaceMenuItem = computed(() => props.showWorkspaceMenuItem);
 const hasDelegateStatuses = computed(() => (props.delegateStatuses || []).length > 0);

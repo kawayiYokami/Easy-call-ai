@@ -1299,6 +1299,7 @@
     "createConversationNoWorkspace": "不设置工作目录",
     "createConversationMaxPermission": "给予会话最大权限",
     "conversationMenu": {
+      "autoPush": "自动推送",
       "title": "会话菜单",
       "startDelegate": "发起委托",
       "branchConversation": "会话分支",
@@ -1505,6 +1506,18 @@
       "codeReviewRequirement2": "- 先拿到明确 diff，再做缺陷判断。",
       "codeReviewRequirement3": "- 只报告真实、可复现、会影响正确性/稳定性/安全性的缺陷。",
       "codeReviewRequirement4": "- 不要把风格建议、命名偏好或无法从 diff 证明的推测当成缺陷。"
+    },
+    "autoPush": {
+      "title": "自动推送",
+      "summary": "开启后，本会话所有 LLM 发言都会自动通知到指定远程联系人会话。",
+      "enable": "开启自动推送",
+      "enableHint": "本会话后续 assistant 发言将无条件异步投递到目标联系人会话。",
+      "activeChip": "自动推送中",
+      "activeHint": "当前会话已开启自动推送",
+      "targetContact": "远程联系人",
+      "selectPlaceholder": "请选择一个远程联系人",
+      "empty": "当前没有可用的远程联系人会话。",
+      "disableAction": "关闭自动推送"
     },
     "queue": {
       "queued": "排队",

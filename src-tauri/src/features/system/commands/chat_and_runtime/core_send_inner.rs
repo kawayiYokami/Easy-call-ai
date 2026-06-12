@@ -1733,6 +1733,7 @@ async fn send_chat_message_inner(
             memory_recall_table: Vec::new(),
             plan_mode_enabled: false,
             preferred_api_config_id: None,
+            auto_push_remote_contact_id: None,
             cumulative_usage: ConversationCumulativeUsage::default(),
             active_goal: None,
         }
@@ -1836,6 +1837,7 @@ async fn send_chat_message_inner(
                     memory_recall_table: Vec::new(),
                     plan_mode_enabled: false,
                     preferred_api_config_id: None,
+                    auto_push_remote_contact_id: None,
                     cumulative_usage: ConversationCumulativeUsage::default(),
                     active_goal: None,
                 });
@@ -1904,6 +1906,7 @@ async fn send_chat_message_inner(
                 memory_recall_table: Vec::new(),
                 plan_mode_enabled: false,
                 preferred_api_config_id: None,
+                auto_push_remote_contact_id: None,
                 cumulative_usage: ConversationCumulativeUsage::default(),
                 active_goal: None,
             });
@@ -3453,11 +3456,13 @@ async fn send_chat_message_inner(
     log_run_stage("model_reply_ready");
 
     let mut persisted_assistant_message: Option<ChatMessage> = None;
+    let mut auto_push_remote_contact_id: Option<String> = None;
     {
         if let Ok(Some(mut conversation)) =
             conversation_service().try_read_unarchived_conversation(&state, &conversation_id)
         {
             let now = now_iso();
+            auto_push_remote_contact_id = conversation.auto_push_remote_contact_id.clone();
             if !suppress_assistant_message {
                 let assistant_message = build_assistant_message_from_request_sequence(
                     assistant_message_id.clone(),
@@ -3504,6 +3509,34 @@ async fn send_chat_message_inner(
         }
     }
     log_run_stage("assistant_message_persist_scheduled");
+
+    if !suppress_assistant_message {
+        if let Some(remote_contact_id) = auto_push_remote_contact_id
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+        {
+            let auto_push_content = persisted_assistant_message
+                .as_ref()
+                .map(render_prompt_message_text)
+                .unwrap_or_else(|| assistant_text.clone());
+            if !auto_push_content.trim().is_empty() {
+                if let Err(err) = conversation_service().enqueue_auto_push_remote_contact_message(
+                    &state,
+                    &conversation_id,
+                    remote_contact_id,
+                    &auto_push_content,
+                ) {
+                    runtime_log_warn(format!(
+                        "[自动推送] 失败，任务=会话 assistant 自动推送，conversation_id={}，remote_contact_id={}，error={}",
+                        conversation_id,
+                        remote_contact_id,
+                        err
+                    ));
+                }
+            }
+        }
+    }
 
     if let Some(activation_source) = pending_remote_im_auto_send_target {
         spawn_remote_im_auto_send_contact_assistant_reply(

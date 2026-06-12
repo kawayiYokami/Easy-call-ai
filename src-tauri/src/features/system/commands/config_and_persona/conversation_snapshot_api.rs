@@ -66,6 +66,8 @@ struct UnarchivedConversationSummary {
     current_todo: Option<String>,
     #[serde(default)]
     plan_mode_enabled: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    auto_push_remote_contact_id: Option<String>,
     #[serde(default)]
     detached_window_open: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -568,6 +570,7 @@ fn build_unarchived_conversation_summary(
         runtime_state: None,
         current_todo: None,
         plan_mode_enabled: false,
+        auto_push_remote_contact_id: conversation.auto_push_remote_contact_id.clone(),
         detached_window_open: detached_window_label.is_some(),
         detached_window_label,
         state: item_state,
@@ -881,6 +884,22 @@ struct SetConversationPreferredModelOutput {
     conversation_id: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     preferred_api_config_id: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct SetConversationAutoPushRemoteContactInput {
+    conversation_id: String,
+    #[serde(default)]
+    remote_contact_id: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct SetConversationAutoPushRemoteContactOutput {
+    conversation_id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    remote_contact_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

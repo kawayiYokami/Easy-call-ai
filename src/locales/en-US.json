@@ -1193,10 +1193,23 @@
       "title": "Conversation Menu",
       "startDelegate": "Start Delegate",
       "branchConversation": "Conversation Branch",
+      "autoPush": "Auto Push",
       "forwardConversation": "Forward Conversation",
       "shareConversation": "Share Conversation",
       "setWorkspace": "Set session working directory",
       "openDetachedWindow": "Open in detached window"
+    },
+    "autoPush": {
+      "title": "Auto Push",
+      "summary": "When enabled, every LLM reply in this conversation will be automatically notified to the selected remote contact conversation.",
+      "enable": "Enable auto push",
+      "enableHint": "Future assistant replies from this conversation will be asynchronously delivered to the target remote contact conversation.",
+      "activeChip": "Auto Push On",
+      "activeHint": "Auto push is enabled for this conversation",
+      "targetContact": "Remote contact",
+      "selectPlaceholder": "Select a remote contact",
+      "empty": "No remote contact conversations are available.",
+      "disableAction": "Disable auto push"
     },
     "mentionMutedBadge": "Off",
     "defaultDepartment": "Default",

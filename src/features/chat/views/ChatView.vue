@@ -166,13 +166,15 @@
               ref="toolbarContainer"
               class="ecall-chat-toolbar-shell mx-auto w-full max-w-[900px] px-4 pt-1 pb-2"
             >
-              <ChatWorkspaceToolbar
-                :chatting="chatting" :frozen="frozen" :conversation-busy="conversationInteractionBusy"
-                :workspace-button-label="t('chat.allowedWorkspaceButton')" :workspace-button-name="currentWorkspaceName"
-                :workspace-button-disabled="!activeConversationId || activeConversationSummary?.kind === 'remote_im_contact'"
-                :hide-menu-button="activeConversationSummary?.kind === 'remote_im_contact'"
-                :hide-workspace-button="hideWorkspaceButton || activeConversationSummary?.kind === 'remote_im_contact'"
-                :show-forward-menu-item="!sidebarMode"
+                <ChatWorkspaceToolbar
+                  :chatting="chatting" :frozen="frozen" :conversation-busy="conversationInteractionBusy"
+                  :workspace-button-label="t('chat.allowedWorkspaceButton')" :workspace-button-name="currentWorkspaceName"
+                  :workspace-button-disabled="!activeConversationId || activeConversationSummary?.kind === 'remote_im_contact'"
+                  :auto-push-active="!!String(activeConversationSummary?.autoPushRemoteContactId || '').trim()"
+                  :hide-menu-button="activeConversationSummary?.kind === 'remote_im_contact'"
+                  :hide-workspace-button="hideWorkspaceButton || activeConversationSummary?.kind === 'remote_im_contact'"
+                  :show-forward-menu-item="!sidebarMode"
+                :show-auto-push-menu-item="!sidebarMode && !activeConversationIsRemoteContact && !activeConversationIsSystemNotification"
                 :show-share-menu-item="!sidebarMode"
                 :show-workspace-menu-item="true"
                 :show-code-review-menu-item="true"
@@ -182,6 +184,7 @@
                 :detach-disabled="bridgeMode || !activeConversationId || activeConversationIsSystemNotification || chatting || frozen || conversationInteractionBusy"
                 @lock-workspace="$emit('lockWorkspace')" @open-branch-selection="openBranchSelectionMenu"
                 @open-delegate-selection="openDelegateSelectionMenu" @open-forward-selection="openForwardSelectionMenu"
+                @open-auto-push="openAutoPushCard"
                 @open-share-selection="openShareSelectionMenu"
                 @open-delegate-summary="openDelegateSummaryPanel"
                 @open-code-review="$emit('openCodeReview')"
@@ -205,6 +208,17 @@
           :text="conversationSummaryCard.text"
           :is-dark="markdownIsDark"
           @close="closeConversationSummaryCard"
+        />
+        <ConversationAutoPushCard
+          :open="autoPushCardOpen"
+          :saving="autoPushSaving"
+          :enabled="autoPushEnabled"
+          :selected-contact-id="autoPushSelectedContactId"
+          :options="props.remoteImContactConversations"
+          @close="closeAutoPushCard"
+          @save="saveAutoPushCard"
+          @update:enabled="autoPushEnabled = $event"
+          @update:selected-contact-id="autoPushSelectedContactId = $event"
         />
         <div v-show="showJumpToBottom" class="pointer-events-none absolute bottom-3 right-5 z-30 flex justify-end" :style="jumpToBottomStyle">
           <button class="btn btn-sm btn-circle btn-primary pointer-events-auto shadow-lg" :title="t('chat.jumpToBottom')" @click="handleJumpToBottom">
@@ -444,6 +458,7 @@ import ChatSupervisionTaskDialog from "../components/dialogs/ChatSupervisionTask
 import ChatTaskCreateDialog from "../components/dialogs/ChatTaskCreateDialog.vue";
 import ConversationTodoDropdown from "../components/ConversationTodoDropdown.vue";
 import CompactionSummaryCard from "../components/CompactionSummaryCard.vue";
+import ConversationAutoPushCard from "../components/ConversationAutoPushCard.vue";
 import { useChatImagePreview } from "../composables/use-chat-image-preview";
 import { useChatMessageActions } from "../composables/use-chat-message-actions";
 import { useChatScrollLayout } from "../composables/use-chat-scroll-layout";
@@ -578,6 +593,10 @@ const composerPanelRef = ref<{ focusInput: (opts?: FocusOptions) => void } | nul
 const taskDialogOpen = ref(false);
 const taskDialogMode = ref<"create" | "edit">("create");
 const taskDialogTask = ref<TaskEntry | null>(null);
+const autoPushCardOpen = ref(false);
+const autoPushSaving = ref(false);
+const autoPushEnabled = ref(false);
+const autoPushSelectedContactId = ref("");
 
 // ==================== context computed ====================
 
@@ -723,6 +742,37 @@ function openConversationSummary(block: ChatMessageBlock, event?: MouseEvent) {
 }
 function closeConversationSummaryCard() {
   conversationSummaryCard.value = { visible: false, text: "" };
+}
+
+function openAutoPushCard() {
+  const currentTargetId = String(activeConversationSummary.value?.autoPushRemoteContactId || "").trim();
+  autoPushEnabled.value = !!currentTargetId;
+  autoPushSelectedContactId.value = currentTargetId;
+  autoPushCardOpen.value = true;
+}
+
+function closeAutoPushCard() {
+  autoPushCardOpen.value = false;
+  autoPushSaving.value = false;
+}
+
+async function saveAutoPushCard() {
+  const conversationId = String(props.activeConversationId || "").trim();
+  if (!conversationId || autoPushSaving.value) return;
+  autoPushSaving.value = true;
+  try {
+    await invokeTauri("set_conversation_auto_push_remote_contact", {
+      input: {
+        conversationId,
+        remoteContactId: autoPushEnabled.value
+          ? String(autoPushSelectedContactId.value || "").trim() || null
+          : null,
+      },
+    });
+    autoPushCardOpen.value = false;
+  } finally {
+    autoPushSaving.value = false;
+  }
 }
 
 // ==================== ide context ====================

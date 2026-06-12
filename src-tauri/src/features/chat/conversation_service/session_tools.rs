@@ -537,4 +537,40 @@ impl ConversationService {
             message,
         })
     }
+
+    fn enqueue_auto_push_remote_contact_message(
+        &self,
+        state: &AppState,
+        source_conversation_id: &str,
+        remote_contact_id: &str,
+        content: &str,
+    ) -> Result<(), String> {
+        let normalized_source_conversation_id = source_conversation_id.trim();
+        let normalized_remote_contact_id = remote_contact_id.trim();
+        if normalized_source_conversation_id.is_empty() || normalized_remote_contact_id.is_empty() {
+            return Ok(());
+        }
+        let source_conversation =
+            state_read_conversation_cached(state, normalized_source_conversation_id)?;
+        if !conversation_is_local_normal_chat(&source_conversation)
+            || !conversation_visible_in_foreground_lists(&source_conversation)
+            || conversation_is_system_notification(&source_conversation)
+        {
+            return Ok(());
+        }
+        let target = self
+            .list_remote_im_contact_conversations(state)?
+            .into_iter()
+            .find(|item| item.contact_id.trim() == normalized_remote_contact_id)
+            .ok_or_else(|| format!("未找到远程联系人：{normalized_remote_contact_id}"))?;
+        let body = build_session_notification_body(state, normalized_source_conversation_id, content)?;
+        let message = build_session_notification_message(&body);
+        enqueue_session_notification_dispatch(
+            state,
+            &target.conversation_id,
+            &body,
+            &message,
+            "auto_push_session",
+        )
+    }
 }

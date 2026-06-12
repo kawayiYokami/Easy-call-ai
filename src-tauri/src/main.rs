@@ -888,6 +888,7 @@ fn main() {
             mark_conversation_read,
             set_conversation_plan_mode,
             set_conversation_preferred_model,
+            set_conversation_auto_push_remote_contact,
             create_unarchived_conversation,
             export_conversation_share_json,
             import_conversation_share_from_file,

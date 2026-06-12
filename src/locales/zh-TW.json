@@ -1300,10 +1300,23 @@
       "title": "會話選單",
       "startDelegate": "發起委託",
       "branchConversation": "會話分支",
+      "autoPush": "自動推送",
       "forwardConversation": "會話轉發",
       "shareConversation": "分享會話",
       "setWorkspace": "設定會話工作目錄",
       "openDetachedWindow": "在獨立視窗開啟"
+    },
+    "autoPush": {
+      "title": "自動推送",
+      "summary": "開啟後，本會話所有 LLM 發言都會自動通知到指定遠端聯絡人會話。",
+      "enable": "開啟自動推送",
+      "enableHint": "本會話後續 assistant 發言將無條件異步投遞到目標聯絡人會話。",
+      "activeChip": "自動推送中",
+      "activeHint": "目前會話已開啟自動推送",
+      "targetContact": "遠端聯絡人",
+      "selectPlaceholder": "請選擇一個遠端聯絡人",
+      "empty": "目前沒有可用的遠端聯絡人會話。",
+      "disableAction": "關閉自動推送"
     },
     "mentionMutedBadge": "禁",
     "defaultDepartment": "預設",

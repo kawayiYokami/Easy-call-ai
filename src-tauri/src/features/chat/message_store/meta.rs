@@ -27,6 +27,7 @@ pub(super) struct ConversationPersistMeta {
     memory_recall_table: Vec<String>,
     plan_mode_enabled: bool,
     preferred_api_config_id: Option<String>,
+    auto_push_remote_contact_id: Option<String>,
     cumulative_usage: ConversationCumulativeUsage,
     active_goal: Option<ConversationGoalState>,
 }
@@ -105,6 +106,8 @@ pub(super) struct ConversationShardMeta {
     plan_mode_enabled: bool,
     #[serde(default)]
     preferred_api_config_id: Option<String>,
+    #[serde(default)]
+    auto_push_remote_contact_id: Option<String>,
     #[serde(default, alias = "usageSummary")]
     cumulative_usage: ConversationCumulativeUsage,
     #[serde(default)]
@@ -185,6 +188,7 @@ impl ConversationShardMeta {
             memory_recall_table: conversation.memory_recall_table.clone(),
             plan_mode_enabled: conversation.plan_mode_enabled,
             preferred_api_config_id: conversation.preferred_api_config_id.clone(),
+            auto_push_remote_contact_id: conversation.auto_push_remote_contact_id.clone(),
             cumulative_usage: conversation.cumulative_usage.clone(),
             active_goal: conversation.active_goal.clone(),
         }
@@ -219,6 +223,7 @@ impl ConversationShardMeta {
             memory_recall_table: meta.memory_recall_table.clone(),
             plan_mode_enabled: meta.plan_mode_enabled,
             preferred_api_config_id: meta.preferred_api_config_id.clone(),
+            auto_push_remote_contact_id: meta.auto_push_remote_contact_id.clone(),
             cumulative_usage: meta.cumulative_usage.clone(),
             active_goal: meta.active_goal.clone(),
         }
@@ -253,6 +258,7 @@ impl ConversationShardMeta {
             memory_recall_table: self.memory_recall_table.clone(),
             plan_mode_enabled: self.plan_mode_enabled,
             preferred_api_config_id: self.preferred_api_config_id.clone(),
+            auto_push_remote_contact_id: self.auto_push_remote_contact_id.clone(),
             cumulative_usage: self.cumulative_usage.clone(),
             active_goal: self.active_goal.clone(),
         }
@@ -288,6 +294,7 @@ impl ConversationShardMeta {
             memory_recall_table: self.memory_recall_table,
             plan_mode_enabled: self.plan_mode_enabled,
             preferred_api_config_id: self.preferred_api_config_id,
+            auto_push_remote_contact_id: self.auto_push_remote_contact_id,
             cumulative_usage: self.cumulative_usage,
             active_goal: self.active_goal,
         }
@@ -375,6 +382,7 @@ mod message_store_meta_tests {
             memory_recall_table: vec!["memory-a".to_string()],
             plan_mode_enabled: true,
             preferred_api_config_id: Some("api-c".to_string()),
+            auto_push_remote_contact_id: Some("contact-a".to_string()),
             cumulative_usage: ConversationCumulativeUsage {
                 input_tokens: 10,
                 output_tokens: 20,
@@ -407,6 +415,10 @@ mod message_store_meta_tests {
         assert_eq!(restored.messages.len(), 2);
         assert_eq!(restored.id, conversation.id);
         assert_eq!(restored.preferred_api_config_id, conversation.preferred_api_config_id);
+        assert_eq!(
+            restored.auto_push_remote_contact_id,
+            conversation.auto_push_remote_contact_id
+        );
         assert_eq!(restored.cumulative_usage, conversation.cumulative_usage);
         assert_eq!(restored.active_goal, conversation.active_goal);
     }

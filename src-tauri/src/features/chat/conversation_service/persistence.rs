@@ -237,6 +237,32 @@ impl ConversationService {
         Ok(conversation)
     }
 
+    fn set_conversation_auto_push_remote_contact_id(
+        &self,
+        state: &AppState,
+        conversation_id: &str,
+        auto_push_remote_contact_id: Option<String>,
+    ) -> Result<Conversation, String> {
+        let normalized_conversation_id = conversation_id.trim();
+        if normalized_conversation_id.is_empty() {
+            return Err("conversationId is required.".to_string());
+        }
+        let guard = state
+            .conversation_lock
+            .lock()
+            .map_err(|err| format!("Failed to lock state mutex at {}:{} {}: {err}", file!(), line!(), module_path!()))?;
+        let (conversation, (), _) = state_update_conversation_metadata_cached(
+            state,
+            normalized_conversation_id,
+            |conversation| {
+                conversation.auto_push_remote_contact_id = auto_push_remote_contact_id.clone();
+                Ok(())
+            },
+        )?;
+        drop(guard);
+        Ok(conversation)
+    }
+
     fn set_conversation_title_metadata(
         &self,
         state: &AppState,

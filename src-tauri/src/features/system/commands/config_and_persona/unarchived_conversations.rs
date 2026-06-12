@@ -262,6 +262,62 @@ fn set_conversation_preferred_model(
     })
 }
 
+#[tauri::command]
+fn set_conversation_auto_push_remote_contact(
+    input: SetConversationAutoPushRemoteContactInput,
+    state: State<'_, AppState>,
+) -> Result<SetConversationAutoPushRemoteContactOutput, String> {
+    let conversation_id = input.conversation_id.trim();
+    if conversation_id.is_empty() {
+        return Err("conversationId 不能为空".to_string());
+    }
+    let remote_contact_id = input
+        .remote_contact_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToOwned::to_owned);
+
+    let conversation = state_read_conversation_cached(state.inner(), conversation_id)
+        .map_err(|_| "会话不存在".to_string())?;
+    if !conversation_is_local_normal_chat(&conversation)
+        || !conversation_visible_in_foreground_lists(&conversation)
+        || conversation_is_system_notification(&conversation)
+    {
+        return Err("仅普通本地会话支持自动推送".to_string());
+    }
+
+    if let Some(target_contact_id) = remote_contact_id.as_deref() {
+        let has_target = conversation_service()
+            .list_remote_im_contact_conversations(state.inner())?
+            .iter()
+            .any(|item| item.contact_id.trim() == target_contact_id);
+        if !has_target {
+            return Err(format!("未找到远程联系人：{target_contact_id}"));
+        }
+    }
+
+    conversation_service().set_conversation_auto_push_remote_contact_id(
+        state.inner(),
+        conversation_id,
+        remote_contact_id.clone(),
+    )?;
+    let overview_payload =
+        conversation_service().refresh_unarchived_conversation_overview_payload(state.inner())?;
+    emit_unarchived_conversation_overview_updated_payload(state.inner(), &overview_payload);
+
+    runtime_log_info(format!(
+        "[自动推送] 完成，任务=更新会话自动推送目标，会话ID={}，remote_contact_id={}",
+        conversation_id,
+        remote_contact_id.as_deref().unwrap_or("关闭")
+    ));
+
+    Ok(SetConversationAutoPushRemoteContactOutput {
+        conversation_id: conversation_id.to_string(),
+        remote_contact_id,
+    })
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct CreateUnarchivedConversationInput {

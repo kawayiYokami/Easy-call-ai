@@ -3424,6 +3424,7 @@
             memory_recall_table: Vec::new(),
             plan_mode_enabled: false,
             preferred_api_config_id: None,
+            auto_push_remote_contact_id: None,
             active_goal: None,
             cumulative_usage: ConversationCumulativeUsage::default(),
         }
@@ -3637,6 +3638,67 @@
                 .get(&conversation.id)
                 .and_then(|item| item.preferred_api_config_id.as_deref()),
             Some("api-model-c")
+        );
+    }
+
+    #[test]
+    fn set_conversation_auto_push_remote_contact_should_schedule_meta_only_persist() {
+        let (state, source_id, _target_local_id, _remote_target_id) = seed_session_forward_test_state();
+
+        let updated = conversation_service()
+            .set_conversation_auto_push_remote_contact_id(
+                &state,
+                &source_id,
+                Some("contact-session-a".to_string()),
+            )
+            .expect("set auto push remote contact");
+
+        assert_eq!(
+            updated.auto_push_remote_contact_id.as_deref(),
+            Some("contact-session-a")
+        );
+        let pending = state
+            .conversation_persist_pending
+            .lock()
+            .expect("lock pending");
+        let pending = pending.as_ref().expect("pending meta persist");
+        assert!(pending.conversations.is_empty());
+        assert!(pending.metadata_conversation_ids.contains(&source_id));
+        assert!(!pending.deleted_conversation_ids.contains(&source_id));
+    }
+
+    #[test]
+    fn set_conversation_auto_push_remote_contact_should_appear_in_overview_and_flush() {
+        let (state, source_id, _target_local_id, _remote_target_id) = seed_session_forward_test_state();
+
+        conversation_service()
+            .set_conversation_auto_push_remote_contact_id(
+                &state,
+                &source_id,
+                Some("contact-session-a".to_string()),
+            )
+            .expect("set auto push remote contact");
+
+        let summaries = conversation_service()
+            .list_unarchived_conversation_summaries(&state)
+            .expect("list summaries")
+            .summaries;
+        let source_summary = summaries
+            .iter()
+            .find(|item| item.conversation_id == source_id)
+            .expect("source summary");
+        assert_eq!(
+            source_summary.auto_push_remote_contact_id.as_deref(),
+            Some("contact-session-a")
+        );
+
+        let wrote = flush_pending_persists_blocking(&state).expect("flush pending");
+        let restored = read_conversation_shard(&state.data_path, &source_id)
+            .expect("read restored conversation");
+        assert!(wrote);
+        assert_eq!(
+            restored.auto_push_remote_contact_id.as_deref(),
+            Some("contact-session-a")
         );
     }
 
