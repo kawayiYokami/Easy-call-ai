@@ -1202,42 +1202,6 @@
         let _ = std::fs::remove_dir_all(app_root_from_data_path(&state.data_path));
     }
 
-    fn remote_im_test_conversation(conversation_id: &str) -> Conversation {
-        Conversation {
-            id: conversation_id.to_string(),
-            title: "联系人".to_string(),
-            agent_id: DEFAULT_AGENT_ID.to_string(),
-            department_id: REMOTE_CUSTOMER_SERVICE_DEPARTMENT_ID.to_string(),
-            bound_conversation_id: None,
-            parent_conversation_id: None,
-            child_conversation_ids: Vec::new(),
-            fork_message_cursor: None,
-            unread_count: 0,
-            conversation_kind: CONVERSATION_KIND_REMOTE_IM_CONTACT.to_string(),
-            root_conversation_id: None,
-            delegate_id: None,
-            created_at: now_iso(),
-            updated_at: now_iso(),
-            last_user_at: None,
-            last_assistant_at: None,
-            status: "inactive".to_string(),
-            summary: String::new(),
-            user_profile_snapshot: String::new(),
-            shell_workspace_path: None,
-            shell_workspaces: Vec::new(),
-            shell_autonomous_mode: false,
-            archived_at: None,
-            messages: Vec::new(),
-            current_todos: Vec::new(),
-            memory_recall_table: Vec::new(),
-            plan_mode_enabled: false,
-            preferred_api_config_id: None,
-            auto_push_remote_contact_id: None,
-            active_goal: None,
-            cumulative_usage: ConversationCumulativeUsage::default(),
-        }
-    }
-
     fn remote_im_test_secretary_assistant_context() -> RemoteImConversationAssistantContext {
         RemoteImConversationAssistantContext {
             department_id: "dept-sales".to_string(),
