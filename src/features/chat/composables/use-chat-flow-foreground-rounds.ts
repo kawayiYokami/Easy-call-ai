@@ -22,11 +22,7 @@ export function useChatFlowForegroundRounds(bindings: Record<string, any>) {
     );
     if (!overlay.removed) return;
     bindings.allMessages.value = overlay.messages;
-    console.info("[聊天流式恢复] 应用流式覆盖投影，隐藏已持久化半成品消息", {
-      conversationId: cid,
-      replacedMessageId: overlay.replacedMessageId,
-      afterLen: overlay.messages.length,
-    });
+    // 流式恢复日志已移除
   }
 
   function applyQueuedStreamingStateIfNeeded(draftId: string) {
@@ -172,13 +168,7 @@ export function useChatFlowForegroundRounds(bindings: Record<string, any>) {
     applyStreamingOverlayForConversation(conversationId);
     const existingDraftStartedAtMs = existingDraftId ? positiveRoundedNumber(existingDraftMeta._frontendDispatchStartedAtMs) : 0;
     const existingDraftElapsedMs = existingDraftId ? positiveRoundedNumber(existingDraftMeta._frontendDispatchElapsedMs) : 0;
-    console.info("[聊天流式阶段] 前台恢复流式投影", {
-      conversationId,
-      restoredFromCache,
-      existingDraftId,
-      assistantTextLength: String(bindings.latestAssistantText.value || "").length,
-      roundPhase: round.phase,
-    });
+    // 前台恢复流式投影日志已移除
     if (!restoredFromCache) {
       bindings.latestAssistantText.value = readMessagePlainText(existingDraft);
     }
@@ -214,13 +204,7 @@ export function useChatFlowForegroundRounds(bindings: Record<string, any>) {
       !!input?.streamCache?.hasVisibleProgress
       || streamCacheHasVisibleProgress(input?.streamCache)
       || streamCacheHasVisibleProgress(cache);
-    console.info("[聊天流式恢复] 应用后端运行态快照", {
-      conversationId,
-      reason: String(input?.reason || ""),
-      hasVisibleProgress,
-      assistantTextLength: String(cache?.assistantText || input?.streamCache?.assistantText || "").length,
-      toolCallCount: streamBlocksToToolCalls(snapshotBlocks.length > 0 ? snapshotBlocks : cache?.streamBlocks || []).length,
-    });
+    // 应用后端运行态快照日志已移除
     if (!hasVisibleProgress) {
       return ensureForegroundWaitingRound(input?.statusText || bindings.t("chat.statusWaitingReply"));
     }
@@ -241,12 +225,7 @@ export function useChatFlowForegroundRounds(bindings: Record<string, any>) {
     if (!conversationId || conversationId !== currentConversationId) return 0;
     const cache = bindings.readConversationStreamCache(conversationId);
     if (!streamCacheHasVisibleProgress(cache)) return 0;
-    console.info("[聊天流式恢复] 从前端缓存恢复当前会话投影", {
-      conversationId,
-      reason: String(input?.reason || ""),
-      assistantTextLength: String(cache?.assistantText || "").length,
-      toolCallCount: streamBlocksToToolCalls(cache?.streamBlocks || []).length,
-    });
+    // 从前端缓存恢复当前会话投影日志已移除
     return ensureForegroundStreamingRound();
   }
 

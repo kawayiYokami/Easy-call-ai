@@ -606,7 +606,7 @@ watch(
   }),
   (snapshot) => {
     if (!props.sidebarMode) return;
-    console.info("[Sidebar系统会话识别][ChatView]", snapshot);
+    // 系统会话识别日志已移除
   },
   { immediate: true, deep: true },
 );

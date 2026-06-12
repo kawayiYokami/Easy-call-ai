@@ -84,12 +84,7 @@ export function useChatFlowChannelBinding(options: UseChatFlowChannelBindingOpti
     if (!options.invokeBindActiveChatViewStream) return;
     const id = String(conversationId || "").trim();
     if (!force && boundConversationInitialized && id === boundConversationId) return;
-    console.info("[聊天流式块][前端绑定] 开始绑定前台流式通道", {
-      conversationId: id,
-      force,
-      previousConversationId: boundConversationId,
-      previousInitialized: boundConversationInitialized,
-    });
+    // 流式绑定日志已移除
     const channel = new Channel<AssistantDeltaEvent>();
     attachDeltaHandler(
       channel,
@@ -105,11 +100,7 @@ export function useChatFlowChannelBinding(options: UseChatFlowChannelBindingOpti
     boundConversationId = id;
     boundConversationInitialized = true;
     if (!id) boundDisplayGeneration = 0;
-    console.info("[聊天流式块][前端绑定] 完成绑定前台流式通道", {
-      conversationId: id,
-      force,
-      boundDisplayGeneration,
-    });
+    // 流式绑定日志已移除
     if (options.debug) {
       console.debug("[聊天] 已绑定前台流式通道", { conversationId: id });
     }

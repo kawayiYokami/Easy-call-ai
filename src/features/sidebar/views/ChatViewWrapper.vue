@@ -341,7 +341,7 @@ watch(
     ),
   }),
   (snapshot) => {
-    console.info("[Sidebar系统会话识别][Wrapper]", snapshot);
+    // 系统会话识别日志已移除
   },
   { immediate: true, deep: true },
 );

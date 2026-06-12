@@ -97,11 +97,7 @@ export function useChatFlowForegroundReset(options: UseChatFlowForegroundResetOp
     const round = options.getRound();
     if (round.phase === "streaming") {
       options.clearFrontendDispatchTimer();
-      console.info("[聊天流式阶段] 前台冻结并保留流式缓存", {
-        conversationId,
-        roundGen: round.gen,
-        assistantTextLength: String(options.latestAssistantText.value || "").length,
-      });
+      // 前台冻结日志已移除
     } else if (round.phase === "queued") {
       options.clearFrontendDispatchTimer();
     }

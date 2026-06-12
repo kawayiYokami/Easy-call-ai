@@ -818,7 +818,7 @@ watch(
     overviewItem: chatConversationItems.value.find((item) => item.conversationId === activeConversationId.value),
   }),
   (snapshot) => {
-    console.info("[Sidebar系统会话识别][App]", snapshot);
+    // 系统会话识别日志已移除
   },
   { immediate: true, deep: true },
 );
@@ -1010,12 +1010,7 @@ async function refreshList() {
   syncConversationTabForRemoteContacts();
   sidebarViewerId.value = String(result.viewerId || sidebarViewerId.value || "").trim();
   if (result.persona && !activeConversationId.value) persona.value = result.persona;
-  console.info("[Sidebar会话列表] 完成", {
-    local: conversations.value.length,
-    remote: remoteImContactConversations.value.length,
-    total: conversations.value.length + remoteImContactConversations.value.length,
-    viewerId: sidebarViewerId.value,
-  });
+  // Sidebar 会话列表日志已移除
 }
 
 async function loadCreateConversationOptions() {

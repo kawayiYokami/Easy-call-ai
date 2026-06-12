@@ -188,17 +188,7 @@ function runtimeStateText(item: ConversationListItem): string {
 
 function handleSelect(item: ConversationListItem) {
   const disabled = isConversationDisabled(item);
-  console.info("[Sidebar会话列表][select]", {
-    conversationId: item.conversationId,
-    title: item.title,
-    summaryTitle: item.summaryTitle,
-    isSystemNotificationConversation: item.isSystemNotificationConversation,
-    isMainConversation: item.isMainConversation,
-    runtimeState: item.runtimeState,
-    detachedWindowOpen: item.detachedWindowOpen,
-    activeConversationId: props.activeConversationId,
-    disabled,
-  });
+  // Sidebar 会话列表日志已移除
   if (disabled) return;
   emit("select", item.conversationId);
 }

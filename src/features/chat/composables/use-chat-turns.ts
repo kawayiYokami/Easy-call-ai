@@ -244,20 +244,7 @@ export function useChatMessageBlocks(options: UseChatMessageBlocksOptions) {
         // Avoid flooding the console while the virtual list recomputes unchanged blocks.
       } else {
         streamProjectionDebugSignatures.set(String(message.id || ""), debugSignature);
-        console.info("[聊天流式块][前端投影]", {
-          messageId: String(message.id || ""),
-          isStreaming: baseBlock.isStreaming,
-          textLength: String(baseBlock.text || "").length,
-          streamBlockCount: streamBlocks.length,
-          streamReasoningLen,
-          streamTextLen,
-          streamToolCount,
-          activityItemCount: baseBlock.activityItems.length,
-          activityReasoningCharCount: baseBlock.activityReasoningCharCount,
-          activityRunning: baseBlock.activityRunning,
-          activityStatus: baseBlock.activityStatus,
-          shouldShowActivityPanel: baseBlock.activityItems.length > 0 || baseBlock.activityRunning,
-        });
+        // 流式投影日志已移除
       }
     }
 
