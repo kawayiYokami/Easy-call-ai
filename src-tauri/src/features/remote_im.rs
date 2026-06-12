@@ -607,7 +607,6 @@ fn remote_im_prepare_enqueue_runtime_state(
             let (activate, reason) = remote_im_should_activate_while_away(contact, message_text);
             if activate {
                 runtime.presence_state = RemoteImPresenceState::Present;
-                runtime.needs_boundary = true;
                 runtime.consecutive_no_reply_count = 0;
             }
             (activate, format!("{mute_prefix}{reason}"))
@@ -1362,7 +1361,6 @@ fn remote_im_handle_persisted_event_after_history_flush_runtime(
     }
 
     let mut should_activate = false;
-    let mut should_apply_boundary = false;
     let (
         previous_presence,
         previous_work,
@@ -1394,8 +1392,6 @@ fn remote_im_handle_persisted_event_after_history_flush_runtime(
                     );
                     "busy_mark_pending".to_string()
                 } else {
-                    should_apply_boundary = runtime.needs_boundary;
-                    runtime.needs_boundary = false;
                     runtime.work_state = RemoteImWorkState::Busy;
                     runtime.has_pending = false;
                     should_activate = true;
@@ -1414,36 +1410,18 @@ fn remote_im_handle_persisted_event_after_history_flush_runtime(
         )
     };
 
-    if should_apply_boundary {
-        if !conversation_is_remote_im_contact(conversation) {
-            eprintln!(
-                "[远程联系人状态机] 压缩边界 跳过: contact_id={}, conversation_id={}, reason=not_dedicated_contact_conversation",
-                contact.id,
-                conversation.id
-            );
-        } else {
-            remote_im_apply_presence_boundary_to_conversation(
-                conversation,
-                checkpoints,
-                &contact,
-                now,
-            )?;
-        }
-    }
     if should_activate {
         activated_contacts_in_batch.insert(contact.id.clone());
         eprintln!(
-            "[远程联系人状态机] 激活调度 开始: contact_id={}, conversation_id={}, boundary_applied={}",
-            contact.id,
-            conversation.id,
-            should_apply_boundary
+            "[远程联系人状态机] 激活调度 开始: contact_id={}, conversation_id={}",
+            contact.id, conversation.id
         );
     }
     remote_im_append_channel_log(
         &contact.channel_id,
         "info",
         format!(
-            "[联系人状态] 历史落地: contact={}, conversation_id={}, presence={} -> {}, work={} -> {}, pending={} -> {}, activate={}, boundary={}, reason={}",
+            "[联系人状态] 历史落地: contact={}, conversation_id={}, presence={} -> {}, work={} -> {}, pending={} -> {}, activate={}, reason={}",
             remote_im_contact_log_label(&contact),
             conversation.id,
             remote_im_presence_state_label(previous_presence),
@@ -1453,7 +1431,6 @@ fn remote_im_handle_persisted_event_after_history_flush_runtime(
             remote_im_yes_no(previous_pending),
             remote_im_yes_no(current_pending),
             remote_im_yes_no(should_activate),
-            remote_im_yes_no(should_apply_boundary),
             state_reason
         ),
     );
@@ -1485,7 +1462,6 @@ fn remote_im_handle_persisted_event_after_history_flush(
     }
 
     let mut should_activate = false;
-    let mut should_apply_boundary = false;
     {
         let mut runtime_states = lock_remote_im_contact_runtime_states(state)?;
         let runtime = remote_im_contact_runtime_state_mut(&mut runtime_states, &contact.id);
@@ -1504,8 +1480,6 @@ fn remote_im_handle_persisted_event_after_history_flush(
                         contact.id
                     );
                 } else {
-                    should_apply_boundary = runtime.needs_boundary;
-                    runtime.needs_boundary = false;
                     runtime.work_state = RemoteImWorkState::Busy;
                     runtime.has_pending = false;
                     should_activate = true;
@@ -1513,15 +1487,11 @@ fn remote_im_handle_persisted_event_after_history_flush(
             }
         }
     }
-
-    if should_apply_boundary {
-        remote_im_apply_presence_boundary_if_needed(data, conversation_id, &contact, now)?;
-    }
     if should_activate {
         activated_contacts_in_batch.insert(contact.id.clone());
         eprintln!(
-            "[远程联系人状态机] 激活调度 开始: contact_id={}, conversation_id={}, boundary_applied={}",
-            contact.id, conversation_id, should_apply_boundary
+            "[远程联系人状态机] 激活调度 开始: contact_id={}, conversation_id={}",
+            contact.id, conversation_id
         );
     }
     Ok(should_activate)

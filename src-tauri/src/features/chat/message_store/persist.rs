@@ -198,12 +198,12 @@ fn write_jsonl_snapshot_directory_shard_incremental(
     let old_block_count = old_block_ids.len();
     let new_block_count = source_blocks.len();
     if new_block_count < old_block_count {
-        return Err(format!(
-            "增量写入会话块失败：block 数量减少，需要结构性重建，conversation_id={}，old_count={}，new_count={}",
+        eprintln!(
+            "[消息存储] 增量写入命中 block 数量减少，回退全量重写：conversation_id={}，old_count={}，new_count={}",
             paths.conversation_id,
-            old_block_count,
-            new_block_count
-        ));
+            old_block_count, new_block_count
+        );
+        return write_jsonl_snapshot_directory_shard_full(paths, conversation);
     }
     for (idx, block) in source_blocks.iter().enumerate().take(old_block_count) {
         if old_block_ids
@@ -212,13 +212,14 @@ fn write_jsonl_snapshot_directory_shard_incremental(
         {
             continue;
         }
-        return Err(format!(
-            "增量写入会话块失败：block 顺序不一致，需要结构性重建，conversation_id={}，index={}，old_block={:?}，new_block={}",
+        eprintln!(
+            "[消息存储] 增量写入命中 block 顺序不一致，回退全量重写：conversation_id={}，index={}，old_block={:?}，new_block={}",
             paths.conversation_id,
             idx,
             old_block_ids.get(idx),
             block.block_file
-        ));
+        );
+        return write_jsonl_snapshot_directory_shard_full(paths, conversation);
     }
 
     let mut rewrite_block_indices = std::collections::BTreeSet::<usize>::new();
