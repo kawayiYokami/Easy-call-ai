@@ -2652,8 +2652,7 @@ fn build_builtin_tool_rule_block(tool_id: &str) -> Option<String> {
              - 本地文件带行号：`[file.rs](/abs/path/file.rs:12)`\n\
              - 网页：`[文档](https://example.com)`\n\n\
              ## 注意\n\
-             - 当前前端识别盘符开头的绝对本地路径；`file:///E:/...` 容易被当成普通网页链接或被错误解析。\n\
-             - 远程联系人需要发送文件时，必须使用 `contact_send_files` 发送附件，不要只在文本里粘贴本地路径。",
+             - 当前前端识别盘符开头的绝对本地路径；`file:///E:/...` 容易被当成普通网页链接或被错误解析。",
         ),
         "image_reference" => (
             "image reference rule",
