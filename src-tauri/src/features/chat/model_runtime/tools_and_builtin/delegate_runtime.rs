@@ -94,6 +94,7 @@ fn delegate_enqueue_result_message(
         provider_meta: Some(provider_meta),
         tool_call: None,
         mcp_call: None,
+        meme_annotations: None,
     };
     append_delegate_result_message_and_emit(
         app_state,

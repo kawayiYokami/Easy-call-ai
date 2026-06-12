@@ -857,6 +857,54 @@ fn persist_meme_segments_into_provider_meta(
     *provider_meta = Some(meta);
 }
 
+fn build_meme_annotations(
+    state: &AppState,
+    text: &str,
+    seed_source: &str,
+) -> Result<Vec<MemeAnnotation>, String> {
+    let grouped = meme_available_assets(state)?;
+    if grouped.is_empty() || text.trim().is_empty() {
+        return Ok(Vec::new());
+    }
+    let mut annotations = Vec::<MemeAnnotation>::new();
+    let mut scan_cursor = 0usize;
+    let mut token_index = 0usize;
+
+    while scan_cursor < text.len() {
+        let Some(start_rel) = text[scan_cursor..].find(':') else {
+            break;
+        };
+        let start = scan_cursor + start_rel;
+        let Some(end_rel) = text[start + 1..].find(':') else {
+            break;
+        };
+        let end = start + 1 + end_rel;
+        let category = &text[start + 1..end];
+        if !meme_token_is_valid(category) {
+            scan_cursor = start + 1;
+            continue;
+        }
+        let Some(candidates) = grouped.get(category) else {
+            scan_cursor = start + 1;
+            continue;
+        };
+        let chosen = &candidates[choose_meme_variant_index(
+            seed_source,
+            category,
+            token_index,
+            candidates.len(),
+        )];
+        annotations.push(MemeAnnotation {
+            meme: format!(":{}:", category),
+            path: chosen.absolute_path.to_string_lossy().to_string(),
+        });
+        token_index += 1;
+        scan_cursor = end + 1;
+    }
+
+    Ok(annotations)
+}
+
 fn meme_resolve_source_path(state: &AppState, raw: &str) -> Result<PathBuf, String> {
     let trimmed = raw.trim();
     if trimmed.is_empty() {

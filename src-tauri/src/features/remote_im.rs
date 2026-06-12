@@ -1171,6 +1171,7 @@ fn remote_im_build_presence_boundary_message(
         })),
         tool_call: None,
         mcp_call: None,
+        meme_annotations: None,
     }
 }
 
@@ -2446,6 +2447,7 @@ fn build_chat_message_from_input(
         provider_meta: merged_meta,
         tool_call: None,
         mcp_call: None,
+        meme_annotations: None,
     }
 }
 

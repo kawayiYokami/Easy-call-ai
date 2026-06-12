@@ -1119,6 +1119,7 @@ fn append_tool_group_result_to_conversation(
             provider_meta: provider_meta_patch.filter(|value| value.as_object().is_some_and(|obj| !obj.is_empty())),
             tool_call: Some(vec![assistant_tool_call_event, tool_result_event]),
             mcp_call: None,
+            meme_annotations: None,
         };
         let assistant_message_id = assistant_message.id.clone();
         conversation.messages.push(assistant_message);
@@ -2209,6 +2210,7 @@ mod message_store_reader_tests {
             provider_meta: None,
             tool_call: None,
             mcp_call: None,
+            meme_annotations: None,
         }
     }
 

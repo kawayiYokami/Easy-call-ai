@@ -2516,6 +2516,7 @@ async fn send_chat_message_inner(
                     provider_meta: None,
                     tool_call: None,
                     mcp_call: None,
+                    meme_annotations: None,
                 };
                 with_memory_lock(&state, "prepare_context_user_message_recall", || {
                     collect_recall_payload_for_user_message(
@@ -2568,6 +2569,7 @@ async fn send_chat_message_inner(
                 provider_meta: user_provider_meta,
                 tool_call: None,
                 mcp_call: None,
+                meme_annotations: None,
             };
             let updated_conversation = append_user_message_to_conversation(
                 &state,
@@ -3340,6 +3342,11 @@ async fn send_chat_message_inner(
         provider_meta = Some(merged);
     }
     let assistant_message_id = Uuid::new_v4().to_string();
+    let meme_annotations = build_meme_annotations(&state, &assistant_text, &assistant_message_id)
+        .unwrap_or_else(|err| {
+            runtime_log_warn(format!("[表情标注] 构建失败: {err}"));
+            Vec::new()
+        });
     log_run_stage("model_reply_ready");
 
     let mut persisted_assistant_message: Option<ChatMessage> = None;
@@ -3355,6 +3362,7 @@ async fn send_chat_message_inner(
                     now.clone(),
                     &assistant_request_messages,
                     provider_meta,
+                    Some(meme_annotations.clone()),
                 );
                 persisted_assistant_message = Some(conversation_upsert_final_assistant_message(
                     &mut conversation,
@@ -3380,6 +3388,7 @@ async fn send_chat_message_inner(
                     now.clone(),
                     &assistant_request_messages,
                     provider_meta,
+                    Some(meme_annotations.clone()),
                 );
                 persisted_assistant_message = Some(conversation_upsert_final_assistant_message(
                     &mut conversation,

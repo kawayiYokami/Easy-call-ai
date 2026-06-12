@@ -4497,6 +4497,7 @@ fn ide_chat_send_message(state: &AppState, params: Value) -> Result<Value, Strin
         })),
         tool_call: None,
         mcp_call: None,
+        meme_annotations: None,
     };
     let event_id = Uuid::new_v4().to_string();
     let mut runtime_context = runtime_context_new("user_message", "user_send");

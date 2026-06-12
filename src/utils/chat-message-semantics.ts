@@ -6,6 +6,7 @@ import type {
   ChatMentionTarget,
   ChatMessage,
   InlineMessageSegment,
+  MemeAnnotation,
   MemeMessageSegment,
   PlanMessageCard,
   TaskTriggerMessageCard,
@@ -997,6 +998,16 @@ function resolveMessageMentions(message: ChatMessage): ChatMentionTarget[] {
   return mentions;
 }
 
+function applyMemeAnnotationReplacements(text: string, annotations?: MemeAnnotation[]): string {
+  if (!annotations || annotations.length === 0) return text;
+  let result = text;
+  for (const { meme, path } of annotations) {
+    const markdown = `![${meme.slice(1, -1)}](${path})`;
+    result = result.split(meme).join(markdown);
+  }
+  return result;
+}
+
 export function projectMessageForDisplay(
   message: ChatMessage,
   taskTriggerLabels?: TaskTriggerDisplayLabels,
@@ -1032,10 +1043,11 @@ export function projectMessageForDisplay(
       : message.role === "assistant"
         ? mergedAssistantDisplayText(message, rendered.trim())
         : rendered;
+  const displayTextWithMeme = applyMemeAnnotationReplacements(displayText, message.memeAnnotations);
   return {
     speakerAgentId: resolveSpeakerAgentId(message) || undefined,
     mentions: resolveMessageMentions(message),
-    text: displayText,
+    text: displayTextWithMeme,
     images: extractMessageImages(message),
     audios: extractMessageAudios(message),
     attachmentFiles: extractMessageAttachmentFiles(message),

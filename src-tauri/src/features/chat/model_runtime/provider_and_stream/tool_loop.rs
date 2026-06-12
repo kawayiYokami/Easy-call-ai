@@ -267,6 +267,7 @@ fn tool_loop_transient_tool_history_message(events: &[Value]) -> Option<ChatMess
         provider_meta: None,
         tool_call: Some(events.to_vec()),
         mcp_call: None,
+        meme_annotations: None,
     })
 }
 

@@ -1377,6 +1377,7 @@ fn build_stop_chat_partial_assistant_message(
         now,
         &request_messages,
         None,
+        None,
     )
 }
 

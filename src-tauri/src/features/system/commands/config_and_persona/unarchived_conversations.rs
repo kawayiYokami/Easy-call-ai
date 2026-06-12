@@ -424,6 +424,7 @@ fn clone_chat_message_for_copied_conversation(message: &ChatMessage) -> ChatMess
         provider_meta: message.provider_meta.clone(),
         tool_call: message.tool_call.clone(),
         mcp_call: message.mcp_call.clone(),
+        meme_annotations: None,
     }
 }
 
@@ -484,6 +485,7 @@ fn normalize_imported_conversation_share_message(
         provider_meta: message.provider_meta.clone(),
         tool_call: message.tool_call.clone(),
         mcp_call: message.mcp_call.clone(),
+        meme_annotations: None,
     }
 }
 
@@ -1305,6 +1307,7 @@ fn conversation_delegate_stats_from_conversation(
             provider_meta: None,
             tool_call: Some(inflight_tool_history.to_vec()),
             mcp_call: None,
+            meme_annotations: None,
         };
         for event in normalize_message_tool_history_events(&transient, MessageToolHistoryView::Display) {
             if event.role != "assistant" {
@@ -2410,6 +2413,7 @@ mod unarchived_conversations_tests {
             provider_meta: None,
             tool_call: None,
             mcp_call: None,
+            meme_annotations: None,
         }
     }
 
@@ -2590,6 +2594,7 @@ mod unarchived_conversations_tests {
                 provider_meta: None,
                 tool_call: None,
                 mcp_call: None,
+                meme_annotations: None,
             },
             build_test_todo_tool_message(
                 "assistant-1",
@@ -2612,6 +2617,7 @@ mod unarchived_conversations_tests {
                 provider_meta: None,
                 tool_call: None,
                 mcp_call: None,
+                meme_annotations: None,
             },
             build_test_todo_tool_message(
                 "assistant-2",

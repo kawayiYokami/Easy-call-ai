@@ -381,6 +381,7 @@ fn build_assistant_message_from_request_sequence(
     created_at: String,
     request_messages: &[Value],
     provider_meta: Option<Value>,
+    meme_annotations: Option<Vec<MemeAnnotation>>,
 ) -> ChatMessage {
     let folded = fold_request_messages_to_assistant_content(request_messages);
     let activity_events = folded.tool_history_events;
@@ -401,6 +402,7 @@ fn build_assistant_message_from_request_sequence(
             Some(activity_events)
         },
         mcp_call: None,
+        meme_annotations: meme_annotations.and_then(|v| if v.is_empty() { None } else { Some(v) }),
     }
 }
 

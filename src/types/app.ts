@@ -559,6 +559,8 @@ export type MemeMessageSegment =
     bytesBase64: string;
   };
 
+export type MemeAnnotation = { meme: string; path: string; };
+
 export type InlineMessageSegment =
   | { type: "text"; text: string }
   | {
@@ -604,6 +606,7 @@ export type ChatMessage = {
   };
   toolCall?: ToolCallMessage[];
   activityItems?: ChatActivityItem[];
+  memeAnnotations?: MemeAnnotation[];
 };
 
 export type ChatActivityStatus = "idle" | "requesting" | "thinking" | "running_tool" | "complete";

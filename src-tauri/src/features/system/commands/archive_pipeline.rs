@@ -1157,6 +1157,7 @@ fn build_compaction_message(
         })),
         tool_call: None,
         mcp_call: None,
+        meme_annotations: None,
     }
 }
 
@@ -1325,6 +1326,7 @@ fn build_initial_summary_context_message(
         })),
         tool_call: None,
         mcp_call: None,
+        meme_annotations: None,
     }
 }
 
@@ -2529,6 +2531,7 @@ mod archive_pipeline_tests {
             provider_meta: None,
             tool_call: None,
             mcp_call: None,
+            meme_annotations: None,
         }
     }
 

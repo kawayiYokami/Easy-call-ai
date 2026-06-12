@@ -84,6 +84,13 @@ enum MessagePart {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+struct MemeAnnotation {
+    meme: String,
+    path: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 struct ChatMessage {
     id: String,
     role: String,
@@ -96,6 +103,8 @@ struct ChatMessage {
     provider_meta: Option<Value>,
     tool_call: Option<Vec<Value>>,
     mcp_call: Option<Vec<Value>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    meme_annotations: Option<Vec<MemeAnnotation>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

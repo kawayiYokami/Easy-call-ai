@@ -156,6 +156,7 @@ fn plan_continue_confirmation_message() -> ChatMessage {
         })),
         tool_call: None,
         mcp_call: None,
+        meme_annotations: None,
     }
 }
 
@@ -883,6 +884,7 @@ fn enqueue_user_mention_result_message(
         provider_meta: Some(provider_meta),
         tool_call: None,
         mcp_call: None,
+        meme_annotations: None,
     };
     append_delegate_result_message_and_emit(
         app_state,
@@ -1388,6 +1390,7 @@ async fn submit_chat_message_inner(
         },
         tool_call: None,
         mcp_call: None,
+        meme_annotations: None,
     };
 
     let session = input.session.as_ref().ok_or_else(|| "缺少会话信息".to_string())?;
@@ -1647,6 +1650,7 @@ async fn send_chat_message(
         },
         tool_call: None,
         mcp_call: None,
+        meme_annotations: None,
     };
 
     // 获取会话信息
@@ -1879,6 +1883,7 @@ async fn send_user_mention_message_inner(
         },
         tool_call: None,
         mcp_call: None,
+        meme_annotations: None,
     };
 
     let session = input.session.as_ref().ok_or_else(|| "缺少会话信息".to_string())?;

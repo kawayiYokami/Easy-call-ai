@@ -1608,6 +1608,7 @@ fn build_goal_continue_message(
         })),
         tool_call: None,
         mcp_call: None,
+        meme_annotations: None,
     }
 }
 
