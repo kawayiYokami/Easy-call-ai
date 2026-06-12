@@ -4541,7 +4541,7 @@ fn ide_chat_stop_conversation(state: &AppState, params: Value) -> Result<Value, 
         return Err("conversationId is required".to_string());
     }
     let conversation = state_read_conversation_cached(state, conversation_id)?;
-    let (department_id, agent_id) = resolve_runtime_control_department_and_agent(
+    let (department_id, _agent_id) = resolve_runtime_control_department_and_agent(
         state,
         Some(conversation.department_id.as_str()),
         Some(conversation.agent_id.as_str()),
@@ -4580,11 +4580,8 @@ fn ide_chat_stop_conversation(state: &AppState, params: Value) -> Result<Value, 
     let completed_tool_history = inflight_completed_tool_history(state, &chat_key)?;
     let partial_tool_history =
         merge_stream_block_tool_history(&completed_tool_history, &input.partial_stream_blocks);
-    let should_persist = !partial_assistant_text.is_empty()
-        || !partial_activity_text.is_empty()
-        || !partial_tool_history.is_empty();
     runtime_log_info(format!(
-        "[聊天流式块][侧边栏停止] 准备持久化 session={} conversation_id={} partial_text_len={} partial_reasoning_len={} partial_block_count={} partial_tool_history_count={} completed_tool_history_count={} should_persist={}",
+        "[聊天流式块][侧边栏停止] 停止请求完成 session={} conversation_id={} partial_text_len={} partial_reasoning_len={} partial_block_count={} partial_tool_history_count={} completed_tool_history_count={}",
         chat_key,
         conversation_id,
         partial_assistant_text.chars().count(),
@@ -4592,35 +4589,15 @@ fn ide_chat_stop_conversation(state: &AppState, params: Value) -> Result<Value, 
         input.partial_stream_blocks.len(),
         partial_tool_history.len(),
         completed_tool_history.len(),
-        should_persist,
     ));
-    let mut persisted = false;
-    let mut assistant_message = None::<ChatMessage>;
-    if should_persist {
-        let result = conversation_service().persist_stop_chat_partial_message(
-            state,
-            Some(conversation_id),
-            Some(department_id.as_str()),
-            &agent_id,
-            &partial_assistant_text,
-            &partial_activity_text,
-            "",
-            &partial_tool_history,
-        )?;
-        persisted = result.persisted;
-        assistant_message = result.assistant_message;
-    }
     clear_inflight_completed_tool_history(state, &chat_key)?;
     let stop_result = StopChatResult {
         aborted: aborted_chat || aborted_tool || aborted_delegate_children > 0,
-        persisted,
+        persisted: false,
         conversation_id: Some(conversation_id.to_string()),
         assistant_text: partial_assistant_text,
-        assistant_message,
+        assistant_message: None,
     };
-    if stop_result.persisted {
-        emit_stop_chat_round_completed_event(state, conversation_id, &stop_result);
-    }
     let payload = serde_json::json!({
         "conversationId": conversation_id,
         "status": "stopped",

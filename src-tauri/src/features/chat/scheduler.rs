@@ -3427,39 +3427,6 @@ fn local_chat_notification_settings(
     }
 }
 
-fn emit_stop_chat_round_completed_event(
-    state: &AppState,
-    conversation_id: &str,
-    result: &StopChatResult,
-) {
-    let app_handle = match state.app_handle.lock() {
-        Ok(guard) => guard.as_ref().cloned(),
-        Err(_) => None,
-    };
-    let Some(app_handle) = app_handle else {
-        eprintln!(
-            "[聊天推送] emit stop round_completed 失败: app_handle unavailable, conversation_id={}",
-            conversation_id
-        );
-        return;
-    };
-    let payload = serde_json::json!({
-        "conversationId": conversation_id,
-        "status": "stopped",
-        "assistantText": result.assistant_text,
-        "archivedBeforeSend": false,
-        "assistantMessage": result.assistant_message,
-    });
-    ide_chat_broadcast_notification("chat.roundFinished", payload.clone());
-    match app_handle.emit(CHAT_ROUND_COMPLETED_EVENT, payload) {
-        Ok(_) => {}
-        Err(err) => eprintln!(
-            "[聊天推送] emit stop round_completed 失败: conversation_id={}, error={}",
-            conversation_id, err
-        ),
-    }
-}
-
 fn emit_round_failed_event(
     state: &AppState,
     conversation_id: &str,

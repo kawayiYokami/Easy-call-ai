@@ -2136,7 +2136,7 @@ async fn stop_chat_message(
         .map(str::trim)
         .filter(|value| !value.is_empty())
         .map(ToOwned::to_owned);
-    let (department_id, agent_id) = resolve_runtime_control_department_and_agent(
+    let (department_id, _agent_id) = resolve_runtime_control_department_and_agent(
         state.inner(),
         requested_department_id.as_deref(),
         Some(input.session.agent_id.as_str()),
@@ -2196,23 +2196,17 @@ async fn stop_chat_message(
     let partial_tool_history =
         merge_stream_block_tool_history(&completed_tool_history, &input.partial_stream_blocks);
     let build_stop_result =
-        |persisted: bool,
-         conversation_id: Option<String>,
-         assistant_message: Option<ChatMessage>|
-         -> StopChatResult {
+        |conversation_id: Option<String>| -> StopChatResult {
             StopChatResult {
                 aborted,
-                persisted,
+                persisted: false,
                 conversation_id,
                 assistant_text: partial_assistant_text.clone(),
-                assistant_message,
+                assistant_message: None,
             }
         };
-    let should_persist = !partial_assistant_text.is_empty()
-        || !partial_activity_text.is_empty()
-        || !partial_tool_history.is_empty();
     runtime_log_info(format!(
-        "[聊天流式块][后端停止] 准备持久化 session={} conversation_id={} aborted={} partial_text_len={} partial_reasoning_len={} partial_block_count={} partial_tool_history_count={} completed_tool_history_count={} should_persist={}",
+        "[聊天流式块][后端停止] 停止请求完成 session={} conversation_id={} aborted={} partial_text_len={} partial_reasoning_len={} partial_block_count={} partial_tool_history_count={} completed_tool_history_count={}",
         chat_key,
         requested_conversation_id.as_deref().unwrap_or(""),
         aborted,
@@ -2221,35 +2215,9 @@ async fn stop_chat_message(
         input.partial_stream_blocks.len(),
         partial_tool_history.len(),
         completed_tool_history.len(),
-        should_persist,
     ));
-    if !should_persist {
-        clear_inflight_completed_tool_history(state.inner(), &chat_key)?;
-        return Ok(build_stop_result(false, None, None));
-    }
-
-    let persist_result = conversation_service().persist_stop_chat_partial_message(
-        state.inner(),
-        requested_conversation_id.as_deref(),
-        Some(department_id.as_str()),
-        &agent_id,
-        &partial_assistant_text,
-        &partial_activity_text,
-        "",
-        &partial_tool_history,
-    )?;
     clear_inflight_completed_tool_history(state.inner(), &chat_key)?;
-    let result = build_stop_result(
-        persist_result.persisted,
-        persist_result.conversation_id.clone(),
-        persist_result.assistant_message,
-    );
-    if result.persisted {
-        if let Some(conversation_id) = result.conversation_id.as_deref() {
-            emit_stop_chat_round_completed_event(state.inner(), conversation_id, &result);
-        }
-    }
-    Ok(result)
+    Ok(build_stop_result(requested_conversation_id))
 }
 
 #[tauri::command]
