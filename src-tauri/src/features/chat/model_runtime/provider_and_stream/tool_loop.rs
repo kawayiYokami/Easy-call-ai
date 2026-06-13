@@ -879,6 +879,15 @@ fn persist_completed_tool_group_result(
     };
     let provider_meta_patch =
         tool_result_provider_meta_patch(trusted_input_tokens, selected_api.context_window_tokens);
+
+    // 从流式缓存中读取 assistant_message_id，传递给持久化，避免重复生成
+    let assistant_message_id = read_conversation_runtime_snapshot(state, &context.conversation_id)
+        .ok()
+        .and_then(|snapshot| {
+            let id = snapshot.stream_cache.persisted_assistant_message_id.trim();
+            if id.is_empty() { None } else { Some(id.to_string()) }
+        });
+
     match conversation_service().append_tool_group_result(
         state,
         &context.conversation_id,
@@ -886,6 +895,7 @@ fn persist_completed_tool_group_result(
         assistant_tool_call_event,
         tool_result_event,
         provider_meta_patch,
+        assistant_message_id.as_deref(),
     ) {
         Ok(result) => {
             set_stream_cache_persisted_assistant_message_id(

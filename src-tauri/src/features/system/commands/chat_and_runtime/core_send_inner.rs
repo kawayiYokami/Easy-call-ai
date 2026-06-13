@@ -1384,6 +1384,7 @@ fn restart_dispatch_round_after_context_compaction(
 
     let stream_started_at = now_iso();
     let stream_started_at_ms = now_unix_ms();
+    let assistant_message_id = Uuid::new_v4().to_string();
     reset_conversation_stream_runtime_cache(
         state,
         conversation_id,
@@ -1391,6 +1392,7 @@ fn restart_dispatch_round_after_context_compaction(
         request_id.as_str(),
         department_id,
         agent_id,
+        assistant_message_id.as_str(),
         stream_started_at.as_str(),
         stream_started_at_ms,
     )?;
@@ -3447,7 +3449,21 @@ async fn send_chat_message_inner(
         }
         provider_meta = Some(merged);
     }
-    let assistant_message_id = Uuid::new_v4().to_string();
+    let assistant_message_id = read_conversation_runtime_snapshot(&state, &conversation_id)
+        .ok()
+        .and_then(|snapshot| {
+            let value = snapshot.stream_cache.persisted_assistant_message_id.trim();
+            if value.is_empty() {
+                None
+            } else {
+                Some(value.to_string())
+            }
+        })
+        .unwrap_or_else(|| {
+            let generated = Uuid::new_v4().to_string();
+            set_stream_cache_persisted_assistant_message_id(&state, &conversation_id, &generated);
+            generated
+        });
     let meme_annotations = build_meme_annotations(&state, &assistant_text, &assistant_message_id)
         .unwrap_or_else(|err| {
             runtime_log_warn(format!("[表情标注] 构建失败: {err}"));

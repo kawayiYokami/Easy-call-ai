@@ -1209,6 +1209,7 @@ fn reset_conversation_stream_runtime_cache(
     request_id: &str,
     department_id: &str,
     agent_id: &str,
+    assistant_message_id: &str,
     started_at: &str,
     started_at_ms: u64,
 ) -> Result<(), String> {
@@ -1219,6 +1220,7 @@ fn reset_conversation_stream_runtime_cache(
         request_id: request_id.trim().to_string(),
         department_id: department_id.trim().to_string(),
         agent_id: agent_id.trim().to_string(),
+        persisted_assistant_message_id: assistant_message_id.trim().to_string(),
         started_at: started_at.trim().to_string(),
         started_at_ms,
         updated_at: started_at.trim().to_string(),
@@ -2851,6 +2853,7 @@ async fn activate_main_assistant(
         trace_id.as_str(),
         executor_department_id.as_str(),
         executor_agent_id.as_str(),
+        Uuid::new_v4().to_string().as_str(),
         stream_started_at.as_str(),
         stream_started_at_ms,
     )?;

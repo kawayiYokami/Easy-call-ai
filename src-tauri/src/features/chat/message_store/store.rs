@@ -1008,6 +1008,7 @@ pub(super) fn append_message_store_tool_group_result(
     assistant_tool_call_event: Value,
     tool_result_event: Value,
     provider_meta_patch: Option<Value>,
+    assistant_message_id: Option<&str>,
 ) -> Result<MessageStoreToolCallResultAppend, String> {
     let mut next = conversation.clone();
     let append = append_tool_group_result_to_conversation(
@@ -1016,6 +1017,7 @@ pub(super) fn append_message_store_tool_group_result(
         assistant_tool_call_event,
         tool_result_event,
         provider_meta_patch,
+        assistant_message_id,
     )?;
     write_jsonl_snapshot_directory_shard(paths, &next)?;
     Ok(MessageStoreToolCallResultAppend {
@@ -1032,6 +1034,7 @@ pub(super) fn apply_message_store_tool_group_result(
     assistant_tool_call_event: Value,
     tool_result_event: Value,
     provider_meta_patch: Option<Value>,
+    assistant_message_id: Option<&str>,
 ) -> Result<MessageStoreToolCallResultAppend, String> {
     let mut next = conversation.clone();
     let append = append_tool_group_result_to_conversation(
@@ -1040,6 +1043,7 @@ pub(super) fn apply_message_store_tool_group_result(
         assistant_tool_call_event,
         tool_result_event,
         provider_meta_patch,
+        assistant_message_id,
     )?;
     Ok(MessageStoreToolCallResultAppend {
         conversation: next,
@@ -1062,6 +1066,7 @@ fn append_tool_group_result_to_conversation(
     assistant_tool_call_event: Value,
     tool_result_event: Value,
     provider_meta_patch: Option<Value>,
+    assistant_message_id: Option<&str>,
 ) -> Result<ToolGroupResultAppend, String> {
     let tool_call_id =
         validate_tool_group_result_append(&assistant_tool_call_event, &tool_result_event)?;
@@ -1106,8 +1111,13 @@ fn append_tool_group_result_to_conversation(
         merge_provider_meta_patch(&mut message.provider_meta, provider_meta_patch);
         (message.id.clone(), false, events.len())
     } else {
+        let message_id = assistant_message_id
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(ToString::to_string)
+            .unwrap_or_else(|| Uuid::new_v4().to_string());
         let assistant_message = ChatMessage {
-            id: Uuid::new_v4().to_string(),
+            id: message_id.clone(),
             role: "assistant".to_string(),
             created_at: now.clone(),
             speaker_agent_id: Some(agent_id.trim().to_string()),
@@ -1121,7 +1131,7 @@ fn append_tool_group_result_to_conversation(
             mcp_call: None,
             meme_annotations: None,
         };
-        let assistant_message_id = assistant_message.id.clone();
+        let assistant_message_id = message_id;
         conversation.messages.push(assistant_message);
         (assistant_message_id, true, 2)
     };

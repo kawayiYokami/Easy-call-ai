@@ -508,6 +508,7 @@ impl ConversationService {
         assistant_tool_call_event: Value,
         tool_result_event: Value,
         provider_meta_patch: Option<Value>,
+        assistant_message_id: Option<&str>,
     ) -> Result<message_store::MessageStoreToolCallResultAppend, String> {
         let normalized_conversation_id = conversation_id.trim();
         if normalized_conversation_id.is_empty() {
@@ -522,6 +523,7 @@ impl ConversationService {
             assistant_tool_call_event,
             tool_result_event,
             provider_meta_patch,
+            assistant_message_id,
         )?;
         state_schedule_conversation_persist(state, &append.conversation)?;
         drop(guard);
