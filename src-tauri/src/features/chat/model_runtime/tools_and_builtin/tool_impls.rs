@@ -425,12 +425,6 @@ impl RuntimeJsonTool for BuiltinTerminalExecTool {
 }
 
 #[derive(Debug, Clone)]
-struct BuiltinApplyPatchTool {
-    app_state: AppState,
-    session_id: String,
-}
-
-#[derive(Debug, Clone)]
 struct BuiltinWriteFileTool {
     app_state: AppState,
     session_id: String,
@@ -452,79 +446,6 @@ struct BuiltinUpdateFileTool {
 struct BuiltinMoveFileTool {
     app_state: AppState,
     session_id: String,
-}
-
-impl RuntimeToolMetadata for BuiltinApplyPatchTool {
-    fn provider_tool_definition(&self) -> ProviderToolDefinition {
-        ProviderToolDefinition::new(
-            "apply_patch",
-            [
-                "编辑文件的 JSON 结构化修改工具。",
-                "参数顶层固定为 {\"operations\": [...]}。",
-                "只支持四种 action：add、delete、update、move。",
-                "add 需要 path 和 content。",
-                "delete 需要 path。",
-                "update 需要 path、old_string、new_string；可选 replace_all。它通过 old_string 在原文件中做精确子串替换，不使用 diff hunk。",
-                "move 需要 path 和 to；语义是重命名或移动文件。",
-                "路径可以是绝对路径，也可以是相对当前工作目录的路径；最终仍受工作区权限校验。",
-                "如果 old_string 命中 0 处会失败；命中多处且 replace_all=false 也会失败。此时应扩大 old_string 上下文，或明确设置 replace_all=true。",
-                "最小示例：{\"operations\":[{\"action\":\"update\",\"path\":\"src/example.ts\",\"old_string\":\"before\",\"new_string\":\"after\"}]}",
-            ]
-            .join("\n"),
-            serde_json::json!({
-              "type": "object",
-              "properties": {
-                "operations": {
-                  "type": "array",
-                  "description": "结构化修改操作列表",
-                  "items": {
-                    "type": "object",
-                    "properties": {
-                      "action": { "type": "string", "enum": ["add", "delete", "update", "move"] },
-                      "path": { "type": "string" },
-                      "content": { "type": "string" },
-                      "oldString": { "type": "string" },
-                      "newString": { "type": "string" },
-                      "replaceAll": { "type": "boolean" },
-                      "to": { "type": "string" }
-                    },
-                    "required": ["action", "path"],
-                    "additionalProperties": false
-                  }
-                },
-              },
-              "required": ["operations"],
-              "additionalProperties": false
-            }),
-        )
-    }
-}
-
-impl RuntimeJsonTool for BuiltinApplyPatchTool {
-    const NAME: &'static str = "apply_patch";
-    type Args = ApplyPatchToolArgs;
-    type Error = ToolInvokeError;
-
-    fn call_typed(&self, args: Self::Args) -> RuntimeJsonValueFuture<'_, Self::Error> {
-        Box::pin(async move {
-        let args_json = serde_json::to_value(&args).unwrap_or(Value::Null);
-        runtime_log_debug(format!(
-            "[TOOL-DEBUG] execute_builtin_tool.start name=apply_patch args={}",
-            debug_value_snippet(&args_json, 240)
-        ));
-        let result = builtin_apply_patch(&self.app_state, &self.session_id, args)
-            .await
-            .map_err(ToolInvokeError::from);
-        match &result {
-            Ok(v) => runtime_log_debug(format!(
-                "[TOOL-DEBUG] execute_builtin_tool.ok name=apply_patch result={}",
-                debug_value_snippet(v, 240)
-            )),
-            Err(err) => eprintln!("[工具执行] 内置工具 apply_patch 执行失败: 错误={err}"),
-        }
-        result
-        })
-    }
 }
 
 impl RuntimeToolMetadata for BuiltinWriteFileTool {

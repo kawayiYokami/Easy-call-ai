@@ -2629,7 +2629,7 @@ fn build_builtin_tool_rule_block(tool_id: &str) -> Option<String> {
              - `exec` 默认是一次性进程执行；命令结束、失败或超时后会回收本次进程树，不依赖持久 live shell 状态。\n\
              - 读取文件、列目录、搜索文本、查看 `git diff/status` 等低风险探索可以积极使用。\n\
              - 运行测试或构建时，只执行和本次改动直接相关的最小必要检查。\n\
-             - 新增、删除、移动或改写文件必须优先使用 `apply_patch`。不要用 `exec` 通过 `cat`、`echo`、重定向、heredoc、python 等方式直接写文件，除非用户明确要求或没有可行替代。\n\
+             - 新增、删除、移动或改写文件必须优先使用文件编辑工具（`write` / `delete` / `update` / `move`）。不要用 `exec` 通过 `cat`、`echo`、重定向、heredoc、python 等方式直接写文件，除非用户明确要求或没有可行替代。\n\
              - 不要执行删除、移动、清空、重置仓库、切换分支等破坏性命令，除非用户明确要求。\n\
              - Windows 下不要跨 shell 拼接破坏性文件操作；如必须处理路径，优先使用当前 shell 的原生命令和明确路径。\n\
              - 若 `exec` 报告工作区、路径授权或 `shell_switch_workspace` 相关错误，应先解决工作区与授权前提，再继续当前工具链。\n\n\
@@ -2643,7 +2643,6 @@ fn build_builtin_tool_rule_block(tool_id: &str) -> Option<String> {
              - 删除整个文件时，使用 `delete`。\n\
              - 删除或修改文件中的局部内容时，使用 `update`；不要把局部内容删除写成 `delete`。\n\
              - 移动或重命名文件时，使用 `move`。\n\
-             - `apply_patch` 仅作为兼容工具保留；能用上述专用工具时，优先使用专用工具。\n\
              - 如果 `update` 的目标片段不唯一，应扩大 `old_string` 上下文，或明确设置 `replace_all: true`。 ",
         ),
         "file_reference" => (
@@ -2723,7 +2722,7 @@ fn build_system_tools_rule_blocks(
             }
         }
     }
-    if ["write", "delete", "update", "move", "apply_patch"]
+    if ["write", "delete", "update", "move"]
         .into_iter()
         .any(|tool_id| department_builtin_tool_enabled(&department_config, current_department, tool_id))
     {
@@ -2732,7 +2731,7 @@ fn build_system_tools_rule_blocks(
             blocks.push(block);
         }
     }
-    if ["exec", "read", "read_file", "write", "delete", "update", "move", "apply_patch"]
+    if ["exec", "read", "read_file", "write", "delete", "update", "move"]
         .into_iter()
         .any(|tool_id| department_builtin_tool_enabled(&department_config, current_department, tool_id))
     {

@@ -177,7 +177,6 @@ fn check_tools_status_inner(
             "delete" => ("loaded".to_string(), "整文件删除工具可用".to_string()),
             "update" => ("loaded".to_string(), "局部内容更新工具可用".to_string()),
             "move" => ("loaded".to_string(), "文件移动与重命名工具可用".to_string()),
-            "apply_patch" => ("loaded".to_string(), "结构化补丁兼容工具可用".to_string()),
             other => ("failed".to_string(), format!("未支持的内置工具: {other}")),
         };
         statuses.push(ToolLoadStatus {

@@ -1100,7 +1100,6 @@ fn runtime_tool_call_requires_serial_execution(
             | "delete"
             | "update"
             | "move"
-            | "apply_patch"
             | "todo"
             | "task"
             | "remember"
@@ -2771,7 +2770,6 @@ mod tool_loop_tests {
             test_tool("delete", false),
             test_tool("update", false),
             test_tool("move", false),
-            test_tool("apply_patch", false),
             test_tool("todo", false),
             test_tool("task", false),
             test_tool("remember", false),
@@ -2793,7 +2791,6 @@ mod tool_loop_tests {
         assert!(runtime_tool_call_requires_serial_execution(&tools, &definitions, "delete"));
         assert!(runtime_tool_call_requires_serial_execution(&tools, &definitions, "update"));
         assert!(runtime_tool_call_requires_serial_execution(&tools, &definitions, "move"));
-        assert!(runtime_tool_call_requires_serial_execution(&tools, &definitions, "apply_patch"));
         assert!(runtime_tool_call_requires_serial_execution(&tools, &definitions, "todo"));
         assert!(runtime_tool_call_requires_serial_execution(&tools, &definitions, "task"));
         assert!(runtime_tool_call_requires_serial_execution(&tools, &definitions, "remember"));

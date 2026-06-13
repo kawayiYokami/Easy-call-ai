@@ -1299,14 +1299,6 @@ async fn apply_patch_execute_ops(
     Ok(ApplyPatchExecutionOutcome { changed, failure: None })
 }
 
-async fn builtin_apply_patch(
-    state: &AppState,
-    session_id: &str,
-    args: ApplyPatchToolArgs,
-) -> Result<Value, String> {
-    builtin_apply_patch_with_name(state, session_id, "apply_patch", args).await
-}
-
 async fn builtin_apply_patch_with_name(
     state: &AppState,
     session_id: &str,

@@ -186,11 +186,6 @@ fn build_global_tool_schema_cache(state: &AppState) -> Vec<ProviderToolDefinitio
             session_id: preview_session_id.clone(),
         }
         .provider_tool_definition(),
-        BuiltinApplyPatchTool {
-            app_state: state.clone(),
-            session_id: preview_session_id.clone(),
-        }
-        .provider_tool_definition(),
         BuiltinPlanTool {
             app_state: state.clone(),
             session_id: preview_session_id.clone(),
@@ -469,10 +464,6 @@ fn push_runtime_tool_executors(
         session_id: tool_session_id.to_string(),
     }));
     tools.push(Box::new(BuiltinMoveFileTool {
-        app_state: state.clone(),
-        session_id: tool_session_id.to_string(),
-    }));
-    tools.push(Box::new(BuiltinApplyPatchTool {
         app_state: state.clone(),
         session_id: tool_session_id.to_string(),
     }));

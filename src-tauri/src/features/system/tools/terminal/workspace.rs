@@ -839,7 +839,7 @@ fn terminal_prompt_trusted_roots_block(
                 tool.enabled
                     && matches!(
                         tool.id.as_str(),
-                        "exec" | "write" | "delete" | "update" | "move" | "apply_patch"
+                        "exec" | "write" | "delete" | "update" | "move"
                     )
             });
     if !terminal_enabled {

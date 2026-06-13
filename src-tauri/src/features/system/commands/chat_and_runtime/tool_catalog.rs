@@ -101,13 +101,6 @@ async fn builtin_tool_definitions_for_frontend(
             .provider_tool_definition(),
         ),
         frontend_tool_definition(
-            BuiltinApplyPatchTool {
-                app_state: state.clone(),
-                session_id: preview_session_id.clone(),
-            }
-            .provider_tool_definition(),
-        ),
-        frontend_tool_definition(
             BuiltinTodoTool {
                 app_state: state.clone(),
                 session_id: preview_session_id.clone(),

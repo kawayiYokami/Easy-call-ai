@@ -1357,7 +1357,7 @@ mod prompt_assembly_tests {
         assistant_department.permission_control = DepartmentPermissionControl {
             enabled: true,
             mode: "blacklist".to_string(),
-            builtin_tool_names: vec!["apply_patch".to_string()],
+            builtin_tool_names: vec!["write".to_string()],
             skill_names: Vec::new(),
             mcp_tool_names: Vec::new(),
         };
@@ -1383,6 +1383,7 @@ mod prompt_assembly_tests {
 
         assert!(prompt.contains("<todo tool rule>"));
         assert!(!prompt.contains("<apply_patch tool rule>"));
+        assert!(prompt.contains("<file edit tool rule>"));
     }
 
     #[test]
