@@ -1,7 +1,12 @@
 {
-  "generatedAt": "2026-06-13T09:56:42.425Z",
-  "latestVersion": "v0.11.10",
+  "generatedAt": "2026-06-13T11:14:16.164Z",
+  "latestVersion": "v0.11.11",
   "releases": [
+    {
+      "version": "v0.11.11",
+      "path": "docs/changelog/releases/v0.11.11.md",
+      "summary": "修复（chat）：窗口最小化不再冻结前台轮次状态，恢复时统一走快照路径。"
+    },
     {
       "version": "v0.11.10",
       "path": "docs/changelog/releases/v0.11.10.md",

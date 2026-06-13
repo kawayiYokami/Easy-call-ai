@@ -5,6 +5,7 @@
 
 ## 最近版本
 
+- [v0.11.11](docs/changelog/releases/v0.11.11.md) - 修复（chat）：窗口最小化不再冻结前台轮次状态，恢复时统一走快照路径。
 - [v0.11.10](docs/changelog/releases/v0.11.10.md) - 修复（sidebar）：VS Code 侧边栏不再因为当前工作目录不匹配而隐藏本地会话，避免已有会话列表被误过滤。
 - [v0.11.9](docs/changelog/releases/v0.11.9.md) - 功能（chat）：新增会话“自动推送”，可在普通本地会话中选择远程联系人，将本会话后续所有 LLM 发言自动异步通知到目标联系人会话，并在会话控制面板显示激活提示。
 - [v0.11.8](docs/changelog/releases/v0.11.8.md) - 修复（meme）：后端扫描贴纸 token 生成标注，前端按标注替换渲染；远程联系人提示词移除不存在的 `contact_send_files` 工具提示，避免模型误判能力。
