@@ -1440,6 +1440,68 @@ async fn send_chat_message_inner(
     if runtime_context.request_id.is_none() {
         runtime_context.request_id = Some(trace_id.clone());
     }
+
+    // ========== 提前初始化流式缓存 ==========
+    // 在调度开始时就创建后端流式缓存，避免首回还没开始就切换会话导致丢失流式草稿。
+    // 后续 delta 事件到达后会通过 update_conversation_stream_runtime_cache 持续更新缓存内容。
+    if let Some(ref session) = input.session {
+        if let Some(cid) = session
+            .conversation_id
+            .as_deref()
+            .map(str::trim)
+            .filter(|v| !v.is_empty())
+        {
+            let early_department_id = runtime_context
+                .executor_department_id
+                .as_deref()
+                .or_else(|| session.department_id.as_deref())
+                .map(str::trim)
+                .filter(|v| !v.is_empty())
+                .unwrap_or("")
+                .to_string();
+            let early_agent_id = session.agent_id.trim();
+            if !early_department_id.is_empty() && !early_agent_id.is_empty() {
+                let stream_started_at = now_iso();
+                let stream_started_at_ms = now_unix_ms();
+                let _ = reset_conversation_stream_runtime_cache(
+                    state,
+                    cid,
+                    trace_id.as_str(),
+                    trace_id.as_str(),
+                    &early_department_id,
+                    early_agent_id,
+                    &Uuid::new_v4().to_string(),
+                    &stream_started_at,
+                    stream_started_at_ms,
+                );
+                // 同样更新后端缓存中的可见状态，否则 has_visible_progress 仍为 false，
+                // 窗口最小化/最大化恢复时后端快照不会包含投影消息，导致所有气泡丢失。
+                // on_delta.send 只发往前端通道，不经过 dispatch loop 的 active_channel 回调，
+                // 因此手动调用 update_conversation_stream_runtime_cache。
+                let tool_status_event = AssistantDeltaEvent {
+                    delta: String::new(),
+                    kind: Some("tool_status".to_string()),
+                    request_id: Some(trace_id.clone()),
+                    activation_id: Some(trace_id.clone()),
+                    phase_id: None,
+                    reason: None,
+                    tool_name: None,
+                    tool_call_id: None,
+                    tool_status: Some("running".to_string()),
+                    tool_args: None,
+                    message: Some("正在准备调度...".to_string()),
+                    stream_cache: None,
+                };
+                let _ = update_conversation_stream_runtime_cache(
+                    state,
+                    cid,
+                    &tool_status_event,
+                );
+                // 发送初始调度状态，让前端也立即建立流式缓存
+                let _ = on_delta.send(tool_status_event);
+            }
+        }
+    }
     let oldest_queue_created_at = input
         .oldest_queue_created_at
         .as_deref()
@@ -2180,6 +2242,24 @@ async fn send_chat_message_inner(
     runtime_context.executor_agent_id = Some(effective_agent_id.clone());
     log_chat_stage("runtime_and_session_ready");
 
+    // 调度状态更新：运行时与会话解析完成，即将进入上下文构建阶段
+    if let Some(ref _cid) = requested_conversation_id {
+        let _ = on_delta.send(AssistantDeltaEvent {
+            delta: String::new(),
+            kind: Some("tool_status".to_string()),
+            request_id: Some(trace_id.clone()),
+            activation_id: Some(trace_id.clone()),
+            phase_id: None,
+            reason: None,
+            tool_name: None,
+            tool_call_id: None,
+            tool_status: Some("running".to_string()),
+            tool_args: None,
+            message: Some("正在处理附件与上下文...".to_string()),
+            stream_cache: None,
+        });
+    }
+
     let chat_key = inflight_chat_key(
         &effective_department_id,
         requested_conversation_id.as_deref(),
@@ -2209,6 +2289,7 @@ async fn send_chat_message_inner(
     let failure_persist_target_for_run = failure_persist_target.clone();
     let state_for_run = state.clone();
     let stage_timeline_for_run = stage_timeline.clone();
+    let trace_id_for_run = trace_id.clone();
     let run = async move {
     let state = state_for_run;
     let log_run_stage = |stage: &str| {
@@ -2232,6 +2313,23 @@ async fn send_chat_message_inner(
         }
     };
     log_run_stage("run.begin");
+    // 调度状态更新：进入模型请求阶段
+    if let Some(ref _cid) = requested_conversation_id {
+        let _ = on_delta.send(AssistantDeltaEvent {
+            delta: String::new(),
+            kind: Some("tool_status".to_string()),
+            request_id: Some(trace_id_for_run.clone()),
+            activation_id: Some(trace_id_for_run.clone()),
+            phase_id: None,
+            reason: None,
+            tool_name: None,
+            tool_call_id: None,
+            tool_status: Some("running".to_string()),
+            tool_args: None,
+            message: Some("正在进入模型请求阶段...".to_string()),
+            stream_cache: None,
+        });
+    }
     if !resolved_api.request_format.is_chat_text() {
         return Err(format!(
             "Request format '{}' is not implemented in chat router yet.",

@@ -203,6 +203,24 @@ export function useChatWindowConversationOrchestrator(bindings: Record<string, a
   async function restoreForegroundConversationProjection(conversationId: string, reason: string) {
     const cid = String(conversationId || "").trim();
     if (!cid) return;
+    // 优先使用前端缓存中的消息恢复，避免后端快照尚未包含最新流式草稿导致气泡丢失
+    const cache = bindings.conversationMessageCache?.value ?? {};
+    const cachedMessages = freezeConversationMessages(Array.isArray(cache[cid]) ? cache[cid] : []);
+    if (cachedMessages.length > 0) {
+      if (cid !== String(bindings.currentChatConversationId.value || "").trim()) return;
+      bindings.allMessages.value = cachedMessages;
+      bindings.foregroundTailLatestReady.value = true;
+      // 异步从后端获取增量消息补全缓存
+      void requestConversationMessagesAfterAsync(cid).catch((error: unknown) => {
+        console.warn("[前台投影恢复] 缓存恢复后异步补消息失败", {
+          conversationId: cid,
+          reason,
+          error,
+        });
+      });
+      return;
+    }
+    // 降级：缓存为空时从后端快照恢复
     const snapshot = await chatForeground.requestConversationLightSnapshot(cid, { resumeProjection: true });
     if (cid !== String(bindings.currentChatConversationId.value || "").trim()) return;
     applyConversationSnapshot(snapshot);
