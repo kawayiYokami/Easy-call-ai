@@ -236,14 +236,20 @@ function handleConfirmTrimCompactionAction() {
 
   <dialog class="modal" :class="{ 'modal-open': trimActionDialogOpen }">
     <div class="modal-box w-[80vw] max-w-[80vw]">
-      <h3 class="font-semibold text-base">{{ t("dialogs.trim.title") }}</h3>
+      <div class="flex items-center justify-between gap-4">
+        <h3 class="font-semibold text-base">{{ t("dialogs.trim.title") }}</h3>
+        <div class="flex shrink-0 items-center gap-3 text-xs opacity-60">
+          <span>{{ t("dialogs.trim.messageCount", { count: trimPreview?.messageCount ?? 0 }) }}</span>
+          <span>{{ t("dialogs.trim.contextUsage", { percent: trimCompactionPreview?.contextUsagePercent ?? 0 }) }}</span>
+        </div>
+      </div>
       <div v-if="trimPreviewLoading" class="mt-3 text-sm opacity-70">{{ t("dialogs.trim.loading") }}</div>
       <template v-else>
         <template v-if="trimPreview?.deleteOnly">
           <div class="mt-3 rounded-box border border-error/30 bg-error/10 px-3 py-3 text-sm">
             <div class="font-medium">{{ t("common.delete") }}</div>
             <div class="mt-1 opacity-80">
-              {{ trimPreview.archiveDisabledReason || "消息少于 3 条或正文少于 10K，只能删除。" }}
+              {{ trimPreview.archiveDisabledReason || "" }}
             </div>
           </div>
         </template>
@@ -272,28 +278,14 @@ function handleConfirmTrimCompactionAction() {
           </div>
         </template>
       </template>
-      <div class="mt-4 flex items-end justify-between gap-4">
-        <div class="text-xs opacity-60">
-          <div>{{ t("dialogs.trim.messageCount", { count: trimPreview?.messageCount ?? 0 }) }}</div>
-          <div>{{ t("dialogs.trim.contextUsage", { percent: trimCompactionPreview?.contextUsagePercent ?? 0 }) }}</div>
-        </div>
-        <div class="modal-action mt-0">
-        <template v-if="trimPreview?.deleteOnly">
+      <div class="mt-4 flex items-center justify-between gap-4">
+        <div class="flex items-center gap-2">
           <button
             class="btn btn-sm btn-error"
             :disabled="trimPreviewLoading || !trimPreview?.canDropConversation || trimming"
             @click="handleConfirmTrimDeleteAction"
           >
             {{ t("common.delete") }}
-          </button>
-        </template>
-        <template v-else>
-          <button
-            class="btn btn-sm btn-primary"
-            :disabled="trimPreviewLoading || !trimCompactionPreview?.canCompact || trimming"
-            @click="handleConfirmTrimCompactionAction"
-          >
-            {{ t("dialogs.trim.compactTitle") }}
           </button>
           <button
             class="btn btn-sm btn-secondary"
@@ -302,10 +294,18 @@ function handleConfirmTrimCompactionAction() {
           >
             {{ t("dialogs.trim.archiveTitle") }}
           </button>
-        </template>
-        <button class="btn btn-sm" :disabled="trimPreviewLoading || trimming" @click="handleCloseTrimActionDialog">
-          {{ t("common.cancel") }}
-        </button>
+        </div>
+        <div class="flex items-center gap-2">
+          <button
+            class="btn btn-sm btn-primary"
+            :disabled="trimPreviewLoading || !trimCompactionPreview?.canCompact || trimming"
+            @click="handleConfirmTrimCompactionAction"
+          >
+            {{ t("dialogs.trim.compactTitle") }}
+          </button>
+          <button class="btn btn-sm" :disabled="trimPreviewLoading || trimming" @click="handleCloseTrimActionDialog">
+            {{ t("common.cancel") }}
+          </button>
         </div>
       </div>
     </div>

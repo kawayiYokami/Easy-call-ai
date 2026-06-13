@@ -198,12 +198,22 @@
                               <li v-if="!item.isSystemNotificationConversation">
                                 <button
                                   type="button"
-                                  :disabled="!canRunArchiveMenuAction(item)"
+                                  :disabled="!canArchiveConversation(item)"
+                                  @click.stop="close(); emit('archiveConversation', String(item.conversationId || '').trim())"
+                                >
+                                  <Archive class="h-4 w-4" />
+                                  <span>{{ t('common.archive') }}</span>
+                                </button>
+                              </li>
+                              <li v-if="!item.isSystemNotificationConversation">
+                                <button
+                                  type="button"
+                                  :disabled="!canDeleteConversation(item)"
                                   class="text-error"
-                                  @click.stop="close(); requestConversationArchive(item)"
+                                  @click.stop="close(); emit('deleteConversation', String(item.conversationId || '').trim())"
                                 >
                                   <Trash2 class="h-4 w-4" />
-                                  <span>{{ archiveMenuActionTitle(item) }}</span>
+                                  <span>{{ t('common.delete') }}</span>
                                 </button>
                               </li>
                             </template>
@@ -249,7 +259,7 @@
 <script setup lang="ts">
 import { computed, nextTick, ref, watch, watchEffect } from "vue";
 import { useI18n } from "vue-i18n";
-import { PencilLine, Pin, PinOff, Search, SquarePen, Trash2, Upload } from "@lucide/vue";
+import { Archive, PencilLine, Pin, PinOff, Search, SquarePen, Trash2, Upload } from "@lucide/vue";
 import CollapsibleGroup from "./CollapsibleGroup.vue";
 import FloatingConversationMenu from "./FloatingConversationMenu.vue";
 import type { ChatConversationOverviewItem, ConversationPreviewMessage } from "../../../types/app";
@@ -292,8 +302,6 @@ const emit = defineEmits<{
 
 const { t, locale } = useI18n();
 const SYSTEM_PERSONA_ID = "system-persona";
-const ARCHIVE_MIN_BODY_MESSAGE_COUNT = 3;
-const ARCHIVE_MIN_BODY_TEXT_LENGTH = 10_000;
 const renameInputRef = ref<HTMLInputElement | null>(null);
 const editingConversationId = ref("");
 const editingTitleDraft = ref("");
@@ -587,36 +595,11 @@ function canToggleConversationPin(item: ChatConversationOverviewItem): boolean {
 }
 
 function canArchiveConversation(item: ChatConversationOverviewItem): boolean {
-  return isLocalConversation(item)
-    && !item.isSystemNotificationConversation
-    && !isConversationDeleteOnly(item);
+  return isLocalConversation(item) && !item.isSystemNotificationConversation;
 }
 
 function canDeleteConversation(item: ChatConversationOverviewItem): boolean {
   return isLocalConversation(item) && !item.isSystemNotificationConversation;
-}
-
-function canRunArchiveMenuAction(item: ChatConversationOverviewItem): boolean {
-  return isConversationDeleteOnly(item) ? canDeleteConversation(item) : canArchiveConversation(item);
-}
-
-function conversationBodyMessageCount(item: ChatConversationOverviewItem): number {
-  return Math.max(0, Number(item.bodyMessageCount ?? item.messageCount ?? 0));
-}
-
-function conversationBodyTextLength(item: ChatConversationOverviewItem): number {
-  return Math.max(0, Number(item.bodyTextLength || 0));
-}
-
-function isConversationDeleteOnly(item: ChatConversationOverviewItem): boolean {
-  if (!isLocalConversation(item) || item.isSystemNotificationConversation) return false;
-  return item.hasAssistantReply === false
-    || conversationBodyMessageCount(item) < ARCHIVE_MIN_BODY_MESSAGE_COUNT
-    || conversationBodyTextLength(item) < ARCHIVE_MIN_BODY_TEXT_LENGTH;
-}
-
-function archiveMenuActionTitle(item: ChatConversationOverviewItem): string {
-  return isConversationDeleteOnly(item) ? t("common.delete") : t("common.archive");
 }
 
 function canExportConversation(item: ChatConversationOverviewItem): boolean {
@@ -631,28 +614,6 @@ function pinConversationTitle(item: ChatConversationOverviewItem): string {
 function toggleConversationPin(item: ChatConversationOverviewItem) {
   if (!canToggleConversationPin(item)) return;
   emit("togglePinConversation", String(item.conversationId || "").trim());
-}
-
-function requestConversationArchive(item: ChatConversationOverviewItem) {
-  const conversationId = String(item.conversationId || "").trim();
-  const deleteOnly = isConversationDeleteOnly(item);
-  console.info("[会话归档] 点击会话侧栏归档/删除菜单", {
-    conversationId,
-    canArchive: canArchiveConversation(item),
-    deleteOnly,
-    messageCount: Number(item.messageCount || 0),
-    bodyMessageCount: conversationBodyMessageCount(item),
-    bodyTextLength: conversationBodyTextLength(item),
-    hasAssistantReply: item.hasAssistantReply !== false,
-    runtimeState: String(item.runtimeState || "").trim(),
-    kind: String(item.kind || "local_unarchived").trim(),
-  });
-  if (!conversationId || !canRunArchiveMenuAction(item)) return;
-  if (deleteOnly) {
-    emit("deleteConversation", conversationId);
-    return;
-  }
-  emit("archiveConversation", conversationId);
 }
 
 function requestConversationExport(item: ChatConversationOverviewItem) {

@@ -122,7 +122,7 @@ export function useShellDialogFlows(options: UseShellDialogFlowsOptions) {
     const contextUsageHighEnough = contextUsagePercent >= 10;
     let compactionDisabledReason: string | null = null;
     if (archivePreview?.deleteOnly) {
-      compactionDisabledReason = archivePreview.archiveDisabledReason || "消息少于 3 条或正文少于 10K，只能删除。";
+      compactionDisabledReason = archivePreview.archiveDisabledReason || "";
     } else if (summary?.runtimeState === "organizing_context") {
       compactionDisabledReason = t('sidebar.compactRunning');
     } else if (isEmpty) {

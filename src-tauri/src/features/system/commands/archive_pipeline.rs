@@ -510,23 +510,8 @@ fn archive_pipeline_body_text_length(source: &Conversation) -> usize {
         .sum()
 }
 
-fn archive_delete_only_reason(source: &Conversation) -> Option<String> {
-    if source.messages.is_empty() {
-        return Some("当前会话为空，只能删除。".to_string());
-    }
-    if !archive_pipeline_has_assistant_reply(source) {
-        return Some("当前会话还没有助理回复，只能删除。".to_string());
-    }
-    let message_count = archive_pipeline_message_count_for_delete(source);
-    let body_text_length = archive_pipeline_body_text_length(source);
-    (message_count < ARCHIVE_MIN_BODY_MESSAGE_COUNT
-        || body_text_length < ARCHIVE_MIN_BODY_TEXT_LENGTH)
-        .then(|| {
-            format!(
-                "消息少于 {} 条或正文少于 10K，只能删除。",
-                ARCHIVE_MIN_BODY_MESSAGE_COUNT
-            )
-        })
+fn archive_delete_only_reason(_source: &Conversation) -> Option<String> {
+    None
 }
 
 fn archive_pipeline_has_assistant_reply(source: &Conversation) -> bool {
