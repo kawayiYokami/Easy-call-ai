@@ -383,7 +383,8 @@ impl ConversationService {
         }
 
         let runtime = state_read_runtime_state_cached(state)?;
-        let agents = state_read_agents_cached(state)?;
+        let runtime_snapshot = load_runtime_organization_snapshot(state)?;
+        let agents = runtime_snapshot.agents;
         let chat_index = state_read_chat_index_cached(state)?;
         let active_conversation_id = if let Some(conversation_id) =
             chat_index
@@ -450,7 +451,7 @@ impl ConversationService {
             ));
             conversation
         };
-        let app_config = state_read_config_cached(state)?;
+        let app_config = runtime_snapshot.config;
         let unarchived_conversations =
             self.collect_unarchived_conversation_summaries_cached(state, &app_config)?;
         let overview_payload = UnarchivedConversationOverviewUpdatedPayload {

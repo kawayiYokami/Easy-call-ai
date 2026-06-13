@@ -34,7 +34,7 @@ fn repair_conversation_preferred_model_for_snapshot(
     state: &AppState,
     conversation: &Conversation,
 ) -> Result<Option<String>, String> {
-    let config = state_read_config_cached(state)?;
+    let config = load_runtime_organization_snapshot(state)?.config;
     let repaired = conversation_preferred_model_repair_candidate(&config, conversation);
     let current = conversation
         .preferred_api_config_id

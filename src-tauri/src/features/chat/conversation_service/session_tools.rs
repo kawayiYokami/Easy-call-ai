@@ -347,8 +347,9 @@ impl ConversationService {
         state: &AppState,
         keyword: Option<&str>,
     ) -> Result<Vec<ToolSessionTargetSummary>, String> {
-        let config = state_read_config_cached(state)?;
-        let agents = state_read_agents_cached(state)?;
+        let runtime_snapshot = load_runtime_organization_snapshot(state)?;
+        let config = runtime_snapshot.config;
+        let agents = runtime_snapshot.agents;
         let local_items = self
             .collect_unarchived_conversation_summaries_cached(state, &config)?
             .into_iter()

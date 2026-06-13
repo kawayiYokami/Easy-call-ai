@@ -8,7 +8,7 @@ impl ConversationService {
             .lock()
             .map_err(|err| state_lock_error_with_panic(file!(), line!(), module_path!(), &err))?;
         let mut runtime = state_read_runtime_state_cached(state)?;
-        let config = state_read_config_cached(state)?;
+        let config = load_runtime_organization_snapshot(state)?.config;
         let mut resolved_pairs = Vec::<(RemoteImContact, String)>::new();
         let mut runtime_changed = false;
         for contact in runtime.remote_im_contacts.iter_mut() {

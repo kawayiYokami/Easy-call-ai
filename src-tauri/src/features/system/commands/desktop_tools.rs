@@ -679,13 +679,14 @@ fn resolve_chat_tool_session_id(
         return Err("agentId is required.".to_string());
     }
 
-    let config = state_read_config_cached(state)?;
+    let runtime_snapshot = load_runtime_organization_snapshot(state)?;
+    let config = runtime_snapshot.config;
     let resolved_api_id = resolve_model_role_api_config_id(&config, api_id)
         .ok_or_else(|| format!("Model role '{api_id}' is not configured."))?;
     if !config.api_configs.iter().any(|v| v.id == resolved_api_id) {
         return Err(format!("Selected API config '{api_id}' not found."));
     }
-    let agents = state_read_agents_cached(state)?;
+    let agents = runtime_snapshot.agents;
     if !agents.iter().any(|v| v.id == agent && !v.is_built_in_user) {
         return Err(format!("Selected agent '{agent}' not found."));
     }

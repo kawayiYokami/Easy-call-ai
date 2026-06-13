@@ -4,10 +4,12 @@ impl ConversationService {
         state: &AppState,
         app_config: &AppConfig,
     ) -> Result<Vec<UnarchivedConversationSummary>, String> {
-        let runtime_agents = state_read_agents_cached(state)?;
-        let runtime_app_config =
-            build_runtime_organization_snapshot_from_parts(&state.data_path, app_config, &runtime_agents)?
-                .config;
+        let runtime_snapshot = load_runtime_organization_snapshot(state)?;
+        let runtime_app_config = if runtime_snapshot.config.departments.is_empty() {
+            app_config.clone()
+        } else {
+            runtime_snapshot.config
+        };
         let runtime = state_read_runtime_state_cached(state)?;
         let main_conversation_id = runtime
             .main_conversation_id
