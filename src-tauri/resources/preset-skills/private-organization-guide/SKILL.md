@@ -5,14 +5,14 @@ description: 当需要在助理私域中维护私有人格或私有部门时，�
 
 # 私有组织指南
 
-你可以在自我目录（Self Directory）中维护"助理私域"的私有人格和私有部门。
-- 私有组织文件始终存放在自我目录下，与当前会话的工作目录无关。
-- `{Self Directory}` 是 PAI 的系统级目录，对应终端工作空间中 level 为"系统"的那个路径。
-- 你只能在自我目录内操作私有组织文件；不要假设或访问自我目录外路径。
+你可以在助理空间（Assistant Space）中维护"助理私域"的私有人格和私有部门。
+- 私有组织文件始终存放在助理空间下，与当前会话的工作目录无关。
+- `{Assistant Space}` 是 PAI 的系统级目录，对应终端工作空间中 level 为"系统"的那个路径。
+- 你只能在助理空间内操作私有组织文件；不要假设或访问助理空间外路径。
 
 ## 目录
-- 私有人格：`{Self Directory}/private-organization/personas/`
-- 私有部门：`{Self Directory}/private-organization/departments/`
+- 私有人格：`{Assistant Space}/private-organization/personas/`
+- 私有部门：`{Assistant Space}/private-organization/departments/`
 
 ## 基本规则
 - 只在上述私有目录中新增或修改 JSON 文件。
