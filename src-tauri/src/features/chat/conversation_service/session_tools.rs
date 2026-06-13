@@ -60,6 +60,45 @@ fn session_notification_source_label(
     format!("[{}·{}·{}]", left, middle, right)
 }
 
+fn delegate_completion_notification_label(
+    department_name: Option<&str>,
+    persona_name: Option<&str>,
+) -> String {
+    let department_name = department_name.unwrap_or("").trim();
+    let persona_name = persona_name.unwrap_or("").trim();
+    let left = if department_name.is_empty() { "未绑定部门" } else { department_name };
+    let right = if persona_name.is_empty() { "未绑定人格" } else { persona_name };
+    format!("[{}·{}]", left, right)
+}
+
+fn build_delegate_completion_notification_body(
+    state: &AppState,
+    target_department_id: &str,
+    target_agent_id: &str,
+    content: &str,
+) -> Result<String, String> {
+    let normalized_content = content.trim();
+    if normalized_content.is_empty() {
+        return Err("通知正文不能为空".to_string());
+    }
+    let config = state_read_config_cached(state)?;
+    let agents = state_read_agents_cached(state)?;
+    let department_name = config
+        .departments
+        .iter()
+        .find(|department| department.id.trim() == target_department_id.trim())
+        .map(|department| department.name.trim().to_string());
+    let persona_name = agents
+        .iter()
+        .find(|agent| agent.id.trim() == target_agent_id.trim())
+        .map(|agent| agent.name.trim().to_string());
+    let label = delegate_completion_notification_label(
+        department_name.as_deref(),
+        persona_name.as_deref(),
+    );
+    Ok(format!("{label}:{normalized_content}"))
+}
+
 fn build_session_notification_body(
     state: &AppState,
     source_conversation_id: &str,
@@ -536,6 +575,33 @@ impl ConversationService {
             pushed_to_remote: false,
             message,
         })
+    }
+
+    fn enqueue_delegate_completion_session_notification(
+        &self,
+        state: &AppState,
+        root_conversation_id: &str,
+        target_department_id: &str,
+        target_agent_id: &str,
+        content: &str,
+        action: &str,
+    ) -> Result<(), String> {
+        let resolved_target =
+            self.resolve_delegate_result_target_conversation(state, root_conversation_id)?;
+        let body = build_delegate_completion_notification_body(
+            state,
+            target_department_id,
+            target_agent_id,
+            content,
+        )?;
+        let message = build_session_notification_message(&body);
+        enqueue_session_notification_dispatch(
+            state,
+            &resolved_target.target_conversation_id,
+            &body,
+            &message,
+            action,
+        )
     }
 
     fn enqueue_auto_push_remote_contact_message(

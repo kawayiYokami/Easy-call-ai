@@ -1063,6 +1063,21 @@ fn spawn_user_async_delegate(app_state: AppState, plan: UserAsyncDelegatePlan) -
                 } else {
                     run.assistant_text.clone()
                 };
+                if let Err(err) = conversation_service().enqueue_delegate_completion_session_notification(
+                    &app_state,
+                    &plan.root_conversation_id,
+                    &plan.target_department_id,
+                    &plan.target_agent_id,
+                    &text,
+                    "user_async_delegate_completion",
+                ) {
+                    eprintln!(
+                        "[用户异步委托] 投递完成系统通知失败: conversation_id={}, target_agent_id={}, error={}",
+                        plan.root_conversation_id,
+                        plan.target_agent_id,
+                        err
+                    );
+                }
                 if let Err(err) = enqueue_user_mention_result_message(
                     &app_state,
                     &plan.root_conversation_id,

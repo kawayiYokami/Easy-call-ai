@@ -1924,6 +1924,19 @@ async fn submit_tool_review_code_internal(
                     "[工具审查][后端] 代码审查完成 conversation_id={} scope={} report_id={}",
                     conversation_id_owned, scope_owned, report_id
                 ));
+                if let Err(err) = conversation_service().enqueue_delegate_completion_session_notification(
+                    &app_state,
+                    &conversation_id_owned,
+                    &target_department_id_owned,
+                    &target_agent_id_owned,
+                    &report_text,
+                    "tool_review_delegate_completion",
+                ) {
+                    runtime_log_error(format!(
+                        "[工具审查][后端] 投递完成系统通知失败 conversation_id={} scope={} report_id={} err={}",
+                        conversation_id_owned, scope_owned, report_id, err
+                    ));
+                }
                 emit_tool_review_reports_updated(&app_state, &conversation_id_owned, &report_id, "success");
             }
             Err(err) => {
