@@ -170,7 +170,6 @@ export function useChatWindowRecordingOrchestrator(options: UseChatWindowRecordi
     clearChatMicPrewarmTimer();
     if (options.isChatTauriWindow.value && document.visibilityState !== "visible") {
       cancelForegroundRecordingOnBackground("visibility_hidden");
-      options.freezeForegroundConversation("window_hidden");
     }
     syncChatWindowActiveState("visibilitychange");
   }
