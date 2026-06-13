@@ -38,7 +38,7 @@
     "tabs": {
       "welcome": "歡迎",
       "hotkey": "快捷键",
-      "api": "大模型",
+      "api": "供應商",
       "tools": "工具",
       "skill": "技能",
       "persona": "人格",
@@ -115,7 +115,7 @@
       "addModel": "新增模型",
       "unnamedModel": "未命名模型",
       "matchedProtocol": "匹配協議：{protocol}",
-      "capabilityText": "文本",
+      "capabilityText": "大模型",
       "capabilityVoice": "語音",
       "capabilityEmbedding": "嵌入",
       "capabilityRerank": "重排",

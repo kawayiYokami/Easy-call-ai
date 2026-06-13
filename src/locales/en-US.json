@@ -38,7 +38,7 @@
     "tabs": {
       "welcome": "Welcome",
       "hotkey": "Hotkey",
-      "api": "Models",
+      "api": "Providers",
       "tools": "Tools",
       "skill": "Skill",
       "persona": "Persona",
@@ -115,7 +115,7 @@
       "addModel": "Add Model",
       "unnamedModel": "Unnamed Model",
       "matchedProtocol": "Matched protocol: {protocol}",
-      "capabilityText": "Text",
+      "capabilityText": "Models",
       "capabilityVoice": "Voice",
       "capabilityEmbedding": "Embedding",
       "capabilityRerank": "Rerank",
