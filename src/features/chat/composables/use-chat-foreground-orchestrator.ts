@@ -151,9 +151,8 @@ export function useChatForegroundOrchestrator(bindings: Record<string, any>) {
       bindings.clearPendingManualScrollToBottom();
       bindings.foregroundTailLatestReady.value = false;
       const trace = bindings.beginForegroundPaintTrace(cid);
-      const snapshot = await requestConversationLightSnapshot(cid);
+      const snapshot = await requestConversationLightSnapshot(cid, { resumeProjection: true });
       bindings.applyConversationSnapshot(snapshot);
-      await bindings.resumeForegroundRuntimeFromBackend(cid, "switch_snapshot");
       bindings.clearConversationBadge(cid);
       bindings.markConversationReadPersisted(cid);
       await nextTick();
@@ -250,11 +249,9 @@ export function useChatForegroundOrchestrator(bindings: Record<string, any>) {
       bindings.currentChatConversationId.value = conversationId;
       bindings.sideConversationListVisible.value = false;
       await refreshRemoteImConversationOverview();
-      const snapshot = await requestConversationLightSnapshot(conversationId);
+      const snapshot = await requestConversationLightSnapshot(conversationId, { resumeProjection: true });
       bindings.applyConversationSnapshot(snapshot);
       await nextTick();
-      bindings.maybeResumeForegroundStreamingDraft(conversationId, "detached_window_init");
-      await bindings.resumeForegroundRuntimeFromBackend(conversationId, "detached_window_init");
     } catch (error) {
       bindings.setStatusError("status.loadMessagesFailed", error);
     }

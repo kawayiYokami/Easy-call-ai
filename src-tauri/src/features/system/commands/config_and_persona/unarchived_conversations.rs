@@ -198,6 +198,21 @@ fn apply_foreground_stream_projection(
     next_messages
 }
 
+fn foreground_stream_projection_message_id(
+    stream_cache: &ConversationStreamRuntimeCacheSnapshot,
+) -> String {
+    if !stream_cache.persisted_assistant_message_id.trim().is_empty() {
+        return stream_cache.persisted_assistant_message_id.trim().to_string();
+    }
+    if !stream_cache.request_id.trim().is_empty() {
+        return format!("__draft_assistant__:{}", stream_cache.request_id.trim());
+    }
+    if !stream_cache.activation_id.trim().is_empty() {
+        return format!("__draft_assistant__:{}", stream_cache.activation_id.trim());
+    }
+    "__draft_assistant__:resume".to_string()
+}
+
 fn build_foreground_stream_projection_message(
     stream_cache: &ConversationStreamRuntimeCacheSnapshot,
 ) -> ChatMessage {
@@ -209,23 +224,9 @@ fn build_foreground_stream_projection_message(
     } else {
         assistant_text
     };
-    let draft_suffix = stream_cache
-        .activation_id
-        .trim()
-        .strip_prefix("round-")
-        .unwrap_or_else(|| stream_cache.activation_id.trim());
-    let draft_suffix = if draft_suffix.is_empty() {
-        stream_cache.request_id.trim()
-    } else {
-        draft_suffix
-    };
-    let draft_suffix = if draft_suffix.is_empty() {
-        "resume"
-    } else {
-        draft_suffix
-    };
+    let message_id = foreground_stream_projection_message_id(stream_cache);
     ChatMessage {
-        id: format!("__draft_assistant__:{}", draft_suffix),
+        id: message_id.clone(),
         role: "assistant".to_string(),
         created_at: if stream_cache.started_at.trim().is_empty() {
             now_iso()
@@ -254,6 +255,7 @@ fn build_foreground_stream_projection_message(
             "_streamBlocks": stream_cache.stream_blocks,
             "_streamTail": "",
             "_frontendDispatchStartedAtMs": stream_cache.started_at_ms,
+            "_stableRenderId": message_id,
         })),
         tool_call: None,
         mcp_call: None,

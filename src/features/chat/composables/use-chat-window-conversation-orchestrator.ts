@@ -210,12 +210,6 @@ export function useChatWindowConversationOrchestrator(bindings: Record<string, a
     const shouldBindStream = !!snapshot?.shouldBindStream;
     if (shouldBindStream) {
       await bindings.getChatFlow().bindActiveConversationStream(cid, true);
-      if (cid !== String(bindings.currentChatConversationId.value || "").trim()) return;
-      bindings.getChatFlow().resumeForegroundRuntimeRound({
-        conversationId: cid,
-        streamCache: snapshot?.streamCache || null,
-        reason: `${reason}_resume_projection`,
-      });
       return;
     }
     const snapshotRuntimeState = String(snapshot?.runtimeState || "").trim();

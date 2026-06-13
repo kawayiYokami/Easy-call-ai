@@ -105,15 +105,6 @@ export function useChatConversationSync(bindings: Record<string, any>) {
       || streamCacheHasVisibleProgress(snapshot.streamCache);
   }
 
-  function messageIsActiveStreamingDraft(message: any): boolean {
-    const messageId = String(message?.id || "").trim();
-    if (!messageId.startsWith(bindings.DRAFT_ASSISTANT_ID_PREFIX)) return false;
-    const meta = message?.providerMeta && typeof message.providerMeta === "object"
-      ? message.providerMeta as Record<string, unknown>
-      : null;
-    return !!meta?._streaming;
-  }
-
   async function requestConversationRuntimeSnapshot(conversationId: string) {
     return invokeTauri<any>("get_conversation_runtime_snapshot", {
       conversationId,
@@ -527,23 +518,7 @@ export function useChatConversationSync(bindings: Record<string, any>) {
       });
       return;
     }
-    const previousMessages = Array.isArray(bindings.allMessages.value) ? bindings.allMessages.value : [];
     let rawNextMessages = freezeConversationMessages(Array.isArray(snapshot.messages) ? snapshot.messages : []);
-    const nextRuntimeState = String(snapshot.runtimeState || "").trim();
-    const resumeProjectionAuthoritative = !!snapshot.resumeProjectionAuthoritative;
-    const hasAssistantDraftInSnapshot = rawNextMessages.some((message) => isAssistantDraftMessage(message));
-    if (!resumeProjectionAuthoritative && !hasAssistantDraftInSnapshot && nextRuntimeState === "assistant_streaming") {
-      const preservedDraft = [...previousMessages].reverse().find((message) => messageIsActiveStreamingDraft(message));
-      if (preservedDraft) {
-        rawNextMessages = [...rawNextMessages, preservedDraft];
-        if (typeof bindings.readConversationStreamCache === "function") {
-          rawNextMessages = applyStreamingHistoryOverlay(
-            rawNextMessages,
-            bindings.readConversationStreamCache(nextConversationId),
-          ).messages;
-        }
-      }
-    }
     const nextMessages = reuseStableMessageReferences(rawNextMessages, bindings.allMessages.value);
     bindings.currentChatConversationId.value = nextConversationId;
     bindings.currentChatPreferredApiConfigId.value = String(snapshot.preferredApiConfigId || "").trim();
@@ -562,10 +537,6 @@ export function useChatConversationSync(bindings: Record<string, any>) {
     clearConversationBadge(nextConversationId);
     if (Array.isArray(snapshot.unarchivedConversations)) {
       bindings.unarchivedConversations.value = snapshot.unarchivedConversations;
-    }
-    if (!resumeProjectionAuthoritative && nextRuntimeState === "assistant_streaming") {
-      maybeResumeForegroundStreamingDraft(nextConversationId, "apply_snapshot");
-      void resumeForegroundRuntimeFromBackend(nextConversationId, "apply_snapshot");
     }
   }
 
