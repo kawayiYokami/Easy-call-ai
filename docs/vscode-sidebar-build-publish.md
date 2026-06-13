@@ -58,81 +58,53 @@ pnpm package:vscode-sidebar -- -SkipBuild
 
 ## 发布到 VS Code 商店
 
+> **注意**：Azure DevOps Personal Access Token (PAT) 于 2026 年 12 月 1 日停用，以下流程使用 Microsoft Entra ID 方式发布，无需 PAT。
+
 ### 一次性准备
 
-1. 在 Visual Studio Marketplace 创建 Publisher
+1. **创建 Publisher**
 
-   官方页面：
-   `https://marketplace.visualstudio.com/manage/publishers/`
+   访问 [https://marketplace.visualstudio.com/manage/publishers/](https://marketplace.visualstudio.com/manage/publishers/)，用微软账号登录，点 **Create publisher**。
 
-2. 确认扩展清单里的 `publisher` 字段和你创建的 Publisher ID 完全一致
+   - **ID**：填入 `yokami233618`（必须与 `package.json` 的 `publisher` 字段一致）
+   - **Name**：显示名称
 
-   当前文件：
-   `src/features/sidebar/extension/package.json`
+2. **确认扩展清单**
 
-3. 用同一个 Microsoft 账号去 Azure DevOps 创建 PAT
-
-   官方文档要求使用 Marketplace 的管理权限。当前 `vsce publish --help` 也明确说明可以通过 `--pat` 或 `VSCE_PAT` 环境变量提供 token。
-
-4. 给 PAT 打开 `Marketplace > Manage` 权限
-
-5. 在当前终端设置环境变量
-
-PowerShell 当前会话：
-
-```powershell
-$env:VSCE_PAT = "your-token"
-```
-
-如果想写到用户环境变量：
-
-```powershell
-setx VSCE_PAT "your-token"
-```
-
-注意：`setx` 之后要开一个新的终端窗口才会生效。
+   检查 [src/features/sidebar/extension/package.json](/src/features/sidebar/extension/package.json) 的 `publisher` 字段是否与上一步创建的一致。
 
 ### 一键发布
-
-在仓库根目录执行：
 
 ```bash
 pnpm publish:vscode-sidebar
 ```
 
-这个命令会先自动打包，再执行 Marketplace 发布。
+脚本会先打包，再用 `--azure-credential` 模式发布。首次执行会弹出浏览器窗口，用微软账号登录授权。
 
-如果你已经有现成的 `.vsix`，只想发布不重新打包：
+#### 常用参数
+
+| 参数 | 作用 |
+|------|------|
+| `-SkipBuild` | 跳过前端构建，用现有 dist/ |
+| `-SkipPackage` | 跳过打包，用已有的 `.vsix` 直接发布 |
+| `-SkipDuplicate` | 跳过重复版本检查（版本已存在时不报错） |
+| `-PreRelease` | 发预发布版 |
+
+### 手动发布（绕过脚本）
+
+如果已有 `.vsix` 文件，也可以直接跑：
 
 ```bash
-pnpm publish:vscode-sidebar -- -SkipPackage
+pnpm dlx @vscode/vsce publish --packagePath src/features/sidebar/extension/pai-test.vsix --azure-credential --allow-missing-repository --skip-license
 ```
 
-如果你要发预发布版本：
+### 如果发布脚本还没适配 `--azure-credential`
+
+当前脚本 `scripts/publish-vscode-sidebar.ps1` 还在用 `VSCE_PAT`，在脚本更新前可以先手动发布：
 
 ```bash
-pnpm publish:vscode-sidebar -- -PreRelease
-```
-
-如果担心重复版本导致脚本失败：
-
-```bash
-pnpm publish:vscode-sidebar -- -SkipDuplicate
-```
-
-## 这套脚本背后的实际命令
-
-打包脚本内部等价于：
-
-```bash
-pnpm build
-pnpm dlx @vscode/vsce package -o pai-test.vsix --allow-missing-repository --skip-license
-```
-
-发布脚本内部等价于：
-
-```bash
-pnpm dlx @vscode/vsce publish --packagePath <vsix-path> --pat $VSCE_PAT --allow-missing-repository --skip-license
+pnpm package:vscode-sidebar
+pnpm dlx @vscode/vsce publish --packagePath src/features/sidebar/extension/pai-test.vsix --azure-credential --allow-missing-repository --skip-license
 ```
 
 ## 当前仓库的注意事项

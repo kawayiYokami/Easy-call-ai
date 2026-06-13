@@ -31,22 +31,18 @@ if (-not (Test-Path -LiteralPath $vsixPath)) {
   throw "VSIX package not found: $vsixPath"
 }
 
-$pat = [string]$env:VSCE_PAT
-if ([string]::IsNullOrWhiteSpace($pat)) {
-  throw "VSCE_PAT is empty. Set VSCE_PAT before publishing."
-}
+Write-Host "[vscode-sidebar] Publishing to Visual Studio Marketplace using Entra ID (--azure-credential)..."
+Write-Host "[vscode-sidebar] A browser window will open for Microsoft account login if needed."
 
 Push-Location $extensionDir
 try {
-  Write-Host "[vscode-sidebar] Publishing to Visual Studio Marketplace..."
   $vsceArgs = @(
     "dlx",
     "@vscode/vsce",
     "publish",
     "--packagePath",
     $vsixPath,
-    "--pat",
-    $pat,
+    "--azure-credential",
     "--allow-missing-repository",
     "--skip-license"
   )
