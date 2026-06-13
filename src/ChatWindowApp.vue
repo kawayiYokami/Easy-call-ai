@@ -342,6 +342,7 @@
       :check-update="manualCheckGithubUpdate"
       :open-github="openGithubRepository"
       :last-saved-config-json="lastSavedConfigJson"
+      @open-code-review="notifySidebarCodeReview"
     />
 
     <ShellDialogsHost

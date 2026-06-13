@@ -344,6 +344,7 @@
 
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
+import { listen } from "@tauri-apps/api/event";
 import type { ApiConfigItem, ChatConversationOverviewItem, ChatMessage, ChatTodoItem, ConversationGoalState, IdeContextWorkspaceGroup, ShellWorkspace } from "../../types/app";
 import { removeBinaryPlaceholders, messageText } from "../../utils/chat-message";
 import {
@@ -621,6 +622,7 @@ const commitOptionsLoading = ref(false);
 const commitTotal = ref(0);
 const commitPage = ref(1);
 const commitPageSize = ref(30);
+let unlistenCodeReviewFn: (() => void) | null = null;
 const supervisionDialogOpen = ref(false);
 const supervisionSaving = ref(false);
 const supervisionErrorText = ref("");
@@ -2581,6 +2583,9 @@ onMounted(() => {
   window.addEventListener("message", handleWindowMessage);
   window.addEventListener("paste", handleWindowPaste);
   document.addEventListener("visibilitychange", handleDocumentVisibilityChange);
+  const unlistenCodeReviewPromise = listen("code-review-requested", () => {
+    openCodeReview();
+  }).then((fn) => { unlistenCodeReviewFn = fn; });
   void bootstrap();
 });
 
@@ -2590,5 +2595,6 @@ onBeforeUnmount(() => {
   window.removeEventListener("message", handleWindowMessage);
   window.removeEventListener("paste", handleWindowPaste);
   document.removeEventListener("visibilitychange", handleDocumentVisibilityChange);
+  if (unlistenCodeReviewFn) unlistenCodeReviewFn();
 });
 </script>

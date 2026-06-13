@@ -1,6 +1,7 @@
 import { computed, nextTick } from "vue";
 import { useI18n } from "vue-i18n";
 import { getCurrentWindow } from "@tauri-apps/api/window";
+import { emit } from "@tauri-apps/api/event";
 import { useAppCore } from "../../shell/composables/use-app-core";
 import { useAppTheme } from "../../shell/composables/use-app-theme";
 import { useWebviewZoomOrchestrator } from "../../shell/composables/use-webview-zoom-orchestrator";
@@ -711,7 +712,12 @@ export function useChatWindowApp() {
     modelRefreshError,
     toolStatuses,
   });
-    return {
+
+  function notifySidebarCodeReview() {
+    void emit("code-review-requested");
+  }
+
+  return {
     messageText,
     extractMessageImages,
     viewMode,
@@ -823,5 +829,6 @@ export function useChatWindowApp() {
     setPromptPreviewDialogRef,
     cancelMessageStoreMigration,
     continueMessageStoreMigrationWithDiscard,
+    notifySidebarCodeReview,
   };
 }

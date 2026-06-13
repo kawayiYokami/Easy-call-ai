@@ -32,6 +32,8 @@ export function useChatToolReviewHandlers(options: UseChatToolReviewHandlersOpti
     loadToolReviewItemDetail,
     runToolReviewForCall,
     runToolReviewForBatch,
+    submitToolReviewCode,
+    listToolReviewCommitOptions,
   } = useChatToolReview({
     activeConversationId: options.activeConversationId,
     refreshTick: options.toolReviewRefreshTick,
@@ -64,5 +66,7 @@ export function useChatToolReviewHandlers(options: UseChatToolReviewHandlersOpti
     loadToolReviewItemDetail,
     runToolReviewForCall,
     runToolReviewForBatch,
+    submitToolReviewCode,
+    listToolReviewCommitOptions,
   };
 }
