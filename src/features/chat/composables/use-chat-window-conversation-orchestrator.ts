@@ -203,36 +203,24 @@ export function useChatWindowConversationOrchestrator(bindings: Record<string, a
   async function restoreForegroundConversationProjection(conversationId: string, reason: string) {
     const cid = String(conversationId || "").trim();
     if (!cid) return;
-    // 优先使用前端缓存中的消息恢复，避免后端快照尚未包含最新流式草稿导致气泡丢失
-    const cache = bindings.conversationMessageCache?.value ?? {};
-    const cachedMessages = freezeConversationMessages(Array.isArray(cache[cid]) ? cache[cid] : []);
-    if (cachedMessages.length > 0) {
-      if (cid !== String(bindings.currentChatConversationId.value || "").trim()) return;
-      bindings.allMessages.value = cachedMessages;
-      bindings.foregroundTailLatestReady.value = true;
-      // 异步从后端获取增量消息补全缓存
-      void requestConversationMessagesAfterAsync(cid).catch((error: unknown) => {
-        console.warn("[前台投影恢复] 缓存恢复后异步补消息失败", {
-          conversationId: cid,
-          reason,
-          error,
-        });
-      });
+    // 如果前端流式仍在进行中，跳过恢复——流式通道会自动推送最新内容
+    const chatFlow = bindings.getChatFlow();
+    if (chatFlow.frontendRoundPhase?.value !== "idle") {
       return;
     }
-    // 降级：缓存为空时从后端快照恢复
+    // 和 switchUnarchivedConversation 一致的快照恢复路径，不走缓存直灌
     const snapshot = await chatForeground.requestConversationLightSnapshot(cid, { resumeProjection: true });
     if (cid !== String(bindings.currentChatConversationId.value || "").trim()) return;
     applyConversationSnapshot(snapshot);
     if (cid !== String(bindings.currentChatConversationId.value || "").trim()) return;
     const shouldBindStream = !!snapshot?.shouldBindStream;
     if (shouldBindStream) {
-      await bindings.getChatFlow().bindActiveConversationStream(cid, true);
+      await chatFlow.bindActiveConversationStream(cid, true);
       return;
     }
     const snapshotRuntimeState = String(snapshot?.runtimeState || "").trim();
     if (snapshotRuntimeState !== "assistant_streaming") {
-      bindings.getChatFlow().clearForegroundRoundState();
+      chatFlow.clearForegroundRoundState();
     }
   }
 
