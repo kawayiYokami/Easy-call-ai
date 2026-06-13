@@ -91,6 +91,10 @@
               v-for="item in section.items"
               :key="item.conversationId"
               class="group relative mx-1"
+              @contextmenu.prevent="handleCardContextMenu(item, $event)"
+              @pointerdown="handleCardPointerDown(item, $event)"
+              @pointerup="handleCardPointerUp(item)"
+              @pointerleave="handleCardPointerLeave"
             >
                   <div
                     class="block rounded-lg px-2 text-left transition-colors hover:bg-base-100/70"
@@ -160,6 +164,7 @@
                             {{ formatConversationTime(item.updatedAt) }}
                           </span>
                           <FloatingConversationMenu
+                            :ref="(el) => { if (el) menuRefs[String(item.conversationId || '').trim()] = el }"
                             v-if="shouldShowConversationMenu(item) && !isEditingTitle(item)"
                             :title="t('common.more')"
                           >
@@ -306,6 +311,7 @@ const renameInputRef = ref<HTMLInputElement | null>(null);
 const editingConversationId = ref("");
 const editingTitleDraft = ref("");
 const conversationSearchQuery = ref("");
+const menuRefs = ref<Record<string, any>>({});
 const showSearch = ref(false);
 const searchInputRef = ref<HTMLInputElement | null>(null);
 const conversationFloatingScrollRef = ref<InstanceType<typeof ChatConversationFloatingScroll> | null>(null);
@@ -588,6 +594,42 @@ function handleConversationCardClick(item: ChatConversationOverviewItem) {
     kind: item.kind,
     remoteContactId: String(item.remoteContactId || "").trim() || undefined,
   });
+}
+
+let longPressTimer: ReturnType<typeof setTimeout> | null = null;
+
+function clearLongPressTimer() {
+  if (longPressTimer !== null) {
+    clearTimeout(longPressTimer);
+    longPressTimer = null;
+  }
+}
+
+function handleCardContextMenu(item: ChatConversationOverviewItem, event: MouseEvent) {
+  const id = String(item.conversationId || "").trim();
+  if (!id) return;
+  clearLongPressTimer();
+  menuRefs.value[id]?.openMenu(event.clientX, event.clientY);
+}
+
+function handleCardPointerDown(item: ChatConversationOverviewItem, event: PointerEvent) {
+  if (event.pointerType !== "touch") return;
+  const id = String(item.conversationId || "").trim();
+  if (!id) return;
+  clearLongPressTimer();
+  const clientX = event.clientX;
+  const clientY = event.clientY;
+  longPressTimer = setTimeout(() => {
+    menuRefs.value[id]?.openMenu(clientX, clientY);
+  }, 500);
+}
+
+function handleCardPointerUp(_item: ChatConversationOverviewItem) {
+  clearLongPressTimer();
+}
+
+function handleCardPointerLeave() {
+  clearLongPressTimer();
 }
 
 function canToggleConversationPin(item: ChatConversationOverviewItem): boolean {

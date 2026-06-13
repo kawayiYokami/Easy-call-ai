@@ -1,44 +1,27 @@
 <template>
-  <div class="relative">
-    <button
-      ref="buttonRef"
-      type="button"
+  <Teleport to="body">
+    <ul
+      v-if="open"
+      ref="menuRef"
       tabindex="0"
-      class="btn btn-ghost btn-xs h-6 min-h-6 w-6 min-w-6 p-0 text-base-content/55 opacity-0 pointer-events-none transition-opacity group-hover:opacity-100 group-hover:pointer-events-auto group-focus-within:opacity-100 group-focus-within:pointer-events-auto hover:text-base-content"
-      :title="title"
-      @click.stop="toggleMenu"
-      @keydown.enter.prevent.stop="toggleMenu"
-      @keydown.space.prevent.stop="toggleMenu"
+      class="menu fixed z-[1200] w-40 rounded-box border border-base-300 bg-base-100 p-1 shadow-xl"
+      :style="menuStyle"
+      @click.stop
       @mousedown.stop
+      @keydown.esc.prevent.stop="closeMenu"
     >
-      <Ellipsis class="h-3.5 w-3.5" />
-    </button>
-    <Teleport to="body">
-      <ul
-        v-if="open"
-        ref="menuRef"
-        tabindex="0"
-        class="menu fixed z-[1200] w-40 rounded-box border border-base-300 bg-base-100 p-1 shadow-xl"
-        :style="menuStyle"
-        @click.stop
-        @mousedown.stop
-        @keydown.esc.prevent.stop="closeMenu"
-      >
-        <slot :close="closeMenu" />
-      </ul>
-    </Teleport>
-  </div>
+      <slot :close="closeMenu" />
+    </ul>
+  </Teleport>
 </template>
 
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, ref } from "vue";
-import { Ellipsis } from "@lucide/vue";
 
 defineProps<{
   title: string;
 }>();
 
-const buttonRef = ref<HTMLButtonElement | null>(null);
 const menuRef = ref<HTMLElement | null>(null);
 const open = ref(false);
 const menuPosition = ref({ left: 0, top: 0 });
@@ -48,23 +31,22 @@ const menuStyle = computed(() => ({
   top: `${menuPosition.value.top}px`,
 }));
 
-function updateMenuPosition() {
-  const button = buttonRef.value;
-  if (!button) return;
-  const rect = button.getBoundingClientRect();
+function updateMenuPosition(x?: number, y?: number) {
   const menuWidth = menuRef.value?.offsetWidth || 160;
   const menuHeight = menuRef.value?.offsetHeight || 168;
   const margin = 8;
   const viewportWidth = window.innerWidth || document.documentElement.clientWidth || 0;
   const viewportHeight = window.innerHeight || document.documentElement.clientHeight || 0;
   const maxLeft = Math.max(margin, viewportWidth - menuWidth - margin);
-  const left = Math.min(Math.max(margin, rect.right - menuWidth), maxLeft);
-  const spaceBelow = viewportHeight - rect.bottom;
-  const spaceAbove = rect.top;
-  const openUpward = spaceBelow < menuHeight + margin && spaceAbove > spaceBelow;
-  const rawTop = openUpward ? rect.top - menuHeight - margin : rect.bottom + margin;
+  const left = x !== undefined
+    ? Math.min(Math.max(margin, x), maxLeft)
+    : Math.max(margin, Math.floor((viewportWidth - menuWidth) / 2));
+  const spaceBelow = y !== undefined ? viewportHeight - y : 0;
+  const spaceAbove = y ?? 0;
+  const openUpward = y !== undefined && spaceBelow < menuHeight + margin && spaceAbove > spaceBelow;
+  const rawTop = openUpward ? (y ?? 0) - menuHeight - margin : (y ?? 0) + margin;
   const maxTop = Math.max(margin, viewportHeight - menuHeight - margin);
-  const top = Math.min(Math.max(margin, rawTop), maxTop);
+  const top = y !== undefined ? Math.min(Math.max(margin, rawTop), maxTop) : Math.max(margin, Math.floor((viewportHeight - menuHeight) / 2));
   menuPosition.value = { left, top };
 }
 
@@ -74,29 +56,38 @@ function handleGlobalPointerDown(event: PointerEvent) {
     closeMenu();
     return;
   }
-  if (buttonRef.value?.contains(target) || menuRef.value?.contains(target)) return;
+  if (menuRef.value?.contains(target)) return;
   closeMenu();
 }
 
+const positionSnapshot = { x: 0, y: 0 };
+
 function addGlobalListeners() {
   window.addEventListener("pointerdown", handleGlobalPointerDown, true);
-  window.addEventListener("scroll", updateMenuPosition, true);
-  window.addEventListener("resize", updateMenuPosition, true);
+  window.addEventListener("scroll", handleScrollOrResize, true);
+  window.addEventListener("resize", handleScrollOrResize, true);
+}
+
+function handleScrollOrResize() {
+  // Keep position from last snapshot; no button to recalculate from
+  updateMenuPosition(positionSnapshot.x, positionSnapshot.y);
 }
 
 function removeGlobalListeners() {
   window.removeEventListener("pointerdown", handleGlobalPointerDown, true);
-  window.removeEventListener("scroll", updateMenuPosition, true);
-  window.removeEventListener("resize", updateMenuPosition, true);
+  window.removeEventListener("scroll", handleScrollOrResize, true);
+  window.removeEventListener("resize", handleScrollOrResize, true);
 }
 
-async function openMenu() {
+async function openMenu(x?: number, y?: number) {
   if (open.value) return;
-  updateMenuPosition();
+  positionSnapshot.x = x ?? positionSnapshot.x;
+  positionSnapshot.y = y ?? positionSnapshot.y;
+  updateMenuPosition(x, y);
   open.value = true;
   addGlobalListeners();
   await nextTick();
-  updateMenuPosition();
+  updateMenuPosition(x, y);
   menuRef.value?.focus();
 }
 
@@ -106,15 +97,16 @@ function closeMenu() {
   removeGlobalListeners();
 }
 
-function toggleMenu() {
+function toggleMenu(x?: number, y?: number) {
   if (open.value) {
     closeMenu();
     return;
   }
-  void openMenu();
+  void openMenu(x, y);
 }
 
 onBeforeUnmount(() => {
   removeGlobalListeners();
 });
-</script>
+
+defineExpose({ openMenu, closeMenu, toggleMenu });</script>
