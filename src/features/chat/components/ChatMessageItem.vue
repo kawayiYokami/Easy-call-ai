@@ -15,6 +15,7 @@
       selectionModeEnabled && selected ? 'ecall-message-selected bg-neutral/10 ring-1 ring-neutral/20 shadow-sm' : '',
     ]"
     @click="handleSelectionRowClick"
+    @contextmenu.prevent="openContextMenu($event)"
   >
     <div
       v-if="selectionModeEnabled && isOwnMessage(block)"
@@ -338,7 +339,9 @@
                 ? 'opacity-100 pointer-events-auto'
                 : showRegenerateAction && canRegenerate
                   ? 'opacity-100 pointer-events-auto'
-                  : !block.isStreaming
+              : (isLastUserMessage || isLastAssistantMessage)
+                ? 'opacity-100 pointer-events-auto'
+                : !block.isStreaming
                     ? 'opacity-0 pointer-events-none group-hover/user-turn:opacity-100 group-hover/user-turn:pointer-events-auto'
                     : 'opacity-0 pointer-events-none',
             ]"
@@ -519,12 +522,51 @@
       </div>
     </template>
   </div>
+
+  <Teleport to="body">
+    <ul
+      v-if="contextMenuOpen"
+      ref="contextMenuRef"
+      tabindex="0"
+      class="menu fixed z-[1200] w-44 rounded-box border border-base-300 bg-base-100 p-1 shadow-xl"
+      :style="{ left: contextMenuX + 'px', top: contextMenuY + 'px' }"
+      @click.stop
+      @mousedown.stop
+      @keydown.esc.prevent.stop="closeContextMenu"
+    >
+      <li>
+        <button type="button" @click="handleContextMenuAction('select')">
+          <ListCheck class="h-4 w-4" />
+          <span>{{ t('chat.messageItem.multiSelect') }}</span>
+        </button>
+      </li>
+      <li>
+        <button type="button" @click="handleContextMenuAction('copy')">
+          <Copy class="h-4 w-4" />
+          <span>{{ t('common.copy') }}</span>
+        </button>
+      </li>
+      <li>
+        <button type="button" @click="handleContextMenuAction('toggleBubble')">
+          <EyeOff v-if="bubbleBackgroundHidden" class="h-4 w-4" />
+          <Eye v-else class="h-4 w-4" />
+          <span>{{ bubbleBackgroundHidden ? t('chat.messageItem.showBubble') : t('chat.messageItem.hideBubble') }}</span>
+        </button>
+      </li>
+      <li v-if="isOwnMessage(block)">
+        <button type="button" class="text-error" @click="handleContextMenuAction('recall')">
+          <Undo2 class="h-4 w-4" />
+          <span>{{ t('chat.recall') }}</span>
+        </button>
+      </li>
+    </ul>
+  </Teleport>
 </template>
 
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch, watchEffect, watchPostEffect } from "vue";
 import { useI18n } from "vue-i18n";
-import { CircleCheckBig, Copy, Eye, EyeOff, FileText, Pause, Play, RotateCcw, Undo2 } from "@lucide/vue";
+import { CircleCheckBig, Copy, Eye, EyeOff, FileText, ListCheck, Pause, Play, RotateCcw, Undo2 } from "@lucide/vue";
 import { invokeTauri } from "../../../services/tauri-api";
 import type { ChatActivityItem, ChatMessageBlock, InlineMessageSegment } from "../../../types/app";
 import { formatIsoToLocalHourMinute } from "../../../utils/time";
@@ -565,6 +607,8 @@ const props = defineProps<{
   bubbleBackgroundHidden: boolean;
   hideToggleEnabled: boolean;
   disableMarkdownRender?: boolean;
+  isLastUserMessage?: boolean;
+  isLastAssistantMessage?: boolean;
 }>();
 
 const emit = defineEmits<{
@@ -593,6 +637,11 @@ const planMarkdownError = ref("");
 const planMarkdownLoading = ref(false);
 const forcePlainMarkdownRender = computed(() => !!props.disableMarkdownRender || debugPlainMarkdownRender);
 let disposed = false;
+
+const contextMenuOpen = ref(false);
+const contextMenuRef = ref<HTMLElement | null>(null);
+const contextMenuX = ref(0);
+const contextMenuY = ref(0);
 
 watch(
   () => ({
@@ -1701,6 +1750,46 @@ function handleSelectionRowClick(event: MouseEvent): void {
   emit("toggleMessageSelected", props.selectionKey);
 }
 
+function handleGlobalPointerDownForContextMenu(event: PointerEvent) {
+  const target = event.target;
+  if (!(target instanceof Node)) {
+    closeContextMenu();
+    return;
+  }
+  if (contextMenuRef.value?.contains(target)) return;
+  closeContextMenu();
+}
+
+function openContextMenu(event: MouseEvent) {
+  const menuWidth = 176; // w-44
+  const menuHeight = 200; // estimate
+  const margin = 8;
+  const viewportWidth = window.innerWidth || document.documentElement.clientWidth || 0;
+  const viewportHeight = window.innerHeight || document.documentElement.clientHeight || 0;
+  contextMenuX.value = Math.min(Math.max(margin, event.clientX), viewportWidth - menuWidth - margin);
+  contextMenuY.value = Math.min(Math.max(margin, event.clientY), viewportHeight - menuHeight - margin);
+  contextMenuOpen.value = true;
+  window.addEventListener("pointerdown", handleGlobalPointerDownForContextMenu, true);
+}
+
+function closeContextMenu() {
+  contextMenuOpen.value = false;
+  window.removeEventListener("pointerdown", handleGlobalPointerDownForContextMenu, true);
+}
+
+function handleContextMenuAction(action: string) {
+  closeContextMenu();
+  if (action === "select") {
+    emit("enterSelectionMode", props.selectionKey);
+  } else if (action === "copy") {
+    emit("copyMessage", props.block);
+  } else if (action === "toggleBubble") {
+    emit("toggleBubbleBackground", props.selectionKey);
+  } else if (action === "recall") {
+    emit("recallTurn", { turnId: String(props.block.sourceMessageId || props.block.id || "").trim() });
+  }
+}
+
 function formatThinkAsMarkdown(raw: string): string {
   const input = raw || "";
   const openTag = "<think>";
@@ -1861,6 +1950,7 @@ onMounted(() => {
 });
 
 onBeforeUnmount(() => {
+  closeContextMenu();
   disposed = true;
   document.removeEventListener("pointerdown", handleActivityOutsidePointerDown, true);
 });
