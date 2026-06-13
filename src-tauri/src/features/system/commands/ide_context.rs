@@ -332,7 +332,8 @@ fn ide_chat_avatar_data_url(state: &AppState, path: Option<&str>) -> String {
 
 fn ide_chat_persona_payload(state: &AppState, active_agent_id: Option<&str>) -> Result<Value, String> {
     let runtime = state_read_runtime_state_cached(state)?;
-    let agents = state_read_agents_cached(state)?;
+    let runtime_org = load_runtime_organization_snapshot(state)?;
+    let agents = runtime_org.agents;
     let user_alias = runtime.user_alias.trim();
     let active_agent_id = active_agent_id
         .map(str::trim)

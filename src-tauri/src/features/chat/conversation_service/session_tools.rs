@@ -81,14 +81,15 @@ fn build_delegate_completion_notification_body(
     if normalized_content.is_empty() {
         return Err("通知正文不能为空".to_string());
     }
-    let config = state_read_config_cached(state)?;
-    let agents = state_read_agents_cached(state)?;
-    let department_name = config
+    let runtime_snapshot = load_runtime_organization_snapshot(state)?;
+    let department_name = runtime_snapshot
+        .config
         .departments
         .iter()
         .find(|department| department.id.trim() == target_department_id.trim())
         .map(|department| department.name.trim().to_string());
-    let persona_name = agents
+    let persona_name = runtime_snapshot
+        .agents
         .iter()
         .find(|agent| agent.id.trim() == target_agent_id.trim())
         .map(|agent| agent.name.trim().to_string());
@@ -112,14 +113,13 @@ fn build_session_notification_body(
     if normalized_content.is_empty() {
         return Err("通知正文不能为空".to_string());
     }
-    let config = state_read_config_cached(state)?;
-    let agents = state_read_agents_cached(state)?;
+    let runtime_snapshot = load_runtime_organization_snapshot(state)?;
     let conversation = state_read_conversation_cached(state, normalized_conversation_id)
         .map_err(|_| "来源会话不存在".to_string())?;
     let label = session_notification_source_label(
         &conversation.title,
-        conversation_bound_department_name(&config, &conversation).as_deref(),
-        conversation_bound_persona_name(&agents, &conversation).as_deref(),
+        conversation_bound_department_name(&runtime_snapshot.config, &conversation).as_deref(),
+        conversation_bound_persona_name(&runtime_snapshot.agents, &conversation).as_deref(),
     );
     Ok(format!("{label}:{normalized_content}"))
 }
