@@ -691,19 +691,9 @@ const sidebarPersonaAvatarUrlMap = computed<Record<string, string>>(() => {
   if (activeAgentId.value && sidebarAssistantAvatarUrl.value) next[activeAgentId.value] = sidebarAssistantAvatarUrl.value;
   return next;
 });
-const sidebarWorkspaceFilterPaths = computed(() =>
-  vscodeWorkspaceRoots.value
-    .map((item) => String(item.path || "").trim())
-    .filter(Boolean),
-);
-const visibleConversations = computed(() => {
-  if (sidebarWorkspaceFilterPaths.value.length === 0) return conversations.value;
-  return conversations.value.filter((item) =>
-    isSidebarSystemConversation(item) || conversationMatchesCurrentSidebarWorkspace(item)
-  );
-});
+const visibleConversations = computed(() => conversations.value);
 const chatUnarchivedConversationItems = computed<ChatConversationOverviewItem[]>(() =>
-  visibleConversations.value
+  conversations.value
     .map((item) => {
       const conversationId = String(item.conversationId || "").trim();
       const isSystemNotificationConversation = isSidebarSystemConversation(item);
@@ -1108,9 +1098,19 @@ function sidebarWorkspacePathMatches(conversationPath: string, workspacePath: st
 function conversationMatchesCurrentSidebarWorkspace(item: ConversationSummary): boolean {
   const conversationPath = String(item.workspaceRootPath || "").trim();
   if (!conversationPath) return false;
-  return sidebarWorkspaceFilterPaths.value.some((workspacePath) =>
-    sidebarWorkspacePathMatches(conversationPath, workspacePath)
+  return vscodeWorkspaceRoots.value.some((workspace) =>
+    !!String(workspace.path || "").trim() && sidebarWorkspacePathMatches(conversationPath, workspace.path)
   );
+}
+
+function currentSidebarWorkspaceCandidates(items: ConversationSummary[]): ConversationSummary[] {
+  return items.filter((item) =>
+    !isSidebarSystemConversation(item) && conversationMatchesCurrentSidebarWorkspace(item)
+  );
+}
+
+function sidebarHasWorkspaceContext(): boolean {
+  return vscodeWorkspaceRoots.value.some((workspace) => !!String(workspace.path || "").trim());
 }
 
 function isSidebarConversationOpenable(item: ConversationSummary): boolean {
@@ -1136,10 +1136,8 @@ function latestConversation(items: ConversationSummary[]): ConversationSummary |
 function pickInitialSidebarConversationId(items: ConversationSummary[]): string {
   const candidates = items.filter((item) => !!String(item.conversationId || "").trim());
   const openableCandidates = candidates.filter(isSidebarConversationOpenable);
-  const workspaceCandidates = sidebarWorkspaceFilterPaths.value.length > 0
-    ? openableCandidates.filter((item) =>
-      !isSidebarSystemConversation(item) && conversationMatchesCurrentSidebarWorkspace(item)
-    )
+  const workspaceCandidates = sidebarHasWorkspaceContext()
+    ? currentSidebarWorkspaceCandidates(openableCandidates)
     : [];
   const latestWorkspaceConversation = latestConversation(workspaceCandidates);
   if (latestWorkspaceConversation) {
@@ -1430,6 +1428,18 @@ async function createConversation(input: { title?: string; departmentId: string;
   const departmentId = String(input.departmentId || "").trim();
   const agentId = String(input.agentId || "").trim();
   if (!departmentId || !agentId || creatingConversation.value) return;
+  const vscodeRoot = vscodeWorkspaceRoots.value[0];
+  const workspacePath = String(vscodeRoot?.path || "").trim();
+  const workspaceName = String(vscodeRoot?.name || "").trim() || workspaceRootName.value || workspacePath;
+  const shellWorkspaces = workspacePath
+    ? [{
+      id: `vscode-workspace-${workspacePath}`,
+      name: workspaceName,
+      path: workspacePath,
+      level: "main" as const,
+      access: workspaceAccess.value || "approval",
+    }]
+    : null;
   creatingConversation.value = true;
   createConversationErrorText.value = "";
   try {
@@ -1437,6 +1447,7 @@ async function createConversation(input: { title?: string; departmentId: string;
       title: input.title,
       departmentId,
       agentId,
+      shellWorkspaces,
     });
     await refreshList();
     await openConversation(result.conversationId);
@@ -2279,7 +2290,7 @@ async function initializeAfterBridgeAuthenticated() {
     String(item.conversationId || "").trim() === currentConversationId
   );
   const shouldSwitchForWorkspace =
-    sidebarWorkspaceFilterPaths.value.length > 0
+    sidebarHasWorkspaceContext()
     && !!initialSummary
     && !isSidebarSystemConversation(initialSummary)
     && initialConversationId !== currentConversationId
