@@ -220,6 +220,7 @@
         @selection-action-share="handleSelectionShareAction($event)"
         @attach-tool-review-report="attachToolReviewReport"
         @lock-workspace="onLockChatWorkspace"
+        @open-code-review="$emit('open-code-review')"
         @open-supervision-task="openSupervisionTaskDialog"
         @detach-conversation="handleDetachConversation"
         @close-supervision-task="closeSupervisionTaskDialog"

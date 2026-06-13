@@ -38,6 +38,7 @@ export function useDelegateStatus(options: UseDelegateStatusOptions) {
 
   let delegateStatusUpdatedUnlisten: UnlistenFn | null = null;
   let delegateClockTimer: ReturnType<typeof window.setInterval> | null = null;
+  let delegateRefreshTimer: ReturnType<typeof window.setInterval> | null = null;
   let disposed = false;
   let requestSeq = 0;
 
@@ -121,6 +122,18 @@ export function useDelegateStatus(options: UseDelegateStatusOptions) {
     }
   }
 
+  function syncDelegateRefreshTimer() {
+    const shouldRun = enabled() && panelOpen.value && hasRunningDelegates();
+    if (shouldRun && delegateRefreshTimer == null && typeof window !== "undefined") {
+      delegateRefreshTimer = window.setInterval(() => {
+        void refresh();
+      }, 1000);
+    } else if (!shouldRun && delegateRefreshTimer != null) {
+      window.clearInterval(delegateRefreshTimer);
+      delegateRefreshTimer = null;
+    }
+  }
+
   async function openDelegateArchiveDetail(status: ConversationDelegateStatusSummary) {
     const conversationId = String(status?.conversationId || status?.delegateId || "").trim();
     if (!conversationId) return;
@@ -167,6 +180,12 @@ export function useDelegateStatus(options: UseDelegateStatusOptions) {
     { immediate: true },
   );
 
+  watch(
+    () => [enabled(), panelOpen.value, rawDelegateStatuses.value.map((status) => `${status.delegateId}:${status.active}:${status.status}`).join("|")],
+    () => syncDelegateRefreshTimer(),
+    { immediate: true },
+  );
+
   onMounted(() => {
     if (isTauriRuntimeAvailable()) {
       void listen<DelegateStatusUpdatedPayload>(DELEGATE_STATUS_UPDATED_EVENT, (event) => {
@@ -196,6 +215,10 @@ export function useDelegateStatus(options: UseDelegateStatusOptions) {
     if (delegateClockTimer != null) {
       window.clearInterval(delegateClockTimer);
       delegateClockTimer = null;
+    }
+    if (delegateRefreshTimer != null) {
+      window.clearInterval(delegateRefreshTimer);
+      delegateRefreshTimer = null;
     }
     if (typeof window !== "undefined") {
       window.removeEventListener(DELEGATE_STATUS_UPDATED_EVENT, handleBridgeDelegateStatusUpdated);

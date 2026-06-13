@@ -288,11 +288,7 @@ fn delegate_runtime_thread_list(app_state: &AppState) -> Result<Vec<DelegateRunt
         .delegate_runtime_threads
         .lock()
         .map_err(|_| "Failed to lock delegate runtime threads".to_string())?;
-    guard
-        .values()
-        .cloned()
-        .map(|thread| delegate_runtime_thread_apply_persisted_conversation(thread, app_state))
-        .collect()
+    Ok(guard.values().cloned().collect())
 }
 
 fn delegate_recent_thread_list(app_state: &AppState) -> Result<Vec<DelegateRuntimeThread>, String> {

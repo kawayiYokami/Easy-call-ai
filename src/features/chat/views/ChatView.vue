@@ -187,7 +187,7 @@
                 @open-auto-push="openAutoPushCard"
                 @open-share-selection="openShareSelectionMenu"
                 @open-delegate-summary="openDelegateSummaryPanel"
-                @open-code-review="$emit('openCodeReview')"
+                @open-code-review="openCodeReviewDialog"
                 @mention-entry="(entry) => {
                   const agentId = String(entry?.agentId || '').trim();
                   const departmentId = String(entry?.departmentId || '').trim();
@@ -323,6 +323,22 @@
           @close="$emit('closeSupervisionTask')" @save="$emit('saveSupervisionTask', $event)"
           @stop="$emit('stopSupervisionTask')"
         />
+        <ToolReviewTargetDialog
+          v-if="!sidebarMode"
+          :open="codeReviewDialogOpen"
+          :submitting="!!toolReviewSubmittingBatchKey"
+          :error-text="codeReviewErrorText"
+          :current-department-id="props.currentDepartmentId"
+          :department-options="props.createConversationDepartmentOptions"
+          :commit-options="commitOptions"
+          :commit-options-loading="commitOptionsLoading"
+          :commit-total="commitTotal"
+          :commit-page="commitPage"
+          :commit-page-size="commitPageSize"
+          @close="closeCodeReviewDialog"
+          @pick-commit-review="loadCodeReviewCommitOptions"
+          @review-code="handleSubmitCodeReview"
+        />
         <ChatTaskCreateDialog
           v-if="!sidebarMode"
           :open="taskDialogOpen"
@@ -452,6 +468,7 @@ import FloatingScrollbar from "../../shell/components/FloatingScrollbar.vue";
 import ChatConversationSidebar from "../components/ChatConversationSidebar.vue";
 import ChatWorkspaceToolbar from "../components/ChatWorkspaceToolbar.vue";
 import ToolReviewSidebar from "../components/ToolReviewSidebar.vue";
+import ToolReviewTargetDialog from "../components/ToolReviewTargetDialog.vue";
 import FileReaderPanel from "../../file-reader/components/FileReaderPanel.vue";
 import ChatImagePreviewDialog from "../components/dialogs/ChatImagePreviewDialog.vue";
 import ChatSupervisionTaskDialog from "../components/dialogs/ChatSupervisionTaskDialog.vue";
@@ -475,6 +492,7 @@ import { useChatSelection } from "../composables/use-chat-selection";
 import { useChatConversationCtx } from "../composables/use-chat-conversation-ctx";
 import { useChatScrollOrchestration } from "../composables/use-chat-scroll-orchestration";
 import { useChatToolReviewHandlers } from "../composables/use-chat-tool-review-handlers";
+import type { ToolReviewCodeReviewScope, ToolReviewCommitOption } from "../composables/use-chat-tool-review";
 import { useChatBlockTracking } from "../composables/use-chat-block-tracking";
 import type { TaskEntry } from "../../config/views/config-tabs/task-editor";
 import type { DepartmentPersonaOption } from "../../shared/department-persona-options";
@@ -597,6 +615,13 @@ const autoPushCardOpen = ref(false);
 const autoPushSaving = ref(false);
 const autoPushEnabled = ref(false);
 const autoPushSelectedContactId = ref("");
+const codeReviewDialogOpen = ref(false);
+const codeReviewErrorText = ref("");
+const commitOptions = ref<ToolReviewCommitOption[]>([]);
+const commitOptionsLoading = ref(false);
+const commitTotal = ref(0);
+const commitPage = ref(1);
+const commitPageSize = ref(30);
 
 // ==================== context computed ====================
 
@@ -940,6 +965,7 @@ const {
   toolReviewBatchReviewingKey, toolReviewSubmittingBatchKey, toolReviewErrorText,
   setToolReviewCurrentBatchKey,
   loadToolReviewItemDetail, runToolReviewForCall, runToolReviewForBatch,
+  submitToolReviewCode, listToolReviewCommitOptions,
 } = useChatToolReviewHandlers({
   activeConversationId: toRef(props, "activeConversationId"),
   toolReviewRefreshTick: toRef(props, "toolReviewRefreshTick"),
@@ -1057,6 +1083,50 @@ async function handleSaveLocalImage(path: string) {
 // ==================== conversation actions ====================
 
 function handleDetachConversationRequest() { emit("detachConversation"); }
+function openCodeReviewDialog() {
+  codeReviewErrorText.value = "";
+  codeReviewDialogOpen.value = true;
+}
+function closeCodeReviewDialog() {
+  if (toolReviewSubmittingBatchKey.value) return;
+  codeReviewDialogOpen.value = false;
+  codeReviewErrorText.value = "";
+}
+async function loadCodeReviewCommitOptions(page = 1) {
+  const conversationId = String(props.activeConversationId || "").trim();
+  if (!conversationId) return;
+  commitOptionsLoading.value = true;
+  try {
+    const result = await listToolReviewCommitOptions(conversationId, page, commitPageSize.value);
+    commitOptions.value = Array.isArray(result.commits) ? result.commits : [];
+    commitTotal.value = Number(result.total || 0);
+    commitPage.value = Number(result.page || page);
+    commitPageSize.value = Number(result.pageSize || commitPageSize.value);
+    codeReviewErrorText.value = "";
+  } catch (error) {
+    commitOptions.value = [];
+    codeReviewErrorText.value = t("chat.readCommitFailed");
+    console.error("[代码审查] 读取 commit 失败", error);
+  } finally {
+    commitOptionsLoading.value = false;
+  }
+}
+async function handleSubmitCodeReview(input: { scope: ToolReviewCodeReviewScope; target?: string; departmentId: string }) {
+  const conversationId = String(props.activeConversationId || "").trim();
+  if (!conversationId || toolReviewSubmittingBatchKey.value) return;
+  codeReviewErrorText.value = "";
+  const report = await submitToolReviewCode({
+    conversationId,
+    scope: input.scope,
+    target: String(input.target || "").trim() || undefined,
+    departmentId: String(input.departmentId || "").trim() || undefined,
+  });
+  if (!report) {
+    codeReviewErrorText.value = t("chat.startCodeReviewFailed");
+    return;
+  }
+  codeReviewDialogOpen.value = false;
+}
 function openDelegateSummaryPanel() {
   emit("update:chatRightPanelMode", "delegate");
   emit("toolReviewPanelOpenChange", true);
