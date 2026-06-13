@@ -6,10 +6,10 @@ const LEGACY_SYSTEM_NAMES = [
   "系統工作目錄",
   "助理私人目录",
   "助理私人目錄",
-  "自我目录",
-  "自我目錄",
+  "助理空间",
+  "助理空間",
   "assistant private workspace",
-  "self directory",
+  "assistant space",
 ];
 
 const LEGACY_MAIN_NAMES = [

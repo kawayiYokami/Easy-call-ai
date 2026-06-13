@@ -332,7 +332,7 @@ fn ensure_default_shell_workspace_in_config(config: &mut AppConfig, state: &AppS
             {
                 workspace.path = default_path.clone();
                 runtime_log_info(format!(
-                    "[终端工作空间迁移] 自我目录路径已更新: '{}' -> '{}'",
+                    "[终端工作空间迁移] 助理空间路径已更新: '{}' -> '{}'",
                     candidate.display(),
                     workspace.path
                 ));
@@ -621,7 +621,7 @@ fn terminal_allowed_workspaces_for_conversation_canonical(
         .find(|workspace| workspace.level == SHELL_WORKSPACE_LEVEL_SYSTEM)
         .cloned()
         .or_else(|| config_workspaces.first().cloned())
-        .ok_or_else(|| "No self directory available".to_string())?;
+        .ok_or_else(|| "No assistant space available".to_string())?;
 
     // 判断是否为联系人会话，若是则使用联系人配置的工作区，系统目录降为 read_only
     let is_contact_conversation = conversation
@@ -759,7 +759,7 @@ fn terminal_system_workspace_resolved(state: &AppState) -> Result<TerminalWorksp
     terminal_config_allowed_workspaces_canonical(state)?
         .into_iter()
         .find(|workspace| workspace.level == SHELL_WORKSPACE_LEVEL_SYSTEM)
-        .ok_or_else(|| "No self directory available".to_string())
+        .ok_or_else(|| "No assistant space available".to_string())
 }
 
 fn terminal_default_workspace_resolved(state: &AppState) -> Result<TerminalWorkspaceResolved, String> {
@@ -893,7 +893,7 @@ fn terminal_prompt_trusted_roots_block(
             }
         };
     if let Some(system) = &system_workspace {
-        record_workspace(system, Some("自我目录（Self Directory）"));
+        record_workspace(system, Some("助理空间（Assistant Space）"));
     }
     if let Some(default_workspace) = &default_workspace {
         record_workspace(

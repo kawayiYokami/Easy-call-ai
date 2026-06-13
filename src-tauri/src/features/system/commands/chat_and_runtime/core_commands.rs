@@ -133,7 +133,7 @@ fn resolve_plan_file_for_conversation_id(
     let conversation = state_read_conversation_cached(state, conversation_id)?;
     let base_root = terminal_default_workspace_for_conversation_resolved(state, Some(&conversation))
         .map(|workspace| workspace.path)
-        .or_else(|_| plan_self_directory_canonical(state))?;
+        .or_else(|_| plan_assistant_space_canonical(state))?;
     resolve_plan_file_for_conversation(&base_root, raw_path)
 }
 

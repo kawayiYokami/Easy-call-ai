@@ -18,13 +18,13 @@ fn plan_markdown_extension_allowed(path: &Path) -> bool {
         .unwrap_or(false)
 }
 
-fn plan_self_directory_canonical(state: &AppState) -> Result<PathBuf, String> {
+fn plan_assistant_space_canonical(state: &AppState) -> Result<PathBuf, String> {
     terminal_system_workspace_resolved(state)
         .map(|workspace| workspace.path)
         .or_else(|_| {
             configured_workspace_root_path(state).and_then(|path| {
                 path.canonicalize()
-                    .map_err(|err| format!("解析自我目录失败: {err}"))
+                    .map_err(|err| format!("解析助理空间失败: {err}"))
             })
         })
 }
@@ -40,7 +40,7 @@ fn plan_preferred_directory_for_conversation(
             return Ok(plan_directory_for_root(&workspace.path));
         }
     }
-    Ok(plan_directory_for_root(&plan_self_directory_canonical(state)?))
+    Ok(plan_directory_for_root(&plan_assistant_space_canonical(state)?))
 }
 
 pub(crate) fn plan_preferred_directory_display_for_conversation(
@@ -168,7 +168,7 @@ pub(crate) fn builtin_plan(
 
     let conversation = terminal_session_conversation(app_state, session_id)?;
     let session_root = terminal_session_root_canonical(app_state, session_id)
-        .or_else(|_| plan_self_directory_canonical(app_state))?;
+        .or_else(|_| plan_assistant_space_canonical(app_state))?;
     let resolved_path = resolve_plan_file_for_conversation(&session_root, &args.path)?;
     let conversation_id = conversation
         .as_ref()

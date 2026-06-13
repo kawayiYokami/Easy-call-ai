@@ -2740,7 +2740,7 @@ fn build_question_and_planning_rule_block(
         .and_then(|app_state| {
             plan_preferred_directory_display_for_conversation(app_state, Some(conversation)).ok()
         })
-        .unwrap_or_else(|| "{会话工作目录或自我目录}\\.pai\\plan".to_string());
+        .unwrap_or_else(|| "{会话工作目录或助理空间}\\.pai\\plan".to_string());
     prompt_xml_block(
         "plan tool rule",
         &format!(

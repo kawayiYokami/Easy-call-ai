@@ -1017,7 +1017,7 @@ impl RuntimeToolMetadata for BuiltinMemeTool {
         ProviderToolDefinition::new(
             "meme",
             format!(
-                "把当前看到的图片收入自我目录（Self Directory）下的 `.meme` 贴纸库。当前可用 meme：{}。不要用本工具查询列表；如果需要在回答中使用贴纸，直接输出 `:meme名:`，例如 `:坏笑:`。只有在需要新增贴纸库存时才调用本工具。",
+                "把当前看到的图片收入助理空间（Assistant Space）下的 `.meme` 贴纸库。当前可用 meme：{}。不要用本工具查询列表；如果需要在回答中使用贴纸，直接输出 `:meme名:`，例如 `:坏笑:`。只有在需要新增贴纸库存时才调用本工具。",
                 names
             ),
             serde_json::json!({

@@ -8043,7 +8043,7 @@
         assert_eq!(parts.len(), 1);
         match &parts[0] {
             MessagePart::Text { text, .. } => {
-                assert!(text.contains("用户发送了一个附件，位于 {Self Directory}/"));
+                assert!(text.contains("用户发送了一个附件，位于 {Assistant Space}/"));
                 assert!(text.contains("downloads/bad-image.png"));
             }
             other => panic!("expected text fallback, got {other:?}"),

@@ -266,19 +266,19 @@ fn workspace_relative_path(state: &AppState, absolute: &std::path::Path) -> Stri
         .unwrap_or_else(|| absolute.to_string_lossy().replace('\\', "/"))
 }
 
-fn self_directory_display_path(relative_path: &str) -> String {
+fn assistant_space_display_path(relative_path: &str) -> String {
     let trimmed = relative_path.trim().trim_start_matches(['\\', '/']);
     if trimmed.is_empty() {
-        "{Self Directory}".to_string()
+        "{Assistant Space}".to_string()
     } else {
-        format!("{{Self Directory}}/{}", trimmed.replace('\\', "/"))
+        format!("{{Assistant Space}}/{}", trimmed.replace('\\', "/"))
     }
 }
 
 fn build_attachment_notice_text(_file_name: &str, relative_path: &str) -> String {
     format!(
         "用户发送了一个附件，位于 {}。",
-        self_directory_display_path(relative_path)
+        assistant_space_display_path(relative_path)
     )
 }
 
