@@ -1,7 +1,12 @@
 {
-  "generatedAt": "2026-06-12T22:32:00.976Z",
-  "latestVersion": "v0.11.9",
+  "generatedAt": "2026-06-13T09:56:42.425Z",
+  "latestVersion": "v0.11.10",
   "releases": [
+    {
+      "version": "v0.11.10",
+      "path": "docs/changelog/releases/v0.11.10.md",
+      "summary": "修复（sidebar）：VS Code 侧边栏不再因为当前工作目录不匹配而隐藏本地会话，避免已有会话列表被误过滤。"
+    },
     {
       "version": "v0.11.9",
       "path": "docs/changelog/releases/v0.11.9.md",
