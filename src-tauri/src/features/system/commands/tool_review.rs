@@ -639,10 +639,47 @@ fn tool_review_patch_operations_preview(args: &Value) -> Option<String> {
     Some(lines.join("\n"))
 }
 
+fn tool_review_single_edit_preview(tool_name: &str, args: &Value) -> Option<String> {
+    let path = tool_review_json_string_field(args, "path")?;
+    let mut lines = vec!["*** Begin Patch".to_string()];
+    match tool_name {
+        "write" => {
+            let content = tool_review_json_string_field(args, "content").unwrap_or("");
+            lines.push(format!("*** Add File: {path}"));
+            lines.extend(tool_review_prefixed_preview_lines("+", content));
+        }
+        "delete" => {
+            lines.push(format!("*** Delete File: {path}"));
+        }
+        "move" => {
+            let to = tool_review_json_string_field(args, "to").unwrap_or("");
+            lines.push(format!("*** Update File: {path}"));
+            lines.push(format!("*** Move to: {to}"));
+        }
+        "update" => {
+            let old_string = tool_review_json_string_field(args, "old_string")
+                .or_else(|| tool_review_json_string_field(args, "oldString"))
+                .unwrap_or("");
+            let new_string = tool_review_json_string_field(args, "new_string")
+                .or_else(|| tool_review_json_string_field(args, "newString"))
+                .unwrap_or("");
+            lines.push(format!("*** Update File: {path}"));
+            lines.extend(tool_review_prefixed_preview_lines("-", old_string));
+            lines.extend(tool_review_prefixed_preview_lines("+", new_string));
+        }
+        _ => return None,
+    }
+    lines.push("*** End Patch".to_string());
+    Some(lines.join("\n"))
+}
+
 fn tool_review_preview_for_item(item: &ToolReviewCollectedItem) -> (String, String) {
     match item.tool_name.as_str() {
-        "apply_patch" => {
+        "apply_patch" | "write" | "delete" | "update" | "move" => {
             if let Some(preview) = tool_review_patch_operations_preview(&item.args_value) {
+                return ("patch".to_string(), preview);
+            }
+            if let Some(preview) = tool_review_single_edit_preview(&item.tool_name, &item.args_value) {
                 return ("patch".to_string(), preview);
             }
             let preview = tool_review_json_string_field(&item.args_value, "input")
@@ -701,7 +738,13 @@ fn collect_tool_review_batches_internal(conversation: &Conversation) -> Vec<Tool
             if event.role == "assistant" {
                 for call in event.tool_calls {
                     let tool_name = call.tool_name.unwrap_or_default();
-                    if tool_name != "shell_exec" && tool_name != "apply_patch" {
+                    if tool_name != "shell_exec"
+                        && tool_name != "apply_patch"
+                        && tool_name != "write"
+                        && tool_name != "delete"
+                        && tool_name != "update"
+                        && tool_name != "move"
+                    {
                         continue;
                     }
                     let call_id = call
@@ -804,12 +847,12 @@ fn tool_review_batch_summary_from_collected(batch: &ToolReviewCollectedBatch) ->
                 tool_name: item.tool_name.clone(),
                 order_index: item.order_index,
                 has_review: item.review_value.is_some(),
-                affected_paths: if item.tool_name == "apply_patch" {
+                affected_paths: if matches!(item.tool_name.as_str(), "apply_patch" | "write" | "delete" | "update" | "move") {
                     tool_review_patch_paths_for_item(item)
                 } else {
                     Vec::new()
                 },
-                patch_operation: if item.tool_name == "apply_patch" {
+                patch_operation: if matches!(item.tool_name.as_str(), "apply_patch" | "write" | "delete" | "update" | "move") {
                     tool_review_patch_operation_for_item(item)
                 } else {
                     None
@@ -911,7 +954,7 @@ fn tool_review_write_call_review(
 
 fn tool_review_build_context(item: &ToolReviewCollectedItem) -> Value {
     match item.tool_name.as_str() {
-        "apply_patch" => {
+        "apply_patch" | "write" | "delete" | "update" | "move" => {
             let (_, preview_text) = tool_review_preview_for_item(item);
             serde_json::json!({
                 "patch_preview": preview_text,

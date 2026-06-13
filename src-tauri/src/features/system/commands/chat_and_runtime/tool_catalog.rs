@@ -73,6 +73,34 @@ async fn builtin_tool_definitions_for_frontend(
             .provider_tool_definition(),
         ),
         frontend_tool_definition(
+            BuiltinWriteFileTool {
+                app_state: state.clone(),
+                session_id: preview_session_id.clone(),
+            }
+            .provider_tool_definition(),
+        ),
+        frontend_tool_definition(
+            BuiltinDeleteFileTool {
+                app_state: state.clone(),
+                session_id: preview_session_id.clone(),
+            }
+            .provider_tool_definition(),
+        ),
+        frontend_tool_definition(
+            BuiltinUpdateFileTool {
+                app_state: state.clone(),
+                session_id: preview_session_id.clone(),
+            }
+            .provider_tool_definition(),
+        ),
+        frontend_tool_definition(
+            BuiltinMoveFileTool {
+                app_state: state.clone(),
+                session_id: preview_session_id.clone(),
+            }
+            .provider_tool_definition(),
+        ),
+        frontend_tool_definition(
             BuiltinApplyPatchTool {
                 app_state: state.clone(),
                 session_id: preview_session_id.clone(),

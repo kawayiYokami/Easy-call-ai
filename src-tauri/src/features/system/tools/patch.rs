@@ -11,6 +11,34 @@ struct ApplyPatchToolArgs {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+struct WriteFileToolArgs {
+    path: String,
+    content: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct DeleteFileToolArgs {
+    path: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct UpdateFileToolArgs {
+    path: String,
+    #[serde(alias = "oldString")]
+    old_string: String,
+    #[serde(alias = "newString")]
+    new_string: String,
+    #[serde(default, alias = "replaceAll")]
+    replace_all: Option<bool>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct MoveFileToolArgs {
+    path: String,
+    to: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 struct ApplyPatchToolOpArgs {
     action: String,
     path: String,
@@ -532,7 +560,17 @@ fn apply_patch_ops_from_tool_args(args: ApplyPatchToolArgs) -> Result<Vec<ApplyP
                 };
                 ops.push(ApplyPatchOp::Add { path: op.path, content });
             }
-            "delete" => ops.push(ApplyPatchOp::Delete { path: op.path }),
+            "delete" => {
+                if op.old_string.is_some() || op.new_string.is_some() || op.replace_all.is_some() {
+                    return Err(apply_patch_format_error(format!(
+                        r#"apply_patch 操作[{}] (delete) 只会删除整个文件，不支持 "old_string"、"new_string" 或 "replace_all"。如果你想删除文件中的部分内容，请改用 update，并让 new_string 设为空字符串。\n最小 delete 示例：{}\n最小 update 示例：{}"#,
+                        i,
+                        apply_patch_operation_example("delete"),
+                        apply_patch_operation_example("update")
+                    )));
+                }
+                ops.push(ApplyPatchOp::Delete { path: op.path });
+            }
             "update" => {
                 let Some(old_string) = op.old_string else {
                     return Err(apply_patch_format_error(format!(
@@ -1266,6 +1304,17 @@ async fn builtin_apply_patch(
     session_id: &str,
     args: ApplyPatchToolArgs,
 ) -> Result<Value, String> {
+    builtin_apply_patch_with_name(state, session_id, "apply_patch", args).await
+}
+
+async fn builtin_apply_patch_with_name(
+    state: &AppState,
+    session_id: &str,
+    tool_name: &str,
+    args: ApplyPatchToolArgs,
+) -> Result<Value, String> {
+    let tool_name = tool_name.trim();
+    let tool_name = if tool_name.is_empty() { "apply_patch" } else { tool_name };
     let normalized_session = normalize_terminal_tool_session_id(session_id);
     let cwd = resolve_terminal_cwd(state, &normalized_session, None)?;
     let raw_input = apply_patch_tool_args_to_raw_json(&args)?;
@@ -1292,7 +1341,7 @@ async fn builtin_apply_patch(
             match run_tool_smart_review(
                 state,
                 &review_api_config_id,
-                "apply_patch",
+                tool_name,
                 "Tool safety review",
                 context,
             )
@@ -1331,7 +1380,7 @@ async fn builtin_apply_patch(
                             &lines.join("\n"),
                             &normalized_session,
                             "ai_tool_review",
-                            Some("apply_patch"),
+                            Some(tool_name),
                             None,
                             Some(&preview),
                             Some(&cwd),
@@ -1384,18 +1433,18 @@ async fn builtin_apply_patch(
                             "ok": false,
                             "approved": false,
                             "blockedReason": "delegate_denied_ai_review_raw_patch",
-                            "message": "子代理工具调用被自动拒绝（智能评估返回了不符合约定的结果）。",
-                            "toolReview": smart_review_history.clone(),
-                            "cwd": terminal_path_for_user(&cwd),
-                        }));
-                    }
+                        "message": "子代理工具调用被自动拒绝（智能评估返回了不符合约定的结果）。",
+                        "toolReview": smart_review_history.clone(),
+                        "cwd": terminal_path_for_user(&cwd),
+                    }));
+                }
                     let approved = match terminal_request_user_approval(
                         state,
                         "工具智能评估",
                         review_note,
                         &normalized_session,
                         "ai_tool_review_raw_json",
-                        Some("apply_patch"),
+                        Some(tool_name),
                         Some(review_note),
                         Some(&raw_json),
                         Some(&cwd),
@@ -1484,7 +1533,7 @@ async fn builtin_apply_patch(
                     &lines.join("\n"),
                     &normalized_session,
                     "apply_patch_workspace_write",
-                    Some("apply_patch"),
+                    Some(tool_name),
                     Some(&summary),
                     Some(&preview),
                     Some(&cwd),
@@ -1535,7 +1584,7 @@ async fn builtin_apply_patch(
                         notice,
                         &normalized_session,
                         "apply_patch_workspace_write",
-                        Some("apply_patch"),
+                        Some(tool_name),
                         Some(&summary),
                         Some(&preview),
                         Some(&cwd),
@@ -1642,6 +1691,102 @@ async fn builtin_apply_patch(
     }))
 }
 
+async fn builtin_write_file(
+    state: &AppState,
+    session_id: &str,
+    args: WriteFileToolArgs,
+) -> Result<Value, String> {
+    builtin_apply_patch_with_name(
+        state,
+        session_id,
+        "write",
+        ApplyPatchToolArgs {
+            operations: vec![ApplyPatchToolOpArgs {
+                action: "add".to_string(),
+                path: args.path,
+                content: Some(args.content),
+                old_string: None,
+                new_string: None,
+                replace_all: None,
+                to: None,
+            }],
+        },
+    )
+    .await
+}
+
+async fn builtin_delete_file(
+    state: &AppState,
+    session_id: &str,
+    args: DeleteFileToolArgs,
+) -> Result<Value, String> {
+    builtin_apply_patch_with_name(
+        state,
+        session_id,
+        "delete",
+        ApplyPatchToolArgs {
+            operations: vec![ApplyPatchToolOpArgs {
+                action: "delete".to_string(),
+                path: args.path,
+                content: None,
+                old_string: None,
+                new_string: None,
+                replace_all: None,
+                to: None,
+            }],
+        },
+    )
+    .await
+}
+
+async fn builtin_update_file(
+    state: &AppState,
+    session_id: &str,
+    args: UpdateFileToolArgs,
+) -> Result<Value, String> {
+    builtin_apply_patch_with_name(
+        state,
+        session_id,
+        "update",
+        ApplyPatchToolArgs {
+            operations: vec![ApplyPatchToolOpArgs {
+                action: "update".to_string(),
+                path: args.path,
+                content: None,
+                old_string: Some(args.old_string),
+                new_string: Some(args.new_string),
+                replace_all: args.replace_all,
+                to: None,
+            }],
+        },
+    )
+    .await
+}
+
+async fn builtin_move_file(
+    state: &AppState,
+    session_id: &str,
+    args: MoveFileToolArgs,
+) -> Result<Value, String> {
+    builtin_apply_patch_with_name(
+        state,
+        session_id,
+        "move",
+        ApplyPatchToolArgs {
+            operations: vec![ApplyPatchToolOpArgs {
+                action: "move".to_string(),
+                path: args.path,
+                content: None,
+                old_string: None,
+                new_string: None,
+                replace_all: None,
+                to: Some(args.to),
+            }],
+        },
+    )
+    .await
+}
+
 #[cfg(test)]
 mod apply_patch_tool_tests {
     use super::*;
@@ -1687,6 +1832,17 @@ mod apply_patch_tool_tests {
         assert_eq!(old_string, "before");
         assert_eq!(new_string, "after");
         assert!(*replace_all);
+    }
+
+    #[test]
+    fn delete_with_old_string_should_report_use_update_for_content_removal() {
+        let args: ApplyPatchToolArgs = serde_json::from_str(
+            r#"{"operations":[{"action":"delete","path":"a.txt","old_string":"before"}]}"#,
+        )
+        .expect("parse delete args");
+        let err = apply_patch_ops_from_tool_args(args).expect_err("delete with old_string should fail");
+        assert!(err.contains("delete) 只会删除整个文件"));
+        assert!(err.contains("如果你想删除文件中的部分内容，请改用 update"));
     }
 
     #[test]

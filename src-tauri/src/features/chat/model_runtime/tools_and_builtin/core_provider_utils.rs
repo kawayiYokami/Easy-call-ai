@@ -136,6 +136,9 @@ fn tool_enabled(
     if let Some(tool) = default_agent_tools().iter().find(|tool| tool.id == id) {
         return tool.enabled;
     }
+    if matches!(id, "write" | "delete" | "update" | "move") {
+        return true;
+    }
     true
 }
 

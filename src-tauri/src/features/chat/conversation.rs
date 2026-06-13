@@ -2636,9 +2636,15 @@ fn build_builtin_tool_rule_block(tool_id: &str) -> Option<String> {
              ## 为什么\n\
              `exec` 用来快速建立本地事实和验证判断。先按独立线索并发搜索，再基于结果收敛，可以减少误判、漏查和反复试错；文件修改仍由更可控的编辑工具承担。",
         ),
-        "apply_patch" => (
-            "apply_patch tool rule",
-            "请优先使用 apply_patch 工具写文件，不要使用终端或者 python 写入。",
+        "write" | "delete" | "update" | "move" | "file_edit" => (
+            "file edit tool rule",
+            "请优先使用文件编辑工具写文件，不要使用终端或者 python 写入。\n\
+             - 新增完整文件或明确要写入完整内容时，使用 `write`。\n\
+             - 删除整个文件时，使用 `delete`。\n\
+             - 删除或修改文件中的局部内容时，使用 `update`；不要把局部内容删除写成 `delete`。\n\
+             - 移动或重命名文件时，使用 `move`。\n\
+             - `apply_patch` 仅作为兼容工具保留；能用上述专用工具时，优先使用专用工具。\n\
+             - 如果 `update` 的目标片段不唯一，应扩大 `old_string` 上下文，或明确设置 `replace_all: true`。 ",
         ),
         "file_reference" => (
             "file reference rule",
@@ -2709,7 +2715,7 @@ fn build_system_tools_rule_blocks(
     let current_department = department_by_id(&department_config, current_department_id);
     let mut blocks = Vec::<String>::new();
     let mut any_builtin_enabled = false;
-    for tool_id in ["delegate", "task", "exec", "apply_patch"] {
+    for tool_id in ["delegate", "task", "exec"] {
         if department_builtin_tool_enabled(&department_config, current_department, tool_id) {
             any_builtin_enabled = true;
             if let Some(block) = build_builtin_tool_rule_block(tool_id) {
@@ -2717,7 +2723,16 @@ fn build_system_tools_rule_blocks(
             }
         }
     }
-    if ["exec", "read", "read_file", "apply_patch"]
+    if ["write", "delete", "update", "move", "apply_patch"]
+        .into_iter()
+        .any(|tool_id| department_builtin_tool_enabled(&department_config, current_department, tool_id))
+    {
+        any_builtin_enabled = true;
+        if let Some(block) = build_builtin_tool_rule_block("file_edit") {
+            blocks.push(block);
+        }
+    }
+    if ["exec", "read", "read_file", "write", "delete", "update", "move", "apply_patch"]
         .into_iter()
         .any(|tool_id| department_builtin_tool_enabled(&department_config, current_department, tool_id))
     {

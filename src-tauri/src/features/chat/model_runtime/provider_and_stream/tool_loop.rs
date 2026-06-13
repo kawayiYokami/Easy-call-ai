@@ -1092,10 +1092,14 @@ fn runtime_tool_call_requires_serial_execution(
     tool_name: &str,
 ) -> bool {
     let normalized = normalize_runtime_tool_name(tool_name);
-    if matches!(
+        if matches!(
         normalized.as_str(),
-        "exec"
+            "exec"
             | "shell_exec"
+            | "write"
+            | "delete"
+            | "update"
+            | "move"
             | "apply_patch"
             | "todo"
             | "task"
@@ -2763,6 +2767,10 @@ mod tool_loop_tests {
         let tools = vec![
             test_tool("exec", false),
             test_tool("shell_exec", false),
+            test_tool("write", false),
+            test_tool("delete", false),
+            test_tool("update", false),
+            test_tool("move", false),
             test_tool("apply_patch", false),
             test_tool("todo", false),
             test_tool("task", false),
@@ -2781,6 +2789,10 @@ mod tool_loop_tests {
 
         assert!(runtime_tool_call_requires_serial_execution(&tools, &definitions, "exec"));
         assert!(runtime_tool_call_requires_serial_execution(&tools, &definitions, "shell_exec"));
+        assert!(runtime_tool_call_requires_serial_execution(&tools, &definitions, "write"));
+        assert!(runtime_tool_call_requires_serial_execution(&tools, &definitions, "delete"));
+        assert!(runtime_tool_call_requires_serial_execution(&tools, &definitions, "update"));
+        assert!(runtime_tool_call_requires_serial_execution(&tools, &definitions, "move"));
         assert!(runtime_tool_call_requires_serial_execution(&tools, &definitions, "apply_patch"));
         assert!(runtime_tool_call_requires_serial_execution(&tools, &definitions, "todo"));
         assert!(runtime_tool_call_requires_serial_execution(&tools, &definitions, "task"));

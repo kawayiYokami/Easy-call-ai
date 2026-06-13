@@ -430,6 +430,30 @@ struct BuiltinApplyPatchTool {
     session_id: String,
 }
 
+#[derive(Debug, Clone)]
+struct BuiltinWriteFileTool {
+    app_state: AppState,
+    session_id: String,
+}
+
+#[derive(Debug, Clone)]
+struct BuiltinDeleteFileTool {
+    app_state: AppState,
+    session_id: String,
+}
+
+#[derive(Debug, Clone)]
+struct BuiltinUpdateFileTool {
+    app_state: AppState,
+    session_id: String,
+}
+
+#[derive(Debug, Clone)]
+struct BuiltinMoveFileTool {
+    app_state: AppState,
+    session_id: String,
+}
+
 impl RuntimeToolMetadata for BuiltinApplyPatchTool {
     fn provider_tool_definition(&self) -> ProviderToolDefinition {
         ProviderToolDefinition::new(
@@ -497,6 +521,183 @@ impl RuntimeJsonTool for BuiltinApplyPatchTool {
                 debug_value_snippet(v, 240)
             )),
             Err(err) => eprintln!("[工具执行] 内置工具 apply_patch 执行失败: 错误={err}"),
+        }
+        result
+        })
+    }
+}
+
+impl RuntimeToolMetadata for BuiltinWriteFileTool {
+    fn provider_tool_definition(&self) -> ProviderToolDefinition {
+        ProviderToolDefinition::new(
+            "write",
+            "新增文件或直接写入一个完整文件。必须提供 path 和 content。用于创建新文件，或在你明确要用完整内容覆盖目标文件时使用。",
+            serde_json::json!({
+              "type": "object",
+              "properties": {
+                "path": { "type": "string", "description": "目标文件路径。可以是绝对路径，也可以是相对当前工作目录的路径；最终仍受工作区权限校验。" },
+                "content": { "type": "string", "description": "要写入文件的完整内容。" }
+              },
+              "required": ["path", "content"],
+              "additionalProperties": false
+            }),
+        )
+    }
+}
+
+impl RuntimeJsonTool for BuiltinWriteFileTool {
+    const NAME: &'static str = "write";
+    type Args = WriteFileToolArgs;
+    type Error = ToolInvokeError;
+
+    fn call_typed(&self, args: Self::Args) -> RuntimeJsonValueFuture<'_, Self::Error> {
+        Box::pin(async move {
+        runtime_log_debug(format!(
+            "[TOOL-DEBUG] execute_builtin_tool.start name=write args={}",
+            debug_value_snippet(&serde_json::to_value(&args).unwrap_or(Value::Null), 240)
+        ));
+        let result = builtin_write_file(&self.app_state, &self.session_id, args)
+            .await
+            .map_err(ToolInvokeError::from);
+        match &result {
+            Ok(v) => runtime_log_debug(format!(
+                "[TOOL-DEBUG] execute_builtin_tool.ok name=write result={}",
+                debug_value_snippet(v, 240)
+            )),
+            Err(err) => eprintln!("[工具执行] 内置工具 write 执行失败: 错误={err}"),
+        }
+        result
+        })
+    }
+}
+
+impl RuntimeToolMetadata for BuiltinDeleteFileTool {
+    fn provider_tool_definition(&self) -> ProviderToolDefinition {
+        ProviderToolDefinition::new(
+            "delete",
+            "删除整个文件。只删除 path 指向的完整文件，不删除文件中的局部内容；如果你想删除文件中的一段内容，请改用 update。",
+            serde_json::json!({
+              "type": "object",
+              "properties": {
+                "path": { "type": "string", "description": "要删除的目标文件路径。可以是绝对路径，也可以是相对当前工作目录的路径；最终仍受工作区权限校验。" }
+              },
+              "required": ["path"],
+              "additionalProperties": false
+            }),
+        )
+    }
+}
+
+impl RuntimeJsonTool for BuiltinDeleteFileTool {
+    const NAME: &'static str = "delete";
+    type Args = DeleteFileToolArgs;
+    type Error = ToolInvokeError;
+
+    fn call_typed(&self, args: Self::Args) -> RuntimeJsonValueFuture<'_, Self::Error> {
+        Box::pin(async move {
+        runtime_log_debug(format!(
+            "[TOOL-DEBUG] execute_builtin_tool.start name=delete args={}",
+            debug_value_snippet(&serde_json::to_value(&args).unwrap_or(Value::Null), 240)
+        ));
+        let result = builtin_delete_file(&self.app_state, &self.session_id, args)
+            .await
+            .map_err(ToolInvokeError::from);
+        match &result {
+            Ok(v) => runtime_log_debug(format!(
+                "[TOOL-DEBUG] execute_builtin_tool.ok name=delete result={}",
+                debug_value_snippet(v, 240)
+            )),
+            Err(err) => eprintln!("[工具执行] 内置工具 delete 执行失败: 错误={err}"),
+        }
+        result
+        })
+    }
+}
+
+impl RuntimeToolMetadata for BuiltinUpdateFileTool {
+    fn provider_tool_definition(&self) -> ProviderToolDefinition {
+        ProviderToolDefinition::new(
+            "update",
+            "修改已有文件中的局部内容。必须提供 path、old_string、new_string；它通过 old_string 在原文件中做精确子串替换，不使用 diff hunk。若要删除局部内容，请让 new_string 设为空字符串。",
+            serde_json::json!({
+              "type": "object",
+              "properties": {
+                "path": { "type": "string", "description": "目标文件路径。可以是绝对路径，也可以是相对当前工作目录的路径；最终仍受工作区权限校验。" },
+                "oldString": { "type": "string", "description": "必须和原文件中的一段内容精确匹配。" },
+                "newString": { "type": "string", "description": "替换后的内容；如需删除旧内容，可传空字符串。" },
+                "replaceAll": { "type": "boolean", "description": "是否替换全部命中项；默认 false。" }
+              },
+              "required": ["path", "oldString", "newString"],
+              "additionalProperties": false
+            }),
+        )
+    }
+}
+
+impl RuntimeJsonTool for BuiltinUpdateFileTool {
+    const NAME: &'static str = "update";
+    type Args = UpdateFileToolArgs;
+    type Error = ToolInvokeError;
+
+    fn call_typed(&self, args: Self::Args) -> RuntimeJsonValueFuture<'_, Self::Error> {
+        Box::pin(async move {
+        runtime_log_debug(format!(
+            "[TOOL-DEBUG] execute_builtin_tool.start name=update args={}",
+            debug_value_snippet(&serde_json::to_value(&args).unwrap_or(Value::Null), 240)
+        ));
+        let result = builtin_update_file(&self.app_state, &self.session_id, args)
+            .await
+            .map_err(ToolInvokeError::from);
+        match &result {
+            Ok(v) => runtime_log_debug(format!(
+                "[TOOL-DEBUG] execute_builtin_tool.ok name=update result={}",
+                debug_value_snippet(v, 240)
+            )),
+            Err(err) => eprintln!("[工具执行] 内置工具 update 执行失败: 错误={err}"),
+        }
+        result
+        })
+    }
+}
+
+impl RuntimeToolMetadata for BuiltinMoveFileTool {
+    fn provider_tool_definition(&self) -> ProviderToolDefinition {
+        ProviderToolDefinition::new(
+            "move",
+            "移动或重命名整个文件。必须提供 path 和 to。",
+            serde_json::json!({
+              "type": "object",
+              "properties": {
+                "path": { "type": "string", "description": "原始文件路径。可以是绝对路径，也可以是相对当前工作目录的路径；最终仍受工作区权限校验。" },
+                "to": { "type": "string", "description": "目标文件路径。可以是绝对路径，也可以是相对当前工作目录的路径；最终仍受工作区权限校验。" }
+              },
+              "required": ["path", "to"],
+              "additionalProperties": false
+            }),
+        )
+    }
+}
+
+impl RuntimeJsonTool for BuiltinMoveFileTool {
+    const NAME: &'static str = "move";
+    type Args = MoveFileToolArgs;
+    type Error = ToolInvokeError;
+
+    fn call_typed(&self, args: Self::Args) -> RuntimeJsonValueFuture<'_, Self::Error> {
+        Box::pin(async move {
+        runtime_log_debug(format!(
+            "[TOOL-DEBUG] execute_builtin_tool.start name=move args={}",
+            debug_value_snippet(&serde_json::to_value(&args).unwrap_or(Value::Null), 240)
+        ));
+        let result = builtin_move_file(&self.app_state, &self.session_id, args)
+            .await
+            .map_err(ToolInvokeError::from);
+        match &result {
+            Ok(v) => runtime_log_debug(format!(
+                "[TOOL-DEBUG] execute_builtin_tool.ok name=move result={}",
+                debug_value_snippet(v, 240)
+            )),
+            Err(err) => eprintln!("[工具执行] 内置工具 move 执行失败: 错误={err}"),
         }
         result
         })
