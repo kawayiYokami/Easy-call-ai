@@ -96,8 +96,10 @@ struct PromptCommandPreset {
 #[serde(rename_all = "camelCase")]
 struct AppData {
     version: u32,
-    #[serde(default, alias = "messageStoreMigrationVersion")]
+    #[serde(default)]
     data_migration_version: u32,
+    #[serde(default, alias = "messageStoreMigrationVersion")]
+    message_store_migration_version: u32,
     agents: Vec<AgentProfile>,
     #[serde(
         default = "default_assistant_department_agent_id",
@@ -146,6 +148,7 @@ impl Default for AppData {
         Self {
             version: APP_DATA_SCHEMA_VERSION,
             data_migration_version: 0,
+            message_store_migration_version: 0,
             agents: vec![
                 default_agent(),
                 default_deputy_agent(),

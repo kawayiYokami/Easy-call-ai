@@ -147,8 +147,10 @@ struct AgentsFile {
 #[serde(rename_all = "camelCase")]
 struct RuntimeStateFile {
     version: u32,
-    #[serde(default, alias = "messageStoreMigrationVersion")]
+    #[serde(default)]
     data_migration_version: u32,
+    #[serde(default, alias = "messageStoreMigrationVersion")]
+    message_store_migration_version: u32,
     #[serde(alias = "selectedAgentId", alias = "selected_agent_id")]
     assistant_department_agent_id: String,
     user_alias: String,
@@ -187,6 +189,7 @@ impl Default for RuntimeStateFile {
         Self {
             version: APP_DATA_SCHEMA_VERSION,
             data_migration_version: 0,
+            message_store_migration_version: 0,
             assistant_department_agent_id: default_assistant_department_agent_id(),
             user_alias: default_user_alias(),
             response_style_id: default_response_style_id(),
@@ -326,6 +329,7 @@ fn build_runtime_state_file(data: &AppData) -> RuntimeStateFile {
     let mut runtime = RuntimeStateFile {
         version: APP_DATA_SCHEMA_VERSION,
         data_migration_version: data.data_migration_version,
+        message_store_migration_version: data.message_store_migration_version,
         assistant_department_agent_id: data.assistant_department_agent_id.clone(),
         user_alias: data.user_alias.clone(),
         response_style_id: data.response_style_id.clone(),
@@ -407,6 +411,7 @@ fn remove_chat_index_conversation(index: &mut ChatIndexFile, conversation_id: &s
 fn apply_runtime_state_to_app_data(data: &mut AppData, runtime: &RuntimeStateFile) {
     data.version = runtime.version;
     data.data_migration_version = runtime.data_migration_version;
+    data.message_store_migration_version = runtime.message_store_migration_version;
     data.assistant_department_agent_id = runtime.assistant_department_agent_id.clone();
     data.user_alias = runtime.user_alias.clone();
     data.response_style_id = runtime.response_style_id.clone();
@@ -758,8 +763,10 @@ fn read_legacy_split_app_data(path: &PathBuf) -> Result<AppData, String> {
     #[serde(rename_all = "camelCase")]
     struct LegacyProfile {
         version: u32,
-        #[serde(default, alias = "messageStoreMigrationVersion")]
+        #[serde(default)]
         data_migration_version: u32,
+        #[serde(default, alias = "messageStoreMigrationVersion")]
+        message_store_migration_version: u32,
         agents: Vec<AgentProfile>,
         #[serde(alias = "selectedAgentId", alias = "selected_agent_id")]
         assistant_department_agent_id: String,
@@ -797,6 +804,7 @@ fn read_legacy_split_app_data(path: &PathBuf) -> Result<AppData, String> {
         LegacyProfile {
             version: defaults.version,
             data_migration_version: defaults.data_migration_version,
+            message_store_migration_version: defaults.message_store_migration_version,
             agents: defaults.agents.clone(),
             assistant_department_agent_id: defaults.assistant_department_agent_id.clone(),
             user_alias: defaults.user_alias.clone(),
@@ -825,6 +833,7 @@ fn read_legacy_split_app_data(path: &PathBuf) -> Result<AppData, String> {
     Ok(AppData {
         version: profile.version,
         data_migration_version: profile.data_migration_version,
+        message_store_migration_version: profile.message_store_migration_version,
         agents: profile.agents,
         assistant_department_agent_id: profile.assistant_department_agent_id,
         user_alias: profile.user_alias,
@@ -891,6 +900,7 @@ fn read_layout_app_data(path: &PathBuf) -> Result<AppData, String> {
     Ok(AppData {
         version: runtime.version,
         data_migration_version: runtime.data_migration_version,
+        message_store_migration_version: runtime.message_store_migration_version,
         agents,
         assistant_department_agent_id: runtime.assistant_department_agent_id,
         user_alias: runtime.user_alias,
@@ -1041,6 +1051,9 @@ fn read_app_data(path: &PathBuf) -> Result<AppData, String> {
                 runtime.data_migration_version = runtime
                     .data_migration_version
                     .max(existing_runtime.data_migration_version);
+                runtime.message_store_migration_version = runtime
+                    .message_store_migration_version
+                    .max(existing_runtime.message_store_migration_version);
             }
         }
         let runtime_written = write_runtime_state_shard(path, &runtime)?;
@@ -1079,6 +1092,9 @@ fn write_app_data_with_stats(path: &PathBuf, data: &AppData) -> Result<AppDataWr
             runtime.data_migration_version = runtime
                 .data_migration_version
                 .max(existing_runtime.data_migration_version);
+            runtime.message_store_migration_version = runtime
+                .message_store_migration_version
+                .max(existing_runtime.message_store_migration_version);
         }
     }
 

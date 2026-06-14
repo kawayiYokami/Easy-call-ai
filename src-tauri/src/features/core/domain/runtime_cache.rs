@@ -883,6 +883,9 @@ fn state_write_runtime_state_cached(
         next_runtime.data_migration_version = next_runtime
             .data_migration_version
             .max(existing_runtime.data_migration_version);
+        next_runtime.message_store_migration_version = next_runtime
+            .message_store_migration_version
+            .max(existing_runtime.message_store_migration_version);
     }
     let _ = write_runtime_state_shard(&state.data_path, &next_runtime)?;
     let disk_mtime = path_modified_time(&app_layout_runtime_state_path(&state.data_path));

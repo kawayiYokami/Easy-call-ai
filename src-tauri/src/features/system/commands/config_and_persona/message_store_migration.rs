@@ -302,20 +302,20 @@ fn empty_message_store_migration_preflight_report() -> MessageStoreMigrationPref
     }
 }
 
-fn data_migration_current_version_recorded(state: &AppState) -> Result<bool, String> {
-    Ok(state_read_runtime_state_cached(state)?.data_migration_version
+fn message_store_migration_current_version_recorded(state: &AppState) -> Result<bool, String> {
+    Ok(state_read_runtime_state_cached(state)?.message_store_migration_version
         >= DATA_MIGRATION_CURRENT_VERSION)
 }
 
 fn record_data_migration_current_version(state: &AppState) -> Result<(), String> {
     let mut runtime = state_read_runtime_state_cached(state)?;
-    if runtime.data_migration_version >= DATA_MIGRATION_CURRENT_VERSION {
+    if runtime.message_store_migration_version >= DATA_MIGRATION_CURRENT_VERSION {
         return Ok(());
     }
-    runtime.data_migration_version = DATA_MIGRATION_CURRENT_VERSION;
+    runtime.message_store_migration_version = DATA_MIGRATION_CURRENT_VERSION;
     state_write_runtime_state_cached(state, &runtime)?;
     eprintln!(
-        "[消息存储迁移] 完成 task=record_data_migration_current_version version={}",
+        "[消息存储迁移] 完成 task=record_message_store_migration_current_version version={}",
         DATA_MIGRATION_CURRENT_VERSION
     );
     Ok(())
@@ -351,7 +351,7 @@ fn check_message_store_migration(
     state: State<'_, AppState>,
 ) -> Result<MessageStoreMigrationPreflightReport, String> {
     let _migration_guard = lock_message_store_migration();
-    if data_migration_current_version_recorded(&state)? {
+    if message_store_migration_current_version_recorded(&state)? {
         return Ok(empty_message_store_migration_preflight_report());
     }
     let report = build_message_store_migration_preflight_report(&state);
@@ -426,7 +426,7 @@ fn run_message_store_migration(
         discarded_count: 0,
         failed_count: 0,
     };
-    if data_migration_current_version_recorded(&state)? {
+    if message_store_migration_current_version_recorded(&state)? {
         return Ok(report);
     }
     let preflight = build_message_store_migration_preflight_report(&state);
@@ -656,6 +656,93 @@ mod message_store_migration_gate_tests {
         assert_eq!(loaded.id, conversation.id);
         assert_eq!(loaded.messages.len(), conversation.messages.len());
         assert!(status.ready_jsonl);
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn message_store_gate_should_ignore_general_data_migration_version() {
+        let (root, data_path) = temp_data_path("gate-ignores-general-version");
+        let conversation = test_conversation("conversation-legacy-gate");
+        let legacy_path = app_layout_chat_conversation_path(&data_path, &conversation.id);
+        write_json_file_atomic(&legacy_path, &conversation, "conversation file")
+            .expect("write legacy conversation");
+        let mut runtime = RuntimeStateFile::default();
+        runtime.data_migration_version = DATA_MIGRATION_CURRENT_VERSION;
+        runtime.message_store_migration_version = 0;
+        write_runtime_state_shard(&data_path, &runtime).expect("write runtime shard");
+
+        let runtime = read_runtime_state_shard(&data_path).expect("read runtime shard");
+        let state = AppState {
+            app_handle: Arc::new(Mutex::new(None)),
+            config_path: root.join("app_config.toml"),
+            data_path: data_path.clone(),
+            llm_workspace_path: root.join("llm-workspace"),
+            shared_http_client: reqwest::Client::new(),
+            terminal_shell: detect_default_terminal_shell(),
+            terminal_shell_candidates: detect_terminal_shell_candidates(),
+            conversation_lock: Arc::new(ConversationDomainLock::new()),
+            memory_lock: Arc::new(Mutex::new(())),
+            cached_config: Arc::new(Mutex::new(None)),
+            cached_config_mtime: Arc::new(Mutex::new(None)),
+            cached_agents: Arc::new(Mutex::new(None)),
+            cached_agents_mtime: Arc::new(Mutex::new(None)),
+            cached_runtime_state: Arc::new(Mutex::new(Some(runtime.clone()))),
+            cached_runtime_state_mtime: Arc::new(Mutex::new(None)),
+            cached_chat_index: Arc::new(Mutex::new(None)),
+            cached_conversations: Arc::new(Mutex::new(std::collections::HashMap::new())),
+            cached_conversation_metadata: Arc::new(Mutex::new(std::collections::HashMap::new())),
+            cached_conversation_mtimes: Arc::new(Mutex::new(std::collections::HashMap::new())),
+            cached_app_data: Arc::new(Mutex::new(None)),
+            cached_app_data_signature: Arc::new(Mutex::new(None)),
+            cached_app_data_dirty: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            app_data_persist_pending: Arc::new(Mutex::new(None)),
+            app_data_persist_notify: Arc::new(tokio::sync::Notify::new()),
+            app_data_persist_started: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            app_data_persist_latest_seq: Arc::new(std::sync::atomic::AtomicU64::new(0)),
+            conversation_persist_pending: Arc::new(Mutex::new(None)),
+            conversation_persist_notify: Arc::new(tokio::sync::Notify::new()),
+            conversation_persist_started: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            conversation_persist_latest_seq: Arc::new(std::sync::atomic::AtomicU64::new(0)),
+            cached_conversation_dirty_ids: Arc::new(Mutex::new(std::collections::HashSet::new())),
+            cached_deleted_conversation_ids: Arc::new(Mutex::new(std::collections::HashSet::new())),
+            app_data_persist_write_lock: Arc::new(Mutex::new(())),
+            last_panic_snapshot: Arc::new(Mutex::new(None)),
+            inflight_chat_abort_handles: Arc::new(Mutex::new(std::collections::HashMap::new())),
+            inflight_tool_abort_handles: Arc::new(Mutex::new(std::collections::HashMap::new())),
+            inflight_completed_tool_history: Arc::new(Mutex::new(std::collections::HashMap::new())),
+            terminal_session_roots: Arc::new(Mutex::new(std::collections::HashMap::new())),
+            terminal_live_sessions: Arc::new(tokio::sync::Mutex::new(std::collections::HashMap::new())),
+            terminal_pending_approvals: Arc::new(Mutex::new(std::collections::HashMap::new())),
+            llm_round_logs: Arc::new(Mutex::new(std::collections::VecDeque::new())),
+            conversation_runtime_slots: Arc::new(Mutex::new(std::collections::HashMap::new())),
+            conversation_processing_claims: Arc::new(Mutex::new(std::collections::HashSet::new())),
+            goal_continue_suppressed_conversation_ids: Arc::new(Mutex::new(std::collections::HashSet::new())),
+            pending_chat_result_senders: Arc::new(Mutex::new(std::collections::HashMap::new())),
+            pending_chat_delta_channels: Arc::new(Mutex::new(std::collections::HashMap::new())),
+            accepted_submit_trace_ids: Arc::new(Mutex::new(std::collections::VecDeque::new())),
+            active_chat_view_bindings: Arc::new(Mutex::new(std::collections::HashMap::new())),
+            conversation_list_activity_marks: Arc::new(Mutex::new(std::collections::HashMap::new())),
+            dequeue_lock: Arc::new(Mutex::new(())),
+            delegate_runtime_threads: Arc::new(Mutex::new(std::collections::HashMap::new())),
+            delegate_recent_threads: Arc::new(Mutex::new(std::collections::VecDeque::new())),
+            provider_streaming_disabled_keys: Arc::new(Mutex::new(std::collections::HashMap::new())),
+            provider_system_message_user_fallback_keys: Arc::new(Mutex::new(std::collections::HashSet::new())),
+            provider_request_gates: Arc::new(tokio::sync::Mutex::new(std::collections::HashMap::new())),
+            remote_im_contact_runtime_states: Arc::new(Mutex::new(std::collections::HashMap::new())),
+            remote_im_channel_state_write_locks: Arc::new(Mutex::new(std::collections::HashMap::new())),
+            hidden_skill_snapshot_cache: Arc::new(Mutex::new(String::new())),
+            preferred_release_source: Arc::new(Mutex::new(String::new())),
+            migration_preview_dirs: Arc::new(Mutex::new(std::collections::HashMap::new())),
+            delegate_active_ids: Arc::new(Mutex::new(std::collections::HashSet::new())),
+            backend_ready: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+        };
+        let report = build_message_store_migration_preflight_report(&state);
+
+        assert_eq!(runtime.data_migration_version, DATA_MIGRATION_CURRENT_VERSION);
+        assert_eq!(runtime.message_store_migration_version, 0);
+        assert!(!message_store_migration_current_version_recorded(&state).expect("read gate"));
+        assert_eq!(report.legacy_count, 1);
+        assert_eq!(report.items[0].status, "legacyReadyToMigrate");
         let _ = fs::remove_dir_all(root);
     }
 }

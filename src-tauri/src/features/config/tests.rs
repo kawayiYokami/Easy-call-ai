@@ -1358,7 +1358,7 @@ model = "gpt-4.1"
     }
 
     #[test]
-    fn runtime_state_should_read_legacy_message_store_migration_version_as_data_migration_version() {
+    fn runtime_state_should_read_legacy_message_store_migration_version_separately() {
         let root = std::env::temp_dir().join(format!("eca-runtime-legacy-migration-version-{}", Uuid::new_v4()));
         std::fs::create_dir_all(root.join("state")).expect("create temp state dir");
         let data_path = root.join("config").join("app_data.json");
@@ -1380,7 +1380,11 @@ model = "gpt-4.1"
 
         let runtime = read_runtime_state_shard(&data_path).expect("read runtime shard");
 
-        assert_eq!(runtime.data_migration_version, DATA_MIGRATION_VERSION_V1_BASELINE);
+        assert_eq!(runtime.data_migration_version, 0);
+        assert_eq!(
+            runtime.message_store_migration_version,
+            DATA_MIGRATION_VERSION_V1_BASELINE
+        );
     }
 
     #[test]
@@ -1399,6 +1403,7 @@ model = "gpt-4.1"
         let restored = read_runtime_state_shard(&data_path).expect("read restored runtime shard");
 
         assert_eq!(restored.data_migration_version, DATA_MIGRATION_VERSION_V1_BASELINE);
+        assert_eq!(restored.message_store_migration_version, 0);
         assert!(!stats.runtime_written);
     }
 
@@ -1447,6 +1452,8 @@ model = "gpt-4.1"
 
         assert_eq!(restored.data_migration_version, DATA_MIGRATION_CURRENT_VERSION);
         assert_eq!(runtime.data_migration_version, DATA_MIGRATION_CURRENT_VERSION);
+        assert_eq!(restored.message_store_migration_version, 0);
+        assert_eq!(runtime.message_store_migration_version, 0);
         assert_eq!(after, before);
         assert!(restored.conversations[0].messages[0].speaker_agent_id.is_none());
         let mut runtime_view = restored.clone();
