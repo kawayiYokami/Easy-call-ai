@@ -186,7 +186,7 @@ Tauri 管理 3 个无边框窗口：`main`（配置，900×900）、`chat`（对
 - 提交信息默认使用中文，便于与现有项目历史保持一致。
 - 常用类型：`feat`、`fix`、`perf`、`refactor`、`docs`、`chore`。
 - Changelog 采用“版本明细为源、脚本生成汇总”的方式维护：`docs/changelog/releases/*.md` 是唯一手工维护来源；`CHANGELOG.md`、`docs/changelog/latest.md`、`docs/changelog/remote.md`、`docs/changelog/index.json` 都由 `pnpm changelog:build` 生成，默认不要手改生成文件。
-- 每次 `git commit` 前默认应先补上“未发布”changelog 条目并执行 `pnpm changelog:build`，确保变更可追溯；不要把新变更追加到既有版本号文件。只有提升版本号时，才把“未发布”内容改归到对应的 `docs/changelog/releases/vX.Y.Z.md`；但当用户明确要求直接提交、明确说明本次提交无需更新 changelog，或本次改动明确不面向生产环境（如纯调试、开发体验、脚手架、内部规则调整）时，可以跳过这一步。
+- 每次 `git commit` 前默认应先补上“未发布”changelog 条目，确保变更可追溯；不要把新变更追加到既有版本号文件。未提升版本号时，禁止执行 `pnpm changelog:build` 或更新生成文件；只有提升版本号、并把“未发布”内容改归到对应的 `docs/changelog/releases/vX.Y.Z.md` 时，才执行 `pnpm changelog:build`。当用户明确要求直接提交、明确说明本次提交无需更新 changelog，或本次改动明确不面向生产环境（如纯调试、开发体验、脚手架、内部规则调整）时，可以跳过这一步。
 - 每次 `git commit` 前必须先修复并跑通本次改动影响到的全部测试；存在失败项时禁止提交。
 - 不要把测试留到最后一次性再跑；开发过程中应边改边验证，尽早发现并修复失败。
 
