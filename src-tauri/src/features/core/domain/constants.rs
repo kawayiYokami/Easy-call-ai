@@ -1,4 +1,8 @@
 const APP_DATA_SCHEMA_VERSION: u32 = 1;
+// v1 is the baseline that wraps all legacy startup compatibility migrations
+// that existed before migration versions were tracked explicitly.
+const DATA_MIGRATION_VERSION_V1_BASELINE: u32 = 1;
+const DATA_MIGRATION_CURRENT_VERSION: u32 = DATA_MIGRATION_VERSION_V1_BASELINE;
 const MAX_MULTIMODAL_BYTES: usize = 10 * 1024 * 1024;
 const DEFAULT_AGENT_ID: &str = "default-agent";
 const DEPUTY_AGENT_ID: &str = "deputy-agent";

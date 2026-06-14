@@ -1,5 +1,4 @@
 const MESSAGE_STORE_MIGRATION_PROGRESS_EVENT: &str = "easy-call:message-store-migration-progress";
-const CURRENT_MESSAGE_STORE_MIGRATION_VERSION: u32 = 1;
 
 fn message_store_migration_lock() -> &'static std::sync::Mutex<()> {
     static LOCK: std::sync::OnceLock<std::sync::Mutex<()>> = std::sync::OnceLock::new();
@@ -303,21 +302,21 @@ fn empty_message_store_migration_preflight_report() -> MessageStoreMigrationPref
     }
 }
 
-fn message_store_migration_version_recorded(state: &AppState) -> Result<bool, String> {
-    Ok(state_read_runtime_state_cached(state)?.message_store_migration_version
-        >= CURRENT_MESSAGE_STORE_MIGRATION_VERSION)
+fn data_migration_current_version_recorded(state: &AppState) -> Result<bool, String> {
+    Ok(state_read_runtime_state_cached(state)?.data_migration_version
+        >= DATA_MIGRATION_CURRENT_VERSION)
 }
 
-fn record_message_store_migration_version(state: &AppState) -> Result<(), String> {
+fn record_data_migration_current_version(state: &AppState) -> Result<(), String> {
     let mut runtime = state_read_runtime_state_cached(state)?;
-    if runtime.message_store_migration_version >= CURRENT_MESSAGE_STORE_MIGRATION_VERSION {
+    if runtime.data_migration_version >= DATA_MIGRATION_CURRENT_VERSION {
         return Ok(());
     }
-    runtime.message_store_migration_version = CURRENT_MESSAGE_STORE_MIGRATION_VERSION;
+    runtime.data_migration_version = DATA_MIGRATION_CURRENT_VERSION;
     state_write_runtime_state_cached(state, &runtime)?;
     eprintln!(
-        "[消息存储迁移] 完成 task=record_message_store_migration_version version={}",
-        CURRENT_MESSAGE_STORE_MIGRATION_VERSION
+        "[消息存储迁移] 完成 task=record_data_migration_current_version version={}",
+        DATA_MIGRATION_CURRENT_VERSION
     );
     Ok(())
 }
@@ -352,12 +351,12 @@ fn check_message_store_migration(
     state: State<'_, AppState>,
 ) -> Result<MessageStoreMigrationPreflightReport, String> {
     let _migration_guard = lock_message_store_migration();
-    if message_store_migration_version_recorded(&state)? {
+    if data_migration_current_version_recorded(&state)? {
         return Ok(empty_message_store_migration_preflight_report());
     }
     let report = build_message_store_migration_preflight_report(&state);
     if report.blocked_count == 0 && report.legacy_count == 0 {
-        record_message_store_migration_version(&state)?;
+        record_data_migration_current_version(&state)?;
     }
     Ok(report)
 }
@@ -427,7 +426,7 @@ fn run_message_store_migration(
         discarded_count: 0,
         failed_count: 0,
     };
-    if message_store_migration_version_recorded(&state)? {
+    if data_migration_current_version_recorded(&state)? {
         return Ok(report);
     }
     let preflight = build_message_store_migration_preflight_report(&state);
@@ -510,7 +509,7 @@ fn run_message_store_migration(
         }
     }
     refresh_message_store_migration_caches(&state)?;
-    record_message_store_migration_version(&state)?;
+    record_data_migration_current_version(&state)?;
     Ok(report)
 }
 

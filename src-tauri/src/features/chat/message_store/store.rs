@@ -2367,6 +2367,7 @@ mod message_store_reader_tests {
             call_event,
             result_event,
             None,
+            None,
         )
         .expect("append group result");
 
@@ -2396,6 +2397,7 @@ mod message_store_reader_tests {
             call_event,
             result_event,
             None,
+            None,
         )
         .expect("append group result");
 
@@ -2419,6 +2421,7 @@ mod message_store_reader_tests {
             "agent-a",
             call_event,
             result_event,
+            None,
             None,
         )
         .expect_err("mismatch should fail");
@@ -2444,6 +2447,7 @@ mod message_store_reader_tests {
                 "effectivePromptTokens": 123_u64,
                 "contextUsageRatio": 0.5,
             })),
+            None,
         )
         .expect("append group result");
 
@@ -2479,6 +2483,7 @@ mod message_store_reader_tests {
             group_event.clone(),
             result_a,
             None,
+            None,
         )
         .expect("append first group result");
         let second = append_tool_group_result_to_conversation(
@@ -2486,6 +2491,7 @@ mod message_store_reader_tests {
             "agent-a",
             group_event,
             result_b,
+            None,
             None,
         )
         .expect("append second group result");

@@ -880,9 +880,9 @@ fn state_write_runtime_state_cached(
     let mut next_runtime = runtime.clone();
     normalize_runtime_state_contact_communication(&mut next_runtime);
     if let Ok(existing_runtime) = read_runtime_state_shard(&state.data_path) {
-        next_runtime.message_store_migration_version = next_runtime
-            .message_store_migration_version
-            .max(existing_runtime.message_store_migration_version);
+        next_runtime.data_migration_version = next_runtime
+            .data_migration_version
+            .max(existing_runtime.data_migration_version);
     }
     let _ = write_runtime_state_shard(&state.data_path, &next_runtime)?;
     let disk_mtime = path_modified_time(&app_layout_runtime_state_path(&state.data_path));
@@ -1016,7 +1016,8 @@ fn ensure_app_data_cache_ready_inner(
         .min(u128::from(u64::MAX)) as u64;
 
     let disk_read_started = std::time::Instant::now();
-    let data = read_app_data(&state.data_path)?;
+    let mut data = read_app_data(&state.data_path)?;
+    normalize_app_data_runtime_volatile_fields(&mut data);
     let disk_read_ms = disk_read_started
         .elapsed()
         .as_millis()

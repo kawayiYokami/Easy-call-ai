@@ -151,7 +151,7 @@ fn ensure_required_builtin_agents(data: &mut AppData) -> bool {
     changed
 }
 
-fn fill_missing_message_speaker_agent_ids(data: &mut AppData) -> bool {
+fn fill_missing_conversation_message_speaker_agent_ids(conversation: &mut Conversation) -> bool {
     fn provider_meta_speaker_agent_id(message: &ChatMessage) -> Option<String> {
         let meta = message.provider_meta.as_ref()?;
         let object = meta.as_object()?;
@@ -177,29 +177,27 @@ fn fill_missing_message_speaker_agent_ids(data: &mut AppData) -> bool {
         None
     }
 
+    let host_agent_id = conversation.agent_id.trim().to_string();
+    if host_agent_id.is_empty() {
+        return false;
+    }
     let mut changed = false;
-    for conversation in &mut data.conversations {
-        let host_agent_id = conversation.agent_id.trim().to_string();
-        if host_agent_id.is_empty() {
-            continue;
-        }
-        for message in &mut conversation.messages {
-            let current = message
-                .speaker_agent_id
-                .as_deref()
-                .map(str::trim)
-                .unwrap_or("");
-            if current.is_empty() {
-                message.speaker_agent_id =
-                    Some(provider_meta_speaker_agent_id(message).unwrap_or_else(|| {
-                        if message.role == "user" {
-                            USER_PERSONA_ID.to_string()
-                        } else {
-                            host_agent_id.clone()
-                        }
-                    }));
-                changed = true;
-            }
+    for message in &mut conversation.messages {
+        let current = message
+            .speaker_agent_id
+            .as_deref()
+            .map(str::trim)
+            .unwrap_or("");
+        if current.is_empty() {
+            message.speaker_agent_id =
+                Some(provider_meta_speaker_agent_id(message).unwrap_or_else(|| {
+                    if message.role == "user" {
+                        USER_PERSONA_ID.to_string()
+                    } else {
+                        host_agent_id.clone()
+                    }
+                }));
+            changed = true;
         }
     }
     changed

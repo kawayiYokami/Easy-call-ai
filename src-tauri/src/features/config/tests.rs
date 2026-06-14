@@ -1358,6 +1358,106 @@ model = "gpt-4.1"
     }
 
     #[test]
+    fn runtime_state_should_read_legacy_message_store_migration_version_as_data_migration_version() {
+        let root = std::env::temp_dir().join(format!("eca-runtime-legacy-migration-version-{}", Uuid::new_v4()));
+        std::fs::create_dir_all(root.join("state")).expect("create temp state dir");
+        let data_path = root.join("config").join("app_data.json");
+        std::fs::write(
+            app_layout_runtime_state_path(&data_path),
+            r#"{
+  "version": 1,
+  "messageStoreMigrationVersion": 1,
+  "assistantDepartmentAgentId": "default-agent",
+  "userAlias": "用户",
+  "responseStyleId": "concise",
+  "pdfReadMode": "image",
+  "backgroundVoiceScreenshotKeywords": "",
+  "backgroundVoiceScreenshotMode": "focused_window",
+  "mainConversationId": "system-notification-conversation"
+}"#,
+        )
+        .expect("write legacy runtime state");
+
+        let runtime = read_runtime_state_shard(&data_path).expect("read runtime shard");
+
+        assert_eq!(runtime.data_migration_version, DATA_MIGRATION_VERSION_V1_BASELINE);
+    }
+
+    #[test]
+    fn write_app_data_should_not_downgrade_data_migration_version() {
+        let root = std::env::temp_dir().join(format!("eca-app-data-migration-version-{}", Uuid::new_v4()));
+        std::fs::create_dir_all(root.join("config")).expect("create temp config dir");
+        let data_path = root.join("config").join("app_data.json");
+        let data = AppData::default();
+        write_app_data_with_stats(&data_path, &data).expect("seed layout");
+
+        let mut runtime = read_runtime_state_shard(&data_path).expect("read runtime shard");
+        runtime.data_migration_version = DATA_MIGRATION_VERSION_V1_BASELINE;
+        assert!(write_runtime_state_shard(&data_path, &runtime).expect("write baseline migration version"));
+
+        let stats = write_app_data_with_stats(&data_path, &data).expect("write app data again");
+        let restored = read_runtime_state_shard(&data_path).expect("read restored runtime shard");
+
+        assert_eq!(restored.data_migration_version, DATA_MIGRATION_VERSION_V1_BASELINE);
+        assert!(!stats.runtime_written);
+    }
+
+    #[test]
+    fn runtime_volatile_normalization_should_not_require_rewriting_after_baseline_recorded() {
+        let root = std::env::temp_dir().join(format!("eca-read-baseline-migration-{}", Uuid::new_v4()));
+        std::fs::create_dir_all(root.join("config")).expect("create temp config dir");
+        let data_path = root.join("config").join("app_data.json");
+        let mut data = AppData::default();
+        data.data_migration_version = DATA_MIGRATION_VERSION_V1_BASELINE;
+        data.conversations = vec![build_test_conversation("conv-baseline", "Baseline")];
+        write_app_data_with_stats(&data_path, &data).expect("seed layout");
+        let paths = message_store::message_store_paths(&data_path, "conv-baseline")
+            .expect("conversation paths");
+        let before = message_store::message_store_shard_write_signature(&paths);
+
+        let mut restored = read_app_data(&data_path).expect("read app data");
+        let after = message_store::message_store_shard_write_signature(&paths);
+
+        assert_eq!(restored.data_migration_version, DATA_MIGRATION_VERSION_V1_BASELINE);
+        assert_eq!(after, before);
+        assert!(restored.conversations[0].messages[0].speaker_agent_id.is_none());
+        normalize_app_data_runtime_volatile_fields(&mut restored);
+        assert_eq!(
+            restored.conversations[0].messages[0].speaker_agent_id.as_deref(),
+            Some(USER_PERSONA_ID)
+        );
+    }
+
+    #[test]
+    fn read_app_data_should_record_baseline_without_rewriting_conversations_for_volatile_fields() {
+        let root = std::env::temp_dir().join(format!("eca-read-record-baseline-{}", Uuid::new_v4()));
+        std::fs::create_dir_all(root.join("config")).expect("create temp config dir");
+        let data_path = root.join("config").join("app_data.json");
+        let mut data = AppData::default();
+        data.data_migration_version = 0;
+        data.conversations = vec![build_test_conversation("conv-baseline", "Baseline")];
+        write_app_data_with_stats(&data_path, &data).expect("seed layout");
+        let paths = message_store::message_store_paths(&data_path, "conv-baseline")
+            .expect("conversation paths");
+        let before = message_store::message_store_shard_write_signature(&paths);
+
+        let restored = read_app_data(&data_path).expect("read app data");
+        let after = message_store::message_store_shard_write_signature(&paths);
+        let runtime = read_runtime_state_shard(&data_path).expect("read runtime shard");
+
+        assert_eq!(restored.data_migration_version, DATA_MIGRATION_CURRENT_VERSION);
+        assert_eq!(runtime.data_migration_version, DATA_MIGRATION_CURRENT_VERSION);
+        assert_eq!(after, before);
+        assert!(restored.conversations[0].messages[0].speaker_agent_id.is_none());
+        let mut runtime_view = restored.clone();
+        normalize_app_data_runtime_volatile_fields(&mut runtime_view);
+        assert_eq!(
+            runtime_view.conversations[0].messages[0].speaker_agent_id.as_deref(),
+            Some(USER_PERSONA_ID)
+        );
+    }
+
+    #[test]
     fn read_runtime_state_shard_should_materialize_fixed_system_notification_conversation() {
         let root = std::env::temp_dir().join(format!("eca-system-notification-shard-{}", Uuid::new_v4()));
         std::fs::create_dir_all(root.join("config")).expect("create temp config dir");
