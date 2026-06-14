@@ -707,7 +707,12 @@ fn builtin_recall(
     let candidate_ids = if trimmed_query.is_empty() {
         memories.iter().map(|memory| memory.id.clone()).collect::<Vec<_>>()
     } else {
-        memory_recall_hit_ids(&app_state.data_path, &memories, trimmed_query)
+        memory_recall_hit_ids(
+            &app_state.data_path,
+            &memories,
+            trimmed_query,
+            MEMORY_RERANK_MIN_SCORE_TOOL,
+        )
     };
     let ordered_ids = order_recall_memory_ids(
         &memories,

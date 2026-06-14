@@ -925,6 +925,7 @@ struct SearchMemoriesMixedHit {
     bm25_score: f64,
     bm25_raw_score: f64,
     vector_score: f64,
+    rerank_score: f64,
     final_score: f64,
 }
 
@@ -1082,6 +1083,7 @@ fn search_memories_mixed(
                     bm25_score: 0.0,
                     bm25_raw_score: 0.0,
                     vector_score: 0.0,
+                    rerank_score: 0.0,
                     final_score: 0.0,
                 })
                 .collect::<Vec<_>>(),
@@ -1095,6 +1097,7 @@ fn search_memories_mixed(
         &memories,
         query,
         MEMORY_MATCH_MAX_ITEMS * MEMORY_CANDIDATE_MULTIPLIER,
+        0.0,
     );
     if ranked.is_empty() {
         return Ok(SearchMemoriesMixedResult {
@@ -1115,6 +1118,7 @@ fn search_memories_mixed(
                 bm25_score: item.bm25_score,
                 bm25_raw_score: item.bm25_raw_score,
                 vector_score: item.vector_score,
+                rerank_score: item.rerank_score,
                 final_score: item.final_score,
             });
         }
@@ -1210,25 +1214,27 @@ fn search_memories_recall(
         });
     }
 
-    // 2. 取分 + 阈值过滤 (复刻 memory_recall_hit_ids + memory_recall_ids_from_ranked_items,
-    //    但保留分数字段以便诊断展示)
+    // 2. 取分 + 阈值过滤 (与对话/工具召回完全一致: memory_mixed_ranked_items 做
+    //    rerank/RRF, memory_recall_ids_from_ranked_items 做相对阈值)
+    let rerank_min_score = if mode == "rag" {
+        MEMORY_RERANK_MIN_SCORE_RAG
+    } else {
+        MEMORY_RERANK_MIN_SCORE_TOOL
+    };
     let ranked = memory_mixed_ranked_items(
         &state.data_path,
         &visible,
         query,
         MEMORY_MATCH_MAX_ITEMS,
+        rerank_min_score,
     );
-    let top_score = ranked
-        .first()
-        .map(|item| item.final_score)
-        .filter(|score| score.is_finite() && *score > 0.0)
-        .unwrap_or(0.0);
-    let threshold = top_score * MEMORY_RECALL_TOP_SCORE_RATIO;
+    let allowed_ids = memory_recall_ids_from_ranked_items(ranked.clone())
+        .into_iter()
+        .collect::<std::collections::HashSet<_>>();
+    // 保留分数字段以便诊断展示; 仅保留通过门槛的 id (顺序与 ranked 一致)
     let filtered_ranked: Vec<MemoryMixedRankItem> = ranked
         .into_iter()
-        .filter(|item| {
-            item.final_score.is_finite() && item.final_score >= threshold
-        })
+        .filter(|item| allowed_ids.contains(&item.memory_id))
         .collect();
 
     let memory_map = visible
@@ -1249,6 +1255,7 @@ fn search_memories_recall(
                     bm25_score: item.bm25_score,
                     bm25_raw_score: item.bm25_raw_score,
                     vector_score: item.vector_score,
+                    rerank_score: item.rerank_score,
                     final_score: item.final_score,
                 })
             })
@@ -1296,6 +1303,7 @@ fn search_memories_recall(
                     bm25_score: item.bm25_score,
                     bm25_raw_score: item.bm25_raw_score,
                     vector_score: item.vector_score,
+                    rerank_score: item.rerank_score,
                     final_score: item.final_score,
                 })
             })

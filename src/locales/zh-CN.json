@@ -1012,6 +1012,7 @@
       "recallTimeLabel": "时间过滤",
       "recallTimePlaceholder": "留空 / YYYY / YYYY-MM / YYYY-MM-DD",
       "vectorScoreLabel": "向量",
+      "rerankScoreLabel": "重排",
       "finalScoreLabel": "综合"
     },
     "mcp": {

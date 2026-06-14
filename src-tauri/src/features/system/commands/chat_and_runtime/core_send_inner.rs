@@ -1328,7 +1328,12 @@ fn collect_recall_payload_for_user_message(
         effective_agent_id,
         private_memory_enabled,
     )?;
-    let raw_ids = memory_recall_hit_ids(data_path, &store_memories, &recall_query_text);
+    let raw_ids = memory_recall_hit_ids(
+        data_path,
+        &store_memories,
+        &recall_query_text,
+        MEMORY_RERANK_MIN_SCORE_RAG,
+    );
     let stored_ids = memory_board_ids_from_current_hits(&raw_ids, 7);
     Ok(UserMessageRecallPayload { stored_ids, raw_ids })
 }

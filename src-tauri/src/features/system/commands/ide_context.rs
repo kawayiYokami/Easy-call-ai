@@ -2492,6 +2492,7 @@ fn ide_chat_search_memories_mixed_for_web_settings(
                     bm25_score: 0.0,
                     bm25_raw_score: 0.0,
                     vector_score: 0.0,
+                    rerank_score: 0.0,
                     final_score: 0.0,
                 })
                 .collect::<Vec<_>>(),
@@ -2505,6 +2506,7 @@ fn ide_chat_search_memories_mixed_for_web_settings(
         &memories,
         query,
         MEMORY_MATCH_MAX_ITEMS * MEMORY_CANDIDATE_MULTIPLIER,
+        0.0,
     );
     if ranked.is_empty() {
         return ide_chat_serialize(SearchMemoriesMixedResult {
@@ -2525,6 +2527,7 @@ fn ide_chat_search_memories_mixed_for_web_settings(
                 bm25_score: item.bm25_score,
                 bm25_raw_score: item.bm25_raw_score,
                 vector_score: item.vector_score,
+                rerank_score: item.rerank_score,
                 final_score: item.final_score,
             });
         }

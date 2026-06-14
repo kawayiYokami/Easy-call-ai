@@ -1012,6 +1012,7 @@
       "recallTimeLabel": "Time filter",
       "recallTimePlaceholder": "Empty / YYYY / YYYY-MM / YYYY-MM-DD",
       "vectorScoreLabel": "Vector",
+      "rerankScoreLabel": "Rerank",
       "finalScoreLabel": "Final"
     },
     "mcp": {

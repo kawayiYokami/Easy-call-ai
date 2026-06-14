@@ -450,7 +450,7 @@
             test_memory_entry("miss", "今天讨论数据库迁移", vec!["数据库"]),
         ];
 
-        let ranked = memory_mixed_ranked_items(&data_path, &memories, "测试角色", 7);
+        let ranked = memory_mixed_ranked_items(&data_path, &memories, "测试角色", 7, 0.0);
         assert_eq!(
             ranked.first().map(|item| item.memory_id.as_str()),
             Some("hit")
@@ -460,7 +460,12 @@
             "BM25-only path should keep normalized BM25 as final_score for thresholding"
         );
 
-        let ids = memory_recall_hit_ids(&data_path, &memories, "测试角色");
+        let ids = memory_recall_hit_ids(
+            &data_path,
+            &memories,
+            "测试角色",
+            MEMORY_RERANK_MIN_SCORE_RAG,
+        );
         assert_eq!(ids, vec!["hit".to_string()]);
     }
 
@@ -475,6 +480,7 @@
                 bm25_score: 1.0,
                 bm25_raw_score: 10.0,
                 vector_score: 1.0,
+                rerank_score: 0.0,
                 final_score: dual_route_top,
             },
             MemoryMixedRankItem {
@@ -482,6 +488,7 @@
                 bm25_score: 1.0,
                 bm25_raw_score: 9.0,
                 vector_score: 0.0,
+                rerank_score: 0.0,
                 final_score: single_route_rank_one,
             },
             MemoryMixedRankItem {
@@ -489,6 +496,7 @@
                 bm25_score: 0.0,
                 bm25_raw_score: 0.0,
                 vector_score: 0.0,
+                rerank_score: 0.0,
                 final_score: below_half,
             },
         ];

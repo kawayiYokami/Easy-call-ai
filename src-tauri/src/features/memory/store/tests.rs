@@ -101,7 +101,8 @@ mod memory_store_tests {
             "openai_text_embedding_3_large",
             "text-embedding-3-large",
             16,
-            |texts| {
+            false,
+            |texts: &[String]| {
                 Ok(texts
                     .iter()
                     .map(|text| vec![text.len() as f32, 1.0, 2.0])
@@ -142,7 +143,8 @@ mod memory_store_tests {
             "provider_x",
             "model-x",
             8,
-            |texts| Ok(texts.iter().map(|_| vec![0.1, 0.2, 0.3]).collect::<Vec<_>>()),
+            false,
+            |texts: &[String]| Ok(texts.iter().map(|_| vec![0.1, 0.2, 0.3]).collect::<Vec<_>>()),
         )
         .expect("first sync");
         assert_eq!(report1.added, 1);
@@ -152,7 +154,8 @@ mod memory_store_tests {
             "provider_x",
             "model-x",
             8,
-            |texts| Ok(texts.iter().map(|_| vec![0.1, 0.2, 0.3]).collect::<Vec<_>>()),
+            false,
+            |texts: &[String]| Ok(texts.iter().map(|_| vec![0.1, 0.2, 0.3]).collect::<Vec<_>>()),
         )
         .expect("second sync");
         assert_eq!(report2.status, "no_op");
@@ -170,7 +173,8 @@ mod memory_store_tests {
             "provider_y",
             "model-y",
             8,
-            |texts| Ok(texts.iter().map(|_| vec![0.4, 0.5, 0.6]).collect::<Vec<_>>()),
+            false,
+            |texts: &[String]| Ok(texts.iter().map(|_| vec![0.4, 0.5, 0.6]).collect::<Vec<_>>()),
         )
         .expect("third sync");
         assert_eq!(report3.deleted, 0);

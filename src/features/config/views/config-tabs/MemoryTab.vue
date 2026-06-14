@@ -238,6 +238,7 @@
                 <span class="badge badge-sm badge-ghost">{{ memory.memoryType }}</span>
                 <span>BM25 {{ (memory.bm25Score ?? 0).toFixed(3) }}</span>
                 <span>{{ t('config.memory.vectorScoreLabel') }} {{ (memory.vectorScore ?? 0).toFixed(3) }}</span>
+                <span>{{ t('config.memory.rerankScoreLabel') }} {{ (memory.rerankScore ?? 0).toFixed(3) }}</span>
                 <span class="text-primary font-medium">{{ t('config.memory.finalScoreLabel') }} {{ (memory.finalScore ?? 0).toFixed(3) }}</span>
               </div>
               <div class="whitespace-pre-wrap wrap-break-word text-sm leading-relaxed">
@@ -450,6 +451,7 @@
                           <div class="flex flex-wrap gap-3 text-[11px] opacity-60">
                             <span>BM25: {{ (memory.bm25Score ?? 0).toFixed(3) }}</span>
                             <span>{{ t('sidebar.memoryVectorScore') }}: {{ (memory.vectorScore ?? 0).toFixed(3) }}</span>
+                            <span>{{ t('config.memory.rerankScoreLabel') }}: {{ (memory.rerankScore ?? 0).toFixed(3) }}</span>
                             <span class="text-primary font-medium">{{ t('sidebar.memoryCompositeScore') }}: {{ (memory.finalScore ?? 0).toFixed(3) }}</span>
                           </div>
                           <div class="mt-1.5 h-1.5 bg-base-300 rounded-full overflow-hidden">
@@ -489,6 +491,7 @@ type MemoryEntry = {
   bm25Score?: number;
   bm25RawScore?: number;
   vectorScore?: number;
+  rerankScore?: number;
   finalScore?: number;
 };
 
@@ -596,6 +599,7 @@ type RecallDiagnosisMemory = MemoryEntry & {
   bm25Score: number;
   bm25RawScore: number;
   vectorScore: number;
+  rerankScore: number;
   finalScore: number;
 };
 const recallMode = ref<"rag" | "tool">("rag");
@@ -841,6 +845,7 @@ async function searchMemories() {
         bm25Score: number;
         bm25RawScore: number;
         vectorScore: number;
+        rerankScore: number;
         finalScore: number;
       }>;
       elapsedMs: number;
@@ -852,6 +857,7 @@ async function searchMemories() {
     bm25Score: hit.bm25Score,
     bm25RawScore: hit.bm25RawScore,
     vectorScore: hit.vectorScore,
+    rerankScore: hit.rerankScore,
     finalScore: hit.finalScore,
   }));
   memoryPage.value = 1;
@@ -917,6 +923,7 @@ async function searchRecall() {
         bm25Score: number;
         bm25RawScore: number;
         vectorScore: number;
+        rerankScore: number;
         finalScore: number;
       }>;
       elapsedMs: number;
@@ -939,6 +946,7 @@ async function searchRecall() {
       bm25Score: hit.bm25Score,
       bm25RawScore: hit.bm25RawScore,
       vectorScore: hit.vectorScore,
+      rerankScore: hit.rerankScore,
       finalScore: hit.finalScore,
     }));
     recallMeta.value = { total: result.total, offset: result.offset, limit: result.limit };

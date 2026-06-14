@@ -16,6 +16,10 @@ const MEMORY_CANDIDATE_MULTIPLIER: usize = 7;
 const MEMORY_ROUTE_CANDIDATE_LIMIT: usize = MEMORY_MATCH_MAX_ITEMS * MEMORY_CANDIDATE_MULTIPLIER;
 const MEMORY_RRF_K: f64 = 60.0;
 const MEMORY_RECALL_TOP_SCORE_RATIO: f64 = 0.5;
+// rerank 模式绝对门槛: relevance_score 低于门槛视为无关, 不参与最终排序与召回。
+// RAG 自动召回用 0.7 (严格), 工具召回用 0.5 (宽松), 浏览类搜索用 0.0 (不过滤)。
+const MEMORY_RERANK_MIN_SCORE_RAG: f64 = 0.7;
+const MEMORY_RERANK_MIN_SCORE_TOOL: f64 = 0.5;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -24,6 +28,7 @@ struct MemoryMixedRankItem {
     bm25_score: f64,
     bm25_raw_score: f64,
     vector_score: f64,
+    rerank_score: f64,
     final_score: f64,
 }
 
@@ -473,8 +478,15 @@ fn memory_recall_hit_ids(
     data_path: &PathBuf,
     memories: &[MemoryEntry],
     query_text: &str,
+    rerank_min_score: f64,
 ) -> Vec<String> {
-    let ranked = memory_mixed_ranked_items(data_path, memories, query_text, MEMORY_MATCH_MAX_ITEMS);
+    let ranked = memory_mixed_ranked_items(
+        data_path,
+        memories,
+        query_text,
+        MEMORY_MATCH_MAX_ITEMS,
+        rerank_min_score,
+    );
     memory_recall_ids_from_ranked_items(ranked)
 }
 
@@ -721,25 +733,17 @@ fn memory_tantivy_bm25_scores(
             .collect::<Vec<_>>()
     };
 
-    let max_score = scored
-        .iter()
-        .map(|(_, score)| *score)
-        .fold(0.0f64, f64::max);
     let mut out = Vec::<MemoryBm25Hit>::new();
     for (idx, raw_score) in scored.drain(..) {
         let memory_id = memories
             .get(idx)
             .map(|m| m.id.clone())
             .ok_or_else(|| format!("Invalid tantivy memory_idx: {idx}"))?;
-        let normalized = if max_score > 0.0 {
-            (raw_score / max_score).clamp(0.0, 1.0)
-        } else {
-            0.0
-        };
+        // 不归一化, 直接用原始 BM25 分参与融合与展示。
         out.push(MemoryBm25Hit {
             memory_id,
             raw_score,
-            normalized_score: normalized,
+            normalized_score: raw_score,
         });
     }
     Ok(out)
@@ -810,23 +814,14 @@ fn memory_rerank_scores(
         .map(|m| format!("{} {}", m.judgment.trim(), m.tags.join(" ").trim()).trim().to_string())
         .collect::<Vec<_>>();
     let rows = provider.rerank(query_text, &docs, Some(candidate_memories.len()))?;
-    let max_score = rows
-        .iter()
-        .map(|r| r.relevance_score)
-        .filter(|v| v.is_finite())
-        .fold(0.0f64, f64::max);
     let mut out = HashMap::<String, f64>::new();
     for row in rows {
         if row.index >= candidate_memories.len() || !row.relevance_score.is_finite() {
             continue;
         }
         let memory_id = candidate_memories[row.index].id.clone();
-        let norm = if max_score > 0.0 {
-            (row.relevance_score / max_score).clamp(0.0, 1.0)
-        } else {
-            0.0
-        };
-        out.insert(memory_id, norm);
+        // 不归一化, 直接用原始 rerank relevance_score 参与融合与展示。
+        out.insert(memory_id, row.relevance_score);
     }
     Ok(out)
 }
@@ -836,6 +831,7 @@ fn memory_mixed_ranked_items(
     memories: &[MemoryEntry],
     query_text: &str,
     limit: usize,
+    rerank_min_score: f64,
 ) -> Vec<MemoryMixedRankItem> {
     if limit == 0 {
         return Vec::new();
@@ -878,7 +874,7 @@ fn memory_mixed_ranked_items(
                 vector_available = true;
                 for (memory_id, vector_score) in rows {
                     if vector_score.is_finite() {
-                        vector_map.insert(memory_id, vector_score.clamp(0.0, 1.0));
+                        vector_map.insert(memory_id, vector_score);
                     }
                 }
             }
@@ -995,14 +991,23 @@ fn memory_mixed_ranked_items(
         .filter_map(|memory_id| {
             let idx = *memory_index.get(&memory_id)?;
             let bm25_score = bm25_map.get(&memory_id).copied().unwrap_or(0.0);
-            let final_score = if rerank_available {
+            let rerank_score = if rerank_available {
                 rerank_map.get(&memory_id).copied().unwrap_or(0.0)
+            } else {
+                0.0
+            };
+            // rerank 模式绝对门槛仅由调用方决定; 不影响 RRF / 纯 BM25 模式。
+            if rerank_available && rerank_score < rerank_min_score {
+                return None;
+            }
+            let final_score = if rerank_available {
+                rerank_score
             } else if effective_has_embedding {
                 memory_rrf_score_for_id(&memory_id, &bm25_rank_map, Some(&vector_rank_map))
             } else {
                 bm25_score
             };
-            Some((memory_id, idx, final_score))
+            Some((memory_id, idx, final_score, rerank_score))
         })
         .collect::<Vec<_>>();
 
@@ -1014,10 +1019,11 @@ fn memory_mixed_ranked_items(
     ranked
         .into_iter()
         .take(limit)
-        .map(|(memory_id, _, final_score)| MemoryMixedRankItem {
+        .map(|(memory_id, _, final_score, rerank_score)| MemoryMixedRankItem {
             bm25_score: bm25_map.get(&memory_id).copied().unwrap_or(0.0),
             bm25_raw_score: bm25_raw_map.get(&memory_id).copied().unwrap_or(0.0),
             vector_score: vector_map.get(&memory_id).copied().unwrap_or(0.0),
+            rerank_score,
             final_score,
             memory_id,
         })
@@ -1144,8 +1150,8 @@ fn memory_store_search_vector_scores(
         let Some(cos) = memory_cosine_similarity(&query_vector, &vector) else {
             continue;
         };
-        // Normalize cosine [-1,1] to [0,1] so it can be fused with bm25 relevance.
-        let score = ((cos + 1.0) * 0.5).clamp(0.0, 1.0);
+        // 不归一化, 直接用原始余弦相似度参与融合与展示。
+        let score = cos as f64;
         scored.push((chunk_id, score));
     }
 
