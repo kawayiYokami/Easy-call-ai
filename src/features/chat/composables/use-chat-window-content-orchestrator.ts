@@ -69,6 +69,7 @@ export function useChatWindowContentOrchestrator(bindings: Record<string, any>) 
     queuedAttachmentNotices: bindings.queuedAttachmentNotices,
     hasVisionFallback: configDerived.hasVisionFallback,
     config: bindings.config,
+    isTextRequestFormat: configDerived.isTextRequestFormat,
     applyDepartmentPrimaryApiConfigLocally: configDerived.applyDepartmentPrimaryApiConfigLocally,
   });
   const messageBlocks = useChatMessageBlocks({

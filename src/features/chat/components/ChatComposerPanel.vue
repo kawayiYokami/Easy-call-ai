@@ -546,7 +546,6 @@ const normalizedChatModelOptions = computed(() =>
     .filter((item) => !!item.id && !!item.name),
 );
 const localModelOptionId = ref("");
-const localModelSelectionTouched = ref(false);
 
 function modelOptionIdFromProps(): string {
   return String(props.preferredChatModelId || "").trim()
@@ -556,7 +555,6 @@ function modelOptionIdFromProps(): string {
 watch(
   () => String(props.activeConversationId || "").trim(),
   () => {
-    localModelSelectionTouched.value = false;
     localModelOptionId.value = modelOptionIdFromProps();
   },
   { immediate: true },
@@ -568,7 +566,6 @@ watch(
     String(props.conversationCallPrimaryApiConfigId || "").trim(),
   ].join("|"),
   () => {
-    if (localModelSelectionTouched.value) return;
     localModelOptionId.value = modelOptionIdFromProps();
   },
 );
@@ -931,7 +928,6 @@ watch(compactModelButton, (compact) => {
 function selectConversationPreferredModel(id: string) {
   const nextId = String(id || "").trim();
   if (!nextId || nextId === localModelOptionId.value) return;
-  localModelSelectionTouched.value = true;
   localModelOptionId.value = nextId;
   modelDropdownOpen.value = false;
   emit("update:conversationPreferredApiConfigId", nextId);

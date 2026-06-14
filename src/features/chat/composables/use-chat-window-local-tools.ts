@@ -81,7 +81,11 @@ export function useChatWindowLocalTools(bindings: Record<string, any>) {
   async function updateConversationPreferredApiConfig(value: string) {
     const nextId = String(value || "").trim();
     const resolvedId = resolveModelRoleApiConfigId(nextId, bindings.config);
-    if (nextId && !bindings.config.apiConfigs.some((item: any) => item.id === resolvedId && item.enableText)) {
+    if (nextId && !bindings.config.apiConfigs.some((item: any) =>
+      item.id === resolvedId
+      && item.enableText
+      && (!bindings.isTextRequestFormat || bindings.isTextRequestFormat(item.requestFormat))
+    )) {
       bindings.setStatus(t('chat.localTools.modelNotAvailable'));
       return;
     }
