@@ -188,6 +188,7 @@ fn focus_detached_chat_window(app: &AppHandle, label: &str) -> Result<(), String
         .ok_or_else(|| format!("独立聊天窗口不存在：{}", label.trim()))?;
     let _ = window.unminimize();
     let _ = window.show();
+    ensure_window_visible_after_show(app, label.trim(), "focus_detached_chat_window");
     window
         .set_focus()
         .map_err(|err| format!("聚焦独立聊天窗口失败：{err}"))
@@ -228,6 +229,7 @@ fn focus_file_reader_window(app: &AppHandle) -> Result<(), String> {
         .ok_or_else(|| "文件阅读窗口不存在".to_string())?;
     let _ = window.unminimize();
     let _ = window.show();
+    ensure_window_visible_after_show(app, FILE_READER_WINDOW_LABEL, "focus_file_reader_window");
     window
         .set_focus()
         .map_err(|err| format!("聚焦文件阅读窗口失败：{err}"))
@@ -317,6 +319,11 @@ fn schedule_file_reader_window_creation(app: &AppHandle, path: String) -> Result
             }
             let _ = window.unminimize();
             let _ = window.show();
+            ensure_window_visible_after_show(
+                &app_handle,
+                FILE_READER_WINDOW_LABEL,
+                "show_file_reader_window",
+            );
             let _ = window.set_focus();
             eprintln!(
                 "[文件阅读窗口] 窗口已显示：window_label={}，elapsed_ms={}",
@@ -438,6 +445,7 @@ fn schedule_detached_chat_window_creation(
         }
         let _ = window.unminimize();
         let _ = window.show();
+        ensure_window_visible_after_show(&app_handle, &window_label, "show_detached_chat_window");
         let _ = window.set_focus();
         eprintln!(
             "[独立聊天窗口] 窗口已显示：conversation_id={}，window_label={}，elapsed_ms={}",
@@ -478,16 +486,17 @@ fn logical_to_physical_px(value: u32, scale_factor: f64) -> i32 {
 }
 
 fn preferred_window_monitor(window: &tauri::WebviewWindow) -> Option<tauri::Monitor> {
-    if let Ok(Some(monitor)) = window.current_monitor() {
-        return Some(monitor);
-    }
     if let Ok(Some(monitor)) = window.primary_monitor() {
         return Some(monitor);
     }
-    window
+    if let Some(monitor) = window
         .available_monitors()
         .ok()
         .and_then(|mut monitors| monitors.drain(..).next())
+    {
+        return Some(monitor);
+    }
+    window.current_monitor().ok().flatten()
 }
 
 fn resolved_window_size_for_monitor(
@@ -561,6 +570,74 @@ fn position_window_on_monitor(
     let _ = window.set_position(Position::Physical(PhysicalPosition::new(x, y)));
 }
 
+fn log_offscreen_layout_reset(
+    app: &AppHandle,
+    label: &str,
+    reason: &str,
+    x: i32,
+    y: i32,
+    width: u32,
+    height: u32,
+    monitor_count: usize,
+) {
+    if !OFFSCREEN_LAYOUT_LOGGED_ONCE.swap(true, std::sync::atomic::Ordering::Relaxed) {
+        append_window_diagnostic_log(
+            app,
+            format!(
+                "[窗口] 检测到离屏窗口布局，已重置到可见区域：label={}，reason={}，x={}，y={}，width={}，height={}，monitor_count={}",
+                label.trim(),
+                reason,
+                x,
+                y,
+                width,
+                height,
+                monitor_count
+            ),
+        );
+    }
+}
+
+fn ensure_window_visible_after_show(app: &AppHandle, label: &str, reason: &str) {
+    let Some(window) = app.get_webview_window(label) else {
+        return;
+    };
+    let Ok(monitors) = window.available_monitors() else {
+        return;
+    };
+    if monitors.is_empty() {
+        return;
+    }
+    let Ok(position) = window.outer_position() else {
+        return;
+    };
+    let Ok(size) = window.outer_size() else {
+        return;
+    };
+    if window_rect_is_visible_on_any_monitor(
+        &monitors,
+        position.x,
+        position.y,
+        size.width,
+        size.height,
+    ) {
+        return;
+    }
+    let Some(monitor) = preferred_window_monitor(&window) else {
+        return;
+    };
+    log_offscreen_layout_reset(
+        app,
+        label,
+        reason,
+        position.x,
+        position.y,
+        size.width,
+        size.height,
+        monitors.len(),
+    );
+    position_window_on_monitor(&window, label, &monitor, None, None);
+}
+
 fn apply_window_layout_before_show(app: &AppHandle, label: &str) -> Result<(), String> {
     let window = app
         .get_webview_window(label)
@@ -613,8 +690,8 @@ fn apply_window_layout_before_show(app: &AppHandle, label: &str) -> Result<(), S
             )));
             if let (Some(x), Some(y)) = (saved.x, saved.y) {
                 let monitors = window.available_monitors().unwrap_or_default();
-                if monitors.is_empty()
-                    || window_rect_is_visible_on_any_monitor(
+                if !monitors.is_empty()
+                    && window_rect_is_visible_on_any_monitor(
                         &monitors,
                         x,
                         y,
@@ -624,16 +701,21 @@ fn apply_window_layout_before_show(app: &AppHandle, label: &str) -> Result<(), S
                 {
                     let _ = window.set_position(Position::Physical(PhysicalPosition::new(x, y)));
                 } else {
-                    if !OFFSCREEN_LAYOUT_LOGGED_ONCE.swap(true, std::sync::atomic::Ordering::Relaxed) {
-                        eprintln!(
-                            "[窗口] 检测到离屏窗口布局，已重置到可见区域: label={}, saved_x={}, saved_y={}, width={}, height={}",
-                            label.trim(),
-                            x,
-                            y,
-                            resolved_width,
-                            resolved_height
-                        );
-                    }
+                    let reason = if monitors.is_empty() {
+                        "monitor_list_empty"
+                    } else {
+                        "saved_position_offscreen"
+                    };
+                    log_offscreen_layout_reset(
+                        app,
+                        label,
+                        reason,
+                        x,
+                        y,
+                        resolved_width_physical,
+                        resolved_height_physical,
+                        monitors.len(),
+                    );
                     position_window_on_monitor(
                         &window,
                         label,
@@ -665,9 +747,6 @@ fn apply_window_layout_before_show(app: &AppHandle, label: &str) -> Result<(), S
                     width as f64,
                     height as f64,
                 )));
-            }
-            if let (Some(x), Some(y)) = (saved.x, saved.y) {
-                let _ = window.set_position(Position::Physical(PhysicalPosition::new(x, y)));
             }
         }
         if saved.maximized {
@@ -752,6 +831,7 @@ fn show_window(app: &AppHandle, label: &str) -> Result<(), String> {
 
     let _ = window.unminimize();
     let _ = window.show();
+    ensure_window_visible_after_show(app, label, "show_window");
     let _ = window.set_focus();
     Ok(())
 }
@@ -885,6 +965,7 @@ fn show_runtime_logs_window(app: &AppHandle) -> Result<(), String> {
                 ),
             );
         }
+        ensure_window_visible_after_show(app, RUNTIME_LOGS_WINDOW_LABEL, "focus_runtime_logs_window");
         if let Err(err) = window.set_focus() {
             append_window_diagnostic_log(
                 app,
@@ -971,6 +1052,11 @@ fn show_runtime_logs_window(app: &AppHandle) -> Result<(), String> {
                     ),
                 );
             }
+            ensure_window_visible_after_show(
+                &app_handle,
+                RUNTIME_LOGS_WINDOW_LABEL,
+                "show_runtime_logs_window",
+            );
             if let Err(err) = window.set_focus() {
                 append_window_diagnostic_log(
                     &app_handle,
@@ -1140,6 +1226,7 @@ fn rebuild_crashed_window(app: &AppHandle, label: &str) {
             // 恢复布局并显示
             let _ = apply_window_layout_before_show(app, label);
             let _ = window.show();
+            ensure_window_visible_after_show(app, label, "rebuild_crashed_window");
             let _ = window.set_focus();
             // 重置 pong 时间戳
             webview_record_pong(label);
