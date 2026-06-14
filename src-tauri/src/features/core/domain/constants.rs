@@ -1,6 +1,18 @@
 const APP_DATA_SCHEMA_VERSION: u32 = 1;
-// v1 is the baseline that wraps all legacy startup compatibility migrations
-// that existed before migration versions were tracked explicitly.
+
+// ========== 数据迁移版本门禁 ==========
+//
+// 版本语义：
+//   - DATA_MIGRATION_VERSION_V1_BASELINE：历史启动期兼容迁移的合集。
+//     这些迁移在「显式版本号」机制引入之前就已存在，因此 v1 不拆成单步，
+//     统一由 read_app_data() 里的 run_v1_baseline_migrations 门禁触发。
+//   - DATA_MIGRATION_CURRENT_VERSION：当前数据迁移版本，启动期写回 runtime_state。
+//
+// 新增迁移（v2+）的接入流程：
+//   1. 在 app_data_layout.rs 的 data_migration_steps() 注册一个 DataMigrationStep；
+//   2. 在此处新增 DATA_MIGRATION_VERSION_V2 常量，并把 CURRENT_VERSION 提到它；
+//   3. 不要继续往 v1 baseline 门禁块里堆叠。
+// 当前尚无 v2+ 迁移，data_migration_steps() 为空，registry 未接入执行路径。
 const DATA_MIGRATION_VERSION_V1_BASELINE: u32 = 1;
 const DATA_MIGRATION_CURRENT_VERSION: u32 = DATA_MIGRATION_VERSION_V1_BASELINE;
 const MAX_MULTIMODAL_BYTES: usize = 10 * 1024 * 1024;

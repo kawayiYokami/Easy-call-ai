@@ -911,6 +911,39 @@ fn read_layout_app_data(path: &PathBuf) -> Result<AppData, String> {
     })
 }
 
+// ========== 数据迁移 registry 骨架 ==========
+//
+// 给 v2+ 显式版本迁移一个注册点，避免后续再往 read_app_data() 的 v1 baseline
+// 门禁块里堆叠。当前未接入执行路径：steps() 返回空 Vec，CURRENT_VERSION 仍停在 v1。
+//
+// 接入执行路径时（首个 v2 迁移落地），在 read_app_data() 里：
+//   for step in data_migration_steps() {
+//       if migration_version_before < step.version {
+//           if (step.run)(path, &mut parsed)? {
+//               touched = true;
+//           }
+//       }
+//   }
+// 并把 parsed.data_migration_version 推进到 CURRENT_VERSION。
+//
+// 单步签名说明：
+//   - 返回 bool 表示本次是否真的改了数据（用于决定是否触发兼容写回）；
+//   - 需要 Err 时（如读旧文件失败、必须中止）返回 Err。
+//   - path 用于触碰磁盘上的遗留资源（旧归档、内联媒体等），
+//     纯结构补齐的 step 可以忽略 path。
+#[allow(dead_code)]
+struct DataMigrationStep {
+    version: u32,
+    name: &'static str,
+    run: fn(&PathBuf, &mut AppData) -> Result<bool, String>,
+}
+
+// 新增 v2+ 迁移时在此 push。当前为空。
+#[allow(dead_code)]
+fn data_migration_steps() -> Vec<DataMigrationStep> {
+    Vec::new()
+}
+
 fn read_app_data(path: &PathBuf) -> Result<AppData, String> {
     let mut parsed = if app_layout_exists(path) {
         read_layout_app_data(path)?
