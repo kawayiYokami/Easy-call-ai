@@ -1125,6 +1125,194 @@ fn search_memories_mixed(
     })
 }
 
+// ==================== 召回诊断（工具召回 / RAG 召换双模式） ====================
+
+// 该命令复用对话真实召回链路:
+//   memory_store_list_memories_visible_for_agent  (人格可见性, 同 core_send_inner.rs / builtin_recall)
+//   memory_mixed_ranked_items (limit=MEMORY_MATCH_MAX_ITEMS=7)  (同 memory_recall_hit_ids 内部)
+//   相对阈值过滤 (top * MEMORY_RECALL_TOP_SCORE_RATIO, 同 memory_recall_ids_from_ranked_items)
+//   tool 模式额外走 order_recall_memory_ids + normalize_recall_time_filter (同 builtin_recall)
+// 目标: 给定 (agentId, query) 输出与对话实际召回逐字一致的结果, 不靠模仿靠复用。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct SearchMemoriesRecallInput {
+    agent_id: String,
+    query: String,
+    mode: String,
+    #[serde(default)]
+    time: Option<String>,
+    #[serde(default)]
+    offset: Option<usize>,
+    #[serde(default)]
+    limit: Option<usize>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct SearchMemoriesRecallResult {
+    memories: Vec<SearchMemoriesMixedHit>,
+    elapsed_ms: u128,
+    mode: String,
+    total: usize,
+    offset: usize,
+    limit: usize,
+}
+
+#[tauri::command]
+fn search_memories_recall(
+    input: SearchMemoriesRecallInput,
+    state: State<'_, AppState>,
+) -> Result<SearchMemoriesRecallResult, String> {
+    let started = std::time::Instant::now();
+    let agent_id = input.agent_id.trim();
+    if agent_id.is_empty() {
+        return Err("agent_id 不能为空".to_string());
+    }
+    let query = input.query.trim();
+    if query.is_empty() {
+        // 诊断场景关键字必填; 真实对话空查询也跳过召回。
+        return Ok(SearchMemoriesRecallResult {
+            memories: Vec::new(),
+            elapsed_ms: started.elapsed().as_millis(),
+            mode: input.mode,
+            total: 0,
+            offset: 0,
+            limit: MEMORY_MATCH_MAX_ITEMS,
+        });
+    }
+    let mode = input.mode.trim().to_ascii_lowercase();
+    if mode != "rag" && mode != "tool" {
+        return Err(format!("mode 必须是 rag 或 tool, 收到 `{}`", input.mode));
+    }
+
+    // private_memory_enabled 从 agents 配置查 (同 core_send_inner.rs:1318-1320 取法)
+    let agents = load_agents_inner(&state)?;
+    let private_memory_enabled = agents
+        .iter()
+        .find(|a| a.id == agent_id)
+        .map(|a| a.private_memory_enabled)
+        .unwrap_or(false);
+
+    // 1. 候选集: 人格可见性过滤 (与对话/工具召回完全一致)
+    let visible = memory_store_list_memories_visible_for_agent(
+        &state.data_path,
+        agent_id,
+        private_memory_enabled,
+    )?;
+    if visible.is_empty() {
+        return Ok(SearchMemoriesRecallResult {
+            memories: Vec::new(),
+            elapsed_ms: started.elapsed().as_millis(),
+            mode,
+            total: 0,
+            offset: 0,
+            limit: MEMORY_MATCH_MAX_ITEMS,
+        });
+    }
+
+    // 2. 取分 + 阈值过滤 (复刻 memory_recall_hit_ids + memory_recall_ids_from_ranked_items,
+    //    但保留分数字段以便诊断展示)
+    let ranked = memory_mixed_ranked_items(
+        &state.data_path,
+        &visible,
+        query,
+        MEMORY_MATCH_MAX_ITEMS,
+    );
+    let top_score = ranked
+        .first()
+        .map(|item| item.final_score)
+        .filter(|score| score.is_finite() && *score > 0.0)
+        .unwrap_or(0.0);
+    let threshold = top_score * MEMORY_RECALL_TOP_SCORE_RATIO;
+    let filtered_ranked: Vec<MemoryMixedRankItem> = ranked
+        .into_iter()
+        .filter(|item| {
+            item.final_score.is_finite() && item.final_score >= threshold
+        })
+        .collect();
+
+    let memory_map = visible
+        .into_iter()
+        .map(|m| (m.id.clone(), m))
+        .collect::<std::collections::HashMap<_, _>>();
+
+    // 3. 模式分支
+    let (hits, total, offset, limit) = if mode == "rag" {
+        // RAG 模式: 直接取阈值过滤后的 ranked (max 7)
+        let offset = 0usize;
+        let limit = MEMORY_MATCH_MAX_ITEMS;
+        let hits = filtered_ranked
+            .iter()
+            .filter_map(|item| {
+                memory_map.get(&item.memory_id).map(|memory| SearchMemoriesMixedHit {
+                    memory: memory.clone(),
+                    bm25_score: item.bm25_score,
+                    bm25_raw_score: item.bm25_raw_score,
+                    vector_score: item.vector_score,
+                    final_score: item.final_score,
+                })
+            })
+            .collect::<Vec<_>>();
+        let total = hits.len();
+        (hits, total, offset, limit)
+    } else {
+        // Tool 模式: order_recall_memory_ids (保持分数序 + time 过滤) + offset/limit 分页
+        let time_prefix = normalize_recall_time_filter(input.time.as_deref())?;
+        let candidate_ids = filtered_ranked
+            .iter()
+            .map(|item| item.memory_id.clone())
+            .collect::<Vec<_>>();
+        // 反查 memory 列表供 order_recall_memory_ids 使用 (按 candidate_ids 顺序)
+        let ordered_memories: Vec<MemoryEntry> = candidate_ids
+            .iter()
+            .filter_map(|id| memory_map.get(id).cloned())
+            .collect();
+        let ordered_ids = order_recall_memory_ids(
+            &ordered_memories,
+            &candidate_ids,
+            time_prefix.as_deref(),
+            false,
+        );
+        let offset = input.offset.unwrap_or(0);
+        let limit = input.limit.unwrap_or(MEMORY_MATCH_MAX_ITEMS).clamp(1, 50);
+        let total = ordered_ids.len();
+        let page_ids = ordered_ids
+            .into_iter()
+            .skip(offset)
+            .take(limit)
+            .collect::<Vec<_>>();
+        // 用 filtered_ranked 的分数映射 (display 顺序保持 page_ids)
+        let score_by_id = filtered_ranked
+            .iter()
+            .map(|item| (item.memory_id.clone(), item.clone()))
+            .collect::<std::collections::HashMap<_, _>>();
+        let hits = page_ids
+            .iter()
+            .filter_map(|id| {
+                let memory = memory_map.get(id)?;
+                let item = score_by_id.get(id)?;
+                Some(SearchMemoriesMixedHit {
+                    memory: memory.clone(),
+                    bm25_score: item.bm25_score,
+                    bm25_raw_score: item.bm25_raw_score,
+                    vector_score: item.vector_score,
+                    final_score: item.final_score,
+                })
+            })
+            .collect::<Vec<_>>();
+        (hits, total, offset, limit)
+    };
+
+    Ok(SearchMemoriesRecallResult {
+        memories: hits,
+        elapsed_ms: started.elapsed().as_millis(),
+        mode,
+        total,
+        offset,
+        limit,
+    })
+}
+
 #[tauri::command]
 fn search_chat_history_slices(
     input: ChatHistorySearchInput,

@@ -218,6 +218,7 @@ fn memory_store_sync_provider_index<F>(
     new_provider_id: &str,
     model_name: &str,
     batch_size: usize,
+    force: bool,
     mut embedder: F,
 ) -> Result<MemoryStoreProviderSyncReport, String>
 where
@@ -236,7 +237,7 @@ where
     let provider_store_exists = memory_store_model_store_db_path(data_path, model_name)
         .map(|p| p.exists())
         .unwrap_or(false);
-    if old_provider_id.as_deref() == Some(new_provider_id.trim()) && provider_store_exists {
+    if !force && old_provider_id.as_deref() == Some(new_provider_id.trim()) && provider_store_exists {
         runtime_log_info(format!(
             "[记忆存储] 跳过，任务=向量索引同步，reason=no_op，provider_id={}",
             new_provider_id.trim()

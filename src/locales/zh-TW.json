@@ -998,7 +998,20 @@
       "chatHistorySearchFailed": "聊天記錄搜索失敗",
       "sourceLocal": "本地",
       "sourceArchive": "歸檔",
-      "sourceContact": "聯繫人"
+      "sourceContact": "聯繫人",
+      "recallDiagnosis": "召回診斷",
+      "recallDiagnosisHint": "復刻對話真實召回鏈路，給定人格與關鍵字即可看到與對話實際召回完全一致的結果。",
+      "recallModeTool": "工具召回",
+      "recallModeRag": "RAG 召換",
+      "recallQueryPlaceholder": "輸入關鍵字診斷召回",
+      "recallSearch": "診斷召回",
+      "recallSearching": "召回中...",
+      "recallResult": "召回 {count} 條（閾值後共 {total} 條），耗時 {ms} 毫秒",
+      "recallFailed": "召回診斷失敗",
+      "recallTimeLabel": "時間過濾",
+      "recallTimePlaceholder": "留空 / YYYY / YYYY-MM / YYYY-MM-DD",
+      "vectorScoreLabel": "向量",
+      "finalScoreLabel": "綜合"
     },
     "mcp": {
       "refresh": "重新整理",

@@ -148,6 +148,7 @@ fn sync_memory_embedding_provider(
             provider_id,
             deterministic_model,
             batch_size,
+            false,
             |texts| {
                 let mut out = Vec::<Vec<f32>>::new();
                 for text in texts {
@@ -204,6 +205,7 @@ fn sync_memory_embedding_provider(
         provider_id,
         model_for_report,
         batch_size,
+        false,
         |texts| embedding_provider.embed_batch(texts),
     )
 }
@@ -424,6 +426,7 @@ fn save_memory_embedding_binding(
         &provider_id,
         model_name,
         batch_size,
+        false,
         |texts| provider.embed_batch(texts),
     )?;
 

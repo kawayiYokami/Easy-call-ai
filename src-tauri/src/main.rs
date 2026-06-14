@@ -256,6 +256,42 @@ async fn run_deferred_setup(app_handle: AppHandle) {
     if let Err(err) = memory_store_open(&app_state.data_path) {
         eprintln!("[启动-延迟] 初始化记忆存储失败: {err}");
     }
+    // 启动期记忆向量增量同步: 复用 memory_store_sync_provider_index 的差集逻辑
+    // (补未向量化的记忆、清孤儿 chunk)。异步执行, 不阻塞启动; 失败由日志记录,
+    // 因记忆增删也会触发增量, 下次启动会再次兜底。
+    let sync_data_path = app_state.data_path.clone();
+    tauri::async_runtime::spawn(async move {
+        let started = std::time::Instant::now();
+        let result = tokio::task::spawn_blocking(move || {
+            memory_sync_vectors_on_startup(&sync_data_path)
+        })
+        .await;
+        match result {
+            Ok(Ok(report)) => {
+                runtime_log_info(format!(
+                    "[记忆向量同步] 完成，任务=startup_sync，status={}，deleted={}，added={}，耗时毫秒={}",
+                    report.status,
+                    report.deleted,
+                    report.added,
+                    started.elapsed().as_millis(),
+                ));
+            }
+            Ok(Err(err)) => {
+                runtime_log_warn(format!(
+                    "[记忆向量同步] 失败，任务=startup_sync，异常={}，耗时毫秒={}",
+                    err,
+                    started.elapsed().as_millis(),
+                ));
+            }
+            Err(err) => {
+                runtime_log_warn(format!(
+                    "[记忆向量同步] 失败，任务=startup_sync，异常=join_error，详情={}，耗时毫秒={}",
+                    err,
+                    started.elapsed().as_millis(),
+                ));
+            }
+        }
+    });
     emit_progress("初始化任务存储");
     if let Err(err) = task_store_open(&app_state.data_path) {
         eprintln!("[启动-延迟] 初始化任务存储失败: {err}");
@@ -939,6 +975,7 @@ fn main() {
             write_utf8_text_file_to_path,
             write_base64_file_to_path,
             search_memories_mixed,
+            search_memories_recall,
             search_chat_history_slices,
             sync_memory_embedding_provider,
             test_memory_embedding_provider,

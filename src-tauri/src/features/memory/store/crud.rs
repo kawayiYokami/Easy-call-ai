@@ -249,6 +249,19 @@ fn memory_store_upsert_drafts(
         .map_err(|err| format!("Commit memory upsert transaction failed: {err}"))?;
     invalidate_memory_matcher_cache();
 
+    // 记忆已落库, 增量补向量。失败只记日志不影响记忆写入 (下次启动差集同步兜底)。
+    let upserted_ids = results
+        .iter()
+        .filter_map(|item| {
+            if item.saved {
+                item.id.clone()
+            } else {
+                None
+            }
+        })
+        .collect::<Vec<_>>();
+    let _ = memory_sync_vectors_after_upsert(data_path, &upserted_ids);
+
     let total = memory_store_count(data_path)?;
     Ok((results, total))
 }
@@ -433,5 +446,7 @@ fn memory_store_delete_memory(data_path: &PathBuf, memory_id: &str) -> Result<()
         target_id
     ));
     invalidate_memory_matcher_cache();
+    // 记忆已落库, 向量删除失败不影响记忆本身 (下次启动差集同步兜底)。
+    let _ = memory_sync_vectors_after_delete(data_path, &[target_id.to_string()]);
     Ok(())
 }

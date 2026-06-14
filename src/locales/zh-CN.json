@@ -999,7 +999,20 @@
       "chatHistorySearchFailed": "聊天记录搜索失败",
       "sourceLocal": "本地",
       "sourceArchive": "归档",
-      "sourceContact": "联系人"
+      "sourceContact": "联系人",
+      "recallDiagnosis": "召回诊断",
+      "recallDiagnosisHint": "复刻对话真实召回链路，给定人格与关键字即可看到与对话实际召回完全一致的结果。",
+      "recallModeTool": "工具召回",
+      "recallModeRag": "RAG 召换",
+      "recallQueryPlaceholder": "输入关键字诊断召回",
+      "recallSearch": "诊断召回",
+      "recallSearching": "召回中...",
+      "recallResult": "召回 {count} 条（阈值后共 {total} 条），耗时 {ms} 毫秒",
+      "recallFailed": "召回诊断失败",
+      "recallTimeLabel": "时间过滤",
+      "recallTimePlaceholder": "留空 / YYYY / YYYY-MM / YYYY-MM-DD",
+      "vectorScoreLabel": "向量",
+      "finalScoreLabel": "综合"
     },
     "mcp": {
       "refresh": "刷新",

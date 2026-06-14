@@ -2737,6 +2737,7 @@ fn ide_chat_save_memory_embedding_binding_for_web_settings(
         &provider_id,
         model_name,
         batch_size,
+        false,
         |texts| provider.embed_batch(texts),
     )?;
 
