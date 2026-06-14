@@ -5,6 +5,7 @@
 
 ## 最近版本
 
+- [v0.12.0](docs/changelog/releases/v0.12.0.md) - 修复（data-migration）：拆分通用数据迁移版本与消息仓库迁移门禁，避免普通数据读取误标旧会话消息存储已迁移。
 - [v0.11.11](docs/changelog/releases/v0.11.11.md) - 修复（chat）：窗口最小化不再冻结前台轮次状态，恢复时统一走快照路径。
 - [v0.11.10](docs/changelog/releases/v0.11.10.md) - 修复（sidebar）：VS Code 侧边栏不再因为当前工作目录不匹配而隐藏本地会话，避免已有会话列表被误过滤。
 - [v0.11.9](docs/changelog/releases/v0.11.9.md) - 功能（chat）：新增会话“自动推送”，可在普通本地会话中选择远程联系人，将本会话后续所有 LLM 发言自动异步通知到目标联系人会话，并在会话控制面板显示激活提示。
@@ -116,4 +117,5 @@
 - [v0.9.3](docs/changelog/releases/v0.9.3.md) - 发布（release-0.9.3）：同步版本号并承接当前 `rust-genai` 运行时迁移成果
 - [v0.9.1](docs/changelog/releases/v0.9.1.md) - 发布（release-0.9.1）：整合委托功能修复与聊天交互打磨后发布补丁版本
 - [v0.9.0](docs/changelog/releases/v0.9.0.md) - 发布（release-0.9.0）：整理并发布当前这一轮聊天窗口、Markdown 渲染、流式输出与会话链路重构成果
+- [未发布](docs/changelog/releases/未发布.md)
 

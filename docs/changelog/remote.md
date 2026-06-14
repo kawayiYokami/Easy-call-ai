@@ -2,6 +2,16 @@
 
 > 此文件由 `pnpm changelog:build` 自动生成，展示最近版本的完整说明。
 
+## 发布：v0.12.0
+
+- 修复（data-migration）：拆分通用数据迁移版本与消息仓库迁移门禁，避免普通数据读取误标旧会话消息存储已迁移。
+- 修复（window）：恢复窗口布局前校验保存坐标是否仍在当前显示器范围内，避免睡眠恢复或显示器变化后窗口出现在不可见屏幕。
+- 修复（chat）：会话输入面板模型切换跟随后端真实状态，避免保存失败或自动修复后显示误导。
+- 修复（memory）：区分记忆重排召回门槛，避免不同召回链路混用阈值。
+- 功能（memory）：记忆管理页新增召回诊断面板，支持工具召回与 RAG 双模式排查。
+- 重构（data-migration）：引入数据迁移版本门禁，并预留多版本迁移 registry 骨架。
+- 修复（vscode-sidebar）：更新侧边栏扩展版本号。
+
 ## 发布：v0.11.11
 
 - 修复（chat）：窗口最小化不再冻结前台轮次状态，恢复时统一走快照路径。
@@ -148,12 +158,3 @@
 - 修复（config）：新增 MiniMax 协议链路并修正 Auto 模式模型适配识别；模型名仅按 `/` 切分供应商前缀，保留 `:free` 等后缀且大小写无关，避免 `minimax-m3:free` 被误判为 OpenAI。
 - 修复（chat）：上下文压缩 token 估算虚高，跳过 reasoning_content、tool_calls 只算 function.name + arguments。
 - 修复（chat）：缓存误消费导致工具续调前全量估算，consume_* 改为 resolve_* 保留缓存值。
-
-## 发布：v0.10.21
-
-- 修复（tool-review）：工具评估超时从 12s 硬编码改为 120s，超时后写回可读结论而非直接报错。
-- 修复（tool-review）：补丁预览生成为结构化 diff 格式，LLM 评估上下文携带 operations 结构化摘要，不再只给文件名让模型硬猜。
-- 重构（tool-review）：输入面板审批卡布局统一为 [查看详情]+摘要 → 评估意见 → [拒绝][批准]；去掉 summaryText 对 message 的 fallback 避免评估意见重复显示；折叠区改用 callPreview（diff 内容）+ 红绿高亮渲染。
-- 修复（tool-review）：侧边栏 ToolReviewItemCard 撤回批准/否决按钮（审批只在输入面板），保留折叠详情 + 评估意见 + 查看变更 + 重新评估；超时自动展开详情。
-- 修复（ui）：详情弹窗 mockup-code 组件在暗色主题下背景色泛白，改用 base-200 变量覆盖；滚动条样式适配暗色主题。
-- 修复（delegate）：用户发起委托不再要求目标部门是直接下级；直接下级校验仅保留在工具调用 delegate 路径；清理 runtime_organization 中废弃的 direct_child_ids_by_parent 快照字段。

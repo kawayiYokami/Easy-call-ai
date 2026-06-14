@@ -1,7 +1,12 @@
 {
-  "generatedAt": "2026-06-13T11:14:16.164Z",
-  "latestVersion": "v0.11.11",
+  "generatedAt": "2026-06-14T08:03:59.901Z",
+  "latestVersion": "v0.12.0",
   "releases": [
+    {
+      "version": "v0.12.0",
+      "path": "docs/changelog/releases/v0.12.0.md",
+      "summary": "修复（data-migration）：拆分通用数据迁移版本与消息仓库迁移门禁，避免普通数据读取误标旧会话消息存储已迁移。"
+    },
     {
       "version": "v0.11.11",
       "path": "docs/changelog/releases/v0.11.11.md",
@@ -556,6 +561,11 @@
       "version": "v0.9.0",
       "path": "docs/changelog/releases/v0.9.0.md",
       "summary": "发布（release-0.9.0）：整理并发布当前这一轮聊天窗口、Markdown 渲染、流式输出与会话链路重构成果"
+    },
+    {
+      "version": "未发布",
+      "path": "docs/changelog/releases/未发布.md",
+      "summary": ""
     }
   ]
 }
