@@ -2117,7 +2117,7 @@ fn get_delegate_conversation_messages(
         .map(|conversation| conversation.messages.clone())
         .ok_or_else(|| "Delegate conversation not found.".to_string())?;
     materialize_chat_message_parts_from_media_refs(&mut messages, &state.data_path);
-    Ok(messages)
+    Ok(frontend_project_messages(messages))
 }
 
 #[tauri::command]
@@ -2143,6 +2143,7 @@ fn get_delegate_conversation_block_page_inner(
     )?
     .ok_or_else(|| "Delegate conversation not found.".to_string())?;
     materialize_chat_message_parts_from_media_refs(&mut page.messages, &state.data_path);
+    page.messages = frontend_project_messages(page.messages);
     Ok(conversation_block_page_output_from_message_store_page(page))
 }
 

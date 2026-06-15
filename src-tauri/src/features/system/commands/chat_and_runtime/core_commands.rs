@@ -998,7 +998,7 @@ fn emit_conversation_message_appended_event(
     };
     let payload = ConversationMessageAppendedPayload {
         conversation_id: conversation_id.to_string(),
-        message: message.clone(),
+        message: frontend_project_message(message.clone()),
     };
     ide_chat_broadcast_notification("conversation.messageAppended", serde_json::json!(&payload));
     if let Err(err) = app_handle.emit(CHAT_CONVERSATION_MESSAGE_APPENDED_EVENT, payload) {

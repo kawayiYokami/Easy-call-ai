@@ -202,7 +202,7 @@ impl ConversationService {
                 )?
             };
         materialize_chat_message_parts_from_media_refs(&mut messages, &state.data_path);
-        Ok(messages)
+        Ok(frontend_project_messages(messages))
     }
 
     fn read_remote_im_contact_conversation_block_page(
@@ -261,9 +261,9 @@ impl ConversationService {
             message_store::read_ready_message_store_block_page(&store_paths, requested_block_id)?
         {
             let _ = self.retain_message_store_block_cache_whitelist(state);
-            let mut messages = page.messages;
-            materialize_chat_message_parts_from_media_refs(&mut messages, &state.data_path);
-            return Ok(ConversationBlockPageResult {
+                let mut messages = page.messages;
+                materialize_chat_message_parts_from_media_refs(&mut messages, &state.data_path);
+                return Ok(ConversationBlockPageResult {
                 blocks: page
                     .blocks
                     .into_iter()
@@ -278,15 +278,15 @@ impl ConversationService {
                     })
                     .collect(),
                 selected_block_id: page.selected_block_id,
-                messages,
-                has_prev_block: page.has_prev_block,
-                has_next_block: page.has_next_block,
-            });
+                    messages: frontend_project_messages(messages),
+                    has_prev_block: page.has_prev_block,
+                    has_next_block: page.has_next_block,
+                });
         }
 
-        let mut messages = conversation.messages.clone();
-        materialize_chat_message_parts_from_media_refs(&mut messages, &state.data_path);
-        Ok(ConversationBlockPageResult {
+            let mut messages = conversation.messages.clone();
+            materialize_chat_message_parts_from_media_refs(&mut messages, &state.data_path);
+            Ok(ConversationBlockPageResult {
             blocks: vec![ConversationBlockSummaryResult {
                 block_id: 0,
                 message_count: messages.len(),
@@ -303,10 +303,10 @@ impl ConversationService {
                 is_latest: true,
             }],
             selected_block_id: 0,
-            messages,
-            has_prev_block: false,
-            has_next_block: false,
-        })
+                messages: frontend_project_messages(messages),
+                has_prev_block: false,
+                has_next_block: false,
+            })
     }
 
     fn clear_remote_im_contact_conversation(

@@ -1,3 +1,60 @@
+const FRONTEND_TOOL_RESULT_PLACEHOLDER_TEXT: &str = "工具已执行，结果已省略。";
+
+fn frontend_sanitize_tool_history_event(event: &Value) -> Value {
+    let Some(object) = event.as_object() else {
+        return event.clone();
+    };
+    let role = object
+        .get("role")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .unwrap_or_default()
+        .to_ascii_lowercase();
+    if role != "tool" {
+        return event.clone();
+    }
+    let tool_call_id = object
+        .get("tool_call_id")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .unwrap_or_default();
+    let mut sanitized = object.clone();
+    sanitized.insert(
+        "content".to_string(),
+        Value::String(FRONTEND_TOOL_RESULT_PLACEHOLDER_TEXT.to_string()),
+    );
+    sanitized.insert("contentOmitted".to_string(), Value::Bool(true));
+    if !tool_call_id.is_empty() {
+        sanitized.insert(
+            "tool_call_id".to_string(),
+            Value::String(tool_call_id.to_string()),
+        );
+    }
+    Value::Object(sanitized)
+}
+
+fn frontend_project_message(mut message: ChatMessage) -> ChatMessage {
+    if let Some(events) = message.tool_call.take() {
+        let projected = events
+            .into_iter()
+            .map(|event| frontend_sanitize_tool_history_event(&event))
+            .collect::<Vec<_>>();
+        message.tool_call = if projected.is_empty() {
+            None
+        } else {
+            Some(projected)
+        };
+    }
+    message
+}
+
+fn frontend_project_messages(messages: Vec<ChatMessage>) -> Vec<ChatMessage> {
+    messages
+        .into_iter()
+        .map(frontend_project_message)
+        .collect()
+}
+
 impl ConversationService {
     fn collect_unarchived_conversation_summaries_cached(
         &self,
@@ -212,6 +269,7 @@ impl ConversationService {
         };
 
         materialize_chat_message_parts_from_media_refs(&mut snapshot.messages, &state.data_path);
+        snapshot.messages = frontend_project_messages(snapshot.messages);
         Ok(snapshot)
     }
 
@@ -252,8 +310,8 @@ impl ConversationService {
                 }
                 Some(ChatSnapshot {
                     conversation_id: conversation_id.clone(),
-                    latest_user,
-                    latest_assistant,
+                    latest_user: latest_user.map(frontend_project_message),
+                    latest_assistant: latest_assistant.map(frontend_project_message),
                     active_message_count: snapshot.active_message_count,
                 })
             } else {
@@ -286,8 +344,8 @@ impl ConversationService {
                         }
                         ChatSnapshot {
                             conversation_id: conversation.id.clone(),
-                            latest_user,
-                            latest_assistant,
+                            latest_user: latest_user.map(frontend_project_message),
+                            latest_assistant: latest_assistant.map(frontend_project_message),
                             active_message_count: conversation.messages.len(),
                         }
                     })
@@ -331,8 +389,8 @@ impl ConversationService {
                 }
                 return Ok(ChatSnapshot {
                     conversation_id,
-                    latest_user,
-                    latest_assistant,
+                    latest_user: latest_user.map(frontend_project_message),
+                    latest_assistant: latest_assistant.map(frontend_project_message),
                     active_message_count: snapshot.active_message_count,
                 });
             }
@@ -421,7 +479,7 @@ impl ConversationService {
                 })?
             };
             materialize_chat_message_parts_from_media_refs(&mut messages, &state.data_path);
-            return Ok(messages);
+            return Ok(frontend_project_messages(messages));
         }
 
         let mut app_config = state_read_config_cached(state)?;
@@ -452,7 +510,7 @@ impl ConversationService {
                 Ok(conversation.messages.clone())
             })?;
         materialize_chat_message_parts_from_media_refs(&mut messages, &state.data_path);
-        Ok(messages)
+        Ok(frontend_project_messages(messages))
     }
 
     fn read_recent_unarchived_block_messages(
@@ -476,7 +534,7 @@ impl ConversationService {
             })?
         };
         materialize_chat_message_parts_from_media_refs(&mut messages, &state.data_path);
-        Ok(messages)
+        Ok(frontend_project_messages(messages))
     }
 
     fn read_unarchived_block_page(
@@ -508,7 +566,7 @@ impl ConversationService {
                         })
                         .collect(),
                     selected_block_id: page.selected_block_id,
-                    messages,
+                    messages: frontend_project_messages(messages),
                     has_prev_block: page.has_prev_block,
                     has_next_block: page.has_next_block,
                 });
@@ -533,7 +591,7 @@ impl ConversationService {
                     is_latest: true,
                 }],
                 selected_block_id: 0,
-                messages,
+                messages: frontend_project_messages(messages),
                 has_prev_block: false,
                 has_next_block: false,
             })
@@ -564,7 +622,7 @@ impl ConversationService {
             })?
         };
         materialize_chat_message_parts_from_media_refs(&mut messages, &state.data_path);
-        Ok(messages)
+        Ok(frontend_project_messages(messages))
     }
 
     fn read_message_by_id(
@@ -596,7 +654,7 @@ impl ConversationService {
             std::slice::from_mut(&mut message),
             &state.data_path,
         );
-        Ok(message)
+        Ok(frontend_project_message(message))
     }
 
     fn read_messages_before(
@@ -671,7 +729,7 @@ impl ConversationService {
         };
 
         materialize_chat_message_parts_from_media_refs(&mut page, &state.data_path);
-        Ok((page, has_more))
+        Ok((frontend_project_messages(page), has_more))
     }
 
     fn read_messages_after(
@@ -746,7 +804,7 @@ impl ConversationService {
         };
 
         materialize_chat_message_parts_from_media_refs(&mut page, &state.data_path);
-        Ok(page)
+        Ok(frontend_project_messages(page))
     }
 
     fn read_messages_after_with_fallback(
@@ -797,6 +855,60 @@ impl ConversationService {
             })?
         };
         materialize_chat_message_parts_from_media_refs(&mut page, &state.data_path);
-        Ok((page, fallback_mode))
+        Ok((frontend_project_messages(page), fallback_mode))
+    }
+}
+
+#[cfg(test)]
+mod frontend_projection_tests {
+    use super::*;
+
+    fn test_message_with_tool_history() -> ChatMessage {
+        ChatMessage {
+            id: "msg-1".to_string(),
+            role: "assistant".to_string(),
+            created_at: now_iso(),
+            speaker_agent_id: Some("agent-1".to_string()),
+            parts: vec![MessagePart::Text {
+                text: "done".to_string(),
+                reasoning_content: None,
+            }],
+            extra_text_blocks: Vec::new(),
+            provider_meta: None,
+            tool_call: Some(vec![
+                serde_json::json!({
+                    "role": "assistant",
+                    "tool_calls": [{
+                        "id": "call-1",
+                        "type": "function",
+                        "function": {
+                            "name": "shell_command",
+                            "arguments": "{\"command\":\"dir\"}"
+                        }
+                    }]
+                }),
+                serde_json::json!({
+                    "role": "tool",
+                    "tool_call_id": "call-1",
+                    "content": "very large raw output"
+                }),
+            ]),
+            mcp_call: None,
+            meme_annotations: None,
+        }
+    }
+
+    #[test]
+    fn frontend_project_message_should_replace_tool_result_content_with_placeholder() {
+        let message = frontend_project_message(test_message_with_tool_history());
+        let events = message.tool_call.expect("tool history");
+        assert_eq!(events.len(), 2);
+        assert_eq!(events[0]["role"].as_str(), Some("assistant"));
+        assert_eq!(events[1]["role"].as_str(), Some("tool"));
+        assert_eq!(
+            events[1]["content"].as_str(),
+            Some(FRONTEND_TOOL_RESULT_PLACEHOLDER_TEXT)
+        );
+        assert_eq!(events[1]["contentOmitted"].as_bool(), Some(true));
     }
 }

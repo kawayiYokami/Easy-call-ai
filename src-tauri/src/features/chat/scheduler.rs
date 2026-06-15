@@ -2560,7 +2560,7 @@ async fn process_conversation_batch(
     for message in &persisted_batch_messages {
         let (deferred_message, _, _) =
             defer_image_parts_for_history_flushed(message, &state.data_path);
-        history_flushed_messages.push(deferred_message);
+        history_flushed_messages.push(frontend_project_message(deferred_message));
     }
     let history_flushed_payload = serde_json::json!({
         "conversationId": conversation_id,
@@ -3264,7 +3264,10 @@ fn emit_round_completed_event(
         "status": "completed",
         "assistantText": result.assistant_text,
         "archivedBeforeSend": result.archived_before_send,
-        "assistantMessage": result.assistant_message,
+        "assistantMessage": result
+            .assistant_message
+            .clone()
+            .map(frontend_project_message),
     });
     ide_chat_broadcast_notification("chat.roundFinished", payload.clone());
     match app_handle.emit(CHAT_ROUND_COMPLETED_EVENT, payload) {
