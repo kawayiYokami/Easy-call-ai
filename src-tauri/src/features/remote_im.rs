@@ -188,6 +188,7 @@ struct RemoteImContactConversationSummary {
     channel_id: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     channel_name: Option<String>,
+    channel_enabled: bool,
     platform: RemoteImPlatform,
     contact_display_name: String,
     bound_department_id: Option<String>,

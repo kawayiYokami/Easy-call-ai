@@ -620,6 +620,12 @@ impl ConversationService {
             .iter_mut()
             .find(|item| item.id.trim() == normalized_remote_contact_id)
             .ok_or_else(|| format!("未找到远程联系人：{normalized_remote_contact_id}"))?;
+        let config = state_read_config_cached(state)?;
+        let channel = remote_im_channel_by_id(&config, &contact.channel_id)
+            .ok_or_else(|| format!("远程联系人所属渠道不存在：{}", contact.channel_id))?;
+        if !channel.enabled {
+            return Err(format!("远程联系人所属渠道未启用：{}", contact.channel_id));
+        }
         let previous_bound_conversation_id = contact
             .bound_conversation_id
             .as_deref()

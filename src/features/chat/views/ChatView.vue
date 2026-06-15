@@ -216,7 +216,7 @@
           :saving="autoPushSaving"
           :enabled="autoPushEnabled"
           :selected-contact-id="autoPushSelectedContactId"
-          :options="props.remoteImContactConversations"
+          :options="autoPushContactOptions"
           @close="closeAutoPushCard"
           @save="saveAutoPushCard"
           @update:enabled="autoPushEnabled = $event"
@@ -617,6 +617,9 @@ const autoPushCardOpen = ref(false);
 const autoPushSaving = ref(false);
 const autoPushEnabled = ref(false);
 const autoPushSelectedContactId = ref("");
+const autoPushContactOptions = computed(() =>
+  props.remoteImContactConversations.filter((item) => item.channelEnabled !== false),
+);
 const codeReviewDialogOpen = ref(false);
 const codeReviewErrorText = ref("");
 const commitOptions = ref<ToolReviewCommitOption[]>([]);

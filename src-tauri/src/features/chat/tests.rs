@@ -4171,7 +4171,7 @@
     }
 
     #[test]
-    fn list_remote_im_contact_conversations_should_create_and_bind_missing_conversation() {
+    fn list_remote_im_contact_conversations_should_skip_missing_conversation() {
         let state = test_chat_runtime_state();
         write_config(&state.config_path, &AppConfig::default()).expect("write config");
         let now = now_iso();
@@ -4214,25 +4214,14 @@
             .list_remote_im_contact_conversations(&state)
             .expect("list remote im contact conversations");
 
-        assert_eq!(items.len(), 1);
+        assert!(items.is_empty());
         let updated_runtime = state_read_runtime_state_cached(&state).expect("read runtime state");
         let contact = updated_runtime
             .remote_im_contacts
             .iter()
             .find(|item| item.id == "contact-a")
             .expect("contact exists");
-        let conversation_id = contact
-            .bound_conversation_id
-            .as_deref()
-            .expect("bound conversation id");
-        assert_eq!(items[0].conversation_id, conversation_id);
-        let conversation =
-            state_read_conversation_cached(&state, conversation_id).expect("read conversation");
-        assert!(conversation_is_remote_im_contact(&conversation));
-        assert_eq!(conversation.department_id, REMOTE_CUSTOMER_SERVICE_DEPARTMENT_ID);
-        assert_eq!(conversation.agent_id, DEFAULT_AGENT_ID);
-        let expected_key = remote_im_contact_conversation_key(contact);
-        assert_eq!(conversation.root_conversation_id.as_deref(), Some(expected_key.as_str()));
+        assert!(contact.bound_conversation_id.is_none());
     }
 
     fn seed_session_forward_test_state() -> (AppState, String, String, String) {
@@ -4518,7 +4507,20 @@
     #[test]
     fn list_remote_im_contact_conversations_should_reuse_existing_history_and_rebind_contact() {
         let state = test_chat_runtime_state();
-        write_config(&state.config_path, &AppConfig::default()).expect("write config");
+        let mut config = AppConfig::default();
+        config.remote_im_channels.push(RemoteImChannelConfig {
+            id: "channel-a".to_string(),
+            name: "测试渠道".to_string(),
+            platform: RemoteImPlatform::OnebotV11,
+            enabled: true,
+            credentials: serde_json::json!({}),
+            activate_assistant: true,
+            receive_files: true,
+            streaming_send: false,
+            show_tool_calls: false,
+            allow_send_files: false,
+        });
+        write_config(&state.config_path, &config).expect("write config");
         let now = now_iso();
         let contact = RemoteImContact {
             id: "contact-a".to_string(),

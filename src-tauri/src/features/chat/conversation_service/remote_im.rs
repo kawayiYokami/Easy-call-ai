@@ -8,6 +8,19 @@ impl ConversationService {
         let mut resolved_pairs = Vec::<(RemoteImContact, String)>::new();
         let mut runtime_changed = false;
         for contact in runtime.remote_im_contacts.iter_mut() {
+            if remote_im_channel_by_id(&config, &contact.channel_id).is_none() {
+                if contact
+                    .bound_conversation_id
+                    .as_deref()
+                    .map(str::trim)
+                    .filter(|value| !value.is_empty())
+                    .is_some()
+                {
+                    contact.bound_conversation_id = None;
+                    runtime_changed = true;
+                }
+                continue;
+            }
             let previous_bound_conversation_id = contact
                 .bound_conversation_id
                 .as_deref()
@@ -26,7 +39,67 @@ impl ConversationService {
                 .map(str::trim)
                 .filter(|value| !value.is_empty())
                 .map(ToOwned::to_owned);
-            let conversation_id = ensure_remote_im_contact_conversation_id(state, contact)?;
+            let binding_pair = match resolve_department_agent_pair(
+                contact.bound_department_id.as_deref(),
+                contact.bound_agent_id.as_deref(),
+                &config,
+            ) {
+                Ok(pair) => Some(pair),
+                Err(err) => {
+                    runtime_log_warn(format!(
+                        "[远程IM] 跳过，任务=同步联系人会话绑定，contact_id={}，原因={}",
+                        contact.id, err
+                    ));
+                    None
+                }
+            };
+            if let Some((department_id, agent_id)) = binding_pair.as_ref() {
+                contact.bound_department_id = Some(department_id.clone());
+                contact.bound_agent_id = Some(agent_id.clone());
+            }
+            let target_key = remote_im_contact_conversation_key(contact);
+            let conversation_id = previous_bound_conversation_id
+                .as_deref()
+                .and_then(|conversation_id| {
+                    state_read_conversation_cached(state, conversation_id)
+                        .ok()
+                        .filter(|conversation| {
+                            conversation.summary.trim().is_empty()
+                                && conversation_is_remote_im_contact(conversation)
+                        })
+                        .map(|conversation| conversation.id)
+                })
+                .or_else(|| {
+                    state_read_chat_index_cached(state)
+                        .ok()?
+                        .conversations
+                        .iter()
+                        .filter_map(|item| state_read_conversation_cached(state, item.id.as_str()).ok())
+                        .find(|conversation| {
+                            conversation.summary.trim().is_empty()
+                                && conversation_is_remote_im_contact(conversation)
+                                && conversation.root_conversation_id.as_deref().map(str::trim)
+                                    == Some(target_key.as_str())
+                        })
+                        .map(|conversation| conversation.id)
+                });
+            let Some(conversation_id) = conversation_id else {
+                if previous_bound_conversation_id.is_some() {
+                    contact.bound_conversation_id = None;
+                    runtime_changed = true;
+                }
+                continue;
+            };
+            contact.bound_conversation_id = Some(conversation_id.clone());
+            if let Some((department_id, agent_id)) = binding_pair.as_ref() {
+                sync_remote_im_contact_conversation_binding(
+                    state,
+                    contact,
+                    &conversation_id,
+                    department_id,
+                    agent_id,
+                )?;
+            }
             let binding_changed = previous_bound_conversation_id.as_deref() != Some(conversation_id.as_str())
                 || previous_bound_department_id.as_deref()
                     != contact.bound_department_id.as_deref().map(str::trim)
@@ -43,6 +116,7 @@ impl ConversationService {
         let mut items = Vec::<RemoteImContactConversationSummary>::new();
         for (contact, conversation_id) in resolved_pairs {
             let store_paths = message_store::message_store_paths(&state.data_path, &conversation_id)?;
+            let channel = remote_im_channel_by_id(&config, &contact.channel_id);
             let summary = if let Some(meta) = message_store::read_ready_message_store_meta(&store_paths)? {
                 let manifest_status = message_store::read_message_store_manifest_status(&store_paths)?
                     .ok_or_else(|| format!("联系人会话缺少消息存储 manifest：{conversation_id}"))?;
@@ -61,9 +135,11 @@ impl ConversationService {
                         .or_else(|| Some(meta.updated_at().to_string())),
                     message_count: manifest_status.source_message_count,
                     channel_id: contact.channel_id.clone(),
-                    channel_name: remote_im_channel_by_id(&config, &contact.channel_id)
-                        .map(|channel| channel.name.trim().to_string())
+                    channel_name: channel
+                        .as_ref()
+                        .map(|item| item.name.trim().to_string())
                         .filter(|value| !value.is_empty()),
+                    channel_enabled: channel.as_ref().map(|item| item.enabled).unwrap_or(false),
                     platform: contact.platform.clone(),
                     contact_display_name: remote_im_contact_display_name(&contact),
                     bound_department_id: contact.bound_department_id.clone(),
@@ -87,9 +163,11 @@ impl ConversationService {
                         .map(|message| message.created_at.clone()),
                     message_count: conversation.messages.len(),
                     channel_id: contact.channel_id.clone(),
-                    channel_name: remote_im_channel_by_id(&config, &contact.channel_id)
-                        .map(|channel| channel.name.trim().to_string())
+                    channel_name: channel
+                        .as_ref()
+                        .map(|item| item.name.trim().to_string())
                         .filter(|value| !value.is_empty()),
+                    channel_enabled: channel.as_ref().map(|item| item.enabled).unwrap_or(false),
                     platform: contact.platform.clone(),
                     contact_display_name: remote_im_contact_display_name(&contact),
                     bound_department_id: contact.bound_department_id.clone(),

@@ -359,6 +359,7 @@ export type RemoteImContactConversationSummary = {
   messageCount: number;
   channelId: string;
   channelName?: string;
+  channelEnabled?: boolean;
   platform: RemoteImPlatform;
   contactDisplayName: string;
   boundDepartmentId?: string;
@@ -373,6 +374,7 @@ export type RemoteImContactConversationOption = {
   title: string;
   contactDisplayName: string;
   channelName?: string;
+  channelEnabled?: boolean;
 };
 
 export type McpDefinitionValidateResult = {
