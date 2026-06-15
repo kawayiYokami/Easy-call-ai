@@ -36,6 +36,7 @@ type UseChatFlowDraftsOptions = {
   latestUserText: Ref<string>;
   latestAssistantText: Ref<string>;
   toolStatusText: Ref<string>;
+  toolStatusState: Ref<"running" | "done" | "failed" | "">;
   streamBlocks?: Ref<AssistantStreamBlock[]>;
   getActiveRoundAgentId?: () => string;
   getConversationId?: () => string;
@@ -163,6 +164,8 @@ export function useChatFlowDrafts(options: UseChatFlowDraftsOptions) {
         _streamSegments: [] as string[],
         _streamTail: "",
         _preStreamingStatusText: String(initialText || ""),
+        _toolStatusText: String(options.toolStatusText.value || ""),
+        _toolStatusState: "",
         _frontendDispatchStartedAtMs: options.getFrontendDispatchStartedAtMs(),
         _frontendDispatchElapsedMs: options.currentFrontendDispatchElapsedMs(),
       },
@@ -206,6 +209,8 @@ export function useChatFlowDrafts(options: UseChatFlowDraftsOptions) {
         _streamTail: "",
         _streamAnimatedDelta: "",
         _preStreamingStatusText: String(statusText || ""),
+        _toolStatusText: String(options.toolStatusText.value || ""),
+        _toolStatusState: String(existingMeta._toolStatusState || ""),
         _frontendDispatchStartedAtMs: options.getFrontendDispatchStartedAtMs(),
         _frontendDispatchElapsedMs: options.currentFrontendDispatchElapsedMs(),
       },
@@ -307,6 +312,7 @@ export function useChatFlowDrafts(options: UseChatFlowDraftsOptions) {
       ? existingActivityItems
       : streamBlocksToActivityItems(streamBlocks, true);
     const stableRenderId = stableRenderIdFromMessage(existingDraft) || draftId;
+    const existingMeta = ((existingDraft?.providerMeta || {}) as Record<string, unknown>);
     const msg = messageWithStableRenderId({
       id: draftId,
       role: "assistant",
@@ -318,11 +324,14 @@ export function useChatFlowDrafts(options: UseChatFlowDraftsOptions) {
         : streamBlocksToToolHistoryEvents(streamBlocks),
       activityItems: nextActivityItems.length > 0 ? nextActivityItems : undefined,
       providerMeta: {
+        ...existingMeta,
         _streaming: true,
         _streamSegments: nextStreamSegments,
         _streamTail: nextStreamTail,
         _streamAnimatedDelta: String(streamAnimatedDelta || ""),
         _preStreamingStatusText: preStreamingStatusText,
+        _toolStatusText: String(options.toolStatusText.value || ""),
+        _toolStatusState: String(options.toolStatusState.value || ""),
         _frontendDispatchStartedAtMs: options.getFrontendDispatchStartedAtMs(),
         _frontendDispatchElapsedMs: options.currentFrontendDispatchElapsedMs(),
         _streamBlocks: streamBlocks,
@@ -376,6 +385,9 @@ export function useChatFlowDrafts(options: UseChatFlowDraftsOptions) {
     const draftMeta = ((draft.providerMeta || {}) as Record<string, unknown>);
     const nextMeta = { ...draftMeta };
     delete (nextMeta as Record<string, unknown>)._streaming;
+    delete (nextMeta as Record<string, unknown>)._preStreamingStatusText;
+    delete (nextMeta as Record<string, unknown>)._toolStatusText;
+    delete (nextMeta as Record<string, unknown>)._toolStatusState;
     const normalized: ChatMessage = { ...draft, providerMeta: nextMeta };
     options.allMessages.value = current.map((m, idx) => (idx === draftIdx ? normalized : m));
   }

@@ -880,25 +880,60 @@ function showStreamingUi(block: ChatMessageBlock): boolean {
   return !!block.isStreaming && !isOwnMessage(block);
 }
 
-function assistantStreamingHeaderStatus(block: ChatMessageBlock): string {
-  if (!showStreamingUi(block)) return "";
+function normalizedStreamingPhaseLabel(block: ChatMessageBlock): string {
   const providerMeta = (block.providerMeta || {}) as Record<string, unknown>;
   const preStreamingStatusText = String(providerMeta._preStreamingStatusText || "").trim();
+  const toolStatusText = String(providerMeta._toolStatusText || "").trim();
+  const toolStatusState = String(providerMeta._toolStatusState || "").trim();
+  const hasSpeechContent = hasStreamingSpeechContent(block);
+  const doingTool = toolCallsForBlock(block).some((call) => call.status === "doing");
+  const hasReasoning = block.activityStatus === "thinking" || block.activityReasoningCharCount > 0;
+
+  const normalizeRequestPhaseText = (text: string): string => {
+    if (!text) return "";
+    if (text.includes("准备调度") || text.includes("处理附件") || text.includes("上下文")) {
+      return t("chat.statusPreparingMessage");
+    }
+    if (
+      text.includes("等待回应")
+      || text.includes("进入模型请求阶段")
+      || text.includes("重新开始当前调度")
+      || text.includes("重新发起")
+      || text.includes("调度")
+      || text.includes("模型请求")
+    ) {
+      return t("chat.statusWaitingReply");
+    }
+    return "";
+  };
+
+  if (toolStatusState === "running") {
+    const requestPhase = normalizeRequestPhaseText(toolStatusText);
+    if (requestPhase) return requestPhase;
+  }
+  if (preStreamingStatusText) {
+    const requestPhase = normalizeRequestPhaseText(preStreamingStatusText);
+    if (requestPhase) return requestPhase;
+  }
+  if (hasSpeechContent) {
+    return t("chat.statusTypingBody");
+  }
+  if (doingTool || block.activityStatus === "running_tool") {
+    return t("chat.statusGeneratingTools");
+  }
+  if (hasReasoning) {
+    return t("chat.statusThinking");
+  }
+  return t("chat.statusWaitingReply");
+}
+
+function assistantStreamingHeaderStatus(block: ChatMessageBlock): string {
+  if (!showStreamingUi(block)) return "";
   const withElapsed = (text: string): string => {
     const elapsed = frontendDispatchElapsedLabel(block);
     return elapsed ? `${text}（${elapsed}）` : text;
   };
-  if (preStreamingStatusText) return withElapsed(preStreamingStatusText);
-  const toolCalls = toolCallsForBlock(block);
-  const doingTool = toolCalls.find((call) => call.status === "doing");
-  if (doingTool?.name) return withElapsed(t('chat.messageItem.executingTool', { name: doingTool.name }));
-  if (hasStreamingSpeechContent(block)) {
-    return withElapsed(t("chat.statusSpeaking"));
-  }
-  if (block.activityStatus === "thinking" || block.activityStatus === "running_tool") {
-    return withElapsed(t("chat.statusThinking"));
-  }
-  return withElapsed(t("chat.statusWaitingReply"));
+  return withElapsed(normalizedStreamingPhaseLabel(block));
 }
 
 function showAssistantPreStreamingDots(block: ChatMessageBlock): boolean {

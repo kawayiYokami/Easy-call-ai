@@ -125,6 +125,7 @@ export function useChatFlow(options: UseChatFlowOptions) {
     latestUserText: options.latestUserText,
     latestAssistantText: options.latestAssistantText,
     toolStatusText: options.toolStatusText,
+    toolStatusState: options.toolStatusState,
     streamBlocks: options.streamBlocks,
     getActiveRoundAgentId: () => activeRoundAgentId,
     getConversationId: options.getConversationId,
