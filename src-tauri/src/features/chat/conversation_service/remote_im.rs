@@ -3,10 +3,6 @@ impl ConversationService {
         &self,
         state: &AppState,
     ) -> Result<Vec<RemoteImContactConversationSummary>, String> {
-        let guard = state
-            .conversation_lock
-            .lock()
-            .map_err(|err| state_lock_error_with_panic(file!(), line!(), module_path!(), &err))?;
         let mut runtime = state_read_runtime_state_cached(state)?;
         let config = load_runtime_organization_snapshot(state)?.config;
         let mut resolved_pairs = Vec::<(RemoteImContact, String)>::new();
@@ -50,6 +46,9 @@ impl ConversationService {
             let summary = if let Some(meta) = message_store::read_ready_message_store_meta(&store_paths)? {
                 let manifest_status = message_store::read_message_store_manifest_status(&store_paths)?
                     .ok_or_else(|| format!("联系人会话缺少消息存储 manifest：{conversation_id}"))?;
+                let preview_messages = self
+                    .read_remote_im_contact_preview_messages(state, &conversation_id, 2)
+                    .unwrap_or_default();
                 Some(RemoteImContactConversationSummary {
                     contact_id: contact.id.clone(),
                     conversation_id: conversation_id.clone(),
@@ -70,9 +69,7 @@ impl ConversationService {
                     bound_department_id: contact.bound_department_id.clone(),
                     bound_agent_id: contact.bound_agent_id.clone(),
                     processing_mode: normalize_contact_processing_mode(&contact.processing_mode),
-                    preview_messages: self
-                        .read_remote_im_contact_preview_messages(state, &conversation_id, 2)
-                        .unwrap_or_default(),
+                    preview_messages,
                 })
             } else {
                 let conversation = match self.try_read_unarchived_conversation(state, &conversation_id)? {
@@ -116,7 +113,6 @@ impl ConversationService {
                 .unwrap_or(a.updated_at.as_str());
             bk.cmp(ak).then_with(|| b.updated_at.cmp(&a.updated_at))
         });
-        drop(guard);
         Ok(items)
     }
 
