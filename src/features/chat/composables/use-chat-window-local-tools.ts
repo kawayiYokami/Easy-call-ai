@@ -1,12 +1,31 @@
 import { i18n } from "../../../i18n";
 import { invokeTauri } from "../../../services/tauri-api";
-import { resolveModelRoleApiConfigId } from "../../config/utils/model-role-options";
+import type { AppConfig } from "../../../types/app";
+import type { Ref } from "vue";
 
 const t = i18n.global.t;
 
-export function useChatWindowLocalTools(bindings: Record<string, any>) {
-  const preferredModelPersistPending = new Map<string, Promise<boolean>>();
+type ChatWindowLocalToolsBindings = Record<string, any> & {
+  t: (key: string, params?: Record<string, unknown>) => string;
+  status: Ref<string>;
+  setStatus: (value: string) => void;
+  setStatusError: (key: string, error: unknown) => void;
+  personaEditorId: Ref<string>;
+  personaDirty: Ref<boolean>;
+  selectedPersonaEditor: Ref<{ name?: string } | null>;
+  assistantDepartmentAgentId: Ref<string>;
+  currentForegroundDepartmentId: Ref<string>;
+  selectedResponseStyleId: Ref<string>;
+  selectedPdfReadMode: Ref<"text" | "image">;
+  backgroundVoiceScreenshotKeywords: Ref<string>;
+  backgroundVoiceScreenshotMode: Ref<"desktop" | "focused_window">;
+  instructionPresets: Ref<any[]>;
+  currentForegroundApiConfig: Ref<any>;
+  config: AppConfig;
+  applyDepartmentPrimaryApiConfigLocally: (department: any, apiConfigId: string) => boolean;
+};
 
+export function useChatWindowLocalTools(bindings: ChatWindowLocalToolsBindings) {
   function updatePersonaEditorIdWithNotice(value: string) {
     const nextId = String(value || "").trim();
     if (!nextId || nextId === bindings.personaEditorId.value) return;
@@ -59,81 +78,6 @@ export function useChatWindowLocalTools(bindings: Record<string, any>) {
       bindings.config.selectedApiConfigId = previousSelectedApiConfigId;
       bindings.setStatusError("status.saveConfigFailed", error);
     }
-  }
-
-  function updateConversationPreferredApiConfigId(value: string) {
-    void updateConversationPreferredApiConfig(value);
-  }
-
-  async function waitPendingConversationPreferredModelPersist(conversationId?: string | null): Promise<boolean> {
-    const cid = String(conversationId || bindings.currentChatConversationId.value || "").trim();
-    if (!cid) return true;
-    const pending = preferredModelPersistPending.get(cid);
-    return pending ? await pending : true;
-  }
-
-  function currentConversationPreferredModelId(conversationId: string): string {
-    const cid = String(conversationId || "").trim();
-    if (!cid || cid !== String(bindings.currentChatConversationId.value || "").trim()) return "";
-    return String(bindings.currentChatPreferredApiConfigId?.value || "").trim();
-  }
-
-  async function updateConversationPreferredApiConfig(value: string) {
-    const nextId = String(value || "").trim();
-    const resolvedId = resolveModelRoleApiConfigId(nextId, bindings.config);
-    if (nextId && !bindings.config.apiConfigs.some((item: any) =>
-      item.id === resolvedId
-      && item.enableText
-      && (!bindings.isTextRequestFormat || bindings.isTextRequestFormat(item.requestFormat))
-    )) {
-      bindings.setStatus(t('chat.localTools.modelNotAvailable'));
-      return;
-    }
-    const conversationId = String(bindings.currentChatConversationId.value || "").trim();
-    if (!conversationId) {
-      bindings.setStatus(t('chat.localTools.noSwitchableSession'));
-      return;
-    }
-    const previousId = String(bindings.currentChatPreferredApiConfigId?.value || "").trim();
-    if (previousId === nextId) return;
-    console.info("[会话首选模型] 前端切换会话首选模型", {
-      conversationId,
-      preferredApiConfigId: nextId || null,
-      detached: !!bindings.detachedChatWindow.value,
-    });
-    if (bindings.currentChatPreferredApiConfigId) {
-      bindings.currentChatPreferredApiConfigId.value = nextId;
-    }
-    bindings.detachedTemporaryApiConfigId.value = "";
-    let persist!: Promise<boolean>;
-    persist = (async () => {
-      try {
-        await invokeTauri("set_conversation_preferred_model", {
-          input: {
-            conversationId,
-            preferredApiConfigId: nextId || null,
-          },
-        });
-        if (bindings.chatting.value) {
-          bindings.setStatus(t('chat.localTools.modelSwitched'));
-        }
-        return true;
-      } catch (error) {
-        const isLatestPersist = preferredModelPersistPending.get(conversationId) === persist;
-        const currentPreferredId = currentConversationPreferredModelId(conversationId);
-        if (isLatestPersist && currentPreferredId === nextId) {
-          bindings.currentChatPreferredApiConfigId.value = previousId;
-        }
-        bindings.setStatusError("status.saveConfigFailed", error);
-        return false;
-      } finally {
-        if (preferredModelPersistPending.get(conversationId) === persist) {
-          preferredModelPersistPending.delete(conversationId);
-        }
-      }
-    })();
-    preferredModelPersistPending.set(conversationId, persist);
-    await persist;
   }
 
   function updateSelectedResponseStyleId(value: string) {
@@ -290,9 +234,6 @@ export function useChatWindowLocalTools(bindings: Record<string, any>) {
     updatePersonaEditorIdWithNotice,
     updateAssistantDepartmentAgentId,
     updateForegroundDepartmentPrimaryApiConfig,
-    updateConversationPreferredApiConfigId,
-    updateConversationPreferredApiConfig,
-    waitPendingConversationPreferredModelPersist,
     updateSelectedResponseStyleId,
     updateSelectedPdfReadMode,
     updateBackgroundVoiceScreenshotKeywords,

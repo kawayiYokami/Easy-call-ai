@@ -3,11 +3,21 @@ import { useChatConversationItemsDerivedState } from "./use-chat-conversation-it
 import { useChatMessageBlocks } from "./use-chat-turns";
 import { useChatPersonaConversationDerivedState } from "./use-chat-persona-conversation-derived-state";
 import { useChatWindowBasicDerivedState } from "./use-chat-window-basic-derived-state";
+import { useConversationPreferredModel } from "./use-conversation-preferred-model";
 import { useChatWindowLocalTools } from "./use-chat-window-local-tools";
 import { useChatWindowMessageHelpers } from "./use-chat-window-message-helpers";
 import { useTerminalApproval } from "../../shell/composables/use-terminal-approval";
+import type { Ref } from "vue";
 
-export function useChatWindowContentOrchestrator(bindings: Record<string, any>) {
+type ChatWindowContentOrchestratorBindings = Record<string, any> & {
+  currentChatConversationId: Ref<string>;
+  currentChatPreferredApiConfigId: Ref<string>;
+  detachedChatWindow: Ref<boolean>;
+  detachedTemporaryApiConfigId: Ref<string>;
+  personaDirty: Ref<boolean>;
+};
+
+export function useChatWindowContentOrchestrator(bindings: ChatWindowContentOrchestratorBindings) {
   const configDerived = bindings.configDerived;
   const avatarCache = useAvatarCache({ personas: bindings.personas });
   const conversationItems = useChatConversationItemsDerivedState({
@@ -51,14 +61,6 @@ export function useChatWindowContentOrchestrator(bindings: Record<string, any>) 
     selectedPersonaEditor: personaConversation.selectedPersonaEditor,
     assistantDepartmentAgentId: bindings.assistantDepartmentAgentId,
     currentForegroundDepartmentId: personaConversation.currentForegroundDepartmentId,
-    currentChatConversationId: bindings.currentChatConversationId,
-    currentChatPreferredApiConfigId: bindings.currentChatPreferredApiConfigId,
-    chatConversationItems: conversationItems.chatConversationItems,
-    unarchivedConversations: bindings.unarchivedConversations,
-    remoteImContactConversations: bindings.remoteImContactConversations,
-    chatting: bindings.chatting,
-    detachedChatWindow: bindings.detachedChatWindow,
-    detachedTemporaryApiConfigId: bindings.detachedTemporaryApiConfigId,
     currentForegroundApiConfig: personaConversation.currentForegroundApiConfig,
     selectedResponseStyleId: bindings.selectedResponseStyleId,
     selectedPdfReadMode: bindings.selectedPdfReadMode,
@@ -69,8 +71,16 @@ export function useChatWindowContentOrchestrator(bindings: Record<string, any>) 
     queuedAttachmentNotices: bindings.queuedAttachmentNotices,
     hasVisionFallback: configDerived.hasVisionFallback,
     config: bindings.config,
-    isTextRequestFormat: configDerived.isTextRequestFormat,
     applyDepartmentPrimaryApiConfigLocally: configDerived.applyDepartmentPrimaryApiConfigLocally,
+  });
+  const conversationPreferredModel = useConversationPreferredModel({
+    config: bindings.config,
+    currentChatConversationId: bindings.currentChatConversationId,
+    currentChatPreferredApiConfigId: bindings.currentChatPreferredApiConfigId,
+    detachedTemporaryApiConfigId: bindings.detachedTemporaryApiConfigId,
+    setStatus: bindings.setStatus,
+    setStatusError: bindings.setStatusError,
+    isTextRequestFormat: configDerived.isTextRequestFormat,
   });
   const messageBlocks = useChatMessageBlocks({
     allMessages: bindings.allMessages,
@@ -107,7 +117,10 @@ export function useChatWindowContentOrchestrator(bindings: Record<string, any>) 
     conversationItems,
     personaConversation,
     messageHelpers,
-    localTools,
+    localTools: {
+      ...localTools,
+      ...conversationPreferredModel,
+    },
     messageBlocks,
     terminalApproval,
     basicState,

@@ -314,6 +314,7 @@ export function useChatWindowApp() {
     currentChatPreferredApiConfigId,
     detachedChatWindow,
     detachedTemporaryApiConfigId,
+    personaDirty: configUi.personaDirty,
     unarchivedConversations,
     remoteImContactConversations,
     backgroundConversationBadgeMap,
