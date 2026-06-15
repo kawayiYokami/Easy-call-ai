@@ -2996,7 +2996,9 @@ fn ide_chat_task_create_task_for_web_settings(
 ) -> Result<Value, String> {
     let input = ide_chat_parse_param_field::<TaskCreateInput>(params, "input")?;
     let input = task_create_input_for_write(state, &input)?;
-    ide_chat_serialize(task_store_create_task(&state.data_path, &input)?)
+    let task = task_store_create_task(&state.data_path, &input)?;
+    task_scheduler_notify_changed(state);
+    ide_chat_serialize(task)
 }
 
 fn ide_chat_task_update_task_for_web_settings(
@@ -3005,7 +3007,9 @@ fn ide_chat_task_update_task_for_web_settings(
 ) -> Result<Value, String> {
     let input = ide_chat_parse_param_field::<TaskUpdateInput>(params, "input")?;
     let input = task_update_input_for_write(state, &input)?;
-    ide_chat_serialize(task_store_update_task(&state.data_path, &input)?)
+    let task = task_store_update_task(&state.data_path, &input)?;
+    task_scheduler_notify_changed(state);
+    ide_chat_serialize(task)
 }
 
 fn ide_chat_task_complete_task_for_web_settings(
@@ -3013,7 +3017,9 @@ fn ide_chat_task_complete_task_for_web_settings(
     params: Value,
 ) -> Result<Value, String> {
     let input = ide_chat_parse_param_field::<TaskCompleteInput>(params, "input")?;
-    ide_chat_serialize(task_store_complete_task(&state.data_path, &input)?)
+    let task = task_store_complete_task(&state.data_path, &input)?;
+    task_scheduler_notify_changed(state);
+    ide_chat_serialize(task)
 }
 
 fn ide_chat_task_delete_task_for_web_settings(
@@ -3022,6 +3028,7 @@ fn ide_chat_task_delete_task_for_web_settings(
 ) -> Result<Value, String> {
     let input = ide_chat_parse_param_field::<TaskDeleteInput>(params, "input")?;
     task_store_delete_task(&state.data_path, input.task_id.trim())?;
+    task_scheduler_notify_changed(state);
     Ok(serde_json::json!(null))
 }
 
@@ -5027,20 +5034,25 @@ async fn ide_chat_submit_delegate(state: &AppState, params: Value) -> Result<Val
 fn ide_chat_task_create(state: &AppState, params: Value) -> Result<Value, String> {
     let input = ide_chat_parse_params::<TaskCreateInput>(params)?;
     let input = task_create_input_for_write(state, &input)?;
-    serde_json::to_value(task_store_create_task(&state.data_path, &input)?)
+    let task = task_store_create_task(&state.data_path, &input)?;
+    task_scheduler_notify_changed(state);
+    serde_json::to_value(task)
         .map_err(|err| format!("Serialize task create result failed: {err}"))
 }
 
 fn ide_chat_task_update(state: &AppState, params: Value) -> Result<Value, String> {
     let input = ide_chat_parse_params::<TaskUpdateInput>(params)?;
     let input = task_update_input_for_write(state, &input)?;
-    serde_json::to_value(task_store_update_task(&state.data_path, &input)?)
+    let task = task_store_update_task(&state.data_path, &input)?;
+    task_scheduler_notify_changed(state);
+    serde_json::to_value(task)
         .map_err(|err| format!("Serialize task update result failed: {err}"))
 }
 
 fn ide_chat_task_delete(state: &AppState, params: Value) -> Result<Value, String> {
     let input = ide_chat_parse_params::<TaskDeleteInput>(params)?;
     task_store_delete_task(&state.data_path, input.task_id.trim())?;
+    task_scheduler_notify_changed(state);
     Ok(serde_json::json!(true))
 }
 

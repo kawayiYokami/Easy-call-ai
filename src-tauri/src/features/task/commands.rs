@@ -555,7 +555,9 @@ async fn task_optimize_draft_internal(
 #[tauri::command]
 fn task_create_task(input: TaskCreateInput, state: State<'_, AppState>) -> Result<TaskEntry, String> {
     let input = task_create_input_for_write(state.inner(), &input)?;
-    task_store_create_task(&state.data_path, &input)
+    let task = task_store_create_task(&state.data_path, &input)?;
+    task_scheduler_notify_changed(state.inner());
+    Ok(task)
 }
 
 #[tauri::command]
@@ -572,17 +574,23 @@ async fn task_dispatch_task_now(input: TaskDispatchNowInput, state: State<'_, Ap
 #[tauri::command]
 fn task_update_task(input: TaskUpdateInput, state: State<'_, AppState>) -> Result<TaskEntry, String> {
     let input = task_update_input_for_write(state.inner(), &input)?;
-    task_store_update_task(&state.data_path, &input)
+    let task = task_store_update_task(&state.data_path, &input)?;
+    task_scheduler_notify_changed(state.inner());
+    Ok(task)
 }
 
 #[tauri::command]
 fn task_complete_task(input: TaskCompleteInput, state: State<'_, AppState>) -> Result<TaskEntry, String> {
-    task_store_complete_task(&state.data_path, &input)
+    let task = task_store_complete_task(&state.data_path, &input)?;
+    task_scheduler_notify_changed(state.inner());
+    Ok(task)
 }
 
 #[tauri::command]
 fn task_delete_task(input: TaskDeleteInput, state: State<'_, AppState>) -> Result<(), String> {
-    task_store_delete_task(&state.data_path, input.task_id.trim())
+    task_store_delete_task(&state.data_path, input.task_id.trim())?;
+    task_scheduler_notify_changed(state.inner());
+    Ok(())
 }
 
 #[tauri::command]

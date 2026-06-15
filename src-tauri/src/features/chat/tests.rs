@@ -3354,6 +3354,7 @@
             active_chat_view_bindings: Arc::new(Mutex::new(std::collections::HashMap::new())),
             conversation_list_activity_marks: Arc::new(Mutex::new(std::collections::HashMap::new())),
             dequeue_lock: Arc::new(Mutex::new(())),
+            task_scheduler_notify: Arc::new(tokio::sync::Notify::new()),
             delegate_runtime_threads: Arc::new(Mutex::new(std::collections::HashMap::new())),
             delegate_recent_threads: Arc::new(Mutex::new(std::collections::VecDeque::new())),
             provider_streaming_disabled_keys: Arc::new(Mutex::new(
@@ -5626,68 +5627,16 @@
     }
 
     #[test]
-    fn task_conversation_last_message_is_system_persona_should_detect_system_message() {
+    fn task_build_dispatch_candidates_should_allow_empty_input() {
         let state = test_chat_runtime_state();
-        let now = now_iso();
-        let mut data = AppData::default();
-        data.main_conversation_id = Some("conversation-main".to_string());
-        data.conversations = vec![Conversation {
-            id: "conversation-main".to_string(),
-            title: "main".to_string(),
-            agent_id: DEFAULT_AGENT_ID.to_string(),
-            department_id: String::new(),
-            bound_conversation_id: None,
-            parent_conversation_id: None,
-            child_conversation_ids: Vec::new(),
-            fork_message_cursor: None,
-            unread_count: 0,
-            conversation_kind: CONVERSATION_KIND_CHAT.to_string(),
-            root_conversation_id: None,
-            delegate_id: None,
-            created_at: now.clone(),
-            updated_at: now.clone(),
-            last_user_at: None,
-            last_assistant_at: Some(now.clone()),
-            status: "active".to_string(),
-            summary: String::new(),
-            user_profile_snapshot: String::new(),
-            shell_workspace_path: None,
-            shell_workspaces: Vec::new(),
-            shell_autonomous_mode: false,
-            archived_at: None,
-            messages: vec![ChatMessage {
-                id: Uuid::new_v4().to_string(),
-                role: "user".to_string(),
-                created_at: now.clone(),
-                speaker_agent_id: Some(SYSTEM_PERSONA_ID.to_string()),
-                parts: vec![MessagePart::Text {
-                    text: "任务提醒".to_string(),
-                reasoning_content: None,
-            }],
-                extra_text_blocks: Vec::new(),
-                provider_meta: None,
-                tool_call: None,
-                mcp_call: None,
-            meme_annotations: None,
-            }],
-            current_todos: Vec::new(),
-            memory_recall_table: Vec::new(),
-            plan_mode_enabled: false,
-            preferred_api_config_id: None,
-            auto_push_remote_contact_id: None,
-            active_goal: None,
-            cumulative_usage: ConversationCumulativeUsage::default(),
-        }];
-        state_write_app_data_cached(&state, &data).expect("write app data");
+        let candidates = task_build_dispatch_candidates(&state, Vec::new(), now_utc())
+            .expect("build dispatch candidates");
 
-        let blocked = task_conversation_last_message_is_system_persona(&state, "conversation-main")
-            .expect("check last system message");
-
-        assert!(blocked);
+        assert!(candidates.is_empty());
     }
 
     #[test]
-    fn task_build_dispatch_candidates_should_keep_oldest_due_task_per_conversation() {
+    fn task_build_dispatch_candidates_should_allow_multiple_due_tasks_per_conversation() {
         let state = test_chat_runtime_state();
         write_config(&state.config_path, &AppConfig::default()).expect("write config");
         let data = test_user_switched_to_sub_conversation_data();
@@ -5723,11 +5672,13 @@
         let candidates =
             task_build_dispatch_candidates(&state, tasks, now_utc()).expect("build dispatch candidates");
 
-        assert_eq!(candidates.len(), 2);
+        assert_eq!(candidates.len(), 3);
         assert_eq!(candidates[0].task.task_id, task_1.task_id);
         assert_eq!(candidates[0].session.conversation_id, "conversation-main");
-        assert_eq!(candidates[1].task.task_id, task_3.task_id);
-        assert_eq!(candidates[1].session.conversation_id, "conversation-sub");
+        assert_eq!(candidates[1].task.task_id, task_2.task_id);
+        assert_eq!(candidates[1].session.conversation_id, "conversation-main");
+        assert_eq!(candidates[2].task.task_id, task_3.task_id);
+        assert_eq!(candidates[2].session.conversation_id, "conversation-sub");
     }
 
     #[test]
@@ -5797,7 +5748,7 @@
     }
 
     #[test]
-    fn task_build_dispatch_candidates_should_dedupe_system_tasks_by_conversation() {
+    fn task_build_dispatch_candidates_should_allow_multiple_due_system_tasks() {
         let state = test_chat_runtime_state();
         write_config(&state.config_path, &AppConfig::default()).expect("write config");
         let data = test_user_switched_to_sub_conversation_data();
@@ -5833,19 +5784,17 @@
         let candidates =
             task_build_dispatch_candidates(&state, tasks, now_utc()).expect("build dispatch candidates");
 
-        assert_eq!(candidates.len(), 1);
+        assert_eq!(candidates.len(), 2);
         assert_eq!(candidates[0].task.task_id, task_1.task_id);
+        assert_eq!(candidates[1].task.task_id, task_2.task_id);
         assert!(candidates.iter().all(|item| item.session.system_task));
         assert!(candidates
             .iter()
             .all(|item| item.session.conversation_id == SYSTEM_NOTIFICATION_CONVERSATION_ID));
-        let skipped = task_store_get_task_record(&state.data_path, &task_2.task_id)
-            .expect("get skipped system task");
-        assert!(skipped.last_triggered_at_utc.is_some());
     }
 
     #[test]
-    fn task_build_dispatch_candidates_should_skip_busy_conversation() {
+    fn task_build_dispatch_candidates_should_ignore_root_conversation_busy_state() {
         let state = test_chat_runtime_state();
         write_config(&state.config_path, &AppConfig::default()).expect("write config");
         let data = test_user_switched_to_sub_conversation_data();
@@ -5875,10 +5824,61 @@
         let candidates =
             task_build_dispatch_candidates(&state, tasks, now_utc()).expect("build dispatch candidates");
 
-        assert!(candidates.is_empty());
-        let skipped = task_store_get_task_record(&state.data_path, &created.task_id)
-            .expect("get skipped task record");
-        assert!(skipped.last_triggered_at_utc.is_some());
+        assert_eq!(candidates.len(), 1);
+        assert_eq!(candidates[0].task.task_id, created.task_id);
+    }
+
+    #[test]
+    fn task_scheduler_next_wake_delay_should_pick_earliest_active_due_time() {
+        let state = test_chat_runtime_state();
+        write_config(&state.config_path, &AppConfig::default()).expect("write config");
+        let data = test_user_switched_to_sub_conversation_data();
+        state_write_app_data_cached(&state, &data).expect("write app data");
+        let late_utc = (now_utc() + time::Duration::minutes(10))
+            .format(&time::format_description::well_known::Rfc3339)
+            .expect("format late");
+        let soon_utc = (now_utc() + time::Duration::minutes(2))
+            .format(&time::format_description::well_known::Rfc3339)
+            .expect("format soon");
+
+        task_store_create_task(&state.data_path, &TaskCreateInput {
+            goal: "late".to_string(),
+            conversation_id: Some("conversation-main".to_string()),
+            department_id: Some(ASSISTANT_DEPARTMENT_ID.to_string()),
+            agent_id: Some(DEFAULT_AGENT_ID.to_string()),
+            target_scope: Some(TASK_TARGET_SCOPE_DESKTOP.to_string()),
+            why: String::new(),
+            todo: String::new(),
+            trigger: TaskTriggerInputLocal {
+                run_at: Some(format_utc_storage_time_to_local_rfc3339(&late_utc)),
+                cron_expression: None,
+                end_at: None,
+                legacy_every_minutes: None,
+            },
+        })
+        .expect("create late task");
+        task_store_create_task(&state.data_path, &TaskCreateInput {
+            goal: "soon".to_string(),
+            conversation_id: Some("conversation-sub".to_string()),
+            department_id: Some(ASSISTANT_DEPARTMENT_ID.to_string()),
+            agent_id: Some(DEFAULT_AGENT_ID.to_string()),
+            target_scope: Some(TASK_TARGET_SCOPE_DESKTOP.to_string()),
+            why: String::new(),
+            todo: String::new(),
+            trigger: TaskTriggerInputLocal {
+                run_at: Some(format_utc_storage_time_to_local_rfc3339(&soon_utc)),
+                cron_expression: None,
+                end_at: None,
+                legacy_every_minutes: None,
+            },
+        })
+        .expect("create soon task");
+
+        let delay = task_scheduler_next_wake_delay(&state)
+            .expect("next wake delay")
+            .expect("delay present");
+
+        assert!(delay <= std::time::Duration::from_secs(2 * 60 + 2));
     }
 
     #[test]

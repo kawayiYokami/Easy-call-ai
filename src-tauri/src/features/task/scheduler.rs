@@ -133,32 +133,22 @@ fn task_resolve_dispatch_session(
 
 fn task_dispatch_block_reason(
     state: &AppState,
-    conversation_id: &str,
+    _conversation_id: &str,
 ) -> Result<Option<&'static str>, String> {
     let _dequeue_guard = state
         .dequeue_lock
         .lock()
         .map_err(|_| "Failed to lock dequeue lock".to_string())?;
     let claims = lock_conversation_processing_claims(state)?;
-    let slots = lock_conversation_runtime_slots(state)?;
     let running_count = claims.len();
-    let slot = slots.get(conversation_id);
-    if slot.map(|item| item.state != MainSessionState::Idle).unwrap_or(false) {
-        return Ok(Some("conversation_busy"));
-    }
-    if slot
-        .map(|item| !item.pending_queue.is_empty())
-        .unwrap_or(false)
-    {
-        return Ok(Some("conversation_queue_not_empty"));
-    }
-    if conversation_running_slot_count(&claims, conversation_id) > 0 {
-        return Ok(Some("conversation_busy"));
-    }
     if running_count >= CHAT_CONCURRENCY_LIMIT {
         return Ok(Some("chat_concurrency_limit"));
     }
     Ok(None)
+}
+
+fn task_scheduler_notify_changed(state: &AppState) {
+    state.task_scheduler_notify.notify_one();
 }
 
 fn task_trigger_label(task: &TaskRecordStored) -> &'static str {
@@ -293,19 +283,6 @@ fn task_fail_unavailable_owner(
     Ok(())
 }
 
-fn task_conversation_last_message_is_system_persona(
-    state: &AppState,
-    conversation_id: &str,
-) -> Result<bool, String> {
-    let conversation = state_read_conversation_cached(state, conversation_id)?;
-    Ok(conversation
-        .messages
-        .last()
-        .and_then(|message| message.speaker_agent_id.as_deref())
-        .map(str::trim)
-        == Some(SYSTEM_PERSONA_ID))
-}
-
 fn task_is_due(entry: &TaskRecordStored, now: OffsetDateTime) -> bool {
     if entry.completion_state != TASK_STATE_ACTIVE {
         return false;
@@ -372,26 +349,6 @@ fn build_hidden_task_board_block(state: &AppState) -> Option<String> {
     Some(prompt_xml_block("task board", lines.join("\n")))
 }
 
-fn task_has_previous_active_delegate_goal(
-    state: &AppState,
-    task: &TaskRecordStored,
-    session: &TaskDispatchSessionResolved,
-) -> Result<bool, String> {
-    let task_goal = task_goal_from_legacy_fields(&task.title, &task.goal);
-    for thread in delegate_runtime_thread_list(state)? {
-        if thread.root_conversation_id.trim() != session.conversation_id.trim() {
-            continue;
-        }
-        let Some(goal) = thread.conversation.active_goal.as_ref() else {
-            continue;
-        };
-        if conversation_goal_is_active(goal) && goal.objective.trim() == task_goal.trim() {
-            return Ok(true);
-        }
-    }
-    Ok(false)
-}
-
 async fn task_dispatch_due_task(
     state: &AppState,
     task: &TaskRecordStored,
@@ -418,23 +375,6 @@ async fn task_dispatch_due_task(
     let trigger_label = task_trigger_label(task);
     let todo_count = task_dispatch_todo_count(task);
     let task_goal = task_goal_from_legacy_fields(&task.title, &task.goal);
-    if task_has_previous_active_delegate_goal(state, task, session)? {
-        let duration_ms = started_at.elapsed().as_millis();
-        task_mark_dispatch_skipped(state, task, "previous_goal_active", &TaskDispatchSkipContext {
-            request_id,
-            dispatch_id,
-            task_goal,
-            conversation_id: session.conversation_id.clone(),
-            trigger_label: trigger_label.to_string(),
-            todo_count,
-            has_run_at: task.trigger.run_at_utc.is_some(),
-            cron_expression: task.trigger.cron_expression.clone().unwrap_or_default(),
-            duration_ms,
-            target_scope: session.target_scope.clone(),
-            system_task: session.system_task,
-        })?;
-        return Ok(());
-    }
     let why = task_why_from_legacy_record(task);
     let todo = task_todo_from_legacy_fields(&task.status_summary, &task.todos);
     let delegate = delegate_create_record(
@@ -515,7 +455,6 @@ fn task_build_dispatch_candidates(
         .collect::<Vec<_>>();
     due_tasks.sort_by_key(|item| item.order_index);
 
-    let mut used_conversation_ids = std::collections::HashSet::<String>::new();
     let mut candidates = Vec::<TaskDispatchCandidate>::new();
     for task in due_tasks {
         let session = match task_resolve_dispatch_session(state, &task) {
@@ -534,16 +473,6 @@ fn task_build_dispatch_candidates(
             task_mark_dispatch_skipped(state, &task, reason, &context)?;
             continue;
         }
-        if task_conversation_last_message_is_system_persona(state, &session.conversation_id)? {
-            let context = task_skip_context_for_candidate_filter(&task, &session);
-            task_mark_dispatch_skipped(state, &task, "last_message_is_task_trigger", &context)?;
-            continue;
-        }
-        if !used_conversation_ids.insert(session.conversation_id.clone()) {
-            let context = task_skip_context_for_candidate_filter(&task, &session);
-            task_mark_dispatch_skipped(state, &task, "same_conversation_already_selected", &context)?;
-            continue;
-        }
         candidates.push(TaskDispatchCandidate { task, session });
     }
     Ok(candidates)
@@ -555,6 +484,47 @@ async fn task_scheduler_tick(state: &AppState) -> Result<(), String> {
     let candidates = task_build_dispatch_candidates(state, tasks, now)?;
     for candidate in candidates {
         task_dispatch_due_task(state, &candidate.task, &candidate.session).await?;
+    }
+    Ok(())
+}
+
+fn task_scheduler_next_wake_delay(state: &AppState) -> Result<Option<std::time::Duration>, String> {
+    let tasks = task_store_list_task_records(&state.data_path)?;
+    let now = now_utc();
+    let next_due = tasks
+        .into_iter()
+        .filter(|task| task.completion_state == TASK_STATE_ACTIVE)
+        .filter_map(|task| {
+            task.trigger
+                .next_run_at_utc
+                .as_deref()
+                .and_then(parse_rfc3339_time)
+        })
+        .min();
+    let Some(next_due) = next_due else {
+        return Ok(None);
+    };
+    if next_due <= now {
+        return Ok(Some(std::time::Duration::ZERO));
+    }
+    let millis = (next_due - now).whole_milliseconds();
+    let millis = u64::try_from(millis).unwrap_or(u64::MAX);
+    Ok(Some(std::time::Duration::from_millis(millis)))
+}
+
+async fn task_scheduler_wait(state: &AppState) -> Result<(), String> {
+    let fallback = std::time::Duration::from_secs(TASK_SCHEDULER_FALLBACK_SECONDS);
+    let next_delay = task_scheduler_next_wake_delay(state)?;
+    let wait_duration = next_delay.map(|delay| delay.min(fallback)).unwrap_or(fallback);
+    if wait_duration.is_zero() {
+        return Ok(());
+    }
+
+    let sleep = tokio::time::sleep(wait_duration);
+    tokio::pin!(sleep);
+    tokio::select! {
+        _ = &mut sleep => {}
+        _ = state.task_scheduler_notify.notified() => {}
     }
     Ok(())
 }
@@ -571,7 +541,15 @@ fn start_task_scheduler(state: AppState) {
                     state.data_path.to_string_lossy()
                 );
             }
-            tokio::time::sleep(std::time::Duration::from_secs(TASK_SCHEDULER_INTERVAL_SECONDS)).await;
+            if let Err(err) = task_scheduler_wait(&state).await {
+                eprintln!(
+                    "[任务调度] 等待下一次触发失败，error={}，durationMs={}，dataPath={}",
+                    err,
+                    tick_started_at.elapsed().as_millis(),
+                    state.data_path.to_string_lossy()
+                );
+                tokio::time::sleep(std::time::Duration::from_secs(TASK_SCHEDULER_FALLBACK_SECONDS)).await;
+            }
         }
     });
 }

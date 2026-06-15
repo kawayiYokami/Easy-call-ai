@@ -234,6 +234,7 @@ async fn builtin_task(
                 task_store_create_task(&data_path, &create_input_for_io)
             })
             .await?;
+            task_scheduler_notify_changed(app_state);
             serde_json::to_value(task).map_err(|err| format!("Serialize task create failed: {err}"))
         }
         "complete" => {
@@ -259,6 +260,7 @@ async fn builtin_task(
                 task_store_complete_task(&data_path, &complete_input_for_io)
             })
             .await?;
+            task_scheduler_notify_changed(app_state);
             serde_json::to_value(task)
                 .map_err(|err| format!("Serialize task complete failed: {err}"))
         }
