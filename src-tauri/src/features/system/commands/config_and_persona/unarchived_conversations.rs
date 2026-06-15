@@ -460,9 +460,6 @@ fn set_conversation_preferred_model(
         conversation_id,
         resolved_preferred_api_config_id.clone(),
     )?;
-    let overview_payload =
-        conversation_service().refresh_unarchived_conversation_overview_payload(state.inner())?;
-    emit_unarchived_conversation_overview_updated_payload(state.inner(), &overview_payload);
 
     runtime_log_info(format!(
         "[会话模型] 完成，任务=切换会话首选模型，会话ID={}，api_config_id={}",

@@ -4820,8 +4820,6 @@ fn ide_chat_select_model(state: &AppState, _app: &AppHandle, params: Value) -> R
         conversation_id,
         preferred_api_config_id,
     )?;
-    let overview_payload = conversation_service().refresh_unarchived_conversation_overview_payload(state)?;
-    emit_unarchived_conversation_overview_updated_payload(state, &overview_payload);
     let updated_conversation = state_read_conversation_cached(state, conversation_id)?;
     runtime_log_info(format!(
         "[会话模型] 完成，任务=切换会话首选模型，入口=vscode_sidebar，会话ID={}，api_config_id={}",
