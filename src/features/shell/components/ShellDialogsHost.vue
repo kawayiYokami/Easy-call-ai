@@ -260,7 +260,7 @@ function handleConfirmTrimCompactionAction() {
             <div class="mt-2 text-xs opacity-70">{{ t("dialogs.trim.compactHint") }}</div>
             <div
               v-if="trimCompactionPreview?.compactionDisabledReason"
-              class="mt-3 rounded border border-warning/30 bg-warning/10 px-3 py-2 text-sm text-warning-content"
+              class="mt-3 rounded border border-warning/30 bg-warning/10 px-3 py-2 text-sm text-warning"
             >
               {{ trimCompactionPreview.compactionDisabledReason }}
             </div>
@@ -271,7 +271,7 @@ function handleConfirmTrimCompactionAction() {
             <div class="mt-2 text-xs opacity-70">{{ t("dialogs.trim.archiveHint") }}</div>
             <div
               v-if="trimPreview?.archiveDisabledReason"
-              class="mt-3 rounded border border-warning/30 bg-warning/10 px-3 py-2 text-sm text-warning-content"
+              class="mt-3 rounded border border-warning/30 bg-warning/10 px-3 py-2 text-sm text-warning"
             >
               {{ trimPreview.archiveDisabledReason }}
             </div>

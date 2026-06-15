@@ -13,7 +13,7 @@
           <div class="mt-2 text-xs opacity-70">适合上下文变长后继续推进同一主题。</div>
           <div
             v-if="preview?.compactionDisabledReason"
-            class="mt-3 rounded border border-warning/30 bg-warning/10 px-3 py-2 text-sm text-warning-content"
+            class="mt-3 rounded border border-warning/30 bg-warning/10 px-3 py-2 text-sm text-warning"
           >
             {{ preview.compactionDisabledReason }}
           </div>
