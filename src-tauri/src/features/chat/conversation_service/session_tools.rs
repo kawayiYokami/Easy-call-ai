@@ -605,6 +605,45 @@ impl ConversationService {
         )
     }
 
+    fn resolve_remote_im_contact_conversation_id_for_notification(
+        &self,
+        state: &AppState,
+        remote_contact_id: &str,
+    ) -> Result<String, String> {
+        let normalized_remote_contact_id = remote_contact_id.trim();
+        if normalized_remote_contact_id.is_empty() {
+            return Err("remoteContactId 不能为空".to_string());
+        }
+        let mut runtime = state_read_runtime_state_cached(state)?;
+        let contact = runtime
+            .remote_im_contacts
+            .iter_mut()
+            .find(|item| item.id.trim() == normalized_remote_contact_id)
+            .ok_or_else(|| format!("未找到远程联系人：{normalized_remote_contact_id}"))?;
+        let previous_bound_conversation_id = contact
+            .bound_conversation_id
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(ToOwned::to_owned);
+        let conversation_id = ensure_remote_im_contact_conversation_id(state, contact)?;
+        if previous_bound_conversation_id.as_deref() != Some(conversation_id.as_str()) {
+            state_write_runtime_state_cached(state, &runtime)?;
+            runtime_log_info(format!(
+                "[自动推送] 完成，任务=修复远程联系人绑定会话，remote_contact_id={}，conversation_id={}，previous_conversation_id={}",
+                normalized_remote_contact_id,
+                conversation_id,
+                previous_bound_conversation_id.as_deref().unwrap_or("")
+            ));
+        } else {
+            runtime_log_info(format!(
+                "[自动推送] 完成，任务=解析远程联系人绑定会话，remote_contact_id={}，conversation_id={}",
+                normalized_remote_contact_id, conversation_id
+            ));
+        }
+        Ok(conversation_id)
+    }
+
     fn enqueue_auto_push_remote_contact_message(
         &self,
         state: &AppState,
@@ -623,21 +662,45 @@ impl ConversationService {
             || !conversation_visible_in_foreground_lists(&source_conversation)
             || conversation_is_system_notification(&source_conversation)
         {
+            runtime_log_info(format!(
+                "[自动推送] 跳过，任务=解析推送源会话，source_conversation_id={}，remote_contact_id={}，reason=source_conversation_not_eligible",
+                normalized_source_conversation_id,
+                normalized_remote_contact_id
+            ));
             return Ok(());
         }
-        let target = self
-            .list_remote_im_contact_conversations(state)?
-            .into_iter()
-            .find(|item| item.contact_id.trim() == normalized_remote_contact_id)
-            .ok_or_else(|| format!("未找到远程联系人：{normalized_remote_contact_id}"))?;
+        runtime_log_info(format!(
+            "[自动推送] 开始，任务=解析远程联系人通知目标，source_conversation_id={}，remote_contact_id={}",
+            normalized_source_conversation_id,
+            normalized_remote_contact_id
+        ));
+        let target_conversation_id = self.resolve_remote_im_contact_conversation_id_for_notification(
+            state,
+            normalized_remote_contact_id,
+        )?;
         let body = build_session_notification_body(state, normalized_source_conversation_id, content)?;
         let message = build_session_notification_message(&body);
+        runtime_log_info(format!(
+            "[自动推送] 开始，任务=通知转发入队，source_conversation_id={}，target_conversation_id={}，remote_contact_id={}，message_id={}",
+            normalized_source_conversation_id,
+            target_conversation_id,
+            normalized_remote_contact_id,
+            message.id
+        ));
         enqueue_session_notification_dispatch(
             state,
-            &target.conversation_id,
+            &target_conversation_id,
             &body,
             &message,
             "auto_push_session",
-        )
+        )?;
+        runtime_log_info(format!(
+            "[自动推送] 完成，任务=通知转发入队，source_conversation_id={}，target_conversation_id={}，remote_contact_id={}，message_id={}",
+            normalized_source_conversation_id,
+            target_conversation_id,
+            normalized_remote_contact_id,
+            message.id
+        ));
+        Ok(())
     }
 }

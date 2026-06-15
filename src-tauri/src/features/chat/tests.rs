@@ -4428,6 +4428,48 @@
     }
 
     #[test]
+    fn auto_push_remote_contact_should_not_depend_on_contact_list_snapshot() {
+        let (state, source_id, _target_local_id, remote_target_id) = seed_session_forward_test_state();
+        let target =
+            state_read_conversation_cached(&state, &remote_target_id).expect("read remote target");
+        let store_paths = message_store::message_store_paths(&state.data_path, &remote_target_id)
+            .expect("message store paths");
+        message_store::write_jsonl_snapshot_directory_shard(&store_paths, &target)
+            .expect("write message store");
+        let meta_path = app_layout_chat_conversations_dir(&state.data_path)
+            .join(&remote_target_id)
+            .join("meta.json");
+        std::fs::remove_file(&meta_path).expect("remove message store meta");
+
+        conversation_service()
+            .enqueue_auto_push_remote_contact_message(
+                &state,
+                &source_id,
+                "contact-session-a",
+                "自动推送正文",
+            )
+            .expect("enqueue auto push remote contact");
+
+        let mut target =
+            state_read_conversation_cached(&state, &remote_target_id).expect("read remote target");
+        for _ in 0..20 {
+            if !target.messages.is_empty() {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(50));
+            target = state_read_conversation_cached(&state, &remote_target_id)
+                .expect("read remote target");
+        }
+        assert_eq!(target.messages.len(), 1);
+        match &target.messages[0].parts[0] {
+            MessagePart::Text { text, .. } => {
+                assert_eq!(text, "[源会话·通知部门·通知人格]:自动推送正文");
+            }
+            _ => panic!("expected text notification"),
+        }
+    }
+
+    #[test]
     fn forward_selection_to_remote_im_contact_should_append_single_notification_message() {
         let (state, source_id, _target_local_id, remote_target_id) = seed_session_forward_test_state();
         let source = state_read_conversation_cached(&state, &source_id).expect("read source");
