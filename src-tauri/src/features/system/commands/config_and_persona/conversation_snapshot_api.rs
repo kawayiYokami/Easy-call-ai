@@ -101,6 +101,7 @@ struct ConversationListItemState {
 const DESKTOP_CHAT_VIEWER_ID: &str = "desktop:chat";
 const VSCODE_SIDEBAR_WINDOW_LABEL_PREFIX: &str = "vscode-sidebar:";
 const LEGACY_IDE_CHAT_SIDEBAR_WINDOW_LABEL_PREFIX: &str = "ide-chat-sidebar-";
+const CONVERSATION_PREVIEW_TEXT_CHAR_LIMIT: usize = 20;
 
 fn chat_viewer_id_for_window_label(label: &str) -> Option<String> {
     let window_label = label.trim();
@@ -225,7 +226,13 @@ fn build_conversation_preview_text(message: &ChatMessage) -> String {
         .filter(|text| !text.is_empty())
         .collect::<Vec<_>>()
         .join("\n");
-    clean_text(text.trim())
+    truncate_conversation_preview_text(&clean_text(text.trim()))
+}
+
+fn truncate_conversation_preview_text(text: &str) -> String {
+    text.chars()
+        .take(CONVERSATION_PREVIEW_TEXT_CHAR_LIMIT)
+        .collect()
 }
 
 fn conversation_message_has_attachment(message: &ChatMessage) -> bool {
@@ -1289,5 +1296,29 @@ mod conversation_snapshot_api_tests {
             .map(|item| item.conversation_id.as_str())
             .collect::<Vec<_>>();
         assert_eq!(ids, vec!["main", "pinned", "recent", "older"]);
+    }
+
+    #[test]
+    fn build_conversation_preview_text_should_truncate_to_20_chars() {
+        let message = ChatMessage {
+            id: "message-1".to_string(),
+            role: "assistant".to_string(),
+            created_at: "2026-06-15T00:00:00Z".to_string(),
+            speaker_agent_id: None,
+            parts: vec![MessagePart::Text {
+                text: "123456789012345678901234567890".to_string(),
+                reasoning_content: None,
+            }],
+            extra_text_blocks: Vec::new(),
+            provider_meta: None,
+            tool_call: None,
+            mcp_call: None,
+            meme_annotations: None,
+        };
+
+        assert_eq!(
+            build_conversation_preview_text(&message),
+            "12345678901234567890"
+        );
     }
 }
