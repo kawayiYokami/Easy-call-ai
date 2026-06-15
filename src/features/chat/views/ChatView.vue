@@ -168,7 +168,7 @@
             >
                 <ChatWorkspaceToolbar
                   :chatting="chatting" :frozen="frozen" :conversation-busy="conversationInteractionBusy"
-                  :workspace-button-label="t('chat.allowedWorkspaceButton')" :workspace-button-name="currentWorkspaceName"
+                  :workspace-button-label="t('chat.allowedWorkspaceButton')" :workspace-button-name="currentWorkspaceDisplayName || currentWorkspaceName"
                   :workspace-button-disabled="!activeConversationId || activeConversationSummary?.kind === 'remote_im_contact'"
                   :auto-push-active="!!String(activeConversationSummary?.autoPushRemoteContactId || '').trim()"
                   :hide-menu-button="activeConversationSummary?.kind === 'remote_im_contact'"
@@ -520,7 +520,7 @@ const props = defineProps<{
   conversationBusy: boolean; frozen: boolean; messageBlocks: ChatMessageBlock[];
   hasMoreHistory: boolean; loadingOlderHistory: boolean;
   latestOwnMessageAlignRequest: number; conversationScrollToBottomRequest: number;
-  currentWorkspaceName: string; currentWorkspaceRootPath: string; workspaces: ShellWorkspace[];
+  currentWorkspaceName: string; currentWorkspaceDisplayName?: string; currentWorkspaceRootPath: string; workspaces: ShellWorkspace[];
   currentDepartmentId: string; activeConversationId: string; currentTodos: ChatTodoItem[];
   supervisionActive: boolean; supervisionTitle: string; supervisionDialogOpen: boolean;
   supervisionTaskSaving: boolean; supervisionTaskError: string;

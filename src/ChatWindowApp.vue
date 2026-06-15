@@ -118,6 +118,7 @@
       :user-alias="userAlias"
       :selected-persona-name="currentForegroundPersona?.name || t('archives.roleAssistant')"
       :current-chat-workspace-name="chatWorkspaceName"
+      :current-chat-workspace-display-name="chatWorkspaceDisplayName"
       :current-chat-workspace-root-path="chatWorkspaceRootPath"
       :current-chat-workspaces="chatWorkspaceChoices"
       :current-chat-department-id="currentForegroundDepartmentId"

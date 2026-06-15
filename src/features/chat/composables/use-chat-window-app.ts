@@ -444,6 +444,7 @@ export function useChatWindowApp() {
   });
   const {
     chatWorkspaceName,
+    chatWorkspaceDisplayName,
     refreshChatWorkspaceState,
   } = workspaceOrchestrator;
   const {

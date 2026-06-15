@@ -74,6 +74,23 @@ export function useChatWorkspace(options: UseChatWorkspaceOptions) {
         return workspaceLevelRank(left.level) - workspaceLevelRank(right.level);
       }),
   );
+  const chatWorkspaceEffectiveAccess = computed<ShellWorkspace["access"]>(() => {
+    const matched = findWorkspaceChoiceByPath(chatWorkspaceRootPath.value);
+    if (matched) return matched.access;
+    const mainWorkspace = chatWorkspaceChoices.value.find((item) => item.level === "main");
+    if (mainWorkspace) return mainWorkspace.access;
+    return "read_only";
+  });
+  const chatWorkspacePermissionLabel = computed(() => {
+    if (chatWorkspaceAutonomousMode.value) return t("chat.workspacePermissionFull");
+    if (chatWorkspaceEffectiveAccess.value === "full_access") return t("chat.workspacePermissionDirectoryFull");
+    if (chatWorkspaceEffectiveAccess.value === "approval") return t("chat.workspacePermissionDirectoryApproval");
+    return t("chat.workspacePermissionReadOnly");
+  });
+  const chatWorkspaceDisplayName = computed(() => {
+    const workspaceName = String(chatWorkspaceName.value || "").trim() || DEFAULT_CHAT_WORKSPACE_NAME;
+    return `[${chatWorkspacePermissionLabel.value}] ${workspaceName}`;
+  });
 
   function applyChatWorkspaceState(state: ChatShellWorkspaceState) {
     const nextPath = String(state.rootPath || "").trim();
@@ -179,6 +196,7 @@ export function useChatWorkspace(options: UseChatWorkspaceOptions) {
     chatWorkspacePickerOpen,
     chatWorkspaceChoices,
     chatWorkspaceAutonomousMode,
+    chatWorkspaceDisplayName,
     refreshChatWorkspaceState,
     openChatWorkspacePicker,
     closeChatWorkspacePicker,

@@ -157,6 +157,7 @@
         :latest-own-message-align-request="latestOwnMessageAlignRequest"
         :conversation-scroll-to-bottom-request="conversationScrollToBottomRequest"
         :current-workspace-name="currentChatWorkspaceName"
+        :current-workspace-display-name="currentChatWorkspaceDisplayName"
         :current-workspace-root-path="currentChatWorkspaceRootPath"
         :workspaces="currentChatWorkspaces"
         :current-department-id="currentChatDepartmentId"
@@ -526,6 +527,7 @@ const props = defineProps<{
   latestOwnMessageAlignRequest: number;
   conversationScrollToBottomRequest: number;
   currentChatWorkspaceName: string;
+  currentChatWorkspaceDisplayName: string;
   currentChatWorkspaceRootPath: string;
   currentChatWorkspaces: ShellWorkspace[];
   currentChatDepartmentId: string;
