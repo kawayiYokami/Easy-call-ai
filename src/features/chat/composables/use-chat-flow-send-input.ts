@@ -25,6 +25,7 @@ type UseChatFlowSendInputOptions = {
 export type PreparedChatSendInput = {
   useOverrideMessage: boolean;
   plainText: string;
+  displayText: string;
   selectedMentions: ChatMentionTarget[];
   extraTextBlocks: string[];
   sentImages: ImageAttachment[];
@@ -48,6 +49,30 @@ export function useChatFlowSendInput(options: UseChatFlowSendInputOptions) {
       : [];
   }
 
+  function buildDisplayText(
+    plainText: string,
+    sentImages: ImageAttachment[],
+    queuedAttachments: Array<{ fileName: string; relativePath: string; mime: string }>,
+  ): string {
+    if (plainText) return plainText;
+    const imageCount = sentImages.length;
+    const attachmentNames = queuedAttachments
+      .map((item) => String(item.fileName || item.relativePath || "").trim())
+      .filter((item, index, array) => !!item && array.indexOf(item) === index)
+      .slice(0, 3);
+    const attachmentCount = queuedAttachments.length;
+    const parts: string[] = [];
+    if (imageCount > 0) {
+      parts.push(`用户发送了${imageCount}张图片`);
+    }
+    if (attachmentCount > 0) {
+      const suffix = attachmentNames.length > 0 ? `：${attachmentNames.join("、")}` : "";
+      parts.push(`用户发送了${attachmentCount}个附件${suffix}`);
+    }
+    if (parts.length === 0) return plainText;
+    return `${parts.join("，")}。请基于这些内容处理。`;
+  }
+
   function prepareSendInput(overrides?: SendChatOverrides): PreparedChatSendInput | null {
     const useOverrideMessage = !!overrides && typeof overrides.text === "string";
     const plainText = useOverrideMessage
@@ -65,9 +90,13 @@ export function useChatFlowSendInput(options: UseChatFlowSendInputOptions) {
     if (!sendSession || !sendSession.apiConfigId || !sendSession.agentId) return null;
     const sendConversationId = normalizeConversationId(options.getConversationId ? options.getConversationId() : "");
     const attachments = [...queuedAttachments, ...options.buildImageAttachmentPayload(sentImages)];
+    const displayText = useOverrideMessage
+      ? String(overrides?.displayText || "").trim() || plainText
+      : buildDisplayText(plainText, sentImages, queuedAttachments);
     return {
       useOverrideMessage,
       plainText,
+      displayText,
       selectedMentions,
       extraTextBlocks,
       sentImages,

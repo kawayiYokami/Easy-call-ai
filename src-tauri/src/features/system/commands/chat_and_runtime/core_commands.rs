@@ -101,6 +101,75 @@ fn build_user_message_provider_meta(
     Some(Value::Object(root))
 }
 
+fn attachment_display_name(input: &AttachmentMetaInput) -> Option<String> {
+    let file_name = input.file_name.trim();
+    if !file_name.is_empty() {
+        return Some(file_name.to_string());
+    }
+    let relative_path = input.relative_path.trim();
+    if relative_path.is_empty() {
+        return None;
+    }
+    std::path::Path::new(relative_path)
+        .file_name()
+        .and_then(|value| value.to_str())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToOwned::to_owned)
+}
+
+fn build_attachment_only_display_text(
+    raw_display_text: Option<&str>,
+    raw_text: Option<&str>,
+    images: &[BinaryPart],
+    attachments: &[AttachmentMetaInput],
+) -> String {
+    let preferred = raw_display_text
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .or_else(|| raw_text.map(str::trim).filter(|value| !value.is_empty()));
+    if let Some(text) = preferred {
+        return text.to_string();
+    }
+
+    let image_count = images.len();
+    let attachment_names = attachments
+        .iter()
+        .filter_map(attachment_display_name)
+        .fold(Vec::<String>::new(), |mut names, name| {
+            if !names.iter().any(|item| item == &name) {
+                names.push(name);
+            }
+            names
+        });
+    let attachment_count = attachments.len();
+    let mut parts = Vec::<String>::new();
+    if image_count > 0 {
+        parts.push(format!("用户发送了{}张图片", image_count));
+    }
+    if attachment_count > 0 {
+        let suffix = if attachment_names.is_empty() {
+            String::new()
+        } else {
+            format!(
+                "：{}",
+                attachment_names
+                    .iter()
+                    .take(3)
+                    .cloned()
+                    .collect::<Vec<_>>()
+                    .join("、")
+            )
+        };
+        parts.push(format!("用户发送了{}个附件{}", attachment_count, suffix));
+    }
+    if parts.is_empty() {
+        String::new()
+    } else {
+        format!("{}。请基于这些内容处理。", parts.join("，"))
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct ConfirmPlanAndContinueInput {
@@ -1338,14 +1407,12 @@ async fn submit_chat_message_inner(
         return Err("消息内容为空".to_string());
     }
 
-    let display_text = input
-        .payload
-        .display_text
-        .as_deref()
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .unwrap_or(text)
-        .to_string();
+    let display_text = build_attachment_only_display_text(
+        input.payload.display_text.as_deref(),
+        input.payload.text.as_deref(),
+        images,
+        attachments,
+    );
     let normalized_mentions = normalize_payload_mentions(input.payload.mentions.as_ref());
     let has_user_mentions = !normalized_mentions.is_empty();
 
@@ -1617,14 +1684,12 @@ async fn send_chat_message(
         return Err("消息内容为空".to_string());
     }
 
-    let display_text = input
-        .payload
-        .display_text
-        .as_deref()
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .unwrap_or(text)
-        .to_string();
+    let display_text = build_attachment_only_display_text(
+        input.payload.display_text.as_deref(),
+        input.payload.text.as_deref(),
+        images,
+        attachments,
+    );
     let normalized_mentions = normalize_payload_mentions(input.payload.mentions.as_ref());
 
     let mut message_parts = Vec::new();
@@ -1850,14 +1915,12 @@ async fn send_user_mention_message_inner(
         return Err("消息内容为空".to_string());
     }
 
-    let display_text = input
-        .payload
-        .display_text
-        .as_deref()
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .unwrap_or(text)
-        .to_string();
+    let display_text = build_attachment_only_display_text(
+        input.payload.display_text.as_deref(),
+        input.payload.text.as_deref(),
+        images,
+        attachments,
+    );
     let normalized_mentions = normalize_payload_mentions(input.payload.mentions.as_ref());
 
     let mut message_parts = Vec::new();
@@ -2491,6 +2554,38 @@ fn merge_stream_block_tool_history(
 #[cfg(test)]
 mod stop_stream_block_tool_history_tests {
     use super::*;
+
+    #[test]
+    fn build_attachment_only_display_text_should_describe_images_when_text_missing() {
+        let text = build_attachment_only_display_text(
+            None,
+            None,
+            &[BinaryPart {
+                mime: "image/png".to_string(),
+                bytes_base64: "abc".to_string(),
+                saved_path: Some("media/a.png".to_string()),
+            }],
+            &[],
+        );
+
+        assert_eq!(text, "用户发送了1张图片。请基于这些内容处理。");
+    }
+
+    #[test]
+    fn build_attachment_only_display_text_should_include_attachment_names() {
+        let text = build_attachment_only_display_text(
+            None,
+            None,
+            &[],
+            &[AttachmentMetaInput {
+                file_name: "report.pdf".to_string(),
+                relative_path: "exports/report.pdf".to_string(),
+                mime: "application/pdf".to_string(),
+            }],
+        );
+
+        assert_eq!(text, "用户发送了1个附件：report.pdf。请基于这些内容处理。");
+    }
 
     #[test]
     fn stream_blocks_to_tool_history_should_keep_running_tool_call_for_interrupted_message() {

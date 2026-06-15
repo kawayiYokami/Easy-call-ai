@@ -94,6 +94,7 @@ export function useChatFlowSendController(options: UseChatFlowSendControllerOpti
     if (!prepared) return;
     const {
       plainText,
+      displayText,
       selectedMentions,
       extraTextBlocks,
       sentImages,
@@ -157,10 +158,7 @@ export function useChatFlowSendController(options: UseChatFlowSendControllerOpti
     try {
       const submitResult = await options.invokeSendChatMessage({
         text: plainText,
-        displayText:
-          overrides && typeof overrides.displayText === "string"
-            ? overrides.displayText
-            : plainText,
+        displayText,
         images: sentImages,
         attachments: attachments.length > 0 ? attachments : undefined,
         extraTextBlocks: extraTextBlocks.length > 0 ? extraTextBlocks : undefined,
