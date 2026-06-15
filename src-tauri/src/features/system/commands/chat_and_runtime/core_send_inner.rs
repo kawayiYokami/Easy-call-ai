@@ -190,29 +190,52 @@ fn trim_conversation_for_prompt_request(conversation: &Conversation) -> Conversa
 }
 
 const REMOTE_IM_AUTO_COMPACTION_IDLE_HOURS: i64 = 10;
+const REMOTE_IM_AUTO_COMPACTION_MIN_MESSAGES: usize = 7;
 
-fn remote_im_latest_real_llm_reply_at(conversation: &Conversation) -> Option<&str> {
+fn remote_im_latest_idle_boundary_message_at(
+    conversation: &Conversation,
+    ignore_trailing_user_message: bool,
+) -> Option<&str> {
     conversation
         .messages
         .iter()
         .rev()
-        .find(|message| {
-            message.role.trim() == "assistant"
-                && message
-                    .speaker_agent_id
-                    .as_deref()
-                    .map(str::trim)
-                    .filter(|value| !value.is_empty())
-                    != Some(SYSTEM_PERSONA_ID)
+        .skip_while(|message| {
+            ignore_trailing_user_message
+                && message.role.trim() == "user"
+                && !is_context_compaction_message(message, message.role.trim())
         })
         .map(|message| message.created_at.trim())
-        .filter(|value| !value.is_empty())
+        .find(|value| !value.is_empty())
 }
 
-fn remote_im_idle_hours_since_latest_real_llm_reply(conversation: &Conversation) -> Option<i64> {
-    let latest_reply_at = remote_im_latest_real_llm_reply_at(conversation)?;
-    let latest_reply_at = parse_iso(latest_reply_at)?;
-    Some((now_utc() - latest_reply_at).whole_seconds() / 3600)
+fn remote_im_idle_seconds_since_latest_message(
+    conversation: &Conversation,
+    ignore_trailing_user_message: bool,
+) -> Option<i64> {
+    if !conversation_is_remote_im_contact(conversation)
+        || conversation.messages.len() < REMOTE_IM_AUTO_COMPACTION_MIN_MESSAGES
+    {
+        return None;
+    }
+    let latest_message_at =
+        remote_im_latest_idle_boundary_message_at(conversation, ignore_trailing_user_message)?;
+    let latest_message_at = parse_iso(latest_message_at)?;
+    let elapsed_seconds = (now_utc() - latest_message_at).whole_seconds();
+    (elapsed_seconds >= 0).then_some(elapsed_seconds)
+}
+
+fn remote_im_auto_compaction_idle_hours_if_due(
+    conversation: &Conversation,
+    ignore_trailing_user_message: bool,
+) -> Option<i64> {
+    let elapsed_seconds =
+        remote_im_idle_seconds_since_latest_message(conversation, ignore_trailing_user_message)?;
+    let threshold_seconds = REMOTE_IM_AUTO_COMPACTION_IDLE_HOURS * 3600;
+    if elapsed_seconds < threshold_seconds {
+        return None;
+    }
+    Some(elapsed_seconds / 3600)
 }
 
 fn find_runtime_image_text_cache(
@@ -2909,6 +2932,8 @@ async fn send_chat_message_inner(
         ))
     };
     let mut prepared_context = prepare_request_context(persist_user_message_on_next_prepare)?;
+    let ignore_trailing_user_message_for_idle_compaction =
+        persist_user_message_on_next_prepare && !trigger_only;
     if apply_prompt_image_fallbacks_to_prepared(
         &state,
         &app_config,
@@ -2936,94 +2961,90 @@ async fn send_chat_message_inner(
             );
         }
     } else {
-        let idle_compaction_hours = if conversation_is_remote_im_contact(&conversation_for_compaction)
-        {
-            remote_im_idle_hours_since_latest_real_llm_reply(&conversation_for_compaction)
-        } else {
-            None
-        };
-        if let Some(elapsed_hours) = idle_compaction_hours {
-            if elapsed_hours >= REMOTE_IM_AUTO_COMPACTION_IDLE_HOURS {
-                eprintln!(
-                    "[远程联系人压缩] 开始，任务=发送前自动压缩，conversation_id={}, idle_hours={}, threshold_hours={}",
-                    conversation_for_compaction.id,
-                    elapsed_hours,
-                    REMOTE_IM_AUTO_COMPACTION_IDLE_HOURS
-                );
-                let _ = on_delta.send(round_completed_delta_event(
-                    &conversation_for_compaction.id,
-                    runtime_context.request_id.as_deref(),
-                    "",
-                    None,
+        if let Some(elapsed_hours) = remote_im_auto_compaction_idle_hours_if_due(
+            &conversation_for_compaction,
+            ignore_trailing_user_message_for_idle_compaction,
+        ) {
+            eprintln!(
+                "[远程联系人压缩] 开始，任务=发送前自动压缩，conversation_id={}, message_count={}, idle_hours={}, threshold_hours={}",
+                conversation_for_compaction.id,
+                conversation_for_compaction.messages.len(),
+                elapsed_hours,
+                REMOTE_IM_AUTO_COMPACTION_IDLE_HOURS
+            );
+            let _ = on_delta.send(round_completed_delta_event(
+                &conversation_for_compaction.id,
+                runtime_context.request_id.as_deref(),
+                "",
+                None,
+            ));
+            if let Err(err) =
+                clear_conversation_stream_runtime_cache(&state, &conversation_for_compaction.id)
+            {
+                runtime_log_warn(format!(
+                    "[聊天流式缓存] 远程联系人发送前自动压缩清理失败 conversation_id={} error={}",
+                    conversation_for_compaction.id, err
                 ));
-                if let Err(err) =
-                    clear_conversation_stream_runtime_cache(&state, &conversation_for_compaction.id)
-                {
-                    runtime_log_warn(format!(
-                        "[聊天流式缓存] 远程联系人发送前自动压缩清理失败 conversation_id={} error={}",
-                        conversation_for_compaction.id, err
+            }
+            let archive_res = run_context_compaction_pipeline(
+                &state,
+                &selected_api,
+                &resolved_api,
+                &conversation_for_compaction,
+                &current_agent_id_for_compaction,
+                "remote_im_idle_10h",
+                "COMPACTION-AUTO",
+                &[],
+                false,
+            )
+            .await;
+            match archive_res {
+                Ok(result) => {
+                    archived_before_send_any = archived_before_send_any || result.archived;
+                    let done_message = if result
+                        .warning
+                        .as_deref()
+                        .unwrap_or("")
+                        .trim()
+                        .is_empty()
+                    {
+                        "远程联系人会话已自动整理，正在重新开始当前调度...".to_string()
+                    } else {
+                        format!(
+                            "远程联系人会话自动整理完成（{}），正在重新开始当前调度...",
+                            result.warning.unwrap_or_default()
+                        )
+                    };
+                    let _ = on_delta.send(round_completed_delta_event(
+                        &conversation_for_compaction.id,
+                        runtime_context.request_id.as_deref(),
+                        &done_message,
+                        None,
                     ));
+                    compaction_restart_count = compaction_restart_count.saturating_add(1);
+                    if compaction_restart_count > 3 {
+                        return Err(format!(
+                            "远程联系人会话自动压缩重启次数过多，conversation_id={}, count={}",
+                            conversation_for_compaction.id, compaction_restart_count
+                        ));
+                    }
+                    restart_dispatch_round_after_context_compaction(
+                        &state,
+                        &mut runtime_context,
+                        &conversation_for_compaction.id,
+                        &conversation_for_compaction.department_id,
+                        &current_agent_id_for_compaction,
+                        "after_auto_compaction",
+                    )?;
+                    preloaded_prepare_snapshot = None;
+                    persist_user_message_on_next_prepare = false;
+                    continue 'dispatch;
                 }
-                let archive_res = run_context_compaction_pipeline(
-                    &state,
-                    &selected_api,
-                    &resolved_api,
-                    &conversation_for_compaction,
-                    &current_agent_id_for_compaction,
-                    "remote_im_idle_llm_10h",
-                    "COMPACTION-AUTO",
-                    &[],
-                    false,
-                )
-                .await;
-                match archive_res {
-                    Ok(result) => {
-                        archived_before_send_any = archived_before_send_any || result.archived;
-                        let done_message = if result
-                            .warning
-                            .as_deref()
-                            .unwrap_or("")
-                            .trim()
-                            .is_empty()
-                        {
-                            "远程联系人会话已自动整理，正在重新开始当前调度...".to_string()
-                        } else {
-                            format!(
-                                "远程联系人会话自动整理完成（{}），正在重新开始当前调度...",
-                                result.warning.unwrap_or_default()
-                            )
-                        };
-                        let _ = on_delta.send(round_completed_delta_event(
-                            &conversation_for_compaction.id,
-                            runtime_context.request_id.as_deref(),
-                            &done_message,
-                            None,
-                        ));
-                        compaction_restart_count = compaction_restart_count.saturating_add(1);
-                        if compaction_restart_count > 3 {
-                            return Err(format!(
-                                "远程联系人会话自动压缩重启次数过多，conversation_id={}, count={}",
-                                conversation_for_compaction.id, compaction_restart_count
-                            ));
-                        }
-                        restart_dispatch_round_after_context_compaction(
-                            &state,
-                            &mut runtime_context,
-                            &conversation_for_compaction.id,
-                            &conversation_for_compaction.department_id,
-                            &current_agent_id_for_compaction,
-                            "after_auto_compaction",
-                        )?;
-                        preloaded_prepare_snapshot = None;
-                        persist_user_message_on_next_prepare = false;
-                        continue 'dispatch;
-                    }
-                    Err(err) => {
-                        runtime_log_error(format!(
-                            "[远程联系人压缩] 失败，任务=发送前自动压缩，conversation_id={}，idle_hours={}，error={}",
-                            conversation_for_compaction.id, elapsed_hours, err
-                        ));
-                    }
+                Err(err) => {
+                    runtime_log_error(format!(
+                        "[远程联系人压缩] 失败，任务=发送前自动压缩，conversation_id={}，idle_hours={}，error={}",
+                        conversation_for_compaction.id, elapsed_hours, err
+                    ));
                 }
             }
         }
@@ -3893,6 +3914,80 @@ mod core_send_inner_tests {
         }
     }
 
+    fn test_rfc3339_hours_ago(hours: i64) -> String {
+        (now_utc() - time::Duration::hours(hours))
+            .replace_nanosecond(0)
+            .expect("strip nanos")
+            .format(&Rfc3339)
+            .expect("format test timestamp")
+    }
+
+    fn test_message_at(id: &str, role: &str, created_at: &str) -> ChatMessage {
+        ChatMessage {
+            id: id.to_string(),
+            role: role.to_string(),
+            created_at: created_at.to_string(),
+            speaker_agent_id: (role == "assistant").then_some("agent-a".to_string()),
+            parts: vec![MessagePart::Text {
+                text: format!("{role} message {id}"),
+                reasoning_content: None,
+            }],
+            extra_text_blocks: Vec::new(),
+            provider_meta: None,
+            tool_call: None,
+            mcp_call: None,
+            meme_annotations: None,
+        }
+    }
+
+    fn test_compaction_message_at(id: &str, created_at: &str) -> ChatMessage {
+        let mut message = test_message_at(id, "user", created_at);
+        message.provider_meta = Some(serde_json::json!({
+            "message_meta": {
+                "kind": "context_compaction",
+                "scene": "compaction"
+            }
+        }));
+        message
+    }
+
+    fn test_remote_im_conversation_with_messages(messages: Vec<ChatMessage>) -> Conversation {
+        let now = now_iso();
+        Conversation {
+            id: "remote-conversation-a".to_string(),
+            title: "远程联系人".to_string(),
+            agent_id: "agent-a".to_string(),
+            department_id: ASSISTANT_DEPARTMENT_ID.to_string(),
+            bound_conversation_id: None,
+            parent_conversation_id: None,
+            child_conversation_ids: Vec::new(),
+            fork_message_cursor: None,
+            unread_count: 0,
+            conversation_kind: CONVERSATION_KIND_REMOTE_IM_CONTACT.to_string(),
+            root_conversation_id: None,
+            delegate_id: None,
+            created_at: now.clone(),
+            updated_at: now,
+            last_user_at: None,
+            last_assistant_at: None,
+            status: String::new(),
+            summary: String::new(),
+            user_profile_snapshot: String::new(),
+            shell_workspace_path: None,
+            shell_workspaces: Vec::new(),
+            shell_autonomous_mode: false,
+            archived_at: None,
+            messages,
+            current_todos: Vec::new(),
+            memory_recall_table: Vec::new(),
+            plan_mode_enabled: false,
+            preferred_api_config_id: None,
+            auto_push_remote_contact_id: None,
+            active_goal: None,
+            cumulative_usage: ConversationCumulativeUsage::default(),
+        }
+    }
+
     fn test_prepared_prompt_with_user_image_history(
         history_user_count: usize,
         latest_user_text: &str,
@@ -3932,6 +4027,73 @@ mod core_send_inner_tests {
             },
             latest_audios: Vec::new(),
         }
+    }
+
+    #[test]
+    fn remote_im_auto_compaction_should_skip_when_message_count_below_minimum() {
+        let old_time = test_rfc3339_hours_ago(REMOTE_IM_AUTO_COMPACTION_IDLE_HOURS + 1);
+        let messages = (0..REMOTE_IM_AUTO_COMPACTION_MIN_MESSAGES - 1)
+            .map(|idx| test_message_at(&format!("m-{idx}"), "user", &old_time))
+            .collect::<Vec<_>>();
+        let conversation = test_remote_im_conversation_with_messages(messages);
+
+        assert!(remote_im_auto_compaction_idle_hours_if_due(&conversation, false).is_none());
+    }
+
+    #[test]
+    fn remote_im_auto_compaction_should_use_latest_message_as_idle_boundary_without_new_user() {
+        let old_time = test_rfc3339_hours_ago(REMOTE_IM_AUTO_COMPACTION_IDLE_HOURS + 1);
+        let recent_time = test_rfc3339_hours_ago(REMOTE_IM_AUTO_COMPACTION_IDLE_HOURS - 1);
+        let mut messages = (0..REMOTE_IM_AUTO_COMPACTION_MIN_MESSAGES - 1)
+            .map(|idx| test_message_at(&format!("m-{idx}"), "assistant", &old_time))
+            .collect::<Vec<_>>();
+        messages.push(test_message_at("latest-user", "user", &recent_time));
+        let conversation = test_remote_im_conversation_with_messages(messages);
+
+        assert!(remote_im_auto_compaction_idle_hours_if_due(&conversation, false).is_none());
+    }
+
+    #[test]
+    fn remote_im_auto_compaction_should_ignore_new_trailing_user_messages() {
+        let old_time = test_rfc3339_hours_ago(REMOTE_IM_AUTO_COMPACTION_IDLE_HOURS + 1);
+        let recent_time = test_rfc3339_hours_ago(0);
+        let mut messages = (0..REMOTE_IM_AUTO_COMPACTION_MIN_MESSAGES - 1)
+            .map(|idx| test_message_at(&format!("m-{idx}"), "assistant", &old_time))
+            .collect::<Vec<_>>();
+        messages.push(test_message_at("current-user", "user", &recent_time));
+        let conversation = test_remote_im_conversation_with_messages(messages);
+
+        assert_eq!(
+            remote_im_auto_compaction_idle_hours_if_due(&conversation, true),
+            Some(REMOTE_IM_AUTO_COMPACTION_IDLE_HOURS + 1)
+        );
+    }
+
+    #[test]
+    fn remote_im_auto_compaction_should_not_ignore_trailing_compaction_message() {
+        let old_time = test_rfc3339_hours_ago(REMOTE_IM_AUTO_COMPACTION_IDLE_HOURS + 1);
+        let recent_time = test_rfc3339_hours_ago(0);
+        let mut messages = (0..REMOTE_IM_AUTO_COMPACTION_MIN_MESSAGES - 1)
+            .map(|idx| test_message_at(&format!("m-{idx}"), "assistant", &old_time))
+            .collect::<Vec<_>>();
+        messages.push(test_compaction_message_at("latest-compaction", &recent_time));
+        let conversation = test_remote_im_conversation_with_messages(messages);
+
+        assert!(remote_im_auto_compaction_idle_hours_if_due(&conversation, true).is_none());
+    }
+
+    #[test]
+    fn remote_im_auto_compaction_should_be_due_after_latest_message_idle_threshold() {
+        let old_time = test_rfc3339_hours_ago(REMOTE_IM_AUTO_COMPACTION_IDLE_HOURS + 1);
+        let messages = (0..REMOTE_IM_AUTO_COMPACTION_MIN_MESSAGES)
+            .map(|idx| test_message_at(&format!("m-{idx}"), "user", &old_time))
+            .collect::<Vec<_>>();
+        let conversation = test_remote_im_conversation_with_messages(messages);
+
+        assert_eq!(
+            remote_im_auto_compaction_idle_hours_if_due(&conversation, false),
+            Some(REMOTE_IM_AUTO_COMPACTION_IDLE_HOURS + 1)
+        );
     }
 
     #[test]
