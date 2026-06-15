@@ -5,6 +5,7 @@
 
 ## 最近版本
 
+- [v0.12.1](docs/changelog/releases/v0.12.1.md) - 修复（task-dialog）：聊天任务弹窗编辑分钟级循环任务时，不再把后端规范化后的 cron 误回显成"1 个月"。
 - [v0.12.0](docs/changelog/releases/v0.12.0.md) - 修复（data-migration）：拆分通用数据迁移版本与消息仓库迁移门禁，避免普通数据读取误标旧会话消息存储已迁移。
 - [v0.11.11](docs/changelog/releases/v0.11.11.md) - 修复（chat）：窗口最小化不再冻结前台轮次状态，恢复时统一走快照路径。
 - [v0.11.10](docs/changelog/releases/v0.11.10.md) - 修复（sidebar）：VS Code 侧边栏不再因为当前工作目录不匹配而隐藏本地会话，避免已有会话列表被误过滤。

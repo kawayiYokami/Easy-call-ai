@@ -1,7 +1,12 @@
 {
-  "generatedAt": "2026-06-14T08:03:59.901Z",
-  "latestVersion": "v0.12.0",
+  "generatedAt": "2026-06-15T03:53:05.062Z",
+  "latestVersion": "v0.12.1",
   "releases": [
+    {
+      "version": "v0.12.1",
+      "path": "docs/changelog/releases/v0.12.1.md",
+      "summary": "修复（task-dialog）：聊天任务弹窗编辑分钟级循环任务时，不再把后端规范化后的 cron 误回显成\"1 个月\"。"
+    },
     {
       "version": "v0.12.0",
       "path": "docs/changelog/releases/v0.12.0.md",
