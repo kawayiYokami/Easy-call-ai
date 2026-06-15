@@ -169,6 +169,7 @@ import { toErrorMessage } from "../../../../utils/error";
 import SegmentedControl from "../../../config/components/SegmentedControl.vue";
 import TaskDateTimeInput from "../../../config/views/config-tabs/TaskDateTimeInput.vue";
 import type { TaskEntry, TaskScheduleMode } from "../../../config/views/config-tabs/task-editor";
+import { inferMonthlyIntervalFromCronExpression } from "../../utils/task-schedule-cron";
 
 type RepeatIntervalUnit = "minutes" | "hours" | "days" | "weeks" | "months";
 
@@ -354,26 +355,6 @@ function buildMonthlyCronExpression(runAtDate: Date, repeatEveryValue: number): 
     }
   }
   return `${minute} ${hour} ${day} ${months.sort((left, right) => left - right).join(",")} *`;
-}
-
-function inferMonthlyIntervalFromCronExpression(value: string): number | null {
-  const parts = String(value || "").trim().split(/\s+/);
-  if (parts.length !== 5 || parts[4] !== "*") return null;
-  const monthPart = parts[3];
-  if (monthPart === "*") return 1;
-  const months = monthPart
-    .split(",")
-    .map((item) => Number.parseInt(item, 10))
-    .filter((item) => Number.isInteger(item) && item >= 1 && item <= 12)
-    .sort((left, right) => left - right);
-  if (months.length === 1) return 12;
-  if (months.length < 2) return null;
-  const diffs = months.map((month, index) => {
-    const nextMonth = index === months.length - 1 ? months[0] + 12 : months[index + 1];
-    return nextMonth - month;
-  });
-  const firstDiff = diffs[0];
-  return firstDiff > 0 && diffs.every((item) => item === firstDiff) ? firstDiff : null;
 }
 
 function setRepeatFromEveryMinutes(value: number) {
