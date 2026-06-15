@@ -1,7 +1,12 @@
 {
-  "generatedAt": "2026-06-15T03:53:05.062Z",
-  "latestVersion": "v0.12.1",
+  "generatedAt": "2026-06-15T05:49:44.084Z",
+  "latestVersion": "v0.12.2",
   "releases": [
+    {
+      "version": "v0.12.2",
+      "path": "docs/changelog/releases/v0.12.2.md",
+      "summary": "新增（chat）：普通会话菜单增加新建任务入口。"
+    },
     {
       "version": "v0.12.1",
       "path": "docs/changelog/releases/v0.12.1.md",
