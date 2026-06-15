@@ -169,7 +169,7 @@ import { toErrorMessage } from "../../../../utils/error";
 import SegmentedControl from "../../../config/components/SegmentedControl.vue";
 import TaskDateTimeInput from "../../../config/views/config-tabs/TaskDateTimeInput.vue";
 import type { TaskEntry, TaskScheduleMode } from "../../../config/views/config-tabs/task-editor";
-import { inferMonthlyIntervalFromCronExpression } from "../../utils/task-schedule-cron";
+import { inferFixedIntervalFromCronExpression, inferMonthlyIntervalFromCronExpression } from "../../utils/task-schedule-cron";
 
 type RepeatIntervalUnit = "minutes" | "hours" | "days" | "weeks" | "months";
 
@@ -314,8 +314,14 @@ function resetFormFromTask(task: TaskEntry) {
       repeatEvery.value = String(monthlyInterval);
       repeatUnit.value = "months";
     } else {
-      repeatEvery.value = "1";
-      repeatUnit.value = "hours";
+      const fixedInterval = inferFixedIntervalFromCronExpression(preservedCronExpression.value);
+      if (fixedInterval) {
+        repeatEvery.value = String(fixedInterval.repeatEvery);
+        repeatUnit.value = fixedInterval.repeatUnit;
+      } else {
+        repeatEvery.value = "1";
+        repeatUnit.value = "hours";
+      }
     }
   } else {
     scheduleMode.value = "once";
