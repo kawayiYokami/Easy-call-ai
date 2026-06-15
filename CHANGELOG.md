@@ -5,6 +5,7 @@
 
 ## 最近版本
 
+- [v0.12.3](docs/changelog/releases/v0.12.3.md) - 优化（task）：task 工具 schema 明确要求调度时间、重复频率和结束时间只能写入 trigger，goal/why/todo 只描述单次目标与背景，避免 LLM 把调度语义混入非调度字段。
 - [v0.12.2](docs/changelog/releases/v0.12.2.md) - 新增（chat）：普通会话菜单增加新建任务入口。
 - [v0.12.1](docs/changelog/releases/v0.12.1.md) - 修复（task-dialog）：聊天任务弹窗编辑分钟级循环任务时，不再把后端规范化后的 cron 误回显成"1 个月"。
 - [v0.12.0](docs/changelog/releases/v0.12.0.md) - 修复（data-migration）：拆分通用数据迁移版本与消息仓库迁移门禁，避免普通数据读取误标旧会话消息存储已迁移。

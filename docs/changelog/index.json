@@ -1,7 +1,12 @@
 {
-  "generatedAt": "2026-06-15T05:49:44.084Z",
-  "latestVersion": "v0.12.2",
+  "generatedAt": "2026-06-15T09:46:12.969Z",
+  "latestVersion": "v0.12.3",
   "releases": [
+    {
+      "version": "v0.12.3",
+      "path": "docs/changelog/releases/v0.12.3.md",
+      "summary": "优化（task）：task 工具 schema 明确要求调度时间、重复频率和结束时间只能写入 trigger，goal/why/todo 只描述单次目标与背景，避免 LLM 把调度语义混入非调度字段。"
+    },
     {
       "version": "v0.12.2",
       "path": "docs/changelog/releases/v0.12.2.md",
