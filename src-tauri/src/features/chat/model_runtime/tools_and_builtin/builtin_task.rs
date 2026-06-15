@@ -178,6 +178,22 @@ async fn builtin_task(
     args: TaskToolArgsWire,
 ) -> Result<Value, String> {
     let (_, _, bound_conversation_id) = delegate_parse_session_parts(session_id);
+    if let Some(conversation_id) = bound_conversation_id.as_deref() {
+        let conversation = state_read_conversation_cached(app_state, conversation_id)
+            .ok()
+            .or_else(|| {
+                delegate_runtime_thread_conversation_get(app_state, conversation_id)
+                    .ok()
+                    .flatten()
+            });
+        if conversation
+            .as_ref()
+            .map(conversation_is_delegate)
+            .unwrap_or(false)
+        {
+            return Err("委托线程中禁止使用 task 工具创建或管理任务，避免递归调度。".to_string());
+        }
+    }
     match args.action.trim() {
         "list" => {
             let data_path = app_state.data_path.clone();

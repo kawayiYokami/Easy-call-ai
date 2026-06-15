@@ -310,6 +310,7 @@ fn resolve_runtime_tool_current_department<'a>(
 #[derive(Debug, Clone, Copy)]
 struct RuntimeToolPolicy {
     remote_im_contact_conversation: bool,
+    delegate_conversation: bool,
 }
 
 impl RuntimeToolPolicy {
@@ -317,6 +318,9 @@ impl RuntimeToolPolicy {
         Self {
             remote_im_contact_conversation: conversation
                 .map(conversation_is_remote_im_contact)
+                .unwrap_or(false),
+            delegate_conversation: conversation
+                .map(conversation_is_delegate)
                 .unwrap_or(false),
         }
     }
@@ -326,6 +330,7 @@ impl RuntimeToolPolicy {
             "contact_reply" | "contact_send_files" | "contact_no_reply" => {
                 self.remote_im_contact_conversation
             }
+            "task" => !self.delegate_conversation,
             _ => true,
         }
     }
@@ -491,17 +496,19 @@ fn push_runtime_tool_executors(
         app_state: state.clone(),
         session_id: tool_session_id.to_string(),
     }));
-    tools.push(Box::new(BuiltinTaskTool {
-        app_state: state.clone(),
-        session_id: tool_session_id.to_string(),
-        api_config_id: api_config_id.to_string(),
-        executor_department_id: executor_department_id
-            .map(str::trim)
-            .filter(|department_id| !department_id.is_empty())
-            .unwrap_or_default()
-            .to_string(),
-        executor_agent_id: agent.id.trim().to_string(),
-    }));
+    if runtime_tool_policy.tool_allowed("task") {
+        tools.push(Box::new(BuiltinTaskTool {
+            app_state: state.clone(),
+            session_id: tool_session_id.to_string(),
+            api_config_id: api_config_id.to_string(),
+            executor_department_id: executor_department_id
+                .map(str::trim)
+                .filter(|department_id| !department_id.is_empty())
+                .unwrap_or_default()
+                .to_string(),
+            executor_agent_id: agent.id.trim().to_string(),
+        }));
+    }
     if enable_delegate {
         tools.push(Box::new(BuiltinDelegateTool {
             app_state: state.clone(),

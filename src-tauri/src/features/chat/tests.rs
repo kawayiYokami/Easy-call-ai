@@ -6191,8 +6191,18 @@
             None,
         );
         remote_contact.id = "conversation-remote-contact".to_string();
+        let mut delegate_conversation = build_conversation_record(
+            &selected_api.id,
+            &agent.id,
+            "assistant-department",
+            "委托会话",
+            CONVERSATION_KIND_DELEGATE,
+            Some(local_without_goal.id.clone()),
+            Some("delegate-runtime".to_string()),
+        );
+        delegate_conversation.id = "conversation-delegate".to_string();
 
-        for conversation in [&local_without_goal, &local_with_goal, &remote_contact] {
+        for conversation in [&local_without_goal, &local_with_goal, &remote_contact, &delegate_conversation] {
             state_schedule_conversation_persist(&state, conversation)
                 .expect("persist conversation");
         }
@@ -6253,6 +6263,68 @@
         assert!(has_executor(&remote_contact_assembly, "contact_reply"));
         assert!(has_attached_schema(&remote_contact_assembly, "contact_send_files"));
         assert!(has_attached_schema(&remote_contact_assembly, "contact_no_reply"));
+
+        let delegate_assembly = assemble_for(&delegate_conversation.id);
+        assert!(!has_attached_schema(&delegate_assembly, "task"));
+        assert!(!has_executor(&delegate_assembly, "task"));
+        assert!(!has_definition(&delegate_assembly, "task"));
+    }
+
+    #[test]
+    fn builtin_task_should_reject_delegate_conversation() {
+        let state = test_chat_runtime_state();
+        let mut agent = default_agent();
+        agent.id = "delegate-agent".to_string();
+        let now = now_iso();
+
+        let mut delegate_conversation = build_conversation_record(
+            "api-a",
+            &agent.id,
+            "assistant-department",
+            "委托会话",
+            CONVERSATION_KIND_DELEGATE,
+            Some("conversation-root".to_string()),
+            Some("delegate-task-loop".to_string()),
+        );
+        delegate_conversation.id = "conversation-delegate-task".to_string();
+        state_schedule_conversation_persist(&state, &delegate_conversation)
+            .expect("persist delegate conversation");
+
+        let session_id = format!("{}::{}", agent.id, delegate_conversation.id);
+        let err = test_runtime()
+            .block_on(builtin_task(
+                &state,
+                &session_id,
+                "api-a",
+                "assistant-department",
+                &agent.id,
+                TaskToolArgsWire {
+                    action: "create".to_string(),
+                    task_id: None,
+                    goal: Some("递归任务".to_string()),
+                    todo: Some("不应创建".to_string()),
+                    how: None,
+                    why: Some("委托线程回归测试".to_string()),
+                    title: None,
+                    cause: None,
+                    flow: None,
+                    todos: None,
+                    status_summary: None,
+                    stage_key: None,
+                    append_note: None,
+                    completion_state: None,
+                    completion_conclusion: None,
+                    trigger: Some(TaskTriggerInputLocal {
+                        run_at: Some(now),
+                        cron_expression: None,
+                        end_at: None,
+                        legacy_every_minutes: None,
+                    }),
+                },
+            ))
+            .expect_err("delegate conversation should reject task tool");
+
+        assert!(err.contains("委托线程中禁止使用 task 工具"));
     }
 
     #[test]
