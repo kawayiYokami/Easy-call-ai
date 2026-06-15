@@ -28,6 +28,12 @@
             </button>
           </li>
           <li v-if="!busy">
+            <button v-if="showTaskCreateMenuItem" type="button" class="flex min-h-10 items-center justify-start gap-3 px-4 py-2 text-left" :disabled="busy" @click="emit('openTaskCreate')">
+              <ListTodo class="h-4 w-4 shrink-0" />
+              <span class="leading-5">{{ t("chat.newTask") }}</span>
+            </button>
+          </li>
+          <li v-if="!busy">
             <button v-if="showDelegateMenuItem" type="button" class="flex min-h-10 items-center justify-start gap-3 px-4 py-2 text-left" :disabled="busy" @click="emit('openDelegateSelection')">
               <ClipboardList class="h-4 w-4 shrink-0" />
               <span class="leading-5">{{ t("chat.conversationMenu.startDelegate") }}</span>
@@ -209,7 +215,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref } from "vue";
 import { useI18n } from "vue-i18n";
-import { ClipboardCheck, ClipboardList, ExternalLink, Folder, GitBranchPlus, Grip, Package, Send, Users } from "@lucide/vue";
+import { ClipboardCheck, ClipboardList, ExternalLink, Folder, GitBranchPlus, Grip, ListTodo, Package, Send, Users } from "@lucide/vue";
 import type { ChatMentionEntry, ConversationDelegateStatusSummary } from "../../../types/app";
 import SessionControlPanel from "./SessionControlPanel.vue";
 
@@ -225,6 +231,7 @@ const props = withDefaults(defineProps<{
   selectedMentionKeys: string[];
   hideMenuButton?: boolean;
   hideWorkspaceButton?: boolean;
+  showTaskCreateMenuItem?: boolean;
   showDelegateMenuItem?: boolean;
   showBranchMenuItem?: boolean;
   showCodeReviewMenuItem?: boolean;
@@ -236,6 +243,7 @@ const props = withDefaults(defineProps<{
   detachDisabled?: boolean;
   delegateStatuses?: ConversationDelegateStatusSummary[];
 }>(), {
+  showTaskCreateMenuItem: true,
   showDelegateMenuItem: true,
   showBranchMenuItem: true,
   showCodeReviewMenuItem: true,
@@ -249,6 +257,7 @@ const emit = defineEmits<{
   (e: "lockWorkspace"): void;
   (e: "openBranchSelection"): void;
   (e: "openCodeReview"): void;
+  (e: "openTaskCreate"): void;
   (e: "openDelegateSelection"): void;
   (e: "openDelegateSummary"): void;
   (e: "openForwardSelection"): void;
@@ -260,6 +269,7 @@ const emit = defineEmits<{
 
 const { t } = useI18n();
 const busy = computed(() => props.chatting || props.frozen || !!props.conversationBusy);
+const showTaskCreateMenuItem = computed(() => props.showTaskCreateMenuItem);
 const showDelegateMenuItem = computed(() => props.showDelegateMenuItem);
 const showBranchMenuItem = computed(() => props.showBranchMenuItem);
 const showCodeReviewMenuItem = computed(() => props.showCodeReviewMenuItem);
