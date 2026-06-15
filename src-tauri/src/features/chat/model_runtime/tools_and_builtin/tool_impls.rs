@@ -760,20 +760,20 @@ impl RuntimeToolMetadata for BuiltinTaskTool {
     fn provider_tool_definition(&self) -> ProviderToolDefinition {
         ProviderToolDefinition::new(
             "task",
-            "创建和管理会在未来自动触发委托的持久化任务。任务到点后会启动一个委托，并在委托会话中绑定 goal；委托完成后结果回到来源会话。",
+            "创建和管理会在未来自动触发委托的持久化任务。任务到点后会启动一个委托，并在委托会话中绑定 goal；委托完成后结果回到来源会话。调度时间、重复频率和结束时间只能写入 trigger，不要写入 goal/why/todo；例如用户说“每 3 分钟一次检查 X”，goal/todo 只写“检查 X”，trigger.cron_expression 写对应频率。",
             serde_json::json!({
               "type": "object",
               "properties": {
                 "action": { "type": "string", "enum": ["list", "get", "create", "complete"], "description": "要执行的动作。" },
                 "task_id": { "type": "string", "description": "任务 ID。get、complete 时必填。" },
-                "goal": { "type": "string", "description": "任务到点后要交给委托完成的目标，也是列表标题。" },
-                "why": { "type": "string", "description": "为什么要做这件事，用来避免后续推进走偏。" },
-                "todo": { "type": "string", "description": "委托启动时要关注的下一步、范围边界或交付要求。" },
+                "goal": { "type": "string", "description": "任务到点后要交给委托完成的单次目标，也是列表标题。只写要做什么，不写触发时间、重复频率或结束时间；这些调度信息只能放在 trigger。" },
+                "why": { "type": "string", "description": "为什么要做这件事，用来避免后续推进走偏。只写背景和原因，不写触发时间、重复频率或结束时间；这些调度信息只能放在 trigger。" },
+                "todo": { "type": "string", "description": "委托启动时要关注的下一步、范围边界或交付要求。只写本次触发后要执行的动作，不写“每 N 分钟/每天/定期”等调度频率；这些调度信息只能放在 trigger。" },
                 "completion_state": { "type": "string", "enum": ["completed", "failed_completed"], "description": "complete 时必填。completed 表示完成，failed_completed 表示结束但失败。" },
                 "completion_conclusion": { "type": "string", "description": "complete 时填写最终结果、失败原因或阻塞点。" },
                 "trigger": {
                   "type": "object",
-                  "description": "任务触发时间设置。",
+                  "description": "任务触发时间设置。所有时间、重复频率、定期/周期性语义都必须写在这里，不要复制到 goal/why/todo。",
                   "properties": {
                     "run_at": { "type": "string", "description": "必填。首次触发时间。RFC3339，保留时区和秒，不要毫秒，例如 2026-05-07T20:00:00+08:00。" },
                     "cron_expression": { "type": "string", "description": "可选。标准 Linux/Unix 5 段 cron。留空表示只触发一次，例如 * * * * * 表示每分钟一次。" },

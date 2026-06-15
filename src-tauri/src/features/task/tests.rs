@@ -71,6 +71,40 @@
     }
 
     #[test]
+    fn task_tool_schema_should_keep_schedule_out_of_goal_why_todo() {
+        let tool = BuiltinTaskTool {
+            app_state: AppState::new().expect("create test app state"),
+            session_id: "chat:test".to_string(),
+            api_config_id: "api".to_string(),
+            executor_department_id: "assistant".to_string(),
+            executor_agent_id: "assistant".to_string(),
+        };
+        let definition = tool.provider_tool_definition();
+        let properties = definition
+            .parameters
+            .get("properties")
+            .and_then(Value::as_object)
+            .expect("task tool properties");
+
+        assert!(definition.description.contains("只能写入 trigger"));
+        for field in ["goal", "why", "todo"] {
+            let description = properties
+                .get(field)
+                .and_then(|value| value.get("description"))
+                .and_then(Value::as_str)
+                .expect("field description");
+            assert!(description.contains("不写"));
+            assert!(description.contains("trigger"));
+        }
+        let trigger_description = properties
+            .get("trigger")
+            .and_then(|value| value.get("description"))
+            .and_then(Value::as_str)
+            .expect("trigger description");
+        assert!(trigger_description.contains("所有时间、重复频率"));
+    }
+
+    #[test]
     fn task_optimize_draft_prompt_should_require_content() {
         let err = task_optimize_draft_prompt(&task_optimize_input("", "   "))
         .expect_err("empty content should fail");
