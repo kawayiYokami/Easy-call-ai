@@ -286,6 +286,7 @@ const {
   selectRemoteImContactConversation,
   selectRemoteImContactConversationBlock,
   loadArchives,
+  applyUnarchivedConversationOverviewItemUpdated,
   selectArchive,
   selectArchiveBlock,
   deleteUnarchivedConversation,
@@ -315,6 +316,7 @@ const {
 });
 
 let unlistenConversationOverviewUpdated: UnlistenFn | null = null;
+let unlistenConversationOverviewItemUpdated: UnlistenFn | null = null;
 
 onMounted(() => {
   void listen("easy-call:conversation-overview-updated", () => {
@@ -324,12 +326,24 @@ onMounted(() => {
   }).catch((error) => {
     console.error("[归档窗口] 监听会话概览失败", error);
   });
+
+  void listen<any>("easy-call:conversation-overview-item-updated", (event) => {
+    applyUnarchivedConversationOverviewItemUpdated(event.payload);
+  }).then((unlisten) => {
+    unlistenConversationOverviewItemUpdated = unlisten;
+  }).catch((error) => {
+    console.error("[归档窗口] 监听单会话概览失败", error);
+  });
 });
 
 onBeforeUnmount(() => {
   if (unlistenConversationOverviewUpdated) {
     unlistenConversationOverviewUpdated();
     unlistenConversationOverviewUpdated = null;
+  }
+  if (unlistenConversationOverviewItemUpdated) {
+    unlistenConversationOverviewItemUpdated();
+    unlistenConversationOverviewItemUpdated = null;
   }
 });
 

@@ -1047,6 +1047,39 @@ function patchConversationPlanMode(conversationId: string, planModeEnabled: bool
   );
 }
 
+function sortConversationSummaries(items: ConversationSummary[]) {
+  return [...items].sort((left, right) => {
+    if (!!left.isSystemNotificationConversation !== !!right.isSystemNotificationConversation) {
+      return Number(!!right.isSystemNotificationConversation) - Number(!!left.isSystemNotificationConversation);
+    }
+    if (!!left.isPinned !== !!right.isPinned) {
+      return Number(!!right.isPinned) - Number(!!left.isPinned);
+    }
+    if (left.isPinned && right.isPinned) {
+      const leftIndex = Number.isFinite(Number(left.pinIndex)) ? Number(left.pinIndex) : Number.MAX_SAFE_INTEGER;
+      const rightIndex = Number.isFinite(Number(right.pinIndex)) ? Number(right.pinIndex) : Number.MAX_SAFE_INTEGER;
+      return leftIndex - rightIndex || String(left.conversationId || "").localeCompare(String(right.conversationId || ""));
+    }
+    return conversationActivityTime(right) - conversationActivityTime(left)
+      || String(right.conversationId || "").localeCompare(String(left.conversationId || ""));
+  });
+}
+
+function patchConversationOverviewItem(conversation?: ConversationSummary | null) {
+  const conversationId = String(conversation?.conversationId || "").trim();
+  if (!conversationId || !conversation) return;
+  let replaced = false;
+  const nextItems = conversations.value.map((item) => {
+    if (String(item.conversationId || "").trim() !== conversationId) return item;
+    replaced = true;
+    return { ...item, ...conversation };
+  });
+  if (!replaced) {
+    nextItems.push(conversation);
+  }
+  conversations.value = sortConversationSummaries(nextItems);
+}
+
 function normalizeToolStatusState(value: unknown): "running" | "done" | "failed" | "" {
   const state = String(value || "").trim();
   return state === "running" || state === "done" || state === "failed" ? state : "";
@@ -2409,6 +2442,10 @@ function registerNotifications() {
       });
       clearCompletedRuntimeStateForConversation(activeConversationId.value);
     }
+  });
+  transport.onNotification("conversation.overviewItemUpdated", (payload) => {
+    const value = payload as { conversation?: ConversationSummary };
+    patchConversationOverviewItem(value.conversation);
   });
   transport.onNotification("ideContext.updated", () => {
     void refreshIdeContextGroups();

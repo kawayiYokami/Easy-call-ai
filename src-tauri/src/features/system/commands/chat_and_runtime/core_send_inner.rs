@@ -1039,7 +1039,10 @@ fn spawn_conversation_auto_title_generation(
                         Ok(changed) => {
                             if changed {
                                 if let Err(err) =
-                                    emit_unarchived_conversation_overview_updated_from_state(&state)
+                                    emit_unarchived_conversation_overview_item_updated_from_state(
+                                        &state,
+                                        &conversation_id,
+                                    )
                                 {
                                     runtime_log_warn(format!(
                                         "[会话标题] 警告，任务=刷新会话概览，conversation_id={}，error={}",

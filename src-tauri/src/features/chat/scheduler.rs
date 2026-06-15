@@ -3135,8 +3135,11 @@ async fn activate_main_assistant(
         }
     }
 
-    // 活动标记变化后广播完整列表更新
-    if let Err(err) = emit_unarchived_conversation_overview_updated_from_state(state) {
+    // 活动标记只影响当前会话概览项，避免大列表全量广播。
+    if let Err(err) = emit_unarchived_conversation_overview_item_updated_from_state(
+        state,
+        conversation_id,
+    ) {
         runtime_log_warn(format!(
             "[会话概览] 跳过，任务=活动标记更新后推送，conversation_id={}，error={}",
             conversation_id, err

@@ -398,6 +398,7 @@ fn set_conversation_plan_mode(
     }
 
     set_conversation_plan_mode_enabled(state.inner(), conversation_id, input.plan_mode_enabled)?;
+    emit_unarchived_conversation_overview_item_updated_from_state(state.inner(), conversation_id)?;
     runtime_log_info(format!(
         "[计划模式] 完成，任务=切换会话运行时计划模式，会话ID={}，状态={}",
         conversation_id,
@@ -513,9 +514,7 @@ fn set_conversation_auto_push_remote_contact(
         conversation_id,
         remote_contact_id.clone(),
     )?;
-    let overview_payload =
-        conversation_service().refresh_unarchived_conversation_overview_payload(state.inner())?;
-    emit_unarchived_conversation_overview_updated_payload(state.inner(), &overview_payload);
+    emit_unarchived_conversation_overview_item_updated_from_state(state.inner(), conversation_id)?;
 
     runtime_log_info(format!(
         "[自动推送] 完成，任务=更新会话自动推送目标，会话ID={}，remote_contact_id={}",
@@ -1307,14 +1306,11 @@ fn rename_unarchived_conversation(
         &next_title,
     )?;
 
-    let overview_payload =
-        conversation_service().refresh_unarchived_conversation_overview_payload(state.inner())?;
-
     runtime_log_info(format!(
         "[会话] 完成，任务=重命名会话，conversation_id={}，title={}",
         conversation_id, next_title
     ));
-    emit_unarchived_conversation_overview_updated_payload(state.inner(), &overview_payload);
+    emit_unarchived_conversation_overview_item_updated_from_state(state.inner(), conversation_id)?;
 
     Ok(RenameUnarchivedConversationOutput {
         conversation_id: conversation_id.to_string(),

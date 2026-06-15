@@ -124,6 +124,84 @@ impl ConversationService {
         Ok(sort_unarchived_conversation_summaries(summaries))
     }
 
+    fn read_unarchived_conversation_summary(
+        &self,
+        state: &AppState,
+        conversation_id: &str,
+    ) -> Result<Option<UnarchivedConversationSummary>, String> {
+        let normalized_conversation_id = conversation_id.trim();
+        if normalized_conversation_id.is_empty() {
+            return Ok(None);
+        }
+        let guard = state.conversation_lock.lock().map_err(|err| {
+            format!(
+                "Failed to lock state mutex at {}:{} {}: {err}",
+                file!(),
+                line!(),
+                module_path!()
+            )
+        })?;
+        let app_config = state_read_config_cached(state)?;
+        let runtime_snapshot = load_runtime_organization_snapshot(state)?;
+        let runtime_app_config = if runtime_snapshot.config.departments.is_empty() {
+            app_config
+        } else {
+            runtime_snapshot.config
+        };
+        let runtime = state_read_runtime_state_cached(state)?;
+        let main_conversation_id = runtime
+            .main_conversation_id
+            .as_deref()
+            .map(str::trim)
+            .unwrap_or_default()
+            .to_string();
+        let chat_index = state_read_chat_index_cached(state)?;
+        let visible_ids = chat_index
+            .conversations
+            .iter()
+            .filter(|item| !chat_index_item_is_archived(item))
+            .map(|item| item.id.trim().to_string())
+            .filter(|item| !item.is_empty())
+            .collect::<std::collections::HashSet<_>>();
+        let conversation = match state_read_conversation_cached(state, normalized_conversation_id) {
+            Ok(conversation) => conversation,
+            Err(err) => {
+                drop(guard);
+                eprintln!(
+                    "[会话索引读取] 状态=失败，任务=read_unarchived_conversation_summary，conversation_id={}，error={}",
+                    normalized_conversation_id, err
+                );
+                return Ok(None);
+            }
+        };
+        if !visible_ids.contains(normalized_conversation_id)
+            || !conversation_is_unarchived_foreground(&conversation)
+        {
+            drop(guard);
+            return Ok(None);
+        }
+        let mut seen_pins = std::collections::HashSet::<String>::new();
+        let pinned_conversation_ids = runtime
+            .pinned_conversation_ids
+            .iter()
+            .map(|item| item.trim().to_string())
+            .filter(|item| !item.is_empty())
+            .filter(|item| *item != main_conversation_id)
+            .filter(|item| visible_ids.contains(item))
+            .filter(|item| seen_pins.insert(item.clone()))
+            .collect::<Vec<_>>();
+        let summary = build_unarchived_conversation_summary(
+            state,
+            &runtime_app_config,
+            &main_conversation_id,
+            &pinned_conversation_ids,
+            &conversation,
+            Some(DESKTOP_CHAT_VIEWER_ID),
+        );
+        drop(guard);
+        Ok(Some(summary))
+    }
+
     fn resolve_session_conversation_id_fast(
         &self,
         state: &AppState,

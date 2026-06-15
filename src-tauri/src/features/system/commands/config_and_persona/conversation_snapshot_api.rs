@@ -567,9 +567,9 @@ fn build_unarchived_conversation_summary(
         is_system_notification_conversation,
         is_pinned: is_system_notification_conversation || pin_index.is_some(),
         pin_index,
-        runtime_state: None,
-        current_todo: None,
-        plan_mode_enabled: false,
+        runtime_state: unarchived_conversation_runtime_state(state, &conversation.id),
+        current_todo: conversation_current_todo_text(conversation),
+        plan_mode_enabled: conversation.plan_mode_enabled,
         auto_push_remote_contact_id: conversation.auto_push_remote_contact_id.clone(),
         detached_window_open: detached_window_label.is_some(),
         detached_window_label,
@@ -920,6 +920,12 @@ struct UnarchivedConversationOverviewUpdatedPayload {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+struct UnarchivedConversationOverviewItemUpdatedPayload {
+    conversation: UnarchivedConversationSummary,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 struct ConversationTodosUpdatedPayload {
     conversation_id: String,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -982,6 +988,53 @@ fn emit_unarchived_conversation_overview_updated_payload(
         payload.unarchived_conversations.len(),
         started_at.elapsed().as_millis()
     ));
+}
+
+fn emit_unarchived_conversation_overview_item_updated_payload(
+    state: &AppState,
+    payload: &UnarchivedConversationOverviewItemUpdatedPayload,
+) {
+    ide_chat_broadcast_notification("conversation.overviewItemUpdated", serde_json::json!(payload));
+    let conversation_id = payload.conversation.conversation_id.trim();
+    let app_handle = match state.app_handle.lock() {
+        Ok(guard) => guard.as_ref().cloned(),
+        Err(err) => {
+            runtime_log_error(format!(
+                "[会话概览] 失败，任务=推送单会话概览，阶段=获取app_handle，conversation_id={}，error={:?}",
+                conversation_id, err
+            ));
+            None
+        }
+    };
+    let Some(app_handle) = app_handle else {
+        runtime_log_warn(format!(
+            "[会话概览] 跳过，任务=推送单会话概览，conversation_id={}，原因=app_handle_missing",
+            conversation_id
+        ));
+        return;
+    };
+    if let Err(err) = app_handle.emit("easy-call:conversation-overview-item-updated", payload) {
+        runtime_log_error(format!(
+            "[会话概览] 失败，任务=推送单会话概览，conversation_id={}，error={}",
+            conversation_id, err
+        ));
+    }
+}
+
+fn emit_unarchived_conversation_overview_item_updated_from_state(
+    state: &AppState,
+    conversation_id: &str,
+) -> Result<bool, String> {
+    let Some(conversation) = conversation_service()
+        .read_unarchived_conversation_summary(state, conversation_id)?
+    else {
+        return Ok(false);
+    };
+    emit_unarchived_conversation_overview_item_updated_payload(
+        state,
+        &UnarchivedConversationOverviewItemUpdatedPayload { conversation },
+    );
+    Ok(true)
 }
 
 fn emit_conversation_todos_updated_payload(
@@ -1130,9 +1183,8 @@ fn update_conversation_todos_and_emit(
         current_todo: todo_update.current_todo,
         current_todos: stored_todos,
     };
-    let overview_payload = conversation_service().refresh_unarchived_conversation_overview_payload(state)?;
     emit_conversation_todos_updated_payload(state, &todo_payload);
-    emit_unarchived_conversation_overview_updated_payload(state, &overview_payload);
+    emit_unarchived_conversation_overview_item_updated_from_state(state, cid)?;
     Ok(())
 }
 

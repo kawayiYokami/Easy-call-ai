@@ -135,6 +135,14 @@ export function useChatWindowEvents(bindings: Record<string, any>) {
         console.error("[会话概览] 监听器注册失败", error);
       });
 
+      void listen<any>("easy-call:conversation-overview-item-updated", (event) => {
+        bindings.applyConversationOverviewItemUpdated(event.payload);
+      }).then((unlisten) => {
+        bindings.unlisteners.chatConversationOverviewItemUpdated = unlisten;
+      }).catch((error) => {
+        console.error("[会话概览] 单项监听器注册失败", error);
+      });
+
       void listen<any>("easy-call:assistant-delta", (event) => {
         const conversationId = bindings.readConversationIdFromPayload(event.payload);
         if (bindings.CHAT_STREAM_DEBUG) {

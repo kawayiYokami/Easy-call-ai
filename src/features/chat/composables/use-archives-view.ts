@@ -411,6 +411,41 @@ export function useArchivesView(options: UseArchivesViewOptions) {
     }
   }
 
+  function sortUnarchivedConversationItems(items: UnarchivedConversationSummary[]) {
+    return [...items].sort((a, b) => {
+      if (!!a.isSystemNotificationConversation !== !!b.isSystemNotificationConversation) {
+        return Number(!!b.isSystemNotificationConversation) - Number(!!a.isSystemNotificationConversation);
+      }
+      if (!!a.isPinned !== !!b.isPinned) {
+        return Number(!!b.isPinned) - Number(!!a.isPinned);
+      }
+      if (a.isPinned && b.isPinned) {
+        const aIndex = Number.isFinite(Number(a.pinIndex)) ? Number(a.pinIndex) : Number.MAX_SAFE_INTEGER;
+        const bIndex = Number.isFinite(Number(b.pinIndex)) ? Number(b.pinIndex) : Number.MAX_SAFE_INTEGER;
+        return aIndex - bIndex || String(a.conversationId || "").localeCompare(String(b.conversationId || ""));
+      }
+      const aActivity = String(a.lastMessageAt || a.updatedAt || "").trim();
+      const bActivity = String(b.lastMessageAt || b.updatedAt || "").trim();
+      return bActivity.localeCompare(aActivity) || String(a.conversationId || "").localeCompare(String(b.conversationId || ""));
+    });
+  }
+
+  function applyUnarchivedConversationOverviewItemUpdated(payload?: Record<string, any> | null) {
+    const conversation = payload?.conversation as UnarchivedConversationSummary | undefined;
+    const conversationId = String(conversation?.conversationId || "").trim();
+    if (!conversationId || !conversation) return;
+    let replaced = false;
+    const nextItems = unarchivedConversations.value.map((item) => {
+      if (String(item.conversationId || "").trim() !== conversationId) return item;
+      replaced = true;
+      return { ...item, ...conversation };
+    });
+    if (!replaced) {
+      nextItems.push(conversation);
+    }
+    unarchivedConversations.value = sortUnarchivedConversationItems(nextItems);
+  }
+
   async function selectArchive(archiveId: string) {
     const previousId = selectedArchiveId.value;
     const previousBlockId = selectedArchiveBlockId.value;
@@ -670,6 +705,7 @@ export function useArchivesView(options: UseArchivesViewOptions) {
     loadDelegateConversations,
     loadRemoteImContactConversations,
     loadArchives,
+    applyUnarchivedConversationOverviewItemUpdated,
     selectArchive,
     selectArchiveBlock,
     deleteUnarchivedConversation,

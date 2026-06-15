@@ -571,6 +571,24 @@ export function useChatConversationSync(bindings: Record<string, any>) {
     bindings.unarchivedConversations.value = payload.unarchivedConversations;
   }
 
+  function applyConversationOverviewItemUpdated(payload?: Record<string, any> | null) {
+    const conversation = payload?.conversation;
+    const conversationId = String(conversation?.conversationId || "").trim();
+    if (!conversationId) return;
+    let replaced = false;
+    const nextItems = bindings.unarchivedConversations.value.map((item: any) => {
+      if (String(item.conversationId || "").trim() !== conversationId) {
+        return item;
+      }
+      replaced = true;
+      return { ...item, ...conversation };
+    });
+    if (!replaced) {
+      nextItems.push(conversation);
+    }
+    bindings.unarchivedConversations.value = sortUnarchivedConversationOverviewItems(nextItems);
+  }
+
   function applyConversationPinUpdated(payload?: Record<string, any> | null) {
     const conversationId = String(payload?.conversationId || "").trim();
     if (!conversationId) return;
@@ -733,6 +751,7 @@ export function useChatConversationSync(bindings: Record<string, any>) {
     applyConversationSnapshot,
     applyConversationTodosUpdated,
     applyConversationOverviewUpdated,
+    applyConversationOverviewItemUpdated,
     applyConversationPinUpdated,
     applyConversationRuntimeStateUpdated,
     isOverviewDraftMessage,
