@@ -36,15 +36,31 @@ fn delegate_build_task_prompt_block(
     goal: &str,
     todo: &str,
 ) -> String {
-    let mut lines = vec![format!("子代理咨询：{}", title.trim())];
+    let title_line = format!("子代理咨询：{}", title.trim());
+    let mut lines = vec![title_line];
+
+    // 背景降级为参考材料：明确标注“不是要求”，避免子代理把调度/触发类上下文当成自己的任务。
     if !why.trim().is_empty() {
-        lines.push(format!("背景：{}", why.trim()));
+        lines.push(format!(
+            "[背景]（仅供参考，不是你的要求，不要把背景当成你的目标）\n{}",
+            why.trim()
+        ));
     }
-    lines.push(format!("目标：{}", goal.trim()));
+
+    // todo 降为建议流程：它是参考路径，不是额外任务。
     if !todo.trim().is_empty() {
-        lines.push(format!("要求：{}", todo.trim()));
+        lines.push(format!("[建议流程]\n{}", todo.trim()));
     }
-    prompt_xml_block("delegate goal", lines.join("\n"))
+
+    // goal 放最后并冠名“唯一目标”：子代理读完所有内容后最后看到的就是它唯一要做的事，位置越靠后权重越高。
+    lines.push(format!("[本会话唯一目标]\n{}", goal.trim()));
+
+    // 系统提醒：压住子代理的发散行为。
+    lines.push(String::from(
+        "[系统提醒]\n你是子代理，你的唯一职责是达成目标。目标就是你唯一要做的事，覆盖所有其他信息。直接执行，禁止发问，禁止发散，禁止自我发挥。能做到就直接给出结果，做不到就直接说做不到。不要解释为什么，不要建议替代方案，不要关心上下文中的调度细节。",
+    ));
+
+    prompt_xml_block("delegate goal", lines.join("\n\n"))
 }
 
 fn delegate_build_trigger_provider_meta(
@@ -260,41 +276,6 @@ async fn delegate_execute_agent_initial_run(
     .await
 }
 
-async fn delegate_execute_goal_continue_run(
-    app_state: &AppState,
-    delegate: &DelegateEntry,
-    target_api_config_id: &str,
-    root_conversation_id: &str,
-    delegate_conversation_id: &str,
-    goal: &ConversationGoalState,
-    goal_turn: usize,
-) -> Result<SendChatResult, String> {
-    let prompt = render_goal_continuation_prompt(&goal.objective);
-    delegate_execute_agent_prompt(
-        app_state,
-        delegate,
-        target_api_config_id,
-        root_conversation_id,
-        delegate_conversation_id,
-        prompt.clone(),
-        Some(GOAL_CONTINUE_DISPLAY_TEXT.to_string()),
-        serde_json::json!({
-            "messageKind": "goal_continue",
-            "hiddenPromptText": prompt,
-            "goalId": goal.goal_id,
-            "goalTurn": goal_turn,
-            "delegateId": delegate.delegate_id,
-            "delegateKind": delegate.kind,
-            "rootConversationId": root_conversation_id,
-        }),
-        SYSTEM_PERSONA_ID.to_string(),
-        "goal_continue",
-        "active_goal",
-        format!("delegate-goal-continue-{}-{}", delegate.delegate_id, goal_turn),
-    )
-    .await
-}
-
 fn delegate_runtime_thread_touch(
     app_state: &AppState,
     delegate_id: &str,
@@ -367,115 +348,33 @@ async fn delegate_run_thread_to_completion(
         );
     }
     let mut run_result = Err("未尝试任何候选模型".to_string());
-    let mut first_turn = true;
-    loop {
-        let continue_goal = if first_turn {
-            None
-        } else {
-            let conversation = delegate_runtime_thread_conversation_get(&app_state, &delegate_thread_id)?
-                .ok_or_else(|| format!("委托会话不存在，delegateId={}", delegate.delegate_id))?;
-            match conversation.active_goal.as_ref() {
-                Some(goal) if goal.status.trim() == GOAL_STATUS_COMPLETE => {
-                    break;
-                }
-                Some(goal) if goal.status.trim() == GOAL_STATUS_BLOCKED => {
-                    run_result = Err(format!("委托目标阻塞：{}", goal.objective.trim()));
-                    break;
-                }
-                Some(goal) if goal.status.trim() == GOAL_STATUS_CANCELLED_BY_USER => {
-                    run_result = Err("委托目标已被用户取消".to_string());
-                    break;
-                }
-                Some(goal) if conversation_goal_is_active(goal) => {
-                    Some((goal.clone(), goal_continue_turn_for_conversation(&conversation, &goal.goal_id)))
-                }
-                Some(goal) => {
-                    run_result = Err(format!("委托目标状态非法：{}", goal.status.trim()));
-                    break;
-                }
-                None => {
-                    run_result = Err("委托会话缺少 active goal".to_string());
-                    break;
-                }
-            }
-        };
-        let mut turn_result = Err("未尝试任何候选模型".to_string());
-        let mut errors = Vec::<String>::new();
-        for api_config_id in target_api_config_ids.iter() {
-            if let Err(err) = delegate_runtime_thread_touch(&app_state, &delegate_thread_id) {
-                eprintln!(
-                    "[委托线程] 更新运行模型失败: function=delegate_run_thread_to_completion, delegate_thread_id={}, delegate_id={}, api_config_id={}, error={}",
-                    delegate_thread_id,
-                    delegate.delegate_id,
-                    api_config_id,
-                    err
-                );
-            }
-            let attempt = if let Some((goal, goal_turn)) = continue_goal.as_ref() {
-                delegate_execute_goal_continue_run(
-                    &app_state,
-                    &delegate,
-                    api_config_id,
-                    &delegate.conversation_id,
-                    &delegate_thread_id,
-                    goal,
-                    *goal_turn,
-                )
-                .await
-            } else {
-                delegate_execute_agent_initial_run(
-                    &app_state,
-                    &delegate,
-                    api_config_id,
-                    &delegate.conversation_id,
-                    &delegate_thread_id,
-                )
-                .await
-            };
-            match attempt {
-                Ok(result) => {
-                    turn_result = Ok(result);
-                    break;
-                }
-                Err(err) => {
-                    errors.push(format!("{api_config_id}: {err}"));
-                    turn_result = Err(format!("部门所有候选模型均失败：{}", errors.join(" | ")));
-                }
-            }
+    let mut errors = Vec::<String>::new();
+    for api_config_id in target_api_config_ids.iter() {
+        if let Err(err) = delegate_runtime_thread_touch(&app_state, &delegate_thread_id) {
+            eprintln!(
+                "[委托线程] 更新运行模型失败: function=delegate_run_thread_to_completion, delegate_thread_id={}, delegate_id={}, api_config_id={}, error={}",
+                delegate_thread_id,
+                delegate.delegate_id,
+                api_config_id,
+                err
+            );
         }
-        let result = match turn_result {
-            Ok(result) => result,
-            Err(err) => {
-                run_result = Err(err);
-                break;
-            }
-        };
-        run_result = Ok(result.clone());
-        let conversation = delegate_runtime_thread_conversation_get(&app_state, &delegate_thread_id)?
-            .ok_or_else(|| format!("委托会话不存在，delegateId={}", delegate.delegate_id))?;
-        match conversation.active_goal.as_ref() {
-            Some(goal) if goal.status.trim() == GOAL_STATUS_COMPLETE => {
+        match delegate_execute_agent_initial_run(
+            &app_state,
+            &delegate,
+            api_config_id,
+            &delegate.conversation_id,
+            &delegate_thread_id,
+        )
+        .await
+        {
+            Ok(result) => {
                 run_result = Ok(result);
                 break;
             }
-            Some(goal) if goal.status.trim() == GOAL_STATUS_BLOCKED => {
-                run_result = Err(format!("委托目标阻塞：{}", goal.objective.trim()));
-                break;
-            }
-            Some(goal) if goal.status.trim() == GOAL_STATUS_CANCELLED_BY_USER => {
-                run_result = Err("委托目标已被用户取消".to_string());
-                break;
-            }
-            Some(goal) if conversation_goal_is_active(goal) => {
-                first_turn = false;
-            }
-            Some(goal) => {
-                run_result = Err(format!("委托目标状态非法：{}", goal.status.trim()));
-                break;
-            }
-            None => {
-                run_result = Err("委托会话缺少 active goal".to_string());
-                break;
+            Err(err) => {
+                errors.push(format!("{api_config_id}: {err}"));
+                run_result = Err(format!("部门所有候选模型均失败：{}", errors.join(" | ")));
             }
         }
     }
