@@ -379,6 +379,17 @@
               <Eye v-else class="h-3.5 w-3.5" />
             </button>
             <button
+              v-if="canRecallBlock(block)"
+              type="button"
+              class="ecall-message-footer-action inline-flex h-6 w-6 items-center justify-center rounded text-base-content/55 hover:text-base-content"
+              :title="t('chat.recall')"
+              :class="!selectionModeEnabled && !block.isStreaming ? '' : 'opacity-0 pointer-events-none'"
+              :disabled="selectionModeEnabled || block.isStreaming || busy"
+              @click="emit('recallTurn', { turnId: recallTurnId(block) })"
+            >
+              <Undo2 class="h-3.5 w-3.5" />
+            </button>
+            <button
               v-if="showRegenerateAction"
               type="button"
               class="ecall-message-footer-action inline-flex h-6 w-6 items-center justify-center rounded text-base-content/55 hover:text-base-content"
@@ -511,11 +522,12 @@
           <Eye v-else class="h-3 w-3" />
         </button>
         <button
+          v-if="canRecallBlock(block)"
           type="button"
           class="ecall-message-recall-action inline-flex h-5 w-5 items-center justify-center rounded text-base-content/40 hover:text-base-content"
           :title="t('chat.recall')"
-          :disabled="selectionModeEnabled || busy"
-          @click="emit('recallTurn', { turnId: block.sourceMessageId || block.id })"
+          :disabled="selectionModeEnabled || block.isStreaming || busy"
+          @click="emit('recallTurn', { turnId: recallTurnId(block) })"
         >
           <Undo2 class="h-3 w-3" />
         </button>
@@ -553,7 +565,7 @@
           <span>{{ bubbleBackgroundHidden ? t('chat.messageItem.showBubble') : t('chat.messageItem.hideBubble') }}</span>
         </button>
       </li>
-      <li v-if="isOwnMessage(block)">
+      <li v-if="canRecallBlock(block)">
         <button type="button" class="text-error" @click="handleContextMenuAction('recall')">
           <Undo2 class="h-4 w-4" />
           <span>{{ t('chat.recall') }}</span>
@@ -764,6 +776,16 @@ function isOwnMessage(block: ChatMessageBlock): boolean {
   if (block.remoteImOrigin) return false;
   const id = String(block.speakerAgentId || "").trim();
   return !id || id === "user-persona";
+}
+
+function recallTurnId(block: ChatMessageBlock): string {
+  return String(block.sourceMessageId || block.id || "").trim();
+}
+
+function canRecallBlock(block: ChatMessageBlock): boolean {
+  if (block.remoteImOrigin) return false;
+  if (block.isStreaming) return false;
+  return !!recallTurnId(block);
 }
 
 function ownMessageDisplayText(block: ChatMessageBlock): string {
@@ -1821,7 +1843,9 @@ function handleContextMenuAction(action: string) {
   } else if (action === "toggleBubble") {
     emit("toggleBubbleBackground", props.selectionKey);
   } else if (action === "recall") {
-    emit("recallTurn", { turnId: String(props.block.sourceMessageId || props.block.id || "").trim() });
+    const turnId = recallTurnId(props.block);
+    if (!turnId) return;
+    emit("recallTurn", { turnId });
   }
 }
 
