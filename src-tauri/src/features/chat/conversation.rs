@@ -1737,9 +1737,15 @@ fn prompt_role_for_message(message: &ChatMessage, current_agent_id: &str) -> Opt
         .as_deref()
         .map(str::trim)
         .unwrap_or("");
+    let message_kind = message
+        .provider_meta
+        .as_ref()
+        .and_then(|meta| meta.get("messageKind"))
+        .and_then(Value::as_str)
+        .map(str::trim);
     if raw_role == "system"
         && speaker_id == SYSTEM_PERSONA_ID
-        && message_is_goal_continue(message)
+        && (message_is_goal_continue(message) || message_kind == Some("task_trigger"))
     {
         return Some("user".to_string());
     }

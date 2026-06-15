@@ -5636,7 +5636,7 @@
     }
 
     #[test]
-    fn task_build_dispatch_candidates_should_allow_multiple_due_tasks_per_conversation() {
+    fn task_build_dispatch_candidates_should_limit_non_system_tasks_to_one_per_conversation_per_round() {
         let state = test_chat_runtime_state();
         write_config(&state.config_path, &AppConfig::default()).expect("write config");
         let data = test_user_switched_to_sub_conversation_data();
@@ -5672,13 +5672,11 @@
         let candidates =
             task_build_dispatch_candidates(&state, tasks, now_utc()).expect("build dispatch candidates");
 
-        assert_eq!(candidates.len(), 3);
+        assert_eq!(candidates.len(), 2);
         assert_eq!(candidates[0].task.task_id, task_1.task_id);
         assert_eq!(candidates[0].session.conversation_id, "conversation-main");
-        assert_eq!(candidates[1].task.task_id, task_2.task_id);
-        assert_eq!(candidates[1].session.conversation_id, "conversation-main");
-        assert_eq!(candidates[2].task.task_id, task_3.task_id);
-        assert_eq!(candidates[2].session.conversation_id, "conversation-sub");
+        assert_eq!(candidates[1].task.task_id, task_3.task_id);
+        assert_eq!(candidates[1].session.conversation_id, "conversation-sub");
     }
 
     #[test]
@@ -5794,7 +5792,7 @@
     }
 
     #[test]
-    fn task_build_dispatch_candidates_should_ignore_root_conversation_busy_state() {
+    fn task_build_dispatch_candidates_should_skip_busy_conversation_and_wait_for_followup_check() {
         let state = test_chat_runtime_state();
         write_config(&state.config_path, &AppConfig::default()).expect("write config");
         let data = test_user_switched_to_sub_conversation_data();
@@ -5824,8 +5822,98 @@
         let candidates =
             task_build_dispatch_candidates(&state, tasks, now_utc()).expect("build dispatch candidates");
 
-        assert_eq!(candidates.len(), 1);
-        assert_eq!(candidates[0].task.task_id, created.task_id);
+        assert!(candidates.is_empty());
+        let stored = task_store_get_task_record(&state.data_path, &created.task_id)
+            .expect("read busy task after skip");
+        assert_eq!(stored.completion_state, TASK_STATE_ACTIVE);
+        assert!(stored.last_triggered_at_utc.is_none());
+    }
+
+    #[test]
+    fn task_trigger_system_message_should_feed_model_as_user() {
+        let task = TaskRecordStored {
+            task_id: "task-trigger-shape".to_string(),
+            conversation_id: Some("conversation-main".to_string()),
+            department_id: Some(ASSISTANT_DEPARTMENT_ID.to_string()),
+            agent_id: Some(DEFAULT_AGENT_ID.to_string()),
+            target_scope: TASK_TARGET_SCOPE_DESKTOP.to_string(),
+            order_index: 1,
+            title: "提醒跟进".to_string(),
+            cause: String::new(),
+            goal: "提醒跟进".to_string(),
+            flow: String::new(),
+            todos: vec!["检查结果".to_string()],
+            status_summary: "检查结果".to_string(),
+            completion_state: TASK_STATE_ACTIVE.to_string(),
+            completion_conclusion: String::new(),
+            progress_notes: Vec::new(),
+            stage_key: String::new(),
+            stage_updated_at_utc: None,
+            trigger: TaskTriggerStored {
+                run_at_utc: Some("2026-04-10T02:00:00Z".to_string()),
+                cron_expression: None,
+                legacy_every_minutes: None,
+                end_at_utc: None,
+                next_run_at_utc: Some("2026-04-10T02:00:00Z".to_string()),
+            },
+            created_at_utc: now_utc_rfc3339(),
+            updated_at_utc: now_utc_rfc3339(),
+            last_triggered_at_utc: None,
+            completed_at_utc: None,
+        };
+
+        let message = build_task_trigger_message(&task);
+
+        assert_eq!(message.role, "system");
+        assert_eq!(message.speaker_agent_id.as_deref(), Some(SYSTEM_PERSONA_ID));
+        assert_eq!(
+            prompt_role_for_message(&message, DEFAULT_AGENT_ID).as_deref(),
+            Some("user")
+        );
+        let meta = message.provider_meta.as_ref().expect("task provider meta");
+        assert_eq!(meta.get("messageKind").and_then(Value::as_str), Some("task_trigger"));
+    }
+
+    #[test]
+    fn maybe_enqueue_overdue_task_after_idle_should_dispatch_bound_conversation_task() {
+        let state = test_chat_runtime_state();
+        write_config(&state.config_path, &AppConfig::default()).expect("write config");
+        let data = test_user_switched_to_sub_conversation_data();
+        state_write_app_data_cached(&state, &data).expect("write app data");
+
+        let created = task_store_create_task(&state.data_path, &TaskCreateInput {
+            goal: "idle overdue".to_string(),
+            conversation_id: Some("conversation-main".to_string()),
+            department_id: Some(ASSISTANT_DEPARTMENT_ID.to_string()),
+            agent_id: Some(DEFAULT_AGENT_ID.to_string()),
+            target_scope: Some(TASK_TARGET_SCOPE_DESKTOP.to_string()),
+            why: String::new(),
+            todo: String::new(),
+            trigger: TaskTriggerInputLocal {
+                run_at: Some("2026-04-10T10:00:00+08:00".to_string()),
+                cron_expression: Some("0,30 * * * *".to_string()),
+                end_at: Some("2099-04-10T12:00:00+08:00".to_string()),
+                legacy_every_minutes: None,
+            },
+        })
+        .expect("create overdue task");
+
+        let triggered =
+            maybe_enqueue_overdue_task_after_idle(&state, "conversation-main").expect("enqueue overdue task");
+        assert!(triggered);
+
+        for _ in 0..10 {
+            let stored = task_store_get_task_record(&state.data_path, &created.task_id)
+                .expect("read overdue task");
+            if stored.last_triggered_at_utc.is_some() {
+                return;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        }
+
+        let stored = task_store_get_task_record(&state.data_path, &created.task_id)
+            .expect("read overdue task after wait");
+        assert!(stored.last_triggered_at_utc.is_some());
     }
 
     #[test]
@@ -5879,6 +5967,37 @@
             .expect("delay present");
 
         assert!(delay <= std::time::Duration::from_secs(2 * 60 + 2));
+    }
+
+    #[test]
+    fn task_scheduler_next_wake_delay_should_not_spin_for_busy_overdue_conversation_task() {
+        let state = test_chat_runtime_state();
+        write_config(&state.config_path, &AppConfig::default()).expect("write config");
+        let data = test_user_switched_to_sub_conversation_data();
+        state_write_app_data_cached(&state, &data).expect("write app data");
+        set_conversation_runtime_state(&state, "conversation-main", MainSessionState::OrganizingContext)
+            .expect("set busy");
+
+        task_store_create_task(&state.data_path, &TaskCreateInput {
+            goal: "busy overdue".to_string(),
+            conversation_id: Some("conversation-main".to_string()),
+            department_id: Some(ASSISTANT_DEPARTMENT_ID.to_string()),
+            agent_id: Some(DEFAULT_AGENT_ID.to_string()),
+            target_scope: Some(TASK_TARGET_SCOPE_DESKTOP.to_string()),
+            why: String::new(),
+            todo: String::new(),
+            trigger: TaskTriggerInputLocal {
+                run_at: Some("2026-04-10T10:00:00+08:00".to_string()),
+                cron_expression: Some("0,30 * * * *".to_string()),
+                end_at: Some("2099-04-10T12:00:00+08:00".to_string()),
+                legacy_every_minutes: None,
+            },
+        })
+        .expect("create busy overdue task");
+
+        let delay = task_scheduler_next_wake_delay(&state).expect("next wake delay");
+
+        assert_eq!(delay, None);
     }
 
     #[test]

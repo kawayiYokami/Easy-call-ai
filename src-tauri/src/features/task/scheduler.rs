@@ -172,6 +172,100 @@ fn task_dispatch_todo_count(task: &TaskRecordStored) -> usize {
     task_legacy_todos_from_todo(&task_todo_from_legacy_fields(&task.status_summary, &task.todos)).len()
 }
 
+fn build_task_trigger_hidden_prompt(task: &TaskRecordStored) -> String {
+    let goal = task_goal_from_legacy_fields(&task.title, &task.goal);
+    let why = task_why_from_legacy_record(task);
+    let todo = task_todo_from_legacy_fields(&task.status_summary, &task.todos);
+    let lines = if why.trim().is_empty() && todo.trim().is_empty() {
+        vec![
+            "背景：用户希望你能独立完成任务达成目标".to_string(),
+            format!("目标：{}", goal.trim()),
+            "要求：一直持续工作，直到达成目标，最后在当前会话进行工作汇报。".to_string(),
+        ]
+    } else {
+        vec![
+            format!("背景：{}", why.trim()),
+            format!("目标：{}", goal.trim()),
+            format!("要求：{}", todo.trim()),
+        ]
+    };
+    format!("<task_remind>\n{}\n</task_remind>", lines.join("\n"))
+}
+
+fn build_task_trigger_provider_meta(task: &TaskRecordStored) -> Value {
+    serde_json::json!({
+        "messageKind": "task_trigger",
+        "hiddenPromptText": build_task_trigger_hidden_prompt(task),
+        "taskTrigger": {
+            "taskId": task.task_id.trim(),
+            "runAt": task.trigger.run_at_utc.as_deref().map(format_utc_storage_time_to_local_rfc3339),
+            "nextRunAt": task.trigger.next_run_at_utc.as_deref().map(format_utc_storage_time_to_local_rfc3339),
+            "cronExpression": task.trigger.cron_expression.as_deref().map(str::trim).filter(|value| !value.is_empty()),
+            "endAt": task.trigger.end_at_utc.as_deref().map(format_utc_storage_time_to_local_rfc3339),
+        }
+    })
+}
+
+fn build_task_trigger_message(task: &TaskRecordStored) -> ChatMessage {
+    let goal = task_goal_from_legacy_fields(&task.title, &task.goal);
+    ChatMessage {
+        id: Uuid::new_v4().to_string(),
+        role: "system".to_string(),
+        created_at: now_iso(),
+        speaker_agent_id: Some(SYSTEM_PERSONA_ID.to_string()),
+        parts: vec![MessagePart::Text {
+            text: format!("任务提醒：{}", goal.trim()),
+            reasoning_content: None,
+        }],
+        extra_text_blocks: Vec::new(),
+        provider_meta: Some(build_task_trigger_provider_meta(task)),
+        tool_call: None,
+        mcp_call: None,
+        meme_annotations: None,
+    }
+}
+
+fn task_conversation_is_ready_for_immediate_dispatch(
+    state: &AppState,
+    conversation_id: &str,
+) -> Result<bool, String> {
+    conversation_is_idle_for_goal_fallback(state, conversation_id)
+}
+
+fn task_enqueue_conversation_trigger(
+    state: &AppState,
+    task: &TaskRecordStored,
+    session: &TaskDispatchSessionResolved,
+) -> Result<ChatEventIngress, String> {
+    let request_id = format!("task-dispatch-{}", Uuid::new_v4());
+    let dispatch_id = format!("task-trigger-{}", Uuid::new_v4());
+    let mut runtime_context = runtime_context_new("task_trigger", "task_due");
+    runtime_context.request_id = Some(request_id);
+    runtime_context.dispatch_id = Some(dispatch_id);
+    runtime_context.origin_conversation_id = Some(session.conversation_id.clone());
+    runtime_context.target_conversation_id = Some(session.conversation_id.clone());
+    runtime_context.root_conversation_id = Some(session.conversation_id.clone());
+    runtime_context.executor_department_id = Some(session.department_id.clone());
+    runtime_context.executor_agent_id = Some(session.agent_id.clone());
+    runtime_context.model_config_id = Some(session.model_config_id.clone());
+    let event = ChatPendingEvent {
+        id: format!("task-event-{}", Uuid::new_v4()),
+        conversation_id: session.conversation_id.clone(),
+        created_at: now_iso(),
+        source: ChatEventSource::Task,
+        queue_mode: ChatQueueMode::Normal,
+        messages: vec![build_task_trigger_message(task)],
+        activate_assistant: true,
+        session_info: ChatSessionInfo {
+            department_id: session.department_id.clone(),
+            agent_id: session.agent_id.clone(),
+        },
+        runtime_context: Some(runtime_context),
+        sender_info: None,
+    };
+    ingress_chat_event(state, event)
+}
+
 fn task_complete_one_time_dispatch_if_needed(
     state: &AppState,
     task: &TaskRecordStored,
@@ -349,12 +443,92 @@ fn build_hidden_task_board_block(state: &AppState) -> Option<String> {
     Some(prompt_xml_block("task board", lines.join("\n")))
 }
 
+fn task_system_delegate_title(task: &TaskRecordStored) -> String {
+    let goal = task_goal_from_legacy_fields(&task.title, &task.goal);
+    let compact = goal.trim().chars().take(32).collect::<String>();
+    if compact.trim().is_empty() {
+        format!("系统任务：{}", task.task_id.trim())
+    } else {
+        format!("系统任务：{}", compact)
+    }
+}
+
+fn build_system_task_delegate_instruction(task: &TaskRecordStored) -> String {
+    format!(
+        "{}\n\n这是系统任务，请在独立委托线程中完成，不要读取 `P-ai系统` 会话正文作为上下文。完成后直接汇报结果。",
+        build_task_trigger_hidden_prompt(task),
+    )
+}
+
+fn task_dispatch_system_delegate(
+    state: &AppState,
+    task: &TaskRecordStored,
+    session: &TaskDispatchSessionResolved,
+) -> Result<String, String> {
+    task_ensure_system_notification_conversation(state)?;
+    let title = task_system_delegate_title(task);
+    let instruction = build_system_task_delegate_instruction(task);
+    let delegate = delegate_create_record(
+        state,
+        DELEGATE_TOOL_KIND_DELEGATE,
+        SYSTEM_NOTIFICATION_CONVERSATION_ID,
+        None,
+        &session.department_id,
+        &session.department_id,
+        &session.agent_id,
+        &session.agent_id,
+        &title,
+        instruction,
+        title.clone(),
+        "完成系统任务，并直接汇报结果。".to_string(),
+        false,
+        vec![session.department_id.clone()],
+    )?;
+    let delegate_id = delegate.delegate_id.clone();
+    spawn_delegate_task(
+        state.clone(),
+        delegate,
+        SYSTEM_NOTIFICATION_CONVERSATION_ID.to_string(),
+        vec![session.model_config_id.clone()],
+    );
+    Ok(delegate_id)
+}
+
 async fn task_dispatch_due_task(
     state: &AppState,
     task: &TaskRecordStored,
     session: &TaskDispatchSessionResolved,
 ) -> Result<(), String> {
     let started_at = std::time::Instant::now();
+    let trigger_label = task_trigger_label(task);
+    let todo_count = task_dispatch_todo_count(task);
+    let task_goal = task_goal_from_legacy_fields(&task.title, &task.goal);
+
+    if session.system_task {
+        let request_id = format!("task-dispatch-{}", Uuid::new_v4());
+        let delegate_id = task_dispatch_system_delegate(state, task, session)?;
+        task_mark_dispatch_sent(state, task)?;
+        let duration_ms = started_at.elapsed().as_millis();
+        task_store_insert_run_log(
+            &state.data_path,
+            &task.task_id,
+            "sent",
+            &format!(
+                "系统任务已发起独立委托，requestId={}，delegateId={}，goal={}，conversationId={}，trigger={}，todoCount={}，hasRunAt={}，cronExpression={}，durationMs={}，targetScope={}，systemTask=true",
+                request_id,
+                delegate_id,
+                task_goal.trim(),
+                SYSTEM_NOTIFICATION_CONVERSATION_ID,
+                trigger_label,
+                todo_count,
+                task.trigger.run_at_utc.is_some(),
+                task.trigger.cron_expression.as_deref().unwrap_or(""),
+                duration_ms,
+                session.target_scope
+            ),
+        )?;
+        return Ok(());
+    }
 
     if let Some(requested) = task
         .conversation_id
@@ -369,48 +543,24 @@ async fn task_dispatch_due_task(
             requested
         );
     }
-
     let request_id = format!("task-dispatch-{}", Uuid::new_v4());
-    let dispatch_id = format!("task-delegate-{}", Uuid::new_v4());
-    let trigger_label = task_trigger_label(task);
-    let todo_count = task_dispatch_todo_count(task);
-    let task_goal = task_goal_from_legacy_fields(&task.title, &task.goal);
-    let why = task_why_from_legacy_record(task);
-    let todo = task_todo_from_legacy_fields(&task.status_summary, &task.todos);
-    let delegate = delegate_create_record(
-        state,
-        DELEGATE_TOOL_KIND_DELEGATE,
-        &session.conversation_id,
-        None,
-        &session.department_id,
-        &session.department_id,
-        &session.agent_id,
-        &session.agent_id,
-        task_goal.trim(),
-        why,
-        task_goal.clone(),
-        todo,
-        false,
-        vec![session.department_id.clone()],
-    )?;
-    spawn_delegate_task(
-        state.clone(),
-        delegate.clone(),
-        session.conversation_id.clone(),
-        vec![session.model_config_id.clone()],
-    );
-    task_mark_dispatch_sent(state, task)?;
+    let ingress = task_enqueue_conversation_trigger(state, task, session)?;
+    let (sent, duplicate, dispatch_kind) = match &ingress {
+        ChatEventIngress::Direct(_) => (true, false, "direct"),
+        ChatEventIngress::Queued { .. } => (true, false, "queued"),
+        ChatEventIngress::Duplicate { .. } => (false, true, "duplicate"),
+    };
+    if sent {
+        task_mark_dispatch_sent(state, task)?;
+    }
     let duration_ms = started_at.elapsed().as_millis();
     task_store_insert_run_log(
         &state.data_path,
         &task.task_id,
-        "sent",
+        if duplicate { "duplicate" } else { "sent" },
         &format!(
-            "{}，requestId={}，dispatchId={}，delegateId={}，goal={}，conversationId={}，trigger={}，todoCount={}，hasRunAt={}，cronExpression={}，durationMs={}，targetScope={}，systemTask={}",
-            "任务已启动委托",
+            "任务已投递原会话，requestId={}，goal={}，conversationId={}，trigger={}，todoCount={}，hasRunAt={}，cronExpression={}，durationMs={}，targetScope={}，systemTask=false，dispatchKind={}",
             request_id,
-            dispatch_id,
-            delegate.delegate_id,
             task_goal.trim(),
             session.conversation_id,
             trigger_label,
@@ -419,9 +569,10 @@ async fn task_dispatch_due_task(
             task.trigger.cron_expression.as_deref().unwrap_or(""),
             duration_ms,
             session.target_scope,
-            session.system_task
+            dispatch_kind
         ),
     )?;
+    trigger_chat_event_after_ingress(state, ingress);
     Ok(())
 }
 
@@ -444,6 +595,14 @@ fn task_skip_context_for_candidate_filter(
     }
 }
 
+fn task_matches_conversation(task: &TaskRecordStored, conversation_id: &str) -> bool {
+    task.conversation_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        == Some(conversation_id.trim())
+}
+
 fn task_build_dispatch_candidates(
     state: &AppState,
     tasks: Vec<TaskRecordStored>,
@@ -456,6 +615,7 @@ fn task_build_dispatch_candidates(
     due_tasks.sort_by_key(|item| item.order_index);
 
     let mut candidates = Vec::<TaskDispatchCandidate>::new();
+    let mut used_conversation_ids = std::collections::HashSet::<String>::new();
     for task in due_tasks {
         let session = match task_resolve_dispatch_session(state, &task) {
             Ok(Some(session)) => session,
@@ -468,6 +628,18 @@ fn task_build_dispatch_candidates(
                 continue;
             }
         };
+        if !session.system_task
+            && !task_conversation_is_ready_for_immediate_dispatch(state, &session.conversation_id)?
+        {
+            runtime_log_info(format!(
+                "[任务调度] 跳过，任务=会话忙碌等待收尾补检查，task_id={}，conversation_id={}",
+                task.task_id, session.conversation_id
+            ));
+            continue;
+        }
+        if !session.system_task && !used_conversation_ids.insert(session.conversation_id.clone()) {
+            continue;
+        }
         if let Some(reason) = task_dispatch_block_reason(state, &session.conversation_id)? {
             let context = task_skip_context_for_candidate_filter(&task, &session);
             task_mark_dispatch_skipped(state, &task, reason, &context)?;
@@ -476,6 +648,61 @@ fn task_build_dispatch_candidates(
         candidates.push(TaskDispatchCandidate { task, session });
     }
     Ok(candidates)
+}
+
+fn task_due_dispatch_is_ready_now(
+    state: &AppState,
+    task: &TaskRecordStored,
+) -> Result<bool, String> {
+    if !task_is_due(task, now_utc()) {
+        return Ok(false);
+    }
+    let Some(session) = task_resolve_dispatch_session(state, task)? else {
+        return Ok(false);
+    };
+    if session.system_task {
+        return Ok(true);
+    }
+    task_conversation_is_ready_for_immediate_dispatch(state, &session.conversation_id)
+}
+
+fn maybe_enqueue_overdue_task_after_idle(
+    state: &AppState,
+    conversation_id: &str,
+) -> Result<bool, String> {
+    let conversation_id = conversation_id.trim();
+    if conversation_id.is_empty() || !task_conversation_is_ready_for_immediate_dispatch(state, conversation_id)? {
+        return Ok(false);
+    }
+    let tasks = task_store_list_task_records(&state.data_path)?;
+    let now = now_utc();
+    let candidates = task_build_dispatch_candidates(
+        state,
+        tasks.into_iter().filter(|task| task_matches_conversation(task, conversation_id)).collect(),
+        now,
+    )?;
+    let Some(candidate) = candidates.into_iter().next() else {
+        return Ok(false);
+    };
+    runtime_log_info(format!(
+        "[任务调度] 开始，任务=会话收尾补发到点任务，task_id={}，conversation_id={}",
+        candidate.task.task_id,
+        conversation_id
+    ));
+    tauri::async_runtime::spawn({
+        let state = state.clone();
+        async move {
+            if let Err(err) = task_dispatch_due_task(&state, &candidate.task, &candidate.session).await {
+                runtime_log_warn(format!(
+                    "[任务调度] 失败，任务=会话收尾补发到点任务，task_id={}，conversation_id={}，error={}",
+                    candidate.task.task_id,
+                    candidate.session.conversation_id,
+                    err
+                ));
+            }
+        }
+    });
+    Ok(true)
 }
 
 async fn task_scheduler_tick(state: &AppState) -> Result<(), String> {
@@ -491,22 +718,34 @@ async fn task_scheduler_tick(state: &AppState) -> Result<(), String> {
 fn task_scheduler_next_wake_delay(state: &AppState) -> Result<Option<std::time::Duration>, String> {
     let tasks = task_store_list_task_records(&state.data_path)?;
     let now = now_utc();
-    let next_due = tasks
-        .into_iter()
+    let mut next_future_due = None::<OffsetDateTime>;
+    for task in tasks
+        .iter()
         .filter(|task| task.completion_state == TASK_STATE_ACTIVE)
-        .filter_map(|task| {
-            task.trigger
-                .next_run_at_utc
-                .as_deref()
-                .and_then(parse_rfc3339_time)
-        })
-        .min();
-    let Some(next_due) = next_due else {
+    {
+        let Some(next_run_at) = task
+            .trigger
+            .next_run_at_utc
+            .as_deref()
+            .and_then(parse_rfc3339_time)
+        else {
+            continue;
+        };
+        if next_run_at <= now {
+            if task_due_dispatch_is_ready_now(state, task)? {
+                return Ok(Some(std::time::Duration::ZERO));
+            }
+            continue;
+        }
+        next_future_due = Some(
+            next_future_due
+                .map(|current| current.min(next_run_at))
+                .unwrap_or(next_run_at),
+        );
+    }
+    let Some(next_due) = next_future_due else {
         return Ok(None);
     };
-    if next_due <= now {
-        return Ok(Some(std::time::Duration::ZERO));
-    }
     let millis = (next_due - now).whole_milliseconds();
     let millis = u64::try_from(millis).unwrap_or(u64::MAX);
     Ok(Some(std::time::Duration::from_millis(millis)))
