@@ -637,11 +637,65 @@ fn task_store_delete_task(data_path: &PathBuf, task_id: &str) -> Result<(), Stri
 fn task_store_mark_triggered(data_path: &PathBuf, task_id: &str) -> Result<(), String> {
     let conn = task_store_open(data_path)?;
     let now_utc = now_utc_rfc3339();
-    conn.execute(
-        "UPDATE task_record SET last_triggered_at_utc = ?2, updated_at_utc = ?2 WHERE task_id = ?1",
-        params![task_id, now_utc],
-    )
-    .map_err(|err| format!("Mark task triggered failed: {err}"))?;
+    conn.execute_batch("BEGIN IMMEDIATE;")
+        .map_err(|err| format!("Begin task trigger transaction failed: {err}"))?;
+    let result = (|| -> Result<(), String> {
+        let affected = conn
+            .execute(
+                "UPDATE task_record SET last_triggered_at_utc = ?2, updated_at_utc = ?2 WHERE task_id = ?1",
+                params![task_id, now_utc.as_str()],
+            )
+            .map_err(|err| format!("Mark task triggered failed: {err}"))?;
+        if affected == 0 {
+            return Err("Task not found".to_string());
+        }
+        let updated = conn
+            .query_row(
+                "SELECT * FROM task_record WHERE task_id = ?1",
+                params![task_id],
+                task_row_to_record_stored,
+            )
+            .map_err(|err| format!("Read triggered task failed: {err}"))?;
+        let should_complete = updated.completion_state == TASK_STATE_ACTIVE
+            && updated.trigger.end_at_utc.is_some()
+            && updated.trigger.next_run_at_utc.is_none()
+            && (updated.trigger.cron_expression.is_some()
+                || updated.trigger.legacy_every_minutes.is_some());
+        if should_complete {
+            conn.execute(
+                "UPDATE task_record
+                 SET completion_state = ?2,
+                     completed_at_utc = CASE
+                         WHEN completed_at_utc IS NULL OR TRIM(completed_at_utc) = '' THEN ?3
+                         ELSE completed_at_utc
+                     END,
+                     updated_at_utc = ?3
+                 WHERE task_id = ?1 AND completion_state = ?4",
+                params![
+                    task_id,
+                    TASK_STATE_COMPLETED,
+                    now_utc.as_str(),
+                    TASK_STATE_ACTIVE,
+                ],
+            )
+            .map_err(|err| format!("Auto complete ended recurring task failed: {err}"))?;
+            conn.execute(
+                "INSERT INTO task_run_log (task_id, triggered_at_utc, outcome, note) VALUES (?1, ?2, ?3, ?4)",
+                params![task_id, now_utc.as_str(), "completed", "任务达到结束时间，已自动完成"],
+            )
+            .map_err(|err| format!("Insert task auto complete run log failed: {err}"))?;
+        }
+        Ok(())
+    })();
+    match result {
+        Ok(()) => conn
+            .execute_batch("COMMIT;")
+            .map_err(|err| format!("Commit task trigger transaction failed: {err}"))?,
+        Err(err) => {
+            let _ = conn.execute_batch("ROLLBACK;");
+            return Err(err);
+        }
+    }
     Ok(())
 }
 

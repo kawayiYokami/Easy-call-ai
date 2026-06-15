@@ -316,6 +316,42 @@
     }
 
     #[test]
+    fn task_store_mark_triggered_should_complete_recurring_task_after_end_at() {
+        let data_path = test_task_data_path("triggered_recurring_auto_complete");
+        let input = TaskCreateInput {
+            goal: "结束时间自动完成".to_string(),
+            conversation_id: Some("conversation-a".to_string()),
+            department_id: None,
+            agent_id: None,
+            target_scope: Some(TASK_TARGET_SCOPE_DESKTOP.to_string()),
+            why: String::new(),
+            todo: "最后一次触发后自动完成".to_string(),
+            trigger: TaskTriggerInputLocal {
+                run_at: Some("2026-04-10T10:00:00+08:00".to_string()),
+                cron_expression: Some("0 * * * *".to_string()),
+                end_at: Some("2026-04-10T10:05:00+08:00".to_string()),
+                legacy_every_minutes: None,
+            },
+        };
+        let created = task_store_create_task(&data_path, &input).expect("create recurring task");
+
+        task_store_mark_triggered(&data_path, &created.task_id).expect("mark triggered");
+
+        let completed = task_store_get_task_record(&data_path, &created.task_id)
+            .expect("get completed recurring task");
+        assert_eq!(completed.completion_state, TASK_STATE_COMPLETED);
+        assert!(completed.last_triggered_at_utc.is_some());
+        assert!(completed.completed_at_utc.is_some());
+        assert!(completed.trigger.next_run_at_utc.is_none());
+        let logs = task_store_list_run_log_records(&data_path, Some(&created.task_id), 10)
+            .expect("list logs");
+        assert_eq!(logs.len(), 1);
+        assert_eq!(logs[0].outcome, "completed");
+
+        let _ = fs::remove_dir_all(app_root_from_data_path(&data_path));
+    }
+
+    #[test]
     fn task_store_migration_should_complete_triggered_one_time_tasks() {
         let data_path = test_task_data_path("migrate_triggered_once_completed");
         let input = TaskCreateInput {
