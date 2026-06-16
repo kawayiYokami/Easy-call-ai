@@ -335,7 +335,8 @@ fn export_archive_to_file(
         _ => return Err("Unsupported export format. Use 'json' or 'markdown'.".to_string()),
     };
 
-    let archive = state_read_conversation_cached(&state, input.archive_id.trim())
+    let archive = conversation_service_v2()
+        .get_conversation_snapshot(state.inner(), input.archive_id.trim())
         .map_err(|err| format!("读取归档会话失败，archive_id={}，error={}", input.archive_id.trim(), err))?;
     let mut archive = conversation_to_archive(&archive);
     if export_format == "json" {
@@ -392,7 +393,7 @@ fn import_archives_from_json(
         return Err("No archives found in payload.".to_string());
     }
 
-    let result = conversation_service().import_archives(state.inner(), &mut incoming_archives)?;
+    let result = conversation_service_v2().import_archives(state.inner(), &mut incoming_archives)?;
     Ok(ImportArchivesResult {
         imported_count: result.imported_count,
         replaced_count: result.replaced_count,
@@ -401,4 +402,3 @@ fn import_archives_from_json(
         selected_archive_id: result.selected_archive_id,
     })
 }
-

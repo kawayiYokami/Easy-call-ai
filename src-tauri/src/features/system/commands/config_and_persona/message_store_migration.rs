@@ -400,9 +400,9 @@ fn refresh_message_store_migration_caches(state: &AppState) -> Result<(), String
         .lock()
         .map_err(|_| "Failed to lock cached app data signature".to_string())? = None;
     state
-        .cached_conversations
+        .cached_conversation_metadata
         .lock()
-        .map_err(|_| "Failed to lock cached conversations".to_string())?
+        .map_err(|_| "Failed to lock cached conversation metadata".to_string())?
         .clear();
     state
         .cached_conversation_mtimes
@@ -479,6 +479,20 @@ fn run_message_store_migration(
         let paths = message_store::message_store_paths(&state.data_path, &item.conversation_id)?;
         match message_store::resume_jsonl_snapshot_migration(&paths, &conversation) {
             Ok(_) => {
+                let recovery_job_id =
+                    format!("message-store-migration-recover-{}", item.conversation_id);
+                let recovery_reason = format!(
+                    "消息仓库迁移恢复，conversation_id={}，title={}",
+                    item.conversation_id, item.title
+                );
+                conversation_service_v2().recover_conversation_snapshot(
+                    state.inner(),
+                    &recovery_job_id,
+                    "message_store_migration",
+                    &recovery_reason,
+                    &conversation,
+                )?;
+                flush_pending_persists_blocking(state.inner())?;
                 report.migrated_count += 1;
                 emit_message_store_migration_progress(
                     &app,
@@ -689,7 +703,6 @@ mod message_store_migration_gate_tests {
             cached_runtime_state: Arc::new(Mutex::new(Some(runtime.clone()))),
             cached_runtime_state_mtime: Arc::new(Mutex::new(None)),
             cached_chat_index: Arc::new(Mutex::new(None)),
-            cached_conversations: Arc::new(Mutex::new(std::collections::HashMap::new())),
             cached_conversation_metadata: Arc::new(Mutex::new(std::collections::HashMap::new())),
             cached_conversation_mtimes: Arc::new(Mutex::new(std::collections::HashMap::new())),
             cached_app_data: Arc::new(Mutex::new(None)),

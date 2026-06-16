@@ -1027,7 +1027,7 @@ async fn tool_review_run_for_call_internal(
         }
     };
 
-    conversation_service().update_unarchived_conversation_by_id(
+    conversation_service_v2().update_unarchived_conversation_by_id(
         state,
         conversation_id,
         |conversation| {
@@ -1333,49 +1333,48 @@ fn tool_review_scope_instruction(scope: &str) -> &'static str {
 }
 
 fn tool_review_builtin_json_protocol() -> &'static str {
-    r#"内置审查 JSON 输出协议：
-你必须只返回纯 JSON，不要包 markdown 代码块，不要输出协议字段以外的字段。
+    r#"内置审查 Markdown 输出协议：
+你必须只返回 Markdown 正文，不要输出 JSON，不要包 markdown 代码块，不要解释协议本身。
 
-JSON 结构：
-{
-  "review_title": "10 到 20 个中文字符，描述本次审查对象",
-  "findings": [
-    {
-      "title": "一句话标题，80 字以内",
-      "body": "说明问题成因、触发条件、影响，引用文件和行号",
-      "confidence_score": 0.95,
-      "priority": 1,
-      "code_location": {
-        "absolute_file_path": "E:/project/src/foo.ts",
-        "line_range": { "start": 10, "end": 15 }
-      }
-    },
-    {
-      "title": "第二个独立缺陷标题，80 字以内",
-      "body": "如果发现多个互不依赖的真实缺陷，继续追加 finding；不要因为示例数量而合并或截断",
-      "confidence_score": 0.9,
-      "priority": 2,
-      "code_location": {
-        "absolute_file_path": "E:/project/src/bar.ts",
-        "line_range": { "start": 30, "end": 34 }
-      }
-    }
-  ],
-  "overall_correctness": "patch is correct",
-  "overall_explanation": "1 到 3 句整体判断",
-  "overall_confidence_score": 0.9
-}
+请严格使用以下结构：
+
+# 审查结论
+
+- 标题：10 到 20 个中文字符，概括本次审查对象
+- 整体判定：patch is correct 或 patch is incorrect
+- 整体置信度：0 到 1 之间的小数
+
+## 发现的问题
+
+没有确认到真实缺陷时，只输出下面这一行：
+
+- 无
+
+确认到真实缺陷时，按下面格式逐条列出，不要合并不同问题：
+
+### 1. 一句话标题
+- 优先级：1 / 2 / 3
+- 置信度：0 到 1 之间的小数
+- 位置：E:/project/src/foo.ts:10
+- 说明：说明问题成因、触发条件、影响，引用文件和行号
+
+### 2. 第二个独立缺陷标题
+- 优先级：2
+- 置信度：0.90
+- 位置：E:/project/src/bar.ts:30
+- 说明：如果发现多个互不依赖的真实缺陷，继续追加；不要因为示例数量而合并或截断
+
+## 判定说明
+
+用 1 到 3 句说明整体判断。
 
 规则：
-- `findings` 可以为空数组，也可以包含多条。
-- 只有确认真实缺陷时才允许输出 finding；证据不足、无法判断、只是建议或担忧时，不得输出 finding。
-- 没有确认到真实缺陷时，`findings` 必须是空数组 `[]`，并在 `overall_explanation` 简要说明未发现可确认缺陷或证据不足。
+- 只有确认真实缺陷时才允许列入“发现的问题”；证据不足、无法判断、只是建议或担忧时，不得当作缺陷输出。
+- 没有确认到真实缺陷时，“发现的问题”必须写 `- 无`。
 - 发现多个独立真实缺陷时必须逐条列出，不要只输出第一条，也不要把不同问题合并成一条。
-- `review_title` 必填，用 10 到 20 个中文字符概括本次审查对象，供报告列表展示。
-- `overall_correctness` 只能是 `patch is correct` 或 `patch is incorrect`。
-- `code_location` 必须落在当前 diff 范围内。
-- `confidence_score` 和 `overall_confidence_score` 取值 0 到 1。
-- 除协议字段外不要输出多余字段。"#
+- “整体判定”只能是 `patch is correct` 或 `patch is incorrect`。
+- “位置”必须落在当前 diff 范围内。
+- 除以上结构外不要输出多余章节。"#
 }
 
 fn tool_review_render_delegate_instruction(
@@ -1461,6 +1460,28 @@ fn tool_review_title_from_json_text(raw: &str) -> String {
         .unwrap_or_default()
 }
 
+fn tool_review_title_from_markdown_text(raw: &str) -> String {
+    raw.lines()
+        .find_map(|line| {
+            let trimmed = line.trim();
+            trimmed
+                .strip_prefix("- 标题：")
+                .or_else(|| trimmed.strip_prefix("标题："))
+                .map(str::trim)
+                .filter(|text| !text.is_empty())
+                .map(|text| text.chars().take(20).collect::<String>())
+        })
+        .unwrap_or_default()
+}
+
+fn tool_review_title_from_report_text(raw: &str) -> String {
+    let json_title = tool_review_title_from_json_text(raw);
+    if !json_title.trim().is_empty() {
+        return json_title;
+    }
+    tool_review_title_from_markdown_text(raw)
+}
+
 fn with_tool_review_conversation<T>(
     state: &AppState,
     conversation_id: &str,
@@ -1470,7 +1491,7 @@ fn with_tool_review_conversation<T>(
     if normalized_conversation_id.is_empty() {
         return Err("conversationId 不能为空。".to_string());
     }
-    conversation_service().with_unarchived_conversation_by_id_fast(
+    conversation_service_v2().with_unarchived_conversation_by_id_fast(
         state,
         normalized_conversation_id,
         reader,
@@ -1617,7 +1638,7 @@ fn set_tool_review_item_user_decision(
         },
         "userOpinion": opinion,
     });
-    conversation_service().update_unarchived_conversation_by_id(
+    conversation_service_v2().update_unarchived_conversation_by_id(
         state.inner(),
         &conversation_id,
         |conversation| {
@@ -1951,7 +1972,7 @@ async fn submit_tool_review_code_internal(
             }
         };
         let report_text = assistant_text.trim().to_string();
-        let report_title = tool_review_title_from_json_text(&report_text);
+        let report_title = tool_review_title_from_report_text(&report_text);
         match tool_review_update_report_record(
             &app_state.data_path,
             &conversation_id_owned,
@@ -1967,11 +1988,12 @@ async fn submit_tool_review_code_internal(
                     "[工具审查][后端] 代码审查完成 conversation_id={} scope={} report_id={}",
                     conversation_id_owned, scope_owned, report_id
                 ));
-                if let Err(err) = conversation_service().enqueue_delegate_completion_session_notification(
+                if let Err(err) = conversation_service_v2().enqueue_delegate_completion_notification(
                     &app_state,
                     &conversation_id_owned,
                     &target_department_id_owned,
                     &target_agent_id_owned,
+                    &report_title,
                     &report_text,
                     "tool_review_delegate_completion",
                 ) {

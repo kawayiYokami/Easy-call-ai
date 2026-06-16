@@ -158,6 +158,30 @@ fn chat_history_source_kind(conversation: &Conversation) -> Option<&'static str>
     Some("localConversation")
 }
 
+fn chat_history_source_kind_from_meta(
+    conversation_meta: &ConversationMetaView,
+) -> Option<&'static str> {
+    let kind = conversation_meta.conversation_kind.trim();
+    if kind == CONVERSATION_KIND_DELEGATE {
+        return None;
+    }
+    if conversation_meta.status.trim() == "archived"
+        || conversation_meta
+            .archived_at
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .is_some()
+        || !conversation_meta.summary.trim().is_empty()
+    {
+        return Some("archive");
+    }
+    if kind == CONVERSATION_KIND_REMOTE_IM_CONTACT {
+        return Some("contact");
+    }
+    Some("localConversation")
+}
+
 fn chat_history_message_text(message: &ChatMessage) -> String {
     let mut parts = Vec::<String>::new();
     for part in &message.parts {
@@ -468,15 +492,47 @@ fn chat_history_collect_slices_for_state(
     let mut slices = Vec::<ChatHistorySlice>::new();
 
     for item in chat_index.conversations {
-        let conversation = match state_read_conversation_cached(state, &item.id) {
-            Ok(conversation) => conversation,
+        let conversation_meta = match conversation_service_v2().get_conversation_meta(state, &item.id) {
+            Ok(conversation_meta) => conversation_meta,
             Err(_) => continue,
         };
-        if conversation_is_delegate(&conversation) {
+        let Some(_) = chat_history_source_kind_from_meta(&conversation_meta) else {
             stats.skipped_delegate_conversations += 1;
             continue;
-        }
-        let source_kind = chat_history_source_kind(&conversation).unwrap_or("localConversation");
+        };
+        let conversation = Conversation {
+            id: conversation_meta.id.clone(),
+            title: conversation_meta.title.clone(),
+            agent_id: conversation_meta.agent_id.clone(),
+            department_id: conversation_meta.department_id.clone(),
+            bound_conversation_id: None,
+            parent_conversation_id: None,
+            child_conversation_ids: Vec::new(),
+            fork_message_cursor: None,
+            unread_count: conversation_meta.unread_count,
+            conversation_kind: conversation_meta.conversation_kind.clone(),
+            root_conversation_id: None,
+            delegate_id: None,
+            created_at: conversation_meta.created_at.clone(),
+            updated_at: conversation_meta.updated_at.clone(),
+            last_user_at: None,
+            last_assistant_at: None,
+            status: conversation_meta.status.clone(),
+            summary: conversation_meta.summary.clone(),
+            user_profile_snapshot: String::new(),
+            shell_workspace_path: conversation_meta.shell_workspace_path.clone(),
+            shell_workspaces: conversation_meta.shell_workspaces.clone(),
+            shell_autonomous_mode: conversation_meta.shell_autonomous_mode,
+            archived_at: conversation_meta.archived_at.clone(),
+            messages: Vec::new(),
+            current_todos: conversation_meta.current_todos.clone(),
+            memory_recall_table: Vec::new(),
+            plan_mode_enabled: false,
+            preferred_api_config_id: conversation_meta.preferred_api_config_id.clone(),
+            auto_push_remote_contact_id: None,
+            cumulative_usage: ConversationCumulativeUsage::default(),
+            active_goal: conversation_meta.active_goal.clone(),
+        };
         let (segments, skipped_live_blocks) =
             chat_history_segments_from_message_store(&state.data_path, &conversation)?;
         stats.skipped_live_blocks += skipped_live_blocks;
@@ -493,7 +549,7 @@ fn chat_history_collect_slices_for_state(
             }
             slices.extend(built);
             let added = slices.len().saturating_sub(before);
-            match source_kind {
+            match segment.source_kind.as_str() {
                 "archive" => stats.archive_slices += added,
                 "contact" => stats.contact_slices += added,
                 _ => stats.local_conversation_slices += added,

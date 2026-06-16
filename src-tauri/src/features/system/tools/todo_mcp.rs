@@ -190,8 +190,8 @@ fn conversation_todo_list(state: &AppState, conversation_id: &str) -> Result<Vec
     if let Some(conversation) = delegate_runtime_thread_conversation_get(state, conversation_id)? {
         return Ok(conversation.current_todos);
     }
-    state_read_conversation_cached(state, conversation_id.trim())
-        .ok()
+    conversation_service_v2()
+        .try_get_conversation_snapshot(state, conversation_id.trim())?
         .map(|conversation| conversation.current_todos.clone())
         .ok_or_else(|| format!("未找到会话，conversation_id={conversation_id}"))
 }
@@ -215,10 +215,10 @@ fn conversation_todo_replace(
         return Ok(stored);
     }
 
-    conversation_service()
-        .read_persisted_conversation(state, conversation_id.trim())
+    conversation_service_v2()
+        .get_conversation_snapshot(state, conversation_id.trim())
         .map_err(|_| format!("未找到会话，conversation_id={conversation_id}"))?;
-    conversation_service().set_conversation_current_todos_metadata(
+    conversation_service_v2().set_current_todos(
         state,
         conversation_id,
         stored.clone(),

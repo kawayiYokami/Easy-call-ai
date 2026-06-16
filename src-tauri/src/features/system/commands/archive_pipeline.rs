@@ -417,14 +417,14 @@ fn resolve_archive_target_conversation(
     state: &AppState,
     input: &SessionSelector,
 ) -> Result<(ApiConfig, ResolvedApiConfig, Conversation, String), String> {
-    conversation_service().resolve_archive_target_conversation(state, input)
+    conversation_service_v2().resolve_archive_target_conversation(state, input)
 }
 
 fn resolve_archive_request_conversation_by_id(
     state: &AppState,
     conversation_id: &str,
 ) -> Result<(ApiConfig, ResolvedApiConfig, Conversation, String), String> {
-    conversation_service().resolve_archive_request_conversation_by_id(state, conversation_id)
+    conversation_service_v2().resolve_archive_request_conversation_by_id(state, conversation_id)
 }
 
 fn log_manual_archive_failure(conversation_id: &str, reason: String) -> String {
@@ -441,7 +441,7 @@ fn instant_archive_conversation(
     selected_api: &ApiConfig,
     source: &Conversation,
 ) -> Result<InstantArchiveConversationMutationResult, String> {
-    conversation_service().instant_archive_conversation(
+    conversation_service_v2().archive_conversation(
         state,
         selected_api,
         source,
@@ -466,8 +466,6 @@ fn build_trim_compaction_preview_result(
         == MainSessionState::OrganizingContext
     {
         Some("当前会话正在整理上下文或归档处理中，请稍候。".to_string())
-    } else if let Some(reason) = archive_delete_only_reason(source) {
-        Some(reason)
     } else {
         None
     };
@@ -512,18 +510,12 @@ fn archive_pipeline_body_text_length(source: &Conversation) -> usize {
 
 fn archive_delete_only_reason(source: &Conversation) -> Option<String> {
     let message_count = archive_pipeline_message_count_for_delete(source);
-    let body_text_length = archive_pipeline_body_text_length(source);
-    if message_count >= ARCHIVE_MIN_BODY_MESSAGE_COUNT
-        && body_text_length >= ARCHIVE_MIN_BODY_TEXT_LENGTH
-    {
+    if message_count > ARCHIVE_MIN_BODY_MESSAGE_COUNT {
         return None;
     }
     Some(format!(
-        "当前会话正文不足以支持归档反思：至少需要 {} 条用户/助手消息且正文总长度达到 {} 字，当前为 {} 条、{} 字。",
-        ARCHIVE_MIN_BODY_MESSAGE_COUNT,
-        ARCHIVE_MIN_BODY_TEXT_LENGTH,
-        message_count,
-        body_text_length
+        "当前会话用户/助手消息不超过 {} 条，手动归档将直接删除原会话。",
+        ARCHIVE_MIN_BODY_MESSAGE_COUNT
     ))
 }
 
@@ -1083,7 +1075,7 @@ fn delete_main_conversation_and_activate_latest(
     selected_api: &ApiConfig,
     source: &Conversation,
 ) -> Result<String, String> {
-    conversation_service().delete_main_conversation_and_activate_latest(state, selected_api, source)
+    conversation_service_v2().delete_main_conversation_and_activate_latest(state, selected_api, source)
 }
 
 fn build_compaction_message(
@@ -1829,10 +1821,44 @@ async fn trim_current_conversation(
             "强制归档正在进行中，请稍候。".to_string(),
         ));
     }
-    if !already_archived {
-        if let Some(reason) = archive_delete_only_reason(&source) {
-            return Err(log_manual_archive_failure(&source.id, reason));
-        }
+    let delete_only_reason = if !already_archived {
+        archive_delete_only_reason(&source)
+    } else {
+        None
+    };
+    if !already_archived && delete_only_reason.is_some() {
+        let active_conversation_id = delete_main_conversation_and_activate_latest(
+            state.inner(),
+            &selected_api,
+            &source,
+        )
+        .map_err(|err| log_manual_archive_failure(&source.id, err))?;
+        flush_pending_persists_blocking(state.inner())
+            .map_err(|err| log_manual_archive_failure(&source.id, format!("删除状态写入失败：{}", err)))?;
+        emit_deleted_history_flushed_event(
+            state.inner(),
+            &source.id,
+            &active_conversation_id,
+            "manual_archive_delete_only",
+        );
+        runtime_log_info(format!(
+            "[归档] 完成，任务=手动归档，conversation_id={}，active_conversation_id={}，already_archived=false，mode=delete_only",
+            source.id,
+            active_conversation_id
+        ));
+        return Ok(ForceArchiveResult {
+            archived: false,
+            archive_id: None,
+            active_conversation_id: Some(active_conversation_id),
+            compaction_message: None,
+            summary: String::new(),
+            merged_memories: 0,
+            warning: delete_only_reason,
+            reason_code: Some("manual_archive_delete_only".to_string()),
+            elapsed_ms: None,
+            memory_feedback: None,
+            merge_groups: Some(0),
+        });
     }
     let archive_result = instant_archive_conversation(state.inner(), &selected_api, &source)
         .map_err(|err| log_manual_archive_failure(&source.id, err))?;
@@ -1995,8 +2021,6 @@ fn preview_trim_current_conversation(
         Some("系统通知会话暂不支持归档。".to_string())
     } else if runtime_busy {
         Some("当前会话正在后台归档或整理上下文，请稍候。".to_string())
-    } else if let Some(reason) = delete_only_reason.clone() {
-        Some(reason)
     } else {
         None
     };
@@ -2269,7 +2293,7 @@ async fn run_context_compaction_pipeline_inner(
             10_000,
         )),
     );
-    let persist_result = conversation_service().persist_compaction_message(
+    let persist_result = conversation_service_v2().persist_compaction_message(
         state,
         source,
         &compression_message,
@@ -2415,12 +2439,21 @@ async fn run_archive_pipeline_inner(
             }
         };
 
-    let archived_conversation = state_read_conversation_cached(state, &source.id)
+    let archived_conversation = conversation_service_v2()
+        .get_conversation_meta(state, &source.id)
         .map_err(|_| "归档后维护失败：会话已不存在。".to_string())?;
-    if !conversation_is_archived(&archived_conversation) {
+    if archived_conversation.status.trim() != "archived"
+        && archived_conversation
+            .archived_at
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .is_none()
+        && archived_conversation.summary.trim().is_empty()
+    {
         return Err("归档后维护失败：会话尚未标记为已归档。".to_string());
     }
-    let archive_id = archived_conversation.id.clone();
+    let archive_id = archived_conversation.id.to_string();
     eprintln!(
         "[归档] 开始，任务=后台维护，conversation_id={}，reason=\"{}\"",
         archived_conversation.id,
@@ -2433,7 +2466,7 @@ async fn run_archive_pipeline_inner(
         .filter(|value| !value.is_empty())
         .map(ToOwned::to_owned)
         .or_else(|| {
-            match conversation_service().resolve_latest_foreground_conversation_id(state, "") {
+            match conversation_service_v2().resolve_latest_foreground_conversation_id(state, "") {
                 Ok(value) => value,
                 Err(err) => {
                     runtime_log_warn(format!(

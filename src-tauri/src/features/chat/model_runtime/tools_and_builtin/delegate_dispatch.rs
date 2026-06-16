@@ -17,7 +17,7 @@ fn delegate_resolve_context(
     ),
     String,
 > {
-    let resolved = conversation_service().resolve_delegate_context(
+    let resolved = conversation_service_v2().resolve_delegate_context(
         app_state,
         source_agent_id,
         source_department_id,

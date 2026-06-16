@@ -658,6 +658,47 @@ fn usage_resolve_api_config_id(conversation: &Conversation, config: &AppConfig) 
         .unwrap_or_default()
 }
 
+fn usage_resolve_api_config_id_from_meta(
+    conversation_meta: &ConversationMetaView,
+    config: &AppConfig,
+) -> String {
+    let preferred = conversation_meta
+        .preferred_api_config_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToOwned::to_owned);
+    if let Some(value) = preferred {
+        return value;
+    }
+    let department_id = conversation_meta.department_id.trim();
+    if department_id.is_empty() {
+        return String::new();
+    }
+    config
+        .departments
+        .iter()
+        .find(|item| item.id.trim() == department_id)
+        .map(|item| {
+            let primary = item.api_config_id.trim();
+            if !primary.is_empty() {
+                return primary.to_string();
+            }
+            item.api_config_ids
+                .iter()
+                .find_map(|value| {
+                    let trimmed = value.trim();
+                    if trimmed.is_empty() {
+                        None
+                    } else {
+                        Some(trimmed.to_string())
+                    }
+                })
+                .unwrap_or_default()
+        })
+        .unwrap_or_default()
+}
+
 fn usage_kind_key_and_label(conversation: &Conversation) -> (String, String) {
     if conversation_is_system_notification(conversation) {
         return ("system_notification".to_string(), "系统通知".to_string());
@@ -676,6 +717,41 @@ fn usage_kind_key_and_label(conversation: &Conversation) -> (String, String) {
         return ("remote_im_contact".to_string(), "远程联系人".to_string());
     }
     if conversation.archived_at.is_some() {
+        return ("archived".to_string(), "已归档".to_string());
+    }
+    ("normal".to_string(), "普通".to_string())
+}
+
+fn usage_kind_key_and_label_from_meta(
+    conversation_meta: &ConversationMetaView,
+) -> (String, String) {
+    if conversation_meta.id.trim() == SYSTEM_NOTIFICATION_CONVERSATION_ID
+        || conversation_meta.conversation_kind.trim() == CONVERSATION_KIND_SYSTEM_NOTIFICATION
+    {
+        return ("system_notification".to_string(), "系统通知".to_string());
+    }
+    if conversation_meta
+        .delegate_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .is_some()
+    {
+        return ("delegate".to_string(), "委托".to_string());
+    }
+    let kind = conversation_meta.conversation_kind.trim();
+    if kind == CONVERSATION_KIND_REMOTE_IM_CONTACT {
+        return ("remote_im_contact".to_string(), "远程联系人".to_string());
+    }
+    if conversation_meta.status.trim() == "archived"
+        || conversation_meta
+            .archived_at
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .is_some()
+        || !conversation_meta.summary.trim().is_empty()
+    {
         return ("archived".to_string(), "已归档".to_string());
     }
     ("normal".to_string(), "普通".to_string())
@@ -726,6 +802,7 @@ fn usage_cumulative_from_conversation(conversation: &Conversation) -> (Conversat
 
 fn usage_push_conversation(
     conversation: &Conversation,
+    message_count: usize,
     config: &AppConfig,
     api_config_name_map: &std::collections::HashMap<String, String>,
     api_config_model_map: &std::collections::HashMap<String, String>,
@@ -793,7 +870,123 @@ fn usage_push_conversation(
         conversation_kind: conversation.conversation_kind.clone(),
         is_delegate,
         is_system_notification_conversation: conversation_is_system_notification(conversation),
-        message_count: conversation.messages.len(),
+        message_count,
+        weighted_tokens: weighted,
+        input_tokens: cumulative.input_tokens,
+        output_tokens: cumulative.output_tokens,
+        cache_read_tokens: cumulative.cache_read_tokens,
+        cache_write_tokens: cumulative.cache_write_tokens,
+    };
+    usage_aggregate_push(
+        by_model,
+        if model_name == "未绑定模型" { "unbound_model".to_string() } else { model_name.clone() },
+        model_name,
+        &usage_item,
+    );
+    usage_aggregate_push(
+        by_api_config,
+        if api_config_id.trim().is_empty() { "unbound_api_config".to_string() } else { api_config_id.clone() },
+        api_config_name,
+        &usage_item,
+    );
+    usage_aggregate_push(by_agent, usage_item.agent_id.clone(), agent_name, &usage_item);
+    usage_aggregate_push(
+        by_department,
+        if usage_item.department_id.trim().is_empty() { "unbound_department".to_string() } else { usage_item.department_id.clone() },
+        department_name,
+        &usage_item,
+    );
+    usage_aggregate_push(by_kind, kind_key, kind_label, &usage_item);
+    conversations.push(usage_item);
+}
+
+fn usage_push_conversation_meta(
+    conversation_meta: &ConversationMetaView,
+    config: &AppConfig,
+    api_config_name_map: &std::collections::HashMap<String, String>,
+    api_config_model_map: &std::collections::HashMap<String, String>,
+    agent_name_map: &std::collections::HashMap<String, String>,
+    department_name_map: &std::collections::HashMap<String, String>,
+    totals: &mut UsageOverviewTotals,
+    conversations: &mut Vec<UsageConversationItem>,
+    by_model: &mut std::collections::HashMap<String, UsageAggregateItem>,
+    by_api_config: &mut std::collections::HashMap<String, UsageAggregateItem>,
+    by_agent: &mut std::collections::HashMap<String, UsageAggregateItem>,
+    by_department: &mut std::collections::HashMap<String, UsageAggregateItem>,
+    by_kind: &mut std::collections::HashMap<String, UsageAggregateItem>,
+) {
+    totals.conversation_count = totals.conversation_count.saturating_add(1);
+    if conversation_meta.archived_at.is_some() || conversation_meta.status.trim() == "archived" {
+        totals.archived_conversation_count = totals.archived_conversation_count.saturating_add(1);
+    } else {
+        totals.active_conversation_count = totals.active_conversation_count.saturating_add(1);
+    }
+    let is_delegate = conversation_meta.conversation_kind.trim() == CONVERSATION_KIND_DELEGATE
+        || conversation_meta
+            .delegate_id
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .is_some();
+    if is_delegate {
+        totals.delegate_conversation_count = totals.delegate_conversation_count.saturating_add(1);
+    }
+
+    let cumulative = conversation_meta.cumulative_usage.clone();
+    let weighted = conversation_cumulative_usage_weighted_tokens(&cumulative);
+    if !cumulative.is_empty() || weighted > 0 {
+        totals.with_usage_conversation_count = totals.with_usage_conversation_count.saturating_add(1);
+    }
+    totals.weighted_tokens = totals.weighted_tokens.saturating_add(weighted);
+    totals.input_tokens = totals.input_tokens.saturating_add(cumulative.input_tokens);
+    totals.output_tokens = totals.output_tokens.saturating_add(cumulative.output_tokens);
+    totals.cache_read_tokens = totals.cache_read_tokens.saturating_add(cumulative.cache_read_tokens);
+    totals.cache_write_tokens = totals.cache_write_tokens.saturating_add(cumulative.cache_write_tokens);
+
+    let api_config_id = usage_resolve_api_config_id_from_meta(conversation_meta, config);
+    let api_config_name = api_config_name_map
+        .get(&api_config_id)
+        .cloned()
+        .unwrap_or_else(|| if api_config_id.is_empty() { "未绑定配置".to_string() } else { api_config_id.clone() });
+    let model_name = api_config_model_map
+        .get(&api_config_id)
+        .cloned()
+        .unwrap_or_else(|| "未绑定模型".to_string());
+    let agent_name = agent_name_map
+        .get(conversation_meta.agent_id.as_str())
+        .cloned()
+        .unwrap_or_else(|| if conversation_meta.agent_id.trim().is_empty() {
+            "未绑定人格".to_string()
+        } else {
+            conversation_meta.agent_id.to_string()
+        });
+    let department_name = department_name_map
+        .get(conversation_meta.department_id.as_str())
+        .cloned()
+        .unwrap_or_else(|| if conversation_meta.department_id.trim().is_empty() {
+            "未绑定部门".to_string()
+        } else {
+            conversation_meta.department_id.to_string()
+        });
+    let (kind_key, kind_label) = usage_kind_key_and_label_from_meta(conversation_meta);
+    let usage_item = UsageConversationItem {
+        conversation_id: conversation_meta.id.to_string(),
+        title: conversation_meta.title.to_string(),
+        updated_at: conversation_meta.updated_at.to_string(),
+        archived_at: conversation_meta.archived_at.clone(),
+        agent_id: conversation_meta.agent_id.to_string(),
+        agent_name: agent_name.clone(),
+        department_id: conversation_meta.department_id.to_string(),
+        department_name: department_name.clone(),
+        api_config_id: api_config_id.clone(),
+        api_config_name: api_config_name.clone(),
+        model_name: model_name.clone(),
+        conversation_kind: conversation_meta.conversation_kind.to_string(),
+        is_delegate,
+        is_system_notification_conversation: conversation_meta.id.trim()
+            == SYSTEM_NOTIFICATION_CONVERSATION_ID
+            || conversation_meta.conversation_kind.trim() == CONVERSATION_KIND_SYSTEM_NOTIFICATION,
+        message_count: conversation_meta.message_count,
         weighted_tokens: weighted,
         input_tokens: cumulative.input_tokens,
         output_tokens: cumulative.output_tokens,
@@ -852,12 +1045,12 @@ fn build_usage_overview(state: &AppState) -> Result<UsageOverview, String> {
     let mut by_kind = std::collections::HashMap::<String, UsageAggregateItem>::new();
 
     for item in chat_index.conversations {
-        let conversation = match state_read_conversation_cached(state, &item.id) {
+        let conversation_meta = match conversation_service_v2().get_conversation_meta(state, &item.id) {
             Ok(value) => value,
             Err(_) => continue,
         };
-        usage_push_conversation(
-            &conversation,
+        usage_push_conversation_meta(
+            &conversation_meta,
             &config,
             &api_config_name_map,
             &api_config_model_map,
@@ -880,6 +1073,7 @@ fn build_usage_overview(state: &AppState) -> Result<UsageOverview, String> {
         }
         usage_push_conversation(
             &thread.conversation,
+            thread.conversation.messages.len(),
             &config,
             &api_config_name_map,
             &api_config_model_map,
@@ -900,6 +1094,7 @@ fn build_usage_overview(state: &AppState) -> Result<UsageOverview, String> {
         }
         usage_push_conversation(
             &thread.conversation,
+            thread.conversation.messages.len(),
             &config,
             &api_config_name_map,
             &api_config_model_map,
@@ -924,6 +1119,7 @@ fn build_usage_overview(state: &AppState) -> Result<UsageOverview, String> {
         }
         usage_push_conversation(
             &conversation,
+            conversation.messages.len(),
             &config,
             &api_config_name_map,
             &api_config_model_map,

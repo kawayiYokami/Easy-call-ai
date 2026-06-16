@@ -38,3 +38,4 @@ temp/
 release/windows/*.exe
 *.vsix
 .pnpm-store
+src-tauri/target-tests/

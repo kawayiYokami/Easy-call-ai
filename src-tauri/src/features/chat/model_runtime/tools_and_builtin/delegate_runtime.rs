@@ -90,14 +90,14 @@ fn delegate_enqueue_result_message(
     notify_assistant: bool,
 ) -> Result<(), String> {
     // 优先回发原始会话；若原会话已归档/消失，则回退到系统通知会话。
-    let resolved_target = conversation_service()
+    let resolved_target = conversation_service_v2()
         .resolve_delegate_result_target_conversation(app_state, root_conversation_id)?;
     let department_id = resolved_target.department_id;
     let agent_id = resolved_target.agent_id;
     let target_conversation_id = resolved_target.target_conversation_id;
 
     // 构造委托结果消息
-    let delegate_message = ChatMessage {
+    let mut delegate_message = ChatMessage {
         id: Uuid::new_v4().to_string(),
         role: "assistant".to_string(),
         created_at: now_iso(),
@@ -112,6 +112,12 @@ fn delegate_enqueue_result_message(
         mcp_call: None,
         meme_annotations: None,
     };
+    let delegate_message_seed = delegate_message.id.clone();
+    populate_assistant_meme_annotations(
+        app_state,
+        &delegate_message_seed,
+        &mut delegate_message,
+    )?;
     append_delegate_result_message_and_emit(
         app_state,
         &target_conversation_id,

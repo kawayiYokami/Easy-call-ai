@@ -228,6 +228,50 @@ async fn run_deferred_setup(app_handle: AppHandle) {
     if let Err(err) = start_conversation_persist_worker(app_state.inner()) {
         eprintln!("[启动-延迟] 启动会话后台持久化服务失败: {err}");
     }
+    {
+        let meta_refresh_state = app_state.inner().clone();
+        tauri::async_runtime::spawn(async move {
+            let started = std::time::Instant::now();
+            let result = tokio::task::spawn_blocking(move || {
+                let chat_index = collect_chat_index_items_from_storage(&meta_refresh_state.data_path)?;
+                let mut refreshed = 0usize;
+                for item in &chat_index {
+                    if refresh_conversation_meta_shard_if_needed(
+                        &meta_refresh_state.data_path,
+                        item.id.as_str(),
+                    )? {
+                        refreshed += 1;
+                    }
+                }
+                Ok::<(usize, usize), String>((chat_index.len(), refreshed))
+            })
+            .await;
+            match result {
+                Ok(Ok((total, refreshed))) => {
+                    runtime_log_info(format!(
+                        "[启动-延迟] 完成，任务=会话meta预热，conversation_count={}，refreshed={}，elapsed_ms={}",
+                        total,
+                        refreshed,
+                        started.elapsed().as_millis()
+                    ));
+                }
+                Ok(Err(err)) => {
+                    runtime_log_warn(format!(
+                        "[启动-延迟] 失败，任务=会话meta预热，error={}，elapsed_ms={}",
+                        err,
+                        started.elapsed().as_millis()
+                    ));
+                }
+                Err(err) => {
+                    runtime_log_warn(format!(
+                        "[启动-延迟] 失败，任务=会话meta预热，error={}，elapsed_ms={}",
+                        err,
+                        started.elapsed().as_millis()
+                    ));
+                }
+            }
+        });
+    }
     emit_progress("启动录音热键探针");
     if let Err(err) = start_record_hotkey_probe(
         app_handle.clone(),

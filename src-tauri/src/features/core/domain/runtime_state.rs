@@ -42,8 +42,8 @@ struct AppState {
     cached_runtime_state: Arc<Mutex<Option<RuntimeStateFile>>>,
     cached_runtime_state_mtime: Arc<Mutex<Option<std::time::SystemTime>>>,
     cached_chat_index: Arc<Mutex<Option<ChatIndexFile>>>,
-    cached_conversations: Arc<Mutex<std::collections::HashMap<String, Conversation>>>,
-    cached_conversation_metadata: Arc<Mutex<std::collections::HashMap<String, Conversation>>>,
+    cached_conversation_metadata:
+        Arc<Mutex<std::collections::HashMap<String, message_store::ConversationShardMeta>>>,
     cached_conversation_mtimes:
         Arc<Mutex<std::collections::HashMap<String, Option<std::time::SystemTime>>>>,
     cached_app_data: Arc<Mutex<Option<AppData>>>,
@@ -286,7 +286,6 @@ impl AppState {
             cached_runtime_state: Arc::new(Mutex::new(None)),
             cached_runtime_state_mtime: Arc::new(Mutex::new(None)),
             cached_chat_index: Arc::new(Mutex::new(None)),
-            cached_conversations: Arc::new(Mutex::new(std::collections::HashMap::new())),
             cached_conversation_metadata: Arc::new(Mutex::new(std::collections::HashMap::new())),
             cached_conversation_mtimes: Arc::new(Mutex::new(std::collections::HashMap::new())),
             cached_app_data: Arc::new(Mutex::new(None)),

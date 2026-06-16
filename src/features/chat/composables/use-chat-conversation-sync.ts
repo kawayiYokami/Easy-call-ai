@@ -520,8 +520,13 @@ export function useChatConversationSync(bindings: Record<string, any>) {
     }
     const runtimeState = String(snapshot.runtimeState || "").trim();
     const streamCache = bindings.readConversationStreamCache(nextConversationId);
+    const streamCacheVisibleProgress = !!streamCache?.hasVisibleProgress;
+    const shouldApplyStreamingOverlay =
+      runtimeState === "assistant_streaming" || streamCacheVisibleProgress;
     let rawNextMessages = freezeConversationMessages(Array.isArray(snapshot.messages) ? snapshot.messages : []);
-    const overlay = applyStreamingHistoryOverlay(rawNextMessages, streamCache);
+    const overlay = shouldApplyStreamingOverlay
+      ? applyStreamingHistoryOverlay(rawNextMessages, streamCache)
+      : { messages: rawNextMessages, replacedMessageId: "", removed: false };
     rawNextMessages = overlay.messages;
     if (
       runtimeState === "assistant_streaming"

@@ -33,7 +33,8 @@ async fn get_prompt_preview(
         .map(str::trim)
         .filter(|value| !value.is_empty())
         .ok_or_else(|| "conversationId is required.".to_string())?;
-    let mut conversation = state_read_conversation_cached(&state, requested_conversation_id)
+    let mut conversation = conversation_service_v2()
+        .get_conversation_snapshot(state.inner(), requested_conversation_id)
         .map_err(|_| format!("指定会话不存在或不可用：{requested_conversation_id}"))?;
     if !conversation.summary.trim().is_empty() || conversation_is_delegate(&conversation) {
         return Err(format!("指定会话不存在或不可用：{requested_conversation_id}"));
@@ -84,9 +85,12 @@ async fn get_prompt_preview(
         .conversations
         .iter()
         .rev()
-        .filter_map(|item| state_read_conversation_cached(&state, item.id.as_str()).ok())
-        .find(|c| !conversation_is_delegate(c) && !c.summary.trim().is_empty())
-        .map(|c| c.summary.clone());
+        .filter_map(|item| conversation_service_v2().get_conversation_meta(&state, item.id.as_str()).ok())
+        .find(|conversation_meta| {
+            conversation_meta.conversation_kind.trim() != CONVERSATION_KIND_DELEGATE
+                && !conversation_meta.summary.trim().is_empty()
+        })
+        .map(|conversation_meta| conversation_meta.summary.to_string());
     let mut prepared = match preview_mode {
         PromptPreviewMode::Chat => build_prepared_prompt_for_mode(
             PromptBuildMode::Chat,
@@ -219,46 +223,6 @@ fn archive_time_label(raw: &str) -> String {
     }
 }
 
-fn archive_no_content_label(ui_language: &str) -> String {
-    match ui_language.trim() {
-        "en-US" => "No content".to_string(),
-        "zh-TW" => "無內容".to_string(),
-        _ => "无内容".to_string(),
-    }
-}
-
-fn archive_first_user_preview(conversation: &Conversation, ui_language: &str) -> String {
-    let text = conversation
-        .messages
-        .iter()
-        .find(|m| {
-            m.role == "user"
-                && m.speaker_agent_id
-                    .as_deref()
-                    .map(str::trim)
-                    .filter(|value| !value.is_empty())
-                    != Some(SYSTEM_PERSONA_ID)
-        })
-        .map(|m| {
-            m.parts
-                .iter()
-                .filter_map(|p| match p {
-                    MessagePart::Text { text, .. } => Some(text.trim()),
-                    _ => None,
-                })
-                .filter(|t| !t.is_empty())
-                .collect::<Vec<_>>()
-                .join(" ")
-        })
-        .unwrap_or_default();
-    let compact = clean_text(text.trim());
-    if compact.is_empty() {
-        archive_no_content_label(ui_language)
-    } else {
-        compact.chars().take(10).collect::<String>()
-    }
-}
-
 fn conversation_to_archive(conversation: &Conversation) -> ConversationArchive {
     ConversationArchive {
         archive_id: conversation.id.clone(),
@@ -294,7 +258,7 @@ fn archive_to_conversation(archive: ConversationArchive) -> Conversation {
 
 #[tauri::command]
 fn list_archives(state: State<'_, AppState>) -> Result<Vec<ArchiveSummary>, String> {
-    conversation_service().list_archives(state.inner())
+    conversation_service_v2().list_archives(state.inner())
 }
 
 #[tauri::command]
@@ -302,7 +266,7 @@ fn get_archive_messages(
     archive_id: String,
     state: State<'_, AppState>,
 ) -> Result<Vec<ChatMessage>, String> {
-    conversation_service().read_archive_messages(state.inner(), &archive_id)
+    conversation_service_v2().get_archive_messages(state.inner(), &archive_id)
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -346,7 +310,7 @@ fn get_archive_block_page(
     if archive_id.is_empty() {
         return Err("archiveId 是必填项".to_string());
     }
-    let page = conversation_service().read_archive_block_page(
+    let page = conversation_service_v2().get_archive_block_page(
         state.inner(),
         archive_id,
         input.block_id,
@@ -374,10 +338,10 @@ fn get_archive_block_page(
 
 #[tauri::command]
 fn get_archive_summary(archive_id: String, state: State<'_, AppState>) -> Result<String, String> {
-    conversation_service().read_archive_summary(state.inner(), &archive_id)
+    conversation_service_v2().get_archive_summary(state.inner(), &archive_id)
 }
 
 #[tauri::command]
 fn delete_archive(archive_id: String, state: State<'_, AppState>) -> Result<(), String> {
-    conversation_service().delete_archive(state.inner(), &archive_id)
+    conversation_service_v2().delete_archive(state.inner(), &archive_id)
 }

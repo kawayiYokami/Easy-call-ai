@@ -267,11 +267,18 @@ fn chat_pending_event_duplicates_existing_message(
     let Some(request_id) = chat_pending_event_request_id(event) else {
         return Ok(false);
     };
-    let conversation = match state_read_conversation_cached(state, &event.conversation_id) {
-        Ok(conversation) if conversation.summary.trim().is_empty() => conversation,
+    let conversation_meta = match conversation_service_v2().get_conversation_meta(state, &event.conversation_id)
+    {
+        Ok(conversation_meta) if conversation_meta.summary.trim().is_empty() => conversation_meta,
         _ => return Ok(false),
     };
-    Ok(conversation.messages.iter().any(|message| {
+    let paths = message_store::message_store_paths(&state.data_path, &conversation_meta.id)?;
+    let Some(page) =
+        message_store::read_ready_message_store_recent_messages_page_cached(&paths, 32)?
+    else {
+        return Ok(false);
+    };
+    Ok(page.messages.iter().any(|message| {
         message
             .provider_meta
             .as_ref()
@@ -1625,13 +1632,19 @@ fn maybe_enqueue_goal_continue_after_idle(
     if goal_continue_is_suppressed(state, conversation_id)? {
         return Ok(false);
     }
-    let conversation = match state_read_conversation_cached(state, conversation_id) {
-        Ok(conversation) if conversation.summary.trim().is_empty() => conversation,
+    let conversation_meta = match conversation_service_v2().get_conversation_meta(state, conversation_id) {
+        Ok(conversation_meta) if conversation_meta.summary.trim().is_empty() => conversation_meta,
         _ => return Ok(false),
     };
-    let Some(goal) = goal_active_goal_from_conversation(&conversation) else {
+    let Some(goal) = conversation_meta
+        .active_goal
+        .as_ref()
+        .filter(|goal| conversation_goal_is_active(goal))
+        .cloned()
+    else {
         return Ok(false);
     };
+    let conversation = conversation_service_v2().get_conversation_snapshot(state, conversation_id)?;
     let goal_turn = goal_continue_turn_for_conversation(&conversation, &goal.goal_id);
     let now = now_iso();
     let prompt = render_goal_continuation_prompt(&goal.objective);
@@ -1997,7 +2010,7 @@ pub(crate) fn set_conversation_plan_mode_enabled(
     conversation_id: &str,
     enabled: bool,
 ) -> Result<(), String> {
-    conversation_service().set_conversation_plan_mode_enabled_metadata(
+    conversation_service_v2().set_plan_mode_enabled(
         state,
         conversation_id,
         enabled,
@@ -2021,8 +2034,9 @@ pub(crate) fn get_conversation_plan_mode_enabled(
             return Ok(slot.plan_mode_enabled);
         }
     }
-    Ok(state_read_conversation_cached(state, normalized_conversation_id)
-        .map(|conversation| conversation.plan_mode_enabled)
+    Ok(conversation_service_v2()
+        .get_conversation_meta(state, normalized_conversation_id)
+        .map(|conversation_meta| conversation_meta.plan_mode_enabled)
         .unwrap_or(false))
 }
 
@@ -2282,8 +2296,8 @@ async fn process_conversation_batch(
     // 这里统一覆盖 created_at 为 history_flush_time，
     // 目的是把“正式进入历史的时间”作为消息的业务生效时间。
     // 入队时间只用于队列观察，不用于正式会话排序和轮次判断。
-    let conversation = match state_read_conversation_cached(state, conversation_id) {
-        Ok(conversation) if conversation.summary.trim().is_empty() => conversation,
+    let conversation_meta = match conversation_service_v2().get_conversation_meta(state, conversation_id) {
+        Ok(conversation_meta) if conversation_meta.summary.trim().is_empty() => conversation_meta,
         _ => {
             complete_pending_chat_events_with_error(
                 state,
@@ -2294,19 +2308,30 @@ async fn process_conversation_batch(
         }
     };
     let scheduler_agents = state_read_agents_cached(state)?;
-    let has_summary_context = conversation
-        .messages
-        .iter()
-        .any(|message| is_context_compaction_message(message, message.role.trim()));
-    let should_seed_summary_context = !has_summary_context
-        && !conversation_is_delegate(&conversation)
-        && !conversation_is_remote_im_contact(&conversation);
+    let is_empty_conversation = conversation_meta.message_count == 0;
+    let should_seed_summary_context = is_empty_conversation
+        && !conversation_meta.has_context_compaction_message
+        && conversation_meta.conversation_kind.trim() != CONVERSATION_KIND_DELEGATE
+        && conversation_meta.conversation_kind.trim() != CONVERSATION_KIND_REMOTE_IM_CONTACT;
+    if !is_empty_conversation
+        && !conversation_meta.has_context_compaction_message
+        && conversation_meta.conversation_kind.trim() != CONVERSATION_KIND_DELEGATE
+        && conversation_meta.conversation_kind.trim() != CONVERSATION_KIND_REMOTE_IM_CONTACT
+    {
+        runtime_log_warn(format!(
+            "[上下文整理] 跳过补种初始摘要，任务=scheduler_history_flush，conversation_id={}，原因=non_empty_conversation_missing_compaction_marker，message_count={}，body_message_count={}，last_message_at={}",
+            conversation_id,
+            conversation_meta.message_count,
+            conversation_meta.body_message_count,
+            conversation_meta.last_message_at.as_deref().unwrap_or("")
+        ));
+    }
     let summary_seed_agent = if should_seed_summary_context
-        && conversation.user_profile_snapshot.trim().is_empty()
+        && conversation_meta.user_profile_snapshot.trim().is_empty()
     {
         scheduler_agents
             .iter()
-            .find(|item| item.id == conversation.agent_id)
+            .find(|item| item.id == conversation_meta.agent_id)
             .cloned()
     } else {
         None
@@ -2359,7 +2384,9 @@ async fn process_conversation_batch(
         }
         prepared_batches.push(prepared_messages);
     }
-    let commit_result = conversation_service().commit_scheduler_history_flush(
+    let persisted_conversation_before_flush =
+        conversation_service_v2().try_get_conversation_snapshot(state, conversation_id).ok().flatten();
+    let commit_result = conversation_service_v2().commit_scheduler_history_flush(
         state,
         conversation_id,
         &events,
@@ -2432,8 +2459,12 @@ async fn process_conversation_batch(
                     agent_id: current_assistant.agent_id.clone(),
                 });
                 if remote_im_contact_uses_smart_judge(&contact) {
+                    let previous_history_messages = persisted_conversation_before_flush
+                        .as_ref()
+                        .map(|conversation| conversation.messages.as_slice())
+                        .unwrap_or(&[]);
                     let secretary_recent_history = remote_im_collect_secretary_recent_messages(
-                        &conversation.messages,
+                        previous_history_messages,
                         7,
                         &contact,
                         &scheduler_agents,
@@ -3287,8 +3318,8 @@ fn notify_local_chat_round_completed(
     conversation_id: &str,
     assistant_text: &str,
 ) {
-    let conversation = match state_read_conversation_cached(state, conversation_id) {
-        Ok(conversation) => conversation,
+    let conversation_meta = match conversation_service_v2().get_conversation_meta(state, conversation_id) {
+        Ok(conversation_meta) => conversation_meta,
         Err(err) => {
             runtime_log_warn(format!(
                 "[通知] 跳过，任务=读取本地会话完成通知上下文，conversation_id={}，error={}",
@@ -3297,7 +3328,7 @@ fn notify_local_chat_round_completed(
             return;
         }
     };
-    if !conversation_is_local_normal_chat(&conversation) {
+    if !conversation_meta_is_local_normal_chat_for_notification(&conversation_meta) {
         return;
     }
     if conversation_has_focused_chat_view(state, conversation_id) {
@@ -3326,9 +3357,9 @@ fn notify_local_chat_round_completed(
         ));
         return;
     };
-    let speaker_name = notification_speaker_name_for_conversation(
+    let speaker_name = notification_speaker_name_for_conversation_meta(
         state,
-        &conversation,
+        &conversation_meta,
         notification_settings.ui_language,
     );
     let body = native_notification_text_excerpt(
@@ -3368,6 +3399,47 @@ fn local_chat_notification_text(
         "en-US" => en_us.to_string(),
         "zh-TW" => zh_tw.to_string(),
         _ => zh_cn.to_string(),
+    }
+}
+
+fn conversation_meta_is_local_normal_chat_for_notification(
+    conversation_meta: &ConversationMetaView,
+) -> bool {
+    conversation_meta.conversation_kind.trim() == CONVERSATION_KIND_CHAT
+        && conversation_meta.conversation_kind.trim() != CONVERSATION_KIND_SYSTEM_NOTIFICATION
+        && conversation_meta.conversation_kind.trim() != CONVERSATION_KIND_DELEGATE
+        && conversation_meta.conversation_kind.trim() != CONVERSATION_KIND_REMOTE_IM_CONTACT
+}
+
+fn notification_speaker_name_for_conversation_meta(
+    state: &AppState,
+    conversation_meta: &ConversationMetaView,
+    ui_language: &str,
+) -> String {
+    let agent_id = conversation_meta.agent_id.trim();
+    if agent_id.is_empty() {
+        return local_chat_notification_text(
+            ui_language,
+            "当前人格",
+            "當前人格",
+            "Current persona",
+        );
+    }
+    match state_read_agents_cached(state) {
+        Ok(agents) => agents
+            .iter()
+            .find(|agent| agent.id.trim() == agent_id)
+            .map(|agent| agent.name.trim())
+            .filter(|name| !name.is_empty())
+            .unwrap_or(agent_id)
+            .to_string(),
+        Err(err) => {
+            runtime_log_warn(format!(
+                "[通知] 跳过，任务=读取人格名称失败后回退ID，conversation_id={}，agent_id={}，error={}",
+                conversation_meta.id, agent_id, err
+            ));
+            agent_id.to_string()
+        }
     }
 }
 
@@ -3481,8 +3553,8 @@ fn emit_round_failed_event(
 }
 
 fn notify_local_chat_round_failed(state: &AppState, conversation_id: &str, error_text: &str) {
-    let conversation = match state_read_conversation_cached(state, conversation_id) {
-        Ok(conversation) => conversation,
+    let conversation_meta = match conversation_service_v2().get_conversation_meta(state, conversation_id) {
+        Ok(conversation_meta) => conversation_meta,
         Err(err) => {
             runtime_log_warn(format!(
                 "[通知] 跳过，任务=读取本地会话失败通知上下文，conversation_id={}，error={}",
@@ -3491,7 +3563,7 @@ fn notify_local_chat_round_failed(state: &AppState, conversation_id: &str, error
             return;
         }
     };
-    if !conversation_is_local_normal_chat(&conversation) {
+    if !conversation_meta_is_local_normal_chat_for_notification(&conversation_meta) {
         return;
     }
     if conversation_has_focused_chat_view(state, conversation_id) {
@@ -3520,9 +3592,9 @@ fn notify_local_chat_round_failed(state: &AppState, conversation_id: &str, error
         ));
         return;
     };
-    let speaker_name = notification_speaker_name_for_conversation(
+    let speaker_name = notification_speaker_name_for_conversation_meta(
         state,
-        &conversation,
+        &conversation_meta,
         notification_settings.ui_language,
     );
     let body = native_notification_text_excerpt(

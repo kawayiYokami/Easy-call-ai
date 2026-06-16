@@ -1,5 +1,12 @@
-#[derive(Debug, Default)]
-struct ConversationService;
+fn goal_active_goal_from_conversation(
+    conversation: &Conversation,
+) -> Option<ConversationGoalState> {
+    conversation
+        .active_goal
+        .as_ref()
+        .filter(|goal| conversation_goal_is_active(goal))
+        .cloned()
+}
 
 struct ConversationTodosUpdateResult {
     current_todo: Option<String>,
@@ -169,9 +176,4 @@ struct InstantArchiveConversationMutationResult {
     active_conversation_id: String,
     overview_payload: UnarchivedConversationOverviewUpdatedPayload,
     already_archived: bool,
-}
-
-fn conversation_service() -> &'static ConversationService {
-    static SERVICE: OnceLock<ConversationService> = OnceLock::new();
-    SERVICE.get_or_init(ConversationService::default)
 }

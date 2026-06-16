@@ -63,12 +63,6 @@ export function estimateMessageBlockHeight(block: ChatMessageBlock, isOwn: boole
   if (block.planCard) estimate += 84;
   if (block.taskTrigger) estimate += 120;
   if (block.activityItems.length > 0 || block.activityRunning) estimate += 42;
-  if (Array.isArray(block.inlineSegments) && block.inlineSegments.length > 0) {
-    estimate += block.inlineSegments.length * 42;
-  }
-  if (Array.isArray(block.memeSegments) && block.memeSegments.length > 0) {
-    estimate += block.memeSegments.length * 42;
-  }
   estimate += block.images.length * 120;
   estimate += block.audios.length * 42;
   estimate += block.attachmentFiles.length * 34;
@@ -142,8 +136,6 @@ export function blockSizeDependencies(block: ChatMessageBlock): unknown[] {
     block.attachmentFiles.length,
     toolCallsSignature(block),
     block.toolCalls.length,
-    Array.isArray(block.inlineSegments) ? block.inlineSegments.length : 0,
-    Array.isArray(block.memeSegments) ? block.memeSegments.length : 0,
     block.planCard?.action || "",
     block.planCard?.path || "",
     String(block.taskTrigger ? JSON.stringify(block.taskTrigger) : ""),

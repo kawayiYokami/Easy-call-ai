@@ -15,8 +15,11 @@ fn task_tool_target_scope_from_conversation(
     let conversation_id = conversation_id
         .map(str::trim)
         .filter(|value| !value.is_empty())?;
-    if let Ok(conversation) = state_read_conversation_cached(app_state, conversation_id) {
-        return Some(if conversation_is_remote_im_contact(&conversation) {
+    if let Ok(conversation_meta) = conversation_service_v2().get_conversation_meta(app_state, conversation_id)
+    {
+        return Some(if conversation_meta.conversation_kind.trim()
+            == CONVERSATION_KIND_REMOTE_IM_CONTACT
+        {
             TASK_TARGET_SCOPE_CONTACT.to_string()
         } else {
             TASK_TARGET_SCOPE_DESKTOP.to_string()
@@ -179,18 +182,20 @@ async fn builtin_task(
 ) -> Result<Value, String> {
     let (_, _, bound_conversation_id) = delegate_parse_session_parts(session_id);
     if let Some(conversation_id) = bound_conversation_id.as_deref() {
-        let conversation = state_read_conversation_cached(app_state, conversation_id)
+        let delegate_conversation = conversation_service_v2()
+            .get_conversation_meta(app_state, conversation_id)
             .ok()
+            .map(|conversation_meta| {
+                conversation_meta.conversation_kind.trim() == CONVERSATION_KIND_DELEGATE
+            })
             .or_else(|| {
                 delegate_runtime_thread_conversation_get(app_state, conversation_id)
                     .ok()
                     .flatten()
-            });
-        if conversation
-            .as_ref()
-            .map(conversation_is_delegate)
-            .unwrap_or(false)
-        {
+                    .map(|conversation| conversation_is_delegate(&conversation))
+            })
+            .unwrap_or(false);
+        if delegate_conversation {
             return Err("委托线程中禁止使用 task 工具创建或管理任务，避免递归调度。".to_string());
         }
     }

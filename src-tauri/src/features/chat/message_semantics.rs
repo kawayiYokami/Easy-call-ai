@@ -381,7 +381,6 @@ fn build_assistant_message_from_request_sequence(
     created_at: String,
     request_messages: &[Value],
     provider_meta: Option<Value>,
-    meme_annotations: Option<Vec<MemeAnnotation>>,
 ) -> ChatMessage {
     let folded = fold_request_messages_to_assistant_content(request_messages);
     let activity_events = folded.tool_history_events;
@@ -402,8 +401,33 @@ fn build_assistant_message_from_request_sequence(
             Some(activity_events)
         },
         mcp_call: None,
-        meme_annotations: meme_annotations.and_then(|v| if v.is_empty() { None } else { Some(v) }),
+        meme_annotations: None,
     }
+}
+
+fn populate_assistant_meme_annotations(
+    state: &AppState,
+    seed_source: &str,
+    message: &mut ChatMessage,
+) -> Result<(), String> {
+    if message.role.trim() != "assistant" {
+        return Ok(());
+    }
+    let assistant_text = message
+        .parts
+        .iter()
+        .find_map(|part| match part {
+            MessagePart::Text { text, .. } => Some(text.as_str()),
+            _ => None,
+        })
+        .unwrap_or("");
+    let annotations = build_meme_annotations(state, assistant_text, seed_source)?;
+    message.meme_annotations = if annotations.is_empty() {
+        None
+    } else {
+        Some(annotations)
+    };
+    Ok(())
 }
 
 fn tool_history_markdown_lines_from_message(message: &ChatMessage) -> Vec<String> {
@@ -811,7 +835,6 @@ mod message_semantics_tests {
             "2026-06-03T21:41:00Z".to_string(),
             &request_messages,
             None,
-            None,
         );
 
         assert_eq!(request_messages.len(), 3);
@@ -931,7 +954,6 @@ mod message_semantics_tests {
             "2026-05-08T12:00:00Z".to_string(),
             &request_messages,
             None,
-            None,
         );
 
         assert_eq!(request_messages, tool_history_events);
@@ -982,7 +1004,6 @@ mod message_semantics_tests {
             "2026-05-08T12:00:00Z".to_string(),
             &request_messages,
             None,
-            None,
         );
 
         assert_eq!(request_messages.len(), 3);
@@ -1031,7 +1052,6 @@ mod message_semantics_tests {
             Some(serde_json::json!({
                 "dispatchElapsedMs": 1234
             })),
-            None,
         );
 
         assert_eq!(message.parts.len(), 1);
@@ -1080,7 +1100,6 @@ mod message_semantics_tests {
             "agent-a",
             "2026-05-08T12:00:00Z".to_string(),
             &request_messages,
-            None,
             None,
         );
 

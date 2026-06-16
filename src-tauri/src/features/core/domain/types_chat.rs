@@ -103,6 +103,7 @@ struct ChatMessage {
     provider_meta: Option<Value>,
     tool_call: Option<Vec<Value>>,
     mcp_call: Option<Vec<Value>>,
+    // 正式 meme 替换语义：把正文中的 token 映射为 markdown 图片引用。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     meme_annotations: Option<Vec<MemeAnnotation>>,
 }

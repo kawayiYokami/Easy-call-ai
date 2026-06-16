@@ -1662,7 +1662,15 @@
     "requestContextTooLong": "The context or output length exceeds the model limit",
     "requestInsufficientBalance": "The account quota or balance is insufficient",
     "requestServiceMaintenance": "The model service is under maintenance or temporarily unavailable",
-    "requestFailed": "Request failed: {err}"
+    "requestFailed": "Request failed: {err}",
+    "trimArchiveRunning": "Archiving current conversation...",
+    "trimArchivePartial": "Archive partially completed: {reason}",
+    "trimArchiveDone": "Conversation archived and {count} memories were processed.",
+    "trimArchiveFailed": "Archive failed: {err}",
+    "trimCompactRunning": "Compacting current conversation...",
+    "trimCompactPartial": "Compaction partially completed: {reason}",
+    "trimCompactDone": "Conversation compacted and {count} memories were processed.",
+    "trimCompactFailed": "Compaction failed: {err}"
   },
   "sidebar": {
     "terminalApproval": "Terminal approval",

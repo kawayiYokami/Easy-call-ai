@@ -170,10 +170,18 @@ export function useChatScrollOrchestration(options: UseChatScrollOrchestrationOp
     async (loading, wasLoading) => {
       if (loading) return;
       if (!wasLoading) return;
-      if (!scrollContainer.value) return;
+      const scrollEl = scrollContainer.value;
+      if (!scrollEl) return;
       await nextTick();
       await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
       refreshObservedVirtualItemElements();
+
+      // 加载完成后，如果还在最顶部，主动往下滚一点，避免立即再次触发加载
+      const SAFE_SCROLL_POSITION = 12;
+      if (scrollEl.scrollTop < SAFE_SCROLL_POSITION) {
+        scrollEl.scrollTop = SAFE_SCROLL_POSITION;
+      }
+
       olderHistoryRequestPending.value = false;
       scheduleAutoRequestOlderHistory();
     },

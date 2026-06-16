@@ -694,9 +694,13 @@ fn resolve_chat_tool_session_id(
     let department_id = conversation_id
         .map(str::trim)
         .filter(|value| !value.is_empty())
-        .and_then(|conversation_id| state_read_conversation_cached(state, conversation_id).ok())
-        .and_then(|conversation| {
-            let department_id = conversation.department_id.trim();
+        .and_then(|conversation_id| {
+            conversation_service_v2()
+                .get_conversation_meta(state, conversation_id)
+                .ok()
+        })
+        .and_then(|conversation_meta| {
+            let department_id = conversation_meta.department_id.trim();
             (!department_id.is_empty()).then(|| department_id.to_string())
         })
         .or_else(|| department_for_agent_id(&config, agent).map(|department| department.id.clone()))
@@ -716,7 +720,7 @@ fn resolve_chat_workspace_conversation_id(
     {
         return Ok(conversation_id.to_string());
     }
-    conversation_service()
+    conversation_service_v2()
         .resolve_latest_foreground_conversation_id(state, agent_id)
         .and_then(|value| {
             value.ok_or_else(|| "当前没有可用的活跃会话，需要提供 conversationId。".to_string())
@@ -767,7 +771,7 @@ fn apply_conversation_chat_workspace_changes(
             .ok_or_else(|| format!("指定会话不存在：{conversation_id}"));
     }
 
-    let updated = conversation_service().update_persisted_conversation_shell_workspace(
+    let updated = conversation_service_v2().update_shell_workspace(
         state,
         conversation_id,
         shell_workspace_path,

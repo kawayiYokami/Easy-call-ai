@@ -123,7 +123,7 @@ fn terminal_session_conversation(state: &AppState, session_id: &str) -> Result<O
     if let Some(conversation) = delegate_runtime_thread_conversation_get_any(state, &conversation_id)? {
         return Ok(Some(conversation));
     }
-    conversation_service().try_read_persisted_conversation(state, &conversation_id)
+    conversation_service_v2().try_get_conversation_snapshot_fast(state, &conversation_id)
 }
 
 fn normalize_terminal_timeout_ms(timeout_ms: Option<u64>) -> u64 {
@@ -1023,7 +1023,6 @@ mod terminal_workspace_tests {
             cached_runtime_state: Arc::new(Mutex::new(None)),
             cached_runtime_state_mtime: Arc::new(Mutex::new(None)),
             cached_chat_index: Arc::new(Mutex::new(None)),
-            cached_conversations: Arc::new(Mutex::new(std::collections::HashMap::new())),
             cached_conversation_metadata: Arc::new(Mutex::new(std::collections::HashMap::new())),
             cached_conversation_mtimes: Arc::new(Mutex::new(std::collections::HashMap::new())),
             cached_app_data: Arc::new(Mutex::new(None)),

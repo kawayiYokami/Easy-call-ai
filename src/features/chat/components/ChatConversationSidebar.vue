@@ -228,7 +228,7 @@
 
                       <div class="mt-1 flex items-center justify-between gap-2 text-xs">
                         <span class="min-w-0 truncate opacity-60">
-                          {{ conversationStatusText(item) || latestPreviewLine(item) }}
+                          {{ latestPreviewLine(item) }}
                         </span>
                         <div class="flex shrink-0 items-center gap-2">
                           <span v-if="conversationPipelineStatus(item) === 'busy' || conversationRuntimeBusy(item)" class="loading loading-spinner loading-xs text-primary" :title="conversationStatusText(item)"></span>

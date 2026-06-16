@@ -78,7 +78,7 @@ fn add_provider_usage_delta_to_conversation(
                 Ok(false)
             }
         }
-        Ok(None) => conversation_service()
+        Ok(None) => conversation_service_v2()
             .add_conversation_cumulative_usage_delta(app_state, conversation_id, usage),
         Err(err) => Err(err),
     };

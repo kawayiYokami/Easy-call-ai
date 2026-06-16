@@ -370,17 +370,27 @@ fn persist_aliyun_multimodal_cache_conversation_update(
             conversation.clone(),
         );
     }
-
-    conversation_service()
-        .read_persisted_conversation(state, &conversation.id)
-        .map_err(|err| {
-            format!(
-                "写回百炼多模态缓存失败：读取会话失败，conversation_id={}，error={}",
-                conversation.id, err
-            )
-        })?;
-    conversation_service().persist_conversation(state, conversation)?;
-    Ok(())
+    conversation_service_v2().patch_message_provider_meta_batch(
+        state,
+        &MessageProviderMetaBatchPatchInput {
+            conversation_id: conversation.id.clone(),
+            items: conversation
+                .messages
+                .iter()
+                .filter(|message| message.provider_meta.is_some())
+                .map(|message| MessageProviderMetaPatchItem {
+                    message_id: message.id.clone(),
+                    provider_meta: message.provider_meta.clone(),
+                })
+                .collect(),
+        },
+    )
+    .map_err(|err| {
+        format!(
+            "写回百炼多模态缓存失败：批量更新消息 providerMeta 失败，conversation_id={}，error={}",
+            conversation.id, err
+        )
+    })
 }
 
 fn workspace_absolute_path_from_relative(state: &AppState, relative_or_absolute: &str) -> PathBuf {

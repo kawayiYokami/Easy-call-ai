@@ -439,9 +439,47 @@ fn ide_chat_workspace_permission_payload(
     }))
 }
 
+fn ide_chat_conversation_from_meta_view(conversation_meta: &ConversationMetaView) -> Conversation {
+    Conversation {
+        id: conversation_meta.id.clone(),
+        title: conversation_meta.title.clone(),
+        agent_id: conversation_meta.agent_id.clone(),
+        department_id: conversation_meta.department_id.clone(),
+        bound_conversation_id: None,
+        parent_conversation_id: None,
+        child_conversation_ids: Vec::new(),
+        fork_message_cursor: None,
+        unread_count: conversation_meta.unread_count,
+        conversation_kind: conversation_meta.conversation_kind.clone(),
+        root_conversation_id: conversation_meta.root_conversation_id.clone(),
+        delegate_id: conversation_meta.delegate_id.clone(),
+        created_at: conversation_meta.created_at.clone(),
+        updated_at: conversation_meta.updated_at.clone(),
+        last_user_at: None,
+        last_assistant_at: None,
+        status: conversation_meta.status.clone(),
+        summary: conversation_meta.summary.clone(),
+        user_profile_snapshot: String::new(),
+        shell_workspace_path: conversation_meta.shell_workspace_path.clone(),
+        shell_workspaces: conversation_meta.shell_workspaces.clone(),
+        shell_autonomous_mode: conversation_meta.shell_autonomous_mode,
+        archived_at: conversation_meta.archived_at.clone(),
+        messages: Vec::new(),
+        current_todos: conversation_meta.current_todos.clone(),
+        memory_recall_table: Vec::new(),
+        plan_mode_enabled: false,
+        preferred_api_config_id: conversation_meta.preferred_api_config_id.clone(),
+        auto_push_remote_contact_id: conversation_meta.auto_push_remote_contact_id.clone(),
+        cumulative_usage: conversation_meta.cumulative_usage.clone(),
+        active_goal: conversation_meta.active_goal.clone(),
+    }
+}
+
 fn ide_chat_workspace_permission(state: &AppState, params: Value) -> Result<Value, String> {
     let input = ide_chat_parse_params::<IdeChatConversationInput>(params)?;
-    let conversation = state_read_conversation_cached(state, input.conversation_id.trim())?;
+    let conversation_meta =
+        conversation_service_v2().get_conversation_meta(state, input.conversation_id.trim())?;
+    let conversation = ide_chat_conversation_from_meta_view(&conversation_meta);
     ide_chat_workspace_permission_payload(state, &conversation)
 }
 
@@ -457,8 +495,8 @@ fn ide_chat_select_workspace_permission(state: &AppState, params: Value) -> Resu
         SHELL_WORKSPACE_ACCESS_FULL_ACCESS => SHELL_WORKSPACE_ACCESS_FULL_ACCESS.to_string(),
         _ => return Err("Unsupported workspace access".to_string()),
     };
-    let conversation = state_read_conversation_cached(state, conversation_id)?;
-    let mut workspaces = conversation.shell_workspaces.clone();
+    let conversation_meta = conversation_service_v2().get_conversation_meta(state, conversation_id)?;
+    let mut workspaces = conversation_meta.shell_workspaces.clone();
     let mut changed = false;
     for workspace in workspaces.iter_mut() {
         if normalize_shell_workspace_level_text(&workspace.level) == SHELL_WORKSPACE_LEVEL_MAIN {
@@ -536,7 +574,8 @@ fn ide_chat_workspace_list(state: &AppState, params: Value) -> Result<Value, Str
     if conversation_id.is_empty() {
         return Err("conversationId is required".to_string());
     }
-    let conversation = state_read_conversation_cached(state, conversation_id)?;
+    let conversation_meta = conversation_service_v2().get_conversation_meta(state, conversation_id)?;
+    let conversation = ide_chat_conversation_from_meta_view(&conversation_meta);
     let workspaces = terminal_allowed_workspaces_for_conversation_canonical(state, Some(&conversation))?;
     let main = workspaces
         .iter()
@@ -548,7 +587,7 @@ fn ide_chat_workspace_list(state: &AppState, params: Value) -> Result<Value, Str
     let workspace_name = main
         .map(|ws| ws.name.clone())
         .unwrap_or_default();
-    let autonomous_mode = conversation.shell_autonomous_mode;
+    let autonomous_mode = conversation_meta.shell_autonomous_mode;
     let workspace_values: Vec<Value> = workspaces
         .iter()
         .map(|ws| {
@@ -4231,7 +4270,7 @@ fn ide_chat_sidebar_window_label(client_id: &str) -> String {
 }
 
 fn ide_chat_emit_overview_updated(state: &AppState) -> Result<(), String> {
-    let overview_payload = conversation_service().refresh_unarchived_conversation_overview_payload(state)?;
+    let overview_payload = conversation_service_v2().refresh_unarchived_conversation_overview(state)?;
     emit_unarchived_conversation_overview_updated_payload(state, &overview_payload);
     Ok(())
 }
@@ -4256,8 +4295,10 @@ fn ide_chat_register_sidebar_conversation(
     if conversation_id.is_empty() {
         return Err("conversationId is required".to_string());
     }
-    let conversation = state_read_conversation_cached(state, conversation_id)?;
-    if conversation_is_system_notification(&conversation) {
+    let conversation_meta = conversation_service_v2().get_conversation_meta(state, conversation_id)?;
+    if conversation_meta.id.trim() == SYSTEM_NOTIFICATION_CONVERSATION_ID
+        || conversation_meta.conversation_kind.trim() == CONVERSATION_KIND_SYSTEM_NOTIFICATION
+    {
         if opened_conversation_id.as_deref() != Some(conversation_id) {
             ide_chat_release_sidebar_conversation(state, sidebar_label)?;
         }
@@ -4283,26 +4324,31 @@ fn ide_chat_conversation_open_result(state: &AppState, conversation_id: &str) ->
     if conversation_id.is_empty() {
         return Err("conversationId is required".to_string());
     }
-    let conversation = state_read_conversation_cached(state, conversation_id)?;
-    if !conversation.summary.trim().is_empty() {
+    let conversation_meta = conversation_service_v2().get_conversation_meta(state, conversation_id)?;
+    if !conversation_meta.summary.trim().is_empty() {
         return Err("conversation is archived".to_string());
     }
-    let messages = conversation_service().read_recent_unarchived_block_messages(state, conversation_id)?;
+    let messages = conversation_service_v2().get_recent_messages(
+        state,
+        conversation_id,
+        DEFAULT_FOREGROUND_SNAPSHOT_RECENT_LIMIT,
+    )?;
     let runtime = ide_chat_runtime_for_conversation(state, conversation_id);
-    let persona = ide_chat_persona_payload(state, Some(conversation.agent_id.as_str()))?;
+    let persona = ide_chat_persona_payload(state, Some(conversation_meta.agent_id.as_str()))?;
+    let conversation = conversation_service_v2().get_conversation_snapshot(state, conversation_id)?;
     let model = ide_chat_model_payload_for_conversation(state, &conversation)?;
     Ok(serde_json::json!({
-        "conversationId": conversation.id,
-        "title": conversation.title,
-        "agentId": conversation.agent_id,
-        "departmentId": conversation.department_id,
-        "updatedAt": conversation.updated_at,
+        "conversationId": conversation_meta.id,
+        "title": conversation_meta.title,
+        "agentId": conversation_meta.agent_id,
+        "departmentId": conversation_meta.department_id,
+        "updatedAt": conversation_meta.updated_at,
         "messages": messages,
         "runtime": runtime,
         "persona": persona,
         "model": model,
-        "currentTodos": conversation.current_todos,
-        "activeGoal": goal_active_goal_from_conversation(&conversation),
+        "currentTodos": conversation_meta.current_todos,
+        "activeGoal": conversation_meta.active_goal,
     }))
 }
 
@@ -4312,8 +4358,8 @@ fn ide_chat_ensure_sidebar_workspace(
     workspace_path: &str,
     workspace_name: Option<&str>,
 ) -> Result<(), String> {
-    let conversation = state_read_conversation_cached(state, conversation_id)?;
-    let mut workspaces = conversation.shell_workspaces.clone();
+    let conversation_meta = conversation_service_v2().get_conversation_meta(state, conversation_id)?;
+    let mut workspaces = conversation_meta.shell_workspaces.clone();
     let has_main = workspaces.iter().any(|ws| {
         normalize_shell_workspace_level_text(&ws.level) == SHELL_WORKSPACE_LEVEL_MAIN
     });
@@ -4351,7 +4397,7 @@ fn ide_chat_ensure_sidebar_workspace(
 
 fn ide_chat_conversation_list(state: &AppState, current_viewer_id: &str) -> Result<Value, String> {
     let viewer_id = current_viewer_id.trim();
-    let summaries = conversation_service()
+    let summaries = conversation_service_v2()
         .list_unarchived_conversation_summaries(state)?
         .summaries
         .into_iter()
@@ -4362,7 +4408,7 @@ fn ide_chat_conversation_list(state: &AppState, current_viewer_id: &str) -> Resu
             item
         })
         .collect::<Vec<_>>();
-    let remote_im_contact_conversations = conversation_service().list_remote_im_contact_conversations(state)?;
+    let remote_im_contact_conversations = conversation_service_v2().list_remote_im_contact_conversations(state)?;
     let persona = ide_chat_persona_payload(state, None)?;
     Ok(serde_json::json!({
         "conversations": summaries,
@@ -4379,7 +4425,11 @@ fn ide_chat_conversation_block_page(state: &AppState, params: Value) -> Result<V
     if conversation_id.is_empty() {
         return Err("conversationId is required".to_string());
     }
-    let page = conversation_service().read_unarchived_block_page(state, conversation_id, input.block_id)?;
+    let page = if let Some(block_id) = input.block_id {
+        conversation_service_v2().get_conversation_block(state, conversation_id, block_id)?
+    } else {
+        conversation_service_v2().get_conversation_last_block(state, conversation_id)?
+    };
     Ok(serde_json::json!({
         "blocks": page.blocks.into_iter().map(|item| {
             serde_json::json!({
@@ -4401,7 +4451,7 @@ fn ide_chat_conversation_block_page(state: &AppState, params: Value) -> Result<V
 
 fn ide_chat_create_conversation(state: &AppState, params: Value) -> Result<Value, String> {
     let input = ide_chat_parse_params::<IdeChatCreateConversationInput>(params)?;
-    let result = conversation_service().create_unarchived_conversation(
+    let result = conversation_service_v2().create_conversation(
         state,
         &CreateUnarchivedConversationInput {
             api_config_id: None,
@@ -4428,9 +4478,9 @@ fn ide_chat_delete_conversation(state: &AppState, params: Value) -> Result<Value
     if conversation_id.is_empty() {
         return Err("conversationId is required".to_string());
     }
-    let result = conversation_service().delete_unarchived_conversation(state, conversation_id)?;
+    let result = conversation_service_v2().delete_conversation(state, conversation_id)?;
     let _ = delegate_runtime_thread_conversation_delete_by_root(state, conversation_id);
-    let overview_payload = conversation_service().refresh_unarchived_conversation_overview_payload(state)?;
+    let overview_payload = conversation_service_v2().refresh_unarchived_conversation_overview(state)?;
     emit_unarchived_conversation_overview_updated_payload(state, &overview_payload);
     Ok(serde_json::json!({
         "deletedConversationId": result.deleted_conversation_id,
@@ -4455,12 +4505,12 @@ fn ide_chat_send_message(state: &AppState, params: Value) -> Result<Value, Strin
     {
         return Err("消息内容为空".to_string());
     }
-    let conversation = state_read_conversation_cached(state, &conversation_id)?;
-    let agent_id = conversation.agent_id.trim().to_string();
+    let conversation_meta = conversation_service_v2().get_conversation_meta(state, &conversation_id)?;
+    let agent_id = conversation_meta.agent_id.trim().to_string();
     if agent_id.is_empty() {
         return Err("会话信息不完整".to_string());
     }
-    let department_id = conversation.department_id.trim().to_string();
+    let department_id = conversation_meta.department_id.trim().to_string();
     if department_id.is_empty() {
         return Err("会话部门为空，无法从侧边栏发送。".to_string());
     }
@@ -4552,11 +4602,11 @@ fn ide_chat_stop_conversation(state: &AppState, params: Value) -> Result<Value, 
     if conversation_id.is_empty() {
         return Err("conversationId is required".to_string());
     }
-    let conversation = state_read_conversation_cached(state, conversation_id)?;
+    let conversation_meta = conversation_service_v2().get_conversation_meta(state, conversation_id)?;
     let (department_id, _agent_id) = resolve_runtime_control_department_and_agent(
         state,
-        Some(conversation.department_id.as_str()),
-        Some(conversation.agent_id.as_str()),
+        Some(conversation_meta.department_id.as_str()),
+        Some(conversation_meta.agent_id.as_str()),
         Some(conversation_id),
     )?;
     let chat_key = inflight_chat_key(&department_id, Some(conversation_id));
@@ -4630,12 +4680,12 @@ fn ide_chat_session_for_conversation(state: &AppState, conversation_id: &str) ->
     if conversation_id.is_empty() {
         return Err("conversationId is required".to_string());
     }
-    let conversation = state_read_conversation_cached(state, conversation_id)?;
-    let agent_id = conversation.agent_id.trim().to_string();
+    let conversation_meta = conversation_service_v2().get_conversation_meta(state, conversation_id)?;
+    let agent_id = conversation_meta.agent_id.trim().to_string();
     if agent_id.is_empty() {
         return Err("会话信息不完整".to_string());
     }
-    let department_id = conversation.department_id.trim().to_string();
+    let department_id = conversation_meta.department_id.trim().to_string();
     Ok(SessionSelector {
         api_config_id: None,
         department_id: (!department_id.is_empty()).then_some(department_id),
@@ -4662,7 +4712,7 @@ async fn ide_chat_rewind_conversation(state: &AppState, params: Value) -> Result
         message_id: message_id.clone(),
         undo_apply_patch: input.undo_apply_patch,
     };
-    let result = conversation_service().rewind_conversation_from_message(
+    let result = conversation_service_v2().rewind_conversation(
         state,
         &request,
         &message_id,
@@ -4716,7 +4766,7 @@ async fn ide_chat_rewind_preview(state: &AppState, params: Value) -> Result<Valu
         message_id: message_id.clone(),
         undo_apply_patch: false,
     };
-    let result = conversation_service().preview_rewind_conversation_from_message(
+    let result = conversation_service_v2().preview_rewind_conversation(
         state,
         &request,
         &message_id,
@@ -4767,7 +4817,7 @@ async fn ide_chat_compact_conversation(state: &AppState, params: Value) -> Resul
     )
     .await?;
     trigger_chat_queue_processing(state);
-    let overview_payload = conversation_service().refresh_unarchived_conversation_overview_payload(state)?;
+    let overview_payload = conversation_service_v2().refresh_unarchived_conversation_overview(state)?;
     emit_unarchived_conversation_overview_updated_payload(state, &overview_payload);
     if let Some(compaction_message) = result.compaction_message.clone() {
         ide_chat_broadcast_notification(
@@ -4783,7 +4833,9 @@ async fn ide_chat_compact_conversation(state: &AppState, params: Value) -> Resul
 
 fn ide_chat_model_list(state: &AppState, params: Value) -> Result<Value, String> {
     let input = ide_chat_parse_params::<IdeChatConversationInput>(params)?;
-    let conversation = state_read_conversation_cached(state, input.conversation_id.trim())?;
+    let conversation_meta =
+        conversation_service_v2().get_conversation_meta(state, input.conversation_id.trim())?;
+    let conversation = ide_chat_conversation_from_meta_view(&conversation_meta);
     ide_chat_model_payload_for_conversation(state, &conversation)
 }
 
@@ -4815,12 +4867,11 @@ fn ide_chat_select_model(state: &AppState, _app: &AppHandle, params: Value) -> R
         }
         Some(resolved_api_config_id)
     };
-    conversation_service().set_conversation_preferred_api_config_id(
+    let updated_conversation = conversation_service_v2().set_preferred_api_config_id(
         state,
         conversation_id,
         preferred_api_config_id,
     )?;
-    let updated_conversation = state_read_conversation_cached(state, conversation_id)?;
     runtime_log_info(format!(
         "[会话模型] 完成，任务=切换会话首选模型，入口=vscode_sidebar，会话ID={}，api_config_id={}",
         conversation_id,
@@ -4986,7 +5037,7 @@ fn ide_chat_tool_review_item_decision(state: &AppState, params: Value) -> Result
         },
         "userOpinion": opinion,
     });
-    let detail = conversation_service().update_unarchived_conversation_by_id(
+    let detail = conversation_service_v2().update_unarchived_conversation_by_id(
         state,
         &conversation_id,
         |conversation| {

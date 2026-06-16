@@ -42,6 +42,44 @@ fn resolve_unarchived_conversation_index_with_fallback(
     ))
 }
 
+fn ensure_ready_message_store_from_legacy_conversation(
+    state: &AppState,
+    conversation_id: &str,
+    store_paths: &message_store::MessageStorePaths,
+) -> Result<(), String> {
+    let normalized_conversation_id = conversation_id.trim();
+    if normalized_conversation_id.is_empty() {
+        return Err("conversationId is required.".to_string());
+    }
+    if message_store::read_ready_message_store_status(store_paths)?.is_some() {
+        return Ok(());
+    }
+    let conversation =
+        read_legacy_conversation_snapshot_for_ready_store_recovery(state, normalized_conversation_id)?;
+    let recovery_job_id = format!("runtime-ready-store-recover-{normalized_conversation_id}");
+    let recovery_reason =
+        format!("运行时补建 ready message store，conversation_id={normalized_conversation_id}");
+    conversation_service_v2().recover_conversation_snapshot(
+        state,
+        &recovery_job_id,
+        "runtime_ready_store_recover",
+        &recovery_reason,
+        &conversation,
+    )?;
+    flush_pending_persists_blocking(state)?;
+    Ok(())
+}
+
+// 这里是普通业务路径之外的唯一旧快照白名单读取口：
+// 当 ready message store 尚未建立时，只能先读取历史 conversation 分片快照，
+// 再立即通过 V2 特权恢复入口补建 store。其他业务代码禁止复用这条路径。
+fn read_legacy_conversation_snapshot_for_ready_store_recovery(
+    state: &AppState,
+    conversation_id: &str,
+) -> Result<Conversation, String> {
+    state_read_conversation_cached(state, conversation_id)
+}
+
 fn build_foreground_conversation_snapshot_from_conversation(
     state: &AppState,
     conversation: &Conversation,
@@ -64,6 +102,42 @@ fn build_foreground_conversation_snapshot_from_conversation(
     })
 }
 
+fn build_foreground_conversation_snapshot_from_meta_view(
+    state: &AppState,
+    conversation_meta: &ConversationMetaView,
+    recent_limit: usize,
+) -> Result<ForegroundConversationSnapshotCore, String> {
+    let conversation_id = conversation_meta.id.to_string();
+    let paths = message_store::message_store_paths(&state.data_path, &conversation_id)?;
+    ensure_ready_message_store_from_legacy_conversation(state, &conversation_id, &paths)?;
+    let (messages, has_more_history) = if let Some(page) =
+        message_store::read_ready_message_store_recent_messages_page_cached(&paths, recent_limit)?
+    {
+        if let Err(err) = conversation_service_v2().retain_message_store_block_cache_whitelist(state) {
+            runtime_log_warn(format!(
+                "[消息存储] 警告，任务=retain_message_store_block_cache_whitelist，conversation_id={}，error={}",
+                conversation_id, err
+            ));
+        }
+        (page.messages, page.has_more)
+    } else {
+        let messages = message_store::read_ready_message_store_all_messages(&paths)?.unwrap_or_default();
+        let total_messages = messages.len();
+        let start = total_messages.saturating_sub(recent_limit);
+        (messages[start..].to_vec(), start > 0)
+    };
+    Ok(ForegroundConversationSnapshotCore {
+        conversation_id: conversation_id.clone(),
+        messages,
+        has_more_history,
+        runtime_state: unarchived_conversation_runtime_state(state, &conversation_id),
+        current_todo: conversation_current_todo_text_from_items(&conversation_meta.current_todos),
+        current_todos: conversation_meta.current_todos.clone(),
+        preferred_api_config_id: conversation_meta.preferred_api_config_id.clone(),
+        active_goal: conversation_meta.active_goal.clone(),
+    })
+}
+
 fn build_foreground_snapshot_recent_messages(
     state: &AppState,
     conversation: &Conversation,
@@ -73,7 +147,7 @@ fn build_foreground_snapshot_recent_messages(
     if let Some(page) =
         message_store::read_ready_message_store_recent_messages_page_cached(&paths, recent_limit)?
     {
-        if let Err(err) = conversation_service().retain_message_store_block_cache_whitelist(state) {
+        if let Err(err) = conversation_service_v2().retain_message_store_block_cache_whitelist(state) {
             runtime_log_warn(format!(
                 "[消息存储] 警告，任务=retain_message_store_block_cache_whitelist，conversation_id={}，error={}",
                 conversation.id, err
@@ -156,420 +230,4 @@ fn emit_provider_context_usage_update_from_conversation(
             stream_cache: None,
         },
     );
-}
-
-impl ConversationService {
-    fn persist_conversation(
-        &self,
-        state: &AppState,
-        conversation: &Conversation,
-    ) -> Result<(), String> {
-        state_schedule_conversation_persist(state, conversation).map(|_| ())
-    }
-
-    fn sync_conversation_metadata_from_snapshot(
-        &self,
-        state: &AppState,
-        conversation: &Conversation,
-    ) -> Result<Conversation, String> {
-        let (conversation, (), _) =
-            state_update_conversation_metadata_cached(state, &conversation.id, |cached| {
-                preserve_field_level_conversation_metadata(cached, conversation);
-                Ok(())
-            })?;
-        Ok(conversation)
-    }
-
-    fn add_conversation_cumulative_usage_delta(
-        &self,
-        state: &AppState,
-        conversation_id: &str,
-        usage: &Value,
-    ) -> Result<bool, String> {
-        let normalized_conversation_id = conversation_id.trim();
-        if normalized_conversation_id.is_empty() {
-            return Ok(false);
-        }
-        let mut probe = ConversationCumulativeUsage::default();
-        if !conversation_cumulative_usage_add_provider_usage(&mut probe, usage) {
-            return Ok(false);
-        }
-        let _guard = lock_conversation_with_metrics(state, "add_conversation_cumulative_usage")?;
-        let (conversation, changed, _) = state_update_conversation_metadata_cached(
-            state,
-            normalized_conversation_id,
-            |conversation| {
-                Ok(conversation_cumulative_usage_add_provider_usage(
-                    &mut conversation.cumulative_usage,
-                    usage,
-                ))
-            },
-        )?;
-        if changed {
-            emit_provider_context_usage_update_from_conversation(state, &conversation, usage);
-        }
-        Ok(changed)
-    }
-
-    fn set_conversation_preferred_api_config_id(
-        &self,
-        state: &AppState,
-        conversation_id: &str,
-        preferred_api_config_id: Option<String>,
-    ) -> Result<Conversation, String> {
-        let normalized_conversation_id = conversation_id.trim();
-        if normalized_conversation_id.is_empty() {
-            return Err("conversationId is required.".to_string());
-        }
-        let guard = state
-            .conversation_lock
-            .lock()
-            .map_err(|err| format!("Failed to lock state mutex at {}:{} {}: {err}", file!(), line!(), module_path!()))?;
-        let (conversation, (), _) = state_update_conversation_metadata_cached(
-            state,
-            normalized_conversation_id,
-            |conversation| {
-                conversation.preferred_api_config_id = preferred_api_config_id.clone();
-                Ok(())
-            },
-        )?;
-        drop(guard);
-        Ok(conversation)
-    }
-
-    fn set_conversation_auto_push_remote_contact_id(
-        &self,
-        state: &AppState,
-        conversation_id: &str,
-        auto_push_remote_contact_id: Option<String>,
-    ) -> Result<Conversation, String> {
-        let normalized_conversation_id = conversation_id.trim();
-        if normalized_conversation_id.is_empty() {
-            return Err("conversationId is required.".to_string());
-        }
-        let guard = state
-            .conversation_lock
-            .lock()
-            .map_err(|err| format!("Failed to lock state mutex at {}:{} {}: {err}", file!(), line!(), module_path!()))?;
-        let (conversation, (), _) = state_update_conversation_metadata_cached(
-            state,
-            normalized_conversation_id,
-            |conversation| {
-                conversation.auto_push_remote_contact_id = auto_push_remote_contact_id.clone();
-                Ok(())
-            },
-        )?;
-        drop(guard);
-        Ok(conversation)
-    }
-
-    fn set_conversation_title_metadata(
-        &self,
-        state: &AppState,
-        conversation_id: &str,
-        next_title: &str,
-    ) -> Result<Conversation, String> {
-        let normalized_conversation_id = conversation_id.trim();
-        if normalized_conversation_id.is_empty() {
-            return Err("conversationId is required.".to_string());
-        }
-        let normalized_title = next_title.trim().to_string();
-        let guard = state
-            .conversation_lock
-            .lock()
-            .map_err(|err| format!("Failed to lock state mutex at {}:{} {}: {err}", file!(), line!(), module_path!()))?;
-        let (conversation, (), _) = state_update_conversation_metadata_cached(
-            state,
-            normalized_conversation_id,
-            |conversation| {
-                conversation.title = normalized_title;
-                Ok(())
-            },
-        )?;
-        drop(guard);
-        Ok(conversation)
-    }
-
-    fn set_conversation_plan_mode_enabled_metadata(
-        &self,
-        state: &AppState,
-        conversation_id: &str,
-        enabled: bool,
-    ) -> Result<Conversation, String> {
-        let normalized_conversation_id = conversation_id.trim();
-        if normalized_conversation_id.is_empty() {
-            return Err("conversationId is required.".to_string());
-        }
-        let guard = state
-            .conversation_lock
-            .lock()
-            .map_err(|err| format!("Failed to lock state mutex at {}:{} {}: {err}", file!(), line!(), module_path!()))?;
-        let (conversation, (), _) = state_update_conversation_metadata_cached(
-            state,
-            normalized_conversation_id,
-            |conversation| {
-                conversation.plan_mode_enabled = enabled;
-                Ok(())
-            },
-        )?;
-        drop(guard);
-        Ok(conversation)
-    }
-
-    fn set_conversation_unread_count_metadata(
-        &self,
-        state: &AppState,
-        conversation_id: &str,
-        unread_count: usize,
-    ) -> Result<Conversation, String> {
-        let normalized_conversation_id = conversation_id.trim();
-        if normalized_conversation_id.is_empty() {
-            return Err("conversationId is required.".to_string());
-        }
-        let guard = state
-            .conversation_lock
-            .lock()
-            .map_err(|err| format!("Failed to lock state mutex at {}:{} {}: {err}", file!(), line!(), module_path!()))?;
-        let (conversation, (), _) = state_update_conversation_metadata_cached(
-            state,
-            normalized_conversation_id,
-            |conversation| {
-                conversation.unread_count = unread_count;
-                Ok(())
-            },
-        )?;
-        drop(guard);
-        Ok(conversation)
-    }
-
-    fn set_conversation_current_todos_metadata(
-        &self,
-        state: &AppState,
-        conversation_id: &str,
-        current_todos: Vec<ConversationTodoItem>,
-    ) -> Result<Conversation, String> {
-        let normalized_conversation_id = conversation_id.trim();
-        if normalized_conversation_id.is_empty() {
-            return Err("conversationId is required.".to_string());
-        }
-        let guard = state
-            .conversation_lock
-            .lock()
-            .map_err(|err| format!("Failed to lock state mutex at {}:{} {}: {err}", file!(), line!(), module_path!()))?;
-        let (conversation, (), _) = state_update_conversation_metadata_cached(
-            state,
-            normalized_conversation_id,
-            |conversation| {
-                conversation.current_todos = current_todos;
-                Ok(())
-            },
-        )?;
-        drop(guard);
-        Ok(conversation)
-    }
-
-    fn set_conversation_shell_workspace_metadata(
-        &self,
-        state: &AppState,
-        conversation_id: &str,
-        shell_workspace_path: Option<Option<String>>,
-        shell_workspaces: Option<Vec<ShellWorkspaceConfig>>,
-        shell_autonomous_mode: Option<bool>,
-    ) -> Result<Conversation, String> {
-        let normalized_conversation_id = conversation_id.trim();
-        if normalized_conversation_id.is_empty() {
-            return Err("conversationId is required.".to_string());
-        }
-        let guard = state
-            .conversation_lock
-            .lock()
-            .map_err(|err| format!("Failed to lock state mutex at {}:{} {}: {err}", file!(), line!(), module_path!()))?;
-        let (conversation, (), _) = state_update_conversation_metadata_cached(
-            state,
-            normalized_conversation_id,
-            |conversation| {
-                if let Some(value) = shell_workspace_path {
-                    conversation.shell_workspace_path = value;
-                }
-                if let Some(value) = shell_workspaces {
-                    conversation.shell_workspaces = value;
-                }
-                if let Some(value) = shell_autonomous_mode {
-                    conversation.shell_autonomous_mode = value;
-                }
-                if conversation
-                    .shell_workspace_path
-                    .as_deref()
-                    .map(str::trim)
-                    .filter(|value| !value.is_empty())
-                    .is_some()
-                    && terminal_workspace_path_from_conversation(state, conversation).is_none()
-                {
-                    conversation.shell_workspace_path = None;
-                }
-                Ok(())
-            },
-        )?;
-        drop(guard);
-        Ok(conversation)
-    }
-
-    #[allow(dead_code)]
-    fn set_conversation_lifecycle_metadata(
-        &self,
-        state: &AppState,
-        conversation_id: &str,
-        status: Option<&str>,
-        summary: Option<&str>,
-        archived_at: Option<Option<String>>,
-        updated_at: Option<String>,
-    ) -> Result<Conversation, String> {
-        let normalized_conversation_id = conversation_id.trim();
-        if normalized_conversation_id.is_empty() {
-            return Err("conversationId is required.".to_string());
-        }
-        let normalized_status = status.map(|value| value.trim().to_string());
-        let next_summary = summary.map(ToOwned::to_owned);
-        let guard = state
-            .conversation_lock
-            .lock()
-            .map_err(|err| format!("Failed to lock state mutex at {}:{} {}: {err}", file!(), line!(), module_path!()))?;
-        let (conversation, (), _) = state_update_conversation_metadata_cached(
-            state,
-            normalized_conversation_id,
-            |conversation| {
-                if let Some(value) = normalized_status {
-                    conversation.status = value;
-                }
-                if let Some(value) = next_summary {
-                    conversation.summary = value;
-                }
-                if let Some(value) = archived_at {
-                    conversation.archived_at = value;
-                }
-                if let Some(value) = updated_at {
-                    conversation.updated_at = value;
-                }
-                Ok(())
-            },
-        )?;
-        drop(guard);
-        Ok(conversation)
-    }
-
-    fn set_conversation_routing_metadata(
-        &self,
-        state: &AppState,
-        conversation_id: &str,
-        department_id: Option<&str>,
-        agent_id: Option<&str>,
-        root_conversation_id: Option<Option<String>>,
-        conversation_kind: Option<&str>,
-    ) -> Result<Conversation, String> {
-        let normalized_conversation_id = conversation_id.trim();
-        if normalized_conversation_id.is_empty() {
-            return Err("conversationId is required.".to_string());
-        }
-        let next_department_id = department_id.map(|value| value.trim().to_string());
-        let next_agent_id = agent_id.map(|value| value.trim().to_string());
-        let next_conversation_kind = conversation_kind.map(|value| value.trim().to_string());
-        let guard = state
-            .conversation_lock
-            .lock()
-            .map_err(|err| format!("Failed to lock state mutex at {}:{} {}: {err}", file!(), line!(), module_path!()))?;
-        let (conversation, (), _) = state_update_conversation_metadata_cached(
-            state,
-            normalized_conversation_id,
-            |conversation| {
-                if let Some(value) = next_department_id {
-                    conversation.department_id = value;
-                }
-                if let Some(value) = next_agent_id {
-                    conversation.agent_id = value;
-                }
-                if let Some(value) = root_conversation_id {
-                    conversation.root_conversation_id = value;
-                }
-                if let Some(value) = next_conversation_kind {
-                    conversation.conversation_kind = value;
-                }
-                Ok(())
-            },
-        )?;
-        drop(guard);
-        Ok(conversation)
-    }
-
-    fn append_tool_group_result(
-        &self,
-        state: &AppState,
-        conversation_id: &str,
-        agent_id: &str,
-        assistant_tool_call_event: Value,
-        tool_result_event: Value,
-        provider_meta_patch: Option<Value>,
-        assistant_message_id: Option<&str>,
-    ) -> Result<message_store::MessageStoreToolCallResultAppend, String> {
-        let normalized_conversation_id = conversation_id.trim();
-        if normalized_conversation_id.is_empty() {
-            return Err("conversationId is required.".to_string());
-        }
-        let guard = lock_conversation_with_metrics(state, "append_tool_group_result")?;
-        let conversation = state_read_conversation_cached(state, normalized_conversation_id)?;
-        self.ensure_unarchived_conversation(&conversation, normalized_conversation_id)?;
-        let append = message_store::apply_message_store_tool_group_result(
-            &conversation,
-            agent_id,
-            assistant_tool_call_event,
-            tool_result_event,
-            provider_meta_patch,
-            assistant_message_id,
-        )?;
-        state_schedule_conversation_persist(state, &append.conversation)?;
-        drop(guard);
-        Ok(append)
-    }
-
-    fn update_conversation_todos(
-        &self,
-        state: &AppState,
-        conversation_id: &str,
-        stored_todos: &[ConversationTodoItem],
-    ) -> Result<Option<ConversationTodosUpdateResult>, String> {
-        let normalized_conversation_id = conversation_id.trim();
-        if normalized_conversation_id.is_empty() {
-            return Ok(None);
-        }
-        let guard = state
-            .conversation_lock
-            .lock()
-            .map_err(|err| format!("Failed to lock state mutex at {}:{} {}: {err}", file!(), line!(), module_path!()))?;
-        let conversation = match state_read_conversation_cached(state, normalized_conversation_id) {
-            Ok(conversation) => conversation,
-            Err(err) => {
-                runtime_log_debug(format!(
-                    "[Todo] 读取会话失败，函数=update_conversation_todos，conversation_id={}，error={}",
-                    normalized_conversation_id, err
-                ));
-                drop(guard);
-                return Ok(None);
-            }
-        };
-        if !conversation.summary.trim().is_empty() {
-            drop(guard);
-            return Ok(None);
-        }
-        if conversation.current_todos == stored_todos {
-            drop(guard);
-            return Ok(None);
-        }
-        drop(guard);
-        let updated = self.set_conversation_current_todos_metadata(
-            state,
-            normalized_conversation_id,
-            stored_todos.to_vec(),
-        )?;
-        let current_todo = conversation_current_todo_text(&updated);
-        Ok(Some(ConversationTodosUpdateResult { current_todo }))
-    }
 }

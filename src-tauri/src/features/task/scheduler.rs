@@ -1,7 +1,10 @@
-fn task_conversation_available_for_dispatch(conversation: &Conversation) -> bool {
-    conversation.summary.trim().is_empty()
-        && !conversation_is_delegate(conversation)
-        && !conversation_is_system_notification(conversation)
+fn task_conversation_meta_available_for_dispatch(
+    conversation_meta: &ConversationMetaView,
+) -> bool {
+    conversation_meta.summary.trim().is_empty()
+        && conversation_meta.conversation_kind.trim() != CONVERSATION_KIND_DELEGATE
+        && conversation_meta.id.trim() != SYSTEM_NOTIFICATION_CONVERSATION_ID
+        && conversation_meta.conversation_kind.trim() != CONVERSATION_KIND_SYSTEM_NOTIFICATION
 }
 
 #[derive(Debug, Clone)]
@@ -42,8 +45,10 @@ struct TaskDispatchSkipContext {
     system_task: bool,
 }
 
-fn task_scope_for_conversation(conversation: &Conversation) -> &'static str {
-    if conversation_is_remote_im_contact(conversation) {
+fn task_target_scope_for_conversation_meta(
+    conversation_meta: &ConversationMetaView,
+) -> &'static str {
+    if conversation_meta.conversation_kind.trim() == CONVERSATION_KIND_REMOTE_IM_CONTACT {
         TASK_TARGET_SCOPE_CONTACT
     } else {
         TASK_TARGET_SCOPE_DESKTOP
@@ -64,11 +69,12 @@ fn task_resolve_dispatch_conversation(
         }));
     }
 
-    if let Ok(conversation) = state_read_conversation_cached(state, &requested) {
-        if task_conversation_available_for_dispatch(&conversation) {
+    if let Ok(conversation_meta) = conversation_service_v2().get_conversation_meta(state, &requested) {
+        if task_conversation_meta_available_for_dispatch(&conversation_meta) {
             return Ok(Some(TaskResolvedConversation {
-                conversation_id: conversation.id.clone(),
-                target_scope: task_scope_for_conversation(&conversation).to_string(),
+                conversation_id: conversation_meta.id.to_string(),
+                target_scope: task_target_scope_for_conversation_meta(&conversation_meta)
+                    .to_string(),
                 system_task: false,
             }));
         }

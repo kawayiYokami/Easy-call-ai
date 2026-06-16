@@ -84,6 +84,13 @@ pub(super) struct MessageStoreBranchSelection {
 }
 
 #[derive(Debug, Clone)]
+pub(super) struct MessageStoreRewindSlice {
+    pub(super) keep_count: usize,
+    pub(super) removed_messages: Vec<ChatMessage>,
+    pub(super) recalled_user_message: ChatMessage,
+}
+
+#[derive(Debug, Clone)]
 pub(super) struct MessageStoreToolCallResultAppend {
     pub(super) conversation: Conversation,
     pub(super) assistant_message_id: String,
@@ -521,15 +528,52 @@ pub(super) fn read_ready_message_store_recent_messages_page_cached(
     if !paths.index_file.exists() {
         return Ok(None);
     }
-    let index = read_message_store_index_file(&paths.index_file)?;
+    let mut index = read_message_store_index_file(&paths.index_file)?;
+    let manifest_last_message_id = manifest.last_message_id().trim().to_string();
+    let manifest_message_count = manifest.source_message_count();
+    let cached_index_stale =
+        index.items.len() != manifest_message_count
+            || index
+                .items
+                .last()
+                .map(|item| item.message_id.trim())
+                .unwrap_or_default()
+                != manifest_last_message_id;
+    if cached_index_stale {
+        forget_message_store_index_cache(&paths.index_file);
+        index = Arc::new(read_message_store_index_file_uncached(&paths.index_file)?);
+    }
     let limit = normalized_message_limit(limit);
     let start = index.items.len().saturating_sub(limit);
-    let messages =
+    let mut messages =
         read_jsonl_snapshot_messages_by_index_items_cached(&paths.messages_file, &index.items[start..])?;
+    let cached_page_stale = index.items.len() != messages.len().saturating_add(start)
+        || messages
+            .last()
+            .map(|message| message.id.trim())
+            .unwrap_or_default()
+            != manifest_last_message_id;
+    if cached_page_stale {
+        let affected_paths = index.items[start..]
+            .iter()
+            .filter_map(|item| jsonl_snapshot_index_item_path(&paths.messages_file, item.block_id).ok())
+            .collect::<std::collections::HashSet<_>>();
+        forget_message_store_block_file_cache_paths(&affected_paths);
+        messages = read_jsonl_snapshot_messages_by_index_items(&paths.messages_file, &index.items[start..])?;
+    }
     Ok(Some(MessageStoreLimitPage {
         messages,
         has_more: start > 0,
     }))
+}
+
+fn read_message_store_index_file_uncached(path: &PathBuf) -> Result<MessageStoreIndexFile, String> {
+    let raw = fs::read_to_string(path)
+        .map_err(|err| format!("读取消息索引失败，path={}，error={err}", path.display()))?;
+    let index = serde_json::from_str::<MessageStoreIndexFile>(&raw)
+        .map_err(|err| format!("解析消息索引失败，path={}，error={err}", path.display()))?;
+    validate_message_store_index_file(path, &index)?;
+    Ok(index.with_position_lookup())
 }
 
 pub(super) fn read_ready_message_store_recent_blocks_page(
@@ -648,6 +692,39 @@ pub(super) fn read_ready_message_store_messages_after_all(
         return Ok(None);
     };
     store.read_messages_after_all(after_message_id).map(Some)
+}
+
+pub(super) fn read_ready_message_store_rewind_slice(
+    paths: &MessageStorePaths,
+    message_id: &str,
+) -> Result<Option<MessageStoreRewindSlice>, String> {
+    let Some(manifest) = read_message_store_manifest(&paths.manifest_file)? else {
+        return Ok(None);
+    };
+    if !manifest.should_read_jsonl() {
+        return Ok(None);
+    }
+    validate_ready_message_store_snapshot_integrity(paths, &manifest)?;
+    if !paths.index_file.exists() {
+        return Ok(None);
+    }
+    let index = read_message_store_index_file(&paths.index_file)?;
+    let message_idx = find_index_item_position(&index, message_id)
+        .ok_or_else(|| format!("Message not found: {}", message_id.trim()))?;
+    let removed_messages =
+        read_jsonl_snapshot_messages_by_index_items(&paths.messages_file, &index.items[message_idx..])?;
+    let recalled_user_message = removed_messages
+        .first()
+        .cloned()
+        .ok_or_else(|| format!("Message not found: {}", message_id.trim()))?;
+    if !recalled_user_message.role.trim().eq_ignore_ascii_case("user") {
+        return Err("Target user message not found in active conversation.".to_string());
+    }
+    Ok(Some(MessageStoreRewindSlice {
+        keep_count: message_idx,
+        removed_messages,
+        recalled_user_message,
+    }))
 }
 
 pub(super) fn read_message_store_status(
@@ -2828,6 +2905,70 @@ mod message_store_reader_tests {
             Some("a2")
         );
         assert_eq!(snapshot.active_message_count, 4);
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn recent_messages_page_cached_should_refetch_when_block_cache_stale() {
+        let root = std::env::temp_dir().join(format!(
+            "easy-call-message-store-recent-page-stale-{}",
+            Uuid::new_v4()
+        ));
+        let data_path = root.join("app_data.json");
+        let paths = message_store_paths(&data_path, "conversation-recent-page").expect("paths");
+        let mut conversation = test_conversation(vec![
+            test_message("u1", "user"),
+            test_message("a1", "assistant"),
+        ]);
+        run_jsonl_snapshot_migration(&paths, &conversation, false).expect("run migration");
+
+        let seeded = read_ready_message_store_recent_messages_page_cached(&paths, 8)
+            .expect("seed cached page")
+            .expect("ready page");
+        assert_eq!(
+            seeded.messages.iter().map(|message| message.id.as_str()).collect::<Vec<_>>(),
+            vec!["u1", "a1"]
+        );
+
+        let appended = test_message("a2", "assistant");
+        conversation.messages.push(appended.clone());
+        let meta = ConversationShardMeta::from_conversation(&conversation);
+        write_jsonl_snapshot_appended_messages_shard_from_meta(
+            &paths,
+            &meta,
+            std::slice::from_ref(&appended),
+        )
+        .expect("append latest message");
+
+        let latest_block_path = read_ready_message_store_latest_block_paths(&paths, 1)
+            .expect("read latest block path")
+            .expect("latest block path")
+            .into_iter()
+            .next()
+            .expect("one latest block");
+        let latest_block_metadata = fs::metadata(&latest_block_path).expect("latest block metadata");
+        let stale_messages = seeded
+            .messages
+            .iter()
+            .map(|message| (message.id.clone(), message.clone()))
+            .collect::<std::collections::HashMap<_, _>>();
+        lock_message_store_block_file_cache().insert(
+            latest_block_path,
+            CachedMessageStoreBlockFile {
+                modified_at: latest_block_metadata.modified().ok(),
+                len: latest_block_metadata.len(),
+                messages_by_id: Arc::new(stale_messages),
+            },
+        );
+
+        let page = read_ready_message_store_recent_messages_page_cached(&paths, 8)
+            .expect("read cached page after append")
+            .expect("ready page");
+        assert_eq!(
+            page.messages.iter().map(|message| message.id.as_str()).collect::<Vec<_>>(),
+            vec!["u1", "a1", "a2"]
+        );
+
         let _ = fs::remove_dir_all(root);
     }
 

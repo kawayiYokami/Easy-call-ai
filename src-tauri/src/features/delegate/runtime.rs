@@ -115,8 +115,42 @@ fn delegate_parent_shell_workspace(
             }
         }
     }
-    state_read_conversation_cached(app_state, root_conversation_id)
+    conversation_service_v2()
+        .get_conversation_meta(app_state, root_conversation_id)
         .ok()
+        .map(|conversation_meta| Conversation {
+            id: conversation_meta.id,
+            title: conversation_meta.title,
+            agent_id: conversation_meta.agent_id,
+            department_id: conversation_meta.department_id,
+            bound_conversation_id: None,
+            parent_conversation_id: None,
+            child_conversation_ids: Vec::new(),
+            fork_message_cursor: None,
+            unread_count: conversation_meta.unread_count,
+            conversation_kind: conversation_meta.conversation_kind,
+            root_conversation_id: None,
+            delegate_id: None,
+            created_at: conversation_meta.created_at,
+            updated_at: conversation_meta.updated_at,
+            last_user_at: None,
+            last_assistant_at: None,
+            status: conversation_meta.status,
+            archived_at: conversation_meta.archived_at,
+            summary: conversation_meta.summary,
+            user_profile_snapshot: String::new(),
+            preferred_api_config_id: conversation_meta.preferred_api_config_id,
+            auto_push_remote_contact_id: None,
+            shell_workspace_path: conversation_meta.shell_workspace_path,
+            shell_workspaces: conversation_meta.shell_workspaces,
+            shell_autonomous_mode: conversation_meta.shell_autonomous_mode,
+            messages: Vec::new(),
+            current_todos: conversation_meta.current_todos,
+            memory_recall_table: Vec::new(),
+            plan_mode_enabled: false,
+            cumulative_usage: ConversationCumulativeUsage::default(),
+            active_goal: conversation_meta.active_goal,
+        })
         .filter(|conversation| {
             conversation
                 .shell_workspace_path
@@ -184,12 +218,14 @@ fn delegate_runtime_thread_create(
     if task_conversation_id_is_system_notification(&delegate.conversation_id) {
         task_ensure_system_notification_conversation(app_state)?;
     } else {
-        state_read_conversation_cached(app_state, &delegate.conversation_id)
+        conversation_service_v2()
+            .get_conversation_meta(app_state, &delegate.conversation_id)
             .ok()
-            .filter(|conversation| {
-                conversation.summary.trim().is_empty()
-                    && !conversation_is_delegate(conversation)
-                    && !conversation_is_system_notification(conversation)
+            .filter(|conversation_meta| {
+                conversation_meta.summary.trim().is_empty()
+                    && conversation_meta.conversation_kind.trim() != CONVERSATION_KIND_DELEGATE
+                    && conversation_meta.conversation_kind.trim()
+                        != CONVERSATION_KIND_SYSTEM_NOTIFICATION
             })
             .ok_or_else(|| {
                 format!(
@@ -249,9 +285,17 @@ fn delegate_runtime_thread_apply_persisted_conversation(
     mut thread: DelegateRuntimeThread,
     app_state: &AppState,
 ) -> Result<DelegateRuntimeThread, String> {
-    if let Some(conversation) = delegate_conversation_store_read(&app_state.data_path, &thread.delegate_id)?
-    {
-        thread.conversation = conversation;
+    match delegate_conversation_store_read(&app_state.data_path, &thread.delegate_id) {
+        Ok(Some(conversation)) => {
+            thread.conversation = conversation;
+        }
+        Ok(None) => {}
+        Err(err) => {
+            runtime_log_warn(format!(
+                "[委托会话] 警告，任务=读取持久化委托会话失败，delegate_id={}，error={}",
+                thread.delegate_id, err
+            ));
+        }
     }
     Ok(thread)
 }
@@ -303,15 +347,17 @@ fn delegate_runtime_thread_archive(
         .delegate_runtime_threads
         .lock()
         .map_err(|_| "Failed to lock delegate runtime threads".to_string())?;
-    let mut recent = app_state
-        .delegate_recent_threads
-        .lock()
-        .map_err(|_| "Failed to lock recent delegate runtime threads".to_string())?;
     let Some(mut thread) = active.remove(delegate_id.trim()) else {
         return Ok(());
     };
+    drop(active);
     if delegate_runtime_thread_is_deleted(&thread.delegate_id)? {
         return Ok(());
+    }
+    if let Some(persisted) =
+        delegate_conversation_store_read(&app_state.data_path, &thread.delegate_id)?
+    {
+        thread.conversation = persisted;
     }
     thread.archived_at = Some(archived_at.to_string());
     thread.conversation.archived_at = Some(archived_at.to_string());
@@ -321,6 +367,10 @@ fn delegate_runtime_thread_archive(
         &thread.delegate_id,
         &thread.conversation,
     )?;
+    let mut recent = app_state
+        .delegate_recent_threads
+        .lock()
+        .map_err(|_| "Failed to lock recent delegate runtime threads".to_string())?;
     recent.retain(|item| item.delegate_id != thread.delegate_id);
     recent.push_front(thread);
     while recent.len() > DELEGATE_RECENT_THREAD_LIMIT {

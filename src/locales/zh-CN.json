@@ -1662,7 +1662,15 @@
     "requestContextTooLong": "上下文或输出长度超过模型限制",
     "requestInsufficientBalance": "账号额度或余额不足",
     "requestServiceMaintenance": "模型服务维护中或临时不可用",
-    "requestFailed": "请求失败: {err}"
+    "requestFailed": "请求失败: {err}",
+    "trimArchiveRunning": "正在归档当前会话…",
+    "trimArchivePartial": "归档已部分完成：{reason}",
+    "trimArchiveDone": "会话已归档，并整理了 {count} 条记忆。",
+    "trimArchiveFailed": "归档失败: {err}",
+    "trimCompactRunning": "正在压缩当前会话…",
+    "trimCompactPartial": "压缩已部分完成：{reason}",
+    "trimCompactDone": "会话压缩完成，并整理了 {count} 条记忆。",
+    "trimCompactFailed": "压缩失败: {err}"
   },
   "sidebar": {
     "terminalApproval": "终端审批",

@@ -302,10 +302,10 @@ fn detach_current_conversation_to_window(
         return Err("系统通知会话不能独立打开，请选择一个普通会话。".to_string());
     }
 
-    let conversation = state_read_conversation_cached(&state, conversation_id)?;
-    if !conversation.summary.trim().is_empty()
-        || (!conversation_visible_in_foreground_lists(&conversation)
-            && !conversation_is_remote_im_contact(&conversation))
+    let conversation_meta = conversation_service_v2().get_conversation_meta(&state, conversation_id)?;
+    if !conversation_meta.summary.trim().is_empty()
+        || (!conversation_meta.visible_in_foreground_lists
+            && !conversation_meta.is_remote_im_contact)
     {
         eprintln!(
             "[独立聊天窗口] 拒绝：会话不在前台列表 conversation_id={}",
@@ -313,12 +313,25 @@ fn detach_current_conversation_to_window(
         );
         return Err("只能独立打开未归档前台会话或远程联系人会话。".to_string());
     }
-    let title = if !conversation.title.trim().is_empty() {
-        conversation.title.clone()
-    } else if let Some(summary_title) = conversation_latest_summary_title(&conversation) {
-        summary_title
+    let title = if !conversation_meta.title.trim().is_empty() {
+        conversation_meta.title.trim().to_string()
+    } else if let Some(summary_title) = conversation_meta
+        .latest_summary_title
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        summary_title.to_string()
+    } else if let Some(preview_title) = conversation_meta
+        .preview_messages
+        .iter()
+        .find(|message| message.role.trim().eq_ignore_ascii_case("user"))
+        .map(|message| message.text_preview.trim())
+        .filter(|value| !value.is_empty())
+    {
+        preview_title.chars().take(12).collect()
     } else {
-        conversation_preview_title(&conversation)
+        conversation_id.to_string()
     };
     eprintln!(
         "[独立聊天窗口] 准备创建窗口：conversation_id={}，title={}",

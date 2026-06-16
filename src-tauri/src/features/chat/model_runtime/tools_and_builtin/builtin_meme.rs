@@ -829,11 +829,6 @@ fn resolve_text_to_persisted_meme_segments(
     Ok(Some(segments))
 }
 
-fn provider_meta_meme_segments(meta: Option<&Value>) -> Option<Vec<PersistedMemeSegment>> {
-    let raw = meta?.as_object()?.get("memeSegments")?.clone();
-    serde_json::from_value::<Vec<PersistedMemeSegment>>(raw).ok()
-}
-
 #[cfg(test)]
 fn persist_meme_segments_into_provider_meta(
     provider_meta: &mut Option<Value>,
@@ -1183,26 +1178,6 @@ mod builtin_meme_tests {
     }
 
     #[test]
-    fn provider_meta_meme_segments_should_round_trip() {
-        let segments = vec![
-            PersistedMemeSegment::Text {
-                text: "你好".to_string(),
-            },
-            PersistedMemeSegment::Meme {
-                name: "贴纸A".to_string(),
-                category: "happy".to_string(),
-                mime: "image/png".to_string(),
-                relative_path: ".meme/happy/贴纸A__1.png".to_string(),
-                bytes_base64: "QUJD".to_string(),
-            },
-        ];
-        let mut meta = None;
-        persist_meme_segments_into_provider_meta(&mut meta, Some(&segments));
-        let parsed = provider_meta_meme_segments(meta.as_ref()).expect("parse meme segments");
-        assert_eq!(parsed, segments);
-    }
-
-    #[test]
     fn resolve_text_to_persisted_meme_segments_should_preserve_text_before_invalid_colons() {
         let state = meme_test_state();
         let existing = meme_workspace_root(&state).join("坏笑粉毛.webp");
@@ -1223,6 +1198,20 @@ mod builtin_meme_tests {
             segments.get(1),
             Some(PersistedMemeSegment::Meme { category, .. }) if category == "坏笑粉毛"
         ));
+    }
+
+    #[test]
+    fn build_meme_annotations_should_map_token_to_asset_path() {
+        let state = meme_test_state();
+        let existing = meme_workspace_root(&state).join("坏笑.webp");
+        write_test_png(&existing);
+
+        let annotations = build_meme_annotations(&state, "你好 :坏笑: 收到", "seed")
+            .expect("build meme annotations");
+
+        assert_eq!(annotations.len(), 1);
+        assert_eq!(annotations[0].meme, ":坏笑:");
+        assert!(annotations[0].path.ends_with("坏笑.webp"));
     }
 
     #[test]
@@ -1317,7 +1306,6 @@ mod builtin_meme_tests {
             cached_runtime_state: Arc::new(Mutex::new(None)),
             cached_runtime_state_mtime: Arc::new(Mutex::new(None)),
             cached_chat_index: Arc::new(Mutex::new(None)),
-            cached_conversations: Arc::new(Mutex::new(std::collections::HashMap::new())),
             cached_conversation_metadata: Arc::new(Mutex::new(std::collections::HashMap::new())),
             cached_conversation_mtimes: Arc::new(Mutex::new(std::collections::HashMap::new())),
             cached_app_data: Arc::new(Mutex::new(None)),

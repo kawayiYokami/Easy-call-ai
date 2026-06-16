@@ -4,16 +4,7 @@ fn task_list_tasks(state: State<'_, AppState>) -> Result<Vec<TaskEntry>, String>
 }
 
 fn task_ensure_system_notification_conversation(state: &AppState) -> Result<(), String> {
-    if state_read_conversation_cached(state, SYSTEM_NOTIFICATION_CONVERSATION_ID)
-        .ok()
-        .filter(|conversation| conversation_is_system_notification(conversation))
-        .is_some()
-    {
-        return Ok(());
-    }
-    let conversation = build_system_notification_conversation_record();
-    state_schedule_conversation_persist(state, &conversation)?;
-    Ok(())
+    conversation_service_v2().ensure_system_notification_conversation(state)
 }
 
 fn task_normalize_conversation_for_write(
@@ -25,9 +16,12 @@ fn task_normalize_conversation_for_write(
         task_ensure_system_notification_conversation(state)?;
         return Ok(normalized);
     }
-    let conversation = state_read_conversation_cached(state, &normalized)
+    let conversation = conversation_service_v2()
+        .get_conversation_meta(state, &normalized)
         .map_err(|_| format!("绑定会话不存在：{normalized}"))?;
-    if !conversation.summary.trim().is_empty() || conversation_is_delegate(&conversation) {
+    if !conversation.summary.trim().is_empty()
+        || conversation.conversation_kind.trim() == CONVERSATION_KIND_DELEGATE
+    {
         return Err(format!("绑定会话不可用：{normalized}"));
     }
     Ok(normalized)
@@ -182,12 +176,13 @@ fn task_default_department_agent_for_write(state: &AppState) -> Result<(String, 
 
 fn task_conversation_has_system_owner(
     state: &AppState,
-    conversation: &Conversation,
+    agent_id: &str,
+    is_system_notification: bool,
 ) -> Result<bool, String> {
-    if conversation_is_system_notification(conversation) {
+    if is_system_notification {
         return Ok(true);
     }
-    let agent_id = conversation.agent_id.trim();
+    let agent_id = agent_id.trim();
     if agent_id.is_empty() {
         return Ok(false);
     }
@@ -210,9 +205,14 @@ fn task_department_agent_from_conversation_for_write(
     if task_conversation_id_is_system_notification(conversation_id) {
         return Ok(None);
     }
-    let conversation = state_read_conversation_cached(state, conversation_id)
+    let conversation = conversation_service_v2()
+        .get_conversation_meta(state, conversation_id)
         .map_err(|_| format!("绑定会话不存在：{conversation_id}"))?;
-    if task_conversation_has_system_owner(state, &conversation)? {
+    if task_conversation_has_system_owner(
+        state,
+        &conversation.agent_id,
+        conversation.conversation_kind.trim() == CONVERSATION_KIND_SYSTEM_NOTIFICATION,
+    )? {
         return Ok(None);
     }
     let department_id = conversation.department_id.trim();

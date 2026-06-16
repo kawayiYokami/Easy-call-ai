@@ -574,26 +574,6 @@ export type MemeMessageSegment =
 
 export type MemeAnnotation = { meme: string; path: string; };
 
-export type InlineMessageSegment =
-  | { type: "text"; text: string }
-  | {
-    type: "meme";
-    name: string;
-    category: string;
-    mime: string;
-    relativePath: string;
-    bytesBase64: string;
-  }
-  | {
-    type: "localImage";
-    path: string;
-    fileName: string;
-    mime: string;
-    alt?: string;
-    width?: number;
-    height?: number;
-  };
-
 export type ChatTodoItem = {
   content: string;
   status: "pending" | "in_progress" | "completed";
@@ -613,8 +593,6 @@ export type ChatMessage = {
     attachments?: Array<{ fileName: string; relativePath: string; mime?: string }>;
     taskTrigger?: TaskTriggerMessageCard;
     planCard?: PlanMessageCard;
-    inlineSegments?: InlineMessageSegment[];
-    memeSegments?: MemeMessageSegment[];
     [key: string]: unknown;
   };
   toolCall?: ToolCallMessage[];
@@ -681,8 +659,6 @@ export type ChatMessageBlock = {
   audios: Array<{ mime: string; bytesBase64: string }>;
   attachmentFiles: Array<{ fileName: string; relativePath: string }>;
   extraTextReferences?: Array<{ label: string; text: string }>;
-  inlineSegments?: InlineMessageSegment[];
-  memeSegments?: MemeMessageSegment[];
   taskTrigger?: TaskTriggerMessageCard;
   planCard?: PlanMessageCard;
   remoteImOrigin?: {

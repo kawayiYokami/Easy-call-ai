@@ -182,53 +182,7 @@
                 </div>
               </details>
             </div>
-      <div v-if="hasRenderableInlineSegments(block)">
-        <div ref="markdownContainerRef" class="ecall-meme-segment-flow">
-          <template v-for="(segment, index) in block.inlineSegments || []" :key="`${block.id}-inline-${index}`">
-            <div
-              v-if="segment.type === 'text' && segment.text"
-              class="ecall-meme-text-segment"
-            >
-              <SidebarLightMarkdown
-                v-if="forcePlainMarkdownRender"
-                :text="segment.text"
-                @click="emit('assistantLinkClick', $event)"
-              />
-              <AppMarkdownRenderer
-                v-else
-                class="ecall-markdown-content ecall-inline-meme-markdown max-w-none"
-                :text="segment.text"
-                :is-dark="markdownIsDark"
-                :local-image-base-path="currentWorkspaceRootPath"
-                @click="emit('assistantLinkClick', $event)"
-              />
-            </div>
-            <img
-              v-else-if="isInlineImageSegment(segment) && inlineImageSrc(segment)"
-              :src="inlineImageSrc(segment)"
-              :alt="inlineImageAlt(segment)"
-              :class="inlineImageClass(segment)"
-              loading="lazy"
-              decoding="async"
-              @click.stop="openInlineImagePreview(segment)"
-            />
-            <div
-              v-else-if="segment.type === 'localImage'"
-              class="ecall-local-image-wrapper"
-            >
-              <div
-                v-if="!localImageErrorMap[localImageKey(segment.path)]"
-                class="ecall-local-image-placeholder"
-              >{{ segment.alt || segment.fileName }}</div>
-              <div
-                v-else
-                class="ecall-local-image-unavailable"
-              >{{ segment.alt || t('chat.localImageUnavailable') }}</div>
-            </div>
-          </template>
-        </div>
-      </div>
-      <div v-else-if="block.text">
+      <div v-if="block.text">
         <div
           v-if="isOwnMessage(block)"
           class="whitespace-pre-wrap break-all"
@@ -251,7 +205,7 @@
           />
         </div>
       </div>
-      <div v-if="block.planCard" class="space-y-3" :class="hasRenderableInlineSegments(block) || block.text ? 'mt-3' : ''">
+      <div v-if="block.planCard" class="space-y-3" :class="block.text ? 'mt-3' : ''">
         <div class="text-xs italic opacity-60 mb-1">{{ t("chat.plan.sidebarHint") }}</div>
         <div @click="emit('assistantLinkClick', $event)">
           <a :href="block.planCard.path" class="link link-primary text-sm" :title="block.planCard.path">{{ t("chat.plan.linkLabel") }}{{ block.planCard.path.split(/[/\\]/).filter(Boolean).pop() }}</a>
@@ -580,7 +534,7 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch, watchEffect
 import { useI18n } from "vue-i18n";
 import { CircleCheckBig, Copy, Eye, EyeOff, FileText, ListCheck, Pause, Play, RotateCcw, Undo2 } from "@lucide/vue";
 import { invokeTauri } from "../../../services/tauri-api";
-import type { ChatActivityItem, ChatMessageBlock, InlineMessageSegment } from "../../../types/app";
+import type { ChatActivityItem, ChatMessageBlock } from "../../../types/app";
 import { formatIsoToLocalHourMinute } from "../../../utils/time";
 import { AppMarkdownRenderer, initKatex } from "../markdown";
 import { normalizeLocalLinkHref } from "../utils/local-link";
@@ -799,104 +753,6 @@ function ownMessageDisplayText(block: ChatMessageBlock): string {
   if (!body.trim()) return mentionPrefix;
   return `${mentionPrefix} ${body}`;
 }
-
-function hasRenderableInlineSegments(block: ChatMessageBlock): boolean {
-  return !isOwnMessage(block) && Array.isArray(block.inlineSegments) && block.inlineSegments.length > 0;
-}
-
-function isInlineImageSegment(segment: InlineMessageSegment): boolean {
-  return segment.type === "meme" || segment.type === "localImage";
-}
-
-function inlineImageSrc(segment: InlineMessageSegment): string {
-  if (segment.type === "meme") return `data:${segment.mime};base64,${segment.bytesBase64}`;
-  if (segment.type === "localImage") return localImageThumbnailSrc(segment.path);
-  return "";
-}
-
-function inlineImageAlt(segment: InlineMessageSegment): string {
-  if (segment.type === "meme") return `:${segment.category}:`;
-  if (segment.type === "localImage") return segment.alt || segment.fileName;
-  return "";
-}
-
-function inlineImageClass(segment: InlineMessageSegment): string {
-  return segment.type === "localImage" ? "ecall-local-image-thumbnail" : "ecall-inline-meme";
-}
-
-const localImageThumbnailMap = ref<Record<string, string>>({});
-const localImageThumbnailPromiseMap = new Map<string, Promise<string>>();
-const localImageErrorMap = ref<Record<string, boolean>>({});
-
-function localImageKey(path: string): string {
-  return String(path || "").trim();
-}
-
-function localImageThumbnailSrc(path: string): string {
-  const key = localImageKey(path);
-  if (!key) return "";
-  const cached = localImageThumbnailMap.value[key];
-  if (cached) return cached;
-  return "";
-}
-
-function ensureLocalImageThumbnail(path: string): void {
-  const key = localImageKey(path);
-  if (!key || localImageThumbnailMap.value[key] || localImageErrorMap.value[key]) return;
-  if (localImageThumbnailPromiseMap.has(key)) return;
-  const task = invokeTauri<{ dataUrl: string }>("read_local_chat_image_thumbnail", {
-    input: { path: key },
-  })
-    .then((result) => {
-      const dataUrl = String(result?.dataUrl || "").trim();
-      if (dataUrl && !disposed) {
-        localImageThumbnailMap.value = { ...localImageThumbnailMap.value, [key]: dataUrl };
-      }
-      localImageThumbnailPromiseMap.delete(key);
-      return dataUrl;
-    })
-    .catch((error) => {
-      if (!disposed) {
-        console.warn("[聊天本地图片] 缩略图加载失败", { path: key, error });
-        localImageErrorMap.value = { ...localImageErrorMap.value, [key]: true };
-      }
-      localImageThumbnailPromiseMap.delete(key);
-      return "";
-    });
-  localImageThumbnailPromiseMap.set(key, task);
-}
-
-function openInlineImagePreview(segment: InlineMessageSegment) {
-  if (segment.type === "meme") {
-    emit("openImagePreview", {
-      mime: segment.mime,
-      bytesBase64: segment.bytesBase64,
-    });
-    return;
-  }
-  if (segment.type !== "localImage") return;
-  const localPath = localImageKey(segment.path);
-  if (!localPath) return;
-  invokeTauri<{ dataUrl: string; mime: string }>("read_local_chat_image_original", {
-    input: { path: localPath },
-  })
-    .then((result) => {
-      const dataUrl = String(result?.dataUrl || "").trim();
-      if (!dataUrl) return;
-      emit("openImagePreview", { mime: result.mime, dataUrl, localPath });
-    })
-    .catch((error) => {
-      console.warn("[聊天本地图片] 原图读取失败", { path: localPath, error });
-    });
-}
-
-watchEffect(() => {
-  const segments = Array.isArray(props.block.inlineSegments) ? props.block.inlineSegments : [];
-  for (const segment of segments) {
-    if (segment.type !== "localImage") continue;
-    ensureLocalImageThumbnail(segment.path);
-  }
-});
 
 function showStreamingUi(block: ChatMessageBlock): boolean {
   return !!block.isStreaming && !isOwnMessage(block);

@@ -5,11 +5,10 @@ use git_ghost_snapshot::restore_main_workspace_from_git_ghost_snapshot;
 
 fn conversation_preferred_model_repair_candidate(
     config: &AppConfig,
-    conversation: &Conversation,
+    department_id: &str,
+    preferred_api_config_id: Option<&str>,
 ) -> Option<String> {
-    let current = conversation
-        .preferred_api_config_id
-        .as_deref()
+    let current = preferred_api_config_id
         .map(str::trim)
         .filter(|value| !value.is_empty());
     if let Some(resolved_current) = current
@@ -22,7 +21,7 @@ fn conversation_preferred_model_repair_candidate(
     let department_primary_id = config
         .departments
         .iter()
-        .find(|department| department.id.trim() == conversation.department_id.trim())
+        .find(|department| department.id.trim() == department_id.trim())
         .map(department_primary_api_config_id)
         .filter(|value| !value.trim().is_empty())
         .unwrap_or_else(|| config.assistant_department_api_config_id.trim().to_string());
@@ -34,22 +33,38 @@ fn repair_conversation_preferred_model_for_snapshot(
     state: &AppState,
     conversation: &Conversation,
 ) -> Result<Option<String>, String> {
+    repair_conversation_preferred_model_for_snapshot_meta(
+        state,
+        &conversation.id,
+        &conversation.department_id,
+        conversation.preferred_api_config_id.as_deref(),
+    )
+}
+
+fn repair_conversation_preferred_model_for_snapshot_meta(
+    state: &AppState,
+    conversation_id: &str,
+    department_id: &str,
+    preferred_api_config_id: Option<&str>,
+) -> Result<Option<String>, String> {
     let config = load_runtime_organization_snapshot(state)?.config;
-    let repaired = conversation_preferred_model_repair_candidate(&config, conversation);
-    let current = conversation
-        .preferred_api_config_id
-        .as_deref()
+    let repaired = conversation_preferred_model_repair_candidate(
+        &config,
+        department_id,
+        preferred_api_config_id,
+    );
+    let current = preferred_api_config_id
         .map(str::trim)
         .filter(|value| !value.is_empty());
     if repaired.as_deref() != current {
-        conversation_service().set_conversation_preferred_api_config_id(
+        conversation_service_v2().set_preferred_api_config_id(
             state,
-            &conversation.id,
+            conversation_id,
             repaired.clone(),
         )?;
         runtime_log_info(format!(
             "[会话首选模型] 完成，任务=加载快照自动修复，conversation_id={}，旧值={}，新值={}",
-            conversation.id,
+            conversation_id,
             current.unwrap_or(""),
             repaired.as_deref().unwrap_or("")
         ));
@@ -64,11 +79,18 @@ fn switch_active_conversation_snapshot(
 ) -> Result<SwitchActiveConversationSnapshotOutput, String> {
     let started_at = std::time::Instant::now();
     let result =
-        conversation_service().switch_active_conversation_snapshot(state.inner(), &input)?;
+        conversation_service_v2().switch_active_conversation_snapshot(state.inner(), &input)?;
     let mut snapshot = result.snapshot;
-    if let Ok(conversation) = state_read_conversation_cached(state.inner(), &snapshot.conversation_id) {
+    if let Ok(conversation_meta) = conversation_service_v2()
+        .get_conversation_meta(state.inner(), &snapshot.conversation_id)
+    {
         snapshot.preferred_api_config_id =
-            repair_conversation_preferred_model_for_snapshot(state.inner(), &conversation)?;
+            repair_conversation_preferred_model_for_snapshot_meta(
+                state.inner(),
+                &conversation_meta.id,
+                &conversation_meta.department_id,
+                conversation_meta.preferred_api_config_id.as_deref(),
+            )?;
     }
     let unarchived_conversations = result.unarchived_conversations;
     runtime_log_info(format!(
@@ -103,13 +125,13 @@ fn get_foreground_conversation_light_snapshot(
         .limit
         .unwrap_or(DEFAULT_FOREGROUND_SNAPSHOT_RECENT_LIMIT)
         .clamp(1, 50);
-    let mut snapshot = conversation_service().read_foreground_snapshot(
+    let mut snapshot = conversation_service_v2().get_foreground_snapshot(
         state.inner(),
         input.conversation_id.as_deref(),
         input.agent_id.as_deref(),
         recent_limit,
     )?;
-    if let Some(conversation) = conversation_service()
+    if let Some(conversation) = conversation_service_v2()
         .mark_conversation_read(state.inner(), &snapshot.conversation_id)?
         .conversation
     {
@@ -163,7 +185,7 @@ fn get_foreground_conversation_light_snapshot(
         current_todos: snapshot.current_todos,
         preferred_api_config_id: snapshot.preferred_api_config_id,
         active_goal: snapshot.active_goal,
-        unarchived_conversations: conversation_service()
+        unarchived_conversations: conversation_service_v2()
             .list_unarchived_conversation_summaries(state.inner())?
             .summaries,
         stream_cache,
@@ -377,7 +399,7 @@ fn mark_conversation_read(
     if conversation_id.is_empty() {
         return Ok(false);
     }
-    Ok(conversation_service()
+    Ok(conversation_service_v2()
         .mark_conversation_read(state.inner(), conversation_id)?
         .conversation
         .is_some())
@@ -461,7 +483,7 @@ fn set_conversation_preferred_model(
         None
     };
 
-    conversation_service().set_conversation_preferred_api_config_id(
+    conversation_service_v2().set_preferred_api_config_id(
         state.inner(),
         conversation_id,
         resolved_preferred_api_config_id.clone(),
@@ -495,17 +517,21 @@ fn set_conversation_auto_push_remote_contact(
         .filter(|value| !value.is_empty())
         .map(ToOwned::to_owned);
 
-    let conversation = state_read_conversation_cached(state.inner(), conversation_id)
+    let conversation_meta = conversation_service_v2()
+        .get_conversation_meta(state.inner(), conversation_id)
         .map_err(|_| "会话不存在".to_string())?;
-    if !conversation_is_local_normal_chat(&conversation)
-        || !conversation_visible_in_foreground_lists(&conversation)
-        || conversation_is_system_notification(&conversation)
+    if conversation_meta.conversation_kind.trim() != CONVERSATION_KIND_CHAT
+        || matches!(
+            conversation_meta.conversation_kind.trim(),
+            CONVERSATION_KIND_DELEGATE | CONVERSATION_KIND_REMOTE_IM_CONTACT | CONVERSATION_KIND_SYSTEM_NOTIFICATION
+        )
+        || !conversation_meta.summary.trim().is_empty()
     {
         return Err("仅普通本地会话支持自动推送".to_string());
     }
 
     if let Some(target_contact_id) = remote_contact_id.as_deref() {
-        let has_target = conversation_service()
+        let has_target = conversation_service_v2()
             .list_remote_im_contact_conversations(state.inner())?
             .iter()
             .any(|item| item.contact_id.trim() == target_contact_id);
@@ -514,7 +540,7 @@ fn set_conversation_auto_push_remote_contact(
         }
     }
 
-    conversation_service().set_conversation_auto_push_remote_contact_id(
+    conversation_service_v2().set_auto_push_remote_contact_id(
         state.inner(),
         conversation_id,
         remote_contact_id.clone(),
@@ -956,6 +982,7 @@ fn build_branch_conversation_record_from_selection(
     Ok(conversation)
 }
 
+#[cfg(test)]
 fn latest_compaction_message_for_branch(source: &Conversation) -> Option<ChatMessage> {
     source
         .messages
@@ -979,7 +1006,7 @@ fn create_unarchived_conversation(
         input.title.as_deref().unwrap_or("").chars().count(),
         input.copy_source_conversation_id.as_deref().unwrap_or("")
     ));
-    let result = conversation_service().create_unarchived_conversation(state.inner(), &input)?;
+    let result = conversation_service_v2().create_conversation(state.inner(), &input)?;
     let conversation_id = result.conversation_id.clone();
     let overview_count = result.overview_payload.unarchived_conversations.len();
     let preferred_conversation_id = result
@@ -1017,7 +1044,8 @@ fn export_conversation_share_json(
     if conversation_id.is_empty() {
         return Err("conversationId 不能为空".to_string());
     }
-    let conversation = state_read_conversation_cached(state.inner(), conversation_id)
+    let conversation = conversation_service_v2()
+        .get_conversation_snapshot(state.inner(), conversation_id)
         .map_err(|_| "会话不存在或已归档".to_string())?;
     if !conversation.summary.trim().is_empty()
         || !conversation_visible_in_foreground_lists(&conversation)
@@ -1095,9 +1123,10 @@ fn import_conversation_share_from_file(
         shell_workspaces: input.shell_workspaces.clone(),
         shell_autonomous_mode: input.shell_autonomous_mode,
     };
-    let result = conversation_service().create_unarchived_conversation(state.inner(), &create_input)?;
+    let result = conversation_service_v2().create_conversation(state.inner(), &create_input)?;
     let conversation_id = result.conversation_id.clone();
-    let mut conversation = state_read_conversation_cached(state.inner(), &conversation_id)
+    let mut conversation = conversation_service_v2()
+        .get_conversation_snapshot(state.inner(), &conversation_id)
         .map_err(|_| "新建导入会话后读取失败".to_string())?;
     let target_agent_id = conversation.agent_id.clone();
     conversation.messages = payload
@@ -1123,12 +1152,19 @@ fn import_conversation_share_from_file(
         .rev()
         .find(|message| message.role.trim() == "assistant")
         .map(|message| message.created_at.clone());
-    conversation_service().sync_conversation_metadata_from_snapshot(state.inner(), &conversation)?;
-    conversation_service().persist_conversation(state.inner(), &conversation)?;
+    let import_job_id = format!("conversation-share-import-{conversation_id}");
+    let import_reason = format!("从会话分享文件导入，path={path}");
+    conversation_service_v2().import_conversation_snapshot(
+        state.inner(),
+        &import_job_id,
+        "conversation_share_import",
+        &import_reason,
+        &conversation,
+    )?;
 
     let overview_payload = UnarchivedConversationOverviewUpdatedPayload {
         preferred_conversation_id: Some(conversation_id.clone()),
-        unarchived_conversations: conversation_service()
+        unarchived_conversations: conversation_service_v2()
             .list_unarchived_conversation_summaries(state.inner())?
             .summaries,
     };
@@ -1173,7 +1209,7 @@ async fn branch_unarchived_conversation_from_selection_internal(
         return Err("selectedMessageIds 不能为空".to_string());
     }
 
-    let result = conversation_service().branch_unarchived_conversation_from_selection(
+    let result = conversation_service_v2().branch_conversation_from_selection(
         state,
         source_conversation_id,
         &normalized_selected_message_ids,
@@ -1221,7 +1257,7 @@ fn forward_unarchived_conversation_selection(
         return Err("selectedMessageIds 不能为空".to_string());
     }
 
-    let result = conversation_service().forward_unarchived_conversation_selection(
+    let result = conversation_service_v2().forward_conversation_selection(
         state.inner(),
         source_conversation_id,
         target_conversation_id,
@@ -1272,7 +1308,7 @@ fn forward_selection_to_remote_im_contact(
         return Err("selectedMessageIds 不能为空".to_string());
     }
 
-    let result = conversation_service().forward_selection_to_remote_im_contact(
+    let result = conversation_service_v2().forward_selection_to_remote_im_contact(
         state.inner(),
         source_conversation_id,
         target_conversation_id,
@@ -1305,7 +1341,7 @@ fn rename_unarchived_conversation(
         return Err("conversationId 不能为空".to_string());
     }
     let next_title = clean_text(input.title.trim());
-    let next_title = conversation_service().rename_unarchived_conversation(
+    let next_title = conversation_service_v2().rename_conversation(
         state.inner(),
         conversation_id,
         &next_title,
@@ -1328,7 +1364,7 @@ fn toggle_unarchived_conversation_pin(
     input: ToggleUnarchivedConversationPinInput,
     state: State<'_, AppState>,
 ) -> Result<ToggleUnarchivedConversationPinOutput, String> {
-    let result = conversation_service().toggle_unarchived_conversation_pin(
+    let result = conversation_service_v2().toggle_conversation_pin(
         state.inner(),
         &input.conversation_id,
     )?;
@@ -1941,7 +1977,7 @@ fn get_unarchived_conversation_messages(
     if conversation_id.is_empty() {
         return Err("conversationId is required.".to_string());
     }
-    conversation_service().read_unarchived_messages(state.inner(), conversation_id)
+    conversation_service_v2().get_all_messages(state.inner(), conversation_id)
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -2013,7 +2049,7 @@ fn get_unarchived_conversation_recent_block_messages(
     if conversation_id.is_empty() {
         return Err("conversationId is required.".to_string());
     }
-    conversation_service().read_recent_unarchived_block_messages(state.inner(), conversation_id)
+    conversation_service_v2().get_recent_block_messages(state.inner(), conversation_id)
 }
 
 #[tauri::command]
@@ -2025,11 +2061,11 @@ fn get_unarchived_conversation_block_page(
     if conversation_id.is_empty() {
         return Err("conversationId is required.".to_string());
     }
-    let page = conversation_service().read_unarchived_block_page(
-        state.inner(),
-        conversation_id,
-        input.block_id,
-    )?;
+    let page = if let Some(block_id) = input.block_id {
+        conversation_service_v2().get_conversation_block(state.inner(), conversation_id, block_id)?
+    } else {
+        conversation_service_v2().get_conversation_last_block(state.inner(), conversation_id)?
+    };
     Ok(ConversationBlockPageOutput {
         blocks: page
             .blocks
@@ -2060,7 +2096,7 @@ fn get_unarchived_conversation_recent_messages(
     if conversation_id.is_empty() {
         return Err("conversationId is required.".to_string());
     }
-    conversation_service().read_recent_unarchived_messages(
+    conversation_service_v2().get_recent_messages(
         state.inner(),
         conversation_id,
         input.limit,
@@ -2080,7 +2116,7 @@ fn get_unarchived_conversation_message_by_id(
     if message_id.is_empty() {
         return Err("messageId is required.".to_string());
     }
-    conversation_service().read_message_by_id(state.inner(), conversation_id, message_id)
+    conversation_service_v2().get_message_by_id(state.inner(), conversation_id, message_id)
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -2192,7 +2228,7 @@ fn delete_unarchived_conversation(
         "[会话] 开始，任务=delete_unarchived_conversation，action=delete_unarchived_convo，convo_id={}",
         conversation_id
     ));
-    let result = match conversation_service().delete_unarchived_conversation(
+    let result = match conversation_service_v2().delete_conversation(
         state.inner(),
         conversation_id,
     ) {
@@ -2244,7 +2280,7 @@ fn get_active_conversation_messages(
     input: SessionSelector,
     state: State<'_, AppState>,
 ) -> Result<Vec<ChatMessage>, String> {
-    conversation_service().read_active_conversation_messages(state.inner(), &input)
+    conversation_service_v2().get_active_conversation_messages(state.inner(), &input)
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -2345,7 +2381,7 @@ fn resolve_unarchived_conversation_messages_after(
     after_message_id: Option<&str>,
     fallback_limit: usize,
 ) -> Result<(Vec<ChatMessage>, Option<String>), String> {
-    conversation_service().read_messages_after_with_fallback(
+    conversation_service_v2().get_messages_after_with_fallback(
         state,
         conversation_id,
         after_message_id,
@@ -2363,15 +2399,30 @@ fn get_active_conversation_messages_before(
         return Err("beforeMessageId is required.".to_string());
     }
     let limit = input.limit.clamp(1, 100);
-    let (page, has_more) = conversation_service().read_messages_before(
-        state.inner(),
-        &input.session,
-        before_message_id,
-        limit,
-    )?;
+    let page = if let Some(conversation_id) = input
+        .session
+        .conversation_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        conversation_service_v2().get_messages_before(
+            state.inner(),
+            conversation_id,
+            before_message_id,
+            limit,
+        )?
+    } else {
+        conversation_service_v2().get_messages_before_from_session(
+            state.inner(),
+            &input.session,
+            before_message_id,
+            limit,
+        )?
+    };
     Ok(GetActiveConversationMessagesBeforeOutput {
-        messages: page,
-        has_more,
+        messages: page.messages,
+        has_more: page.has_more,
     })
 }
 
@@ -2385,14 +2436,29 @@ fn get_active_conversation_messages_after(
         return Err("afterMessageId is required.".to_string());
     }
     let limit = input.limit.clamp(1, 200);
-    let page = conversation_service().read_messages_after(
-        state.inner(),
-        &input.session,
-        after_message_id,
-        limit,
-    )?;
+    let page = if let Some(conversation_id) = input
+        .session
+        .conversation_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        conversation_service_v2().get_messages_after(
+            state.inner(),
+            conversation_id,
+            after_message_id,
+            limit,
+        )?
+    } else {
+        conversation_service_v2().get_messages_after_from_session(
+            state.inner(),
+            &input.session,
+            after_message_id,
+            limit,
+        )?
+    };
     Ok(GetActiveConversationMessagesAfterOutput {
-        messages: page,
+        messages: page.messages,
     })
 }
 
@@ -2544,6 +2610,7 @@ fn validate_rewind_input(
     Ok(message_id)
 }
 
+#[cfg(test)]
 fn persist_rewind_conversation_state(
     conversation: &mut Conversation,
     remove_from: usize,
@@ -2606,6 +2673,7 @@ fn latest_todos_from_message_tool_history(
     Ok(None)
 }
 
+#[cfg(test)]
 fn restore_conversation_todos_after_rewind(conversation: &mut Conversation) -> Result<(), String> {
     let mut restored = None::<Vec<ConversationTodoItem>>;
     for message in conversation.messages.iter().rev() {
@@ -2629,7 +2697,7 @@ async fn preview_rewind_conversation_from_message(
         "[会话撤回] 开始，任务=preview_rewind_conversation_from_message，message_id={}",
         message_id
     ));
-    let result = conversation_service().preview_rewind_conversation_from_message(
+    let result = conversation_service_v2().preview_rewind_conversation(
         state.inner(),
         &input,
         &message_id,
@@ -2659,7 +2727,7 @@ async fn rewind_conversation_from_message(
         message_id, input.undo_apply_patch
     ));
 
-    let result = conversation_service().rewind_conversation_from_message(
+    let result = conversation_service_v2().rewind_conversation(
         state.inner(),
         &input,
         &message_id,

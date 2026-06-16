@@ -559,6 +559,161 @@ fn inline_segment_from_meme_segment(segment: PersistedMemeSegment) -> PersistedI
     }
 }
 
+#[derive(Debug, Clone)]
+struct MemeAnnotationInlineReference {
+    start: usize,
+    end: usize,
+    meme: String,
+    path: String,
+}
+
+fn collect_meme_annotation_inline_references(
+    text: &str,
+    annotations: &[MemeAnnotation],
+) -> Vec<MemeAnnotationInlineReference> {
+    let mut out = Vec::<MemeAnnotationInlineReference>::new();
+    let mut cursor = 0usize;
+    for annotation in annotations {
+        let meme = annotation.meme.trim();
+        let path = annotation.path.trim();
+        if meme.is_empty() || path.is_empty() {
+            continue;
+        }
+        let Some(start_rel) = text[cursor..].find(meme) else {
+            continue;
+        };
+        let start = cursor + start_rel;
+        let end = start + meme.len();
+        out.push(MemeAnnotationInlineReference {
+            start,
+            end,
+            meme: meme.to_string(),
+            path: path.to_string(),
+        });
+        cursor = end;
+    }
+    out
+}
+
+fn inline_segment_from_meme_annotation(
+    state: &AppState,
+    reference: &MemeAnnotationInlineReference,
+) -> Result<PersistedInlineMessageSegment, String> {
+    let path = PathBuf::from(reference.path.trim());
+    let raw = std::fs::read(&path)
+        .map_err(|err| format!("读取表情文件失败: path={}, err={err}", path.display()))?;
+    let mime = media_mime_from_path(&path)
+        .unwrap_or("image/webp")
+        .to_string();
+    let name = path
+        .file_stem()
+        .and_then(|value| value.to_str())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or("meme")
+        .to_string();
+    let category = reference
+        .meme
+        .trim()
+        .trim_start_matches(':')
+        .trim_end_matches(':')
+        .to_string();
+    Ok(PersistedInlineMessageSegment::Meme {
+        name,
+        category,
+        mime,
+        relative_path: workspace_relative_path(state, &path),
+        bytes_base64: B64.encode(raw),
+    })
+}
+
+fn resolve_text_and_meme_annotations_to_inline_segments(
+    state: &AppState,
+    text: &str,
+    annotations: Option<&[MemeAnnotation]>,
+) -> Result<Option<Vec<PersistedInlineMessageSegment>>, String> {
+    if text.trim().is_empty() {
+        return Ok(None);
+    }
+    let meme_refs =
+        annotations.map(|items| collect_meme_annotation_inline_references(text, items)).unwrap_or_default();
+    let mut local_refs = Vec::<LocalImageReference>::new();
+    let mut cursor = 0usize;
+    while cursor < text.len() {
+        let Some(reference) = local_image_find_next_reference(text, cursor) else {
+            break;
+        };
+        cursor = reference.end;
+        local_refs.push(reference);
+    }
+
+    let mut out = Vec::<PersistedInlineMessageSegment>::new();
+    let mut text_cursor = 0usize;
+    let mut local_idx = 0usize;
+    let mut meme_idx = 0usize;
+
+    while text_cursor < text.len() {
+        let next_local = local_refs.get(local_idx);
+        let next_meme = meme_refs.get(meme_idx);
+        let next_start = match (next_local, next_meme) {
+            (Some(local), Some(meme)) => {
+                if local.start <= meme.start {
+                    Some((local.start, true))
+                } else {
+                    Some((meme.start, false))
+                }
+            }
+            (Some(local), None) => Some((local.start, true)),
+            (None, Some(meme)) => Some((meme.start, false)),
+            (None, None) => None,
+        };
+        let Some((start, is_local)) = next_start else {
+            break;
+        };
+        if start < text_cursor {
+            if is_local {
+                local_idx += 1;
+            } else {
+                meme_idx += 1;
+            }
+            continue;
+        }
+        if start > text_cursor {
+            out.push(PersistedInlineMessageSegment::Text {
+                text: text[text_cursor..start].to_string(),
+            });
+        }
+        if is_local {
+            let reference = &local_refs[local_idx];
+            out.push(local_image_segment_from_reference(state, reference));
+            text_cursor = reference.end;
+            local_idx += 1;
+        } else {
+            let reference = &meme_refs[meme_idx];
+            out.push(inline_segment_from_meme_annotation(state, reference)?);
+            text_cursor = reference.end;
+            meme_idx += 1;
+        }
+    }
+
+    if text_cursor < text.len() {
+        out.push(PersistedInlineMessageSegment::Text {
+            text: text[text_cursor..].to_string(),
+        });
+    }
+    if out.is_empty() {
+        return Ok(None);
+    }
+    let has_non_text = out.iter().any(|segment| {
+        !matches!(segment, PersistedInlineMessageSegment::Text { .. })
+    });
+    if has_non_text {
+        Ok(Some(out))
+    } else {
+        Ok(None)
+    }
+}
+
 fn resolve_text_to_persisted_inline_segments(
     state: &AppState,
     text: &str,
@@ -600,14 +755,107 @@ fn resolve_text_to_persisted_inline_segments(
     }
 }
 
-fn provider_meta_inline_segments(meta: Option<&Value>) -> Option<Vec<PersistedInlineMessageSegment>> {
-    let raw = meta?.as_object()?.get("inlineSegments")?.clone();
-    serde_json::from_value::<Vec<PersistedInlineMessageSegment>>(raw).ok()
-}
-
 #[cfg(test)]
 mod local_image_reference_tests {
     use super::*;
+    use std::sync::{Arc, Mutex};
+
+    fn local_image_test_state() -> AppState {
+        let root = std::env::temp_dir().join(format!("eca-local-image-test-{}", Uuid::new_v4()));
+        std::fs::create_dir_all(&root).expect("create temp test root");
+        std::fs::create_dir_all(root.join("llm-workspace")).expect("create temp llm workspace");
+        AppState {
+            app_handle: Arc::new(Mutex::new(None)),
+            config_path: root.join("app_config.toml"),
+            data_path: root.join("app_data.json"),
+            llm_workspace_path: root.join("llm-workspace"),
+            shared_http_client: reqwest::Client::new(),
+            terminal_shell: detect_default_terminal_shell(),
+            terminal_shell_candidates: detect_terminal_shell_candidates(),
+            conversation_lock: Arc::new(ConversationDomainLock::new()),
+            memory_lock: Arc::new(Mutex::new(())),
+            cached_config: Arc::new(Mutex::new(None)),
+            cached_config_mtime: Arc::new(Mutex::new(None)),
+            cached_agents: Arc::new(Mutex::new(None)),
+            cached_agents_mtime: Arc::new(Mutex::new(None)),
+            cached_runtime_state: Arc::new(Mutex::new(None)),
+            cached_runtime_state_mtime: Arc::new(Mutex::new(None)),
+            cached_chat_index: Arc::new(Mutex::new(None)),
+            cached_conversation_metadata: Arc::new(Mutex::new(std::collections::HashMap::new())),
+            cached_conversation_mtimes: Arc::new(Mutex::new(std::collections::HashMap::new())),
+            cached_app_data: Arc::new(Mutex::new(None)),
+            cached_app_data_signature: Arc::new(Mutex::new(None)),
+            cached_app_data_dirty: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            app_data_persist_pending: Arc::new(Mutex::new(None)),
+            app_data_persist_notify: Arc::new(tokio::sync::Notify::new()),
+            app_data_persist_started: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            app_data_persist_latest_seq: Arc::new(std::sync::atomic::AtomicU64::new(0)),
+            conversation_persist_pending: Arc::new(Mutex::new(None)),
+            conversation_persist_notify: Arc::new(tokio::sync::Notify::new()),
+            conversation_persist_started: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            conversation_persist_latest_seq: Arc::new(std::sync::atomic::AtomicU64::new(0)),
+            cached_conversation_dirty_ids: Arc::new(Mutex::new(std::collections::HashSet::new())),
+            cached_deleted_conversation_ids: Arc::new(Mutex::new(std::collections::HashSet::new())),
+            app_data_persist_write_lock: Arc::new(Mutex::new(())),
+            last_panic_snapshot: Arc::new(Mutex::new(None)),
+            inflight_chat_abort_handles: Arc::new(Mutex::new(std::collections::HashMap::new())),
+            inflight_tool_abort_handles: Arc::new(Mutex::new(std::collections::HashMap::new())),
+            inflight_completed_tool_history: Arc::new(Mutex::new(std::collections::HashMap::new())),
+            terminal_session_roots: Arc::new(Mutex::new(std::collections::HashMap::new())),
+            terminal_live_sessions: Arc::new(tokio::sync::Mutex::new(
+                std::collections::HashMap::new(),
+            )),
+            terminal_pending_approvals: Arc::new(Mutex::new(std::collections::HashMap::new())),
+            llm_round_logs: Arc::new(Mutex::new(std::collections::VecDeque::new())),
+            conversation_runtime_slots: Arc::new(Mutex::new(std::collections::HashMap::new())),
+            conversation_processing_claims: Arc::new(Mutex::new(std::collections::HashSet::new())),
+            goal_continue_suppressed_conversation_ids: Arc::new(Mutex::new(
+                std::collections::HashSet::new(),
+            )),
+            pending_chat_result_senders: Arc::new(Mutex::new(std::collections::HashMap::new())),
+            pending_chat_delta_channels: Arc::new(Mutex::new(std::collections::HashMap::new())),
+            accepted_submit_trace_ids: Arc::new(Mutex::new(std::collections::VecDeque::new())),
+            active_chat_view_bindings: Arc::new(Mutex::new(std::collections::HashMap::new())),
+            conversation_list_activity_marks: Arc::new(Mutex::new(std::collections::HashMap::new())),
+            dequeue_lock: Arc::new(Mutex::new(())),
+            task_scheduler_notify: Arc::new(tokio::sync::Notify::new()),
+            delegate_runtime_threads: Arc::new(Mutex::new(std::collections::HashMap::new())),
+            delegate_recent_threads: Arc::new(Mutex::new(std::collections::VecDeque::new())),
+            provider_streaming_disabled_keys: Arc::new(Mutex::new(
+                std::collections::HashMap::new(),
+            )),
+            provider_system_message_user_fallback_keys: Arc::new(Mutex::new(
+                std::collections::HashSet::new(),
+            )),
+            provider_request_gates: Arc::new(tokio::sync::Mutex::new(
+                std::collections::HashMap::new(),
+            )),
+            remote_im_contact_runtime_states: Arc::new(Mutex::new(
+                std::collections::HashMap::new(),
+            )),
+            remote_im_channel_state_write_locks: Arc::new(Mutex::new(
+                std::collections::HashMap::new(),
+            )),
+            hidden_skill_snapshot_cache: Arc::new(Mutex::new(String::new())),
+            preferred_release_source: Arc::new(Mutex::new("github".to_string())),
+            migration_preview_dirs: Arc::new(Mutex::new(std::collections::HashMap::new())),
+            delegate_active_ids: Arc::new(std::sync::Mutex::new(std::collections::HashSet::new())),
+            backend_ready: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+        }
+    }
+
+    fn write_test_png(path: &Path) {
+        let image = image::RgbImage::from_fn(32, 32, |x, y| {
+            let r = ((x * 7 + y * 3) % 255) as u8;
+            let g = ((x * 11 + y * 5) % 255) as u8;
+            let b = ((x * 13 + y * 17) % 255) as u8;
+            image::Rgb([r, g, b])
+        });
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent).expect("create image parent");
+        }
+        image.save(path).expect("save png");
+    }
 
     #[test]
     fn markdown_image_reference_should_parse_windows_path_and_alt() {
@@ -634,6 +882,55 @@ mod local_image_reference_tests {
     fn custom_image_token_should_not_be_parsed() {
         assert!(local_image_find_next_reference("{{image:E:/tmp/a.png|图}}", 0).is_none());
         assert!(local_image_find_next_reference("{{img:E:/tmp/a.png|图}}", 0).is_none());
+    }
+
+    #[test]
+    fn meme_annotations_should_replace_repeated_tokens_in_order() {
+        let state = local_image_test_state();
+        let first = meme_workspace_root(&state).join("坏笑.webp");
+        let second = meme_workspace_root(&state).join("坏笑(2).webp");
+        write_test_png(&first);
+        write_test_png(&second);
+
+        let segments = resolve_text_and_meme_annotations_to_inline_segments(
+            &state,
+            "前 :坏笑: 中 :坏笑: 后",
+            Some(&[
+                MemeAnnotation {
+                    meme: ":坏笑:".to_string(),
+                    path: first.to_string_lossy().to_string(),
+                },
+                MemeAnnotation {
+                    meme: ":坏笑:".to_string(),
+                    path: second.to_string_lossy().to_string(),
+                },
+            ]),
+        )
+        .expect("resolve meme annotations")
+        .expect("segments");
+
+        assert!(matches!(
+            segments.first(),
+            Some(PersistedInlineMessageSegment::Text { text }) if text == "前 "
+        ));
+        assert!(matches!(
+            segments.get(1),
+            Some(PersistedInlineMessageSegment::Meme { relative_path, .. })
+                if relative_path.ends_with("坏笑.webp")
+        ));
+        assert!(matches!(
+            segments.get(2),
+            Some(PersistedInlineMessageSegment::Text { text }) if text == " 中 "
+        ));
+        assert!(matches!(
+            segments.get(3),
+            Some(PersistedInlineMessageSegment::Meme { relative_path, .. })
+                if relative_path.ends_with("坏笑(2).webp")
+        ));
+        assert!(matches!(
+            segments.get(4),
+            Some(PersistedInlineMessageSegment::Text { text }) if text == " 后"
+        ));
     }
 
     #[test]

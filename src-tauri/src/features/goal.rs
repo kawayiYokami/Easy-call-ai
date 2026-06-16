@@ -100,54 +100,11 @@ fn emit_goal_updated(state: &AppState, conversation_id: &str, goal: Option<&Conv
     }
 }
 
-fn goal_active_goal_from_conversation(
-    conversation: &Conversation,
-) -> Option<ConversationGoalState> {
-    conversation
-        .active_goal
-        .as_ref()
-        .filter(|goal| conversation_goal_is_active(goal))
-        .cloned()
-}
-
 fn goal_get_current_inner(
     state: &AppState,
     conversation_id: &str,
 ) -> Result<Option<ConversationGoalState>, String> {
-    let normalized_conversation_id = conversation_id.trim();
-    if normalized_conversation_id.is_empty() {
-        return Err("conversationId is required".to_string());
-    }
-    let conversation = goal_read_conversation(state, normalized_conversation_id)?;
-    Ok(goal_active_goal_from_conversation(&conversation))
-}
-
-fn goal_read_conversation(state: &AppState, conversation_id: &str) -> Result<Conversation, String> {
-    match state_read_conversation_cached(state, conversation_id) {
-        Ok(conversation) => Ok(conversation),
-        Err(main_err) => match delegate_runtime_thread_conversation_get(state, conversation_id) {
-            Ok(Some(conversation)) => Ok(conversation),
-            Ok(None) => Err(main_err),
-            Err(delegate_err) => Err(format!("{main_err}; delegate={delegate_err}")),
-        },
-    }
-}
-
-fn goal_update_conversation_metadata<T>(
-    state: &AppState,
-    conversation_id: &str,
-    updater: impl FnOnce(&mut Conversation) -> Result<T, String>,
-) -> Result<(Conversation, T), String> {
-    if state_read_conversation_cached(state, conversation_id).is_ok() {
-        let (conversation, result, _) =
-            state_update_conversation_metadata_cached(state, conversation_id, updater)?;
-        return Ok((conversation, result));
-    }
-    let mut conversation = delegate_runtime_thread_conversation_get(state, conversation_id)?
-        .ok_or_else(|| format!("Conversation not found: {conversation_id}"))?;
-    let result = updater(&mut conversation)?;
-    delegate_runtime_thread_conversation_update(state, conversation_id, conversation.clone())?;
-    Ok((conversation, result))
+    conversation_service_v2().get_active_goal(state, conversation_id)
 }
 
 fn goal_create_goal_inner(
@@ -163,14 +120,11 @@ fn goal_create_goal_inner(
     if objective.is_empty() {
         return Err("goal.objective is required".to_string());
     }
-    let guard = state
-        .conversation_lock
-        .lock()
-        .map_err(|err| format!("Failed to lock state mutex at {}:{} {}: {err}", file!(), line!(), module_path!()))?;
     let now = now_iso();
-    let (conversation, goal) = goal_update_conversation_metadata(
+    let (conversation, goal) = conversation_service_v2().update_goal_conversation(
         state,
         normalized_conversation_id,
+        "goal_create_goal",
         |conversation| {
             if conversation
                 .active_goal
@@ -194,7 +148,6 @@ fn goal_create_goal_inner(
             Ok(goal)
         },
     )?;
-    drop(guard);
     emit_goal_updated(state, normalized_conversation_id, conversation.active_goal.as_ref());
     clear_goal_continue_suppression(state, normalized_conversation_id, "goal_created")?;
     if let Err(err) = maybe_enqueue_goal_continue_after_idle(state, normalized_conversation_id) {
@@ -239,14 +192,11 @@ fn goal_update_terminal_inner(
             return Err("update_goal.status must be complete or blocked".to_string());
         }
     }
-    let guard = state
-        .conversation_lock
-        .lock()
-        .map_err(|err| format!("Failed to lock state mutex at {}:{} {}: {err}", file!(), line!(), module_path!()))?;
     let now = now_iso();
-    let (conversation, goal) = goal_update_conversation_metadata(
+    let (conversation, goal) = conversation_service_v2().update_goal_conversation(
         state,
         normalized_conversation_id,
+        "goal_update_terminal",
         |conversation| {
             let mut goal = conversation
                 .active_goal
@@ -266,7 +216,6 @@ fn goal_update_terminal_inner(
             Ok(goal)
         },
     )?;
-    drop(guard);
     emit_goal_updated(state, normalized_conversation_id, conversation.active_goal.as_ref());
     Ok(goal_output(normalized_conversation_id, goal))
 }
@@ -279,14 +228,11 @@ fn goal_cancel_goal_inner(
     if normalized_conversation_id.is_empty() {
         return Err("conversationId is required".to_string());
     }
-    let guard = state
-        .conversation_lock
-        .lock()
-        .map_err(|err| format!("Failed to lock state mutex at {}:{} {}: {err}", file!(), line!(), module_path!()))?;
     let now = now_iso();
-    let (conversation, goal) = goal_update_conversation_metadata(
+    let (conversation, goal) = conversation_service_v2().update_goal_conversation(
         state,
         normalized_conversation_id,
+        "goal_cancel_goal",
         |conversation| {
             let mut goal = conversation
                 .active_goal
@@ -301,7 +247,6 @@ fn goal_cancel_goal_inner(
             Ok(goal)
         },
     )?;
-    drop(guard);
     emit_goal_updated(state, normalized_conversation_id, conversation.active_goal.as_ref());
     Ok(goal_output(normalized_conversation_id, goal))
 }

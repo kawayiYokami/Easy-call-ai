@@ -92,20 +92,20 @@
         <span class="label py-1">
           <span class="label-text text-xs opacity-70">{{ t("chat.selection.delegateGoalLabel") }}</span>
         </span>
-        <textarea v-model="selectionDelegateGoal" class="textarea textarea-bordered min-h-24 w-full resize-y text-sm" :placeholder="t('chat.selection.goalPlaceholder')"></textarea>
+        <textarea v-model="selectionDelegateGoal" class="textarea textarea-bordered min-h-24 w-full resize-y text-sm" :placeholder="t('chat.selection.goalPlaceholder')" maxlength="10000"></textarea>
       </label>
       <div class="mt-2 grid grid-cols-2 gap-2">
         <label class="form-control min-w-0">
           <span class="label py-1">
             <span class="label-text text-xs opacity-70">{{ t("chat.selection.delegateWhyLabel") }}</span>
           </span>
-          <textarea v-model="selectionDelegateWhy" class="textarea textarea-bordered min-h-20 w-full resize-y text-sm" :placeholder="t('chat.selection.whyPlaceholder')"></textarea>
+          <textarea v-model="selectionDelegateWhy" class="textarea textarea-bordered min-h-20 w-full resize-y text-sm" :placeholder="t('chat.selection.whyPlaceholder')" maxlength="5000"></textarea>
         </label>
         <label class="form-control min-w-0">
           <span class="label py-1">
             <span class="label-text text-xs opacity-70">{{ t("chat.selection.delegateTodoLabel") }}</span>
           </span>
-          <textarea v-model="selectionDelegateTodo" class="textarea textarea-bordered min-h-20 w-full resize-y text-sm" :placeholder="t('chat.selection.todoPlaceholder')"></textarea>
+          <textarea v-model="selectionDelegateTodo" class="textarea textarea-bordered min-h-20 w-full resize-y text-sm" :placeholder="t('chat.selection.todoPlaceholder')" maxlength="5000"></textarea>
         </label>
       </div>
       <div class="mt-3 flex items-center justify-end gap-2">
@@ -425,13 +425,23 @@ function confirmSelectionShare(format: "html" | "png") {
 
 function confirmSelectionDelegate() {
   if (!canSubmitSelectionDelegate.value) return;
+
+  // 限制每个字段的最大长度，防止崩溃
+  const MAX_GOAL_LENGTH = 10000;
+  const MAX_WHY_LENGTH = 5000;
+  const MAX_TODO_LENGTH = 5000;
+
+  const rawGoal = String(selectionDelegateGoal.value || "").trim();
+  const rawWhy = String(selectionDelegateWhy.value || "").trim();
+  const rawTodo = String(selectionDelegateTodo.value || "").trim();
+
   const payload = {
     departmentId: String(selectionDelegateDepartmentId.value || "").trim(),
     agentId: String(selectionDelegateAgentId.value || "").trim(),
     presetId: String(selectionDelegatePresetId.value || "review").trim() || "review",
-    why: String(selectionDelegateWhy.value || "").trim(),
-    goal: String(selectionDelegateGoal.value || "").trim(),
-    todo: String(selectionDelegateTodo.value || "").trim(),
+    why: rawWhy.length > MAX_WHY_LENGTH ? rawWhy.slice(0, MAX_WHY_LENGTH) : rawWhy,
+    goal: rawGoal.length > MAX_GOAL_LENGTH ? rawGoal.slice(0, MAX_GOAL_LENGTH) : rawGoal,
+    todo: rawTodo.length > MAX_TODO_LENGTH ? rawTodo.slice(0, MAX_TODO_LENGTH) : rawTodo,
   };
   rememberDelegateRequest(payload);
   closeSelectionDelegateCard();

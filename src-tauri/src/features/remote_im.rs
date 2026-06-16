@@ -1699,20 +1699,51 @@ fn message_origin_string<'a>(message: &'a ChatMessage, key: &str) -> Option<&'a 
     origin_value_string(origin, key)
 }
 
-fn conversation_has_remote_im_platform_message(
-    conversation: &Conversation,
+fn message_has_remote_im_platform_message(
+    message: &ChatMessage,
     channel_id: &str,
     remote_contact_type: &str,
     remote_contact_id: &str,
     platform_message_id: &str,
 ) -> bool {
-    conversation.messages.iter().any(|message| {
-        message_origin_string(message, "kind") == Some("remote_im")
-            && message_origin_string(message, "channel_id") == Some(channel_id)
-            && message_origin_string(message, "contact_type") == Some(remote_contact_type)
-            && message_origin_string(message, "contact_id") == Some(remote_contact_id)
-            && message_origin_string(message, "platform_message_id") == Some(platform_message_id)
-    })
+    message_origin_string(message, "kind") == Some("remote_im")
+        && message_origin_string(message, "channel_id") == Some(channel_id)
+        && message_origin_string(message, "contact_type") == Some(remote_contact_type)
+        && message_origin_string(message, "contact_id") == Some(remote_contact_id)
+        && message_origin_string(message, "platform_message_id") == Some(platform_message_id)
+}
+
+fn ready_store_has_remote_im_platform_message(
+    state: &AppState,
+    conversation_id: &str,
+    channel_id: &str,
+    remote_contact_type: &str,
+    remote_contact_id: &str,
+    platform_message_id: &str,
+) -> Result<bool, String> {
+    let paths = message_store::message_store_paths(&state.data_path, conversation_id)?;
+    let Some(page) = message_store::read_ready_message_store_block_page(&paths, None)? else {
+        return Ok(false);
+    };
+    for block in page.blocks.into_iter().rev() {
+        let Some(block_page) =
+            message_store::read_ready_message_store_block_page(&paths, Some(block.block_id))?
+        else {
+            continue;
+        };
+        if block_page.messages.iter().any(|message| {
+            message_has_remote_im_platform_message(
+                message,
+                channel_id,
+                remote_contact_type,
+                remote_contact_id,
+                platform_message_id,
+            )
+        }) {
+            return Ok(true);
+        }
+    }
+    Ok(false)
 }
 
 fn pending_event_has_remote_im_platform_message(
@@ -1738,18 +1769,14 @@ fn remote_im_is_duplicate_platform_message(
     remote_contact_id: &str,
     platform_message_id: &str,
 ) -> Result<bool, String> {
-    if state_read_conversation_cached(state, conversation_id)
-        .map(|conversation| {
-            conversation_has_remote_im_platform_message(
-                &conversation,
-                channel_id,
-                remote_contact_type,
-                remote_contact_id,
-                platform_message_id,
-            )
-        })
-        .unwrap_or(false)
-    {
+    if ready_store_has_remote_im_platform_message(
+        state,
+        conversation_id,
+        channel_id,
+        remote_contact_type,
+        remote_contact_id,
+        platform_message_id,
+    )? {
         return Ok(true);
     }
 
@@ -1928,13 +1955,15 @@ fn ensure_remote_im_contact_conversation_id(
         .map(str::trim)
         .filter(|value| !value.is_empty())
         .and_then(|conversation_id| {
-            state_read_conversation_cached(state, conversation_id)
+            conversation_service_v2()
+                .get_conversation_meta(state, conversation_id)
                 .ok()
-                .filter(|conversation| {
-                    conversation.summary.trim().is_empty()
-                        && conversation_is_remote_im_contact(conversation)
+                .filter(|conversation_meta| {
+                    conversation_meta.summary.trim().is_empty()
+                        && conversation_meta.conversation_kind.trim()
+                            == CONVERSATION_KIND_REMOTE_IM_CONTACT
                 })
-                .map(|conversation| conversation.id)
+                .map(|conversation_meta| conversation_meta.id.to_string())
         })
     {
         contact.bound_conversation_id = Some(bound_conversation_id.clone());
@@ -1954,14 +1983,14 @@ fn ensure_remote_im_contact_conversation_id(
     if let Some(found_id) = state_read_chat_index_cached(state)?
         .conversations
         .iter()
-        .filter_map(|item| state_read_conversation_cached(state, item.id.as_str()).ok())
-        .find(|conversation| {
-            conversation.summary.trim().is_empty()
-                && conversation_is_remote_im_contact(conversation)
-                && conversation.root_conversation_id.as_deref().map(str::trim)
-                    == Some(target_key.as_str())
+        .filter_map(|item| conversation_service_v2().get_conversation_meta(state, item.id.as_str()).ok())
+        .find(|conversation_meta| {
+            conversation_meta.summary.trim().is_empty()
+                && conversation_meta.conversation_kind.trim()
+                    == CONVERSATION_KIND_REMOTE_IM_CONTACT
+                && conversation_meta.root_conversation_id.as_deref() == Some(target_key.as_str())
         })
-        .map(|conversation| conversation.id)
+        .map(|conversation_meta| conversation_meta.id.to_string())
     {
         contact.bound_conversation_id = Some(found_id.clone());
         if let Some((department_id, agent_id)) = binding_pair.as_ref() {
@@ -1977,18 +2006,14 @@ fn ensure_remote_im_contact_conversation_id(
     }
 
     let (department_id, agent_id) = binding_pair.unwrap_or_default();
-    let mut conversation = build_conversation_record(
-        "",
-        &agent_id,
-        &department_id,
+    let conversation = conversation_service_v2().create_remote_im_contact_conversation(
+        state,
         &remote_im_contact_conversation_title(contact),
-        CONVERSATION_KIND_REMOTE_IM_CONTACT,
-        Some(target_key),
-        None,
-    );
-    conversation.status = "inactive".to_string();
+        &department_id,
+        &agent_id,
+        &target_key,
+    )?;
     let conversation_id = conversation.id.clone();
-    conversation_service().persist_conversation(state, &conversation)?;
     contact.bound_conversation_id = Some(conversation_id.clone());
     Ok(conversation_id)
 }
@@ -2000,18 +2025,18 @@ fn sync_remote_im_contact_conversation_binding(
     department_id: &str,
     agent_id: &str,
 ) -> Result<(), String> {
-    let conversation = state_read_conversation_cached(state, conversation_id)?;
-    if !conversation.summary.trim().is_empty() || !conversation_is_remote_im_contact(&conversation)
+    let conversation_meta = conversation_service_v2().get_conversation_meta(state, conversation_id)?;
+    if !conversation_meta.summary.trim().is_empty()
+        || conversation_meta.conversation_kind.trim() != CONVERSATION_KIND_REMOTE_IM_CONTACT
     {
         return Ok(());
     }
     let target_key = remote_im_contact_conversation_key(contact);
-    let department_changed = conversation.department_id.trim() != department_id;
-    let agent_changed = conversation.agent_id.trim() != agent_id;
-    let root_changed =
-        conversation.root_conversation_id.as_deref().map(str::trim) != Some(target_key.as_str());
+    let department_changed = conversation_meta.department_id.trim() != department_id;
+    let agent_changed = conversation_meta.agent_id.trim() != agent_id;
+    let root_changed = conversation_meta.root_conversation_id.as_deref() != Some(target_key.as_str());
     if department_changed || agent_changed || root_changed {
-        conversation_service().set_conversation_routing_metadata(
+        conversation_service_v2().set_routing(
             state,
             conversation_id,
             Some(department_id),
@@ -2371,7 +2396,8 @@ fn remote_im_update_contact_department_binding(
             .map(str::trim)
             .filter(|value| !value.is_empty())
             .unwrap_or(""),
-        state_read_conversation_cached(state.inner(), &conversation_id)
+        conversation_service_v2()
+            .get_conversation_meta(state.inner(), &conversation_id)
             .map(|conversation| conversation.agent_id)
             .unwrap_or_default()
     );
@@ -2418,7 +2444,7 @@ fn remote_im_list_contact_conversations(
 ) -> Result<Vec<RemoteImContactConversationSummary>, String> {
     let started_at = std::time::Instant::now();
     runtime_log_debug("[远程IM][联系人会话][列表] 开始".to_string());
-    let items = conversation_service().list_remote_im_contact_conversations(state.inner())?;
+    let items = conversation_service_v2().list_remote_im_contact_conversations(state.inner())?;
     runtime_log_debug(format!(
         "[远程IM][联系人会话][列表] 完成: contact_count={}, elapsed_ms={}",
         items.len(),
@@ -2441,8 +2467,8 @@ fn remote_im_get_contact_conversation_messages(
         "[远程IM][联系人会话][读取] 开始: contact_id={}",
         contact_id
     ));
-    let messages =
-        conversation_service().read_remote_im_contact_conversation_messages(state.inner(), contact_id)?;
+    let messages = conversation_service_v2()
+        .get_remote_im_contact_conversation_messages(state.inner(), contact_id)?;
     runtime_log_debug(format!(
         "[远程IM][联系人会话][读取] 完成: contact_id={}, message_count={}, elapsed_ms={}",
         contact_id,
@@ -2499,7 +2525,7 @@ fn remote_im_get_contact_conversation_block_page(
             .map(|value| value.to_string())
             .unwrap_or_else(|| "latest".to_string())
     ));
-    let page = conversation_service().read_remote_im_contact_conversation_block_page(
+    let page = conversation_service_v2().get_remote_im_contact_conversation_block_page(
         state.inner(),
         contact_id,
         input.block_id,
@@ -2567,7 +2593,7 @@ fn remote_im_clear_contact_conversation(
         contact_id
     );
     let cleared =
-        conversation_service().clear_remote_im_contact_conversation(state.inner(), contact_id)?;
+        conversation_service_v2().clear_remote_im_contact_conversation(state.inner(), contact_id)?;
     eprintln!(
         "[远程IM][联系人会话][清空] 完成: contact_id={}, elapsed_ms={}",
         contact_id,

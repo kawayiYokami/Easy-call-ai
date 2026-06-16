@@ -183,19 +183,20 @@ export function useChatRuntime(options: UseChatRuntimeOptions) {
       }
       await loadAllMessages(action.lockForeground ? undefined : sourceConversationId);
     } catch (e) {
-      console.warn("[会话归档] 会话维护失败", {
+      const rawErrorText = String(e ?? "");
+      console.warn(`[会话归档] 会话维护失败: command=${action.command}, conversationId=${sourceConversationId || ""}, error=${rawErrorText}`, {
         command: action.command,
         conversationId: sourceConversationId,
         error: e,
       });
-      const errText = String(e ?? "");
+      const errText = rawErrorText;
       if (errText.includes("活动对话已变化")) {
         const text = options.t("status.conversationActionConflict");
         options.setStatus(text);
         options.setChatError(text);
       } else {
         options.setStatusError(action.failedKey, e);
-        options.setChatError(options.t(action.failedKey, { err: String(e) }));
+        options.setChatError(options.t(action.failedKey, { err: rawErrorText }));
       }
     } finally {
       if (shouldLockForeground) {

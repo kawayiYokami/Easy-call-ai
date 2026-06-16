@@ -5,9 +5,7 @@ import type {
   ChatActivityStatus,
   ChatMentionTarget,
   ChatMessage,
-  InlineMessageSegment,
   MemeAnnotation,
-  MemeMessageSegment,
   PlanMessageCard,
   TaskTriggerMessageCard,
 } from "../types/app";
@@ -53,8 +51,6 @@ export type ChatMessageDisplayProjection = {
   images: Array<{ mime: string; bytesBase64?: string; mediaRef?: string }>;
   audios: Array<{ mime: string; bytesBase64: string }>;
   attachmentFiles: Array<{ fileName: string; relativePath: string }>;
-  inlineSegments?: InlineMessageSegment[];
-  memeSegments?: MemeMessageSegment[];
   taskTrigger?: TaskTriggerMessageCard;
   planCard?: PlanMessageCard;
   remoteImOrigin?: {
@@ -874,80 +870,6 @@ function resolvePlanCard(message: ChatMessage): PlanMessageCard | undefined {
   };
 }
 
-function resolveInlineSegments(message: ChatMessage): InlineMessageSegment[] | undefined {
-  const meta = (message.providerMeta || {}) as Record<string, unknown>;
-  const inlineRaw = Array.isArray(meta.inlineSegments) ? meta.inlineSegments : undefined;
-  if (inlineRaw) {
-    const segments: InlineMessageSegment[] = [];
-    for (const item of inlineRaw) {
-      if (!item || typeof item !== "object") continue;
-      const segment = item as Record<string, unknown>;
-      const type = String(segment.type || "").trim().toLowerCase();
-      if (type === "text") {
-        segments.push({ type: "text", text: String(segment.text || "") });
-        continue;
-      }
-      if (type === "meme") {
-        const name = String(segment.name || "").trim();
-        const category = String(segment.category || "").trim();
-        const mime = String(segment.mime || "").trim();
-        const relativePath = String(segment.relativePath || "").trim();
-        const bytesBase64 = String(segment.bytesBase64 || "").trim();
-        if (!name || !category || !mime || !relativePath || !bytesBase64) continue;
-        segments.push({ type: "meme", name, category, mime, relativePath, bytesBase64 });
-        continue;
-      }
-      if (type === "localimage") {
-        const path = String(segment.path || "").trim();
-        const fileName = String(segment.fileName || "").trim();
-        const mime = String(segment.mime || "").trim();
-        const alt = String(segment.alt || "").trim() || undefined;
-        const width = typeof segment.width === "number" ? segment.width : undefined;
-        const height = typeof segment.height === "number" ? segment.height : undefined;
-        if (!path || !fileName) continue;
-        segments.push({ type: "localImage", path, fileName, mime, alt, width, height });
-      }
-    }
-    return segments.length > 0 ? segments : undefined;
-  }
-  return resolveMemeSegments(message);
-}
-
-function resolveMemeSegments(message: ChatMessage): MemeMessageSegment[] | undefined {
-  const meta = (message.providerMeta || {}) as Record<string, unknown>;
-  const raw = Array.isArray(meta.memeSegments) ? meta.memeSegments : [];
-  const segments: MemeMessageSegment[] = [];
-  for (const item of raw) {
-    if (!item || typeof item !== "object") continue;
-    const segment = item as Record<string, unknown>;
-    const type = String(segment.type || "").trim().toLowerCase();
-    if (type === "text") {
-      segments.push({
-        type: "text",
-        text: String(segment.text || ""),
-      });
-      continue;
-    }
-    if (type === "meme") {
-      const name = String(segment.name || "").trim();
-      const category = String(segment.category || "").trim();
-      const mime = String(segment.mime || "").trim();
-      const relativePath = String(segment.relativePath || "").trim();
-      const bytesBase64 = String(segment.bytesBase64 || "").trim();
-      if (!name || !category || !mime || !relativePath || !bytesBase64) continue;
-      segments.push({
-        type: "meme",
-        name,
-        category,
-        mime,
-        relativePath,
-        bytesBase64,
-      });
-    }
-  }
-  return segments.length > 0 ? segments : undefined;
-}
-
 function resolveSpeakerAgentId(message: ChatMessage): string {
   const meta = (message.providerMeta || {}) as Record<string, unknown>;
   const origin = meta.origin as Record<string, unknown> | undefined;
@@ -1000,12 +922,22 @@ function resolveMessageMentions(message: ChatMessage): ChatMentionTarget[] {
 
 function applyMemeAnnotationReplacements(text: string, annotations?: MemeAnnotation[]): string {
   if (!annotations || annotations.length === 0) return text;
-  let result = text;
+  let cursor = 0;
+  let result = "";
   for (const { meme, path } of annotations) {
-    const markdown = `![${meme.slice(1, -1)}](${path})`;
-    result = result.split(meme).join(markdown);
+    const token = String(meme || "").trim();
+    const imagePath = String(path || "").trim();
+    if (!token || !imagePath) continue;
+    const nextIndex = text.indexOf(token, cursor);
+    if (nextIndex < 0) continue;
+    const alt = token.startsWith(":") && token.endsWith(":") && token.length > 2
+      ? token.slice(1, -1)
+      : token;
+    result += text.slice(cursor, nextIndex);
+    result += `![${alt}](${imagePath})`;
+    cursor = nextIndex + token.length;
   }
-  return result;
+  return result ? `${result}${text.slice(cursor)}` : text;
 }
 
 export function projectMessageForDisplay(
@@ -1018,8 +950,6 @@ export function projectMessageForDisplay(
   const activity = projectChatActivityForDisplay(message);
   const taskTrigger = resolveTaskTrigger(message);
   const planCard = resolvePlanCard(message);
-  const inlineSegments = resolveInlineSegments(message);
-  const memeSegments = resolveMemeSegments(message);
   const origin = meta.origin as Record<string, unknown> | undefined;
   const senderName = String(origin?.sender_name || "").trim();
   const remoteContactName = String(origin?.contact_name || "").trim();
@@ -1051,8 +981,6 @@ export function projectMessageForDisplay(
     images: extractMessageImages(message),
     audios: extractMessageAudios(message),
     attachmentFiles: extractMessageAttachmentFiles(message),
-    inlineSegments,
-    memeSegments,
     taskTrigger,
     planCard,
     remoteImOrigin:

@@ -235,6 +235,13 @@ fn sync_cached_app_data_agents(state: &AppState, agents: &[AgentProfile]) -> Res
     sync_cached_app_data_signature(state)
 }
 
+fn sanitize_runtime_cached_app_data(_data: &mut AppData) {
+    #[cfg(not(test))]
+    {
+        _data.conversations.clear();
+    }
+}
+
 fn sync_cached_app_data_runtime(
     state: &AppState,
     runtime: &RuntimeStateFile,
@@ -244,6 +251,7 @@ fn sync_cached_app_data_runtime(
         .lock()
         .map_err(|err| format!("Failed to lock cached app data: {err}"))?;
     if let Some(data) = cached.as_mut() {
+        sanitize_runtime_cached_app_data(data);
         apply_runtime_state_to_app_data(data, runtime);
     }
     sync_cached_app_data_signature(state)
@@ -251,37 +259,42 @@ fn sync_cached_app_data_runtime(
 
 fn sync_cached_app_data_conversation(
     state: &AppState,
-    conversation: &Conversation,
+    _conversation: &Conversation,
 ) -> Result<(), String> {
     let mut cached = state
         .cached_app_data
         .lock()
         .map_err(|err| format!("Failed to lock cached app data: {err}"))?;
     if let Some(data) = cached.as_mut() {
-        if let Some(existing) = data
-            .conversations
-            .iter_mut()
-            .find(|item| item.id == conversation.id)
-        {
-            *existing = conversation.clone();
-        } else {
-            data.conversations.push(conversation.clone());
-        }
+        sanitize_runtime_cached_app_data(data);
+    }
+    sync_cached_app_data_signature(state)
+}
+
+fn sync_cached_app_data_conversation_metadata(
+    state: &AppState,
+    _conversation: &Conversation,
+) -> Result<(), String> {
+    let mut cached = state
+        .cached_app_data
+        .lock()
+        .map_err(|err| format!("Failed to lock cached app data: {err}"))?;
+    if let Some(data) = cached.as_mut() {
+        sanitize_runtime_cached_app_data(data);
     }
     sync_cached_app_data_signature(state)
 }
 
 fn sync_cached_app_data_conversation_deleted(
     state: &AppState,
-    conversation_id: &str,
+    _conversation_id: &str,
 ) -> Result<(), String> {
     let mut cached = state
         .cached_app_data
         .lock()
         .map_err(|err| format!("Failed to lock cached app data: {err}"))?;
     if let Some(data) = cached.as_mut() {
-        data.conversations
-            .retain(|conversation| conversation.id != conversation_id);
+        sanitize_runtime_cached_app_data(data);
     }
     sync_cached_app_data_signature(state)
 }
@@ -294,8 +307,68 @@ fn sync_cached_conversation_metadata(
         .cached_conversation_metadata
         .lock()
         .map_err(|_| "Failed to lock cached conversation metadata".to_string())?;
-    metadata.insert(conversation.id.clone(), conversation.clone());
+    metadata.insert(
+        conversation.id.clone(),
+        message_store::ConversationShardMeta::from_conversation(conversation),
+    );
     Ok(())
+}
+
+fn conversation_meta_needs_message_derived_repair(
+    meta: &message_store::ConversationShardMeta,
+) -> bool {
+    if meta.message_count() > 0 && meta.preview_messages().is_empty() {
+        return true;
+    }
+    meta.message_count() == 0
+        && meta.body_message_count() == 0
+        && !meta.has_assistant_reply()
+        && meta.preview_messages().is_empty()
+        && meta
+            .latest_summary_title()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .is_none()
+}
+
+fn repair_conversation_metadata_message_derived_fields_if_needed(
+    state: &AppState,
+    conversation_id: &str,
+    meta: &message_store::ConversationShardMeta,
+) -> Result<message_store::ConversationShardMeta, String> {
+    if !conversation_meta_needs_message_derived_repair(meta) {
+        return Ok(meta.clone());
+    }
+    let store_paths = message_store::message_store_paths(&state.data_path, conversation_id)?;
+    let Some(ready_meta) = message_store::read_ready_message_store_meta(&store_paths)? else {
+        return Ok(meta.clone());
+    };
+    let should_repair =
+        (meta.message_count() == 0 && ready_meta.message_count() > 0)
+            || (meta.body_message_count() == 0 && ready_meta.body_message_count() > 0)
+            || (!meta.has_assistant_reply() && ready_meta.has_assistant_reply())
+            || (meta.preview_messages().is_empty() && !ready_meta.preview_messages().is_empty())
+            || (meta
+                .latest_summary_title()
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .is_none()
+                && ready_meta
+                    .latest_summary_title()
+                    .map(str::trim)
+                    .filter(|value| !value.is_empty())
+                    .is_some());
+    if !should_repair {
+        return Ok(meta.clone());
+    }
+    {
+        let mut cached = state
+            .cached_conversation_metadata
+            .lock()
+            .map_err(|_| "Failed to lock cached conversation metadata".to_string())?;
+        cached.insert(conversation_id.to_string(), ready_meta.clone());
+    }
+    Ok(ready_meta)
 }
 
 fn remove_cached_conversation_metadata(
@@ -319,7 +392,7 @@ fn apply_cached_conversation_metadata(
         .lock()
         .map_err(|_| "Failed to lock cached conversation metadata".to_string())?;
     if let Some(source) = metadata.get(&conversation.id) {
-        preserve_field_level_conversation_metadata(conversation, source);
+        source.apply_to_conversation(conversation);
     }
     Ok(())
 }
@@ -333,19 +406,95 @@ fn conversation_with_cached_metadata(
     Ok(merged)
 }
 
+fn state_read_conversation_metadata_cached(
+    state: &AppState,
+    conversation_id: &str,
+) -> Result<message_store::ConversationShardMeta, String> {
+    let conversation_id = conversation_id.trim();
+    if conversation_id.is_empty() {
+        return Err("Conversation id is empty".to_string());
+    }
+    let deleted_fast_path = state
+        .cached_deleted_conversation_ids
+        .lock()
+        .map(|deleted_ids| deleted_ids.contains(conversation_id))
+        .unwrap_or(false);
+    if deleted_fast_path {
+        return Err(format!("Conversation not found: {}", conversation_id));
+    }
+    let dirty_fast_path = state
+        .cached_conversation_dirty_ids
+        .lock()
+        .map(|dirty_ids| dirty_ids.contains(conversation_id))
+        .unwrap_or(false);
+    if dirty_fast_path {
+        let cached = state
+            .cached_conversation_metadata
+            .lock()
+            .map_err(|_| "Failed to lock cached conversation metadata".to_string())?;
+        if let Some(meta) = cached.get(conversation_id) {
+            return repair_conversation_metadata_message_derived_fields_if_needed(
+                state,
+                conversation_id,
+                meta,
+            );
+        }
+    }
+    let disk_mtime = conversation_shard_modified_time(&state.data_path, conversation_id);
+    let cached_hit = {
+        let cached = state
+            .cached_conversation_metadata
+            .lock()
+            .map_err(|_| "Failed to lock cached conversation metadata".to_string())?;
+        let cached_mtimes = state
+            .cached_conversation_mtimes
+            .lock()
+            .map_err(|_| "Failed to lock cached conversation mtimes".to_string())?;
+        if let (Some(meta), Some(cached_mtime), Some(disk_time)) = (
+            cached.get(conversation_id),
+            cached_mtimes.get(conversation_id),
+            disk_mtime,
+        ) {
+            if *cached_mtime == Some(disk_time) {
+                Some(meta.clone())
+            } else {
+                None
+            }
+        } else {
+            None
+        }
+    };
+    if let Some(meta) = cached_hit {
+        return repair_conversation_metadata_message_derived_fields_if_needed(
+            state,
+            conversation_id,
+            &meta,
+        );
+    }
+    let meta = read_conversation_meta_shard(&state.data_path, conversation_id)?;
+    {
+        let mut cached = state
+            .cached_conversation_metadata
+            .lock()
+            .map_err(|_| "Failed to lock cached conversation metadata".to_string())?;
+        cached.insert(conversation_id.to_string(), meta.clone());
+    }
+    {
+        let mut cached_mtimes = state
+            .cached_conversation_mtimes
+            .lock()
+            .map_err(|_| "Failed to lock cached conversation mtimes".to_string())?;
+        cached_mtimes.insert(conversation_id.to_string(), disk_mtime);
+    }
+    repair_conversation_metadata_message_derived_fields_if_needed(state, conversation_id, &meta)
+}
+
 fn state_mark_conversation_direct_persisted(
     state: &AppState,
     conversation: &Conversation,
 ) -> Result<(), String> {
     let disk_mtime = conversation_shard_modified_time(&state.data_path, &conversation.id);
     sync_cached_conversation_metadata(state, conversation)?;
-    {
-        let mut cached = state
-            .cached_conversations
-            .lock()
-            .map_err(|_| "Failed to lock cached conversations".to_string())?;
-        cached.insert(conversation.id.clone(), conversation.clone());
-    }
     {
         let mut cached_mtimes = state
             .cached_conversation_mtimes
@@ -392,6 +541,66 @@ fn state_mark_conversation_direct_persisted(
     Ok(())
 }
 
+fn state_mark_conversation_metadata_direct_persisted(
+    state: &AppState,
+    conversation_id: &str,
+) -> Result<message_store::ConversationShardMeta, String> {
+    let meta = read_conversation_meta_shard(&state.data_path, conversation_id)?;
+    let disk_mtime = conversation_shard_modified_time(&state.data_path, conversation_id);
+    {
+        let mut cached = state
+            .cached_conversation_metadata
+            .lock()
+            .map_err(|_| "Failed to lock cached conversation metadata".to_string())?;
+        cached.insert(conversation_id.to_string(), meta.clone());
+    }
+    {
+        let mut cached_mtimes = state
+            .cached_conversation_mtimes
+            .lock()
+            .map_err(|_| "Failed to lock cached conversation mtimes".to_string())?;
+        cached_mtimes.insert(conversation_id.to_string(), disk_mtime);
+    }
+    {
+        let mut dirty_ids = state
+            .cached_conversation_dirty_ids
+            .lock()
+            .map_err(|_| "Failed to lock cached conversation dirty ids".to_string())?;
+        dirty_ids.remove(conversation_id);
+    }
+    {
+        let mut deleted_ids = state
+            .cached_deleted_conversation_ids
+            .lock()
+            .map_err(|_| "Failed to lock cached deleted conversation ids".to_string())?;
+        deleted_ids.remove(conversation_id);
+    }
+    {
+        let mut pending = state
+            .conversation_persist_pending
+            .lock()
+            .map_err(|_| "Failed to lock pending conversation persist".to_string())?;
+        let should_clear_slot = if let Some(slot) = pending.as_mut() {
+            slot.conversations.remove(conversation_id);
+            slot.metadata_conversation_ids.remove(conversation_id);
+            slot.deleted_conversation_ids.remove(conversation_id);
+            slot.conversations.is_empty()
+                && slot.metadata_conversation_ids.is_empty()
+                && slot.deleted_conversation_ids.is_empty()
+        } else {
+            false
+        };
+        if should_clear_slot {
+            *pending = None;
+        }
+    }
+    let metadata_conversation =
+        conversation_service_v2().build_conversation_snapshot_from_meta(&meta, Vec::new());
+    state_upsert_chat_index_conversation_cached(state, &metadata_conversation)?;
+    refresh_cached_app_data_dirty(state);
+    Ok(meta)
+}
+
 fn state_update_conversation_metadata_cached<T>(
     state: &AppState,
     conversation_id: &str,
@@ -401,21 +610,25 @@ fn state_update_conversation_metadata_cached<T>(
     if normalized_conversation_id.is_empty() {
         return Err("Conversation id is empty".to_string());
     }
-    let mut conversation = state_read_conversation_cached(state, normalized_conversation_id)?;
+    let conversation_meta =
+        state_read_conversation_metadata_cached(state, normalized_conversation_id)?;
+    let mut conversation = conversation_service_v2()
+        .build_conversation_snapshot_from_meta(&conversation_meta, Vec::new());
     let result = updater(&mut conversation)?;
-    sync_cached_conversation_metadata(state, &conversation)?;
+    let mut updated_meta = message_store::ConversationShardMeta::from_conversation(&conversation);
+    updated_meta.preserve_message_derived_fields_from(&conversation_meta);
+    {
+        let mut metadata = state
+            .cached_conversation_metadata
+            .lock()
+            .map_err(|_| "Failed to lock cached conversation metadata".to_string())?;
+        metadata.insert(conversation.id.clone(), updated_meta);
+    }
     let seq = state
         .conversation_persist_latest_seq
         .fetch_add(1, std::sync::atomic::Ordering::AcqRel)
         + 1;
     let disk_mtime = conversation_shard_modified_time(&state.data_path, &conversation.id);
-    {
-        let mut cached = state
-            .cached_conversations
-            .lock()
-            .map_err(|_| "Failed to lock cached conversations".to_string())?;
-        cached.insert(conversation.id.clone(), conversation.clone());
-    }
     {
         let mut cached_mtimes = state
             .cached_conversation_mtimes
@@ -457,7 +670,7 @@ fn state_update_conversation_metadata_cached<T>(
         }
         slot.deleted_conversation_ids.remove(&conversation.id);
     }
-    sync_cached_app_data_conversation(state, &conversation)?;
+    sync_cached_app_data_conversation_metadata(state, &conversation)?;
     state_upsert_chat_index_conversation_cached(state, &conversation)?;
     refresh_cached_app_data_dirty(state);
     state.conversation_persist_notify.notify_one();
@@ -529,60 +742,26 @@ fn state_read_conversation_cached(
         .map(|dirty_ids| dirty_ids.contains(conversation_id))
         .unwrap_or(false);
     if dirty_fast_path {
-        let cached = state
-            .cached_conversations
+        let pending = state
+            .conversation_persist_pending
             .lock()
-            .map_err(|_| "Failed to lock cached conversations".to_string())?;
-        if let Some(conversation) = cached.get(conversation_id) {
+            .map_err(|_| "Failed to lock pending conversation persist".to_string())?;
+        if let Some(conversation) = pending
+            .as_ref()
+            .and_then(|slot| slot.conversations.get(conversation_id))
+        {
             return Ok(conversation.clone());
         }
-    }
-    let disk_mtime = conversation_shard_modified_time(&state.data_path, conversation_id);
-    let cached_hit = {
-        let cached = state
-            .cached_conversations
-            .lock()
-            .map_err(|_| "Failed to lock cached conversations".to_string())?;
-        let cached_mtimes = state
-            .cached_conversation_mtimes
-            .lock()
-            .map_err(|_| "Failed to lock cached conversation mtimes".to_string())?;
-        if let (Some(conversation), Some(cached_mtime), Some(disk_time)) = (
-            cached.get(conversation_id),
-            cached_mtimes.get(conversation_id),
-            disk_mtime,
-        )
-        {
-            if *cached_mtime == Some(disk_time) {
-                Some(conversation.clone())
-            } else {
-                None
-            }
-        } else {
-            None
-        }
-    };
-    if let Some(mut conversation) = cached_hit {
-        apply_cached_conversation_metadata(state, &mut conversation)?;
-        return Ok(conversation);
     }
     let mut conversation = read_conversation_shard(&state.data_path, conversation_id)?;
     apply_cached_conversation_metadata(state, &mut conversation)?;
     sync_cached_conversation_metadata(state, &conversation)?;
-    {
-        let mut cached = state
-            .cached_conversations
-            .lock()
-            .map_err(|_| "Failed to lock cached conversations".to_string())?;
-        cached.insert(conversation_id.to_string(), conversation.clone());
-    }
-    {
-        let mut cached_mtimes = state
-            .cached_conversation_mtimes
-            .lock()
-            .map_err(|_| "Failed to lock cached conversation mtimes".to_string())?;
-        cached_mtimes.insert(conversation_id.to_string(), disk_mtime);
-    }
+    let disk_mtime = conversation_shard_modified_time(&state.data_path, conversation_id);
+    state
+        .cached_conversation_mtimes
+        .lock()
+        .map_err(|_| "Failed to lock cached conversation mtimes".to_string())?
+        .insert(conversation_id.to_string(), disk_mtime);
     Ok(conversation)
 }
 
@@ -684,13 +863,6 @@ fn state_write_conversation_cached(
     let disk_mtime = conversation_shard_modified_time(&state.data_path, &conversation.id);
     sync_cached_conversation_metadata(state, conversation)?;
     {
-        let mut cached = state
-            .cached_conversations
-            .lock()
-            .map_err(|_| "Failed to lock cached conversations".to_string())?;
-        cached.insert(conversation.id.clone(), conversation.clone());
-    }
-    {
         let mut cached_mtimes = state
             .cached_conversation_mtimes
             .lock()
@@ -734,13 +906,6 @@ fn state_delete_conversation_cached(
         .map_err(|_| "Failed to lock app data persist write lock".to_string())?;
     let _ = delete_conversation_shard(&state.data_path, conversation_id)?;
     remove_cached_conversation_metadata(state, conversation_id)?;
-    {
-        let mut cached = state
-            .cached_conversations
-            .lock()
-            .map_err(|_| "Failed to lock cached conversations".to_string())?;
-        cached.remove(conversation_id);
-    }
     {
         let mut cached_mtimes = state
             .cached_conversation_mtimes
@@ -1174,25 +1339,22 @@ fn state_schedule_conversation_persist(
         .fetch_add(1, std::sync::atomic::Ordering::AcqRel)
         + 1;
     let mut conversation_for_cache = conversation_with_cached_metadata(state, conversation)?;
+    if let Some(current) = state
+        .conversation_persist_pending
+        .lock()
+        .map_err(|_| "Failed to lock pending conversation persist".to_string())?
+        .as_ref()
+        .and_then(|slot| slot.conversations.get(&conversation.id).cloned())
     {
-        let cached = state
-            .cached_conversations
-            .lock()
-            .map_err(|_| "Failed to lock cached conversations".to_string())?;
-        if let Some(current) = cached.get(&conversation.id) {
-            conversation_for_cache
-                .cumulative_usage
-                .keep_at_least(&current.cumulative_usage);
-        }
+        conversation_for_cache
+            .cumulative_usage
+            .keep_at_least(&current.cumulative_usage);
+    } else if let Ok(current_meta) = state_read_conversation_metadata_cached(state, &conversation.id) {
+        conversation_for_cache
+            .cumulative_usage
+            .keep_at_least(current_meta.cumulative_usage());
     }
     let conversation_disk_mtime = conversation_shard_modified_time(&state.data_path, &conversation.id);
-    {
-        let mut cached = state
-            .cached_conversations
-            .lock()
-            .map_err(|_| "Failed to lock cached conversations".to_string())?;
-        cached.insert(conversation.id.clone(), conversation_for_cache.clone());
-    }
     {
         let mut cached_mtimes = state
             .cached_conversation_mtimes
@@ -1214,6 +1376,7 @@ fn state_schedule_conversation_persist(
             .map_err(|_| "Failed to lock cached deleted conversation ids".to_string())?;
         deleted_ids.remove(&conversation.id);
     }
+    sync_cached_conversation_metadata(state, &conversation_for_cache)?;
     sync_cached_app_data_conversation(state, &conversation_for_cache)?;
     state_upsert_chat_index_conversation_cached(state, &conversation_for_cache)?;
 
@@ -1251,13 +1414,6 @@ fn state_schedule_conversation_delete(
         .conversation_persist_latest_seq
         .fetch_add(1, std::sync::atomic::Ordering::AcqRel)
         + 1;
-    {
-        let mut cached = state
-            .cached_conversations
-            .lock()
-            .map_err(|_| "Failed to lock cached conversations".to_string())?;
-        cached.remove(normalized_conversation_id);
-    }
     remove_cached_conversation_metadata(state, normalized_conversation_id)?;
     {
         let mut cached_mtimes = state
@@ -1352,17 +1508,7 @@ fn flush_pending_persists_blocking(state: &AppState) -> Result<bool, String> {
             if skip_directly_persisted.contains(conversation_id) {
                 continue;
             }
-            let conversation_for_write = {
-                let cached = state
-                    .cached_conversations
-                    .lock()
-                    .map_err(|_| "Failed to lock cached conversations".to_string())?;
-                cached
-                    .get(conversation_id)
-                    .cloned()
-                    .unwrap_or_else(|| conversation.clone())
-            };
-            write_conversation_shard(&state.data_path, &conversation_for_write)?;
+            write_conversation_shard(&state.data_path, conversation)?;
             wrote_anything = true;
         }
         for conversation_id in &pending.metadata_conversation_ids {
@@ -1372,16 +1518,16 @@ fn flush_pending_persists_blocking(state: &AppState) -> Result<bool, String> {
             {
                 continue;
             }
-            let Some(conversation_for_write) = ({
+            let Some(conversation_meta) = ({
                 let cached = state
-                    .cached_conversations
+                    .cached_conversation_metadata
                     .lock()
-                    .map_err(|_| "Failed to lock cached conversations".to_string())?;
+                    .map_err(|_| "Failed to lock cached conversation metadata".to_string())?;
                 cached.get(conversation_id).cloned()
             }) else {
                 continue;
             };
-            write_conversation_meta_shard(&state.data_path, &conversation_for_write)?;
+            write_conversation_meta_shard_from_meta(&state.data_path, &conversation_meta)?;
             wrote_anything = true;
         }
         if let Ok(mut dirty_ids) = state.cached_conversation_dirty_ids.lock() {
@@ -1409,7 +1555,9 @@ fn flush_pending_persists_blocking(state: &AppState) -> Result<bool, String> {
         write_app_data(&state.data_path, &pending.data)?;
         wrote_anything = true;
         if let Ok(mut cached) = state.cached_app_data.lock() {
-            *cached = Some(pending.data);
+            let mut runtime_cached = pending.data;
+            sanitize_runtime_cached_app_data(&mut runtime_cached);
+            *cached = Some(runtime_cached);
         }
     }
 
@@ -1478,7 +1626,9 @@ fn start_app_data_persist_worker(state: &AppState) -> Result<(), String> {
                 match write_result {
                     Ok(Ok(())) => {
                         if let Ok(mut cached) = state_clone.cached_app_data.lock() {
-                            *cached = Some(pending.data.clone());
+                            let mut runtime_cached = pending.data.clone();
+                            sanitize_runtime_cached_app_data(&mut runtime_cached);
+                            *cached = Some(runtime_cached);
                         }
                         if let Ok(mut cached_signature) =
                             state_clone.cached_app_data_signature.lock()
@@ -1555,7 +1705,8 @@ fn start_conversation_persist_worker(state: &AppState) -> Result<(), String> {
                 let data_path = state_clone.data_path.clone();
                 let write_lock = state_clone.app_data_persist_write_lock.clone();
                 let dirty_ids_for_write = state_clone.cached_conversation_dirty_ids.clone();
-                let cached_conversations_for_write = state_clone.cached_conversations.clone();
+                let cached_conversation_metadata_for_write =
+                    state_clone.cached_conversation_metadata.clone();
                 let pending_for_write = pending.clone();
                 let write_result = tokio::task::spawn_blocking(move || {
                     let _write_guard = write_lock.lock().map_err(|err| {
@@ -1595,22 +1746,7 @@ fn start_conversation_persist_worker(state: &AppState) -> Result<(), String> {
                         if skip_directly_persisted.contains(conversation_id) {
                             continue;
                         }
-                        let conversation_for_write = {
-                            let cached = cached_conversations_for_write.lock().map_err(|err| {
-                                named_lock_error(
-                                    "cached_conversations",
-                                    file!(),
-                                    line!(),
-                                    module_path!(),
-                                    &err,
-                                )
-                            })?;
-                            cached
-                                .get(conversation_id)
-                                .cloned()
-                                .unwrap_or_else(|| conversation.clone())
-                        };
-                        write_conversation_shard(&data_path, &conversation_for_write)?;
+                        write_conversation_shard(&data_path, conversation)?;
                     }
                     for conversation_id in &pending_for_write.metadata_conversation_ids {
                         if pending_for_write.conversations.contains_key(conversation_id)
@@ -1621,10 +1757,11 @@ fn start_conversation_persist_worker(state: &AppState) -> Result<(), String> {
                         {
                             continue;
                         }
-                        let Some(conversation_for_write) = ({
-                            let cached = cached_conversations_for_write.lock().map_err(|err| {
+                        let Some(conversation_meta) = ({
+                            let cached =
+                                cached_conversation_metadata_for_write.lock().map_err(|err| {
                                 named_lock_error(
-                                    "cached_conversations",
+                                    "cached_conversation_metadata",
                                     file!(),
                                     line!(),
                                     module_path!(),
@@ -1635,7 +1772,7 @@ fn start_conversation_persist_worker(state: &AppState) -> Result<(), String> {
                         }) else {
                             continue;
                         };
-                        write_conversation_meta_shard(&data_path, &conversation_for_write)?;
+                        write_conversation_meta_shard_from_meta(&data_path, &conversation_meta)?;
                     }
                     let conversation_mtimes = pending_for_write
                         .conversations

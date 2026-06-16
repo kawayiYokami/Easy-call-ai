@@ -3316,7 +3316,6 @@
             cached_runtime_state: Arc::new(Mutex::new(None)),
             cached_runtime_state_mtime: Arc::new(Mutex::new(None)),
             cached_chat_index: Arc::new(Mutex::new(None)),
-            cached_conversations: Arc::new(Mutex::new(std::collections::HashMap::new())),
             cached_conversation_metadata: Arc::new(Mutex::new(std::collections::HashMap::new())),
             cached_conversation_mtimes: Arc::new(Mutex::new(std::collections::HashMap::new())),
             cached_app_data: Arc::new(Mutex::new(None)),
@@ -3614,7 +3613,7 @@
         state_mark_conversation_direct_persisted(&state, &conversation)
             .expect("mark persisted");
 
-        let updated = conversation_service()
+        let updated = conversation_service_v2()
             .set_conversation_preferred_api_config_id(
                 &state,
                 &conversation.id,
@@ -3643,7 +3642,7 @@
         let conversation = test_chat_conversation("conversation-pending-model", "active", &now);
         state_schedule_conversation_persist(&state, &conversation).expect("schedule full persist");
 
-        conversation_service()
+        conversation_service_v2()
             .set_conversation_preferred_api_config_id(
                 &state,
                 &conversation.id,
@@ -3671,7 +3670,7 @@
         let (state, source_id, _target_local_id, _remote_target_id) = seed_session_forward_test_state();
         flush_pending_persists_blocking(&state).expect("flush seeded full persists");
 
-        let updated = conversation_service()
+        let updated = conversation_service_v2()
             .set_conversation_auto_push_remote_contact_id(
                 &state,
                 &source_id,
@@ -3697,7 +3696,7 @@
     fn set_conversation_auto_push_remote_contact_should_appear_in_overview_and_flush() {
         let (state, source_id, _target_local_id, _remote_target_id) = seed_session_forward_test_state();
 
-        conversation_service()
+        conversation_service_v2()
             .set_conversation_auto_push_remote_contact_id(
                 &state,
                 &source_id,
@@ -3705,7 +3704,7 @@
             )
             .expect("set auto push remote contact");
 
-        let summaries = conversation_service()
+        let summaries = conversation_service_v2()
             .list_unarchived_conversation_summaries(&state)
             .expect("list summaries")
             .summaries;
@@ -3736,7 +3735,7 @@
         write_conversation_shard(&state.data_path, &conversation).expect("write conversation");
         state_mark_conversation_direct_persisted(&state, &conversation)
             .expect("mark persisted");
-        conversation_service()
+        conversation_service_v2()
             .set_conversation_preferred_api_config_id(
                 &state,
                 &conversation.id,
@@ -3765,7 +3764,7 @@
         state_mark_conversation_direct_persisted(&state, &conversation)
             .expect("mark persisted");
 
-        conversation_service()
+        conversation_service_v2()
             .set_conversation_preferred_api_config_id(
                 &state,
                 &conversation.id,
@@ -3773,10 +3772,10 @@
             )
             .expect("set preferred model");
 
-        let snapshot = conversation_service()
+        let snapshot = conversation_service_v2()
             .read_foreground_snapshot(&state, Some(&conversation.id), None, 4)
             .expect("read foreground snapshot");
-        let summaries = conversation_service()
+        let summaries = conversation_service_v2()
             .list_unarchived_conversation_summaries(&state)
             .expect("list summaries")
             .summaries;
@@ -3793,6 +3792,47 @@
     }
 
     #[test]
+    fn list_unarchived_conversation_summaries_should_fallback_to_recent_message_when_preview_missing() {
+        let state = test_chat_runtime_state();
+        let now = now_iso();
+        let mut conversation =
+            test_chat_conversation("conversation-summary-preview-fallback", "active", &now);
+        conversation.messages.push(test_text_message("assistant", "这是最新一条压缩后仍应显示的预览", &now));
+        conversation.updated_at = now.clone();
+        conversation.last_assistant_at = Some(now.clone());
+        write_conversation_shard(&state.data_path, &conversation).expect("write conversation");
+
+        let meta_path = app_layout_chat_conversations_dir(&state.data_path)
+            .join(&conversation.id)
+            .join("meta.json");
+        let mut ready_meta: serde_json::Value = serde_json::from_str(
+            &std::fs::read_to_string(&meta_path).expect("read ready meta raw"),
+        )
+        .expect("parse ready meta raw");
+        ready_meta["previewMessages"] = serde_json::Value::Array(Vec::new());
+        std::fs::write(
+            &meta_path,
+            serde_json::to_vec_pretty(&ready_meta).expect("serialize ready meta raw"),
+        )
+        .expect("write empty preview meta");
+
+        let summaries = conversation_service_v2()
+            .list_unarchived_conversation_summaries(&state)
+            .expect("list summaries")
+            .summaries;
+        let summary = summaries
+            .iter()
+            .find(|item| item.conversation_id == conversation.id)
+            .expect("summary exists");
+
+        assert_eq!(summary.preview_messages.len(), 1);
+        assert_eq!(
+            summary.preview_messages[0].text_preview,
+            "这是最新一条压缩后仍应显示的预览"
+        );
+    }
+
+    #[test]
     fn state_schedule_conversation_persist_should_preserve_field_level_metadata() {
         let state = test_chat_runtime_state();
         let now = now_iso();
@@ -3800,17 +3840,17 @@
         write_conversation_shard(&state.data_path, &conversation).expect("write conversation");
         state_mark_conversation_direct_persisted(&state, &conversation)
             .expect("mark persisted");
-        conversation_service()
+        conversation_service_v2()
             .set_conversation_preferred_api_config_id(
                 &state,
                 &conversation.id,
                 Some("api-model-d".to_string()),
             )
             .expect("set preferred model");
-        conversation_service()
+        conversation_service_v2()
             .set_conversation_title_metadata(&state, &conversation.id, "字段级标题")
             .expect("set title");
-        conversation_service()
+        conversation_service_v2()
             .set_conversation_shell_workspace_metadata(
                 &state,
                 &conversation.id,
@@ -3819,7 +3859,7 @@
                 Some(true),
             )
             .expect("set workspace metadata");
-        conversation_service()
+        conversation_service_v2()
             .set_conversation_lifecycle_metadata(
                 &state,
                 &conversation.id,
@@ -3829,7 +3869,7 @@
                 Some(now.clone()),
             )
             .expect("set lifecycle metadata");
-        conversation_service()
+        conversation_service_v2()
             .set_conversation_current_todos_metadata(
                 &state,
                 &conversation.id,
@@ -3963,6 +4003,1053 @@
     }
 
     #[test]
+    fn switch_active_conversation_snapshot_should_not_schedule_metadata_only_full_persist() {
+        let state = test_chat_runtime_state();
+        let now = now_iso();
+        let mut conversation = test_chat_conversation("conversation-switch-snapshot", "active", &now);
+        conversation.messages.push(test_text_message("user", "第一条", &now));
+        conversation
+            .messages
+            .push(test_text_message("assistant", "最新回复", &now));
+        conversation.updated_at = now.clone();
+        conversation.last_user_at = Some(now.clone());
+        conversation.last_assistant_at = Some(now.clone());
+        state_schedule_conversation_persist(&state, &conversation).expect("persist conversation");
+
+        let store_paths =
+            message_store::message_store_paths(&state.data_path, &conversation.id)
+                .expect("message store paths");
+        message_store::write_jsonl_snapshot_directory_shard(&store_paths, &conversation)
+            .expect("write message store");
+        state_mark_conversation_direct_persisted(&state, &conversation)
+            .expect("mark direct persisted");
+
+        let result = conversation_service_v2()
+            .switch_active_conversation_snapshot(
+                &state,
+                &SwitchActiveConversationSnapshotInput {
+                    conversation_id: Some(conversation.id.clone()),
+                    agent_id: Some(DEFAULT_AGENT_ID.to_string()),
+                },
+            )
+            .expect("switch active snapshot");
+        assert_eq!(result.snapshot.messages.len(), 2);
+
+        let persisted = state_read_conversation_cached(&state, &conversation.id)
+            .expect("read persisted conversation");
+        assert_eq!(persisted.messages.len(), 2);
+        match &persisted.messages[1].parts[0] {
+            MessagePart::Text { text, .. } => assert_eq!(text, "最新回复"),
+            _ => panic!("expected assistant text message"),
+        }
+    }
+
+    #[test]
+    fn append_message_to_unarchived_conversation_should_preserve_existing_shard_meta() {
+        let state = test_chat_runtime_state();
+        let now = now_iso();
+        let mut conversation = test_chat_conversation("conversation-append-meta", "active", &now);
+        conversation
+            .messages
+            .push(test_text_message("user", "第一条", &now));
+        conversation
+            .messages
+            .push(test_text_message("assistant", "第二条", &now));
+        conversation.updated_at = now.clone();
+        conversation.last_user_at = Some(now.clone());
+        conversation.last_assistant_at = Some(now.clone());
+        state_schedule_conversation_persist(&state, &conversation).expect("persist conversation");
+
+        let store_paths =
+            message_store::message_store_paths(&state.data_path, &conversation.id)
+                .expect("message store paths");
+        message_store::write_jsonl_snapshot_directory_shard(&store_paths, &conversation)
+            .expect("write message store");
+        state_mark_conversation_direct_persisted(&state, &conversation)
+            .expect("mark direct persisted");
+
+        let appended = test_text_message("assistant", "第三条", &now);
+        conversation_service_v2()
+            .append_message_to_unarchived_conversation(&state, &conversation.id, &appended)
+            .expect("append message");
+
+        let meta = message_store::read_ready_message_store_meta(&store_paths)
+            .expect("read store meta")
+            .expect("store meta exists");
+        assert_eq!(meta.message_count(), 3);
+        assert_eq!(meta.body_message_count(), 3);
+        assert!(meta.has_assistant_reply());
+
+        let stored_messages = message_store::read_ready_message_store_all_messages(&store_paths)
+            .expect("read stored messages")
+            .expect("stored messages exist");
+        assert_eq!(stored_messages.len(), 3);
+        match &stored_messages[2].parts[0] {
+            MessagePart::Text { text, .. } => assert_eq!(text, "第三条"),
+            _ => panic!("expected assistant text message"),
+        }
+    }
+
+    #[test]
+    fn append_message_should_not_overwrite_history_when_cached_meta_message_count_is_zero() {
+        let state = test_chat_runtime_state();
+        let now = now_iso();
+        let mut conversation =
+            test_chat_conversation("conversation-append-no-full-rewrite", "active", &now);
+        conversation
+            .messages
+            .push(test_text_message("user", "第一条历史", &now));
+        conversation
+            .messages
+            .push(test_text_message("assistant", "第二条历史", &now));
+        conversation.updated_at = now.clone();
+        conversation.last_user_at = Some(now.clone());
+        conversation.last_assistant_at = Some(now.clone());
+        state_schedule_conversation_persist(&state, &conversation).expect("persist conversation");
+
+        let store_paths =
+            message_store::message_store_paths(&state.data_path, &conversation.id)
+                .expect("message store paths");
+        message_store::write_jsonl_snapshot_directory_shard(&store_paths, &conversation)
+            .expect("write message store");
+        state_mark_conversation_direct_persisted(&state, &conversation)
+            .expect("mark direct persisted");
+
+        state_update_conversation_metadata_cached(&state, &conversation.id, |cached| {
+            cached.updated_at = now.clone();
+            Ok(())
+        })
+        .expect("prime metadata pending");
+        {
+            let mut cached = state
+                .cached_conversation_metadata
+                .lock()
+                .expect("lock cached conversation metadata");
+            let current = cached
+                .get(&conversation.id)
+                .cloned()
+                .expect("cached meta exists");
+            let broken_conversation = conversation_service_v2()
+                .build_conversation_snapshot_from_meta(&current, Vec::new());
+            let broken = message_store::ConversationShardMeta::from_conversation(
+                &broken_conversation,
+            );
+            cached.insert(conversation.id.clone(), broken);
+        }
+
+        let appended = test_text_message("assistant", "第三条新消息", &now);
+        conversation_service_v2()
+            .append_message_to_unarchived_conversation(&state, &conversation.id, &appended)
+            .expect("append message after broken cached meta");
+
+        let stored_messages = message_store::read_ready_message_store_all_messages(&store_paths)
+            .expect("read stored messages")
+            .expect("stored messages exist");
+        assert_eq!(stored_messages.len(), 3);
+        match &stored_messages[0].parts[0] {
+            MessagePart::Text { text, .. } => assert_eq!(text, "第一条历史"),
+            _ => panic!("expected first historical text message"),
+        }
+        match &stored_messages[1].parts[0] {
+            MessagePart::Text { text, .. } => assert_eq!(text, "第二条历史"),
+            _ => panic!("expected second historical text message"),
+        }
+        match &stored_messages[2].parts[0] {
+            MessagePart::Text { text, .. } => assert_eq!(text, "第三条新消息"),
+            _ => panic!("expected appended text message"),
+        }
+
+        let ready_meta = message_store::read_ready_message_store_meta(&store_paths)
+            .expect("read ready meta")
+            .expect("ready meta exists");
+        assert_eq!(ready_meta.message_count(), 3);
+        assert_eq!(ready_meta.preview_messages().len(), 2);
+        assert_eq!(
+            ready_meta.preview_messages()[1].text_preview,
+            "第三条新消息"
+        );
+    }
+
+    #[test]
+    fn conversation_service_v2_metadata_update_should_preserve_ready_store_message_stats() {
+        let state = test_chat_runtime_state();
+        let now = now_iso();
+        let mut conversation = test_chat_conversation("conversation-v2-meta-preserve", "active", &now);
+        conversation
+            .messages
+            .push(test_text_message("user", "第一条", &now));
+        conversation
+            .messages
+            .push(test_text_message("assistant", "第二条", &now));
+        conversation.updated_at = now.clone();
+        conversation.last_user_at = Some(now.clone());
+        conversation.last_assistant_at = Some(now.clone());
+        state_schedule_conversation_persist(&state, &conversation).expect("persist conversation");
+
+        let store_paths =
+            message_store::message_store_paths(&state.data_path, &conversation.id)
+                .expect("message store paths");
+        message_store::write_jsonl_snapshot_directory_shard(&store_paths, &conversation)
+            .expect("write message store");
+        state_mark_conversation_direct_persisted(&state, &conversation)
+            .expect("mark direct persisted");
+
+        let updated = conversation_service_v2()
+            .set_title(&state, &conversation.id, "V2字段级标题")
+            .expect("set title through v2");
+        assert_eq!(updated.title, "V2字段级标题");
+
+        {
+            let pending = state
+                .conversation_persist_pending
+                .lock()
+                .expect("lock pending before flush");
+            let pending = pending.as_ref().expect("pending metadata persist before flush");
+            assert!(pending.conversations.is_empty());
+            assert!(pending.metadata_conversation_ids.contains(&conversation.id));
+        }
+
+        flush_pending_persists_blocking(&state).expect("flush metadata persist");
+
+        let meta = message_store::read_ready_message_store_meta(&store_paths)
+            .expect("read ready store meta")
+            .expect("ready store meta exists");
+        assert_eq!(meta.message_count(), 2);
+        assert_eq!(meta.body_message_count(), 2);
+        assert_eq!(meta.title(), "V2字段级标题");
+    }
+
+    #[test]
+    fn state_update_conversation_metadata_cached_should_preserve_cached_preview_messages() {
+        let state = test_chat_runtime_state();
+        let now = now_iso();
+        let mut conversation =
+            test_chat_conversation("conversation-meta-preview-preserve", "active", &now);
+        conversation
+            .messages
+            .push(test_text_message("user", "第一条用户消息", &now));
+        conversation
+            .messages
+            .push(test_text_message("assistant", "第二条助手预览", &now));
+        conversation.updated_at = now.clone();
+        conversation.last_user_at = Some(now.clone());
+        conversation.last_assistant_at = Some(now.clone());
+        state_schedule_conversation_persist(&state, &conversation).expect("persist conversation");
+        flush_pending_persists_blocking(&state).expect("flush full persist");
+        state_mark_conversation_direct_persisted(&state, &conversation)
+            .expect("mark direct persisted");
+
+        state_update_conversation_metadata_cached(&state, &conversation.id, |cached| {
+            cached.title = "只改标题".to_string();
+            Ok(())
+        })
+        .expect("metadata update");
+
+        let meta = state_read_conversation_metadata_cached(&state, &conversation.id)
+            .expect("read cached meta");
+        assert_eq!(meta.message_count(), 2);
+        assert_eq!(meta.body_message_count(), 2);
+        assert_eq!(meta.preview_messages().len(), 2);
+        assert_eq!(
+            meta.preview_messages()[1].text_preview,
+            "第二条助手预览"
+        );
+    }
+
+    #[test]
+    fn state_read_conversation_metadata_cached_should_repair_empty_cached_preview_from_ready_store() {
+        let state = test_chat_runtime_state();
+        let now = now_iso();
+        let mut conversation =
+            test_chat_conversation("conversation-meta-preview-repair", "active", &now);
+        conversation
+            .messages
+            .push(test_text_message("assistant", "缓存坏了也要修回来", &now));
+        conversation.updated_at = now.clone();
+        conversation.last_assistant_at = Some(now.clone());
+        state_schedule_conversation_persist(&state, &conversation).expect("persist conversation");
+        flush_pending_persists_blocking(&state).expect("flush full persist");
+        state_mark_conversation_direct_persisted(&state, &conversation)
+            .expect("mark direct persisted");
+
+        {
+            let mut cached = state
+                .cached_conversation_metadata
+                .lock()
+                .expect("lock cached conversation metadata");
+            let current = cached
+                .get(&conversation.id)
+                .cloned()
+                .expect("cached meta exists");
+            let broken_conversation = conversation_service_v2()
+                .build_conversation_snapshot_from_meta(&current, Vec::new());
+            let broken = message_store::ConversationShardMeta::from_conversation(
+                &broken_conversation,
+            );
+            cached.insert(conversation.id.clone(), broken);
+        }
+
+        let repaired = state_read_conversation_metadata_cached(&state, &conversation.id)
+            .expect("read repaired meta");
+        assert_eq!(repaired.message_count(), 1);
+        assert_eq!(repaired.preview_messages().len(), 1);
+        assert_eq!(
+            repaired.preview_messages()[0].text_preview,
+            "缓存坏了也要修回来"
+        );
+    }
+
+    #[test]
+    fn conversation_service_v2_should_read_conversation_meta_view() {
+        let state = test_chat_runtime_state();
+        let now = now_iso();
+        let mut conversation = test_chat_conversation("conversation-v2-meta-read", "active", &now);
+        conversation.title = "Meta读取标题".to_string();
+        conversation.department_id = ASSISTANT_DEPARTMENT_ID.to_string();
+        conversation.agent_id = DEFAULT_AGENT_ID.to_string();
+        conversation.current_todos = vec![ConversationTodoItem {
+            content: "检查 meta view".to_string(),
+            status: "pending".to_string(),
+        }];
+        state_schedule_conversation_persist(&state, &conversation).expect("persist conversation");
+
+        let meta = conversation_service_v2()
+            .get_conversation_meta(&state, &conversation.id)
+            .expect("read v2 meta");
+
+        assert_eq!(meta.id, conversation.id);
+        assert_eq!(meta.title, "Meta读取标题");
+        assert_eq!(meta.agent_id, DEFAULT_AGENT_ID);
+        assert_eq!(meta.department_id, ASSISTANT_DEPARTMENT_ID);
+        assert_eq!(meta.current_todos.len(), 1);
+    }
+
+    #[test]
+    fn conversation_service_v2_should_read_messages_before_and_after_anchor() {
+        let state = test_chat_runtime_state();
+        let now = now_iso();
+        let mut conversation = test_chat_conversation("conversation-v2-page-read", "active", &now);
+        let mut m1 = test_text_message("user", "第一条", &now);
+        m1.id = "msg-1".to_string();
+        let mut m2 = test_text_message("assistant", "第二条", &now);
+        m2.id = "msg-2".to_string();
+        let mut m3 = test_text_message("user", "第三条", &now);
+        m3.id = "msg-3".to_string();
+        let mut m4 = test_text_message("assistant", "第四条", &now);
+        m4.id = "msg-4".to_string();
+        conversation.messages = vec![m1, m2, m3, m4];
+        state_schedule_conversation_persist(&state, &conversation).expect("persist conversation");
+        let store_paths =
+            message_store::message_store_paths(&state.data_path, &conversation.id)
+                .expect("message store paths");
+        message_store::write_jsonl_snapshot_directory_shard(&store_paths, &conversation)
+            .expect("write message store");
+        state_mark_conversation_direct_persisted(&state, &conversation)
+            .expect("mark direct persisted");
+
+        let before = conversation_service_v2()
+            .get_messages_before(&state, &conversation.id, "msg-4", 2)
+            .expect("read messages before");
+        assert_eq!(before.messages.len(), 2);
+        assert_eq!(before.messages[0].id, "msg-2");
+        assert_eq!(before.messages[1].id, "msg-3");
+        assert!(before.has_more);
+        assert!(before.has_more_before);
+        assert!(!before.has_more_after);
+        assert_eq!(before.first_message_id.as_deref(), Some("msg-2"));
+        assert_eq!(before.last_message_id.as_deref(), Some("msg-3"));
+
+        let after = conversation_service_v2()
+            .get_messages_after(&state, &conversation.id, "msg-1", 2)
+            .expect("read messages after");
+        assert_eq!(after.messages.len(), 2);
+        assert_eq!(after.messages[0].id, "msg-2");
+        assert_eq!(after.messages[1].id, "msg-3");
+        assert!(after.has_more);
+        assert!(!after.has_more_before);
+        assert!(after.has_more_after);
+        assert_eq!(after.first_message_id.as_deref(), Some("msg-2"));
+        assert_eq!(after.last_message_id.as_deref(), Some("msg-3"));
+    }
+
+    #[test]
+    fn conversation_service_v2_should_create_and_delete_conversation() {
+        let state = test_chat_runtime_state();
+        let created = conversation_service_v2()
+            .create_conversation(
+                &state,
+                &CreateUnarchivedConversationInput {
+                    api_config_id: None,
+                    agent_id: Some(DEFAULT_AGENT_ID.to_string()),
+                    department_id: Some(ASSISTANT_DEPARTMENT_ID.to_string()),
+                    title: Some("V2创建会话".to_string()),
+                    copy_source_conversation_id: None,
+                    shell_workspaces: None,
+                    shell_autonomous_mode: None,
+                },
+            )
+            .expect("create conversation through v2");
+
+        let created_conversation = state_read_conversation_cached(&state, &created.conversation_id)
+            .expect("created conversation should exist");
+        assert_eq!(created_conversation.title, "V2创建会话");
+        assert_eq!(created_conversation.agent_id, DEFAULT_AGENT_ID);
+
+        let deleted = conversation_service_v2()
+            .delete_conversation(&state, &created.conversation_id)
+            .expect("delete conversation through v2");
+        assert_eq!(deleted.deleted_conversation_id, created.conversation_id);
+    }
+
+    #[test]
+    fn conversation_service_v2_should_allow_import_snapshot_via_privileged_method() {
+        let state = test_chat_runtime_state();
+        let now = now_iso();
+        let mut conversation =
+            test_chat_conversation("conversation-v2-import-overwrite", "active", &now);
+        conversation.title = "导入后的会话".to_string();
+        conversation.current_todos = vec![ConversationTodoItem {
+            content: "导入待办".to_string(),
+            status: "in_progress".to_string(),
+        }];
+        conversation.messages.push(test_text_message("user", "第一条导入消息", &now));
+        conversation
+            .messages
+            .push(test_text_message("assistant", "第二条导入消息", &now));
+        conversation.updated_at = now.clone();
+        conversation.last_user_at = Some(now.clone());
+        conversation.last_assistant_at = Some(now.clone());
+
+        conversation_service_v2()
+            .import_conversation_snapshot(
+                &state,
+                "import-job-test",
+                "test_import",
+                "测试导入覆写",
+                &conversation,
+            )
+            .expect("privileged import overwrite should succeed");
+
+        let cached = state_read_conversation_cached(&state, &conversation.id)
+            .expect("conversation should be cached after import overwrite");
+        assert_eq!(cached.title, "导入后的会话");
+        assert_eq!(cached.messages.len(), 2);
+        assert_eq!(cached.current_todos.len(), 1);
+
+        flush_pending_persists_blocking(&state).expect("flush imported conversation");
+        let persisted = conversation_service_v2()
+            .read_persisted_conversation(&state, &conversation.id)
+            .expect("read persisted imported conversation");
+        assert_eq!(persisted.title, "导入后的会话");
+        assert_eq!(persisted.messages.len(), 2);
+    }
+
+    #[test]
+    fn conversation_service_v2_should_allow_export_sync_snapshot_via_privileged_method() {
+        let state = test_chat_runtime_state();
+        let now = now_iso();
+        let mut conversation =
+            test_chat_conversation("conversation-v2-export-sync-overwrite", "active", &now);
+        conversation.title = "同步回灌后的会话".to_string();
+        conversation.messages.push(test_text_message("user", "同步消息A", &now));
+        conversation.messages.push(test_text_message("assistant", "同步消息B", &now));
+
+        conversation_service_v2()
+            .sync_replace_conversation_snapshot(
+                &state,
+                "sync-job-test",
+                "test_sync",
+                "测试导出同步回灌",
+                &conversation,
+            )
+            .expect("privileged export sync overwrite should succeed");
+
+        let cached = state_read_conversation_cached(&state, &conversation.id)
+            .expect("conversation should be cached after sync overwrite");
+        assert_eq!(cached.title, "同步回灌后的会话");
+        assert_eq!(cached.messages.len(), 2);
+
+        flush_pending_persists_blocking(&state).expect("flush sync conversation");
+        let persisted = conversation_service_v2()
+            .read_persisted_conversation(&state, &conversation.id)
+            .expect("read persisted sync conversation");
+        assert_eq!(persisted.title, "同步回灌后的会话");
+        assert_eq!(persisted.messages.len(), 2);
+    }
+
+    #[test]
+    fn conversation_service_v2_should_allow_recovery_snapshot_via_privileged_method() {
+        let state = test_chat_runtime_state();
+        let now = now_iso();
+        let mut conversation =
+            test_chat_conversation("conversation-v2-recovery-overwrite", "active", &now);
+        conversation.title = "恢复后的会话".to_string();
+        conversation.current_todos = vec![ConversationTodoItem {
+            content: "恢复待办".to_string(),
+            status: "pending".to_string(),
+        }];
+        conversation.messages.push(test_text_message("user", "恢复消息1", &now));
+
+        conversation_service_v2()
+            .recover_conversation_snapshot(
+                &state,
+                "recovery-job-test",
+                "test_recovery",
+                "测试迁移恢复",
+                &conversation,
+            )
+            .expect("privileged recovery overwrite should succeed");
+
+        let cached = state_read_conversation_cached(&state, &conversation.id)
+            .expect("conversation should be cached after recovery overwrite");
+        assert_eq!(cached.title, "恢复后的会话");
+        assert_eq!(cached.current_todos.len(), 1);
+        assert_eq!(cached.messages.len(), 1);
+
+        flush_pending_persists_blocking(&state).expect("flush recovery conversation");
+        let persisted = conversation_service_v2()
+            .read_persisted_conversation(&state, &conversation.id)
+            .expect("read persisted recovery conversation");
+        assert_eq!(persisted.title, "恢复后的会话");
+        assert_eq!(persisted.current_todos.len(), 1);
+        assert_eq!(persisted.messages.len(), 1);
+    }
+
+    #[test]
+    fn conversation_service_v2_should_reject_privileged_overwrite_without_audit_fields() {
+        let state = test_chat_runtime_state();
+        let now = now_iso();
+        let conversation =
+            test_chat_conversation("conversation-v2-invalid-audit", "active", &now);
+
+        let err = conversation_service_v2()
+            .import_conversation_snapshot(&state, "", "operator", "reason", &conversation)
+            .expect_err("missing job id should be rejected");
+        assert!(err.contains("jobId"));
+
+        let err = conversation_service_v2()
+            .sync_replace_conversation_snapshot(&state, "job", "", "reason", &conversation)
+            .expect_err("missing operator should be rejected");
+        assert!(err.contains("operator"));
+
+        let err = conversation_service_v2()
+            .recover_conversation_snapshot(&state, "job", "operator", "", &conversation)
+            .expect_err("missing reason should be rejected");
+        assert!(err.contains("reason"));
+    }
+
+    fn test_v2_single_tool_group_result(call_id: &str, tool_name: &str) -> (Value, Value) {
+        let assistant_tool_event = serde_json::json!({
+            "role": "assistant",
+            "reasoning_content": "先调用工具",
+            "tool_calls": [{
+                "id": call_id,
+                "type": "function",
+                "function": {
+                    "name": tool_name,
+                    "arguments": "{\"path\":\"README.md\"}"
+                }
+            }]
+        });
+        let tool_result_event = serde_json::json!({
+            "role": "tool",
+            "tool_call_id": call_id,
+            "content": "tool result"
+        });
+        (assistant_tool_event, tool_result_event)
+    }
+
+    #[test]
+    fn conversation_service_v2_should_forbid_tool_append_after_final_text_committed() {
+        let state = test_chat_runtime_state();
+        let now = now_iso();
+        let mut conversation =
+            test_chat_conversation("conversation-v2-tool-append-closed", "active", &now);
+        let mut assistant = test_text_message("assistant", "已经有最终正文", &now);
+        assistant.id = "assistant-final".to_string();
+        assistant.speaker_agent_id = Some(DEFAULT_AGENT_ID.to_string());
+        conversation.messages.push(assistant);
+        state_schedule_conversation_persist(&state, &conversation).expect("persist conversation");
+        let store_paths =
+            message_store::message_store_paths(&state.data_path, &conversation.id)
+                .expect("message store paths");
+        message_store::write_jsonl_snapshot_directory_shard(&store_paths, &conversation)
+            .expect("write message store");
+        state_mark_conversation_direct_persisted(&state, &conversation)
+            .expect("mark direct persisted");
+
+        let (assistant_tool_event, tool_result_event) =
+            test_v2_single_tool_group_result("call-v2-1", "read_file");
+        let err = conversation_service_v2()
+            .append_tool_event_to_assistant_message(
+                &state,
+                &AssistantMessageToolAppendInput {
+                    conversation_id: conversation.id.clone(),
+                    assistant_message_id: "assistant-final".to_string(),
+                    assistant_tool_event,
+                    tool_result_event,
+                    provider_meta_patch: None,
+                },
+            )
+            .expect_err("final text should close tool append");
+
+        assert!(err.contains("MSG_TOOL_APPEND_CLOSED"));
+    }
+
+    #[test]
+    fn conversation_service_v2_should_append_tool_to_last_assistant_without_final_text() {
+        let state = test_chat_runtime_state();
+        let now = now_iso();
+        let mut conversation =
+            test_chat_conversation("conversation-v2-tool-append-open", "active", &now);
+        let mut assistant = test_text_message("assistant", "", &now);
+        assistant.id = "assistant-open".to_string();
+        assistant.speaker_agent_id = Some(DEFAULT_AGENT_ID.to_string());
+        conversation.messages.push(assistant);
+        state_schedule_conversation_persist(&state, &conversation).expect("persist conversation");
+        let store_paths =
+            message_store::message_store_paths(&state.data_path, &conversation.id)
+                .expect("message store paths");
+        message_store::write_jsonl_snapshot_directory_shard(&store_paths, &conversation)
+            .expect("write message store");
+        state_mark_conversation_direct_persisted(&state, &conversation)
+            .expect("mark direct persisted");
+
+        let (assistant_tool_event, tool_result_event) =
+            test_v2_single_tool_group_result("call-v2-2", "read_file");
+        let append = conversation_service_v2()
+            .append_tool_event_to_assistant_message(
+                &state,
+                &AssistantMessageToolAppendInput {
+                    conversation_id: conversation.id.clone(),
+                    assistant_message_id: "assistant-open".to_string(),
+                    assistant_tool_event,
+                    tool_result_event,
+                    provider_meta_patch: None,
+                },
+            )
+            .expect("tool append should succeed");
+
+        assert_eq!(append.assistant_message_id, "assistant-open");
+        assert_eq!(append.tool_event_count, 2);
+        assert!(!append.tool_append_closed);
+
+        let stored = conversation_service_v2()
+            .read_message_by_id(&state, &conversation.id, "assistant-open")
+            .expect("read updated assistant message");
+        assert_eq!(stored.tool_call.as_ref().map(Vec::len), Some(2));
+        match &stored.parts[0] {
+            MessagePart::Text { text, .. } => assert!(text.is_empty()),
+            _ => panic!("expected text part"),
+        }
+    }
+
+    #[test]
+    fn conversation_service_v2_should_append_final_text_to_last_assistant_message() {
+        let state = test_chat_runtime_state();
+        let now = now_iso();
+        let mut conversation =
+            test_chat_conversation("conversation-v2-final-text-open", "active", &now);
+        let mut assistant = test_text_message("assistant", "", &now);
+        assistant.id = "assistant-final-open".to_string();
+        assistant.speaker_agent_id = Some(DEFAULT_AGENT_ID.to_string());
+        assistant.tool_call = Some(vec![serde_json::json!({
+            "role": "assistant",
+            "tool_calls": [{
+                "id": "call-final-open",
+                "type": "function",
+                "function": {
+                    "name": "read_file",
+                    "arguments": "{}"
+                }
+            }]
+        }), serde_json::json!({
+            "role": "tool",
+            "tool_call_id": "call-final-open",
+            "content": "tool result"
+        })]);
+        conversation.messages.push(assistant);
+        state_schedule_conversation_persist(&state, &conversation).expect("persist conversation");
+        let store_paths =
+            message_store::message_store_paths(&state.data_path, &conversation.id)
+                .expect("message store paths");
+        message_store::write_jsonl_snapshot_directory_shard(&store_paths, &conversation)
+            .expect("write message store");
+        state_mark_conversation_direct_persisted(&state, &conversation)
+            .expect("mark direct persisted");
+
+        let append = conversation_service_v2()
+            .append_final_text_to_assistant_message(
+                &state,
+                &AssistantMessageFinalTextAppendInput {
+                    conversation_id: conversation.id.clone(),
+                    assistant_message_id: "assistant-final-open".to_string(),
+                    final_text: "这是最终正文".to_string(),
+                    reasoning_text: Some("这是最终思考".to_string()),
+                    provider_meta_patch: Some(serde_json::json!({
+                        "usage": { "outputTokens": 12 }
+                    })),
+                },
+            )
+            .expect("final text append should succeed");
+
+        assert!(append.final_text_committed);
+        assert!(append.tool_append_closed);
+
+        let stored = conversation_service_v2()
+            .read_message_by_id(&state, &conversation.id, "assistant-final-open")
+            .expect("read updated assistant message");
+        match &stored.parts[0] {
+            MessagePart::Text {
+                text,
+                reasoning_content,
+            } => {
+                assert_eq!(text, "这是最终正文");
+                assert_eq!(reasoning_content.as_deref(), Some("这是最终思考"));
+            }
+            _ => panic!("expected text part"),
+        }
+        assert_eq!(stored.tool_call.as_ref().map(Vec::len), Some(2));
+        assert_eq!(
+            stored
+                .provider_meta
+                .as_ref()
+                .and_then(|value| value.get("usage"))
+                .and_then(|value| value.get("outputTokens"))
+                .and_then(Value::as_u64),
+            Some(12)
+        );
+    }
+
+    #[test]
+    fn conversation_service_v2_should_bootstrap_then_append_tool_and_final_text() {
+        let state = test_chat_runtime_state();
+        let now = now_iso();
+        let conversation =
+            test_chat_conversation("conversation-v2-bootstrap-open", "active", &now);
+        state_schedule_conversation_persist(&state, &conversation).expect("persist conversation");
+
+        let bootstrap = conversation_service_v2()
+            .bootstrap_streaming_assistant_message(
+                &state,
+                &AssistantMessageBootstrapInput {
+                    conversation_id: conversation.id.clone(),
+                    assistant_message_id: "assistant-bootstrap".to_string(),
+                    speaker_agent_id: DEFAULT_AGENT_ID.to_string(),
+                    created_at: Some(now.clone()),
+                    provider_meta_patch: None,
+                },
+            )
+            .expect("bootstrap assistant should succeed");
+
+        assert!(bootstrap.created);
+        assert_eq!(bootstrap.assistant_message_id, "assistant-bootstrap");
+
+        let (assistant_tool_event, tool_result_event) =
+            test_v2_single_tool_group_result("call-v2-bootstrap", "read_file");
+        let tool_append = conversation_service_v2()
+            .append_tool_event_to_assistant_message(
+                &state,
+                &AssistantMessageToolAppendInput {
+                    conversation_id: conversation.id.clone(),
+                    assistant_message_id: "assistant-bootstrap".to_string(),
+                    assistant_tool_event,
+                    tool_result_event,
+                    provider_meta_patch: None,
+                },
+            )
+            .expect("tool append after bootstrap should succeed");
+        assert_eq!(tool_append.tool_event_count, 2);
+
+        let final_append = conversation_service_v2()
+            .append_final_text_to_assistant_message(
+                &state,
+                &AssistantMessageFinalTextAppendInput {
+                    conversation_id: conversation.id.clone(),
+                    assistant_message_id: "assistant-bootstrap".to_string(),
+                    final_text: "bootstrap 完成正文".to_string(),
+                    reasoning_text: Some("bootstrap 完成思考".to_string()),
+                    provider_meta_patch: None,
+                },
+            )
+            .expect("final append after bootstrap should succeed");
+        assert!(final_append.final_text_committed);
+
+        let stored = conversation_service_v2()
+            .read_message_by_id(&state, &conversation.id, "assistant-bootstrap")
+            .expect("read bootstrapped assistant");
+        assert_eq!(stored.tool_call.as_ref().map(Vec::len), Some(2));
+        match &stored.parts[0] {
+            MessagePart::Text {
+                text,
+                reasoning_content,
+            } => {
+                assert_eq!(text, "bootstrap 完成正文");
+                assert_eq!(reasoning_content.as_deref(), Some("bootstrap 完成思考"));
+            }
+            _ => panic!("expected text part"),
+        }
+    }
+
+    #[test]
+    fn conversation_service_v2_should_refresh_preview_after_appending_final_text() {
+        let state = test_chat_runtime_state();
+        let now = now_iso();
+        let conversation =
+            test_chat_conversation("conversation-v2-preview-refresh-final-text", "active", &now);
+        state_schedule_conversation_persist(&state, &conversation).expect("persist conversation");
+
+        conversation_service_v2()
+            .append_user_message(
+                &state,
+                &UserMessageAppendInput {
+                    conversation_id: conversation.id.clone(),
+                    message: test_text_message("user", "你会rust语言吗", &now),
+                    memory_recall_ids: Vec::new(),
+                },
+            )
+            .expect("append user message");
+
+        conversation_service_v2()
+            .bootstrap_streaming_assistant_message(
+                &state,
+                &AssistantMessageBootstrapInput {
+                    conversation_id: conversation.id.clone(),
+                    assistant_message_id: "assistant-preview-refresh".to_string(),
+                    speaker_agent_id: DEFAULT_AGENT_ID.to_string(),
+                    created_at: Some(now.clone()),
+                    provider_meta_patch: None,
+                },
+            )
+            .expect("bootstrap assistant should succeed");
+
+        let store_paths =
+            message_store::message_store_paths(&state.data_path, &conversation.id)
+                .expect("message store paths");
+        let meta_before = message_store::read_ready_message_store_meta(&store_paths)
+            .expect("read ready meta before final text")
+            .expect("ready meta exists before final text");
+        assert_eq!(meta_before.preview_messages().len(), 2);
+        assert_eq!(meta_before.preview_messages()[1].text_preview, "");
+
+        conversation_service_v2()
+            .append_final_text_to_assistant_message(
+                &state,
+                &AssistantMessageFinalTextAppendInput {
+                    conversation_id: conversation.id.clone(),
+                    assistant_message_id: "assistant-preview-refresh".to_string(),
+                    final_text: "会。Rust 是一门系统级编程语言。".to_string(),
+                    reasoning_text: None,
+                    provider_meta_patch: None,
+                },
+            )
+            .expect("append final text");
+
+        let meta_after = message_store::read_ready_message_store_meta(&store_paths)
+            .expect("read ready meta after final text")
+            .expect("ready meta exists after final text");
+        assert_eq!(meta_after.preview_messages().len(), 2);
+        assert_eq!(
+            meta_after.preview_messages()[1].text_preview,
+            "会。Rust 是一门系统级编程语言。"
+        );
+    }
+
+    #[test]
+    fn conversation_service_v2_should_close_tool_append_after_empty_final_commit() {
+        let state = test_chat_runtime_state();
+        let now = now_iso();
+        let conversation =
+            test_chat_conversation("conversation-v2-empty-final-close", "active", &now);
+        state_schedule_conversation_persist(&state, &conversation).expect("persist conversation");
+
+        conversation_service_v2()
+            .bootstrap_streaming_assistant_message(
+                &state,
+                &AssistantMessageBootstrapInput {
+                    conversation_id: conversation.id.clone(),
+                    assistant_message_id: "assistant-empty-final".to_string(),
+                    speaker_agent_id: DEFAULT_AGENT_ID.to_string(),
+                    created_at: Some(now.clone()),
+                    provider_meta_patch: None,
+                },
+            )
+            .expect("bootstrap assistant should succeed");
+
+        let final_append = conversation_service_v2()
+            .append_final_text_to_assistant_message(
+                &state,
+                &AssistantMessageFinalTextAppendInput {
+                    conversation_id: conversation.id.clone(),
+                    assistant_message_id: "assistant-empty-final".to_string(),
+                    final_text: String::new(),
+                    reasoning_text: Some("被压缩提前结束".to_string()),
+                    provider_meta_patch: None,
+                },
+            )
+            .expect("empty final text with reasoning should still commit");
+        assert!(final_append.final_text_committed);
+        assert!(final_append.tool_append_closed);
+
+        let stored = conversation_service_v2()
+            .read_message_by_id(&state, &conversation.id, "assistant-empty-final")
+            .expect("read assistant message");
+        match &stored.parts[0] {
+            MessagePart::Text {
+                text,
+                reasoning_content,
+            } => {
+                assert!(text.is_empty());
+                assert_eq!(reasoning_content.as_deref(), Some("被压缩提前结束"));
+            }
+            _ => panic!("expected text part"),
+        }
+        assert_eq!(
+            stored
+                .provider_meta
+                .as_ref()
+                .and_then(|value| value.get("streamFinalCommitted"))
+                .and_then(Value::as_bool),
+            Some(true)
+        );
+
+        let (assistant_tool_event, tool_result_event) =
+            test_v2_single_tool_group_result("call-v2-empty-final", "read_file");
+        let err = conversation_service_v2()
+            .append_tool_event_to_assistant_message(
+                &state,
+                &AssistantMessageToolAppendInput {
+                    conversation_id: conversation.id.clone(),
+                    assistant_message_id: "assistant-empty-final".to_string(),
+                    assistant_tool_event,
+                    tool_result_event,
+                    provider_meta_patch: None,
+                },
+            )
+            .expect_err("empty final commit should close further tool append");
+
+        assert!(err.contains("MSG_TOOL_APPEND_CLOSED"));
+    }
+
+    #[test]
+    fn conversation_service_v2_should_patch_provider_meta_on_finalized_tail_assistant() {
+        let state = test_chat_runtime_state();
+        let now = now_iso();
+        let conversation =
+            test_chat_conversation("conversation-v2-provider-meta-patch", "active", &now);
+        state_schedule_conversation_persist(&state, &conversation).expect("persist conversation");
+
+        conversation_service_v2()
+            .bootstrap_streaming_assistant_message(
+                &state,
+                &AssistantMessageBootstrapInput {
+                    conversation_id: conversation.id.clone(),
+                    assistant_message_id: "assistant-provider-meta".to_string(),
+                    speaker_agent_id: DEFAULT_AGENT_ID.to_string(),
+                    created_at: Some(now.clone()),
+                    provider_meta_patch: None,
+                },
+            )
+            .expect("bootstrap assistant should succeed");
+        conversation_service_v2()
+            .append_final_text_to_assistant_message(
+                &state,
+                &AssistantMessageFinalTextAppendInput {
+                    conversation_id: conversation.id.clone(),
+                    assistant_message_id: "assistant-provider-meta".to_string(),
+                    final_text: "已经结束".to_string(),
+                    reasoning_text: None,
+                    provider_meta_patch: Some(serde_json::json!({
+                        "usage": { "outputTokens": 9 }
+                    })),
+                },
+            )
+            .expect("final append should succeed");
+
+        let patch = conversation_service_v2()
+            .patch_provider_meta_on_assistant_message(
+                &state,
+                &AssistantMessageProviderMetaPatchInput {
+                    conversation_id: conversation.id.clone(),
+                    assistant_message_id: "assistant-provider-meta".to_string(),
+                    provider_meta_patch: serde_json::json!({
+                        "remoteImDecision": {
+                            "action": "send_success",
+                            "error": "",
+                            "processingMode": "continuous",
+                            "conversationKind": "remote_im_contact"
+                        }
+                    }),
+                },
+            )
+            .expect("provider meta patch should succeed");
+        assert_eq!(patch.assistant_message_id, "assistant-provider-meta");
+
+        let stored = conversation_service_v2()
+            .read_message_by_id(&state, &conversation.id, "assistant-provider-meta")
+            .expect("read updated assistant message");
+        match &stored.parts[0] {
+            MessagePart::Text { text, .. } => assert_eq!(text, "已经结束"),
+            _ => panic!("expected text part"),
+        }
+        assert_eq!(
+            stored
+                .provider_meta
+                .as_ref()
+                .and_then(|value| value.get("usage"))
+                .and_then(|value| value.get("outputTokens"))
+                .and_then(Value::as_u64),
+            Some(9)
+        );
+        assert_eq!(
+            stored
+                .provider_meta
+                .as_ref()
+                .and_then(|value| value.get("remoteImDecision"))
+                .and_then(|value| value.get("action"))
+                .and_then(Value::as_str),
+            Some("send_success")
+        );
+    }
+
+    #[test]
+    fn conversation_service_v2_should_forbid_final_text_append_on_non_tail_assistant() {
+        let state = test_chat_runtime_state();
+        let now = now_iso();
+        let mut conversation =
+            test_chat_conversation("conversation-v2-final-text-non-tail", "active", &now);
+        let mut assistant = test_text_message("assistant", "", &now);
+        assistant.id = "assistant-non-tail".to_string();
+        assistant.speaker_agent_id = Some(DEFAULT_AGENT_ID.to_string());
+        let user_tail = test_text_message("user", "后面还有用户消息", &now);
+        conversation.messages.push(assistant);
+        conversation.messages.push(user_tail);
+        state_schedule_conversation_persist(&state, &conversation).expect("persist conversation");
+        let store_paths =
+            message_store::message_store_paths(&state.data_path, &conversation.id)
+                .expect("message store paths");
+        message_store::write_jsonl_snapshot_directory_shard(&store_paths, &conversation)
+            .expect("write message store");
+        state_mark_conversation_direct_persisted(&state, &conversation)
+            .expect("mark direct persisted");
+
+        let err = conversation_service_v2()
+            .append_final_text_to_assistant_message(
+                &state,
+                &AssistantMessageFinalTextAppendInput {
+                    conversation_id: conversation.id.clone(),
+                    assistant_message_id: "assistant-non-tail".to_string(),
+                    final_text: "不应该成功".to_string(),
+                    reasoning_text: None,
+                    provider_meta_patch: None,
+                },
+            )
+            .expect_err("non-tail assistant should be rejected");
+
+        assert!(err.contains("MSG_NOT_WRITABLE"));
+    }
+
+    #[test]
     fn state_schedule_conversation_delete_should_remove_memory_chat_index_item() {
         let state = test_chat_runtime_state();
         let now = now_iso();
@@ -4002,13 +5089,60 @@
         write_conversation_shard(&state.data_path, &source).expect("write source conversation");
 
         let (selected_api, _resolved_api, resolved_source, effective_agent_id) =
-            conversation_service()
+            conversation_service_v2()
                 .resolve_archive_request_conversation_by_id(&state, &source.id)
                 .expect("resolve archive request without department");
 
         assert_eq!(resolved_source.id, source.id);
         assert_eq!(selected_api.id, expected_api_id);
         assert!(effective_agent_id.is_empty());
+    }
+
+    #[test]
+    fn read_archive_block_page_should_migrate_legacy_archive_before_paging() {
+        let state = test_chat_runtime_state();
+        let now = now_iso();
+        let mut conversation =
+            test_chat_conversation("conversation-archive-legacy-page", "active", &now);
+        conversation.status = "archived".to_string();
+        conversation.archived_at = Some(now.clone());
+        conversation.messages = vec![
+            test_text_message("user", "第一条", &now),
+            test_text_message("assistant", "第二条", &now),
+            test_text_message("user", "第三条", &now),
+        ];
+        let legacy_path =
+            app_layout_chat_conversation_path(&state.data_path, &conversation.id);
+        fs::create_dir_all(app_layout_chat_conversations_dir(&state.data_path))
+            .expect("create conversations dir");
+        fs::write(
+            &legacy_path,
+            serde_json::to_string_pretty(&conversation).expect("serialize legacy archive"),
+        )
+        .expect("write legacy archive");
+
+        let paths = message_store::message_store_paths(&state.data_path, &conversation.id)
+            .expect("message store paths");
+        assert!(
+            message_store::read_ready_message_store_status(&paths)
+                .expect("read ready status before archive page")
+                .is_none()
+        );
+
+        let page = conversation_service_v2()
+            .read_archive_block_page(&state, &conversation.id, None)
+            .expect("read archive block page");
+
+        assert_eq!(page.blocks.len(), 1);
+        assert_eq!(page.selected_block_id, 0);
+        assert_eq!(page.messages.len(), 3);
+        assert_eq!(render_message_content_for_model(&page.messages[0]), "第一条");
+        assert_eq!(render_message_content_for_model(&page.messages[2]), "第三条");
+
+        let ready_status = message_store::read_ready_message_store_status(&paths)
+            .expect("read ready status after archive page")
+            .expect("archive page should migrate legacy archive");
+        assert_eq!(ready_status.source_message_count, 3);
     }
 
     #[test]
@@ -4051,7 +5185,7 @@
         });
         state_write_runtime_state_cached(&state, &runtime).expect("write runtime state");
 
-        let items = conversation_service()
+        let items = conversation_service_v2()
             .list_remote_im_contact_conversations(&state)
             .expect("list remote im contact conversations");
 
@@ -4182,14 +5316,14 @@
     fn list_tool_session_targets_should_include_local_and_remote_sessions() {
         let (state, _source_id, _local_target_id, remote_target_id) = seed_session_forward_test_state();
 
-        let all_items = conversation_service()
+        let all_items = conversation_service_v2()
             .list_tool_session_targets(&state, None)
             .expect("list session targets");
         assert_eq!(all_items.len(), 3);
         assert!(all_items.iter().any(|item| item.session_id == remote_target_id && item.kind == "remote_im_contact"));
         assert!(all_items.iter().any(|item| item.title == "本地目标" && item.kind == "local_unarchived"));
 
-        let remote_items = conversation_service()
+        let remote_items = conversation_service_v2()
             .list_tool_session_targets(&state, Some("联系人乙"))
             .expect("filter remote session targets");
         assert_eq!(remote_items.len(), 1);
@@ -4202,7 +5336,7 @@
     fn inform_session_should_append_notification_to_local_conversation() {
         let (state, source_id, target_local_id, _remote_target_id) = seed_session_forward_test_state();
 
-        let result = conversation_service()
+        let result = conversation_service_v2()
             .inform_session(&state, &source_id, &target_local_id, "请跟进")
             .expect("inform local session");
 
@@ -4234,7 +5368,7 @@
     fn inform_session_should_append_notification_to_remote_contact_conversation() {
         let (state, source_id, _target_local_id, remote_target_id) = seed_session_forward_test_state();
 
-        let result = conversation_service()
+        let result = conversation_service_v2()
             .inform_session(&state, &source_id, &remote_target_id, "同步一下")
             .expect("inform remote session");
 
@@ -4271,7 +5405,7 @@
             .join("meta.json");
         std::fs::remove_file(&meta_path).expect("remove message store meta");
 
-        conversation_service()
+        conversation_service_v2()
             .enqueue_auto_push_remote_contact_message(
                 &state,
                 &source_id,
@@ -4309,7 +5443,7 @@
             .map(|message| message.id.clone())
             .collect::<Vec<_>>();
 
-        let result = conversation_service()
+        let result = conversation_service_v2()
             .forward_selection_to_remote_im_contact(
                 &state,
                 &source_id,
@@ -4415,7 +5549,7 @@
         state_schedule_conversation_persist(&state, &conversation)
             .expect("persist conversation");
 
-        let items = conversation_service()
+        let items = conversation_service_v2()
             .list_remote_im_contact_conversations(&state)
             .expect("list remote im contact conversations");
 
@@ -4499,7 +5633,7 @@
         state_schedule_conversation_persist(&state, &conversation)
             .expect("persist conversation");
 
-        let messages = conversation_service()
+        let messages = conversation_service_v2()
             .read_unarchived_messages(&state, "conversation-contact-old")
             .expect("read remote im contact conversation as unarchived");
         assert_eq!(messages.len(), 1);
@@ -4508,7 +5642,7 @@
             _ => panic!("expected text message"),
         }
 
-        conversation_service()
+        conversation_service_v2()
             .update_unarchived_conversation_by_id(
                 &state,
                 "conversation-contact-old",
@@ -4574,7 +5708,7 @@
             message_id: recalled_user.id.clone(),
             undo_apply_patch: false,
         };
-        let result = conversation_service()
+        let result = conversation_service_v2()
             .rewind_conversation_from_message(
                 &state,
                 &input,
@@ -4666,7 +5800,7 @@
         )
         .expect("set runtime state");
 
-        let result = conversation_service().rewind_conversation_from_message(
+        let result = conversation_service_v2().rewind_conversation_from_message(
             &state,
             &input,
             &recalled_user_id,
@@ -4703,7 +5837,7 @@
         )
         .expect("set runtime state");
 
-        let result = conversation_service().rewind_conversation_from_message(
+        let result = conversation_service_v2().rewind_conversation_from_message(
             &state,
             &input,
             &recalled_user_id,

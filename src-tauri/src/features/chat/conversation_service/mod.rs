@@ -1,10 +1,6 @@
 include!("types.rs");
+include!("conversation_service_v2.rs");
 include!("persistence.rs");
-include!("core.rs");
-include!("delegate.rs");
 include!("archive.rs");
-include!("remote_im.rs");
-include!("session_tools.rs");
-include!("reads.rs");
+include!("session_notification_support.rs");
 include!("mutations.rs");
-include!("scheduler.rs");

@@ -1427,19 +1427,34 @@ where
     stats
 }
 
+fn build_memory_conversation_meta_stats<'a, I>(items: I, limit: usize) -> Vec<MemoryConversationStat>
+where
+    I: IntoIterator<Item = &'a message_store::ConversationShardMeta>,
+{
+    let mut stats = items
+        .into_iter()
+        .map(|conversation| MemoryConversationStat {
+            conversation_id: conversation.id().to_string(),
+            title: conversation.title().to_string(),
+            message_count: conversation.message_count(),
+            estimated_json_bytes: estimate_json_bytes(conversation),
+        })
+        .collect::<Vec<_>>();
+    stats.sort_by(|a, b| {
+        b.estimated_json_bytes
+            .cmp(&a.estimated_json_bytes)
+            .then_with(|| b.message_count.cmp(&a.message_count))
+    });
+    stats.truncate(limit);
+    stats
+}
+
 #[tauri::command]
 fn dump_memory_cache_stats(state: State<'_, AppState>) -> Result<MemoryCacheStats, String> {
-    let cached_conversations = state
-        .cached_conversations
-        .lock()
-        .map_err(|_| "Failed to lock cached conversations".to_string())?;
-    let cached_conversations_count = cached_conversations.len();
-    let cached_conversations_message_count =
-        cached_conversations.values().map(|item| item.messages.len()).sum::<usize>();
-    let cached_conversations_estimated_json_bytes =
-        cached_conversations.values().map(estimate_json_bytes).sum::<usize>();
-    let top_cached_conversations =
-        build_memory_conversation_stats(cached_conversations.values(), 8);
+    let cached_conversations_count = 0;
+    let cached_conversations_message_count = 0;
+    let cached_conversations_estimated_json_bytes = 0;
+    let top_cached_conversations = Vec::new();
 
     let cached_conversation_metadata = state
         .cached_conversation_metadata
@@ -1451,7 +1466,7 @@ fn dump_memory_cache_stats(state: State<'_, AppState>) -> Result<MemoryCacheStat
         .map(estimate_json_bytes)
         .sum::<usize>();
     let top_metadata_conversations =
-        build_memory_conversation_stats(cached_conversation_metadata.values(), 5);
+        build_memory_conversation_meta_stats(cached_conversation_metadata.values(), 5);
 
     let cached_chat_index = state
         .cached_chat_index
@@ -1698,11 +1713,11 @@ fn dump_memory_cache_stats(state: State<'_, AppState>) -> Result<MemoryCacheStat
         .unwrap_or(0);
 
     let mut notes = Vec::<String>::new();
-    if cached_conversation_metadata_estimated_json_bytes > 0 {
-        notes.push("cached_conversation_metadata 当前存的是整份 Conversation，不是轻量 metadata。".to_string());
-    }
     if cached_app_data_loaded && cached_app_data_conversation_count > 0 {
-        notes.push("cached_app_data.conversations 与 cached_conversations 都持有会话内容，存在重复驻留。".to_string());
+        notes.push("cached_app_data.conversations 仍持有会话内容，这不是目标运行时边界。".to_string());
+    }
+    if cached_conversations_estimated_json_bytes > 0 {
+        notes.push("cached_conversations 仍存在非零数据，这违反当前运行时边界。".to_string());
     }
     if delegate_runtime_threads_count > 0 || delegate_recent_threads_count > 0 {
         notes.push("delegate_runtime_threads / delegate_recent_threads 也各自带整份 Conversation。".to_string());

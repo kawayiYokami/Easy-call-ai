@@ -554,7 +554,7 @@ fn tool_loop_active_conversation_snapshot(
     state: &AppState,
     conversation_id: &str,
 ) -> Result<Option<Conversation>, String> {
-    conversation_service().try_read_unarchived_conversation(state, conversation_id)
+    conversation_service_v2().try_get_conversation_snapshot(state, conversation_id)
 }
 
 fn build_tool_loop_prepared_for_continuation(
@@ -888,28 +888,46 @@ fn persist_completed_tool_group_result(
             if id.is_empty() { None } else { Some(id.to_string()) }
         });
 
-    match conversation_service().append_tool_group_result(
+    let bootstrap_message_id = assistant_message_id
+        .clone()
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or_else(|| Uuid::new_v4().to_string());
+    conversation_service_v2().bootstrap_streaming_assistant_message(
         state,
-        &context.conversation_id,
-        &context.agent.id,
-        assistant_tool_call_event,
-        tool_result_event,
-        provider_meta_patch,
-        assistant_message_id.as_deref(),
-    ) {
+        &AssistantMessageBootstrapInput {
+            conversation_id: context.conversation_id.clone(),
+            assistant_message_id: bootstrap_message_id.clone(),
+            speaker_agent_id: context.agent.id.clone(),
+            created_at: None,
+            provider_meta_patch: None,
+        },
+    )?;
+    let append_result = conversation_service_v2()
+        .append_tool_event_to_assistant_message(
+            state,
+            &AssistantMessageToolAppendInput {
+                conversation_id: context.conversation_id.clone(),
+                assistant_message_id: bootstrap_message_id,
+                assistant_tool_event: assistant_tool_call_event,
+                tool_result_event,
+                provider_meta_patch,
+            },
+        )
+        .map(|result| (result.assistant_message_id, result.tool_event_count));
+
+    match append_result {
         Ok(result) => {
             set_stream_cache_persisted_assistant_message_id(
                 state,
                 &context.conversation_id,
-                &result.assistant_message_id,
+                &result.0,
             );
             runtime_log_info(format!(
-                "[聊天] 完成，任务=append_tool_group_result，session={}，conversation_id={}，assistant_message_id={}，created={}，tool_event_count={}",
+                "[聊天] 完成，任务=append_tool_group_result，session={}，conversation_id={}，assistant_message_id={}，tool_event_count={}",
                 chat_session_key,
                 context.conversation_id,
-                result.assistant_message_id,
-                result.created,
-                result.tool_event_count
+                result.0,
+                result.1
             ));
             Ok(())
         }
@@ -1507,7 +1525,7 @@ fn persist_tool_loop_compaction_checkpoint(
         || !partial_activity_reasoning_text.trim().is_empty()
         || !history_for_checkpoint.is_empty();
     let persist_result = if should_persist {
-        let persist_result = conversation_service().persist_stop_chat_partial_message(
+        let persist_result = conversation_service_v2().persist_stop_chat_partial_message(
             state,
             Some(context.conversation_id.as_str()),
             None,

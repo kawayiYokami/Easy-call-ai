@@ -164,7 +164,7 @@ fn append_user_message_to_conversation(
     conversation.messages.push(user_message);
     conversation.updated_at = now.to_string();
     conversation.last_user_at = Some(now.to_string());
-    conversation_service().increment_conversation_unread_count_if_background(
+    conversation_service_v2().increment_unread_count_if_background(
         state,
         &mut conversation,
         1,
@@ -482,7 +482,7 @@ fn remote_im_find_contact_by_conversation<'a>(
     data: &'a AppData,
     conversation_id: &str,
 ) -> Option<&'a RemoteImContact> {
-    conversation_service().find_remote_im_contact_by_conversation_in_data(data, conversation_id)
+    conversation_service_v2().find_remote_im_contact_by_conversation_in_data(data, conversation_id)
 }
 
 fn remote_im_contact_tool_history_events(
@@ -718,9 +718,23 @@ async fn remote_im_auto_send_assistant_reply_to_source(
     assistant_message: Option<&ChatMessage>,
 ) -> Result<Option<(String, Vec<Value>)>, String> {
     let trimmed_text = assistant_text.trim();
-    let persisted_segments = assistant_message
-        .and_then(|message| provider_meta_inline_segments(message.provider_meta.as_ref()))
-        .or_else(|| assistant_message.and_then(|message| provider_meta_meme_segments(message.provider_meta.as_ref()).map(|segs| segs.into_iter().map(inline_segment_from_meme_segment).collect())));
+    let persisted_segments = if let Some(message) = assistant_message {
+        let message_text = message
+            .parts
+            .iter()
+            .find_map(|part| match part {
+                MessagePart::Text { text, .. } => Some(text.as_str()),
+                _ => None,
+            })
+            .unwrap_or(assistant_text);
+        resolve_text_and_meme_annotations_to_inline_segments(
+            state,
+            message_text,
+            message.meme_annotations.as_deref(),
+        )?
+    } else {
+        None
+    };
     if trimmed_text.is_empty() && persisted_segments.is_none() {
         return Ok(None);
     }
@@ -916,6 +930,18 @@ fn conversation_has_visible_title(conversation: &Conversation) -> bool {
     !conversation.title.trim().is_empty() || conversation_latest_summary_title(conversation).is_some()
 }
 
+fn conversation_meta_has_visible_title(
+    conversation_meta: &ConversationMetaView,
+) -> bool {
+    !conversation_meta.title.trim().is_empty()
+        || conversation_meta
+            .latest_summary_title
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .is_some()
+}
+
 fn auto_title_generation_inflight(
 ) -> &'static std::sync::Mutex<std::collections::HashSet<String>> {
     static INFLIGHT: std::sync::OnceLock<
@@ -1015,23 +1041,25 @@ fn spawn_conversation_auto_title_generation(
             return;
         }
         let result = async {
-            match state_read_conversation_cached(&state, &conversation_id) {
-                Ok(conversation) if conversation_has_visible_title(&conversation) => {
-                    return Ok::<(), String>(());
+            match conversation_service_v2().get_conversation_meta(&state, &conversation_id) {
+                Ok(conversation_meta) => {
+                    if conversation_meta_has_visible_title(&conversation_meta) {
+                        return Ok::<(), String>(());
+                    }
                 }
-                Ok(_) => {}
                 Err(err) => return Err(err),
             }
             match run_auto_conversation_title_generation(&state, &user_message).await {
                 Ok(title) => {
-                    match state_read_conversation_cached(&state, &conversation_id) {
-                        Ok(conversation) if conversation_has_visible_title(&conversation) => {
-                            return Ok(());
+                    match conversation_service_v2().get_conversation_meta(&state, &conversation_id) {
+                        Ok(conversation_meta) => {
+                            if conversation_meta_has_visible_title(&conversation_meta) {
+                                return Ok(());
+                            }
                         }
-                        Ok(_) => {}
                         Err(err) => return Err(err),
                     }
-                    match conversation_service().update_unarchived_conversation_latest_summary_title(
+                    match conversation_service_v2().update_latest_summary_title(
                         &state,
                         &conversation_id,
                         &title,
@@ -1089,6 +1117,31 @@ fn update_remote_im_reply_decision_for_message(
         .map(str::trim)
         .filter(|value| !value.is_empty());
 
+    let provider_meta_patch = || {
+        let mut remote_im_decision = serde_json::Map::new();
+        remote_im_decision.insert("action".to_string(), serde_json::json!(action));
+        remote_im_decision.insert(
+            "error".to_string(),
+            serde_json::json!(error.unwrap_or("")),
+        );
+        remote_im_decision.insert(
+            "processingMode".to_string(),
+            serde_json::json!("continuous"),
+        );
+        remote_im_decision.insert(
+            "conversationKind".to_string(),
+            serde_json::json!("remote_im_contact"),
+        );
+        Value::Object(
+            [(
+                "remoteImDecision".to_string(),
+                Value::Object(remote_im_decision),
+            )]
+            .into_iter()
+            .collect(),
+        )
+    };
+
     let update_message = |message: &mut ChatMessage| {
         let mut meta = message
             .provider_meta
@@ -1120,25 +1173,23 @@ fn update_remote_im_reply_decision_for_message(
         message.provider_meta = Some(meta);
     };
 
-    if let Ok(Some(mut conversation)) = conversation_service().try_read_unarchived_conversation(
-        state,
-        conversation_id,
-    ) {
-        if let Some(message) = conversation.messages.iter_mut().rev().find(|message| {
-            message.role.trim() == "assistant"
-                && assistant_message_id
-                    .map(|target_id| message.id == target_id)
-                    .unwrap_or(true)
-        }) {
-            update_message(message);
-            conversation_service().sync_conversation_metadata_from_snapshot(state, &conversation)?;
-            conversation_service().persist_conversation(
-                state,
-                &conversation,
-            )?;
-            return Ok(());
+    let unarchived_patch_error = if let Some(target_id) = assistant_message_id {
+        match conversation_service_v2().patch_provider_meta_on_assistant_message(
+            state,
+            &AssistantMessageProviderMetaPatchInput {
+                conversation_id: conversation_id.to_string(),
+                assistant_message_id: target_id.to_string(),
+                provider_meta_patch: provider_meta_patch(),
+            },
+        ) {
+            Ok(_) => return Ok(()),
+            Err(err) => Some(err),
         }
-    }
+    } else {
+        Some(
+            "更新 assistant providerMeta 失败：正常会话必须提供 assistant_message_id".to_string(),
+        )
+    };
 
     if let Some(mut conversation) = delegate_runtime_thread_conversation_get(state, conversation_id)? {
         if let Some(message) = conversation.messages.iter_mut().rev().find(|message| {
@@ -1149,7 +1200,11 @@ fn update_remote_im_reply_decision_for_message(
         }) {
             update_message(message);
             delegate_runtime_thread_conversation_update(state, conversation_id, conversation)?;
+            return Ok(());
         }
+    }
+    if let Some(err) = unarchived_patch_error {
+        return Err(err);
     }
     Ok(())
 }
@@ -1376,7 +1431,7 @@ fn persist_failed_chat_completed_tool_history(
     if completed_tool_history.is_empty() {
         return Ok(false);
     }
-    let persist_result = conversation_service().persist_stop_chat_partial_message(
+    let persist_result = conversation_service_v2().persist_stop_chat_partial_message(
         state,
         requested_conversation_id,
         requested_department_id,
@@ -1844,7 +1899,7 @@ async fn send_chat_message_inner(
         effective_agent_id: &str,
     | -> Result<Option<ConversationPrepareSnapshot>, String> {
         let Some(resolved) =
-            conversation_service().resolve_prompt_prepare_conversation_from_data_read_only(
+            conversation_service_v2().resolve_prompt_prepare_conversation_read_only(
                 data,
                 &state.data_path,
                 runtime_conversation_id_for_prepare.as_deref(),
@@ -1944,7 +1999,8 @@ async fn send_chat_message_inner(
                 effective_agent_id,
             );
         }
-        let requested_conversation = state_read_conversation_cached(state, requested_conversation_id)?;
+        let requested_conversation = conversation_service_v2()
+            .get_conversation_snapshot(state, requested_conversation_id)?;
         if !requested_conversation.summary.trim().is_empty() {
             return Ok(None);
         }
@@ -2014,9 +2070,12 @@ async fn send_chat_message_inner(
         selected_api: &ApiConfig,
         effective_agent_id: &str,
     | -> Result<Option<ConversationPrepareSnapshot>, String> {
-        let main_conversation = state_read_conversation_cached(state, main_conversation_id)?;
-        if !main_conversation.summary.trim().is_empty()
-            || !conversation_visible_in_foreground_lists(&main_conversation)
+        let main_conversation_meta =
+            conversation_service_v2().get_conversation_meta(state, main_conversation_id)?;
+        if !main_conversation_meta.summary.trim().is_empty()
+            || main_conversation_meta.conversation_kind.trim() == CONVERSATION_KIND_DELEGATE
+            || main_conversation_meta.conversation_kind.trim()
+                == CONVERSATION_KIND_REMOTE_IM_CONTACT
         {
             return Ok(None);
         }
@@ -2158,8 +2217,10 @@ async fn send_chat_message_inner(
         let conversation_preferred_api_config_id = requested_conversation_id_for_prepare
             .as_deref()
             .or(runtime_main_conversation_id.as_deref())
-            .and_then(|conversation_id| state_read_conversation_cached(&state, conversation_id).ok())
-            .and_then(|conversation| conversation.preferred_api_config_id)
+            .and_then(|conversation_id| {
+                conversation_service_v2().get_conversation_meta(&state, conversation_id).ok()
+            })
+            .and_then(|conversation| conversation.preferred_api_config_id.map(|value| value.trim().to_string()))
             .map(|api_config_id| api_config_id.trim().to_string())
             .filter(|api_config_id| !api_config_id.is_empty());
         let requested_api_config_id_snapshot = requested_api_config_id
@@ -2720,7 +2781,7 @@ async fn send_chat_message_inner(
             let updated_conversation = append_user_message_to_conversation(
                 &state,
                 snapshot.storage_conversation_before.clone(),
-                user_message,
+                user_message.clone(),
                 &now,
             );
             log_run_stage("prepare_context.user_message_composed");
@@ -2737,11 +2798,13 @@ async fn send_chat_message_inner(
                 for memory_id in &recall_payload.raw_ids {
                     updated_conversation.memory_recall_table.push(memory_id.clone());
                 }
-                conversation_service()
-                    .sync_conversation_metadata_from_snapshot(&state, &updated_conversation)?;
-                conversation_service().persist_conversation(
+                conversation_service_v2().append_user_message(
                     &state,
-                    &updated_conversation,
+                    &UserMessageAppendInput {
+                        conversation_id: snapshot.storage_conversation_before.id.clone(),
+                        message: user_message,
+                        memory_recall_ids: recall_payload.raw_ids.clone(),
+                    },
                 )?;
                 log_run_stage("prepare_context.user_message_committed");
                 log_run_stage("prepare_context.state_persist_scheduled");
@@ -3591,56 +3654,83 @@ async fn send_chat_message_inner(
             set_stream_cache_persisted_assistant_message_id(&state, &conversation_id, &generated);
             generated
         });
-    let meme_annotations = build_meme_annotations(&state, &assistant_text, &assistant_message_id)
-        .unwrap_or_else(|err| {
-            runtime_log_warn(format!("[表情标注] 构建失败: {err}"));
-            Vec::new()
-        });
     log_run_stage("model_reply_ready");
 
     let mut persisted_assistant_message: Option<ChatMessage> = None;
     let mut auto_push_remote_contact_id: Option<String> = None;
     {
-        if let Ok(Some(mut conversation)) =
-            conversation_service().try_read_unarchived_conversation(&state, &conversation_id)
+        if let Ok(conversation_meta) =
+            conversation_service_v2().get_conversation_meta(&state, &conversation_id)
         {
-            let now = now_iso();
-            auto_push_remote_contact_id = conversation.auto_push_remote_contact_id.clone();
+            auto_push_remote_contact_id = conversation_meta
+                .auto_push_remote_contact_id
+                .map(|value| value.trim().to_string())
+                .filter(|value| !value.is_empty());
             if !suppress_assistant_message {
-                let assistant_message = build_assistant_message_from_request_sequence(
+                let mut assistant_message = build_assistant_message_from_request_sequence(
                     assistant_message_id.clone(),
                     &current_agent.id,
-                    now.clone(),
+                    now_iso(),
                     &assistant_request_messages,
                     provider_meta,
-                    Some(meme_annotations.clone()),
                 );
-                persisted_assistant_message = Some(conversation_upsert_final_assistant_message(
-                    &mut conversation,
-                    &current_agent.id,
-                    assistant_message,
-                    &now,
-                ));
-                conversation_service()
-                    .sync_conversation_metadata_from_snapshot(&state, &conversation)?;
-                conversation_service().persist_conversation(
+                populate_assistant_meme_annotations(
                     &state,
-                    &conversation,
+                    &assistant_message_id,
+                    &mut assistant_message,
                 )?;
+                let (final_text, reasoning_text) = assistant_message
+                    .parts
+                    .iter()
+                    .find_map(|part| match part {
+                        MessagePart::Text {
+                            text,
+                            reasoning_content,
+                        } => Some((text.clone(), reasoning_content.clone())),
+                        _ => None,
+                    })
+                    .unwrap_or_else(|| (String::new(), None));
+                conversation_service_v2().bootstrap_streaming_assistant_message(
+                    &state,
+                    &AssistantMessageBootstrapInput {
+                        conversation_id: conversation_id.clone(),
+                        assistant_message_id: assistant_message_id.clone(),
+                        speaker_agent_id: current_agent.id.clone(),
+                        created_at: Some(assistant_message.created_at.clone()),
+                        provider_meta_patch: None,
+                    },
+                )?;
+                conversation_service_v2().append_final_text_to_assistant_message(
+                    &state,
+                    &AssistantMessageFinalTextAppendInput {
+                        conversation_id: conversation_id.clone(),
+                        assistant_message_id: assistant_message_id.clone(),
+                        final_text,
+                        reasoning_text,
+                        provider_meta_patch: assistant_message.provider_meta.clone(),
+                    },
+                )?;
+                persisted_assistant_message = conversation_service_v2()
+                    .get_message_by_id(&state, &conversation_id, &assistant_message_id)
+                    .ok();
             }
         } else if let Some(mut conversation) =
             delegate_runtime_thread_conversation_get(&state, &conversation_id)?
         {
             let now = now_iso();
             if !suppress_assistant_message {
-                let assistant_message = build_assistant_message_from_request_sequence(
+                let mut assistant_message = build_assistant_message_from_request_sequence(
                     assistant_message_id.clone(),
                     &current_agent.id,
                     now.clone(),
                     &assistant_request_messages,
                     provider_meta,
-                    Some(meme_annotations.clone()),
                 );
+                populate_assistant_meme_annotations(
+                    &state,
+                    &assistant_message_id,
+                    &mut assistant_message,
+                )?;
                 persisted_assistant_message = Some(conversation_upsert_final_assistant_message(
                     &mut conversation,
                     &current_agent.id,
@@ -3664,7 +3754,7 @@ async fn send_chat_message_inner(
                 .map(render_prompt_message_text)
                 .unwrap_or_else(|| assistant_text.clone());
             if !auto_push_content.trim().is_empty() {
-                if let Err(err) = conversation_service().enqueue_auto_push_remote_contact_message(
+                if let Err(err) = conversation_service_v2().enqueue_auto_push_remote_contact_message(
                     &state,
                     &conversation_id,
                     remote_contact_id,
@@ -4559,7 +4649,6 @@ mod core_send_inner_tests {
             Some(serde_json::json!({
                 "effectivePromptTokens": 128_u64
             })),
-            None,
         );
 
         let persisted = conversation_upsert_final_assistant_message(

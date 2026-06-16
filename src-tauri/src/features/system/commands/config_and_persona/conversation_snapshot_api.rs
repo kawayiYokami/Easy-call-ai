@@ -3,7 +3,7 @@ fn get_chat_snapshot(
     input: SessionSelector,
     state: State<'_, AppState>,
 ) -> Result<ChatSnapshot, String> {
-    conversation_service().read_chat_snapshot(state.inner(), &input)
+    conversation_service_v2().get_chat_snapshot(state.inner(), &input)
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -158,6 +158,21 @@ fn conversation_current_todo_text(conversation: &Conversation) -> Option<String>
         .filter(|value| !value.is_empty())
 }
 
+fn conversation_current_todo_text_from_items(
+    todos: &[ConversationTodoItem],
+) -> Option<String> {
+    todos.iter()
+        .find(|item| item.status.trim().eq_ignore_ascii_case("in_progress"))
+        .or_else(|| {
+            todos.iter().find(|item| {
+                !item.status.trim().eq_ignore_ascii_case("completed")
+                    && !item.content.trim().is_empty()
+            })
+        })
+        .map(|item| item.content.trim().to_string())
+        .filter(|value| !value.is_empty())
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct DelegateConversationSummary {
@@ -264,24 +279,15 @@ fn conversation_workspace_name_fallback(path_text: &str) -> String {
         .unwrap_or_else(|| path_text.trim().to_string())
 }
 
-fn conversation_default_workspace_summary(
+fn conversation_default_workspace_summary_from_meta_view(
     state: &AppState,
-    conversation: &Conversation,
+    conversation_meta: &ConversationMetaView,
 ) -> (String, Option<String>) {
-    if let Ok(workspace) = terminal_default_workspace_for_conversation_resolved(state, Some(conversation)) {
-        let path = workspace.path.to_string_lossy().to_string();
-        let mut label = workspace.name.trim().to_string();
-        if label.is_empty() {
-            label = conversation_workspace_name_fallback(&path);
-        }
-        return (label, Some(path));
-    }
-
-    let fallback = conversation
+    let fallback = conversation_meta
         .shell_workspaces
         .iter()
         .find(|workspace| normalize_shell_workspace_level_text(&workspace.level) == SHELL_WORKSPACE_LEVEL_MAIN)
-        .or_else(|| conversation.shell_workspaces.first());
+        .or_else(|| conversation_meta.shell_workspaces.first());
     if let Some(workspace) = fallback {
         let path = workspace.path.trim().to_string();
         let mut label = workspace.name.trim().to_string();
@@ -291,19 +297,46 @@ fn conversation_default_workspace_summary(
         return (label, Some(path).filter(|value| !value.trim().is_empty()));
     }
 
-    let legacy_path = conversation
+    if let Some(path) = conversation_meta
         .shell_workspace_path
         .as_deref()
         .map(str::trim)
-        .filter(|value| !value.is_empty());
-    if let Some(path) = legacy_path {
+        .filter(|value| !value.is_empty())
+    {
         return (
             conversation_workspace_name_fallback(path),
             Some(path.to_string()),
         );
     }
 
+    if let Ok(workspace) = terminal_default_workspace_for_conversation_resolved(state, None) {
+        let path = workspace.path.to_string_lossy().to_string();
+        let mut label = workspace.name.trim().to_string();
+        if label.is_empty() {
+            label = conversation_workspace_name_fallback(&path);
+        }
+        return (label, Some(path));
+    }
+
     (String::new(), None)
+}
+
+fn resolved_foreground_department_id_for_conversation_meta_view(
+    config: &AppConfig,
+    conversation_meta: &ConversationMetaView,
+    is_main_conversation: bool,
+) -> String {
+    let existing = conversation_meta.department_id.trim();
+    if !existing.is_empty() {
+        return existing.to_string();
+    }
+    if is_main_conversation {
+        return ASSISTANT_DEPARTMENT_ID.to_string();
+    }
+    department_for_agent_id(config, &conversation_meta.agent_id)
+        .map(|department| department.id.clone())
+        .or_else(|| assistant_department(config).map(|department| department.id.clone()))
+        .unwrap_or_else(|| ASSISTANT_DEPARTMENT_ID.to_string())
 }
 
 fn build_preview_messages_from_chat_messages(
@@ -469,24 +502,24 @@ fn build_conversation_list_item_state(
     }
 }
 
-fn build_unarchived_conversation_summary(
+fn build_unarchived_conversation_summary_from_meta_view(
     state: &AppState,
     app_config: &AppConfig,
     main_conversation_id: &str,
     pinned_conversation_ids: &[String],
-    conversation: &Conversation,
+    conversation_meta: &ConversationMetaView,
     current_viewer_id: Option<&str>,
 ) -> UnarchivedConversationSummary {
-    let last_message_at = conversation.messages.last().map(|m| m.created_at.clone());
-    let conversation_id = conversation.id.trim();
-    let is_system_notification_conversation =
-        conversation_id == main_conversation_id || conversation_is_system_notification(conversation);
+    let conversation_id = conversation_meta.id.trim();
+    let is_system_notification_conversation = conversation_id == main_conversation_id
+        || conversation_meta.id.trim() == SYSTEM_NOTIFICATION_CONVERSATION_ID
+        || conversation_meta.conversation_kind.trim() == CONVERSATION_KIND_SYSTEM_NOTIFICATION;
     let pin_index = pinned_conversation_ids
         .iter()
         .position(|item| item.trim() == conversation_id);
-    let department_id = resolved_foreground_department_id_for_conversation(
+    let department_id = resolved_foreground_department_id_for_conversation_meta_view(
         app_config,
-        conversation,
+        conversation_meta,
         is_system_notification_conversation,
     );
     let department_name = department_by_id(app_config, &department_id)
@@ -498,7 +531,12 @@ fn build_unarchived_conversation_summary(
     } else {
         detached_chat_window_for_conversation(conversation_id)
     };
-    let unread_count = conversation_unread_count_for_overview(conversation);
+    let unread_count = if conversation_meta.conversation_kind.trim() == CONVERSATION_KIND_REMOTE_IM_CONTACT
+    {
+        0
+    } else {
+        conversation_meta.unread_count
+    };
     let item_state = build_conversation_list_item_state(
         state,
         conversation_id,
@@ -507,33 +545,28 @@ fn build_unarchived_conversation_summary(
         current_viewer_id,
     );
     let (workspace_label, workspace_root_path) =
-        conversation_default_workspace_summary(state, conversation);
-    let has_assistant_reply = conversation.messages.iter().any(|message| {
-        message.role.trim().eq_ignore_ascii_case("assistant")
-    });
-    let body_message_count = conversation_body_message_count(conversation);
-    let body_text_length = conversation_body_text_length(conversation);
+        conversation_default_workspace_summary_from_meta_view(state, conversation_meta);
     UnarchivedConversationSummary {
-        conversation_id: conversation.id.clone(),
-        title: conversation.title.clone(),
-        summary_title: conversation_latest_summary_title(conversation),
-        updated_at: conversation.updated_at.clone(),
-        last_message_at,
-        message_count: conversation.messages.len(),
-        body_message_count,
-        body_text_length,
-        has_assistant_reply,
+        conversation_id: conversation_meta.id.clone(),
+        title: conversation_meta.title.clone(),
+        summary_title: conversation_meta.latest_summary_title.clone(),
+        updated_at: conversation_meta.updated_at.clone(),
+        last_message_at: conversation_meta.last_message_at.clone(),
+        message_count: conversation_meta.message_count,
+        body_message_count: conversation_meta.body_message_count,
+        body_text_length: conversation_meta.body_text_length,
+        has_assistant_reply: conversation_meta.has_assistant_reply,
         unread_count,
-        agent_id: conversation.agent_id.clone(),
+        agent_id: conversation_meta.agent_id.clone(),
         department_id,
         department_name,
-        parent_conversation_id: conversation
+        parent_conversation_id: conversation_meta
             .parent_conversation_id
             .as_deref()
             .map(str::trim)
             .filter(|value| !value.is_empty())
             .map(ToOwned::to_owned),
-        fork_message_cursor: conversation
+        fork_message_cursor: conversation_meta
             .fork_message_cursor
             .as_deref()
             .map(str::trim)
@@ -541,18 +574,32 @@ fn build_unarchived_conversation_summary(
             .map(ToOwned::to_owned),
         workspace_label,
         workspace_root_path,
-        is_active: conversation.status.trim() == "active",
+        is_active: conversation_meta.status.trim() == "active",
         is_system_notification_conversation,
         is_pinned: is_system_notification_conversation || pin_index.is_some(),
         pin_index,
-        runtime_state: unarchived_conversation_runtime_state(state, &conversation.id),
-        current_todo: conversation_current_todo_text(conversation),
-        plan_mode_enabled: conversation.plan_mode_enabled,
-        auto_push_remote_contact_id: conversation.auto_push_remote_contact_id.clone(),
+        runtime_state: unarchived_conversation_runtime_state(state, &conversation_meta.id),
+        current_todo: conversation_current_todo_text_from_items(&conversation_meta.current_todos),
+        plan_mode_enabled: conversation_meta.plan_mode_enabled,
+        auto_push_remote_contact_id: conversation_meta.auto_push_remote_contact_id.clone(),
         detached_window_open: detached_window_label.is_some(),
         detached_window_label,
         state: item_state,
-        preview_messages: build_conversation_preview_messages(conversation, 2),
+        preview_messages: conversation_meta
+            .preview_messages
+            .iter()
+            .map(|message| ConversationPreviewMessage {
+                message_id: message.message_id.clone(),
+                role: message.role.clone(),
+                speaker_agent_id: message.speaker_agent_id.clone(),
+                created_at: message.created_at.clone(),
+                text_preview: message.text_preview.clone(),
+                has_image: message.has_image,
+                has_pdf: message.has_pdf,
+                has_audio: message.has_audio,
+                has_attachment: message.has_attachment,
+            })
+            .collect(),
     }
 }
 
@@ -682,7 +729,7 @@ fn ensure_unarchived_conversation_not_organizing(
 
 #[tauri::command]
 fn list_unarchived_conversations(state: State<'_, AppState>) -> Result<Vec<UnarchivedConversationSummary>, String> {
-    let summaries = conversation_service()
+    let summaries = conversation_service_v2()
         .list_unarchived_conversation_summaries(state.inner())?
         .summaries;
     if !summaries.is_empty() {
@@ -702,7 +749,7 @@ fn list_unarchived_conversations(state: State<'_, AppState>) -> Result<Vec<Unarc
         shell_workspaces: None,
         shell_autonomous_mode: None,
     };
-    let result = conversation_service().create_unarchived_conversation(state.inner(), &create_input)?;
+    let result = conversation_service_v2().create_conversation(state.inner(), &create_input)?;
     emit_unarchived_conversation_overview_updated_payload(state.inner(), &result.overview_payload);
     runtime_log_info(format!(
         "[会话] 完成，任务=确保默认未归档会话，conversation_id={}，overview_count={}",
@@ -969,7 +1016,7 @@ fn emit_unarchived_conversation_overview_item_updated_from_state(
     state: &AppState,
     conversation_id: &str,
 ) -> Result<bool, String> {
-    let Some(conversation) = conversation_service()
+    let Some(conversation) = conversation_service_v2()
         .read_unarchived_conversation_summary(state, conversation_id)?
     else {
         return Ok(false);
@@ -1115,7 +1162,7 @@ fn update_conversation_todos_and_emit(
         emit_conversation_todos_updated_payload(state, &todo_payload);
         return Ok(());
     }
-    let Some(todo_update) = conversation_service().update_conversation_todos(
+    let Some(todo_update) = conversation_service_v2().update_conversation_todos(
         state,
         cid,
         &stored_todos,
@@ -1135,7 +1182,7 @@ fn update_conversation_todos_and_emit(
 fn emit_unarchived_conversation_overview_updated_from_state(state: &AppState) -> Result<(), String> {
     let total_started_at = std::time::Instant::now();
     let payload_started_at = std::time::Instant::now();
-    let payload = conversation_service().refresh_unarchived_conversation_overview_payload(state)?;
+    let payload = conversation_service_v2().refresh_unarchived_conversation_overview(state)?;
     let payload_elapsed_ms = payload_started_at.elapsed().as_millis();
     let emit_started_at = std::time::Instant::now();
     emit_unarchived_conversation_overview_updated_payload(state, &payload);
@@ -1155,7 +1202,7 @@ fn set_active_unarchived_conversation(
     state: State<'_, AppState>,
 ) -> Result<SetActiveUnarchivedConversationOutput, String> {
     let conversation_id =
-        conversation_service().set_active_unarchived_conversation(state.inner(), &input)?;
+        conversation_service_v2().set_active_conversation(state.inner(), &input)?;
     Ok(SetActiveUnarchivedConversationOutput { conversation_id })
 }
 

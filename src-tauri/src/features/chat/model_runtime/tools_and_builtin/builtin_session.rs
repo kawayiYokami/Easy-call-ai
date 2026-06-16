@@ -8,7 +8,7 @@ fn builtin_get_session(
     _session_id: &str,
     args: GetSessionToolArgs,
 ) -> Result<Value, String> {
-    let items = conversation_service().list_tool_session_targets(
+    let items = conversation_service_v2().list_tool_session_targets(
         state,
         args.keyword.as_deref(),
     )?;
@@ -21,7 +21,7 @@ fn builtin_inform_session(
     args: InformSessionToolArgs,
 ) -> Result<Value, String> {
     let source_conversation_id = session_tool_source_conversation_id(session_id)?;
-    let result = conversation_service().inform_session(
+    let result = conversation_service_v2().inform_session(
         state,
         &source_conversation_id,
         &args.session_id,

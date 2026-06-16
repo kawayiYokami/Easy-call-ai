@@ -486,6 +486,74 @@ fn read_conversation_shard(path: &PathBuf, conversation_id: &str) -> Result<Conv
     Ok(conversation)
 }
 
+fn read_conversation_meta_shard(
+    path: &PathBuf,
+    conversation_id: &str,
+) -> Result<message_store::ConversationShardMeta, String> {
+    let conversation_id = conversation_id.trim();
+    if conversation_id.is_empty() {
+        return Err("Conversation id is empty".to_string());
+    }
+    let store_paths = message_store::message_store_paths(path, conversation_id)?;
+    match message_store::read_ready_message_store_meta(&store_paths) {
+        Ok(Some(meta))
+            if meta.schema_version() >= message_store::CONVERSATION_META_SCHEMA_VERSION =>
+        {
+            return Ok(meta);
+        }
+        Ok(Some(_)) | Ok(None) | Err(_) => {}
+    }
+    if message_store::read_message_store_manifest_status(&store_paths)?.is_some() {
+        let conversation = read_conversation_shard_raw(path, conversation_id)?;
+        let rebuilt = message_store::ConversationShardMeta::from_conversation(&conversation);
+        write_conversation_meta_shard_from_meta(path, &rebuilt)?;
+        return Ok(rebuilt);
+    }
+    let conversation_path = app_layout_chat_conversation_path(path, conversation_id);
+    if conversation_path.exists() {
+        let conversation = read_json_file::<Conversation>(&conversation_path, "conversation file")?;
+        let rebuilt = message_store::ConversationShardMeta::from_conversation(&conversation);
+        write_conversation_meta_shard_from_meta(path, &rebuilt)?;
+        return Ok(rebuilt);
+    }
+    if !app_layout_exists(path) && path.exists() {
+        let data = read_app_data(path)?;
+        if let Some(conversation) = data
+            .conversations
+            .into_iter()
+            .find(|item| item.id.trim() == conversation_id)
+        {
+            let rebuilt = message_store::ConversationShardMeta::from_conversation(&conversation);
+            write_conversation_meta_shard_from_meta(path, &rebuilt)?;
+            return Ok(rebuilt);
+        }
+    }
+    Err(format!("Conversation '{conversation_id}' not found."))
+}
+
+fn refresh_conversation_meta_shard_if_needed(
+    path: &PathBuf,
+    conversation_id: &str,
+) -> Result<bool, String> {
+    let conversation_id = conversation_id.trim();
+    if conversation_id.is_empty() {
+        return Ok(false);
+    }
+    let store_paths = message_store::message_store_paths(path, conversation_id)?;
+    if let Ok(Some(meta)) = message_store::read_ready_message_store_meta(&store_paths) {
+        if meta.schema_version() >= message_store::CONVERSATION_META_SCHEMA_VERSION {
+            return Ok(false);
+        }
+    } else if message_store::read_message_store_manifest_status(&store_paths)?.is_none() {
+        let conversation_path = app_layout_chat_conversation_path(path, conversation_id);
+        if !conversation_path.exists() && (app_layout_exists(path) || !path.exists()) {
+            return Ok(false);
+        }
+    }
+    let _ = read_conversation_meta_shard(path, conversation_id)?;
+    Ok(true)
+}
+
 fn read_conversation_shard_raw(path: &PathBuf, conversation_id: &str) -> Result<Conversation, String> {
     let conversation_id = conversation_id.trim();
     if conversation_id.is_empty() {
@@ -536,8 +604,17 @@ fn write_conversation_shard(path: &PathBuf, conversation: &Conversation) -> Resu
     message_store::write_jsonl_snapshot_directory_shard_if_changed(&store_paths, conversation)
 }
 
-fn write_conversation_meta_shard(path: &PathBuf, conversation: &Conversation) -> Result<(), String> {
-    message_store::write_conversation_directory_meta_for_conversation(path, conversation)
+fn write_conversation_meta_shard_from_meta(
+    path: &PathBuf,
+    meta: &message_store::ConversationShardMeta,
+) -> Result<(), String> {
+    let paths = message_store::message_store_paths(path, meta.id())?;
+    let mut meta_to_persist = meta.clone();
+    if let Some(ready_meta) = message_store::read_ready_message_store_meta(&paths)? {
+        meta_to_persist.preserve_message_derived_fields_from(&ready_meta);
+    }
+    let persist_meta = meta_to_persist.to_persist_meta();
+    message_store::write_conversation_directory_meta_shard(&paths, &persist_meta)
 }
 
 fn delete_conversation_shard(path: &PathBuf, conversation_id: &str) -> Result<bool, String> {

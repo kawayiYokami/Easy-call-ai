@@ -350,13 +350,17 @@ fn runtime_tool_policy_from_session(
     let Ok(conversation_id) = goal_tool_conversation_id(tool_session_id) else {
         return RuntimeToolPolicy::from_conversation(None);
     };
-    let conversation = state_read_conversation_cached(state, &conversation_id)
+    if let Ok(conversation_meta) = conversation_service_v2().get_conversation_meta(state, &conversation_id) {
+        return RuntimeToolPolicy {
+            remote_im_contact_conversation: conversation_meta.conversation_kind.trim()
+                == CONVERSATION_KIND_REMOTE_IM_CONTACT,
+            delegate_conversation: conversation_meta.conversation_kind.trim()
+                == CONVERSATION_KIND_DELEGATE,
+        };
+    }
+    let conversation = delegate_runtime_thread_conversation_get(state, &conversation_id)
         .ok()
-        .or_else(|| {
-            delegate_runtime_thread_conversation_get(state, &conversation_id)
-                .ok()
-                .flatten()
-        });
+        .flatten();
     RuntimeToolPolicy::from_conversation(conversation.as_ref())
 }
 

@@ -258,6 +258,13 @@ fn delegate_conversation_store_write(
     conversation: &Conversation,
 ) -> Result<(), String> {
     validate_delegate_conversation_for_write(conversation)?;
+    if conversation.messages.is_empty() {
+        runtime_log_info(format!(
+            "[委托会话] 跳过，任务=写入空委托会话，conversation_id={}",
+            conversation.id
+        ));
+        return Ok(());
+    }
     fs::create_dir_all(delegate_conversation_store_dir(data_path)).map_err(|err| {
         format!(
             "创建委托会话目录失败，path={}，error={err}",
