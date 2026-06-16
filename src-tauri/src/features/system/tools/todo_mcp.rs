@@ -215,10 +215,13 @@ fn conversation_todo_replace(
         return Ok(stored);
     }
 
-    let mut conversation = conversation_service().read_persisted_conversation(state, conversation_id.trim())
+    conversation_service()
+        .read_persisted_conversation(state, conversation_id.trim())
         .map_err(|_| format!("未找到会话，conversation_id={conversation_id}"))?;
-    conversation.current_todos = stored.clone();
-    conversation.updated_at = now_iso();
-    conversation_service().persist_conversation(state, &conversation)?;
+    conversation_service().set_conversation_current_todos_metadata(
+        state,
+        conversation_id,
+        stored.clone(),
+    )?;
     Ok(stored)
 }

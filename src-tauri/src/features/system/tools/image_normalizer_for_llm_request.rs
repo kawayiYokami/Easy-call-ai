@@ -32,8 +32,6 @@ impl Default for LlmRequestImageNormalizeOptions {
 struct LlmRequestNormalizedImage {
     mime: String,
     bytes: Vec<u8>,
-    original_width: u32,
-    original_height: u32,
     output_width: u32,
     output_height: u32,
     reused_original: bool,
@@ -179,8 +177,6 @@ fn normalize_image_bytes_for_llm_request_with_options(
         return Ok(LlmRequestNormalizedImage {
             mime: input_format.output_reuse_mime().to_string(),
             bytes: bytes.to_vec(),
-            original_width,
-            original_height,
             output_width: original_width,
             output_height: original_height,
             reused_original: true,
@@ -207,8 +203,6 @@ fn normalize_image_bytes_for_llm_request_with_options(
     Ok(LlmRequestNormalizedImage {
         mime: "image/webp".to_string(),
         bytes: (&*webp).to_vec(),
-        original_width,
-        original_height,
         output_width: normalized.width(),
         output_height: normalized.height(),
         reused_original: false,
@@ -259,8 +253,6 @@ fn normalize_rgba_image_for_llm_request_with_options(
     Ok(LlmRequestNormalizedImage {
         mime: "image/webp".to_string(),
         bytes: (&*webp).to_vec(),
-        original_width: width,
-        original_height: height,
         output_width: normalized.width(),
         output_height: normalized.height(),
         reused_original: false,

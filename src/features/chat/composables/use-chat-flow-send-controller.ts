@@ -170,7 +170,11 @@ export function useChatFlowSendController(options: UseChatFlowSendControllerOpti
         traceId,
         onDelta: deltaChannel,
       });
-      if (!hasForegroundRoundInFlight && (submitResult.ingress === "queued" || !submitResult.accepted)) {
+      const ingress = String((submitResult as { ingress?: string } | null)?.ingress || "").trim();
+      const accepted = typeof (submitResult as { accepted?: unknown } | null)?.accepted === "boolean"
+        ? !!(submitResult as { accepted?: boolean }).accepted
+        : true;
+      if (!hasForegroundRoundInFlight && (ingress === "queued" || !accepted)) {
         options.removeDraft(`${DRAFT_USER_ID_PREFIX}${gen}`);
         options.removeDraft(`${DRAFT_ASSISTANT_ID_PREFIX}${gen}`);
         if (options.getRound().phase !== "idle") {

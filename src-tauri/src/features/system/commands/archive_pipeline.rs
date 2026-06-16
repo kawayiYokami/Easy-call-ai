@@ -510,8 +510,21 @@ fn archive_pipeline_body_text_length(source: &Conversation) -> usize {
         .sum()
 }
 
-fn archive_delete_only_reason(_source: &Conversation) -> Option<String> {
-    None
+fn archive_delete_only_reason(source: &Conversation) -> Option<String> {
+    let message_count = archive_pipeline_message_count_for_delete(source);
+    let body_text_length = archive_pipeline_body_text_length(source);
+    if message_count >= ARCHIVE_MIN_BODY_MESSAGE_COUNT
+        && body_text_length >= ARCHIVE_MIN_BODY_TEXT_LENGTH
+    {
+        return None;
+    }
+    Some(format!(
+        "当前会话正文不足以支持归档反思：至少需要 {} 条用户/助手消息且正文总长度达到 {} 字，当前为 {} 条、{} 字。",
+        ARCHIVE_MIN_BODY_MESSAGE_COUNT,
+        ARCHIVE_MIN_BODY_TEXT_LENGTH,
+        message_count,
+        body_text_length
+    ))
 }
 
 fn archive_pipeline_has_assistant_reply(source: &Conversation) -> bool {

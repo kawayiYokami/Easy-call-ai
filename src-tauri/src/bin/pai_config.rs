@@ -1,6 +1,5 @@
 #[path = "../features/skill/presets.rs"]
 mod presets;
-pub(crate) use presets::*;
 #[path = "../features/config/pai_config_tool.rs"]
 mod pai_config_tool;
 

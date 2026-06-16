@@ -13,11 +13,18 @@
 
 
     fn test_text_message(role: &str, text: &str, created_at: &str) -> ChatMessage {
+        let speaker_agent_id = if role.eq_ignore_ascii_case("assistant") {
+            Some(DEFAULT_AGENT_ID.to_string())
+        } else if role.eq_ignore_ascii_case("user") {
+            Some(USER_PERSONA_ID.to_string())
+        } else {
+            None
+        };
         ChatMessage {
             id: Uuid::new_v4().to_string(),
             role: role.to_string(),
             created_at: created_at.to_string(),
-            speaker_agent_id: Some("agent".to_string()),
+            speaker_agent_id,
             parts: vec![MessagePart::Text {
                 text: text.to_string(),
                 reasoning_content: None,
@@ -38,7 +45,7 @@
         Conversation {
             id: Uuid::new_v4().to_string(),
             title: "t".to_string(),
-            agent_id: "agent".to_string(),
+            agent_id: DEFAULT_AGENT_ID.to_string(),
             department_id: String::new(),
             bound_conversation_id: None,
             parent_conversation_id: None,

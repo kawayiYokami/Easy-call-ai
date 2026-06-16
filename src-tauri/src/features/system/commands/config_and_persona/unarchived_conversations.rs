@@ -201,14 +201,19 @@ fn apply_foreground_stream_projection(
 fn foreground_stream_projection_message_id(
     stream_cache: &ConversationStreamRuntimeCacheSnapshot,
 ) -> String {
-    if !stream_cache.persisted_assistant_message_id.trim().is_empty() {
-        return stream_cache.persisted_assistant_message_id.trim().to_string();
+    if !stream_cache.activation_id.trim().is_empty() {
+        let activation_id = stream_cache.activation_id.trim();
+        let normalized_activation_id = activation_id
+            .strip_prefix("round-")
+            .filter(|suffix| !suffix.is_empty() && suffix.chars().all(|ch| ch.is_ascii_digit()))
+            .unwrap_or(activation_id);
+        return format!("__draft_assistant__:{}", normalized_activation_id);
     }
     if !stream_cache.request_id.trim().is_empty() {
         return format!("__draft_assistant__:{}", stream_cache.request_id.trim());
     }
-    if !stream_cache.activation_id.trim().is_empty() {
-        return format!("__draft_assistant__:{}", stream_cache.activation_id.trim());
+    if !stream_cache.persisted_assistant_message_id.trim().is_empty() {
+        return stream_cache.persisted_assistant_message_id.trim().to_string();
     }
     "__draft_assistant__:resume".to_string()
 }

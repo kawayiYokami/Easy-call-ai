@@ -1068,12 +1068,6 @@ fn read_app_data(path: &PathBuf) -> Result<AppData, String> {
     Ok(parsed)
 }
 
-fn normalize_app_data_runtime_volatile_fields(data: &mut AppData) {
-    for conversation in data.conversations.iter_mut() {
-        normalize_conversation_runtime_volatile_fields(conversation);
-    }
-}
-
 fn normalize_conversation_runtime_volatile_fields(conversation: &mut Conversation) {
     let _ = fill_missing_conversation_message_speaker_agent_ids(conversation);
     let _ = cleanup_legacy_summary_context_messages(conversation);

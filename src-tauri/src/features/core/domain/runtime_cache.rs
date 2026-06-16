@@ -1020,7 +1020,9 @@ fn ensure_app_data_cache_ready_inner(
 
     let disk_read_started = std::time::Instant::now();
     let mut data = read_app_data(&state.data_path)?;
-    normalize_app_data_runtime_volatile_fields(&mut data);
+    for conversation in data.conversations.iter_mut() {
+        normalize_conversation_runtime_volatile_fields(conversation);
+    }
     let disk_read_ms = disk_read_started
         .elapsed()
         .as_millis()

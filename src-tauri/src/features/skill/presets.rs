@@ -59,9 +59,3 @@ const WORKSPACE_PRESET_SKILLS: &[WorkspacePresetSkill] = &[
 pub(crate) fn workspace_preset_skills() -> &'static [WorkspacePresetSkill] {
     WORKSPACE_PRESET_SKILLS
 }
-
-pub(crate) fn workspace_preset_skill_dir_name(name: &str) -> bool {
-    WORKSPACE_PRESET_SKILLS
-        .iter()
-        .any(|skill| name.eq_ignore_ascii_case(skill.dir_name))
-}

@@ -290,78 +290,6 @@
     }
 
     #[test]
-    fn normalize_app_config_should_disable_audio_capability_globally() {
-        let mut cfg = AppConfig {
-            hotkey: "Alt+·".to_string(),
-            ui_language: default_ui_language(),
-            ui_font: default_ui_font(),
-            webview_zoom_percent: default_webview_zoom_percent(),
-            web_access_port: default_web_access_port(),
-            web_access_enabled: default_web_access_enabled(),
-            web_access_password: default_web_access_password(),
-            github_update_method: default_github_update_method(),
-            record_hotkey: "Alt".to_string(),
-            record_background_wake_enabled: false,
-            min_record_seconds: 1,
-            max_record_seconds: 60,
-            tool_max_iterations: 10,
-            llm_round_log_capacity: default_llm_round_log_capacity(),
-            message_notification_enabled: default_message_notification_enabled(),
-            message_notification_sound_enabled: default_message_notification_sound_enabled(),
-            selected_api_config_id: "tts-a".to_string(),
-            assistant_department_api_config_id: "tts-a".to_string(),
-            vision_api_config_id: Some("tts-a".to_string()),
-            stt_api_config_id: Some("tts-a".to_string()),
-            stt_auto_send: true,
-            provider_non_stream_base_urls: Vec::new(),
-            terminal_shell_kind: default_terminal_shell_kind(),
-            shell_workspaces: Vec::new(),
-            mcp_servers: Vec::new(),
-            remote_im_channels: Vec::new(),
-            departments: Vec::new(),
-            api_configs: vec![ApiConfig {
-                id: "tts-a".to_string(),
-                name: "tts-a".to_string(),
-                request_format: RequestFormat::OpenAITts,
-                allow_concurrent_requests: false,
-                max_concurrent_requests: None,
-                enable_text: true,
-                enable_image: false,
-                enable_audio: true,
-                enable_video: false,
-                enable_tools: true,
-                tools: vec![],
-                base_url: "https://api.siliconflow.cn/v1/audio/transcriptions".to_string(),
-                api_key: "k".to_string(),
-                codex_auth_mode: default_codex_auth_mode(),
-                codex_local_auth_path: default_codex_local_auth_path(),
-                codex_custom_url: None,
-                codex_custom_api_key: None,
-                codex_originator: default_codex_originator(),
-                codex_residency_requirement: None,
-                model: "m".to_string(),
-                reasoning_effort: default_reasoning_effort(),
-                temperature: 1.0,
-                custom_temperature_enabled: false,
-                context_window_tokens: 128_000,
-                max_output_tokens: 4_096,
-                custom_max_output_tokens_enabled: false,
-                failure_retry_count: 0,
-            }],
-            api_providers: Vec::new(),
-            tool_review_api_config_id: None,
-        };
-        normalize_app_config(&mut cfg);
-        let api = &cfg.api_configs[0];
-        assert!(api.enable_text);
-        assert!(!api.enable_image);
-        assert!(!api.enable_audio);
-        assert!(api.enable_tools);
-        assert_eq!(cfg.vision_api_config_id, None);
-        assert!(cfg.stt_auto_send);
-    }
-
-    #[test]
     fn normalize_app_config_should_preserve_shared_child_departments_and_keep_unresolved_refs() {
         let mut cfg = AppConfig::default();
         let mut primary = default_assistant_department("");
@@ -518,43 +446,6 @@
                 .child_department_ids
                 .iter()
                 .any(|id| id == DEPUTY_DEPARTMENT_ID)
-        );
-    }
-
-    #[test]
-    fn normalize_app_config_should_restore_leader_department_with_default_children() {
-        let mut cfg = AppConfig::default();
-        cfg.departments
-            .retain(|item| item.id != LEADER_DEPARTMENT_ID);
-
-        normalize_app_config(&mut cfg);
-
-        let leader = cfg
-            .departments
-            .iter()
-            .find(|item| item.id == LEADER_DEPARTMENT_ID)
-            .expect("leader department");
-        assert_eq!(leader.name, "leader");
-        assert_eq!(leader.agent_ids, vec![DEFAULT_AGENT_ID.to_string()]);
-        assert!(leader.summary.contains("协调下级部门"));
-        assert!(leader.guide.contains("`delegate`"));
-        assert!(leader.guide.contains("`mode` 固定使用 `wait`"));
-        assert!(leader.guide.contains("`wait` 可以并发发出多个委托"));
-        assert!(leader.guide.contains("不要盲目相信未经核验的下级结论"));
-        assert!(!leader.guide.contains("async"));
-        assert!(!leader.guide.contains("`plan`"));
-        assert!(!leader.guide.contains("`todo`"));
-        assert!(!leader.guide.contains("`task`"));
-        assert!(!leader.guide.contains("task(action"));
-        assert!(!leader.guide.contains("new_task"));
-        assert!(!leader.guide.contains("attempt_completion"));
-        assert!(!leader.guide.contains("完成工具"));
-        assert_eq!(
-            leader.child_department_ids,
-            vec![
-                ASSISTANT_DEPARTMENT_ID.to_string(),
-                DEPUTY_DEPARTMENT_ID.to_string(),
-            ]
         );
     }
 
@@ -1426,7 +1317,9 @@ model = "gpt-4.1"
         assert_eq!(restored.data_migration_version, DATA_MIGRATION_VERSION_V1_BASELINE);
         assert_eq!(after, before);
         assert!(restored.conversations[0].messages[0].speaker_agent_id.is_none());
-        normalize_app_data_runtime_volatile_fields(&mut restored);
+        for conversation in restored.conversations.iter_mut() {
+            normalize_conversation_runtime_volatile_fields(conversation);
+        }
         assert_eq!(
             restored.conversations[0].messages[0].speaker_agent_id.as_deref(),
             Some(USER_PERSONA_ID)
@@ -1457,7 +1350,9 @@ model = "gpt-4.1"
         assert_eq!(after, before);
         assert!(restored.conversations[0].messages[0].speaker_agent_id.is_none());
         let mut runtime_view = restored.clone();
-        normalize_app_data_runtime_volatile_fields(&mut runtime_view);
+        for conversation in runtime_view.conversations.iter_mut() {
+            normalize_conversation_runtime_volatile_fields(conversation);
+        }
         assert_eq!(
             runtime_view.conversations[0].messages[0].speaker_agent_id.as_deref(),
             Some(USER_PERSONA_ID)

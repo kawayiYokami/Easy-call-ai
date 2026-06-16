@@ -518,7 +518,28 @@ export function useChatConversationSync(bindings: Record<string, any>) {
       });
       return;
     }
+    const runtimeState = String(snapshot.runtimeState || "").trim();
+    const streamCache = bindings.readConversationStreamCache(nextConversationId);
     let rawNextMessages = freezeConversationMessages(Array.isArray(snapshot.messages) ? snapshot.messages : []);
+    const overlay = applyStreamingHistoryOverlay(rawNextMessages, streamCache);
+    rawNextMessages = overlay.messages;
+    if (
+      runtimeState === "assistant_streaming"
+      && overlay.removed
+    ) {
+      const preservedDrafts = freezeConversationMessages(bindings.allMessages.value)
+        .filter((message: any) => isAssistantDraftMessage(message));
+      if (preservedDrafts.length > 0) {
+        const existingIds = new Set(rawNextMessages.map((message: any) => String(message?.id || "").trim()).filter(Boolean));
+        rawNextMessages = [
+          ...rawNextMessages,
+          ...preservedDrafts.filter((message: any) => {
+            const messageId = String(message?.id || "").trim();
+            return !!messageId && !existingIds.has(messageId);
+          }),
+        ];
+      }
+    }
     const nextMessages = reuseStableMessageReferences(rawNextMessages, bindings.allMessages.value);
     bindings.currentChatConversationId.value = nextConversationId;
     bindings.currentChatPreferredApiConfigId.value = String(snapshot.preferredApiConfigId || "").trim();

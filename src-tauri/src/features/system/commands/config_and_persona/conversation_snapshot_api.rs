@@ -469,35 +469,6 @@ fn build_conversation_list_item_state(
     }
 }
 
-#[cfg(test)]
-fn normalized_pinned_conversation_ids(data: &AppData) -> Vec<String> {
-    let main_conversation_id = data
-        .main_conversation_id
-        .as_deref()
-        .map(str::trim)
-        .unwrap_or_default()
-        .to_string();
-    let visible_ids = data
-        .conversations
-        .iter()
-        .filter(|conversation| {
-            conversation.summary.trim().is_empty()
-                && conversation_visible_in_foreground_lists(conversation)
-        })
-        .map(|conversation| conversation.id.trim().to_string())
-        .filter(|conversation_id| !conversation_id.is_empty())
-        .collect::<std::collections::HashSet<_>>();
-    let mut seen = std::collections::HashSet::<String>::new();
-    data.pinned_conversation_ids
-        .iter()
-        .map(|item| item.trim().to_string())
-        .filter(|item| !item.is_empty())
-        .filter(|item| *item != main_conversation_id)
-        .filter(|item| visible_ids.contains(item))
-        .filter(|item| seen.insert(item.clone()))
-        .collect()
-}
-
 fn build_unarchived_conversation_summary(
     state: &AppState,
     app_config: &AppConfig,
@@ -655,40 +626,6 @@ fn sort_unarchived_conversation_summaries(
             .then_with(|| a.conversation_id.cmp(&b.conversation_id))
     });
     ordered
-}
-
-#[cfg(test)]
-fn collect_unarchived_conversation_summaries(
-    state: &AppState,
-    app_config: &AppConfig,
-    data: &AppData,
-) -> Vec<UnarchivedConversationSummary> {
-    let main_conversation_id = data
-        .main_conversation_id
-        .as_deref()
-        .map(str::trim)
-        .unwrap_or_default()
-        .to_string();
-    let pinned_conversation_ids = normalized_pinned_conversation_ids(data);
-    let summaries = data
-        .conversations
-        .iter()
-        .filter(|conversation| {
-            conversation.summary.trim().is_empty()
-                && conversation_visible_in_foreground_lists(conversation)
-        })
-        .map(|conversation| {
-            build_unarchived_conversation_summary(
-                state,
-                app_config,
-                &main_conversation_id,
-                &pinned_conversation_ids,
-                conversation,
-                Some(DESKTOP_CHAT_VIEWER_ID),
-            )
-        })
-        .collect::<Vec<_>>();
-    sort_unarchived_conversation_summaries(summaries)
 }
 
 fn delegate_conversation_summary_from_runtime_thread(

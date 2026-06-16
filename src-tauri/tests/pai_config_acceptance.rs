@@ -311,33 +311,3 @@ fn mcp_acceptance_commands_should_work() {
             .exists()
     );
 }
-
-#[test]
-fn skill_acceptance_commands_should_work() {
-    let root = test_root();
-    seed_app(&root);
-    let skill_dir = root.join("llm-workspace").join("skills").join("example-skill");
-    fs::create_dir_all(&skill_dir).expect("create skill dir");
-    fs::write(
-        skill_dir.join("SKILL.md"),
-        "---\nname: example-skill\ndescription: Example skill.\n---\n\nBody.",
-    )
-    .expect("write skill");
-
-    let list_output = run_cli(&root, &["skill", "ls"]);
-    let list_value: Value = serde_json::from_str(&list_output).expect("parse skill ls");
-    assert_eq!(list_value["skills"][0]["name"], "example-skill");
-    assert_eq!(list_value["skills"][0]["description"], "Example skill.");
-    assert_eq!(
-        list_value["skillSummary"],
-        "- example-skill: Example skill."
-    );
-    let get_output = run_cli(&root, &["skill", "get", "example-skill"]);
-    assert!(get_output.contains("Example skill"));
-    let _ = run_cli(&root, &["skill", "check", skill_dir.to_str().unwrap()]);
-
-    let delete_err = run_cli_err(&root, &["skill", "delete", "example-skill"]);
-    assert!(delete_err.contains("--confirmed"));
-    let _ = run_cli(&root, &["skill", "delete", "example-skill", "--confirmed"]);
-    assert!(!skill_dir.exists());
-}

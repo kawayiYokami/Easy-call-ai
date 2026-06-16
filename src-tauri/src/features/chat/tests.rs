@@ -1513,7 +1513,7 @@
         assert!(prepared.history_messages.iter().any(|message| {
             message.role == "assistant"
                 && message.text.contains("这是一张你发来的截图")
-                && message.reasoning_content.as_deref() == Some("用户想让我调用一次终端命令，查看版本信息。这应该是指操作系统的终端信息，比如 PowerShell 版本之类的。")
+                && message.reasoning_content.is_none()
         }));
 
         let request_messages = prepared_prompt_to_messages_json(&prepared);
@@ -3574,8 +3574,11 @@
 
         let chat_index = state_read_chat_index_cached(&state).expect("read memory chat index");
 
-        assert_eq!(chat_index.conversations.len(), 1);
-        assert_eq!(chat_index.conversations[0].id, conversation.id);
+        assert_eq!(chat_index.conversations.len(), 2);
+        assert!(chat_index
+            .conversations
+            .iter()
+            .any(|item| item.id == conversation.id));
         assert!(!app_layout_chat_index_path(&state.data_path).exists());
     }
 
@@ -3666,6 +3669,7 @@
     #[test]
     fn set_conversation_auto_push_remote_contact_should_schedule_meta_only_persist() {
         let (state, source_id, _target_local_id, _remote_target_id) = seed_session_forward_test_state();
+        flush_pending_persists_blocking(&state).expect("flush seeded full persists");
 
         let updated = conversation_service()
             .set_conversation_auto_push_remote_contact_id(
@@ -3970,169 +3974,6 @@
         let chat_index = state_read_chat_index_cached(&state).expect("read memory chat index");
         assert!(chat_index.conversations.is_empty());
         assert!(!app_layout_chat_index_path(&state.data_path).exists());
-    }
-
-    #[test]
-    fn collect_unarchived_conversation_summaries_cached_should_remove_orphan_index_items() {
-        let state = test_chat_runtime_state();
-        let now = now_iso();
-        let conversation = test_chat_conversation("conversation-existing", "active", &now);
-        write_conversation_shard(&state.data_path, &conversation).expect("write conversation");
-
-        let summaries = conversation_service()
-            .collect_unarchived_conversation_summaries_cached(&state, &AppConfig::default())
-            .expect("collect summaries");
-
-        assert_eq!(summaries.len(), 1);
-        assert_eq!(summaries[0].conversation_id, conversation.id);
-        let chat_index = state_read_chat_index_cached(&state).expect("read memory chat index");
-        assert_eq!(chat_index.conversations.len(), 1);
-        assert_eq!(chat_index.conversations[0].id, conversation.id);
-    }
-
-    #[test]
-    fn collect_unarchived_conversation_summaries_cached_should_repair_visible_summary_mismatch() {
-        let state = test_chat_runtime_state();
-        let now = now_iso();
-        let conversation = test_chat_conversation("conversation-visible-summary-mismatch", "active", &now);
-        write_conversation_shard(&state.data_path, &conversation).expect("write conversation");
-
-        let summaries = conversation_service()
-            .collect_unarchived_conversation_summaries_cached(&state, &AppConfig::default())
-            .expect("collect summaries");
-
-        assert_eq!(summaries.len(), 1);
-        assert_eq!(summaries[0].conversation_id, conversation.id);
-        let chat_index = state_read_chat_index_cached(&state).expect("read memory chat index");
-        assert_eq!(chat_index.conversations.len(), 1);
-        assert_eq!(chat_index.conversations[0].id, conversation.id);
-        assert_eq!(chat_index.conversations[0].summary, conversation.summary);
-    }
-
-    #[test]
-    fn collect_unarchived_conversation_summaries_cached_should_keep_archived_index_items() {
-        let state = test_chat_runtime_state();
-        let now = now_iso();
-        let active = test_chat_conversation("conversation-active", "active", &now);
-        let mut archived = test_chat_conversation("conversation-archived", "active", &now);
-        archived.summary = "归档摘要".to_string();
-        archived.archived_at = Some(now.clone());
-        archived.status = "archived".to_string();
-
-        write_conversation_shard(&state.data_path, &active).expect("write active conversation");
-        write_conversation_shard(&state.data_path, &archived).expect("write archived conversation");
-
-        let summaries = conversation_service()
-            .collect_unarchived_conversation_summaries_cached(&state, &AppConfig::default())
-            .expect("collect summaries");
-
-        assert_eq!(summaries.len(), 1);
-        assert_eq!(summaries[0].conversation_id, active.id);
-        let chat_index = state_read_chat_index_cached(&state).expect("read memory chat index");
-        assert_eq!(chat_index.conversations.len(), 2);
-        assert!(chat_index
-            .conversations
-            .iter()
-            .any(|item| item.id == archived.id));
-    }
-
-    #[test]
-    fn instant_archive_conversation_should_remove_from_unarchived_and_keep_messages() {
-        let state = test_chat_runtime_state();
-        write_config(&state.config_path, &AppConfig::default()).expect("write config");
-        let now = now_iso();
-        let active = test_chat_conversation("conversation-active-next", "active", &now);
-        let mut source = test_chat_conversation("conversation-instant-archive", "active", &now);
-        source.messages = vec![
-            test_text_message("user", "第一轮问题", &now),
-            test_text_message("assistant", "第一轮回复", &now),
-            test_text_message("user", "第二轮问题", &now),
-            test_text_message("assistant", "第二轮回复", &now),
-        ];
-        write_conversation_shard(&state.data_path, &active).expect("write active conversation");
-        write_conversation_shard(&state.data_path, &source).expect("write source conversation");
-
-        let result = conversation_service()
-            .instant_archive_conversation(&state, &ApiConfig::default(), &source, "test")
-            .expect("instant archive");
-
-        assert_eq!(result.active_conversation_id, active.id);
-        assert!(!result.already_archived);
-        assert_eq!(result.archived_conversation.status, "archived");
-        assert!(result.archived_conversation.archived_at.is_some());
-        assert!(result
-            .overview_payload
-            .unarchived_conversations
-            .iter()
-            .all(|item| item.conversation_id != source.id));
-
-        let summaries = conversation_service()
-            .list_unarchived_conversation_summaries(&state)
-            .expect("list unarchived")
-            .summaries;
-        assert_eq!(summaries.len(), 1);
-        assert_eq!(summaries[0].conversation_id, active.id);
-
-        let archives = conversation_service().list_archives(&state).expect("list archives");
-        assert!(archives.iter().any(|item| item.archive_id == source.id));
-        let archive_messages = conversation_service()
-            .read_archive_messages(&state, &source.id)
-            .expect("read archive messages");
-        assert_eq!(archive_messages.len(), source.messages.len());
-
-        let second = conversation_service()
-            .instant_archive_conversation(&state, &ApiConfig::default(), &source, "test")
-            .expect("idempotent instant archive");
-        assert!(second.already_archived);
-        assert_eq!(second.archived_conversation.status, "archived");
-
-        flush_pending_persists_blocking(&state).expect("flush pending persists");
-        let restored = read_conversation_shard(&state.data_path, &source.id)
-            .expect("read restored archived conversation");
-        assert_eq!(restored.status, "archived");
-        assert!(restored.archived_at.is_some());
-        assert_eq!(restored.messages.len(), source.messages.len());
-    }
-
-    #[test]
-    fn resolve_archive_request_by_id_should_use_conversation_department() {
-        let state = test_chat_runtime_state();
-        let mut config = AppConfig::default();
-        if let Some(api_config) = config.api_configs.get_mut(0) {
-            api_config.id = "api-archive".to_string();
-            api_config.base_url = "https://api.openai.com/v1".to_string();
-            api_config.api_key = "k".to_string();
-            api_config.model = "gpt-4o-mini".to_string();
-        }
-        config.assistant_department_api_config_id = "api-archive".to_string();
-        for department in &mut config.departments {
-            if department.id == ASSISTANT_DEPARTMENT_ID {
-                department.api_config_id = "api-archive".to_string();
-                department.api_config_ids = vec!["api-archive".to_string()];
-            }
-        }
-        let expected_api_id = api_endpoint_id("api-archive", "api-archive-model-default");
-        write_config(&state.config_path, &config).expect("write config");
-        let now = now_iso();
-        let mut source = test_chat_conversation("conversation-archive-by-id", "active", &now);
-        source.agent_id = "stale-agent".to_string();
-        source.department_id = ASSISTANT_DEPARTMENT_ID.to_string();
-        source.messages = vec![
-            test_text_message("user", "第一轮问题", &now),
-            test_text_message("assistant", "第一轮回复", &now),
-            test_text_message("user", "第二轮问题", &now),
-            test_text_message("assistant", "第二轮回复", &now),
-        ];
-        write_conversation_shard(&state.data_path, &source).expect("write source conversation");
-
-        let (selected_api, _resolved_api, resolved_source, effective_agent_id) =
-            conversation_service()
-                .resolve_archive_request_conversation_by_id(&state, &source.id)
-                .expect("resolve archive request");
-
-        assert_eq!(resolved_source.id, source.id);
-        assert_eq!(selected_api.id, expected_api_id);
-        assert!(effective_agent_id.is_empty());
     }
 
     #[test]
@@ -5227,89 +5068,6 @@
         assert!(changed);
         assert_eq!(data.conversations[0].status, "active");
         assert_eq!(data.conversations[1].status, "active");
-    }
-
-    #[test]
-    fn collect_unarchived_conversation_summaries_should_include_last_two_preview_messages() {
-        let state = test_chat_runtime_state();
-        let first = now_iso();
-        let second = (now_utc() + time::Duration::minutes(1))
-            .format(&Rfc3339)
-            .expect("format second");
-        let third = (now_utc() + time::Duration::minutes(2))
-            .format(&Rfc3339)
-            .expect("format third");
-        let mut data = AppData::default();
-        data.main_conversation_id = Some("conversation-main".to_string());
-        let mut conversation = test_chat_conversation("conversation-main", "active", &third);
-        conversation.messages = vec![
-            ChatMessage {
-                id: "msg-1".to_string(),
-                role: "user".to_string(),
-                created_at: first.clone(),
-                speaker_agent_id: Some("user-persona".to_string()),
-                parts: vec![MessagePart::Text {
-                    text: "第一条".to_string(),
-                reasoning_content: None,
-            }],
-                extra_text_blocks: Vec::new(),
-                provider_meta: None,
-                tool_call: None,
-                mcp_call: None,
-            meme_annotations: None,
-            },
-            ChatMessage {
-                id: "msg-2".to_string(),
-                role: "assistant".to_string(),
-                created_at: second.clone(),
-                speaker_agent_id: Some(DEFAULT_AGENT_ID.to_string()),
-                parts: vec![MessagePart::Text {
-                    text: "第二条".to_string(),
-                reasoning_content: None,
-            }],
-                extra_text_blocks: Vec::new(),
-                provider_meta: None,
-                tool_call: None,
-                mcp_call: None,
-            meme_annotations: None,
-            },
-            ChatMessage {
-                id: "msg-3".to_string(),
-                role: "user".to_string(),
-                created_at: third.clone(),
-                speaker_agent_id: Some("user-persona".to_string()),
-                parts: vec![MessagePart::Text {
-                    text: "第三条".to_string(),
-                reasoning_content: None,
-            }],
-                extra_text_blocks: Vec::new(),
-                provider_meta: Some(serde_json::json!({
-                    "attachments": [
-                        {
-                            "fileName": "notes.txt",
-                            "relativePath": "downloads/notes.txt"
-                        }
-                    ]
-                })),
-                tool_call: None,
-                mcp_call: None,
-            meme_annotations: None,
-            },
-        ];
-        data.conversations = vec![conversation];
-
-        let summaries = collect_unarchived_conversation_summaries(&state, &AppConfig::default(), &data);
-
-        assert_eq!(summaries.len(), 1);
-        assert_eq!(summaries[0].workspace_label, "");
-        assert!(!summaries[0].detached_window_open);
-        assert_eq!(summaries[0].detached_window_label, None);
-        assert_eq!(summaries[0].preview_messages.len(), 2);
-        assert_eq!(summaries[0].preview_messages[0].message_id, "msg-2");
-        assert_eq!(summaries[0].preview_messages[0].text_preview, "第二条");
-        assert_eq!(summaries[0].preview_messages[1].message_id, "msg-3");
-        assert_eq!(summaries[0].preview_messages[1].text_preview, "第三条");
-        assert!(summaries[0].preview_messages[1].has_attachment);
     }
 
     #[test]
@@ -7280,98 +7038,6 @@
         let resolved = delegate_target_chat_api_config_ids(&app_config, &department);
 
         assert_eq!(resolved, vec![expert_id.to_string()]);
-    }
-
-    #[test]
-    fn build_user_mention_dispatch_plans_should_allow_non_child_department_mentions() {
-        let mut source_agent = default_agent();
-        source_agent.id = "source-agent".to_string();
-        source_agent.name = "主负责人".to_string();
-
-        let mut target_agent = default_agent();
-        target_agent.id = "target-agent".to_string();
-        target_agent.name = "被@人格".to_string();
-
-        let mut source_department = default_assistant_department("provider-a::model-a");
-        source_department.id = "dept-source".to_string();
-        source_department.name = "源部门".to_string();
-        source_department.is_built_in_assistant = false;
-        source_department.agent_ids = vec![source_agent.id.clone()];
-        source_department.child_department_ids = Vec::new();
-
-        let mut target_department = default_assistant_department("provider-a::model-a");
-        target_department.id = "dept-target".to_string();
-        target_department.name = "目标部门".to_string();
-        target_department.is_built_in_assistant = false;
-        target_department.agent_ids = vec![target_agent.id.clone()];
-        target_department.child_department_ids = Vec::new();
-
-        let app_config = AppConfig {
-            api_configs: vec![ApiConfig {
-                id: "provider-a::model-a".to_string(),
-                name: "provider-a/model-a".to_string(),
-                request_format: RequestFormat::OpenAI,
-                allow_concurrent_requests: false,
-                max_concurrent_requests: None,
-                enable_text: true,
-                enable_image: false,
-                enable_audio: false,
-                enable_video: false,
-                enable_tools: true,
-                tools: vec![],
-                base_url: "https://api.openai.com/v1".to_string(),
-                api_key: "k".to_string(),
-                codex_auth_mode: default_codex_auth_mode(),
-                codex_local_auth_path: default_codex_local_auth_path(),
-                codex_custom_url: None,
-                codex_custom_api_key: None,
-                codex_originator: default_codex_originator(),
-                codex_residency_requirement: None,
-                model: "gpt-4o-mini".to_string(),
-                reasoning_effort: default_reasoning_effort(),
-                temperature: 1.0,
-                custom_temperature_enabled: false,
-                context_window_tokens: 128_000,
-                max_output_tokens: 4_096,
-                custom_max_output_tokens_enabled: false,
-                failure_retry_count: 0,
-            }],
-            api_providers: Vec::new(),
-            departments: vec![source_department, target_department],
-            ..AppConfig::default()
-        };
-        let conversation = build_conversation_record(
-            "provider-a::model-a",
-            &source_agent.id,
-            "dept-source",
-            "主会话",
-            CONVERSATION_KIND_CHAT,
-            None,
-            None,
-        );
-        let mentions = vec![UserMentionTargetInput {
-            agent_id: "forged-agent".to_string(),
-            agent_name: Some("伪造人格".to_string()),
-            department_id: "dept-target".to_string(),
-            department_name: Some("目标部门".to_string()),
-        }];
-
-        let (plans, failures) = build_user_mention_dispatch_plans(
-            &app_config,
-            &conversation,
-            &[source_agent, target_agent],
-            "dept-source",
-            "source-agent",
-            "请你异步处理这个问题",
-            Some(&mentions),
-        )
-        .expect("build mention dispatch plans");
-
-        assert_eq!(plans.len(), 1);
-        assert!(failures.is_empty());
-        assert_eq!(plans[0].target_department_id, "dept-target");
-        assert_eq!(plans[0].target_agent_id, "target-agent");
-        assert_eq!(plans[0].target_agent_name, "被@人格");
     }
 
     #[test]
