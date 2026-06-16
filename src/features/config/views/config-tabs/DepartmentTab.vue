@@ -965,10 +965,27 @@ function addDepartment() {
 function removeSelectedDepartment() {
   const target = selectedDepartment.value;
   if (!target || isSystemBuiltInDepartment(target)) return;
-  const idx = departmentDrafts.value.findIndex((item) => item.id === target.id);
-  if (idx >= 0) {
-    departmentDrafts.value.splice(idx, 1);
-  }
+  const targetId = String(target.id || "").trim();
+  if (!targetId) return;
+  const nextSelectedId =
+    departmentDrafts.value.find((item) => item.id !== targetId)?.id
+    || "";
+
+  departmentDrafts.value = departmentDrafts.value
+    .filter((item) => item.id !== targetId)
+    .map((item) => {
+      const nextChildDepartmentIds = normalizeDepartmentChildIds(item.childDepartmentIds, item.id)
+        .filter((childId) => childId !== targetId);
+      if (JSON.stringify(nextChildDepartmentIds) === JSON.stringify(normalizeDepartmentChildIds(item.childDepartmentIds, item.id))) {
+        return item;
+      }
+      return {
+        ...item,
+        childDepartmentIds: nextChildDepartmentIds,
+        updatedAt: new Date().toISOString(),
+      };
+    });
+  selectedDepartmentId.value = nextSelectedId;
 }
 
 function departmentDefaultSeed(department: DepartmentConfig | null | undefined): DepartmentDefaultSeed | null {

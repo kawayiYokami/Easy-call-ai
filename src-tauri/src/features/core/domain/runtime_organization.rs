@@ -22,6 +22,19 @@ fn normalize_runtime_organization_department_children(config: &mut AppConfig) {
         .filter(|child_id| valid_department_ids.contains(child_id))
         .collect::<Vec<_>>();
     }
+    let removed = remove_cyclic_department_child_ids(&mut config.departments);
+    if !removed.is_empty() {
+        let edges = removed
+            .iter()
+            .map(|(parent_id, child_id)| format!("{parent_id}->{child_id}"))
+            .collect::<Vec<_>>()
+            .join(", ");
+        eprintln!(
+            "[运行组织] 跳过成环部门关系: count={}, edges={}",
+            removed.len(),
+            edges
+        );
+    }
 }
 
 fn build_runtime_organization_snapshot_from_parts(

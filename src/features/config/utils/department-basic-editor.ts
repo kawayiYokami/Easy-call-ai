@@ -39,10 +39,19 @@ export function mergeDepartmentChildIdsFromSource(
   targetDepartments: DepartmentConfig[] | null | undefined,
   sourceDepartments: DepartmentConfig[] | null | undefined,
 ): DepartmentConfig[] {
+  const targetIds = new Set(
+    (targetDepartments || [])
+      .map((department) => String(department.id || "").trim())
+      .filter(Boolean),
+  );
   const sourceChildIdsById = new Map(
     (sourceDepartments || []).map((department) => {
       const id = String(department.id || "").trim();
-      return [id, normalizeDepartmentChildIds(department.childDepartmentIds, id)] as const;
+      return [
+        id,
+        normalizeDepartmentChildIds(department.childDepartmentIds, id)
+          .filter((childId) => targetIds.has(childId)),
+      ] as const;
     }),
   );
   return (targetDepartments || []).map((department) => {

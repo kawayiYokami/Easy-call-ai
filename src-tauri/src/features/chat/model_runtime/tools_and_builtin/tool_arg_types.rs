@@ -57,6 +57,12 @@ struct TerminalExecToolArgs {
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
+struct ConfigToolArgs {
+    command: String,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
 struct ReadMediaToolArgs {
     #[serde(alias = "absolute_path", alias = "absolutePath")]
     path: String,

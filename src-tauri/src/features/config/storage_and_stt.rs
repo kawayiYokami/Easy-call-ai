@@ -1116,6 +1116,19 @@ fn normalize_departments(config: &mut AppConfig) {
             }
         }
     }
+    let removed_cyclic_edges = remove_cyclic_department_child_ids(&mut out);
+    if !removed_cyclic_edges.is_empty() {
+        let edges = removed_cyclic_edges
+            .iter()
+            .map(|(parent_id, child_id)| format!("{parent_id}->{child_id}"))
+            .collect::<Vec<_>>()
+            .join(", ");
+        eprintln!(
+            "[配置] 跳过成环部门关系: count={}, edges={}",
+            removed_cyclic_edges.len(),
+            edges
+        );
+    }
 
     out.sort_by_key(|item| (built_in_department_rank(&item.id), item.order_index));
     for (idx, item) in out.iter_mut().enumerate() {

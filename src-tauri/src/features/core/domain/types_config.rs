@@ -408,6 +408,91 @@ fn normalize_department_child_ids(values: &[String], self_id: &str) -> Vec<Strin
     out
 }
 
+fn department_child_path_exists(
+    adjacency: &std::collections::BTreeMap<String, Vec<String>>,
+    start_id: &str,
+    target_id: &str,
+    skip_edge: Option<(&str, &str)>,
+) -> bool {
+    let start_id = start_id.trim();
+    let target_id = target_id.trim();
+    if start_id.is_empty() || target_id.is_empty() {
+        return false;
+    }
+    let mut stack = vec![start_id.to_string()];
+    let mut seen = std::collections::HashSet::<String>::new();
+    while let Some(current_id) = stack.pop() {
+        if current_id == target_id {
+            return true;
+        }
+        if !seen.insert(current_id.clone()) {
+            continue;
+        }
+        let Some(children) = adjacency.get(&current_id) else {
+            continue;
+        };
+        for child_id in children.iter().rev() {
+            if let Some((skip_parent, skip_child)) = skip_edge {
+                if current_id == skip_parent && child_id == skip_child {
+                    continue;
+                }
+            }
+            stack.push(child_id.clone());
+        }
+    }
+    false
+}
+
+fn remove_cyclic_department_child_ids(
+    departments: &mut [DepartmentConfig],
+) -> Vec<(String, String)> {
+    let mut adjacency = departments
+        .iter()
+        .map(|department| {
+            (
+                department.id.trim().to_string(),
+                normalize_department_child_ids(&department.child_department_ids, &department.id),
+            )
+        })
+        .filter(|(department_id, _)| !department_id.is_empty())
+        .collect::<std::collections::BTreeMap<_, _>>();
+    let department_ids = departments
+        .iter()
+        .map(|department| department.id.trim().to_string())
+        .filter(|department_id| !department_id.is_empty())
+        .collect::<Vec<_>>();
+    let mut removed = Vec::<(String, String)>::new();
+
+    for parent_id in department_ids {
+        let children = adjacency.get(&parent_id).cloned().unwrap_or_default();
+        let mut retained = Vec::<String>::new();
+        for child_id in children {
+            if department_child_path_exists(
+                &adjacency,
+                &child_id,
+                &parent_id,
+                Some((&parent_id, &child_id)),
+            ) {
+                removed.push((parent_id.clone(), child_id));
+            } else {
+                retained.push(child_id);
+            }
+        }
+        adjacency.insert(parent_id, retained);
+    }
+
+    for department in departments {
+        let normalized = adjacency
+            .remove(department.id.trim())
+            .unwrap_or_else(|| {
+                normalize_department_child_ids(&department.child_department_ids, &department.id)
+            });
+        department.child_department_ids = normalized;
+    }
+
+    removed
+}
+
 fn department_api_config_ids(department: &DepartmentConfig) -> Vec<String> {
     let mut out = Vec::<String>::new();
     let mut seen = std::collections::HashSet::<String>::new();

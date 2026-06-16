@@ -40,6 +40,8 @@ include!("features/core/time_semantics.rs");
 include!("features/config/storage_and_stt.rs");
 include!("features/config/app_data_layout.rs");
 include!("features/chat/message_store/mod.rs");
+#[path = "features/config/pai_config_tool.rs"]
+mod pai_config_tool;
 
 // ==================== 对话核心 ====================
 include!("features/chat/message_semantics.rs");

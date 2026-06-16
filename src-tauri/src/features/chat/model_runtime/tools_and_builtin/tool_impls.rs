@@ -348,6 +348,244 @@ struct BuiltinTerminalExecTool {
     session_id: String,
 }
 
+#[derive(Debug, Clone)]
+struct BuiltinConfigTool {
+    app_state: AppState,
+}
+
+#[derive(Debug, Clone)]
+enum ConfigToolRuntimeEffect {
+    None,
+    McpDeploy { server_id: String },
+    McpUndeploy { server_id: String },
+    McpRemove { server_id: String },
+    McpRestartIfEnabled { server_id: String },
+    WorkspaceReload { reason: &'static str },
+}
+
+fn invalidate_config_tool_runtime_caches(state: &AppState) -> Result<(), String> {
+    *state
+        .cached_config
+        .lock()
+        .map_err(|_| "Failed to lock cached config".to_string())? = None;
+    *state
+        .cached_config_mtime
+        .lock()
+        .map_err(|_| "Failed to lock cached config mtime".to_string())? = None;
+    *state
+        .cached_agents
+        .lock()
+        .map_err(|_| "Failed to lock cached agents".to_string())? = None;
+    *state
+        .cached_agents_mtime
+        .lock()
+        .map_err(|_| "Failed to lock cached agents mtime".to_string())? = None;
+    *state
+        .cached_app_data
+        .lock()
+        .map_err(|_| "Failed to lock cached app data".to_string())? = None;
+    *state
+        .cached_app_data_signature
+        .lock()
+        .map_err(|_| "Failed to lock cached app data signature".to_string())? = None;
+    clear_terminal_config_allowed_workspaces_cache_for_state(state);
+    clear_global_tool_schema_cache();
+    if let Err(err) = clear_hidden_skill_snapshot_cache(state) {
+        runtime_log_warn(format!("[config工具] 清空技能快照缓存失败: {err}"));
+    }
+    refresh_global_tool_schema_cache(state);
+    mark_prompt_cache_rebuild_for_all_final_system_sources(state);
+    Ok(())
+}
+
+fn config_tool_split_command(command: &str) -> Vec<String> {
+    pai_config_tool::split_command_line(command).unwrap_or_default()
+}
+
+fn config_tool_resolve_mcp_server_id(state: &AppState, selector: &str) -> String {
+    load_workspace_mcp_servers(state)
+        .ok()
+        .and_then(|servers| {
+            servers.into_iter().find_map(|server| {
+                if server.id == selector || server.name == selector {
+                    Some(server.id)
+                } else {
+                    None
+                }
+            })
+        })
+        .unwrap_or_else(|| selector.to_string())
+}
+
+fn config_tool_runtime_effect_for_command(
+    state: &AppState,
+    command: &str,
+) -> ConfigToolRuntimeEffect {
+    let parts = config_tool_split_command(command);
+    match (
+        parts.first().map(String::as_str),
+        parts.get(1).map(String::as_str),
+    ) {
+        (Some("mcp"), Some("enable")) => parts
+            .get(2)
+            .map(|selector| ConfigToolRuntimeEffect::McpDeploy {
+                server_id: config_tool_resolve_mcp_server_id(state, selector),
+            })
+            .unwrap_or(ConfigToolRuntimeEffect::None),
+        (Some("mcp"), Some("disable")) => parts
+            .get(2)
+            .map(|selector| ConfigToolRuntimeEffect::McpUndeploy {
+                server_id: config_tool_resolve_mcp_server_id(state, selector),
+            })
+            .unwrap_or(ConfigToolRuntimeEffect::None),
+        (Some("mcp"), Some("delete")) => parts
+            .get(2)
+            .map(|selector| ConfigToolRuntimeEffect::McpRemove {
+                server_id: config_tool_resolve_mcp_server_id(state, selector),
+            })
+            .unwrap_or(ConfigToolRuntimeEffect::None),
+        (Some("mcp"), Some("update")) => parts
+            .get(2)
+            .map(|selector| ConfigToolRuntimeEffect::McpRestartIfEnabled {
+                server_id: config_tool_resolve_mcp_server_id(state, selector),
+            })
+            .unwrap_or(ConfigToolRuntimeEffect::None),
+        (Some("skill"), Some("update")) => ConfigToolRuntimeEffect::WorkspaceReload {
+            reason: "skill_update",
+        },
+        (Some("skill"), Some("delete")) => ConfigToolRuntimeEffect::WorkspaceReload {
+            reason: "skill_delete",
+        },
+        _ => ConfigToolRuntimeEffect::None,
+    }
+}
+
+fn config_tool_mcp_start_server(
+    state: &AppState,
+    server_id: &str,
+    trigger: &'static str,
+) -> Result<Value, String> {
+    let server = load_server_by_id(state, server_id)?;
+    set_workspace_mcp_policy_enabled(state, server_id, true)?;
+    mcp_runtime_state_mark_starting(&server);
+    mcp_start_supervisor_probe_for_server(state.clone(), server.clone(), trigger);
+    refresh_global_tool_schema_cache(state);
+    mark_prompt_cache_rebuild_for_all_final_system_sources(state);
+    Ok(serde_json::json!({
+        "type": "mcpDeploy",
+        "serverId": server.id,
+        "status": "starting"
+    }))
+}
+
+async fn config_tool_mcp_stop_server(
+    state: &AppState,
+    server_id: &str,
+) -> Result<Value, String> {
+    let server = load_server_by_id(state, server_id)?;
+    set_workspace_mcp_policy_enabled(state, server_id, false)?;
+    mcp_disconnect_cached_client(server_id).await;
+    mcp_runtime_state_set(server_id, false, "stopped", "", Vec::new());
+    refresh_global_tool_schema_cache(state);
+    mark_prompt_cache_rebuild_for_all_final_system_sources(state);
+    Ok(serde_json::json!({
+        "type": "mcpUndeploy",
+        "serverId": server.id,
+        "status": "stopped"
+    }))
+}
+
+async fn config_tool_mcp_remove_runtime(
+    state: &AppState,
+    server_id: &str,
+) -> Result<Value, String> {
+    mcp_disconnect_cached_client(server_id).await;
+    mcp_runtime_state_remove(server_id);
+    refresh_global_tool_schema_cache(state);
+    mark_prompt_cache_rebuild_for_all_final_system_sources(state);
+    Ok(serde_json::json!({
+        "type": "mcpRemove",
+        "serverId": server_id,
+        "status": "removed"
+    }))
+}
+
+async fn config_tool_mcp_restart_if_enabled(
+    state: &AppState,
+    server_id: &str,
+) -> Result<Value, String> {
+    let server = load_server_by_id(state, server_id)?;
+    mcp_disconnect_cached_client(server_id).await;
+    if server.enabled {
+        mcp_runtime_state_mark_starting(&server);
+        mcp_start_supervisor_probe_for_server(state.clone(), server.clone(), "config_tool_update");
+        refresh_global_tool_schema_cache(state);
+        mark_prompt_cache_rebuild_for_all_final_system_sources(state);
+        Ok(serde_json::json!({
+            "type": "mcpRestart",
+            "serverId": server.id,
+            "status": "starting"
+        }))
+    } else {
+        mcp_runtime_state_set(server_id, false, "disabled", "", Vec::new());
+        refresh_global_tool_schema_cache(state);
+        mark_prompt_cache_rebuild_for_all_final_system_sources(state);
+        Ok(serde_json::json!({
+            "type": "mcpRestart",
+            "serverId": server.id,
+            "status": "disabled"
+        }))
+    }
+}
+
+async fn apply_config_tool_runtime_effect(
+    state: &AppState,
+    effect: ConfigToolRuntimeEffect,
+) -> Result<Option<Value>, String> {
+    match effect {
+        ConfigToolRuntimeEffect::None => Ok(None),
+        ConfigToolRuntimeEffect::McpDeploy { server_id } => {
+            config_tool_mcp_start_server(state, &server_id, "config_tool_enable").map(Some)
+        }
+        ConfigToolRuntimeEffect::McpUndeploy { server_id } => {
+            config_tool_mcp_stop_server(state, &server_id).await.map(Some)
+        }
+        ConfigToolRuntimeEffect::McpRemove { server_id } => {
+            config_tool_mcp_remove_runtime(state, &server_id)
+                .await
+                .map(Some)
+        }
+        ConfigToolRuntimeEffect::McpRestartIfEnabled { server_id } => {
+            config_tool_mcp_restart_if_enabled(state, &server_id)
+                .await
+                .map(Some)
+        }
+        ConfigToolRuntimeEffect::WorkspaceReload { reason } => {
+            let reload_result = reload_workspace(state).await?;
+            log_workspace_load_result("[config工具][reload]", &reload_result);
+            Ok(Some(serde_json::json!({
+                "type": "workspaceReload",
+                "reason": reason,
+                "ok": reload_result.ok,
+                "status": reload_result.status,
+                "mcpLoaded": reload_result.mcp_loaded,
+                "mcpFailed": reload_result.mcp_failed,
+                "skillsLoaded": reload_result.skills_loaded,
+                "skillsFailed": reload_result.skills_failed,
+                "privateAgentsLoaded": reload_result.private_agents_loaded,
+                "privateAgentsFailed": reload_result.private_agents_failed,
+                "privateDepartmentsLoaded": reload_result.private_departments_loaded,
+                "privateDepartmentsFailed": reload_result.private_departments_failed,
+                "loadedSummary": reload_result.loaded_summary,
+                "failedSummary": reload_result.failed_summary,
+                "repairSummary": reload_result.repair_summary,
+                "repairItems": reload_result.repair_items,
+                "needsRepair": reload_result.needs_repair
+            })))
+        }
+    }
+}
+
 impl RuntimeToolMetadata for BuiltinTerminalExecTool {
     fn provider_tool_definition(&self) -> ProviderToolDefinition {
         ProviderToolDefinition::new(
@@ -363,6 +601,92 @@ impl RuntimeToolMetadata for BuiltinTerminalExecTool {
               "additionalProperties": false
             }),
         )
+    }
+}
+
+impl RuntimeToolMetadata for BuiltinConfigTool {
+    fn provider_tool_definition(&self) -> ProviderToolDefinition {
+        ProviderToolDefinition::new(
+            "config",
+            "这是 PAI 配置工具。当用户要求你修改 PAI 的设置时使用，例如人格、部门、部门树、MCP、Skill。入参只有 command:string。使用方法：先调用 `help`，工具会返回类似 shell help 的命令指南；再按指南逐条执行查看、生成样例、检查、预览差异或更新配置。当前不开放供应商配置命令。",
+            serde_json::json!({
+              "type": "object",
+              "properties": {
+                "command": { "type": "string", "description": "要执行的一条 config 命令字符串。" }
+              },
+              "required": ["command"],
+              "additionalProperties": false
+            }),
+        )
+    }
+}
+
+impl RuntimeJsonTool for BuiltinConfigTool {
+    const NAME: &'static str = "config";
+    type Args = ConfigToolArgs;
+    type Error = ToolInvokeError;
+
+    fn timeout_override(_args_json: &str) -> Option<std::time::Duration> {
+        Some(std::time::Duration::from_secs(30))
+    }
+
+    fn call_typed(&self, args: Self::Args) -> RuntimeJsonValueFuture<'_, Self::Error> {
+        Box::pin(async move {
+            let args_value = serde_json::to_value(&args).unwrap_or(Value::Null);
+            runtime_log_debug(format!(
+                "[TOOL-DEBUG] execute_builtin_tool.start name=config args={}",
+                debug_value_snippet(&args_value, 240)
+            ));
+            let app_root = self
+                .app_state
+                .llm_workspace_path
+                .parent()
+                .map(|path| path.to_path_buf())
+                .unwrap_or_else(|| {
+                    self.app_state
+                        .config_path
+                        .parent()
+                        .unwrap_or(std::path::Path::new(""))
+                        .to_path_buf()
+                });
+            let runtime_effect =
+                config_tool_runtime_effect_for_command(&self.app_state, &args.command);
+            let output = pai_config_tool::run_command_with_paths(
+                app_root,
+                self.app_state.config_path.clone(),
+                self.app_state.data_path.clone(),
+                configured_workspace_root_path(&self.app_state)
+                    .unwrap_or_else(|_| self.app_state.llm_workspace_path.clone()),
+                &args.command,
+            )
+            .map_err(ToolInvokeError::from)?;
+            invalidate_config_tool_runtime_caches(&self.app_state).map_err(ToolInvokeError::from)?;
+            let runtime_effect = apply_config_tool_runtime_effect(&self.app_state, runtime_effect)
+                .await
+                .map_err(ToolInvokeError::from)?;
+            let mut result = match serde_json::from_str::<Value>(output.trim()) {
+                Ok(parsed) => serde_json::json!({
+                    "ok": true,
+                    "command": args.command,
+                    "result": parsed
+                }),
+                Err(_) => serde_json::json!({
+                    "ok": true,
+                    "command": args.command,
+                    "result": output
+                }),
+            };
+            if let Some(runtime_effect) = runtime_effect {
+                if let Some(object) = result.as_object_mut() {
+                    object.insert("runtimeEffect".to_string(), runtime_effect);
+                }
+            }
+            runtime_log_debug(format!(
+                "[TOOL-DEBUG] execute_builtin_tool.ok name=config result={}",
+                debug_value_snippet(&result, 240)
+            ));
+            Ok(result)
+        })
     }
 }
 

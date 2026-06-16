@@ -73,6 +73,12 @@ async fn builtin_tool_definitions_for_frontend(
             .provider_tool_definition(),
         ),
         frontend_tool_definition(
+            BuiltinConfigTool {
+                app_state: state.clone(),
+            }
+            .provider_tool_definition(),
+        ),
+        frontend_tool_definition(
             BuiltinWriteFileTool {
                 app_state: state.clone(),
                 session_id: preview_session_id.clone(),
@@ -307,6 +313,33 @@ mod tool_catalog_tests {
             frontend_definition_json(&read_catalog),
             frontend_definition_json(&read_runtime),
             "frontend catalog read definition drifted from builtin definition"
+        );
+
+        let config_catalog = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("build tokio runtime for config catalog tests should succeed")
+            .block_on(catalog_tool_definition_by_name("config"))
+            .expect("load config definition from frontend catalog should succeed");
+        let config_runtime = frontend_tool_definition(
+            BuiltinConfigTool {
+                app_state: AppState::new().expect("create app state for config definition"),
+            }
+            .provider_tool_definition(),
+        );
+        assert_eq!(
+            frontend_definition_json(&config_catalog),
+            frontend_definition_json(&config_runtime),
+            "frontend catalog config definition drifted from runtime builtin definition"
+        );
+        let properties = config_catalog.function.parameters["properties"]
+            .as_object()
+            .expect("config parameters should contain object properties");
+        assert_eq!(properties.len(), 1);
+        assert_eq!(
+            properties["command"]["type"].as_str(),
+            Some("string"),
+            "config tool must expose exactly one string parameter"
         );
 
         let todo_catalog = tokio::runtime::Builder::new_current_thread()

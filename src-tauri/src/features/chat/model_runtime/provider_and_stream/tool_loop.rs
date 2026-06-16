@@ -1096,6 +1096,7 @@ fn runtime_tool_call_requires_serial_execution(
         normalized.as_str(),
             "exec"
             | "shell_exec"
+            | "config"
             | "write"
             | "delete"
             | "update"
@@ -2765,6 +2766,7 @@ mod tool_loop_tests {
     fn stateful_builtin_tools_should_be_serial_tools() {
         let tools = vec![
             test_tool("exec", false),
+            test_tool("config", false),
             test_tool("shell_exec", false),
             test_tool("write", false),
             test_tool("delete", false),
@@ -2786,6 +2788,7 @@ mod tool_loop_tests {
         let definitions = Vec::<ProviderToolDefinition>::new();
 
         assert!(runtime_tool_call_requires_serial_execution(&tools, &definitions, "exec"));
+        assert!(runtime_tool_call_requires_serial_execution(&tools, &definitions, "config"));
         assert!(runtime_tool_call_requires_serial_execution(&tools, &definitions, "shell_exec"));
         assert!(runtime_tool_call_requires_serial_execution(&tools, &definitions, "write"));
         assert!(runtime_tool_call_requires_serial_execution(&tools, &definitions, "delete"));

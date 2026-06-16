@@ -166,6 +166,10 @@ fn build_global_tool_schema_cache(state: &AppState) -> Vec<ProviderToolDefinitio
             session_id: preview_session_id.clone(),
         }
         .provider_tool_definition(),
+        BuiltinConfigTool {
+            app_state: state.clone(),
+        }
+        .provider_tool_definition(),
         BuiltinWriteFileTool {
             app_state: state.clone(),
             session_id: preview_session_id.clone(),
@@ -455,6 +459,9 @@ fn push_runtime_tool_executors(
     tools.push(Box::new(BuiltinTerminalExecTool {
         app_state: state.clone(),
         session_id: tool_session_id.to_string(),
+    }));
+    tools.push(Box::new(BuiltinConfigTool {
+        app_state: state.clone(),
     }));
     tools.push(Box::new(BuiltinWriteFileTool {
         app_state: state.clone(),

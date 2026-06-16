@@ -1,322 +1,77 @@
 ---
 name: browser-automation
-description: 当需要自动化网页交互、从页面提取结构化数据、以编程方式填写表单或测试 Web UI 时，必须立刻阅读我。我会指导你使用这套基于 Rust 且带 Node.js 回退机制的无头浏览器自动化 CLI。
-
+description: 当需要操作浏览器、自动化网页交互、测试 Web UI 或爬取动态网页时，必须立刻阅读我。
 ---
 
-# Browser Automation with agent-browser
+# Browser Automation
 
-## Installation
+## 推荐安装流程
 
-### npm recommended
+先查看当前 MCP：
 
-```bash
-npm install -g agent-browser
-agent-browser install
-agent-browser install --with-deps
+```text
+config "mcp ls"
 ```
 
-### From Source
+如果没有 Playwright MCP，添加配置：
 
-```bash
-git clone https://github.com/vercel-labs/agent-browser
-cd agent-browser
-pnpm install
-pnpm build
-agent-browser install
+```text
+config "mcp add playwright -- npx -y @playwright/mcp@latest"
 ```
 
-## Quick start
+启用并让 PAI 托管启动：
 
-```bash
-agent-browser open <url>        # Navigate to page
-agent-browser snapshot -i       # Get interactive elements with refs
-agent-browser click @e1         # Click element by ref
-agent-browser fill @e2 "text"   # Fill input by ref
-agent-browser close             # Close browser
+```text
+config "mcp enable playwright"
 ```
 
-## Core workflow
+启用后查看工具：
 
-1. Navigate: `agent-browser open <url>`
-2. Snapshot: `agent-browser snapshot -i` (returns elements with refs like `@e1`, `@e2`)
-3. Interact using refs from the snapshot
-4. Re-snapshot after navigation or significant DOM changes
-
-## Commands
-
-### Navigation
-
-```bash
-agent-browser open <url>      # Navigate to URL
-agent-browser back            # Go back
-agent-browser forward         # Go forward
-agent-browser reload          # Reload page
-agent-browser close           # Close browser
+```text
+config "mcp tools playwright"
 ```
 
-### Snapshot (page analysis)
+## 核心规则
+
+- 浏览器自动化优先使用 Playwright MCP。
+- 不要用 shell/exec 或普通 CLI 启动浏览器自动化实例。
+- 如果当前没有可用的 Playwright MCP，先引导安装和部署它。
+- 安装、启用、停用 MCP 时优先使用 `config` 工具，不要直接手改工作区 JSON。
+- 如果缺 Node.js、网络、权限或用户确认，直接说明阻塞点。
+
+## 为什么不能用 shell/CLI 控制浏览器
+
+PAI 的 shell/exec 适合一次性命令、检查环境、读写文件和运行短任务。
+浏览器自动化需要维持同一个浏览器实例、页面上下文、cookie/storage 和交互状态。
+一次性 shell/CLI 调用结束后，后续工具调用无法稳定复用这个浏览器实例，因此会丢失页面状态或无法继续操作。
+这类能力应交给 MCP 运行态管理，由 PAI 维持可持续调用的工具服务。
+
+不要这样做：
 
 ```bash
-agent-browser snapshot            # Full accessibility tree
-agent-browser snapshot -i         # Interactive elements only (recommended)
-agent-browser snapshot -c         # Compact output
-agent-browser snapshot -d 3       # Limit depth to 3
-agent-browser snapshot -s "#main" # Scope to CSS selector
+npx @playwright/mcp@latest
 ```
 
-### Interactions (use @refs from snapshot)
+也不要让 shell 长期挂着一个后台浏览器、dev server 或 MCP server。
+这类进程无法稳定维持跨工具调用的实例，也无法纳入 PAI 的工具目录、权限控制和 reload 生命周期。
 
-```bash
-agent-browser click @e1           # Click
-agent-browser dblclick @e1        # Double-click
-agent-browser focus @e1           # Focus element
-agent-browser fill @e2 "text"     # Clear and type
-agent-browser type @e2 "text"     # Type without clearing
-agent-browser press Enter         # Press key
-agent-browser press Control+a     # Key combination
-agent-browser keydown Shift       # Hold key down
-agent-browser keyup Shift         # Release key
-agent-browser hover @e1           # Hover
-agent-browser check @e1           # Check checkbox
-agent-browser uncheck @e1         # Uncheck checkbox
-agent-browser select @e1 "value"  # Select dropdown
-agent-browser scroll down 500     # Scroll page
-agent-browser scrollintoview @e1  # Scroll element into view
-agent-browser drag @e1 @e2        # Drag and drop
-agent-browser upload @e1 file.pdf # Upload files
-```
+## 使用方式
 
-### Get information
+Playwright MCP 可用后，优先通过 MCP 工具完成：
 
-```bash
-agent-browser get text @e1        # Get element text
-agent-browser get html @e1        # Get innerHTML
-agent-browser get value @e1       # Get input value
-agent-browser get attr @e1 href   # Get attribute
-agent-browser get title           # Get page title
-agent-browser get url             # Get current URL
-agent-browser get count ".item"   # Count matching elements
-agent-browser get box @e1         # Get bounding box
-```
+- 打开页面。
+- 获取页面快照。
+- 点击、填写、选择、上传文件。
+- 等待页面状态变化。
+- 截图或提取页面文本。
+- 验证 Web UI 行为。
 
-### Check state
+每次页面跳转或重要 DOM 变化后，都应重新获取页面快照，再继续交互。
 
-```bash
-agent-browser is visible @e1      # Check if visible
-agent-browser is enabled @e1      # Check if enabled
-agent-browser is checked @e1      # Check if checked
-```
+## 排障
 
-### Screenshots & PDF
-
-```bash
-agent-browser screenshot          # Screenshot to stdout
-agent-browser screenshot path.png # Save to file
-agent-browser screenshot --full   # Full page
-agent-browser pdf output.pdf      # Save as PDF
-```
-
-### Video recording
-
-```bash
-agent-browser record start ./demo.webm    # Start recording (uses current URL + state)
-agent-browser click @e1                   # Perform actions
-agent-browser record stop                 # Stop and save video
-agent-browser record restart ./take2.webm # Stop current + start new recording
-```
-
-Recording creates a fresh context but preserves cookies/storage from your session. If no URL is provided, it automatically returns to your current page. For smooth demos, explore first, then start recording.
-
-### Wait
-
-```bash
-agent-browser wait @e1                     # Wait for element
-agent-browser wait 2000                    # Wait milliseconds
-agent-browser wait --text "Success"        # Wait for text
-agent-browser wait --url "/dashboard"    # Wait for URL pattern
-agent-browser wait --load networkidle      # Wait for network idle
-agent-browser wait --fn "window.ready"     # Wait for JS condition
-```
-
-### Mouse control
-
-```bash
-agent-browser mouse move 100 200      # Move mouse
-agent-browser mouse down left         # Press button
-agent-browser mouse up left           # Release button
-agent-browser mouse wheel 100         # Scroll wheel
-```
-
-### Semantic locators (alternative to refs)
-
-```bash
-agent-browser find role button click --name "Submit"
-agent-browser find text "Sign In" click
-agent-browser find label "Email" fill "user@test.com"
-agent-browser find first ".item" click
-agent-browser find nth 2 "a" text
-```
-
-### Browser settings
-
-```bash
-agent-browser set viewport 1920 1080      # Set viewport size
-agent-browser set device "iPhone 14"      # Emulate device
-agent-browser set geo 37.7749 -122.4194   # Set geolocation
-agent-browser set offline on              # Toggle offline mode
-agent-browser set headers '{"X-Key":"v"}' # Extra HTTP headers
-agent-browser set credentials user pass   # HTTP basic auth
-agent-browser set media dark              # Emulate color scheme
-```
-
-### Cookies & Storage
-
-```bash
-agent-browser cookies                     # Get all cookies
-agent-browser cookies set name value      # Set cookie
-agent-browser cookies clear               # Clear cookies
-agent-browser storage local               # Get all localStorage
-agent-browser storage local key           # Get specific key
-agent-browser storage local set k v       # Set value
-agent-browser storage local clear         # Clear all
-```
-
-### Network
-
-```bash
-agent-browser network route <url>              # Intercept requests
-agent-browser network route <url> --abort      # Block requests
-agent-browser network route <url> --body '{}'  # Mock response
-agent-browser network unroute [url]            # Remove routes
-agent-browser network requests                 # View tracked requests
-agent-browser network requests --filter api    # Filter requests
-```
-
-### Tabs & Windows
-
-```bash
-agent-browser tab                 # List tabs
-agent-browser tab new [url]       # New tab
-agent-browser tab 2               # Switch to tab
-agent-browser tab close           # Close tab
-agent-browser window new          # New window
-```
-
-### Frames
-
-```bash
-agent-browser frame "#iframe"     # Switch to iframe
-agent-browser frame main          # Back to main frame
-```
-
-### Dialogs
-
-```bash
-agent-browser dialog accept [text]  # Accept dialog
-agent-browser dialog dismiss        # Dismiss dialog
-```
-
-### JavaScript
-
-```bash
-agent-browser eval "document.title"   # Run JavaScript
-```
-
-### State management
-
-```bash
-agent-browser state save auth.json    # Save session state
-agent-browser state load auth.json    # Load saved state
-```
-
-## Example: Form submission
-
-```bash
-agent-browser open https://example.com/form
-agent-browser snapshot -i
-# Output shows: textbox "Email" [ref=e1], textbox "Password" [ref=e2], button "Submit" [ref=e3]
-
-agent-browser fill @e1 "user@example.com"
-agent-browser fill @e2 "password123"
-agent-browser click @e3
-agent-browser wait --load networkidle
-agent-browser snapshot -i  # Check result
-```
-
-## Example: Authentication with saved state
-
-```bash
-# Login once
-agent-browser open https://app.example.com/login
-agent-browser snapshot -i
-agent-browser fill @e1 "username"
-agent-browser fill @e2 "password"
-agent-browser click @e3
-agent-browser wait --url "/dashboard"
-agent-browser state save auth.json
-
-# Later sessions: load saved state
-agent-browser state load auth.json
-agent-browser open https://app.example.com/dashboard
-```
-
-## Sessions (parallel browsers)
-
-```bash
-agent-browser --session test1 open site-a.com
-agent-browser --session test2 open site-b.com
-agent-browser session list
-```
-
-## JSON output (for parsing)
-
-Add `--json` for machine-readable output:
-
-```bash
-agent-browser snapshot -i --json
-agent-browser get text @e1 --json
-```
-
-## Debugging
-
-```bash
-agent-browser open example.com --headed              # Show browser window
-agent-browser console                                # View console messages
-agent-browser console --clear                        # Clear console
-agent-browser errors                                 # View page errors
-agent-browser errors --clear                         # Clear errors
-agent-browser highlight @e1                          # Highlight element
-agent-browser trace start                            # Start recording trace
-agent-browser trace stop trace.zip                   # Stop and save trace
-agent-browser record start ./debug.webm              # Record from current page
-agent-browser record stop                            # Save recording
-agent-browser --cdp 9222 snapshot                    # Connect via CDP
-```
-
-## Troubleshooting
-
-- If the command is not found on Linux ARM64, use the full path in the bin folder.
-- If an element is not found, use snapshot to find the correct ref.
-- If the page is not loaded, add a wait command after navigation.
-- Use --headed to see the browser window for debugging.
-
-## Options
-
-- --session <name> uses an isolated session.
-- --json provides JSON output.
-- --full takes a full page screenshot.
-- --headed shows the browser window.
-- --timeout sets the command timeout in milliseconds.
-- --cdp <port> connects via Chrome DevTools Protocol.
-
-## Notes
-
-- Refs are stable per page load but change on navigation.
-- Always snapshot after navigation to get new refs.
-- Use fill instead of type for input fields to ensure existing text is cleared.
-
-## Reporting Issues
-
-- Skill issues: Open an issue at https://github.com/TheSethRose/Agent-Browser-CLI
-- agent-browser CLI issues: Open an issue at https://github.com/vercel-labs/agent-browser
+- `config "mcp enable playwright"` 后工具还没出现时，先等启动探测完成，再执行 `config "mcp tools playwright"`。
+- 如果 Node.js 不存在，先安装 Node.js。
+- 如果 npm 下载失败，说明网络或 registry 问题。
+- 如果浏览器依赖缺失，按 Playwright MCP 返回的错误补依赖。
+- 如果用户要求删除或停用 Playwright MCP，必须先得到明确同意；删除命令还需要 `--confirmed`。

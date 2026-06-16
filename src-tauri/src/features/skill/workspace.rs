@@ -22,8 +22,8 @@ fn llm_workspace_skills_root(state: &AppState) -> Result<PathBuf, String> {
 
 fn sync_skill_template_file(path: &PathBuf, content: &str) -> Result<(), String> {
     if path.exists() {
-        if let Ok(meta) = fs::metadata(path) {
-            if meta.len() == content.len() as u64 {
+        if let Ok(current) = fs::read_to_string(path) {
+            if current == content {
                 return Ok(());
             }
         }
@@ -57,66 +57,9 @@ pub(crate) fn ensure_workspace_skills_layout_at_root(workspace_root: &Path) -> R
         let _ = fs::remove_file(&legacy_readme);
     }
 
-    sync_workspace_preset_skill(
-        &skills_root,
-        "browser-automation",
-        include_str!("../../../resources/preset-skills/browser-automation/SKILL.md"),
-    )?;
-    sync_workspace_preset_skill(
-        &skills_root,
-        "news-analyst",
-        include_str!("../../../resources/preset-skills/news-analyst/SKILL.md"),
-    )?;
-    sync_workspace_preset_skill(
-        &skills_root,
-        "agent-office",
-        include_str!("../../../resources/preset-skills/agent-office/SKILL.md"),
-    )?;
-    sync_workspace_preset_skill(
-        &skills_root,
-        "agents-md-setup",
-        include_str!("../../../resources/preset-skills/agents-md-setup/SKILL.md"),
-    )?;
-    sync_workspace_preset_skill(
-        &skills_root,
-        "assistant-interaction-guide",
-        include_str!("../../../resources/preset-skills/assistant-interaction-guide/SKILL.md"),
-    )?;
-    sync_workspace_preset_skill(
-        &skills_root,
-        "skill-setup",
-        include_str!("../../../resources/preset-skills/skill-setup/SKILL.md"),
-    )?;
-    sync_workspace_preset_skill(
-        &skills_root,
-        "mcp-setup",
-        include_str!("../../../resources/preset-skills/mcp-setup/SKILL.md"),
-    )?;
-    sync_workspace_preset_skill(
-        &skills_root,
-        "workspace-guide",
-        include_str!("../../../resources/preset-skills/workspace-guide/SKILL.md"),
-    )?;
-    sync_workspace_preset_skill(
-        &skills_root,
-        "private-organization-guide",
-        include_str!("../../../resources/preset-skills/private-organization-guide/SKILL.md"),
-    )?;
-    sync_workspace_preset_skill(
-        &skills_root,
-        "pai-guide",
-        include_str!("../../../resources/preset-skills/pai-guide/SKILL.md"),
-    )?;
-    sync_workspace_preset_skill(
-        &skills_root,
-        "code-review",
-        include_str!("../../../resources/preset-skills/code-review/SKILL.md"),
-    )?;
-    sync_workspace_preset_skill(
-        &skills_root,
-        "memory-generation",
-        include_str!("../../../resources/preset-skills/memory-generation/SKILL.md"),
-    )?;
+    for skill in workspace_preset_skills() {
+        sync_workspace_preset_skill(&skills_root, skill.dir_name, skill.skill_md)?;
+    }
 
     Ok(())
 }
