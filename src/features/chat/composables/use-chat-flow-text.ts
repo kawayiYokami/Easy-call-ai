@@ -14,54 +14,9 @@ export function hasAssistantVisibleOutput(result: {
 }
 
 export function consumeClosedMarkdownBlocks(input: string): { chunks: string[]; tail: string } {
-  const chunks: string[] = [];
-  let cursor = 0;
-  let scan = 0;
-  let inFence = false;
-  let fenceMarker = "";
-  let lineStart = 0;
-  let lastSafe = 0;
-  let prevBlank = false;
+  // 乐观渲染策略：直接返回所有内容作为 chunks，tail 为空
+  // 这样所有 markdown 元素（标题、粗体、引用等）都能立即渲染
+  if (!input) return { chunks: [], tail: "" };
 
-  while (scan <= input.length) {
-    const isEnd = scan === input.length;
-    const ch = isEnd ? "\n" : input[scan];
-    if (ch !== "\n" && !isEnd) {
-      scan += 1;
-      continue;
-    }
-    const lineEnd = scan;
-    const line = input.slice(lineStart, lineEnd);
-    const trimmed = line.trimStart();
-    const isBlank = line.trim().length === 0;
-
-    if (!inFence && (trimmed.startsWith("```") || trimmed.startsWith("~~~"))) {
-      inFence = true;
-      fenceMarker = trimmed.startsWith("~~~") ? "~~~" : "```";
-    } else if (inFence && fenceMarker && trimmed.startsWith(fenceMarker)) {
-      inFence = false;
-      lastSafe = isEnd ? lineEnd : lineEnd + 1;
-    }
-
-    if (!inFence && prevBlank && !isBlank) {
-      const splitAt = lineStart;
-      if (splitAt > cursor) {
-        chunks.push(input.slice(cursor, splitAt));
-        cursor = splitAt;
-        lastSafe = splitAt;
-      }
-    }
-
-    prevBlank = isBlank;
-    lineStart = scan + 1;
-    scan += 1;
-  }
-
-  if (lastSafe > cursor) {
-    chunks.push(input.slice(cursor, lastSafe));
-    cursor = lastSafe;
-  }
-
-  const tail = input.slice(cursor);
-  return { chunks, tail };
+  return { chunks: [input], tail: "" };
 }

@@ -207,16 +207,13 @@ export function parseMarkdownBlocks(input: string, streaming = false): MarkdownB
 
   // Flush remaining
   if (inCode) {
-    if (!streaming) {
-      // 非流式：未闭合也输出（最终态）
-      result.push({
-        type: "code",
-        lang: codeLang,
-        text: codeLines.join("\n"),
-        key: `code-${result.length}`,
-      });
-    }
-    // 流式：未闭合的代码块不输出，等闭合后再显示
+    // 流式和非流式都输出未闭合的代码块（乐观渲染）
+    result.push({
+      type: "code",
+      lang: codeLang,
+      text: codeLines.join("\n"),
+      key: `code-${result.length}`,
+    });
   }
   if (inMathBlock) {
     if (!streaming) {
