@@ -117,6 +117,7 @@
         @update-generated-theme-controls="updateGeneratedThemeControls"
         @reset-generated-theme="resetGeneratedTheme"
         @refresh-models="refreshModels"
+        @refresh-tools-status="refreshToolsStatus"
         @tool-switch-changed="handleToolsChanged"
         @save-api-config="saveConfig"
         @add-api-config="addApiConfig"
@@ -784,7 +785,6 @@ function summonChatNow() {
 
 async function refreshAllViewData() {
   await loadBootstrapSnapshot();
-  await refreshImageCacheStats();
 }
 
 const appBootstrap = useConfigWindowBootstrap({
@@ -853,7 +853,6 @@ useAppWatchers({
   syncUserAliasFromPersona,
   syncTrayIcon,
   refreshToolsStatus,
-  refreshImageCacheStats,
 });
 
 watch(

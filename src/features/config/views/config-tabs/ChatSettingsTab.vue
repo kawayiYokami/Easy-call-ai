@@ -177,7 +177,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref, watch } from "vue";
+import { computed, onMounted, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 import { Plus, Trash2 } from "@lucide/vue";
 import SegmentedControl from "../../components/SegmentedControl.vue";
@@ -374,4 +374,8 @@ function saveInstructionPresets() {
     instructionPresets: normalized,
   });
 }
+
+onMounted(() => {
+  emit("refreshImageCacheStats");
+});
 </script>

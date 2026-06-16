@@ -146,8 +146,9 @@ const props = defineProps<{
   savingConfig: boolean;
 }>();
 
-defineEmits<{
+const emit = defineEmits<{
   (e: "saveApiConfig"): void;
+  (e: "refreshToolStatuses"): void;
 }>();
 
 const { t } = useI18n();
@@ -503,6 +504,7 @@ function openGitDownloadLink() {
 }
 
 onMounted(() => {
+  emit("refreshToolStatuses");
   void loadTerminalShellCandidates();
   void loadToolCatalog();
 });

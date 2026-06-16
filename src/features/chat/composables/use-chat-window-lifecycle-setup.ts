@@ -71,6 +71,5 @@ export function useChatWindowLifecycleSetup(bindings: Record<string, any>) {
     syncUserAliasFromPersona: bindings.syncUserAliasFromPersona,
     syncTrayIcon: bindings.syncTrayIcon,
     refreshToolsStatus: bindings.refreshToolsStatus,
-    refreshImageCacheStats: bindings.refreshImageCacheStats,
   });
 }

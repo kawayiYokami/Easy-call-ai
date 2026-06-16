@@ -106,6 +106,7 @@
             :tool-statuses="toolStatuses"
             :saving-config="savingConfig"
             @save-api-config="onSaveToolsConfig"
+            @refresh-tool-statuses="$emit('refreshToolsStatus')"
           />
           <McpTab
             v-else-if="props.configTab === 'mcp'"
@@ -500,6 +501,7 @@ const emit = defineEmits<{
   (e: "updateGeneratedThemeControls", value: Partial<GeneratedThemeControls>): void;
   (e: "resetGeneratedTheme"): void;
   (e: "refreshModels"): void;
+  (e: "refreshToolsStatus"): void;
   (e: "toolSwitchChanged"): void;
   (e: "openMemoryViewer"): void;
   (e: "addApiConfig"): void;

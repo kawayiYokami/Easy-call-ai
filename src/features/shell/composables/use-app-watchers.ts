@@ -22,7 +22,6 @@ type UseAppWatchersOptions = {
   syncUserAliasFromPersona: () => void;
   syncTrayIcon: (id?: string) => Promise<void>;
   refreshToolsStatus: () => Promise<void>;
-  refreshImageCacheStats: () => Promise<void>;
 };
 
 export function useAppWatchers(options: UseAppWatchersOptions) {
@@ -88,7 +87,6 @@ export function useAppWatchers(options: UseAppWatchersOptions) {
 
   watch(
     () => [
-      options.configTab.value,
       options.toolApiConfig.value?.id ?? "",
       options.assistantDepartmentAgentId.value,
       options.toolApiConfig.value?.enableTools,
@@ -103,8 +101,8 @@ export function useAppWatchers(options: UseAppWatchersOptions) {
         })),
       ),
     ],
-    async ([tab, id]) => {
-      if (tab !== "tools") return;
+    async ([id]) => {
+      if (options.configTab.value !== "tools") return;
       if (!id) return;
       try {
         await options.refreshToolsStatus();
@@ -118,17 +116,4 @@ export function useAppWatchers(options: UseAppWatchersOptions) {
       }
     },
   );
-
-  watch(
-    () => options.configTab.value,
-    async (tab) => {
-      if (tab !== "chatSettings") return;
-      try {
-        await options.refreshImageCacheStats();
-      } catch (error) {
-        console.error("[WATCH] refreshImageCacheStats failed:", error);
-      }
-    },
-  );
-
 }

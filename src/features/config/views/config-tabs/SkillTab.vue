@@ -52,13 +52,10 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref } from "vue";
+import { computed, onMounted, ref } from "vue";
 import { invokeTauri } from "../../../../services/tauri-api";
 import type { SkillListResult, SkillSummaryItem } from "../../../../types/app";
 import { toErrorMessage } from "../../../../utils/error";
-
-let skillTabCacheLoaded = false;
-let skillTabCacheItems: SkillSummaryItem[] = [];
 
 const loading = ref(false);
 const statusText = ref("");
@@ -88,8 +85,6 @@ async function reload() {
   try {
     const result = await invokeTauri<SkillListResult>("mcp_list_skills");
     skills.value = result?.skills || [];
-    skillTabCacheItems = [...skills.value];
-    skillTabCacheLoaded = true;
     ensureSelectedSkill();
     if ((result?.errors?.length || 0) > 0) {
       setStatus(`已加载 ${skills.value.length} 个 SKILL，${result.errors.length} 个目录读取失败`, true);
@@ -116,11 +111,7 @@ async function openSkillsDir() {
   }
 }
 
-if (skillTabCacheLoaded) {
-  skills.value = [...skillTabCacheItems];
-  ensureSelectedSkill();
-  setStatus(`已加载 ${skills.value.length} 个 SKILL（缓存）`);
-} else {
+onMounted(() => {
   void reload();
-}
+});
 </script>
