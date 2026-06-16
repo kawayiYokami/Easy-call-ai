@@ -2273,21 +2273,32 @@ async fn stop_chat_message(
     let completed_tool_history = inflight_completed_tool_history(state.inner(), &chat_key)?;
     let partial_tool_history =
         merge_stream_block_tool_history(&completed_tool_history, &input.partial_stream_blocks);
+    let persist_result = conversation_service().persist_stop_chat_partial_message(
+        state.inner(),
+        requested_conversation_id.as_deref(),
+        requested_department_id.as_deref(),
+        input.session.agent_id.as_str(),
+        &partial_assistant_text,
+        &partial_activity_text,
+        "",
+        &partial_tool_history,
+    )?;
     let build_stop_result =
-        |conversation_id: Option<String>| -> StopChatResult {
+        |conversation_id: Option<String>, persisted: bool, assistant_message: Option<ChatMessage>| -> StopChatResult {
             StopChatResult {
                 aborted,
-                persisted: false,
+                persisted,
                 conversation_id,
                 assistant_text: partial_assistant_text.clone(),
-                assistant_message: None,
+                assistant_message,
             }
         };
     runtime_log_info(format!(
-        "[聊天流式块][后端停止] 停止请求完成 session={} conversation_id={} aborted={} partial_text_len={} partial_reasoning_len={} partial_block_count={} partial_tool_history_count={} completed_tool_history_count={}",
+        "[聊天流式块][后端停止] 停止请求完成 session={} conversation_id={} aborted={} persisted={} partial_text_len={} partial_reasoning_len={} partial_block_count={} partial_tool_history_count={} completed_tool_history_count={}",
         chat_key,
         requested_conversation_id.as_deref().unwrap_or(""),
         aborted,
+        persist_result.persisted,
         partial_assistant_text.chars().count(),
         partial_activity_text.chars().count(),
         input.partial_stream_blocks.len(),
@@ -2295,7 +2306,11 @@ async fn stop_chat_message(
         completed_tool_history.len(),
     ));
     clear_inflight_completed_tool_history(state.inner(), &chat_key)?;
-    Ok(build_stop_result(requested_conversation_id))
+    Ok(build_stop_result(
+        persist_result.conversation_id.or(requested_conversation_id),
+        persist_result.persisted,
+        persist_result.assistant_message,
+    ))
 }
 
 #[tauri::command]
