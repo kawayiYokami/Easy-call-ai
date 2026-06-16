@@ -1719,6 +1719,14 @@ function openSupervisionTask() {
     transport.errorText.value = t('sidebar.noConversationForTask');
     return;
   }
+  try {
+    const selection = window.getSelection?.();
+    if (selection && selection.rangeCount > 0 && String(selection.toString() || "").trim()) {
+      selection.removeAllRanges();
+    }
+  } catch {
+    // ignore selection cleanup failures
+  }
   supervisionErrorText.value = "";
   supervisionDialogOpen.value = true;
 }

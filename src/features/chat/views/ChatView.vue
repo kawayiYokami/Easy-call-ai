@@ -703,6 +703,17 @@ const sidebarMode = computed(() => !!props.sidebarMode);
 const bridgeMode = computed(() => !!props.bridgeMode);
 const openLocalFilesInHost = computed(() => !!props.openLocalFilesInHost);
 
+function clearNativeTextSelection() {
+  try {
+    const selection = window.getSelection?.();
+    if (selection && selection.rangeCount > 0 && String(selection.toString() || "").trim()) {
+      selection.removeAllRanges();
+    }
+  } catch {
+    // 忽略浏览器选区清理失败，避免影响主流程
+  }
+}
+
 function canRegenerateBlock(block: ChatMessageBlock, blockIndex: number): boolean {
   if (block.role !== "assistant" || block.isExtraTextBlock) return false;
   for (let idx = props.messageBlocks.length - 1; idx >= 0; idx -= 1) {
@@ -727,6 +738,7 @@ const messageSelectionDelegateOnly = ref(false);
 
 function openSelectionMenu(options: { delegateOnly?: boolean } = {}) {
   if (props.chatting || props.frozen || conversationInteractionBusy.value) return;
+  clearNativeTextSelection();
   messageSelectionDelegateOnly.value = !!options.delegateOnly;
   messageSelectionModeEnabled.value = true;
   selectedMessageRenderIds.value = [];
@@ -1089,6 +1101,7 @@ async function handleSaveLocalImage(path: string) {
 
 function handleDetachConversationRequest() { emit("detachConversation"); }
 function openCodeReviewDialog() {
+  clearNativeTextSelection();
   codeReviewErrorText.value = "";
   codeReviewDialogOpen.value = true;
 }

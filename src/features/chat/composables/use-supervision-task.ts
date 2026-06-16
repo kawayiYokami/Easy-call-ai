@@ -38,6 +38,17 @@ type UseSupervisionTaskOptions = {
   setStatus: (message: string) => void;
 };
 
+function clearNativeTextSelection() {
+  try {
+    const selection = window.getSelection?.();
+    if (selection && selection.rangeCount > 0 && String(selection.toString() || "").trim()) {
+      selection.removeAllRanges();
+    }
+  } catch {
+    // 忽略浏览器选区清理失败，避免影响主流程
+  }
+}
+
 function goalIsActive(goal?: ConversationGoalState | null): goal is ConversationGoalState {
   return String(goal?.status || "").trim() === "active";
 }
@@ -171,6 +182,7 @@ export function useSupervisionTask(options: UseSupervisionTaskOptions) {
       options.setStatus(options.t("chat.supervision.noConversation"));
       return;
     }
+    clearNativeTextSelection();
     supervisionTaskError.value = "";
     supervisionTaskDialogOpen.value = true;
   }
