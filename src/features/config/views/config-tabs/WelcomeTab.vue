@@ -139,7 +139,7 @@ import type { ApiConfigItem, AppConfig, PersonaProfile } from "../../../../types
 import { invokeTauri } from "../../../../services/tauri-api";
 import { toErrorMessage } from "../../../../utils/error";
 
-type ConfigTab = "welcome" | "hotkey" | "api" | "tools" | "mcp" | "skill" | "persona" | "department" | "departmentTree" | "chatSettings" | "memory" | "task" | "logs" | "appearance" | "migration" | "about";
+type ConfigTab = "welcome" | "hotkey" | "api" | "tools" | "mcp" | "skill" | "persona" | "department" | "departmentTree" | "chatSettings" | "usage" | "memory" | "task" | "logs" | "appearance" | "migration" | "about";
 type WelcomeCardLevel = "required" | "strong" | "optional";
 type HostRuntimePrerequisiteKind = "git" | "node";
 type MemoryProviderBindings = {

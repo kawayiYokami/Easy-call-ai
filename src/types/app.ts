@@ -1007,3 +1007,61 @@ export type ImageTextCacheStats = {
   totalChars: number;
   latestUpdatedAt?: string;
 };
+
+export type UsageOverviewTotals = {
+  conversationCount: number;
+  archivedConversationCount: number;
+  activeConversationCount: number;
+  delegateConversationCount: number;
+  withUsageConversationCount: number;
+  weightedTokens: number;
+  inputTokens: number;
+  outputTokens: number;
+  cacheReadTokens: number;
+  cacheWriteTokens: number;
+};
+
+export type UsageAggregateItem = {
+  key: string;
+  label: string;
+  conversationCount: number;
+  weightedTokens: number;
+  inputTokens: number;
+  outputTokens: number;
+  cacheReadTokens: number;
+  cacheWriteTokens: number;
+};
+
+export type UsageConversationItem = {
+  conversationId: string;
+  title: string;
+  updatedAt: string;
+  archivedAt?: string | null;
+  agentId: string;
+  agentName: string;
+  departmentId: string;
+  departmentName: string;
+  apiConfigId: string;
+  apiConfigName: string;
+  modelName: string;
+  conversationKind: string;
+  isDelegate: boolean;
+  isSystemNotificationConversation: boolean;
+  messageCount: number;
+  weightedTokens: number;
+  inputTokens: number;
+  outputTokens: number;
+  cacheReadTokens: number;
+  cacheWriteTokens: number;
+};
+
+export type UsageOverview = {
+  generatedAt: string;
+  totals: UsageOverviewTotals;
+  conversations: UsageConversationItem[];
+  byModel: UsageAggregateItem[];
+  byApiConfig: UsageAggregateItem[];
+  byAgent: UsageAggregateItem[];
+  byDepartment: UsageAggregateItem[];
+  byKind: UsageAggregateItem[];
+};

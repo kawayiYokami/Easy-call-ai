@@ -184,6 +184,10 @@
             :set-status-action="setStatusAction"
           />
 
+          <UsageTab
+            v-else-if="props.configTab === 'usage'"
+          />
+
           <MemoryTab
             v-else-if="props.configTab === 'memory'"
             :sync-locked="memorySyncLocked"
@@ -382,6 +386,7 @@ import ChatSettingsTab from "./config-tabs/ChatSettingsTab.vue";
 import NotificationTab from "./config-tabs/NotificationTab.vue";
 import NetworkAccessTab from "./config-tabs/NetworkAccessTab.vue";
 import RemoteImTab from "./config-tabs/RemoteImTab.vue";
+import UsageTab from "./config-tabs/UsageTab.vue";
 import MemoryTab from "./config-tabs/MemoryTab.vue";
 import TaskTab from "./config-tabs/TaskTab.vue";
 import LogTab from "./config-tabs/LogTab.vue";
@@ -393,7 +398,7 @@ import { invokeTauri, isTauriRuntimeAvailable } from "../../../services/tauri-ap
 import { toErrorMessage } from "../../../utils/error";
 import { ArrowLeftRight, Beaker, Bell, Building2, ClipboardList, Code, Cpu, Database, Home, Info, Keyboard, Menu, MessageSquare, Network, Palette, Puzzle, Radio, ScrollText, User, Wifi, Wrench } from "@lucide/vue";
 
-type ConfigTab = "welcome" | "hotkey" | "api" | "tools" | "mcp" | "skill" | "persona" | "department" | "departmentTree" | "demo" | "chatSettings" | "notification" | "networkAccess" | "remoteIm" | "memory" | "task" | "logs" | "appearance" | "migration" | "about";
+type ConfigTab = "welcome" | "hotkey" | "api" | "tools" | "mcp" | "skill" | "persona" | "department" | "departmentTree" | "demo" | "chatSettings" | "notification" | "networkAccess" | "remoteIm" | "usage" | "memory" | "task" | "logs" | "appearance" | "migration" | "about";
 type AvatarTarget = { agentId: string };
 type ConfigNavItem = {
   tab: ConfigTab;
@@ -423,6 +428,7 @@ const CONFIG_NAV_ITEMS: ConfigNavItem[] = [
   { tab: "logs", icon: ScrollText, labelKey: "config.tabs.logs" },
   { tab: "appearance", icon: Palette, labelKey: "config.tabs.appearance" },
   { tab: "migration", icon: ArrowLeftRight, labelKey: "config.tabs.migration" },
+  { tab: "usage", icon: ScrollText, label: "用量" },
   { tab: "about", icon: Info, labelKey: "config.tabs.about" },
   { tab: "demo", icon: Beaker, labelKey: "config.tabs.demo", devOnly: true },
 ];

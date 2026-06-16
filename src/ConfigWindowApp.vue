@@ -302,6 +302,7 @@ type ConfigTab =
   | "notification"
   | "networkAccess"
   | "remoteIm"
+  | "usage"
   | "memory"
   | "task"
   | "logs"

@@ -17,6 +17,72 @@ struct StorageUsageOverview {
     items: Vec<StorageUsageItem>,
 }
 
+#[derive(Debug, Clone, Serialize, Default)]
+#[serde(rename_all = "camelCase")]
+struct UsageOverviewTotals {
+    conversation_count: usize,
+    archived_conversation_count: usize,
+    active_conversation_count: usize,
+    delegate_conversation_count: usize,
+    with_usage_conversation_count: usize,
+    weighted_tokens: u64,
+    input_tokens: u64,
+    output_tokens: u64,
+    cache_read_tokens: u64,
+    cache_write_tokens: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Default)]
+#[serde(rename_all = "camelCase")]
+struct UsageAggregateItem {
+    key: String,
+    label: String,
+    conversation_count: usize,
+    weighted_tokens: u64,
+    input_tokens: u64,
+    output_tokens: u64,
+    cache_read_tokens: u64,
+    cache_write_tokens: u64,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct UsageConversationItem {
+    conversation_id: String,
+    title: String,
+    updated_at: String,
+    archived_at: Option<String>,
+    agent_id: String,
+    agent_name: String,
+    department_id: String,
+    department_name: String,
+    api_config_id: String,
+    api_config_name: String,
+    model_name: String,
+    conversation_kind: String,
+    is_delegate: bool,
+    is_system_notification_conversation: bool,
+    message_count: usize,
+    weighted_tokens: u64,
+    input_tokens: u64,
+    output_tokens: u64,
+    cache_read_tokens: u64,
+    cache_write_tokens: u64,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct UsageOverview {
+    generated_at: String,
+    totals: UsageOverviewTotals,
+    conversations: Vec<UsageConversationItem>,
+    by_model: Vec<UsageAggregateItem>,
+    by_api_config: Vec<UsageAggregateItem>,
+    by_agent: Vec<UsageAggregateItem>,
+    by_department: Vec<UsageAggregateItem>,
+    by_kind: Vec<UsageAggregateItem>,
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct StorageUsageItem {
@@ -552,6 +618,351 @@ fn get_storage_usage_overview(
     state: State<'_, AppState>,
 ) -> Result<StorageUsageOverview, String> {
     build_storage_usage_overview(&state)
+}
+
+fn usage_resolve_api_config_id(conversation: &Conversation, config: &AppConfig) -> String {
+    let preferred = conversation
+        .preferred_api_config_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToOwned::to_owned);
+    if let Some(value) = preferred {
+        return value;
+    }
+    let department_id = conversation.department_id.trim();
+    if department_id.is_empty() {
+        return String::new();
+    }
+    config
+        .departments
+        .iter()
+        .find(|item| item.id.trim() == department_id)
+        .map(|item| {
+            let primary = item.api_config_id.trim();
+            if !primary.is_empty() {
+                return primary.to_string();
+            }
+            item.api_config_ids
+                .iter()
+                .find_map(|value| {
+                    let trimmed = value.trim();
+                    if trimmed.is_empty() {
+                        None
+                    } else {
+                        Some(trimmed.to_string())
+                    }
+                })
+                .unwrap_or_default()
+        })
+        .unwrap_or_default()
+}
+
+fn usage_kind_key_and_label(conversation: &Conversation) -> (String, String) {
+    if conversation_is_system_notification(conversation) {
+        return ("system_notification".to_string(), "系统通知".to_string());
+    }
+    if conversation
+        .delegate_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .is_some()
+    {
+        return ("delegate".to_string(), "委托".to_string());
+    }
+    let kind = conversation.conversation_kind.trim();
+    if kind == "remote_im_contact" {
+        return ("remote_im_contact".to_string(), "远程联系人".to_string());
+    }
+    if conversation.archived_at.is_some() {
+        return ("archived".to_string(), "已归档".to_string());
+    }
+    ("normal".to_string(), "普通".to_string())
+}
+
+fn usage_aggregate_push(
+    map: &mut std::collections::HashMap<String, UsageAggregateItem>,
+    key: String,
+    label: String,
+    item: &UsageConversationItem,
+) {
+    let entry = map.entry(key.clone()).or_insert_with(|| UsageAggregateItem {
+        key,
+        label,
+        ..UsageAggregateItem::default()
+    });
+    entry.conversation_count = entry.conversation_count.saturating_add(1);
+    entry.weighted_tokens = entry.weighted_tokens.saturating_add(item.weighted_tokens);
+    entry.input_tokens = entry.input_tokens.saturating_add(item.input_tokens);
+    entry.output_tokens = entry.output_tokens.saturating_add(item.output_tokens);
+    entry.cache_read_tokens = entry.cache_read_tokens.saturating_add(item.cache_read_tokens);
+    entry.cache_write_tokens = entry.cache_write_tokens.saturating_add(item.cache_write_tokens);
+}
+
+fn usage_sort_aggregate_items(items: std::collections::HashMap<String, UsageAggregateItem>) -> Vec<UsageAggregateItem> {
+    let mut out = items.into_values().collect::<Vec<_>>();
+    out.sort_by(|left, right| {
+        right
+            .weighted_tokens
+            .cmp(&left.weighted_tokens)
+            .then_with(|| right.output_tokens.cmp(&left.output_tokens))
+            .then_with(|| right.conversation_count.cmp(&left.conversation_count))
+            .then_with(|| left.label.cmp(&right.label))
+    });
+    out
+}
+
+fn usage_cumulative_from_conversation(conversation: &Conversation) -> (ConversationCumulativeUsage, u64) {
+    if conversation_is_delegate(conversation) && conversation.cumulative_usage.is_empty() {
+        let stats = conversation_delegate_stats_from_conversation(conversation, &[]);
+        let weighted = conversation_cumulative_usage_weighted_tokens(&stats.cumulative_usage);
+        return (stats.cumulative_usage, weighted);
+    }
+    let cumulative = conversation.cumulative_usage.clone();
+    let weighted = conversation_cumulative_usage_weighted_tokens(&cumulative);
+    (cumulative, weighted)
+}
+
+fn usage_push_conversation(
+    conversation: &Conversation,
+    config: &AppConfig,
+    api_config_name_map: &std::collections::HashMap<String, String>,
+    api_config_model_map: &std::collections::HashMap<String, String>,
+    agent_name_map: &std::collections::HashMap<String, String>,
+    department_name_map: &std::collections::HashMap<String, String>,
+    totals: &mut UsageOverviewTotals,
+    conversations: &mut Vec<UsageConversationItem>,
+    by_model: &mut std::collections::HashMap<String, UsageAggregateItem>,
+    by_api_config: &mut std::collections::HashMap<String, UsageAggregateItem>,
+    by_agent: &mut std::collections::HashMap<String, UsageAggregateItem>,
+    by_department: &mut std::collections::HashMap<String, UsageAggregateItem>,
+    by_kind: &mut std::collections::HashMap<String, UsageAggregateItem>,
+) {
+    totals.conversation_count = totals.conversation_count.saturating_add(1);
+    if conversation.archived_at.is_some() {
+        totals.archived_conversation_count = totals.archived_conversation_count.saturating_add(1);
+    } else {
+        totals.active_conversation_count = totals.active_conversation_count.saturating_add(1);
+    }
+    let is_delegate = conversation_is_delegate(conversation);
+    if is_delegate {
+        totals.delegate_conversation_count = totals.delegate_conversation_count.saturating_add(1);
+    }
+
+    let (cumulative, weighted) = usage_cumulative_from_conversation(conversation);
+    if !cumulative.is_empty() || weighted > 0 {
+        totals.with_usage_conversation_count = totals.with_usage_conversation_count.saturating_add(1);
+    }
+    totals.weighted_tokens = totals.weighted_tokens.saturating_add(weighted);
+    totals.input_tokens = totals.input_tokens.saturating_add(cumulative.input_tokens);
+    totals.output_tokens = totals.output_tokens.saturating_add(cumulative.output_tokens);
+    totals.cache_read_tokens = totals.cache_read_tokens.saturating_add(cumulative.cache_read_tokens);
+    totals.cache_write_tokens = totals.cache_write_tokens.saturating_add(cumulative.cache_write_tokens);
+
+    let api_config_id = usage_resolve_api_config_id(conversation, config);
+    let api_config_name = api_config_name_map
+        .get(&api_config_id)
+        .cloned()
+        .unwrap_or_else(|| if api_config_id.is_empty() { "未绑定配置".to_string() } else { api_config_id.clone() });
+    let model_name = api_config_model_map
+        .get(&api_config_id)
+        .cloned()
+        .unwrap_or_else(|| "未绑定模型".to_string());
+    let agent_name = agent_name_map
+        .get(&conversation.agent_id)
+        .cloned()
+        .unwrap_or_else(|| if conversation.agent_id.trim().is_empty() { "未绑定人格".to_string() } else { conversation.agent_id.clone() });
+    let department_name = department_name_map
+        .get(&conversation.department_id)
+        .cloned()
+        .unwrap_or_else(|| if conversation.department_id.trim().is_empty() { "未绑定部门".to_string() } else { conversation.department_id.clone() });
+    let (kind_key, kind_label) = usage_kind_key_and_label(conversation);
+    let usage_item = UsageConversationItem {
+        conversation_id: conversation.id.clone(),
+        title: conversation.title.clone(),
+        updated_at: conversation.updated_at.clone(),
+        archived_at: conversation.archived_at.clone(),
+        agent_id: conversation.agent_id.clone(),
+        agent_name: agent_name.clone(),
+        department_id: conversation.department_id.clone(),
+        department_name: department_name.clone(),
+        api_config_id: api_config_id.clone(),
+        api_config_name: api_config_name.clone(),
+        model_name: model_name.clone(),
+        conversation_kind: conversation.conversation_kind.clone(),
+        is_delegate,
+        is_system_notification_conversation: conversation_is_system_notification(conversation),
+        message_count: conversation.messages.len(),
+        weighted_tokens: weighted,
+        input_tokens: cumulative.input_tokens,
+        output_tokens: cumulative.output_tokens,
+        cache_read_tokens: cumulative.cache_read_tokens,
+        cache_write_tokens: cumulative.cache_write_tokens,
+    };
+    usage_aggregate_push(
+        by_model,
+        if model_name == "未绑定模型" { "unbound_model".to_string() } else { model_name.clone() },
+        model_name,
+        &usage_item,
+    );
+    usage_aggregate_push(
+        by_api_config,
+        if api_config_id.trim().is_empty() { "unbound_api_config".to_string() } else { api_config_id.clone() },
+        api_config_name,
+        &usage_item,
+    );
+    usage_aggregate_push(by_agent, usage_item.agent_id.clone(), agent_name, &usage_item);
+    usage_aggregate_push(
+        by_department,
+        if usage_item.department_id.trim().is_empty() { "unbound_department".to_string() } else { usage_item.department_id.clone() },
+        department_name,
+        &usage_item,
+    );
+    usage_aggregate_push(by_kind, kind_key, kind_label, &usage_item);
+    conversations.push(usage_item);
+}
+
+fn build_usage_overview(state: &AppState) -> Result<UsageOverview, String> {
+    let config = state_read_config_cached(state)?;
+    let runtime = state_read_agents_runtime_snapshot(state)?;
+    let chat_index = state_read_chat_index_cached(state)?;
+    let mut api_config_name_map = std::collections::HashMap::<String, String>::new();
+    let mut api_config_model_map = std::collections::HashMap::<String, String>::new();
+    for item in &config.api_configs {
+        api_config_name_map.insert(item.id.clone(), item.name.clone());
+        api_config_model_map.insert(item.id.clone(), item.model.clone());
+    }
+    let mut agent_name_map = std::collections::HashMap::<String, String>::new();
+    for agent in &runtime.agents {
+        agent_name_map.insert(agent.id.clone(), agent.name.clone());
+    }
+    let mut department_name_map = std::collections::HashMap::<String, String>::new();
+    for department in &config.departments {
+        department_name_map.insert(department.id.clone(), department.name.clone());
+    }
+
+    let mut totals = UsageOverviewTotals::default();
+
+    let mut conversations = Vec::<UsageConversationItem>::new();
+    let mut by_model = std::collections::HashMap::<String, UsageAggregateItem>::new();
+    let mut by_api_config = std::collections::HashMap::<String, UsageAggregateItem>::new();
+    let mut by_agent = std::collections::HashMap::<String, UsageAggregateItem>::new();
+    let mut by_department = std::collections::HashMap::<String, UsageAggregateItem>::new();
+    let mut by_kind = std::collections::HashMap::<String, UsageAggregateItem>::new();
+
+    for item in chat_index.conversations {
+        let conversation = match state_read_conversation_cached(state, &item.id) {
+            Ok(value) => value,
+            Err(_) => continue,
+        };
+        usage_push_conversation(
+            &conversation,
+            &config,
+            &api_config_name_map,
+            &api_config_model_map,
+            &agent_name_map,
+            &department_name_map,
+            &mut totals,
+            &mut conversations,
+            &mut by_model,
+            &mut by_api_config,
+            &mut by_agent,
+            &mut by_department,
+            &mut by_kind,
+        );
+    }
+
+    let mut seen_delegate_ids = std::collections::HashSet::<String>::new();
+    for thread in delegate_runtime_thread_list(state)? {
+        if !seen_delegate_ids.insert(thread.delegate_id.clone()) {
+            continue;
+        }
+        usage_push_conversation(
+            &thread.conversation,
+            &config,
+            &api_config_name_map,
+            &api_config_model_map,
+            &agent_name_map,
+            &department_name_map,
+            &mut totals,
+            &mut conversations,
+            &mut by_model,
+            &mut by_api_config,
+            &mut by_agent,
+            &mut by_department,
+            &mut by_kind,
+        );
+    }
+    for thread in delegate_recent_thread_list(state)? {
+        if !seen_delegate_ids.insert(thread.delegate_id.clone()) {
+            continue;
+        }
+        usage_push_conversation(
+            &thread.conversation,
+            &config,
+            &api_config_name_map,
+            &api_config_model_map,
+            &agent_name_map,
+            &department_name_map,
+            &mut totals,
+            &mut conversations,
+            &mut by_model,
+            &mut by_api_config,
+            &mut by_agent,
+            &mut by_department,
+            &mut by_kind,
+        );
+    }
+    for conversation in delegate_persisted_conversation_list(state)? {
+        let delegate_id = conversation
+            .delegate_id
+            .clone()
+            .unwrap_or_else(|| conversation.id.clone());
+        if !seen_delegate_ids.insert(delegate_id) {
+            continue;
+        }
+        usage_push_conversation(
+            &conversation,
+            &config,
+            &api_config_name_map,
+            &api_config_model_map,
+            &agent_name_map,
+            &department_name_map,
+            &mut totals,
+            &mut conversations,
+            &mut by_model,
+            &mut by_api_config,
+            &mut by_agent,
+            &mut by_department,
+            &mut by_kind,
+        );
+    }
+
+    conversations.sort_by(|left, right| {
+        right
+            .weighted_tokens
+            .cmp(&left.weighted_tokens)
+            .then_with(|| right.output_tokens.cmp(&left.output_tokens))
+            .then_with(|| right.updated_at.cmp(&left.updated_at))
+            .then_with(|| left.conversation_id.cmp(&right.conversation_id))
+    });
+
+    Ok(UsageOverview {
+        generated_at: now_iso(),
+        totals,
+        conversations,
+        by_model: usage_sort_aggregate_items(by_model),
+        by_api_config: usage_sort_aggregate_items(by_api_config),
+        by_agent: usage_sort_aggregate_items(by_agent),
+        by_department: usage_sort_aggregate_items(by_department),
+        by_kind: usage_sort_aggregate_items(by_kind),
+    })
+}
+
+#[tauri::command]
+fn get_usage_overview(state: State<'_, AppState>) -> Result<UsageOverview, String> {
+    build_usage_overview(&state)
 }
 
 fn storage_existing_directory_for_open(path: &PathBuf) -> Result<PathBuf, String> {

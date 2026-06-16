@@ -14,6 +14,7 @@ export type ConfigSearchTab =
   | "notification"
   | "networkAccess"
   | "remoteIm"
+  | "usage"
   | "memory"
   | "task"
   | "logs"
@@ -54,6 +55,7 @@ const CONFIG_SEARCH_SOURCES: ConfigSearchSource[] = [
   { tab: "notification", titleKey: "config.tabs.notification", titleFallback: "Notification", prefixes: ["config.notification"] },
   { tab: "networkAccess", titleKey: "config.tabs.networkAccess", titleFallback: "Network Access", prefixes: ["config.networkAccess"] },
   { tab: "remoteIm", titleKey: "config.tabs.remoteIm", titleFallback: "Contacts", prefixes: ["config.remoteIm"] },
+  { tab: "usage", titleKey: "config.tabs.usage", titleFallback: "Usage", prefixes: ["usage", "token", "config.usage"] },
   { tab: "memory", titleKey: "config.tabs.memory", titleFallback: "Memory", prefixes: ["config.memory", "memory"] },
   { tab: "task", titleKey: "config.tabs.task", titleFallback: "Task", prefixes: ["config.task"] },
   { tab: "logs", titleKey: "config.tabs.logs", titleFallback: "Logs", prefixes: ["config.logs"] },

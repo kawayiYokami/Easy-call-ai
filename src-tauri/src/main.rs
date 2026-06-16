@@ -889,6 +889,7 @@ fn main() {
             check_message_store_migration,
             run_message_store_migration,
             get_storage_usage_overview,
+            get_usage_overview,
             open_storage_usage_item_directory,
             cleanup_storage_legacy_items,
             load_app_bootstrap_snapshot,
