@@ -69,6 +69,87 @@ struct RuntimeLogBuffer {
     total_bytes: usize,
 }
 
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct MemoryConversationStat {
+    conversation_id: String,
+    title: String,
+    message_count: usize,
+    estimated_json_bytes: usize,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct MemoryCacheStats {
+    generated_at: String,
+    pid: u32,
+    cached_conversations: usize,
+    cached_conversations_message_count: usize,
+    cached_conversations_estimated_json_bytes: usize,
+    cached_conversation_metadata: usize,
+    cached_conversation_metadata_estimated_json_bytes: usize,
+    cached_chat_index_conversation_count: usize,
+    cached_chat_index_estimated_json_bytes: usize,
+    cached_app_data_loaded: bool,
+    cached_app_data_conversation_count: usize,
+    cached_app_data_image_text_cache_entries: usize,
+    cached_app_data_pdf_text_cache_entries: usize,
+    cached_app_data_pdf_image_cache_entries: usize,
+    cached_app_data_estimated_json_bytes: usize,
+    cached_conversation_dirty_ids: usize,
+    cached_deleted_conversation_ids: usize,
+    inflight_chat_abort_handles: usize,
+    inflight_tool_abort_handles: usize,
+    inflight_completed_tool_sessions: usize,
+    inflight_completed_tool_event_count: usize,
+    terminal_live_sessions: usize,
+    terminal_session_roots: usize,
+    terminal_pending_approvals: usize,
+    llm_round_logs: usize,
+    llm_round_logs_estimated_json_bytes: usize,
+    pending_chat_round_sessions: usize,
+    pending_chat_round_entries: usize,
+    pending_chat_round_estimated_json_bytes: usize,
+    conversation_runtime_slots: usize,
+    conversation_runtime_stream_block_count: usize,
+    pending_chat_result_senders: usize,
+    pending_chat_delta_channels: usize,
+    active_chat_view_bindings: usize,
+    conversation_list_activity_marks: usize,
+    delegate_runtime_threads: usize,
+    delegate_runtime_thread_message_count: usize,
+    delegate_runtime_threads_estimated_json_bytes: usize,
+    delegate_recent_threads: usize,
+    delegate_recent_thread_message_count: usize,
+    delegate_recent_threads_estimated_json_bytes: usize,
+    remote_im_contact_runtime_states: usize,
+    provider_streaming_disabled_keys: usize,
+    provider_system_message_user_fallback_keys: usize,
+    provider_request_gates: usize,
+    message_store_block_cache_entries: usize,
+    message_store_block_cache_message_count: usize,
+    message_store_block_cache_estimated_json_bytes: usize,
+    message_store_index_cache_entries: usize,
+    message_store_index_cache_item_count: usize,
+    message_store_index_cache_estimated_json_bytes: usize,
+    prompt_final_cache_entries: usize,
+    prompt_department_cache_entries: usize,
+    prompt_environment_cache_entries: usize,
+    abstract_message_projection_cache_entries: usize,
+    abstract_message_projection_message_count: usize,
+    screenshot_artifact_cache_entries: usize,
+    screenshot_artifact_image_count: usize,
+    tool_schema_cache_count: usize,
+    mcp_cached_clients: usize,
+    mcp_runtime_states: usize,
+    mcp_runtime_tool_count: usize,
+    ide_context_chat_clients: usize,
+    top_cached_conversations: Vec<MemoryConversationStat>,
+    top_metadata_conversations: Vec<MemoryConversationStat>,
+    top_delegate_runtime_threads: Vec<MemoryConversationStat>,
+    notes: Vec<String>,
+}
+
 fn runtime_log_buffer() -> &'static Mutex<RuntimeLogBuffer> {
     static RUNTIME_LOGS: OnceLock<Mutex<RuntimeLogBuffer>> = OnceLock::new();
     RUNTIME_LOGS.get_or_init(|| Mutex::new(RuntimeLogBuffer::default()))
@@ -1318,4 +1399,382 @@ fn append_runtime_log_probe(message: Option<String>) -> Result<bool, String> {
         .unwrap_or("运行日志窗口已打开");
     runtime_log_info(format!("[运行日志] {}", msg));
     Ok(true)
+}
+
+fn estimate_json_bytes<T: Serialize>(value: &T) -> usize {
+    serde_json::to_vec(value).map(|raw| raw.len()).unwrap_or(0)
+}
+
+fn build_memory_conversation_stats<'a, I>(items: I, limit: usize) -> Vec<MemoryConversationStat>
+where
+    I: IntoIterator<Item = &'a Conversation>,
+{
+    let mut stats = items
+        .into_iter()
+        .map(|conversation| MemoryConversationStat {
+            conversation_id: conversation.id.clone(),
+            title: conversation.title.clone(),
+            message_count: conversation.messages.len(),
+            estimated_json_bytes: estimate_json_bytes(conversation),
+        })
+        .collect::<Vec<_>>();
+    stats.sort_by(|a, b| {
+        b.estimated_json_bytes
+            .cmp(&a.estimated_json_bytes)
+            .then_with(|| b.message_count.cmp(&a.message_count))
+    });
+    stats.truncate(limit);
+    stats
+}
+
+#[tauri::command]
+fn dump_memory_cache_stats(state: State<'_, AppState>) -> Result<MemoryCacheStats, String> {
+    let cached_conversations = state
+        .cached_conversations
+        .lock()
+        .map_err(|_| "Failed to lock cached conversations".to_string())?;
+    let cached_conversations_count = cached_conversations.len();
+    let cached_conversations_message_count =
+        cached_conversations.values().map(|item| item.messages.len()).sum::<usize>();
+    let cached_conversations_estimated_json_bytes =
+        cached_conversations.values().map(estimate_json_bytes).sum::<usize>();
+    let top_cached_conversations =
+        build_memory_conversation_stats(cached_conversations.values(), 8);
+
+    let cached_conversation_metadata = state
+        .cached_conversation_metadata
+        .lock()
+        .map_err(|_| "Failed to lock cached conversation metadata".to_string())?;
+    let cached_conversation_metadata_count = cached_conversation_metadata.len();
+    let cached_conversation_metadata_estimated_json_bytes = cached_conversation_metadata
+        .values()
+        .map(estimate_json_bytes)
+        .sum::<usize>();
+    let top_metadata_conversations =
+        build_memory_conversation_stats(cached_conversation_metadata.values(), 5);
+
+    let cached_chat_index = state
+        .cached_chat_index
+        .lock()
+        .map_err(|_| "Failed to lock cached chat index".to_string())?;
+    let cached_chat_index_conversation_count = cached_chat_index
+        .as_ref()
+        .map(|item| item.conversations.len())
+        .unwrap_or(0);
+    let cached_chat_index_estimated_json_bytes = cached_chat_index
+        .as_ref()
+        .map(estimate_json_bytes)
+        .unwrap_or(0);
+
+    let cached_app_data = state
+        .cached_app_data
+        .lock()
+        .map_err(|_| "Failed to lock cached app data".to_string())?;
+    let cached_app_data_loaded = cached_app_data.is_some();
+    let cached_app_data_conversation_count = cached_app_data
+        .as_ref()
+        .map(|item| item.conversations.len())
+        .unwrap_or(0);
+    let cached_app_data_image_text_cache_entries = cached_app_data
+        .as_ref()
+        .map(|item| item.image_text_cache.len())
+        .unwrap_or(0);
+    let cached_app_data_pdf_text_cache_entries = cached_app_data
+        .as_ref()
+        .map(|item| item.pdf_text_cache.len())
+        .unwrap_or(0);
+    let cached_app_data_pdf_image_cache_entries = cached_app_data
+        .as_ref()
+        .map(|item| item.pdf_image_cache.len())
+        .unwrap_or(0);
+    let cached_app_data_estimated_json_bytes = cached_app_data
+        .as_ref()
+        .map(estimate_json_bytes)
+        .unwrap_or(0);
+
+    let cached_conversation_dirty_ids = state
+        .cached_conversation_dirty_ids
+        .lock()
+        .map_err(|_| "Failed to lock cached conversation dirty ids".to_string())?
+        .len();
+    let cached_deleted_conversation_ids = state
+        .cached_deleted_conversation_ids
+        .lock()
+        .map_err(|_| "Failed to lock cached deleted conversation ids".to_string())?
+        .len();
+    let inflight_chat_abort_handles = state
+        .inflight_chat_abort_handles
+        .lock()
+        .map_err(|_| "Failed to lock inflight chat abort handles".to_string())?
+        .len();
+    let inflight_tool_abort_handles = state
+        .inflight_tool_abort_handles
+        .lock()
+        .map_err(|_| "Failed to lock inflight tool abort handles".to_string())?
+        .len();
+
+    let inflight_completed_tool_history = state
+        .inflight_completed_tool_history
+        .lock()
+        .map_err(|_| "Failed to lock inflight completed tool history".to_string())?;
+    let inflight_completed_tool_sessions = inflight_completed_tool_history.len();
+    let inflight_completed_tool_event_count = inflight_completed_tool_history
+        .values()
+        .map(Vec::len)
+        .sum::<usize>();
+
+    let terminal_session_roots = state
+        .terminal_session_roots
+        .lock()
+        .map_err(|_| "Failed to lock terminal session roots".to_string())?
+        .len();
+    let terminal_pending_approvals = state
+        .terminal_pending_approvals
+        .lock()
+        .map_err(|_| "Failed to lock terminal pending approvals".to_string())?
+        .len();
+    let terminal_live_sessions = state.terminal_live_sessions.blocking_lock().len();
+
+    let llm_round_logs = state
+        .llm_round_logs
+        .lock()
+        .map_err(|_| "Failed to lock llm round logs".to_string())?;
+    let llm_round_logs_count = llm_round_logs.len();
+    let llm_round_logs_estimated_json_bytes = estimate_json_bytes(&*llm_round_logs);
+
+    let pending_chat_rounds = pending_chat_round_buffer()
+        .lock()
+        .map_err(|_| "Failed to lock pending chat rounds".to_string())?;
+    let pending_chat_round_sessions = pending_chat_rounds.rounds_by_chat_session.len();
+    let pending_chat_round_entries = pending_chat_rounds
+        .rounds_by_chat_session
+        .values()
+        .map(Vec::len)
+        .sum::<usize>();
+    let pending_chat_round_estimated_json_bytes =
+        estimate_json_bytes(&pending_chat_rounds.rounds_by_chat_session);
+
+    let conversation_runtime_slots = state
+        .conversation_runtime_slots
+        .lock()
+        .map_err(|_| "Failed to lock conversation runtime slots".to_string())?;
+    let conversation_runtime_slots_count = conversation_runtime_slots.len();
+    let conversation_runtime_stream_block_count = conversation_runtime_slots
+        .values()
+        .map(|item| item.stream_cache.stream_blocks.len())
+        .sum::<usize>();
+
+    let pending_chat_result_senders = state
+        .pending_chat_result_senders
+        .lock()
+        .map_err(|_| "Failed to lock pending chat result senders".to_string())?
+        .len();
+    let pending_chat_delta_channels = state
+        .pending_chat_delta_channels
+        .lock()
+        .map_err(|_| "Failed to lock pending chat delta channels".to_string())?
+        .len();
+    let active_chat_view_bindings = state
+        .active_chat_view_bindings
+        .lock()
+        .map_err(|_| "Failed to lock active chat view bindings".to_string())?
+        .len();
+    let conversation_list_activity_marks = state
+        .conversation_list_activity_marks
+        .lock()
+        .map_err(|_| "Failed to lock conversation list activity marks".to_string())?
+        .len();
+
+    let delegate_runtime_threads = state
+        .delegate_runtime_threads
+        .lock()
+        .map_err(|_| "Failed to lock delegate runtime threads".to_string())?;
+    let delegate_runtime_threads_count = delegate_runtime_threads.len();
+    let delegate_runtime_thread_message_count = delegate_runtime_threads
+        .values()
+        .map(|item| item.conversation.messages.len())
+        .sum::<usize>();
+    let delegate_runtime_threads_estimated_json_bytes =
+        delegate_runtime_threads.values().map(|item| estimate_json_bytes(&item.conversation)).sum();
+    let top_delegate_runtime_threads = build_memory_conversation_stats(
+        delegate_runtime_threads.values().map(|item| &item.conversation),
+        5,
+    );
+
+    let delegate_recent_threads = state
+        .delegate_recent_threads
+        .lock()
+        .map_err(|_| "Failed to lock delegate recent threads".to_string())?;
+    let delegate_recent_threads_count = delegate_recent_threads.len();
+    let delegate_recent_thread_message_count = delegate_recent_threads
+        .iter()
+        .map(|item| item.conversation.messages.len())
+        .sum::<usize>();
+    let delegate_recent_threads_estimated_json_bytes = delegate_recent_threads
+        .iter()
+        .map(|item| estimate_json_bytes(&item.conversation))
+        .sum::<usize>();
+
+    let remote_im_contact_runtime_states = state
+        .remote_im_contact_runtime_states
+        .lock()
+        .map_err(|_| "Failed to lock remote im contact runtime states".to_string())?
+        .len();
+    let provider_streaming_disabled_keys = state
+        .provider_streaming_disabled_keys
+        .lock()
+        .map_err(|_| "Failed to lock provider streaming disabled keys".to_string())?
+        .len();
+    let provider_system_message_user_fallback_keys = state
+        .provider_system_message_user_fallback_keys
+        .lock()
+        .map_err(|_| "Failed to lock provider system message fallback keys".to_string())?
+        .len();
+    let provider_request_gates = state.provider_request_gates.blocking_lock().len();
+
+    let (
+        message_store_block_cache_entries,
+        message_store_block_cache_message_count,
+        message_store_block_cache_estimated_json_bytes,
+    ) = message_store::message_store_block_file_cache_stats();
+
+    let (
+        message_store_index_cache_entries,
+        message_store_index_cache_item_count,
+        message_store_index_cache_estimated_json_bytes,
+    ) = message_store::message_store_index_cache_stats();
+
+    let prompt_final_cache_entries = system_prompt_text_cache()
+        .lock()
+        .map_err(|_| "Failed to lock final prompt cache".to_string())?
+        .len();
+    let prompt_department_cache_entries = department_system_prompt_cache()
+        .lock()
+        .map_err(|_| "Failed to lock department prompt cache".to_string())?
+        .len();
+    let prompt_environment_cache_entries = conversation_environment_prompt_cache()
+        .lock()
+        .map_err(|_| "Failed to lock environment prompt cache".to_string())?
+        .len();
+
+    let abstract_message_projection_cache = abstract_message_projection_cache()
+        .lock()
+        .map_err(|_| "Failed to lock abstract message projection cache".to_string())?;
+    let abstract_message_projection_cache_entries = abstract_message_projection_cache.len();
+    let abstract_message_projection_message_count = abstract_message_projection_cache
+        .values()
+        .map(|item| item.messages.len())
+        .sum::<usize>();
+
+    let screenshot_artifact_cache = screenshot_artifact_cache()
+        .lock()
+        .map_err(|_| "Failed to lock screenshot artifact cache".to_string())?;
+    let screenshot_artifact_cache_entries = screenshot_artifact_cache.len();
+    let screenshot_artifact_image_count = screenshot_artifact_cache
+        .values()
+        .map(|item| item.images.len())
+        .sum::<usize>();
+
+    let tool_schema_cache_count = tool_schema_cache_store()
+        .lock()
+        .map_err(|_| "Failed to lock tool schema cache".to_string())?
+        .as_ref()
+        .map(Vec::len)
+        .unwrap_or(0);
+
+    let mcp_cached_clients = mcp_client_cache().blocking_lock().len();
+    let mcp_runtime_state_store = mcp_runtime_state_store()
+        .lock()
+        .map_err(|_| "Failed to lock mcp runtime state store".to_string())?;
+    let mcp_runtime_states = mcp_runtime_state_store.len();
+    let mcp_runtime_tool_count = mcp_runtime_state_store
+        .values()
+        .map(|item| item.tools.len())
+        .sum::<usize>();
+
+    let ide_context_chat_clients = IDE_CONTEXT_CHAT_CLIENTS
+        .get()
+        .and_then(|clients| clients.lock().ok().map(|guard| guard.len()))
+        .unwrap_or(0);
+
+    let mut notes = Vec::<String>::new();
+    if cached_conversation_metadata_estimated_json_bytes > 0 {
+        notes.push("cached_conversation_metadata 当前存的是整份 Conversation，不是轻量 metadata。".to_string());
+    }
+    if cached_app_data_loaded && cached_app_data_conversation_count > 0 {
+        notes.push("cached_app_data.conversations 与 cached_conversations 都持有会话内容，存在重复驻留。".to_string());
+    }
+    if delegate_runtime_threads_count > 0 || delegate_recent_threads_count > 0 {
+        notes.push("delegate_runtime_threads / delegate_recent_threads 也各自带整份 Conversation。".to_string());
+    }
+
+    Ok(MemoryCacheStats {
+        generated_at: now_utc_rfc3339(),
+        pid: std::process::id(),
+        cached_conversations: cached_conversations_count,
+        cached_conversations_message_count,
+        cached_conversations_estimated_json_bytes,
+        cached_conversation_metadata: cached_conversation_metadata_count,
+        cached_conversation_metadata_estimated_json_bytes,
+        cached_chat_index_conversation_count,
+        cached_chat_index_estimated_json_bytes,
+        cached_app_data_loaded,
+        cached_app_data_conversation_count,
+        cached_app_data_image_text_cache_entries,
+        cached_app_data_pdf_text_cache_entries,
+        cached_app_data_pdf_image_cache_entries,
+        cached_app_data_estimated_json_bytes,
+        cached_conversation_dirty_ids,
+        cached_deleted_conversation_ids,
+        inflight_chat_abort_handles,
+        inflight_tool_abort_handles,
+        inflight_completed_tool_sessions,
+        inflight_completed_tool_event_count,
+        terminal_live_sessions,
+        terminal_session_roots,
+        terminal_pending_approvals,
+        llm_round_logs: llm_round_logs_count,
+        llm_round_logs_estimated_json_bytes,
+        pending_chat_round_sessions,
+        pending_chat_round_entries,
+        pending_chat_round_estimated_json_bytes,
+        conversation_runtime_slots: conversation_runtime_slots_count,
+        conversation_runtime_stream_block_count,
+        pending_chat_result_senders,
+        pending_chat_delta_channels,
+        active_chat_view_bindings,
+        conversation_list_activity_marks,
+        delegate_runtime_threads: delegate_runtime_threads_count,
+        delegate_runtime_thread_message_count,
+        delegate_runtime_threads_estimated_json_bytes,
+        delegate_recent_threads: delegate_recent_threads_count,
+        delegate_recent_thread_message_count,
+        delegate_recent_threads_estimated_json_bytes,
+        remote_im_contact_runtime_states,
+        provider_streaming_disabled_keys,
+        provider_system_message_user_fallback_keys,
+        provider_request_gates,
+        message_store_block_cache_entries,
+        message_store_block_cache_message_count,
+        message_store_block_cache_estimated_json_bytes,
+        message_store_index_cache_entries,
+        message_store_index_cache_item_count,
+        message_store_index_cache_estimated_json_bytes,
+        prompt_final_cache_entries,
+        prompt_department_cache_entries,
+        prompt_environment_cache_entries,
+        abstract_message_projection_cache_entries,
+        abstract_message_projection_message_count,
+        screenshot_artifact_cache_entries,
+        screenshot_artifact_image_count,
+        tool_schema_cache_count,
+        mcp_cached_clients,
+        mcp_runtime_states,
+        mcp_runtime_tool_count,
+        ide_context_chat_clients,
+        top_cached_conversations,
+        top_metadata_conversations,
+        top_delegate_runtime_threads,
+        notes,
+    })
 }

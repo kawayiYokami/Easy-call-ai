@@ -164,6 +164,25 @@ pub(super) fn forget_message_store_block_file_cache_paths(
     }
 }
 
+pub(super) fn message_store_block_file_cache_stats() -> (usize, usize, usize) {
+    let cache = lock_message_store_block_file_cache();
+    let entry_count = cache.len();
+    let message_count = cache
+        .values()
+        .map(|item| item.messages_by_id.len())
+        .sum::<usize>();
+    let estimated_json_bytes = cache
+        .values()
+        .map(|item| {
+            item.messages_by_id
+                .values()
+                .map(|message| serde_json::to_vec(message).map(|raw| raw.len()).unwrap_or(0))
+                .sum::<usize>()
+        })
+        .sum::<usize>();
+    (entry_count, message_count, estimated_json_bytes)
+}
+
 impl<'a> ConversationJsonMessageStore<'a> {
     fn new(conversation: &'a Conversation) -> Self {
         Self { conversation }

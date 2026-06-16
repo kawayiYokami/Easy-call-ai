@@ -1,5 +1,5 @@
 <template>
-  <div class="grid gap-3">
+  <div class="grid h-full gap-3 overflow-y-auto pr-1">
     <div class="card border border-base-300 bg-base-100">
       <div class="card-body gap-3 p-4">
         <div class="space-y-1">
@@ -53,6 +53,32 @@
             <RotateCcw class="size-4" aria-hidden="true" />
             {{ restarting ? t("config.demo.restarting") : t("config.demo.restartApp") }}
           </button>
+        </div>
+      </div>
+    </div>
+
+    <div class="card border border-base-300 bg-base-100">
+      <div class="card-body gap-3 p-4">
+        <div class="space-y-1">
+          <h3 class="card-title text-base">后端内存快照</h3>
+          <p class="text-sm text-base-content/70">
+            调用后端调试命令，查看会话缓存、message_store 缓存和其他长生命周期状态的占用概况。
+          </p>
+        </div>
+
+        <div class="flex flex-wrap items-center gap-3">
+          <button
+            type="button"
+            class="btn btn-secondary"
+            :disabled="loadingMemoryStats"
+            @click="loadMemoryStats"
+          >
+            {{ loadingMemoryStats ? "查询中..." : "查询后端内存" }}
+          </button>
+        </div>
+
+        <div v-if="memoryStatsText" class="mockup-code max-h-96 overflow-auto text-xs">
+          <pre class="whitespace-pre-wrap break-all"><code>{{ memoryStatsText }}</code></pre>
         </div>
       </div>
     </div>
@@ -122,8 +148,10 @@ type NativeNotificationDemoResult = {
 
 const sending = ref(false);
 const restarting = ref(false);
+const loadingMemoryStats = ref(false);
 const errorText = ref("");
 const resultText = ref("");
+const memoryStatsText = ref("");
 const { t } = useI18n();
 const demoDelegateStatuses = ref<ConversationDelegateStatusSummary[]>([
   createDemoDelegateStatus("demo-code-review", "示例：代码审查（pending）", 45000, 12, 15600, "apply_patch"),
@@ -170,6 +198,21 @@ async function restartApp() {
   } catch (error) {
     errorText.value = error instanceof Error ? error.message : String(error);
     restarting.value = false;
+  }
+}
+
+async function loadMemoryStats() {
+  loadingMemoryStats.value = true;
+  errorText.value = "";
+  memoryStatsText.value = "";
+
+  try {
+    const result = await invokeTauri<unknown>("dump_memory_cache_stats");
+    memoryStatsText.value = JSON.stringify(result, null, 2);
+  } catch (error) {
+    errorText.value = error instanceof Error ? error.message : String(error);
+  } finally {
+    loadingMemoryStats.value = false;
   }
 }
 

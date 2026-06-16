@@ -1051,6 +1051,7 @@ fn main() {
             list_runtime_logs_since,
             clear_recent_runtime_logs,
             append_runtime_log_probe,
+            dump_memory_cache_stats,
             remote_im_list_channels,
             remote_im_list_contacts,
             remote_im_update_contact_allow_send,

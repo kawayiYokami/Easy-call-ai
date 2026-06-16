@@ -157,6 +157,17 @@ fn forget_message_store_index_cache(path: &PathBuf) {
     lock_message_store_index_cache().remove(path);
 }
 
+pub(super) fn message_store_index_cache_stats() -> (usize, usize, usize) {
+    let cache = lock_message_store_index_cache();
+    let entry_count = cache.len();
+    let item_count = cache.values().map(|item| item.index.items.len()).sum::<usize>();
+    let estimated_json_bytes = cache
+        .values()
+        .map(|item| serde_json::to_vec(&*item.index).map(|raw| raw.len()).unwrap_or(0))
+        .sum::<usize>();
+    (entry_count, item_count, estimated_json_bytes)
+}
+
 fn validate_message_store_index_file(
     path: &PathBuf,
     index: &MessageStoreIndexFile,
