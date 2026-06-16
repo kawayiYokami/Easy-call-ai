@@ -550,7 +550,6 @@ export function useArchivesView(options: UseArchivesViewOptions) {
         unarchivedHasPrevBlock.value = false;
         unarchivedHasNextBlock.value = false;
       }
-      await loadArchives();
       return result;
     } catch (e) {
       options.setStatusError("status.deleteUnarchivedConversationFailed", e);
