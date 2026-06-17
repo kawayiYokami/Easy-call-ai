@@ -483,6 +483,7 @@ const props = defineProps<{
   checkingUpdate: boolean;
   hasAvailableUpdate: boolean;
   saveConfigAction: () => Promise<boolean> | boolean;
+  updateRecordHotkeyAction: (value: string) => Promise<boolean> | boolean;
   restoreConfigAction: () => boolean;
   lastSavedConfigJson: string;
   setStatusAction: (text: string) => void;
@@ -724,7 +725,7 @@ function closeCropDialog() {
 async function onRecordHotkeyChanged(value: string) {
   const next = String(value || "").trim();
   if (props.config.recordHotkey === next) return;
-  props.config.recordHotkey = next;
+  await Promise.resolve(props.updateRecordHotkeyAction(next));
 }
 
 function onRecordBackgroundWakeChanged(value: boolean) {

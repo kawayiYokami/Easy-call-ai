@@ -5,6 +5,7 @@ import type {
   AppConfig,
   ChatSettings,
   ChatSettingsPatch,
+  RecordHotkeyUpdateResult,
   CodexAuthMode,
   ConversationApiSettings,
   ConversationApiSettingsPatch,
@@ -592,6 +593,40 @@ export function useConfigPersistence(options: UseConfigPersistenceOptions) {
     options.setStatus(options.t("status.hotkeyUpdated", { hotkey }));
   }
 
+  async function updateRecordHotkey(value: string) {
+    const next = String(value || "").trim();
+    const current = String(options.config.recordHotkey || "").trim();
+    if (next === current) return true;
+    options.saving.value = true;
+    try {
+      const saved = await invokeTauri<RecordHotkeyUpdateResult>("update_record_hotkey", {
+        input: {
+          recordHotkey: next,
+        },
+      });
+      options.config.recordHotkey = String(saved.recordHotkey || "");
+      options.config.recordBackgroundWakeEnabled = !!saved.recordBackgroundWakeEnabled;
+      const normalizedConfigNumbers = normalizeConfigNumberFields(
+        saved.minRecordSeconds,
+        saved.maxRecordSeconds,
+        {
+          minRecordSeconds: options.config.minRecordSeconds,
+          maxRecordSeconds: options.config.maxRecordSeconds,
+        },
+      );
+      options.config.minRecordSeconds = normalizedConfigNumbers.minRecordSeconds;
+      options.config.maxRecordSeconds = normalizedConfigNumbers.maxRecordSeconds;
+      options.lastSavedConfigJson.value = options.buildConfigSnapshotJson();
+      options.setStatus(options.t("status.configSaved"));
+      return true;
+    } catch (error) {
+      options.setStatus(options.t("status.saveConfigFailed", { err: String(error ?? "unknown") }));
+      return false;
+    } finally {
+      options.saving.value = false;
+    }
+  }
+
   async function loadPersonas() {
     options.suppressAutosave.value = true;
     try {
@@ -889,6 +924,7 @@ export function useConfigPersistence(options: UseConfigPersistenceOptions) {
     loadBootstrapSnapshot,
     saveConfig,
     captureHotkey,
+    updateRecordHotkey,
     loadPersonas,
     loadChatSettings,
     savePersonas,

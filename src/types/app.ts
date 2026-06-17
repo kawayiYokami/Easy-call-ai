@@ -302,6 +302,13 @@ export type AppConfig = {
   apiConfigs: ApiConfigItem[];
 };
 
+export type RecordHotkeyUpdateResult = {
+  recordHotkey: string;
+  recordBackgroundWakeEnabled: boolean;
+  minRecordSeconds: number;
+  maxRecordSeconds: number;
+};
+
 export type RemoteImPlatform = "feishu" | "dingtalk" | "onebot_v11" | "weixin_oc";
 
 export type RemoteImChannelConfig = {

@@ -251,6 +251,7 @@
       :refresh-models="refreshModels"
       :on-tools-changed="handleToolsChanged"
       :save-config="saveConfig"
+      :update-record-hotkey="updateRecordHotkey"
       :restore-config="restoreLastSavedConfigSnapshot"
       :add-api-config="addApiConfig"
       :remove-selected-api-config="removeSelectedApiConfig"

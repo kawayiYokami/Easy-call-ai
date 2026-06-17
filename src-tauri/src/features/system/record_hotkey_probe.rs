@@ -20,6 +20,10 @@ static CHAT_WINDOW_ACTIVE: std::sync::OnceLock<std::sync::atomic::AtomicBool> =
 #[cfg(any(target_os = "windows", target_os = "macos", target_os = "linux"))]
 static RECORD_HOTKEY_PROBE_STATE: std::sync::OnceLock<std::sync::Arc<std::sync::Mutex<RecordHotkeyProbeState>>> =
     std::sync::OnceLock::new();
+#[cfg(any(target_os = "windows", target_os = "macos", target_os = "linux"))]
+static RECORD_HOTKEY_PROBE_PARSED: std::sync::OnceLock<
+    std::sync::Arc<std::sync::Mutex<Option<ParsedRecordHotkey>>>,
+> = std::sync::OnceLock::new();
 
 fn handle_global_shortcut_probe(app: &AppHandle, shortcut: &Shortcut, state: ShortcutState) {
     if state != ShortcutState::Pressed {
@@ -87,6 +91,65 @@ fn parse_record_hotkey(raw: &str) -> Option<ParsedRecordHotkey> {
         modifiers,
         main: main?,
     })
+}
+
+#[cfg(any(target_os = "windows", target_os = "macos", target_os = "linux"))]
+fn record_hotkey_modifier_display(token: &str) -> &'static str {
+    match token {
+        "CTRL" => "Ctrl",
+        "ALT" => "Alt",
+        "SHIFT" => "Shift",
+        "META" => "Meta",
+        _ => "",
+    }
+}
+
+#[cfg(any(target_os = "windows", target_os = "macos", target_os = "linux"))]
+fn record_hotkey_main_display(token: &str) -> String {
+    match token {
+        "CTRL" | "ALT" | "SHIFT" | "META" => record_hotkey_modifier_display(token).to_string(),
+        "SPACE" => "Space".to_string(),
+        "ENTER" => "Enter".to_string(),
+        "TAB" => "Tab".to_string(),
+        other => other.to_string(),
+    }
+}
+
+#[cfg(any(target_os = "windows", target_os = "macos", target_os = "linux"))]
+fn normalize_record_hotkey_label(raw: &str) -> Result<String, String> {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return Ok(String::new());
+    }
+    let parsed = parse_record_hotkey(trimmed)
+        .ok_or_else(|| format!("录音热键格式无效：{trimmed}"))?;
+    if parsed.modifiers.len() == 1 && parsed.modifiers.contains(&parsed.main) {
+        return Ok(record_hotkey_main_display(&parsed.main));
+    }
+    let mut parts: Vec<String> = Vec::new();
+    for token in ["CTRL", "ALT", "SHIFT", "META"] {
+        if parsed.modifiers.contains(token) {
+            parts.push(record_hotkey_modifier_display(token).to_string());
+        }
+    }
+    parts.push(record_hotkey_main_display(&parsed.main));
+    Ok(parts.join("+"))
+}
+
+#[cfg(any(target_os = "windows", target_os = "macos", target_os = "linux"))]
+fn record_hotkey_signature(raw: &str) -> Option<String> {
+    let parsed = parse_record_hotkey(raw)?;
+    if parsed.modifiers.len() == 1 && parsed.modifiers.contains(&parsed.main) {
+        return Some(parsed.main);
+    }
+    let mut parts: Vec<String> = Vec::new();
+    for token in ["CTRL", "ALT", "SHIFT", "META"] {
+        if parsed.modifiers.contains(token) {
+            parts.push(token.to_string());
+        }
+    }
+    parts.push(parsed.main);
+    Some(parts.join("+"))
 }
 
 #[cfg(any(target_os = "windows", target_os = "macos", target_os = "linux"))]
@@ -247,6 +310,27 @@ fn reset_record_hotkey_probe_state() {
 }
 
 #[cfg(any(target_os = "windows", target_os = "macos", target_os = "linux"))]
+fn set_record_hotkey_probe_hotkey(raw_hotkey: &str) -> Result<(), String> {
+    let parsed = if raw_hotkey.trim().is_empty() {
+        None
+    } else {
+        Some(
+            parse_record_hotkey(raw_hotkey)
+                .ok_or_else(|| format!("Parse record hotkey failed: {}", raw_hotkey.trim()))?,
+        )
+    };
+    let parsed_slot = RECORD_HOTKEY_PROBE_PARSED
+        .get_or_init(|| std::sync::Arc::new(std::sync::Mutex::new(None)));
+    let mut slot = parsed_slot
+        .lock()
+        .map_err(|_| "Lock record hotkey parsed state failed".to_string())?;
+    *slot = parsed;
+    drop(slot);
+    reset_record_hotkey_probe_state();
+    Ok(())
+}
+
+#[cfg(any(target_os = "windows", target_os = "macos", target_os = "linux"))]
 fn set_record_hotkey_probe_chat_window_active(active: bool) {
     let flag = CHAT_WINDOW_ACTIVE.get_or_init(|| std::sync::atomic::AtomicBool::new(false));
     let previous = flag.swap(active, std::sync::atomic::Ordering::AcqRel);
@@ -279,22 +363,19 @@ fn start_record_hotkey_probe(app: AppHandle, config_path: std::path::PathBuf) ->
 
     let config = read_config(&config_path).unwrap_or_default();
     set_record_hotkey_probe_background_wake_enabled(config.record_background_wake_enabled);
-    let parsed = match parse_record_hotkey(&config.record_hotkey) {
-        Some(parsed) => parsed,
-        None if config.record_hotkey.trim().is_empty() => {
-            started.store(false, std::sync::atomic::Ordering::Release);
-            return Ok(());
-        }
-        None => {
-            started.store(false, std::sync::atomic::Ordering::Release);
-            return Err(format!(
-                "Parse record hotkey failed: {}",
-                config.record_hotkey
-            ));
-        }
-    };
+    if let Err(err) = set_record_hotkey_probe_hotkey(&config.record_hotkey) {
+        started.store(false, std::sync::atomic::Ordering::Release);
+        return Err(err);
+    }
+    if config.record_hotkey.trim().is_empty() {
+        started.store(false, std::sync::atomic::Ordering::Release);
+        return Ok(());
+    }
     let state = std::sync::Arc::new(std::sync::Mutex::new(RecordHotkeyProbeState::default()));
     let _ = RECORD_HOTKEY_PROBE_STATE.set(state.clone());
+    let parsed_state = RECORD_HOTKEY_PROBE_PARSED
+        .get_or_init(|| std::sync::Arc::new(std::sync::Mutex::new(None)))
+        .clone();
     set_record_hotkey_probe_chat_window_active(false);
 
     std::thread::spawn(move || {
@@ -308,6 +389,15 @@ fn start_record_hotkey_probe(app: AppHandle, config_path: std::path::PathBuf) ->
                     return;
                 }
                 let Some(token) = token_from_key(key) else {
+                    return;
+                };
+                let parsed = {
+                    let Ok(slot) = parsed_state.lock() else {
+                        return;
+                    };
+                    slot.clone()
+                };
+                let Some(parsed) = parsed else {
                     return;
                 };
                 let Ok(mut state) = state_for_callback.lock() else {
@@ -331,6 +421,15 @@ fn start_record_hotkey_probe(app: AppHandle, config_path: std::path::PathBuf) ->
             }
             rdev::EventType::KeyRelease(key) => {
                 let Some(token) = token_from_key(key) else {
+                    return;
+                };
+                let parsed = {
+                    let Ok(slot) = parsed_state.lock() else {
+                        return;
+                    };
+                    slot.clone()
+                };
+                let Some(parsed) = parsed else {
                     return;
                 };
                 let mut should_emit_release = false;
@@ -368,3 +467,8 @@ fn set_record_hotkey_probe_background_wake_enabled(_enabled: bool) {}
 
 #[cfg(not(any(target_os = "windows", target_os = "macos", target_os = "linux")))]
 fn set_record_hotkey_probe_chat_window_active(_active: bool) {}
+
+#[cfg(not(any(target_os = "windows", target_os = "macos", target_os = "linux")))]
+fn set_record_hotkey_probe_hotkey(_raw_hotkey: &str) -> Result<(), String> {
+    Ok(())
+}

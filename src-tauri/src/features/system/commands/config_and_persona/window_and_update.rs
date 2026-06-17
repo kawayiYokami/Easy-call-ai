@@ -43,6 +43,21 @@ struct WebviewZoomUpdatedPayload {
     percent: u32,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct UpdateRecordHotkeyInput {
+    record_hotkey: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct RecordHotkeyUpdateResult {
+    record_hotkey: String,
+    record_background_wake_enabled: bool,
+    min_record_seconds: u32,
+    max_record_seconds: u32,
+}
+
 #[derive(Debug, Clone)]
 struct ChatSidePanelWindowSnapshot {
     y: i32,
@@ -682,6 +697,67 @@ fn list_system_fonts() -> Result<Vec<String>, String> {
     families.sort_by_key(|name| name.to_ascii_lowercase());
     families.dedup_by(|a, b| a.eq_ignore_ascii_case(b));
     Ok(families)
+}
+
+fn validate_record_hotkey_available(config: &AppConfig) -> Result<String, String> {
+    let normalized = normalize_record_hotkey_label(&config.record_hotkey)?;
+    if normalized.is_empty() {
+        return Ok(normalized);
+    }
+    let record_signature = record_hotkey_signature(&normalized)
+        .ok_or_else(|| format!("录音热键格式无效：{}", normalized))?;
+    let summon_signature = record_hotkey_signature(&config.hotkey);
+    if summon_signature.as_deref() == Some(record_signature.as_str()) {
+        return Err(format!(
+            "录音热键 {} 不能与呼唤热键 {} 相同。",
+            normalized, config.hotkey
+        ));
+    }
+    Ok(normalized)
+}
+
+#[tauri::command]
+fn update_record_hotkey(
+    input: UpdateRecordHotkeyInput,
+    app: AppHandle,
+    state: State<'_, AppState>,
+) -> Result<RecordHotkeyUpdateResult, String> {
+    let mut config = state_read_config_cached(&state)?;
+    normalize_app_config(&mut config);
+    let candidate = input.record_hotkey.trim();
+    if config.record_hotkey.trim() == candidate {
+        let normalized = normalize_record_hotkey_label(&config.record_hotkey)?;
+        if normalized != config.record_hotkey {
+            config.record_hotkey = normalized.clone();
+            state_write_config_cached(&state, &config)?;
+            let data = state_read_agents_runtime_snapshot(&state)?;
+            let runtime_config = runtime_config_with_private_organization(&state, &config, &data)?;
+            let _ = app.emit("easy-call:config-updated", &runtime_config);
+        }
+        return Ok(RecordHotkeyUpdateResult {
+            record_hotkey: config.record_hotkey.clone(),
+            record_background_wake_enabled: config.record_background_wake_enabled,
+            min_record_seconds: config.min_record_seconds,
+            max_record_seconds: config.max_record_seconds,
+        });
+    }
+    let normalized = {
+        let mut next = config.clone();
+        next.record_hotkey = candidate.to_string();
+        validate_record_hotkey_available(&next)?
+    };
+    config.record_hotkey = normalized.clone();
+    state_write_config_cached(&state, &config)?;
+    set_record_hotkey_probe_hotkey(&normalized)?;
+    let data = state_read_agents_runtime_snapshot(&state)?;
+    let runtime_config = runtime_config_with_private_organization(&state, &config, &data)?;
+    let _ = app.emit("easy-call:config-updated", &runtime_config);
+    Ok(RecordHotkeyUpdateResult {
+        record_hotkey: normalized,
+        record_background_wake_enabled: config.record_background_wake_enabled,
+        min_record_seconds: config.min_record_seconds,
+        max_record_seconds: config.max_record_seconds,
+    })
 }
 
 #[tauri::command]

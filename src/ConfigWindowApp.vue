@@ -97,6 +97,7 @@
         :checking-update="checkingUpdate"
         :has-available-update="hasAvailableUpdate"
         :save-config-action="saveConfig"
+        :update-record-hotkey-action="updateRecordHotkey"
         :restore-config-action="restoreLastSavedConfigSnapshot"
         :last-saved-config-json="lastSavedConfigJson"
         :set-status-action="setStatus"
@@ -621,6 +622,7 @@ const {
   loadBootstrapSnapshot,
   saveConfig,
   captureHotkey,
+  updateRecordHotkey,
   loadPersonas,
   savePersonas,
   patchChatSettings,
