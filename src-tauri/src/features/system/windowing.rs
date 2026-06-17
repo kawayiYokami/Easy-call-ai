@@ -102,6 +102,13 @@ fn minimum_window_size(label: &str) -> (u32, u32) {
     }
 }
 
+fn restore_window_minimum_size(label: &str) -> (u32, u32) {
+    match label {
+        "main" => (600_u32, 600_u32),
+        _ => minimum_window_size(label),
+    }
+}
+
 fn is_fixed_window_size(label: &str) -> bool {
     matches!(label, "quick-setup")
 }
@@ -507,6 +514,7 @@ fn resolved_window_size_for_monitor(
 ) -> (u32, u32) {
     let (default_width, default_height) = default_window_size_for_monitor(label, monitor);
     let (min_width, min_height) = minimum_window_size(label);
+    let (restore_min_width, restore_min_height) = restore_window_minimum_size(label);
     let monitor_logical = monitor_logical_size(monitor);
     let max_width = monitor_logical.width.max(1.0).round() as u32;
     let max_height = monitor_logical.height.max(1.0).round() as u32;
@@ -522,9 +530,11 @@ fn resolved_window_size_for_monitor(
     };
     (
         target_width
+            .max(restore_min_width.min(max_width))
             .max(min_width.min(max_width))
             .min(max_width),
         target_height
+            .max(restore_min_height.min(max_height))
             .max(min_height.min(max_height))
             .min(max_height),
     )
@@ -736,9 +746,10 @@ fn apply_window_layout_before_show(app: &AppHandle, label: &str) -> Result<(), S
         } else {
             if !matches!(label, "chat" | "archives") {
                 if let (Some(width), Some(height)) = (saved.width, saved.height) {
+                    let (restore_min_width, restore_min_height) = restore_window_minimum_size(label);
                     let _ = window.set_size(tauri::Size::Logical(tauri::LogicalSize::new(
-                        width as f64,
-                        height as f64,
+                        width.max(restore_min_width) as f64,
+                        height.max(restore_min_height) as f64,
                     )));
                 }
             } else {
