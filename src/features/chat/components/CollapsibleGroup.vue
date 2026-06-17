@@ -6,6 +6,7 @@
       class="group/section sticky top-0 z-20 mx-1 flex h-9 items-center gap-2 rounded-lg bg-base-200/95 px-2 text-left text-xs font-semibold text-base-content backdrop-blur transition-colors hover:bg-base-300/70"
       :title="title"
       @click="toggle"
+      @contextmenu.stop.prevent="collapseAll"
       @dblclick.stop.prevent="collapseAll"
       @keydown.enter.prevent="toggle"
       @keydown.space.prevent="toggle"
