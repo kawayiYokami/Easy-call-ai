@@ -48,8 +48,8 @@ export function supportsMultimodalRouting(
 }
 
 export function supportsMultimodalCapabilityToggles(
-  requestFormat: ApiRequestFormat | string | undefined,
+  _requestFormat: ApiRequestFormat | string | undefined,
   modelName: unknown,
 ): boolean {
-  return supportsMultimodalRouting(requestFormat ?? "auto", modelName);
+  return detectMultimodalModelFamily(modelName) !== null;
 }
