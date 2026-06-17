@@ -666,7 +666,7 @@ function findQuickLlmConfig() {
 
 function isUsableTextLlmConfig(api: AppConfig["apiConfigs"][number]): boolean {
   return !!api.enableText
-    && !["openai_stt", "openai_embedding", "openai_rerank", "gemini_embedding"].includes(api.requestFormat)
+    && !["openai_stt", "mimo_asr", "openai_embedding", "openai_rerank", "gemini_embedding"].includes(api.requestFormat)
     && !!String(api.baseUrl || "").trim()
     && !!String(api.apiKey || "").trim()
     && !!String(api.model || "").trim();
@@ -966,10 +966,10 @@ function upsertProvider(draft: AdvancedDraft, stableIds?: { providerId: string; 
     name: draft.name.trim(),
     requestFormat: normalizeApiRequestFormat(draft.requestFormat),
     allowConcurrentRequests: true,
-    enableText: draft.requestFormat !== "openai_stt" && draft.requestFormat !== "openai_embedding" && draft.requestFormat !== "openai_rerank" && draft.requestFormat !== "gemini_embedding",
-    enableImage: draft.requestFormat !== "openai_stt" && draft.requestFormat !== "openai_embedding" && draft.requestFormat !== "openai_rerank" && draft.requestFormat !== "gemini_embedding",
-    enableAudio: draft.requestFormat === "openai_stt",
-    enableTools: draft.requestFormat !== "openai_stt" && draft.requestFormat !== "openai_embedding" && draft.requestFormat !== "openai_rerank" && draft.requestFormat !== "gemini_embedding",
+    enableText: draft.requestFormat !== "openai_stt" && draft.requestFormat !== "mimo_asr" && draft.requestFormat !== "openai_embedding" && draft.requestFormat !== "openai_rerank" && draft.requestFormat !== "gemini_embedding",
+    enableImage: draft.requestFormat !== "openai_stt" && draft.requestFormat !== "mimo_asr" && draft.requestFormat !== "openai_embedding" && draft.requestFormat !== "openai_rerank" && draft.requestFormat !== "gemini_embedding",
+    enableAudio: draft.requestFormat === "openai_stt" || draft.requestFormat === "mimo_asr",
+    enableTools: draft.requestFormat !== "openai_stt" && draft.requestFormat !== "mimo_asr" && draft.requestFormat !== "openai_embedding" && draft.requestFormat !== "openai_rerank" && draft.requestFormat !== "gemini_embedding",
     tools: defaultToolBindings(),
     baseUrl: draft.baseUrl.trim(),
     codexAuthMode: "read_local",
@@ -980,8 +980,8 @@ function upsertProvider(draft: AdvancedDraft, stableIds?: { providerId: string; 
     models: [{
       id: modelId,
       model: draft.model.trim(),
-      enableImage: draft.requestFormat !== "openai_stt" && draft.requestFormat !== "openai_embedding" && draft.requestFormat !== "openai_rerank" && draft.requestFormat !== "gemini_embedding",
-      enableTools: draft.requestFormat !== "openai_stt" && draft.requestFormat !== "openai_embedding" && draft.requestFormat !== "openai_rerank" && draft.requestFormat !== "gemini_embedding",
+      enableImage: draft.requestFormat !== "openai_stt" && draft.requestFormat !== "mimo_asr" && draft.requestFormat !== "openai_embedding" && draft.requestFormat !== "openai_rerank" && draft.requestFormat !== "gemini_embedding",
+      enableTools: draft.requestFormat !== "openai_stt" && draft.requestFormat !== "mimo_asr" && draft.requestFormat !== "openai_embedding" && draft.requestFormat !== "openai_rerank" && draft.requestFormat !== "gemini_embedding",
       reasoningEffort: "medium",
       temperature: 1,
       customTemperatureEnabled: false,

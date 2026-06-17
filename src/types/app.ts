@@ -28,6 +28,7 @@ export type ApiRequestFormat =
   | "bedrock_api"
   | "openai_tts"
   | "openai_stt"
+  | "mimo_asr"
   | "openai_embedding"
   | "openai_rerank"
   | "gemini_embedding";

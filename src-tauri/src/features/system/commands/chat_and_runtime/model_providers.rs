@@ -285,6 +285,13 @@ fn model_refresh_strategies(input: &RefreshModelsInput) -> Vec<ModelRefreshStrat
         RequestFormat::Codex => {
             push_unique_refresh_strategy(&mut strategies, ModelRefreshStrategy::CodexBuiltin);
         }
+        RequestFormat::MimoAsr => {
+            push_unique_refresh_strategy(
+                &mut strategies,
+                ModelRefreshStrategy::GenaiAdapter(genai::adapter::AdapterKind::Mimo),
+            );
+            push_unique_refresh_strategy(&mut strategies, ModelRefreshStrategy::OpenAi);
+        }
         RequestFormat::Baidu | RequestFormat::BedrockApi | RequestFormat::OpenCodeGo => {
             if let Some(adapter_kind) = input.request_format.genai_adapter_kind() {
                 push_unique_refresh_strategy(&mut strategies, ModelRefreshStrategy::GenaiAdapter(adapter_kind));
@@ -568,7 +575,9 @@ async fn refresh_models_inner(
             for strategy in model_refresh_strategies(&input) {
                 match fetch_models_with_strategy(&input, strategy).await {
                     Ok(models) => return Ok(models),
-                    Err(err) => errors.push(format!("{strategy:?}: {err}")),
+                    Err(err) => {
+                        errors.push(format!("{strategy:?}: {err}"));
+                    }
                 }
             }
             Err(format!("Refresh model list failed: {}", errors.join(" | ")))

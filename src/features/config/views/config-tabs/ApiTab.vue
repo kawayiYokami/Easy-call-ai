@@ -599,6 +599,7 @@ const protocolOptionsByCapability: Record<ApiCapability, ProtocolOption[]> = {
   ],
   voice: [
     { value: "openai_stt", label: "OpenAI STT" },
+    { value: "mimo_asr", label: "MiMo ASR" },
     { value: "openai_tts", label: "OpenAI TTS" },
   ],
   embedding: [
@@ -611,13 +612,15 @@ const protocolOptionsByCapability: Record<ApiCapability, ProtocolOption[]> = {
 };
 const capabilityDefaultProtocol: Record<ApiCapability, ApiRequestFormat> = {
   text: "auto",
-  voice: "openai_stt",
+  voice: "mimo_asr",
   embedding: "openai_embedding",
   rerank: "openai_rerank",
 };
 
 const providerPresets: ProviderPreset[] = [
   { id: "openai-official", name: "OpenAI", category: "official", urls: { auto: "https://api.openai.com/v1", openai: "https://api.openai.com/v1", openai_responses: "https://api.openai.com/v1", openai_stt: "https://api.openai.com/v1", openai_tts: "https://api.openai.com/v1/audio/speech", openai_embedding: "https://api.openai.com/v1", openai_rerank: "https://api.openai.com/v1" }, docsUrl: "https://platform.openai.com/docs/overview" },
+  { id: "xiaomi-mimo", name: "Xiaomi MiMo", category: "domestic", urls: { mimo: "https://api.xiaomimimo.com/v1", mimo_asr: "https://api.xiaomimimo.com/v1" }, docsUrl: "https://mimo.mi.com/docs/zh-CN/quick-start/usage-guide/audio/Speech-Recognition" },
+  { id: "xiaomi-mimo-token-plan", name: "Xiaomi MiMo Token Plan", category: "domestic", urls: { mimo: "https://token-plan-cn.xiaomimimo.com/v1", mimo_asr: "https://token-plan-cn.xiaomimimo.com/v1" }, docsUrl: "https://mimo.mi.com/docs/zh-CN/tokenplan/quick-access" },
   { id: "openai-codex", name: "OpenAI Codex", category: "official", urls: { codex: DEFAULT_CODEX_BASE_URL }, docsUrl: "https://chatgpt.com" },
   { id: "anthropic-official", name: "Anthropic", category: "official", urls: { anthropic: "https://api.anthropic.com" }, docsUrl: "https://docs.anthropic.com/en/api/overview" },
   { id: "google-gemini", name: "Google Gemini", category: "official", urls: { gemini: "https://generativelanguage.googleapis.com", gemini_embedding: "https://generativelanguage.googleapis.com" }, docsUrl: "https://ai.google.dev/gemini-api/docs", hasFreeQuota: true },
@@ -874,7 +877,7 @@ function setDeepSeekReasoningEffort(modelCard: ApiModelConfigItem, value: string
 
 function capabilityFromRequestFormat(format: ApiRequestFormat | string): ApiCapability {
   const normalized = String(format || "").trim().toLowerCase();
-  if (normalized === "openai_stt" || normalized === "openai_tts" || normalized === "stt" || normalized === "tts") {
+  if (normalized === "openai_stt" || normalized === "mimo_asr" || normalized === "openai_tts" || normalized === "stt" || normalized === "tts") {
     return "voice";
   }
   if (normalized === "openai_rerank" || normalized === "rerank") {

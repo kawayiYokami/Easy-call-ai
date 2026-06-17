@@ -195,7 +195,7 @@ function firstMultimodalTextModel(apiConfigs: ApiConfigItem[]) {
 }
 
 function firstSttModel(apiConfigs: ApiConfigItem[]) {
-  return apiConfigs.find((item) => item.requestFormat === "openai_stt");
+  return apiConfigs.find((item) => item.requestFormat === "openai_stt" || item.requestFormat === "mimo_asr");
 }
 
 function firstEmbeddingModel(apiConfigs: ApiConfigItem[]) {

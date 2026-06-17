@@ -16,6 +16,7 @@ export function useChatWindowMediaOrchestrator(bindings: Record<string, any>) {
     stopRecording: stopSpeechRecording,
     prewarmMicrophone,
     cleanup: cleanupSpeechRecording,
+    blobToWavBase64,
   } = useSpeechRecording({
     t: bindings.tr,
     canStart: () => !bindings.chatting.value && !bindings.trimming.value,
@@ -23,6 +24,22 @@ export function useChatWindowMediaOrchestrator(bindings: Record<string, any>) {
     getMinRecordSeconds: () => bindings.config.minRecordSeconds,
     getMaxRecordSeconds: () => bindings.config.maxRecordSeconds,
     shouldUseRemoteStt: () => bindings.shouldUseRemoteStt.value,
+    prepareRemoteAudio: async (blob: Blob) => {
+      const requestFormat = String(bindings.activeSttApiConfig.value?.requestFormat || "").trim();
+      if (requestFormat !== "mimo_asr") {
+        const dataUrl = await new Promise<string>((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve(String(reader.result || ""));
+          reader.onerror = () => reject(reader.error);
+          reader.readAsDataURL(blob);
+        });
+        return {
+          mime: blob.type || "audio/webm",
+          bytesBase64: dataUrl.includes(",") ? dataUrl.split(",")[1] : "",
+        };
+      }
+      return await blobToWavBase64(blob);
+    },
     transcribeRemoteStt: async (audio: any) => {
       const sttApiConfigId = bindings.activeSttApiConfig.value?.id;
       if (!sttApiConfigId) throw new Error("No STT API selected.");

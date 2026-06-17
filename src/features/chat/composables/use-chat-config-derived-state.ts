@@ -53,7 +53,7 @@ export function useChatConfigDerivedState(config: AppConfig) {
     ),
   );
   const sttCapableApiConfigs = computed(() =>
-    config.apiConfigs.filter((a) => a.requestFormat === "openai_stt"),
+    config.apiConfigs.filter((a) => a.requestFormat === "openai_stt" || a.requestFormat === "mimo_asr"),
   );
 
   function departmentPrimaryApiConfigId(

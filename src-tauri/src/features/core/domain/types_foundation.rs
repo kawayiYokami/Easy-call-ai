@@ -155,6 +155,8 @@ enum RequestFormat {
     OpenAITts,
     #[serde(rename = "openai_stt")]
     OpenAIStt,
+    #[serde(rename = "mimo_asr")]
+    MimoAsr,
     #[serde(rename = "openai_embedding")]
     OpenAIEmbedding,
     #[serde(rename = "openai_rerank")]
@@ -197,6 +199,7 @@ impl RequestFormat {
             "bedrock_api" => Some(Self::BedrockApi),
             "openai_tts" => Some(Self::OpenAITts),
             "openai_stt" => Some(Self::OpenAIStt),
+            "mimo_asr" => Some(Self::MimoAsr),
             "openai_embedding" => Some(Self::OpenAIEmbedding),
             "openai_rerank" => Some(Self::OpenAIRerank),
             "gemini_embedding" => Some(Self::GeminiEmbedding),
@@ -217,6 +220,7 @@ impl RequestFormat {
                 "opencode_go" | "opencodego" => Some(Self::OpenCodeGo),
                 "bedrock_api" | "bedrock" => Some(Self::BedrockApi),
                 "stt" | "openai_stt" => Some(Self::OpenAIStt),
+                "mimo_asr" => Some(Self::MimoAsr),
                 "tts" | "openai_tts" => Some(Self::OpenAITts),
                 "embedding" | "embeddings" | "openai_embedding" => Some(Self::OpenAIEmbedding),
                 "rerank" | "openai_rerank" => Some(Self::OpenAIRerank),
@@ -257,14 +261,15 @@ impl RequestFormat {
             Self::BedrockApi => "bedrock_api",
             Self::OpenAITts => "openai_tts",
             Self::OpenAIStt => "openai_stt",
+            Self::MimoAsr => "mimo_asr",
             Self::OpenAIEmbedding => "openai_embedding",
             Self::OpenAIRerank => "openai_rerank",
             Self::GeminiEmbedding => "gemini_embedding",
         }
     }
 
-    fn is_openai_stt(self) -> bool {
-        matches!(self, Self::OpenAIStt)
+    fn is_stt(self) -> bool {
+        matches!(self, Self::OpenAIStt | Self::MimoAsr)
     }
 
     fn is_gemini(self) -> bool {
@@ -305,6 +310,7 @@ impl RequestFormat {
             Self::Auto
             | Self::OpenAITts
             | Self::OpenAIStt
+            | Self::MimoAsr
             | Self::OpenAIEmbedding
             | Self::OpenAIRerank
             | Self::GeminiEmbedding => None,

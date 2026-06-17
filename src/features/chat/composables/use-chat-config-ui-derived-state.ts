@@ -34,6 +34,7 @@ export function useChatConfigUiDerivedState(options: UseChatConfigUiDerivedState
     if (format === "anthropic") return "https://api.anthropic.com";
     if (format === "openai_tts") return "https://api.openai.com/v1/audio/speech";
     if (format === "openai_stt") return "https://api.openai.com/v1";
+    if (format === "mimo_asr") return "https://api.xiaomimimo.com/v1";
     if (format === "openai_embedding") return "https://api.openai.com/v1";
     if (format === "openai_rerank") return "https://api.openai.com/v1";
     return "https://api.openai.com/v1";
