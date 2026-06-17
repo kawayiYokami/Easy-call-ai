@@ -272,7 +272,6 @@ struct TrimCompactionPreviewResult {
 }
 
 const ARCHIVE_MIN_BODY_MESSAGE_COUNT: usize = 3;
-const ARCHIVE_MIN_BODY_TEXT_LENGTH: usize = 10_000;
 const ARCHIVE_REFLECTION_MIN_BODY_TOKENS: f64 = 1_000.0;
 
 fn build_archive_reporting_conversation(
@@ -508,13 +507,13 @@ fn archive_pipeline_body_text_length(source: &Conversation) -> usize {
         .sum()
 }
 
-fn archive_delete_only_reason(source: &Conversation) -> Option<String> {
+fn archive_reflection_skip_reason(source: &Conversation) -> Option<String> {
     let message_count = archive_pipeline_message_count_for_delete(source);
     if message_count > ARCHIVE_MIN_BODY_MESSAGE_COUNT {
         return None;
     }
     Some(format!(
-        "当前会话用户/助手消息不超过 {} 条，手动归档将直接删除原会话。",
+        "当前会话用户/助手消息不超过 {} 条，已跳过归档反思。",
         ARCHIVE_MIN_BODY_MESSAGE_COUNT
     ))
 }
@@ -524,6 +523,78 @@ fn archive_pipeline_has_assistant_reply(source: &Conversation) -> bool {
         .messages
         .iter()
         .any(|message| message.role.trim().eq_ignore_ascii_case("assistant"))
+}
+
+fn archive_pipeline_last_block_body_message_count(
+    blocks: &[ConversationBlockSummaryResult],
+    selected_block_id: u32,
+    messages: &[ChatMessage],
+) -> usize {
+    let selected_block_size = blocks
+        .iter()
+        .find(|block| block.block_id == selected_block_id)
+        .map(|block| block.message_count)
+        .unwrap_or(messages.len());
+    let start = messages.len().saturating_sub(selected_block_size);
+    messages[start..]
+        .iter()
+        .filter(|message| {
+            matches!(
+                message.role.trim().to_ascii_lowercase().as_str(),
+                "user" | "assistant"
+            )
+        })
+        .count()
+}
+
+fn verify_archive_source_message_integrity(
+    state: &AppState,
+    source: &Conversation,
+) -> Result<(), String> {
+    let conversation_meta = conversation_service_v2().get_conversation_meta(state, &source.id)?;
+    let last_block = conversation_service_v2().get_conversation_last_block(state, &source.id)?;
+    let store_message_count = source.messages.len();
+    let store_body_message_count = archive_pipeline_message_count_for_delete(source);
+    let last_block_message_count = last_block
+        .blocks
+        .iter()
+        .find(|block| block.block_id == last_block.selected_block_id)
+        .map(|block| block.message_count)
+        .unwrap_or(last_block.messages.len());
+    let last_block_body_message_count = archive_pipeline_last_block_body_message_count(
+        &last_block.blocks,
+        last_block.selected_block_id,
+        &last_block.messages,
+    );
+    runtime_log_info(format!(
+        "[归档校验] 开始，任务=归档前消息完整性校验，conversation_id={}，meta_message_count={}，meta_body_message_count={}，store_message_count={}，store_body_message_count={}，last_block_id={}，last_block_message_count={}，last_block_body_message_count={}",
+        source.id,
+        conversation_meta.message_count,
+        conversation_meta.body_message_count,
+        store_message_count,
+        store_body_message_count,
+        last_block.selected_block_id,
+        last_block_message_count,
+        last_block_body_message_count
+    ));
+    if conversation_meta.body_message_count != store_body_message_count
+        || conversation_meta.message_count < store_message_count
+    {
+        let err = format!(
+            "归档前消息完整性校验失败：conversation_id={}，meta_message_count={}，meta_body_message_count={}，store_message_count={}，store_body_message_count={}，last_block_id={}，last_block_message_count={}，last_block_body_message_count={}。已阻止归档，避免误删原会话。",
+            source.id,
+            conversation_meta.message_count,
+            conversation_meta.body_message_count,
+            store_message_count,
+            store_body_message_count,
+            last_block.selected_block_id,
+            last_block_message_count,
+            last_block_body_message_count
+        );
+        runtime_log_warn(format!("[归档校验] 失败，任务=归档前消息完整性校验，{}", err));
+        return Err(err);
+    }
+    Ok(())
 }
 
 #[derive(Debug, Clone)]
@@ -1821,44 +1892,9 @@ async fn trim_current_conversation(
             "强制归档正在进行中，请稍候。".to_string(),
         ));
     }
-    let delete_only_reason = if !already_archived {
-        archive_delete_only_reason(&source)
-    } else {
-        None
-    };
-    if !already_archived && delete_only_reason.is_some() {
-        let active_conversation_id = delete_main_conversation_and_activate_latest(
-            state.inner(),
-            &selected_api,
-            &source,
-        )
-        .map_err(|err| log_manual_archive_failure(&source.id, err))?;
-        flush_pending_persists_blocking(state.inner())
-            .map_err(|err| log_manual_archive_failure(&source.id, format!("删除状态写入失败：{}", err)))?;
-        emit_deleted_history_flushed_event(
-            state.inner(),
-            &source.id,
-            &active_conversation_id,
-            "manual_archive_delete_only",
-        );
-        runtime_log_info(format!(
-            "[归档] 完成，任务=手动归档，conversation_id={}，active_conversation_id={}，already_archived=false，mode=delete_only",
-            source.id,
-            active_conversation_id
-        ));
-        return Ok(ForceArchiveResult {
-            archived: false,
-            archive_id: None,
-            active_conversation_id: Some(active_conversation_id),
-            compaction_message: None,
-            summary: String::new(),
-            merged_memories: 0,
-            warning: delete_only_reason,
-            reason_code: Some("manual_archive_delete_only".to_string()),
-            elapsed_ms: None,
-            memory_feedback: None,
-            merge_groups: Some(0),
-        });
+    if !already_archived {
+        verify_archive_source_message_integrity(state.inner(), &source)
+            .map_err(|err| log_manual_archive_failure(&source.id, err))?;
     }
     let archive_result = instant_archive_conversation(state.inner(), &selected_api, &source)
         .map_err(|err| log_manual_archive_failure(&source.id, err))?;
@@ -1874,11 +1910,24 @@ async fn trim_current_conversation(
         let state_cloned = state.inner().clone();
         let selected_api_cloned = selected_api.clone();
         let resolved_api_cloned = resolved_api.clone();
-        let source_cloned = archive_result.archived_conversation.clone();
+        let source_conversation_id = source.id.clone();
         let effective_agent_id_cloned = effective_agent_id.clone();
         let active_conversation_id_for_background = active_conversation_id.clone();
         tauri::async_runtime::spawn(async move {
             let panic_safe_task = std::panic::AssertUnwindSafe(async {
+                let source_cloned = match conversation_service_v2()
+                    .read_archive_pipeline_source_conversation(&state_cloned, &source_conversation_id)
+                {
+                    Ok(conversation) => conversation,
+                    Err(err) => {
+                        runtime_log_warn(format!(
+                            "[归档] 失败，任务=后台归档维护，conversation_id={}，error=读取归档流水线源会话失败：{}",
+                            source_conversation_id, err
+                        ));
+                        trigger_chat_queue_processing(&state_cloned);
+                        return;
+                    }
+                };
                 let result = run_archive_pipeline(
                     &state_cloned,
                     &selected_api_cloned,
@@ -1905,7 +1954,7 @@ async fn trim_current_conversation(
             {
                 eprintln!(
                     "[归档] 失败，任务=后台归档维护，conversation_id={}，error=panic",
-                    source_cloned.id
+                    source_conversation_id
                 );
                 trigger_chat_queue_processing(&state_cloned);
             }
@@ -2013,7 +2062,6 @@ fn preview_trim_current_conversation(
     let body_text_length = archive_pipeline_body_text_length(&source);
     let has_assistant_reply = archive_pipeline_has_assistant_reply(&source);
     let is_empty = source.messages.is_empty();
-    let delete_only_reason = archive_delete_only_reason(&source);
     let runtime_busy = get_conversation_runtime_state(state.inner(), &source.id)
         .map_err(|err| log_manual_archive_failure(&source.id, err))?
         == MainSessionState::OrganizingContext;
@@ -2024,12 +2072,10 @@ fn preview_trim_current_conversation(
     } else {
         None
     };
-    let delete_only = !is_main_conversation && !runtime_busy && delete_only_reason.is_some();
     runtime_log_info(format!(
-        "[归档] 完成，任务=手动归档预览，conversation_id={}，can_archive={}，delete_only={}，message_count={}，body_text_length={}，reason={}",
+        "[归档] 完成，任务=手动归档预览，conversation_id={}，can_archive={}，delete_only=false，message_count={}，body_text_length={}，reason={}",
         source.id,
         archive_disabled_reason.is_none(),
-        delete_only,
         message_count,
         body_text_length,
         archive_disabled_reason.as_deref().unwrap_or("")
@@ -2038,7 +2084,7 @@ fn preview_trim_current_conversation(
         conversation_id: source.id,
         can_archive: archive_disabled_reason.is_none(),
         can_drop_conversation: !is_main_conversation,
-        delete_only,
+        delete_only: false,
         message_count,
         body_text_length,
         has_assistant_reply,
@@ -2070,6 +2116,9 @@ pub(crate) async fn run_archive_pipeline(
 ) -> Result<ForceArchiveResult, String> {
     let started_at = std::time::Instant::now();
     let trace_id = Uuid::new_v4().to_string();
+    let reflection_source = conversation_service_v2()
+        .read_archive_pipeline_last_block_conversation(state, &source.id)
+        .map_err(|err| format!("读取归档反思最后块失败：{}", err))?;
 
     eprintln!(
         "[ARCHIVE-PIPELINE] 开始: task=archive_maintenance, trace_id={}, agent_id={}, api_id={}, started_at={}",
@@ -2081,6 +2130,7 @@ pub(crate) async fn run_archive_pipeline(
         selected_api,
         resolved_api,
         source,
+        &reflection_source,
         effective_agent_id,
         prepared_active_conversation_id,
         None,
@@ -2360,6 +2410,7 @@ async fn run_archive_pipeline_inner(
     selected_api: &ApiConfig,
     resolved_api: &ResolvedApiConfig,
     source: &Conversation,
+    reflection_source: &Conversation,
     _effective_agent_id: &str,
     prepared_active_conversation_id: Option<&str>,
     _target_conversation_id: Option<&str>,
@@ -2368,13 +2419,30 @@ async fn run_archive_pipeline_inner(
     started_at: std::time::Instant,
     trace_id: &str,
 ) -> Result<ForceArchiveResult, String> {
-    if let Some(reason) = archive_delete_only_reason(source) {
-        return Err(format!("归档后维护跳过：{}", reason));
+    let reflection_skip_warning = archive_reflection_skip_reason(reflection_source);
+    runtime_log_info(format!(
+        "[归档反思] 开始，任务=最后块正文反思，conversation_id={}，full_body_message_count={}，last_block_body_message_count={}",
+        source.id,
+        archive_pipeline_message_count_for_delete(source),
+        archive_pipeline_message_count_for_delete(reflection_source)
+    ));
+    if let Some(reason) = reflection_skip_warning.as_ref() {
+        runtime_log_info(format!(
+            "[归档] 跳过归档反思，任务=后台归档维护，conversation_id={}，原因={}，行为=直接完成归档，不阻塞主流程",
+            source.id, reason
+        ));
     }
 
-    let reporting_source = build_archive_reporting_conversation(source);
+    let reporting_source = build_archive_reporting_conversation(reflection_source);
     let (archive_warning, applied_report, archive_body_tokens) =
-        match resolve_archive_owner_context(state, source) {
+        if let Some(reason) = reflection_skip_warning.clone() {
+            (
+                Some(reason),
+                None,
+                archive_body_token_count(reporting_source.as_ref()),
+            )
+        } else {
+            match resolve_archive_owner_context(state, source) {
             Ok((owner_agent, owner_agent_id, user_alias)) => {
                 let memories = memory_store_list_memories_visible_for_agent(
                     &state.data_path,
@@ -2437,7 +2505,8 @@ async fn run_archive_pipeline_inner(
                     archive_body_token_count(reporting_source.as_ref()),
                 )
             }
-        };
+        }
+    };
 
     let archived_conversation = conversation_service_v2()
         .get_conversation_meta(state, &source.id)
@@ -2658,7 +2727,7 @@ mod archive_pipeline_tests {
     }
 
     #[test]
-    fn archive_delete_only_reason_should_require_three_messages_and_10k_body() {
+    fn archive_reflection_skip_reason_should_require_more_than_three_messages() {
         let mut source = test_conversation();
         source.messages = vec![
             test_message("m1", "user", "短问题"),
@@ -2666,20 +2735,17 @@ mod archive_pipeline_tests {
             test_message("m3", "user", "补充"),
         ];
 
-        assert!(archive_delete_only_reason(&source).is_some());
+        assert!(archive_reflection_skip_reason(&source).is_some());
 
-        let long_user = "甲".repeat(4000);
-        let long_assistant = "乙".repeat(4000);
-        let long_follow_up = "丙".repeat(2000);
         source.messages = vec![
-            test_message("m1", "user", &long_user),
-            test_message("m2", "assistant", &long_assistant),
-            test_message("m3", "user", &long_follow_up),
+            test_message("m1", "user", "问题1"),
+            test_message("m2", "assistant", "回答1"),
+            test_message("m3", "user", "问题2"),
+            test_message("m4", "assistant", "回答2"),
         ];
 
-        assert_eq!(archive_pipeline_message_count_for_delete(&source), 3);
-        assert_eq!(archive_pipeline_body_text_length(&source), 10_000);
-        assert!(archive_delete_only_reason(&source).is_none());
+        assert_eq!(archive_pipeline_message_count_for_delete(&source), 4);
+        assert!(archive_reflection_skip_reason(&source).is_none());
     }
 
     #[test]

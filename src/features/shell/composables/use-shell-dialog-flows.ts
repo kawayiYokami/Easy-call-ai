@@ -121,9 +121,7 @@ export function useShellDialogFlows(options: UseShellDialogFlowsOptions) {
     const conversationLongEnough = messageCount >= SHORT_CONVERSATION_COMPACTION_THRESHOLD;
     const contextUsageHighEnough = contextUsagePercent >= 10;
     let compactionDisabledReason: string | null = null;
-    if (archivePreview?.deleteOnly) {
-      compactionDisabledReason = archivePreview.archiveDisabledReason || "";
-    } else if (summary?.runtimeState === "organizing_context") {
+    if (summary?.runtimeState === "organizing_context") {
       compactionDisabledReason = t('sidebar.compactRunning');
     } else if (isEmpty) {
       compactionDisabledReason = t('sidebar.compactEmpty');
@@ -191,10 +189,10 @@ export function useShellDialogFlows(options: UseShellDialogFlowsOptions) {
 
   async function confirmTrimDeleteAction() {
     const preview = trimPreview.value;
-    if (!preview?.deleteOnly || !preview.canDropConversation) return;
+    if (!preview?.canDropConversation) return;
     const conversationId = String(preview.conversationId || "").trim();
     if (!conversationId) return;
-    console.info("[会话归档] 确认删除短会话", {
+    console.info("[会话归档] 确认删除会话", {
       conversationId,
       messageCount: Number(preview.messageCount || 0),
       bodyTextLength: Number(preview.bodyTextLength || 0),

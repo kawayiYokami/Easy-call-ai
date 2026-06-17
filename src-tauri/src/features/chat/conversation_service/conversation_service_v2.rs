@@ -1217,6 +1217,33 @@ impl ConversationServiceV2 {
         Ok(conversation)
     }
 
+    fn read_archive_pipeline_source_conversation(
+        &self,
+        state: &AppState,
+        conversation_id: &str,
+    ) -> Result<Conversation, String> {
+        self.read_persisted_conversation(state, conversation_id)
+    }
+
+    fn read_archive_pipeline_last_block_conversation(
+        &self,
+        state: &AppState,
+        conversation_id: &str,
+    ) -> Result<Conversation, String> {
+        let source = self.read_persisted_conversation(state, conversation_id)?;
+        let store_paths = message_store::message_store_paths(&state.data_path, conversation_id)?;
+        let mut block_messages =
+            if let Some(page) = message_store::read_ready_message_store_block_page(&store_paths, None)? {
+                page.messages
+            } else {
+                source.messages.clone()
+            };
+        materialize_chat_message_parts_from_media_refs(&mut block_messages, &state.data_path);
+        let mut last_block = source.clone();
+        last_block.messages = block_messages;
+        Ok(last_block)
+    }
+
     fn try_read_persisted_conversation(
         &self,
         state: &AppState,
