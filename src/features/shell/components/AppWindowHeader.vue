@@ -3,6 +3,7 @@
     class="min-h-10 h-10 shrink-0 relative z-40 overflow-visible select-none"
     :class="viewMode === 'chat' ? 'grid items-center bg-base-200 border-b border-base-300' : 'grid grid-cols-[1fr_auto_1fr] items-center bg-base-200 border-b border-base-300 px-2'"
     :style="viewMode === 'chat' ? chatHeaderGridStyle : undefined"
+    @mousedown="handleHeaderMouseDown"
   >
     <div
       v-if="viewMode !== 'chat'"
@@ -924,6 +925,18 @@ function handleConfigSearchKeydown(event: KeyboardEvent) {
     event.preventDefault();
     configSearchOpen.value = false;
   }
+}
+
+function handleHeaderMouseDown(event: MouseEvent) {
+  if (event.button !== 0) return;
+  if (event.defaultPrevented) return;
+  if (event.ctrlKey || event.shiftKey || event.altKey || event.metaKey) return;
+  const target = event.target as HTMLElement | null;
+  if (!target) return;
+  if (target.closest("button, input, textarea, select, option, a, label, summary, [role='button'], [contenteditable='true'], [data-no-drag]")) {
+    return;
+  }
+  emit("startDrag");
 }
 
 function toggleChatRightPanelMode(mode: "reader" | "delegate") {

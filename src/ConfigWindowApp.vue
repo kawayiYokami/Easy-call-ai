@@ -37,6 +37,7 @@
       :update-to-latest-label="updateToLatestLabel"
       :update-to-latest-title="updateToLatestTitle"
       :window-controls-visible="tauriRuntimeAvailable"
+      @start-drag="startDrag"
       @update:config-search-query="updateConfigSearchQuery"
       @select-config-search-result="handleSelectConfigSearchResult"
       @update-to-latest="triggerUpdateToLatest"
@@ -379,6 +380,7 @@ const {
   initWindow,
   syncWindowControlsState,
   closeWindow,
+  startDrag,
   minimizeWindow,
   toggleMaximizeWindow,
 } = useWindowShell();

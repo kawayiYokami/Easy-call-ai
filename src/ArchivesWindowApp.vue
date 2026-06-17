@@ -28,6 +28,7 @@
       :window-ready="windowReady"
       :open-settings-title="t('window.configTitle')"
       :close-title="t('common.close')"
+      @start-drag="startDrag"
       @minimize-window="minimizeWindow"
       @toggle-maximize-window="toggleMaximizeWindow"
       @close-window="closeWindow"
@@ -239,6 +240,7 @@ const {
   initWindow,
   syncWindowControlsState,
   closeWindow,
+  startDrag,
   minimizeWindow,
   toggleMaximizeWindow,
 } = useWindowShell();
