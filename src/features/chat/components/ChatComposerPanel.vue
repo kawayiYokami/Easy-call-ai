@@ -158,7 +158,7 @@
         <textarea
           ref="chatInputRef"
           v-model="localChatInput"
-          class="ecall-chat-composer-input w-full textarea resize-none overflow-y-auto chat-input-no-focus min-h-8"
+          class="ecall-chat-composer-input w-full textarea resize-none overflow-y-auto chat-input-no-focus min-h-0"
           rows="1"
           :disabled="frozen"
           :placeholder="chatInputPlaceholder"
@@ -175,7 +175,7 @@
         >
           <div
             ref="mentionPanelScrollRef"
-            class="dropdown-content mt-2 max-h-[min(56vh,24rem)] w-max max-w-[min(80vw,20rem)] overflow-y-auto overscroll-contain rounded-box border border-base-300 bg-base-100 p-1 shadow-xl"
+            class="dropdown-content max-h-[min(56vh,24rem)] w-max max-w-[min(80vw,20rem)] overflow-y-auto overscroll-contain rounded-box border border-base-300 bg-base-100 p-1 shadow-xl"
           >
             <ul class="flex flex-col gap-1">
               <li
@@ -232,8 +232,8 @@
           </div>
         </div>
       </Teleport>
-      <div class="mt-2 flex items-center justify-between gap-2">
-        <div class="flex items-center gap-2">
+      <div class="flex items-center justify-between">
+        <div class="flex items-center">
           <button
             class="btn btn-sm btn-circle shrink-0"
             :class="supervisionActive ? 'btn-primary' : 'btn-ghost'"
@@ -310,7 +310,7 @@
             </ul>
           </div>
         </div>
-        <div class="flex items-center gap-2">
+        <div class="flex items-center">
           <span
             v-if="planModeEnabled"
             class="badge badge-sm badge-info shrink-0 select-none"
