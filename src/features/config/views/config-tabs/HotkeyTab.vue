@@ -84,6 +84,21 @@
       <div class="card-body p-4">
         <h3 class="card-title text-base mb-3">{{ t("config.hotkey.recordTest") }}</h3>
         <div class="flex flex-wrap items-center gap-2">
+          <div class="flex items-center gap-2 text-sm">
+            <span class="opacity-70">{{ t("config.hotkey.microphonePermissionLabel") }}</span>
+            <span class="badge" :class="microphonePermissionBadgeClass">
+              {{ microphonePermissionLabel }}
+            </span>
+          </div>
+          <div class="h-6 w-px shrink-0 bg-base-300"></div>
+          <button
+            class="btn btn-sm bg-base-200 shrink-0"
+            :disabled="microphonePermissionRequesting"
+            @click="$emit('requestMicrophonePermission')"
+          >
+            <span v-if="microphonePermissionRequesting" class="loading loading-spinner loading-xs"></span>
+            <span>{{ t("config.hotkey.requestMicrophonePermission") }}</span>
+          </button>
           <button
             class="btn btn-sm bg-base-200 shrink-0"
             :class="{ 'btn-error text-error-content': hotkeyTestRecording }"
@@ -117,8 +132,8 @@
             <span class="list-col-grow opacity-60 text-right">{{ t("config.hotkey.builtinTabInstruction") }}</span>
           </li>
           <li class="list-row">
-            <span class="font-mono">Shift + Tab</span>
-            <span class="list-col-grow opacity-60 text-right">{{ t("config.hotkey.builtinShiftTabPlanMode") }}</span>
+            <span class="font-mono">Shift + Wheel</span>
+            <span class="list-col-grow opacity-60 text-right">{{ t("config.hotkey.builtinShiftWheelConversationSwitch") }}</span>
           </li>
         </ul>
       </div>
@@ -127,7 +142,7 @@
 </template>
 
 <script setup lang="ts">
-import { onBeforeUnmount, ref } from "vue";
+import { computed, onBeforeUnmount, ref } from "vue";
 import { useI18n } from "vue-i18n";
 import type { AppConfig } from "../../../../types/app";
 
@@ -136,6 +151,8 @@ const props = defineProps<{
   hotkeyTestRecording: boolean;
   hotkeyTestRecordingMs: number;
   hotkeyTestAudioReady: boolean;
+  microphonePermissionState: "granted" | "denied" | "prompt" | "unsupported" | "unknown";
+  microphonePermissionRequesting: boolean;
 }>();
 
 const emit = defineEmits<{
@@ -143,6 +160,7 @@ const emit = defineEmits<{
   (e: "startHotkeyRecordTest"): void;
   (e: "stopHotkeyRecordTest"): void;
   (e: "playHotkeyRecordTest"): void;
+  (e: "requestMicrophonePermission"): void;
   (e: "captureHotkey", value: string): void;
   (e: "update:recordHotkey", value: string): void;
   (e: "update:recordBackgroundWakeEnabled", value: boolean): void;
@@ -151,6 +169,21 @@ const emit = defineEmits<{
 }>();
 
 const { t } = useI18n();
+
+const microphonePermissionLabel = computed(() => {
+  if (props.microphonePermissionState === "granted") return t("config.hotkey.microphonePermissionGranted");
+  if (props.microphonePermissionState === "denied") return t("config.hotkey.microphonePermissionDenied");
+  if (props.microphonePermissionState === "prompt") return t("config.hotkey.microphonePermissionPrompt");
+  if (props.microphonePermissionState === "unsupported") return t("config.hotkey.microphonePermissionUnsupported");
+  return t("config.hotkey.microphonePermissionUnknown");
+});
+
+const microphonePermissionBadgeClass = computed(() => {
+  if (props.microphonePermissionState === "granted") return "badge-success";
+  if (props.microphonePermissionState === "denied") return "badge-error";
+  if (props.microphonePermissionState === "prompt") return "badge-warning";
+  return "badge-ghost";
+});
 
 const hotkeyCapturing = ref(false);
 const hotkeyCaptureHint = ref(t("config.hotkey.captureDefaultHint"));

@@ -1,6 +1,7 @@
 import { ref } from "vue";
 
 type TrFn = (key: string, params?: Record<string, unknown>) => string;
+type PermissionStateText = "granted" | "denied" | "prompt" | "unsupported" | "unknown";
 
 export function useHotkeyRecordTest(options: {
   t: TrFn;
@@ -11,12 +12,25 @@ export function useHotkeyRecordTest(options: {
   const hotkeyTestRecording = ref(false);
   const hotkeyTestRecordingMs = ref(0);
   const hotkeyTestAudio = ref<{ mime: string; bytesBase64: string; durationMs: number } | null>(null);
+  const microphonePermissionState = ref<PermissionStateText>("unknown");
+  const microphonePermissionRequesting = ref(false);
+  let permissionStatus: PermissionStatus | null = null;
+  let permissionStatusChangeHandler: (() => void) | null = null;
 
   let recorder: MediaRecorder | null = null;
   let stream: MediaStream | null = null;
   let startedAt = 0;
   let tickTimer: ReturnType<typeof setInterval> | null = null;
   let player: HTMLAudioElement | null = null;
+
+  function setMicrophonePermissionState(value: unknown) {
+    const text = String(value || "").trim();
+    if (text === "granted" || text === "denied" || text === "prompt") {
+      microphonePermissionState.value = text;
+      return;
+    }
+    microphonePermissionState.value = text ? "unknown" : "unsupported";
+  }
 
   function clearTimers() {
     if (!tickTimer) return;
@@ -39,14 +53,64 @@ export function useHotkeyRecordTest(options: {
     });
   }
 
+  async function refreshMicrophonePermissionState() {
+    if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === "undefined") {
+      microphonePermissionState.value = "unsupported";
+      return microphonePermissionState.value;
+    }
+    if (!navigator.permissions?.query) {
+      microphonePermissionState.value = "unknown";
+      return microphonePermissionState.value;
+    }
+    try {
+      permissionStatus = await navigator.permissions.query({ name: "microphone" as PermissionName });
+      setMicrophonePermissionState(permissionStatus.state);
+      if (!permissionStatusChangeHandler) {
+        permissionStatusChangeHandler = () => {
+          setMicrophonePermissionState(permissionStatus?.state);
+        };
+      }
+      permissionStatus.onchange = permissionStatusChangeHandler;
+    } catch {
+      microphonePermissionState.value = "unknown";
+    }
+    return microphonePermissionState.value;
+  }
+
+  async function requestMicrophonePermission() {
+    if (microphonePermissionRequesting.value) return false;
+    if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === "undefined") {
+      microphonePermissionState.value = "unsupported";
+      options.setStatus(options.t("status.recordUnsupported"));
+      return false;
+    }
+    microphonePermissionRequesting.value = true;
+    try {
+      const nextStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      for (const track of nextStream.getTracks()) track.stop();
+      microphonePermissionState.value = "granted";
+      await refreshMicrophonePermissionState();
+      options.setStatus(options.t("status.microphonePermissionGranted"));
+      return true;
+    } catch (error) {
+      await refreshMicrophonePermissionState();
+      options.setStatusError("status.microphonePermissionRequestFailed", error);
+      return false;
+    } finally {
+      microphonePermissionRequesting.value = false;
+    }
+  }
+
   async function startHotkeyRecordTest() {
     if (hotkeyTestRecording.value || options.isBlocked?.()) return;
     if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === "undefined") {
+      microphonePermissionState.value = "unsupported";
       options.setStatus(options.t("status.recordUnsupported"));
       return;
     }
     try {
       stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      microphonePermissionState.value = "granted";
       recorder = new MediaRecorder(stream);
       const chunks: BlobPart[] = [];
       recorder.ondataavailable = (event: BlobEvent) => {
@@ -82,6 +146,7 @@ export function useHotkeyRecordTest(options: {
       hotkeyTestRecording.value = false;
       clearTimers();
       stopStream();
+      await refreshMicrophonePermissionState();
       options.setStatusError("status.recordTestFailed", error);
     }
   }
@@ -121,13 +186,19 @@ export function useHotkeyRecordTest(options: {
     stopStream();
   }
 
+  void refreshMicrophonePermissionState();
+
   return {
     hotkeyTestRecording,
     hotkeyTestRecordingMs,
     hotkeyTestAudio,
+    microphonePermissionState,
+    microphonePermissionRequesting,
     startHotkeyRecordTest,
     stopHotkeyRecordTest,
     playHotkeyRecordTest,
+    requestMicrophonePermission,
+    refreshMicrophonePermissionState,
     cleanupHotkeyRecordTest,
   };
 }

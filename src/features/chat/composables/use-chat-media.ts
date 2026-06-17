@@ -324,6 +324,8 @@ export function useChatMedia(options: UseChatMediaOptions) {
     hotkeyTestRecording: hotkeyRecordTest.hotkeyTestRecording,
     hotkeyTestRecordingMs: hotkeyRecordTest.hotkeyTestRecordingMs,
     hotkeyTestAudio: hotkeyRecordTest.hotkeyTestAudio,
+    microphonePermissionState: hotkeyRecordTest.microphonePermissionState,
+    microphonePermissionRequesting: hotkeyRecordTest.microphonePermissionRequesting,
     onPaste,
     onDragOver,
     onDrop,
@@ -333,6 +335,7 @@ export function useChatMedia(options: UseChatMediaOptions) {
     startHotkeyRecordTest: hotkeyRecordTest.startHotkeyRecordTest,
     stopHotkeyRecordTest: hotkeyRecordTest.stopHotkeyRecordTest,
     playHotkeyRecordTest: hotkeyRecordTest.playHotkeyRecordTest,
+    requestMicrophonePermission: hotkeyRecordTest.requestMicrophonePermission,
     cleanupChatMedia,
   };
 }

@@ -87,9 +87,12 @@
             :hotkey-test-recording="hotkeyTestRecording"
             :hotkey-test-recording-ms="hotkeyTestRecordingMs"
             :hotkey-test-audio-ready="hotkeyTestAudioReady"
+            :microphone-permission-state="microphonePermissionState"
+            :microphone-permission-requesting="microphonePermissionRequesting"
             @start-hotkey-record-test="$emit('startHotkeyRecordTest')"
             @stop-hotkey-record-test="$emit('stopHotkeyRecordTest')"
             @play-hotkey-record-test="$emit('playHotkeyRecordTest')"
+            @request-microphone-permission="$emit('requestMicrophonePermission')"
             @capture-hotkey="$emit('captureHotkey', $event)"
             @summon-chat-now="$emit('summonChatNow')"
             @update:record-hotkey="onRecordHotkeyChanged"
@@ -480,6 +483,8 @@ const props = defineProps<{
   hotkeyTestRecording: boolean;
   hotkeyTestRecordingMs: number;
   hotkeyTestAudioReady: boolean;
+  microphonePermissionState: "granted" | "denied" | "prompt" | "unsupported" | "unknown";
+  microphonePermissionRequesting: boolean;
   checkingUpdate: boolean;
   hasAvailableUpdate: boolean;
   saveConfigAction: () => Promise<boolean> | boolean;
@@ -528,6 +533,7 @@ const emit = defineEmits<{
   (e: "startHotkeyRecordTest"): void;
   (e: "stopHotkeyRecordTest"): void;
   (e: "playHotkeyRecordTest"): void;
+  (e: "requestMicrophonePermission"): void;
   (e: "captureHotkey", value: string): void;
   (e: "summonChatNow"): void;
   (e: "saveAgentAvatar", value: { agentId: string; mime: string; bytesBase64: string }): void;

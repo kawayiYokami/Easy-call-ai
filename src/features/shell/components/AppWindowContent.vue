@@ -55,6 +55,8 @@
       :hotkey-test-recording="hotkeyTestRecording"
       :hotkey-test-recording-ms="hotkeyTestRecordingMs"
       :hotkey-test-audio-ready="!!hotkeyTestAudio"
+      :microphone-permission-state="microphonePermissionState"
+      :microphone-permission-requesting="microphonePermissionRequesting"
       :checking-update="checkingUpdate"
       :has-available-update="hasAvailableUpdate"
       :save-config-action="saveConfig"
@@ -99,6 +101,7 @@
       @start-hotkey-record-test="startHotkeyRecordTest"
       @stop-hotkey-record-test="stopHotkeyRecordTest"
       @play-hotkey-record-test="playHotkeyRecordTest"
+      @request-microphone-permission="requestMicrophonePermission"
       @capture-hotkey="captureHotkey"
       @summon-chat-now="summonChatNow"
       @save-agent-avatar="saveAgentAvatar"
@@ -476,6 +479,8 @@ const props = defineProps<{
   hotkeyTestRecording: boolean;
   hotkeyTestRecordingMs: number;
   hotkeyTestAudio: unknown;
+  microphonePermissionState: "granted" | "denied" | "prompt" | "unsupported" | "unknown";
+  microphonePermissionRequesting: boolean;
   checkingUpdate: boolean;
   hasAvailableUpdate: boolean;
   setStatus: (text: string) => void;
@@ -647,6 +652,7 @@ const props = defineProps<{
   startHotkeyRecordTest: () => void;
   stopHotkeyRecordTest: () => void;
   playHotkeyRecordTest: () => void;
+  requestMicrophonePermission: () => Promise<boolean> | boolean;
   captureHotkey: (value: string) => void;
   summonChatNow: () => void;
   saveAgentAvatar: (input: { agentId: string; mime: string; bytesBase64: string }) => void;

@@ -94,6 +94,8 @@
         :hotkey-test-recording="hotkeyTestRecording"
         :hotkey-test-recording-ms="hotkeyTestRecordingMs"
         :hotkey-test-audio-ready="!!hotkeyTestAudio"
+        :microphone-permission-state="microphonePermissionState"
+        :microphone-permission-requesting="microphonePermissionRequesting"
         :checking-update="checkingUpdate"
         :has-available-update="hasAvailableUpdate"
         :save-config-action="saveConfig"
@@ -139,6 +141,7 @@
         @start-hotkey-record-test="startHotkeyRecordTest"
         @stop-hotkey-record-test="stopHotkeyRecordTest"
         @play-hotkey-record-test="playHotkeyRecordTest"
+        @request-microphone-permission="requestMicrophonePermission"
         @capture-hotkey="captureHotkey"
         @summon-chat-now="summonChatNow"
         @save-agent-avatar="saveAgentAvatar"
@@ -414,9 +417,12 @@ const {
   hotkeyTestRecording,
   hotkeyTestRecordingMs,
   hotkeyTestAudio,
+  microphonePermissionState,
+  microphonePermissionRequesting,
   startHotkeyRecordTest,
   stopHotkeyRecordTest,
   playHotkeyRecordTest,
+  requestMicrophonePermission,
   cleanupHotkeyRecordTest,
 } = useHotkeyRecordTest({
   t: tr,
