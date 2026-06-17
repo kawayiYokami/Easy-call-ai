@@ -228,7 +228,7 @@
           </button>
         </div>
 
-        <div ref="composerContainer" class="relative shrink-0 border-t border-base-300 bg-base-100 p-2">
+        <div ref="composerContainer" class="relative shrink-0 border-t border-base-300 bg-base-100 px-2 pt-2 pb-1.5">
           <div v-if="chatStatusBanner" class="absolute inset-x-0 top-0 z-10 -translate-y-full">
             <div class="relative flex w-full items-center justify-center gap-2 rounded-none px-4 py-1.5 text-center text-[12px] backdrop-blur-md"
               :class="chatStatusBanner.tone === 'error' ? 'bg-error/12 text-error' : chatStatusBanner.text === t('chat.statusCompactingContext') ? 'bg-info/12 text-info' : 'bg-base-200/75 text-base-content'">

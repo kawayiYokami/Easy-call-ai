@@ -158,7 +158,7 @@
         <textarea
           ref="chatInputRef"
           v-model="localChatInput"
-          class="w-full textarea resize-none overflow-y-auto chat-input-no-focus min-h-8"
+          class="ecall-chat-composer-input w-full textarea resize-none overflow-y-auto chat-input-no-focus min-h-8"
           rows="1"
           :disabled="frozen"
           :placeholder="chatInputPlaceholder"
@@ -1255,5 +1255,10 @@ watch(
 }
 .chat-input-no-focus {
   scrollbar-width: none;
+}
+.ecall-chat-composer-input {
+  line-height: 1.5;
+  padding-top: 12px;
+  padding-bottom: 12px;
 }
 </style>
