@@ -1,7 +1,12 @@
 {
-  "generatedAt": "2026-06-15T09:46:12.969Z",
-  "latestVersion": "v0.12.3",
+  "generatedAt": "2026-06-18T07:56:53.469Z",
+  "latestVersion": "v0.12.4",
   "releases": [
+    {
+      "version": "v0.12.4",
+      "path": "docs/changelog/releases/v0.12.4.md",
+      "summary": "功能（stt）：新增 `mimo_asr` 专用语音转写协议，支持按 MiMo ASR 的 `chat/completions + input_audio` 请求格式接入，不再强制复用 `openai_stt` 转写端点。"
+    },
     {
       "version": "v0.12.3",
       "path": "docs/changelog/releases/v0.12.3.md",
