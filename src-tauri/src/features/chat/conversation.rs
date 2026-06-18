@@ -447,39 +447,6 @@ fn conversation_latest_summary_title(conversation: &Conversation) -> Option<Stri
         .find_map(summary_context_message_title)
 }
 
-fn conversation_has_summary_context_message(conversation: &Conversation) -> bool {
-    conversation.messages.iter().any(|message| {
-        summary_context_message_kind(message)
-            .map(is_summary_context_message_kind)
-            .unwrap_or(false)
-    })
-}
-
-fn conversation_ensure_summary_context_seed(conversation: &mut Conversation) -> bool {
-    if !conversation_is_local_normal_chat(conversation)
-        || conversation_has_summary_context_message(conversation)
-    {
-        return false;
-    }
-    let mut summary_message = build_initial_summary_context_message(
-        if conversation.user_profile_snapshot.trim().is_empty() {
-            None
-        } else {
-            Some(conversation.user_profile_snapshot.as_str())
-        },
-        Some(&conversation.current_todos),
-        None,
-    );
-    summary_message.created_at = conversation
-        .messages
-        .first()
-        .map(|message| message.created_at.clone())
-        .filter(|value| !value.trim().is_empty())
-        .unwrap_or_else(|| conversation.created_at.clone());
-    conversation.messages.insert(0, summary_message);
-    true
-}
-
 fn cleanup_legacy_summary_context_messages(conversation: &mut Conversation) -> bool {
     let mut changed = false;
     for message in conversation.messages.iter_mut() {
@@ -773,28 +740,6 @@ mod summary_context_title_tests {
         );
     }
 
-    #[test]
-    fn conversation_ensure_summary_context_seed_should_backfill_when_missing() {
-        let mut conversation = test_conversation(vec![
-            test_chat_message("u1", "user", Some(USER_PERSONA_ID), "第一问", None),
-            test_chat_message("a1", "assistant", Some("agent-a"), "回答", None),
-        ]);
-        conversation.user_profile_snapshot = "<user profile snapshot>\n测试画像\n</user profile snapshot>".to_string();
-
-        assert!(conversation_ensure_summary_context_seed(&mut conversation));
-        assert!(conversation_has_summary_context_message(&conversation));
-        assert_eq!(
-            conversation
-                .messages
-                .first()
-                .and_then(summary_context_message_kind),
-            Some("summary_context_seed")
-        );
-        assert_eq!(
-            conversation.messages.get(1).map(|message| message.id.as_str()),
-            Some("u1")
-        );
-    }
 }
 
 fn sanitize_tool_history_events(events: &[Value]) -> Vec<Value> {

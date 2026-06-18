@@ -3127,7 +3127,6 @@ impl ConversationServiceV2 {
         next_title: &str,
     ) -> Result<bool, String> {
         self.update_unarchived_conversation_by_id(state, conversation_id, |conversation| {
-            let _ = conversation_ensure_summary_context_seed(conversation);
             Ok(conversation_update_latest_summary_title(
                 conversation,
                 Some(next_title),
