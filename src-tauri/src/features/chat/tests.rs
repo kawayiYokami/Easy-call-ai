@@ -4689,6 +4689,7 @@
                     provider_meta_patch: Some(serde_json::json!({
                         "usage": { "outputTokens": 12 }
                     })),
+                    meme_annotations: None,
                 },
             )
             .expect("final text append should succeed");
@@ -4770,6 +4771,10 @@
                     final_text: "bootstrap 完成正文".to_string(),
                     reasoning_text: Some("bootstrap 完成思考".to_string()),
                     provider_meta_patch: None,
+                    meme_annotations: Some(vec![MemeAnnotation {
+                        meme: ":坏笑:".to_string(),
+                        path: "E:/fake/坏笑.webp".to_string(),
+                    }]),
                 },
             )
             .expect("final append after bootstrap should succeed");
@@ -4789,6 +4794,15 @@
             }
             _ => panic!("expected text part"),
         }
+        assert_eq!(stored.meme_annotations.as_ref().map(Vec::len), Some(1));
+        assert_eq!(
+            stored
+                .meme_annotations
+                .as_ref()
+                .and_then(|items| items.first())
+                .map(|item| item.meme.as_str()),
+            Some(":坏笑:")
+        );
     }
 
     #[test]
@@ -4841,6 +4855,7 @@
                     final_text: "会。Rust 是一门系统级编程语言。".to_string(),
                     reasoning_text: None,
                     provider_meta_patch: None,
+                    meme_annotations: None,
                 },
             )
             .expect("append final text");
@@ -4885,6 +4900,7 @@
                     final_text: String::new(),
                     reasoning_text: Some("被压缩提前结束".to_string()),
                     provider_meta_patch: None,
+                    meme_annotations: None,
                 },
             )
             .expect("empty final text with reasoning should still commit");
@@ -4962,6 +4978,7 @@
                     provider_meta_patch: Some(serde_json::json!({
                         "usage": { "outputTokens": 9 }
                     })),
+                    meme_annotations: None,
                 },
             )
             .expect("final append should succeed");
@@ -5042,6 +5059,7 @@
                     final_text: "不应该成功".to_string(),
                     reasoning_text: None,
                     provider_meta_patch: None,
+                    meme_annotations: None,
                 },
             )
             .expect_err("non-tail assistant should be rejected");

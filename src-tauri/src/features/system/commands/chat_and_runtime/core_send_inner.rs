@@ -3690,6 +3690,22 @@ async fn send_chat_message_inner(
                         _ => None,
                     })
                     .unwrap_or_else(|| (String::new(), None));
+                runtime_log_debug(format!(
+                    "[表情替换] 提交前，conversation_id={}，assistant_message_id={}，annotation_count={}，tokens=[{}]，final_text={}",
+                    conversation_id,
+                    assistant_message_id,
+                    assistant_message
+                        .meme_annotations
+                        .as_ref()
+                        .map(Vec::len)
+                        .unwrap_or(0),
+                    assistant_message
+                        .meme_annotations
+                        .as_ref()
+                        .map(|items| items.iter().map(|item| item.meme.trim().to_string()).collect::<Vec<_>>().join(","))
+                        .unwrap_or_default(),
+                    final_text.replace('\n', "\\n")
+                ));
                 conversation_service_v2().bootstrap_streaming_assistant_message(
                     &state,
                     &AssistantMessageBootstrapInput {
@@ -3708,11 +3724,33 @@ async fn send_chat_message_inner(
                         final_text,
                         reasoning_text,
                         provider_meta_patch: assistant_message.provider_meta.clone(),
+                        meme_annotations: assistant_message.meme_annotations.clone(),
                     },
                 )?;
                 persisted_assistant_message = conversation_service_v2()
                     .get_message_by_id(&state, &conversation_id, &assistant_message_id)
                     .ok();
+                runtime_log_debug(format!(
+                    "[表情替换] 提交后，conversation_id={}，assistant_message_id={}，persisted_annotation_count={}，persisted_tokens=[{}]",
+                    conversation_id,
+                    assistant_message_id,
+                    persisted_assistant_message
+                        .as_ref()
+                        .and_then(|message| message.meme_annotations.as_ref().map(Vec::len))
+                        .unwrap_or(0),
+                    persisted_assistant_message
+                        .as_ref()
+                        .and_then(|message| {
+                            message.meme_annotations.as_ref().map(|items| {
+                                items
+                                    .iter()
+                                    .map(|item| item.meme.trim().to_string())
+                                    .collect::<Vec<_>>()
+                                    .join(",")
+                            })
+                        })
+                        .unwrap_or_default()
+                ));
             }
         } else if let Some(mut conversation) =
             delegate_runtime_thread_conversation_get(&state, &conversation_id)?

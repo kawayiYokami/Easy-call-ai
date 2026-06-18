@@ -175,6 +175,7 @@ struct AssistantMessageFinalTextAppendInput {
     final_text: String,
     reasoning_text: Option<String>,
     provider_meta_patch: Option<Value>,
+    meme_annotations: Option<Vec<MemeAnnotation>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -6626,9 +6627,45 @@ impl ConversationServiceV2 {
             &mut target_message.provider_meta,
             input.provider_meta_patch.clone(),
         );
+        runtime_log_debug(format!(
+            "[表情替换] FinalAppend开始，conversation_id={}，assistant_message_id={}，existing_annotation_count={}，incoming_annotation_count={}，incoming_tokens=[{}]",
+            conversation_id,
+            assistant_message_id,
+            target_message
+                .meme_annotations
+                .as_ref()
+                .map(Vec::len)
+                .unwrap_or(0),
+            input
+                .meme_annotations
+                .as_ref()
+                .map(Vec::len)
+                .unwrap_or(0),
+            input
+                .meme_annotations
+                .as_ref()
+                .map(|items| items.iter().map(|item| item.meme.trim().to_string()).collect::<Vec<_>>().join(","))
+                .unwrap_or_default()
+        ));
+        target_message.meme_annotations = input.meme_annotations.clone();
         mark_stream_final_committed_v2(&mut target_message.provider_meta);
 
         self.persist_replaced_ready_message(state, conversation_id, &target_message)?;
+        runtime_log_debug(format!(
+            "[表情替换] FinalAppend完成，conversation_id={}，assistant_message_id={}，stored_annotation_count={}，stored_tokens=[{}]",
+            conversation_id,
+            assistant_message_id,
+            target_message
+                .meme_annotations
+                .as_ref()
+                .map(Vec::len)
+                .unwrap_or(0),
+            target_message
+                .meme_annotations
+                .as_ref()
+                .map(|items| items.iter().map(|item| item.meme.trim().to_string()).collect::<Vec<_>>().join(","))
+                .unwrap_or_default()
+        ));
         Ok(AssistantMessageFinalTextAppendResult {
             conversation_id: conversation_id.to_string(),
             assistant_message_id: assistant_message_id.to_string(),

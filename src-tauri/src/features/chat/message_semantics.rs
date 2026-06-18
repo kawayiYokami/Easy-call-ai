@@ -422,6 +422,20 @@ fn populate_assistant_meme_annotations(
         })
         .unwrap_or("");
     let annotations = build_meme_annotations(state, assistant_text, seed_source)?;
+    let annotation_tokens = annotations
+        .iter()
+        .map(|item| item.meme.trim().to_string())
+        .collect::<Vec<_>>()
+        .join(",");
+    runtime_log_debug(format!(
+        "[表情替换] 生成，message_id={}，seed_source={}，text_len={}，annotation_count={}，tokens=[{}]，text={}",
+        message.id,
+        seed_source,
+        assistant_text.chars().count(),
+        annotations.len(),
+        annotation_tokens,
+        assistant_text.replace('\n', "\\n")
+    ));
     message.meme_annotations = if annotations.is_empty() {
         None
     } else {
