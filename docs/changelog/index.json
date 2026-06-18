@@ -1,11 +1,11 @@
 {
-  "generatedAt": "2026-06-18T07:56:53.469Z",
+  "generatedAt": "2026-06-18T08:11:28.953Z",
   "latestVersion": "v0.12.4",
   "releases": [
     {
       "version": "v0.12.4",
       "path": "docs/changelog/releases/v0.12.4.md",
-      "summary": "功能（stt）：新增 `mimo_asr` 专用语音转写协议，支持按 MiMo ASR 的 `chat/completions + input_audio` 请求格式接入，不再强制复用 `openai_stt` 转写端点。"
+      "summary": "重构（chat）：重构会话服务并统一收口到 `ConversationServiceV2`，把前台轻量快照、单条消息、分页补历史、工具审查等热路径进一步改为按需读取，减少整会话消息整读与重复 clone，降低大历史会话场景的内存占用与读取压力。"
     },
     {
       "version": "v0.12.3",
