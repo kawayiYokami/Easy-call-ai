@@ -2,6 +2,18 @@
 
 > 此文件由 `pnpm changelog:build` 自动生成，展示最近版本的完整说明。
 
+## 发布：v0.12.5
+
+## 修复
+
+- **会话**：禁止老会话自动回填摘要种子（summary_context_seed），避免在加载已存档或历史会话时插入不必要的上下文消息
+
+## 重构
+
+- **归档**：将会话归档与压缩的 Tauri 命令从 `archive_pipeline.rs` 拆分到独立的 `conversation_archive.rs` 和 `conversation_compaction.rs` 模块，`main.rs` 注册接口同步更新为 `archive_conversation` / `compact_conversation`
+- **归档**：简化前端 `use-chat-runtime.ts` 归档/压缩调用逻辑，去掉 `ForceArchiveResult` 复杂返回值，改为 `ConversationCommandStatus` 简单状态
+- **归档**：`summarize_archive_summary_with_fallback` 新增 JSON 无效重试机制（最多3次，每次5秒延迟）；`summarize_compaction_with_model_attempt` 重构空回处理为通用 JSON 无效检测
+
 ## 发布：v0.12.4
 
 - 重构（chat）：重构会话服务并统一收口到 `ConversationServiceV2`，把前台轻量快照、单条消息、分页补历史、工具审查等热路径进一步改为按需读取，减少整会话消息整读与重复 clone，降低大历史会话场景的内存占用与读取压力。
@@ -157,14 +169,3 @@
 - 优化（chat）：处理当前会话弹窗移除丢弃入口并精简压缩/归档说明；会话菜单的归档入口改为红色删除图标，同时归档反思只读取正文与记忆块，正文不足阈值时跳过反思。
 - 修复（chat）：光速归档会立即标记会话为已归档并刷新会话列表与归档窗口，后台仅执行归档维护；空会话、无助理回复和过短会话会在归档前拦截，避免归档后被删除或列表残留。
 - 修复（chat）：供应商请求返回真实用量并累加会话用量后立即推送标题栏上下文占用更新；工具续调估算用量不再广播到前端。
-
-## 发布：v0.11.3
-
-- 修复（i18n）：请求失败状态会展开结构化错误里的真实 `message/detail/error`，并补齐请求失败友好文案，避免界面直接显示 `status.requestFailed` 等 i18n key。
-- 优化（config）：调度日志卡片化展示时间线、总用量和每轮模型调用用量；列表仅返回摘要，单轮详情中的回答、用量、工具名与末尾原始响应按页签分别懒加载，避免前端一次性承接大对象导致卡死或崩溃。
-- 优化（delegate）：委托会话正文改用目录型 message_store 存储，旧 `delegate-conversations/*.json` 自动迁移为正文仓库；委托列表与详情改为摘要/块页按需读取，避免长委托会话整文件加载。
-- 功能（config）：迁移页改为储存页，新增应用私有目录储存占比统计，并支持安全清理已迁移完成的旧普通会话与旧委托会话 JSON。
-- 修复（appearance）：补齐界面尺寸预设和预设主题名称的 i18n 文案，避免外观页显示原始 key 或英文主题名。
-- 修复（config）：供应商页将嵌入与重排拆成独立 tab，重排模型连通性测试改走重排接口，避免误走嵌入测试。
-- 修复（chat）：@ 提及候选弹窗支持滚动，键盘上下切换候选时自动保持当前项可见。
-- 优化（chat）：聊天窗口加载更多历史时每次补 4 条消息。

@@ -1,7 +1,12 @@
 {
-  "generatedAt": "2026-06-18T08:11:28.953Z",
-  "latestVersion": "v0.12.4",
+  "generatedAt": "2026-06-18T13:26:56.001Z",
+  "latestVersion": "v0.12.5",
   "releases": [
+    {
+      "version": "v0.12.5",
+      "path": "docs/changelog/releases/v0.12.5.md",
+      "summary": "**会话**：禁止老会话自动回填摘要种子（summary_context_seed），避免在加载已存档或历史会话时插入不必要的上下文消息"
+    },
     {
       "version": "v0.12.4",
       "path": "docs/changelog/releases/v0.12.4.md",
@@ -581,11 +586,6 @@
       "version": "v0.9.0",
       "path": "docs/changelog/releases/v0.9.0.md",
       "summary": "发布（release-0.9.0）：整理并发布当前这一轮聊天窗口、Markdown 渲染、流式输出与会话链路重构成果"
-    },
-    {
-      "version": "未发布",
-      "path": "docs/changelog/releases/未发布.md",
-      "summary": ""
     }
   ]
 }

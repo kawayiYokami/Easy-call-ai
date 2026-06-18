@@ -5,6 +5,7 @@
 
 ## 最近版本
 
+- [v0.12.5](docs/changelog/releases/v0.12.5.md) - **会话**：禁止老会话自动回填摘要种子（summary_context_seed），避免在加载已存档或历史会话时插入不必要的上下文消息
 - [v0.12.4](docs/changelog/releases/v0.12.4.md) - 重构（chat）：重构会话服务并统一收口到 `ConversationServiceV2`，把前台轻量快照、单条消息、分页补历史、工具审查等热路径进一步改为按需读取，减少整会话消息整读与重复 clone，降低大历史会话场景的内存占用与读取压力。
 - [v0.12.3](docs/changelog/releases/v0.12.3.md) - 优化（task）：task 工具 schema 明确要求调度时间、重复频率和结束时间只能写入 trigger，goal/why/todo 只描述单次目标与背景，避免 LLM 把调度语义混入非调度字段。
 - [v0.12.2](docs/changelog/releases/v0.12.2.md) - 新增（chat）：普通会话菜单增加新建任务入口。
@@ -121,5 +122,4 @@
 - [v0.9.3](docs/changelog/releases/v0.9.3.md) - 发布（release-0.9.3）：同步版本号并承接当前 `rust-genai` 运行时迁移成果
 - [v0.9.1](docs/changelog/releases/v0.9.1.md) - 发布（release-0.9.1）：整合委托功能修复与聊天交互打磨后发布补丁版本
 - [v0.9.0](docs/changelog/releases/v0.9.0.md) - 发布（release-0.9.0）：整理并发布当前这一轮聊天窗口、Markdown 渲染、流式输出与会话链路重构成果
-- [未发布](docs/changelog/releases/未发布.md)
 
