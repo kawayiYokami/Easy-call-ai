@@ -605,6 +605,7 @@ const creatingConversation = ref(false);
 const createConversationDepartmentOptions = ref<SidebarCreateDepartmentOption[]>([]);
 const defaultCreateConversationDepartmentId = ref("");
 const createConversationErrorText = ref("");
+const createConversationOptionsStale = ref(true);
 const remoteAuthDialogOpen = ref(false);
 const remoteAuthPassword = ref("");
 const remoteAuthSubmitting = ref(false);
@@ -1012,6 +1013,20 @@ async function loadCreateConversationOptions() {
   defaultCreateConversationDepartmentId.value = String(result.defaultDepartmentId || "").trim()
     || createConversationDepartmentOptions.value[0]?.departmentId
     || "";
+  createConversationOptionsStale.value = false;
+}
+
+async function refreshCreateConversationOptionsIfNeeded(force = false) {
+  if (!force && !createConversationOptionsStale.value && createConversationDepartmentOptions.value.length > 0) return;
+  await loadCreateConversationOptions();
+}
+
+function markCreateConversationOptionsStale() {
+  createConversationOptionsStale.value = true;
+  if (!createConversationDialogOpen.value) return;
+  void refreshCreateConversationOptionsIfNeeded(true).catch((error) => {
+    createConversationErrorText.value = String(error || t('sidebar.loadDepartmentFailed'));
+  });
 }
 
 function clearCompletedRuntimeStateForConversation(conversationId: string) {
@@ -1304,7 +1319,7 @@ async function openConversation(conversationId: string) {
   hasPrevBlock.value = true;
   view.value = "chat";
   syncConversationTabForActiveConversation();
-  loadCreateConversationOptions();
+  void refreshCreateConversationOptionsIfNeeded();
 }
 
 function syncConversationTabForActiveConversation() {
@@ -1443,7 +1458,7 @@ async function loadPrevBlock() {
 async function openCreateConversationDialog() {
   createConversationErrorText.value = "";
   try {
-    await loadCreateConversationOptions();
+    await refreshCreateConversationOptionsIfNeeded();
     createConversationDialogOpen.value = true;
   } catch (error) {
     createConversationErrorText.value = String(error || t('sidebar.loadDepartmentFailed'));
@@ -1536,7 +1551,7 @@ async function openCodeReview() {
   codeReviewErrorText.value = "";
   try {
     if (createConversationDepartmentOptions.value.length === 0) {
-      await loadCreateConversationOptions();
+      await refreshCreateConversationOptionsIfNeeded();
     }
     codeReviewDialogOpen.value = true;
   } catch (error) {
@@ -2457,6 +2472,18 @@ function registerNotifications() {
   });
   transport.onNotification("ideContext.updated", () => {
     void refreshIdeContextGroups();
+  });
+  transport.onNotification("persona.changed", () => {
+    markCreateConversationOptionsStale();
+  });
+  transport.onNotification("department.changed", () => {
+    markCreateConversationOptionsStale();
+  });
+  transport.onNotification("departmentTree.changed", () => {
+    markCreateConversationOptionsStale();
+  });
+  transport.onNotification("provider.changed", () => {
+    markCreateConversationOptionsStale();
   });
   transport.onNotification("conversation.runtimeStateUpdated", (payload) => {
     const value = payload as { conversationId?: string; runtimeState?: string };

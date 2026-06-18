@@ -225,7 +225,9 @@ fn save_agents_inner(
         }
         let runtime_config = runtime_config_with_private_organization(&state, &config, &data)?;
         let _ = app.emit("easy-call:config-updated", &runtime_config);
+        broadcast_sidebar_department_changed();
     }
+    broadcast_sidebar_persona_changed();
     let runtime_agents = runtime_agents_with_private_organization(&state, &config, &data)?;
     Ok(runtime_agents)
 }
@@ -752,6 +754,7 @@ fn patch_chat_settings_inner(
     let payload = apply_chat_settings_patch(&state, &mut data.agents, &mut runtime, &config, input)?;
 
     let _ = app.emit("easy-call:chat-settings-updated", &payload);
+    broadcast_sidebar_persona_changed();
 
     Ok(payload)
 }
@@ -1207,6 +1210,7 @@ fn patch_conversation_api_settings_inner(
     let payload = build_conversation_api_settings_payload(&config);
 
     let _ = app.emit("easy-call:conversation-api-updated", &payload);
+    broadcast_sidebar_provider_changed();
 
     Ok(payload)
 }
@@ -1279,6 +1283,8 @@ fn set_department_primary_api_config(
     let runtime_config = runtime_config_with_private_organization(&state, &config, &data)?;
 
     let _ = app.emit("easy-call:config-updated", &runtime_config);
+    broadcast_sidebar_department_changed();
+    broadcast_sidebar_provider_changed();
 
     Ok(runtime_config)
 }

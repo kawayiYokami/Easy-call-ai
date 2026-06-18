@@ -469,6 +469,96 @@ fn changed_department_ids(old_config: &AppConfig, new_config: &AppConfig) -> Vec
         .collect::<Vec<_>>()
 }
 
+fn changed_department_tree_ids(old_config: &AppConfig, new_config: &AppConfig) -> Vec<String> {
+    let old_children = old_config
+        .departments
+        .iter()
+        .map(|item| {
+            (
+                item.id.clone(),
+                normalize_department_child_ids(&item.child_department_ids, &item.id),
+            )
+        })
+        .collect::<std::collections::HashMap<_, _>>();
+    let new_children = new_config
+        .departments
+        .iter()
+        .map(|item| {
+            (
+                item.id.clone(),
+                normalize_department_child_ids(&item.child_department_ids, &item.id),
+            )
+        })
+        .collect::<std::collections::HashMap<_, _>>();
+    old_children
+        .keys()
+        .chain(new_children.keys())
+        .cloned()
+        .collect::<std::collections::HashSet<_>>()
+        .into_iter()
+        .filter(|id| old_children.get(id) != new_children.get(id))
+        .collect::<Vec<_>>()
+}
+
+fn changed_department_content_ids(old_config: &AppConfig, new_config: &AppConfig) -> Vec<String> {
+    let strip_tree = |department: &DepartmentConfig| {
+        let mut cloned = department.clone();
+        cloned.child_department_ids = Vec::new();
+        cloned
+    };
+    let old_by_id = old_config
+        .departments
+        .iter()
+        .map(|item| (item.id.clone(), strip_tree(item)))
+        .collect::<std::collections::HashMap<_, _>>();
+    let new_by_id = new_config
+        .departments
+        .iter()
+        .map(|item| (item.id.clone(), strip_tree(item)))
+        .collect::<std::collections::HashMap<_, _>>();
+    old_by_id
+        .keys()
+        .chain(new_by_id.keys())
+        .cloned()
+        .collect::<std::collections::HashSet<_>>()
+        .into_iter()
+        .filter(|id| old_by_id.get(id) != new_by_id.get(id))
+        .collect::<Vec<_>>()
+}
+
+fn config_provider_domain_changed(old_config: &AppConfig, new_config: &AppConfig) -> bool {
+    let old_providers = serde_json::to_string(&old_config.api_providers).unwrap_or_default();
+    let new_providers = serde_json::to_string(&new_config.api_providers).unwrap_or_default();
+    let old_api_configs = serde_json::to_string(&old_config.api_configs).unwrap_or_default();
+    let new_api_configs = serde_json::to_string(&new_config.api_configs).unwrap_or_default();
+    old_providers != new_providers
+        || old_api_configs != new_api_configs
+        || old_config.assistant_department_api_config_id
+            != new_config.assistant_department_api_config_id
+        || old_config.tool_review_api_config_id != new_config.tool_review_api_config_id
+        || old_config.selected_api_config_id != new_config.selected_api_config_id
+}
+
+fn ide_chat_broadcast_simple_notification(method: &str) {
+    ide_chat_broadcast_notification(method, serde_json::json!({}));
+}
+
+fn broadcast_sidebar_persona_changed() {
+    ide_chat_broadcast_simple_notification("persona.changed");
+}
+
+fn broadcast_sidebar_department_changed() {
+    ide_chat_broadcast_simple_notification("department.changed");
+}
+
+fn broadcast_sidebar_department_tree_changed() {
+    ide_chat_broadcast_simple_notification("departmentTree.changed");
+}
+
+fn broadcast_sidebar_provider_changed() {
+    ide_chat_broadcast_simple_notification("provider.changed");
+}
+
 fn split_main_config_departments(departments: &[DepartmentConfig]) -> Vec<DepartmentConfig> {
     departments
         .iter()
@@ -789,6 +879,9 @@ fn save_config_inner(
     let base_config = state_read_config_cached(&state)?;
     let previous_runtime_config = runtime_config_with_private_organization(&state, &base_config, &data)?;
     let departments_changed = changed_department_ids(&previous_runtime_config, &config);
+    let department_content_changed = !changed_department_content_ids(&previous_runtime_config, &config).is_empty();
+    let department_tree_changed = !changed_department_tree_ids(&previous_runtime_config, &config).is_empty();
+    let provider_changed = config_provider_domain_changed(&base_config, &config);
     let shell_workspaces_changed = base_config.shell_workspaces != config.shell_workspaces;
     validate_department_names_unique(&config)?;
     let main_config = persist_departments_by_source(&state, &config)?;
@@ -851,5 +944,14 @@ fn save_config_inner(
     let runtime_config = runtime_config_with_private_organization(&state, &main_config, &data)
         .map_err(|err| format!("配置已保存，但运行时配置刷新失败：{err}"))?;
     let _ = app.emit("easy-call:config-updated", &runtime_config);
+    if department_content_changed {
+        broadcast_sidebar_department_changed();
+    }
+    if department_tree_changed {
+        broadcast_sidebar_department_tree_changed();
+    }
+    if provider_changed {
+        broadcast_sidebar_provider_changed();
+    }
     Ok(runtime_config)
 }
