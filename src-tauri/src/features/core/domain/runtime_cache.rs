@@ -489,6 +489,7 @@ fn state_read_conversation_metadata_cached(
     repair_conversation_metadata_message_derived_fields_if_needed(state, conversation_id, &meta)
 }
 
+#[cfg(test)]
 fn state_mark_conversation_direct_persisted(
     state: &AppState,
     conversation: &Conversation,

@@ -77,9 +77,9 @@ struct CodexLocalAuthTokens {
 #[derive(Debug, Clone, Deserialize)]
 struct CodexLocalAuthFile {
     #[serde(default)]
-    auth_mode: String,
+    _auth_mode: String,
     #[serde(default, rename = "OPENAI_API_KEY")]
-    openai_api_key: Option<String>,
+    _openai_api_key: Option<String>,
     #[serde(default)]
     last_refresh: String,
     #[serde(default, alias = "updatedAt")]

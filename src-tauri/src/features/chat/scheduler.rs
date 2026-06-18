@@ -3449,38 +3449,6 @@ fn notification_speaker_name_for_conversation_meta(
     }
 }
 
-fn notification_speaker_name_for_conversation(
-    state: &AppState,
-    conversation: &Conversation,
-    ui_language: &str,
-) -> String {
-    let agent_id = conversation.agent_id.trim();
-    if agent_id.is_empty() {
-        return local_chat_notification_text(
-            ui_language,
-            "当前人格",
-            "當前人格",
-            "Current persona",
-        );
-    }
-    match state_read_agents_cached(state) {
-        Ok(agents) => agents
-            .iter()
-            .find(|agent| agent.id.trim() == agent_id)
-            .map(|agent| agent.name.trim())
-            .filter(|name| !name.is_empty())
-            .unwrap_or(agent_id)
-            .to_string(),
-        Err(err) => {
-            runtime_log_warn(format!(
-                "[通知] 跳过，任务=读取人格名称失败后回退ID，conversation_id={}，agent_id={}，error={}",
-                conversation.id, agent_id, err
-            ));
-            agent_id.to_string()
-        }
-    }
-}
-
 #[derive(Debug, Clone, Copy)]
 struct LocalChatNotificationSettings {
     enabled: bool,

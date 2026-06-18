@@ -79,28 +79,6 @@ fn conversation_is_system_notification(conversation: &Conversation) -> bool {
         || conversation.conversation_kind.trim() == CONVERSATION_KIND_SYSTEM_NOTIFICATION
 }
 
-fn fallback_foreground_department_id() -> String {
-    ASSISTANT_DEPARTMENT_ID.to_string()
-}
-
-fn resolved_foreground_department_id_for_conversation(
-    config: &AppConfig,
-    conversation: &Conversation,
-    is_main_conversation: bool,
-) -> String {
-    let existing = conversation.department_id.trim();
-    if !existing.is_empty() {
-        return existing.to_string();
-    }
-    if is_main_conversation {
-        return fallback_foreground_department_id();
-    }
-    department_for_agent_id(config, &conversation.agent_id)
-        .map(|department| department.id.clone())
-        .or_else(|| assistant_department(config).map(|department| department.id.clone()))
-        .unwrap_or_else(fallback_foreground_department_id)
-}
-
 fn available_non_user_agent<'a>(
     agents: &'a [AgentProfile],
     agent_id: &str,
@@ -256,14 +234,6 @@ fn conversation_is_remote_im_contact(conversation: &Conversation) -> bool {
     conversation.conversation_kind.trim() == CONVERSATION_KIND_REMOTE_IM_CONTACT
 }
 
-fn conversation_unread_count_for_overview(conversation: &Conversation) -> usize {
-    if conversation_is_remote_im_contact(conversation) {
-        0
-    } else {
-        conversation.unread_count
-    }
-}
-
 fn increment_conversation_unread_count(conversation: &mut Conversation, count: usize) {
     if count == 0 || conversation_is_remote_im_contact(conversation) {
         return;
@@ -302,10 +272,6 @@ fn conversation_is_archived(conversation: &Conversation) -> bool {
         return true;
     }
     !conversation.summary.trim().is_empty()
-}
-
-fn conversation_is_unarchived_foreground(conversation: &Conversation) -> bool {
-    conversation_is_unarchived(conversation) && conversation_visible_in_foreground_lists(conversation)
 }
 
 const SUMMARY_CONTEXT_MESSAGE_SCHEMA_VERSION: u64 = 2;

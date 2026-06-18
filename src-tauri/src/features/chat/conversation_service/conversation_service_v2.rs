@@ -843,7 +843,7 @@ impl ConversationServiceV2 {
         updated_message: &ChatMessage,
     ) -> Result<(), String> {
         let paths = message_store::message_store_paths(&state.data_path, conversation_id)?;
-        let mut shard_meta = message_store::read_ready_message_store_meta(&paths)?
+        let _existing_shard_meta = message_store::read_ready_message_store_meta(&paths)?
             .ok_or_else(|| {
                 ConversationServiceV2Error::new(
                     ConversationServiceV2ErrorCode::StorageCorrupted,
@@ -890,8 +890,8 @@ impl ConversationServiceV2 {
             messages: updated_messages,
             ..updated_meta_conversation.clone()
         };
-        shard_meta = message_store::ConversationShardMeta::from_conversation(&rebuilt_conversation);
-        let persist_meta = shard_meta.to_persist_meta();
+        let persist_meta = message_store::ConversationShardMeta::from_conversation(&rebuilt_conversation)
+            .to_persist_meta();
         message_store::write_jsonl_snapshot_replaced_message_shard(
             &paths,
             &persist_meta,
@@ -6261,6 +6261,7 @@ impl ConversationServiceV2 {
         )
     }
 
+    #[cfg(test)]
     fn sync_replace_conversation_snapshot(
         &self,
         state: &AppState,
