@@ -5856,6 +5856,11 @@ impl ConversationServiceV2 {
         }
         let store_paths = message_store::message_store_paths(&state.data_path, &source.id)?;
         ensure_ready_message_store_from_legacy_conversation(state, &source.id, &store_paths)?;
+        let previous_latest_block_id = message_store::read_ready_message_store_block_page(
+            &store_paths,
+            None,
+        )?
+        .map(|page| page.selected_block_id);
         let compression_message_id = compression_message.id.clone();
         let now = now_iso();
         let next_user_profile_snapshot = user_profile_snapshot.unwrap_or_default();
@@ -5897,6 +5902,33 @@ impl ConversationServiceV2 {
             return Err(
                 "上下文整理消息写入校验失败：已执行整理但未找到落盘消息，请重试。".to_string(),
             );
+        }
+        let latest_block = message_store::read_ready_message_store_block_page(&store_paths, None)?
+            .ok_or_else(|| {
+                format!(
+                    "上下文整理消息写入校验失败：缺少最新块，conversation_id={}",
+                    source.id
+                )
+            })?;
+        if previous_latest_block_id.is_some()
+            && Some(latest_block.selected_block_id) == previous_latest_block_id
+        {
+            return Err(format!(
+                "上下文整理消息写入校验失败：未创建新的摘要块，conversation_id={}",
+                source.id
+            ));
+        }
+        let first_message_id = latest_block
+            .blocks
+            .iter()
+            .find(|block| block.block_id == latest_block.selected_block_id)
+            .map(|block| block.first_message_id.as_str())
+            .unwrap_or_default();
+        if first_message_id.trim() != compression_message_id {
+            return Err(format!(
+                "上下文整理消息写入校验失败：摘要消息不是新块首条消息，conversation_id={}",
+                source.id
+            ));
         }
 
         Ok(CompactionMessagePersistResult {

@@ -76,7 +76,7 @@ export function useChatConversationDialogGlue(bindings: Record<string, any>) {
       conversationId,
       source: "detached_chat_window",
     });
-    void invokeTauri("trim_current_conversation", {
+    void invokeTauri("archive_conversation", {
       input: {
         conversationId,
       },

@@ -7,16 +7,8 @@ type TrFn = (key: string, params?: Record<string, unknown>) => string;
 
 const FOREGROUND_SNAPSHOT_RECENT_LIMIT = 4;
 
-type ForceArchiveResult = {
-  archived: boolean;
-  archiveId?: string | null;
-  activeConversationId?: string | null;
-  compactionMessage?: ChatMessage | null;
-  summary: string;
-  mergedMemories: number;
-  warning?: string | null;
-  reasonCode?: string | null;
-  elapsedMs?: number | null;
+type ConversationCommandStatus = {
+  success: boolean;
 };
 
 type UseChatRuntimeOptions = {
@@ -42,12 +34,10 @@ type UseChatRuntimeOptions = {
 };
 
 type ConversationMaintenanceAction = {
-  command: "trim_current_conversation" | "trim_compact_current";
+  command: "archive_conversation" | "compact_conversation";
   runningKey: string;
-  partialKey: string;
   doneKey: string;
   failedKey: string;
-  isDone: (result: ForceArchiveResult) => boolean;
   lockForeground: boolean;
 };
 
@@ -67,9 +57,7 @@ export function useChatRuntime(options: UseChatRuntimeOptions) {
     const sourceConversationId = String(targetConversationId || currentConversationId || "").trim() || null;
     const targetIsForeground = !currentConversationId || !sourceConversationId || sourceConversationId === currentConversationId;
     const shouldLockForeground = action.lockForeground && targetIsForeground;
-    const instantArchiveAction = action.command === "trim_current_conversation";
-    const apiConfigId = String(options.activeChatApiConfigId.value || "").trim();
-    const agentId = String(options.assistantDepartmentAgentId.value || "").trim();
+    const instantArchiveAction = action.command === "archive_conversation";
     if (!sourceConversationId) {
       const text = options.t("status.conversationActionNoTarget");
       options.setStatus(text);
@@ -79,12 +67,6 @@ export function useChatRuntime(options: UseChatRuntimeOptions) {
         currentConversationId,
         targetConversationId,
       });
-      return;
-    }
-    if (!instantArchiveAction && (!apiConfigId || !agentId)) {
-      const text = options.t("status.conversationActionNoTarget");
-      options.setStatus(text);
-      options.setChatError(text);
       return;
     }
     if (targetIsForeground && options.compactingConversation.value) {
@@ -125,60 +107,23 @@ export function useChatRuntime(options: UseChatRuntimeOptions) {
       }
     }
     try {
-      const result = await invokeTauri<ForceArchiveResult>(action.command, {
-        input: action.command === "trim_current_conversation"
-          ? {
-            conversationId: sourceConversationId,
-          }
-          : {
-            apiConfigId,
-            agentId,
-            conversationId: sourceConversationId,
-          },
+      const result = await invokeTauri<ConversationCommandStatus>(action.command, {
+        input: {
+          conversationId: sourceConversationId,
+        },
       });
-      const activeConversationId = String(result.activeConversationId || "").trim();
-      if (shouldLockForeground && activeConversationId && options.currentConversationId) {
-        const previousConversationId = String(options.currentConversationId.value || "").trim();
-        console.info("[CHAT] conversation switched", {
-          previousConversationId,
-          newConversationId: activeConversationId,
-          apiConfigId,
-          agentId,
-        });
-        options.currentConversationId.value = activeConversationId;
-      }
-      if (result.reasonCode === "background_started") {
-        if (action.lockForeground && sourceConversationId && options.setConversationRuntimeState) {
-          options.setConversationRuntimeState(sourceConversationId, "organizing_context");
-        }
-        options.setStatus(options.t(action.runningKey));
+      if (!result.success) {
+        const text = options.t(action.failedKey, { err: "command returned unsuccessful status" });
         options.setChatError("");
-      } else if (result.warning) {
-        const detail = `${result.warning}${result.elapsedMs ? ` (${result.elapsedMs}ms)` : ""}`;
-        const text = options.t(action.partialKey, { reason: detail });
         options.setStatus(text);
-        options.setChatError(text);
-      } else if (action.isDone(result)) {
-        options.setStatus(options.t(action.doneKey, { count: result.mergedMemories }));
-        options.setChatError("");
       } else {
-        options.setStatus(result.summary || "");
+        options.setStatus(options.t(action.doneKey, { count: 0 }));
         options.setChatError("");
       }
       if (options.refreshUnarchivedConversations) {
         await options.refreshUnarchivedConversations();
       }
       if (action.lockForeground && !targetIsForeground) {
-        return;
-      }
-      if (!action.lockForeground && result.compactionMessage) {
-        const messageId = String(result.compactionMessage.id || "").trim();
-        if (messageId && !options.allMessages.value.some((message) => String(message.id || "").trim() === messageId)) {
-          options.allMessages.value = [...options.allMessages.value, result.compactionMessage];
-        }
-        if (options.suppressNextCompactionReload) {
-          options.suppressNextCompactionReload.value = true;
-        }
         return;
       }
       await loadAllMessages(action.lockForeground ? undefined : sourceConversationId);
@@ -215,24 +160,20 @@ export function useChatRuntime(options: UseChatRuntimeOptions) {
 
   async function trimNow(targetConversationId?: string | null) {
     await runConversationMaintenance({
-      command: "trim_current_conversation",
+      command: "archive_conversation",
       runningKey: "status.trimArchiveRunning",
-      partialKey: "status.trimArchivePartial",
       doneKey: "status.trimArchiveDone",
       failedKey: "status.trimArchiveFailed",
-      isDone: (result) => result.archived,
       lockForeground: true,
     }, targetConversationId);
   }
 
   async function trimCompactNow() {
     await runConversationMaintenance({
-      command: "trim_compact_current",
+      command: "compact_conversation",
       runningKey: "status.trimCompactRunning",
-      partialKey: "status.trimCompactPartial",
       doneKey: "status.trimCompactDone",
       failedKey: "status.trimCompactFailed",
-      isDone: (result) => !result.reasonCode,
       lockForeground: false,
     });
   }

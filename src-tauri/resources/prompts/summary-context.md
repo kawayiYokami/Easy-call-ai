@@ -100,6 +100,7 @@ JSON 语法中的字段名和字符串边界仍然必须使用英文双引号 `"
 - `memory` 表示处理后最终保留的记忆。
 - `memory` 必须包含 `memoryType`、`judgment`、`reasoning`、`tags`。
 
+</json_contract>
+
 EXAMPLE JSON OUTPUT:
 {{json_example}}
-</json_contract>

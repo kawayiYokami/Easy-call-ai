@@ -45,6 +45,10 @@ include!("commands/archive_io_commands.rs");
 // ==================== 归档主持人格选择 ====================
 include!("commands/archive_host_selector.rs");
 
+// ==================== 会话归档与压缩入口 ====================
+include!("commands/conversation_archive.rs");
+include!("commands/conversation_compaction.rs");
+
 // ==================== PDF文本服务 ====================
 include!("services/pdf_text_service.rs");
 

@@ -36,6 +36,11 @@ type RewindConversationPreviewResult = {
   hint: string;
 };
 
+type ConversationBlockPageOutput = {
+  selectedBlockId: number;
+  messages: ChatMessage[];
+};
+
 const SHORT_CONVERSATION_COMPACTION_THRESHOLD = 10;
 
 type UseShellDialogFlowsOptions = {
@@ -111,13 +116,12 @@ export function useShellDialogFlows(options: UseShellDialogFlowsOptions) {
     return 0;
   }
 
-  function buildTrimCompactionPreview(conversationId: string, archivePreview?: TrimPreviewResult | null): TrimCompactionPreviewResult {
-    const messages = options.allMessages.value || [];
+  function buildTrimCompactionPreview(conversationId: string, lastBlockMessages: ChatMessage[]): TrimCompactionPreviewResult {
     const summary = currentUnarchivedConversationSummary();
-    const messageCount = countArchiveCandidateMessages(messages);
-    const assistantReplyPresent = hasAssistantReply(messages);
-    const isEmpty = messages.length === 0;
-    const contextUsagePercent = latestBackendContextUsagePercent(messages);
+    const messageCount = countArchiveCandidateMessages(lastBlockMessages);
+    const assistantReplyPresent = hasAssistantReply(lastBlockMessages);
+    const isEmpty = lastBlockMessages.length === 0;
+    const contextUsagePercent = latestBackendContextUsagePercent(lastBlockMessages);
     const conversationLongEnough = messageCount >= SHORT_CONVERSATION_COMPACTION_THRESHOLD;
     const contextUsageHighEnough = contextUsagePercent >= 10;
     let compactionDisabledReason: string | null = null;
@@ -143,6 +147,34 @@ export function useShellDialogFlows(options: UseShellDialogFlowsOptions) {
     };
   }
 
+  function buildTrimArchivePreview(conversationId: string): TrimPreviewResult {
+    const summary = currentUnarchivedConversationSummary();
+    const messageCount = Math.max(
+      0,
+      Number(summary?.bodyMessageCount ?? summary?.messageCount ?? 0),
+    );
+    const hasAssistant = Boolean(summary?.hasAssistantReply);
+    const isEmpty = messageCount === 0;
+    const bodyTextLength = Math.max(0, Number(summary?.bodyTextLength ?? 0));
+    let archiveDisabledReason: string | null = null;
+    if (summary?.isSystemNotificationConversation) {
+      archiveDisabledReason = "系统通知会话暂不支持归档。";
+    } else if (summary?.runtimeState === "organizing_context") {
+      archiveDisabledReason = t("sidebar.compactRunning");
+    }
+    return {
+      conversationId,
+      canArchive: !archiveDisabledReason,
+      canDropConversation: !summary?.isSystemNotificationConversation,
+      deleteOnly: false,
+      messageCount,
+      bodyTextLength,
+      hasAssistantReply: hasAssistant,
+      isEmpty,
+      archiveDisabledReason,
+    };
+  }
+
   async function openTrimActionDialog() {
     const conversationId = String(options.currentChatConversationId.value || "").trim();
     if (!conversationId) {
@@ -155,10 +187,14 @@ export function useShellDialogFlows(options: UseShellDialogFlowsOptions) {
     trimPreview.value = null;
     trimCompactionPreview.value = null;
     try {
-      const archivePreview = await invokeTauri<TrimPreviewResult>("preview_trim_current_conversation", {
+      const archivePreview = buildTrimArchivePreview(conversationId);
+      const blockPage = await invokeTauri<ConversationBlockPageOutput>("get_unarchived_conversation_block_page", {
         input: { conversationId },
       });
-      const compactionPreview = buildTrimCompactionPreview(conversationId, archivePreview);
+      const compactionPreview = buildTrimCompactionPreview(
+        conversationId,
+        Array.isArray(blockPage?.messages) ? blockPage.messages : [],
+      );
       trimPreview.value = archivePreview;
       trimCompactionPreview.value = compactionPreview;
       trimActionDialogOpen.value = true;
