@@ -2941,8 +2941,14 @@ async fn activate_main_assistant(
             .filter(|src| src.platform == RemoteImPlatform::WeixinOc)
             .filter_map(|src| {
                 let channel = remote_im_channel_by_id(&config, &src.channel_id)?;
-                let credentials = WeixinOcCredentials::from_value(&channel.credentials);
+                let effective_channel =
+                    remote_im_channel_with_effective_credentials(state, channel).ok()?;
+                let credentials = WeixinOcCredentials::from_value(&effective_channel.credentials);
                 if credentials.token.trim().is_empty() {
+                    eprintln!(
+                        "[聊天调度] 跳过个人微信 typing: 缺少有效 token, channel_id={}, remote_contact_id={}",
+                        src.channel_id, src.remote_contact_id
+                    );
                     return None;
                 }
                 Some((

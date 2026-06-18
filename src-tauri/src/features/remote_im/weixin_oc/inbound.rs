@@ -59,7 +59,7 @@ async fn handle_weixin_oc_inbound_message(
         .filter(|value| !value.is_empty())
     {
         weixin_oc_manager()
-            .set_context_token(&channel.id, from_user_id, token)
+            .set_context_token(state, &channel.id, from_user_id, token)
             .await;
     }
     let item_list = msg.item_list.unwrap_or_default();

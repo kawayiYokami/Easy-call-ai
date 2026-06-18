@@ -39,6 +39,9 @@ impl WeixinOcManager {
         let credentials = remote_im_effective_credentials(state, channel)
             .unwrap_or_else(|_| channel.credentials.clone());
         let creds = WeixinOcCredentials::from_value(&credentials);
+        let private_state =
+            remote_im_read_channel_private_state(state, &RemoteImPlatform::WeixinOc, &channel.id)
+                .ok();
         self.set_state(&channel.id, |state| {
             state.base_url = creds.normalized_base_url();
             state.account_id = creds.account_id.trim().to_string();
@@ -48,6 +51,22 @@ impl WeixinOcManager {
             }
         })
         .await;
+        if let Some(private_state) = private_state {
+            let channel_prefix = format!("{}:", channel.id.trim());
+            let mut context_tokens = self.context_tokens.write().await;
+            context_tokens.retain(|key, _| !key.starts_with(&channel_prefix));
+            for (user_id, token) in private_state.context_tokens {
+                let normalized_user_id = user_id.trim();
+                let normalized_token = token.trim();
+                if normalized_user_id.is_empty() || normalized_token.is_empty() {
+                    continue;
+                }
+                context_tokens.insert(
+                    format!("{}:{}", channel.id.trim(), normalized_user_id),
+                    normalized_token.to_string(),
+                );
+            }
+        }
     }
 
     async fn build_status(&self, channel_id: &str) -> ChannelConnectionStatus {
@@ -93,14 +112,39 @@ impl WeixinOcManager {
         }
     }
 
-    async fn set_context_token(&self, channel_id: &str, user_id: &str, token: &str) {
+    async fn set_context_token(
+        &self,
+        state: &AppState,
+        channel_id: &str,
+        user_id: &str,
+        token: &str,
+    ) {
         if user_id.trim().is_empty() || token.trim().is_empty() {
             return;
         }
-        self.context_tokens.write().await.insert(
-            format!("{}:{}", channel_id.trim(), user_id.trim()),
-            token.trim().to_string(),
-        );
+        let key = format!("{}:{}", channel_id.trim(), user_id.trim());
+        let normalized_token = token.trim().to_string();
+        self.context_tokens
+            .write()
+            .await
+            .insert(key, normalized_token.clone());
+        if let Err(err) = remote_im_patch_channel_private_state(
+            state,
+            &RemoteImPlatform::WeixinOc,
+            channel_id,
+            |private| {
+                private
+                    .context_tokens
+                    .insert(user_id.trim().to_string(), normalized_token.clone());
+            },
+        ) {
+            eprintln!(
+                "[个人微信] 持久化 context_token 失败: channel_id={}, user_id={}, error={}",
+                channel_id,
+                user_id,
+                err
+            );
+        }
     }
 
     async fn get_context_token(&self, channel_id: &str, user_id: &str) -> Option<String> {

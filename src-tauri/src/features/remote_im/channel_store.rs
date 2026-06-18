@@ -17,12 +17,20 @@ struct RemoteImChannelPrivateState {
     user_id: String,
     #[serde(default, skip_serializing_if = "String::is_empty")]
     sync_buf: String,
+    #[serde(default, skip_serializing_if = "remote_im_string_map_is_empty")]
+    context_tokens: std::collections::HashMap<String, String>,
     #[serde(default)]
     updated_at: String,
 }
 
 fn remote_im_channel_private_state_schema_version() -> u32 {
     1
+}
+
+fn remote_im_string_map_is_empty(
+    value: &std::collections::HashMap<String, String>,
+) -> bool {
+    value.is_empty()
 }
 
 fn remote_im_platform_store_key(platform: &RemoteImPlatform) -> &'static str {
@@ -284,6 +292,17 @@ fn remote_im_merge_private_state(
     let _ = remote_im_merge_non_empty(&mut current.account_id, legacy.account_id);
     let _ = remote_im_merge_non_empty(&mut current.user_id, legacy.user_id);
     let _ = remote_im_merge_non_empty(&mut current.sync_buf, legacy.sync_buf);
+    for (user_id, context_token) in legacy.context_tokens {
+        let normalized_user_id = user_id.trim();
+        let normalized_context_token = context_token.trim();
+        if normalized_user_id.is_empty() || normalized_context_token.is_empty() {
+            continue;
+        }
+        current
+            .context_tokens
+            .entry(normalized_user_id.to_string())
+            .or_insert_with(|| normalized_context_token.to_string());
+    }
 }
 
 fn remote_im_migrate_channel_private_states(
@@ -370,6 +389,35 @@ mod remote_im_channel_store_tests {
         assert_eq!(credentials.get("baseUrl").and_then(Value::as_str), Some("https://example.test"));
         assert!(credentials.get("token").is_none());
         assert!(credentials.get("syncBuf").is_none());
+    }
+
+    #[test]
+    fn merge_private_state_keeps_existing_context_token_and_adds_new_one() {
+        let mut current = RemoteImChannelPrivateState {
+            context_tokens: std::collections::HashMap::from([(
+                "user-1".to_string(),
+                "token-a".to_string(),
+            )]),
+            ..Default::default()
+        };
+        let legacy = RemoteImChannelPrivateState {
+            context_tokens: std::collections::HashMap::from([
+                ("user-1".to_string(), "token-b".to_string()),
+                ("user-2".to_string(), "token-c".to_string()),
+            ]),
+            ..Default::default()
+        };
+
+        remote_im_merge_private_state(&mut current, legacy);
+
+        assert_eq!(
+            current.context_tokens.get("user-1").map(String::as_str),
+            Some("token-a")
+        );
+        assert_eq!(
+            current.context_tokens.get("user-2").map(String::as_str),
+            Some("token-c")
+        );
     }
 
     #[test]
