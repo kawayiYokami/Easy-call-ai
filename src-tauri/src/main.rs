@@ -97,6 +97,7 @@ fn should_enable_devtools() -> bool {
 fn install_tauri_async_runtime() -> Result<tokio::runtime::Runtime, String> {
     let runtime = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
+        .thread_stack_size(8 * 1024 * 1024)
         .build()
         .map_err(|err| format!("创建 Tauri 异步运行时失败: {err}"))?;
     std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
