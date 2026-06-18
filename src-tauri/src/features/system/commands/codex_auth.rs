@@ -17,6 +17,8 @@ struct CodexStoredCredential {
     #[serde(default)]
     refresh_token: String,
     #[serde(default)]
+    id_token: String,
+    #[serde(default)]
     account_id: String,
     #[serde(default)]
     email: String,
@@ -75,9 +77,34 @@ struct CodexLocalAuthTokens {
 #[derive(Debug, Clone, Deserialize)]
 struct CodexLocalAuthFile {
     #[serde(default)]
+    auth_mode: String,
+    #[serde(default, rename = "OPENAI_API_KEY")]
+    openai_api_key: Option<String>,
+    #[serde(default)]
+    last_refresh: String,
+    #[serde(default, alias = "updatedAt")]
+    updated_at: String,
+    #[serde(default)]
     tokens: Option<CodexLocalAuthTokens>,
     #[serde(flatten)]
     flat_tokens: CodexLocalAuthTokens,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct CodexManagedAuthFile {
+    auth_mode: String,
+    #[serde(rename = "OPENAI_API_KEY")]
+    openai_api_key: Option<String>,
+    tokens: CodexManagedAuthTokens,
+    last_refresh: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct CodexManagedAuthTokens {
+    id_token: String,
+    access_token: String,
+    refresh_token: String,
+    account_id: String,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -359,6 +386,15 @@ fn codex_parse_expiry_ms(value: &str) -> Option<i64> {
         .map(|value| (value.unix_timestamp_nanos() / 1_000_000).min(i128::from(i64::MAX)) as i64)
 }
 
+fn codex_pick_first_non_empty(values: &[&str]) -> String {
+    values
+        .iter()
+        .map(|value| value.trim())
+        .find(|value| !value.is_empty())
+        .unwrap_or("")
+        .to_string()
+}
+
 fn codex_credential_from_token_response(
     response: CodexOAuthTokenResponse,
     fallback: Option<&CodexStoredCredential>,
@@ -410,6 +446,7 @@ fn codex_credential_from_token_response(
     Ok(CodexStoredCredential {
         access_token: response.access_token.trim().to_string(),
         refresh_token,
+        id_token: response.id_token.trim().to_string(),
         account_id,
         email,
         expires_at_ms,
@@ -490,8 +527,13 @@ fn codex_parse_local_auth_file(path: &str) -> Result<CodexStoredCredential, Stri
     }
     let content = fs::read_to_string(&normalized)
         .map_err(|err| format!("读取本地 Codex 凭证失败 ({}): {err}", normalized))?;
-    let payload = serde_json::from_str::<CodexLocalAuthFile>(&content)
-        .map_err(|err| format!("解析本地 Codex 凭证失败 ({}): {err}", normalized))?;
+    codex_parse_local_auth_json(&content)
+        .map_err(|err| format!("解析本地 Codex 凭证失败 ({}): {err}", normalized))
+}
+
+fn codex_parse_local_auth_json(content: &str) -> Result<CodexStoredCredential, String> {
+    let payload = serde_json::from_str::<CodexLocalAuthFile>(content)
+        .map_err(|err| format!("JSON 结构无效: {err}"))?;
     let tokens = payload.tokens.unwrap_or(payload.flat_tokens);
     if tokens.access_token.trim().is_empty() {
         return Err("本地 Codex 凭证缺少 access_token".to_string());
@@ -525,10 +567,19 @@ fn codex_parse_local_auth_file(path: &str) -> Result<CodexStoredCredential, Stri
     Ok(CodexStoredCredential {
         access_token: tokens.access_token.trim().to_string(),
         refresh_token: tokens.refresh_token.trim().to_string(),
+        id_token: tokens.id_token.trim().to_string(),
         account_id,
         email,
         expires_at_ms,
-        updated_at: now_iso(),
+        updated_at: {
+            let value =
+                codex_pick_first_non_empty(&[payload.last_refresh.as_str(), payload.updated_at.as_str()]);
+            if value.is_empty() {
+                now_iso()
+            } else {
+                value
+            }
+        },
     })
 }
 
@@ -536,7 +587,7 @@ fn read_managed_codex_auth(provider_id: &str) -> Result<CodexStoredCredential, S
     let path = managed_codex_auth_path(provider_id)?;
     let body = fs::read_to_string(&path)
         .map_err(|err| format!("读取托管 Codex 凭证失败 ({}): {err}", path.display()))?;
-    serde_json::from_str::<CodexStoredCredential>(&body)
+    codex_parse_local_auth_json(&body)
         .map_err(|err| format!("解析托管 Codex 凭证失败 ({}): {err}", path.display()))
 }
 
@@ -549,7 +600,21 @@ fn write_managed_codex_auth(
         fs::create_dir_all(parent)
             .map_err(|err| format!("创建 Codex 托管凭证目录失败 ({}): {err}", parent.display()))?;
     }
-    let body = serde_json::to_string_pretty(credential)
+    let body = serde_json::to_string_pretty(&CodexManagedAuthFile {
+        auth_mode: "chatgpt".to_string(),
+        openai_api_key: None,
+        tokens: CodexManagedAuthTokens {
+            id_token: credential.id_token.clone(),
+            access_token: credential.access_token.clone(),
+            refresh_token: credential.refresh_token.clone(),
+            account_id: credential.account_id.clone(),
+        },
+        last_refresh: if !credential.updated_at.trim().is_empty() {
+            credential.updated_at.clone()
+        } else {
+            now_iso()
+        },
+    })
         .map_err(|err| format!("序列化 Codex 托管凭证失败: {err}"))?;
     fs::write(&path, body)
         .map_err(|err| format!("写入 Codex 托管凭证失败 ({}): {err}", path.display()))
@@ -595,6 +660,7 @@ fn read_codex_runtime_auth_snapshot(
             CodexStoredCredential {
                 access_token: String::new(),
                 refresh_token: String::new(),
+                id_token: String::new(),
                 account_id: String::new(),
                 email: String::new(),
                 expires_at_ms: 0,
@@ -653,6 +719,7 @@ async fn codex_refresh_runtime_auth_with_trigger(
     let refreshed = codex_refresh_credential(&CodexStoredCredential {
         access_token: latest_auth.access_token.clone(),
         refresh_token: refresh_token.to_string(),
+        id_token: String::new(),
         account_id: latest_auth.account_id.clone().unwrap_or_default(),
         email: latest_auth.email.clone().unwrap_or_default(),
         expires_at_ms,
@@ -1124,4 +1191,94 @@ fn codex_logout(input: CodexLogoutInput) -> Result<bool, String> {
     codex_session_remove(provider_id);
     codex_auth_log_info("logout", "user_action", provider_id, "done", 0, &[]);
     Ok(true)
+}
+
+#[cfg(test)]
+mod codex_auth_tests {
+    use super::*;
+
+    #[test]
+    fn parse_official_nested_local_auth_keeps_id_token() {
+        let parsed = codex_parse_local_auth_json(
+            r#"{
+                "auth_mode": "chatgpt",
+                "OPENAI_API_KEY": null,
+                "tokens": {
+                    "id_token": "id-token-value",
+                    "access_token": "access-token-value",
+                    "refresh_token": "refresh-token-value",
+                    "account_id": "account-123"
+                },
+                "last_refresh": "2026-06-18T10:00:00Z"
+            }"#,
+        )
+        .expect("parse official nested auth");
+
+        assert_eq!(parsed.id_token, "id-token-value");
+        assert_eq!(parsed.access_token, "access-token-value");
+        assert_eq!(parsed.refresh_token, "refresh-token-value");
+        assert_eq!(parsed.account_id, "account-123");
+        assert_eq!(parsed.updated_at, "2026-06-18T10:00:00Z");
+    }
+
+    #[test]
+    fn parse_legacy_flat_managed_auth_still_works() {
+        let parsed = codex_parse_local_auth_json(
+            r#"{
+                "accessToken": "access-token-value",
+                "refreshToken": "refresh-token-value",
+                "accountId": "account-123",
+                "email": "user@example.com",
+                "expiresAtMs": 1780000000000,
+                "updatedAt": "2026-06-18T10:00:00Z"
+            }"#,
+        )
+        .expect("parse legacy flat auth");
+
+        assert_eq!(parsed.access_token, "access-token-value");
+        assert_eq!(parsed.refresh_token, "refresh-token-value");
+        assert_eq!(parsed.account_id, "account-123");
+        assert_eq!(parsed.email, "user@example.com");
+        assert_eq!(parsed.expires_at_ms, 1_780_000_000_000);
+        assert_eq!(parsed.updated_at, "2026-06-18T10:00:00Z");
+    }
+
+    #[test]
+    fn managed_auth_file_serializes_to_official_nested_shape() {
+        let credential = CodexStoredCredential {
+            access_token: "access-token-value".to_string(),
+            refresh_token: "refresh-token-value".to_string(),
+            id_token: "id-token-value".to_string(),
+            account_id: "account-123".to_string(),
+            email: "user@example.com".to_string(),
+            expires_at_ms: 1_780_000_000_000,
+            updated_at: "2026-06-18T10:00:00Z".to_string(),
+        };
+        let body = serde_json::to_value(CodexManagedAuthFile {
+            auth_mode: "chatgpt".to_string(),
+            openai_api_key: None,
+            tokens: CodexManagedAuthTokens {
+                id_token: credential.id_token.clone(),
+                access_token: credential.access_token.clone(),
+                refresh_token: credential.refresh_token.clone(),
+                account_id: credential.account_id.clone(),
+            },
+            last_refresh: credential.updated_at.clone(),
+        })
+        .expect("serialize managed auth");
+
+        assert_eq!(body.get("auth_mode").and_then(Value::as_str), Some("chatgpt"));
+        assert!(body.get("OPENAI_API_KEY").map(Value::is_null).unwrap_or(false));
+        assert_eq!(
+            body.get("tokens")
+                .and_then(Value::as_object)
+                .and_then(|tokens| tokens.get("id_token"))
+                .and_then(Value::as_str),
+            Some("id-token-value")
+        );
+        assert_eq!(
+            body.get("last_refresh").and_then(Value::as_str),
+            Some("2026-06-18T10:00:00Z")
+        );
+    }
 }
