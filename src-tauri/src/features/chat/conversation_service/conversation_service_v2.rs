@@ -3549,30 +3549,10 @@ impl ConversationServiceV2 {
                     })
                 {
                     (Some(conversation_meta), None, false)
-                } else if let Some(conversation_meta) = runtime
-                    .main_conversation_id
-                    .as_deref()
-                    .and_then(|current_main| {
-                        self.get_conversation_meta(state, current_main.trim()).ok()
-                    })
-                    .filter(|conversation_meta| {
-                        self.conversation_meta_is_unarchived_meta_view(conversation_meta)
-                            && conversation_meta.visible_in_foreground_lists
-                    })
-                {
-                    (Some(conversation_meta), None, false)
-                } else if runtime.main_conversation_id.as_deref().map(str::trim)
-                    == Some(SYSTEM_NOTIFICATION_CONVERSATION_ID)
-                {
-                    let conversation = build_system_notification_conversation_record();
-                    (None, Some(conversation), true)
-                } else if let Some(conversation_meta) =
-                    read_latest_visible_foreground_conversation_metadata(state)?
-                {
-                    (Some(conversation_meta), None, false)
                 } else {
-                    let conversation = build_system_notification_conversation_record();
-                    (None, Some(conversation), true)
+                    return Err(format!(
+                        "Requested conversation not found: {conversation_id}"
+                    ));
                 }
             } else if let Some(conversation_meta) = runtime
                 .main_conversation_id

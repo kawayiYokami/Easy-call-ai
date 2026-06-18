@@ -8679,6 +8679,27 @@
     }
 
     #[test]
+    fn set_active_conversation_should_error_when_requested_missing() {
+        let state = test_chat_runtime_state();
+        let config = AppConfig::default();
+        write_config(&state.config_path, &config).expect("write config");
+        let data = test_user_switched_to_sub_conversation_data();
+        state_write_app_data_cached(&state, &data).expect("write app data");
+
+        let err = conversation_service_v2()
+            .set_active_conversation(
+                &state,
+                &SetActiveUnarchivedConversationInput {
+                    conversation_id: Some("conversation-missing".to_string()),
+                    agent_id: None,
+                },
+            )
+            .expect_err("missing requested conversation should fail");
+
+        assert!(err.contains("Requested conversation not found"));
+    }
+
+    #[test]
     fn delete_main_conversation_should_promote_existing_sub_conversation() {
         let state = test_chat_runtime_state();
         let config = AppConfig::default();
