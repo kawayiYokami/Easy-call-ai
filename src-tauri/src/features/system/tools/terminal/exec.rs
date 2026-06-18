@@ -709,24 +709,17 @@ async fn run_tool_smart_review(
             review_api_config_id
         ));
     }
-    let resolved_api = resolve_api_config(&app_config, Some(review_api_config_id))?;
     let language = terminal_smart_review_language(&app_config.ui_language);
     let prepared = conversation_prompt_service()
         .build_tool_safety_review_prepared_prompt(language, tool_name, &context);
-    let review_execution = invoke_model_with_policy(
-        &resolved_api,
-        &selected_api.model,
+    let _ = scene;
+    let reply = invoke_quick_model_reply_with_prepared_prompt(
+        state,
+        review_api_config_id,
         prepared,
-        CallPolicy {
-            scene,
-            timeout_secs: Some(120),
-            json_only: true,
-        },
-        Some(state),
+        Some(120),
     )
-    .await;
-    push_model_call_log_parts(Some(state), &review_execution);
-    let reply = review_execution.result?;
+    .await?;
     let raw_json = terminal_smart_review_extract_json(&reply.assistant_text);
     let parsed_value = match serde_json::from_str::<Value>(raw_json) {
         Ok(value) => value,

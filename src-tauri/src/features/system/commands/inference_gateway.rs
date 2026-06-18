@@ -74,14 +74,6 @@ impl CallPolicy {
             json_only: true,
         }
     }
-
-    fn quick_json(scene: &'static str, timeout_secs: Option<u64>) -> Self {
-        Self {
-            scene,
-            timeout_secs,
-            json_only: true,
-        }
-    }
 }
 
 const PROVIDER_STREAMING_DISABLED_TTL_SECS: i64 = 10 * 60;
@@ -627,6 +619,93 @@ fn parse_quick_model_json_response(
         })
 }
 
+fn resolved_model_name_for_quick_request(
+    selected_api: &ApiConfig,
+    resolved_api: &ResolvedApiConfig,
+) -> String {
+    if selected_api.model.trim().is_empty() {
+        resolved_api.model.clone()
+    } else {
+        selected_api.model.trim().to_string()
+    }
+}
+
+fn quick_request_adapter_kind(
+    resolved_api: &ResolvedApiConfig,
+    model_name: &str,
+) -> genai::adapter::AdapterKind {
+    let default_adapter = if resolved_api.request_format.is_openai_responses_family() {
+        genai::adapter::AdapterKind::OpenAIResp
+    } else {
+        resolved_api
+            .request_format
+            .genai_adapter_kind()
+            .or_else(|| {
+                resolved_api
+                    .request_format
+                    .is_auto()
+                    .then(|| resolve_model_adapter_for_auto(model_name))
+            })
+            .unwrap_or_else(|| provider_openai_chat_adapter_kind(resolved_api, model_name))
+    };
+    resolve_provider_genai_adapter_kind(resolved_api, model_name, default_adapter)
+}
+
+async fn invoke_quick_model_reply_with_prepared_prompt(
+    state: &AppState,
+    api_config_id: &str,
+    prepared: PreparedPrompt,
+    timeout_secs: Option<u64>,
+) -> Result<ModelReply, String> {
+    let app_config = state_read_config_cached(state)?;
+    let selected_api = resolve_selected_api_config(&app_config, Some(api_config_id))
+        .ok_or_else(|| format!("快速模型配置不存在：{}", api_config_id))?;
+    if !selected_api.enable_text || !selected_api.request_format.is_chat_text() {
+        return Err("快速模型不支持文本对话".to_string());
+    }
+    let resolved_api = resolve_api_config(&app_config, Some(api_config_id))?;
+    let model_name = resolved_model_name_for_quick_request(&selected_api, &resolved_api);
+    let request_future = async {
+        let resolved_api = resolve_request_api_config(&resolved_api).await?;
+        let request_api_key = consume_api_key_for_request(&resolved_api);
+        let adapter_kind = quick_request_adapter_kind(&resolved_api, &model_name);
+        let service_target = build_provider_genai_service_target(
+            &resolved_api,
+            adapter_kind,
+            &model_name,
+            request_api_key.clone(),
+        );
+        let request = build_provider_genai_request(&prepared)?;
+        let options = build_provider_genai_chat_options(&resolved_api, true, false);
+        let (client, model_spec) = build_provider_genai_client_and_model_spec_from_target(
+            &resolved_api,
+            &model_name,
+            request_api_key,
+            service_target,
+        );
+        let mut stream = client
+            .exec_chat_stream(model_spec, request, Some(&options))
+            .await
+            .map_err(|err| format!("快速模型流式请求失败：{err}"))?
+            .stream;
+        collect_streaming_model_reply_genai(&mut stream, None, None, None).await
+    };
+    if let Some(timeout_secs) = timeout_secs {
+        let call_started = std::time::Instant::now();
+        tokio::time::timeout(std::time::Duration::from_secs(timeout_secs), request_future)
+            .await
+            .map_err(|_| {
+                format!(
+                    "快速模型请求超时 (elapsed={}ms, timeout={}s)",
+                    call_started.elapsed().as_millis(),
+                    timeout_secs
+                )
+            })?
+    } else {
+        request_future.await
+    }
+}
+
 async fn invoke_quick_model_json_with_prepared_prompt(
     state: &AppState,
     scene: &'static str,
@@ -637,28 +716,14 @@ async fn invoke_quick_model_json_with_prepared_prompt(
 ) -> Result<Value, String> {
     let quick_api_config_id = current_tool_review_api_config_id(state)?
         .ok_or_else(|| "未配置快速模型".to_string())?;
-    let app_config = state_read_config_cached(state)?;
-    let selected_api = resolve_selected_api_config(&app_config, Some(&quick_api_config_id))
-        .ok_or_else(|| format!("快速模型配置不存在：{}", quick_api_config_id))?;
-    if !selected_api.enable_text || !selected_api.request_format.is_chat_text() {
-        return Err("快速模型不支持文本对话".to_string());
-    }
-    let resolved_api = resolve_api_config(&app_config, Some(&quick_api_config_id))?;
-    let model_name = if selected_api.model.trim().is_empty() {
-        resolved_api.model.clone()
-    } else {
-        selected_api.model.trim().to_string()
-    };
-    let execution = invoke_model_with_policy(
-        &resolved_api,
-        &model_name,
+    let _ = scene;
+    let reply = invoke_quick_model_reply_with_prepared_prompt(
+        state,
+        &quick_api_config_id,
         prepared,
-        CallPolicy::quick_json(scene, timeout_secs),
-        Some(state),
+        timeout_secs,
     )
-    .await;
-    push_model_call_log_parts(Some(state), &execution);
-    let reply = execution.result?;
+    .await?;
     let candidate = if reply.final_response_text.trim().is_empty() {
         reply.assistant_text.trim()
     } else {
