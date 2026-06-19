@@ -14,6 +14,8 @@ struct ApplyPatchToolArgs {
 struct WriteFileToolArgs {
     path: String,
     content: String,
+    #[serde(default)]
+    overwrite: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1688,17 +1690,30 @@ async fn builtin_write_file(
     session_id: &str,
     args: WriteFileToolArgs,
 ) -> Result<Value, String> {
+    let normalized_session = normalize_terminal_tool_session_id(session_id);
+    let cwd = resolve_terminal_cwd(state, &normalized_session, None)?;
+    let target_path = apply_patch_resolve_path(&cwd, &args.path)?;
+    let action = if args.overwrite && target_path.exists() {
+        "update".to_string()
+    } else {
+        "add".to_string()
+    };
+    let (content, old_string, new_string) = if action == "update" {
+        (None, Some(String::new()), Some(args.content))
+    } else {
+        (Some(args.content), None, None)
+    };
     builtin_apply_patch_with_name(
         state,
         session_id,
         "write",
         ApplyPatchToolArgs {
             operations: vec![ApplyPatchToolOpArgs {
-                action: "add".to_string(),
+                action,
                 path: args.path,
-                content: Some(args.content),
-                old_string: None,
-                new_string: None,
+                content,
+                old_string,
+                new_string,
                 replace_all: None,
                 to: None,
             }],
@@ -1824,6 +1839,21 @@ mod apply_patch_tool_tests {
         assert_eq!(old_string, "before");
         assert_eq!(new_string, "after");
         assert!(*replace_all);
+    }
+
+    #[test]
+    fn write_tool_args_should_default_overwrite_to_false() {
+        let args: WriteFileToolArgs =
+            serde_json::from_str(r#"{"path":"a.txt","content":"hello"}"#).expect("parse write args");
+        assert!(!args.overwrite);
+    }
+
+    #[test]
+    fn write_tool_args_should_accept_overwrite_true() {
+        let args: WriteFileToolArgs =
+            serde_json::from_str(r#"{"path":"a.txt","content":"hello","overwrite":true}"#)
+                .expect("parse write args");
+        assert!(args.overwrite);
     }
 
     #[test]
@@ -2039,6 +2069,37 @@ mod apply_patch_tool_tests {
         assert_eq!(
             std::fs::read(&file).expect("read updated gbk"),
             vec![0xd6, 0xd0, 0xce, 0xc4, b'\n', b'n', b'e', b'w', b'\n']
+        );
+    }
+
+    #[tokio::test]
+    async fn execute_ops_should_overwrite_existing_file_when_update_old_string_is_empty() {
+        let data_path = make_temp_data_path("apply-patch-overwrite");
+        let cwd = app_root_from_data_path(&data_path).join("workspace");
+        std::fs::create_dir_all(&cwd).expect("create cwd");
+        let file = cwd.join("overwrite.txt");
+        std::fs::write(&file, "old\ncontent\n").expect("seed file");
+        let ops = vec![ApplyPatchResolvedOp::Update {
+            from: file.clone(),
+            to: None,
+            old_string: String::new(),
+            new_string: "new\ncontent\n".to_string(),
+            replace_all: false,
+        }];
+        let mut record = apply_patch_empty_backup_record(&data_path, "s1", &cwd, "raw")
+            .expect("empty record");
+
+        let outcome = apply_patch_execute_ops(&data_path, &mut record, &ops)
+            .await
+            .expect("execute");
+
+        assert!(outcome.failure.is_none());
+        assert_eq!(std::fs::read_to_string(&file).expect("read updated"), "new\ncontent\n");
+        assert_eq!(record.entries.len(), 1);
+        assert_eq!(record.entries[0].kind, ApplyPatchBackupKind::Update);
+        assert_eq!(
+            record.entries[0].expected_current_content.as_deref(),
+            Some("new\ncontent\n")
         );
     }
 

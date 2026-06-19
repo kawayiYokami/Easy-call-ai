@@ -645,8 +645,17 @@ fn tool_review_single_edit_preview(tool_name: &str, args: &Value) -> Option<Stri
     match tool_name {
         "write" => {
             let content = tool_review_json_string_field(args, "content").unwrap_or("");
-            lines.push(format!("*** Add File: {path}"));
-            lines.extend(tool_review_prefixed_preview_lines("+", content));
+            let overwrite = args
+                .get("overwrite")
+                .and_then(Value::as_bool)
+                .unwrap_or(false);
+            if overwrite {
+                lines.push(format!("*** Update File: {path}"));
+                lines.extend(tool_review_prefixed_preview_lines("+", content));
+            } else {
+                lines.push(format!("*** Add File: {path}"));
+                lines.extend(tool_review_prefixed_preview_lines("+", content));
+            }
         }
         "delete" => {
             lines.push(format!("*** Delete File: {path}"));
@@ -2134,6 +2143,37 @@ mod tool_review_tests {
         assert_eq!(context["operations"][0]["action"], "update");
         assert_eq!(context["operations"][0]["old_preview"], "let value = ;");
         assert_eq!(context["operations"][0]["new_preview"], "let value = 1;");
+    }
+
+    #[test]
+    fn tool_review_write_preview_should_show_update_when_overwrite_true() {
+        let item = ToolReviewCollectedItem {
+            batch_key: "batch-1".to_string(),
+            call_id: "call-1".to_string(),
+            message_id: "message-1".to_string(),
+            tool_name: "write".to_string(),
+            order_index: 0,
+            args_text: serde_json::json!({
+                "path": "E:/github/easy_call_ai/src/main.rs",
+                "content": "fn main() {}\n",
+                "overwrite": true
+            })
+            .to_string(),
+            args_value: serde_json::json!({
+                "path": "E:/github/easy_call_ai/src/main.rs",
+                "content": "fn main() {}\n",
+                "overwrite": true
+            }),
+            result_text: "{}".to_string(),
+            result_value: Some(serde_json::json!({ "ok": true })),
+            review_value: None,
+        };
+
+        let (_, preview_text) = tool_review_preview_for_item(&item);
+
+        assert!(preview_text.contains("*** Update File: E:/github/easy_call_ai/src/main.rs"));
+        assert!(!preview_text.contains("*** Add File: E:/github/easy_call_ai/src/main.rs"));
+        assert!(preview_text.contains("+fn main() {}"));
     }
 
     #[test]

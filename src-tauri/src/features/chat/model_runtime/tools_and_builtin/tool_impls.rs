@@ -776,12 +776,13 @@ impl RuntimeToolMetadata for BuiltinWriteFileTool {
     fn provider_tool_definition(&self) -> ProviderToolDefinition {
         ProviderToolDefinition::new(
             "write",
-            "新增文件或直接写入一个完整文件。必须提供 path 和 content。用于创建新文件，或在你明确要用完整内容覆盖目标文件时使用。",
+            "新增文件或整写一个完整文件。必须提供 path 和 content；overwrite 默认为 false，表示文件已存在时拒绝覆盖。只有在你明确要用完整内容替换已有文件时，才传 overwrite=true。",
             serde_json::json!({
               "type": "object",
               "properties": {
                 "path": { "type": "string", "description": "目标文件路径。可以是绝对路径，也可以是相对当前工作目录的路径；最终仍受工作区权限校验。" },
-                "content": { "type": "string", "description": "要写入文件的完整内容。" }
+                "content": { "type": "string", "description": "要写入文件的完整内容。" },
+                "overwrite": { "type": "boolean", "description": "是否允许覆盖已有文件。默认 false；只有在你明确要整文件替换已有内容时才设为 true。" }
               },
               "required": ["path", "content"],
               "additionalProperties": false
