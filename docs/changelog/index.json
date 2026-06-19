@@ -1,7 +1,12 @@
 {
-  "generatedAt": "2026-06-19T19:47:29.740Z",
-  "latestVersion": "v0.12.9",
+  "generatedAt": "2026-06-19T22:42:01.790Z",
+  "latestVersion": "v0.13.0",
   "releases": [
+    {
+      "version": "v0.13.0",
+      "path": "docs/changelog/releases/v0.13.0.md",
+      "summary": "**模型配置**：取消后端对 `max_output_tokens` 的硬限制，非 Anthropic 协议在未开启“最大输出”时不再默认下发该参数"
+    },
     {
       "version": "v0.12.9",
       "path": "docs/changelog/releases/v0.12.9.md",
