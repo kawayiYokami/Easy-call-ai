@@ -833,11 +833,8 @@ fn normalize_web_access_password(value: &str) -> String {
 }
 
 fn normalize_web_access_port(value: u16) -> u16 {
-    if value >= 1024 {
-        value
-    } else {
-        default_web_access_port()
-    }
+    let _ = value;
+    default_web_access_port()
 }
 
 fn default_github_update_method() -> String {

@@ -35,9 +35,8 @@
               type="number"
               min="1024"
               max="65535"
-              :disabled="!networkAccessEnabled"
+              disabled
               :value="portInput"
-              @input="updatePort"
             />
           </label>
           <button
@@ -111,6 +110,12 @@
         <div v-if="statusText" class="text-xs" :class="statusError ? 'text-error' : 'text-success'">
           {{ statusText }}
         </div>
+        <div class="rounded-box border border-base-300 bg-base-200/40 p-3 text-xs">
+          <div class="font-medium">{{ t("config.networkAccess.linkStatus") }}</div>
+          <div class="mt-2 text-base-content/70">{{ linkStatusText }}</div>
+          <div v-if="webInfo?.listenAddr" class="mt-1 font-mono text-base-content/60">{{ webInfo.listenAddr }}</div>
+          <div v-if="webInfo?.lastError" class="mt-2 break-all text-error">{{ webInfo.lastError }}</div>
+        </div>
       </div>
     </div>
   </div>
@@ -128,6 +133,9 @@ type WebAccessInfo = {
   enabled: boolean;
   configuredPort: number;
   port: number;
+  listenAddr?: string;
+  statusText?: string;
+  lastError?: string;
   localUrl: string;
   remoteUrls: string[];
   remotePassword: string;
@@ -179,17 +187,21 @@ const passwordDirty = computed(() => passwordInput.value.trim() !== savedPasswor
 const settingsDirty = computed(() => portDirty.value || enabledDirty.value || passwordDirty.value);
 const remoteUrls = computed(() => webInfo.value?.remoteUrls || []);
 const localUrlText = computed(() => webInfo.value?.enabled === false ? t("config.networkAccess.disabled") : (webInfo.value?.localUrl || t("config.networkAccess.waiting")));
+const linkStatusText = computed(() => {
+  const info = webInfo.value;
+  if (!info) return t("config.networkAccess.waiting");
+  if (info.enabled === false) return t("config.networkAccess.disabled");
+  if (info.running && info.localUrl) return t("config.networkAccess.statusListening", { port: info.port });
+  if (info.statusText === "binding") return t("config.networkAccess.statusBinding", { port: info.configuredPort });
+  if (info.statusText === "bind_failed") return t("config.networkAccess.statusBindFailed", { port: info.configuredPort });
+  if (info.statusText === "stopped") return t("config.networkAccess.statusStopped");
+  if (info.statusText === "error") return t("config.networkAccess.statusError");
+  return t("config.networkAccess.statusUnavailable");
+});
 
 function normalizePort(value: unknown): number {
-  const port = Math.round(Number(value));
-  return Number.isFinite(port) && port >= 1024 && port <= 65535 ? port : 43129;
-}
-
-function updatePort(event: Event) {
-  const raw = (event.target as HTMLInputElement).value;
-  portInput.value = raw;
-  const parsed = Math.round(Number(raw));
-  if (Number.isFinite(parsed)) props.config.webAccessPort = parsed;
+  const _ = value;
+  return 43129;
 }
 
 function updateEnabled(event: Event) {
@@ -213,11 +225,17 @@ function regeneratePassword() {
 }
 
 async function refreshInfo() {
+  await refreshInfoInternal(true);
+}
+
+async function refreshInfoInternal(forceRefresh = false) {
   loading.value = true;
   statusText.value = "";
   statusError.value = false;
   try {
-    webInfo.value = await invokeTauri<WebAccessInfo>("get_web_access_info");
+    webInfo.value = await invokeTauri<WebAccessInfo>("get_web_access_info", {
+      input: { forceRefresh },
+    });
     if (!passwordInput.value.trim() && webInfo.value?.remotePassword) {
       passwordInput.value = webInfo.value.remotePassword;
       props.config.webAccessPassword = webInfo.value.remotePassword;
@@ -232,12 +250,12 @@ async function refreshInfo() {
 
 async function saveSettings() {
   if (!settingsDirty.value) return;
-  props.config.webAccessPort = normalizePort(portInput.value);
+  props.config.webAccessPort = 43129;
   portInput.value = String(props.config.webAccessPort);
   props.config.webAccessPassword = passwordInput.value.trim();
   const saved = await Promise.resolve(props.saveConfigAction());
   if (saved !== false) {
-    window.setTimeout(() => void refreshInfo(), 500);
+    window.setTimeout(() => void refreshInfoInternal(true), 500);
   }
 }
 
@@ -268,6 +286,6 @@ async function copyText(text: string) {
 onMounted(() => {
   portInput.value = String(normalizePort(props.config.webAccessPort));
   passwordInput.value = String(props.config.webAccessPassword || "").trim();
-  void refreshInfo();
+  void refreshInfoInternal(false);
 });
 </script>

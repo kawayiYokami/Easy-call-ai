@@ -85,8 +85,8 @@ struct IdeContextQueryResultOutput {
 
 const IDE_CONTEXT_BRIDGE_HOST: &str = "127.0.0.1";
 const IDE_CONTEXT_BRIDGE_BIND_HOST: &str = "0.0.0.0";
+#[cfg(test)]
 const IDE_CONTEXT_BRIDGE_BASE_PORT: u16 = 43129;
-const IDE_CONTEXT_BRIDGE_MAX_PORT: u16 = 43139;
 const IDE_CONTEXT_BRIDGE_PATH: &str = "/ide-context";
 const IDE_CONTEXT_CHAT_BRIDGE_PATH: &str = "/chat";
 const IDE_CONTEXT_BRIDGE_DISCOVERY_FILE: &str = "p-ai-ide-context-bridge.json";
@@ -110,12 +110,25 @@ struct IdeContextRuntime {
     snapshots: Arc<Mutex<std::collections::HashMap<String, IdeContextSnapshot>>>,
     bridge_auth: Arc<Mutex<IdeContextBridgeAuthRuntime>>,
     current_port: Arc<Mutex<Option<u16>>>,
+    web_access_cache: Arc<Mutex<IdeContextWebAccessCache>>,
 }
 
 #[derive(Debug, Default)]
 struct IdeContextBridgeAuthRuntime {
     valid_tokens: std::collections::HashMap<String, OffsetDateTime>,
     remote_password: String,
+}
+
+#[derive(Debug, Default)]
+struct IdeContextWebAccessCache {
+    lan_hosts: Option<Vec<String>>,
+}
+
+#[derive(Debug, Clone, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+struct GetWebAccessInfoInput {
+    #[serde(default)]
+    force_refresh: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -133,6 +146,7 @@ impl IdeContextRuntime {
             snapshots: Arc::new(Mutex::new(std::collections::HashMap::new())),
             bridge_auth: Arc::new(Mutex::new(bridge_auth)),
             current_port: Arc::new(Mutex::new(None)),
+            web_access_cache: Arc::new(Mutex::new(IdeContextWebAccessCache::default())),
         }
     }
 }
@@ -1834,37 +1848,20 @@ fn spawn_ide_context_bridge_server_task(
 async fn bind_ide_context_bridge_listener(
     preferred_port: u16,
 ) -> Result<(tokio::net::TcpListener, u16), String> {
-    let mut errors = Vec::new();
-    let mut candidate_ports = Vec::new();
-    if preferred_port >= 1024 {
-        candidate_ports.push(preferred_port);
-    }
-    for port in IDE_CONTEXT_BRIDGE_BASE_PORT..=IDE_CONTEXT_BRIDGE_MAX_PORT {
-        if !candidate_ports.contains(&port) {
-            candidate_ports.push(port);
-        }
-    }
-    for port in candidate_ports {
-        let addr = format!("{}:{}", IDE_CONTEXT_BRIDGE_BIND_HOST, port);
-        match tokio::net::TcpListener::bind(&addr).await {
-            Ok(listener) => return Ok((listener, port)),
-            Err(err) => {
-                if err.kind() == std::io::ErrorKind::AddrInUse {
-                    eprintln!("[IDE 上下文桥] 端口占用，尝试顺延: {}", addr);
-                } else {
-                    eprintln!("[IDE 上下文桥] 监听失败，尝试下一个端口 {}: {}", addr, err);
-                }
-                errors.push(format!("{addr}: {err}"));
+    let port = normalize_web_access_port(preferred_port);
+    let addr = format!("{}:{}", IDE_CONTEXT_BRIDGE_BIND_HOST, port);
+    match tokio::net::TcpListener::bind(&addr).await {
+        Ok(listener) => Ok((listener, port)),
+        Err(err) => {
+            if err.kind() == std::io::ErrorKind::AddrInUse {
+                eprintln!("[网络访问] 固定端口已占用，无法启动: {}", addr);
+                Err(format!("固定端口 {} 已被占用，请释放后重试", port))
+            } else {
+                eprintln!("[网络访问] 固定端口监听失败 {}: {}", addr, err);
+                Err(format!("固定端口 {} 监听失败: {}", port, err))
             }
         }
     }
-    Err(format!(
-        "No available IDE context bridge port in {}:{}-{} ({})",
-        IDE_CONTEXT_BRIDGE_BIND_HOST,
-        IDE_CONTEXT_BRIDGE_BASE_PORT,
-        IDE_CONTEXT_BRIDGE_MAX_PORT,
-        errors.join("; ")
-    ))
 }
 
 async fn ide_context_stream_is_websocket(stream: &tokio::net::TcpStream) -> bool {
@@ -2155,14 +2152,22 @@ async fn get_web_access_info(
     app: AppHandle,
     state: State<'_, AppState>,
     ide_context_runtime: State<'_, IdeContextRuntime>,
+    input: Option<GetWebAccessInfoInput>,
 ) -> Result<WebAccessInfoOutput, String> {
-    get_web_access_info_inner(&app, &state, &ide_context_runtime).await
+    get_web_access_info_inner(
+        &app,
+        &state,
+        &ide_context_runtime,
+        input.unwrap_or_default().force_refresh,
+    )
+    .await
 }
 
 async fn get_web_access_info_inner(
     app: &AppHandle,
     state: &AppState,
     ide_context_runtime: &IdeContextRuntime,
+    force_refresh: bool,
 ) -> Result<WebAccessInfoOutput, String> {
     let status_snapshot = ide_context_port_service_core()
         .status_snapshot(WEB_ACCESS_SERVICE_ID)
@@ -2202,7 +2207,7 @@ async fn get_web_access_info_inner(
     let (local_url, remote_urls) = match actual_port {
         Some(actual_port) => (
             ide_context_sidebar_url_for_host(IDE_CONTEXT_BRIDGE_HOST, actual_port),
-            ide_context_lan_hosts()
+            ide_context_get_cached_lan_hosts(ide_context_runtime, force_refresh)?
                 .into_iter()
                 .map(|host| ide_context_sidebar_url_for_host(&host, actual_port))
                 .collect::<Vec<_>>(),
@@ -2221,6 +2226,24 @@ async fn get_web_access_info_inner(
         remote_urls,
         remote_password: ide_context_effective_remote_password(state, ide_context_runtime)?,
     })
+}
+
+fn ide_context_get_cached_lan_hosts(
+    ide_context_runtime: &IdeContextRuntime,
+    force_refresh: bool,
+) -> Result<Vec<String>, String> {
+    let mut cache = ide_context_runtime
+        .web_access_cache
+        .lock()
+        .map_err(|_| "Failed to lock web access cache".to_string())?;
+    if !force_refresh {
+        if let Some(lan_hosts) = cache.lan_hosts.clone() {
+            return Ok(lan_hosts);
+        }
+    }
+    let lan_hosts = ide_context_lan_hosts();
+    cache.lan_hosts = Some(lan_hosts.clone());
+    Ok(lan_hosts)
 }
 
 fn query_ide_context_references_internal(
@@ -2588,7 +2611,7 @@ async fn ide_chat_web_access_info_for_web_settings(
     state: &AppState,
     ide_context_runtime: &IdeContextRuntime,
 ) -> Result<Value, String> {
-    ide_chat_serialize(get_web_access_info_inner(app, state, ide_context_runtime).await?)
+    ide_chat_serialize(get_web_access_info_inner(app, state, ide_context_runtime, false).await?)
 }
 
 fn ide_chat_list_memories_for_web_settings(state: &AppState) -> Result<Value, String> {
@@ -6225,33 +6248,19 @@ mod ide_context_tests {
     }
 
     #[tokio::test]
-    async fn ide_context_bind_listener_should_skip_occupied_preferred_port() {
-        let mut candidates = Vec::new();
-        for port in IDE_CONTEXT_BRIDGE_BASE_PORT..=IDE_CONTEXT_BRIDGE_MAX_PORT {
-            if let Ok(listener) = std::net::TcpListener::bind((IDE_CONTEXT_BRIDGE_BIND_HOST, port)) {
-                candidates.push(port);
-                drop(listener);
-            }
-            if candidates.len() >= 2 {
-                break;
-            }
-        }
-        if candidates.len() < 2 {
-            return;
-        }
+    async fn ide_context_bind_listener_should_fail_when_fixed_port_is_occupied() {
+        let occupied_port = IDE_CONTEXT_BRIDGE_BASE_PORT;
+        let occupied_listener = match std::net::TcpListener::bind((IDE_CONTEXT_BRIDGE_BIND_HOST, occupied_port)) {
+            Ok(listener) => listener,
+            Err(_) => return,
+        };
 
-        let occupied_port = candidates[0];
-        let occupied_listener = std::net::TcpListener::bind((IDE_CONTEXT_BRIDGE_BIND_HOST, occupied_port))
-            .expect("occupy preferred port");
-
-        let (listener, actual_port) = bind_ide_context_bridge_listener(occupied_port)
+        let error = bind_ide_context_bridge_listener(occupied_port)
             .await
-            .expect("bind should fall through to next free port");
+            .expect_err("bind should fail on occupied fixed port");
 
-        drop(listener);
         drop(occupied_listener);
-        assert_ne!(actual_port, occupied_port);
-        assert!((IDE_CONTEXT_BRIDGE_BASE_PORT..=IDE_CONTEXT_BRIDGE_MAX_PORT).contains(&actual_port));
+        assert!(error.contains("已被占用"));
     }
 
     #[tokio::test]

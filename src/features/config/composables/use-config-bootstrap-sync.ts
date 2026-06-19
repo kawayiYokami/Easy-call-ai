@@ -20,8 +20,8 @@ function normalizeInstructionPresets(value: unknown): PromptCommandPreset[] {
 }
 
 function normalizeWebAccessPort(value: unknown): number {
-  const port = Math.round(Number(value));
-  return Number.isFinite(port) && port >= 1024 && port <= 65535 ? port : 43129;
+  const _ = value;
+  return 43129;
 }
 
 export function applyConversationApiBootstrapUpdate(bindings: {

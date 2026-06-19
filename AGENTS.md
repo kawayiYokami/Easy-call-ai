@@ -124,6 +124,7 @@ Tauri 管理 3 个无边框窗口：`main`（配置，900×900）、`chat`（对
 - 不要在每个小步骤后重复执行同一组耗时检查；除非中间改动触及了已验证路径，否则不重复测试。
 - 不要默认运行 `cargo fmt` 或全仓格式化；只有用户明确要求、或当前改动本身需要格式化且不会制造无关 diff 时才执行。
 - 当默认 `target/` 被运行中的进程占用、需要使用临时 Cargo 构建目录做验证时，统一使用仓库内的 `src-tauri/target-tests` 作为临时 `CARGO_TARGET_DIR`；不要再新建其他 `target-*` 目录。
+- 执行 Cargo 验证时，如果 `workdir` 已经是 `src-tauri/`，则 `CARGO_TARGET_DIR` 只能写相对路径 `target-tests`；严禁再写成 `src-tauri/target-tests`，否则会错误生成嵌套目录 `src-tauri/src-tauri/target-tests`。若误建了该目录，必须立刻删除并改回仓库约定路径。
 - 与用户沟通时不要主动暴露本机硬盘绝对路径，优先使用仓库内相对路径表述。
 - 提交前仍必须修复并跑通本次改动影响到的必要测试；“禁止无用测试”不等于跳过必要验证。
 
