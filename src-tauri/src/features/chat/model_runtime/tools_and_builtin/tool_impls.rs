@@ -776,11 +776,11 @@ impl RuntimeToolMetadata for BuiltinWriteFileTool {
     fn provider_tool_definition(&self) -> ProviderToolDefinition {
         ProviderToolDefinition::new(
             "write",
-            "新增文件或整写一个完整文件。必须提供 path 和 content；overwrite 默认为 false，表示文件已存在时拒绝覆盖。只有在你明确要用完整内容替换已有文件时，才传 overwrite=true。",
+            "新增文件或整写一个完整文件。",
             serde_json::json!({
               "type": "object",
               "properties": {
-                "path": { "type": "string", "description": "目标文件路径。可以是绝对路径，也可以是相对当前工作目录的路径；最终仍受工作区权限校验。" },
+                "path": { "type": "string", "description": "目标文件的绝对路径。" },
                 "content": { "type": "string", "description": "要写入文件的完整内容。" },
                 "overwrite": { "type": "boolean", "description": "是否允许覆盖已有文件。默认 false；只有在你明确要整文件替换已有内容时才设为 true。" }
               },
@@ -821,11 +821,11 @@ impl RuntimeToolMetadata for BuiltinDeleteFileTool {
     fn provider_tool_definition(&self) -> ProviderToolDefinition {
         ProviderToolDefinition::new(
             "delete",
-            "删除整个文件。只删除 path 指向的完整文件，不删除文件中的局部内容；如果你想删除文件中的一段内容，请改用 update。",
+            "删除整个文件。",
             serde_json::json!({
               "type": "object",
               "properties": {
-                "path": { "type": "string", "description": "要删除的目标文件路径。可以是绝对路径，也可以是相对当前工作目录的路径；最终仍受工作区权限校验。" }
+                "path": { "type": "string", "description": "要删除文件的绝对路径。" }
               },
               "required": ["path"],
               "additionalProperties": false
@@ -864,13 +864,13 @@ impl RuntimeToolMetadata for BuiltinUpdateFileTool {
     fn provider_tool_definition(&self) -> ProviderToolDefinition {
         ProviderToolDefinition::new(
             "update",
-            "修改已有文件中的局部内容。必须提供 path、old_string、new_string；它通过 old_string 在原文件中做精确子串替换，不使用 diff hunk。若要删除局部内容，请让 new_string 设为空字符串。",
+            "修改已有文件中的局部内容，通过 oldString 做精确子串替换。",
             serde_json::json!({
               "type": "object",
               "properties": {
-                "path": { "type": "string", "description": "目标文件路径。可以是绝对路径，也可以是相对当前工作目录的路径；最终仍受工作区权限校验。" },
-                "oldString": { "type": "string", "description": "必须和原文件中的一段内容精确匹配。" },
-                "newString": { "type": "string", "description": "替换后的内容；如需删除旧内容，可传空字符串。" },
+                "path": { "type": "string", "description": "目标文件的绝对路径。" },
+                "oldString": { "type": "string", "description": "原文件中要精确匹配的内容。" },
+                "newString": { "type": "string", "description": "替换后的内容；传空字符串可删除旧内容。" },
                 "replaceAll": { "type": "boolean", "description": "是否替换全部命中项；默认 false。" }
               },
               "required": ["path", "oldString", "newString"],
@@ -910,12 +910,12 @@ impl RuntimeToolMetadata for BuiltinMoveFileTool {
     fn provider_tool_definition(&self) -> ProviderToolDefinition {
         ProviderToolDefinition::new(
             "move",
-            "移动或重命名整个文件。必须提供 path 和 to。",
+            "移动或重命名整个文件。",
             serde_json::json!({
               "type": "object",
               "properties": {
-                "path": { "type": "string", "description": "原始文件路径。可以是绝对路径，也可以是相对当前工作目录的路径；最终仍受工作区权限校验。" },
-                "to": { "type": "string", "description": "目标文件路径。可以是绝对路径，也可以是相对当前工作目录的路径；最终仍受工作区权限校验。" }
+                "path": { "type": "string", "description": "原文件的绝对路径。" },
+                "to": { "type": "string", "description": "目标文件的绝对路径。" }
               },
               "required": ["path", "to"],
               "additionalProperties": false
