@@ -1157,6 +1157,7 @@
     }
   },
   "responseStyle": {
+    "none": "無要求",
     "concise": "簡潔",
     "academic": "學術",
     "teaching": "教學",

@@ -256,6 +256,29 @@
     }
 
     #[test]
+    fn build_core_system_prompt_text_should_skip_conversation_style_block_when_none() {
+        let now = now_iso();
+        let agent = default_agent();
+        let conv = test_active_conversation_with_messages(
+            vec![test_text_message("user", "测试无风格", &now)],
+            Some(now),
+        );
+
+        let fixed_system_prompt = build_core_system_prompt_text(
+            &conv,
+            &agent,
+            &[],
+            Some(("用户", "我是测试用户")),
+            "none",
+            "zh-CN",
+            None,
+        );
+
+        assert!(!fixed_system_prompt.contains("<conversation style>"));
+        assert!(!fixed_system_prompt.contains("当前风格："));
+    }
+
+    #[test]
     fn build_prompt_should_map_non_self_personas_to_user_with_speaker_block() {
         let now = now_iso();
         let agent = default_agent();

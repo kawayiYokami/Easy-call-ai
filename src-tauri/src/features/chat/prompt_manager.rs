@@ -407,7 +407,12 @@ fn build_core_system_prompt_text(
     ui_language: &str,
     _state: Option<&AppState>,
 ) -> String {
-    let response_style = response_style_preset(response_style_id);
+    let response_style_block = response_style_preset_optional(response_style_id).map(|response_style| {
+        prompt_xml_block(
+            "conversation style",
+            format!("当前风格：{}\n{}", response_style.name, response_style.prompt),
+        )
+    });
     let date_timezone_line = prompt_current_date_timezone_line(ui_language);
     let highest_instruction_md = highest_instruction_markdown();
     let (
@@ -415,7 +420,6 @@ fn build_core_system_prompt_text(
         assistant_settings_label,
         user_settings_label,
         role_constraints_label,
-        conversation_style_label,
         language_settings_label,
         user_nickname_label,
         user_intro_label,
@@ -428,7 +432,6 @@ fn build_core_system_prompt_text(
         "persona settings",
         "admin user settings",
         "role constraints",
-        "conversation style",
         "language settings",
         "用户昵称",
         "用户自我介绍",
@@ -463,10 +466,7 @@ fn build_core_system_prompt_text(
                 role_constraints_label,
                 format!("{}\n{}", role_identity_text, role_confusion_line),
             ),
-            prompt_xml_block(
-                conversation_style_label,
-                format!("当前风格：{}\n{}", response_style.name, response_style.prompt),
-            ),
+            response_style_block.clone().unwrap_or_default(),
             prompt_xml_block(
                 language_settings_label,
                 format!(
@@ -487,10 +487,7 @@ fn build_core_system_prompt_text(
                 role_constraints_label,
                 format!("{}\n{}", delegate_role_line, delegate_scope_line),
             ),
-            prompt_xml_block(
-                conversation_style_label,
-                format!("当前风格：{}\n{}", response_style.name, response_style.prompt),
-            ),
+            response_style_block.unwrap_or_default(),
             prompt_xml_block(
                 language_settings_label,
                 format!("{}\n{}", language_instruction, date_timezone_line),

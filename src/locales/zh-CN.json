@@ -1165,6 +1165,7 @@
     }
   },
   "responseStyle": {
+    "none": "无要求",
     "concise": "简洁",
     "academic": "学术",
     "teaching": "教学",

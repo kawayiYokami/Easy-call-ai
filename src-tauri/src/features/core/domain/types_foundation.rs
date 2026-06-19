@@ -76,6 +76,15 @@ fn response_style_preset(id: &str) -> ResponseStylePreset {
         })
 }
 
+fn response_style_preset_optional(id: &str) -> Option<ResponseStylePreset> {
+    let preset = response_style_preset(id);
+    if preset.id == "none" {
+        None
+    } else {
+        Some(preset)
+    }
+}
+
 fn highest_instruction_markdown() -> String {
     prompt_xml_block(
         "system rules",
