@@ -104,6 +104,9 @@ static IDE_CONTEXT_PORT_SERVICE_CORE: OnceLock<Arc<LocalPortServiceCore>> = Once
 static IDE_CONTEXT_CHAT_CLIENTS: OnceLock<
     Arc<Mutex<std::collections::HashMap<String, tokio::sync::mpsc::UnboundedSender<serde_json::Value>>>>,
 > = OnceLock::new();
+static WEB_ACCESS_CONNECTIONS: OnceLock<
+    Arc<Mutex<std::collections::HashMap<String, WebAccessConnectionEntry>>>,
+> = OnceLock::new();
 
 #[derive(Debug, Clone)]
 struct IdeContextRuntime {
@@ -111,6 +114,29 @@ struct IdeContextRuntime {
     bridge_auth: Arc<Mutex<IdeContextBridgeAuthRuntime>>,
     current_port: Arc<Mutex<Option<u16>>>,
     web_access_cache: Arc<Mutex<IdeContextWebAccessCache>>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct WebAccessConnectionSummary {
+    id: String,
+    path: String,
+    peer_addr: String,
+    local: bool,
+    authenticated: bool,
+    connected_at: String,
+    client_id: String,
+}
+
+#[derive(Debug, Clone)]
+struct WebAccessConnectionEntry {
+    id: String,
+    path: String,
+    peer_addr: String,
+    local: bool,
+    authenticated: bool,
+    connected_at: String,
+    client_id: String,
 }
 
 #[derive(Debug, Default)]
@@ -192,6 +218,7 @@ struct WebAccessInfoOutput {
     local_url: String,
     remote_urls: Vec<String>,
     remote_password: String,
+    active_connections: Vec<WebAccessConnectionSummary>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -1154,6 +1181,103 @@ fn ide_context_chat_clients() -> Arc<Mutex<std::collections::HashMap<String, tok
     IDE_CONTEXT_CHAT_CLIENTS
         .get_or_init(|| Arc::new(Mutex::new(std::collections::HashMap::new())))
         .clone()
+}
+
+fn web_access_connections() -> Arc<Mutex<std::collections::HashMap<String, WebAccessConnectionEntry>>> {
+    WEB_ACCESS_CONNECTIONS
+        .get_or_init(|| Arc::new(Mutex::new(std::collections::HashMap::new())))
+        .clone()
+}
+
+fn ide_context_web_access_enabled(state: &AppState) -> bool {
+    match state_read_config_cached(state) {
+        Ok(config) => config.web_access_enabled,
+        Err(err) => {
+            eprintln!("[网络访问] 读取配置失败，按关闭处理: {}", err);
+            false
+        }
+    }
+}
+
+fn ide_context_bridge_shutdown_notification(reason: &str) -> serde_json::Value {
+    serde_json::json!({
+        "jsonrpc": "2.0",
+        "method": "bridge.shutdown",
+        "params": {
+            "reason": reason,
+        },
+    })
+}
+
+fn ide_context_notify_chat_clients_shutdown(reason: &str) {
+    let notification = ide_context_bridge_shutdown_notification(reason);
+    if let Ok(clients) = ide_context_chat_clients().lock() {
+        for sender in clients.values() {
+            let _ = sender.send(notification.clone());
+        }
+    }
+}
+
+fn web_access_register_connection(
+    path: &str,
+    peer_addr: &std::net::SocketAddr,
+    local: bool,
+    authenticated: bool,
+    client_id: &str,
+) -> String {
+    let id = Uuid::new_v4().to_string();
+    let entry = WebAccessConnectionEntry {
+        id: id.clone(),
+        path: path.trim().to_string(),
+        peer_addr: peer_addr.to_string(),
+        local,
+        authenticated,
+        connected_at: now_iso(),
+        client_id: client_id.trim().to_string(),
+    };
+    if let Ok(mut connections) = web_access_connections().lock() {
+        connections.insert(id.clone(), entry);
+    }
+    id
+}
+
+fn web_access_update_connection_auth(connection_id: &str, authenticated: bool, client_id: Option<&str>) {
+    if let Ok(mut connections) = web_access_connections().lock() {
+        if let Some(entry) = connections.get_mut(connection_id) {
+            entry.authenticated = authenticated;
+            if let Some(client_id) = client_id.map(str::trim).filter(|value| !value.is_empty()) {
+                entry.client_id = client_id.to_string();
+            }
+        }
+    }
+}
+
+fn web_access_remove_connection(connection_id: &str) {
+    if let Ok(mut connections) = web_access_connections().lock() {
+        connections.remove(connection_id);
+    }
+}
+
+fn web_access_connection_summaries() -> Vec<WebAccessConnectionSummary> {
+    let mut items = if let Ok(connections) = web_access_connections().lock() {
+        connections
+            .values()
+            .cloned()
+            .map(|entry| WebAccessConnectionSummary {
+                id: entry.id,
+                path: entry.path,
+                peer_addr: entry.peer_addr,
+                local: entry.local,
+                authenticated: entry.authenticated,
+                connected_at: entry.connected_at,
+                client_id: entry.client_id,
+            })
+            .collect::<Vec<_>>()
+    } else {
+        Vec::new()
+    };
+    items.sort_by(|left, right| right.connected_at.cmp(&left.connected_at));
+    items
 }
 
 fn ide_chat_broadcast_notification(method: &str, params: serde_json::Value) {
@@ -2186,6 +2310,7 @@ async fn get_web_access_info_inner(
             local_url: String::new(),
             remote_urls: Vec::new(),
             remote_password: String::new(),
+            active_connections: Vec::new(),
         });
     }
     if !IDE_CONTEXT_BRIDGE_STARTED.load(Ordering::SeqCst)
@@ -2225,6 +2350,7 @@ async fn get_web_access_info_inner(
         local_url,
         remote_urls,
         remote_password: ide_context_effective_remote_password(state, ide_context_runtime)?,
+        active_connections: web_access_connection_summaries(),
     })
 }
 
@@ -5691,6 +5817,7 @@ async fn start_web_access_server(
 async fn shutdown_ide_context_bridge_server_inner() {
     let port_service = ide_context_port_service_core();
     if !IDE_CONTEXT_BRIDGE_STARTED.load(Ordering::SeqCst) {
+        ide_context_notify_chat_clients_shutdown("network_access_disabled");
         clear_ide_context_bridge_discovery();
         let _ = ide_context_bridge_take_server_task();
         port_service
@@ -5707,7 +5834,11 @@ async fn shutdown_ide_context_bridge_server_inner() {
             token.cancel();
         }
     }
+    ide_context_notify_chat_clients_shutdown("network_access_disabled");
     clear_ide_context_bridge_discovery();
+    if let Ok(mut connections) = web_access_connections().lock() {
+        connections.clear();
+    }
     if let Some(clients) = IDE_CONTEXT_CHAT_CLIENTS.get() {
         if let Ok(mut clients) = clients.lock() {
             clients.clear();
@@ -5837,6 +5968,13 @@ async fn ide_context_ws_handle_connection(
     let (mut ws_sender, mut ws_receiver) = ws_stream.split();
     let mut connected_client_id = String::new();
     let mut authenticated = ide_context_peer_is_local(&peer_addr);
+    let connection_id = web_access_register_connection(
+        IDE_CONTEXT_BRIDGE_PATH,
+        &peer_addr,
+        ide_context_peer_is_local(&peer_addr),
+        authenticated,
+        "",
+    );
     let _ = ws_sender
         .send(tokio_tungstenite::tungstenite::Message::Text(
             serde_json::json!({
@@ -5851,6 +5989,20 @@ async fn ide_context_ws_handle_connection(
     while let Some(message) = ws_receiver.next().await {
         match message {
             Ok(tokio_tungstenite::tungstenite::Message::Text(text)) => {
+                if !ide_context_web_access_enabled(&state) {
+                    let _ = ws_sender
+                        .send(tokio_tungstenite::tungstenite::Message::Text(
+                            serde_json::json!({
+                                "type": "ack",
+                                "ok": false,
+                                "error": "网络访问已关闭",
+                            })
+                            .to_string()
+                            .into(),
+                        ))
+                        .await;
+                    break;
+                }
                 match serde_json::from_str::<UpsertIdeContextSnapshotInput>(&text) {
                     Ok(input) => {
                         if !authenticated {
@@ -5861,6 +6013,7 @@ async fn ide_context_ws_handle_connection(
                             ) {
                                 Ok(_token) => {
                                     authenticated = true;
+                                    web_access_update_connection_auth(&connection_id, true, None);
                                 }
                                 Err((err, refreshed_token)) => {
                                     if let Some(_refreshed_token) = refreshed_token.as_deref() {
@@ -5889,6 +6042,11 @@ async fn ide_context_ws_handle_connection(
                         match upsert_ide_context_snapshot_internal(input, &ide_context_runtime) {
                             Ok((client_id, updated_at)) => {
                                 connected_client_id = client_id.clone();
+                                web_access_update_connection_auth(
+                                    &connection_id,
+                                    authenticated,
+                                    Some(&client_id),
+                                );
                                 emit_ide_context_updated(&state, &client_id, &updated_at);
                                 let _ = ws_sender
                                     .send(tokio_tungstenite::tungstenite::Message::Text(
@@ -5927,6 +6085,7 @@ async fn ide_context_ws_handle_connection(
             }
         }
     }
+    web_access_remove_connection(&connection_id);
     if !connected_client_id.is_empty() {
         match ide_context_runtime.snapshots.lock() {
             Ok(mut snapshots) => {
@@ -5950,6 +6109,13 @@ async fn ide_context_chat_ws_handle_connection(
     eprintln!("[VSCode 侧边栏] 客户端已连接: {}", peer_addr);
     let client_id = Uuid::new_v4().to_string();
     let mut authenticated = ide_context_peer_is_local(&peer_addr);
+    let connection_id = web_access_register_connection(
+        IDE_CONTEXT_CHAT_BRIDGE_PATH,
+        &peer_addr,
+        ide_context_peer_is_local(&peer_addr),
+        authenticated,
+        &client_id,
+    );
     let (mut ws_sender, mut ws_receiver) = ws_stream.split();
     let (outbound_tx, mut outbound_rx) = tokio::sync::mpsc::unbounded_channel::<serde_json::Value>();
     let writer_client_id = client_id.clone();
@@ -5987,6 +6153,17 @@ async fn ide_context_chat_ws_handle_connection(
     while let Some(message) = ws_receiver.next().await {
         match message {
             Ok(tokio_tungstenite::tungstenite::Message::Text(text)) => {
+                if !ide_context_web_access_enabled(&state) {
+                    let _ = outbound_tx.send(ide_context_bridge_shutdown_notification(
+                        "network_access_disabled",
+                    ));
+                    let _ = outbound_tx.send(ide_chat_jsonrpc_error(
+                        None,
+                        -32002,
+                        "网络访问已关闭",
+                    ));
+                    break;
+                }
                 let response = match serde_json::from_str::<IdeChatJsonRpcRequest>(&text) {
                     Ok(request) => {
                         if !authenticated {
@@ -6005,6 +6182,11 @@ async fn ide_context_chat_ws_handle_connection(
                                         ) {
                                             Ok(auth_token) => {
                                                 authenticated = true;
+                                                web_access_update_connection_auth(
+                                                    &connection_id,
+                                                    true,
+                                                    Some(&client_id),
+                                                );
                                                 if !registered_client {
                                                     if let Ok(mut clients) = ide_context_chat_clients().lock() {
                                                         clients.insert(client_id.clone(), outbound_tx.clone());
@@ -6037,6 +6219,11 @@ async fn ide_context_chat_ws_handle_connection(
                                 ) {
                                     Ok(_token) => {
                                         authenticated = true;
+                                        web_access_update_connection_auth(
+                                            &connection_id,
+                                            true,
+                                            Some(&client_id),
+                                        );
                                         if !registered_client {
                                             if let Ok(mut clients) = ide_context_chat_clients().lock() {
                                                 clients.insert(client_id.clone(), outbound_tx.clone());
@@ -6105,6 +6292,7 @@ async fn ide_context_chat_ws_handle_connection(
             }
         }
     }
+    web_access_remove_connection(&connection_id);
     if let Ok(mut clients) = ide_context_chat_clients().lock() {
         clients.remove(&client_id);
     }

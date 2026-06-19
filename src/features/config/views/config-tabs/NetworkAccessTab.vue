@@ -105,6 +105,33 @@
               {{ webInfo?.enabled === false ? t("config.networkAccess.disabled") : t("config.networkAccess.noRemoteLink") }}
             </div>
           </div>
+
+          <div class="rounded-box border border-base-300 bg-base-200/40 p-3">
+            <div class="flex items-center justify-between gap-3">
+              <div>
+                <div class="text-sm font-medium">{{ t("config.networkAccess.activeConnections") }}</div>
+                <div class="mt-1 text-xs text-base-content/60">
+                  {{ t("config.networkAccess.activeConnectionsCount", { count: activeConnections.length }) }}
+                </div>
+              </div>
+            </div>
+            <div v-if="activeConnections.length > 0" class="mt-3 grid gap-2">
+              <div v-for="item in activeConnections" :key="item.id" class="rounded-box border border-base-300 bg-base-100/70 p-3 text-xs">
+                <div class="flex flex-wrap items-center gap-2">
+                  <span class="badge badge-outline">{{ connectionKindLabel(item.path) }}</span>
+                  <span class="badge badge-ghost">{{ item.local ? t("config.networkAccess.connectionLocal") : t("config.networkAccess.connectionRemote") }}</span>
+                  <span class="badge" :class="item.authenticated ? 'badge-success badge-outline' : 'badge-warning badge-outline'">
+                    {{ item.authenticated ? t("config.networkAccess.connectionAuthenticated") : t("config.networkAccess.connectionPending") }}
+                  </span>
+                </div>
+                <div class="mt-2 font-mono break-all text-base-content/70">{{ item.peerAddr }}</div>
+                <div class="mt-1 text-base-content/60">{{ item.connectedAt }}</div>
+              </div>
+            </div>
+            <div v-else class="mt-2 text-xs text-base-content/60">
+              {{ t("config.networkAccess.noActiveConnections") }}
+            </div>
+          </div>
         </div>
 
         <div v-if="statusText" class="text-xs" :class="statusError ? 'text-error' : 'text-success'">
@@ -139,6 +166,15 @@ type WebAccessInfo = {
   localUrl: string;
   remoteUrls: string[];
   remotePassword: string;
+  activeConnections: Array<{
+    id: string;
+    path: string;
+    peerAddr: string;
+    local: boolean;
+    authenticated: boolean;
+    connectedAt: string;
+    clientId: string;
+  }>;
 };
 
 const props = defineProps<{
@@ -186,6 +222,7 @@ const enabledDirty = computed(() => networkAccessEnabled.value !== savedEnabled.
 const passwordDirty = computed(() => passwordInput.value.trim() !== savedPassword.value);
 const settingsDirty = computed(() => portDirty.value || enabledDirty.value || passwordDirty.value);
 const remoteUrls = computed(() => webInfo.value?.remoteUrls || []);
+const activeConnections = computed(() => webInfo.value?.activeConnections || []);
 const localUrlText = computed(() => webInfo.value?.enabled === false ? t("config.networkAccess.disabled") : (webInfo.value?.localUrl || t("config.networkAccess.waiting")));
 const linkStatusText = computed(() => {
   const info = webInfo.value;
@@ -202,6 +239,12 @@ const linkStatusText = computed(() => {
 function normalizePort(value: unknown): number {
   const _ = value;
   return 43129;
+}
+
+function connectionKindLabel(path: string): string {
+  return path === "/chat"
+    ? t("config.networkAccess.connectionKindChat")
+    : t("config.networkAccess.connectionKindContext");
 }
 
 function updateEnabled(event: Event) {

@@ -303,6 +303,16 @@ function handleWebBridgeMessage(event: MessageEvent<string>, ready: () => void) 
     ready();
     return;
   }
+  if (method === "bridge.shutdown") {
+    emitWebBridgeNotification(method, payload.params);
+    webBridgeState.errorText = "网络访问已关闭";
+    try {
+      webBridgeSocket?.close();
+    } catch {
+      resetWebBridgeConnectionState("网络访问已关闭");
+    }
+    return;
+  }
   if (method) emitWebBridgeNotification(method, payload.params);
 }
 
