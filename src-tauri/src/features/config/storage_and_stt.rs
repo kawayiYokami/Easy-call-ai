@@ -69,6 +69,10 @@ fn provider_key_cursor_state() -> &'static Mutex<std::collections::HashMap<Strin
     CURSORS.get_or_init(|| Mutex::new(std::collections::HashMap::new()))
 }
 
+fn anthropic_default_max_output_tokens() -> u32 {
+    128_000
+}
+
 fn peek_provider_api_key(provider: &ApiProviderConfig) -> String {
     let keys = provider
         .api_keys
@@ -476,7 +480,11 @@ fn normalize_api_tools(config: &mut AppConfig) {
             model.reasoning_effort = normalize_reasoning_effort(&model.reasoning_effort);
             model.temperature = model.temperature.clamp(0.0, 2.0);
             model.context_window_tokens = model.context_window_tokens.clamp(16_000, 2_000_000);
-            model.max_output_tokens = model.max_output_tokens.clamp(256, 32_768);
+            if provider.request_format.is_anthropic()
+                && model.max_output_tokens == default_max_output_tokens()
+            {
+                model.max_output_tokens = anthropic_default_max_output_tokens();
+            }
             if provider.request_format.is_codex() {
                 model.enable_image = true;
                 model.enable_video = false;
@@ -533,7 +541,9 @@ fn normalize_api_tools(config: &mut AppConfig) {
         api.reasoning_effort = normalize_reasoning_effort(&api.reasoning_effort);
         api.temperature = api.temperature.clamp(0.0, 2.0);
         api.context_window_tokens = api.context_window_tokens.clamp(16_000, 2_000_000);
-        api.max_output_tokens = api.max_output_tokens.clamp(256, 32_768);
+        if api.request_format.is_anthropic() && api.max_output_tokens == default_max_output_tokens() {
+            api.max_output_tokens = anthropic_default_max_output_tokens();
+        }
         api.enable_audio = api.enable_audio || api.enable_video;
         if api.request_format.is_codex() {
             api.enable_image = true;
@@ -1792,7 +1802,7 @@ fn resolve_api_config(
             .filter(|_| !selected.request_format.is_codex()),
         max_output_tokens: (selected.request_format.is_anthropic()
             || selected.custom_max_output_tokens_enabled)
-            .then_some(selected.max_output_tokens.clamp(256, 32_768))
+            .then_some(selected.max_output_tokens)
             .filter(|_| !selected.request_format.is_codex()),
         prompt_cache_key: None,
         extra_headers,

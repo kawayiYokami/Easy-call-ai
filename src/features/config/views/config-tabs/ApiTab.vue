@@ -339,7 +339,12 @@
                       <label
                         class="flex items-center justify-between rounded-box border border-base-300 bg-base-300 px-3 py-2">
                         <span class="text-sm">{{ t("config.api.maxOutputTokens") }}</span>
-                        <input v-model="modelCard.customMaxOutputTokensEnabled" type="checkbox" class="checkbox checkbox-sm" />
+                        <input
+                          v-model="modelCard.customMaxOutputTokensEnabled"
+                          type="checkbox"
+                          class="checkbox checkbox-sm"
+                          @change="handleCustomMaxOutputTokensToggle(modelCard)"
+                        />
                       </label>
                     </div>
 
@@ -417,10 +422,12 @@
                         <div class="flex items-center gap-2">
                           <input :value="modelCard.maxOutputTokens"
                             @input="modelCard.maxOutputTokens = Number(($event.target as HTMLInputElement).value)"
-                            type="range" min="256" :max="maxOutputTokensMax(modelCard)" step="256"
+                            type="range" min="8192" max="128000" step="256"
                             class="range range-sm flex-1" />
-                          <span class="text-xs font-mono w-24 text-right">{{
-                            Number(modelCard.maxOutputTokens).toLocaleString() }}</span>
+                          <input :value="Math.round(Number(modelCard.maxOutputTokens ?? 0))"
+                            @input="modelCard.maxOutputTokens = Number(($event.target as HTMLInputElement).value || 0)"
+                            type="number" step="1"
+                            class="input input-bordered input-sm w-28 text-right font-mono" />
                         </div>
                       </label>
                     </div>
@@ -1056,6 +1063,7 @@ function stopCodexAuthPolling() {
 function applyProtocolDefaults(provider: ApiProviderConfigItem) {
   provider.requestFormat = normalizeApiRequestFormat(provider.requestFormat);
   const isCodex = provider.requestFormat === "codex";
+  const isAnthropic = provider.requestFormat === "anthropic";
   if (isCodex) {
     provider.baseUrl = DEFAULT_CODEX_BASE_URL;
     provider.codexAuthMode = (String(provider.codexAuthMode || DEFAULT_CODEX_AUTH_MODE).trim() || DEFAULT_CODEX_AUTH_MODE) as CodexAuthMode;
@@ -1078,7 +1086,26 @@ function applyProtocolDefaults(provider: ApiProviderConfigItem) {
   provider.models = (provider.models || []).map((model) => ({
     ...model,
     reasoningEffort: String(model.reasoningEffort || DEFAULT_REASONING_EFFORT).trim() || DEFAULT_REASONING_EFFORT,
+    customMaxOutputTokensEnabled: isAnthropic ? true : !!model.customMaxOutputTokensEnabled,
+    maxOutputTokens: isAnthropic && Number(model.maxOutputTokens ?? 4096) === 4096
+      ? 128000
+      : Number(model.maxOutputTokens ?? 4096),
   }));
+}
+
+function handleCustomMaxOutputTokensToggle(modelCard: ApiModelConfigItem) {
+  if (!modelCard.customMaxOutputTokensEnabled) return;
+  const provider = selectedProvider.value;
+  const currentValue = Number(modelCard.maxOutputTokens ?? 4096);
+  if (provider?.requestFormat === "anthropic") {
+    if (!Number.isFinite(currentValue) || currentValue === 4096) {
+      modelCard.maxOutputTokens = 128000;
+    }
+    return;
+  }
+  if (!Number.isFinite(currentValue) || currentValue < 8192) {
+    modelCard.maxOutputTokens = 8192;
+  }
 }
 
 function normalizeProviderRequestFormats() {
@@ -1329,12 +1356,6 @@ function applyAutoContextWindowTokens(modelCard: ApiModelConfigItem) {
   modelCard.contextWindowTokens = autoContextWindowTokens(modelCard);
 }
 
-function maxOutputTokensMax(modelCard: ApiModelConfigItem): number {
-  const raw = Number(modelCapabilityById.value[modelCard.id]?.maxOutputTokensMax ?? 128_000);
-  if (!Number.isFinite(raw)) return 128_000;
-  return Math.max(256, Math.min(128_000, Math.round(raw)));
-}
-
 function shouldWarnDeepSeekKimiProtocol(modelCard: ApiModelConfigItem): boolean {
   if (selectedProtocol.value === "auto" || selectedProtocol.value === "deepseek") return false;
   const modelName = String(modelCard.model || "").toLowerCase();
@@ -1351,9 +1372,8 @@ function clampModelCardValues(modelCard: ApiModelConfigItem) {
   }
 
   const nextOutput = Math.round(Number(modelCard.maxOutputTokens ?? 4_096));
-  const clampedOutput = Math.max(256, Math.min(maxOutputTokensMax(modelCard), nextOutput));
-  if (Number.isFinite(nextOutput) && nextOutput !== clampedOutput) {
-    modelCard.maxOutputTokens = clampedOutput;
+  if (!Number.isFinite(nextOutput)) {
+    modelCard.maxOutputTokens = 4_096;
   }
 }
 

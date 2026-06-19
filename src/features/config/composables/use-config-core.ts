@@ -71,7 +71,7 @@ export function useConfigCore(options: UseConfigCoreOptions) {
       customTemperatureEnabled: false,
       contextWindowTokens: DEFAULT_CONTEXT_WINDOW_TOKENS,
       customMaxOutputTokensEnabled: false,
-      maxOutputTokens: 4096,
+      maxOutputTokens: DEFAULT_MAX_OUTPUT_TOKENS,
     };
   }
 

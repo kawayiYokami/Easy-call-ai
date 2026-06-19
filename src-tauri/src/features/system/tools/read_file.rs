@@ -843,7 +843,7 @@ async fn describe_openai_family_media_with_multimodal_api(
     };
     let max_tokens = request_api
         .max_output_tokens
-        .unwrap_or_else(|| selected_api.max_output_tokens.clamp(256, 32_768));
+        .unwrap_or(selected_api.max_output_tokens);
     let body = serde_json::json!({
         "model": selected_api.model,
         "messages": [
@@ -1009,7 +1009,7 @@ async fn describe_minimax_video_with_multimodal_api(
     let user_text = build_read_media_user_text(ReadMediaDetectedType::Video, description);
     let max_tokens = request_api
         .max_output_tokens
-        .unwrap_or_else(|| selected_api.max_output_tokens.clamp(256, 32_768));
+        .unwrap_or(selected_api.max_output_tokens);
     let body = serde_json::json!({
         "model": selected_api.model,
         "max_tokens": max_tokens,
@@ -1088,7 +1088,7 @@ async fn describe_mimo_video_with_multimodal_api(
     let user_text = build_read_media_user_text(ReadMediaDetectedType::Video, description);
     let max_completion_tokens = request_api
         .max_output_tokens
-        .unwrap_or_else(|| selected_api.max_output_tokens.clamp(256, 32_768));
+        .unwrap_or(selected_api.max_output_tokens);
     let body = serde_json::json!({
         "model": selected_api.model,
         "messages": [
