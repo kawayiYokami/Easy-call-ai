@@ -916,7 +916,7 @@ fn save_config_inner(
             base_config.web_access_port
         );
         tauri::async_runtime::spawn(async move {
-            shutdown_ide_context_bridge_server().await;
+            shutdown_web_access_server().await;
         });
     } else if main_config.web_access_enabled
         && (!base_config.web_access_enabled
@@ -931,11 +931,17 @@ fn save_config_inner(
             base_config.web_access_port,
             main_config.web_access_port
         );
-        restart_ide_context_bridge_server(
-            app.clone(),
-            state.clone(),
-            ide_context_runtime.clone(),
-        );
+        let app = app.clone();
+        let state = state.clone();
+        let ide_context_runtime = ide_context_runtime.clone();
+        tauri::async_runtime::spawn(async move {
+            restart_web_access_server(
+                app,
+                state,
+                ide_context_runtime,
+            )
+            .await;
+        });
     }
     match apply_webview_zoom_percent(&app, main_config.webview_zoom_percent) {
         Ok(percent) => emit_webview_zoom_percent_updated(&app, percent),

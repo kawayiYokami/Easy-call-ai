@@ -1,38 +1,34 @@
 impl WeixinOcManager {
-    async fn channel_lifecycle_guard(
-        &self,
-        channel_id: &str,
-    ) -> tokio::sync::OwnedMutexGuard<()> {
-        let lock = {
-            let mut locks = self.lifecycle_locks.lock().await;
-            locks
-                .entry(channel_id.to_string())
-                .or_insert_with(|| std::sync::Arc::new(tokio::sync::Mutex::new(())))
-                .clone()
-        };
-        lock.lock_owned().await
-    }
-
     async fn add_log(&self, channel_id: &str, level: &str, message: &str) {
-        onebot_v11_ws_manager().add_log(channel_id, level, message).await;
+        self.port_service.add_log(channel_id, level, message).await;
     }
 
     async fn set_state<F>(&self, channel_id: &str, update: F)
     where
         F: FnOnce(&mut WeixinOcRuntimeState),
     {
-        let mut states = self.states.write().await;
-        let state = states
-            .entry(channel_id.to_string())
-            .or_insert_with(WeixinOcRuntimeState::default);
-        let was_connected = state.connected;
-        update(state);
-        if state.connected && !was_connected {
-            state.connected_at = Some(chrono::Utc::now());
-        }
-        if !state.connected {
-            state.connected_at = None;
-        }
+        let (status_text, last_error) = {
+            let mut states = self.states.write().await;
+            let state = states
+                .entry(channel_id.to_string())
+                .or_insert_with(WeixinOcRuntimeState::default);
+            let was_connected = state.connected;
+            update(state);
+            if state.connected && !was_connected {
+                state.connected_at = Some(chrono::Utc::now());
+            }
+            if !state.connected {
+                state.connected_at = None;
+            }
+            (
+                (!state.login_status.trim().is_empty()).then(|| state.login_status.clone()),
+                (!state.last_error.trim().is_empty()).then(|| state.last_error.clone()),
+            )
+        };
+        self.port_service
+            .set_status_text(channel_id, status_text)
+            .await;
+        self.port_service.set_last_error(channel_id, last_error).await;
     }
 
     async fn load_state_from_channel(&self, state: &AppState, channel: &RemoteImChannelConfig) {
@@ -87,12 +83,18 @@ impl WeixinOcManager {
             },
             connected_at: state.connected_at,
             listen_addr: String::new(),
-            status_text: Some(state.login_status),
-            last_error: if state.last_error.trim().is_empty() {
-                None
-            } else {
-                Some(state.last_error)
-            },
+            status_text: self
+                .port_service
+                .get_status_text(channel_id)
+                .await
+                .or_else(|| Some(state.login_status.clone())),
+            last_error: self.port_service.get_last_error(channel_id).await.or_else(|| {
+                if state.last_error.trim().is_empty() {
+                    None
+                } else {
+                    Some(state.last_error.clone())
+                }
+            }),
             account_id: if state.account_id.trim().is_empty() {
                 None
             } else {
@@ -196,8 +198,13 @@ impl WeixinOcManager {
     }
 
     async fn stop_channel(&self, channel_id: &str) {
-        let _guard = self.channel_lifecycle_guard(channel_id).await;
-        self.stop_channel_inner(channel_id).await;
+        let _ = self
+            .port_service
+            .stop_serialized(channel_id, || async {
+                self.stop_channel_inner(channel_id).await;
+                Ok(())
+            })
+            .await;
     }
 
     pub(crate) async fn start_typing(
@@ -435,43 +442,53 @@ impl WeixinOcManager {
         channel: &RemoteImChannelConfig,
         state: AppState,
     ) -> Result<(), String> {
-        let _guard = self.channel_lifecycle_guard(&channel.id).await;
-        eprintln!(
-            "[个人微信] reconcile_channel_runtime: channel_id={}, enabled={}, platform={:?}",
-            channel.id, channel.enabled, channel.platform
-        );
-        self.load_state_from_channel(&state, channel).await;
-        self.stop_channel_inner(&channel.id).await;
-        if channel.platform != RemoteImPlatform::WeixinOc || !channel.enabled {
-            eprintln!("[个人微信] 渠道已停用: channel_id={}", channel.id);
-            self.add_log(&channel.id, "info", "[个人微信] 渠道已停用").await;
-            return Ok(());
-        }
-        let effective_channel = remote_im_channel_with_effective_credentials(&state, channel)?;
-        let creds = WeixinOcCredentials::from_value(&effective_channel.credentials);
-        eprintln!(
-            "[个人微信] 当前凭证: channel_id={}, base_url={}, token_len={}, account_id={}, user_id={}",
-            channel.id,
-            creds.normalized_base_url(),
-            creds.token.trim().len(),
-            creds.account_id.trim(),
-            creds.user_id.trim()
-        );
-        if creds.token.trim().is_empty() {
-            eprintln!("[个人微信] 渠道已启用，但尚未登录（缺少 token）: channel_id={}", channel.id);
-            self.set_state(&channel.id, |runtime| {
-                runtime.connected = false;
-                runtime.login_status = "need_login".to_string();
+        self.port_service
+            .reconcile_serialized(&channel.id, || async move {
+                eprintln!(
+                    "[个人微信] reconcile_channel_runtime: channel_id={}, enabled={}, platform={:?}",
+                    channel.id, channel.enabled, channel.platform
+                );
+                self.load_state_from_channel(&state, channel).await;
+                self.stop_channel_inner(&channel.id).await;
+                if channel.platform != RemoteImPlatform::WeixinOc || !channel.enabled {
+                    eprintln!("[个人微信] 渠道已停用: channel_id={}", channel.id);
+                    self.set_state(&channel.id, |runtime| {
+                        runtime.connected = false;
+                        runtime.login_status = "disabled".to_string();
+                        runtime.last_error.clear();
+                    })
+                    .await;
+                    self.add_log(&channel.id, "info", "[个人微信] 渠道已停用").await;
+                    return Ok(());
+                }
+                let effective_channel = remote_im_channel_with_effective_credentials(&state, channel)?;
+                let creds = WeixinOcCredentials::from_value(&effective_channel.credentials);
+                eprintln!(
+                    "[个人微信] 当前凭证: channel_id={}, base_url={}, token_len={}, account_id={}, user_id={}",
+                    channel.id,
+                    creds.normalized_base_url(),
+                    creds.token.trim().len(),
+                    creds.account_id.trim(),
+                    creds.user_id.trim()
+                );
+                if creds.token.trim().is_empty() {
+                    eprintln!("[个人微信] 渠道已启用，但尚未登录（缺少 token）: channel_id={}", channel.id);
+                    self.set_state(&channel.id, |runtime| {
+                        runtime.connected = false;
+                        runtime.login_status = "need_login".to_string();
+                        runtime.last_error.clear();
+                    })
+                    .await;
+                    self.add_log(&channel.id, "info", "[个人微信] 渠道已启用，但尚未登录（缺少 token）")
+                        .await;
+                    return Ok(());
+                }
+                eprintln!("[个人微信] 渠道已启用，正在启动轮询: channel_id={}", channel.id);
+                self.add_log(&channel.id, "info", "[个人微信] 渠道已启用，正在启动轮询")
+                    .await;
+                self.start_channel_inner(effective_channel, state).await
             })
-            .await;
-            self.add_log(&channel.id, "info", "[个人微信] 渠道已启用，但尚未登录（缺少 token）")
-                .await;
-            return Ok(());
-        }
-        eprintln!("[个人微信] 渠道已启用，正在启动轮询: channel_id={}", channel.id);
-        self.add_log(&channel.id, "info", "[个人微信] 渠道已启用，正在启动轮询")
-            .await;
-        self.start_channel_inner(effective_channel, state).await
+            .await
     }
 
     async fn start_channel_inner(
@@ -570,7 +587,13 @@ impl WeixinOcManager {
         channel: RemoteImChannelConfig,
         state: AppState,
     ) -> Result<(), String> {
-        let _guard = self.channel_lifecycle_guard(&channel.id).await;
-        self.start_channel_inner(channel, state).await
+        let service_id = channel.id.clone();
+        self.port_service
+            .restart_serialized(&service_id, || async move { self.start_channel_inner(channel, state).await })
+            .await
+    }
+
+    pub(crate) async fn get_logs(&self, channel_id: &str) -> Vec<ChannelLogEntry> {
+        self.port_service.get_logs(channel_id).await
     }
 }

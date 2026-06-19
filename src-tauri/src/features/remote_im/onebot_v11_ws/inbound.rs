@@ -290,27 +290,30 @@ impl OnebotV11WsManager {
         channel_id: String,
         state: AppState,
     ) -> Result<(), String> {
-        let _guard = self.channel_lifecycle_guard(&channel_id).await;
-        self.stop_event_consumer_inner(&channel_id).await?;
-        let (stop_tx, stop_rx) = tokio::sync::watch::channel(false);
-        self.event_consumer_stop_senders
-            .write()
+        let service_id = channel_id.clone();
+        self.port_service
+            .restart_serialized(&service_id, || async move {
+                self.stop_event_consumer_inner(&channel_id).await?;
+                let (stop_tx, stop_rx) = tokio::sync::watch::channel(false);
+                self.event_consumer_stop_senders
+                    .write()
+                    .await
+                    .insert(channel_id.clone(), stop_tx);
+                let tasks = self.event_consumer_tasks.clone();
+                let stop_senders = self.event_consumer_stop_senders.clone();
+                let task_channel_id = channel_id.clone();
+                let manager = self.clone();
+                let handle = tokio::spawn(async move {
+                    napcat_run_event_consumer_loop(manager, task_channel_id.clone(), state, stop_rx).await;
+                    stop_senders.write().await.remove(&task_channel_id);
+                    tasks.write().await.remove(&task_channel_id);
+                });
+                self.event_consumer_tasks
+                    .write()
+                    .await
+                    .insert(channel_id, handle);
+                Ok(())
+            })
             .await
-            .insert(channel_id.clone(), stop_tx);
-        let tasks = self.event_consumer_tasks.clone();
-        let stop_senders = self.event_consumer_stop_senders.clone();
-        let task_channel_id = channel_id.clone();
-        let manager = self.clone();
-        let handle = tokio::spawn(async move {
-            napcat_run_event_consumer_loop(manager, task_channel_id.clone(), state, stop_rx).await;
-            stop_senders.write().await.remove(&task_channel_id);
-            tasks.write().await.remove(&task_channel_id);
-        });
-        self.event_consumer_tasks
-            .write()
-            .await
-            .insert(channel_id, handle);
-        Ok(())
     }
 }
-

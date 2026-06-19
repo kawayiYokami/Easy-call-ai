@@ -26,22 +26,12 @@ fn validate_ws_token_from_query(query: Option<&str>, headers: &axum::http::Heade
 }
 
 async fn append_channel_log(
-    channel_logs: &Arc<RwLock<HashMap<String, Vec<ChannelLogEntry>>>>,
+    port_service: &Arc<LocalPortServiceCore>,
     channel_id: &str,
     level: &str,
     message: String,
 ) {
-    let mut logs = channel_logs.write().await;
-    let entries = logs.entry(channel_id.to_string()).or_insert_with(Vec::new);
-    entries.push(ChannelLogEntry {
-        timestamp: Utc::now(),
-        level: level.to_string(),
-        message,
-    });
-    if entries.len() > CHANNEL_LOG_LIMIT {
-        let start = entries.len() - CHANNEL_LOG_LIMIT;
-        entries.drain(0..start);
-    }
+    port_service.add_log(channel_id, level, &message).await;
 }
 
 async fn route_onebot_ws_payload(
@@ -70,7 +60,7 @@ async fn run_message_loop(
     pending_responses: Arc<RwLock<HashMap<String, oneshot::Sender<OneBotApiResponse>>>>,
     event_tx: broadcast::Sender<Value>,
     connections: Arc<RwLock<HashMap<String, WsConnection>>>,
-    channel_logs: Arc<RwLock<HashMap<String, Vec<ChannelLogEntry>>>>,
+    port_service: Arc<LocalPortServiceCore>,
     channel_id: String,
     peer_addr_str: String,
     cancel: CancellationToken,
@@ -166,6 +156,6 @@ async fn run_message_loop(
     }
 
     eprintln!("[远程IM][OneBot v11 WS] 渠道 {} 客户端断开: {}", channel_id, peer_addr_str);
-    append_channel_log(&channel_logs, &channel_id, &disconnect_level, disconnect_message).await;
+    append_channel_log(&port_service, &channel_id, &disconnect_level, disconnect_message).await;
     connections.write().await.remove(&channel_id);
 }

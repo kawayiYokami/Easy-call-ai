@@ -17,17 +17,6 @@ use tokio_util::task::TaskTracker;
 use tokio_tungstenite::accept_hdr_async;
 use tokio_tungstenite::tungstenite::handshake::server::{Request, Response};
 
-const CHANNEL_LOG_LIMIT: usize = 300;
-
-/// 渠道日志条目
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ChannelLogEntry {
-    pub timestamp: DateTime<Utc>,
-    pub level: String, // "info", "warn", "error"
-    pub message: String,
-}
-
 /// 渠道连接状态
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -140,7 +129,7 @@ struct OnebotAxumState {
     event_tx: broadcast::Sender<Value>,
     connections: Arc<RwLock<HashMap<String, WsConnection>>>,
     connection_stop_senders: Arc<RwLock<HashMap<String, watch::Sender<bool>>>>,
-    channel_logs: Arc<RwLock<HashMap<String, Vec<ChannelLogEntry>>>>,
+    port_service: Arc<LocalPortServiceCore>,
     active_connection_gate: Arc<std::sync::atomic::AtomicBool>,
     cancel: CancellationToken,
 }
@@ -154,14 +143,8 @@ pub struct OnebotV11WsManager {
     connection_stop_senders: Arc<RwLock<HashMap<String, watch::Sender<bool>>>>,
     /// 每个渠道独立的事件总线: channel_id -> event sender
     channel_event_senders: Arc<RwLock<HashMap<String, broadcast::Sender<Value>>>>,
-    /// 渠道日志: channel_id -> 日志条目列表
-    channel_logs: Arc<RwLock<HashMap<String, Vec<ChannelLogEntry>>>>,
-    /// 渠道监听地址: channel_id -> listen_addr
-    listen_addrs: Arc<RwLock<HashMap<String, String>>>,
-    /// 渠道状态文本: channel_id -> status_text
-    channel_status_texts: Arc<RwLock<HashMap<String, String>>>,
-    /// 渠道最近错误: channel_id -> last_error
-    channel_last_errors: Arc<RwLock<HashMap<String, String>>>,
+    /// 渠道本地端口服务共享状态
+    port_service: Arc<LocalPortServiceCore>,
     /// 渠道 axum serve 任务的 JoinHandle
     channel_tasks: Arc<RwLock<HashMap<String, tokio::task::JoinHandle<()>>>>,
     /// 渠道派生任务组，用于 stop 时收割所有连接任务
@@ -170,8 +153,6 @@ pub struct OnebotV11WsManager {
     event_consumer_stop_senders: Arc<RwLock<HashMap<String, watch::Sender<bool>>>>,
     /// OneBot 事件消费器任务: channel_id -> JoinHandle
     event_consumer_tasks: Arc<RwLock<HashMap<String, tokio::task::JoinHandle<()>>>>,
-    /// 渠道生命周期锁，确保同一 channel 的 start/stop/reconcile 串行化
-    lifecycle_locks: Arc<tokio::sync::Mutex<HashMap<String, Arc<tokio::sync::Mutex<()>>>>>,
 }
 
 type AxumWsSender = SplitSink<WebSocket, AxumWsMessage>;

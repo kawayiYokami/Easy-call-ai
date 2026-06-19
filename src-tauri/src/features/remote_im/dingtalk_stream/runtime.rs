@@ -30,11 +30,7 @@ pub struct DingtalkStreamManager {
     tasks: std::sync::Arc<
         tokio::sync::RwLock<std::collections::HashMap<String, tauri::async_runtime::JoinHandle<()>>>,
     >,
-    lifecycle_locks: std::sync::Arc<
-        tokio::sync::Mutex<
-            std::collections::HashMap<String, std::sync::Arc<tokio::sync::Mutex<()>>>,
-        >,
-    >,
+    port_service: std::sync::Arc<LocalPortServiceCore>,
 }
 
 impl DingtalkStreamManager {
@@ -43,22 +39,8 @@ impl DingtalkStreamManager {
             states: std::sync::Arc::new(tokio::sync::RwLock::new(std::collections::HashMap::new())),
             stop_senders: std::sync::Arc::new(tokio::sync::RwLock::new(std::collections::HashMap::new())),
             tasks: std::sync::Arc::new(tokio::sync::RwLock::new(std::collections::HashMap::new())),
-            lifecycle_locks: std::sync::Arc::new(tokio::sync::Mutex::new(std::collections::HashMap::new())),
+            port_service: std::sync::Arc::new(LocalPortServiceCore::new()),
         }
-    }
-
-    async fn channel_lifecycle_guard(
-        &self,
-        channel_id: &str,
-    ) -> tokio::sync::OwnedMutexGuard<()> {
-        let lock = {
-            let mut locks = self.lifecycle_locks.lock().await;
-            locks
-                .entry(channel_id.to_string())
-                .or_insert_with(|| std::sync::Arc::new(tokio::sync::Mutex::new(())))
-                .clone()
-        };
-        lock.lock_owned().await
     }
 
     async fn set_state(
@@ -68,28 +50,50 @@ impl DingtalkStreamManager {
         endpoint: Option<String>,
         last_error: Option<String>,
     ) {
-        let mut states = self.states.write().await;
-        let state = states
-            .entry(channel_id.to_string())
-            .or_insert_with(DingtalkRuntimeState::default);
-        let was_connected = state.connected;
-        state.connected = connected;
-        state.endpoint = endpoint;
-        state.last_error = last_error;
-        state.connected_at = if connected {
-            if was_connected {
-                state.connected_at
+        let normalized_error = last_error
+            .as_ref()
+            .map(|value| value.trim().to_string())
+            .filter(|value| !value.is_empty());
+        {
+            let mut states = self.states.write().await;
+            let state = states
+                .entry(channel_id.to_string())
+                .or_insert_with(DingtalkRuntimeState::default);
+            let was_connected = state.connected;
+            state.connected = connected;
+            state.endpoint = endpoint;
+            state.last_error = normalized_error.clone();
+            state.connected_at = if connected {
+                if was_connected {
+                    state.connected_at
+                } else {
+                    Some(chrono::Utc::now())
+                }
             } else {
-                Some(chrono::Utc::now())
-            }
-        } else {
-            None
-        };
+                None
+            };
+        }
+        self.port_service
+            .set_status_text(
+                channel_id,
+                Some(
+                    if connected {
+                        "connected".to_string()
+                    } else if normalized_error.is_some() {
+                        "error".to_string()
+                    } else {
+                        "stopped".to_string()
+                    },
+                ),
+            )
+            .await;
+        self.port_service
+            .set_last_error(channel_id, normalized_error)
+            .await;
     }
 
     async fn add_log(&self, channel_id: &str, level: &str, message: &str) {
-        let manager = onebot_v11_ws_manager();
-        manager.add_log(channel_id, level, message).await;
+        self.port_service.add_log(channel_id, level, message).await;
     }
 
     async fn stop_channel_inner(&self, channel_id: &str) {
@@ -111,17 +115,30 @@ impl DingtalkStreamManager {
 
     #[allow(dead_code)]
     pub(crate) async fn stop_channel(&self, channel_id: &str) {
-        let _guard = self.channel_lifecycle_guard(channel_id).await;
-        self.stop_channel_inner(channel_id).await;
+        let _ = self
+            .port_service
+            .stop_serialized(channel_id, || async {
+                self.stop_channel_inner(channel_id).await;
+                Ok(())
+            })
+            .await;
     }
 
     pub(crate) async fn reconcile_channel_runtime(&self, channel: &RemoteImChannelConfig, state: AppState) -> Result<(), String> {
-        let _guard = self.channel_lifecycle_guard(&channel.id).await;
-        self.stop_channel_inner(&channel.id).await;
-        if channel.enabled && channel.platform == RemoteImPlatform::Dingtalk {
-            self.start_channel_inner(channel.clone(), state).await?;
-        }
-        Ok(())
+        self.port_service
+            .reconcile_serialized(&channel.id, || async move {
+                self.stop_channel_inner(&channel.id).await;
+                if channel.enabled && channel.platform == RemoteImPlatform::Dingtalk {
+                    self.start_channel_inner(channel.clone(), state).await?;
+                } else {
+                    self.port_service
+                        .set_status_text(&channel.id, Some("disabled".to_string()))
+                        .await;
+                    self.port_service.set_last_error(&channel.id, None).await;
+                }
+                Ok(())
+            })
+            .await
     }
 
     async fn start_channel_inner(&self, channel: RemoteImChannelConfig, state: AppState) -> Result<(), String> {
@@ -218,8 +235,10 @@ impl DingtalkStreamManager {
     }
 
     pub(crate) async fn start_channel(&self, channel: RemoteImChannelConfig, state: AppState) -> Result<(), String> {
-        let _guard = self.channel_lifecycle_guard(&channel.id).await;
-        self.start_channel_inner(channel, state).await
+        let service_id = channel.id.clone();
+        self.port_service
+            .restart_serialized(&service_id, || async move { self.start_channel_inner(channel, state).await })
+            .await
     }
 
     pub(crate) async fn get_channel_status(&self, channel_id: &str) -> ChannelConnectionStatus {
@@ -236,13 +255,21 @@ impl DingtalkStreamManager {
             peer_addr: state.endpoint.clone(),
             connected_at: state.connected_at,
             listen_addr: String::new(),
-            status_text: None,
-            last_error: state.last_error.clone(),
+            status_text: self.port_service.get_status_text(channel_id).await,
+            last_error: self
+                .port_service
+                .get_last_error(channel_id)
+                .await
+                .or(state.last_error.clone()),
             account_id: None,
             base_url: None,
             login_session_key: None,
             qrcode_url: None,
         }
+    }
+
+    pub(crate) async fn get_logs(&self, channel_id: &str) -> Vec<ChannelLogEntry> {
+        self.port_service.get_logs(channel_id).await
     }
 }
 

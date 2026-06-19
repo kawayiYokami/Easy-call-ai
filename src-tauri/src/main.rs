@@ -63,6 +63,7 @@ include!("features/system/windowing.rs");
 include!("features/system/record_hotkey_probe.rs");
 include!("features/system/windows_job.rs");
 include!("features/system/sandbox.rs");
+include!("features/system/local_port_service.rs");
 include!("features/system/tools.rs");
 include!("features/system/updater.rs");
 
@@ -161,8 +162,11 @@ async fn remote_im_get_channel_status(
 }
 
 #[tauri::command]
-async fn remote_im_get_channel_logs(channel_id: String) -> Result<Vec<ChannelLogEntry>, String> {
-    get_channel_logs(channel_id).await
+async fn remote_im_get_channel_logs(
+    channel_id: String,
+    state: State<'_, AppState>,
+) -> Result<Vec<ChannelLogEntry>, String> {
+    get_remote_im_channel_logs(state.inner(), channel_id).await
 }
 
 #[tauri::command]
@@ -172,7 +176,7 @@ async fn remote_im_get_contact_logs(
 ) -> Result<Vec<ChannelLogEntry>, String> {
     let (channel_id, contact_marker) =
         remote_im_resolve_contact_log_query(state.inner(), &input.contact_id)?;
-    let logs = get_channel_logs(channel_id).await?;
+    let logs = get_remote_im_channel_logs(state.inner(), channel_id).await?;
     Ok(remote_im_filter_channel_logs_for_contact(logs, &contact_marker))
 }
 
@@ -348,11 +352,12 @@ async fn run_deferred_setup(app_handle: AppHandle) {
         eprintln!("[启动-延迟] 初始化委托存储失败：{err}");
     }
     let ide_context_runtime = app_handle.state::<IdeContextRuntime>().inner().clone();
-    start_ide_context_bridge_server(
+    start_web_access_server(
         app_handle.clone(),
         app_state.inner().clone(),
         ide_context_runtime,
-    );
+    )
+    .await;
     let _ = sync_default_tray_icon(&app_handle);
     if should_enable_devtools() {
         eprintln!("[启动-延迟] 检测到 devtools 开关已开启，但当前构建未启用 open_devtools API，跳过打开 devtools");
@@ -634,9 +639,9 @@ async fn graceful_shutdown_background_services(app: &AppHandle) {
     onebot_v11_ws_manager().shutdown().await;
 
     let ide_bridge_started_at = std::time::Instant::now();
-    shutdown_ide_context_bridge_server().await;
+    shutdown_web_access_server().await;
     eprintln!(
-        "[退出] IDE 上下文桥已停止: duration_ms={}",
+        "[退出] Web 访问服务已停止: duration_ms={}",
         ide_bridge_started_at.elapsed().as_millis()
     );
 

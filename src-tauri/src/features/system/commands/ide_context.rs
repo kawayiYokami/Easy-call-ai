@@ -92,6 +92,7 @@ const IDE_CONTEXT_CHAT_BRIDGE_PATH: &str = "/chat";
 const IDE_CONTEXT_BRIDGE_DISCOVERY_FILE: &str = "p-ai-ide-context-bridge.json";
 const IDE_CONTEXT_SNAPSHOT_TTL_SECS: i64 = 30;
 const IDE_CONTEXT_AUTH_TOKEN_TTL_SECS: i64 = 7 * 24 * 60 * 60;
+const WEB_ACCESS_SERVICE_ID: &str = "web_access";
 static IDE_CONTEXT_BRIDGE_STARTED: AtomicBool = AtomicBool::new(false);
 static IDE_CONTEXT_BRIDGE_SHUTDOWN: OnceLock<
     Arc<Mutex<Option<tokio_util::sync::CancellationToken>>>,
@@ -99,6 +100,7 @@ static IDE_CONTEXT_BRIDGE_SHUTDOWN: OnceLock<
 static IDE_CONTEXT_BRIDGE_SERVER_TASK: OnceLock<
     Arc<Mutex<Option<tauri::async_runtime::JoinHandle<()>>>>,
 > = OnceLock::new();
+static IDE_CONTEXT_PORT_SERVICE_CORE: OnceLock<Arc<LocalPortServiceCore>> = OnceLock::new();
 static IDE_CONTEXT_CHAT_CLIENTS: OnceLock<
     Arc<Mutex<std::collections::HashMap<String, tokio::sync::mpsc::UnboundedSender<serde_json::Value>>>>,
 > = OnceLock::new();
@@ -167,6 +169,12 @@ struct WebAccessInfoOutput {
     enabled: bool,
     configured_port: u16,
     port: u16,
+    #[serde(default)]
+    listen_addr: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    status_text: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    last_error: Option<String>,
     local_url: String,
     remote_urls: Vec<String>,
     remote_password: String,
@@ -1610,6 +1618,16 @@ fn ide_context_bridge_set_server_task(handle: tauri::async_runtime::JoinHandle<(
     }
 }
 
+fn ide_context_port_service_core() -> Arc<LocalPortServiceCore> {
+    IDE_CONTEXT_PORT_SERVICE_CORE
+        .get_or_init(|| Arc::new(LocalPortServiceCore::new()))
+        .clone()
+}
+
+fn ide_context_bridge_server_task_is_running() -> bool {
+    IDE_CONTEXT_BRIDGE_STARTED.load(Ordering::SeqCst)
+}
+
 fn ide_context_bridge_take_server_task() -> Option<tauri::async_runtime::JoinHandle<()>> {
     ide_context_bridge_server_task_slot()
         .lock()
@@ -1651,6 +1669,166 @@ fn clear_ide_context_bridge_discovery() {
     if path.exists() {
         let _ = fs::remove_file(path);
     }
+}
+
+async fn prepare_ide_context_bridge_server_start(
+    state: &AppState,
+    ide_context_runtime: &IdeContextRuntime,
+    port_service: &Arc<LocalPortServiceCore>,
+) -> Option<(tokio::net::TcpListener, u16, String)> {
+    let config = match state_read_config_cached(state) {
+        Ok(config) => config,
+        Err(err) => {
+            eprintln!(
+                "[网络访问] 读取配置失败，使用默认端口: {}",
+                err
+            );
+            AppConfig::default()
+        }
+    };
+    if !config.web_access_enabled {
+        IDE_CONTEXT_BRIDGE_STARTED.store(false, Ordering::SeqCst);
+        ide_context_set_current_port(ide_context_runtime, None);
+        clear_ide_context_bridge_discovery();
+        port_service
+            .set_status_text(WEB_ACCESS_SERVICE_ID, Some("disabled".to_string()))
+            .await;
+        port_service
+            .set_listen_addr(WEB_ACCESS_SERVICE_ID, None)
+            .await;
+        eprintln!("[网络访问] 跳过启动：网络访问已关闭");
+        return None;
+    }
+    port_service
+        .set_status_text(WEB_ACCESS_SERVICE_ID, Some("binding".to_string()))
+        .await;
+    port_service.set_last_error(WEB_ACCESS_SERVICE_ID, None).await;
+    let preferred_port = normalize_web_access_port(config.web_access_port);
+    let (listener, port) = match bind_ide_context_bridge_listener(preferred_port).await {
+        Ok(result) => result,
+        Err(err) => {
+            IDE_CONTEXT_BRIDGE_STARTED.store(false, Ordering::SeqCst);
+            ide_context_set_current_port(ide_context_runtime, None);
+            clear_ide_context_bridge_discovery();
+            port_service
+                .set_status_text(WEB_ACCESS_SERVICE_ID, Some("bind_failed".to_string()))
+                .await;
+            port_service
+                .set_last_error(WEB_ACCESS_SERVICE_ID, Some(err.clone()))
+                .await;
+            eprintln!("[网络访问] 监听失败: {}", err);
+            return None;
+        }
+    };
+    ide_context_set_current_port(ide_context_runtime, Some(port));
+    let bridge_url = ide_context_bridge_url(port);
+    port_service
+        .set_listen_addr(WEB_ACCESS_SERVICE_ID, Some(format!("{}:{}", IDE_CONTEXT_BRIDGE_BIND_HOST, port)))
+        .await;
+    let remote_password = match ide_context_effective_remote_password(state, ide_context_runtime) {
+        Ok(password) => password,
+        Err(err) => {
+            IDE_CONTEXT_BRIDGE_STARTED.store(false, Ordering::SeqCst);
+            ide_context_set_current_port(ide_context_runtime, None);
+            clear_ide_context_bridge_discovery();
+            port_service
+                .set_listen_addr(WEB_ACCESS_SERVICE_ID, None)
+                .await;
+            port_service
+                .set_status_text(WEB_ACCESS_SERVICE_ID, Some("error".to_string()))
+                .await;
+            port_service
+                .set_last_error(WEB_ACCESS_SERVICE_ID, Some(err.clone()))
+                .await;
+            eprintln!("[网络访问] 初始化远程访问密码失败: {}", err);
+            return None;
+        }
+    };
+    if let Err(err) = publish_ide_context_bridge_discovery(port, &remote_password) {
+        IDE_CONTEXT_BRIDGE_STARTED.store(false, Ordering::SeqCst);
+        ide_context_set_current_port(ide_context_runtime, None);
+        clear_ide_context_bridge_discovery();
+        port_service
+            .set_listen_addr(WEB_ACCESS_SERVICE_ID, None)
+            .await;
+        port_service
+            .set_status_text(WEB_ACCESS_SERVICE_ID, Some("error".to_string()))
+            .await;
+        port_service
+            .set_last_error(WEB_ACCESS_SERVICE_ID, Some(err.clone()))
+            .await;
+        eprintln!("[网络访问] 写入发现文件失败: {}", err);
+        return None;
+    }
+    port_service
+        .set_status_text(WEB_ACCESS_SERVICE_ID, Some("listening".to_string()))
+        .await;
+    port_service.set_last_error(WEB_ACCESS_SERVICE_ID, None).await;
+    port_service
+        .add_log(
+            WEB_ACCESS_SERVICE_ID,
+            "info",
+            &format!("服务启动，监听 {}", bridge_url),
+        )
+        .await;
+    eprintln!("[网络访问] 已监听 {}", bridge_url);
+    Some((listener, port, bridge_url))
+}
+
+fn spawn_ide_context_bridge_server_task(
+    app: AppHandle,
+    state: AppState,
+    ide_context_runtime: IdeContextRuntime,
+    port_service: Arc<LocalPortServiceCore>,
+    shutdown_token: tokio_util::sync::CancellationToken,
+    listener: tokio::net::TcpListener,
+    port: u16,
+    bridge_url: String,
+) {
+    let server_task = tauri::async_runtime::spawn(async move {
+        loop {
+            let (stream, peer_addr) = tokio::select! {
+                _ = shutdown_token.cancelled() => {
+                    clear_ide_context_bridge_discovery();
+                    IDE_CONTEXT_BRIDGE_STARTED.store(false, Ordering::SeqCst);
+                    ide_context_set_current_port(&ide_context_runtime, None);
+                    port_service
+                        .set_status_text(WEB_ACCESS_SERVICE_ID, Some("stopped".to_string()))
+                        .await;
+                    port_service
+                        .set_listen_addr(WEB_ACCESS_SERVICE_ID, None)
+                        .await;
+                    if let Ok(mut slot) = ide_context_bridge_shutdown_slot().lock() {
+                        slot.take();
+                    }
+                    eprintln!("[网络访问] 收到停机信号，停止监听 {}", bridge_url);
+                    break;
+                }
+                result = listener.accept() => match result {
+                    Ok(result) => result,
+                    Err(err) => {
+                        eprintln!("[网络访问] 接收连接失败: {}", err);
+                        continue;
+                    }
+                },
+            };
+            let state_clone = state.clone();
+            let app_clone = app.clone();
+            let ide_context_runtime_clone = ide_context_runtime.clone();
+            tauri::async_runtime::spawn(async move {
+                ide_context_ws_handle_connection(
+                    stream,
+                    peer_addr,
+                    port,
+                    app_clone,
+                    state_clone,
+                    ide_context_runtime_clone,
+                )
+                .await;
+            });
+        }
+    });
+    ide_context_bridge_set_server_task(server_task);
 }
 
 async fn bind_ide_context_bridge_listener(
@@ -1973,19 +2151,22 @@ fn query_ide_context_references(
 }
 
 #[tauri::command]
-fn get_web_access_info(
+async fn get_web_access_info(
     app: AppHandle,
     state: State<'_, AppState>,
     ide_context_runtime: State<'_, IdeContextRuntime>,
 ) -> Result<WebAccessInfoOutput, String> {
-    get_web_access_info_inner(&app, &state, &ide_context_runtime)
+    get_web_access_info_inner(&app, &state, &ide_context_runtime).await
 }
 
-fn get_web_access_info_inner(
+async fn get_web_access_info_inner(
     app: &AppHandle,
     state: &AppState,
     ide_context_runtime: &IdeContextRuntime,
 ) -> Result<WebAccessInfoOutput, String> {
+    let status_snapshot = ide_context_port_service_core()
+        .status_snapshot(WEB_ACCESS_SERVICE_ID)
+        .await;
     let config = state_read_config_cached(&state)?;
     let configured_port = normalize_web_access_port(config.web_access_port);
     if !config.web_access_enabled {
@@ -1994,30 +2175,48 @@ fn get_web_access_info_inner(
             enabled: false,
             configured_port,
             port: configured_port,
+            listen_addr: status_snapshot.listen_addr,
+            status_text: status_snapshot.status_text,
+            last_error: status_snapshot.last_error,
             local_url: String::new(),
             remote_urls: Vec::new(),
             remote_password: String::new(),
         });
     }
-    if !IDE_CONTEXT_BRIDGE_STARTED.load(Ordering::SeqCst) {
-        start_ide_context_bridge_server(
+    if !IDE_CONTEXT_BRIDGE_STARTED.load(Ordering::SeqCst)
+        && !ide_context_bridge_server_task_is_running()
+    {
+        start_web_access_server(
             app.clone(),
             state.clone(),
             ide_context_runtime.clone(),
-        );
+        )
+        .await;
     }
+    let status_snapshot = ide_context_port_service_core()
+        .status_snapshot(WEB_ACCESS_SERVICE_ID)
+        .await;
     let running = IDE_CONTEXT_BRIDGE_STARTED.load(Ordering::SeqCst);
-    let port = ide_context_current_port(ide_context_runtime).unwrap_or(configured_port);
-    let local_url = ide_context_sidebar_url_for_host(IDE_CONTEXT_BRIDGE_HOST, port);
-    let remote_urls = ide_context_lan_hosts()
-        .into_iter()
-        .map(|host| ide_context_sidebar_url_for_host(&host, port))
-        .collect::<Vec<_>>();
+    let actual_port = ide_context_current_port(ide_context_runtime);
+    let port = actual_port.unwrap_or(configured_port);
+    let (local_url, remote_urls) = match actual_port {
+        Some(actual_port) => (
+            ide_context_sidebar_url_for_host(IDE_CONTEXT_BRIDGE_HOST, actual_port),
+            ide_context_lan_hosts()
+                .into_iter()
+                .map(|host| ide_context_sidebar_url_for_host(&host, actual_port))
+                .collect::<Vec<_>>(),
+        ),
+        None => (String::new(), Vec::new()),
+    };
     Ok(WebAccessInfoOutput {
         running,
         enabled: true,
         configured_port,
         port,
+        listen_addr: status_snapshot.listen_addr,
+        status_text: status_snapshot.status_text,
+        last_error: status_snapshot.last_error,
         local_url,
         remote_urls,
         remote_password: ide_context_effective_remote_password(state, ide_context_runtime)?,
@@ -2384,12 +2583,12 @@ fn ide_chat_open_external_url_for_web_settings(params: Value) -> Result<Value, S
     Ok(serde_json::json!(null))
 }
 
-fn ide_chat_web_access_info_for_web_settings(
+async fn ide_chat_web_access_info_for_web_settings(
     app: &AppHandle,
     state: &AppState,
     ide_context_runtime: &IdeContextRuntime,
 ) -> Result<Value, String> {
-    ide_chat_serialize(get_web_access_info_inner(app, state, ide_context_runtime)?)
+    ide_chat_serialize(get_web_access_info_inner(app, state, ide_context_runtime).await?)
 }
 
 fn ide_chat_list_memories_for_web_settings(state: &AppState) -> Result<Value, String> {
@@ -3984,7 +4183,10 @@ async fn ide_chat_remote_im_restart_channel_for_web_settings(
     ide_chat_serialize(remote_im_restart_channel_inner(channel_id, state).await?)
 }
 
-async fn ide_chat_remote_im_get_channel_logs_for_web_settings(params: Value) -> Result<Value, String> {
+async fn ide_chat_remote_im_get_channel_logs_for_web_settings(
+    state: &AppState,
+    params: Value,
+) -> Result<Value, String> {
     let channel_id = match params {
         Value::Object(mut map) => map
             .remove("channelId")
@@ -3993,7 +4195,7 @@ async fn ide_chat_remote_im_get_channel_logs_for_web_settings(params: Value) -> 
             .unwrap_or_default(),
         _ => String::new(),
     };
-    ide_chat_serialize(get_channel_logs(channel_id).await?)
+    ide_chat_serialize(get_remote_im_channel_logs(state, channel_id).await?)
 }
 
 async fn ide_chat_remote_im_get_contact_logs_for_web_settings(
@@ -4003,8 +4205,22 @@ async fn ide_chat_remote_im_get_contact_logs_for_web_settings(
     let input = ide_chat_parse_param_field::<RemoteImContactLogsInput>(params, "input")?;
     let (channel_id, contact_marker) =
         remote_im_resolve_contact_log_query(state, &input.contact_id)?;
-    let logs = get_channel_logs(channel_id).await?;
+    let logs = get_remote_im_channel_logs(state, channel_id).await?;
     ide_chat_serialize(remote_im_filter_channel_logs_for_contact(logs, &contact_marker))
+}
+
+async fn get_remote_im_channel_logs(
+    state: &AppState,
+    channel_id: String,
+) -> Result<Vec<ChannelLogEntry>, String> {
+    let config = state_read_config_cached(state)?;
+    let channel = remote_im_channel_by_id(&config, &channel_id)
+        .ok_or_else(|| format!("未找到远程 IM 渠道: {}", channel_id))?;
+    match channel.platform {
+        RemoteImPlatform::Dingtalk => Ok(dingtalk_stream_manager().get_logs(&channel_id).await),
+        RemoteImPlatform::WeixinOc => Ok(weixin_oc_manager().get_logs(&channel_id).await),
+        _ => get_channel_logs(channel_id).await,
+    }
 }
 
 fn ide_chat_remote_im_list_channels_for_web_settings(state: &AppState) -> Result<Value, String> {
@@ -5266,7 +5482,7 @@ async fn ide_chat_handle_jsonrpc_request(
         "get_app_version" => Ok(serde_json::json!(env!("CARGO_PKG_VERSION").to_string())),
         "get_project_repository_url" => Ok(serde_json::json!(GITHUB_REPO_PAGE.to_string())),
         "fetch_project_changelog_markdown" => fetch_project_changelog_markdown().await.and_then(ide_chat_serialize),
-        "get_web_access_info" => ide_chat_web_access_info_for_web_settings(app, state, ide_context_runtime),
+        "get_web_access_info" => ide_chat_web_access_info_for_web_settings(app, state, ide_context_runtime).await,
         "open_external_url" => ide_chat_open_external_url_for_web_settings(request.params),
         "show_main_window" => ide_chat_show_window_for_web_settings(app, "main"),
         "show_chat_window" => ide_chat_show_window_for_web_settings(app, "chat"),
@@ -5351,7 +5567,7 @@ async fn ide_chat_handle_jsonrpc_request(
         "install_host_runtime_prerequisite" => ide_chat_install_host_runtime_prerequisite_for_web_settings(request.params).await,
         "remote_im_get_channel_status" => ide_chat_remote_im_get_channel_status_for_web_settings(state, request.params).await,
         "remote_im_restart_channel" => ide_chat_remote_im_restart_channel_for_web_settings(state, request.params).await,
-        "remote_im_get_channel_logs" => ide_chat_remote_im_get_channel_logs_for_web_settings(request.params).await,
+        "remote_im_get_channel_logs" => ide_chat_remote_im_get_channel_logs_for_web_settings(state, request.params).await,
         "remote_im_get_contact_logs" => ide_chat_remote_im_get_contact_logs_for_web_settings(state, request.params).await,
         "remote_im_list_channels" => ide_chat_remote_im_list_channels_for_web_settings(state),
         "remote_im_list_contacts" => ide_chat_remote_im_list_contacts_for_web_settings(state),
@@ -5385,7 +5601,12 @@ async fn ide_chat_handle_jsonrpc_request(
     }
 }
 
-fn start_ide_context_bridge_server(app: AppHandle, state: AppState, ide_context_runtime: IdeContextRuntime) {
+async fn start_ide_context_bridge_server_inner(
+    app: AppHandle,
+    state: AppState,
+    ide_context_runtime: IdeContextRuntime,
+) {
+    let port_service = ide_context_port_service_core();
     if IDE_CONTEXT_BRIDGE_STARTED
         .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
         .is_err()
@@ -5393,98 +5614,69 @@ fn start_ide_context_bridge_server(app: AppHandle, state: AppState, ide_context_
         return;
     }
     let shutdown_token = ide_context_bridge_create_shutdown_token();
-    let server_task = tauri::async_runtime::spawn(async move {
-        let config = match state_read_config_cached(&state) {
-            Ok(config) => config,
-            Err(err) => {
-                eprintln!(
-                    "[网络访问] 读取配置失败，使用默认端口: {}",
-                    err
-                );
-                AppConfig::default()
-            }
-        };
-        if !config.web_access_enabled {
-            IDE_CONTEXT_BRIDGE_STARTED.store(false, Ordering::SeqCst);
-            ide_context_set_current_port(&ide_context_runtime, None);
-            clear_ide_context_bridge_discovery();
-            eprintln!("[网络访问] 跳过启动：网络访问已关闭");
-            return;
-        }
-        let preferred_port = normalize_web_access_port(config.web_access_port);
-        let (listener, port) = match bind_ide_context_bridge_listener(preferred_port).await {
-            Ok(result) => result,
-            Err(err) => {
-                IDE_CONTEXT_BRIDGE_STARTED.store(false, Ordering::SeqCst);
-                ide_context_set_current_port(&ide_context_runtime, None);
-                clear_ide_context_bridge_discovery();
-                eprintln!("[IDE 上下文桥] 监听失败: {}", err);
-                return;
-            }
-        };
-        ide_context_set_current_port(&ide_context_runtime, Some(port));
-        let bridge_url = ide_context_bridge_url(port);
-        let remote_password = match ide_context_effective_remote_password(&state, &ide_context_runtime) {
-            Ok(password) => password,
-            Err(err) => {
-                IDE_CONTEXT_BRIDGE_STARTED.store(false, Ordering::SeqCst);
-                ide_context_set_current_port(&ide_context_runtime, None);
-                clear_ide_context_bridge_discovery();
-                eprintln!("[IDE 上下文桥] 初始化远程访问密码失败: {}", err);
-                return;
-            }
-        };
-        if let Err(err) = publish_ide_context_bridge_discovery(port, &remote_password) {
-            IDE_CONTEXT_BRIDGE_STARTED.store(false, Ordering::SeqCst);
-            ide_context_set_current_port(&ide_context_runtime, None);
-            clear_ide_context_bridge_discovery();
-            eprintln!("[IDE 上下文桥] 写入发现文件失败: {}", err);
-            return;
-        }
-        eprintln!("[IDE 上下文桥] 已监听 {}", bridge_url);
-        loop {
-            let (stream, peer_addr) = tokio::select! {
-                _ = shutdown_token.cancelled() => {
-                    clear_ide_context_bridge_discovery();
-                    IDE_CONTEXT_BRIDGE_STARTED.store(false, Ordering::SeqCst);
-                    ide_context_set_current_port(&ide_context_runtime, None);
-                    if let Ok(mut slot) = ide_context_bridge_shutdown_slot().lock() {
-                        slot.take();
-                    }
-                    eprintln!("[IDE 上下文桥] 收到停机信号，停止监听 {}", bridge_url);
-                    break;
-                }
-                result = listener.accept() => match result {
-                    Ok(result) => result,
-                    Err(err) => {
-                        eprintln!("[IDE 上下文桥] 接收连接失败: {}", err);
-                        continue;
-                    }
-                },
-            };
-            let state_clone = state.clone();
-            let app_clone = app.clone();
-            let ide_context_runtime_clone = ide_context_runtime.clone();
-            tauri::async_runtime::spawn(async move {
-                ide_context_ws_handle_connection(
-                    stream,
-                    peer_addr,
-                    port,
-                    app_clone,
-                    state_clone,
-                    ide_context_runtime_clone,
-                )
-                .await;
-            });
-        }
-    });
-    ide_context_bridge_set_server_task(server_task);
+    let Some((listener, port, bridge_url)) = prepare_ide_context_bridge_server_start(
+        &state,
+        &ide_context_runtime,
+        &port_service,
+    )
+    .await
+    else {
+        return;
+    };
+    spawn_ide_context_bridge_server_task(
+        app,
+        state,
+        ide_context_runtime,
+        port_service,
+        shutdown_token,
+        listener,
+        port,
+        bridge_url,
+    );
 }
 
-pub(crate) async fn shutdown_ide_context_bridge_server() {
+async fn start_web_access_server(
+    app: AppHandle,
+    state: AppState,
+    ide_context_runtime: IdeContextRuntime,
+) {
+    let port_service = ide_context_port_service_core();
+    let outcome = port_service
+        .start_serialized(
+            WEB_ACCESS_SERVICE_ID,
+            async {
+                IDE_CONTEXT_BRIDGE_STARTED.load(Ordering::SeqCst)
+                    || ide_context_bridge_server_task_is_running()
+            },
+            || async {
+                start_ide_context_bridge_server_inner(app, state, ide_context_runtime).await;
+                Ok(())
+            },
+        )
+        .await;
+    match outcome {
+        Ok(LocalPortServiceStartOutcome::SkippedAlreadyRunning) => {
+            eprintln!("[网络访问] 跳过重复启动：服务已在运行或正在启动");
+        }
+        Ok(LocalPortServiceStartOutcome::Started) => {}
+        Err(err) => {
+            eprintln!("[网络访问] 启动流程失败: {}", err);
+        }
+    }
+}
+
+async fn shutdown_ide_context_bridge_server_inner() {
+    let port_service = ide_context_port_service_core();
     if !IDE_CONTEXT_BRIDGE_STARTED.load(Ordering::SeqCst) {
         clear_ide_context_bridge_discovery();
         let _ = ide_context_bridge_take_server_task();
+        port_service
+            .set_listen_addr(WEB_ACCESS_SERVICE_ID, None)
+            .await;
+        port_service
+            .set_status_text(WEB_ACCESS_SERVICE_ID, Some("stopped".to_string()))
+            .await;
+        port_service.set_last_error(WEB_ACCESS_SERVICE_ID, None).await;
         return;
     }
     if let Ok(slot) = ide_context_bridge_shutdown_slot().lock() {
@@ -5502,32 +5694,73 @@ pub(crate) async fn shutdown_ide_context_bridge_server() {
     match task {
         Some(handle) => match tokio::time::timeout(std::time::Duration::from_secs(3), handle).await {
             Ok(Ok(())) => {
-                eprintln!("[IDE 上下文桥] 已停止");
+                port_service
+                    .add_log(WEB_ACCESS_SERVICE_ID, "info", "服务已停止")
+                    .await;
+                eprintln!("[网络访问] 已停止");
             }
             Ok(Err(err)) => {
                 IDE_CONTEXT_BRIDGE_STARTED.store(false, Ordering::SeqCst);
-                eprintln!("[IDE 上下文桥] 等待服务任务退出失败: {}", err);
+                port_service
+                    .set_last_error(WEB_ACCESS_SERVICE_ID, Some(err.to_string()))
+                    .await;
+                eprintln!("[网络访问] 等待服务任务退出失败: {}", err);
             }
             Err(_) => {
                 IDE_CONTEXT_BRIDGE_STARTED.store(false, Ordering::SeqCst);
-                eprintln!("[IDE 上下文桥] 等待服务任务退出超时，已强制清理状态");
+                port_service
+                    .set_last_error(
+                        WEB_ACCESS_SERVICE_ID,
+                        Some("等待服务任务退出超时，已强制清理状态".to_string()),
+                    )
+                    .await;
+                eprintln!("[网络访问] 等待服务任务退出超时，已强制清理状态");
             }
         },
         None => {
             IDE_CONTEXT_BRIDGE_STARTED.store(false, Ordering::SeqCst);
-            eprintln!("[IDE 上下文桥] 停机时未找到服务任务句柄，已清理状态");
+            eprintln!("[网络访问] 停机时未找到服务任务句柄，已清理状态");
         }
     }
     if let Ok(mut slot) = ide_context_bridge_shutdown_slot().lock() {
         slot.take();
     }
+    port_service
+        .set_status_text(WEB_ACCESS_SERVICE_ID, Some("stopped".to_string()))
+        .await;
+    port_service
+        .set_listen_addr(WEB_ACCESS_SERVICE_ID, None)
+        .await;
 }
 
-fn restart_ide_context_bridge_server(app: AppHandle, state: AppState, ide_context_runtime: IdeContextRuntime) {
-    tauri::async_runtime::spawn(async move {
-        shutdown_ide_context_bridge_server().await;
-        start_ide_context_bridge_server(app, state, ide_context_runtime);
-    });
+pub(crate) async fn shutdown_web_access_server() {
+    if let Err(err) = ide_context_port_service_core()
+        .stop_serialized(WEB_ACCESS_SERVICE_ID, || async {
+            shutdown_ide_context_bridge_server_inner().await;
+            Ok(())
+        })
+        .await
+    {
+        eprintln!("[网络访问] 停止流程失败: {}", err);
+    }
+}
+
+async fn restart_web_access_server(
+    app: AppHandle,
+    state: AppState,
+    ide_context_runtime: IdeContextRuntime,
+) {
+    let port_service = ide_context_port_service_core();
+    if let Err(err) = port_service
+        .restart_serialized(WEB_ACCESS_SERVICE_ID, || async {
+            shutdown_ide_context_bridge_server_inner().await;
+            start_ide_context_bridge_server_inner(app, state, ide_context_runtime).await;
+            Ok(())
+        })
+        .await
+    {
+        eprintln!("[网络访问] 重启流程失败: {}", err);
+    }
 }
 
 async fn ide_context_ws_handle_connection(
@@ -5865,6 +6098,14 @@ async fn ide_context_chat_ws_handle_connection(
 #[cfg(test)]
 mod ide_context_tests {
     use super::*;
+    static IDE_CONTEXT_TEST_MUTEX: std::sync::OnceLock<std::sync::Mutex<()>> = std::sync::OnceLock::new();
+
+    fn ide_context_test_lock() -> std::sync::MutexGuard<'static, ()> {
+        IDE_CONTEXT_TEST_MUTEX
+            .get_or_init(|| std::sync::Mutex::new(()))
+            .lock()
+            .expect("lock ide context test mutex")
+    }
 
     #[test]
     fn ide_context_remote_password_accepts_human_input_format() {
@@ -5981,6 +6222,137 @@ mod ide_context_tests {
         };
 
         assert!(ide_context_lan_host_rank(&ethernet) < ide_context_lan_host_rank(&hyperv));
+    }
+
+    #[tokio::test]
+    async fn ide_context_bind_listener_should_skip_occupied_preferred_port() {
+        let mut candidates = Vec::new();
+        for port in IDE_CONTEXT_BRIDGE_BASE_PORT..=IDE_CONTEXT_BRIDGE_MAX_PORT {
+            if let Ok(listener) = std::net::TcpListener::bind((IDE_CONTEXT_BRIDGE_BIND_HOST, port)) {
+                candidates.push(port);
+                drop(listener);
+            }
+            if candidates.len() >= 2 {
+                break;
+            }
+        }
+        if candidates.len() < 2 {
+            return;
+        }
+
+        let occupied_port = candidates[0];
+        let occupied_listener = std::net::TcpListener::bind((IDE_CONTEXT_BRIDGE_BIND_HOST, occupied_port))
+            .expect("occupy preferred port");
+
+        let (listener, actual_port) = bind_ide_context_bridge_listener(occupied_port)
+            .await
+            .expect("bind should fall through to next free port");
+
+        drop(listener);
+        drop(occupied_listener);
+        assert_ne!(actual_port, occupied_port);
+        assert!((IDE_CONTEXT_BRIDGE_BASE_PORT..=IDE_CONTEXT_BRIDGE_MAX_PORT).contains(&actual_port));
+    }
+
+    #[tokio::test]
+    async fn local_port_service_restart_serialized_should_run_exclusively_per_service() {
+        let core = std::sync::Arc::new(LocalPortServiceCore::new());
+        let active = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let peak = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+
+        let first_core = core.clone();
+        let first_active = active.clone();
+        let first_peak = peak.clone();
+        let first = tokio::spawn(async move {
+            first_core
+                .restart_serialized("web_access", || async move {
+                    let current = first_active.fetch_add(1, std::sync::atomic::Ordering::SeqCst) + 1;
+                    first_peak.fetch_max(current, std::sync::atomic::Ordering::SeqCst);
+                    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+                    first_active.fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
+                    Ok(())
+                })
+                .await
+        });
+        let second_core = core.clone();
+        let second_active = active.clone();
+        let second_peak = peak.clone();
+        let second = tokio::spawn(async move {
+            second_core
+                .restart_serialized("web_access", || async move {
+                    let current = second_active.fetch_add(1, std::sync::atomic::Ordering::SeqCst) + 1;
+                    second_peak.fetch_max(current, std::sync::atomic::Ordering::SeqCst);
+                    tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+                    second_active.fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
+                    Ok(())
+                })
+                .await
+        });
+
+        first.await.expect("first task join").expect("first task ok");
+        second.await.expect("second task join").expect("second task ok");
+        assert_eq!(peak.load(std::sync::atomic::Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn shutdown_web_access_server_should_update_runtime_snapshot() {
+        let _test_guard = ide_context_test_lock();
+        let port_service = ide_context_port_service_core();
+        port_service.clear_runtime_state(WEB_ACCESS_SERVICE_ID).await;
+        port_service
+            .set_listen_addr(WEB_ACCESS_SERVICE_ID, Some("0.0.0.0:43129".to_string()))
+            .await;
+        port_service
+            .set_status_text(WEB_ACCESS_SERVICE_ID, Some("listening".to_string()))
+            .await;
+        port_service.set_last_error(WEB_ACCESS_SERVICE_ID, None).await;
+        IDE_CONTEXT_BRIDGE_STARTED.store(true, Ordering::SeqCst);
+
+        let shutdown_token = ide_context_bridge_create_shutdown_token();
+        let task = tauri::async_runtime::spawn(async move {
+            shutdown_token.cancelled().await;
+        });
+        ide_context_bridge_set_server_task(task);
+
+        shutdown_web_access_server().await;
+
+        let snapshot = port_service.status_snapshot(WEB_ACCESS_SERVICE_ID).await;
+        let logs = port_service.get_logs(WEB_ACCESS_SERVICE_ID).await;
+        assert_eq!(snapshot.status_text.as_deref(), Some("stopped"));
+        assert!(snapshot.listen_addr.is_empty());
+        assert!(snapshot.last_error.is_none());
+        assert!(
+            logs.iter().any(|entry| entry.message.contains("服务已停止")),
+            "shutdown should append stop log"
+        );
+
+        port_service.clear_runtime_state(WEB_ACCESS_SERVICE_ID).await;
+        IDE_CONTEXT_BRIDGE_STARTED.store(false, Ordering::SeqCst);
+    }
+
+    #[tokio::test]
+    async fn shutdown_web_access_server_should_clear_stale_error_when_already_stopped() {
+        let _test_guard = ide_context_test_lock();
+        let port_service = ide_context_port_service_core();
+        port_service
+            .set_listen_addr(WEB_ACCESS_SERVICE_ID, Some("0.0.0.0:43129".to_string()))
+            .await;
+        port_service
+            .set_status_text(WEB_ACCESS_SERVICE_ID, Some("error".to_string()))
+            .await;
+        port_service
+            .set_last_error(WEB_ACCESS_SERVICE_ID, Some("stale failure".to_string()))
+            .await;
+        IDE_CONTEXT_BRIDGE_STARTED.store(false, Ordering::SeqCst);
+
+        shutdown_web_access_server().await;
+
+        let snapshot = port_service.status_snapshot(WEB_ACCESS_SERVICE_ID).await;
+        assert_eq!(snapshot.status_text.as_deref(), Some("stopped"));
+        assert!(snapshot.listen_addr.is_empty());
+        assert!(snapshot.last_error.is_none());
+
+        port_service.clear_runtime_state(WEB_ACCESS_SERVICE_ID).await;
     }
 
     #[test]

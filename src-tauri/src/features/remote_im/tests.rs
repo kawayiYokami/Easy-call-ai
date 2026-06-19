@@ -987,14 +987,13 @@
         let manager = OnebotV11WsManager::new();
         let addr = "127.0.0.1:6199".parse().expect("valid onebot addr");
         let runtime = {
-            let _guard = manager.channel_lifecycle_guard("channel-a").await;
+            let _guard = manager.port_service.lifecycle_guard("channel-a").await;
             manager.prepare_start_after_stop_at("channel-a", addr).await
         };
         manager
-            .channel_status_texts
-            .write()
-            .await
-            .insert("channel-a".to_string(), "binding_retry".to_string());
+            .port_service
+            .set_status_text("channel-a", Some("binding_retry".to_string()))
+            .await;
 
         tokio::time::timeout(Duration::from_secs(1), manager.stop_channel("channel-a"))
             .await

@@ -4,54 +4,26 @@ impl OnebotV11WsManager {
             connections: Arc::new(RwLock::new(HashMap::new())),
             connection_stop_senders: Arc::new(RwLock::new(HashMap::new())),
             channel_event_senders: Arc::new(RwLock::new(HashMap::new())),
-            channel_logs: Arc::new(RwLock::new(HashMap::new())),
-            listen_addrs: Arc::new(RwLock::new(HashMap::new())),
-            channel_status_texts: Arc::new(RwLock::new(HashMap::new())),
-            channel_last_errors: Arc::new(RwLock::new(HashMap::new())),
+            port_service: Arc::new(LocalPortServiceCore::new()),
             channel_tasks: Arc::new(RwLock::new(HashMap::new())),
             channel_runtimes: Arc::new(RwLock::new(HashMap::new())),
             event_consumer_stop_senders: Arc::new(RwLock::new(HashMap::new())),
             event_consumer_tasks: Arc::new(RwLock::new(HashMap::new())),
-            lifecycle_locks: Arc::new(tokio::sync::Mutex::new(HashMap::new())),
         }
-    }
-
-    async fn channel_lifecycle_guard(
-        &self,
-        channel_id: &str,
-    ) -> tokio::sync::OwnedMutexGuard<()> {
-        let lock = {
-            let mut locks = self.lifecycle_locks.lock().await;
-            locks
-                .entry(channel_id.to_string())
-                .or_insert_with(|| Arc::new(tokio::sync::Mutex::new(())))
-                .clone()
-        };
-        lock.lock_owned().await
     }
 
     /// 添加日志
     pub(crate) async fn add_log(&self, channel_id: &str, level: &str, message: &str) {
-        let entry = ChannelLogEntry {
-            timestamp: Utc::now(),
-            level: level.to_string(),
-            message: message.to_string(),
-        };
-        let mut logs = self.channel_logs.write().await;
-        let channel_logs = logs.entry(channel_id.to_string()).or_insert_with(Vec::new);
-        channel_logs.push(entry);
-        if channel_logs.len() > CHANNEL_LOG_LIMIT {
-            let start = channel_logs.len() - CHANNEL_LOG_LIMIT;
-            channel_logs.drain(0..start);
-        }
+        self.port_service.add_log(channel_id, level, message).await;
     }
 
     // ==================== 停止逻辑 ====================
 
     /// 停止单个渠道的 WebSocket 服务器
     pub async fn stop_channel(&self, channel_id: &str) -> Result<(), String> {
-        let _guard = self.channel_lifecycle_guard(channel_id).await;
-        self.stop_channel_inner(channel_id).await
+        self.port_service
+            .stop_serialized(channel_id, || self.stop_channel_inner(channel_id))
+            .await
     }
 
     async fn stop_onebot_connection_inner(&self, channel_id: &str) -> Result<(), String> {
@@ -110,9 +82,7 @@ impl OnebotV11WsManager {
     async fn force_clear_channel_runtime_state(&self, channel_id: &str) {
         self.connections.write().await.remove(channel_id);
         self.connection_stop_senders.write().await.remove(channel_id);
-        self.listen_addrs.write().await.remove(channel_id);
-        self.channel_status_texts.write().await.remove(channel_id);
-        self.channel_last_errors.write().await.remove(channel_id);
+        self.port_service.clear_runtime_state(channel_id).await;
         self.channel_event_senders.write().await.remove(channel_id);
         self.channel_tasks.write().await.remove(channel_id);
         self.channel_runtimes.write().await.remove(channel_id);
@@ -124,9 +94,7 @@ impl OnebotV11WsManager {
         !self.connections.read().await.contains_key(channel_id)
             && !self.connection_stop_senders.read().await.contains_key(channel_id)
             && !self.channel_event_senders.read().await.contains_key(channel_id)
-            && !self.listen_addrs.read().await.contains_key(channel_id)
-            && !self.channel_status_texts.read().await.contains_key(channel_id)
-            && !self.channel_last_errors.read().await.contains_key(channel_id)
+            && self.port_service.runtime_state_is_clear(channel_id).await
             && !self.channel_tasks.read().await.contains_key(channel_id)
             && !self.channel_runtimes.read().await.contains_key(channel_id)
             && !self.event_consumer_stop_senders.read().await.contains_key(channel_id)
@@ -196,43 +164,34 @@ impl OnebotV11WsManager {
         &self,
         channel: &RemoteImChannelConfig,
     ) -> Result<(), String> {
-        let _guard = self.channel_lifecycle_guard(&channel.id).await;
-        self.stop_channel_inner(&channel.id).await?;
-        if !channel.enabled {
-            self.channel_status_texts
-                .write()
-                .await
-                .insert(channel.id.clone(), "disabled".to_string());
-            self.channel_last_errors.write().await.remove(&channel.id);
-            self.add_log(&channel.id, "info", "渠道已禁用，跳过启动").await;
-            return Ok(());
-        }
-        if channel.platform != RemoteImPlatform::OnebotV11 {
-            self.channel_status_texts
-                .write()
-                .await
-                .insert(channel.id.clone(), "unsupported_platform".to_string());
-            self.add_log(&channel.id, "warn", "渠道不是 OneBot v11，跳过启动").await;
-            return Ok(());
-        }
-        let credentials = OnebotV11WsCredentials::from_credentials(&channel.credentials);
-        self.start_server(&channel.id, credentials).await
+        self.port_service
+            .reconcile_serialized(&channel.id, || async move {
+                self.stop_channel_inner(&channel.id).await?;
+                if !channel.enabled {
+                    self.port_service
+                        .set_status_text(&channel.id, Some("disabled".to_string()))
+                        .await;
+                    self.port_service.set_last_error(&channel.id, None).await;
+                    self.add_log(&channel.id, "info", "渠道已禁用，跳过启动").await;
+                    return Ok(());
+                }
+                if channel.platform != RemoteImPlatform::OnebotV11 {
+                    self.port_service
+                        .set_status_text(&channel.id, Some("unsupported_platform".to_string()))
+                        .await;
+                    self.add_log(&channel.id, "warn", "渠道不是 OneBot v11，跳过启动").await;
+                    return Ok(());
+                }
+                let credentials = OnebotV11WsCredentials::from_credentials(&channel.credentials);
+                self.start_server(&channel.id, credentials).await
+            })
+            .await
     }
 
     /// 获取渠道连接状态
     pub async fn get_connection_status(&self, channel_id: &str) -> ChannelConnectionStatus {
         let connections = self.connections.read().await;
-        let listen_addrs = self.listen_addrs.read().await;
-        let status_texts = self.channel_status_texts.read().await;
-        let last_errors = self.channel_last_errors.read().await;
-        let status_text = status_texts
-            .get(channel_id)
-            .filter(|value| !value.trim().is_empty())
-            .cloned();
-        let last_error = last_errors
-            .get(channel_id)
-            .filter(|value| !value.trim().is_empty())
-            .cloned();
+        let snapshot = self.port_service.status_snapshot(channel_id).await;
 
         if let Some(conn) = connections.get(channel_id) {
             ChannelConnectionStatus {
@@ -240,9 +199,9 @@ impl OnebotV11WsManager {
                 connected: true,
                 peer_addr: conn.peer_addr.clone(),
                 connected_at: conn.connected_at,
-                listen_addr: listen_addrs.get(channel_id).cloned().unwrap_or_default(),
-                status_text,
-                last_error,
+                listen_addr: snapshot.listen_addr.clone(),
+                status_text: snapshot.status_text.clone(),
+                last_error: snapshot.last_error.clone(),
                 account_id: None,
                 base_url: None,
                 login_session_key: None,
@@ -254,9 +213,9 @@ impl OnebotV11WsManager {
                 connected: false,
                 peer_addr: None,
                 connected_at: None,
-                listen_addr: listen_addrs.get(channel_id).cloned().unwrap_or_default(),
-                status_text,
-                last_error,
+                listen_addr: snapshot.listen_addr,
+                status_text: snapshot.status_text,
+                last_error: snapshot.last_error,
                 account_id: None,
                 base_url: None,
                 login_session_key: None,
@@ -267,8 +226,7 @@ impl OnebotV11WsManager {
 
     /// 获取渠道日志
     pub async fn get_logs(&self, channel_id: &str) -> Vec<ChannelLogEntry> {
-        let logs = self.channel_logs.read().await;
-        logs.get(channel_id).cloned().unwrap_or_default()
+        self.port_service.get_logs(channel_id).await
     }
 
     /// 启动 WebSocket 服务器（公开接口）
@@ -277,15 +235,18 @@ impl OnebotV11WsManager {
         channel_id: String,
         credentials: OnebotV11WsCredentials,
     ) -> Result<(), String> {
-        let _guard = self.channel_lifecycle_guard(&channel_id).await;
-        // 如果已经在监听同一地址，跳过
         let _addr = onebot_listen_addr_from_credentials(&credentials)?;
-        if self.channel_server_is_running(&channel_id).await {
+        let outcome = self
+            .port_service
+            .start_serialized(&channel_id, self.channel_server_is_running(&channel_id), || async {
+                self.stop_channel_inner(&channel_id).await?;
+                self.start_server(&channel_id, credentials).await
+            })
+            .await?;
+        if outcome == LocalPortServiceStartOutcome::SkippedAlreadyRunning {
             self.add_log(&channel_id, "info", "服务器已在运行，跳过重复启动").await;
-            return Ok(());
         }
-        self.stop_channel_inner(&channel_id).await?;
-        self.start_server(&channel_id, credentials).await
+        Ok(())
     }
 
     async fn channel_server_is_running(&self, channel_id: &str) -> bool {
@@ -326,15 +287,13 @@ impl OnebotV11WsManager {
             .write()
             .await
             .insert(channel_id.to_string(), channel_runtime.clone());
-        self.listen_addrs
-            .write()
-            .await
-            .insert(channel_id.to_string(), actual_addr.clone());
-        self.channel_status_texts
-            .write()
-            .await
-            .insert(channel_id.to_string(), "listening".to_string());
-        self.channel_last_errors.write().await.remove(channel_id);
+        self.port_service
+            .set_listen_addr(channel_id, Some(actual_addr.clone()))
+            .await;
+        self.port_service
+            .set_status_text(channel_id, Some("listening".to_string()))
+            .await;
+        self.port_service.set_last_error(channel_id, None).await;
 
         // 创建连接通道
         let (conn_tx, _) = broadcast::channel::<String>(64);
@@ -354,7 +313,7 @@ impl OnebotV11WsManager {
             event_tx,
             connections: self.connections.clone(),
             connection_stop_senders: self.connection_stop_senders.clone(),
-            channel_logs: self.channel_logs.clone(),
+            port_service: self.port_service.clone(),
             active_connection_gate: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             cancel: channel_runtime.cancel.clone(),
         };
@@ -427,15 +386,13 @@ impl OnebotV11WsManager {
             .write()
             .await
             .insert(channel_id.to_string(), channel_runtime.clone());
-        self.listen_addrs
-            .write()
-            .await
-            .insert(channel_id.to_string(), addr.to_string());
-        self.channel_status_texts
-            .write()
-            .await
-            .insert(channel_id.to_string(), "binding".to_string());
-        self.channel_last_errors.write().await.remove(channel_id);
+        self.port_service
+            .set_listen_addr(channel_id, Some(addr.to_string()))
+            .await;
+        self.port_service
+            .set_status_text(channel_id, Some("binding".to_string()))
+            .await;
+        self.port_service.set_last_error(channel_id, None).await;
         channel_runtime
     }
 }
@@ -521,7 +478,7 @@ async fn handle_ws_connection(socket: WebSocket, peer_addr: SocketAddr, state: O
                 channel_id, peer_addr
             );
             append_channel_log(
-                &state.channel_logs,
+                &state.port_service,
                 &channel_id,
                 "warn",
                 format!("替换旧连接超时，拒绝新连接: {}", peer_addr),
@@ -530,7 +487,7 @@ async fn handle_ws_connection(socket: WebSocket, peer_addr: SocketAddr, state: O
             return;
         }
         append_channel_log(
-            &state.channel_logs,
+            &state.port_service,
             &channel_id,
             "info",
             format!("新连接已接管旧连接: {}", peer_addr),
@@ -550,7 +507,7 @@ async fn handle_ws_connection(socket: WebSocket, peer_addr: SocketAddr, state: O
         channel_id, peer_addr_str
     );
     append_channel_log(
-        &state.channel_logs,
+        &state.port_service,
         &channel_id,
         "info",
         format!("客户端已连接: {}", peer_addr_str),
@@ -582,7 +539,7 @@ async fn handle_ws_connection(socket: WebSocket, peer_addr: SocketAddr, state: O
         state.pending_responses,
         state.event_tx,
         state.connections.clone(),
-        state.channel_logs.clone(),
+        state.port_service.clone(),
         channel_id.clone(),
         peer_addr_str,
         state.cancel,
