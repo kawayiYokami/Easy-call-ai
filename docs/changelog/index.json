@@ -1,7 +1,12 @@
 {
-  "generatedAt": "2026-06-19T05:42:29.572Z",
-  "latestVersion": "v0.12.6",
+  "generatedAt": "2026-06-19T12:41:57.060Z",
+  "latestVersion": "v0.12.7",
   "releases": [
+    {
+      "version": "v0.12.7",
+      "path": "docs/changelog/releases/v0.12.7.md",
+      "summary": "**网络访问**：网络访问页支持在服务启动前修改访问端口，保存后不再强制恢复旧端口"
+    },
     {
       "version": "v0.12.6",
       "path": "docs/changelog/releases/v0.12.6.md",
