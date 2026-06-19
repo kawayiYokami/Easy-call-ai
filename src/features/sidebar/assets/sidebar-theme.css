@@ -1,4 +1,4 @@
-:root {
+html[data-host="vscode"] {
   color-scheme: light dark;
   --pai-sidebar-fallback-bg: #ffffff;
   --pai-sidebar-fallback-panel: #f6f6f6;
@@ -111,52 +111,52 @@ button svg,
   background: var(--vscode-scrollbarSlider-background, rgba(127, 127, 127, 0.4));
 }
 
-.text-base-content\/45 {
+html[data-host="vscode"] .text-base-content\/45 {
   color: color-mix(in srgb, var(--pai-sidebar-fg) 48%, transparent) !important;
 }
 
-.text-base-content\/55,
-.text-base-content\/60,
-.opacity-60,
-.opacity-70 {
+html[data-host="vscode"] .text-base-content\/55,
+html[data-host="vscode"] .text-base-content\/60,
+html[data-host="vscode"] .opacity-60,
+html[data-host="vscode"] .opacity-70 {
   color: var(--pai-sidebar-muted-fg) !important;
 }
 
-.opacity-80 {
+html[data-host="vscode"] .opacity-80 {
   color: color-mix(in srgb, var(--pai-sidebar-fg) 82%, transparent) !important;
 }
 
-.btn-ghost,
-.btn:not(.btn-primary):not(.btn-error):not(.btn-info):not(.btn-success):not(.btn-warning) {
+html[data-host="vscode"] .btn-ghost,
+html[data-host="vscode"] .btn:not(.btn-primary):not(.btn-error):not(.btn-info):not(.btn-success):not(.btn-warning) {
   color: var(--pai-sidebar-fg);
 }
 
-.btn-ghost:hover {
+html[data-host="vscode"] .btn-ghost:hover {
   background: color-mix(in srgb, var(--pai-sidebar-fg) 10%, transparent);
   color: var(--pai-sidebar-fg);
 }
 
-.textarea,
-.select,
-.input,
-.badge-ghost,
-.badge-outline {
+html[data-host="vscode"] .textarea,
+html[data-host="vscode"] .select,
+html[data-host="vscode"] .input,
+html[data-host="vscode"] .badge-ghost,
+html[data-host="vscode"] .badge-outline {
   color: var(--pai-sidebar-fg);
 }
 
-.textarea::placeholder,
-.input::placeholder {
+html[data-host="vscode"] .textarea::placeholder,
+html[data-host="vscode"] .input::placeholder {
   color: var(--pai-sidebar-muted-fg);
   opacity: 1;
 }
 
-.code-block-header,
-.code-header-main,
-.code-header-title,
-.code-header-caption,
-.code-header-actions,
-.mockup-code,
-.mockup-code pre,
-.mockup-code code {
+html[data-host="vscode"] .code-block-header,
+html[data-host="vscode"] .code-header-main,
+html[data-host="vscode"] .code-header-title,
+html[data-host="vscode"] .code-header-caption,
+html[data-host="vscode"] .code-header-actions,
+html[data-host="vscode"] .mockup-code,
+html[data-host="vscode"] .mockup-code pre,
+html[data-host="vscode"] .mockup-code code {
   color: var(--pai-sidebar-fg) !important;
 }
