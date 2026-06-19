@@ -284,10 +284,6 @@ async fn run_deferred_setup(app_handle: AppHandle) {
     ) {
         eprintln!("[启动-延迟] 启动录音热键探针失败: {err}");
     }
-    emit_progress("构建系统托盘");
-    if let Err(err) = build_tray(&app_handle) {
-        eprintln!("[启动-延迟] 构建托盘失败: {err}");
-    }
     emit_progress("配置自检");
     match state_read_config_cached(app_state.inner()) {
         Ok(mut config) => {
@@ -876,6 +872,11 @@ fn main() {
                 Err(e) => {
                     eprintln!("[启动] 写入应用句柄槽位失败: {e}");
                 }
+            }
+            if let Err(err) = build_tray(&app_handle) {
+                eprintln!("[启动] 构建托盘失败: {err}");
+            } else {
+                eprintln!("[启动] 构建托盘完成");
             }
 
             // ========== 阶段 1：最小启动，尽快让前端可见 ==========

@@ -945,6 +945,47 @@ fn show_chat_entry_window(app: &AppHandle) -> Result<(), String> {
     show_window(app, target)
 }
 
+fn run_tray_action(app: &AppHandle, action: &str) -> Result<(), String> {
+    match action {
+        "config" => show_window(app, "main"),
+        "chat" => show_chat_entry_window(app),
+        "file-reader" => {
+            show_file_reader_window(app)?;
+            Ok(())
+        }
+        "archives" => show_window(app, "archives"),
+        "runtime-logs" => show_runtime_logs_window(app),
+        other => Err(format!("未知托盘动作：{other}")),
+    }
+}
+
+fn dispatch_tray_action(app: &AppHandle, source: &'static str, action: &'static str) {
+    let app_handle = app.clone();
+    let thread_name = format!("tray-action-{action}");
+    if let Err(err) = std::thread::Builder::new()
+        .name(thread_name)
+        .spawn(move || {
+            eprintln!("[托盘] 收到动作：source={}，action={}", source, action);
+            match run_tray_action(&app_handle, action) {
+                Ok(()) => {
+                    eprintln!("[托盘] 动作完成：source={}，action={}", source, action);
+                }
+                Err(err) => {
+                    eprintln!(
+                        "[托盘] 动作失败：source={}，action={}，error={}",
+                        source, action, err
+                    );
+                }
+            }
+        })
+    {
+        eprintln!(
+            "[托盘] 调度动作失败：source={}，action={}，error={}",
+            source, action, err
+        );
+    }
+}
+
 // ==================== 运行日志窗口 ====================
 
 const RUNTIME_LOGS_WINDOW_LABEL: &str = "runtime-logs";
@@ -1128,22 +1169,23 @@ fn build_tray(app: &AppHandle) -> Result<(), String> {
                 ..
             } = event
             {
-                let _ = show_chat_entry_window(tray.app_handle());
+                dispatch_tray_action(tray.app_handle(), "left_click", "chat");
             }
         })
         .on_menu_event(|app, event| {
             let id = event.id().as_ref();
             if id == "config" {
-                let _ = show_window(app, "main");
+                dispatch_tray_action(app, "menu", "config");
             } else if id == "chat" {
-                let _ = show_chat_entry_window(app);
+                dispatch_tray_action(app, "menu", "chat");
             } else if id == "file-reader" {
-                let _ = show_file_reader_window(app);
+                dispatch_tray_action(app, "menu", "file-reader");
             } else if id == "archives" {
-                let _ = show_window(app, "archives");
+                dispatch_tray_action(app, "menu", "archives");
             } else if id == "runtime-logs" {
-                let _ = show_runtime_logs_window(app);
+                dispatch_tray_action(app, "menu", "runtime-logs");
             } else if id == "quit" {
+                eprintln!("[托盘] 收到动作：source=menu，action=quit");
                 graceful_exit_app(app, 0);
             }
         })

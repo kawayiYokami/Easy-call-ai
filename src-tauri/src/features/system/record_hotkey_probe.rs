@@ -30,9 +30,27 @@ fn handle_global_shortcut_probe(app: &AppHandle, shortcut: &Shortcut, state: Sho
         return;
     }
     let app_state = app.state::<AppState>();
-    let config = read_config(&app_state.config_path).unwrap_or_default();
+    let config = match state_read_config_cached(app_state.inner()) {
+        Ok(config) => config,
+        Err(err) => {
+            eprintln!("[快捷键] 读取配置失败：error={err}");
+            return;
+        }
+    };
     if is_shortcut_match(shortcut, &config.hotkey) {
-        let _ = toggle_window(app, "chat");
+        let app_handle = app.clone();
+        if let Err(err) = std::thread::Builder::new()
+            .name("global-shortcut-chat-toggle".to_string())
+            .spawn(move || {
+                eprintln!("[快捷键] 收到召唤热键，开始切换聊天窗口");
+                match toggle_window(&app_handle, "chat") {
+                    Ok(()) => eprintln!("[快捷键] 聊天窗口切换完成"),
+                    Err(err) => eprintln!("[快捷键] 聊天窗口切换失败：error={err}"),
+                }
+            })
+        {
+            eprintln!("[快捷键] 调度聊天窗口切换失败：error={err}");
+        }
     }
 }
 
