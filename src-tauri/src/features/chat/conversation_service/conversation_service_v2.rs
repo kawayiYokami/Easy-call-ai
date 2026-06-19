@@ -837,7 +837,7 @@ impl ConversationServiceV2 {
         }
     }
 
-    fn persist_replaced_ready_message(
+    fn persist_replaced_ready_message_locked(
         &self,
         state: &AppState,
         conversation_id: &str,
@@ -1997,14 +1997,20 @@ impl ConversationServiceV2 {
         conversation_id: &str,
         message: &ChatMessage,
     ) -> Result<(), String> {
+        let _guard = lock_conversation_with_metrics(state, "conversation_v2_append_message")?;
+        self.append_message_locked(state, conversation_id, message)
+    }
+
+    fn append_message_locked(
+        &self,
+        state: &AppState,
+        conversation_id: &str,
+        message: &ChatMessage,
+    ) -> Result<(), String> {
         let normalized_conversation_id = conversation_id.trim();
         if normalized_conversation_id.is_empty() {
             return Err("conversationId is required.".to_string());
         }
-        let guard = state
-            .conversation_lock
-            .lock()
-            .map_err(|err| format!("Failed to lock state mutex at {}:{} {}: {err}", file!(), line!(), module_path!()))?;
         let conversation_meta =
             self.get_conversation_meta(state, normalized_conversation_id)?;
         if !self.conversation_meta_is_unarchived_meta_view(&conversation_meta) {
@@ -2059,7 +2065,6 @@ impl ConversationServiceV2 {
             std::slice::from_ref(message),
         )?;
         state_mark_conversation_metadata_direct_persisted(state, normalized_conversation_id)?;
-        drop(guard);
         Ok(())
     }
 
@@ -3243,7 +3248,6 @@ impl ConversationServiceV2 {
             });
         }
 
-        let _guard = lock_conversation_with_metrics(state, "stop_chat_generation_persist_partial")?;
         let app_config = load_runtime_organization_snapshot(state)?.config;
         let api_config_id =
             resolve_stop_chat_api_config_id(&app_config, requested_department_id, agent_id)?;
@@ -3282,7 +3286,9 @@ impl ConversationServiceV2 {
             }
             StopChatConversationTarget::PersistedRef { conversation_id, .. } => {
                 let target_id = conversation_id.to_string();
-                self.append_message(state, &target_id, &assistant_message)?;
+                let _guard =
+                    lock_conversation_with_metrics(state, "stop_chat_generation_persist_partial")?;
+                self.append_message_locked(state, &target_id, &assistant_message)?;
                 target_id
             }
         };
@@ -6550,7 +6556,7 @@ impl ConversationServiceV2 {
             input.provider_meta_patch.clone(),
         );
         let tool_event_count = target_message.tool_call.as_ref().map(Vec::len).unwrap_or(0);
-        self.persist_replaced_ready_message(state, conversation_id, &target_message)?;
+        self.persist_replaced_ready_message_locked(state, conversation_id, &target_message)?;
         Ok(AssistantMessageToolAppendResult {
             conversation_id: conversation_id.to_string(),
             assistant_message_id: assistant_message_id.to_string(),
@@ -6661,7 +6667,7 @@ impl ConversationServiceV2 {
         target_message.meme_annotations = input.meme_annotations.clone();
         mark_stream_final_committed_v2(&mut target_message.provider_meta);
 
-        self.persist_replaced_ready_message(state, conversation_id, &target_message)?;
+        self.persist_replaced_ready_message_locked(state, conversation_id, &target_message)?;
         runtime_log_debug(format!(
             "[表情替换] FinalAppend完成，conversation_id={}，assistant_message_id={}，stored_annotation_count={}，stored_tokens=[{}]",
             conversation_id,
@@ -6735,7 +6741,11 @@ impl ConversationServiceV2 {
             meme_annotations: None,
         };
         merge_provider_meta_patch_v2(&mut message.provider_meta, input.provider_meta_patch.clone());
-        self.append_message(state, conversation_id, &message)?;
+        let _guard = lock_conversation_with_metrics(
+            state,
+            "conversation_v2_bootstrap_streaming_assistant_message",
+        )?;
+        self.append_message_locked(state, conversation_id, &message)?;
         Ok(AssistantMessageBootstrapResult {
             conversation_id: conversation_id.to_string(),
             assistant_message_id: assistant_message_id.to_string(),
@@ -6772,7 +6782,7 @@ impl ConversationServiceV2 {
             &mut target_message.provider_meta,
             Some(input.provider_meta_patch.clone()),
         );
-        self.persist_replaced_ready_message(state, conversation_id, &target_message)?;
+        self.persist_replaced_ready_message_locked(state, conversation_id, &target_message)?;
         Ok(AssistantMessageProviderMetaPatchResult {
             conversation_id: conversation_id.to_string(),
             assistant_message_id: assistant_message_id.to_string(),

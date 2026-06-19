@@ -2339,56 +2339,14 @@ async fn stop_chat_message(
             aborted_delegate_children
         );
     }
-
-    let partial_stream_text = assistant_text_from_stream_blocks(&input.partial_stream_blocks);
-    let partial_assistant_text = input.partial_assistant_text.trim().to_string();
-    let partial_assistant_text = if partial_assistant_text.is_empty() {
-        partial_stream_text.trim().to_string()
-    } else {
-        partial_assistant_text
-    };
-    let partial_activity_text = reasoning_text_from_stream_blocks(&input.partial_stream_blocks);
-    let completed_tool_history = inflight_completed_tool_history(state.inner(), &chat_key)?;
-    let partial_tool_history =
-        merge_stream_block_tool_history(&completed_tool_history, &input.partial_stream_blocks);
-    let persist_result = conversation_service_v2().persist_stop_chat_partial_message(
-        state.inner(),
-        requested_conversation_id.as_deref(),
-        requested_department_id.as_deref(),
-        input.session.agent_id.as_str(),
-        &partial_assistant_text,
-        &partial_activity_text,
-        "",
-        &partial_tool_history,
-    )?;
-    let build_stop_result =
-        |conversation_id: Option<String>, persisted: bool, assistant_message: Option<ChatMessage>| -> StopChatResult {
-            StopChatResult {
-                aborted,
-                persisted,
-                conversation_id,
-                assistant_text: partial_assistant_text.clone(),
-                assistant_message,
-            }
-        };
-    runtime_log_info(format!(
-        "[聊天流式块][后端停止] 停止请求完成 session={} conversation_id={} aborted={} persisted={} partial_text_len={} partial_reasoning_len={} partial_block_count={} partial_tool_history_count={} completed_tool_history_count={}",
-        chat_key,
-        requested_conversation_id.as_deref().unwrap_or(""),
+    let conversation_id = requested_conversation_id.clone();
+    Ok(StopChatResult {
         aborted,
-        persist_result.persisted,
-        partial_assistant_text.chars().count(),
-        partial_activity_text.chars().count(),
-        input.partial_stream_blocks.len(),
-        partial_tool_history.len(),
-        completed_tool_history.len(),
-    ));
-    clear_inflight_completed_tool_history(state.inner(), &chat_key)?;
-    Ok(build_stop_result(
-        persist_result.conversation_id.or(requested_conversation_id),
-        persist_result.persisted,
-        persist_result.assistant_message,
-    ))
+        persisted: false,
+        conversation_id,
+        assistant_text: String::new(),
+        assistant_message: None,
+    })
 }
 
 #[tauri::command]
@@ -2540,110 +2498,6 @@ fn reasoning_text_from_stream_blocks(blocks: &[AssistantStreamBlock]) -> String 
         .join("\n\n")
 }
 
-fn tool_call_ids_from_history(events: &[Value]) -> std::collections::HashSet<String> {
-    events
-        .iter()
-        .filter_map(|event| event.get("tool_calls").and_then(Value::as_array))
-        .flat_map(|calls| calls.iter())
-        .filter_map(|call| call.get("id").and_then(Value::as_str))
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .map(ToOwned::to_owned)
-        .collect()
-}
-
-fn stream_blocks_to_tool_history_events(blocks: &[AssistantStreamBlock]) -> Vec<Value> {
-    let mut events = Vec::<Value>::new();
-    for block in blocks {
-        let tools = block
-            .tools
-            .iter()
-            .filter(|tool| !tool.tool_call_id.trim().is_empty() && !tool.name.trim().is_empty())
-            .collect::<Vec<_>>();
-        if tools.is_empty() {
-            continue;
-        }
-        let mut assistant_event = serde_json::Map::new();
-        assistant_event.insert("role".to_string(), Value::String("assistant".to_string()));
-        if block.text.trim().is_empty() {
-            assistant_event.insert("content".to_string(), Value::Null);
-        } else {
-            assistant_event.insert("content".to_string(), Value::String(block.text.clone()));
-        }
-        if !block.reasoning.trim().is_empty() {
-            assistant_event.insert(
-                "reasoning_content".to_string(),
-                Value::String(block.reasoning.trim().to_string()),
-            );
-        }
-        assistant_event.insert(
-            "tool_calls".to_string(),
-            Value::Array(
-                tools
-                    .iter()
-                    .map(|tool| {
-                        serde_json::json!({
-                            "id": tool.tool_call_id.trim(),
-                            "type": "function",
-                            "function": {
-                                "name": tool.name.trim(),
-                                "arguments": if tool.args_text.trim().is_empty() { "{}" } else { tool.args_text.trim() },
-                            }
-                        })
-                    })
-                    .collect(),
-            ),
-        );
-        events.push(Value::Object(assistant_event));
-        for tool in tools {
-            let result_text = tool.result_text.trim();
-            if result_text.is_empty() || tool.status.trim() == "doing" {
-                continue;
-            }
-            events.push(serde_json::json!({
-                "role": "tool",
-                "tool_call_id": tool.tool_call_id.trim(),
-                "content": result_text,
-            }));
-        }
-    }
-    events
-}
-
-fn merge_stream_block_tool_history(
-    completed_tool_history: &[Value],
-    partial_stream_blocks: &[AssistantStreamBlock],
-) -> Vec<Value> {
-    let mut merged = completed_tool_history.to_vec();
-    let existing_ids = tool_call_ids_from_history(&merged);
-    for event in stream_blocks_to_tool_history_events(partial_stream_blocks) {
-        if event
-            .get("role")
-            .and_then(Value::as_str)
-            .is_some_and(|role| role.eq_ignore_ascii_case("assistant"))
-        {
-            let has_new_tool = event
-                .get("tool_calls")
-                .and_then(Value::as_array)
-                .map(|calls| {
-                    calls.iter().any(|call| {
-                        call.get("id")
-                            .and_then(Value::as_str)
-                            .map(str::trim)
-                            .filter(|id| !id.is_empty())
-                            .is_some_and(|id| !existing_ids.contains(id))
-                    })
-                })
-                .unwrap_or(false);
-            if !has_new_tool {
-                continue;
-            }
-        }
-        merged.push(event);
-    }
-    merged
-}
-
 #[cfg(test)]
 mod stop_stream_block_tool_history_tests {
     use super::*;
@@ -2680,31 +2534,6 @@ mod stop_stream_block_tool_history_tests {
         assert_eq!(text, "用户发送了1个附件：report.pdf。请基于这些内容处理。");
     }
 
-    #[test]
-    fn stream_blocks_to_tool_history_should_keep_running_tool_call_for_interrupted_message() {
-        let events = stream_blocks_to_tool_history_events(&[AssistantStreamBlock {
-            reasoning: "打算用 operate 工具等待 3 秒。".to_string(),
-            text: String::new(),
-            tools: vec![AssistantStreamToolBlock {
-                tool_call_id: "tool-1".to_string(),
-                name: "operate".to_string(),
-                args_text: "{\"action\":\"wait\",\"seconds\":3}".to_string(),
-                result_text: String::new(),
-                status: "doing".to_string(),
-            }],
-        }]);
-
-        assert_eq!(events.len(), 1);
-        assert_eq!(events[0]["role"].as_str(), Some("assistant"));
-        assert_eq!(
-            events[0]["reasoning_content"].as_str(),
-            Some("打算用 operate 工具等待 3 秒。")
-        );
-        assert_eq!(
-            events[0]["tool_calls"][0]["function"]["name"].as_str(),
-            Some("operate")
-        );
-    }
 }
 
 #[tauri::command]

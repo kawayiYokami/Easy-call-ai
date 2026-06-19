@@ -298,10 +298,6 @@ struct IdeChatImageInput {
 #[serde(rename_all = "camelCase")]
 struct IdeChatStopInput {
     conversation_id: String,
-    #[serde(default)]
-    partial_assistant_text: String,
-    #[serde(default)]
-    partial_stream_blocks: Vec<AssistantStreamBlock>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -4996,36 +4992,31 @@ fn ide_chat_stop_conversation(state: &AppState, params: Value) -> Result<Value, 
     let _ = release_conversation_processing_claim(state, conversation_id);
     let _ = set_conversation_runtime_state(state, conversation_id, MainSessionState::Idle);
     let _ = set_conversation_remote_im_activation_sources(state, conversation_id, Vec::new());
-    let partial_stream_text = assistant_text_from_stream_blocks(&input.partial_stream_blocks);
-    let partial_assistant_text = input.partial_assistant_text.trim().to_string();
-    let partial_assistant_text = if partial_assistant_text.is_empty() {
-        partial_stream_text.trim().to_string()
-    } else {
-        partial_assistant_text
-    };
-    let partial_activity_text = reasoning_text_from_stream_blocks(&input.partial_stream_blocks);
-    let completed_tool_history = inflight_completed_tool_history(state, &chat_key)?;
-    let partial_tool_history =
-        merge_stream_block_tool_history(&completed_tool_history, &input.partial_stream_blocks);
     runtime_log_info(format!(
-        "[聊天流式块][侧边栏停止] 停止请求完成 session={} conversation_id={} partial_text_len={} partial_reasoning_len={} partial_block_count={} partial_tool_history_count={} completed_tool_history_count={}",
+        "[聊天流式块][侧边栏停止] 停止请求完成 session={} conversation_id={} aborted={} persisted=false cleared_queue_count={}",
         chat_key,
         conversation_id,
-        partial_assistant_text.chars().count(),
-        partial_activity_text.chars().count(),
-        input.partial_stream_blocks.len(),
-        partial_tool_history.len(),
-        completed_tool_history.len(),
+        aborted_chat || aborted_tool || aborted_delegate_children > 0,
+        cleared_queue_count,
     ));
-    clear_inflight_completed_tool_history(state, &chat_key)?;
     let stop_result = StopChatResult {
         aborted: aborted_chat || aborted_tool || aborted_delegate_children > 0,
         persisted: false,
         conversation_id: Some(conversation_id.to_string()),
-        assistant_text: partial_assistant_text,
+        assistant_text: String::new(),
         assistant_message: None,
     };
-    let payload = serde_json::json!({
+    ide_chat_broadcast_notification(
+        "chat.roundFinished",
+        serde_json::json!({
+            "conversationId": conversation_id,
+            "status": "stopped",
+            "assistantText": stop_result.assistant_text,
+            "assistantMessage": stop_result.assistant_message,
+            "archivedBeforeSend": false,
+        }),
+    );
+    Ok(serde_json::json!({
         "conversationId": conversation_id,
         "status": "stopped",
         "aborted": stop_result.aborted,
@@ -5033,11 +5024,7 @@ fn ide_chat_stop_conversation(state: &AppState, params: Value) -> Result<Value, 
         "clearedQueueCount": cleared_queue_count,
         "assistantText": stop_result.assistant_text,
         "assistantMessage": stop_result.assistant_message,
-    });
-    if !stop_result.persisted {
-        ide_chat_broadcast_notification("chat.roundFinished", payload.clone());
-    }
-    Ok(payload)
+    }))
 }
 
 fn ide_chat_session_for_conversation(state: &AppState, conversation_id: &str) -> Result<SessionSelector, String> {

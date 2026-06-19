@@ -9146,3 +9146,56 @@
             other => panic!("expected text fallback, got {other:?}"),
         }
     }
+
+    fn collect_rs_files(root: &std::path::Path) -> Vec<std::path::PathBuf> {
+        let mut out = Vec::new();
+        let Ok(entries) = std::fs::read_dir(root) else {
+            return out;
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                out.extend(collect_rs_files(&path));
+            } else if path.extension().and_then(|ext| ext.to_str()) == Some("rs") {
+                out.push(path);
+            }
+        }
+        out
+    }
+
+    #[test]
+    fn conversation_lock_should_only_be_directly_used_inside_conversation_service_v2() {
+        let features_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("src")
+            .join("features");
+        let allowed = features_root
+            .join("chat")
+            .join("conversation_service")
+            .join("conversation_service_v2.rs");
+        let self_test_file = features_root.join("chat").join("tests.rs");
+        let mut violations = Vec::<String>::new();
+
+        for path in collect_rs_files(&features_root) {
+            if path == allowed || path == self_test_file {
+                continue;
+            }
+            let Ok(content) = std::fs::read_to_string(&path) else {
+                continue;
+            };
+            if content.contains("conversation_lock.lock(")
+                || content.contains("conversation_lock\r\n            .lock(")
+                || content.contains("conversation_lock\n            .lock(")
+            {
+                let relative = path
+                    .strip_prefix(std::path::Path::new(env!("CARGO_MANIFEST_DIR")))
+                    .unwrap_or(path.as_path());
+                violations.push(relative.display().to_string());
+            }
+        }
+
+        assert!(
+            violations.is_empty(),
+            "只有 conversation_service_v2.rs 允许直接拿 conversation_lock，违规文件: {:?}",
+            violations
+        );
+    }
