@@ -5,6 +5,7 @@
 
 ## 最近版本
 
+- [v0.12.6](docs/changelog/releases/v0.12.6.md) - **对话**：新增“无要求”对话风格选项，选择后不再注入额外的对话风格提示词
 - [v0.12.5](docs/changelog/releases/v0.12.5.md) - **会话**：禁止老会话自动回填摘要种子（summary_context_seed），避免在加载已存档或历史会话时插入不必要的上下文消息
 - [v0.12.4](docs/changelog/releases/v0.12.4.md) - 重构（chat）：重构会话服务并统一收口到 `ConversationServiceV2`，把前台轻量快照、单条消息、分页补历史、工具审查等热路径进一步改为按需读取，减少整会话消息整读与重复 clone，降低大历史会话场景的内存占用与读取压力。
 - [v0.12.3](docs/changelog/releases/v0.12.3.md) - 优化（task）：task 工具 schema 明确要求调度时间、重复频率和结束时间只能写入 trigger，goal/why/todo 只描述单次目标与背景，避免 LLM 把调度语义混入非调度字段。

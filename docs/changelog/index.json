@@ -1,7 +1,12 @@
 {
-  "generatedAt": "2026-06-18T13:26:56.001Z",
-  "latestVersion": "v0.12.5",
+  "generatedAt": "2026-06-19T05:42:29.572Z",
+  "latestVersion": "v0.12.6",
   "releases": [
+    {
+      "version": "v0.12.6",
+      "path": "docs/changelog/releases/v0.12.6.md",
+      "summary": "**对话**：新增“无要求”对话风格选项，选择后不再注入额外的对话风格提示词"
+    },
     {
       "version": "v0.12.5",
       "path": "docs/changelog/releases/v0.12.5.md",
