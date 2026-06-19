@@ -5,6 +5,7 @@
 
 ## 最近版本
 
+- [v0.12.8](docs/changelog/releases/v0.12.8.md) - **托盘**：将系统托盘创建提前到同步启动阶段，规避 Windows 上托盘图标已显示但鼠标事件偶发失活的问题
 - [v0.12.7](docs/changelog/releases/v0.12.7.md) - **网络访问**：网络访问页支持在服务启动前修改访问端口，保存后不再强制恢复旧端口
 - [v0.12.6](docs/changelog/releases/v0.12.6.md) - **对话**：新增“无要求”对话风格选项，选择后不再注入额外的对话风格提示词
 - [v0.12.5](docs/changelog/releases/v0.12.5.md) - **会话**：禁止老会话自动回填摘要种子（summary_context_seed），避免在加载已存档或历史会话时插入不必要的上下文消息

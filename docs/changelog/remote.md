@@ -2,6 +2,13 @@
 
 > 此文件由 `pnpm changelog:build` 自动生成，展示最近版本的完整说明。
 
+## 发布：v0.12.8
+
+## 修复
+
+- **托盘**：将系统托盘创建提前到同步启动阶段，规避 Windows 上托盘图标已显示但鼠标事件偶发失活的问题
+- **托盘**：托盘菜单与全局快捷键入口增加显式调度与失败日志，便于定位运行中托盘/窗口入口链路失效
+
 ## 发布：v0.12.7
 
 ## 修复
@@ -107,20 +114,3 @@
 
 - 功能（chat）：新增会话“自动推送”，可在普通本地会话中选择远程联系人，将本会话后续所有 LLM 发言自动异步通知到目标联系人会话，并在会话控制面板显示激活提示。
 - 功能（chat）：新增前台恢复投影功能，在 WebView 或浏览器标签页冻结后能够恢复流式状态，通过 `resumeProjection` 参数获取包含 `stream_cache` 的完整快照。
-
-## 发布：v0.11.8
-
-- 修复（meme）：后端扫描贴纸 token 生成标注，前端按标注替换渲染；远程联系人提示词移除不存在的 `contact_send_files` 工具提示，避免模型误判能力。
-- 清理（chat）：精简前端流式与侧边栏刷屏日志。
-- 功能（bridge）：Web 桥接认证持久化与 WebView 断连恢复、文件阅读器桥接支持。
-- 功能（multimodal/tools）：新增 `read_media` 内置工具，统一承接本地图片、音频、视频解析；`read_file` 不再处理图片，改为明确提示切换到 `read_media`。
-- 功能（multimodal/config）：配置页“供应商”tab 更名为“大模型”，`visionApiConfigId` 语义升级为“多模态分析模型”绑定；新增模型级 `enableVideo`，并将“音视频”开关联动为同时启用音频与视频能力。
-- 功能（multimodal/routing）：前后端统一新增“协议 + 模型名”双适配路由；仅 `gemini/gemma + Gemini`、`qwen/mimo/gpt + OpenAI`、`minimax + Anthropic` 组合显示多模态开关并允许 `read_media` 执行，`auto` 按模型名推导协议族。
-- 功能（multimodal/providers）：`read_media` 新增多供应商协议适配，OpenAI 家族支持音频 `input_audio` 与视频 `video_url`，Gemini 支持 `generateContent + inlineData`，MiniMax 支持 Anthropic 兼容视频输入，Mimo 视频单独按官方协议发送。
-- 优化（multimodal/cache/i18n）：图片转文缓存扩成多媒体解析缓存，按“文件内容 + 多模态模型 + 解析描述”命中；相关设置、错误提示与中英繁文案统一改为“多模态分析模型 / 多媒体解析缓存 / 音视频”。
-- 修复（multimodal/network）：`read_media` 的音频/视频链路改为 1 小时工具超时与 1 小时请求超时，并把底层网络错误详情直接返回给 LLM，便于解释真实失败原因。
-- 功能（chat/session）：新增 `get_session` / `inform_session`，支持跨会话通知与远程联系人异步投递。
-- 修复（archive）：部门缺失时跳过归档反思，避免异常中断。
-- 修复（migration）：修复异常目录型会话抛弃流程永远无法成功的问题，避免迁移死循环。
-- 修复（chat/store）：远程联系人恢复“10 小时未激活后下次发送前正式压缩”，并在消息仓库 block 数量或顺序异常时自动全量重写分片，避免增量写入直接失败。
-- 修复（config/security）：模型刷新错误提示中的 API Key 改为脱敏显示，避免完整密钥泄漏到前端错误信息。

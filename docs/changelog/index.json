@@ -1,7 +1,12 @@
 {
-  "generatedAt": "2026-06-19T12:41:57.060Z",
-  "latestVersion": "v0.12.7",
+  "generatedAt": "2026-06-19T14:31:41.863Z",
+  "latestVersion": "v0.12.8",
   "releases": [
+    {
+      "version": "v0.12.8",
+      "path": "docs/changelog/releases/v0.12.8.md",
+      "summary": "**托盘**：将系统托盘创建提前到同步启动阶段，规避 Windows 上托盘图标已显示但鼠标事件偶发失活的问题"
+    },
     {
       "version": "v0.12.7",
       "path": "docs/changelog/releases/v0.12.7.md",
