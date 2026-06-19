@@ -1,7 +1,12 @@
 {
-  "generatedAt": "2026-06-19T14:31:41.863Z",
-  "latestVersion": "v0.12.8",
+  "generatedAt": "2026-06-19T19:47:29.740Z",
+  "latestVersion": "v0.12.9",
   "releases": [
+    {
+      "version": "v0.12.9",
+      "path": "docs/changelog/releases/v0.12.9.md",
+      "summary": "**文件工具**：`write` 工具支持显式覆盖已有文件，并接入工具改动撤回链路，减少整文件重写时的误操作成本"
+    },
     {
       "version": "v0.12.8",
       "path": "docs/changelog/releases/v0.12.8.md",
