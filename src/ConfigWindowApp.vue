@@ -320,7 +320,7 @@ const config = reactive<AppConfig>({
   uiLanguage: "zh-CN",
   uiFont: "auto",
   webviewZoomPercent: 100,
-  webAccessPort: 43129,
+  webAccessPort: 8429,
   webAccessEnabled: true,
   webAccessPassword: "",
   githubUpdateMethod: "auto",

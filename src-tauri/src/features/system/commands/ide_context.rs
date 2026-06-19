@@ -86,7 +86,7 @@ struct IdeContextQueryResultOutput {
 const IDE_CONTEXT_BRIDGE_HOST: &str = "127.0.0.1";
 const IDE_CONTEXT_BRIDGE_BIND_HOST: &str = "0.0.0.0";
 #[cfg(test)]
-const IDE_CONTEXT_BRIDGE_BASE_PORT: u16 = 43129;
+const IDE_CONTEXT_BRIDGE_BASE_PORT: u16 = 8429;
 const IDE_CONTEXT_BRIDGE_PATH: &str = "/ide-context";
 const IDE_CONTEXT_CHAT_BRIDGE_PATH: &str = "/chat";
 const IDE_CONTEXT_BRIDGE_DISCOVERY_FILE: &str = "p-ai-ide-context-bridge.json";
@@ -6335,9 +6335,9 @@ mod ide_context_tests {
 
     #[test]
     fn ide_context_peer_is_local_only_allows_loopback() {
-        let ipv4_local: std::net::SocketAddr = "127.0.0.1:43129".parse().expect("ipv4 local");
-        let ipv6_local: std::net::SocketAddr = "[::1]:43129".parse().expect("ipv6 local");
-        let remote: std::net::SocketAddr = "192.168.1.10:43129".parse().expect("remote");
+        let ipv4_local: std::net::SocketAddr = "127.0.0.1:8429".parse().expect("ipv4 local");
+        let ipv6_local: std::net::SocketAddr = "[::1]:8429".parse().expect("ipv6 local");
+        let remote: std::net::SocketAddr = "192.168.1.10:8429".parse().expect("remote");
 
         assert!(ide_context_peer_is_local(&ipv4_local));
         assert!(ide_context_peer_is_local(&ipv6_local));
@@ -6345,7 +6345,7 @@ mod ide_context_tests {
     }
 
     fn ide_context_ws_test_request(origin: Option<&str>) -> Request {
-        ide_context_ws_test_request_with_host(origin, "127.0.0.1:43129")
+        ide_context_ws_test_request_with_host(origin, "127.0.0.1:8429")
     }
 
     fn ide_context_ws_test_request_with_host(origin: Option<&str>, host: &str) -> Request {
@@ -6369,11 +6369,11 @@ mod ide_context_tests {
             IDE_CONTEXT_BRIDGE_BASE_PORT
         ));
         assert!(ide_context_ws_origin_allowed(
-            &ide_context_ws_test_request(Some("http://127.0.0.1:43129")),
+            &ide_context_ws_test_request(Some("http://127.0.0.1:8429")),
             IDE_CONTEXT_BRIDGE_BASE_PORT
         ));
         assert!(ide_context_ws_origin_allowed(
-            &ide_context_ws_test_request_with_host(Some("http://192.168.1.20:43129"), "192.168.1.20:43129"),
+            &ide_context_ws_test_request_with_host(Some("http://192.168.1.20:8429"), "192.168.1.20:8429"),
             IDE_CONTEXT_BRIDGE_BASE_PORT
         ));
     }
@@ -6385,7 +6385,7 @@ mod ide_context_tests {
             IDE_CONTEXT_BRIDGE_BASE_PORT
         ));
         assert!(!ide_context_ws_origin_allowed(
-            &ide_context_ws_test_request(Some("http://example.com:43129")),
+            &ide_context_ws_test_request(Some("http://example.com:8429")),
             IDE_CONTEXT_BRIDGE_BASE_PORT
         ));
         assert!(!ide_context_ws_origin_allowed(
@@ -6393,7 +6393,7 @@ mod ide_context_tests {
             IDE_CONTEXT_BRIDGE_BASE_PORT
         ));
         assert!(!ide_context_ws_origin_allowed(
-            &ide_context_ws_test_request_with_host(Some("http://192.168.1.50:43129"), "127.0.0.1:43129"),
+            &ide_context_ws_test_request_with_host(Some("http://192.168.1.50:8429"), "127.0.0.1:8429"),
             IDE_CONTEXT_BRIDGE_BASE_PORT
         ));
         assert!(!ide_context_ws_origin_allowed(
@@ -6497,7 +6497,7 @@ mod ide_context_tests {
         let port_service = ide_context_port_service_core();
         port_service.clear_runtime_state(WEB_ACCESS_SERVICE_ID).await;
         port_service
-            .set_listen_addr(WEB_ACCESS_SERVICE_ID, Some("0.0.0.0:43129".to_string()))
+            .set_listen_addr(WEB_ACCESS_SERVICE_ID, Some("0.0.0.0:8429".to_string()))
             .await;
         port_service
             .set_status_text(WEB_ACCESS_SERVICE_ID, Some("listening".to_string()))
@@ -6532,7 +6532,7 @@ mod ide_context_tests {
         let _test_guard = ide_context_test_lock();
         let port_service = ide_context_port_service_core();
         port_service
-            .set_listen_addr(WEB_ACCESS_SERVICE_ID, Some("0.0.0.0:43129".to_string()))
+            .set_listen_addr(WEB_ACCESS_SERVICE_ID, Some("0.0.0.0:8429".to_string()))
             .await;
         port_service
             .set_status_text(WEB_ACCESS_SERVICE_ID, Some("error".to_string()))

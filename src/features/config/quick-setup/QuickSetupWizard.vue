@@ -599,7 +599,7 @@ function defaultConfig(): AppConfig {
     uiLanguage: "zh-CN",
     uiFont: "auto",
     webviewZoomPercent: 100,
-    webAccessPort: 43129,
+    webAccessPort: 8429,
     webAccessEnabled: true,
     webAccessPassword: "",
     recordHotkey: isMacPlatform ? "Option+Space" : "Alt",

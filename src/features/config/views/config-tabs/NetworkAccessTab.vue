@@ -35,8 +35,9 @@
               type="number"
               min="1024"
               max="65535"
-              disabled
+              :disabled="props.savingConfig"
               :value="portInput"
+              @input="updatePort"
             />
           </label>
           <button
@@ -198,7 +199,7 @@ const savedPort = computed(() => {
     const parsed = JSON.parse(String(props.lastSavedConfigJson || "{}")) as Partial<AppConfig>;
     return normalizePort(parsed.webAccessPort);
   } catch {
-    return 43129;
+    return 8429;
   }
 });
 const savedEnabled = computed(() => {
@@ -237,8 +238,11 @@ const linkStatusText = computed(() => {
 });
 
 function normalizePort(value: unknown): number {
-  const _ = value;
-  return 43129;
+  const parsed = Math.round(Number(value));
+  if (Number.isFinite(parsed) && parsed >= 1024 && parsed <= 65535) {
+    return parsed;
+  }
+  return 8429;
 }
 
 function connectionKindLabel(path: string): string {
@@ -255,6 +259,12 @@ function updatePassword(event: Event) {
   const value = (event.target as HTMLInputElement).value.trim();
   passwordInput.value = value;
   props.config.webAccessPassword = value;
+}
+
+function updatePort(event: Event) {
+  const value = (event.target as HTMLInputElement).value;
+  portInput.value = value;
+  props.config.webAccessPort = normalizePort(value);
 }
 
 function regeneratePassword() {
@@ -293,7 +303,7 @@ async function refreshInfoInternal(forceRefresh = false) {
 
 async function saveSettings() {
   if (!settingsDirty.value) return;
-  props.config.webAccessPort = 43129;
+  props.config.webAccessPort = normalizePort(portInput.value);
   portInput.value = String(props.config.webAccessPort);
   props.config.webAccessPassword = passwordInput.value.trim();
   const saved = await Promise.resolve(props.saveConfigAction());

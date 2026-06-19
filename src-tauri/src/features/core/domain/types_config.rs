@@ -808,7 +808,7 @@ fn default_webview_zoom_percent() -> u32 {
 }
 
 fn default_web_access_port() -> u16 {
-    43129
+    8429
 }
 
 fn default_web_access_enabled() -> bool {
@@ -833,8 +833,11 @@ fn normalize_web_access_password(value: &str) -> String {
 }
 
 fn normalize_web_access_port(value: u16) -> u16 {
-    let _ = value;
-    default_web_access_port()
+    if (1024..=65535).contains(&value) {
+        value
+    } else {
+        default_web_access_port()
+    }
 }
 
 fn default_github_update_method() -> String {
