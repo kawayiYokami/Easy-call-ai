@@ -123,7 +123,7 @@ export function useChatVirtualScroll(options: UseChatVirtualScrollOptions) {
       estimateSize: estimateRenderItemSize,
       initialOffset: () => initialBottomOffset.value,
       anchorTo: "end",
-      followOnAppend: true,
+      followOnAppend: "smooth",
       scrollEndThreshold: 100,
       measureElement: (element: Element) => (element as HTMLElement).getBoundingClientRect().height,
       overscan: 600,
