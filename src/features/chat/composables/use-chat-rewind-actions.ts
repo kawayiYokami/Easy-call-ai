@@ -38,6 +38,9 @@ type UseChatRewindActionsOptions = {
   messageText: (message: ChatMessage) => string;
   extractMessageImages: (message: ChatMessage) => Array<{ mime: string; bytesBase64?: string; mediaRef?: string }>;
   requestRecallMode: (payload: { turnId: string; targetUserMessageId: string }) => Promise<RecallConfirmMode>;
+  requestCreateConversationBranchFromMessageConfirm: (payload: { turnId: string; targetUserMessageId: string }) => Promise<boolean>;
+  createConversationBranchFromMessage: (payload: { turnId: string; targetUserMessageId: string }) => Promise<void>;
+  branchingConversation: Ref<boolean>;
   refreshForegroundConversationAfterRewind: (conversationId: string) => Promise<void>;
 };
 
@@ -296,8 +299,52 @@ export function useChatRewindActions(options: UseChatRewindActionsOptions) {
     }
   }
 
+  async function handleCreateConversationBranchFromTurn(payload: { turnId: string }) {
+    const branchingConversation = options.branchingConversation;
+    if (rewindInFlight || !!branchingConversation?.value) {
+      return;
+    }
+    if (options.chatting.value || options.trimming.value || options.compactingConversation.value) {
+      const message = t('dialogs.rewind.failedBusy');
+      options.setChatErrorText(message);
+      options.setStatusError("status.createBranchFailed", message);
+      return;
+    }
+    const currentMessages = [...options.allMessages.value];
+    const target = resolveRewindTargetUserMessage(currentMessages, payload.turnId);
+    if (!target || !target.targetUserMessageId) {
+      options.setChatErrorText(t('dialogs.rewind.failedNoTarget'));
+      options.setStatusError("status.createBranchFailed", t('dialogs.rewind.failedNoTarget'));
+      return;
+    }
+    if (
+      typeof options.requestCreateConversationBranchFromMessageConfirm !== "function"
+      || typeof options.createConversationBranchFromMessage !== "function"
+    ) {
+      options.setChatErrorText(t('sidebar.createBranchFailed'));
+      options.setStatusError("status.createBranchFailed", t('sidebar.createBranchFailed'));
+      return;
+    }
+    const confirmed = await options.requestCreateConversationBranchFromMessageConfirm({
+      turnId: payload.turnId,
+      targetUserMessageId: target.targetUserMessageId,
+    });
+    if (!confirmed) return;
+    try {
+      await options.createConversationBranchFromMessage({
+        turnId: payload.turnId,
+        targetUserMessageId: target.targetUserMessageId,
+      });
+    } catch (error) {
+      const detail = errorText(error);
+      options.setChatErrorText(detail);
+      options.setStatusError("status.createBranchFailed", detail);
+    }
+  }
+
   return {
     handleRecallTurn,
+    handleCreateConversationBranchFromTurn,
     handleRegenerateTurn,
     deleteUnarchivedConversation,
   };

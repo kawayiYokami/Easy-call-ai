@@ -981,6 +981,7 @@ fn main() {
             set_conversation_preferred_model,
             set_conversation_auto_push_remote_contact,
             create_unarchived_conversation,
+            create_conversation_branch_from_message,
             export_conversation_share_json,
             import_conversation_share_from_file,
             branch_unarchived_conversation_from_selection,

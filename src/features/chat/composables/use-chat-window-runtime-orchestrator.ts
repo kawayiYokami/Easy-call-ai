@@ -1,5 +1,6 @@
 import { formatI18nError } from "../../../utils/error";
 import { removeBinaryPlaceholders } from "../../../utils/chat-message";
+import { invokeTauri } from "../../../services/tauri-api";
 import { useChatRuntimeSetup } from "./use-chat-runtime-setup";
 import { useChatServiceAssemblies } from "./use-chat-service-assemblies";
 import { useChatWindowConversationOrchestrator } from "./use-chat-window-conversation-orchestrator";
@@ -198,6 +199,52 @@ export function useChatWindowRuntimeOrchestrator(bindings: Record<string, any>) 
     applyConversationRuntimeStateUpdated: conversationOrchestrator.applyConversationRuntimeStateUpdated,
   });
 
+  async function createConversationBranchFromMessage(payload: { turnId: string; targetUserMessageId: string }) {
+    const sourceConversationId = String(bindings.currentChatConversationId.value || "").trim();
+    const turnMessageId = String(payload?.targetUserMessageId || payload?.turnId || "").trim();
+    if (
+      !sourceConversationId
+      || !turnMessageId
+      || bindings.branchingConversation.value
+      || bindings.forwardingConversationSelection.value
+    ) return;
+    bindings.branchingConversation.value = true;
+    try {
+      const result = await invokeTauri<{
+        conversationId: string;
+        title: string;
+        warning?: string | null;
+      }>("create_conversation_branch_from_message", {
+        input: {
+          sourceConversationId,
+          turnMessageId,
+        },
+      });
+      const conversationId = String(result?.conversationId || "").trim();
+      if (!conversationId) return;
+      await conversationOrchestrator.refreshUnarchivedConversationOverview();
+      if (bindings.detachedChatWindow.value) {
+        try {
+          await invokeTauri<{ conversationId: string; windowLabel: string }>("detach_current_conversation_to_window", {
+            input: { conversationId },
+          });
+          bindings.setStatus(bindings.tr("status.conversationBranchOpened", { title: String(result?.title || "").trim() || conversationId }));
+        } catch (detachError) {
+          console.error("[独立聊天窗口] 从消息创建会话分支成功，但打开新独立窗口失败", detachError);
+          bindings.setStatus(bindings.tr("status.conversationBranchDetachFailed", { err: formatI18nError(bindings.tr, "status.requestFailed", detachError) }));
+        }
+        return;
+      }
+      const snapshot = await conversationOrchestrator.requestConversationLightSnapshot(conversationId);
+      conversationOrchestrator.applyConversationSnapshot(snapshot);
+      bindings.setStatus(bindings.tr("status.conversationBranchCreated", { title: String(result?.title || "").trim() || conversationId }));
+    } catch (error) {
+      bindings.setStatusError("status.loadMessagesFailed", error);
+    } finally {
+      bindings.branchingConversation.value = false;
+    }
+  }
+
   const chatRuntimeSetup = useChatRuntimeSetup({
     chatRuntime,
     chatting: bindings.chatting,
@@ -247,6 +294,8 @@ export function useChatWindowRuntimeOrchestrator(bindings: Record<string, any>) 
     messageText: bindings.messageText,
     extractMessageImages: bindings.extractMessageImages,
     requestRecallMode: shellDialogFlows.requestRecallMode,
+    requestCreateConversationBranchFromMessageConfirm: shellDialogFlows.requestCreateConversationBranchFromMessageConfirm,
+    createConversationBranchFromMessage,
     setConversationPlanMode: bindings.setConversationPlanMode,
     FOREGROUND_SNAPSHOT_RECENT_LIMIT: bindings.FOREGROUND_SNAPSHOT_RECENT_LIMIT,
     applyConversationSnapshot: conversationOrchestrator.applyConversationSnapshot,
@@ -259,6 +308,7 @@ export function useChatWindowRuntimeOrchestrator(bindings: Record<string, any>) 
     chatFlow: chatRuntimeSetup.chatFlow,
     handleConfirmPlan: chatRuntimeSetup.handleConfirmPlan,
     deleteUnarchivedConversation: chatRuntimeSetup.deleteUnarchivedConversation,
+    handleCreateConversationBranchFromTurn: chatRuntimeSetup.handleCreateConversationBranchFromTurn,
     handleRecallTurn: chatRuntimeSetup.handleRecallTurn,
     handleRegenerateTurn: chatRuntimeSetup.handleRegenerateTurn,
   };

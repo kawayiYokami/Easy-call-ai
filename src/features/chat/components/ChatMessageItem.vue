@@ -337,6 +337,17 @@
               v-if="canRecallBlock(block)"
               type="button"
               class="ecall-message-footer-action inline-flex h-6 w-6 items-center justify-center rounded text-base-content/55 hover:text-base-content"
+              :title="t('chat.messageItem.branchFromMessage')"
+              :class="!selectionModeEnabled && !block.isStreaming ? '' : 'opacity-0 pointer-events-none'"
+              :disabled="selectionModeEnabled || block.isStreaming || busy"
+              @click="emit('createConversationBranchFromTurn', { turnId: recallTurnId(block) })"
+            >
+              <Split class="h-3.5 w-3.5" />
+            </button>
+            <button
+              v-if="canRecallBlock(block)"
+              type="button"
+              class="ecall-message-footer-action inline-flex h-6 w-6 items-center justify-center rounded text-base-content/55 hover:text-base-content"
               :title="t('chat.recall')"
               :class="!selectionModeEnabled && !block.isStreaming ? '' : 'opacity-0 pointer-events-none'"
               :disabled="selectionModeEnabled || block.isStreaming || busy"
@@ -480,6 +491,16 @@
           v-if="canRecallBlock(block)"
           type="button"
           class="ecall-message-recall-action inline-flex h-5 w-5 items-center justify-center rounded text-base-content/40 hover:text-base-content"
+          :title="t('chat.messageItem.branchFromMessage')"
+          :disabled="selectionModeEnabled || block.isStreaming || busy"
+          @click="emit('createConversationBranchFromTurn', { turnId: recallTurnId(block) })"
+        >
+          <Split class="h-3 w-3" />
+        </button>
+        <button
+          v-if="canRecallBlock(block)"
+          type="button"
+          class="ecall-message-recall-action inline-flex h-5 w-5 items-center justify-center rounded text-base-content/40 hover:text-base-content"
           :title="t('chat.recall')"
           :disabled="selectionModeEnabled || block.isStreaming || busy"
           @click="emit('recallTurn', { turnId: recallTurnId(block) })"
@@ -521,6 +542,12 @@
         </button>
       </li>
       <li v-if="canRecallBlock(block)">
+        <button type="button" @click="handleContextMenuAction('branchFromMessage')">
+          <Split class="h-4 w-4" />
+          <span>{{ t('chat.messageItem.branchFromMessage') }}</span>
+        </button>
+      </li>
+      <li v-if="canRecallBlock(block)">
         <button type="button" class="text-error" @click="handleContextMenuAction('recall')">
           <Undo2 class="h-4 w-4" />
           <span>{{ t('chat.recall') }}</span>
@@ -533,7 +560,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch, watchEffect, watchPostEffect } from "vue";
 import { useI18n } from "vue-i18n";
-import { CircleCheckBig, Copy, Eye, EyeOff, FileText, ListCheck, Pause, Play, RotateCcw, Undo2 } from "@lucide/vue";
+import { CircleCheckBig, Copy, Eye, EyeOff, FileText, ListCheck, Pause, Play, RotateCcw, Split, Undo2 } from "@lucide/vue";
 import { invokeTauri } from "../../../services/tauri-api";
 import type { ChatActivityItem, ChatMessageBlock } from "../../../types/app";
 import { formatIsoToLocalHourMinute } from "../../../utils/time";
@@ -574,6 +601,7 @@ const props = defineProps<{
   bubbleBackgroundHidden: boolean;
   hideToggleEnabled: boolean;
   disableMarkdownRender?: boolean;
+  disableRecallAndBranchActions?: boolean;
   isLastUserMessage?: boolean;
   isLastAssistantMessage?: boolean;
 }>();
@@ -582,6 +610,7 @@ const emit = defineEmits<{
   (e: "enterSelectionMode", selectionKey: string): void;
   (e: "toggleMessageSelected", selectionKey: string): void;
   (e: "recallTurn", payload: { turnId: string }): void;
+  (e: "createConversationBranchFromTurn", payload: { turnId: string }): void;
   (e: "regenerateTurn", payload: { turnId: string }): void;
   (e: "confirmPlan", payload: { messageId: string }): void;
   (e: "copyMessage", block: ChatMessageBlock): void;
@@ -752,8 +781,11 @@ function recallTurnId(block: ChatMessageBlock): string {
 }
 
 function canRecallBlock(block: ChatMessageBlock): boolean {
+  if (props.disableRecallAndBranchActions) return false;
   if (block.remoteImOrigin) return false;
   if (block.isStreaming) return false;
+  if (String(block.role || "").trim().toLowerCase() === "system") return false;
+  if (String(block.speakerAgentId || "").trim() === "system-persona") return false;
   return !!recallTurnId(block);
 }
 
@@ -1746,6 +1778,10 @@ function handleContextMenuAction(action: string) {
     emit("copyMessage", props.block);
   } else if (action === "toggleBubble") {
     emit("toggleBubbleBackground", props.selectionKey);
+  } else if (action === "branchFromMessage") {
+    const turnId = recallTurnId(props.block);
+    if (!turnId) return;
+    emit("createConversationBranchFromTurn", { turnId });
   } else if (action === "recall") {
     const turnId = recallTurnId(props.block);
     if (!turnId) return;

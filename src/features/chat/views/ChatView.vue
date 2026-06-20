@@ -113,7 +113,9 @@
                       :current-workspace-root-path="currentWorkspaceRootPath"
                       :bubble-background-hidden="isBubbleBackgroundHidden(entry.item.block)"
                       :hide-toggle-enabled="canToggleBubbleBackground(entry.item.block)"
+                      :disable-recall-and-branch-actions="activeConversationIsSystemNotification"
                       :disable-markdown-render="sidebarMode"
+                      @create-conversation-branch-from-turn="$emit('createConversationBranchFromTurn', $event)"
                       @recall-turn="$emit('recallTurn', $event)" @regenerate-turn="$emit('regenerateTurn', $event)"
                       @confirm-plan="$emit('confirmPlan', $event)" @enter-selection-mode="handleEnterMessageSelectionMode"
                       @toggle-message-selected="toggleMessageSelected" @copy-message="copyMessage"
@@ -145,7 +147,9 @@
                         :current-workspace-root-path="currentWorkspaceRootPath"
                         :bubble-background-hidden="isBubbleBackgroundHidden(groupItem.block)"
                         :hide-toggle-enabled="canToggleBubbleBackground(groupItem.block)"
+                        :disable-recall-and-branch-actions="activeConversationIsSystemNotification"
                         :disable-markdown-render="sidebarMode"
+                        @create-conversation-branch-from-turn="$emit('createConversationBranchFromTurn', $event)"
                         @recall-turn="$emit('recallTurn', $event)" @regenerate-turn="$emit('regenerateTurn', $event)"
                         @confirm-plan="$emit('confirmPlan', $event)" @enter-selection-mode="handleEnterMessageSelectionMode"
                         @toggle-message-selected="toggleMessageSelected" @copy-message="copyMessage"
@@ -568,6 +572,7 @@ const emit = defineEmits<{
   (e: "sendChat", payload?: { extraTextBlocks?: string[] }): void;
   (e: "stopChat"): void; (e: "trimConversation"): void; (e: "openConversationList"): void; (e: "openSettings"): void;
   (e: "clearChatError"): void;
+  (e: "createConversationBranchFromTurn", payload: { turnId: string }): void;
   (e: "recallTurn", payload: { turnId: string }): void;
   (e: "regenerateTurn", payload: { turnId: string }): void;
   (e: "confirmPlan", payload: { messageId: string }): void;

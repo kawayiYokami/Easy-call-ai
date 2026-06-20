@@ -29,6 +29,7 @@ export type TrimCompactionPreviewResult = {
 };
 
 type RecallMode = "with_patch" | "message_only" | "cancel";
+type BranchFromMessageConfirmMode = "confirm" | "cancel";
 
 type RewindConversationPreviewResult = {
   conversationId: string;
@@ -78,6 +79,8 @@ export function useShellDialogFlows(options: UseShellDialogFlowsOptions) {
   const rewindConfirmCanUndoPatch = ref(false);
   const rewindConfirmUndoHint = ref("");
   let rewindConfirmResolver: ((mode: RecallMode) => void) | null = null;
+  const branchFromMessageConfirmDialogOpen = ref(false);
+  let branchFromMessageConfirmResolver: ((mode: BranchFromMessageConfirmMode) => void) | null = null;
 
   function closeTrimActionDialog() {
     trimActionDialogOpen.value = false;
@@ -339,6 +342,46 @@ export function useShellDialogFlows(options: UseShellDialogFlowsOptions) {
     resolver("cancel");
   }
 
+  async function requestCreateConversationBranchFromMessageConfirm(payload: { turnId: string; targetUserMessageId: string }): Promise<boolean> {
+    cancelPendingBranchFromMessageConfirm();
+    console.info("[会话分支] 打开从消息创建分支确认弹窗", {
+      turnId: payload.turnId,
+      targetUserMessageId: payload.targetUserMessageId,
+    });
+    branchFromMessageConfirmDialogOpen.value = true;
+    return new Promise((resolve) => {
+      branchFromMessageConfirmResolver = (mode) => resolve(mode === "confirm");
+    });
+  }
+
+  function resolveBranchFromMessageConfirm(mode: BranchFromMessageConfirmMode) {
+    const resolver = branchFromMessageConfirmResolver;
+    branchFromMessageConfirmResolver = null;
+    branchFromMessageConfirmDialogOpen.value = false;
+    if (resolver) {
+      resolver(mode);
+    }
+  }
+
+  function confirmBranchFromMessage() {
+    resolveBranchFromMessageConfirm("confirm");
+  }
+
+  function cancelBranchFromMessageConfirm() {
+    resolveBranchFromMessageConfirm("cancel");
+  }
+
+  function cancelPendingBranchFromMessageConfirm() {
+    if (!branchFromMessageConfirmResolver) {
+      branchFromMessageConfirmDialogOpen.value = false;
+      return;
+    }
+    const resolver = branchFromMessageConfirmResolver;
+    branchFromMessageConfirmResolver = null;
+    branchFromMessageConfirmDialogOpen.value = false;
+    resolver("cancel");
+  }
+
   async function refreshRuntimeLogs() {
     runtimeLogsLoading.value = true;
     runtimeLogsError.value = "";
@@ -389,6 +432,7 @@ export function useShellDialogFlows(options: UseShellDialogFlowsOptions) {
     rewindConfirmDialogOpen,
     rewindConfirmCanUndoPatch,
     rewindConfirmUndoHint,
+    branchFromMessageConfirmDialogOpen,
     openTrimActionDialog,
     closeTrimActionDialog,
     confirmTrimCompactionAction,
@@ -397,10 +441,13 @@ export function useShellDialogFlows(options: UseShellDialogFlowsOptions) {
     openSkillPlaceholderDialog,
     closeSkillPlaceholderDialog,
     requestRecallMode,
+    requestCreateConversationBranchFromMessageConfirm,
     confirmRewindWithPatch,
     confirmRewindMessageOnly,
     cancelRewindConfirm,
     cancelPendingRewindConfirm,
+    confirmBranchFromMessage,
+    cancelBranchFromMessageConfirm,
     refreshRuntimeLogs,
     openRuntimeLogsDialog,
     closeRuntimeLogsDialog,

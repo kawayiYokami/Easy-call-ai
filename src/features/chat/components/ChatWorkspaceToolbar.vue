@@ -41,7 +41,7 @@
           </li>
           <li v-if="!busy">
             <button v-if="showBranchMenuItem" type="button" class="flex min-h-10 items-center justify-start gap-3 px-4 py-2 text-left" :disabled="busy" @click="emit('openBranchSelection')">
-              <GitBranchPlus class="h-4 w-4 shrink-0" />
+              <Split class="h-4 w-4 shrink-0" />
               <span class="leading-5">{{ t("chat.conversationMenu.branchConversation") }}</span>
             </button>
           </li>
@@ -215,7 +215,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref } from "vue";
 import { useI18n } from "vue-i18n";
-import { ClipboardCheck, ClipboardList, ExternalLink, Folder, GitBranchPlus, Grip, ListTodo, Package, Send, Users } from "@lucide/vue";
+import { ClipboardCheck, ClipboardList, ExternalLink, Folder, Grip, ListTodo, Package, Send, Split, Users } from "@lucide/vue";
 import type { ChatMentionEntry, ConversationDelegateStatusSummary } from "../../../types/app";
 import SessionControlPanel from "./SessionControlPanel.vue";
 

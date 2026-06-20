@@ -379,15 +379,6 @@
             <option value="read_only">{{ workspaceAccessLabel("read_only") }}</option>
           </select>
         </div>
-        <label class="flex h-9 cursor-pointer items-center justify-start gap-3">
-          <input v-model="createConversationCopyCurrent" type="checkbox" class="checkbox checkbox-sm" />
-          <span class="label-text flex min-w-0 items-center text-sm">
-            <span class="shrink-0">{{ t("chat.copyCurrentConversation") }}</span>
-            <span v-if="activeConversationCopySummary" class="ml-2 min-w-0 truncate text-xs text-base-content/55">
-              {{ activeConversationCopySummary }}
-            </span>
-          </span>
-        </label>
       </div>
       <div class="modal-action mt-4 items-center justify-between gap-3">
         <label class="label min-w-0 cursor-pointer justify-start gap-3 p-0">
@@ -638,19 +629,6 @@ const currentConversationTitle = computed(() => {
   });
 });
 
-const activeConversationCopySummary = computed(() => {
-  const activeId = String(props.activeConversationId || "").trim();
-  if (!activeId) return "";
-  const item = props.conversationItems.find((i) => i.conversationId === activeId);
-  if (!item) return "";
-  const title = resolveConversationDisplayTitle(item, {
-    locale: locale.value,
-    untitledLabel: t("chat.untitledConversation"),
-  });
-  const count = Math.max(0, Number(item.messageCount || 0));
-  return count > 0 ? `${title} · ${count} 条消息` : title;
-});
-
 const currentConversationDepartmentName = computed(() => {
   const departmentId = String(props.currentDepartmentId || "").trim();
   if (departmentId) {
@@ -694,7 +672,6 @@ const createConversationDialogOpen = ref(false);
 const createConversationTitle = ref("");
 const createConversationDepartmentId = ref("");
 const createConversationAgentId = ref("");
-const createConversationCopyCurrent = ref(false);
 const createConversationTopicSuggestionsOpen = ref(false);
 const suppressNextCreateConversationTopicFocus = ref(false);
 const createConversationWorkspacePath = ref("");
@@ -959,7 +936,6 @@ function handleCreateConversation() {
   );
   createConversationDepartmentId.value = option?.departmentId || "";
   createConversationAgentId.value = option?.agentId || "";
-  createConversationCopyCurrent.value = false;
   createConversationTopicSuggestionsOpen.value = false;
   suppressNextCreateConversationTopicFocus.value = true;
   resetCreateConversationWorkspace();
@@ -1026,7 +1002,6 @@ function closeCreateConversationDialog() {
   createConversationTitle.value = "";
   createConversationDepartmentId.value = "";
   createConversationAgentId.value = "";
-  createConversationCopyCurrent.value = false;
   createConversationTopicSuggestionsOpen.value = false;
   resetCreateConversationWorkspace();
   importConversationLoading.value = false;
@@ -1066,7 +1041,6 @@ function confirmCreateConversation() {
   const title = String(createConversationTitle.value || "").trim();
   const departmentId = String(createConversationDepartmentId.value || "").trim();
   const agentId = String(createConversationAgentId.value || "").trim();
-  const copyCurrent = !!createConversationCopyCurrent.value;
   if (title) {
     pushRecentConversationTopic(title);
   }
@@ -1074,7 +1048,6 @@ function confirmCreateConversation() {
   createConversationTitle.value = "";
   createConversationDepartmentId.value = "";
   createConversationAgentId.value = "";
-  createConversationCopyCurrent.value = false;
   createConversationTopicSuggestionsOpen.value = false;
   const shellWorkspaces = createConversationWorkspacePayload();
   const shellAutonomousMode = createConversationMaxPermission.value;
@@ -1083,7 +1056,6 @@ function confirmCreateConversation() {
     title,
     departmentId: departmentId || undefined,
     agentId: agentId || undefined,
-    copyCurrent,
     shellWorkspaces,
     shellAutonomousMode,
   });
@@ -1111,7 +1083,6 @@ async function importConversationFromExternal() {
     createConversationTitle.value = "";
     createConversationDepartmentId.value = "";
     createConversationAgentId.value = "";
-    createConversationCopyCurrent.value = false;
     createConversationTopicSuggestionsOpen.value = false;
     const shellWorkspaces = createConversationWorkspacePayload();
     const shellAutonomousMode = createConversationMaxPermission.value;
@@ -1120,7 +1091,6 @@ async function importConversationFromExternal() {
       title,
       departmentId: departmentId || undefined,
       agentId: agentId || undefined,
-      copyCurrent: false,
       importPath: path,
       shellWorkspaces,
       shellAutonomousMode,

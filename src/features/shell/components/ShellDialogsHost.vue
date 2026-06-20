@@ -43,6 +43,7 @@ const props = defineProps<{
   runtimeLogsError: string;
   rewindConfirmDialogOpen: boolean;
   rewindConfirmCanUndoPatch: boolean;
+  branchFromMessageConfirmDialogOpen: boolean;
   configSaveErrorDialogOpen: boolean;
   configSaveErrorDialogTitle: string;
   configSaveErrorDialogBody: string;
@@ -68,6 +69,8 @@ const emit = defineEmits<{
   confirmRewindWithPatch: [];
   confirmRewindMessageOnly: [];
   cancelRewindConfirm: [];
+  confirmBranchFromMessage: [];
+  cancelBranchFromMessageConfirm: [];
   closeSettingsSaveErrorDialog: [];
   closeArchiveImportPreviewDialog: [];
   confirmArchiveImport: [];
@@ -174,6 +177,20 @@ function handleConfirmTrimCompactionAction() {
     </div>
     <form method="dialog" class="modal-backdrop">
       <button @click.prevent="emit('cancelRewindConfirm')">close</button>
+    </form>
+  </dialog>
+
+  <dialog class="modal" :class="{ 'modal-open': branchFromMessageConfirmDialogOpen }">
+    <div class="modal-box max-w-md">
+      <h3 class="font-semibold text-base">{{ t("dialogs.branchFromMessage.title") }}</h3>
+      <div class="mt-2 text-sm opacity-80">{{ t("dialogs.branchFromMessage.hint") }}</div>
+      <div class="modal-action">
+        <button class="btn btn-sm" @click="emit('cancelBranchFromMessageConfirm')">{{ t("common.cancel") }}</button>
+        <button class="btn btn-sm btn-primary" @click="emit('confirmBranchFromMessage')">{{ t("dialogs.branchFromMessage.confirm") }}</button>
+      </div>
+    </div>
+    <form method="dialog" class="modal-backdrop">
+      <button @click.prevent="emit('cancelBranchFromMessageConfirm')">close</button>
     </form>
   </dialog>
 

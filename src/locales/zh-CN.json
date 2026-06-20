@@ -1207,6 +1207,7 @@
       "multiSelect": "多选",
       "showBubble": "显示气泡背景",
       "hideBubble": "隐藏气泡背景",
+      "branchFromMessage": "从此消息开始创建会话分支",
       "dispatchElapsed": "本次调度用时 {elapsed}",
       "elapsed": "用时 {elapsed}",
       "readPlanFailed": "读取计划文件失败",
@@ -1350,7 +1351,7 @@
       "autoPush": "自动推送",
       "title": "会话菜单",
       "startDelegate": "发起委托",
-      "branchConversation": "会话分支",
+      "branchConversation": "选择消息创建会话分支",
       "forwardConversation": "会话转发",
       "shareConversation": "分享会话",
       "setWorkspace": "设置会话工作目录",
@@ -1522,7 +1523,7 @@
     },
     "selection": {
       "selectedCount": "已选择 {count} 条消息",
-      "branch": "创造会话分支",
+      "branch": "选择消息创建会话分支",
       "forward": "转发到会话",
       "delegate": "发起委托",
       "share": "分享",
@@ -2028,6 +2029,11 @@
     }
   },
   "dialogs": {
+    "branchFromMessage": {
+      "title": "从此消息开始创建会话分支",
+      "hint": "这会复制当前会话，并保留此消息之前的所有消息、工作目录和权限设置，然后在新会话中从这条消息开始继续。",
+      "confirm": "创建会话分支"
+    },
     "update": {
       "forceDownload": "强制下载更新",
       "restart": "更新并重启",

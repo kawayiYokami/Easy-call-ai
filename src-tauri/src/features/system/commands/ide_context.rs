@@ -5426,6 +5426,15 @@ async fn ide_chat_branch_conversation(state: &AppState, params: Value) -> Result
         .map_err(|err| format!("Serialize branch conversation result failed: {err}"))
 }
 
+async fn ide_chat_branch_conversation_from_message(
+    state: &AppState,
+    params: Value,
+) -> Result<Value, String> {
+    let input = ide_chat_parse_params::<CreateConversationBranchFromMessageInput>(params)?;
+    serde_json::to_value(create_conversation_branch_from_message_internal(input, state).await?)
+        .map_err(|err| format!("Serialize branch conversation from message result failed: {err}"))
+}
+
 async fn ide_chat_submit_delegate(state: &AppState, params: Value) -> Result<Value, String> {
     let input = ide_chat_parse_params::<SubmitUserAsyncDelegateInput>(params)?;
     serde_json::to_value(submit_user_async_delegate_internal(input, state).await?)
@@ -5553,6 +5562,7 @@ async fn ide_chat_handle_jsonrpc_request(
         "conversation.delete" => ide_chat_delete_conversation(state, request.params),
         "conversation.rewindPreview" => ide_chat_rewind_preview(state, request.params).await,
         "conversation.rewind" => ide_chat_rewind_conversation(state, request.params).await,
+        "conversation.branchFromMessage" => ide_chat_branch_conversation_from_message(state, request.params).await,
         "conversation.branchFromSelection" => ide_chat_branch_conversation(state, request.params).await,
         "delegate.statuses" => ide_chat_delegate_statuses(state, request.params),
         "delegate.abort" => ide_chat_delegate_abort(state, request.params),

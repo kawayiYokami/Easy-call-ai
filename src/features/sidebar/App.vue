@@ -93,6 +93,7 @@
       @update-conversation-list-tab="updateConversationListTab"
       @update-chat-left-panel-mode="updateChatLeftPanelMode"
       @update-chat-right-panel-mode="updateChatRightPanelMode"
+      @create-conversation-branch-from-turn="createConversationBranchFromTurn"
       @recall-turn="recallTurn"
       @confirm-plan="confirmPlan"
       @lock-workspace="openWorkspacePicker"
@@ -202,6 +203,19 @@
       </div>
       <form method="dialog" class="modal-backdrop">
         <button @click.prevent="cancelRewindConfirm">close</button>
+      </form>
+    </dialog>
+    <dialog class="modal" :class="{ 'modal-open': branchFromMessageConfirmDialogOpen }">
+      <div class="modal-box max-w-md">
+        <h3 class="font-semibold text-base">{{ t("dialogs.branchFromMessage.title") }}</h3>
+        <div class="mt-2 text-sm opacity-80">{{ t("dialogs.branchFromMessage.hint") }}</div>
+        <div class="modal-action">
+          <button class="btn btn-sm" @click="cancelBranchFromMessageConfirm">{{ t("common.cancel") }}</button>
+          <button class="btn btn-sm btn-primary" @click="confirmBranchFromMessage">{{ t("dialogs.branchFromMessage.confirm") }}</button>
+        </div>
+      </div>
+      <form method="dialog" class="modal-backdrop">
+        <button @click.prevent="cancelBranchFromMessageConfirm">close</button>
       </form>
     </dialog>
     <div
@@ -602,6 +616,7 @@ const compactionPreview = ref<CompactionPreviewResult | null>(null);
 const compactionErrorText = ref("");
 const createConversationDialogOpen = ref(false);
 const creatingConversation = ref(false);
+const branchingConversation = ref(false);
 const createConversationDepartmentOptions = ref<SidebarCreateDepartmentOption[]>([]);
 const defaultCreateConversationDepartmentId = ref("");
 const createConversationErrorText = ref("");
@@ -634,6 +649,8 @@ const view = ref<"list" | "chat">("chat");
 const rewindConfirmDialogOpen = ref(false);
 const rewindConfirmCanUndoPatch = ref(false);
 let rewindConfirmResolver: ((mode: "message_only" | "with_patch" | "cancel") => void) | null = null;
+const branchFromMessageConfirmDialogOpen = ref(false);
+let branchFromMessageConfirmResolver: ((confirmed: boolean) => void) | null = null;
 let rewindInFlight = false;
 const currentWorkspaceName = ref("");
 const attachmentInputRef = ref<HTMLInputElement | null>(null);
@@ -2078,6 +2095,62 @@ async function recallTurn(payload: { turnId: string }) {
   } finally {
     rewindInFlight = false;
   }
+}
+
+async function createConversationBranchFromTurn(payload: { turnId: string }) {
+  if (!activeConversationId.value) return;
+  if (branchingConversation.value || busy.value || compacting.value) {
+    transport.errorText.value = t('sidebar.createBranchFailed');
+    return;
+  }
+  const target = resolveRewindTargetUserMessage(payload.turnId);
+  if (!target?.targetUserMessageId) {
+    transport.errorText.value = t('sidebar.rewindNotFound');
+    return;
+  }
+  const confirmed = await requestCreateConversationBranchFromMessageConfirm();
+  if (!confirmed) return;
+  branchingConversation.value = true;
+  try {
+    const result = await transport.request<{ conversationId: string }>("conversation.branchFromMessage", {
+      sourceConversationId: activeConversationId.value,
+      turnMessageId: target.targetUserMessageId,
+    });
+    const conversationId = String(result?.conversationId || "").trim();
+    if (!conversationId) return;
+    await refreshList();
+    await openConversation(conversationId);
+  } catch (error) {
+    transport.errorText.value = String(error || t('sidebar.createBranchFailed'));
+  } finally {
+    branchingConversation.value = false;
+  }
+}
+
+function requestCreateConversationBranchFromMessageConfirm(): Promise<boolean> {
+  cancelPendingBranchFromMessageConfirm();
+  branchFromMessageConfirmDialogOpen.value = true;
+  return new Promise((resolve) => {
+    branchFromMessageConfirmResolver = resolve;
+  });
+}
+
+function confirmBranchFromMessage() {
+  const resolver = branchFromMessageConfirmResolver;
+  branchFromMessageConfirmResolver = null;
+  branchFromMessageConfirmDialogOpen.value = false;
+  if (resolver) resolver(true);
+}
+
+function cancelBranchFromMessageConfirm() {
+  cancelPendingBranchFromMessageConfirm();
+}
+
+function cancelPendingBranchFromMessageConfirm() {
+  const resolver = branchFromMessageConfirmResolver;
+  branchFromMessageConfirmResolver = null;
+  branchFromMessageConfirmDialogOpen.value = false;
+  if (resolver) resolver(false);
 }
 
 async function confirmPlan(payload: { messageId: string }) {

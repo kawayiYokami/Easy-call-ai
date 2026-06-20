@@ -625,6 +625,7 @@ export function useChatWindowApp() {
     conversationOrchestrator,
     handleConfirmPlan,
     deleteUnarchivedConversation,
+    handleCreateConversationBranchFromTurn,
     handleRecallTurn,
     handleRegenerateTurn,
   } = runtimeOrchestrator;
@@ -825,6 +826,7 @@ export function useChatWindowApp() {
     conversationScrollToBottomRequest,
     handleConfirmPlan,
     deleteUnarchivedConversation,
+    handleCreateConversationBranchFromTurn,
     handleRecallTurn,
     handleRegenerateTurn,
     setMemoryDialogRef,

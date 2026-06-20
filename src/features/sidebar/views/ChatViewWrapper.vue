@@ -106,6 +106,7 @@
     @update-workspace-access="$emit('updateWorkspaceAccess', $event)"
     @update:plan-mode-enabled="noop"
     @trim-conversation="noop"
+    @create-conversation-branch-from-turn="$emit('createConversationBranchFromTurn', $event)"
     @recall-turn="$emit('recallTurn', $event)"
     @regenerate-turn="noop"
     @confirm-plan="$emit('confirmPlan', $event)"
@@ -226,6 +227,7 @@ defineEmits<{
   loadPrevBlock: [];
   "update:conversationPreferredApiConfigId": [value: string];
   updateWorkspaceAccess: [value: "read_only" | "approval" | "full_access"];
+  createConversationBranchFromTurn: [payload: { turnId: string }];
   recallTurn: [payload: { turnId: string }];
   confirmPlan: [payload: { messageId: string }];
   lockWorkspace: [];

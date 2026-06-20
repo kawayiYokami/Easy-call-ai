@@ -655,6 +655,13 @@ struct BranchUnarchivedConversationFromSelectionInput {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+struct CreateConversationBranchFromMessageInput {
+    source_conversation_id: String,
+    turn_message_id: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 struct BranchUnarchivedConversationFromSelectionOutput {
     conversation_id: String,
     title: String,
@@ -857,6 +864,39 @@ fn build_branch_conversation_title(
         base_title
     };
     format!("{prefix}[会话分支自第{first_selected_ordinal}条对话]")
+}
+
+fn resolve_rewind_target_user_message_index(
+    messages: &[ChatMessage],
+    turn_message_id: &str,
+) -> Option<usize> {
+    let normalized_turn_message_id = turn_message_id.trim();
+    if normalized_turn_message_id.is_empty() {
+        return None;
+    }
+    let direct_index = messages
+        .iter()
+        .position(|message| message.id.trim() == normalized_turn_message_id)?;
+    if messages[direct_index].role.trim().eq_ignore_ascii_case("user") {
+        return Some(direct_index);
+    }
+    (0..direct_index)
+        .rev()
+        .find(|index| messages[*index].role.trim().eq_ignore_ascii_case("user"))
+}
+
+fn visible_message_ordinal_for_index(messages: &[ChatMessage], target_index: usize) -> usize {
+    let mut visible_ordinal = 0usize;
+    for (index, message) in messages.iter().enumerate() {
+        if archive_pipeline_is_context_compaction_message(message) {
+            continue;
+        }
+        visible_ordinal += 1;
+        if index == target_index {
+            return visible_ordinal;
+        }
+    }
+    0
 }
 
 fn collect_selected_messages_for_branch(
@@ -1188,6 +1228,113 @@ async fn branch_unarchived_conversation_from_selection(
     state: State<'_, AppState>,
 ) -> Result<BranchUnarchivedConversationFromSelectionOutput, String> {
     branch_unarchived_conversation_from_selection_internal(input, state.inner()).await
+}
+
+#[tauri::command]
+async fn create_conversation_branch_from_message(
+    input: CreateConversationBranchFromMessageInput,
+    state: State<'_, AppState>,
+) -> Result<BranchUnarchivedConversationFromSelectionOutput, String> {
+    create_conversation_branch_from_message_internal(input, state.inner()).await
+}
+
+async fn create_conversation_branch_from_message_internal(
+    input: CreateConversationBranchFromMessageInput,
+    state: &AppState,
+) -> Result<BranchUnarchivedConversationFromSelectionOutput, String> {
+    let started_at = std::time::Instant::now();
+    let source_conversation_id = input.source_conversation_id.trim();
+    let turn_message_id = input.turn_message_id.trim();
+    if source_conversation_id.is_empty() {
+        return Err("sourceConversationId 不能为空".to_string());
+    }
+    if turn_message_id.is_empty() {
+        return Err("turnMessageId 不能为空".to_string());
+    }
+
+    let source_conversation = conversation_service_v2()
+        .try_get_conversation_snapshot(state, source_conversation_id)?
+        .filter(|conversation| {
+            conversation.summary.trim().is_empty()
+                && conversation_visible_in_foreground_lists(conversation)
+                && conversation_is_local_normal_chat(conversation)
+        })
+        .ok_or_else(|| "源会话不存在或已归档，无法创建会话分支".to_string())?;
+    let target_user_index = resolve_rewind_target_user_message_index(
+        &source_conversation.messages,
+        turn_message_id,
+    )
+    .ok_or_else(|| "未找到可用于创建会话分支的起始消息".to_string())?;
+    let first_selected_ordinal =
+        visible_message_ordinal_for_index(&source_conversation.messages, target_user_index);
+    if first_selected_ordinal == 0 {
+        return Err("无法确定会话分支的消息位置".to_string());
+    }
+    let branch_title = build_branch_conversation_title(
+        &source_conversation.title,
+        first_selected_ordinal,
+        source_conversation.id.trim() == SYSTEM_NOTIFICATION_CONVERSATION_ID,
+    );
+    let create_input = CreateUnarchivedConversationInput {
+        api_config_id: source_conversation.preferred_api_config_id.clone(),
+        agent_id: Some(source_conversation.agent_id.clone()),
+        department_id: Some(source_conversation.department_id.clone()),
+        title: Some(branch_title.clone()),
+        copy_source_conversation_id: Some(source_conversation.id.clone()),
+        shell_workspaces: None,
+        shell_autonomous_mode: None,
+    };
+    let create_result = conversation_service_v2().create_conversation(state, &create_input)?;
+    let conversation_id = create_result.conversation_id.clone();
+    let branched_conversation = conversation_service_v2()
+        .get_conversation_snapshot(state, &conversation_id)
+        .map_err(|_| "新建会话分支后读取失败".to_string())?;
+    let target_user_message_id = branched_conversation
+        .messages
+        .get(target_user_index)
+        .map(|message| message.id.clone())
+        .ok_or_else(|| "新会话分支缺少目标消息，无法定位分支起点".to_string())?;
+    let rewind_input = RewindConversationInput {
+        session: SessionSelector {
+            api_config_id: None,
+            department_id: None,
+            agent_id: String::new(),
+            conversation_id: Some(conversation_id.clone()),
+        },
+        message_id: target_user_message_id.clone(),
+        undo_apply_patch: false,
+    };
+    let rewind_started_at = std::time::Instant::now();
+    let rewind_result = conversation_service_v2().rewind_conversation(
+        state,
+        &rewind_input,
+        &target_user_message_id,
+        &rewind_started_at,
+    )?;
+    if rewind_result.removed_count > 0 {
+        emit_conversation_todos_updated_payload(
+            state,
+            &ConversationTodosUpdatedPayload {
+                conversation_id: conversation_id.clone(),
+                current_todo: rewind_result.current_todo,
+                current_todos: rewind_result.current_todos,
+            },
+        );
+    }
+    emit_unarchived_conversation_overview_updated_payload(state, &create_result.overview_payload);
+    runtime_log_info(format!(
+        "[会话分支] 完成，任务=从此消息开始创建会话分支，source_conversation_id={}，conversation_id={}，turn_message_id={}，target_user_index={}，duration_ms={}",
+        source_conversation_id,
+        conversation_id,
+        turn_message_id,
+        target_user_index,
+        started_at.elapsed().as_millis()
+    ));
+    Ok(BranchUnarchivedConversationFromSelectionOutput {
+        conversation_id,
+        title: branch_title,
+        warning: None,
+    })
 }
 
 async fn branch_unarchived_conversation_from_selection_internal(

@@ -234,6 +234,9 @@ export function useChatRuntimeSetup(bindings: Record<string, any>) {
       messageText: bindings.messageText,
       extractMessageImages: bindings.extractMessageImages,
       requestRecallMode: bindings.requestRecallMode,
+      requestCreateConversationBranchFromMessageConfirm: bindings.requestCreateConversationBranchFromMessageConfirm,
+      createConversationBranchFromMessage: bindings.createConversationBranchFromMessage,
+      branchingConversation: bindings.branchingConversation,
       refreshForegroundConversationAfterRewind: async (conversationId: string) => {
         const normalizedConversationId = String(conversationId || "").trim();
         if (!normalizedConversationId) return;
@@ -255,6 +258,7 @@ export function useChatRuntimeSetup(bindings: Record<string, any>) {
     chatFlow,
     handleConfirmPlan: confirmPlan.handleConfirmPlan,
     deleteUnarchivedConversation: rewindActions.deleteUnarchivedConversation,
+    handleCreateConversationBranchFromTurn: rewindActions.handleCreateConversationBranchFromTurn,
     handleRecallTurn: rewindActions.handleRecallTurn,
     handleRegenerateTurn: rewindActions.handleRegenerateTurn,
   };

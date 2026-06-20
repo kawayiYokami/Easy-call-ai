@@ -122,6 +122,52 @@ export function useChatConversationActionsOrchestrator(bindings: Record<string, 
     }
   }
 
+  async function createConversationBranchFromMessage(payload: { turnId: string; targetUserMessageId: string }) {
+    const sourceConversationId = String(bindings.currentChatConversationId.value || "").trim();
+    const turnMessageId = String(payload?.targetUserMessageId || payload?.turnId || "").trim();
+    if (
+      !sourceConversationId
+      || !turnMessageId
+      || bindings.branchingConversation.value
+      || bindings.forwardingConversationSelection.value
+    ) return;
+    bindings.branchingConversation.value = true;
+    try {
+      const result = await invokeTauri<{
+        conversationId: string;
+        title: string;
+        warning?: string | null;
+      }>("create_conversation_branch_from_message", {
+        input: {
+          sourceConversationId,
+          turnMessageId,
+        },
+      });
+      const conversationId = String(result?.conversationId || "").trim();
+      if (!conversationId) return;
+      await bindings.refreshUnarchivedConversationOverview();
+      if (bindings.detachedChatWindow.value) {
+        try {
+          await invokeTauri<{ conversationId: string; windowLabel: string }>("detach_current_conversation_to_window", {
+            input: { conversationId },
+          });
+          bindings.setStatus(bindings.tr("status.conversationBranchOpened", { title: String(result?.title || "").trim() || conversationId }));
+        } catch (detachError) {
+          console.error("[独立聊天窗口] 从消息创建会话分支成功，但打开新独立窗口失败", detachError);
+          bindings.setStatus(bindings.tr("status.conversationBranchDetachFailed", { err: bindings.formatRequestFailed(detachError) }));
+        }
+        return;
+      }
+      const snapshot = await bindings.requestConversationLightSnapshot(conversationId);
+      bindings.applyConversationSnapshot(snapshot);
+      bindings.setStatus(bindings.tr("status.conversationBranchCreated", { title: String(result?.title || "").trim() || conversationId }));
+    } catch (error) {
+      bindings.setStatusError("status.loadMessagesFailed", error);
+    } finally {
+      bindings.branchingConversation.value = false;
+    }
+  }
+
   async function forwardConversationFromSelection(payload: {
     count: number;
     messageIds: string[];
@@ -298,6 +344,7 @@ export function useChatConversationActionsOrchestrator(bindings: Record<string, 
   return {
     createUnarchivedConversation,
     branchConversationFromSelection,
+    createConversationBranchFromMessage,
     forwardConversationFromSelection,
     userAsyncDelegateFromSelection,
     renameCurrentConversation,

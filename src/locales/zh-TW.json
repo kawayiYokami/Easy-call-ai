@@ -1199,6 +1199,7 @@
       "multiSelect": "多選",
       "showBubble": "顯示氣泡背景",
       "hideBubble": "隱藏氣泡背景",
+      "branchFromMessage": "從此訊息開始建立會話分支",
       "dispatchElapsed": "本次調度用時 {elapsed}",
       "elapsed": "用時 {elapsed}",
       "readPlanFailed": "讀取計劃檔案失敗",
@@ -1340,7 +1341,7 @@
     "conversationMenu": {
       "title": "會話選單",
       "startDelegate": "發起委託",
-      "branchConversation": "會話分支",
+      "branchConversation": "選擇訊息建立會話分支",
       "autoPush": "自動推送",
       "forwardConversation": "會話轉發",
       "shareConversation": "分享會話",
@@ -1526,7 +1527,7 @@
     },
     "selection": {
       "selectedCount": "已選擇 {count} 條訊息",
-      "branch": "建立會話分支",
+      "branch": "選擇訊息建立會話分支",
       "forward": "轉發到會話",
       "delegate": "發起委託",
       "share": "分享",
@@ -2020,6 +2021,11 @@
     }
   },
   "dialogs": {
+    "branchFromMessage": {
+      "title": "從此訊息開始建立會話分支",
+      "hint": "這會複製目前會話，保留此訊息之前的所有訊息、工作目錄和權限設定，並在新會話中從這條訊息開始繼續。",
+      "confirm": "建立會話分支"
+    },
     "update": {
       "forceDownload": "強制下載更新",
       "restart": "更新並重新啟動",

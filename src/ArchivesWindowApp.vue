@@ -97,6 +97,7 @@
       runtime-logs-error=""
       :rewind-confirm-dialog-open="false"
       :rewind-confirm-can-undo-patch="false"
+      :branch-from-message-confirm-dialog-open="false"
       :config-save-error-dialog-open="false"
       config-save-error-dialog-title=""
       config-save-error-dialog-body=""

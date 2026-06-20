@@ -1229,7 +1229,7 @@
     "conversationMenu": {
       "title": "Conversation Menu",
       "startDelegate": "Start Delegate",
-      "branchConversation": "Conversation Branch",
+      "branchConversation": "Select Messages to Create a Conversation Branch",
       "autoPush": "Auto Push",
       "forwardConversation": "Forward Conversation",
       "shareConversation": "Share Conversation",
@@ -1276,6 +1276,7 @@
       "multiSelect": "Multi-select",
       "showBubble": "Show bubble background",
       "hideBubble": "Hide bubble background",
+      "branchFromMessage": "Create a Conversation Branch from This Message",
       "dispatchElapsed": "Dispatch elapsed {elapsed}",
       "elapsed": "Elapsed {elapsed}",
       "readPlanFailed": "Failed to read plan file",
@@ -1533,7 +1534,7 @@
     },
     "selection": {
       "selectedCount": "{count} message(s) selected",
-      "branch": "Create Conversation Branch",
+      "branch": "Select Messages to Create a Conversation Branch",
       "forward": "Forward to Conversation",
       "delegate": "Delegate",
       "share": "Share",
@@ -2021,6 +2022,11 @@
     }
   },
   "dialogs": {
+    "branchFromMessage": {
+      "title": "Create a Conversation Branch from This Message",
+      "hint": "This will duplicate the current conversation, keep all messages before this point, and preserve the working directory and permissions in the new branch.",
+      "confirm": "Create Branch"
+    },
     "update": {
       "forceDownload": "Force Download Update",
       "restart": "Update and Restart",

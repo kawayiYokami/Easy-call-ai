@@ -211,6 +211,7 @@
         @load-older-history="onLoadOlderChatHistory"
         @reached-bottom="onReachedChatBottom"
         @jump-to-conversation-bottom="onJumpToConversationBottom"
+        @create-conversation-branch-from-turn="onCreateConversationBranchFromTurn"
         @recall-turn="onRecallTurn"
         @regenerate-turn="onRegenerateTurn"
         @confirm-plan="confirmPlan"
@@ -679,6 +680,7 @@ const props = defineProps<{
   onLoadOlderChatHistory: () => void;
   onReachedChatBottom: () => void;
   onJumpToConversationBottom: () => void;
+  onCreateConversationBranchFromTurn: (payload: { turnId: string }) => void;
   onRecallTurn: (payload: { turnId: string }) => void;
   onRegenerateTurn: (payload: { turnId: string }) => void;
   confirmPlan: (payload: { messageId: string }) => void;

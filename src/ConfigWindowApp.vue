@@ -215,6 +215,7 @@
       runtime-logs-error=""
       :rewind-confirm-dialog-open="false"
       :rewind-confirm-can-undo-patch="false"
+      :branch-from-message-confirm-dialog-open="false"
       :config-save-error-dialog-open="configSaveErrorDialogOpen"
       :config-save-error-dialog-title="configSaveErrorDialogTitle"
       :config-save-error-dialog-body="configSaveErrorDialogBody"
