@@ -1,7 +1,12 @@
 {
-  "generatedAt": "2026-06-20T12:32:52.642Z",
-  "latestVersion": "v0.13.1",
+  "generatedAt": "2026-06-20T15:48:13.028Z",
+  "latestVersion": "v0.13.2",
   "releases": [
+    {
+      "version": "v0.13.2",
+      "path": "docs/changelog/releases/v0.13.2.md",
+      "summary": "**聊天滚动**：恢复用户发送消息后的上推动画补偿，将虚拟列表尺寸变化时的滚动位置调整改为仅在顶部加载历史期间临时关闭，避免历史锚点修复误伤正常发送链路"
+    },
     {
       "version": "v0.13.1",
       "path": "docs/changelog/releases/v0.13.1.md",
