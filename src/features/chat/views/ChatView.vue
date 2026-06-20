@@ -164,7 +164,10 @@
               </div>
             </div>
 
-            <div :style="{ minHeight: `${latestOwnTailSpacerMinHeight}px` }"></div>
+            <div
+              class="pointer-events-none overflow-hidden transition-[height] duration-300 ease-out"
+              :style="{ height: `${latestOwnTailSpacerMinHeight}px` }"
+            ></div>
             <div
               v-if="!activeConversationIsSystemNotification && !activeConversationIsRemoteContact"
               ref="toolbarContainer"
