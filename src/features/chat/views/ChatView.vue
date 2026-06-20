@@ -46,7 +46,7 @@
             :class="chatting || frozen || conversationInteractionBusy ? 'pointer-events-auto' : ''"
             :data-chat-interaction-locked="chatting || frozen || conversationInteractionBusy ? 'true' : undefined"
             @scroll="onConversationScroll"
-            @wheel="handleShiftWheel"
+            @wheel="handleConversationWheel"
           >
           <div
             v-if="loadingOlderHistory"
@@ -164,7 +164,7 @@
             <div
               v-if="!activeConversationIsSystemNotification && !activeConversationIsRemoteContact"
               ref="toolbarContainer"
-              class="ecall-chat-toolbar-shell mx-auto w-full max-w-[900px] px-4 pt-1 pb-2"
+              class="ecall-chat-toolbar-shell mx-auto w-full max-w-225 px-4 pt-1 pb-2"
             >
                 <ChatWorkspaceToolbar
                   :chatting="chatting" :frozen="frozen" :conversation-busy="conversationInteractionBusy"
@@ -958,6 +958,7 @@ const {
   virtualizer, virtualEntries, totalVirtualSize, measureVirtualRow,
   latestOwnTailContentHeight, scheduleVirtualMeasure, syncViewportMetrics,
   resetVirtualizerAtConversationBottom, alignItemToTop, refreshObservedVirtualItemElements,
+  captureViewportAnchor, restoreViewportAnchor,
 } = useChatVirtualScroll({
   renderItems: virtualRenderItems,
   scrollContainer, scrollbarRef: chatScrollbarRef as Ref<{ updateThumb: () => void } | null>,
@@ -1040,7 +1041,7 @@ function closeOverlayPanes() {
 // ==================== scroll orchestration ====================
 
 const {
-  onConversationScroll, handleJumpToBottom,
+  onConversationScroll, onConversationWheel, handleJumpToBottom,
   alignLatestOwnMessageToTop,
 } = useChatScrollOrchestration({
   scrollContainer, chatScrollbarRef: chatScrollbarRef as Ref<{ updateThumb: () => void; hide?: () => void } | null>,
@@ -1049,6 +1050,8 @@ const {
   resetConversationToBottom: resetVirtualizerAtConversationBottom,
   alignItemToTop,
   refreshObservedVirtualItemElements,
+  captureViewportAnchor,
+  restoreViewportAnchor,
   latestOwnElasticItemId,
   props: {
     hasMoreHistory: toRef(props, "hasMoreHistory"), loadingOlderHistory: toRef(props, "loadingOlderHistory"),
@@ -1209,6 +1212,12 @@ function handleShiftWheel(event: WheelEvent) {
     }
     step += direction;
   }
+}
+
+function handleConversationWheel(event: WheelEvent) {
+  onConversationWheel(event);
+  if (event.defaultPrevented) return;
+  handleShiftWheel(event);
 }
 
 // ==================== link / copy ====================

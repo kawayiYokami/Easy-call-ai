@@ -20,7 +20,7 @@
   "dependencies": {
     "@dagrejs/dagre": "^3.0.0",
     "@lucide/vue": "1.16.0",
-    "@tanstack/vue-virtual": "^3.13.28",
+    "@tanstack/vue-virtual": "^3.13.29",
     "@tauri-apps/api": "^2.11.0",
     "@tauri-apps/plugin-dialog": "^2.7.1",
     "@terrastruct/d2": "^0.1.33",

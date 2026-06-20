@@ -122,16 +122,10 @@ export function useChatVirtualScroll(options: UseChatVirtualScrollOptions) {
       estimateSize: estimateRenderItemSize,
       initialOffset: () => initialBottomOffset.value,
       anchorTo: "end",
-      measureElement: (element: Element, _entry: unknown, instance: any) => {
-        const measuredHeight = (element as HTMLElement).scrollHeight;
-        if (instance?.scrollDirection !== "backward") return measuredHeight;
-        const indexAttr = Number((element as HTMLElement).getAttribute("data-index"));
-        // NOTE: depends on @tanstack/vue-virtual internal property `itemSizeCache` (not part of public API).
-        // TODO: validate `itemSizeCache` availability after any @tanstack/virtual upgrade.
-        const cachedHeight = Number.isFinite(indexAttr) ? instance?.itemSizeCache?.get(indexAttr) : undefined;
-        return typeof cachedHeight === "number" ? cachedHeight : measuredHeight;
-      },
-      overscan: 4,
+      followOnAppend: true,
+      scrollEndThreshold: 100,
+      measureElement: (element: Element) => (element as HTMLElement).getBoundingClientRect().height,
+      overscan: 600,
     })),
   );
 
@@ -172,6 +166,68 @@ export function useChatVirtualScroll(options: UseChatVirtualScrollOptions) {
   });
 
   // ==================== helpers ====================
+
+  function stableBlockIdFromRenderItem(item: ChatRenderItem): string {
+    if (item.kind === "message" || item.kind === "compaction" || item.kind === "plan_started") {
+      return String(item.block.id || item.block.sourceMessageId || item.renderId || "").trim();
+    }
+    if (item.kind === "group") {
+      const first = item.items[0];
+      return String(first?.block.id || first?.block.sourceMessageId || first?.renderId || "").trim();
+    }
+    return "";
+  }
+
+  function findRenderItemIdByStableBlockId(stableBlockId: string): string {
+    const normalizedStableBlockId = String(stableBlockId || "").trim();
+    if (!normalizedStableBlockId) return "";
+    const matchedEntry = virtualEntries.value.find((entry) => stableBlockIdFromRenderItem(entry.item) === normalizedStableBlockId);
+    return String(matchedEntry?.item.id || "").trim();
+  }
+
+  function captureViewportAnchor(): { blockId: string; offsetTop: number } | null {
+    const scrollEl = scrollContainer.value;
+    if (!scrollEl) return null;
+    const containerRect = scrollEl.getBoundingClientRect();
+    const containerTop = containerRect.top;
+    const containerBottom = containerRect.bottom;
+    let fallbackAnchor: { blockId: string; offsetTop: number } | null = null;
+    for (const entry of virtualEntries.value) {
+      const blockId = stableBlockIdFromRenderItem(entry.item);
+      if (!blockId) continue;
+      const wrapper = observedVirtualItemElements.get(entry.item.id);
+      if (!wrapper || !wrapper.isConnected) continue;
+      const wrapperRect = wrapper.getBoundingClientRect();
+      const nextAnchor = {
+        blockId,
+        offsetTop: wrapperRect.top - containerRect.top,
+      };
+      if (!fallbackAnchor) {
+        fallbackAnchor = nextAnchor;
+      }
+      const isVisible = wrapperRect.bottom > containerTop && wrapperRect.top < containerBottom;
+      if (isVisible) {
+        return nextAnchor;
+      }
+    }
+    return fallbackAnchor;
+  }
+
+  function restoreViewportAnchor(anchor: { blockId: string; offsetTop: number } | null): boolean {
+    if (!anchor) return false;
+    const scrollEl = scrollContainer.value;
+    if (!scrollEl) return false;
+    const renderItemId = findRenderItemIdByStableBlockId(anchor.blockId);
+    if (!renderItemId) return false;
+    const wrapper = observedVirtualItemElements.get(renderItemId);
+    if (!wrapper || !wrapper.isConnected) return false;
+    const containerRect = scrollEl.getBoundingClientRect();
+    const wrapperRect = wrapper.getBoundingClientRect();
+    const delta = (wrapperRect.top - containerRect.top) - anchor.offsetTop;
+    if (Math.abs(delta) < 1) return true;
+    scrollEl.scrollTop += delta;
+    return true;
+  }
 
   // ==================== resize handling ====================
 
@@ -380,6 +436,7 @@ export function useChatVirtualScroll(options: UseChatVirtualScrollOptions) {
   // ==================== lifecycle ====================
 
   onMounted(() => {
+    virtualizer.value.shouldAdjustScrollPositionOnItemSizeChange = () => false;
     if (typeof ResizeObserver !== "undefined") {
       virtualItemResizeObserver = new ResizeObserver((entries) => {
         scheduleVirtualResizeMeasure(entries);
@@ -441,5 +498,7 @@ export function useChatVirtualScroll(options: UseChatVirtualScrollOptions) {
     syncViewportMetrics,
     resetVirtualizerAtConversationBottom,
     alignItemToTop,
+    captureViewportAnchor,
+    restoreViewportAnchor,
   };
 }

@@ -76,7 +76,7 @@
     <div
       v-if="activeToolcallPreview"
       ref="toolcallPopupRef"
-      class="ecall-md-toolcall-popup fixed z-[1200] w-[min(28rem,calc(100vw-1rem))] rounded-box border border-base-300 bg-base-100 text-base-content shadow-xl"
+      class="ecall-md-toolcall-popup fixed z-1200 w-[min(28rem,calc(100vw-1rem))] rounded-box border border-base-300 bg-base-100 text-base-content shadow-xl"
       :style="toolcallPopupStyle"
       data-toolcall-popup="true"
     >
