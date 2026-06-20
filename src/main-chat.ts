@@ -4,7 +4,6 @@ import "./webview-heartbeat";
 import "./style.css";
 import "./features/chat/markdown/markdown-content.css";
 import "katex/dist/katex.min.css";
-import "vue-virtual-scroller/dist/vue-virtual-scroller.css";
 import { i18n } from "./i18n";
 import { initMarkdownAppearance } from "./features/shell/composables/use-markdown-appearance";
 import { LUCIDE_CONTEXT } from "./lucide-context";
