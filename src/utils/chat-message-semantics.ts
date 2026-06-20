@@ -320,6 +320,9 @@ function chatActivityStats(
       activityReasoningCharCount += String(item.text || "").length;
       continue;
     }
+    if (item.kind === "content") {
+      continue;
+    }
     const name = String(item.name || "").trim() || "unknown";
     activityToolCountsByName[name] = (activityToolCountsByName[name] || 0) + 1;
   }
@@ -374,6 +377,14 @@ export function projectChatActivityForDisplay(message: ChatMessage): {
         text: thinkingText,
       });
     }
+    const bodyText = String(event.text || "").trim();
+    if (bodyText) {
+      items.push({
+        kind: "content",
+        id: `content-${eventIndex}-${items.length}`,
+        text: assistantEventDisplayText(event),
+      });
+    }
     for (const call of event.toolCalls) {
       const result = findAdjacentToolResult(events, eventIndex, call.invocationId);
       items.push({
@@ -419,6 +430,17 @@ export function normalizeChatActivityItems(rawItems: unknown): ChatActivityItem[
       items.push({
         kind: "reasoning",
         id: String(item?.id || "").trim() || `stream-reasoning-${index}`,
+        text,
+        running: !!item?.running,
+      });
+      continue;
+    }
+    if (kind === "content") {
+      const text = String(item?.text || "");
+      if (!text.trim()) continue;
+      items.push({
+        kind: "content",
+        id: String(item?.id || "").trim() || `stream-content-${index}`,
         text,
         running: !!item?.running,
       });
@@ -580,6 +602,17 @@ export function streamBlocksToActivityItems(rawBlocks: unknown, running = false)
         kind: "reasoning",
         id: `stream-block-${blockIndex}-reasoning`,
         text: reasoning,
+        running,
+      });
+    }
+    const text = String(block.text || "").trim();
+    if (text) {
+      items.push({
+        kind: "content",
+        id: `stream-block-${blockIndex}-content`,
+        text: Array.isArray(block.tools) && block.tools.length > 0
+          ? `${text}${streamToolCallInlineSuffix(block)}`
+          : text,
         running,
       });
     }
@@ -856,11 +889,14 @@ export function projectStreamingChatActivityForDisplay(input: {
   const activityRunning = !!input.running;
   const hasDoingTool = items.some((item) => item.kind === "tool" && item.status === "doing");
   const hasReasoningItem = items.some((item) => item.kind === "reasoning" && !!String(item.text || "").trim());
+  const hasContentItem = items.some((item) => item.kind === "content" && !!String(item.text || "").trim());
   const status: ChatActivityStatus = hasDoingTool
     ? "running_tool"
     : hasReasoningItem
       ? "thinking"
-      : activityRunning
+      : hasContentItem
+        ? (activityRunning ? "thinking" : "complete")
+        : activityRunning
         ? "requesting"
         : items.length > 0
           ? "complete"

@@ -1,8 +1,10 @@
 <template>
   <div
     ref="rendererRootRef"
+    v-bind="attrs"
     class="ecall-md-renderer"
     :class="[isDark ? 'ecall-md-dark' : 'ecall-md-light', variant === 'document' ? 'ecall-md-document' : 'ecall-md-chat']"
+    @click="emit('click', $event)"
   >
     <template v-for="(block, index) in visibleBlocks" :key="`${block.type}-${index}-${block.key}`">
       <component
@@ -86,13 +88,17 @@
 </template>
 
 <script setup lang="ts">
-import { Teleport, computed, defineComponent, h, nextTick, onBeforeUnmount, onMounted, ref, watch, type PropType, type VNodeChild } from "vue";
+import { Teleport, computed, defineComponent, h, nextTick, onBeforeUnmount, onMounted, ref, useAttrs, watch, type PropType, type VNodeChild } from "vue";
 import { useI18n } from "vue-i18n";
 import { Check, Copy, Maximize2, Wrench } from "@lucide/vue";
 import { invokeTauri } from "../../../services/tauri-api";
 import { isAbsoluteLocalPath, normalizeLocalLinkHref } from "../utils/local-link";
 import { parseMarkdownBlocks, parseInlineSegments, normalizedTableRow, type MarkdownBlock, type InlineSegment } from "./parse-markdown";
 import CodeBlockPreviewDialog from "../components/dialogs/CodeBlockPreviewDialog.vue";
+
+defineOptions({
+  inheritAttrs: false,
+});
 
 const props = defineProps<{
   text: string;
@@ -102,6 +108,10 @@ const props = defineProps<{
   localImageBasePath?: string;
   toolcallPreviewMap?: Record<string, { title?: string; body?: string }>;
 }>();
+const emit = defineEmits<{
+  (e: "click", event: MouseEvent): void;
+}>();
+const attrs = useAttrs();
 
 const { t } = useI18n();
 const rendererRootRef = ref<HTMLElement | null>(null);

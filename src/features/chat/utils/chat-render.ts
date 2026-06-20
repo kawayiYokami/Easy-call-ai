@@ -75,6 +75,9 @@ function activityItemsSignature(block: ChatMessageBlock): string {
       if (item.kind === "reasoning") {
         return ["r", item.id || "", textContentSignature(item.text), item.running ? "1" : "0"].join(":");
       }
+      if (item.kind === "content") {
+        return ["c", item.id || "", textContentSignature(item.text), item.running ? "1" : "0"].join(":");
+      }
       return [
         "t",
         item.id || "",

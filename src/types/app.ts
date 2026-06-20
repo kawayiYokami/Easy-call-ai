@@ -618,6 +618,12 @@ export type ChatActivityItem =
     running?: boolean;
   }
   | {
+    kind: "content";
+    id: string;
+    text: string;
+    running?: boolean;
+  }
+  | {
     kind: "tool";
     id: string;
     toolCallId?: string;

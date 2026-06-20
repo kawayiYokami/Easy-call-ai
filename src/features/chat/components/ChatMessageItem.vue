@@ -154,11 +154,11 @@
                         <span
                           v-else
                           class="inline-flex w-3 shrink-0 items-center justify-center font-mono text-xs leading-none"
-                          :class="item.kind === 'reasoning' ? 'font-semibold text-warning' : 'font-semibold text-base-content/45'"
-                        >{{ item.kind === 'reasoning' ? '+' : '*' }}</span>
+                          :class="activityItemMarkerClass(item)"
+                        >{{ activityItemMarker(item) }}</span>
                         <span
                           class="min-w-0 flex-1 truncate"
-                          :class="item.kind === 'reasoning' ? 'font-semibold italic text-warning' : 'text-base-content/50'"
+                          :class="activityItemTitleClass(item)"
                         >
                           {{ activityItemTitle(item) }}
                         </span>
@@ -168,9 +168,9 @@
                         class="collapse-content px-1 pb-2 pt-1"
                       >
                         <div
-                          v-if="item.kind === 'reasoning'"
+                          v-if="item.kind === 'reasoning' || item.kind === 'content'"
                           class="whitespace-pre-wrap wrap-break-word text-xs leading-relaxed text-base-content/70"
-                        >{{ item.text }}</div>
+                        >{{ item.kind === 'content' ? stripToolcallMarkers(item.text) : item.text }}</div>
                         <pre
                           v-else-if="activityToolResultText(item)"
                           class="m-0 max-h-72 overflow-auto whitespace-pre-wrap break-all rounded bg-base-200/60 p-2 text-xs leading-relaxed text-base-content/75"
@@ -924,6 +924,14 @@ function activityItemsSignature(block: ChatMessageBlock): string {
           item.running ? "1" : "0",
         ].join(":");
       }
+      if (item.kind === "content") {
+        return [
+          "c",
+          String(item.id || "").trim(),
+          textContentSignature(item.text),
+          item.running ? "1" : "0",
+        ].join(":");
+      }
       return [
         "t",
         String(item.id || "").trim(),
@@ -974,14 +982,39 @@ function activityReasoningPreview(text: string): string {
   return compactText(String(text || ""), 120);
 }
 
+function stripToolcallMarkers(text: string): string {
+  return String(text || "").replace(/\s*\[toolcall:[^\]\n]+\]/g, "").trim();
+}
+
 function activityToolResultText(item: ChatActivityItem): string {
   if (item.kind !== "tool") return "";
   return String(item.resultText || "").trim();
 }
 
+function activityItemMarker(item: ChatActivityItem): string {
+  if (item.kind === "reasoning") return "+";
+  if (item.kind === "content") return "=";
+  return "*";
+}
+
+function activityItemMarkerClass(item: ChatActivityItem): string {
+  if (item.kind === "reasoning") return "font-semibold text-warning";
+  if (item.kind === "content") return "font-semibold text-info/70";
+  return "font-semibold text-base-content/45";
+}
+
+function activityItemTitleClass(item: ChatActivityItem): string {
+  if (item.kind === "reasoning") return "font-semibold italic text-warning";
+  if (item.kind === "content") return "text-base-content/70";
+  return "text-base-content/50";
+}
+
 function activityItemTitle(item: ChatActivityItem): string {
   if (item.kind === "reasoning") {
     return activityReasoningPreview(item.text);
+  }
+  if (item.kind === "content") {
+    return compactText(stripToolcallMarkers(item.text), 120);
   }
   return joinNonEmpty([
     toolCallDisplayName(item.name),
