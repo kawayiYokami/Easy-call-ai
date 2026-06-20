@@ -1,7 +1,12 @@
 {
-  "generatedAt": "2026-06-19T22:42:01.790Z",
-  "latestVersion": "v0.13.0",
+  "generatedAt": "2026-06-20T12:32:52.642Z",
+  "latestVersion": "v0.13.1",
   "releases": [
+    {
+      "version": "v0.13.1",
+      "path": "docs/changelog/releases/v0.13.1.md",
+      "summary": "**聊天滚动**：历史消息分页改为滚动静止后再触发加载，避免滚轮自然惯性尚未结束时提前插入历史，消除聊天窗口顶部加载时的卡顿、闪动和错位"
+    },
     {
       "version": "v0.13.0",
       "path": "docs/changelog/releases/v0.13.0.md",
