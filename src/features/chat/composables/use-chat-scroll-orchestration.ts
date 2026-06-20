@@ -7,12 +7,8 @@ export interface UseChatScrollOrchestrationOptions {
   prepareBottomAlignmentLayout?: () => Promise<void> | void;
   onScroll: () => void;
   scheduleVirtualMeasure: () => void;
-  syncViewportMetrics: () => void;
   resetConversationToBottom: () => void;
   refreshObservedVirtualItemElements: () => void;
-  captureViewportAnchor: () => { blockId: string; offsetTop: number } | null;
-  restoreViewportAnchor: (anchor: { blockId: string; offsetTop: number } | null) => boolean;
-  setItemSizeScrollAdjustmentEnabled: (enabled: boolean) => void;
   props: {
     hasMoreHistory: Ref<boolean>;
     loadingOlderHistory: Ref<boolean>;
@@ -36,12 +32,8 @@ export function useChatScrollOrchestration(options: UseChatScrollOrchestrationOp
     prepareBottomAlignmentLayout,
     onScroll,
     scheduleVirtualMeasure,
-    syncViewportMetrics,
     resetConversationToBottom,
     refreshObservedVirtualItemElements,
-    captureViewportAnchor,
-    restoreViewportAnchor,
-    setItemSizeScrollAdjustmentEnabled,
     props,
     emit,
   } = options;
@@ -54,7 +46,6 @@ export function useChatScrollOrchestration(options: UseChatScrollOrchestrationOp
   let pendingProgrammaticScrollPaginationResetFrame = 0;
   let pendingScrollSettleTimer = 0;
   let olderHistoryCooldownUntil = 0;
-  let pendingOlderHistoryAnchor: { blockId: string; offsetTop: number } | null = null;
 
   function armProgrammaticScrollPaginationSuppression() {
     suppressOlderHistoryPaginationOnce.value = true;
@@ -173,24 +164,10 @@ export function useChatScrollOrchestration(options: UseChatScrollOrchestrationOp
   watch(
     () => props.loadingOlderHistory.value,
     async (loading, wasLoading) => {
-      if (loading) {
-        setItemSizeScrollAdjustmentEnabled(false);
-        pendingOlderHistoryAnchor = captureViewportAnchor();
-        return;
-      }
-      if (loading) return;
-      if (!wasLoading) return;
+      if (loading || !wasLoading) return;
       await nextTick();
       await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
-      const hasAnchor = !!pendingOlderHistoryAnchor;
-      if (hasAnchor) {
-        await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
-        refreshObservedVirtualItemElements();
-        restoreViewportAnchor(pendingOlderHistoryAnchor);
-      }
-      pendingOlderHistoryAnchor = null;
-      setItemSizeScrollAdjustmentEnabled(true);
-
+      refreshObservedVirtualItemElements();
       olderHistoryRequestPending.value = false;
     },
   );
@@ -204,8 +181,6 @@ export function useChatScrollOrchestration(options: UseChatScrollOrchestrationOp
       window.clearTimeout(pendingScrollSettleTimer);
       pendingScrollSettleTimer = 0;
     }
-    pendingOlderHistoryAnchor = null;
-    setItemSizeScrollAdjustmentEnabled(true);
   });
 
   return {

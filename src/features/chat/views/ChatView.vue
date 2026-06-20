@@ -48,16 +48,6 @@
             @scroll="onConversationScroll"
             @wheel="handleConversationWheel"
           >
-          <div
-            v-if="loadingOlderHistory"
-            class="pointer-events-none sticky top-0 z-10 flex justify-center pb-2"
-          >
-            <div class="badge badge-ghost gap-2 border-base-300 bg-base-100/90 px-3 py-3 shadow-sm">
-              <span class="loading loading-spinner loading-xs"></span>
-              <span>{{ t("chat.loadingOlderMessages") }}</span>
-            </div>
-          </div>
-
           <ConversationTodoDropdown :todos="normalizedConversationTodos" :persona-name="personaName" />
           <div class="ecall-chat-history-flow flex min-w-0 shrink-0 flex-col">
             <div class="relative min-w-0 w-full shrink-0" :style="{ height: `${totalVirtualSize}px` }">
@@ -930,7 +920,6 @@ const {
   virtualizer, virtualEntries, totalVirtualSize, measureVirtualRow,
   latestOwnTailContentHeight, scheduleVirtualMeasure, syncViewportMetrics,
   resetVirtualizerAtConversationBottom, refreshObservedVirtualItemElements,
-  captureViewportAnchor, restoreViewportAnchor, setItemSizeScrollAdjustmentEnabled,
 } = useChatVirtualScroll({
   renderItems: virtualRenderItems,
   scrollContainer, scrollbarRef: chatScrollbarRef as Ref<{ updateThumb: () => void } | null>,
@@ -1016,12 +1005,9 @@ const {
 } = useChatScrollOrchestration({
   scrollContainer, chatScrollbarRef: chatScrollbarRef as Ref<{ updateThumb: () => void; hide?: () => void } | null>,
   prepareBottomAlignmentLayout,
-  onScroll, scheduleVirtualMeasure, syncViewportMetrics,
+  onScroll, scheduleVirtualMeasure,
   resetConversationToBottom: resetVirtualizerAtConversationBottom,
   refreshObservedVirtualItemElements,
-  captureViewportAnchor,
-  restoreViewportAnchor,
-  setItemSizeScrollAdjustmentEnabled,
   props: {
     hasMoreHistory: toRef(props, "hasMoreHistory"), loadingOlderHistory: toRef(props, "loadingOlderHistory"),
     chatting: toRef(props, "chatting"), conversationBusy: conversationInteractionBusy, frozen: toRef(props, "frozen"),

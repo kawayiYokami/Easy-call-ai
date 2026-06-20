@@ -35,7 +35,6 @@ export function useChatVirtualScroll(options: UseChatVirtualScrollOptions) {
   let pendingVirtualResizeFrame = 0;
   const pendingVirtualResizeElements = new Set<HTMLElement>();
   let virtualItemResizeObserver: ResizeObserver | null = null;
-  let suppressItemSizeScrollAdjustment = false;
 
   const initialBottomOffset = ref(0);
   let conversationVirtualizerResetRequest = 0;
@@ -158,66 +157,6 @@ export function useChatVirtualScroll(options: UseChatVirtualScrollOptions) {
   });
 
   // ==================== helpers ====================
-
-  function stableBlockIdFromRenderItem(item: ChatRenderItem): string {
-    if (item.kind === "time_divider") return "";
-    return String(item.block.id || item.block.sourceMessageId || item.renderId || "").trim();
-  }
-
-  function findRenderItemIdByStableBlockId(stableBlockId: string): string {
-    const normalizedStableBlockId = String(stableBlockId || "").trim();
-    if (!normalizedStableBlockId) return "";
-    const matchedEntry = virtualEntries.value.find((entry) => stableBlockIdFromRenderItem(entry.item) === normalizedStableBlockId);
-    return String(matchedEntry?.item.id || "").trim();
-  }
-
-  function captureViewportAnchor(): { blockId: string; offsetTop: number } | null {
-    const scrollEl = scrollContainer.value;
-    if (!scrollEl) return null;
-    const containerRect = scrollEl.getBoundingClientRect();
-    const containerTop = containerRect.top;
-    const containerBottom = containerRect.bottom;
-    let fallbackAnchor: { blockId: string; offsetTop: number } | null = null;
-    for (const entry of virtualEntries.value) {
-      const blockId = stableBlockIdFromRenderItem(entry.item);
-      if (!blockId) continue;
-      const wrapper = observedVirtualItemElements.get(entry.item.id);
-      if (!wrapper || !wrapper.isConnected) continue;
-      const wrapperRect = wrapper.getBoundingClientRect();
-      const nextAnchor = {
-        blockId,
-        offsetTop: wrapperRect.top - containerRect.top,
-      };
-      if (!fallbackAnchor) {
-        fallbackAnchor = nextAnchor;
-      }
-      const isVisible = wrapperRect.bottom > containerTop && wrapperRect.top < containerBottom;
-      if (isVisible) {
-        return nextAnchor;
-      }
-    }
-    return fallbackAnchor;
-  }
-
-  function restoreViewportAnchor(anchor: { blockId: string; offsetTop: number } | null): boolean {
-    if (!anchor) return false;
-    const scrollEl = scrollContainer.value;
-    if (!scrollEl) return false;
-    const renderItemId = findRenderItemIdByStableBlockId(anchor.blockId);
-    if (!renderItemId) return false;
-    const wrapper = observedVirtualItemElements.get(renderItemId);
-    if (!wrapper || !wrapper.isConnected) return false;
-    const containerRect = scrollEl.getBoundingClientRect();
-    const wrapperRect = wrapper.getBoundingClientRect();
-    const delta = (wrapperRect.top - containerRect.top) - anchor.offsetTop;
-    if (Math.abs(delta) < 1) return true;
-    scrollEl.scrollTop += delta;
-    return true;
-  }
-
-  function setItemSizeScrollAdjustmentEnabled(enabled: boolean) {
-    suppressItemSizeScrollAdjustment = !enabled;
-  }
 
   // ==================== resize handling ====================
 
@@ -406,7 +345,6 @@ export function useChatVirtualScroll(options: UseChatVirtualScrollOptions) {
   // ==================== lifecycle ====================
 
   onMounted(() => {
-    virtualizer.value.shouldAdjustScrollPositionOnItemSizeChange = () => !suppressItemSizeScrollAdjustment;
     if (typeof ResizeObserver !== "undefined") {
       virtualItemResizeObserver = new ResizeObserver((entries) => {
         scheduleVirtualResizeMeasure(entries);
@@ -467,8 +405,5 @@ export function useChatVirtualScroll(options: UseChatVirtualScrollOptions) {
     scheduleVirtualMeasure,
     syncViewportMetrics,
     resetVirtualizerAtConversationBottom,
-    captureViewportAnchor,
-    restoreViewportAnchor,
-    setItemSizeScrollAdjustmentEnabled,
   };
 }
