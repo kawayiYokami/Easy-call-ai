@@ -1,5 +1,9 @@
 <template>
-  <div class="ecall-md-renderer" :class="[isDark ? 'ecall-md-dark' : 'ecall-md-light', variant === 'document' ? 'ecall-md-document' : 'ecall-md-chat']">
+  <div
+    ref="rendererRootRef"
+    class="ecall-md-renderer"
+    :class="[isDark ? 'ecall-md-dark' : 'ecall-md-light', variant === 'document' ? 'ecall-md-document' : 'ecall-md-chat']"
+  >
     <template v-for="(block, index) in visibleBlocks" :key="`${block.type}-${index}-${block.key}`">
       <component
         :is="headingTag(block.level)"
@@ -66,10 +70,23 @@
       </p>
     </template>
   </div>
+  <Teleport to="body">
+    <div
+      v-if="activeToolcallPreview"
+      ref="toolcallPopupRef"
+      class="ecall-md-toolcall-popup fixed z-[1200] w-[min(28rem,calc(100vw-1rem))] rounded-box border border-base-300 bg-base-100 text-base-content shadow-xl"
+      :style="toolcallPopupStyle"
+      data-toolcall-popup="true"
+    >
+      <div class="border-b border-base-300/70 px-3 py-2 text-[11px] font-semibold text-base-content/80">
+        {{ activeToolcallPreview.title || activeToolcallPreview.label }}
+      </div>
+    </div>
+  </Teleport>
 </template>
 
 <script setup lang="ts">
-import { computed, defineComponent, h, onBeforeUnmount, ref, watch, type PropType, type VNodeChild } from "vue";
+import { Teleport, computed, defineComponent, h, nextTick, onBeforeUnmount, onMounted, ref, watch, type PropType, type VNodeChild } from "vue";
 import { useI18n } from "vue-i18n";
 import { Check, Copy, Maximize2, Wrench } from "@lucide/vue";
 import { invokeTauri } from "../../../services/tauri-api";
@@ -83,9 +100,100 @@ const props = defineProps<{
   streaming?: boolean;
   variant?: "chat" | "document";
   localImageBasePath?: string;
+  toolcallPreviewMap?: Record<string, { title?: string; body?: string }>;
 }>();
 
 const { t } = useI18n();
+const rendererRootRef = ref<HTMLElement | null>(null);
+const activeToolcallId = ref("");
+const activeToolcallAnchorEl = ref<HTMLButtonElement | null>(null);
+const toolcallPopupRef = ref<HTMLElement | null>(null);
+const toolcallPopupStyle = ref<Record<string, string>>({
+  left: "0px",
+  top: "0px",
+});
+
+const activeToolcallPreview = computed(() => {
+  const id = String(activeToolcallId.value || "").trim();
+  if (!id) return null;
+  const preview = props.toolcallPreviewMap?.[id];
+  if (!preview) return null;
+  return {
+    id,
+    label: `toolcall:${id}`,
+    title: String(preview.title || "").trim(),
+    body: String(preview.body || "").trim(),
+  };
+});
+
+function closeToolcallPreview() {
+  activeToolcallId.value = "";
+  activeToolcallAnchorEl.value = null;
+}
+
+async function positionToolcallPopup() {
+  const anchor = activeToolcallAnchorEl.value;
+  const popup = toolcallPopupRef.value;
+  if (!(anchor instanceof HTMLElement) || !(popup instanceof HTMLElement)) return;
+  const margin = 8;
+  const anchorRect = anchor.getBoundingClientRect();
+  const popupRect = popup.getBoundingClientRect();
+  const viewportWidth = window.innerWidth || document.documentElement.clientWidth || 0;
+  const viewportHeight = window.innerHeight || document.documentElement.clientHeight || 0;
+  const left = Math.min(
+    Math.max(margin, anchorRect.left),
+    Math.max(margin, viewportWidth - popupRect.width - margin),
+  );
+  const belowTop = anchorRect.bottom + 8;
+  const aboveTop = anchorRect.top - popupRect.height - 8;
+  const top = belowTop + popupRect.height + margin <= viewportHeight
+    ? belowTop
+    : Math.max(margin, aboveTop);
+  toolcallPopupStyle.value = {
+    left: `${Math.round(left)}px`,
+    top: `${Math.round(top)}px`,
+  };
+}
+
+async function openToolcallPreview(id: string, anchorEl: HTMLButtonElement | null) {
+  const normalizedId = String(id || "").trim();
+  if (!normalizedId) return;
+  activeToolcallId.value = normalizedId;
+  activeToolcallAnchorEl.value = anchorEl;
+  await nextTick();
+  await positionToolcallPopup();
+}
+
+function toggleToolcallPreview(id: string, anchorEl: HTMLButtonElement | null) {
+  const normalizedId = String(id || "").trim();
+  if (!normalizedId) return;
+  if (activeToolcallId.value === normalizedId) {
+    closeToolcallPreview();
+    return;
+  }
+  void openToolcallPreview(normalizedId, anchorEl);
+}
+
+function handleDocumentPointerDown(event: PointerEvent) {
+  if (!activeToolcallId.value) return;
+  const target = event.target;
+  if (!(target instanceof Node)) {
+    closeToolcallPreview();
+    return;
+  }
+  if (target instanceof HTMLElement && target.closest('[data-toolcall-pill="true"]')) return;
+  if (toolcallPopupRef.value?.contains(target)) return;
+  closeToolcallPreview();
+}
+
+function handleWindowResizeOrScroll() {
+  if (!activeToolcallId.value) return;
+  if (!(activeToolcallAnchorEl.value instanceof HTMLButtonElement) || !activeToolcallAnchorEl.value.isConnected) {
+    closeToolcallPreview();
+    return;
+  }
+  void nextTick(() => positionToolcallPopup());
+}
 
 // ==================== Streaming Throttle ====================
 
@@ -208,6 +316,15 @@ onBeforeUnmount(() => {
     clearTimeout(parseState.batchTimer);
     parseState.batchTimer = 0;
   }
+  document.removeEventListener("pointerdown", handleDocumentPointerDown, true);
+  window.removeEventListener("resize", handleWindowResizeOrScroll, true);
+  document.removeEventListener("scroll", handleWindowResizeOrScroll, true);
+});
+
+onMounted(() => {
+  document.addEventListener("pointerdown", handleDocumentPointerDown, true);
+  window.addEventListener("resize", handleWindowResizeOrScroll, true);
+  document.addEventListener("scroll", handleWindowResizeOrScroll, true);
 });
 
 // ==================== Heading Tag Helper ====================
@@ -229,9 +346,20 @@ const InlineRenderer = defineComponent({
     localImageBasePath: { type: String, default: "" },
   },
   setup(inlineProps) {
-    return () => renderSegments(inlineProps.segments, "root", inlineProps.localImageBasePath);
+    return () => renderSegments(
+      inlineProps.segments,
+      "root",
+      inlineProps.localImageBasePath,
+      {
+        onToolcallClick: toggleToolcallPreview,
+      },
+    );
   },
 });
+
+type RenderSegmentOptions = {
+  onToolcallClick?: (id: string, anchorEl: HTMLButtonElement | null) => void;
+};
 
 type MarkdownImageSource =
   | { kind: "remote"; src: string }
@@ -354,18 +482,29 @@ const MarkdownImage = defineComponent({
   },
 });
 
-function renderSegments(segments: InlineSegment[], keyPrefix: string, localImageBasePath = ""): VNodeChild[] {
+function renderSegments(
+  segments: InlineSegment[],
+  keyPrefix: string,
+  localImageBasePath = "",
+  options: RenderSegmentOptions = {},
+): VNodeChild[] {
   return segments.map((segment, index) => {
     if (segment.type === "code") {
       return h("code", { key: `${keyPrefix}-c-${index}`, class: "ecall-md-inline-code" }, segment.text);
     }
     if (segment.type === "toolcall_ref") {
-      return h("span", {
+      return h("button", {
         key: `${keyPrefix}-toolcall-${index}`,
+        type: "button",
         class: "ecall-md-toolcall-ref",
         title: `toolcall:${segment.id}`,
         "data-toolcall-id": segment.id,
-        "aria-hidden": "true",
+        "data-toolcall-pill": "true",
+        onClick: (event: MouseEvent) => {
+          event.preventDefault();
+          event.stopPropagation();
+          options.onToolcallClick?.(segment.id, event.currentTarget instanceof HTMLButtonElement ? event.currentTarget : null);
+        },
       }, [
         h(Wrench, { class: "ecall-md-toolcall-ref-icon" }),
       ]);
@@ -396,18 +535,18 @@ function renderSegments(segments: InlineSegment[], keyPrefix: string, localImage
       });
     }
     if (segment.type === "strong") {
-      return h("strong", { key: `${keyPrefix}-b-${index}`, class: "ecall-md-strong" }, renderSegments(segment.children, `${keyPrefix}-b-${index}`, localImageBasePath));
+      return h("strong", { key: `${keyPrefix}-b-${index}`, class: "ecall-md-strong" }, renderSegments(segment.children, `${keyPrefix}-b-${index}`, localImageBasePath, options));
     }
     if (segment.type === "em") {
-      return h("em", { key: `${keyPrefix}-i-${index}`, class: "ecall-md-em" }, renderSegments(segment.children, `${keyPrefix}-i-${index}`, localImageBasePath));
+      return h("em", { key: `${keyPrefix}-i-${index}`, class: "ecall-md-em" }, renderSegments(segment.children, `${keyPrefix}-i-${index}`, localImageBasePath, options));
     }
     if (segment.type === "strongEm") {
       return h("strong", { key: `${keyPrefix}-bi-${index}`, class: "ecall-md-strong" }, [
-        h("em", { class: "ecall-md-em" }, renderSegments(segment.children, `${keyPrefix}-bi-${index}`, localImageBasePath)),
+        h("em", { class: "ecall-md-em" }, renderSegments(segment.children, `${keyPrefix}-bi-${index}`, localImageBasePath, options)),
       ]);
     }
     if (segment.type === "delete") {
-      return h("del", { key: `${keyPrefix}-d-${index}`, class: "ecall-md-del" }, renderSegments(segment.children, `${keyPrefix}-d-${index}`, localImageBasePath));
+      return h("del", { key: `${keyPrefix}-d-${index}`, class: "ecall-md-del" }, renderSegments(segment.children, `${keyPrefix}-d-${index}`, localImageBasePath, options));
     }
     return segment.text;
   });
@@ -740,17 +879,25 @@ h4.ecall-md-heading { font-size: 0.9rem; }
   width: 1.15rem;
   height: 1.15rem;
   margin-left: 0.18rem;
+  border: 0;
   border-radius: 999px;
   background: color-mix(in srgb, currentColor 10%, transparent);
   color: color-mix(in srgb, currentColor 72%, transparent);
+  cursor: pointer;
   line-height: 1;
   vertical-align: text-top;
   white-space: nowrap;
 }
 
+.ecall-md-toolcall-ref:hover {
+  background: color-mix(in srgb, currentColor 16%, transparent);
+  color: currentColor;
+}
+
 .ecall-md-toolcall-ref-icon {
   width: 0.72rem;
   height: 0.72rem;
+  pointer-events: none;
 }
 
 /* ==================== Blockquote ==================== */

@@ -201,6 +201,7 @@
             :is-dark="markdownIsDark"
             :streaming="!!block.isStreaming"
             :local-image-base-path="currentWorkspaceRootPath"
+            :toolcall-preview-map="toolcallPreviewMap"
             @click="emit('assistantLinkClick', $event)"
           />
         </div>
@@ -653,6 +654,20 @@ const displayName = computed(() => messageName(props.block));
 const avatarUrl = computed(() => messageAvatarUrl(props.block));
 const formattedCreatedAt = computed(() => formattedBlockTime(props.block.createdAt));
 const streamingHeaderStatus = computed(() => assistantStreamingHeaderStatus(props.block));
+const toolcallPreviewMap = computed<Record<string, { title: string; body: string }>>(() => {
+  const previews: Record<string, { title: string; body: string }> = {};
+  for (const item of props.block.activityItems) {
+    if (item.kind !== "tool") continue;
+    const toolCallId = String(item.toolCallId || "").trim();
+    if (!toolCallId) continue;
+    const argsText = String(item.argsText || "").trim();
+    previews[toolCallId] = {
+      title: activityItemTitle(item),
+      body: argsText ? `参数\n${argsText}` : "",
+    };
+  }
+  return previews;
+});
 
 function detailsOpenFromEvent(event: Event): boolean {
   const target = event.target;
