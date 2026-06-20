@@ -963,7 +963,7 @@ const {
   virtualizer, virtualEntries, totalVirtualSize, measureVirtualRow,
   latestOwnTailContentHeight, scheduleVirtualMeasure, syncViewportMetrics,
   resetVirtualizerAtConversationBottom, alignItemToTop, refreshObservedVirtualItemElements,
-  captureViewportAnchor, restoreViewportAnchor,
+  captureViewportAnchor, restoreViewportAnchor, setItemSizeScrollAdjustmentEnabled,
 } = useChatVirtualScroll({
   renderItems: virtualRenderItems,
   scrollContainer, scrollbarRef: chatScrollbarRef as Ref<{ updateThumb: () => void } | null>,
@@ -1057,6 +1057,7 @@ const {
   refreshObservedVirtualItemElements,
   captureViewportAnchor,
   restoreViewportAnchor,
+  setItemSizeScrollAdjustmentEnabled,
   latestOwnElasticItemId,
   props: {
     hasMoreHistory: toRef(props, "hasMoreHistory"), loadingOlderHistory: toRef(props, "loadingOlderHistory"),

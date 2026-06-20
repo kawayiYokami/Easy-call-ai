@@ -13,6 +13,7 @@ export interface UseChatScrollOrchestrationOptions {
   refreshObservedVirtualItemElements: () => void;
   captureViewportAnchor: () => { blockId: string; offsetTop: number } | null;
   restoreViewportAnchor: (anchor: { blockId: string; offsetTop: number } | null) => boolean;
+  setItemSizeScrollAdjustmentEnabled: (enabled: boolean) => void;
   latestOwnElasticItemId: Ref<string>;
   props: {
     hasMoreHistory: Ref<boolean>;
@@ -44,6 +45,7 @@ export function useChatScrollOrchestration(options: UseChatScrollOrchestrationOp
     refreshObservedVirtualItemElements,
     captureViewportAnchor,
     restoreViewportAnchor,
+    setItemSizeScrollAdjustmentEnabled,
     latestOwnElasticItemId,
     props,
     emit,
@@ -193,6 +195,7 @@ export function useChatScrollOrchestration(options: UseChatScrollOrchestrationOp
     () => props.loadingOlderHistory.value,
     async (loading, wasLoading) => {
       if (loading) {
+        setItemSizeScrollAdjustmentEnabled(false);
         pendingOlderHistoryAnchor = captureViewportAnchor();
         return;
       }
@@ -207,6 +210,7 @@ export function useChatScrollOrchestration(options: UseChatScrollOrchestrationOp
         restoreViewportAnchor(pendingOlderHistoryAnchor);
       }
       pendingOlderHistoryAnchor = null;
+      setItemSizeScrollAdjustmentEnabled(true);
 
       olderHistoryRequestPending.value = false;
     },
@@ -222,6 +226,7 @@ export function useChatScrollOrchestration(options: UseChatScrollOrchestrationOp
       pendingScrollSettleTimer = 0;
     }
     pendingOlderHistoryAnchor = null;
+    setItemSizeScrollAdjustmentEnabled(true);
   });
 
   return {

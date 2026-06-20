@@ -37,6 +37,7 @@ export function useChatVirtualScroll(options: UseChatVirtualScrollOptions) {
   let pendingVirtualResizeFrame = 0;
   const pendingVirtualResizeElements = new Set<HTMLElement>();
   let virtualItemResizeObserver: ResizeObserver | null = null;
+  let suppressItemSizeScrollAdjustment = false;
 
   const initialBottomOffset = ref(0);
   let conversationVirtualizerResetRequest = 0;
@@ -227,6 +228,10 @@ export function useChatVirtualScroll(options: UseChatVirtualScrollOptions) {
     if (Math.abs(delta) < 1) return true;
     scrollEl.scrollTop += delta;
     return true;
+  }
+
+  function setItemSizeScrollAdjustmentEnabled(enabled: boolean) {
+    suppressItemSizeScrollAdjustment = !enabled;
   }
 
   // ==================== resize handling ====================
@@ -436,7 +441,7 @@ export function useChatVirtualScroll(options: UseChatVirtualScrollOptions) {
   // ==================== lifecycle ====================
 
   onMounted(() => {
-    virtualizer.value.shouldAdjustScrollPositionOnItemSizeChange = () => false;
+    virtualizer.value.shouldAdjustScrollPositionOnItemSizeChange = () => !suppressItemSizeScrollAdjustment;
     if (typeof ResizeObserver !== "undefined") {
       virtualItemResizeObserver = new ResizeObserver((entries) => {
         scheduleVirtualResizeMeasure(entries);
@@ -500,5 +505,6 @@ export function useChatVirtualScroll(options: UseChatVirtualScrollOptions) {
     alignItemToTop,
     captureViewportAnchor,
     restoreViewportAnchor,
+    setItemSizeScrollAdjustmentEnabled,
   };
 }
