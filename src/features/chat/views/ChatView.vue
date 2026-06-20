@@ -965,7 +965,7 @@ const {
 const {
   virtualizer, virtualEntries, totalVirtualSize, measureVirtualRow,
   latestOwnTailContentHeight, scheduleVirtualMeasure, syncViewportMetrics,
-  resetVirtualizerAtConversationBottom, alignItemToTop, refreshObservedVirtualItemElements,
+  resetVirtualizerAtConversationBottom, refreshObservedVirtualItemElements,
   captureViewportAnchor, restoreViewportAnchor, setItemSizeScrollAdjustmentEnabled,
 } = useChatVirtualScroll({
   renderItems: virtualRenderItems,
@@ -1050,24 +1050,20 @@ function closeOverlayPanes() {
 
 const {
   onConversationScroll, onConversationWheel, handleJumpToBottom,
-  alignLatestOwnMessageToTop,
 } = useChatScrollOrchestration({
   scrollContainer, chatScrollbarRef: chatScrollbarRef as Ref<{ updateThumb: () => void; hide?: () => void } | null>,
   prepareBottomAlignmentLayout,
   onScroll, scheduleVirtualMeasure, syncViewportMetrics,
   resetConversationToBottom: resetVirtualizerAtConversationBottom,
-  alignItemToTop,
   refreshObservedVirtualItemElements,
   captureViewportAnchor,
   restoreViewportAnchor,
   setItemSizeScrollAdjustmentEnabled,
-  latestOwnElasticItemId,
   props: {
     hasMoreHistory: toRef(props, "hasMoreHistory"), loadingOlderHistory: toRef(props, "loadingOlderHistory"),
     chatting: toRef(props, "chatting"), conversationBusy: conversationInteractionBusy, frozen: toRef(props, "frozen"),
     activeConversationId: toRef(props, "activeConversationId"),
     conversationScrollToBottomRequest: toRef(props, "conversationScrollToBottomRequest"),
-    latestOwnMessageAlignRequest: toRef(props, "latestOwnMessageAlignRequest"),
     messageBlocks: toRef(props, "messageBlocks"),
   },
   emit: { loadOlderHistory: () => emit("loadOlderHistory"), jumpToConversationBottom: () => emit("jumpToConversationBottom") },

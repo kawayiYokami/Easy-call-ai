@@ -9,12 +9,10 @@ export interface UseChatScrollOrchestrationOptions {
   scheduleVirtualMeasure: () => void;
   syncViewportMetrics: () => void;
   resetConversationToBottom: () => void;
-  alignItemToTop: (itemId: string, behavior?: ScrollBehavior) => void;
   refreshObservedVirtualItemElements: () => void;
   captureViewportAnchor: () => { blockId: string; offsetTop: number } | null;
   restoreViewportAnchor: (anchor: { blockId: string; offsetTop: number } | null) => boolean;
   setItemSizeScrollAdjustmentEnabled: (enabled: boolean) => void;
-  latestOwnElasticItemId: Ref<string>;
   props: {
     hasMoreHistory: Ref<boolean>;
     loadingOlderHistory: Ref<boolean>;
@@ -23,7 +21,6 @@ export interface UseChatScrollOrchestrationOptions {
     frozen: Ref<boolean>;
     activeConversationId: Ref<string>;
     conversationScrollToBottomRequest: Ref<number>;
-    latestOwnMessageAlignRequest: Ref<number>;
     messageBlocks: Ref<ChatMessageBlock[]>;
   };
   emit: {
@@ -41,12 +38,10 @@ export function useChatScrollOrchestration(options: UseChatScrollOrchestrationOp
     scheduleVirtualMeasure,
     syncViewportMetrics,
     resetConversationToBottom,
-    alignItemToTop,
     refreshObservedVirtualItemElements,
     captureViewportAnchor,
     restoreViewportAnchor,
     setItemSizeScrollAdjustmentEnabled,
-    latestOwnElasticItemId,
     props,
     emit,
   } = options;
@@ -144,10 +139,6 @@ export function useChatScrollOrchestration(options: UseChatScrollOrchestrationOp
     emit.jumpToConversationBottom();
   }
 
-  function alignLatestOwnMessageToTop(behavior: ScrollBehavior = "smooth") {
-    alignItemToTop(latestOwnElasticItemId.value, behavior);
-  }
-
   // ==================== watchers ====================
 
   watch(
@@ -166,18 +157,6 @@ export function useChatScrollOrchestration(options: UseChatScrollOrchestrationOp
     (nextValue, prevValue) => {
       if (!nextValue || nextValue === prevValue) return;
       doScrollToBottom();
-    },
-  );
-
-  watch(
-    () => props.latestOwnMessageAlignRequest.value,
-    (nextValue, prevValue) => {
-      if (!nextValue || nextValue === prevValue) return;
-      void nextTick(async () => {
-        await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
-        refreshObservedVirtualItemElements();
-        alignLatestOwnMessageToTop("smooth");
-      });
     },
   );
 
@@ -233,7 +212,6 @@ export function useChatScrollOrchestration(options: UseChatScrollOrchestrationOp
     onConversationScroll,
     onConversationWheel,
     handleJumpToBottom,
-    alignLatestOwnMessageToTop,
     activeConversationChangedCleanup: () => {
       olderHistoryRequestPending.value = false;
     },

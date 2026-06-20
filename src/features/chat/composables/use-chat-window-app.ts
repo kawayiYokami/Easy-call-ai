@@ -172,18 +172,8 @@ export function useChatWindowApp() {
     applyConversationRuntimeStateUpdated,
   };
   let chatFlow: any = null;
-  let suppressNextOwnMessageAlignFromHistoryFlushed = 0;
-  function bumpOwnUserDraftAlign() {
-    suppressNextOwnMessageAlignFromHistoryFlushed += 1;
-    latestOwnMessageAlignRequest.value += 1;
-  }
-  function consumeOrQueueOwnMessageAlign() {
-    if (suppressNextOwnMessageAlignFromHistoryFlushed > 0) {
-      suppressNextOwnMessageAlignFromHistoryFlushed -= 1;
-      return;
-    }
-    latestOwnMessageAlignRequest.value += 1;
-  }
+  function bumpOwnUserDraftAlign() {}
+  function consumeOrQueueOwnMessageAlign() {}
   const {
     messageStoreMigration,
     ensureMessageStoreMigrationGate,
