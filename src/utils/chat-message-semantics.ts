@@ -258,6 +258,51 @@ export function summarizeToolActivityForDisplay(
   };
 }
 
+function isToolCallAssistantTextEvent(event: NormalizedToolHistoryEvent): boolean {
+  return event.role === "assistant"
+    && event.toolCalls.length > 0
+    && !!String(event.text || "").trim();
+}
+
+function toolCallInlineSuffix(event: NormalizedToolHistoryEvent): string {
+  const suffix = event.toolCalls
+    .map((call) => String(call.invocationId || call.providerCallId || "").trim())
+    .filter(Boolean)
+    .map((id) => `[toolcall:${id}]`)
+    .join("");
+  return suffix ? ` ${suffix}` : "";
+}
+
+function streamToolCallInlineSuffix(block: AssistantStreamBlock): string {
+  const suffix = (block.tools || [])
+    .map((tool) => String(tool.toolCallId || "").trim())
+    .filter(Boolean)
+    .map((id) => `[toolcall:${id}]`)
+    .join("");
+  return suffix ? ` ${suffix}` : "";
+}
+
+function assistantEventDisplayText(event: NormalizedToolHistoryEvent): string {
+  const text = String(event.text || "").trim();
+  if (!text) return "";
+  return isToolCallAssistantTextEvent(event) ? `${text}${toolCallInlineSuffix(event)}` : text;
+}
+
+function injectToolInlineMarkersIntoMergedText(text: string, events: NormalizedToolHistoryEvent[]): string {
+  let output = String(text || "");
+  for (const event of events) {
+    if (!isToolCallAssistantTextEvent(event)) continue;
+    const raw = String(event.text || "").trim();
+    if (!raw) continue;
+    const marked = `${raw}${toolCallInlineSuffix(event)}`;
+    if (output.includes(marked)) continue;
+    const index = output.indexOf(raw);
+    if (index < 0) continue;
+    output = `${output.slice(0, index)}${marked}${output.slice(index + raw.length)}`;
+  }
+  return output;
+}
+
 function chatActivityStats(
   items: ChatActivityItem[],
   running: boolean,
@@ -442,7 +487,13 @@ export function normalizeAssistantStreamBlocks(rawBlocks: unknown): AssistantStr
 
 export function assistantTextFromStreamBlocks(rawBlocks: unknown): string {
   return normalizeAssistantStreamBlocks(rawBlocks)
-    .map((block) => String(block.text || ""))
+    .map((block) => {
+      const text = String(block.text || "");
+      if (!text.trim()) return "";
+      return Array.isArray(block.tools) && block.tools.length > 0
+        ? `${text}${streamToolCallInlineSuffix(block)}`
+        : text;
+    })
     .filter((text) => text.length > 0)
     .join("\n\n");
 }
@@ -468,7 +519,7 @@ export function assistantStreamBlocksFromMessageForDisplay(
     }).filter((tool) => !!tool.toolCallId && !!tool.name);
     const block: AssistantStreamBlock = {
       reasoning: String(event.reasoningContent || ""),
-      text: String(event.text || ""),
+      text: assistantEventDisplayText(event),
       tools,
     };
     if (block.reasoning?.trim() || block.text?.trim() || tools.length > 0) {
@@ -503,14 +554,18 @@ export function assistantStreamBlocksFromMessageForDisplay(
 
 function mergedAssistantDisplayText(message: ChatMessage, fallbackText: string): string {
   const finalText = String(fallbackText || "");
-  const assistantHistoryTexts = normalizeMessageToolHistoryEvents(message, "display")
-    .filter((event) => event.role === "assistant")
-    .map((event) => String(event.text || "").trim())
+  const assistantEvents = normalizeMessageToolHistoryEvents(message, "display")
+    .filter((event) => event.role === "assistant");
+  const assistantHistoryTexts = assistantEvents
+    .map((event) => assistantEventDisplayText(event))
     .filter(Boolean);
   if (assistantHistoryTexts.length === 0) return finalText;
   if (!finalText.trim()) return assistantHistoryTexts.join("\n\n");
-  if (assistantHistoryTexts.every((text) => finalText.includes(text))) {
-    return finalText;
+  const rawAssistantTexts = assistantEvents
+    .map((event) => String(event.text || "").trim())
+    .filter(Boolean);
+  if (rawAssistantTexts.length > 0 && rawAssistantTexts.every((text) => finalText.includes(text))) {
+    return injectToolInlineMarkersIntoMergedText(finalText, assistantEvents);
   }
   return [...assistantHistoryTexts, finalText].join("\n\n");
 }
@@ -627,6 +682,7 @@ export function applyAssistantToolEventToStreamBlocks(
   } catch {
     return normalizeAssistantStreamBlocks(blocks);
   }
+  const assistantText = String(event.content || "").trim();
   const reasoning = String(event.reasoning_content || "").trim();
   const tools = (Array.isArray(event.tool_calls) ? event.tool_calls : [])
     .map((raw) => {
@@ -646,11 +702,14 @@ export function applyAssistantToolEventToStreamBlocks(
       };
     })
     .filter((tool): tool is { toolCallId: string; name: string; argsText: string; status: "doing" } => !!tool);
-  if (!reasoning && tools.length === 0) return normalizeAssistantStreamBlocks(blocks);
+  if (!assistantText && !reasoning && tools.length === 0) return normalizeAssistantStreamBlocks(blocks);
   if (blocks[blocks.length - 1]?.text?.trim()) {
     blocks.push({ reasoning: "", text: "", tools: [] });
   }
   const block = ensureAssistantStreamBlock(blocks);
+  if (assistantText && !String(block.text || "").trim()) {
+    block.text = assistantText;
+  }
   if (reasoning && !String(block.reasoning || "").trim()) {
     block.reasoning = reasoning;
   }

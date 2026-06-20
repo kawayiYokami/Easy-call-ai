@@ -14,6 +14,7 @@ export type MarkdownBlock =
 
 export type InlineSegment =
   | { type: "text"; text: string }
+  | { type: "toolcall_ref"; id: string; label: string }
   | { type: "code"; text: string }
   | { type: "math"; text: string }
   | { type: "link"; text: string; href: string }
@@ -225,13 +226,16 @@ export function parseMarkdownBlocks(input: string, streaming = false): MarkdownB
     }
   }
   flushParagraph();
-  return result.length > 0 ? result : [{ type: "paragraph", text: normalized, key: "fallback" }];
+  return result.length > 0
+    ? result
+    : [{ type: "paragraph", text: normalized, key: "fallback" }];
 }
 
 // ==================== Inline Parser ====================
 
 const URL_PATTERN = /(https?:\/\/[^\s<>()]+|file:\/\/\/[^\s<>()]+)/g;
 const MARKDOWN_LINK_PATTERN = /!?\[([^\]\n]*)\]\(([^)\n]+)\)/g;
+const TOOLCALL_REF_PATTERN = /\[toolcall:([^\]\n]+)\]/g;
 
 function trimTrailingUrlPunctuation(value: string): { href: string; trailing: string } {
   let href = value;
@@ -255,7 +259,8 @@ function pushTextSegment(segments: InlineSegment[], text: string) {
 
 type LinkMatch =
   | { kind: "markdown"; start: number; end: number; raw: string; text: string; href: string; image: boolean }
-  | { kind: "auto"; start: number; end: number; href: string };
+  | { kind: "auto"; start: number; end: number; href: string }
+  | { kind: "toolcall_ref"; start: number; end: number; raw: string; id: string };
 
 function pickEarlierLink(left: LinkMatch | null, right: LinkMatch | null): LinkMatch | null {
   if (!left) return right;
@@ -288,6 +293,26 @@ function nextAutoLink(input: string, from: number): LinkMatch | null {
     end: match.index + match[0].length,
     href: match[0],
   };
+}
+
+function nextToolcallRef(input: string, from: number): LinkMatch | null {
+  TOOLCALL_REF_PATTERN.lastIndex = from;
+  const match = TOOLCALL_REF_PATTERN.exec(input);
+  if (!match) return null;
+  return {
+    kind: "toolcall_ref",
+    start: match.index,
+    end: match.index + match[0].length,
+    raw: match[0],
+    id: String(match[1] || "").trim(),
+  };
+}
+
+function toolcallRefLabel(id: string): string {
+  const normalized = String(id || "").trim();
+  if (!normalized) return "?";
+  const numericSuffix = normalized.match(/(\d+)(?!.*\d)/);
+  return numericSuffix?.[1] || normalized;
 }
 
 function normalizeMarkdownHref(rawHref: string): string {
@@ -357,7 +382,8 @@ function parseLinksIntoSegments(input: string, segments: InlineSegment[]) {
   while (cursor < input.length) {
     const markdownLink = nextMarkdownLink(input, cursor);
     const autoLink = nextAutoLink(input, cursor);
-    const next = pickEarlierLink(markdownLink, autoLink);
+    const toolcallRef = nextToolcallRef(input, cursor);
+    const next = pickEarlierLink(pickEarlierLink(markdownLink, autoLink), toolcallRef);
     if (!next) break;
     pushEmphasisIntoSegments(input.slice(cursor, next.start), segments);
     if (next.kind === "markdown") {
@@ -371,10 +397,16 @@ function parseLinksIntoSegments(input: string, segments: InlineSegment[]) {
       } else {
         pushEmphasisIntoSegments(next.raw, segments);
       }
-    } else {
+    } else if (next.kind === "auto") {
       const { href, trailing } = trimTrailingUrlPunctuation(next.href);
       if (href) segments.push({ type: "link", href, text: href });
       pushEmphasisIntoSegments(trailing, segments);
+    } else {
+      segments.push({
+        type: "toolcall_ref",
+        id: next.id,
+        label: toolcallRefLabel(next.id),
+      });
     }
     cursor = next.end;
   }

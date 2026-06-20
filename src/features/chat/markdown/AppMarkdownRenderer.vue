@@ -71,7 +71,7 @@
 <script setup lang="ts">
 import { computed, defineComponent, h, onBeforeUnmount, ref, watch, type PropType, type VNodeChild } from "vue";
 import { useI18n } from "vue-i18n";
-import { Check, Copy, Maximize2 } from "@lucide/vue";
+import { Check, Copy, Maximize2, Wrench } from "@lucide/vue";
 import { invokeTauri } from "../../../services/tauri-api";
 import { isAbsoluteLocalPath, normalizeLocalLinkHref } from "../utils/local-link";
 import { parseMarkdownBlocks, parseInlineSegments, normalizedTableRow, type MarkdownBlock, type InlineSegment } from "./parse-markdown";
@@ -358,6 +358,17 @@ function renderSegments(segments: InlineSegment[], keyPrefix: string, localImage
   return segments.map((segment, index) => {
     if (segment.type === "code") {
       return h("code", { key: `${keyPrefix}-c-${index}`, class: "ecall-md-inline-code" }, segment.text);
+    }
+    if (segment.type === "toolcall_ref") {
+      return h("span", {
+        key: `${keyPrefix}-toolcall-${index}`,
+        class: "ecall-md-toolcall-ref",
+        title: `toolcall:${segment.id}`,
+        "data-toolcall-id": segment.id,
+        "aria-hidden": "true",
+      }, [
+        h(Wrench, { class: "ecall-md-toolcall-ref-icon" }),
+      ]);
     }
     if (segment.type === "math") {
       return h(InlineMath, { key: `${keyPrefix}-m-${index}`, text: segment.text });
@@ -720,6 +731,26 @@ h4.ecall-md-heading { font-size: 0.9rem; }
 .ecall-md-paragraph {
   margin: 0.25rem 0;
   white-space: pre-wrap;
+}
+
+.ecall-md-toolcall-ref {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.15rem;
+  height: 1.15rem;
+  margin-left: 0.18rem;
+  border-radius: 999px;
+  background: color-mix(in srgb, currentColor 10%, transparent);
+  color: color-mix(in srgb, currentColor 72%, transparent);
+  line-height: 1;
+  vertical-align: text-top;
+  white-space: nowrap;
+}
+
+.ecall-md-toolcall-ref-icon {
+  width: 0.72rem;
+  height: 0.72rem;
 }
 
 /* ==================== Blockquote ==================== */
