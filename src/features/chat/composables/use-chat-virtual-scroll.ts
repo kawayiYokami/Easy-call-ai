@@ -11,7 +11,6 @@ interface UseChatVirtualScrollOptions {
   latestOwnElasticItemId: Ref<string>;
   latestOwnElasticMinHeight: Ref<number>;
   debugEnabled?: Ref<boolean> | boolean;
-  smoothScrollEnabled?: Ref<boolean> | boolean;
   onUserScroll: () => void;
 }
 
@@ -24,7 +23,6 @@ export function useChatVirtualScroll(options: UseChatVirtualScrollOptions) {
     latestOwnElasticItemId,
     latestOwnElasticMinHeight,
     debugEnabled,
-    smoothScrollEnabled,
     onUserScroll,
   } = options;
 
@@ -82,13 +80,6 @@ export function useChatVirtualScroll(options: UseChatVirtualScrollOptions) {
     if (configuredDebugEnabled === false) return false;
     return window.localStorage.getItem("easy-call.debug.chat-virtual-scroll") === "1"
       || (window as any).__easyCallDebugChatVirtualScroll === true;
-  }
-
-  function nativeSmoothScrollEnabled(): boolean {
-    const configured = typeof smoothScrollEnabled === "object" && smoothScrollEnabled && "value" in smoothScrollEnabled
-      ? smoothScrollEnabled.value
-      : smoothScrollEnabled;
-    return configured !== false;
   }
 
   function debugVirtualScrollState(label: string) {
@@ -169,14 +160,8 @@ export function useChatVirtualScroll(options: UseChatVirtualScrollOptions) {
   // ==================== helpers ====================
 
   function stableBlockIdFromRenderItem(item: ChatRenderItem): string {
-    if (item.kind === "message" || item.kind === "compaction" || item.kind === "plan_started") {
-      return String(item.block.id || item.block.sourceMessageId || item.renderId || "").trim();
-    }
-    if (item.kind === "group") {
-      const first = item.items[0];
-      return String(first?.block.id || first?.block.sourceMessageId || first?.renderId || "").trim();
-    }
-    return "";
+    if (item.kind === "time_divider") return "";
+    return String(item.block.id || item.block.sourceMessageId || item.renderId || "").trim();
   }
 
   function findRenderItemIdByStableBlockId(stableBlockId: string): string {
@@ -340,12 +325,9 @@ export function useChatVirtualScroll(options: UseChatVirtualScrollOptions) {
       const itemId = String(entry.item.id || "").trim();
       if (!itemId) continue;
       validIds.add(itemId);
-      if (entry.item.kind === "message" || entry.item.kind === "group") {
-        const blocks = entry.item.kind === "message" ? [entry.item.block] : entry.item.items.map((g) => g.block);
-        blocks.forEach((block) => {
-          const blockId = String(block.id || "").trim();
-          if (blockId) validIds.add(blockId);
-        });
+      if (entry.item.kind === "message") {
+        const blockId = String(entry.item.block.id || "").trim();
+        if (blockId) validIds.add(blockId);
       }
     }
     for (const [itemId] of observedVirtualItemElements.entries()) {
@@ -416,26 +398,9 @@ export function useChatVirtualScroll(options: UseChatVirtualScrollOptions) {
     resetVirtualizerAtConversationBottom();
   }
 
-  // ==================== scroll helpers ====================
-
   function syncViewportMetrics() {
     scheduleVirtualMeasure();
     void nextTick(() => scrollbarRef.value?.updateThumb());
-  }
-
-  function alignItemToTop(itemId: string, behavior: ScrollBehavior = "smooth") {
-    const scrollEl = scrollContainer.value;
-    if (!scrollEl || !itemId) return;
-    const wrapper = observedVirtualItemElements.get(itemId);
-    if (!wrapper || !wrapper.isConnected) return;
-    const containerRect = scrollEl.getBoundingClientRect();
-    const wrapperRect = wrapper.getBoundingClientRect();
-    const scrollStyles = window.getComputedStyle(scrollEl);
-    const targetTop = parseFloat(scrollStyles.paddingTop || "0");
-    const nextTop = scrollEl.scrollTop + (wrapperRect.top - containerRect.top) - targetTop;
-    const resolvedBehavior: ScrollBehavior = behavior === "smooth" && !nativeSmoothScrollEnabled() ? "auto" : behavior;
-    scrollEl.scrollTo({ top: Math.max(0, nextTop), behavior: resolvedBehavior });
-    onUserScroll();
   }
 
   // ==================== lifecycle ====================
@@ -502,7 +467,6 @@ export function useChatVirtualScroll(options: UseChatVirtualScrollOptions) {
     scheduleVirtualMeasure,
     syncViewportMetrics,
     resetVirtualizerAtConversationBottom,
-    alignItemToTop,
     captureViewportAnchor,
     restoreViewportAnchor,
     setItemSizeScrollAdjustmentEnabled,

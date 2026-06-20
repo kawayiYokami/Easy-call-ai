@@ -126,41 +126,6 @@
                     />
                   </div>
                 </div>
-                <div v-else class="ecall-turn-group">
-                  <div class="ecall-turn-stack">
-                    <template v-for="groupItem in entry.item.items" :key="groupItem.renderId">
-                      <ChatMessageItem
-                        v-memo="[...messageMemoKey(groupItem.block, groupItem.renderId, groupItem.blockIndex, groupItem.compactWithPrevious), departmentNameMapSignature]"
-                        :active-conversation-id="activeConversationId" :block="groupItem.block"
-                        :selection-key="groupItem.renderId" :selection-mode-enabled="messageSelectionModeEnabled"
-                        :selected="selectedMessageRenderIdSet.has(groupItem.renderId)"
-                        :chatting="chatting" :busy="conversationInteractionBusy" :frozen="frozen"
-                        :user-alias="userAlias" :user-avatar-url="userAvatarUrl"
-                        :persona-name-map="personaNameMap" :persona-avatar-url-map="personaAvatarUrlMap"
-                        :department-name-map="departmentNameMap"
-                        :markdown-is-dark="markdownIsDark"
-                        :playing-audio-id="playingAudioId" :active-turn-user="false"
-                        :compact-with-previous="groupItem.compactWithPrevious"
-                        :can-regenerate="!sidebarMode && canRegenerateBlock(groupItem.block, groupItem.blockIndex)"
-                        :can-confirm-plan="canConfirmPlan(groupItem.block)"
-                        :read-plan-file-content="readPlanFileContent"
-                        :current-workspace-root-path="currentWorkspaceRootPath"
-                        :bubble-background-hidden="isBubbleBackgroundHidden(groupItem.block)"
-                        :hide-toggle-enabled="canToggleBubbleBackground(groupItem.block)"
-                        :disable-recall-and-branch-actions="activeConversationIsSystemNotification"
-                        :disable-markdown-render="sidebarMode"
-                        @create-conversation-branch-from-turn="$emit('createConversationBranchFromTurn', $event)"
-                        @recall-turn="$emit('recallTurn', $event)" @regenerate-turn="$emit('regenerateTurn', $event)"
-                        @confirm-plan="$emit('confirmPlan', $event)" @enter-selection-mode="handleEnterMessageSelectionMode"
-                        @toggle-message-selected="toggleMessageSelected" @copy-message="copyMessage"
-                        @open-image-preview="openImagePreview"
-                        @toggle-audio-playback="toggleAudioPlayback($event.id, $event.audio)"
-                        @assistant-link-click="handleAssistantLinkClick"
-                        @toggle-bubble-background="toggleBubbleBackground(groupItem.block)"
-                      />
-                    </template>
-                  </div>
-                </div>
               </div>
             </div>
 
@@ -917,7 +882,6 @@ const {
 } = useChatSelection({
   chatRenderItems: computed(() => chatRenderItems.value.flatMap((item) => {
     if (item.kind === "message") return [{ renderId: item.renderId, block: item.block }];
-    if (item.kind === "group") return item.items.map((g) => ({ renderId: g.renderId, block: g.block }));
     return [];
   })),
   messageSelectionModeEnabled,
@@ -974,7 +938,6 @@ const {
   latestOwnElasticItemId,
   latestOwnElasticMinHeight,
   debugEnabled: computed(() => !sidebarMode.value),
-  smoothScrollEnabled: computed(() => !sidebarMode.value),
   onUserScroll: () => onScroll(),
 });
 

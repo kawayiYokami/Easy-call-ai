@@ -40,13 +40,7 @@ export function useChatBlockTracking(
     if (!targetMessageId) return "";
     for (let idx = chatRenderItems.value.length - 1; idx >= 0; idx -= 1) {
       const item = chatRenderItems.value[idx];
-      if (item.kind === "message") {
-        if (blockBelongsToMessageId(item.block, targetMessageId)) return item.id;
-        continue;
-      }
-      if (item.kind === "group") {
-        if (item.items.some((groupItem) => blockBelongsToMessageId(groupItem.block, targetMessageId))) return item.id;
-      }
+      if (item.kind === "message" && blockBelongsToMessageId(item.block, targetMessageId)) return item.id;
     }
     return "";
   });
