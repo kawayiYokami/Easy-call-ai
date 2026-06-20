@@ -352,15 +352,41 @@ type ToolReviewGroup = {
   items: ToolReviewItemSummary[];
 };
 
+function isTerminalTool(toolName: string) {
+  const normalized = String(toolName || "").trim();
+  return normalized === "shell_exec" || normalized === "exec";
+}
+
+function isFileChangeTool(toolName: string) {
+  const normalized = String(toolName || "").trim();
+  return normalized === "apply_patch"
+    || normalized === "write"
+    || normalized === "delete"
+    || normalized === "update"
+    || normalized === "move";
+}
+
 const reviewGroups = computed<ToolReviewGroup[]>(() => {
   const terminalItems = [] as ToolReviewItemSummary[];
   const patchGroups = new Map<string, ToolReviewGroup>();
+  const otherGroups = new Map<string, ToolReviewGroup>();
   for (const item of currentBatch.value?.items ?? []) {
-    if (item.toolName === "shell_exec") {
+    if (isTerminalTool(item.toolName)) {
       terminalItems.push(item);
       continue;
     }
-    if (item.toolName !== "apply_patch") {
+    if (!isFileChangeTool(item.toolName)) {
+      const toolName = String(item.toolName || "").trim() || t("chat.toolReview.otherGroup");
+      const groupKey = `other:${toolName}`;
+      const group = otherGroups.get(groupKey) || {
+        key: groupKey,
+        title: toolName,
+        firstOrderIndex: Number(item.orderIndex || 0),
+        items: [],
+      };
+      group.firstOrderIndex = Math.min(group.firstOrderIndex, Number(item.orderIndex || 0));
+      group.items.push(item);
+      otherGroups.set(groupKey, group);
       continue;
     }
     const paths = Array.isArray(item.affectedPaths) ? item.affectedPaths.filter(Boolean) : [];
@@ -389,6 +415,11 @@ const reviewGroups = computed<ToolReviewGroup[]>(() => {
   }
   groups.push(
     ...Array.from(patchGroups.values())
+      .map((group) => ({ ...group, items: group.items.sort(sortByOrderIndex) }))
+      .sort((a, b) => a.firstOrderIndex - b.firstOrderIndex)
+  );
+  groups.push(
+    ...Array.from(otherGroups.values())
       .map((group) => ({ ...group, items: group.items.sort(sortByOrderIndex) }))
       .sort((a, b) => a.firstOrderIndex - b.firstOrderIndex)
   );

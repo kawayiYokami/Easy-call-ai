@@ -1470,6 +1470,7 @@
       "unevaluated": "Not assessed",
       "terminalGroup": "Terminal",
       "terminalCommand": "Command",
+      "otherGroup": "Other tools",
       "patchMultiFileGroup": "Multi-file changes",
       "patchUnknownFileGroup": "Unknown file",
       "patchOperationAdd": "Create",

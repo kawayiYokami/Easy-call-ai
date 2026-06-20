@@ -59,11 +59,25 @@ const { t } = useI18n();
 const changesDialogRef = ref<{ openChangesDialog: () => void; closeChangesDialog: () => void } | null>(null);
 const pendingOpen = ref(false);
 
+function isTerminalTool(toolName: string) {
+  const normalized = String(toolName || "").trim();
+  return normalized === "shell_exec" || normalized === "exec";
+}
+
+function isFileChangeTool(toolName: string) {
+  const normalized = String(toolName || "").trim();
+  return normalized === "apply_patch"
+    || normalized === "write"
+    || normalized === "delete"
+    || normalized === "update"
+    || normalized === "move";
+}
+
 const title = computed(() => {
-  if (props.item.toolName === "shell_exec") {
+  if (isTerminalTool(props.item.toolName)) {
     return String(props.item.command || "").trim() || t("chat.toolReview.terminalCommand");
   }
-  if (props.item.toolName === "apply_patch") {
+  if (isFileChangeTool(props.item.toolName)) {
     const fileName = patchFileName();
     const operation = patchOperationLabel(props.item.patchOperation);
     return fileName ? `${operation} ${fileName}` : operation;

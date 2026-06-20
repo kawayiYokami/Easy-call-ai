@@ -1459,6 +1459,7 @@
       "unevaluated": "未评估",
       "terminalGroup": "终端",
       "terminalCommand": "命令",
+      "otherGroup": "其他工具",
       "patchMultiFileGroup": "多文件改动",
       "patchUnknownFileGroup": "未识别文件",
       "patchOperationAdd": "新建",

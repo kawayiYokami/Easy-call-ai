@@ -1463,6 +1463,7 @@
       "unevaluated": "未評估",
       "terminalGroup": "終端",
       "terminalCommand": "命令",
+      "otherGroup": "其他工具",
       "patchMultiFileGroup": "多檔案改動",
       "patchUnknownFileGroup": "未識別檔案",
       "patchOperationAdd": "新建",
