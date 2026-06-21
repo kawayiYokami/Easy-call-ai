@@ -1634,6 +1634,17 @@ async fn builtin_apply_patch_with_name(
             }
         }
     };
+    runtime_log_info(format!(
+        "[补丁执行] 备份记录状态，任务=apply_patch，session={}，entry_count={}，record_id={}，record_path={}，changed_count={}",
+        normalized_session,
+        backup_record.entries.len(),
+        backup_record.record_id,
+        record_path
+            .as_ref()
+            .map(|path| terminal_path_for_user(path))
+            .unwrap_or_else(|| "(none)".to_string()),
+        outcome.changed.len()
+    ));
     let elapsed_ms = started.elapsed().as_millis().min(u128::from(u64::MAX)) as u64;
     if let Some(failure) = outcome.failure {
         eprintln!(

@@ -3893,7 +3893,11 @@ async fn send_chat_message_inner(
                     },
                 )?;
                 persisted_assistant_message = conversation_service_v2()
-                    .get_message_by_id(&state, &conversation_id, &assistant_message_id)
+                    .get_message_by_id_for_frontend_display_only(
+                        &state,
+                        &conversation_id,
+                        &assistant_message_id,
+                    )
                     .ok();
                 runtime_log_debug(format!(
                     "[表情替换] 提交后，conversation_id={}，assistant_message_id={}，persisted_annotation_count={}，persisted_tokens=[{}]",

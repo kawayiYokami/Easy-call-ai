@@ -36,6 +36,70 @@ fn collect_backup_record_ids_from_messages(messages: &[ChatMessage]) -> Vec<Stri
     ids
 }
 
+fn collect_tool_result_diagnostics_from_messages(
+    messages: &[ChatMessage],
+) -> (usize, usize, usize, usize, usize, Vec<String>) {
+    let mut message_count_with_tool_call = 0usize;
+    let mut tool_event_count = 0usize;
+    let mut parseable_tool_event_count = 0usize;
+    let mut tool_event_with_backup_id_count = 0usize;
+    let mut empty_content_tool_event_count = 0usize;
+    let mut tool_names = Vec::<String>::new();
+    for message in messages {
+        let Some(events) = message.tool_call.as_ref() else {
+            continue;
+        };
+        message_count_with_tool_call = message_count_with_tool_call.saturating_add(1);
+        for event in events {
+            let role = event.get("role").and_then(Value::as_str).unwrap_or_default();
+            if role != "tool" {
+                continue;
+            }
+            tool_event_count = tool_event_count.saturating_add(1);
+            let content = event
+                .get("content")
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .unwrap_or_default();
+            if content.is_empty() {
+                empty_content_tool_event_count = empty_content_tool_event_count.saturating_add(1);
+                continue;
+            }
+            let Ok(value) = serde_json::from_str::<Value>(content) else {
+                continue;
+            };
+            parseable_tool_event_count = parseable_tool_event_count.saturating_add(1);
+            if let Some(tool_name) = value
+                .get("tool")
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+            {
+                if !tool_names.iter().any(|item| item == tool_name) {
+                    tool_names.push(tool_name.to_string());
+                }
+            }
+            if value
+                .get("backupRecordId")
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .is_some()
+            {
+                tool_event_with_backup_id_count = tool_event_with_backup_id_count.saturating_add(1);
+            }
+        }
+    }
+    (
+        message_count_with_tool_call,
+        tool_event_count,
+        parseable_tool_event_count,
+        tool_event_with_backup_id_count,
+        empty_content_tool_event_count,
+        tool_names,
+    )
+}
+
 /// 按 backupRecordId 列表恢复文件（逆序执行，最后的补丁先撤回）。
 /// 返回 (恢复文件总数, 有非LLM修改被覆盖的文件列表)。
 fn try_undo_apply_patch_from_removed_messages(
@@ -43,6 +107,29 @@ fn try_undo_apply_patch_from_removed_messages(
     removed_messages: &[ChatMessage],
 ) -> Result<(usize, Vec<String>), String> {
     let ids = collect_backup_record_ids_from_messages(removed_messages);
+    let (
+        message_count_with_tool_call,
+        tool_event_count,
+        parseable_tool_event_count,
+        tool_event_with_backup_id_count,
+        empty_content_tool_event_count,
+        tool_names,
+    ) = collect_tool_result_diagnostics_from_messages(removed_messages);
+    runtime_log_info(format!(
+        "[会话撤回] 工具备份诊断，任务=try_undo_apply_patch_from_removed_messages，removed_messages={}，messages_with_tool_call={}，tool_events={}，parseable_tool_events={}，tool_events_with_backup_id={}，empty_content_tool_events={}，backup_record_ids={}，tool_names={}",
+        removed_messages.len(),
+        message_count_with_tool_call,
+        tool_event_count,
+        parseable_tool_event_count,
+        tool_event_with_backup_id_count,
+        empty_content_tool_event_count,
+        ids.len(),
+        if tool_names.is_empty() {
+            "(none)".to_string()
+        } else {
+            tool_names.join(",")
+        }
+    ));
     if ids.is_empty() {
         return Ok((0, Vec::new()));
     }
@@ -127,6 +214,11 @@ fn cleanup_backup_records_from_messages(
     messages: &[ChatMessage],
 ) -> Result<usize, String> {
     let ids = collect_backup_record_ids_from_messages(messages);
+    runtime_log_info(format!(
+        "[apply_patch清理] 收集备份记录，messages={}，backup_record_ids={}",
+        messages.len(),
+        ids.len()
+    ));
     if ids.is_empty() {
         return Ok(0);
     }

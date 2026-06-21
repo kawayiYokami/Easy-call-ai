@@ -2243,7 +2243,7 @@ fn get_unarchived_conversation_recent_messages(
     if conversation_id.is_empty() {
         return Err("conversationId is required.".to_string());
     }
-    conversation_service_v2().get_recent_messages(
+    conversation_service_v2().get_recent_messages_for_frontend_display_only(
         state.inner(),
         conversation_id,
         input.limit,
@@ -2263,7 +2263,11 @@ fn get_unarchived_conversation_message_by_id(
     if message_id.is_empty() {
         return Err("messageId is required.".to_string());
     }
-    conversation_service_v2().get_message_by_id(state.inner(), conversation_id, message_id)
+    conversation_service_v2().get_message_by_id_for_frontend_display_only(
+        state.inner(),
+        conversation_id,
+        message_id,
+    )
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -2298,7 +2302,7 @@ fn get_delegate_conversation_messages(
         .map(|conversation| conversation.messages.clone())
         .ok_or_else(|| "Delegate conversation not found.".to_string())?;
     materialize_chat_message_parts_from_media_refs(&mut messages, &state.data_path);
-    Ok(frontend_project_messages(messages))
+    Ok(project_messages_for_frontend_display_only(messages))
 }
 
 #[tauri::command]
@@ -2324,7 +2328,7 @@ fn get_delegate_conversation_block_page_inner(
     )?
     .ok_or_else(|| "Delegate conversation not found.".to_string())?;
     materialize_chat_message_parts_from_media_refs(&mut page.messages, &state.data_path);
-    page.messages = frontend_project_messages(page.messages);
+    page.messages = project_messages_for_frontend_display_only(page.messages);
     Ok(conversation_block_page_output_from_message_store_page(page))
 }
 

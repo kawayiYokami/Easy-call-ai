@@ -4695,7 +4695,7 @@ fn ide_chat_conversation_open_result(state: &AppState, conversation_id: &str) ->
     if !conversation_meta.summary.trim().is_empty() {
         return Err("conversation is archived".to_string());
     }
-    let messages = conversation_service_v2().get_recent_messages(
+    let messages = conversation_service_v2().get_recent_messages_for_frontend_display_only(
         state,
         conversation_id,
         DEFAULT_FOREGROUND_SNAPSHOT_RECENT_LIMIT,

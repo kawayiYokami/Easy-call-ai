@@ -304,9 +304,12 @@ impl ConversationMetaView {
     }
 }
 
-const FRONTEND_TOOL_RESULT_PLACEHOLDER_TEXT: &str = "工具已执行，结果已省略。";
+const FRONTEND_MESSAGE_DISPLAY_TOOL_RESULT_PLACEHOLDER_TEXT: &str = "工具已执行，结果已省略。";
 
-fn frontend_sanitize_tool_history_event(event: &Value) -> Value {
+// 前端消息展示专用：这里会把 tool result 正文替换成占位文案。
+// 禁止任何写路径、撤回路径、持久化路径复用本函数或其返回值，
+// 否则会把原始 tool metadata（如 backupRecordId）污染掉。
+fn project_tool_history_event_for_frontend_message_display_only(event: &Value) -> Value {
     let Some(object) = event.as_object() else {
         return event.clone();
     };
@@ -327,7 +330,7 @@ fn frontend_sanitize_tool_history_event(event: &Value) -> Value {
     let mut sanitized = object.clone();
     sanitized.insert(
         "content".to_string(),
-        Value::String(FRONTEND_TOOL_RESULT_PLACEHOLDER_TEXT.to_string()),
+        Value::String(FRONTEND_MESSAGE_DISPLAY_TOOL_RESULT_PLACEHOLDER_TEXT.to_string()),
     );
     sanitized.insert("contentOmitted".to_string(), Value::Bool(true));
     if !tool_call_id.is_empty() {
@@ -339,11 +342,13 @@ fn frontend_sanitize_tool_history_event(event: &Value) -> Value {
     Value::Object(sanitized)
 }
 
-fn frontend_project_message(mut message: ChatMessage) -> ChatMessage {
+// 前端消息展示专用：只用于返回给前端渲染层的消息投影。
+// 禁止把本函数返回的消息再写回仓库；需要写回时必须使用原始消息读取函数。
+fn project_message_for_frontend_display_only(mut message: ChatMessage) -> ChatMessage {
     if let Some(events) = message.tool_call.take() {
         let projected = events
             .into_iter()
-            .map(|event| frontend_sanitize_tool_history_event(&event))
+            .map(|event| project_tool_history_event_for_frontend_message_display_only(&event))
             .collect::<Vec<_>>();
         message.tool_call = if projected.is_empty() {
             None
@@ -354,8 +359,12 @@ fn frontend_project_message(mut message: ChatMessage) -> ChatMessage {
     message
 }
 
-fn frontend_project_messages(messages: Vec<ChatMessage>) -> Vec<ChatMessage> {
-    messages.into_iter().map(frontend_project_message).collect()
+// 前端消息展示专用：批量消息投影，语义同 `project_message_for_frontend_display_only`。
+fn project_messages_for_frontend_display_only(messages: Vec<ChatMessage>) -> Vec<ChatMessage> {
+    messages
+        .into_iter()
+        .map(project_message_for_frontend_display_only)
+        .collect()
 }
 
 fn assistant_message_has_final_text(message: &ChatMessage) -> bool {
@@ -628,7 +637,11 @@ impl ConversationServiceV2 {
         if !conversation_meta.preview_messages.is_empty() {
             return conversation_meta.clone();
         }
-        let fallback_messages = match self.get_recent_messages(state, &conversation_meta.id, 2) {
+        let fallback_messages = match self.get_recent_messages_for_frontend_display_only(
+            state,
+            &conversation_meta.id,
+            2,
+        ) {
             Ok(messages) => messages,
             Err(_) => return conversation_meta.clone(),
         };
@@ -741,7 +754,8 @@ impl ConversationServiceV2 {
         conversation_id: &str,
         assistant_message_id: &str,
     ) -> Result<ChatMessage, String> {
-        let target_message = self.get_message_by_id(state, conversation_id, assistant_message_id)?;
+        let target_message =
+            self.get_raw_message_by_id(state, conversation_id, assistant_message_id)?;
         if target_message.role.trim() != "assistant" {
             return Err(
                 ConversationServiceV2Error::new(
@@ -754,7 +768,7 @@ impl ConversationServiceV2 {
                 .into_string(),
             );
         }
-        let recent_messages = self.get_recent_messages(state, conversation_id, 1)?;
+        let recent_messages = self.get_raw_recent_messages(state, conversation_id, 1)?;
         let Some(last_message) = recent_messages.last() else {
             return Err(
                 ConversationServiceV2Error::new(
@@ -782,6 +796,63 @@ impl ConversationServiceV2 {
             );
         }
         Ok(target_message)
+    }
+
+    fn get_raw_recent_messages(
+        &self,
+        state: &AppState,
+        conversation_id: &str,
+        limit: usize,
+    ) -> Result<Vec<ChatMessage>, String> {
+        let normalized_limit = limit.clamp(1, 50);
+        let store_paths = message_store::message_store_paths(&state.data_path, conversation_id)?;
+        let mut messages = if let Some(page) =
+            message_store::read_ready_message_store_recent_messages_page_cached(
+                &store_paths,
+                normalized_limit,
+            )?
+        {
+            page.messages
+        } else {
+            let conversation = state_read_conversation_cached(state, conversation_id)?;
+            self.ensure_unarchived_conversation(&conversation, conversation_id)?;
+            let total = conversation.messages.len();
+            let start = total.saturating_sub(normalized_limit);
+            conversation.messages[start..].to_vec()
+        };
+        materialize_chat_message_parts_from_media_refs(&mut messages, &state.data_path);
+        Ok(messages)
+    }
+
+    fn get_raw_message_by_id(
+        &self,
+        state: &AppState,
+        conversation_id: &str,
+        message_id: &str,
+    ) -> Result<ChatMessage, String> {
+        let normalized_conversation_id = conversation_id.trim();
+        if normalized_conversation_id.is_empty() {
+            return Err("conversationId is required.".to_string());
+        }
+        let normalized_message_id = message_id.trim();
+        if normalized_message_id.is_empty() {
+            return Err("messageId is required.".to_string());
+        }
+        let store_paths =
+            message_store::message_store_paths(&state.data_path, normalized_conversation_id)?;
+        ensure_ready_message_store_from_legacy_conversation(
+            state,
+            normalized_conversation_id,
+            &store_paths,
+        )?;
+        let mut message =
+            message_store::read_ready_message_store_message_by_id(&store_paths, normalized_message_id)?
+                .ok_or_else(|| format!("Message not found: {normalized_message_id}"))?;
+        materialize_chat_message_parts_from_media_refs(
+            std::slice::from_mut(&mut message),
+            &state.data_path,
+        );
+        Ok(message)
     }
 
     fn conversation_has_active_chat_view(
@@ -1387,8 +1458,8 @@ impl ConversationServiceV2 {
                 }
                 Some(ChatSnapshot {
                     conversation_id: conversation_id.clone(),
-                    latest_user: latest_user.map(frontend_project_message),
-                    latest_assistant: latest_assistant.map(frontend_project_message),
+                    latest_user: latest_user.map(project_message_for_frontend_display_only),
+                    latest_assistant: latest_assistant.map(project_message_for_frontend_display_only),
                     active_message_count: snapshot.active_message_count,
                 })
             } else {
@@ -1421,8 +1492,8 @@ impl ConversationServiceV2 {
                         }
                         ChatSnapshot {
                             conversation_id: conversation.id.clone(),
-                            latest_user: latest_user.map(frontend_project_message),
-                            latest_assistant: latest_assistant.map(frontend_project_message),
+                            latest_user: latest_user.map(project_message_for_frontend_display_only),
+                            latest_assistant: latest_assistant.map(project_message_for_frontend_display_only),
                             active_message_count: conversation.messages.len(),
                         }
                     })
@@ -1487,8 +1558,8 @@ impl ConversationServiceV2 {
                 }
                 return Ok(ChatSnapshot {
                     conversation_id,
-                    latest_user: latest_user.map(frontend_project_message),
-                    latest_assistant: latest_assistant.map(frontend_project_message),
+                    latest_user: latest_user.map(project_message_for_frontend_display_only),
+                    latest_assistant: latest_assistant.map(project_message_for_frontend_display_only),
                     active_message_count: snapshot.active_message_count,
                 });
             }
@@ -1579,7 +1650,7 @@ impl ConversationServiceV2 {
                         })
                         .collect(),
                     selected_block_id: page.selected_block_id,
-                    messages: frontend_project_messages(messages),
+                    messages: project_messages_for_frontend_display_only(messages),
                     has_prev_block: page.has_prev_block,
                     has_next_block: page.has_next_block,
                 });
@@ -1604,37 +1675,23 @@ impl ConversationServiceV2 {
                     is_latest: true,
                 }],
                 selected_block_id: 0,
-                messages: frontend_project_messages(messages),
+                messages: project_messages_for_frontend_display_only(messages),
                 has_prev_block: false,
                 has_next_block: false,
             })
         })
     }
 
-    fn get_recent_messages(
+    // 前端消息展示专用读取：返回值已经做过展示投影，禁止写路径/撤回路径复用。
+    fn get_recent_messages_for_frontend_display_only(
         &self,
         state: &AppState,
         conversation_id: &str,
         limit: usize,
     ) -> Result<Vec<ChatMessage>, String> {
-        let normalized_limit = limit.clamp(1, 50);
-        let store_paths = message_store::message_store_paths(&state.data_path, conversation_id)?;
-        let mut messages = if let Some(page) =
-            message_store::read_ready_message_store_recent_messages_page_cached(
-                &store_paths,
-                normalized_limit,
-            )?
-        {
-            page.messages
-        } else {
-            let conversation = state_read_conversation_cached(state, conversation_id)?;
-            self.ensure_unarchived_conversation(&conversation, conversation_id)?;
-            let total = conversation.messages.len();
-            let start = total.saturating_sub(normalized_limit);
-            conversation.messages[start..].to_vec()
-        };
-        materialize_chat_message_parts_from_media_refs(&mut messages, &state.data_path);
-        Ok(frontend_project_messages(messages))
+        Ok(project_messages_for_frontend_display_only(
+            self.get_raw_recent_messages(state, conversation_id, limit)?,
+        ))
     }
 
     fn get_all_messages(
@@ -1647,7 +1704,7 @@ impl ConversationServiceV2 {
                 Ok(conversation.messages.clone())
             })?;
         materialize_chat_message_parts_from_media_refs(&mut messages, &state.data_path);
-        Ok(frontend_project_messages(messages))
+        Ok(project_messages_for_frontend_display_only(messages))
     }
 
     fn get_recent_block_messages(
@@ -1671,7 +1728,7 @@ impl ConversationServiceV2 {
             conversation.messages[start..].to_vec()
         };
         materialize_chat_message_parts_from_media_refs(&mut messages, &state.data_path);
-        Ok(frontend_project_messages(messages))
+        Ok(project_messages_for_frontend_display_only(messages))
     }
 
     fn get_active_conversation_messages(
@@ -1685,35 +1742,16 @@ impl ConversationServiceV2 {
         self.get_all_messages(state, &conversation_id)
     }
 
-    fn get_message_by_id(
+    // 前端消息展示专用读取：返回值已经做过展示投影，禁止写路径/撤回路径复用。
+    fn get_message_by_id_for_frontend_display_only(
         &self,
         state: &AppState,
         conversation_id: &str,
         message_id: &str,
     ) -> Result<ChatMessage, String> {
-        let normalized_conversation_id = conversation_id.trim();
-        if normalized_conversation_id.is_empty() {
-            return Err("conversationId is required.".to_string());
-        }
-        let normalized_message_id = message_id.trim();
-        if normalized_message_id.is_empty() {
-            return Err("messageId is required.".to_string());
-        }
-        let store_paths =
-            message_store::message_store_paths(&state.data_path, normalized_conversation_id)?;
-        ensure_ready_message_store_from_legacy_conversation(
-            state,
-            normalized_conversation_id,
-            &store_paths,
-        )?;
-        let mut message =
-            message_store::read_ready_message_store_message_by_id(&store_paths, normalized_message_id)?
-                .ok_or_else(|| format!("Message not found: {normalized_message_id}"))?;
-        materialize_chat_message_parts_from_media_refs(
-            std::slice::from_mut(&mut message),
-            &state.data_path,
-        );
-        Ok(frontend_project_message(message))
+        Ok(project_message_for_frontend_display_only(
+            self.get_raw_message_by_id(state, conversation_id, message_id)?,
+        ))
     }
 
     fn read_messages_before_internal(
@@ -1788,7 +1826,7 @@ impl ConversationServiceV2 {
         };
 
         materialize_chat_message_parts_from_media_refs(&mut page, &state.data_path);
-        Ok((frontend_project_messages(page), has_more))
+        Ok((project_messages_for_frontend_display_only(page), has_more))
     }
 
     fn read_messages_after_internal(
@@ -1863,7 +1901,7 @@ impl ConversationServiceV2 {
         };
 
         materialize_chat_message_parts_from_media_refs(&mut page, &state.data_path);
-        Ok(frontend_project_messages(page))
+        Ok(project_messages_for_frontend_display_only(page))
     }
 
     fn get_messages_before(
@@ -1988,7 +2026,7 @@ impl ConversationServiceV2 {
             })?
         };
         materialize_chat_message_parts_from_media_refs(&mut page, &state.data_path);
-        Ok((frontend_project_messages(page), fallback_mode))
+        Ok((project_messages_for_frontend_display_only(page), fallback_mode))
     }
 
     fn append_message(
@@ -2496,7 +2534,7 @@ impl ConversationServiceV2 {
         };
 
         materialize_chat_message_parts_from_media_refs(&mut snapshot.messages, &state.data_path);
-        snapshot.messages = frontend_project_messages(snapshot.messages);
+        snapshot.messages = project_messages_for_frontend_display_only(snapshot.messages);
         Ok(snapshot)
     }
 
@@ -2835,6 +2873,15 @@ impl ConversationServiceV2 {
             .iter()
             .filter(|record_id| apply_patch_record_path(&state.data_path, record_id).exists())
             .count();
+        runtime_log_info(format!(
+            "[会话撤回] 预览诊断，任务=preview_rewind_conversation，conversation_id={}，message_id={}，removed_messages={}，backup_record_ids={}，existing_backup_count={}，missing_backup_count={}",
+            conversation_id,
+            message_id,
+            rewind_state.removed_messages.len(),
+            backup_record_ids.len(),
+            existing_backup_count,
+            backup_record_ids.len().saturating_sub(existing_backup_count)
+        ));
         drop(guard);
 
         if existing_backup_count > 0 {
@@ -4760,7 +4807,7 @@ impl ConversationServiceV2 {
             })?
         };
         materialize_chat_message_parts_from_media_refs(&mut messages, &state.data_path);
-        Ok(frontend_project_messages(messages))
+        Ok(project_messages_for_frontend_display_only(messages))
     }
 
     fn get_remote_im_contact_conversation_block_page(
@@ -4838,7 +4885,7 @@ impl ConversationServiceV2 {
                     })
                     .collect(),
                 selected_block_id: page.selected_block_id,
-                messages: frontend_project_messages(messages),
+                messages: project_messages_for_frontend_display_only(messages),
                 has_prev_block: page.has_prev_block,
                 has_next_block: page.has_next_block,
             });
@@ -4864,7 +4911,7 @@ impl ConversationServiceV2 {
                 is_latest: true,
             }],
             selected_block_id: 0,
-            messages: frontend_project_messages(messages),
+            messages: project_messages_for_frontend_display_only(messages),
             has_prev_block: false,
             has_next_block: false,
         })
@@ -6430,7 +6477,7 @@ impl ConversationServiceV2 {
         conversation_id: &str,
         message_id: &str,
     ) -> Result<ChatMessage, String> {
-        self.get_message_by_id(state, conversation_id, message_id)
+        self.get_message_by_id_for_frontend_display_only(state, conversation_id, message_id)
     }
 
     #[cfg(test)]
@@ -6709,7 +6756,7 @@ impl ConversationServiceV2 {
             return Err("speakerAgentId is required.".to_string());
         }
         if self
-            .get_message_by_id(state, conversation_id, assistant_message_id)
+            .get_message_by_id_for_frontend_display_only(state, conversation_id, assistant_message_id)
             .is_ok()
         {
             return Ok(AssistantMessageBootstrapResult {

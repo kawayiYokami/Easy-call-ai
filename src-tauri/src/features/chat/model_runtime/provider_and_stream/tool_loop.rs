@@ -872,11 +872,45 @@ fn persist_completed_tool_group_result(
     tool_result_event: Value,
 ) -> Result<(), String> {
     let Some(state) = state else {
+        runtime_log_warn(format!(
+            "[聊天] 跳过工具结果写历史，任务=append_tool_group_result，reason=state_missing，session={}",
+            chat_session_key
+        ));
         return Ok(());
     };
     let Some(context) = context else {
+        runtime_log_warn(format!(
+            "[聊天] 跳过工具结果写历史，任务=append_tool_group_result，reason=context_missing，session={}",
+            chat_session_key
+        ));
         return Ok(());
     };
+    let tool_name = assistant_tool_call_event
+        .get("tool_calls")
+        .and_then(Value::as_array)
+        .and_then(|calls| calls.first())
+        .and_then(|call| call.get("function"))
+        .and_then(|func| func.get("name"))
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or("unknown")
+        .to_string();
+    let backup_record_id = tool_result_event
+        .get("content")
+        .and_then(Value::as_str)
+        .and_then(|content| serde_json::from_str::<Value>(content).ok())
+        .and_then(|value| value.get("backupRecordId").and_then(Value::as_str).map(str::trim).map(str::to_string))
+        .filter(|value| !value.is_empty());
+    let has_backup_record_id = backup_record_id.is_some();
+    runtime_log_info(format!(
+        "[聊天] 准备写入工具结果历史，任务=append_tool_group_result，session={}，conversation_id={}，tool_name={}，has_backup_record_id={}，backup_record_id={}",
+        chat_session_key,
+        context.conversation_id,
+        tool_name,
+        has_backup_record_id,
+        backup_record_id.as_deref().unwrap_or("(none)")
+    ));
     let provider_meta_patch =
         tool_result_provider_meta_patch(trusted_input_tokens, selected_api.context_window_tokens);
 
@@ -923,11 +957,13 @@ fn persist_completed_tool_group_result(
                 &result.0,
             );
             runtime_log_info(format!(
-                "[聊天] 完成，任务=append_tool_group_result，session={}，conversation_id={}，assistant_message_id={}，tool_event_count={}",
+                "[聊天] 完成，任务=append_tool_group_result，session={}，conversation_id={}，assistant_message_id={}，tool_event_count={}，tool_name={}，has_backup_record_id={}",
                 chat_session_key,
                 context.conversation_id,
                 result.0,
-                result.1
+                result.1,
+                tool_name,
+                has_backup_record_id
             ));
             Ok(())
         }

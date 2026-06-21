@@ -313,7 +313,7 @@ async fn confirm_plan_and_continue_inner(
     if plan_message_id.is_empty() {
         return Err("planMessageId is required.".to_string());
     }
-    let plan_message = conversation_service_v2().get_message_by_id(
+    let plan_message = conversation_service_v2().get_message_by_id_for_frontend_display_only(
         state,
         conversation_id,
         plan_message_id,
@@ -1059,7 +1059,7 @@ fn emit_conversation_message_appended_event(
     };
     let payload = ConversationMessageAppendedPayload {
         conversation_id: conversation_id.to_string(),
-        message: frontend_project_message(message.clone()),
+        message: project_message_for_frontend_display_only(message.clone()),
     };
     ide_chat_broadcast_notification("conversation.messageAppended", serde_json::json!(&payload));
     if let Err(err) = app_handle.emit(CHAT_CONVERSATION_MESSAGE_APPENDED_EVENT, payload) {
