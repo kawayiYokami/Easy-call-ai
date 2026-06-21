@@ -502,8 +502,12 @@ export function useChatConversationSync(bindings: Record<string, any>) {
     updateForegroundConversationOverviewFromMessages(conversationId, message);
   }
 
-  function applyConversationSnapshot(snapshot: Record<string, any>) {
+  function applyConversationSnapshot(
+    snapshot: Record<string, any>,
+    options?: { preserveExistingHistory?: boolean },
+  ) {
     const nextConversationId = String(snapshot.conversationId || "").trim();
+    const currentConversationId = String(bindings.currentChatConversationId.value || "").trim();
     const detachedConversationId = String(bindings.detachedChatConversationId.value || "").trim();
     if (
       bindings.detachedChatWindow.value
@@ -518,6 +522,10 @@ export function useChatConversationSync(bindings: Record<string, any>) {
       });
       return;
     }
+    const preserveExistingHistory =
+      !!options?.preserveExistingHistory
+      && !!nextConversationId
+      && nextConversationId === currentConversationId;
     const runtimeState = String(snapshot.runtimeState || "").trim();
     const streamCache = bindings.readConversationStreamCache(nextConversationId);
     const streamCacheVisibleProgress = !!streamCache?.hasVisibleProgress;
@@ -545,7 +553,10 @@ export function useChatConversationSync(bindings: Record<string, any>) {
         ];
       }
     }
-    const nextMessages = reuseStableMessageReferences(rawNextMessages, bindings.allMessages.value);
+    const mergedMessages = preserveExistingHistory
+      ? mergeMessagesIntoTimeline(bindings.allMessages.value, rawNextMessages)
+      : rawNextMessages;
+    const nextMessages = reuseStableMessageReferences(mergedMessages, bindings.allMessages.value);
     bindings.currentChatConversationId.value = nextConversationId;
     bindings.currentChatPreferredApiConfigId.value = String(snapshot.preferredApiConfigId || "").trim();
     bindings.currentChatTodos.value = Array.isArray(snapshot.currentTodos)
