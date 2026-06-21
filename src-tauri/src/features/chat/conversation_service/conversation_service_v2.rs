@@ -1627,11 +1627,11 @@ impl ConversationServiceV2 {
         {
             page.messages
         } else {
-            self.with_unarchived_conversation_by_id_fast(state, conversation_id, |conversation| {
-                let total = conversation.messages.len();
-                let start = total.saturating_sub(normalized_limit);
-                Ok(conversation.messages[start..].to_vec())
-            })?
+            let conversation = state_read_conversation_cached(state, conversation_id)?;
+            self.ensure_unarchived_conversation(&conversation, conversation_id)?;
+            let total = conversation.messages.len();
+            let start = total.saturating_sub(normalized_limit);
+            conversation.messages[start..].to_vec()
         };
         materialize_chat_message_parts_from_media_refs(&mut messages, &state.data_path);
         Ok(frontend_project_messages(messages))
@@ -1664,11 +1664,11 @@ impl ConversationServiceV2 {
         {
             page.messages
         } else {
-            self.with_unarchived_conversation_by_id_fast(state, conversation_id, |conversation| {
-                let total = conversation.messages.len();
-                let start = total.saturating_sub(DEFAULT_FOREGROUND_SNAPSHOT_RECENT_LIMIT);
-                Ok(conversation.messages[start..].to_vec())
-            })?
+            let conversation = state_read_conversation_cached(state, conversation_id)?;
+            self.ensure_unarchived_conversation(&conversation, conversation_id)?;
+            let total = conversation.messages.len();
+            let start = total.saturating_sub(DEFAULT_FOREGROUND_SNAPSHOT_RECENT_LIMIT);
+            conversation.messages[start..].to_vec()
         };
         materialize_chat_message_parts_from_media_refs(&mut messages, &state.data_path);
         Ok(frontend_project_messages(messages))

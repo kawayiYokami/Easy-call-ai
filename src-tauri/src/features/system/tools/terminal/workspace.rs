@@ -387,7 +387,7 @@ fn normalize_conversation_shell_workspaces(
         let mut workspace = raw.clone();
         workspace.path = normalized_path;
         workspace.id = workspace.id.trim().to_string();
-        workspace.name = workspace.name.trim().to_string();
+        workspace.name = shell_workspace_display_name_fallback(&candidate);
         workspace.level = if normalize_shell_workspace_level_text(&workspace.level) == SHELL_WORKSPACE_LEVEL_MAIN {
             SHELL_WORKSPACE_LEVEL_MAIN.to_string()
         } else {
@@ -409,9 +409,7 @@ fn normalize_conversation_shell_workspaces(
         if !seen_paths.insert(path_key) {
             continue;
         }
-        if workspace.name.is_empty() {
-            workspace.name = shell_workspace_display_name_fallback(&candidate);
-        }
+        workspace.name = shell_workspace_display_name_fallback(&candidate);
         rebuilt.push(workspace);
     }
     if !rebuilt.is_empty()
@@ -1119,6 +1117,36 @@ mod terminal_workspace_tests {
         assert_eq!(config.shell_workspaces[0].level, SHELL_WORKSPACE_LEVEL_SYSTEM);
         assert_eq!(config.shell_workspaces[0].access, SHELL_WORKSPACE_ACCESS_FULL_ACCESS);
         assert!(!changed);
+
+        let _ = std::fs::remove_dir_all(temp_root);
+    }
+
+    #[test]
+    fn normalize_conversation_shell_workspaces_should_ignore_input_name() {
+        let temp_root = std::env::temp_dir().join(format!(
+            "easy-call-ai-terminal-workspace-test-{}",
+            uuid::Uuid::new_v4()
+        ));
+        let llm_workspace_path = temp_root.join("p-ai").join("llm-workspace");
+        let custom_workspace_path = temp_root.join("project-alpha");
+        std::fs::create_dir_all(&llm_workspace_path).expect("create llm workspace");
+        std::fs::create_dir_all(&custom_workspace_path).expect("create custom workspace");
+        let state = build_test_state(llm_workspace_path);
+
+        let normalized = normalize_conversation_shell_workspaces(
+            &state,
+            &[ShellWorkspaceConfig {
+                id: "workspace-1".to_string(),
+                name: "前端乱传的标题".to_string(),
+                path: custom_workspace_path.to_string_lossy().to_string(),
+                level: SHELL_WORKSPACE_LEVEL_MAIN.to_string(),
+                access: SHELL_WORKSPACE_ACCESS_APPROVAL.to_string(),
+                built_in: false,
+            }],
+        );
+
+        assert_eq!(normalized.len(), 1);
+        assert_eq!(normalized[0].name, "project-alpha".to_string());
 
         let _ = std::fs::remove_dir_all(temp_root);
     }

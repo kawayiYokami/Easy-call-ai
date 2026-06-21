@@ -1301,7 +1301,6 @@ async function openConversation(conversationId: string) {
     result = await transport.request<OpenConversationResult>("conversation.open", {
       conversationId,
       workspacePath: vscodeRoot?.path || undefined,
-      workspaceName: vscodeRoot?.name || undefined,
     });
   } catch (error) {
     console.warn("[Sidebar会话打开][failed]", {
@@ -1317,6 +1316,10 @@ async function openConversation(conversationId: string) {
     agentId: result.agentId,
     departmentId: result.departmentId,
   });
+  await applyOpenConversationResult(result);
+}
+
+async function applyOpenConversationResult(result: OpenConversationResult) {
   activeConversationId.value = result.conversationId;
   clearCompletedRuntimeStateForConversation(result.conversationId);
   activeAgentId.value = String(result.agentId || "").trim();
@@ -1495,11 +1498,10 @@ async function createConversation(input: { title?: string; departmentId: string;
   if (!departmentId || !agentId || creatingConversation.value) return;
   const vscodeRoot = vscodeWorkspaceRoots.value[0];
   const workspacePath = String(vscodeRoot?.path || "").trim();
-  const workspaceName = String(vscodeRoot?.name || "").trim() || workspaceRootName.value || workspacePath;
   const shellWorkspaces = workspacePath
     ? [{
       id: `vscode-workspace-${workspacePath}`,
-      name: workspaceName,
+      name: "",
       path: workspacePath,
       level: "main" as const,
       access: workspaceAccess.value || "approval",
@@ -1508,14 +1510,27 @@ async function createConversation(input: { title?: string; departmentId: string;
   creatingConversation.value = true;
   createConversationErrorText.value = "";
   try {
-    const result = await transport.request<{ conversationId: string; conversation?: OpenConversationResult }>("conversation.create", {
+    const result = await transport.request<{
+      conversationId: string;
+      conversation?: OpenConversationResult;
+      unarchivedConversations?: ConversationSummary[];
+    }>("conversation.create", {
       title: input.title,
       departmentId,
       agentId,
       shellWorkspaces,
+      workspacePath: workspacePath || undefined,
     });
-    await refreshList();
-    await openConversation(result.conversationId);
+    if (Array.isArray(result.unarchivedConversations)) {
+      conversations.value = result.unarchivedConversations;
+      clearCompletedRuntimeStateForConversation(activeConversationId.value);
+      syncConversationTabForRemoteContacts();
+    }
+    if (result.conversation && String(result.conversation.conversationId || "").trim()) {
+      await applyOpenConversationResult(result.conversation);
+    } else {
+      await openConversation(result.conversationId);
+    }
     createConversationDialogOpen.value = false;
   } catch (error) {
     createConversationErrorText.value = String(error || t('sidebar.createConversationFailed'));
@@ -2528,15 +2543,9 @@ function registerNotifications() {
   transport.onNotification("conversation.overviewUpdated", (payload) => {
     const value = payload as { unarchivedConversations?: ConversationSummary[] };
     if (Array.isArray(value.unarchivedConversations)) {
-      const incomingLocalConversations = value.unarchivedConversations;
-      void refreshList().catch((error) => {
-        console.warn("[Sidebar会话列表] 刷新完整列表失败，使用通知中的本地会话", {
-          error,
-          incomingLocal: incomingLocalConversations.length,
-        });
-        conversations.value = incomingLocalConversations;
-      });
+      conversations.value = value.unarchivedConversations;
       clearCompletedRuntimeStateForConversation(activeConversationId.value);
+      syncConversationTabForRemoteContacts();
     }
   });
   transport.onNotification("conversation.overviewItemUpdated", (payload) => {

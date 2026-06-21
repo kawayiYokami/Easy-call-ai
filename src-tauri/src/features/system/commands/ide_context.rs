@@ -272,6 +272,12 @@ struct IdeChatCreateConversationInput {
     agent_id: Option<String>,
     #[serde(default)]
     title: Option<String>,
+    #[serde(default)]
+    shell_workspaces: Option<Vec<ShellWorkspaceConfig>>,
+    #[serde(default)]
+    shell_autonomous_mode: Option<bool>,
+    #[serde(default)]
+    workspace_path: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -4696,7 +4702,7 @@ fn ide_chat_conversation_open_result(state: &AppState, conversation_id: &str) ->
     )?;
     let runtime = ide_chat_runtime_for_conversation(state, conversation_id);
     let persona = ide_chat_persona_payload(state, Some(conversation_meta.agent_id.as_str()))?;
-    let conversation = conversation_service_v2().get_conversation_snapshot(state, conversation_id)?;
+    let conversation = ide_chat_conversation_from_meta_view(&conversation_meta);
     let model = ide_chat_model_payload_for_conversation(state, &conversation)?;
     Ok(serde_json::json!({
         "conversationId": conversation_meta.id,
@@ -4717,7 +4723,7 @@ fn ide_chat_ensure_sidebar_workspace(
     state: &AppState,
     conversation_id: &str,
     workspace_path: &str,
-    workspace_name: Option<&str>,
+    _workspace_name: Option<&str>,
 ) -> Result<(), String> {
     let conversation_meta = conversation_service_v2().get_conversation_meta(state, conversation_id)?;
     let mut workspaces = conversation_meta.shell_workspaces.clone();
@@ -4727,16 +4733,10 @@ fn ide_chat_ensure_sidebar_workspace(
     if has_main {
         return Ok(());
     }
-    let name = workspace_name
-        .map(str::trim)
-        .filter(|n| !n.is_empty())
-        .map(String::from)
-        .unwrap_or_else(|| {
-            std::path::Path::new(workspace_path)
-                .file_name()
-                .map(|f| f.to_string_lossy().to_string())
-                .unwrap_or_else(|| workspace_path.to_string())
-        });
+    let name = std::path::Path::new(workspace_path)
+        .file_name()
+        .map(|f| f.to_string_lossy().to_string())
+        .unwrap_or_else(|| workspace_path.to_string());
     workspaces.push(ShellWorkspaceConfig {
         id: "vscode-sidebar-main-workspace".to_string(),
         name: name.to_string(),
@@ -4812,6 +4812,39 @@ fn ide_chat_conversation_block_page(state: &AppState, params: Value) -> Result<V
 
 fn ide_chat_create_conversation(state: &AppState, params: Value) -> Result<Value, String> {
     let input = ide_chat_parse_params::<IdeChatCreateConversationInput>(params)?;
+    let normalized_shell_workspaces = input
+        .shell_workspaces
+        .as_ref()
+        .map(|workspaces| normalize_conversation_shell_workspaces(state, workspaces))
+        .filter(|workspaces| !workspaces.is_empty());
+    let fallback_workspace_path = input
+        .workspace_path
+        .as_deref()
+        .map(str::trim)
+        .unwrap_or_default()
+        .to_string();
+    let shell_workspaces = if let Some(workspaces) = normalized_shell_workspaces {
+        Some(workspaces)
+    } else if !fallback_workspace_path.is_empty() {
+        let name = std::path::Path::new(&fallback_workspace_path)
+            .file_name()
+            .map(|value| value.to_string_lossy().to_string())
+            .unwrap_or_else(|| fallback_workspace_path.clone());
+        let fallback_workspaces = normalize_conversation_shell_workspaces(
+            state,
+            &[ShellWorkspaceConfig {
+                id: "vscode-sidebar-main-workspace".to_string(),
+                name,
+                path: fallback_workspace_path.clone(),
+                level: SHELL_WORKSPACE_LEVEL_MAIN.to_string(),
+                access: SHELL_WORKSPACE_ACCESS_APPROVAL.to_string(),
+                built_in: false,
+            }],
+        );
+        (!fallback_workspaces.is_empty()).then_some(fallback_workspaces)
+    } else {
+        None
+    };
     let result = conversation_service_v2().create_conversation(
         state,
         &CreateUnarchivedConversationInput {
@@ -4820,8 +4853,8 @@ fn ide_chat_create_conversation(state: &AppState, params: Value) -> Result<Value
             department_id: input.department_id,
             title: input.title,
             copy_source_conversation_id: None,
-            shell_workspaces: None,
-            shell_autonomous_mode: None,
+            shell_workspaces,
+            shell_autonomous_mode: input.shell_autonomous_mode,
         },
     )?;
     emit_unarchived_conversation_overview_updated_payload(state, &result.overview_payload);
