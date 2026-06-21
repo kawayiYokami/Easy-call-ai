@@ -1,7 +1,12 @@
 {
-  "generatedAt": "2026-06-21T08:11:56.899Z",
-  "latestVersion": "v0.13.3",
+  "generatedAt": "2026-06-21T16:44:19.659Z",
+  "latestVersion": "v0.13.4",
   "releases": [
+    {
+      "version": "v0.13.4",
+      "path": "docs/changelog/releases/v0.13.4.md",
+      "summary": "**聊天窗口**：修复最小化、最大化或恢复激活后，前台会话被轻量快照覆盖，导致已上翻的历史消息丢失的问题"
+    },
     {
       "version": "v0.13.3",
       "path": "docs/changelog/releases/v0.13.3.md",
