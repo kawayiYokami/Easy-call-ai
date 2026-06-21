@@ -1,7 +1,12 @@
 {
-  "generatedAt": "2026-06-20T15:48:13.028Z",
-  "latestVersion": "v0.13.2",
+  "generatedAt": "2026-06-21T08:11:56.899Z",
+  "latestVersion": "v0.13.3",
   "releases": [
+    {
+      "version": "v0.13.3",
+      "path": "docs/changelog/releases/v0.13.3.md",
+      "summary": "**人格管理**：支持将私域人格升级为正式人格，沿用正式人格写入链路保存到主配置数据"
+    },
     {
       "version": "v0.13.2",
       "path": "docs/changelog/releases/v0.13.2.md",
