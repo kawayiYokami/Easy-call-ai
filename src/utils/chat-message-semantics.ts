@@ -273,19 +273,33 @@ function toolCallInlineSuffix(event: NormalizedToolHistoryEvent): string {
   return suffix ? ` ${suffix}` : "";
 }
 
-function streamToolCallInlineSuffix(block: AssistantStreamBlock): string {
-  const suffix = (block.tools || [])
-    .map((tool) => String(tool.toolCallId || "").trim())
-    .filter(Boolean)
-    .map((id) => `[toolcall:${id}]`)
-    .join("");
-  return suffix ? ` ${suffix}` : "";
+function hasInlineToolMarker(text: string, toolCallId: string): boolean {
+  return !!toolCallId && text.includes(`[toolcall:${toolCallId}]`);
+}
+
+function injectMissingDoneToolMarkersIntoStreamText(text: string, block: AssistantStreamBlock): string {
+  let output = String(text || "");
+  if (!output.trim()) return output;
+  for (const tool of (block.tools || [])) {
+    if (tool.status !== "done") continue;
+    const toolCallId = String(tool.toolCallId || "").trim();
+    if (!toolCallId || hasInlineToolMarker(output, toolCallId)) continue;
+    output = `${output} [toolcall:${toolCallId}]`;
+  }
+  return output;
 }
 
 function assistantEventDisplayText(event: NormalizedToolHistoryEvent): string {
   const text = String(event.text || "").trim();
-  if (!text) return "";
-  return isToolCallAssistantTextEvent(event) ? `${text}${toolCallInlineSuffix(event)}` : text;
+  if (event.role !== "assistant" || event.toolCalls.length === 0) return text;
+  if (!text) return toolCallInlineSuffix(event).trim();
+  let output = text;
+  for (const call of event.toolCalls) {
+    const toolCallId = String(call.invocationId || call.providerCallId || "").trim();
+    if (!toolCallId || hasInlineToolMarker(output, toolCallId)) continue;
+    output = `${output} [toolcall:${toolCallId}]`;
+  }
+  return output;
 }
 
 function injectToolInlineMarkersIntoMergedText(text: string, events: NormalizedToolHistoryEvent[]): string {
@@ -301,6 +315,10 @@ function injectToolInlineMarkersIntoMergedText(text: string, events: NormalizedT
     output = `${output.slice(0, index)}${marked}${output.slice(index + raw.length)}`;
   }
   return output;
+}
+
+function stripToolcallMarkers(text: string): string {
+  return String(text || "").replace(/\s*\[toolcall:[^\]\n]+\]/g, "").trim();
 }
 
 function chatActivityStats(
@@ -502,6 +520,7 @@ export function normalizeAssistantStreamBlocks(rawBlocks: unknown): AssistantStr
       reasoning,
       text,
       tools,
+      pendingTextBreak: item.pendingTextBreak === true || item.pending_text_break === true,
     });
   }
   return blocks;
@@ -512,9 +531,7 @@ export function assistantTextFromStreamBlocks(rawBlocks: unknown): string {
     .map((block) => {
       const text = String(block.text || "");
       if (!text.trim()) return "";
-      return Array.isArray(block.tools) && block.tools.length > 0
-        ? `${text}${streamToolCallInlineSuffix(block)}`
-        : text;
+      return injectMissingDoneToolMarkersIntoStreamText(text, block);
     })
     .filter((text) => text.length > 0)
     .join("\n\n");
@@ -562,7 +579,7 @@ export function assistantStreamBlocksFromMessageForDisplay(
   if (normalized.length === 0) {
     return normalizeAssistantStreamBlocks([{ reasoning: finalReasoning, text }]);
   }
-  if (normalized.some((block) => String(block.text || "").trim())) {
+  if (normalized.some((block) => !!stripToolcallMarkers(block.text || ""))) {
     return normalized;
   }
   if (finalReasoning) {
@@ -578,16 +595,45 @@ function mergedAssistantDisplayText(message: ChatMessage, fallbackText: string):
   const finalText = String(fallbackText || "");
   const assistantEvents = normalizeMessageToolHistoryEvents(message, "display")
     .filter((event) => event.role === "assistant");
-  const assistantHistoryTexts = assistantEvents
-    .map((event) => assistantEventDisplayText(event))
-    .filter(Boolean);
+  const assistantHistoryTexts: string[] = [];
+  let pendingMarkerOnlyText = "";
+  for (const event of assistantEvents) {
+    const displayText = assistantEventDisplayText(event);
+    if (!displayText) continue;
+    if (!String(event.text || "").trim()) {
+      pendingMarkerOnlyText = pendingMarkerOnlyText
+        ? `${pendingMarkerOnlyText} ${displayText}`
+        : displayText;
+      continue;
+    }
+    if (pendingMarkerOnlyText) {
+      assistantHistoryTexts.push(pendingMarkerOnlyText);
+      pendingMarkerOnlyText = "";
+    }
+    assistantHistoryTexts.push(displayText);
+  }
+  if (pendingMarkerOnlyText) {
+    assistantHistoryTexts.push(pendingMarkerOnlyText);
+  }
   if (assistantHistoryTexts.length === 0) return finalText;
   if (!finalText.trim()) return assistantHistoryTexts.join("\n\n");
+  const assistantHistoryTextsWithoutRawText = assistantHistoryTexts.filter((text) => !stripToolcallMarkers(text));
+  if (
+    assistantHistoryTextsWithoutRawText.length === assistantHistoryTexts.length
+    && assistantHistoryTexts.every((text) => finalText.includes(text))
+  ) {
+    return finalText;
+  }
   const rawAssistantTexts = assistantEvents
     .map((event) => String(event.text || "").trim())
     .filter(Boolean);
   if (rawAssistantTexts.length > 0 && rawAssistantTexts.every((text) => finalText.includes(text))) {
-    return injectToolInlineMarkersIntoMergedText(finalText, assistantEvents);
+    const injected = injectToolInlineMarkersIntoMergedText(finalText, assistantEvents);
+    const missingMarkerOnlyTexts = assistantHistoryTextsWithoutRawText
+      .filter((text) => !injected.includes(text));
+    return missingMarkerOnlyTexts.length > 0
+      ? [...missingMarkerOnlyTexts, injected].join("\n\n")
+      : injected;
   }
   return [...assistantHistoryTexts, finalText].join("\n\n");
 }
@@ -610,9 +656,7 @@ export function streamBlocksToActivityItems(rawBlocks: unknown, running = false)
       items.push({
         kind: "content",
         id: `stream-block-${blockIndex}-content`,
-        text: Array.isArray(block.tools) && block.tools.length > 0
-          ? `${text}${streamToolCallInlineSuffix(block)}`
-          : text,
+        text: injectMissingDoneToolMarkersIntoStreamText(text, block),
         running,
       });
     }
@@ -666,15 +710,17 @@ function cloneAssistantStreamBlocks(rawBlocks: unknown): AssistantStreamBlock[] 
     reasoning: String(block.reasoning || ""),
     text: String(block.text || ""),
     tools: (block.tools || []).map((tool) => ({ ...tool })),
+    pendingTextBreak: block.pendingTextBreak === true,
   }));
 }
 
 function ensureAssistantStreamBlock(blocks: AssistantStreamBlock[]): AssistantStreamBlock {
   if (blocks.length === 0) {
-    blocks.push({ reasoning: "", text: "", tools: [] });
+    blocks.push({ reasoning: "", text: "", tools: [], pendingTextBreak: false });
   }
   const last = blocks[blocks.length - 1];
   if (!Array.isArray(last.tools)) last.tools = [];
+  if (last.pendingTextBreak !== true) last.pendingTextBreak = false;
   return last;
 }
 
@@ -684,7 +730,7 @@ export function appendReasoningDeltaToStreamBlocks(rawBlocks: unknown, delta: st
   if (!text) return blocks;
   const lastBlock = blocks[blocks.length - 1];
   if (lastBlock?.text?.trim() || (lastBlock?.tools || []).length > 0) {
-    blocks.push({ reasoning: "", text: "", tools: [] });
+    blocks.push({ reasoning: "", text: "", tools: [], pendingTextBreak: false });
   }
   const block = ensureAssistantStreamBlock(blocks);
   block.reasoning = `${String(block.reasoning || "")}${text}`;
@@ -696,7 +742,12 @@ export function appendTextDeltaToStreamBlocks(rawBlocks: unknown, delta: string)
   const blocks = cloneAssistantStreamBlocks(rawBlocks);
   if (!text) return blocks;
   const block = ensureAssistantStreamBlock(blocks);
-  block.text = `${String(block.text || "")}${text}`;
+  if (block.pendingTextBreak && String(block.text || "").trim()) {
+    block.text = `${String(block.text || "")}\n\n${text}`;
+  } else {
+    block.text = `${String(block.text || "")}${text}`;
+  }
+  block.pendingTextBreak = false;
   return normalizeAssistantStreamBlocks(blocks);
 }
 
@@ -736,8 +787,8 @@ export function applyAssistantToolEventToStreamBlocks(
     })
     .filter((tool): tool is { toolCallId: string; name: string; argsText: string; status: "doing" } => !!tool);
   if (!assistantText && !reasoning && tools.length === 0) return normalizeAssistantStreamBlocks(blocks);
-  if (blocks[blocks.length - 1]?.text?.trim()) {
-    blocks.push({ reasoning: "", text: "", tools: [] });
+  if ((assistantText || reasoning) && blocks[blocks.length - 1]?.text?.trim()) {
+    blocks.push({ reasoning: "", text: "", tools: [], pendingTextBreak: false });
   }
   const block = ensureAssistantStreamBlock(blocks);
   if (assistantText && !String(block.text || "").trim()) {
@@ -782,11 +833,27 @@ export function applyAssistantToolResultToStreamBlocks(
   const toolCallId = String(event.tool_call_id || "").trim();
   if (!toolCallId) return normalizeAssistantStreamBlocks(blocks);
   const resultText = typeof event.content === "string" ? event.content : String(event.content || "");
-  for (const block of blocks) {
+  for (let blockIndex = 0; blockIndex < blocks.length; blockIndex += 1) {
+    const block = blocks[blockIndex];
     const tool = (block.tools || []).find((item) => String(item.toolCallId || "").trim() === toolCallId);
     if (!tool) continue;
     tool.resultText = resultText;
     tool.status = "done";
+    let targetBlock = block;
+    if (!String(targetBlock.text || "").trim()) {
+      for (let index = blockIndex - 1; index >= 0; index -= 1) {
+        if (!String(blocks[index].text || "").trim()) continue;
+        targetBlock = blocks[index];
+        break;
+      }
+    }
+    const currentText = String(targetBlock.text || "");
+    if (!hasInlineToolMarker(currentText, toolCallId)) {
+      targetBlock.text = currentText.trim()
+        ? `${currentText} [toolcall:${toolCallId}]`
+        : `[toolcall:${toolCallId}]`;
+      targetBlock.pendingTextBreak = true;
+    }
     return normalizeAssistantStreamBlocks(blocks);
   }
   return normalizeAssistantStreamBlocks(blocks);

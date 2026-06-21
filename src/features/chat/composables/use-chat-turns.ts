@@ -8,6 +8,7 @@ import {
   estimateConversationTokens,
 } from "../../../utils/chat-message";
 import {
+  assistantTextFromStreamBlocks,
   normalizeAssistantStreamBlocks,
   projectMessageForDisplay,
   projectStreamingChatActivityForDisplay,
@@ -68,7 +69,6 @@ type UseChatMessageBlocksOptions = {
 export function useChatMessageBlocks(options: UseChatMessageBlocksOptions) {
   let lastMessageBlockSignature = "";
   let lastMessageBlocks: ChatMessageBlock[] = [];
-  const streamProjectionDebugSignatures = new Map<string, string>();
   const messageSignatureCache = new WeakMap<ChatMessage, string>();
   const messageBlockCache = new WeakMap<ChatMessage, { signature: string; blocks: ChatMessageBlock[] }>();
 
@@ -172,6 +172,7 @@ export function useChatMessageBlocks(options: UseChatMessageBlocksOptions) {
     const streamTail = String(meta._streamTail ?? "");
     const streamAnimatedDelta = String(meta._streamAnimatedDelta ?? "");
     const streamBlocks = normalizeAssistantStreamBlocks(meta._streamBlocks);
+    const streamingDisplayText = assistantTextFromStreamBlocks(streamBlocks);
     const streamBlockToolCalls = streamBlocksToToolCalls(streamBlocks);
     const displayToolCalls = !!meta._streaming && streamBlockToolCalls.length > 0
       ? streamBlockToolCalls
@@ -198,7 +199,9 @@ export function useChatMessageBlocks(options: UseChatMessageBlocksOptions) {
       createdAt: String(message.createdAt || "").trim() || undefined,
       providerMeta: message.providerMeta,
       mentions: projection.mentions,
-      text: projection.text,
+      text: !!meta._streaming && streamingDisplayText.trim()
+        ? streamingDisplayText
+        : projection.text,
       images: projection.images,
       audios: projection.audios,
       attachmentFiles: projection.attachmentFiles,
@@ -217,32 +220,6 @@ export function useChatMessageBlocks(options: UseChatMessageBlocksOptions) {
       activityRunning: activity.activityRunning,
       activityStatus: activity.activityStatus,
     } satisfies ChatMessageBlock;
-
-    if (message.role === "assistant" && (baseBlock.isStreaming || streamBlocks.length > 0 || baseBlock.activityItems.length > 0)) {
-      const streamReasoningLen = streamBlocks.reduce((total, block) => total + String(block.reasoning || "").length, 0);
-      const streamTextLen = streamBlocks.reduce((total, block) => total + String(block.text || "").length, 0);
-      const streamToolCount = streamBlocks.reduce((total, block) => total + (block.tools || []).length, 0);
-      const debugSignature = [
-        String(message.id || ""),
-        baseBlock.isStreaming ? "1" : "0",
-        String(baseBlock.text || "").length,
-        streamBlocks.length,
-        streamReasoningLen,
-        streamTextLen,
-        streamToolCount,
-        baseBlock.activityItems.length,
-        baseBlock.activityReasoningCharCount,
-        baseBlock.activityRunning ? "1" : "0",
-        baseBlock.activityStatus,
-      ].join("|");
-      const previousDebugSignature = streamProjectionDebugSignatures.get(String(message.id || ""));
-      if (previousDebugSignature === debugSignature) {
-        // Avoid flooding the console while the virtual list recomputes unchanged blocks.
-      } else {
-        streamProjectionDebugSignatures.set(String(message.id || ""), debugSignature);
-        // 流式投影日志已移除
-      }
-    }
 
     const blocks: ChatMessageBlock[] = [];
     if (

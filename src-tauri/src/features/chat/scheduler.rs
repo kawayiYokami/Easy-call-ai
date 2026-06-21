@@ -955,12 +955,20 @@ fn stream_cache_current_block_mut(cache: &mut ConversationStreamRuntimeCache) ->
     &mut cache.stream_blocks[index]
 }
 
+fn stream_block_has_inline_tool_marker(text: &str, tool_call_id: &str) -> bool {
+    !tool_call_id.trim().is_empty() && text.contains(&format!("[toolcall:{}]", tool_call_id.trim()))
+}
+
 fn append_stream_text_block(cache: &mut ConversationStreamRuntimeCache, delta: &str) {
     if delta.is_empty() {
         return;
     }
     let block = stream_cache_current_block_mut(cache);
+    if block.pending_text_break && !block.text.trim().is_empty() {
+        block.text.push_str("\n\n");
+    }
     block.text.push_str(delta);
+    block.pending_text_break = false;
 }
 
 fn append_stream_reasoning_block(cache: &mut ConversationStreamRuntimeCache, delta: &str) {
@@ -1006,16 +1014,43 @@ fn apply_tool_result_to_stream_blocks(
         .and_then(Value::as_str)
         .unwrap_or("")
         .to_string();
-    for block in &mut cache.stream_blocks {
-        if let Some(tool) = block
+    for block_index in 0..cache.stream_blocks.len() {
+        let Some(tool_index) = cache.stream_blocks[block_index]
             .tools
-            .iter_mut()
+            .iter()
             .find(|tool| tool.tool_call_id.trim() == tool_call_id)
-        {
-            tool.result_text = result_text;
-            tool.status = "done".to_string();
-            return;
+            .map(|tool| {
+                cache.stream_blocks[block_index]
+                    .tools
+                    .iter()
+                    .position(|item| item.tool_call_id.trim() == tool.tool_call_id.trim())
+                    .unwrap_or(0)
+            }) else {
+            continue;
+        };
+        cache.stream_blocks[block_index].tools[tool_index].result_text = result_text.clone();
+        cache.stream_blocks[block_index].tools[tool_index].status = "done".to_string();
+
+        let mut target_index = block_index;
+        if cache.stream_blocks[target_index].text.trim().is_empty() {
+            for index in (0..block_index).rev() {
+                if cache.stream_blocks[index].text.trim().is_empty() {
+                    continue;
+                }
+                target_index = index;
+                break;
+            }
         }
+        let current_text = cache.stream_blocks[target_index].text.clone();
+        if !stream_block_has_inline_tool_marker(&current_text, tool_call_id) {
+            cache.stream_blocks[target_index].text = if current_text.trim().is_empty() {
+                format!("[toolcall:{}]", tool_call_id)
+            } else {
+                format!("{} [toolcall:{}]", current_text, tool_call_id)
+            };
+            cache.stream_blocks[target_index].pending_text_break = true;
+        }
+        return;
     }
 }
 
@@ -1073,10 +1108,11 @@ fn apply_assistant_tool_event_to_stream_blocks(
     if reasoning.is_empty() && tools.is_empty() {
         return;
     }
-    if cache
-        .stream_blocks
-        .last()
-        .is_some_and(|block| !block.text.trim().is_empty())
+    if (!reasoning.is_empty())
+        && cache
+            .stream_blocks
+            .last()
+            .is_some_and(|block| !block.text.trim().is_empty())
     {
         cache.stream_blocks.push(AssistantStreamBlock::default());
     }
@@ -1147,6 +1183,7 @@ mod scheduler_stream_block_tests {
     #[test]
     fn assistant_tool_result_should_complete_existing_stream_tool() {
         let mut cache = ConversationStreamRuntimeCache::default();
+        append_stream_text_block(&mut cache, "先说明要等待。");
         apply_assistant_tool_event_to_stream_blocks(
             &mut cache,
             &serde_json::json!({
@@ -1177,6 +1214,101 @@ mod scheduler_stream_block_tests {
         assert_eq!(cache.stream_blocks[0].tools.len(), 1);
         assert_eq!(cache.stream_blocks[0].tools[0].result_text, "等待完成");
         assert_eq!(cache.stream_blocks[0].tools[0].status, "done");
+        assert_eq!(cache.stream_blocks[0].text, "先说明要等待。 [toolcall:call-wait]");
+        assert!(cache.stream_blocks[0].pending_text_break);
+    }
+
+    #[test]
+    fn multiple_tool_results_should_keep_multiple_inline_markers_and_following_text_break() {
+        let mut cache = ConversationStreamRuntimeCache::default();
+        append_stream_text_block(&mut cache, "先说明要并发读取。");
+        apply_assistant_tool_event_to_stream_blocks(
+            &mut cache,
+            &serde_json::json!({
+                "role": "assistant",
+                "content": Value::Null,
+                "tool_calls": [{
+                    "id": "call-a",
+                    "type": "function",
+                    "function": {
+                        "name": "read",
+                        "arguments": "{\"path\":\"a.ts\"}"
+                    }
+                }, {
+                    "id": "call-b",
+                    "type": "function",
+                    "function": {
+                        "name": "read",
+                        "arguments": "{\"path\":\"b.ts\"}"
+                    }
+                }]
+            })
+            .to_string(),
+        );
+        apply_tool_result_to_stream_blocks(
+            &mut cache,
+            &serde_json::json!({
+                "role": "tool",
+                "tool_call_id": "call-a",
+                "content": "A 完成"
+            })
+            .to_string(),
+        );
+        apply_tool_result_to_stream_blocks(
+            &mut cache,
+            &serde_json::json!({
+                "role": "tool",
+                "tool_call_id": "call-b",
+                "content": "B 完成"
+            })
+            .to_string(),
+        );
+        append_stream_text_block(&mut cache, "下面继续正文。");
+
+        assert_eq!(cache.stream_blocks.len(), 1);
+        assert_eq!(
+            cache.stream_blocks[0].text,
+            "先说明要并发读取。 [toolcall:call-a] [toolcall:call-b]\n\n下面继续正文。"
+        );
+        assert!(!cache.stream_blocks[0].pending_text_break);
+    }
+
+    #[test]
+    fn tool_result_without_prior_text_should_still_render_marker_before_later_text() {
+        let mut cache = ConversationStreamRuntimeCache::default();
+        apply_assistant_tool_event_to_stream_blocks(
+            &mut cache,
+            &serde_json::json!({
+                "role": "assistant",
+                "content": Value::Null,
+                "tool_calls": [{
+                    "id": "call-first",
+                    "type": "function",
+                    "function": {
+                        "name": "read",
+                        "arguments": "{\"path\":\"a.ts\"}"
+                    }
+                }]
+            })
+            .to_string(),
+        );
+        apply_tool_result_to_stream_blocks(
+            &mut cache,
+            &serde_json::json!({
+                "role": "tool",
+                "tool_call_id": "call-first",
+                "content": "A 完成"
+            })
+            .to_string(),
+        );
+        append_stream_text_block(&mut cache, "后面才开始正文。");
+
+        assert_eq!(cache.stream_blocks.len(), 1);
+        assert_eq!(
+            cache.stream_blocks[0].text,
+            "[toolcall:call-first]\n\n后面才开始正文。"
+        );
+        assert!(!cache.stream_blocks[0].pending_text_break);
     }
 
     #[test]

@@ -168,7 +168,6 @@ export function useChatFlowForegroundRounds(bindings: Record<string, any>) {
     applyStreamingOverlayForConversation(conversationId);
     const existingDraftStartedAtMs = existingDraftId ? positiveRoundedNumber(existingDraftMeta._frontendDispatchStartedAtMs) : 0;
     const existingDraftElapsedMs = existingDraftId ? positiveRoundedNumber(existingDraftMeta._frontendDispatchElapsedMs) : 0;
-    // 前台恢复流式投影日志已移除
     if (!restoredFromCache) {
       bindings.latestAssistantText.value = readMessagePlainText(existingDraft);
     }

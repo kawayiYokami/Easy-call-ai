@@ -645,6 +645,7 @@ export type AssistantStreamBlock = {
   reasoning?: string;
   text?: string;
   tools?: AssistantStreamToolBlock[];
+  pendingTextBreak?: boolean;
 };
 
 export type ChatSnapshot = {

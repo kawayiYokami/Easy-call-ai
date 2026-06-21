@@ -331,6 +331,7 @@ mod foreground_resume_projection_tests {
                 reasoning: "thinking".to_string(),
                 text: "new text".to_string(),
                 tools: Vec::new(),
+                pending_text_break: false,
             }],
             started_at: "2026-06-12T00:00:01Z".to_string(),
             started_at_ms: 1000,

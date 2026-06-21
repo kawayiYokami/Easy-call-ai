@@ -367,6 +367,8 @@ pub(crate) struct AssistantStreamBlock {
     text: String,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     tools: Vec<AssistantStreamToolBlock>,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pending_text_break: bool,
 }
 
 impl Default for ConversationRuntimeSlot {

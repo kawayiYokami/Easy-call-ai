@@ -375,6 +375,192 @@ fn normalize_assistant_provider_meta(provider_meta: Option<Value>) -> Option<Val
     Some(merged)
 }
 
+fn tool_call_inline_suffix(event: &NormalizedMessageToolEvent) -> String {
+    let suffix = event
+        .tool_calls
+        .iter()
+        .filter_map(|call| {
+            call.invocation_id
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .or_else(|| {
+                    call.provider_call_id
+                        .as_deref()
+                        .map(str::trim)
+                        .filter(|value| !value.is_empty())
+                })
+        })
+        .map(|id| format!("[toolcall:{}]", id))
+        .collect::<Vec<_>>()
+        .join("");
+    if suffix.is_empty() {
+        String::new()
+    } else {
+        format!(" {}", suffix)
+    }
+}
+
+fn assistant_event_display_text(event: &NormalizedMessageToolEvent) -> String {
+    let text = event.text.trim();
+    if event.role != "assistant" || event.tool_calls.is_empty() {
+        if text.is_empty() {
+            return String::new();
+        }
+        return text.to_string();
+    }
+    if text.is_empty() {
+        return tool_call_inline_suffix(event).trim().to_string();
+    }
+    let mut output = text.to_string();
+    for call in &event.tool_calls {
+        let tool_call_id = call
+            .invocation_id
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .or_else(|| {
+                call.provider_call_id
+                    .as_deref()
+                    .map(str::trim)
+                    .filter(|value| !value.is_empty())
+            });
+        let Some(tool_call_id) = tool_call_id else {
+            continue;
+        };
+        let marker = format!("[toolcall:{}]", tool_call_id);
+        if output.contains(&marker) {
+            continue;
+        }
+        output.push(' ');
+        output.push_str(&marker);
+    }
+    output
+}
+
+fn inject_tool_inline_markers_into_merged_text(
+    text: &str,
+    events: &[NormalizedMessageToolEvent],
+) -> String {
+    let mut output = text.to_string();
+    for event in events {
+        if event.role != "assistant" || event.tool_calls.is_empty() {
+            continue;
+        }
+        let raw = event.text.trim();
+        if raw.is_empty() {
+            continue;
+        }
+        let marked = assistant_event_display_text(event);
+        if output.contains(&marked) {
+            continue;
+        }
+        if let Some(index) = output.find(raw) {
+            output = format!(
+                "{}{}{}",
+                &output[..index],
+                marked,
+                &output[index + raw.len()..]
+            );
+        }
+    }
+    output
+}
+
+fn merged_assistant_display_text(final_text: &str, activity_events: &[Value]) -> String {
+    let temp_message = ChatMessage {
+        id: String::new(),
+        role: "assistant".to_string(),
+        created_at: String::new(),
+        speaker_agent_id: None,
+        parts: vec![MessagePart::Text {
+            text: final_text.to_string(),
+            reasoning_content: None,
+        }],
+        extra_text_blocks: Vec::new(),
+        provider_meta: None,
+        tool_call: if activity_events.is_empty() {
+            None
+        } else {
+            Some(activity_events.to_vec())
+        },
+        mcp_call: None,
+        meme_annotations: None,
+    };
+    let assistant_events = normalize_message_tool_history_events(&temp_message, MessageToolHistoryView::Display)
+        .into_iter()
+        .filter(|event| event.role == "assistant")
+        .collect::<Vec<_>>();
+    if assistant_events.is_empty() {
+        return final_text.to_string();
+    }
+    let mut assistant_history_texts = Vec::<String>::new();
+    let mut pending_marker_only_text = String::new();
+    for event in &assistant_events {
+        let display_text = assistant_event_display_text(event);
+        if display_text.is_empty() {
+            continue;
+        }
+        if event.text.trim().is_empty() {
+            pending_marker_only_text = if pending_marker_only_text.is_empty() {
+                display_text
+            } else {
+                format!("{} {}", pending_marker_only_text, display_text)
+            };
+            continue;
+        }
+        if !pending_marker_only_text.is_empty() {
+            assistant_history_texts.push(std::mem::take(&mut pending_marker_only_text));
+        }
+        assistant_history_texts.push(display_text);
+    }
+    if !pending_marker_only_text.is_empty() {
+        assistant_history_texts.push(pending_marker_only_text);
+    }
+    if assistant_history_texts.is_empty() {
+        return final_text.to_string();
+    }
+    if final_text.trim().is_empty() {
+        return assistant_history_texts.join("\n\n");
+    }
+    let marker_only_event_count = assistant_events
+        .iter()
+        .filter(|event| event.text.trim().is_empty())
+        .count();
+    if marker_only_event_count == assistant_events.len()
+        && assistant_history_texts
+            .iter()
+            .all(|text| final_text.contains(text))
+    {
+        return final_text.to_string();
+    }
+    let raw_assistant_texts = assistant_events
+        .iter()
+        .map(|event| event.text.trim().to_string())
+        .filter(|text| !text.is_empty())
+        .collect::<Vec<_>>();
+    if !raw_assistant_texts.is_empty()
+        && raw_assistant_texts
+            .iter()
+            .all(|text| final_text.contains(text))
+    {
+        let injected = inject_tool_inline_markers_into_merged_text(final_text, &assistant_events);
+        return if marker_only_event_count > 0 {
+            let mut merged = assistant_history_texts
+                .into_iter()
+                .filter(|text| !injected.contains(text))
+                .collect::<Vec<_>>();
+            merged.push(injected);
+            merged.join("\n\n")
+        } else {
+            injected
+        };
+    }
+    let mut merged = assistant_history_texts;
+    merged.push(final_text.to_string());
+    merged.join("\n\n")
+}
+
 fn build_assistant_message_from_request_sequence(
     id: String,
     agent_id: &str,
@@ -384,13 +570,14 @@ fn build_assistant_message_from_request_sequence(
 ) -> ChatMessage {
     let folded = fold_request_messages_to_assistant_content(request_messages);
     let activity_events = folded.tool_history_events;
+    let display_text = merged_assistant_display_text(&folded.assistant_text, &activity_events);
     ChatMessage {
         id,
         role: "assistant".to_string(),
         created_at,
         speaker_agent_id: Some(agent_id.to_string()),
         parts: vec![MessagePart::Text {
-            text: folded.assistant_text,
+            text: display_text,
             reasoning_content: folded.activity_reasoning_text,
         }],
         extra_text_blocks: Vec::new(),
@@ -871,8 +1058,194 @@ mod message_semantics_tests {
         );
         match &message.parts[0] {
             MessagePart::Text { text, .. } => {
-                assert_eq!(text, "三个并发 shell 跑完，结果是：\n\nNode.js v24.2.0");
-                assert!(!text.contains("后我再汇总"));
+                assert_eq!(
+                    text,
+                    "三个并发 shell 跑完后我再汇总。 [toolcall:call_node]\n\n三个并发 shell 跑完，结果是：\n\nNode.js v24.2.0"
+                );
+            }
+            _ => panic!("expected text part"),
+        }
+    }
+
+    #[test]
+    fn build_assistant_message_from_request_sequence_should_inject_markers_into_matching_final_text() {
+        let tool_history_events = vec![
+            serde_json::json!({
+                "role": "assistant",
+                "content": "先说明第一步",
+                "tool_calls": [{
+                    "id": "call_1",
+                    "type": "function",
+                    "function": {
+                        "name": "read",
+                        "arguments": "{\"path\":\"a.txt\"}"
+                    }
+                }]
+            }),
+            serde_json::json!({
+                "role": "tool",
+                "tool_call_id": "call_1",
+                "content": "文件内容"
+            }),
+            serde_json::json!({
+                "role": "assistant",
+                "content": "再说明第二步",
+                "tool_calls": [{
+                    "id": "call_2",
+                    "type": "function",
+                    "function": {
+                        "name": "read",
+                        "arguments": "{\"path\":\"b.txt\"}"
+                    }
+                }]
+            }),
+            serde_json::json!({
+                "role": "tool",
+                "tool_call_id": "call_2",
+                "content": "更多内容"
+            }),
+        ];
+
+        let request_messages = assistant_request_sequence_from_tool_history(
+            &tool_history_events,
+            "先说明第一步\n\n再说明第二步\n\n最后汇总",
+            "",
+        );
+        let message = build_assistant_message_from_request_sequence(
+            "assistant-final".to_string(),
+            "agent-a",
+            "2026-06-03T21:41:00Z".to_string(),
+            &request_messages,
+            None,
+        );
+
+        match &message.parts[0] {
+            MessagePart::Text { text, .. } => {
+                assert_eq!(
+                    text,
+                    "先说明第一步 [toolcall:call_1]\n\n再说明第二步 [toolcall:call_2]\n\n最后汇总"
+                );
+            }
+            _ => panic!("expected text part"),
+        }
+    }
+
+    #[test]
+    fn build_assistant_message_from_request_sequence_should_keep_marker_only_rounds_before_final_text() {
+        let tool_history_events = vec![
+            serde_json::json!({
+                "role": "assistant",
+                "content": Value::Null,
+                "tool_calls": [{
+                    "id": "call_a",
+                    "type": "function",
+                    "function": {
+                        "name": "read",
+                        "arguments": "{\"path\":\"a.txt\"}"
+                    }
+                }]
+            }),
+            serde_json::json!({
+                "role": "tool",
+                "tool_call_id": "call_a",
+                "content": "A"
+            }),
+            serde_json::json!({
+                "role": "assistant",
+                "content": Value::Null,
+                "tool_calls": [{
+                    "id": "call_b",
+                    "type": "function",
+                    "function": {
+                        "name": "read",
+                        "arguments": "{\"path\":\"b.txt\"}"
+                    }
+                }]
+            }),
+            serde_json::json!({
+                "role": "tool",
+                "tool_call_id": "call_b",
+                "content": "B"
+            }),
+        ];
+
+        let request_messages = assistant_request_sequence_from_tool_history(
+            &tool_history_events,
+            "最后汇总",
+            "",
+        );
+        let message = build_assistant_message_from_request_sequence(
+            "assistant-final".to_string(),
+            "agent-a",
+            "2026-06-03T21:41:00Z".to_string(),
+            &request_messages,
+            None,
+        );
+
+        match &message.parts[0] {
+            MessagePart::Text { text, .. } => {
+                assert_eq!(text, "[toolcall:call_a] [toolcall:call_b]\n\n最后汇总");
+            }
+            _ => panic!("expected text part"),
+        }
+    }
+
+    #[test]
+    fn build_assistant_message_from_request_sequence_should_not_duplicate_marker_only_rounds_already_in_final_text(
+    ) {
+        let tool_history_events = vec![
+            serde_json::json!({
+                "role": "assistant",
+                "content": Value::Null,
+                "tool_calls": [{
+                    "id": "call_a",
+                    "type": "function",
+                    "function": {
+                        "name": "read",
+                        "arguments": "{\"path\":\"a.txt\"}"
+                    }
+                }]
+            }),
+            serde_json::json!({
+                "role": "tool",
+                "tool_call_id": "call_a",
+                "content": "A"
+            }),
+            serde_json::json!({
+                "role": "assistant",
+                "content": Value::Null,
+                "tool_calls": [{
+                    "id": "call_b",
+                    "type": "function",
+                    "function": {
+                        "name": "read",
+                        "arguments": "{\"path\":\"b.txt\"}"
+                    }
+                }]
+            }),
+            serde_json::json!({
+                "role": "tool",
+                "tool_call_id": "call_b",
+                "content": "B"
+            }),
+        ];
+
+        let request_messages = assistant_request_sequence_from_tool_history(
+            &tool_history_events,
+            "[toolcall:call_a] [toolcall:call_b]\n\n最后汇总",
+            "",
+        );
+        let message = build_assistant_message_from_request_sequence(
+            "assistant-final".to_string(),
+            "agent-a",
+            "2026-06-03T21:41:00Z".to_string(),
+            &request_messages,
+            None,
+        );
+
+        match &message.parts[0] {
+            MessagePart::Text { text, .. } => {
+                assert_eq!(text, "[toolcall:call_a] [toolcall:call_b]\n\n最后汇总");
             }
             _ => panic!("expected text part"),
         }
@@ -981,6 +1354,12 @@ mod message_semantics_tests {
                 .and_then(Value::as_str),
             Some("第1轮思考")
         );
+        match &message.parts[0] {
+            MessagePart::Text { text, .. } => {
+                assert_eq!(text, "[toolcall:call_1]");
+            }
+            _ => panic!("expected text part"),
+        }
     }
 
     #[test]
@@ -1074,7 +1453,7 @@ mod message_semantics_tests {
                 text,
                 reasoning_content,
             } => {
-                assert_eq!(text, "最终答案");
+                assert_eq!(text, "[toolcall:call_1]\n\n最终答案");
                 assert_eq!(
                     reasoning_content.as_deref(),
                     Some("我已经拿到结果，现在直接回答。")

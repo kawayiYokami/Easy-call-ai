@@ -5,6 +5,7 @@ import {
   appendTextDeltaToStreamBlocks,
   appendReasoningToStreamActivityItems,
   applyAssistantToolEventToStreamBlocks,
+  applyAssistantToolResultToStreamBlocks,
   assistantTextFromStreamBlocks,
   assistantStreamBlocksFromMessageForDisplay,
   inspectUndoablePatchCalls,
@@ -58,7 +59,7 @@ describe("chat-message semantics", () => {
 
     const projection = projectMessageForDisplay(message);
 
-    expect(projection.text).toBe("我查好了");
+    expect(projection.text).toBe("[toolcall:fc_1]\n\n我查好了");
     expect(projection.activityItems[0]).toMatchObject({ kind: "reasoning", text: "先检查上下文" });
     expect(projection.toolCallCount).toBe(1);
     expect(projection.lastToolName).toBe("remote_im_send");
@@ -195,7 +196,7 @@ describe("chat-message semantics", () => {
     const blocks = assistantStreamBlocksFromMessageForDisplay(message, "最终回答");
 
     expect(blocks).toHaveLength(2);
-    expect(blocks[0]).toMatchObject({ reasoning: "工具思考", text: "" });
+    expect(blocks[0]).toMatchObject({ reasoning: "工具思考", text: "[toolcall:fc_final]" });
     expect(blocks[0]?.tools).toHaveLength(1);
     expect(blocks[1]).toMatchObject({ reasoning: "最终思考", text: "最终回答", tools: [] });
   });
@@ -284,7 +285,7 @@ describe("chat-message semantics", () => {
       ],
     };
 
-    expect(projectMessageForDisplay(message).text).toBe("先说明第一步\n\n再说明第二步\n\n最后汇总");
+    expect(projectMessageForDisplay(message).text).toBe("先说明第一步 [toolcall:call_1]\n\n再说明第二步 [toolcall:call_2]\n\n最后汇总");
   });
 
   it("does not duplicate assistant history text when final text already contains it", () => {
@@ -312,7 +313,7 @@ describe("chat-message semantics", () => {
       ],
     };
 
-    expect(projectMessageForDisplay(message).text).toBe("先说明我要等待。等待完成，现在汇报。");
+    expect(projectMessageForDisplay(message).text).toBe("先说明我要等待。等待完成，现在汇报。 [toolcall:call_wait]");
   });
 
   it("inspects undoable patch calls through normalized tool history", () => {
@@ -578,10 +579,12 @@ describe("chat-message semantics", () => {
 
     expect(streaming.items.map((item) => item.kind === "tool" ? item.name : item.text)).toEqual([
       "先看文件。",
+      "结论 [toolcall:tool-1]",
       "read_file",
     ]);
     expect(persisted.activityItems.map((item) => item.kind === "tool" ? item.name : item.text)).toEqual([
       "先看文件。",
+      "结论 [toolcall:tool-1]",
       "read_file",
     ]);
   });
@@ -641,7 +644,7 @@ describe("chat-message semantics", () => {
       { text: "先说明我要等待。", tools: [] },
       {
         reasoning: "准备调用等待工具。",
-        text: "  - **优先级本来就有**\n- 现在要做的是...\n",
+        text: "  - **优先级本来就有**\n- 现在要做的是...\n [toolcall:tool-1]",
         tools: [{
           toolCallId: "tool-1",
           name: "wait",
@@ -649,7 +652,7 @@ describe("chat-message semantics", () => {
           status: "done" as const,
         }],
       },
-    ])).toBe("先说明我要等待。\n\n  - **优先级本来就有**\n- 现在要做的是...\n");
+    ])).toBe("先说明我要等待。\n\n  - **优先级本来就有**\n- 现在要做的是...\n [toolcall:tool-1]");
   });
 
   it("reconstructs assistant display blocks from persisted tool history", () => {
@@ -664,7 +667,7 @@ describe("chat-message semantics", () => {
         resultText: "等待完成",
         status: "done" as const,
       }],
-      text: "等待完成，现在汇报。",
+      text: "等待完成，现在汇报。 [toolcall:tool-1]",
     }];
 
     const message = {
@@ -677,7 +680,7 @@ describe("chat-message semantics", () => {
 
     expect(assistantStreamBlocksFromMessageForDisplay(message, "先说明我要等待。等待完成，现在汇报。")).toEqual([{
       reasoning: "准备调用等待工具。",
-      text: "等待完成，现在汇报。",
+      text: "等待完成，现在汇报。 [toolcall:tool-1]",
       tools: [{
         toolCallId: "tool-1",
         name: "operate",
@@ -685,6 +688,7 @@ describe("chat-message semantics", () => {
         resultText: "等待完成",
         status: "done",
       }],
+      pendingTextBreak: false,
     }]);
   });
 
@@ -706,7 +710,7 @@ describe("chat-message semantics", () => {
     }));
 
     expect(blocks).toEqual([
-      { reasoning: "先想。", text: "正文", tools: [] },
+      { reasoning: "先想。", text: "正文", tools: [], pendingTextBreak: false },
       {
         reasoning: "后续思考。",
         text: "",
@@ -716,7 +720,195 @@ describe("chat-message semantics", () => {
           argsText: "{\"action\":\"wait\"}",
           status: "doing",
         }],
+        pendingTextBreak: false,
       },
     ]);
+  });
+
+  it("writes multiple completed tool markers into streaming text and breaks before later text", () => {
+    let blocks = appendTextDeltaToStreamBlocks([], "先说明要并发读取。");
+    blocks = applyAssistantToolEventToStreamBlocks(blocks, JSON.stringify({
+      role: "assistant",
+      content: null,
+      tool_calls: [{
+        id: "tool-a",
+        type: "function",
+        function: {
+          name: "read",
+          arguments: "{\"path\":\"a.ts\"}",
+        },
+      }, {
+        id: "tool-b",
+        type: "function",
+        function: {
+          name: "read",
+          arguments: "{\"path\":\"b.ts\"}",
+        },
+      }],
+    }));
+    blocks = applyAssistantToolResultToStreamBlocks(blocks, JSON.stringify({
+      role: "tool",
+      tool_call_id: "tool-a",
+      content: "A 完成",
+    }));
+    blocks = applyAssistantToolResultToStreamBlocks(blocks, JSON.stringify({
+      role: "tool",
+      tool_call_id: "tool-b",
+      content: "B 完成",
+    }));
+    blocks = appendTextDeltaToStreamBlocks(blocks, "下面继续正文。");
+
+    expect(assistantTextFromStreamBlocks(blocks)).toBe(
+      "先说明要并发读取。 [toolcall:tool-a] [toolcall:tool-b]\n\n下面继续正文。",
+    );
+    expect(blocks).toEqual([{
+      reasoning: "",
+      text: "先说明要并发读取。 [toolcall:tool-a] [toolcall:tool-b]\n\n下面继续正文。",
+      tools: [{
+        toolCallId: "tool-a",
+        name: "read",
+        argsText: "{\"path\":\"a.ts\"}",
+        resultText: "A 完成",
+        status: "done",
+      }, {
+        toolCallId: "tool-b",
+        name: "read",
+        argsText: "{\"path\":\"b.ts\"}",
+        resultText: "B 完成",
+        status: "done",
+      }],
+      pendingTextBreak: false,
+    }]);
+  });
+
+  it("shows a tool marker even when the tool finishes before any visible text", () => {
+    let blocks = applyAssistantToolEventToStreamBlocks([], JSON.stringify({
+      role: "assistant",
+      content: null,
+      tool_calls: [{
+        id: "tool-first",
+        type: "function",
+        function: {
+          name: "read",
+          arguments: "{\"path\":\"a.ts\"}",
+        },
+      }],
+    }));
+    blocks = applyAssistantToolResultToStreamBlocks(blocks, JSON.stringify({
+      role: "tool",
+      tool_call_id: "tool-first",
+      content: "A 完成",
+    }));
+    blocks = appendTextDeltaToStreamBlocks(blocks, "后面才开始正文。");
+
+    expect(assistantTextFromStreamBlocks(blocks)).toBe(
+      "[toolcall:tool-first]\n\n后面才开始正文。",
+    );
+    expect(blocks).toEqual([{
+      reasoning: "",
+      text: "[toolcall:tool-first]\n\n后面才开始正文。",
+      tools: [{
+        toolCallId: "tool-first",
+        name: "read",
+        argsText: "{\"path\":\"a.ts\"}",
+        resultText: "A 完成",
+        status: "done",
+      }],
+      pendingTextBreak: false,
+    }]);
+  });
+
+  it("keeps marker-only tool rounds in completed display text when final text exists", () => {
+    const message: ChatMessage = {
+      ...textMessage("a-marker-only", "assistant", "最后汇总"),
+      parts: [{ type: "text", text: "最后汇总" }],
+      toolCall: [
+        {
+          role: "assistant",
+          content: null,
+          tool_calls: [{
+            id: "call_a",
+            type: "function",
+            function: {
+              name: "read",
+              arguments: "{\"path\":\"a.txt\"}",
+            },
+          }],
+        },
+        {
+          role: "tool",
+          tool_call_id: "call_a",
+          content: "A",
+        },
+        {
+          role: "assistant",
+          content: null,
+          tool_calls: [{
+            id: "call_b",
+            type: "function",
+            function: {
+              name: "read",
+              arguments: "{\"path\":\"b.txt\"}",
+            },
+          }],
+        },
+        {
+          role: "tool",
+          tool_call_id: "call_b",
+          content: "B",
+        },
+      ],
+    };
+
+    expect(projectMessageForDisplay(message).text).toBe(
+      "[toolcall:call_a] [toolcall:call_b]\n\n最后汇总",
+    );
+  });
+
+  it("does not duplicate marker-only tool rounds when final text already contains them", () => {
+    const message: ChatMessage = {
+      ...textMessage("a-marker-dedup", "assistant", "[toolcall:call_a] [toolcall:call_b]\n\n最后汇总"),
+      parts: [{ type: "text", text: "[toolcall:call_a] [toolcall:call_b]\n\n最后汇总" }],
+      toolCall: [
+        {
+          role: "assistant",
+          content: null,
+          tool_calls: [{
+            id: "call_a",
+            type: "function",
+            function: {
+              name: "read",
+              arguments: "{\"path\":\"a.txt\"}",
+            },
+          }],
+        },
+        {
+          role: "tool",
+          tool_call_id: "call_a",
+          content: "A",
+        },
+        {
+          role: "assistant",
+          content: null,
+          tool_calls: [{
+            id: "call_b",
+            type: "function",
+            function: {
+              name: "read",
+              arguments: "{\"path\":\"b.txt\"}",
+            },
+          }],
+        },
+        {
+          role: "tool",
+          tool_call_id: "call_b",
+          content: "B",
+        },
+      ],
+    };
+
+    expect(projectMessageForDisplay(message).text).toBe(
+      "[toolcall:call_a] [toolcall:call_b]\n\n最后汇总",
+    );
   });
 });
