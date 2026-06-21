@@ -172,10 +172,10 @@
                           class="whitespace-pre-wrap wrap-break-word text-xs leading-relaxed text-base-content/70"
                         >{{ item.kind === 'content' ? stripToolcallMarkers(item.text) : item.text }}</div>
                         <pre
-                          v-else-if="activityToolResultText(item)"
+                          v-else-if="activityToolArgsText(item)"
                           class="m-0 max-h-72 overflow-auto whitespace-pre-wrap break-all rounded bg-base-200/60 p-2 text-xs leading-relaxed text-base-content/75"
-                        ><code>{{ activityToolResultText(item) }}</code></pre>
-                        <div v-else class="text-xs text-base-content/45">{{ t('chat.messageItem.noToolResult') }}</div>
+                        ><code>{{ activityToolArgsText(item) }}</code></pre>
+                        <div v-else class="text-xs text-base-content/45">{{ toolTimelineText('noArgs') }}</div>
                       </div>
                     </details>
                   </div>
@@ -567,6 +567,7 @@ import { formatIsoToLocalHourMinute } from "../../../utils/time";
 import { AppMarkdownRenderer, initKatex } from "../markdown";
 import { normalizeLocalLinkHref } from "../utils/local-link";
 import { textContentSignature } from "../utils/text-signature";
+import { buildToolcallPreviewMap } from "../utils/toolcall-preview";
 import SidebarLightMarkdown from "./SidebarLightMarkdown.vue";
 
 initKatex();
@@ -684,16 +685,12 @@ const avatarUrl = computed(() => messageAvatarUrl(props.block));
 const formattedCreatedAt = computed(() => formattedBlockTime(props.block.createdAt));
 const streamingHeaderStatus = computed(() => assistantStreamingHeaderStatus(props.block));
 const toolcallPreviewMap = computed<Record<string, { title: string; body: string }>>(() => {
-  const previews: Record<string, { title: string; body: string }> = {};
+  const previews = buildToolcallPreviewMap(props.block.activityItems, toolTimelineText("noArgs"));
   for (const item of props.block.activityItems) {
     if (item.kind !== "tool") continue;
     const toolCallId = String(item.toolCallId || "").trim();
-    if (!toolCallId) continue;
-    const argsText = String(item.argsText || "").trim();
-    previews[toolCallId] = {
-      title: activityItemTitle(item),
-      body: argsText ? `参数\n${argsText}` : "",
-    };
+    if (!toolCallId || !previews[toolCallId]) continue;
+    previews[toolCallId].title = activityItemTitle(item);
   }
   return previews;
 });
@@ -1018,9 +1015,9 @@ function stripToolcallMarkers(text: string): string {
   return String(text || "").replace(/\s*\[toolcall:[^\]\n]+\]/g, "").trim();
 }
 
-function activityToolResultText(item: ChatActivityItem): string {
+function activityToolArgsText(item: ChatActivityItem): string {
   if (item.kind !== "tool") return "";
-  return String(item.resultText || "").trim();
+  return String(item.argsText || "").trim();
 }
 
 function activityItemMarker(item: ChatActivityItem): string {
