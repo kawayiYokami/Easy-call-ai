@@ -90,6 +90,7 @@
       @remove-selected-persona="removeSelectedPersona"
       @reset-personas="resetPersonas"
       @save-personas="savePersonas"
+      @convert-private-persona-to-public="convertPrivatePersonaToPublic"
       @import-persona-memories="importPersonaMemories"
       @open-conversation-list="openConversationList"
       @open-prompt-preview="openPromptPreview"
@@ -639,6 +640,7 @@ const props = defineProps<{
   removeSelectedPersona: () => void;
   resetPersonas: () => Promise<unknown> | unknown;
   savePersonas: () => Promise<boolean> | boolean;
+  convertPrivatePersonaToPublic: (agentId: string) => Promise<boolean> | boolean;
   importPersonaMemories: (payload: { agentId: string; file: File }) => void;
   openConversationList: () => void;
   openConversationSummary: (conversationId: string) => void;

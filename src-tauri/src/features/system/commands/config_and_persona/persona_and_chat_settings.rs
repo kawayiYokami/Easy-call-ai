@@ -19,6 +19,45 @@ fn save_agents(
     save_agents_inner(input, &app, &state)
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ConvertPrivateAgentToMainInput {
+    agent_id: String,
+}
+
+#[tauri::command]
+fn convert_private_agent_to_main(
+    input: ConvertPrivateAgentToMainInput,
+    app: AppHandle,
+    state: State<'_, AppState>,
+) -> Result<Vec<AgentProfile>, String> {
+    let agent_id = input.agent_id.trim();
+    if agent_id.is_empty() {
+        return Err("agentId is required".to_string());
+    }
+
+    let mut runtime_agents = load_agents_inner(&state)?;
+    let target_idx = runtime_agents
+        .iter()
+        .position(|a| a.id == agent_id)
+        .ok_or_else(|| format!("Agent '{}' not found.", agent_id))?;
+    if !is_private_workspace_source(&runtime_agents[target_idx].source) {
+        return Err(format!("Agent '{}' is not a private-workspace persona.", agent_id));
+    }
+
+    runtime_agents[target_idx].source = "main_config".to_string();
+    runtime_agents[target_idx].scope = "global".to_string();
+    runtime_agents[target_idx].updated_at = now_iso();
+
+    save_agents_inner(
+        SaveAgentsInput {
+            agents: runtime_agents,
+        },
+        &app,
+        &state,
+    )
+}
+
 fn save_agents_inner(
     input: SaveAgentsInput,
     app: &AppHandle,

@@ -58,6 +58,14 @@
               <input v-model="selectedPersona.name" class="input input-bordered input-sm flex-1" :placeholder="t('config.persona.name')" />
               <span v-if="selectedPersonaIsPrivateWorkspace" class="badge badge-secondary">{{ t("config.persona.privateWorkspaceTag") }}</span>
               <button
+                v-if="selectedPersonaIsPrivateWorkspace"
+                class="btn btn-xs btn-outline"
+                :disabled="personaSaving"
+                @click="emitConvertPrivatePersona"
+              >
+                {{ t("config.persona.convertToPublic") }}
+              </button>
+              <button
                 class="btn btn-ghost btn-circle p-0 min-h-0 h-auto w-auto"
                 :disabled="avatarSaving"
                 :title="avatarSaving ? t('config.persona.avatarSaving') : t('config.persona.editAvatar')"
@@ -209,6 +217,7 @@ const emit = defineEmits<{
   (e: "openAvatarEditor"): void;
   (e: "importPersonaMemories", value: { agentId: string; file: File }): void;
   (e: "savePersonas"): void;
+  (e: "convertPrivatePersonaToPublic", agentId: string): void;
 }>();
 
 const { t } = useI18n();
@@ -319,6 +328,12 @@ function triggerPersonaMemoryImport() {
   if (!personaMemoryImportInput.value) return;
   personaMemoryImportInput.value.value = "";
   personaMemoryImportInput.value.click();
+}
+
+function emitConvertPrivatePersona() {
+  const agentId = props.selectedPersona?.id;
+  if (!agentId || !selectedPersonaIsPrivateWorkspace.value) return;
+  emit("convertPrivatePersonaToPublic", agentId);
 }
 
 function onPersonaMemoryImportFile(event: Event) {

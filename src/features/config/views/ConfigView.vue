@@ -136,6 +136,7 @@
             @open-avatar-editor="openAvatarEditorForSelected"
             @import-persona-memories="$emit('importPersonaMemories', $event)"
             @save-personas="$emit('savePersonas')"
+            @convert-private-persona-to-public="$emit('convertPrivatePersonaToPublic', $event)"
           />
 
           <ChatSettingsTab
@@ -523,6 +524,7 @@ const emit = defineEmits<{
   (e: "removeSelectedPersona"): void;
   (e: "resetPersonas"): void;
   (e: "savePersonas"): void;
+  (e: "convertPrivatePersonaToPublic", agentId: string): void;
   (e: "importPersonaMemories", value: { agentId: string; file: File }): void;
   (e: "openConversationList"): void;
   (e: "openPromptPreview"): void;
