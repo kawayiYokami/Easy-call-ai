@@ -29,8 +29,8 @@ fn app_identity_genai_headers() -> genai::Headers {
     ])
 }
 
-const CODEX_TUI_COMPAT_VERSION: &str = "0.139.0";
-const CODEX_BETA_FEATURES: &str = "terminal_resize_reflow";
+const CODEX_TUI_COMPAT_VERSION: &str = "0.141.0";
+const CODEX_BETA_FEATURES: &str = "remote_compaction_v2";
 
 fn codex_cli_sandbox_label() -> &'static str {
     "none"
@@ -66,6 +66,7 @@ fn codex_genai_headers(
     let mut pairs = vec![
         ("Originator".to_string(), originator.to_string()),
         ("User-Agent".to_string(), user_agent),
+        ("Accept".to_string(), "text/event-stream".to_string()),
         ("X-Codex-Beta-Features".to_string(), CODEX_BETA_FEATURES.to_string()),
     ];
 

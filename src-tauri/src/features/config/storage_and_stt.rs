@@ -1753,7 +1753,7 @@ fn resolve_api_config(
             }
             _ => {}
         }
-        extra_headers.push(("session_id".to_string(), Uuid::new_v4().to_string()));
+        extra_headers.push(("Session-Id".to_string(), Uuid::new_v4().to_string()));
     }
 
     if selected_api_key.trim().is_empty() {

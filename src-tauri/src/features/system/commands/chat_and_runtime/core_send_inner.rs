@@ -1009,6 +1009,20 @@ fn parse_auto_conversation_title_probe_value(value: &Value) -> Option<String> {
         .and_then(normalize_summary_context_title)
 }
 
+fn sync_codex_conversation_request_key(
+    resolved_api: &mut ResolvedApiConfig,
+    conversation_id: &str,
+) {
+    let stable_key = conversation_id.trim();
+    if stable_key.is_empty() {
+        return;
+    }
+    resolved_api.prompt_cache_key = Some(stable_key.to_string());
+    if resolved_api.request_format.is_codex() {
+        upsert_api_extra_header(resolved_api, "Session-Id", stable_key);
+    }
+}
+
 async fn run_auto_conversation_title_generation(
     state: &AppState,
     user_message: &str,
@@ -3437,7 +3451,7 @@ async fn send_chat_message_inner(
                     continue;
                 }
             };
-        candidate_resolved_api.prompt_cache_key = Some(conversation_id.clone());
+        sync_codex_conversation_request_key(&mut candidate_resolved_api, &conversation_id);
         let candidate_model_name = if candidate_selected_api.model.trim().is_empty() {
             candidate_resolved_api.model.clone()
         } else {
@@ -4714,6 +4728,46 @@ mod core_send_inner_tests {
             r#"{"has_topic":false,"title":"自动压缩标题"}"#,
         )
         .is_none());
+    }
+
+    #[test]
+    fn sync_codex_conversation_request_key_should_use_stable_conversation_id() {
+        let mut resolved_api = ResolvedApiConfig {
+            provider_id: Some("codex-provider".to_string()),
+            provider_api_keys: Vec::new(),
+            provider_key_cursor: 0,
+            request_format: RequestFormat::Codex,
+            allow_concurrent_requests: false,
+            max_concurrent_requests: None,
+            base_url: DEFAULT_CODEX_BASE_URL.to_string(),
+            api_key: "test-key".to_string(),
+            model: "gpt-5.4".to_string(),
+            reasoning_effort: Some("high".to_string()),
+            temperature: None,
+            max_output_tokens: None,
+            prompt_cache_key: None,
+            extra_headers: vec![("Session-Id".to_string(), "random-uuid".to_string())],
+            codex_auth: None,
+            codex_auth_mode: None,
+            codex_originator: None,
+            codex_residency_requirement: None,
+            codex_custom_api_key: None,
+        };
+
+        sync_codex_conversation_request_key(&mut resolved_api, "conversation-123");
+
+        assert_eq!(
+            resolved_api.prompt_cache_key.as_deref(),
+            Some("conversation-123")
+        );
+        assert_eq!(
+            resolved_api
+                .extra_headers
+                .iter()
+                .find(|(key, _)| key.eq_ignore_ascii_case("session-id"))
+                .map(|(_, value)| value.as_str()),
+            Some("conversation-123")
+        );
     }
 
     #[test]

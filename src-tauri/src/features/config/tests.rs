@@ -1144,7 +1144,7 @@ model = "gpt-4.1"
         assert!(resolved
             .extra_headers
             .iter()
-            .any(|(key, value)| key == "session_id" && !value.trim().is_empty()));
+            .any(|(key, value)| key == "Session-Id" && !value.trim().is_empty()));
     }
 
     #[test]
