@@ -1,7 +1,12 @@
 {
-  "generatedAt": "2026-06-21T16:44:19.659Z",
-  "latestVersion": "v0.13.4",
+  "generatedAt": "2026-06-21T21:21:33.502Z",
+  "latestVersion": "v0.13.5",
   "releases": [
+    {
+      "version": "v0.13.5",
+      "path": "docs/changelog/releases/v0.13.5.md",
+      "summary": "**聊天窗口**：补全工具调用展开内容，修正 tool 标记渲染与去重，减少工具消息显示错乱"
+    },
     {
       "version": "v0.13.4",
       "path": "docs/changelog/releases/v0.13.4.md",
