@@ -39,7 +39,18 @@
           </label>
           <label class="flex flex-col gap-1">
             <span class="text-sm font-medium">{{ t("config.api.codexCustomApiKey") }}</span>
-            <input v-model="provider.codexCustomApiKey" class="input input-bordered input-sm" type="password" placeholder="sk-..." />
+            <div class="flex items-center gap-2">
+              <input
+                v-model="provider.codexCustomApiKey"
+                class="input input-bordered input-sm flex-1"
+                :type="showCodexCustomApiKey ? 'text' : 'password'"
+                placeholder="sk-..."
+              />
+              <button class="btn btn-sm btn-square bg-base-200" type="button" @click="showCodexCustomApiKey = !showCodexCustomApiKey">
+                <EyeOff v-if="showCodexCustomApiKey" class="h-3.5 w-3.5" />
+                <Eye v-else class="h-3.5 w-3.5" />
+              </button>
+            </div>
             <span class="text-xs opacity-60">{{ t("config.api.codexCustomApiKeyHint") }}</span>
           </label>
         </div>
@@ -216,7 +227,7 @@
 <script setup lang="ts">
 import { computed, onUnmounted, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
-import { Trash2 } from "@lucide/vue";
+import { Eye, EyeOff, Trash2 } from "@lucide/vue";
 import type {
   ApiModelConfigItem,
   ApiProviderConfigItem,
@@ -252,6 +263,7 @@ const emit = defineEmits<{
 }>();
 
 const codexAuthBusy = ref(false);
+const showCodexCustomApiKey = ref(false);
 const codexAuthStatusByProvider = ref<Record<string, CodexAuthStatus>>({});
 const codexAuthPollTimer = ref<number | null>(null);
 const codexRateLimitQueryByProvider = ref<Record<string, CodexRateLimitQueryResult | null>>({});
