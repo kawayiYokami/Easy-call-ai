@@ -8,6 +8,7 @@ export type FrontendRoundPhase = "idle" | "queued" | "waiting" | "streaming";
 
 export type UseChatFlowOptions = {
   chatting: Ref<boolean>;
+  submitPending?: Ref<boolean>;
   trimming: Ref<boolean>;
   isConversationBusy?: () => boolean;
   getSession: () => { apiConfigId: string; agentId: string; departmentId?: string } | null;

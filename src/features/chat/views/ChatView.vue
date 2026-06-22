@@ -226,7 +226,7 @@
             :workspace-access="workspaceAccess"
             :frontend-round-phase="frontendRoundPhase" :chat-usage-percent="chatUsagePercent"
             :trim-tip="trimTip" :chatting="chatting" :busy="conversationInteractionBusy"
-            :stop-chat-disabled="isOrganizingContextBusy" :frozen="frozen"
+            :stop-chat-disabled="isOrganizingContextBusy || submitPending" :frozen="frozen"
             :supervision-active="supervisionActive"
             :supervision-title="supervisionButtonTitle"
             :supervision-disabled="activeConversationSummary?.kind === 'remote_im_contact'"
@@ -470,6 +470,7 @@ const props = defineProps<{
   latestUserText: string; latestUserImages: Array<{ mime: string; bytesBase64: string }>;
   latestAssistantText: string;
   frontendRoundPhase: "idle" | "queued" | "waiting" | "streaming";
+  submitPending?: boolean;
   toolStatusText: string; toolStatusState: "running" | "done" | "failed" | "";
   chatErrorText: string; clipboardImages: Array<{ mime: string; bytesBase64: string }>;
   queuedAttachmentNotices: Array<{ id: string; fileName: string; relativePath: string; mime: string }>;

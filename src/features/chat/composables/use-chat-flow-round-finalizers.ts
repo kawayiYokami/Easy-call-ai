@@ -31,6 +31,7 @@ export function useChatFlowRoundFinalizers(bindings: Record<string, any>) {
     bindings.updateDraftText(draftId);
     bindings.finalizeDraft(draftId, result.assistantMessage);
     bindings.clearConversationStreamCache(bindings.getConversationId ? bindings.getConversationId() : "");
+    bindings.submitPending && (bindings.submitPending.value = false);
     bindings.clearFrontendDispatchTimer();
     bindings.setActiveActivationId("");
     bindings.setActiveRoundAgentId?.("");
@@ -56,6 +57,7 @@ export function useChatFlowRoundFinalizers(bindings: Record<string, any>) {
     bindings.setDeferredRoundCompletion(null);
     bindings.setQueuedStreamingState(null);
     bindings.clearConversationStreamCache(bindings.getConversationId ? bindings.getConversationId() : "");
+    bindings.submitPending && (bindings.submitPending.value = false);
     bindings.clearFrontendDispatchTimer();
     bindings.setActiveActivationId("");
     bindings.setActiveRoundAgentId?.("");
@@ -75,6 +77,7 @@ export function useChatFlowRoundFinalizers(bindings: Record<string, any>) {
     bindings.setDeferredRoundCompletion(null);
     bindings.setQueuedStreamingState(null);
     bindings.clearConversationStreamCache(bindings.getConversationId ? bindings.getConversationId() : "");
+    bindings.submitPending && (bindings.submitPending.value = false);
     bindings.clearFrontendDispatchTimer();
     bindings.setActiveActivationId("");
     bindings.setActiveRoundAgentId?.("");

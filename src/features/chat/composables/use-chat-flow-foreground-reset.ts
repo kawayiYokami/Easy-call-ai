@@ -10,6 +10,7 @@ type UseChatFlowForegroundResetOptions = {
   toolStatusState: Ref<"running" | "done" | "failed" | "">;
   streamBlocks?: Ref<AssistantStreamBlock[]>;
   chatting: Ref<boolean>;
+  submitPending?: Ref<boolean>;
   getConversationId?: () => string;
   getRound: () => RoundState;
   setRound: (next: RoundState) => void;
@@ -43,6 +44,7 @@ export function useChatFlowForegroundReset(options: UseChatFlowForegroundResetOp
   }
 
   function clearForegroundRoundState() {
+    if (options.submitPending) options.submitPending.value = false;
     options.tickGeneration();
     options.setSendChatActiveGen(0);
     options.setActiveActivationId("");
@@ -67,6 +69,7 @@ export function useChatFlowForegroundReset(options: UseChatFlowForegroundResetOp
   }
 
   function clearForegroundRuntimeState() {
+    if (options.submitPending) options.submitPending.value = false;
     options.tickGeneration();
     const conversationId = options.getConversationId ? options.getConversationId() : "";
     options.setSendChatActiveGen(0);
@@ -90,6 +93,7 @@ export function useChatFlowForegroundReset(options: UseChatFlowForegroundResetOp
   }
 
   function freezeForegroundRoundState() {
+    if (options.submitPending) options.submitPending.value = false;
     options.tickGeneration();
     options.setSendChatActiveGen(0);
     options.setActiveRoundAgentId("");

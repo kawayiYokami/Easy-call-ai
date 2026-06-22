@@ -135,6 +135,7 @@
       :latest-user-images="latestUserImages"
       :latest-assistant-text="latestAssistantText"
       :frontend-round-phase="chatFlow.frontendRoundPhase.value"
+      :submit-pending="chatFlow.submitPending.value"
       :tool-status-text="toolStatusText"
       :tool-status-state="toolStatusState"
       :chat-error-text="chatErrorText"

@@ -11,6 +11,7 @@ type SendSession = { apiConfigId: string; agentId: string; departmentId?: string
 
 type UseChatFlowSendRecoveryOptions = {
   chatting: Ref<boolean>;
+  submitPending?: Ref<boolean>;
   latestAssistantText: Ref<string>;
   toolStatusText: Ref<string>;
   toolStatusState: Ref<"running" | "done" | "failed" | "">;
@@ -45,6 +46,7 @@ export function useChatFlowSendRecovery(options: UseChatFlowSendRecoveryOptions)
 
   function handleAbortedSend(gen: number, sendConversationId: string) {
     options.deleteSendStartedAtMs(gen);
+    if (options.submitPending) options.submitPending.value = false;
     options.clearChatErrorText(sendConversationId);
     const round = options.getRound();
     if ((round.phase === "streaming" || round.phase === "queued") && round.gen === gen) {
@@ -62,6 +64,7 @@ export function useChatFlowSendRecovery(options: UseChatFlowSendRecoveryOptions)
     sendSession: SendSession,
     sendConversationId: string,
   ) {
+    if (options.submitPending) options.submitPending.value = false;
     console.error("[聊天] 聊天流程请求失败", {
       action: "sendChat",
       apiConfigId: sendSession.apiConfigId,
@@ -115,6 +118,7 @@ export function useChatFlowSendRecovery(options: UseChatFlowSendRecoveryOptions)
     options.setSendChatActiveGenIfCurrent(gen, 0);
     const round = options.getRound();
     if (round.phase === "queued" && round.gen === gen && options.getHistoryFlushedReceivedGen() !== gen) {
+      if (options.submitPending) options.submitPending.value = false;
       removePendingDraftsForGen(gen);
       options.deleteSendStartedAtMs(gen);
       options.setRound({ phase: "idle" });

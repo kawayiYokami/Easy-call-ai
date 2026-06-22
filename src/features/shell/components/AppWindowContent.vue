@@ -126,6 +126,7 @@
         :latest-user-images="latestUserImages"
         :latest-assistant-text="latestAssistantText"
         :frontend-round-phase="frontendRoundPhase"
+        :submit-pending="submitPending"
         :tool-status-text="toolStatusText"
         :tool-status-state="toolStatusState"
         :chat-error-text="chatErrorText"
@@ -500,6 +501,7 @@ const props = defineProps<{
   latestUserImages: Array<{ mime: string; bytesBase64: string }>;
   latestAssistantText: string;
   frontendRoundPhase: "idle" | "queued" | "waiting" | "streaming";
+  submitPending?: boolean;
   toolStatusText: string;
   toolStatusState: "running" | "done" | "failed" | "";
   chatErrorText: string;

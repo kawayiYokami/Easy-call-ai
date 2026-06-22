@@ -56,6 +56,7 @@ export function useChatFlow(options: UseChatFlowOptions) {
   // ── 状态 ──
   let round: RoundState = { phase: "idle" };
   const frontendRoundPhase = ref<FrontendRoundPhase>("idle");
+  const submitPending = options.submitPending ?? ref(false);
   let generation = 0;
   let sendChatActiveGen = 0; // 防止 bound channel 抢占 sendChat 轮次
   let historyFlushedReceivedGen = 0; // 记录 sendChat 轮次是否已收到 history_flushed，避免 finally 误回收
@@ -199,6 +200,7 @@ export function useChatFlow(options: UseChatFlowOptions) {
     formatRequestFailed: options.formatRequestFailed,
     setChatErrorText,
     applyAssistantDeltaToDraft,
+    submitPending,
   });
   const streamingEvents = useChatFlowStreamingEvents({
     toolStatusText: options.toolStatusText,
@@ -375,6 +377,7 @@ export function useChatFlow(options: UseChatFlowOptions) {
   });
   const sendRecovery = useChatFlowSendRecovery({
     chatting: options.chatting,
+    submitPending,
     latestAssistantText: options.latestAssistantText,
     toolStatusText: options.toolStatusText,
     toolStatusState: options.toolStatusState,
@@ -449,6 +452,7 @@ export function useChatFlow(options: UseChatFlowOptions) {
   });
   const sendController = useChatFlowSendController({
     chatting: options.chatting,
+    submitPending,
     isConversationBusy: options.isConversationBusy,
     toolStatusText: options.toolStatusText,
     toolStatusState: options.toolStatusState,
@@ -497,6 +501,7 @@ export function useChatFlow(options: UseChatFlowOptions) {
     toolStatusState: options.toolStatusState,
     streamBlocks: options.streamBlocks,
     chatting: options.chatting,
+    submitPending,
     getConversationId: options.getConversationId,
     getRound: () => round,
     setRound,
@@ -642,6 +647,9 @@ export function useChatFlow(options: UseChatFlowOptions) {
     parsed: AssistantDeltaEvent,
     source: "sendChat" | "bound",
   ) {
+    if (source === "sendChat") {
+      submitPending.value = false;
+    }
     const flushed = readHistoryFlushedPayload(parsed.message);
     if (flushed && options.onHistoryFlushed) {
       await options.onHistoryFlushed({
@@ -719,6 +727,7 @@ export function useChatFlow(options: UseChatFlowOptions) {
     handleExternalRoundFailed: externalEvents.handleExternalRoundFailed,
     handleExternalAssistantDelta: externalEvents.handleExternalAssistantDelta,
     frontendRoundPhase,
+    submitPending,
     reasoningStartedAtMs,
   };
 }

@@ -14,6 +14,7 @@ type StreamUserImageAttachment = { mime: string; bytesBase64: string; savedPath?
 
 type UseChatFlowSendControllerOptions = {
   chatting: Ref<boolean>;
+  submitPending?: Ref<boolean>;
   isConversationBusy?: () => boolean;
   toolStatusText: Ref<string>;
   toolStatusState: Ref<"running" | "done" | "failed" | "">;
@@ -156,8 +157,13 @@ export function useChatFlowSendController(options: UseChatFlowSendControllerOpti
     const traceId = typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
       ? crypto.randomUUID()
       : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    const shouldBlockStopUntilHistoryFlushed = !hasForegroundRoundInFlight;
+    let submitSucceeded = false;
 
     try {
+      if (shouldBlockStopUntilHistoryFlushed && options.submitPending) {
+        options.submitPending.value = true;
+      }
       const submitResult = await options.invokeSendChatMessage({
         text: plainText,
         displayText,
@@ -172,6 +178,7 @@ export function useChatFlowSendController(options: UseChatFlowSendControllerOpti
         traceId,
         onDelta: deltaChannel,
       });
+      submitSucceeded = true;
       const ingress = String((submitResult as { ingress?: string } | null)?.ingress || "").trim();
       const accepted = typeof (submitResult as { accepted?: unknown } | null)?.accepted === "boolean"
         ? !!(submitResult as { accepted?: boolean }).accepted
@@ -185,13 +192,18 @@ export function useChatFlowSendController(options: UseChatFlowSendControllerOpti
         options.chatting.value = false;
         options.clearFrontendDispatchTimer();
       }
+      if ((!accepted || ingress === "queued") && options.submitPending) {
+        options.submitPending.value = false;
+      }
     } catch (error) {
+      if (options.submitPending) options.submitPending.value = false;
       if (isChatAbortedByUser(error)) {
         options.sendRecovery.handleAbortedSend(gen, sendConversationId);
         return;
       }
       await options.sendRecovery.handleFailedSend(gen, error, sendSession, sendConversationId);
     } finally {
+      if (!submitSucceeded && options.submitPending) options.submitPending.value = false;
       // submit_chat_message 是短提交命令；成功后的轮次收束只由 history_flushed、round_started、round_completed 等事件驱动。
     }
   }
