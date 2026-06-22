@@ -1,7 +1,12 @@
 {
-  "generatedAt": "2026-06-21T21:21:33.502Z",
-  "latestVersion": "v0.13.5",
+  "generatedAt": "2026-06-22T01:43:13.525Z",
+  "latestVersion": "v0.13.6",
   "releases": [
+    {
+      "version": "v0.13.6",
+      "path": "docs/changelog/releases/v0.13.6.md",
+      "summary": "**聊天窗口**：聚合工具调用浮层，减少工具消息显示噪音"
+    },
     {
       "version": "v0.13.5",
       "path": "docs/changelog/releases/v0.13.5.md",
