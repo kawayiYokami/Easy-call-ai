@@ -105,7 +105,4 @@ function todoStatusClass(status: NormalizedTodo["status"]): string {
 .todobar-btn {
   border-radius: 0 0 var(--radius-field) var(--radius-field);
 }
-.todobar-btn:hover {
-  transform: translateY(1px);
-}
 </style>
