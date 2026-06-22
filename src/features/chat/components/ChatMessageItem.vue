@@ -160,7 +160,20 @@
                           class="min-w-0 flex-1 truncate"
                           :class="activityItemTitleClass(item)"
                         >
-                          {{ activityItemTitle(item) }}
+                          <template v-if="item.kind === 'tool'">
+                            <span class="truncate">{{ activityItemDisplay(item).text }}</span>
+                            <span
+                              v-if="activityItemDisplay(item).adds > 0"
+                              class="ml-1 shrink-0 text-success"
+                            >+{{ activityItemDisplay(item).adds }}</span>
+                            <span
+                              v-if="activityItemDisplay(item).removes > 0"
+                              class="ml-1 shrink-0 text-error"
+                            >-{{ activityItemDisplay(item).removes }}</span>
+                          </template>
+                          <template v-else>
+                            {{ activityItemTitle(item) }}
+                          </template>
                         </span>
                       </summary>
                       <div
@@ -1051,6 +1064,50 @@ function activityItemTitle(item: ChatActivityItem): string {
   ]);
 }
 
+function countTextLines(text: string): number {
+  const normalized = String(text || "").replace(/\r\n/g, "\n");
+  if (!normalized.trim()) return 0;
+  return normalized.split("\n").length;
+}
+
+function toolCallDiffStats(toolCall: { name: string; argsText: string }): { adds: number; removes: number } {
+  const toolName = String(toolCall.name || "").trim();
+  const args = normalizeToolCallArgs(toolCall.argsText);
+  if (typeof args !== "object" || args === null) return { adds: 0, removes: 0 };
+  const obj = args as Record<string, unknown>;
+
+  if (toolName === "write") {
+    return {
+      adds: countTextLines(String(obj.content || "")),
+      removes: 0,
+    };
+  }
+
+  if (toolName === "update") {
+    const oldLines = countTextLines(String(obj.oldString || ""));
+    const newLines = countTextLines(String(obj.newString || ""));
+    return {
+      adds: newLines,
+      removes: oldLines,
+    };
+  }
+
+  return { adds: 0, removes: 0 };
+}
+
+function activityItemDisplay(item: ChatActivityItem): { text: string; adds: number; removes: number } {
+  if (item.kind !== "tool") {
+    return { text: activityItemTitle(item), adds: 0, removes: 0 };
+  }
+  return {
+    text: joinNonEmpty([
+      toolCallDisplayName(item.name),
+      toolCallSummaryText(item),
+    ]),
+    ...toolCallDiffStats(item),
+  };
+}
+
 function toolStatusLabel(block: ChatMessageBlock): string {
   if (!showStreamingUi(block)) return t('chat.messageItem.toolDone');
   return toolSummaryDoing(block) ? t('chat.messageItem.toolRunning') : t('chat.messageItem.toolDone');
@@ -1067,6 +1124,10 @@ const internalToolNames = new Set<string>([
   "shell_exec",
   "read",
   "read_file",
+  "write",
+  "delete",
+  "update",
+  "move",
   "write_file",
   "append_text",
   "delete_file",
@@ -1587,6 +1648,8 @@ function summarizeOperateTool(args: unknown): string {
 
 function summarizeBuiltinTool(toolName: string, args: unknown): string {
   if (toolName === "read" || toolName === "read_file") return summarizeReadFileTool(args);
+  if (toolName === "write" || toolName === "delete" || toolName === "move") return summarizeFileTool(args);
+  if (toolName === "update") return summarizeFileTool(args);
   if (toolName === "read_media") return summarizeReadMediaTool(args);
   if (toolName === "todo") return summarizeTodoTool(args);
   if (toolName === "task") return summarizeTaskTool(args);
@@ -1603,24 +1666,24 @@ function summarizeBuiltinTool(toolName: string, args: unknown): string {
 }
 
 function summarizeExternalTool(name: string, args: unknown): string {
-  if (args === undefined || args === null) return toolTimelineNameValue(name, toolTimelineText("noArgs"));
+  if (args === undefined || args === null) return toolTimelineText("noArgs");
   if (typeof args === "string") {
     const text = args.trim();
-    return toolTimelineNameValue(name, text || toolTimelineText("missingArgs"));
+    return text || toolTimelineText("missingArgs");
   }
   if (typeof args !== "object") {
-    return toolTimelineNameValue(name, String(args));
+    return String(args);
   }
 
   const compact = toCompactValue(args);
   if (compact) {
-    return toolTimelineNameValue(name, compact);
+    return compact;
   }
 
   const jsonText = compactSingleLineJson(args, 180);
-  if (jsonText) return toolTimelineNameValue(name, jsonText);
+  if (jsonText) return jsonText;
 
-  return toolTimelineNameValue(name, toolTimelineText("missingArgs"));
+  return toolTimelineText("missingArgs");
 }
 
 function toolCallSummaryText(toolCall: { name: string; argsText: string; status?: "doing" | "done" }): string {
