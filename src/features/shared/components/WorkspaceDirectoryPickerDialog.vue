@@ -1,10 +1,6 @@
 <template>
-  <div
-    v-if="open"
-    class="fixed inset-0 z-80 flex items-center justify-center bg-black/30 px-4 py-8"
-    @click.self="emit('close')"
-  >
-    <div class="w-full max-w-lg rounded-2xl border border-base-300 bg-base-100 shadow-2xl">
+  <dialog class="modal" :class="{ 'modal-open': open }">
+    <div class="modal-box w-full max-w-lg rounded-2xl border border-base-300 bg-base-100 p-0 shadow-2xl">
       <div class="border-b border-base-300 px-4 py-3">
         <div class="text-sm font-semibold">{{ t("chat.workspacePickerTitle") }}</div>
         <div class="mt-1 text-xs opacity-70">{{ hintText }}</div>
@@ -128,7 +124,10 @@
         </button>
       </div>
     </div>
-  </div>
+    <form method="dialog" class="modal-backdrop">
+      <button @click.prevent="emit('close')">close</button>
+    </form>
+  </dialog>
 </template>
 
 <script setup lang="ts">
