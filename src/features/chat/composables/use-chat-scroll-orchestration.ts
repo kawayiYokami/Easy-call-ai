@@ -7,7 +7,8 @@ export interface UseChatScrollOrchestrationOptions {
   prepareBottomAlignmentLayout?: () => Promise<void> | void;
   onScroll: () => void;
   scheduleVirtualMeasure: () => void;
-  resetConversationToBottom: () => void;
+  resetConversationToBottom: (behavior?: "auto" | "smooth") => void;
+  scrollConversationToBottomLightweight: (behavior?: "auto" | "smooth") => void;
   refreshObservedVirtualItemElements: () => void;
   props: {
     hasMoreHistory: Ref<boolean>;
@@ -17,6 +18,7 @@ export interface UseChatScrollOrchestrationOptions {
     frozen: Ref<boolean>;
     activeConversationId: Ref<string>;
     conversationScrollToBottomRequest: Ref<number>;
+    scrollToBottomBehavior: Ref<"auto" | "smooth" | "smooth_light">;
     messageBlocks: Ref<ChatMessageBlock[]>;
   };
   emit: {
@@ -33,6 +35,7 @@ export function useChatScrollOrchestration(options: UseChatScrollOrchestrationOp
     onScroll,
     scheduleVirtualMeasure,
     resetConversationToBottom,
+    scrollConversationToBottomLightweight,
     refreshObservedVirtualItemElements,
     props,
     emit,
@@ -115,13 +118,18 @@ export function useChatScrollOrchestration(options: UseChatScrollOrchestrationOp
     }
   }
 
-  function doScrollToBottom() {
+  function doScrollToBottom(behavior: "auto" | "smooth" = "auto") {
     armProgrammaticScrollPaginationSuppression();
     scheduleVirtualMeasure();
     void nextTick(async () => {
       await prepareBottomAlignmentLayout?.();
-      resetConversationToBottom();
+      resetConversationToBottom(behavior);
     });
+  }
+
+  function doLightweightScrollToBottom(behavior: "auto" | "smooth" = "auto") {
+    armProgrammaticScrollPaginationSuppression();
+    scrollConversationToBottomLightweight(behavior);
   }
 
   function handleJumpToBottom() {
@@ -147,7 +155,11 @@ export function useChatScrollOrchestration(options: UseChatScrollOrchestrationOp
     () => props.conversationScrollToBottomRequest.value,
     (nextValue, prevValue) => {
       if (!nextValue || nextValue === prevValue) return;
-      doScrollToBottom();
+      if (props.scrollToBottomBehavior.value === "smooth_light") {
+        doLightweightScrollToBottom("smooth");
+        return;
+      }
+      doScrollToBottom(props.scrollToBottomBehavior.value);
     },
   );
 

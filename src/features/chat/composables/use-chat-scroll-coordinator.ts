@@ -6,6 +6,7 @@ type UseChatScrollCoordinatorOptions = {
 
 export function useChatScrollCoordinator(options: UseChatScrollCoordinatorOptions) {
   const conversationScrollToBottomRequest = ref(0);
+  const scrollToBottomBehavior = ref<"auto" | "smooth" | "smooth_light">("auto");
   let pendingConversationScrollToBottomConversationId = "";
   let pendingConversationScrollToBottomTimer = 0;
   let pendingManualScrollToBottomConversationId = "";
@@ -23,10 +24,15 @@ export function useChatScrollCoordinator(options: UseChatScrollCoordinatorOption
     pendingManualScrollToBottomRequestId = "";
   }
 
-  function triggerConversationScrollToBottom(conversationId: string, reason: string) {
+  function triggerConversationScrollToBottom(
+    conversationId: string,
+    reason: string,
+    behavior: "auto" | "smooth" | "smooth_light" = "auto",
+  ) {
     const cid = String(conversationId || "").trim();
     if (!cid) return;
     if (cid !== String(options.currentChatConversationId.value || "").trim()) return;
+    scrollToBottomBehavior.value = behavior;
     conversationScrollToBottomRequest.value += 1;
     pendingConversationScrollToBottomConversationId = "";
     clearPendingConversationScrollToBottomFallback();
@@ -52,6 +58,7 @@ export function useChatScrollCoordinator(options: UseChatScrollCoordinatorOption
 
   return {
     conversationScrollToBottomRequest,
+    scrollToBottomBehavior,
     clearPendingConversationScrollToBottomFallback,
     clearPendingManualScrollToBottom,
     triggerConversationScrollToBottom,

@@ -161,6 +161,7 @@
         :loading-older-history="chatLoadingOlderHistory"
         :latest-own-message-align-request="latestOwnMessageAlignRequest"
         :conversation-scroll-to-bottom-request="conversationScrollToBottomRequest"
+        :scroll-to-bottom-behavior="scrollToBottomBehavior"
         :current-workspace-name="currentChatWorkspaceName"
         :current-workspace-display-name="currentChatWorkspaceDisplayName"
         :current-workspace-root-path="currentChatWorkspaceRootPath"
@@ -534,6 +535,7 @@ const props = defineProps<{
   chatLoadingOlderHistory: boolean;
   latestOwnMessageAlignRequest: number;
   conversationScrollToBottomRequest: number;
+  scrollToBottomBehavior: "auto" | "smooth" | "smooth_light";
   currentChatWorkspaceName: string;
   currentChatWorkspaceDisplayName: string;
   currentChatWorkspaceRootPath: string;

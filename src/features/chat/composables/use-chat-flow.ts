@@ -457,6 +457,7 @@ export function useChatFlow(options: UseChatFlowOptions) {
     getSession: options.getSession,
     invokeSendChatMessage: options.invokeSendChatMessage,
     onOwnUserDraftInserted: options.onOwnUserDraftInserted,
+    onAssistantDraftInserted: options.onAssistantDraftInserted,
     t: options.t,
     getRound: () => round,
     setRound,

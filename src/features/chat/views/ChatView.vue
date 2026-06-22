@@ -120,7 +120,7 @@
             </div>
 
             <div
-              class="pointer-events-none overflow-hidden transition-[height] duration-300 ease-out"
+              class="pointer-events-none overflow-hidden"
               :style="{ height: `${latestOwnTailSpacerMinHeight}px` }"
             ></div>
             <div
@@ -262,7 +262,7 @@
             @selection-action-forward="emitSelectionAction('forward', $event)"
             @selection-action-delegate="emitSelectionAction('delegate', $event)"
             @selection-action-share="emitSelectionAction('share', $event)"
-            @trim-conversation="$emit('trimConversation')" @open-conversation-list="$emit('openConversationList')" @open-settings="$emit('openSettings')" @switch-conversation="$emit('switchConversation', $event)"
+            @trim-conversation="$emit('trimConversation')" @open-conversation-list="$emit('openConversationList')" @open-settings="$emit('openSettings')"
             @create-conversation="$emit('createConversation', $event)"
           />
         </div>
@@ -481,7 +481,7 @@ const props = defineProps<{
   compactingConversation: boolean; compactingConversationId?: string;
   conversationBusy: boolean; frozen: boolean; messageBlocks: ChatMessageBlock[];
   hasMoreHistory: boolean; loadingOlderHistory: boolean;
-  latestOwnMessageAlignRequest: number; conversationScrollToBottomRequest: number;
+  latestOwnMessageAlignRequest: number; conversationScrollToBottomRequest: number; scrollToBottomBehavior: "auto" | "smooth" | "smooth_light";
   currentWorkspaceName: string; currentWorkspaceDisplayName?: string; currentWorkspaceRootPath: string; workspaces: ShellWorkspace[];
   currentDepartmentId: string; activeConversationId: string; currentTodos: ChatTodoItem[];
   supervisionActive: boolean; supervisionTitle: string; supervisionDialogOpen: boolean;
@@ -919,6 +919,7 @@ const {
 const {
   virtualizer, virtualEntries, totalVirtualSize, measureVirtualRow,
   latestOwnTailContentHeight, scheduleVirtualMeasure, syncViewportMetrics,
+  scrollVirtualizerToConversationBottomLightweight,
   resetVirtualizerAtConversationBottom, refreshObservedVirtualItemElements,
 } = useChatVirtualScroll({
   renderItems: virtualRenderItems,
@@ -1006,6 +1007,7 @@ const {
   scrollContainer, chatScrollbarRef: chatScrollbarRef as Ref<{ updateThumb: () => void; hide?: () => void } | null>,
   prepareBottomAlignmentLayout,
   onScroll, scheduleVirtualMeasure,
+  scrollConversationToBottomLightweight: scrollVirtualizerToConversationBottomLightweight,
   resetConversationToBottom: resetVirtualizerAtConversationBottom,
   refreshObservedVirtualItemElements,
   props: {
@@ -1013,6 +1015,7 @@ const {
     chatting: toRef(props, "chatting"), conversationBusy: conversationInteractionBusy, frozen: toRef(props, "frozen"),
     activeConversationId: toRef(props, "activeConversationId"),
     conversationScrollToBottomRequest: toRef(props, "conversationScrollToBottomRequest"),
+    scrollToBottomBehavior: toRef(props, "scrollToBottomBehavior"),
     messageBlocks: toRef(props, "messageBlocks"),
   },
   emit: { loadOlderHistory: () => emit("loadOlderHistory"), jumpToConversationBottom: () => emit("jumpToConversationBottom") },

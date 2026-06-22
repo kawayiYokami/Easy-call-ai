@@ -47,6 +47,7 @@
     :loading-older-history="false"
     :latest-own-message-align-request="0"
     :conversation-scroll-to-bottom-request="scrollToBottomRequest"
+    scroll-to-bottom-behavior="smooth"
     :current-workspace-name="currentWorkspaceName"
     :current-workspace-root-path="currentWorkspaceRootPath"
     :workspaces="currentWorkspaces"

@@ -39,6 +39,7 @@ type UseChatFlowSendControllerOptions = {
     ingress: string;
   }>;
   onOwnUserDraftInserted?: () => void;
+  onAssistantDraftInserted?: () => void;
   t: (key: string, params?: Record<string, unknown>) => string;
   getRound: () => RoundState;
   setRound: (next: RoundState) => void;
@@ -146,6 +147,7 @@ export function useChatFlowSendController(options: UseChatFlowSendControllerOpti
       if (selectedMentions.length === 0) {
         options.setRound({ phase: "queued", gen });
         options.updateQueuedAssistantDraftStatus(`${DRAFT_ASSISTANT_ID_PREFIX}${gen}`, options.t("chat.statusPreparingMessage"));
+        options.onAssistantDraftInserted?.();
       }
     }
 

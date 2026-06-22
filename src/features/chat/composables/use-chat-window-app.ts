@@ -172,8 +172,37 @@ export function useChatWindowApp() {
     applyConversationRuntimeStateUpdated,
   };
   let chatFlow: any = null;
-  function bumpOwnUserDraftAlign() {}
-  function consumeOrQueueOwnMessageAlign() {}
+  let pendingOwnMessageAlignConversationId = "";
+  let pendingOwnMessageAlignToken = 0;
+  let pendingOwnMessageAlignTimer = 0;
+
+  function clearPendingOwnMessageAlignTimer() {
+    if (pendingOwnMessageAlignTimer) {
+      window.clearTimeout(pendingOwnMessageAlignTimer);
+      pendingOwnMessageAlignTimer = 0;
+    }
+  }
+
+  function bumpOwnUserDraftAlign() {
+    const conversationId = String(currentChatConversationId.value || "").trim();
+    pendingOwnMessageAlignConversationId = conversationId;
+    pendingOwnMessageAlignToken += 1;
+    latestOwnMessageAlignRequest.value = pendingOwnMessageAlignToken;
+    clearPendingOwnMessageAlignTimer();
+    if (!conversationId) return;
+    triggerConversationScrollToBottom(conversationId, "draft_inserted", "smooth_light");
+  }
+
+  function consumeOrQueueOwnMessageAlign() {
+    const conversationId = pendingOwnMessageAlignConversationId || String(currentChatConversationId.value || "").trim();
+    const token = pendingOwnMessageAlignToken || (latestOwnMessageAlignRequest.value + 1);
+    if (!conversationId) return;
+    pendingOwnMessageAlignConversationId = conversationId;
+    pendingOwnMessageAlignToken = token;
+    latestOwnMessageAlignRequest.value = token;
+    clearPendingOwnMessageAlignTimer();
+    triggerConversationScrollToBottom(conversationId, "own_message_aligned", "smooth_light");
+  }
   const {
     messageStoreMigration,
     ensureMessageStoreMigrationGate,
@@ -379,6 +408,7 @@ export function useChatWindowApp() {
   const { isChatWindowActiveNow } = chatMedia;
   const {
     conversationScrollToBottomRequest,
+    scrollToBottomBehavior,
     clearPendingConversationScrollToBottomFallback,
     clearPendingManualScrollToBottom,
     triggerConversationScrollToBottom,
@@ -814,6 +844,7 @@ export function useChatWindowApp() {
     minimizeWindowAndClearForeground,
     openGithubRepository,
     conversationScrollToBottomRequest,
+    scrollToBottomBehavior,
     handleConfirmPlan,
     deleteUnarchivedConversation,
     handleCreateConversationBranchFromTurn,

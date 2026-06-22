@@ -52,6 +52,9 @@ export function useChatRuntimeSetup(bindings: Record<string, any>) {
       onOwnUserDraftInserted: () => {
         bindings.bumpOwnUserDraftAlign();
       },
+      onAssistantDraftInserted: () => {
+        bindings.bumpOwnUserDraftAlign();
+      },
       t: bindings.tr,
       formatRequestFailed: (error: unknown) => bindings.formatRequestFailed(error),
       removeBinaryPlaceholders: bindings.removeBinaryPlaceholders,
@@ -122,7 +125,6 @@ export function useChatRuntimeSetup(bindings: Record<string, any>) {
         if (queueMessages.length > 0) {
           const fastPathResult = bindings.applySingleOwnUserHistoryFlushFastPath(queueMessages);
           if (fastPathResult) {
-            bindings.consumeOrQueueOwnMessageAlign();
             bindings.cacheConversationMessages(
               flushedConversationId || String(bindings.currentChatConversationId.value || "").trim(),
               bindings.allMessages.value,
@@ -179,10 +181,6 @@ export function useChatRuntimeSetup(bindings: Record<string, any>) {
           nextMessages = bindings.reuseStableMessageReferences(nextMessages, bindings.allMessages.value);
           bindings.allMessages.value = nextMessages;
           bindings.foregroundTailLatestReady.value = true;
-          const appendedOwnUserMessage = appended.some((message: any) => bindings.isLocalOwnUserMessage(message));
-          if (appendedOwnUserMessage) {
-            bindings.consumeOrQueueOwnMessageAlign();
-          }
         }
         bindings.cacheConversationMessages(
           flushedConversationId || String(bindings.currentChatConversationId.value || "").trim(),

@@ -171,6 +171,7 @@
       :chat-loading-older-history="loadingOlderConversationHistory"
       :latest-own-message-align-request="latestOwnMessageAlignRequest"
       :conversation-scroll-to-bottom-request="conversationScrollToBottomRequest"
+      :scroll-to-bottom-behavior="scrollToBottomBehavior"
       :current-chat-conversation-id="currentChatConversationId"
       :current-chat-todos="currentChatTodos"
       :chat-supervision-active="chatSupervisionActive"

@@ -113,8 +113,16 @@ export function useChatVirtualScroll(options: UseChatVirtualScrollOptions) {
       estimateSize: estimateRenderItemSize,
       initialOffset: () => initialBottomOffset.value,
       anchorTo: "end",
-      followOnAppend: "smooth",
       scrollEndThreshold: 100,
+      shouldAdjustScrollPositionOnItemSizeChange: (item: { end: number }, _delta: number, instance: {
+        getScrollOffset: () => number;
+        getSize: () => number;
+      }) => {
+        const viewportTop = instance.getScrollOffset();
+        const viewportBottom = viewportTop + instance.getSize();
+        // 只补偿当前视口上方的尺寸变化；底部新增内容和视口内变化不要自动推着用户往下走。
+        return item.end <= viewportTop || viewportBottom <= 0;
+      },
       measureElement: (element: Element) => (element as HTMLElement).getBoundingClientRect().height,
       overscan: 600,
     })),
@@ -295,7 +303,18 @@ export function useChatVirtualScroll(options: UseChatVirtualScrollOptions) {
     pendingVirtualResizeElements.clear();
   }
 
-  function resetVirtualizerAtConversationBottom() {
+  function scrollVirtualizerToConversationBottomLightweight(behavior: "auto" | "smooth" = "auto") {
+    const scrollEl = scrollContainer.value;
+    if (!scrollEl) return;
+    void nextTick(async () => {
+      await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+      const targetTop = Math.max(0, scrollEl.scrollHeight - scrollEl.clientHeight);
+      scrollEl.scrollTo({ top: targetTop, behavior });
+      scrollbarRef.value?.updateThumb();
+    });
+  }
+
+  function resetVirtualizerAtConversationBottom(behavior: "auto" | "smooth" = "auto") {
     const requestId = ++conversationVirtualizerResetRequest;
     clearMeasuredVirtualState();
     initialBottomOffset.value = estimateTotalRenderSize();
@@ -305,11 +324,14 @@ export function useChatVirtualScroll(options: UseChatVirtualScrollOptions) {
       await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
       if (requestId !== conversationVirtualizerResetRequest) return;
       if (renderItems.value.length > 0) {
-        virtualizer.value.scrollToEnd({ behavior: "auto" });
+        virtualizer.value.scrollToEnd({ behavior });
       }
-      const scrollEl = scrollContainer.value;
-      if (scrollEl) {
-        scrollEl.scrollTop = Math.max(0, scrollEl.scrollHeight - scrollEl.clientHeight);
+      // smooth 滚动依赖浏览器原生动画，强制赋值 scrollTop 会打断它；仅在 auto 时兜底钳制到真实底端
+      if (behavior !== "smooth") {
+        const scrollEl = scrollContainer.value;
+        if (scrollEl) {
+          scrollEl.scrollTop = Math.max(0, scrollEl.scrollHeight - scrollEl.clientHeight);
+        }
       }
       scrollbarRef.value?.updateThumb();
     });
@@ -404,6 +426,7 @@ export function useChatVirtualScroll(options: UseChatVirtualScrollOptions) {
     refreshObservedVirtualItemElements,
     scheduleVirtualMeasure,
     syncViewportMetrics,
+    scrollVirtualizerToConversationBottomLightweight,
     resetVirtualizerAtConversationBottom,
   };
 }
