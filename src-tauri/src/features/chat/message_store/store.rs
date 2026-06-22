@@ -717,9 +717,6 @@ pub(super) fn read_ready_message_store_rewind_slice(
         .first()
         .cloned()
         .ok_or_else(|| format!("Message not found: {}", message_id.trim()))?;
-    if !recalled_user_message.role.trim().eq_ignore_ascii_case("user") {
-        return Err("Target user message not found in active conversation.".to_string());
-    }
     Ok(Some(MessageStoreRewindSlice {
         keep_count: message_idx,
         removed_messages,

@@ -2729,16 +2729,14 @@ impl ConversationServiceV2 {
         };
         let conversation_meta = self
             .get_conversation_meta(state, requested_conversation_id)
-            .map_err(|_| "Target user message not found in active conversation.".to_string())?;
-        let conversation_id = if self.conversation_meta_is_unarchived_meta_view(&conversation_meta)
+            .map_err(|_| "Target message not found in active conversation.".to_string())?;        let conversation_id = if self.conversation_meta_is_unarchived_meta_view(&conversation_meta)
             && (conversation_meta.visible_in_foreground_lists
                 || conversation_meta.is_remote_im_contact)
         {
             conversation_meta.id.to_string()
         } else {
             drop(guard);
-            return Err("Target user message not found in active conversation.".to_string());
-        };
+            return Err("Target message not found in active conversation.".to_string());        };
         let runtime_state = get_conversation_runtime_state(state, &conversation_id)?;
         if runtime_state != MainSessionState::Idle {
             let runtime_state_text = match runtime_state {
@@ -2845,16 +2843,14 @@ impl ConversationServiceV2 {
         };
         let conversation_meta = self
             .get_conversation_meta(state, requested_conversation_id)
-            .map_err(|_| "Target user message not found in active conversation.".to_string())?;
-        let conversation_id = if self.conversation_meta_is_unarchived_meta_view(&conversation_meta)
+            .map_err(|_| "Target message not found in active conversation.".to_string())?;        let conversation_id = if self.conversation_meta_is_unarchived_meta_view(&conversation_meta)
             && (conversation_meta.visible_in_foreground_lists
                 || conversation_meta.is_remote_im_contact)
         {
             conversation_meta.id.to_string()
         } else {
             drop(guard);
-            return Err("Target user message not found in active conversation.".to_string());
-        };
+            return Err("Target message not found in active conversation.".to_string());        };
         let runtime_state = get_conversation_runtime_state(state, &conversation_id)?;
         if runtime_state != MainSessionState::Idle {
             drop(guard);

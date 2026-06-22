@@ -119,11 +119,11 @@ export function useChatRewindActions(options: UseChatRewindActionsOptions) {
     return null;
   }
 
-  async function rewindConversationFromTurn(turnId: string, undoApplyPatch: boolean): Promise<ChatMessage | null> {
+  async function rewindConversationFromMessageId(messageId: string, undoApplyPatch: boolean): Promise<ChatMessage | null> {
     const startedAt = Date.now();
     const conversationId = String(options.currentConversationId.value || "").trim();
     console.info("[会话撤回] 开始执行", {
-      turnId,
+      messageId,
       undoApplyPatch,
       conversationId: conversationId || "(empty)",
     });
@@ -133,13 +133,8 @@ export function useChatRewindActions(options: UseChatRewindActionsOptions) {
       options.setStatusError("status.rewindConversationFailed", t('dialogs.rewind.failedMissingAgentId'));
       return null;
     }
-    const currentMessages = [...options.allMessages.value];
-    const target = resolveRewindTargetUserMessage(currentMessages, turnId);
-    if (!target || !target.targetUserMessageId) {
-      console.warn("[会话撤回] 失败：未找到可撤回的用户消息", {
-        turnId,
-        messageCount: currentMessages.length,
-      });
+    if (!messageId) {
+      console.warn("[会话撤回] 失败：缺少 messageId");
       options.setChatErrorText(t('dialogs.rewind.failedNoTarget'));
       options.setStatusError("status.rewindConversationFailed", t('dialogs.rewind.failedNoTarget'));
       return null;
@@ -147,7 +142,7 @@ export function useChatRewindActions(options: UseChatRewindActionsOptions) {
     try {
       console.info("[会话撤回] 调用后端命令", {
         command: "rewind_conversation_from_message",
-        targetUserMessageId: target.targetUserMessageId,
+        messageId,
         undoApplyPatch,
       });
       const result = await invokeTauri<RewindConversationResult>("rewind_conversation_from_message", {
@@ -156,7 +151,7 @@ export function useChatRewindActions(options: UseChatRewindActionsOptions) {
             agentId: "",
             conversationId,
           },
-          messageId: target.targetUserMessageId,
+          messageId,
           undoApplyPatch,
         },
       });
@@ -166,17 +161,16 @@ export function useChatRewindActions(options: UseChatRewindActionsOptions) {
       console.info("[会话撤回] 完成", {
         removedCount: Number(result.removedCount) || 0,
         remainingCount: Number(result.remainingCount) || 0,
-        localKeepCount: target.keepCountFromLocal,
         elapsedMs: Date.now() - startedAt,
       });
+      const currentMessages = [...options.allMessages.value];
       return result.recalledUserMessage
-        ?? currentMessages[target.keepCountFromLocal]
-        ?? currentMessages.find((item) => item.id === target.targetUserMessageId && item.role === "user")
+        ?? currentMessages.find((item) => item.id === messageId)
         ?? null;
     } catch (error) {
       const detail = errorText(error);
       console.error("[会话撤回] 失败：后端命令异常", {
-        targetUserMessageId: target.targetUserMessageId,
+        messageId,
         undoApplyPatch,
         elapsedMs: Date.now() - startedAt,
         error: detail,
@@ -225,9 +219,10 @@ export function useChatRewindActions(options: UseChatRewindActionsOptions) {
     rewindInFlight = true;
     try {
       const currentMessages = [...options.allMessages.value];
-      const target = resolveRewindTargetUserMessage(currentMessages, payload.turnId);
-      if (!target || !target.targetUserMessageId) {
-        console.warn("[会话撤回] 失败：未找到可撤回的用户消息", {
+      const turnMessageId = String(payload.turnId || "").trim();
+      const directIndex = currentMessages.findIndex((item) => item.id === turnMessageId);
+      if (directIndex < 0) {
+        console.warn("[会话撤回] 失败：未找到目标消息", {
           turnId: payload.turnId,
           messageCount: currentMessages.length,
         });
@@ -235,15 +230,32 @@ export function useChatRewindActions(options: UseChatRewindActionsOptions) {
         options.setStatusError("status.rewindConversationFailed", t('dialogs.rewind.failedNoTarget'));
         return;
       }
+      const directRole = String(currentMessages[directIndex]?.role || "").trim();
+      // 助理消息撤回：直接用助理消息 ID 作为撤回目标，只删除该助理回复及之后的消息
+      // 用户消息撤回：直接用用户消息 ID 作为撤回目标（整轮回退），撤回后回填输入框
+      const targetMessageId = turnMessageId;
+      const targetIsUser = directRole === "user";
       const mode = await options.requestRecallMode({
         turnId: payload.turnId,
-        targetUserMessageId: target.targetUserMessageId,
+        targetUserMessageId: targetMessageId,
       });
-      console.info("[会话撤回] 弹窗选择结果", { mode, turnId: payload.turnId });
+      console.info("[会话撤回] 弹窗选择结果", {
+        mode,
+        turnId: payload.turnId,
+        targetMessageId,
+        targetIsUser,
+      });
       if (mode === "cancel") return;
       options.setChatErrorText("");
-      const recalledUserMessage = await rewindConversationFromTurn(payload.turnId, mode === "with_patch");
-      if (!recalledUserMessage) {
+      const recalledMessage = await rewindConversationFromMessageId(targetMessageId, mode === "with_patch");
+      // 只有撤回的是用户消息时，才回填输入框（用于重新发送）
+      if (!targetIsUser) {
+        if (!recalledMessage && !options.chatErrorText.value.trim()) {
+          console.warn("[会话撤回] 结束：助理消息撤回完成，无需回填", { turnId: payload.turnId, mode });
+        }
+        return;
+      }
+      if (!recalledMessage) {
         console.warn("[会话撤回] 结束：未拿到可回填消息", { turnId: payload.turnId, mode });
         if (options.chatErrorText.value.trim()) return;
         const message = mode === "with_patch"
@@ -253,9 +265,9 @@ export function useChatRewindActions(options: UseChatRewindActionsOptions) {
         options.setStatusError("status.rewindConversationFailed", `${message}（可查看运行日志）`);
         return;
       }
-      options.chatInput.value = options.removeBinaryPlaceholders(options.messageText(recalledUserMessage));
-      options.selectedMentions.value = extractRecallableMentions(recalledUserMessage);
-      options.clipboardImages.value = extractRecallableImages(recalledUserMessage);
+      options.chatInput.value = options.removeBinaryPlaceholders(options.messageText(recalledMessage));
+      options.selectedMentions.value = extractRecallableMentions(recalledMessage);
+      options.clipboardImages.value = extractRecallableImages(recalledMessage);
       console.info("[会话撤回] 已回填输入框", {
         textLength: options.chatInput.value.length,
         mentionCount: options.selectedMentions.value.length,
@@ -288,7 +300,19 @@ export function useChatRewindActions(options: UseChatRewindActionsOptions) {
     }
     rewindInFlight = true;
     try {
-      const recalledUserMessage = await rewindConversationFromTurn(payload.turnId, false);
+      // 重新生成必须先映射到上一条用户消息，再撤回到该用户消息并重发
+      const currentMessages = [...options.allMessages.value];
+      const target = resolveRewindTargetUserMessage(currentMessages, payload.turnId);
+      if (!target || !target.targetUserMessageId) {
+        console.warn("[重新生成] 失败：未找到可撤回的用户消息", {
+          turnId: payload.turnId,
+          messageCount: currentMessages.length,
+        });
+        options.setChatErrorText(t('dialogs.rewind.failedNoTarget'));
+        options.setStatusError("status.rewindConversationFailed", t('dialogs.rewind.failedNoTarget'));
+        return;
+      }
+      const recalledUserMessage = await rewindConversationFromMessageId(target.targetUserMessageId, false);
       if (!recalledUserMessage) return;
       options.chatInput.value = options.removeBinaryPlaceholders(options.messageText(recalledUserMessage));
       options.selectedMentions.value = extractRecallableMentions(recalledUserMessage);

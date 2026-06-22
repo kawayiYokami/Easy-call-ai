@@ -109,8 +109,128 @@ describe("useChatRewindActions", () => {
     expect(requestRecallMode).toHaveBeenCalledTimes(1);
     expect(requestRecallMode).toHaveBeenCalledWith({
       turnId: "assistant-2",
-      targetUserMessageId: "user-2",
+      targetUserMessageId: "assistant-2",
     });
     expect(hoisted.invokeTauriMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("助理消息撤回：后端收到助理消息 ID，不回填输入框", async () => {
+    hoisted.invokeTauriMock.mockReset();
+    hoisted.invokeTauriMock.mockResolvedValueOnce({
+      removedCount: 2,
+      remainingCount: 2,
+      recalledUserMessage: null,
+    });
+    const chatInput = ref("");
+    const selectedMentions = ref<ChatMentionTarget[]>([]);
+    const clipboardImages = ref<Array<{ mime: string; bytesBase64: string; savedPath?: string }>>([]);
+    const { actions } = buildRewindActions({});
+    // 需要替换 chatInput 等引用
+    const realActions = useChatRewindActions({
+      activeApiConfigId: ref("api-a"),
+      activeAgentId: ref("agent-a"),
+      currentConversationId: ref("conversation-a"),
+      allMessages: shallowRef<ChatMessage[]>([
+        textMessage("user-1", "user", "第一句"),
+        textMessage("assistant-1", "assistant", "回复第一句"),
+        textMessage("user-2", "user", "需要撤回"),
+        textMessage("assistant-2", "assistant", "后续回复"),
+      ]),
+      maybeUpdateConversationOverviewFromLoadedMessages: vi.fn(),
+      chatting: ref(false),
+      trimming: ref(false),
+      compactingConversation: ref(false),
+      chatErrorText: ref(""),
+      chatInput,
+      selectedMentions,
+      clipboardImages,
+      deleteUnarchivedConversationFromArchives: vi.fn(),
+      sendChat: vi.fn(),
+      setStatusError: vi.fn(),
+      setChatErrorText: vi.fn(),
+      removeBinaryPlaceholders: (text) => text,
+      messageText: (message) => String(message.parts?.[0]?.text || ""),
+      extractMessageImages: () => [],
+      requestRecallMode: vi.fn(async () => "message_only"),
+      refreshForegroundConversationAfterRewind: vi.fn(),
+      requestCreateConversationBranchFromMessageConfirm: vi.fn(),
+      createConversationBranchFromMessage: vi.fn(),
+      branchingConversation: ref(false),
+    });
+
+    await realActions.handleRecallTurn({ turnId: "assistant-2" });
+
+    // 后端应收到 assistant-2（不是 user-2）
+    expect(hoisted.invokeTauriMock).toHaveBeenCalledWith(
+      "rewind_conversation_from_message",
+      expect.objectContaining({
+        input: expect.objectContaining({
+          messageId: "assistant-2",
+          undoApplyPatch: false,
+        }),
+      }),
+    );
+    // 输入框不应被回填
+    expect(chatInput.value).toBe("");
+    expect(selectedMentions.value).toEqual([]);
+    expect(clipboardImages.value).toEqual([]);
+  });
+
+  it("用户消息撤回：后端收到用户消息 ID，回填输入框", async () => {
+    hoisted.invokeTauriMock.mockReset();
+    hoisted.invokeTauriMock.mockResolvedValueOnce({
+      removedCount: 2,
+      remainingCount: 2,
+      recalledUserMessage: textMessage("user-2", "user", "需要撤回"),
+    });
+    const chatInput = ref("");
+    const selectedMentions = ref<ChatMentionTarget[]>([]);
+    const clipboardImages = ref<Array<{ mime: string; bytesBase64: string; savedPath?: string }>>([]);
+    const realActions = useChatRewindActions({
+      activeApiConfigId: ref("api-a"),
+      activeAgentId: ref("agent-a"),
+      currentConversationId: ref("conversation-a"),
+      allMessages: shallowRef<ChatMessage[]>([
+        textMessage("user-1", "user", "第一句"),
+        textMessage("assistant-1", "assistant", "回复第一句"),
+        textMessage("user-2", "user", "需要撤回"),
+        textMessage("assistant-2", "assistant", "后续回复"),
+      ]),
+      maybeUpdateConversationOverviewFromLoadedMessages: vi.fn(),
+      chatting: ref(false),
+      trimming: ref(false),
+      compactingConversation: ref(false),
+      chatErrorText: ref(""),
+      chatInput,
+      selectedMentions,
+      clipboardImages,
+      deleteUnarchivedConversationFromArchives: vi.fn(),
+      sendChat: vi.fn(),
+      setStatusError: vi.fn(),
+      setChatErrorText: vi.fn(),
+      removeBinaryPlaceholders: (text) => text,
+      messageText: (message) => String(message.parts?.[0]?.text || ""),
+      extractMessageImages: () => [],
+      requestRecallMode: vi.fn(async () => "message_only"),
+      refreshForegroundConversationAfterRewind: vi.fn(),
+      requestCreateConversationBranchFromMessageConfirm: vi.fn(),
+      createConversationBranchFromMessage: vi.fn(),
+      branchingConversation: ref(false),
+    });
+
+    await realActions.handleRecallTurn({ turnId: "user-2" });
+
+    // 后端应收到 user-2
+    expect(hoisted.invokeTauriMock).toHaveBeenCalledWith(
+      "rewind_conversation_from_message",
+      expect.objectContaining({
+        input: expect.objectContaining({
+          messageId: "user-2",
+          undoApplyPatch: false,
+        }),
+      }),
+    );
+    // 输入框应被回填
+    expect(chatInput.value).toBe("需要撤回");
   });
 });

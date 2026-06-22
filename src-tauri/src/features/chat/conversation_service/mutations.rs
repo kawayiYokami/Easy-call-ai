@@ -517,7 +517,7 @@ fn read_ready_store_rewind_state_meta_view(
     message_id: &str,
 ) -> Result<ReadyStoreRewindState, String> {
     let rewind_slice = message_store::read_ready_message_store_rewind_slice(store_paths, message_id)?
-        .ok_or_else(|| "Target user message not found in active conversation.".to_string())?;
+        .ok_or_else(|| "Target message not found in active conversation.".to_string())?;
     let removed_body_message_count = rewind_slice
         .removed_messages
         .iter()
