@@ -1107,6 +1107,7 @@ function openDelegateSummaryPanel() {
   emit("toolReviewPanelOpenChange", true);
   void nextTick(() => toolReviewSidebarRef.value?.openDelegatesTab());
 }
+
 function handleSendChat() {
   const extraTextBlocks = attachedIdeContextReferences.value.map((item) => String(item.textBlock || "").trim()).filter(Boolean);
   emit("sendChat", extraTextBlocks.length > 0 ? { extraTextBlocks } : undefined);
