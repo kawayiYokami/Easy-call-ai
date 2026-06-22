@@ -1753,12 +1753,9 @@ fn list_file_reader_directory(path: String) -> Result<FileReaderDirectoryPayload
         if name.trim().is_empty() {
             continue;
         }
+        let resolved_entry_path = entry_path.canonicalize().unwrap_or(entry_path);
         entries.push(FileReaderDirectoryEntry {
-            path: entry_path
-                .canonicalize()
-                .unwrap_or(entry_path)
-                .to_string_lossy()
-                .replace('\\', "/"),
+            path: terminal_path_for_user(&resolved_entry_path).replace('\\', "/"),
             name,
             is_directory: file_type.is_dir(),
         });
@@ -1776,7 +1773,7 @@ fn list_file_reader_directory(path: String) -> Result<FileReaderDirectoryPayload
         .unwrap_or_else(|| raw_path.trim_end_matches(['/', '\\']))
         .to_string();
     Ok(FileReaderDirectoryPayload {
-        path: resolved_path.to_string_lossy().replace('\\', "/"),
+        path: terminal_path_for_user(&resolved_path).replace('\\', "/"),
         name,
         entries,
     })

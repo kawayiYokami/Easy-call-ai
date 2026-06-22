@@ -633,7 +633,7 @@ fn ide_chat_workspace_list(state: &AppState, params: Value) -> Result<Value, Str
         .find(|ws| ws.level == SHELL_WORKSPACE_LEVEL_MAIN)
         .or_else(|| workspaces.iter().find(|ws| ws.level == SHELL_WORKSPACE_LEVEL_SYSTEM));
     let root_path = main
-        .map(|ws| ws.path.to_string_lossy().to_string())
+        .map(|ws| terminal_path_for_user(&ws.path))
         .unwrap_or_default();
     let workspace_name = main
         .map(|ws| ws.name.clone())
@@ -648,7 +648,7 @@ fn ide_chat_workspace_list(state: &AppState, params: Value) -> Result<Value, Str
                 "level": ws.level,
                 "access": ws.access,
                 "builtIn": ws.built_in,
-                "path": ws.path.to_string_lossy().to_string(),
+                "path": terminal_path_for_user(&ws.path),
             })
         })
         .collect();

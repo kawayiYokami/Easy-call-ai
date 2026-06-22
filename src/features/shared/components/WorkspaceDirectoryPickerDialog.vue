@@ -30,7 +30,7 @@
             </button>
           </div>
         </label>
-        <div class="rounded-box border border-base-300 bg-base-200/30">
+        <div class="mt-2 rounded-box border border-base-300 bg-base-200/30">
           <div class="flex items-center gap-2 border-b border-base-300 px-2 py-2">
             <button
               type="button"
