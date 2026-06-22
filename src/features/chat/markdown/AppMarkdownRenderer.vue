@@ -83,7 +83,7 @@
       <div class="border-b border-base-300/70 px-3 py-2 text-[11px] font-semibold text-base-content/80">
         {{ activeToolcallPreview.title || activeToolcallPreview.label }}
       </div>
-      <div class="max-h-80 overflow-auto px-3 py-2">
+      <div v-if="activeToolcallPreview.body" class="max-h-80 overflow-auto px-3 py-2">
         <pre class="m-0 whitespace-pre-wrap break-all text-xs leading-relaxed text-base-content/75"><code>{{ activeToolcallPreview.body }}</code></pre>
       </div>
     </div>
