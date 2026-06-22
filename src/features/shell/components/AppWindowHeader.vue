@@ -396,6 +396,25 @@
     </form>
   </dialog>
 
+  <WorkspaceDirectoryPickerDialog
+    v-if="viewMode === 'chat'"
+    :open="createConversationWorkspacePickerOpen"
+    :saving="false"
+    :loading="createConversationWorkspaceDirectoryLoading"
+    :error-text="createConversationWorkspaceDirectoryError"
+    :browser-path="createConversationWorkspaceBrowserPath"
+    :manual-path="createConversationWorkspaceManualPath"
+    :access="createConversationWorkspaceAccess"
+    :autonomous-mode="createConversationMaxPermission"
+    :directories="createConversationWorkspaceDirectoryItems"
+    @close="closeCreateConversationWorkspacePicker"
+    @browse="loadCreateConversationWorkspaceDirectory"
+    @save="confirmCreateConversationWorkspacePicker"
+    @update:manual-path="createConversationWorkspaceManualPath = $event"
+    @update:access="handleCreateConversationWorkspacePickerAccessChange"
+    @update:autonomous-mode="createConversationMaxPermission = $event"
+  />
+
   <dialog v-if="viewMode === 'config'" class="modal" :class="{ 'modal-open': changelogDialogOpen }">
     <div class="modal-box h-[90vh] w-[90vw] max-w-none p-0">
       <div class="flex items-center justify-between border-b border-base-300 px-4 py-3">
@@ -448,8 +467,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
-import { invokeTauri } from "../../../services/tauri-api";
-import { open as openDialog } from "@tauri-apps/plugin-dialog";
+import { invokeTauri, isTauriRuntimeAvailable } from "../../../services/tauri-api";
 import { Download, Files, FoldVertical, FolderOpen, History, LayoutList, Minus, ScrollText, Search, Settings, Square, SquarePen, View, X } from "@lucide/vue";
 import type { ChatConversationOverviewItem, ShellWorkspace, ShellWorkspaceAccess } from "../../../types/app";
 import { defaultWorkspaceNameFromPath } from "../../../utils/shell-workspaces";
@@ -458,6 +476,7 @@ import { resolveConversationDisplayTitle } from "../../chat/utils/conversation-t
 import { AppMarkdownRenderer, initKatex } from "../../chat/markdown";
 import type { ConfigSearchResult, ConfigSearchTab } from "../../config/search/config-search";
 import DepartmentPersonaSelect from "../../shared/components/DepartmentPersonaSelect.vue";
+import WorkspaceDirectoryPickerDialog from "../../shared/components/WorkspaceDirectoryPickerDialog.vue";
 import type { DepartmentPersonaOption } from "../../shared/department-persona-options";
 import { isDarkAppTheme } from "../composables/use-app-theme";
 import { usePipelineStatus } from "../composables/use-pipeline-status";
@@ -479,12 +498,15 @@ type CreateConversationInput = {
   shellAutonomousMode?: boolean;
 };
 
+type WorkspaceDirectoryListResult = {
+  path?: string;
+  name?: string;
+  entries?: Array<{ path?: string; name?: string; isDirectory?: boolean }>;
+  directories?: Array<{ path?: string; name?: string }>;
+};
+
 const RECENT_CONVERSATION_TOPICS_STORAGE_KEY = "easy_call.recent_conversation_topics.v1";
 const RECENT_CONVERSATION_TOPICS_LIMIT = 7;
-
-const { markConversationRead } = usePipelineStatus({
-  activeConversationId: computed(() => String(props.activeConversationId || "").trim()),
-});
 
 const markdownIsDark = computed(() => isDarkAppTheme(props.currentTheme));
 
@@ -528,10 +550,18 @@ const props = withDefaults(defineProps<{
   updateToLatestTitle?: string;
   windowControlsVisible?: boolean;
   directoryPickRestricted?: boolean;
+  pipelineStatusEnabled?: boolean;
 }>(), {
   windowControlsVisible: true,
   directoryPickRestricted: false,
+  pipelineStatusEnabled: true,
 });
+
+const pipelineStatus = props.pipelineStatusEnabled
+  ? usePipelineStatus({
+    activeConversationId: computed(() => String(props.activeConversationId || "").trim()),
+  })
+  : null;
 
 const emit = defineEmits<{
   (e: "open-settings"): void;
@@ -660,7 +690,7 @@ const combinedTitleTooltip = computed(() => {
 
 watch(
   () => props.activeConversationId,
-  (conversationId) => markConversationRead(conversationId),
+  (conversationId) => pipelineStatus?.markConversationRead(conversationId),
   { immediate: true },
 );
 const configSearchPopoverRef = ref<HTMLElement | null>(null);
@@ -678,6 +708,12 @@ const createConversationWorkspacePath = ref("");
 const createConversationWorkspaceAccess = ref<ShellWorkspaceAccess>("approval");
 const createConversationCustomWorkspace = ref<ShellWorkspace | null>(null);
 const createConversationMaxPermission = ref(false);
+const createConversationWorkspacePickerOpen = ref(false);
+const createConversationWorkspaceManualPath = ref("");
+const createConversationWorkspaceBrowserPath = ref("");
+const createConversationWorkspaceDirectoryLoading = ref(false);
+const createConversationWorkspaceDirectoryError = ref("");
+const createConversationWorkspaceDirectoryItems = ref<Array<{ path: string; name: string }>>([]);
 const importConversationLoading = ref(false);
 const configSearchOpen = ref(false);
 const changelogDialogOpen = ref(false);
@@ -698,17 +734,32 @@ const currentWorkspaceAccessByPath = computed(() => {
 });
 
 const selectableCreateConversationWorkspaces = computed<ShellWorkspace[]>(() => {
+  const deduped = new Map<string, ShellWorkspace>();
+  for (const workspace of Array.isArray(props.currentChatWorkspaces) ? props.currentChatWorkspaces : []) {
+    const path = String(workspace?.path || "").trim();
+    const key = normalizeWorkspacePathKey(path);
+    if (!path || deduped.has(key)) continue;
+    deduped.set(key, {
+      id: String(workspace?.id || "").trim() || `conversation-workspace-${path}`,
+      name: String(workspace?.name || "").trim() || defaultWorkspaceNameFromPath(path) || path,
+      path,
+      level: "main",
+      access: normalizeWorkspaceAccess(workspace?.access),
+      builtIn: false,
+    });
+  }
   const localConversationItems = props.conversationItems.filter((item) =>
     item.kind !== "remote_im_contact" && !item.isPinned && !item.isSystemNotificationConversation,
   );
-  const options: ShellWorkspace[] = [];
   for (const section of buildWorkspaceConversationSections(localConversationItems, {
     defaultWorkspaceTitle: t("chat.defaultWorkspace"),
     locale: locale.value,
   })) {
     const path = String(section.workspaceRootPath || "").trim();
     if (!path) continue;
-    options.push({
+    const key = normalizeWorkspacePathKey(path);
+    if (deduped.has(key)) continue;
+    deduped.set(key, {
       id: `conversation-workspace-${path}`,
       name: String(section.title || "").trim() || defaultWorkspaceNameFromPath(path) || path,
       path,
@@ -717,7 +768,7 @@ const selectableCreateConversationWorkspaces = computed<ShellWorkspace[]>(() => 
       builtIn: false,
     });
   }
-  return options;
+  return Array.from(deduped.values());
 });
 
 const filteredRecentConversationTopics = computed(() => {
@@ -731,6 +782,10 @@ const showCreateConversationTopicSuggestions = computed(() =>
   createConversationTopicSuggestionsOpen.value
   && filteredRecentConversationTopics.value.length > 0,
 );
+async function openNativeDialog(options: { directory?: boolean; multiple?: boolean; filters?: Array<{ name: string; extensions: string[] }> }) {
+  const dialog = await import("@tauri-apps/plugin-dialog");
+  return dialog.open(options);
+}
 
 function normalizeWorkspacePathKey(path: string): string {
   return String(path || "").trim().toLowerCase();
@@ -749,6 +804,7 @@ function resetCreateConversationWorkspace() {
   createConversationWorkspaceAccess.value = "approval";
   createConversationCustomWorkspace.value = null;
   createConversationMaxPermission.value = false;
+  closeCreateConversationWorkspacePicker();
 }
 
 function workspaceAccessLabel(access: ShellWorkspaceAccess): string {
@@ -789,12 +845,16 @@ function handleCreateConversationWorkspaceChange() {
   createConversationWorkspaceAccess.value = normalizeWorkspaceAccess(source?.access);
 }
 
+function handleCreateConversationWorkspacePickerAccessChange(value: string) {
+  createConversationWorkspaceAccess.value = normalizeWorkspaceAccess(value);
+}
+
 async function pickCreateConversationWorkspace() {
-  if (props.directoryPickRestricted) {
-    emit("directory-pick-restricted");
+  if (props.directoryPickRestricted || !isTauriRuntimeAvailable()) {
+    openCreateConversationWorkspacePicker();
     return;
   }
-  const selected = await openDialog({
+  const selected = await openNativeDialog({
     multiple: false,
     directory: true,
   });
@@ -817,6 +877,80 @@ async function pickCreateConversationWorkspace() {
   createConversationCustomWorkspace.value = workspace;
   createConversationWorkspacePath.value = workspace.path;
   createConversationWorkspaceAccess.value = workspace.access;
+}
+
+function openCreateConversationWorkspacePicker() {
+  createConversationWorkspacePickerOpen.value = true;
+  createConversationWorkspaceDirectoryError.value = "";
+  createConversationWorkspaceDirectoryItems.value = [];
+  const initialPath = String(createConversationWorkspacePath.value || "").trim();
+  createConversationWorkspaceManualPath.value = initialPath;
+  createConversationWorkspaceBrowserPath.value = initialPath;
+  if (initialPath) {
+    void loadCreateConversationWorkspaceDirectory(initialPath);
+  }
+}
+
+function closeCreateConversationWorkspacePicker() {
+  createConversationWorkspacePickerOpen.value = false;
+  createConversationWorkspaceDirectoryLoading.value = false;
+  createConversationWorkspaceDirectoryError.value = "";
+  createConversationWorkspaceDirectoryItems.value = [];
+  createConversationWorkspaceManualPath.value = "";
+  createConversationWorkspaceBrowserPath.value = "";
+}
+
+async function loadCreateConversationWorkspaceDirectory(pathInput: string) {
+  const path = String(pathInput || "").trim();
+  if (!path || createConversationWorkspaceDirectoryLoading.value) return;
+  createConversationWorkspaceDirectoryLoading.value = true;
+  createConversationWorkspaceDirectoryError.value = "";
+  try {
+    const result = isTauriRuntimeAvailable()
+      ? await invokeTauri<WorkspaceDirectoryListResult>("list_file_reader_directory", { path })
+      : await invokeTauri<WorkspaceDirectoryListResult>("workspace.directory.list", { path });
+    createConversationWorkspaceBrowserPath.value = String(result.path || path).trim();
+    createConversationWorkspaceManualPath.value = createConversationWorkspaceBrowserPath.value;
+    const rawDirectories = isTauriRuntimeAvailable()
+      ? (Array.isArray(result.entries) ? result.entries.filter((item) => item && item.isDirectory) : [])
+      : (Array.isArray(result.directories) ? result.directories : []);
+    createConversationWorkspaceDirectoryItems.value = rawDirectories
+      .map((item) => ({
+        path: String(item.path || "").trim(),
+        name: String(item.name || "").trim(),
+      }))
+      .filter((item) => !!item.path && !!item.name);
+  } catch (error) {
+    createConversationWorkspaceDirectoryError.value = String(error || "读取目录失败");
+    createConversationWorkspaceDirectoryItems.value = [];
+  } finally {
+    createConversationWorkspaceDirectoryLoading.value = false;
+  }
+}
+
+function confirmCreateConversationWorkspacePicker() {
+  const path = String(createConversationWorkspaceManualPath.value || "").trim();
+  if (!path) return;
+  const existing = selectableCreateConversationWorkspaces.value.find((item) => item.path.toLowerCase() === path.toLowerCase());
+  if (existing) {
+    createConversationWorkspacePath.value = existing.path;
+    createConversationWorkspaceAccess.value = normalizeWorkspaceAccess(existing.access);
+    createConversationCustomWorkspace.value = null;
+    closeCreateConversationWorkspacePicker();
+    return;
+  }
+  const workspace: ShellWorkspace = {
+    id: `conversation-workspace-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
+    name: defaultWorkspaceNameFromPath(path) || path,
+    path,
+    level: "main",
+    access: "approval",
+    builtIn: false,
+  };
+  createConversationCustomWorkspace.value = workspace;
+  createConversationWorkspacePath.value = workspace.path;
+  createConversationWorkspaceAccess.value = workspace.access;
+  closeCreateConversationWorkspacePicker();
 }
 
 function loadRecentConversationTopics() {
@@ -939,6 +1073,12 @@ function handleCreateConversation() {
   createConversationTopicSuggestionsOpen.value = false;
   suppressNextCreateConversationTopicFocus.value = true;
   resetCreateConversationWorkspace();
+  const preferredWorkspace = selectableCreateConversationWorkspaces.value.find((item) => item.level === "main")
+    || selectableCreateConversationWorkspaces.value[0];
+  if (preferredWorkspace?.path) {
+    createConversationWorkspacePath.value = preferredWorkspace.path;
+    createConversationWorkspaceAccess.value = normalizeWorkspaceAccess(preferredWorkspace.access);
+  }
   createConversationDialogOpen.value = true;
   nextTick(() => createConversationInputRef.value?.focus());
 }
@@ -1065,7 +1205,7 @@ async function importConversationFromExternal() {
   if (importConversationLoading.value) return;
   importConversationLoading.value = true;
   try {
-    const selected = await openDialog({
+    const selected = await openNativeDialog({
       multiple: false,
       directory: false,
       filters: [{ name: "JSON", extensions: ["json"] }],

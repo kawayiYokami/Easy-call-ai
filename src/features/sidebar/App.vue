@@ -218,133 +218,23 @@
         <button @click.prevent="cancelBranchFromMessageConfirm">close</button>
       </form>
     </dialog>
-    <div
-      v-if="workspacePickerOpen"
-      class="fixed inset-0 z-80 flex items-center justify-center bg-black/30 px-4 py-8"
-      @click.self="closeWorkspacePicker"
-    >
-      <div class="w-full max-w-lg rounded-2xl border border-base-300 bg-base-100 shadow-2xl">
-        <div class="border-b border-base-300 px-4 py-3">
-          <div class="text-sm font-semibold">{{ t("chat.workspacePickerTitle") }}</div>
-          <div class="mt-1 text-xs opacity-70">Web 端请手动输入可由服务端访问的工作目录路径。</div>
-        </div>
-        <div class="space-y-4 px-4 py-4">
-          <label class="form-control w-full">
-            <div class="label">
-              <span class="label-text text-xs">工作目录路径</span>
-            </div>
-            <div class="join w-full">
-              <input
-                v-model.trim="workspaceManualPath"
-                class="input input-bordered input-sm join-item min-w-0 flex-1 font-mono"
-                type="text"
-                :disabled="workspacePickerSaving"
-                placeholder="例如 E:\\github\\easy_call_ai 或 /home/me/project"
-                @keydown.enter.prevent="loadWorkspaceDirectory(workspaceManualPath)"
-              />
-              <button
-                type="button"
-                class="btn btn-sm join-item"
-                :disabled="workspacePickerSaving || workspaceDirectoryLoading || !workspaceManualPath.trim()"
-                @click="loadWorkspaceDirectory(workspaceManualPath)"
-              >
-                浏览
-              </button>
-            </div>
-          </label>
-          <div class="rounded-box border border-base-300 bg-base-200/30">
-            <div class="flex items-center gap-2 border-b border-base-300 px-2 py-2">
-              <button
-                type="button"
-                class="btn btn-xs"
-                :disabled="workspacePickerSaving || workspaceDirectoryLoading || !workspaceParentPath"
-                @click="workspaceParentPath && loadWorkspaceDirectory(workspaceParentPath)"
-              >
-                上一级
-              </button>
-              <div class="min-w-0 flex-1 truncate font-mono text-xs" :title="workspaceBrowserPath || workspaceManualPath">
-                {{ workspaceBrowserPath || workspaceManualPath || "输入路径后开始浏览" }}
-              </div>
-              <button
-                type="button"
-                class="btn btn-xs btn-ghost"
-                :disabled="workspacePickerSaving || workspaceDirectoryLoading || !workspaceBrowserPath"
-                @click="loadWorkspaceDirectory(workspaceBrowserPath)"
-              >
-                刷新
-              </button>
-            </div>
-            <div class="max-h-64 overflow-y-auto py-1">
-              <div v-if="workspaceDirectoryLoading" class="flex items-center gap-2 px-3 py-3 text-sm text-base-content/65">
-                <span class="loading loading-spinner loading-xs"></span>
-                正在读取目录
-              </div>
-              <div v-else-if="workspaceDirectoryError" class="px-3 py-3 text-sm text-error">
-                {{ workspaceDirectoryError }}
-              </div>
-              <div v-else-if="workspaceDirectoryItems.length === 0" class="px-3 py-3 text-sm text-base-content/55">
-                当前目录没有可继续进入的子目录
-              </div>
-              <template v-else>
-                <button
-                  v-for="item in workspaceDirectoryItems"
-                  :key="item.path"
-                  type="button"
-                  class="flex min-h-8 w-full items-center gap-2 px-3 py-1.5 text-left text-sm hover:bg-base-300/60"
-                  :disabled="workspacePickerSaving"
-                  :title="item.path"
-                  @click="loadWorkspaceDirectory(item.path)"
-                >
-                  <span class="shrink-0 text-base-content/55">▸</span>
-                  <span class="min-w-0 flex-1 truncate">{{ item.name }}</span>
-                </button>
-              </template>
-            </div>
-          </div>
-          <div class="grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end">
-            <label class="form-control w-full">
-              <div class="label">
-                <span class="label-text text-xs">访问权限</span>
-              </div>
-              <select
-                v-model="workspaceManualAccess"
-                class="select select-bordered select-sm w-full"
-                :disabled="workspacePickerSaving"
-              >
-                <option value="approval">{{ t("config.tools.workspaceAccessApproval") }}</option>
-                <option value="full_access">{{ t("config.tools.workspaceAccessFullAccess") }}</option>
-                <option value="read_only">{{ t("config.tools.workspaceAccessReadOnly") }}</option>
-              </select>
-            </label>
-            <label
-              class="flex cursor-pointer items-center gap-2 rounded-box bg-base-200 px-3 py-2 text-xs"
-              :title="t('chat.workspacePickerAutonomousHint')"
-            >
-              <span>{{ t("chat.workspacePickerAutonomous") }}</span>
-              <input
-                v-model="workspaceDraftAutonomousMode"
-                type="checkbox"
-                class="checkbox checkbox-primary checkbox-sm"
-                :disabled="workspacePickerSaving"
-              />
-            </label>
-          </div>
-        </div>
-        <div class="flex items-center justify-end gap-2 border-t border-base-300 px-4 py-3">
-          <button class="btn btn-sm btn-ghost" type="button" :disabled="workspacePickerSaving" @click="closeWorkspacePicker">
-            {{ t("common.cancel") }}
-          </button>
-          <button
-            class="btn btn-sm btn-primary"
-            type="button"
-            :disabled="workspacePickerSaving || !workspaceManualPath.trim()"
-            @click="saveWorkspacePicker"
-          >
-            {{ workspacePickerSaving ? t("common.saving") : "使用此目录" }}
-          </button>
-        </div>
-      </div>
-    </div>
+    <WorkspaceDirectoryPickerDialog
+      :open="workspacePickerOpen"
+      :saving="workspacePickerSaving"
+      :loading="workspaceDirectoryLoading"
+      :error-text="workspaceDirectoryError"
+      :browser-path="workspaceBrowserPath"
+      :manual-path="workspaceManualPath"
+      :access="workspaceManualAccess"
+      :autonomous-mode="workspaceDraftAutonomousMode"
+      :directories="workspaceDirectoryItems"
+      @close="closeWorkspacePicker"
+      @browse="loadWorkspaceDirectory"
+      @save="saveWorkspacePicker"
+      @update:manual-path="workspaceManualPath = $event"
+      @update:access="workspaceManualAccess = normalizeWorkspaceAccess($event)"
+      @update:autonomous-mode="workspaceDraftAutonomousMode = $event"
+    />
     <input
       ref="attachmentInputRef"
       class="hidden"
@@ -358,7 +248,6 @@
 
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
-import { listen } from "@tauri-apps/api/event";
 import type { ApiConfigItem, ChatConversationOverviewItem, ChatMessage, ChatTodoItem, ConversationGoalState, IdeContextWorkspaceGroup, ShellWorkspace } from "../../types/app";
 import { removeBinaryPlaceholders, messageText } from "../../utils/chat-message";
 import {
@@ -373,7 +262,9 @@ import ChatViewWrapper from "./views/ChatViewWrapper.vue";
 import SidebarCompactionDialog from "./views/SidebarCompactionDialog.vue";
 import SidebarReviewPanel from "./views/SidebarReviewPanel.vue";
 import CreateConversationDialog, { type SidebarCreateDepartmentOption } from "./views/CreateConversationDialog.vue";
+import WorkspaceDirectoryPickerDialog from "../shared/components/WorkspaceDirectoryPickerDialog.vue";
 import { useWsTransport, type SidebarBridgeConfig } from "./composables/use-ws-transport";
+import { isTauriRuntimeAvailable } from "../../services/tauri-api";
 import ToolReviewTargetDialog from "../chat/components/ToolReviewTargetDialog.vue";
 import ChatSupervisionTaskDialog from "../chat/components/dialogs/ChatSupervisionTaskDialog.vue";
 import type { ChatWorkspaceChoice } from "../chat/composables/use-chat-workspace";
@@ -664,7 +555,6 @@ const workspaceBrowserPath = ref("");
 const workspaceDirectoryItems = ref<Array<{ path: string; name: string }>>([]);
 const workspaceDirectoryLoading = ref(false);
 const workspaceDirectoryError = ref("");
-const workspaceParentPath = computed(() => parentWorkspaceDirectoryPath(workspaceBrowserPath.value || workspaceManualPath.value));
 const terminalApprovalQueue = ref<TerminalApprovalRequestPayload[]>([]);
 const terminalApprovalResolving = ref(false);
 const hideWorkspaceButton = computed(() => false);
@@ -1243,14 +1133,7 @@ function clearStreamingState() {
   streamBlocks.value = [];
 }
 
-function resetActiveConversationTransientState(reason: string) {
-  console.info("[Sidebar会话恢复] 重置前端瞬时流式状态", {
-    reason,
-    activeConversationId: activeConversationId.value,
-    busy: busy.value,
-    streamingTextLength: String(streamingText.value || "").length,
-    streamBlockCount: Array.isArray(streamBlocks.value) ? streamBlocks.value.length : 0,
-  });
+function resetActiveConversationTransientState(_reason: string) {
   busy.value = false;
   clearStreamingState();
 }
@@ -1277,20 +1160,8 @@ async function openConversation(conversationId: string) {
   sideConversationListVisible.value = false;
   const beforeSummary = conversations.value.find((item) => String(item.conversationId || "").trim() === String(conversationId || "").trim());
   if (beforeSummary && String(beforeSummary.conversationId || "").trim() !== String(activeConversationId.value || "").trim() && !isSidebarConversationOpenable(beforeSummary)) {
-    console.info("[Sidebar会话打开] 跳过被占用会话", {
-      conversationId,
-      state: beforeSummary.state,
-      detachedWindowOpen: beforeSummary.detachedWindowOpen,
-      runtimeState: beforeSummary.runtimeState,
-    });
     return;
   }
-  console.info("[Sidebar会话打开][start]", {
-    conversationId,
-    activeConversationId: activeConversationId.value,
-    summary: beforeSummary,
-    isSystemBySummary: beforeSummary ? isSidebarSystemConversation(beforeSummary) : false,
-  });
   if (String(activeConversationId.value || "").trim() === String(conversationId || "").trim()) {
     resetActiveConversationTransientState("reload_current_conversation");
   }
@@ -1303,19 +1174,8 @@ async function openConversation(conversationId: string) {
       workspacePath: vscodeRoot?.path || undefined,
     });
   } catch (error) {
-    console.warn("[Sidebar会话打开][failed]", {
-      conversationId,
-      error,
-    });
     throw error;
   }
-  console.info("[Sidebar会话打开][success]", {
-    requestedConversationId: conversationId,
-    resultConversationId: result.conversationId,
-    title: result.title,
-    agentId: result.agentId,
-    departmentId: result.departmentId,
-  });
   await applyOpenConversationResult(result);
 }
 
@@ -1492,21 +1352,38 @@ function closeCreateConversationDialog() {
   createConversationErrorText.value = "";
 }
 
-async function createConversation(input: { title?: string; departmentId: string; agentId: string }) {
+async function createConversation(input: {
+  title?: string;
+  departmentId: string;
+  agentId: string;
+  shellWorkspaces?: ShellWorkspace[];
+  shellAutonomousMode?: boolean;
+}) {
   const departmentId = String(input.departmentId || "").trim();
   const agentId = String(input.agentId || "").trim();
   if (!departmentId || !agentId || creatingConversation.value) return;
   const vscodeRoot = vscodeWorkspaceRoots.value[0];
-  const workspacePath = String(vscodeRoot?.path || "").trim();
-  const shellWorkspaces = workspacePath
-    ? [{
-      id: `vscode-workspace-${workspacePath}`,
-      name: "",
-      path: workspacePath,
-      level: "main" as const,
-      access: workspaceAccess.value || "approval",
-    }]
-    : null;
+  const explicitShellWorkspaces = Array.isArray(input.shellWorkspaces)
+    ? input.shellWorkspaces
+      .map((workspace) => ({
+        ...workspace,
+        path: String(workspace?.path || "").trim(),
+      }))
+      .filter((workspace) => !!workspace.path)
+    : [];
+  const defaultWorkspacePath = String(vscodeRoot?.path || "").trim();
+  const shellWorkspaces = explicitShellWorkspaces.length > 0
+    ? explicitShellWorkspaces
+    : (defaultWorkspacePath
+      ? [{
+        id: `vscode-workspace-${defaultWorkspacePath}`,
+        name: String(vscodeRoot?.name || "").trim() || defaultWorkspacePath,
+        path: defaultWorkspacePath,
+        level: "main" as const,
+        access: workspaceAccess.value || "approval",
+      }]
+      : null);
+  const workspacePath = String(shellWorkspaces?.[0]?.path || "").trim();
   creatingConversation.value = true;
   createConversationErrorText.value = "";
   try {
@@ -1519,6 +1396,7 @@ async function createConversation(input: { title?: string; departmentId: string;
       departmentId,
       agentId,
       shellWorkspaces,
+      shellAutonomousMode: Boolean(input.shellAutonomousMode),
       workspacePath: workspacePath || undefined,
     });
     if (Array.isArray(result.unarchivedConversations)) {
@@ -1543,7 +1421,13 @@ function handleCreateConversationRequest(input?: { title?: string; departmentId?
   const departmentId = String(input?.departmentId || "").trim();
   const agentId = String(input?.agentId || "").trim();
   if (departmentId && agentId) {
-    void createConversation({ title: input?.title, departmentId, agentId });
+    void createConversation({
+      title: input?.title,
+      departmentId,
+      agentId,
+      shellWorkspaces: input?.shellWorkspaces,
+      shellAutonomousMode: input?.shellAutonomousMode,
+    });
     return;
   }
   void openCreateConversationDialog();
@@ -2399,17 +2283,6 @@ function workspaceNameFromPath(path: string): string {
   return parts[parts.length - 1] || normalized || "workspace";
 }
 
-function parentWorkspaceDirectoryPath(path: string): string {
-  const normalized = String(path || "").trim().replace(/[\\/]+$/, "");
-  if (!normalized) return "";
-  const separatorIndex = Math.max(normalized.lastIndexOf("/"), normalized.lastIndexOf("\\"));
-  if (separatorIndex < 0) return "";
-  if (separatorIndex === 0) return normalized.slice(0, 1);
-  const windowsDriveRoot = /^[A-Za-z]:[\\/]?$/.test(normalized.slice(0, separatorIndex + 1));
-  if (windowsDriveRoot) return normalized.slice(0, separatorIndex + 1);
-  return normalized.slice(0, separatorIndex);
-}
-
 function appendMessages(next: unknown) {
   const payload = next as { conversationId?: string; messages?: ChatMessage[]; message?: ChatMessage };
   if (payload.conversationId && payload.conversationId !== activeConversationId.value) return;
@@ -2467,13 +2340,7 @@ async function reloadActiveSidebarConversation(reason: string) {
   if (!currentConversationId) return;
   try {
     await openConversation(currentConversationId);
-  } catch (error) {
-    console.warn("[Sidebar会话恢复] 重新加载当前会话失败", {
-      conversationId: currentConversationId,
-      reason,
-      error,
-    });
-  }
+  } catch {}
 }
 
 async function reconnectSidebarBridge(options?: { forceReloadActiveConversation?: boolean; reason?: string }) {
@@ -2678,8 +2545,7 @@ function refreshDiscovery() {
     void reconnectSidebarBridge({
       forceReloadActiveConversation: true,
       reason: "manual_reconnect",
-    }).catch((error) => {
-      console.warn("[Sidebar桥接] 直接重连失败，回退 discovery 刷新", error);
+    }).catch(() => {
       transport.connecting.value = true;
       window.parent.postMessage({ type: "pai-refresh-discovery" }, "*");
     });
@@ -2735,9 +2601,7 @@ function handleDocumentVisibilityChange() {
   void reconnectSidebarBridge({
     forceReloadActiveConversation: true,
     reason: "visibility_visible",
-  }).catch((error) => {
-    console.warn("[Sidebar桥接] 前台恢复重连失败", error);
-  });
+  }).catch(() => {});
 }
 
 onMounted(() => {
@@ -2748,9 +2612,15 @@ onMounted(() => {
   window.addEventListener("message", handleWindowMessage);
   window.addEventListener("paste", handleWindowPaste);
   document.addEventListener("visibilitychange", handleDocumentVisibilityChange);
-  const unlistenCodeReviewPromise = listen("code-review-requested", () => {
-    openCodeReview();
-  }).then((fn) => { unlistenCodeReviewFn = fn; });
+  if (isTauriRuntimeAvailable()) {
+    void import("@tauri-apps/api/event")
+      .then(({ listen }) => listen("code-review-requested", () => {
+        openCodeReview();
+      }))
+      .then((fn) => {
+        unlistenCodeReviewFn = fn;
+      });
+  }
   void bootstrap();
 });
 
