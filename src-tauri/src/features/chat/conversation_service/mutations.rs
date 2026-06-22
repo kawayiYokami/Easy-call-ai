@@ -356,14 +356,11 @@ fn build_unarchived_conversation_record_from_runtime(
                 None
             }
         });
-    if let Some(snapshot) = user_profile_snapshot.clone() {
+    if let Some(snapshot) = user_profile_snapshot {
         conversation.user_profile_snapshot = snapshot;
     }
-    let summary_message = build_initial_summary_context_message(
-        user_profile_snapshot.as_deref(),
-        Some(&conversation.current_todos),
-        None,
-    );
+    let summary_message =
+        build_initial_summary_context_message(Some(&conversation.current_todos), None);
     conversation.last_user_at = Some(summary_message.created_at.clone());
     conversation.updated_at = summary_message.created_at.clone();
     conversation.messages.push(summary_message);
@@ -436,7 +433,7 @@ fn build_branch_conversation_record_from_selection_runtime_meta_view(
                 Some(snapshot.to_string())
             }
         });
-    if let Some(snapshot) = user_profile_snapshot.clone() {
+    if let Some(snapshot) = user_profile_snapshot {
         conversation.user_profile_snapshot = snapshot;
     }
     if let Some(message) = latest_compaction_message {
@@ -444,11 +441,9 @@ fn build_branch_conversation_record_from_selection_runtime_meta_view(
             .messages
             .push(clone_chat_message_for_copied_conversation(message));
     } else {
-        conversation.messages.push(build_initial_summary_context_message(
-            user_profile_snapshot.as_deref(),
-            Some(&conversation.current_todos),
-            None,
-        ));
+        conversation
+            .messages
+            .push(build_initial_summary_context_message(Some(&conversation.current_todos), None));
     }
     conversation.messages.extend(
         selected_messages

@@ -996,7 +996,7 @@ fn build_branch_conversation_record_from_selection(
                 Some(snapshot.to_string())
             }
         });
-    if let Some(snapshot) = user_profile_snapshot.clone() {
+    if let Some(snapshot) = user_profile_snapshot {
         conversation.user_profile_snapshot = snapshot;
     }
     if let Some(message) = latest_compaction_message {
@@ -1004,11 +1004,9 @@ fn build_branch_conversation_record_from_selection(
             .messages
             .push(clone_chat_message_for_copied_conversation(message));
     } else {
-        conversation.messages.push(build_initial_summary_context_message(
-            user_profile_snapshot.as_deref(),
-            Some(&conversation.current_todos),
-            None,
-        ));
+        conversation
+            .messages
+            .push(build_initial_summary_context_message(Some(&conversation.current_todos), None));
     }
     conversation.messages.extend(
         selected_messages
@@ -3247,7 +3245,7 @@ mod unarchived_conversations_tests {
         let mut source = build_test_conversation();
         source.messages.insert(
             0,
-            build_initial_summary_context_message(None, None, None),
+            build_initial_summary_context_message(None, None),
         );
         let (selected, first_selected_ordinal) = collect_selected_messages_for_branch(
             &source,

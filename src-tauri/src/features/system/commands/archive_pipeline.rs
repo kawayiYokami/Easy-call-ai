@@ -1083,26 +1083,15 @@ fn build_compaction_message(
     summary: &str,
     title: Option<&str>,
     compaction_reason: &str,
-    user_profile_snapshot: Option<&str>,
     current_todos: Option<&[ConversationTodoItem]>,
     preserved_dialogue: Option<&str>,
 ) -> ChatMessage {
     let now = now_iso();
     let reason = compaction_reason.trim();
-    let profile_snapshot = user_profile_snapshot
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .map(format_user_profile_snapshot_markdown)
-        .unwrap_or_else(|| "（暂无用户画像）".to_string());
     let todo_snapshot = current_todos
         .and_then(todo_markdown_block)
         .map(|value| normalize_markdown_block(&value))
         .unwrap_or_default();
-    let user_profile_block = if todo_snapshot.is_empty() {
-        profile_snapshot
-    } else {
-        format!("{}\n\n{}", profile_snapshot, todo_snapshot)
-    };
     let summary_note = if reason.is_empty() {
         "- 以下内容为当前会话中较早历史对话的整理结果。\n\
          - 为保证连续性，后文保留了最近的原始对话，不包含在本段摘要中。\n\
@@ -1122,13 +1111,15 @@ fn build_compaction_message(
         .filter(|value| !value.is_empty())
         .map(normalize_multiline_block)
         .unwrap_or_else(|| "（暂无保留对话）".to_string());
-    let text = format!(
-        "## 用户画像\n\n{}\n\n## 摘要说明\n\n{}\n\n## 摘要正文\n\n{}\n\n## 保留对话\n\n{}",
-        user_profile_block,
-        normalize_markdown_block(&summary_note),
-        clean_compaction_summary_text(summary),
-        preserved_dialogue_text
-    );
+    let mut sections = vec![
+        format!("## 摘要说明\n\n{}", normalize_markdown_block(&summary_note)),
+        format!("## 摘要正文\n\n{}", clean_compaction_summary_text(summary)),
+        format!("## 保留对话\n\n{}", preserved_dialogue_text),
+    ];
+    if !todo_snapshot.is_empty() {
+        sections.push(todo_snapshot);
+    }
+    let text = sections.join("\n\n");
     let normalized_title = title.and_then(normalize_summary_context_title);
     ChatMessage {
         id: Uuid::new_v4().to_string(),
@@ -1176,92 +1167,6 @@ fn normalize_markdown_block(input: &str) -> String {
     lines.join("\n")
 }
 
-#[derive(Debug, Clone, Default)]
-struct MemoryContextEntryDraft {
-    id: String,
-    judgment: String,
-    reasoning: String,
-}
-
-fn format_user_profile_snapshot_markdown(input: &str) -> String {
-    let entries = parse_memory_context_entries(input);
-    if entries.is_empty() {
-        return normalize_markdown_block(input);
-    }
-    entries
-        .into_iter()
-        .map(|entry| {
-            let judgment = clean_text(entry.judgment.trim());
-            let reasoning = clean_text(entry.reasoning.trim());
-            if reasoning.is_empty() || reasoning == "无" {
-                format!("- `{}` {}", entry.id, judgment)
-            } else {
-                format!("- `{}` {}\n  - 理由：{}", entry.id, judgment, reasoning)
-            }
-        })
-        .collect::<Vec<_>>()
-        .join("\n")
-}
-
-fn parse_memory_context_entries(input: &str) -> Vec<MemoryContextEntryDraft> {
-    if !input.contains("<memory_context>") {
-        return Vec::new();
-    }
-    let mut entries = Vec::<MemoryContextEntryDraft>::new();
-    let mut current: Option<MemoryContextEntryDraft> = None;
-    let mut in_reasoning = false;
-
-    for token in input.split_whitespace() {
-        if token == "<memory_context>" || token == "</memory_context>" {
-            continue;
-        }
-        if let Some(id) = token
-            .strip_prefix("<id:")
-            .and_then(|value| value.strip_suffix('>'))
-            .map(str::trim)
-            .filter(|value| !value.is_empty())
-        {
-            if let Some(entry) = current.take() {
-                entries.push(entry);
-            }
-            current = Some(MemoryContextEntryDraft {
-                id: id.to_string(),
-                judgment: String::new(),
-                reasoning: String::new(),
-            });
-            in_reasoning = false;
-            continue;
-        }
-        if token.starts_with("</id:") {
-            if let Some(entry) = current.take() {
-                entries.push(entry);
-            }
-            in_reasoning = false;
-            continue;
-        }
-        if token == ">" {
-            in_reasoning = true;
-            continue;
-        }
-        let Some(entry) = current.as_mut() else {
-            continue;
-        };
-        let target = if in_reasoning {
-            &mut entry.reasoning
-        } else {
-            &mut entry.judgment
-        };
-        if !target.is_empty() {
-            target.push(' ');
-        }
-        target.push_str(token);
-    }
-    if let Some(entry) = current {
-        entries.push(entry);
-    }
-    entries
-}
-
 fn clean_compaction_summary_text(input: &str) -> String {
     let trimmed = input.trim();
     if let Some((summary, active_plans)) = trimmed.split_once("<active_plans>") {
@@ -1276,30 +1181,23 @@ fn clean_compaction_summary_text(input: &str) -> String {
 }
 
 fn build_initial_summary_context_message(
-    user_profile_snapshot: Option<&str>,
     current_todos: Option<&[ConversationTodoItem]>,
     title: Option<&str>,
 ) -> ChatMessage {
     let now = now_iso();
-    let profile_snapshot = user_profile_snapshot
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .map(format_user_profile_snapshot_markdown)
-        .unwrap_or_else(|| "（暂无用户画像）".to_string());
     let todo_snapshot = current_todos
         .and_then(todo_markdown_block)
         .map(|value| normalize_markdown_block(&value))
         .unwrap_or_default();
-    let user_profile_block = if todo_snapshot.is_empty() {
-        profile_snapshot
-    } else {
-        format!("{}\n\n{}", profile_snapshot, todo_snapshot)
-    };
     let normalized_title = title.and_then(normalize_summary_context_title);
-    let text = format!(
-        "## 用户画像\n\n{}\n\n## 摘要说明\n\n- 这是新会话的初始背景，不包含历史对话摘要。",
-        user_profile_block
-    );
+    let text = if todo_snapshot.is_empty() {
+        "## 摘要说明\n\n- 这是新会话的初始背景，不包含历史对话摘要。".to_string()
+    } else {
+        format!(
+            "## 摘要说明\n\n- 这是新会话的初始背景，不包含历史对话摘要。\n\n{}",
+            todo_snapshot
+        )
+    };
     ChatMessage {
         id: Uuid::new_v4().to_string(),
         role: "user".to_string(),
@@ -2122,30 +2020,17 @@ mod archive_pipeline_tests {
     }
 
     #[test]
-    fn format_user_profile_snapshot_markdown_should_render_memory_context_as_list() {
-        let snapshot = "<memory_context> <id:1078> 遥酱计划自己编写 pai 的 VS Code 侧边栏扩展 > 方向已确认 </id:1078> <id:1075> 遥酱深度关注原神设定 > 对游戏叙事质量要求较高 </id:1075> </memory_context>";
-
-        let rendered = format_user_profile_snapshot_markdown(snapshot);
-
-        assert!(rendered.contains("- `1078` 遥酱计划自己编写 pai 的 VS Code 侧边栏扩展"));
-        assert!(rendered.contains("  - 理由：方向已确认"));
-        assert!(rendered.contains("- `1075` 遥酱深度关注原神设定"));
-    }
-
-    #[test]
     fn build_compaction_message_should_use_markdown_sections() {
         let message = build_compaction_message(
             "## 当前进展\n\n- 已完成摘要格式优化",
             Some("摘要格式"),
             "",
-            Some("<memory_context>\n<id:12>\n偏好清晰 Markdown\n> 摘要需要可扫描\n</id:12>\n</memory_context>"),
             None,
             None,
         );
         let text = render_message_content_for_model(&message);
 
-        assert!(text.contains("## 用户画像"));
-        assert!(text.contains("- `12` 偏好清晰 Markdown"));
+        assert!(!text.contains("## 用户画像"));
         assert!(text.contains("## 摘要正文"));
         assert!(text.contains("## 当前进展\n\n- 已完成摘要格式优化"));
         assert!(!text.contains("[上下文整理]"));

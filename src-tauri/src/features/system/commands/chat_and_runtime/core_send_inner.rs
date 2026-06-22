@@ -4815,7 +4815,7 @@ mod core_send_inner_tests {
         );
         conversation
             .messages
-            .push(build_initial_summary_context_message(None, None, Some("已有摘要标题")));
+            .push(build_initial_summary_context_message(None, Some("已有摘要标题")));
 
         assert!(!should_schedule_conversation_auto_title_generation(
             &conversation,

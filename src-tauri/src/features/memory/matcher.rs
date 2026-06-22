@@ -1194,22 +1194,22 @@ fn build_memory_board_xml_from_recall_ids(
         return None;
     }
 
-    let mut out = String::new();
-    out.push_str("<memory_context>\n");
-    for memory in ordered_memories {
-        let display_id = memory.display_id();
-        out.push_str(&format!("<id:{}>\n", display_id));
-        out.push_str(memory.judgment.trim());
-        out.push('\n');
-        let reasoning = memory.reasoning.trim();
-        let display_reasoning = if reasoning.is_empty() { "无" } else { reasoning };
-        out.push_str("> ");
-        out.push_str(display_reasoning);
-        out.push_str(&format!("\n</id:{}>\n\n", display_id));
-    }
-    out.truncate(out.trim_end().len());
-    out.push_str("\n</memory_context>");
-    Some(out)
+    Some(
+        ordered_memories
+            .into_iter()
+            .map(|memory| {
+                let reasoning = memory.reasoning.trim();
+                let display_reasoning = if reasoning.is_empty() { "无" } else { reasoning };
+                format!(
+                    "[id:{}]\n{}\n> {}",
+                    memory.display_id(),
+                    memory.judgment.trim(),
+                    display_reasoning
+                )
+            })
+            .collect::<Vec<_>>()
+            .join("\n"),
+    )
 }
 
 #[cfg(test)]

@@ -476,7 +476,7 @@ mod prompt_assembly_tests {
         )
         .expect("build transient profile block")
         .expect("transient profile block should exist");
-        assert!(block.starts_with("<memory_context>"));
+        assert!(block.starts_with("[id:"));
         assert!(!block.contains("<user profile snapshot>"));
         assert!(block.contains("远程用户"));
         assert!(block.contains(remote_user_id));
@@ -773,7 +773,7 @@ mod prompt_assembly_tests {
     #[test]
     fn apply_chat_latest_user_payload_should_replace_full_snapshot_extra_blocks_without_duplication() {
         let memory_block =
-            "<memory_context>\n<id:959>\n记忆 A\n> 无\n</id:959>\n</memory_context>".to_string();
+            "[id:959]\n记忆 A\n> 无".to_string();
         let mut prepared = PreparedPrompt {
             preamble: String::new(),
             history_messages: Vec::new(),
@@ -797,13 +797,13 @@ mod prompt_assembly_tests {
 
         assert_eq!(prepared.latest_user_extra_blocks.len(), 1);
         assert_eq!(prepared.latest_user_extra_blocks[0], memory_block);
-        assert_eq!(prepared.latest_user_extra_text.matches("<memory_context>").count(), 1);
+        assert_eq!(prepared.latest_user_extra_text.matches("[id:959]").count(), 1);
     }
 
     #[test]
     fn apply_chat_latest_user_payload_should_append_incremental_extra_blocks_after_memory_block() {
         let memory_block =
-            "<memory_context>\n<id:959>\n记忆 A\n> 无\n</id:959>\n</memory_context>".to_string();
+            "[id:959]\n记忆 A\n> 无".to_string();
         let task_block = "<task_board>\n待办一项\n</task_board>".to_string();
         let mut prepared = PreparedPrompt {
             preamble: String::new(),
@@ -829,7 +829,7 @@ mod prompt_assembly_tests {
         assert_eq!(prepared.latest_user_extra_blocks.len(), 2);
         assert_eq!(prepared.latest_user_extra_blocks[0], memory_block);
         assert_eq!(prepared.latest_user_extra_blocks[1], task_block);
-        assert_eq!(prepared.latest_user_extra_text.matches("<memory_context>").count(), 1);
+        assert_eq!(prepared.latest_user_extra_text.matches("[id:959]").count(), 1);
     }
 
     #[test]

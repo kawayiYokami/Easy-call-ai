@@ -5865,7 +5865,7 @@ impl ConversationServiceV2 {
         state: &AppState,
         source: &Conversation,
         compression_message: &ChatMessage,
-        user_profile_snapshot: Option<String>,
+        refreshed_user_profile_snapshot: Option<String>,
     ) -> Result<CompactionMessagePersistResult, String> {
         let guard = state.conversation_lock.lock().map_err(|err| {
             format!(
@@ -5891,12 +5891,12 @@ impl ConversationServiceV2 {
         .map(|page| page.selected_block_id);
         let compression_message_id = compression_message.id.clone();
         let now = now_iso();
-        let next_user_profile_snapshot = user_profile_snapshot.unwrap_or_default();
         let (conversation, (), _) = state_update_conversation_metadata_cached(
             state,
             &source.id,
             |cached| {
-                cached.user_profile_snapshot = next_user_profile_snapshot.clone();
+                cached.user_profile_snapshot =
+                    refreshed_user_profile_snapshot.clone().unwrap_or_default();
                 cached.updated_at = now.clone();
                 cached.last_user_at = Some(now.clone());
                 Ok(())
@@ -6068,7 +6068,6 @@ impl ConversationServiceV2 {
         prepared_batches: Vec<Vec<(ChatMessage, Vec<String>)>>,
         history_flush_time: &str,
         should_seed_summary_context: bool,
-        seeded_profile_snapshot: Option<&str>,
     ) -> Result<SchedulerHistoryFlushCommitResult, String> {
         let _guard = lock_conversation_with_metrics(state, "scheduler_commit")?;
         let conversation_meta = match self.get_conversation_meta(state, conversation_id) {
@@ -6104,7 +6103,6 @@ impl ConversationServiceV2 {
             should_seed_summary_context,
             conversation_meta.message_count > 0,
             conversation_meta.has_context_compaction_message,
-            seeded_profile_snapshot,
             state,
             &mut conversation,
         );
@@ -6153,7 +6151,6 @@ impl ConversationServiceV2 {
         should_seed_summary_context: bool,
         has_existing_messages: bool,
         has_summary_context: bool,
-        seeded_profile_snapshot: Option<&str>,
         state: &AppState,
         conversation: &mut Conversation,
     ) -> Vec<ChatMessage> {
@@ -6165,13 +6162,7 @@ impl ConversationServiceV2 {
             && !conversation_is_delegate(conversation)
             && !conversation_is_remote_im_contact(conversation)
         {
-            if conversation.user_profile_snapshot.trim().is_empty() {
-                if let Some(snapshot) = seeded_profile_snapshot {
-                    conversation.user_profile_snapshot = snapshot.to_string();
-                }
-            }
             let summary_message = build_initial_summary_context_message(
-                Some(conversation.user_profile_snapshot.as_str()),
                 Some(&conversation.current_todos),
                 None,
             );

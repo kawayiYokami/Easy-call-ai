@@ -188,6 +188,34 @@
     }
 
     #[test]
+    fn build_core_system_prompt_text_should_append_user_profile_snapshot_into_user_settings() {
+        let now = now_iso();
+        let agent = default_agent();
+        let mut conv = test_active_conversation_with_messages(
+            vec![test_text_message("user", "测试画像快照", &now)],
+            Some(now),
+        );
+        conv.user_profile_snapshot =
+            "[id:profile-1]\n偏好早晨回复\n> 近期交流稳定提到晨间安排"
+                .to_string();
+
+        let fixed_system_prompt = build_core_system_prompt_text(
+            &conv,
+            &agent,
+            &[],
+            Some(("用户", "我是测试用户")),
+            DEFAULT_RESPONSE_STYLE_ID,
+            "zh-CN",
+            None,
+        );
+
+        assert!(fixed_system_prompt.contains("<admin user settings>"));
+        assert!(fixed_system_prompt.contains("用户画像快照："));
+        assert!(fixed_system_prompt.contains("[id:profile-1]"));
+        assert!(fixed_system_prompt.contains("偏好早晨回复"));
+    }
+
+    #[test]
     fn conversation_prompt_service_prompt_revision_should_ignore_todos_and_memory_recall() {
         let now = now_iso();
         let agent = default_agent();
@@ -366,7 +394,7 @@
         let now = now_iso();
         let mut message = test_text_message("user", "继续", &now);
         message.extra_text_blocks.push(
-            "<memory_context>\n<id:m1>\n用户询问 codex 是什么\n> 无\n</id:m1>\n</memory_context>"
+            "[id:m1]\n用户询问 codex 是什么\n> 无"
                 .to_string(),
         );
 
@@ -4422,6 +4450,42 @@
             .delete_conversation(&state, &created.conversation_id)
             .expect("delete conversation through v2");
         assert_eq!(deleted.deleted_conversation_id, created.conversation_id);
+    }
+
+    #[test]
+    fn build_unarchived_conversation_record_from_runtime_should_refresh_profile_snapshot() {
+        let state = test_chat_runtime_state();
+        memory_store_upsert_drafts(
+            &state.data_path,
+            &[MemoryDraftInput {
+                memory_type: "knowledge".to_string(),
+                judgment: "本地用户长期偏好结构化回复".to_string(),
+                reasoning: "创建会话前已存在画像记忆".to_string(),
+                tags: vec![
+                    "本地用户".to_string(),
+                    USER_PERSONA_ID.to_string(),
+                    "用户要求".to_string(),
+                ],
+                owner_agent_id: None,
+            }],
+        )
+        .expect("seed profile memory");
+        let agents = state_read_agents_cached(&state).expect("read agents");
+        let runtime = state_read_runtime_state_cached(&state).expect("read runtime");
+
+        let conversation = build_unarchived_conversation_record_from_runtime(
+            &state.data_path,
+            &agents,
+            &runtime.assistant_department_agent_id,
+            None,
+            "api-1",
+            DEFAULT_AGENT_ID,
+            ASSISTANT_DEPARTMENT_ID,
+            "新会话",
+        );
+
+        assert!(conversation.user_profile_snapshot.contains("[id:"));
+        assert!(conversation.user_profile_snapshot.contains("本地用户长期偏好结构化回复"));
     }
 
     #[test]
@@ -9199,3 +9263,4 @@
             violations
         );
     }
+    

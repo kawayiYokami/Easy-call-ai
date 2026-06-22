@@ -389,12 +389,11 @@
     }
 
     #[test]
-    fn build_compaction_message_should_append_current_todo_list_after_memory_snapshot() {
+    fn build_compaction_message_should_append_current_todo_list_without_user_profile_section() {
         let message = build_compaction_message(
             "这里是压缩摘要",
             Some("当前标题"),
             "manual",
-            Some("<user profile snapshot>\n记忆块\n</user profile snapshot>"),
             Some(&[
                 ConversationTodoItem {
                     content: "Add todo MCP server".to_string(),
@@ -418,11 +417,10 @@
 
         assert!(!text.contains("当前会话标题："));
         assert!(!text.contains("当前标题"));
-        assert!(text.contains("## 用户画像"));
+        assert!(!text.contains("## 用户画像"));
         assert!(text.contains("## 摘要说明"));
         assert!(text.contains("## 摘要正文"));
         assert!(text.contains("## 保留对话"));
-        assert!(text.contains("记忆块"));
         assert!(text.contains("## Current Todo List"));
         assert!(text.contains("- [in_progress] Add todo MCP server"));
         assert!(text.contains("- [pending] Run cargo check"));
@@ -435,7 +433,6 @@
             "这里是压缩摘要\n\n<active_plans>\n<active_plan index=\"1\">\n执行计划\n</active_plan>\n</active_plans>",
             Some("计划标题"),
             "manual",
-            None,
             None,
             None,
         );

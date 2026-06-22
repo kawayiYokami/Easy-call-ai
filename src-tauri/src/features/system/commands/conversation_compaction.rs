@@ -240,18 +240,16 @@ async fn run_context_compaction_pipeline_inner(
         Some(plan_block) => format!("{}\n\n{}", summary_draft.summary.trim(), plan_block.trim()),
         None => summary_draft.summary.clone(),
     };
-    let user_profile_snapshot =
+    let refreshed_user_profile_snapshot =
         if conversation_is_delegate(source) || conversation_is_remote_im_contact(source) {
             None
         } else {
             build_user_profile_snapshot_block(&state.data_path, &owner_agent, 12)?
         };
-
     let compression_message = build_compaction_message(
         &summary_with_pending_plan,
         Some(summary_draft.title.as_str()),
         compaction_reason,
-        user_profile_snapshot.as_deref(),
         Some(&source.current_todos),
         Some(&build_compaction_preserved_dialogue_block(
             source,
@@ -264,7 +262,7 @@ async fn run_context_compaction_pipeline_inner(
         state,
         source,
         &compression_message,
-        user_profile_snapshot.clone(),
+        refreshed_user_profile_snapshot,
     )?;
     let active_conversation_id = persist_result.active_conversation_id;
     let compression_message_id = persist_result.compression_message_id;

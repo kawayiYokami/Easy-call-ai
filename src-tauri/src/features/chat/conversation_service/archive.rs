@@ -31,24 +31,12 @@ fn build_archive_replacement_conversation(
     if let Some(snapshot) = profile_snapshot {
         conversation.user_profile_snapshot = snapshot;
     }
-    let summary_message = build_initial_summary_context_message(
-        option_str_or_none(conversation.user_profile_snapshot.as_str()),
-        Some(&conversation.current_todos),
-        None,
-    );
+    let summary_message =
+        build_initial_summary_context_message(Some(&conversation.current_todos), None);
     conversation.last_user_at = Some(summary_message.created_at.clone());
     conversation.updated_at = summary_message.created_at.clone();
     conversation.messages.push(summary_message);
     Ok(conversation)
-}
-
-fn option_str_or_none(value: &str) -> Option<&str> {
-    let trimmed = value.trim();
-    if trimmed.is_empty() {
-        None
-    } else {
-        Some(trimmed)
-    }
 }
 
 fn ensure_archive_ready_message_store_from_legacy(

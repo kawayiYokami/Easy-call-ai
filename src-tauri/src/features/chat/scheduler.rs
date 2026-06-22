@@ -2458,34 +2458,6 @@ async fn process_conversation_batch(
             conversation_meta.last_message_at.as_deref().unwrap_or("")
         ));
     }
-    let summary_seed_agent = if should_seed_summary_context
-        && conversation_meta.user_profile_snapshot.trim().is_empty()
-    {
-        scheduler_agents
-            .iter()
-            .find(|item| item.id == conversation_meta.agent_id)
-            .cloned()
-    } else {
-        None
-    };
-    let seeded_profile_snapshot = if let Some(agent) = summary_seed_agent.as_ref() {
-        match with_memory_lock(state, "scheduler_profile_snapshot", || {
-            build_user_profile_snapshot_block(&state.data_path, agent, 12)
-        }) {
-            Ok(snapshot) => snapshot,
-            Err(err) => {
-                runtime_log_error(format!(
-                    "[用户画像] 失败，任务=seed_scheduler_profile_snapshot，conversation_id={}，agent_id={}，error={}",
-                    conversation_id,
-                    agent.id,
-                    err
-                ));
-                None
-            }
-        }
-    } else {
-        None
-    };
     let mut prepared_batches = Vec::<Vec<(ChatMessage, Vec<String>)>>::with_capacity(events.len());
     for event in &events {
         let mut prepared_messages =
@@ -2525,7 +2497,6 @@ async fn process_conversation_batch(
         prepared_batches,
         &history_flush_time,
         should_seed_summary_context,
-        seeded_profile_snapshot.as_deref(),
     )?;
     let persisted_batch_messages = commit_result.persisted_batch_messages;
     let event_activate_flags = commit_result.event_activate_flags;

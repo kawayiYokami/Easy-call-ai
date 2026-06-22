@@ -399,7 +399,7 @@ fn classify_system_prompt_extra_block(block: &str) -> SystemPromptExtraBlockGrou
 }
 
 fn build_core_system_prompt_text(
-    _conversation: &Conversation,
+    conversation: &Conversation,
     agent: &AgentProfile,
     _departments: &[DepartmentConfig],
     user_profile: Option<(&str, &str)>,
@@ -446,22 +446,32 @@ fn build_core_system_prompt_text(
         } else {
             user_intro.trim().to_string()
         };
+        let user_profile_snapshot = conversation.user_profile_snapshot.trim();
+        let user_settings_body = if user_profile_snapshot.is_empty() {
+            format!(
+                "{}：{}\n{}：{}",
+                user_nickname_label,
+                xml_escape_prompt(user_name),
+                user_intro_label,
+                xml_escape_prompt(&user_intro_display)
+            )
+        } else {
+            format!(
+                "{}：{}\n{}：{}\n用户画像快照：\n{}",
+                user_nickname_label,
+                xml_escape_prompt(user_name),
+                user_intro_label,
+                xml_escape_prompt(&user_intro_display),
+                user_profile_snapshot
+            )
+        };
         let role_identity_text = role_identity_line
             .replacen("{}", &xml_escape_prompt(&agent.name), 1)
             .replacen("{}", &xml_escape_prompt(user_name), 1);
         [
             highest_instruction_md.to_string(),
             prompt_xml_block(assistant_settings_label, agent.system_prompt.trim()),
-            prompt_xml_block(
-                user_settings_label,
-                format!(
-                    "{}：{}\n{}：{}",
-                    user_nickname_label,
-                    xml_escape_prompt(user_name),
-                    user_intro_label,
-                    xml_escape_prompt(&user_intro_display)
-                ),
-            ),
+            prompt_xml_block(user_settings_label, user_settings_body),
             prompt_xml_block(
                 role_constraints_label,
                 format!("{}\n{}", role_identity_text, role_confusion_line),
