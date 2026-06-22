@@ -496,6 +496,7 @@ fn task_dispatch_system_delegate(
         delegate,
         SYSTEM_NOTIFICATION_CONVERSATION_ID.to_string(),
         vec![session.model_config_id.clone()],
+        None,
     );
     Ok(delegate_id)
 }

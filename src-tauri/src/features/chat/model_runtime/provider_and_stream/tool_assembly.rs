@@ -521,15 +521,22 @@ fn push_runtime_tool_executors(
         }));
     }
     if enable_delegate {
+        let delegate_source_department_id = executor_department_id
+            .map(str::trim)
+            .filter(|department_id| !department_id.is_empty())
+            .unwrap_or_default()
+            .to_string();
+        runtime_log_debug(format!(
+            "[委托工具装配] session_id={} source_department_id={} source_agent_id={} enable_delegate=true",
+            tool_session_id,
+            delegate_source_department_id,
+            agent.id.trim()
+        ));
         tools.push(Box::new(BuiltinDelegateTool {
             app_state: state.clone(),
             session_id: tool_session_id.to_string(),
             source_agent_id: agent.id.trim().to_string(),
-            source_department_id: executor_department_id
-                .map(str::trim)
-                .filter(|department_id| !department_id.is_empty())
-                .unwrap_or_default()
-                .to_string(),
+            source_department_id: delegate_source_department_id,
         }));
     }
     tools.push(Box::new(BuiltinMemeTool { app_state: state.clone() }));

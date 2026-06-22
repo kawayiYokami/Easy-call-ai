@@ -104,13 +104,7 @@ fn delegate_parent_shell_workspace(
 ) -> Option<Conversation> {
     if let Some(session_id) = parent_chat_session_key {
         if let Ok(Some(conversation)) = terminal_session_conversation(app_state, session_id) {
-            if conversation
-                .shell_workspace_path
-                .as_deref()
-                .map(str::trim)
-                .filter(|value| !value.is_empty())
-                .is_some()
-            {
+            if delegate_workspace_snapshot_from_conversation(&conversation).is_some() {
                 return Some(conversation);
             }
         }
@@ -151,20 +145,67 @@ fn delegate_parent_shell_workspace(
             cumulative_usage: ConversationCumulativeUsage::default(),
             active_goal: conversation_meta.active_goal,
         })
-        .filter(|conversation| {
-            conversation
-                .shell_workspace_path
-                .as_deref()
-                .map(str::trim)
-                .filter(|value| !value.is_empty())
-                .is_some()
-        })
+        .filter(|conversation| delegate_workspace_snapshot_from_conversation(conversation).is_some())
+}
+
+#[derive(Debug, Clone)]
+struct DelegateWorkspaceSnapshot {
+    shell_workspace_path: Option<String>,
+    shell_workspaces: Vec<ShellWorkspaceConfig>,
+    shell_autonomous_mode: bool,
+}
+
+fn delegate_workspace_snapshot_from_conversation(
+    conversation: &Conversation,
+) -> Option<DelegateWorkspaceSnapshot> {
+    let has_locked_root = conversation
+        .shell_workspace_path
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .is_some();
+    let has_workspaces = !conversation.shell_workspaces.is_empty();
+    if !has_locked_root && !has_workspaces && !conversation.shell_autonomous_mode {
+        return None;
+    }
+    Some(DelegateWorkspaceSnapshot {
+        shell_workspace_path: conversation.shell_workspace_path.clone(),
+        shell_workspaces: conversation.shell_workspaces.clone(),
+        shell_autonomous_mode: conversation.shell_autonomous_mode,
+    })
+}
+
+fn delegate_capture_workspace_snapshot(
+    app_state: &AppState,
+    root_conversation_id: &str,
+    parent_chat_session_key: Option<&str>,
+) -> Option<DelegateWorkspaceSnapshot> {
+    let snapshot = delegate_parent_shell_workspace(app_state, root_conversation_id, parent_chat_session_key)
+        .and_then(|conversation| delegate_workspace_snapshot_from_conversation(&conversation));
+    runtime_log_info(format!(
+        "[委托工作目录] 捕获快照 conversation_id={} parent_chat_session_key={} shell_workspace_path={} shell_workspaces={} shell_autonomous_mode={}",
+        root_conversation_id,
+        parent_chat_session_key.unwrap_or(""),
+        snapshot
+            .as_ref()
+            .and_then(|value| value.shell_workspace_path.as_deref())
+            .unwrap_or(""),
+        snapshot
+            .as_ref()
+            .map(|value| value.shell_workspaces.iter().map(|item| item.path.clone()).collect::<Vec<_>>().join(" | "))
+            .unwrap_or_default(),
+        snapshot
+            .as_ref()
+            .map(|value| value.shell_autonomous_mode)
+            .unwrap_or(false)
+    ));
+    snapshot
 }
 
 fn delegate_runtime_thread_build(
-    app_state: &AppState,
     delegate: &DelegateEntry,
     target_api_config_id: &str,
+    workspace_snapshot: Option<DelegateWorkspaceSnapshot>,
     parent_chat_session_key: Option<String>,
 ) -> DelegateRuntimeThread {
     let mut conversation = build_conversation_record(
@@ -182,15 +223,23 @@ fn delegate_runtime_thread_build(
     conversation.updated_at = delegate.updated_at.clone();
     conversation.last_user_at = None;
     conversation.last_assistant_at = None;
-    if let Some(parent_workspace) = delegate_parent_shell_workspace(
-        app_state,
-        &delegate.conversation_id,
-        parent_chat_session_key.as_deref(),
-    ) {
-        conversation.shell_workspace_path = parent_workspace.shell_workspace_path;
-        conversation.shell_workspaces = parent_workspace.shell_workspaces;
-        conversation.shell_autonomous_mode = parent_workspace.shell_autonomous_mode;
+    if let Some(workspace_snapshot) = workspace_snapshot {
+        conversation.shell_workspace_path = workspace_snapshot.shell_workspace_path;
+        conversation.shell_workspaces = workspace_snapshot.shell_workspaces;
+        conversation.shell_autonomous_mode = workspace_snapshot.shell_autonomous_mode;
     }
+    runtime_log_info(format!(
+        "[委托工作目录] 写入子代理 delegate_id={} shell_workspace_path={} shell_workspaces={} shell_autonomous_mode={}",
+        delegate.delegate_id,
+        conversation.shell_workspace_path.as_deref().unwrap_or(""),
+        conversation
+            .shell_workspaces
+            .iter()
+            .map(|item| item.path.clone())
+            .collect::<Vec<_>>()
+            .join(" | "),
+        conversation.shell_autonomous_mode
+    ));
     DelegateRuntimeThread {
         delegate_id: delegate.delegate_id.clone(),
         root_conversation_id: delegate.conversation_id.clone(),
@@ -207,6 +256,7 @@ fn delegate_runtime_thread_create(
     app_state: &AppState,
     delegate: &DelegateEntry,
     target_api_config_id: &str,
+    workspace_snapshot: Option<DelegateWorkspaceSnapshot>,
     parent_chat_session_key: Option<String>,
 ) -> Result<String, String> {
     if delegate_runtime_thread_is_deleted(&delegate.delegate_id)? {
@@ -235,9 +285,9 @@ fn delegate_runtime_thread_create(
             })?;
     }
     let thread = delegate_runtime_thread_build(
-        app_state,
         delegate,
         target_api_config_id,
+        workspace_snapshot,
         parent_chat_session_key,
     );
     let thread_id = thread.delegate_id.clone();

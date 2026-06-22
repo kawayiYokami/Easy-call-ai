@@ -239,6 +239,14 @@ fn validate_delegate_tool_direct_child_target(preflight: &DelegatePreflight) -> 
     {
         return Ok(());
     }
+    runtime_log_debug(format!(
+        "[委托校验] 直接下级不匹配 source_department_id={} source_department_name={} target_department_id={} target_department_name={} source_child_department_ids={:?}",
+        preflight.source_department.id,
+        preflight.source_department.name,
+        preflight.target_department.id,
+        preflight.target_department.name,
+        preflight.source_department.child_department_ids
+    ));
     Err(format!(
         "目标部门不是当前部门的直接下级，sourceDepartmentId={}，targetDepartmentId={}",
         preflight.source_department.id, preflight.target_department.id
@@ -257,6 +265,7 @@ fn spawn_delegate_task(
     delegate: DelegateEntry,
     root_conversation_id: String,
     target_api_config_ids: Vec<String>,
+    parent_chat_session_key: Option<String>,
 ) {
     let app_state_for_run = app_state.clone();
     let app_state_for_publish = app_state;
@@ -267,7 +276,7 @@ fn spawn_delegate_task(
             app_state_for_run,
             delegate_for_run,
             target_api_config_ids,
-            None,
+            parent_chat_session_key,
         )
         .await;
         match run_result {
@@ -548,6 +557,7 @@ async fn builtin_delegate(
         delegate.clone(),
         delegate.conversation_id.clone(),
         delegate_target_chat_api_config_ids(&preflight.config, &preflight.target_department),
+        Some(session_id.to_string()),
     );
 
     Ok(serde_json::json!({

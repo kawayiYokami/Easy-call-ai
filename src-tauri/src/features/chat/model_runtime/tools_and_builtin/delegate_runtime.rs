@@ -302,10 +302,16 @@ async fn delegate_run_thread_to_completion(
         .first()
         .cloned()
         .ok_or_else(|| format!("部门没有可用模型，departmentId={}", delegate.target_department_id))?;
+    let workspace_snapshot = delegate_capture_workspace_snapshot(
+        &app_state,
+        &delegate.conversation_id,
+        parent_chat_session_key.as_deref(),
+    );
     let delegate_thread_id = match delegate_runtime_thread_create(
         &app_state,
         &delegate,
         &primary_api_config_id,
+        workspace_snapshot,
         parent_chat_session_key,
     ) {
         Ok(value) => value,

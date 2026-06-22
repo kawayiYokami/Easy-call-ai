@@ -7107,6 +7107,239 @@
     }
 
     #[test]
+    fn delegate_runtime_thread_build_should_prefer_parent_session_workspace_for_async_delegate() {
+        let temp_root = std::env::temp_dir().join(format!(
+            "easy-call-ai-delegate-workspace-test-{}",
+            uuid::Uuid::new_v4()
+        ));
+        let llm_workspace_path = temp_root.join("p-ai").join("llm-workspace");
+        let root_workspace_path = temp_root.join("root-workspace");
+        let current_workspace_path = temp_root.join("current-workspace");
+        std::fs::create_dir_all(&llm_workspace_path).expect("create llm workspace");
+        std::fs::create_dir_all(&root_workspace_path).expect("create root workspace");
+        std::fs::create_dir_all(&current_workspace_path).expect("create current workspace");
+
+        let state = test_chat_runtime_state();
+        std::fs::create_dir_all(&state.llm_workspace_path).expect("ensure llm workspace");
+        let mut config = AppConfig::default();
+        config.shell_workspaces = vec![ShellWorkspaceConfig {
+            id: "system-workspace".to_string(),
+            name: "系统工作目录".to_string(),
+            path: terminal_path_for_user(&llm_workspace_path),
+            level: SHELL_WORKSPACE_LEVEL_SYSTEM.to_string(),
+            access: SHELL_WORKSPACE_ACCESS_FULL_ACCESS.to_string(),
+            built_in: true,
+        }];
+        state_write_config_cached(&state, &config).expect("write config");
+
+        let now = now_iso();
+        let mut data = AppData::default();
+        data.conversations.push(Conversation {
+            id: "conversation-root".to_string(),
+            title: "主会话".to_string(),
+            agent_id: "agent-root".to_string(),
+            department_id: "dept-root".to_string(),
+            bound_conversation_id: None,
+            parent_conversation_id: None,
+            child_conversation_ids: Vec::new(),
+            fork_message_cursor: None,
+            unread_count: 0,
+            conversation_kind: CONVERSATION_KIND_CHAT.to_string(),
+            root_conversation_id: None,
+            delegate_id: None,
+            created_at: now.clone(),
+            updated_at: now.clone(),
+            last_user_at: None,
+            last_assistant_at: None,
+            status: "active".to_string(),
+            summary: String::new(),
+            user_profile_snapshot: String::new(),
+            shell_workspace_path: Some(root_workspace_path.to_string_lossy().to_string()),
+            shell_workspaces: vec![ShellWorkspaceConfig {
+                id: "main-root".to_string(),
+                name: "根会话目录".to_string(),
+                path: terminal_path_for_user(&root_workspace_path),
+                level: SHELL_WORKSPACE_LEVEL_MAIN.to_string(),
+                access: SHELL_WORKSPACE_ACCESS_APPROVAL.to_string(),
+                built_in: false,
+            }],
+            shell_autonomous_mode: false,
+            archived_at: None,
+            messages: Vec::new(),
+            current_todos: Vec::new(),
+            memory_recall_table: Vec::new(),
+            plan_mode_enabled: false,
+            preferred_api_config_id: None,
+            auto_push_remote_contact_id: None,
+            active_goal: None,
+            cumulative_usage: ConversationCumulativeUsage::default(),
+        });
+        state_write_app_data_cached(&state, &data).expect("write app data");
+
+        let parent_session_key = inflight_chat_key("dept-root", Some("conversation-root"));
+        let mut session_conversation = build_conversation_record(
+            "api-a",
+            "agent-root",
+            "dept-root",
+            "当前运行会话",
+            CONVERSATION_KIND_CHAT,
+            None,
+            None,
+        );
+        session_conversation.id = "conversation-root".to_string();
+        session_conversation.shell_workspace_path =
+            Some(current_workspace_path.to_string_lossy().to_string());
+        session_conversation.shell_workspaces = vec![ShellWorkspaceConfig {
+            id: "main-current".to_string(),
+            name: "当前工作目录".to_string(),
+            path: terminal_path_for_user(&current_workspace_path),
+            level: SHELL_WORKSPACE_LEVEL_MAIN.to_string(),
+            access: SHELL_WORKSPACE_ACCESS_APPROVAL.to_string(),
+            built_in: false,
+        }];
+        state
+            .terminal_session_roots
+            .lock()
+            .expect("terminal session roots")
+            .insert(
+                parent_session_key.clone(),
+                current_workspace_path.to_string_lossy().to_string(),
+            );
+        state_schedule_conversation_persist(&state, &session_conversation)
+            .expect("persist session conversation");
+
+        let delegate = DelegateEntry {
+            delegate_id: "delegate-async".to_string(),
+            kind: DELEGATE_TOOL_KIND_USER_MENTION.to_string(),
+            conversation_id: "conversation-root".to_string(),
+            parent_delegate_id: None,
+            source_department_id: "dept-root".to_string(),
+            target_department_id: "dept-child".to_string(),
+            source_agent_id: "agent-root".to_string(),
+            target_agent_id: "agent-child".to_string(),
+            title: "异步委托".to_string(),
+            why: "背景".to_string(),
+            goal: "目标".to_string(),
+            todo: "待办".to_string(),
+            notify_assistant_when_done: false,
+            call_stack: vec!["dept-root".to_string(), "dept-child".to_string()],
+            created_at: now.clone(),
+            updated_at: now,
+            status: "pending".to_string(),
+            delivered_at: None,
+            completed_at: None,
+        };
+
+        let workspace_snapshot = delegate_capture_workspace_snapshot(
+            &state,
+            &delegate.conversation_id,
+            Some(parent_session_key.as_str()),
+        );
+        let thread = delegate_runtime_thread_build(
+            &delegate,
+            "api-a",
+            workspace_snapshot,
+            Some(parent_session_key),
+        );
+
+        assert_eq!(
+            thread.conversation.shell_workspace_path.as_deref(),
+            Some(current_workspace_path.to_string_lossy().as_ref())
+        );
+        assert_eq!(
+            thread.conversation.shell_workspaces.first().map(|item| item.path.as_str()),
+            Some(terminal_path_for_user(&current_workspace_path).as_str())
+        );
+
+        let _ = std::fs::remove_dir_all(temp_root);
+    }
+
+    #[test]
+    fn delegate_runtime_thread_build_should_inherit_session_workspaces_without_locked_root() {
+        let temp_root = std::env::temp_dir().join(format!(
+            "easy-call-ai-delegate-workspaces-only-test-{}",
+            uuid::Uuid::new_v4()
+        ));
+        let current_workspace_path = temp_root.join("current-workspace");
+        std::fs::create_dir_all(&current_workspace_path).expect("create current workspace");
+
+        let state = test_chat_runtime_state();
+        let now = now_iso();
+        let parent_session_key = inflight_chat_key("dept-root", Some("conversation-root"));
+        let mut session_conversation = build_conversation_record(
+            "api-a",
+            "agent-root",
+            "dept-root",
+            "当前运行会话",
+            CONVERSATION_KIND_CHAT,
+            None,
+            None,
+        );
+        session_conversation.id = "conversation-root".to_string();
+        session_conversation.shell_workspace_path = None;
+        session_conversation.shell_workspaces = vec![ShellWorkspaceConfig {
+            id: "main-current".to_string(),
+            name: "当前工作目录".to_string(),
+            path: terminal_path_for_user(&current_workspace_path),
+            level: SHELL_WORKSPACE_LEVEL_MAIN.to_string(),
+            access: SHELL_WORKSPACE_ACCESS_APPROVAL.to_string(),
+            built_in: false,
+        }];
+        state
+            .terminal_session_roots
+            .lock()
+            .expect("terminal session roots")
+            .insert(
+                parent_session_key.clone(),
+                current_workspace_path.to_string_lossy().to_string(),
+            );
+        state_schedule_conversation_persist(&state, &session_conversation)
+            .expect("persist session conversation");
+
+        let delegate = DelegateEntry {
+            delegate_id: "delegate-workspaces-only".to_string(),
+            kind: DELEGATE_TOOL_KIND_USER_MENTION.to_string(),
+            conversation_id: "conversation-root".to_string(),
+            parent_delegate_id: None,
+            source_department_id: "dept-root".to_string(),
+            target_department_id: "dept-child".to_string(),
+            source_agent_id: "agent-root".to_string(),
+            target_agent_id: "agent-child".to_string(),
+            title: "异步委托".to_string(),
+            why: "背景".to_string(),
+            goal: "目标".to_string(),
+            todo: "待办".to_string(),
+            notify_assistant_when_done: false,
+            call_stack: vec!["dept-root".to_string(), "dept-child".to_string()],
+            created_at: now.clone(),
+            updated_at: now,
+            status: "pending".to_string(),
+            delivered_at: None,
+            completed_at: None,
+        };
+
+        let workspace_snapshot = delegate_capture_workspace_snapshot(
+            &state,
+            &delegate.conversation_id,
+            Some(parent_session_key.as_str()),
+        );
+        let thread = delegate_runtime_thread_build(
+            &delegate,
+            "api-a",
+            workspace_snapshot,
+            Some(parent_session_key),
+        );
+
+        assert_eq!(thread.conversation.shell_workspace_path, None);
+        assert_eq!(
+            thread.conversation.shell_workspaces.first().map(|item| item.path.as_str()),
+            Some(terminal_path_for_user(&current_workspace_path).as_str())
+        );
+
+        let _ = std::fs::remove_dir_all(temp_root);
+    }
+
+    #[test]
     fn runtime_control_should_keep_conversation_agent_after_department_changes() {
         let state = test_chat_runtime_state();
         let mut old_agent = default_agent();

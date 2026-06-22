@@ -1173,13 +1173,17 @@ fn spawn_user_async_delegate(app_state: AppState, plan: UserAsyncDelegatePlan) -
         ],
     )?;
     let delegate_id = delegate.delegate_id.clone();
+    let parent_chat_session_key = Some(inflight_chat_key(
+        &plan.source_department_id,
+        Some(&plan.root_conversation_id),
+    ));
     tokio::spawn(async move {
         let target_agent_name = plan.target_agent_name.clone();
         let run_result = delegate_run_thread_to_completion(
             app_state.clone(),
             delegate.clone(),
             plan.target_api_config_ids.clone(),
-            None,
+            parent_chat_session_key,
         )
         .await;
         match run_result {
@@ -1306,11 +1310,15 @@ fn spawn_user_mention_delegate(app_state: AppState, plan: UserMentionPlan) {
             }
         };
         let target_agent_name = plan.target_agent_name.clone();
+        let parent_chat_session_key = Some(inflight_chat_key(
+            &plan.source_department_id,
+            Some(&plan.root_conversation_id),
+        ));
         let run_result = delegate_run_thread_to_completion(
             app_state.clone(),
             delegate.clone(),
             plan.target_api_config_ids.clone(),
-            None,
+            parent_chat_session_key,
         )
         .await;
         match run_result {

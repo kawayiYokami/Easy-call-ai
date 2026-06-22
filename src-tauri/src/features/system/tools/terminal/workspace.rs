@@ -856,7 +856,14 @@ fn terminal_prompt_trusted_roots_block(
         .map(|value| terminal_default_workspace_for_conversation_resolved(state, Some(value)))
         .unwrap_or_else(|| terminal_default_workspace_resolved(state))
         .ok();
-    let assistant_space = terminal_system_workspace_resolved(state).ok();
+    let include_assistant_space = conversation
+        .map(|value| value.conversation_kind.trim() != CONVERSATION_KIND_DELEGATE)
+        .unwrap_or(true);
+    let assistant_space = if include_assistant_space {
+        terminal_system_workspace_resolved(state).ok()
+    } else {
+        None
+    };
     let runtime_shell = terminal_shell_for_state(state);
 
     let shell_title = match runtime_shell.kind.as_str() {
