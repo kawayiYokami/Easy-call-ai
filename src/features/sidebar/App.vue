@@ -258,6 +258,7 @@ import {
   normalizeAssistantStreamBlocks,
 } from "../../utils/chat-message-semantics";
 import { formatConversationFallbackTitle } from "../chat/utils/conversation-title";
+import { messageWithStableRenderId, stableRenderIdFromMessage } from "../chat/utils/stable-render-id";
 import { useI18n } from "vue-i18n";
 import SidebarLayout from "./layouts/SidebarLayout.vue";
 import ChatViewWrapper from "./views/ChatViewWrapper.vue";
@@ -456,6 +457,7 @@ const SYSTEM_NOTIFICATION_DISPLAY_TITLE = "P-ai系统";
 const CHAT_CONVERSATION_LIST_TAB_STORAGE_KEY = "easy_call.chat_conversation_list_tab.v1";
 const CHAT_LEFT_PANEL_MODE_STORAGE_KEY = "easy_call.chat_left_panel_mode.v1";
 const LEGACY_CHAT_LEFT_PANEL_MODE_STORAGE_KEY = "easy-call.chat.left-panel-mode";
+const SIDEBAR_DRAFT_USER_ID_PREFIX = "__draft_user__:";
 
 type SidebarConversationTab = "local" | "contact" | "task";
 
@@ -1954,6 +1956,7 @@ async function send(payload?: { extraTextBlocks?: string[] }) {
     .map((item) => String(item || "").trim())
     .filter(Boolean);
   if ((!text && images.length === 0 && extraTextBlocks.length === 0) || !activeConversationId.value || busy.value) return;
+  const optimisticDraftId = insertOptimisticOwnUserDraft({ text, images, extraTextBlocks });
   inputText.value = "";
   clipboardImages.value = [];
   busy.value = true;
@@ -1967,6 +1970,7 @@ async function send(payload?: { extraTextBlocks?: string[] }) {
   } catch (error) {
     busy.value = false;
     clearStreamingState();
+    removeOptimisticOwnUserDraftById(optimisticDraftId);
     if (!inputText.value.trim()) inputText.value = text;
     clipboardImages.value = [...images, ...clipboardImages.value];
     transport.errorText.value = String(error || t('sidebar.sendFailed'));
@@ -2331,13 +2335,98 @@ function workspaceNameFromPath(path: string): string {
   return parts[parts.length - 1] || normalized || "workspace";
 }
 
+function isLocalOwnUserMessage(message?: ChatMessage | null): boolean {
+  if (!message || message.role !== "user") return false;
+  const meta = (message.providerMeta || {}) as Record<string, unknown>;
+  const origin = meta.origin as Record<string, unknown> | undefined;
+  if (origin && origin.kind === "remote_im") return false;
+  const speakerAgentId = String(message.speakerAgentId || meta.speakerAgentId || meta.speaker_agent_id || "").trim();
+  return !speakerAgentId || speakerAgentId === "user-persona";
+}
+
+function isOptimisticOwnUserDraft(message?: ChatMessage | null): boolean {
+  if (!message || message.role !== "user") return false;
+  const messageId = String(message.id || "").trim();
+  if (messageId.startsWith(SIDEBAR_DRAFT_USER_ID_PREFIX)) return true;
+  const meta = (message.providerMeta || {}) as Record<string, unknown>;
+  return meta._optimistic === true && isLocalOwnUserMessage(message);
+}
+
+function insertOptimisticOwnUserDraft(input: {
+  text: string;
+  images: Array<{ mime: string; bytesBase64: string }>;
+  extraTextBlocks: string[];
+}): string {
+  const draftId = `${SIDEBAR_DRAFT_USER_ID_PREFIX}${Date.now()}`;
+  const parts: ChatMessage["parts"] = [];
+  const normalizedText = String(input.text || "");
+  if (normalizedText) {
+    parts.push({ type: "text", text: normalizedText });
+  }
+  for (const image of input.images) {
+    const mime = String(image.mime || "").trim();
+    const bytesBase64 = String(image.bytesBase64 || "").trim();
+    if (!mime || !bytesBase64) continue;
+    parts.push({ type: "image", mime, bytesBase64 });
+  }
+  const message = messageWithStableRenderId({
+    id: draftId,
+    role: "user",
+    createdAt: new Date().toISOString(),
+    speakerAgentId: "user-persona",
+    parts,
+    extraTextBlocks: input.extraTextBlocks.length > 0 ? [...input.extraTextBlocks] : [],
+    providerMeta: {
+      _optimistic: true,
+    },
+  } satisfies ChatMessage, draftId);
+  messages.value = [...messages.value, message];
+  return draftId;
+}
+
+function removeOptimisticOwnUserDraftById(draftId: string) {
+  const normalizedDraftId = String(draftId || "").trim();
+  if (!normalizedDraftId) return;
+  messages.value = messages.value.filter((message) => String(message.id || "").trim() !== normalizedDraftId);
+}
+
+function replaceOptimisticOwnUserDraftIfNeeded(message: ChatMessage): boolean {
+  if (!isLocalOwnUserMessage(message)) return false;
+  const draftIndex = messages.value.findIndex((item) => isOptimisticOwnUserDraft(item));
+  if (draftIndex < 0) return false;
+  const draftMessage = messages.value[draftIndex];
+  const committedId = String(message.id || "").trim();
+  const committedMessage = messageWithStableRenderId(
+    message,
+    stableRenderIdFromMessage(draftMessage) || committedId,
+  );
+  const nextMessages = [...messages.value];
+  nextMessages[draftIndex] = committedMessage;
+  messages.value = nextMessages.filter((item, index) => {
+    if (index === draftIndex) return true;
+    if (!committedId) return true;
+    return String(item.id || "").trim() !== committedId;
+  });
+  return true;
+}
+
 function appendMessages(next: unknown) {
   const payload = next as { conversationId?: string; messages?: ChatMessage[]; message?: ChatMessage };
   if (payload.conversationId && payload.conversationId !== activeConversationId.value) return;
   const incoming = payload.messages || (payload.message ? [payload.message] : []);
   if (!incoming.length) return;
-  const existingIds = new Set(messages.value.map((item) => item.id));
-  messages.value = [...messages.value, ...incoming.filter((item) => !existingIds.has(item.id))];
+  const appended: ChatMessage[] = [];
+  for (const item of incoming) {
+    if (replaceOptimisticOwnUserDraftIfNeeded(item)) continue;
+    const messageId = String(item.id || "").trim();
+    if (messageId && messages.value.some((message) => String(message.id || "").trim() === messageId)) {
+      continue;
+    }
+    appended.push(item);
+  }
+  if (appended.length > 0) {
+    messages.value = [...messages.value, ...appended];
+  }
 }
 
 async function initializeAfterBridgeAuthenticated() {

@@ -45,9 +45,9 @@
     :message-blocks="visibleMessageBlocks"
     :has-more-history="hasPrevBlock"
     :loading-older-history="false"
-    :latest-own-message-align-request="0"
+    :latest-own-message-align-request="latestOwnMessageAlignRequest"
     :conversation-scroll-to-bottom-request="scrollToBottomRequest"
-    scroll-to-bottom-behavior="smooth"
+    :scroll-to-bottom-behavior="scrollToBottomBehavior"
     :current-workspace-name="currentWorkspaceName"
     :current-workspace-root-path="currentWorkspaceRootPath"
     :workspaces="currentWorkspaces"
@@ -147,6 +147,7 @@ import {
   streamBlocksToToolCalls,
   streamBlocksToToolHistoryEvents,
 } from "../../../utils/chat-message-semantics";
+import { stableRenderIdFromMessage } from "../../chat/utils/stable-render-id";
 import ChatView from "../../chat/views/ChatView.vue";
 import { useChatMessageBlocks } from "../../chat/composables/use-chat-turns";
 import type { TerminalApprovalConversationItem } from "../../shell/composables/use-terminal-approval";
@@ -294,9 +295,11 @@ const vscodeTheme = ref(resolveVsCodeTheme());
 const isVsCodeHost = !!getVsCodeApi();
 const effectiveCurrentTheme = computed(() => isVsCodeHost ? vscodeTheme.value : String(appCurrentTheme.value || "light"));
 const scrollToBottomRequest = ref(0);
+const latestOwnMessageAlignRequest = ref(0);
+const scrollToBottomBehavior = ref<"auto" | "smooth" | "smooth_light">("auto");
 const streamingDraftCreatedAt = ref("");
 const streamingDraftStartedAtMs = ref(0);
-let lastSeenOwnMessageId = "";
+let lastSeenOwnMessageKey = "";
 const chatFrontendRoundPhase = computed<"idle" | "waiting" | "queued" | "streaming">(() => {
   if (props.busy) return "streaming";
   const state = String(props.runtimeState || "").trim();
@@ -359,12 +362,14 @@ function resolveVsCodeTheme(): "dark" | "corporate" {
   return "corporate";
 }
 
-function latestOwnMessageId(messages: ChatMessage[]): string {
+function latestOwnMessageKey(messages: ChatMessage[]): string {
   for (let index = messages.length - 1; index >= 0; index -= 1) {
     const message = messages[index];
     if (String(message?.role || "").trim() !== "user") continue;
-    const id = String(message?.id || "").trim();
-    if (id) return id;
+    const stableKey = String(stableRenderIdFromMessage(message) || "").trim();
+    if (stableKey) return stableKey;
+    const fallbackId = String(message?.id || "").trim();
+    if (fallbackId) return fallbackId;
   }
   return "";
 }
@@ -452,7 +457,7 @@ watch(
   () => {
     streamingDraftCreatedAt.value = "";
     streamingDraftStartedAtMs.value = 0;
-    lastSeenOwnMessageId = latestOwnMessageId(Array.isArray(props.messages) ? props.messages : []);
+    lastSeenOwnMessageKey = latestOwnMessageKey(Array.isArray(props.messages) ? props.messages : []);
   },
   { immediate: true },
 );
@@ -460,17 +465,19 @@ watch(
 watch(
   () => props.messages,
   (messages) => {
-    const nextOwnMessageId = latestOwnMessageId(Array.isArray(messages) ? messages : []);
-    if (!nextOwnMessageId) {
-      lastSeenOwnMessageId = "";
+    const nextOwnMessageKey = latestOwnMessageKey(Array.isArray(messages) ? messages : []);
+    if (!nextOwnMessageKey) {
+      lastSeenOwnMessageKey = "";
       return;
     }
-    if (!lastSeenOwnMessageId) {
-      lastSeenOwnMessageId = nextOwnMessageId;
+    if (!lastSeenOwnMessageKey) {
+      lastSeenOwnMessageKey = nextOwnMessageKey;
       return;
     }
-    if (nextOwnMessageId === lastSeenOwnMessageId) return;
-    lastSeenOwnMessageId = nextOwnMessageId;
+    if (nextOwnMessageKey === lastSeenOwnMessageKey) return;
+    lastSeenOwnMessageKey = nextOwnMessageKey;
+    latestOwnMessageAlignRequest.value += 1;
+    scrollToBottomBehavior.value = "smooth_light";
     scrollToBottomRequest.value += 1;
   },
   { flush: "post" },
