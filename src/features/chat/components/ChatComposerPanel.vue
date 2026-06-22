@@ -703,6 +703,7 @@ const selectedMentions = computed(() =>
     .filter((item) => !!item.agentId && !!item.departmentId && !!item.agentName),
 );
 const filteredMentionOptions = computed<MentionOptionView[]>(() => {
+  const query = mentionQuery.value.trim().toLowerCase();
   return (Array.isArray(props.mentionEntries) ? props.mentionEntries : [])
     .map((item) => ({
       agentId: String(item?.agentId || "").trim(),
@@ -713,7 +714,13 @@ const filteredMentionOptions = computed<MentionOptionView[]>(() => {
       mentionable: !!item?.mentionable,
       unavailableReason: String(item?.unavailableReason || "").trim() || undefined,
     }))
-    .filter((item) => !!item.agentId && !!item.agentName && !!item.mentionable);
+    .filter((item) => !!item.agentId && !!item.agentName && !!item.mentionable)
+    .filter((item) => {
+      if (!query) return true;
+      if (item.agentName.toLowerCase().includes(query)) return true;
+      if (item.departmentName && item.departmentName.toLowerCase().includes(query)) return true;
+      return false;
+    });
 });
 
 const planModeToggleAllowed = computed(() => !props.chatting && !props.frozen);
@@ -912,19 +919,18 @@ function updateMentionState() {
   const value = String(localChatInput.value || "");
   const cursor = el.selectionStart ?? value.length;
   const beforeCursor = value.slice(0, cursor);
-  const match = beforeCursor.match(/(?:^|\s)@$/);
+  const match = beforeCursor.match(/(?:^|\s)@([^\s@]*)$/);
   if (!match) {
     closeMentionPanel();
     return;
   }
-  mentionQuery.value = "";
-  const queryStart = cursor - 1;
-  mentionRange.value = { start: queryStart, end: cursor };
+  const query = match[1];
+  mentionQuery.value = query;
+  const atStart = cursor - 1 - query.length;
+  mentionRange.value = { start: atStart, end: cursor };
   refreshMentionPanelPosition();
   mentionPanelOpen.value = true;
-  if (mentionFocusIndex.value >= filteredMentionOptions.value.length) {
-    mentionFocusIndex.value = 0;
-  }
+  mentionFocusIndex.value = 0;
 }
 
 const modelDropdownOpen = ref(false);
