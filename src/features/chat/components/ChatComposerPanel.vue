@@ -277,6 +277,7 @@
           </button>
           <div v-if="normalizedChatModelOptions.length > 0" ref="modelDropdownRef" class="relative">
             <button
+              ref="modelDropdownTriggerRef"
               type="button"
               :class="compactModelButton
                 ? 'btn btn-sm btn-square h-8 min-h-8 w-8 shrink-0 border-0 shadow-none bg-base-100 text-base-content hover:bg-base-200'
@@ -293,21 +294,6 @@
                 <ChevronDown class="h-3 w-3 shrink-0 opacity-50 rotate-180" :class="{ 'rotate-0': modelDropdownOpen }" />
               </template>
             </button>
-            <ul
-              v-if="modelDropdownOpen"
-              class="absolute bottom-full left-0 z-9999 mb-2 w-80 max-h-[80vh] overflow-y-auto rounded-box border border-base-300 bg-base-100 p-2 shadow-xl"
-            >
-              <li v-for="item in normalizedChatModelOptions" :key="item.id" class="list-none">
-                <button
-                  type="button"
-                  class="flex w-full items-center rounded-lg px-3 py-2 text-left text-sm hover:bg-base-200 transition-colors truncate"
-                  :class="{ 'bg-primary/10': item.id === activeModelOptionId }"
-                  @click="selectConversationPreferredModel(item.id)"
-                >
-                  {{ item.name }}
-                </button>
-              </li>
-            </ul>
           </div>
         </div>
         <div class="flex items-center">
@@ -334,10 +320,36 @@
     </template>
     </template>
   </div>
+  <Teleport to="body">
+    <div
+      v-if="modelDropdownOpen"
+      ref="modelDropdownPanelRef"
+      class="fixed z-1200"
+      :style="modelDropdownStyle"
+    >
+      <div class="relative overflow-hidden rounded-box border border-base-300 bg-base-100 shadow-xl">
+        <div ref="modelDropdownScrollRef" class="ecall-model-dropdown-scroll max-h-[80vh] overflow-y-auto p-2">
+          <ul class="w-full">
+            <li v-for="item in normalizedChatModelOptions" :key="item.id" class="list-none">
+              <button
+                type="button"
+                class="flex w-full items-center rounded-lg px-3 py-2 text-left text-sm transition-colors hover:bg-base-200"
+                :class="{ 'bg-primary/10': item.id === activeModelOptionId }"
+                @click="selectConversationPreferredModel(item.id)"
+              >
+                <span class="min-w-0 break-all">{{ item.name }}</span>
+              </button>
+            </li>
+          </ul>
+        </div>
+        <FloatingScrollbar ref="modelDropdownScrollbarRef" :target="modelDropdownScrollRef" />
+      </div>
+    </div>
+  </Teleport>
 </template>
 
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
+import { Teleport, computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 import { Bot, CalendarPlus, ChevronDown, ClipboardList, FileText, History, Image as ImageIcon, Layers2, Menu, Mic, Minus, Paperclip, Plus, Send, Settings, Square, Target, X } from "@lucide/vue";
 import type { ApiConfigItem, ChatConversationOverviewItem, ChatMentionEntry, ChatMentionTarget, ConversationForwardTarget, IdeContextReferenceItem, IdeContextWorkspaceGroup, PromptCommandPreset, RemoteImContactConversationOption } from "../../../types/app";
@@ -893,6 +905,15 @@ function updateMentionState() {
 
 const modelDropdownOpen = ref(false);
 const modelDropdownRef = ref<HTMLElement | null>(null);
+const modelDropdownTriggerRef = ref<HTMLButtonElement | null>(null);
+const modelDropdownPanelRef = ref<HTMLElement | null>(null);
+const modelDropdownScrollRef = ref<HTMLElement | null>(null);
+const modelDropdownScrollbarRef = ref<InstanceType<typeof FloatingScrollbar> | null>(null);
+const modelDropdownStyle = ref<Record<string, string>>({
+  left: "0px",
+  top: "0px",
+  width: "20rem",
+});
 let composerWidthObserver: ResizeObserver | null = null;
 
 function refreshComposerWidth() {
@@ -901,17 +922,53 @@ function refreshComposerWidth() {
 }
 
 function handleModelDropdownClickOutside(event: MouseEvent) {
-  if (
-    modelDropdownRef.value &&
-    !modelDropdownRef.value.contains(event.target as Node)
-  ) {
-    modelDropdownOpen.value = false;
-  }
+  const target = event.target as Node | null;
+  if (!target) return;
+  if (modelDropdownRef.value?.contains(target)) return;
+  if (modelDropdownPanelRef.value?.contains(target)) return;
+  modelDropdownOpen.value = false;
+}
+
+async function refreshModelDropdownPosition() {
+  if (!modelDropdownOpen.value) return;
+  const trigger = modelDropdownTriggerRef.value || modelDropdownRef.value;
+  if (!trigger) return;
+  await nextTick();
+  const panel = modelDropdownPanelRef.value;
+  const margin = 8;
+  const triggerRect = trigger.getBoundingClientRect();
+  const viewportWidth = window.innerWidth || document.documentElement.clientWidth || 0;
+  const viewportHeight = window.innerHeight || document.documentElement.clientHeight || 0;
+  const preferredWidth = Math.max(Math.round(triggerRect.width), 320);
+  const maxAllowedWidth = Math.max(220, viewportWidth - margin * 2);
+  const width = Math.min(preferredWidth, maxAllowedWidth);
+  const measuredHeight = panel?.getBoundingClientRect().height || 0;
+  const spaceAbove = triggerRect.top - margin;
+  const spaceBelow = viewportHeight - triggerRect.bottom - margin;
+  const openUpward = spaceAbove >= measuredHeight || spaceAbove > spaceBelow;
+  const left = Math.min(
+    Math.max(margin, triggerRect.left),
+    Math.max(margin, viewportWidth - width - margin),
+  );
+  const top = openUpward
+    ? Math.max(margin, triggerRect.top - measuredHeight - 8)
+    : Math.min(
+      triggerRect.bottom + 8,
+      Math.max(margin, viewportHeight - measuredHeight - margin),
+    );
+  modelDropdownStyle.value = {
+    left: `${Math.round(left)}px`,
+    top: `${Math.round(top)}px`,
+    width: `${Math.round(width)}px`,
+    maxWidth: `calc(100vw - ${margin * 2}px)`,
+  };
+  modelDropdownScrollbarRef.value?.updateThumb();
 }
 
 watch(modelDropdownOpen, (open) => {
   if (open) {
     nextTick(() => {
+      void refreshModelDropdownPosition();
       document.addEventListener("click", handleModelDropdownClickOutside);
     });
   } else {
@@ -1169,6 +1226,8 @@ onMounted(() => {
   window.addEventListener("keydown", handleWindowKeydown);
   window.addEventListener("resize", refreshMentionPanelPosition);
   window.addEventListener("scroll", refreshMentionPanelPosition, true);
+  window.addEventListener("resize", refreshModelDropdownPosition);
+  window.addEventListener("scroll", refreshModelDropdownPosition, true);
   refreshComposerWidth();
   if (typeof ResizeObserver !== "undefined" && composerRootRef.value) {
     composerWidthObserver = new ResizeObserver(() => refreshComposerWidth());
@@ -1185,6 +1244,9 @@ onBeforeUnmount(() => {
   window.removeEventListener("keydown", handleWindowKeydown);
   window.removeEventListener("resize", refreshMentionPanelPosition);
   window.removeEventListener("scroll", refreshMentionPanelPosition, true);
+  window.removeEventListener("resize", refreshModelDropdownPosition);
+  window.removeEventListener("scroll", refreshModelDropdownPosition, true);
+  document.removeEventListener("click", handleModelDropdownClickOutside);
   if (resizeInputRaf.value) {
     cancelAnimationFrame(resizeInputRaf.value);
     resizeInputRaf.value = 0;
@@ -1255,6 +1317,15 @@ watch(
 }
 .chat-input-no-focus {
   scrollbar-width: none;
+}
+.ecall-model-dropdown-scroll {
+  scrollbar-gutter: auto;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.ecall-model-dropdown-scroll::-webkit-scrollbar {
+  width: 0;
+  height: 0;
 }
 .ecall-chat-composer-input {
   line-height: 1.5;
