@@ -2,6 +2,21 @@
 
 > 此文件由 `pnpm changelog:build` 自动生成，展示最近版本的完整说明。
 
+## 发布：v0.13.6
+
+## 新增
+
+- **聊天窗口**：聚合工具调用浮层，减少工具消息显示噪音
+
+## 修复
+
+- **聊天窗口**：修正目录选择弹窗层级、调整模型选择框视口定位、隐藏工具调用悬浮详情参数
+- **侧边栏**：修复网页端右键删除会话无响应、修复工作区选择并清理调试日志
+
+## 其他
+
+- **VS Code 侧边栏扩展**：版本同步更新至 0.13.6
+
 ## 发布：v0.13.5
 
 ## 修复
@@ -110,19 +125,3 @@
 - **归档**：将会话归档与压缩的 Tauri 命令从 `archive_pipeline.rs` 拆分到独立的 `conversation_archive.rs` 和 `conversation_compaction.rs` 模块，`main.rs` 注册接口同步更新为 `archive_conversation` / `compact_conversation`
 - **归档**：简化前端 `use-chat-runtime.ts` 归档/压缩调用逻辑，去掉 `ForceArchiveResult` 复杂返回值，改为 `ConversationCommandStatus` 简单状态
 - **归档**：`summarize_archive_summary_with_fallback` 新增 JSON 无效重试机制（最多3次，每次5秒延迟）；`summarize_compaction_with_model_attempt` 重构空回处理为通用 JSON 无效检测
-
-## 发布：v0.12.4
-
-- 重构（chat）：重构会话服务并统一收口到 `ConversationServiceV2`，把前台轻量快照、单条消息、分页补历史、工具审查等热路径进一步改为按需读取，减少整会话消息整读与重复 clone，降低大历史会话场景的内存占用与读取压力。
-- 功能（stt）：新增 `mimo_asr` 专用语音转写协议，支持按 MiMo ASR 的 `chat/completions + input_audio` 请求格式接入，不再强制复用 `openai_stt` 转写端点。
-- 功能（chat）：新增会话分组右键“收起全部”入口，批量整理会话列表更顺手。
-- 优化（frontend）：为录音热键测试补充麦克风权限状态展示与主动请求入口，统一聊天窗/配置窗透传权限状态；同时调整会话分组折叠交互、输入面板留白与热键说明文案，降低误触和理解成本。
-- 优化（runtime）：轻量化快速请求 helper 并接入工具审查，同时提高 worker 栈大小，降低嵌套流式与工具审查场景下的栈溢出风险。
-- 修复（hotkey）：录音热键改为即时校验与即时保存，只有写入成功后才更新界面显示；同时让录音热键运行时探针支持热更新，避免设置后刷新回退或必须重启才能生效，并支持带修饰键的组合键写法。
-- 修复（config）：多模态开关不再依赖协议类型，避免切换协议后错误隐藏配置。
-- 修复（window）：补上自绘标题栏空白区域的前端拖拽兜底，并修正主窗口恢复时的最小尺寸约束，避免出现无法拖动或恢复尺寸异常。
-- 修复（chat）：切换会话恢复前台轻量快照时，仅在仍处于流式中或存在可见流式进度时应用流式覆盖，避免空闲状态下用残留的 persistedAssistantMessageId 误删已持久化正文消息。
-- 修复（chat）：打开启动目标、代码审查和选区委托入口前先清理原生文本选区，规避 Windows WebView2 在保留选区时切换输入型弹窗导致的崩溃。
-- 修复（chat）：补齐实时 assistant 消息在 bootstrap/final append 链路中的 `memeAnnotations` 持久化，恢复新消息表情替换渲染。
-- 修复（weixin-oc）：修复微信渠道“正在输入”状态失效。
-- 修复（codex-auth）：Codex 本地认证凭证改为按官方嵌套格式持久化，避免刷新或二次验证时丢失 `id_token` 等关键字段。
