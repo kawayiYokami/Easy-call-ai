@@ -102,6 +102,7 @@
       @approve-terminal-approval="approveTerminalApproval"
       @deny-terminal-approval="denyTerminalApproval"
       @switch-conversation="openConversation($event.conversationId)"
+      @delete-conversation="deleteConversation"
       @create-conversation="handleCreateConversationRequest"
       @selection-action-branch="branchConversationFromSelection"
       @selection-action-delegate="delegateFromSelection"
@@ -1414,6 +1415,52 @@ async function createConversation(input: {
     createConversationErrorText.value = String(error || t('sidebar.createConversationFailed'));
   } finally {
     creatingConversation.value = false;
+  }
+}
+
+async function deleteConversation(conversationId: string) {
+  const normalizedConversationId = String(conversationId || "").trim();
+  if (!normalizedConversationId) return;
+  try {
+    const result = await transport.request<{
+      deletedConversationId?: string;
+      preferredConversationId?: string | null;
+      unarchivedConversations?: ConversationSummary[];
+    }>("conversation.delete", {
+      conversationId: normalizedConversationId,
+    });
+    if (Array.isArray(result.unarchivedConversations)) {
+      conversations.value = result.unarchivedConversations;
+      clearCompletedRuntimeStateForConversation(normalizedConversationId);
+      syncConversationTabForRemoteContacts();
+    } else {
+      await refreshList();
+    }
+    if (String(activeConversationId.value || "").trim() !== normalizedConversationId) {
+      return;
+    }
+    const preferredConversationId = String(result.preferredConversationId || "").trim();
+    if (preferredConversationId) {
+      await openConversation(preferredConversationId);
+      return;
+    }
+    const fallbackConversationId = conversations.value
+      .map((item) => String(item.conversationId || "").trim())
+      .find((id) => !!id && id !== normalizedConversationId);
+    if (fallbackConversationId) {
+      await openConversation(fallbackConversationId);
+      return;
+    }
+    activeConversationId.value = "";
+    activeAgentId.value = "";
+    messages.value = [];
+    sidebarTodos.value = [];
+    activeConversationGoal.value = null;
+    clearStreamingState();
+    workspaceRootPath.value = "";
+    workspaceRootName.value = "";
+  } catch (error) {
+    transport.errorText.value = String(error || t("chat.deleteConversationFailed"));
   }
 }
 
