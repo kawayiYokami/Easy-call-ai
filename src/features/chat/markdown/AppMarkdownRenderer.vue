@@ -74,17 +74,48 @@
   </div>
   <Teleport to="body">
     <div
-      v-if="activeToolcallPreview"
+      v-if="activeToolcallPreviews.length > 0"
       ref="toolcallPopupRef"
-      class="ecall-md-toolcall-popup fixed z-1200 w-[min(28rem,calc(100vw-1rem))] rounded-box border border-base-300 bg-base-100 text-base-content shadow-xl"
+      class="ecall-md-toolcall-popup fixed z-1200 w-max min-w-[18rem] max-w-[calc(100vw-0.75rem)] rounded-box border border-base-300 bg-base-100 text-base-content shadow-xl"
       :style="toolcallPopupStyle"
       data-toolcall-popup="true"
     >
-      <div class="border-b border-base-300/70 px-3 py-2 text-[11px] font-semibold text-base-content/80">
-        {{ activeToolcallPreview.title || activeToolcallPreview.label }}
+      <div class="border-b border-base-300/70 px-2 py-1.5 text-[11px] font-semibold text-base-content/80">
+        {{ activeToolcallPopupTitle }}
       </div>
-      <div v-if="activeToolcallPreview.body" class="max-h-80 overflow-auto px-3 py-2">
-        <pre class="m-0 whitespace-pre-wrap break-all text-xs leading-relaxed text-base-content/75"><code>{{ activeToolcallPreview.body }}</code></pre>
+      <div
+        class="relative overflow-hidden"
+        @mouseenter="toolcallScrollbarRef?.reveal()"
+        @mouseleave="toolcallScrollbarRef?.hide()"
+      >
+        <div
+          ref="toolcallScrollerRef"
+          class="ecall-md-toolcall-scroll max-h-80 overflow-y-auto"
+        >
+          <div v-if="activeToolcallPreviews.length === 1 && activeToolcallPreviews[0]?.body" class="px-2 py-1.5">
+            <pre class="m-0 whitespace-pre-wrap break-all text-xs leading-relaxed text-base-content/75"><code>{{ activeToolcallPreviews[0].body }}</code></pre>
+          </div>
+          <div v-else-if="activeToolcallPreviews.length > 1" class="py-1">
+            <div
+              v-for="(preview, index) in activeToolcallPreviews"
+              :key="preview.id"
+              class="px-2 py-1"
+              :class="index > 0 ? 'border-t border-base-300/60' : ''"
+            >
+              <div class="grid grid-cols-[1.1rem_minmax(0,1fr)] items-start gap-x-1.5 text-xs leading-relaxed text-base-content/75">
+                <span class="mt-0.5 inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-base-200 text-[10px] font-medium leading-none text-base-content/65">
+                  {{ index + 1 }}
+                </span>
+                <span class="min-w-0 whitespace-normal break-all font-normal leading-relaxed">{{ preview.title || preview.label }}</span>
+              </div>
+              <pre
+                v-if="preview.body"
+                class="ml-[1.6rem] mt-1 m-0 whitespace-pre-wrap break-all rounded bg-base-200/50 p-1 text-[11px] leading-4 text-base-content/75"
+              ><code>{{ preview.body }}</code></pre>
+            </div>
+          </div>
+        </div>
+        <FloatingScrollbar ref="toolcallScrollbarRef" :target="toolcallScrollerRef" />
       </div>
     </div>
   </Teleport>
@@ -95,6 +126,7 @@ import { Teleport, computed, defineComponent, h, nextTick, onBeforeUnmount, onMo
 import { useI18n } from "vue-i18n";
 import { Check, Copy, Maximize2, Wrench } from "@lucide/vue";
 import { invokeTauri } from "../../../services/tauri-api";
+import FloatingScrollbar from "../../shell/components/FloatingScrollbar.vue";
 import { isAbsoluteLocalPath, normalizeLocalLinkHref } from "../utils/local-link";
 import { parseMarkdownBlocks, parseInlineSegments, normalizedTableRow, type MarkdownBlock, type InlineSegment } from "./parse-markdown";
 import CodeBlockPreviewDialog from "../components/dialogs/CodeBlockPreviewDialog.vue";
@@ -118,29 +150,45 @@ const attrs = useAttrs();
 
 const { t } = useI18n();
 const rendererRootRef = ref<HTMLElement | null>(null);
-const activeToolcallId = ref("");
+const activeToolcallIds = ref<string[]>([]);
 const activeToolcallAnchorEl = ref<HTMLButtonElement | null>(null);
 const toolcallPopupRef = ref<HTMLElement | null>(null);
+const toolcallScrollerRef = ref<HTMLElement | null>(null);
+const toolcallScrollbarRef = ref<InstanceType<typeof FloatingScrollbar> | null>(null);
 const toolcallPopupStyle = ref<Record<string, string>>({
   left: "0px",
   top: "0px",
 });
 
-const activeToolcallPreview = computed(() => {
-  const id = String(activeToolcallId.value || "").trim();
-  if (!id) return null;
-  const preview = props.toolcallPreviewMap?.[id];
-  if (!preview) return null;
-  return {
-    id,
-    label: `toolcall:${id}`,
-    title: String(preview.title || "").trim(),
-    body: String(preview.body || "").trim(),
-  };
+const activeToolcallPreviews = computed(() => {
+  return activeToolcallIds.value
+    .map((rawId) => String(rawId || "").trim())
+    .filter(Boolean)
+    .map((id) => {
+      const preview = props.toolcallPreviewMap?.[id];
+      if (!preview) return null;
+      return {
+        id,
+        label: `toolcall:${id}`,
+        title: String(preview.title || "").trim(),
+        body: String(preview.body || "").trim(),
+      };
+    })
+    .filter((preview): preview is { id: string; label: string; title: string; body: string } => !!preview);
+});
+
+const activeToolcallPopupTitle = computed(() => {
+  const count = activeToolcallPreviews.value.length;
+  if (count <= 1) {
+    return activeToolcallPreviews.value[0]?.title
+      || activeToolcallPreviews.value[0]?.label
+      || t("chat.shareExport.toolLabel");
+  }
+  return `${t("chat.shareExport.toolLabel")} +${count}`;
 });
 
 function closeToolcallPreview() {
-  activeToolcallId.value = "";
+  activeToolcallIds.value = [];
   activeToolcallAnchorEl.value = null;
 }
 
@@ -168,27 +216,41 @@ async function positionToolcallPopup() {
   };
 }
 
-async function openToolcallPreview(id: string, anchorEl: HTMLButtonElement | null) {
-  const normalizedId = String(id || "").trim();
-  if (!normalizedId) return;
-  activeToolcallId.value = normalizedId;
+async function openToolcallPreview(ids: string[], anchorEl: HTMLButtonElement | null) {
+  const normalizedIds = ids
+    .map((id) => String(id || "").trim())
+    .filter(Boolean);
+  const availableIds = normalizedIds.filter((id) => {
+    const preview = props.toolcallPreviewMap?.[id];
+    return !!preview && (!!String(preview.title || "").trim() || !!String(preview.body || "").trim());
+  });
+  if (availableIds.length === 0) return;
+  activeToolcallIds.value = availableIds;
   activeToolcallAnchorEl.value = anchorEl;
   await nextTick();
+  toolcallScrollbarRef.value?.updateThumb();
   await positionToolcallPopup();
 }
 
-function toggleToolcallPreview(id: string, anchorEl: HTMLButtonElement | null) {
-  const normalizedId = String(id || "").trim();
-  if (!normalizedId) return;
-  if (activeToolcallId.value === normalizedId) {
+function sameToolcallGroup(left: string[], right: string[]): boolean {
+  if (left.length !== right.length) return false;
+  return left.every((id, index) => id === right[index]);
+}
+
+function toggleToolcallPreview(ids: string[], anchorEl: HTMLButtonElement | null) {
+  const normalizedIds = ids
+    .map((id) => String(id || "").trim())
+    .filter(Boolean);
+  if (normalizedIds.length === 0) return;
+  if (sameToolcallGroup(activeToolcallIds.value, normalizedIds)) {
     closeToolcallPreview();
     return;
   }
-  void openToolcallPreview(normalizedId, anchorEl);
+  void openToolcallPreview(normalizedIds, anchorEl);
 }
 
 function handleDocumentPointerDown(event: PointerEvent) {
-  if (!activeToolcallId.value) return;
+  if (activeToolcallIds.value.length === 0) return;
   const target = event.target;
   if (!(target instanceof Node)) {
     closeToolcallPreview();
@@ -200,7 +262,7 @@ function handleDocumentPointerDown(event: PointerEvent) {
 }
 
 function handleWindowResizeOrScroll() {
-  if (!activeToolcallId.value) return;
+  if (activeToolcallIds.value.length === 0) return;
   if (!(activeToolcallAnchorEl.value instanceof HTMLButtonElement) || !activeToolcallAnchorEl.value.isConnected) {
     closeToolcallPreview();
     return;
@@ -371,7 +433,7 @@ const InlineRenderer = defineComponent({
 });
 
 type RenderSegmentOptions = {
-  onToolcallClick?: (id: string, anchorEl: HTMLButtonElement | null) => void;
+  onToolcallClick?: (ids: string[], anchorEl: HTMLButtonElement | null) => void;
 };
 
 type MarkdownImageSource =
@@ -501,68 +563,104 @@ function renderSegments(
   localImageBasePath = "",
   options: RenderSegmentOptions = {},
 ): VNodeChild[] {
-  return segments.map((segment, index) => {
+  function consumeGroupedToolcallRefs(startIndex: number): { ids: string[]; endIndex: number } | null {
+    const startSegment = segments[startIndex];
+    if (startSegment?.type !== "toolcall_ref") return null;
+    const ids = [startSegment.id];
+    let cursor = startIndex;
+    while (cursor + 2 < segments.length) {
+      const spacer = segments[cursor + 1];
+      const nextTool = segments[cursor + 2];
+      if (spacer?.type !== "text" || spacer.text.trim() !== "") break;
+      if (nextTool?.type !== "toolcall_ref") break;
+      ids.push(nextTool.id);
+      cursor += 2;
+    }
+    return { ids, endIndex: cursor };
+  }
+
+  const nodes: VNodeChild[] = [];
+  for (let index = 0; index < segments.length; index += 1) {
+    const segment = segments[index];
     if (segment.type === "code") {
-      return h("code", { key: `${keyPrefix}-c-${index}`, class: "ecall-md-inline-code" }, segment.text);
+      nodes.push(h("code", { key: `${keyPrefix}-c-${index}`, class: "ecall-md-inline-code" }, segment.text));
+      continue;
     }
     if (segment.type === "toolcall_ref") {
-      return h("button", {
+      const grouped = consumeGroupedToolcallRefs(index);
+      const ids = grouped?.ids || [segment.id];
+      index = grouped?.endIndex ?? index;
+      const count = ids.length;
+      nodes.push(h("button", {
         key: `${keyPrefix}-toolcall-${index}`,
         type: "button",
         class: "ecall-md-toolcall-ref",
-        title: `toolcall:${segment.id}`,
-        "data-toolcall-id": segment.id,
+        title: count > 1 ? ids.map((id) => `toolcall:${id}`).join("\n") : `toolcall:${ids[0]}`,
+        "data-toolcall-id": ids[0],
         "data-toolcall-pill": "true",
         onClick: (event: MouseEvent) => {
           event.preventDefault();
           event.stopPropagation();
-          options.onToolcallClick?.(segment.id, event.currentTarget instanceof HTMLButtonElement ? event.currentTarget : null);
+          options.onToolcallClick?.(ids, event.currentTarget instanceof HTMLButtonElement ? event.currentTarget : null);
         },
       }, [
         h(Wrench, { class: "ecall-md-toolcall-ref-icon" }),
-      ]);
+        count > 1
+          ? h("span", { class: "ecall-md-toolcall-ref-count" }, `+${count}`)
+          : null,
+      ]));
+      continue;
     }
     if (segment.type === "math") {
-      return h(InlineMath, { key: `${keyPrefix}-m-${index}`, text: segment.text });
+      nodes.push(h(InlineMath, { key: `${keyPrefix}-m-${index}`, text: segment.text }));
+      continue;
     }
     if (segment.type === "link") {
       const href = sanitizeMarkdownHref(segment.href);
       if (!href) {
-        return h("span", { key: `${keyPrefix}-a-${index}` }, segment.text);
+        nodes.push(h("span", { key: `${keyPrefix}-a-${index}` }, segment.text));
+        continue;
       }
       const isExternalUrl = /^https?:\/\//i.test(href);
-      return h("a", {
+      nodes.push(h("a", {
         key: `${keyPrefix}-a-${index}`,
         href: isExternalUrl ? href : "#",
         "data-href": isExternalUrl ? undefined : href,
         class: "ecall-md-link",
         ...(isExternalUrl ? { target: "_blank", rel: "noopener noreferrer" } : {}),
-      }, segment.text);
+      }, segment.text));
+      continue;
     }
     if (segment.type === "image") {
-      return h(MarkdownImage, {
+      nodes.push(h(MarkdownImage, {
         key: `${keyPrefix}-img-${index}`,
         src: segment.src,
         alt: segment.alt,
         localImageBasePath,
-      });
+      }));
+      continue;
     }
     if (segment.type === "strong") {
-      return h("strong", { key: `${keyPrefix}-b-${index}`, class: "ecall-md-strong" }, renderSegments(segment.children, `${keyPrefix}-b-${index}`, localImageBasePath, options));
+      nodes.push(h("strong", { key: `${keyPrefix}-b-${index}`, class: "ecall-md-strong" }, renderSegments(segment.children, `${keyPrefix}-b-${index}`, localImageBasePath, options)));
+      continue;
     }
     if (segment.type === "em") {
-      return h("em", { key: `${keyPrefix}-i-${index}`, class: "ecall-md-em" }, renderSegments(segment.children, `${keyPrefix}-i-${index}`, localImageBasePath, options));
+      nodes.push(h("em", { key: `${keyPrefix}-i-${index}`, class: "ecall-md-em" }, renderSegments(segment.children, `${keyPrefix}-i-${index}`, localImageBasePath, options)));
+      continue;
     }
     if (segment.type === "strongEm") {
-      return h("strong", { key: `${keyPrefix}-bi-${index}`, class: "ecall-md-strong" }, [
+      nodes.push(h("strong", { key: `${keyPrefix}-bi-${index}`, class: "ecall-md-strong" }, [
         h("em", { class: "ecall-md-em" }, renderSegments(segment.children, `${keyPrefix}-bi-${index}`, localImageBasePath, options)),
-      ]);
+      ]));
+      continue;
     }
     if (segment.type === "delete") {
-      return h("del", { key: `${keyPrefix}-d-${index}`, class: "ecall-md-del" }, renderSegments(segment.children, `${keyPrefix}-d-${index}`, localImageBasePath, options));
+      nodes.push(h("del", { key: `${keyPrefix}-d-${index}`, class: "ecall-md-del" }, renderSegments(segment.children, `${keyPrefix}-d-${index}`, localImageBasePath, options)));
+      continue;
     }
-    return segment.text;
-  });
+    nodes.push(segment.text);
+  }
+  return nodes;
 }
 
 function sanitizeMarkdownHref(rawHref: string): string {
@@ -889,8 +987,10 @@ h4.ecall-md-heading { font-size: 0.9rem; }
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 1.15rem;
+  gap: 0.15rem;
+  min-width: 1.15rem;
   height: 1.15rem;
+  padding: 0 0.34rem;
   margin-left: 0.18rem;
   border: 0;
   border-radius: 999px;
@@ -911,6 +1011,24 @@ h4.ecall-md-heading { font-size: 0.9rem; }
   width: 0.72rem;
   height: 0.72rem;
   pointer-events: none;
+}
+
+.ecall-md-toolcall-ref-count {
+  font-size: 0.62rem;
+  font-weight: 700;
+  line-height: 1;
+  pointer-events: none;
+}
+
+.ecall-md-toolcall-scroll {
+  scrollbar-gutter: auto;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.ecall-md-toolcall-scroll::-webkit-scrollbar {
+  width: 0;
+  height: 0;
 }
 
 /* ==================== Blockquote ==================== */
