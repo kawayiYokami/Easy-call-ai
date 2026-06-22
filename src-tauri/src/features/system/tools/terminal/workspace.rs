@@ -852,20 +852,11 @@ fn terminal_prompt_trusted_roots_block(
         return None;
     }
 
-    let workspaces = conversation
-        .map(|value| terminal_allowed_workspaces_for_conversation_canonical(state, Some(value)))
-        .unwrap_or_else(|| terminal_allowed_workspaces_canonical(state))
-        .ok()
-        .unwrap_or_default();
-    let system_workspace = workspaces
-        .iter()
-        .find(|workspace| workspace.level == SHELL_WORKSPACE_LEVEL_SYSTEM)
-        .cloned()
-        .or_else(|| terminal_system_workspace_resolved(state).ok());
     let default_workspace = conversation
         .map(|value| terminal_default_workspace_for_conversation_resolved(state, Some(value)))
         .unwrap_or_else(|| terminal_default_workspace_resolved(state))
         .ok();
+    let assistant_space = terminal_system_workspace_resolved(state).ok();
     let runtime_shell = terminal_shell_for_state(state);
 
     let shell_title = match runtime_shell.kind.as_str() {
@@ -881,48 +872,29 @@ fn terminal_prompt_trusted_roots_block(
     if terminal_conversation_shell_autonomous_mode(conversation) {
         lines.push("当前会话已开启“给予本会话最大权限”：终端与补丁工具可访问任意目录，并跳过目录权限、智能评估与人工审批。".to_string());
     }
-    let mut workspace_order = Vec::<String>::new();
-    let mut workspace_roles = std::collections::HashMap::<String, (Vec<String>, String)>::new();
-    let mut record_workspace =
-        |workspace: &TerminalWorkspaceResolved, role_label: Option<&str>| {
-            let path = terminal_path_for_user(&workspace.path);
-            let entry = workspace_roles
-                .entry(path.clone())
-                .or_insert_with(|| {
-                    workspace_order.push(path.clone());
-                    (Vec::new(), workspace.access.clone())
-                });
-            if let Some(role_label) = role_label {
-                if !entry.0.iter().any(|value| value == role_label) {
-                    entry.0.push(role_label.to_string());
-                }
-            }
-        };
-    if let Some(system) = &system_workspace {
-        record_workspace(system, Some("助理空间（Assistant Space）"));
-    }
     if let Some(default_workspace) = &default_workspace {
-        record_workspace(
-            default_workspace,
-            Some("Shell 启动目录（Session Working Directory）"),
-        );
+        lines.push(format!(
+            "{}：当前工作目录（Session Working Directory）",
+            terminal_path_for_user(&default_workspace.path)
+        ));
     }
-    for workspace in &workspaces {
-        record_workspace(workspace, None);
-    }
-    for path in workspace_order {
-        if let Some((roles, access)) = workspace_roles.remove(&path) {
-            if roles.is_empty() {
-                lines.push(format!("{path}：访问权限：{access}"));
-            } else {
-                lines.push(format!(
-                    "{path}：{}，访问权限：{access}",
-                    roles.join(" / ")
-                ));
-            }
+    let shell_block = prompt_xml_block("shell workspace", lines.join("\n"));
+    let assistant_block = assistant_space.map(|workspace| {
+        prompt_xml_block(
+            "assistant space",
+            format!(
+                "{}：PAI 助理空间（Assistant Space）",
+                terminal_path_for_user(&workspace.path)
+            ),
+        )
+    });
+    let mut blocks = vec![shell_block];
+    if let Some(assistant_block) = assistant_block {
+        if !assistant_block.trim().is_empty() {
+            blocks.push(assistant_block);
         }
     }
-    Some(prompt_xml_block("shell workspace", lines.join("\n")))
+    Some(blocks.join("\n\n"))
 }
 
 fn terminal_default_session_root_canonical(state: &AppState) -> Result<PathBuf, String> {
