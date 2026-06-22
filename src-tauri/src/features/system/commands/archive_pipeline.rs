@@ -298,7 +298,7 @@ fn archive_message_memory_block(
         .into_iter()
         .filter(|memory_id| seen_memory_ids.insert(memory_id.clone()))
         .collect::<Vec<_>>();
-    build_memory_board_xml_from_recall_ids(memories, &inject_ids)
+    build_memory_board_xml_from_recall_ids(memories, &inject_ids, false)
 }
 
 fn archive_message_stored_memory_blocks(message: &ChatMessage) -> Vec<String> {

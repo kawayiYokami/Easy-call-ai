@@ -163,7 +163,7 @@ fn render_user_profile_memory_context_block(memories: &[MemoryEntry]) -> Option<
         .iter()
         .map(|memory| memory.id.clone())
         .collect::<Vec<_>>();
-    build_memory_board_xml_from_recall_ids(memories, &recall_ids)
+    build_memory_board_xml_from_recall_ids(memories, &recall_ids, false)
 }
 
 fn build_user_profile_snapshot_block(

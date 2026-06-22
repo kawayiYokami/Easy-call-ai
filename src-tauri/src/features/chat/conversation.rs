@@ -2013,7 +2013,7 @@ fn prompt_recall_memory_block_for_message(
         .into_iter()
         .filter(|memory_id| seen_memory_ids.insert(memory_id.clone()))
         .collect::<Vec<_>>();
-    build_memory_board_xml_from_recall_ids(memories, &inject_ids)
+    build_memory_board_xml_from_recall_ids(memories, &inject_ids, false)
 }
 
 fn prompt_user_extra_blocks_for_message(

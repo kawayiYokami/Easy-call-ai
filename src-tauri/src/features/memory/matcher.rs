@@ -1173,6 +1173,7 @@ fn latest_recall_memory_ids(recall_table: &[String], max_items: usize) -> Vec<St
 fn build_memory_board_xml_from_recall_ids(
     memories: &[MemoryEntry],
     recall_ids: &[String],
+    include_reasoning: bool,
 ) -> Option<String> {
     if memories.is_empty() || recall_ids.is_empty() {
         return None;
@@ -1198,14 +1199,22 @@ fn build_memory_board_xml_from_recall_ids(
         ordered_memories
             .into_iter()
             .map(|memory| {
-                let reasoning = memory.reasoning.trim();
-                let display_reasoning = if reasoning.is_empty() { "无" } else { reasoning };
-                format!(
-                    "[id:{}]\n{}\n> {}",
-                    memory.display_id(),
-                    memory.judgment.trim(),
-                    display_reasoning
-                )
+                if include_reasoning {
+                    let reasoning = memory.reasoning.trim();
+                    let display_reasoning = if reasoning.is_empty() { "无" } else { reasoning };
+                    format!(
+                        "[id:{}]\n{}\n> {}",
+                        memory.display_id(),
+                        memory.judgment.trim(),
+                        display_reasoning
+                    )
+                } else {
+                    format!(
+                        "[id:{}]\n{}",
+                        memory.display_id(),
+                        memory.judgment.trim(),
+                    )
+                }
             })
             .collect::<Vec<_>>()
             .join("\n"),
@@ -1229,5 +1238,5 @@ fn build_memory_board_xml(
         .take(MEMORY_MATCH_MAX_ITEMS)
         .map(|(idx, _)| memories[idx].id.clone())
         .collect::<Vec<_>>();
-    build_memory_board_xml_from_recall_ids(memories, &recall_ids)
+    build_memory_board_xml_from_recall_ids(memories, &recall_ids, true)
 }

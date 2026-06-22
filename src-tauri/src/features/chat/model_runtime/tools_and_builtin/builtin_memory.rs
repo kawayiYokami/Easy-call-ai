@@ -726,7 +726,7 @@ fn builtin_recall(
         .skip(offset)
         .take(limit)
         .collect::<Vec<_>>();
-    let memory_board = build_memory_board_xml_from_recall_ids(&memories, &page_ids)
+    let memory_board = build_memory_board_xml_from_recall_ids(&memories, &page_ids, true)
         .unwrap_or_default();
 
     Ok(serde_json::json!({
