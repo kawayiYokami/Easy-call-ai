@@ -133,6 +133,7 @@
       :creating="creatingConversation"
       :departments="createConversationDepartmentOptions"
       :default-department-id="defaultCreateConversationDepartmentId"
+      :persona-avatar-url-map="sidebarPersonaAvatarUrlMap"
       :error-text="createConversationErrorText"
       @close="closeCreateConversationDialog"
       @confirm="createConversation"

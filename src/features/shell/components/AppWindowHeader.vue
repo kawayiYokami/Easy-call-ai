@@ -332,10 +332,13 @@
             </div>
           </div>
         </div>
-        <DepartmentPersonaSelect
+        <AgentSelector
           v-model:department-id="createConversationDepartmentId"
           v-model:agent-id="createConversationAgentId"
+          v-model:api-config-id="createConversationApiConfigId"
           :options="createConversationDepartmentOptions"
+          :persona-avatar-url-map="personaAvatarUrlMap"
+          :api-configs="apiConfigs"
           auto-select-first
         />
         <div class="grid grid-cols-[minmax(0,1fr)_5rem] gap-2">
@@ -469,13 +472,13 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue"
 import { useI18n } from "vue-i18n";
 import { invokeTauri, isTauriRuntimeAvailable } from "../../../services/tauri-api";
 import { Download, Files, FoldVertical, FolderOpen, History, LayoutList, Minus, ScrollText, Search, Settings, Square, SquarePen, View, X } from "@lucide/vue";
-import type { ChatConversationOverviewItem, ShellWorkspace, ShellWorkspaceAccess } from "../../../types/app";
+import type { ApiConfigItem, ChatConversationOverviewItem, ShellWorkspace, ShellWorkspaceAccess } from "../../../types/app";
 import { defaultWorkspaceNameFromPath } from "../../../utils/shell-workspaces";
 import { buildWorkspaceConversationSections } from "../../chat/utils/conversation-sections";
 import { resolveConversationDisplayTitle } from "../../chat/utils/conversation-title";
 import { AppMarkdownRenderer, initKatex } from "../../chat/markdown";
 import type { ConfigSearchResult, ConfigSearchTab } from "../../config/search/config-search";
-import DepartmentPersonaSelect from "../../shared/components/DepartmentPersonaSelect.vue";
+import AgentSelector from "../../shared/components/AgentSelector.vue";
 import WorkspaceDirectoryPickerDialog from "../../shared/components/WorkspaceDirectoryPickerDialog.vue";
 import type { DepartmentPersonaOption } from "../../shared/department-persona-options";
 import { isDarkAppTheme } from "../composables/use-app-theme";
@@ -533,6 +536,7 @@ const props = withDefaults(defineProps<{
   userAvatarUrl: string;
   personaNameMap: Record<string, string>;
   personaAvatarUrlMap: Record<string, string>;
+  apiConfigs?: ApiConfigItem[];
   createConversationDepartmentOptions: ConversationDepartmentOption[];
   defaultCreateConversationDepartmentId: string;
   trimTip: string;
@@ -702,6 +706,7 @@ const createConversationDialogOpen = ref(false);
 const createConversationTitle = ref("");
 const createConversationDepartmentId = ref("");
 const createConversationAgentId = ref("");
+const createConversationApiConfigId = ref("");
 const createConversationTopicSuggestionsOpen = ref(false);
 const suppressNextCreateConversationTopicFocus = ref(false);
 const createConversationWorkspacePath = ref("");

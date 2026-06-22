@@ -24,6 +24,7 @@
       :user-avatar-url="userAvatarUrl"
       :persona-name-map="chatPersonaNameMap"
       :persona-avatar-url-map="chatPersonaAvatarUrlMap"
+      :api-configs="textCapableApiConfigs"
       :create-conversation-department-options="createConversationDepartmentOptions"
       :default-create-conversation-department-id="defaultCreateConversationDepartmentId"
       :trim-tip="t('chat.trimTip')"

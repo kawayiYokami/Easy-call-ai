@@ -10,10 +10,11 @@
           placeholder="会话主题"
           @keydown.enter.prevent="confirm"
         />
-        <DepartmentPersonaSelect
+        <AgentSelector
           v-model:department-id="localDepartmentId"
           v-model:agent-id="localAgentId"
           :options="departments"
+          :persona-avatar-url-map="personaAvatarUrlMap"
           auto-select-first
         />
       </div>
@@ -36,7 +37,7 @@
 
 <script setup lang="ts">
 import { ref, watch } from "vue";
-import DepartmentPersonaSelect from "../../shared/components/DepartmentPersonaSelect.vue";
+import AgentSelector from "../../shared/components/AgentSelector.vue";
 import type { DepartmentPersonaOption } from "../../shared/department-persona-options";
 
 export type SidebarCreateDepartmentOption = DepartmentPersonaOption;
@@ -46,6 +47,7 @@ const props = defineProps<{
   creating: boolean;
   departments: SidebarCreateDepartmentOption[];
   defaultDepartmentId: string;
+  personaAvatarUrlMap?: Record<string, string>;
   errorText: string;
 }>();
 
