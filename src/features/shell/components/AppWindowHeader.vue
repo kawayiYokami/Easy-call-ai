@@ -1073,11 +1073,18 @@ function handleCreateConversation() {
   createConversationTopicSuggestionsOpen.value = false;
   suppressNextCreateConversationTopicFocus.value = true;
   resetCreateConversationWorkspace();
-  const preferredWorkspace = selectableCreateConversationWorkspaces.value.find((item) => item.level === "main")
-    || selectableCreateConversationWorkspaces.value[0];
-  if (preferredWorkspace?.path) {
-    createConversationWorkspacePath.value = preferredWorkspace.path;
-    createConversationWorkspaceAccess.value = normalizeWorkspaceAccess(preferredWorkspace.access);
+  const currentMainWorkspace = Array.isArray(props.currentChatWorkspaces)
+    ? props.currentChatWorkspaces.find((w) => w.level === "main")
+    : null;
+  if (currentMainWorkspace?.path) {
+    createConversationWorkspacePath.value = currentMainWorkspace.path;
+    createConversationWorkspaceAccess.value = normalizeWorkspaceAccess(currentMainWorkspace.access);
+  } else {
+    const preferredWorkspace = selectableCreateConversationWorkspaces.value[0];
+    if (preferredWorkspace?.path) {
+      createConversationWorkspacePath.value = preferredWorkspace.path;
+      createConversationWorkspaceAccess.value = normalizeWorkspaceAccess(preferredWorkspace.access);
+    }
   }
   createConversationDialogOpen.value = true;
   nextTick(() => createConversationInputRef.value?.focus());
