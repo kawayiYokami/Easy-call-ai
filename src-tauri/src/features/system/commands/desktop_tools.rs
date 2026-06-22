@@ -1738,7 +1738,6 @@ fn list_file_reader_directory(path: String) -> Result<FileReaderDirectoryPayload
     if !directory_path.is_dir() {
         return Err(format!("目标不是目录：{raw_path}"));
     }
-
     let resolved_path = directory_path
         .canonicalize()
         .unwrap_or_else(|_| directory_path.clone());

@@ -1,5 +1,4 @@
 import { computed, onMounted, onUnmounted, ref, type ComputedRef } from "vue";
-import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { isTauriRuntimeAvailable } from "../../../services/tauri-api";
 
 export type ConversationPipelineStatus = "busy" | "success" | "error";
@@ -24,10 +23,12 @@ interface UsePipelineStatusOptions {
 
 const conversationStatusByIdRef = ref<Record<string, ConversationPipelineStatus>>({});
 const latestRequestIdByConversation = new Map<string, string>();
-let unlisten: UnlistenFn | null = null;
+let unlisten: TauriUnlistenFn | null = null;
 let listenerStarting = false;
 let consumerCount = 0;
 let currentActiveConversationIdGetter: (() => string) | null = null;
+
+type TauriUnlistenFn = () => void;
 
 function setConversationStatus(conversationId: string, status?: ConversationPipelineStatus) {
   const next = { ...conversationStatusByIdRef.value };
@@ -45,6 +46,7 @@ async function startConversationWorkStatusListener() {
   if (!isTauriRuntimeAvailable()) return;
   listenerStarting = true;
   try {
+    const { listen } = await import("@tauri-apps/api/event");
     const off = await listen<ConversationWorkStatusEvent>("conversation_work_status", (event) => {
       const payload = event.payload;
       const conversationId = String(payload.conversationId || payload.conversation_id || "").trim();
@@ -80,13 +82,6 @@ async function startConversationWorkStatusListener() {
     } else {
       unlisten = off;
     }
-  } catch (error) {
-    const err = error instanceof Error ? error : new Error(String(error));
-    console.error("[运行状态] 注册 conversation_work_status 监听失败", {
-      message: err.message,
-      stack: err.stack,
-      error,
-    });
   } finally {
     listenerStarting = false;
   }

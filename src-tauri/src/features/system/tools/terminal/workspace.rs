@@ -50,6 +50,14 @@ fn shell_workspace_display_name_fallback(path: &Path) -> String {
         .unwrap_or_else(|| path.to_string_lossy().to_string())
 }
 
+fn shell_workspace_display_name_from_input_or_path(raw_name: &str, path: &Path) -> String {
+    let normalized_name = raw_name.trim();
+    if !normalized_name.is_empty() {
+        return normalized_name.to_string();
+    }
+    shell_workspace_display_name_fallback(path)
+}
+
 fn shell_workspace_resolve_path_candidate(
     state: &AppState,
     workspace: &ShellWorkspaceConfig,
@@ -387,7 +395,7 @@ fn normalize_conversation_shell_workspaces(
         let mut workspace = raw.clone();
         workspace.path = normalized_path;
         workspace.id = workspace.id.trim().to_string();
-        workspace.name = shell_workspace_display_name_fallback(&candidate);
+        workspace.name = shell_workspace_display_name_from_input_or_path(&workspace.name, &candidate);
         workspace.level = if normalize_shell_workspace_level_text(&workspace.level) == SHELL_WORKSPACE_LEVEL_MAIN {
             SHELL_WORKSPACE_LEVEL_MAIN.to_string()
         } else {
@@ -409,7 +417,7 @@ fn normalize_conversation_shell_workspaces(
         if !seen_paths.insert(path_key) {
             continue;
         }
-        workspace.name = shell_workspace_display_name_fallback(&candidate);
+        workspace.name = shell_workspace_display_name_from_input_or_path(&workspace.name, &candidate);
         rebuilt.push(workspace);
     }
     if !rebuilt.is_empty()

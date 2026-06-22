@@ -303,6 +303,17 @@ fn conversation_default_workspace_summary_from_meta_view(
         .map(str::trim)
         .filter(|value| !value.is_empty())
     {
+        let normalized_path = normalize_terminal_path_for_compare(&PathBuf::from(path));
+        if let Ok(workspaces) = terminal_allowed_workspaces_canonical(state) {
+            if let Some(workspace) = workspaces.into_iter().find(|workspace| {
+                normalize_terminal_path_for_compare(&workspace.path) == normalized_path
+            }) {
+                let label = workspace.name.trim();
+                if !label.is_empty() {
+                    return (label.to_string(), Some(path.to_string()));
+                }
+            }
+        }
         return (
             conversation_workspace_name_fallback(path),
             Some(path.to_string()),

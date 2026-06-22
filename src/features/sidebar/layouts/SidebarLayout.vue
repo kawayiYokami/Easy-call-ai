@@ -31,6 +31,7 @@
       :open-settings-title="'设置'"
       :window-controls-visible="false"
       directory-pick-restricted
+      :pipeline-status-enabled="false"
       @toggle-side-conversation-list="$emit('toggleSideConversationList')"
       @toggle-tool-review-panel="$emit('toggleToolReviewPanel')"
       @update:conversation-list-tab="$emit('updateConversationListTab', $event)"

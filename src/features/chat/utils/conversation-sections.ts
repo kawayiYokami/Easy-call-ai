@@ -19,7 +19,7 @@ type BuildRemoteConversationSectionsOptions = {
 };
 
 function normalizeWorkspaceSectionPath(path: string): string {
-  return String(path || "").trim().replace(/\\/g, "/").replace(/\/+$/, "");
+  return String(path || "").trim().replace(/\\/g, "/").replace(/\/+$/, "").toLocaleLowerCase();
 }
 
 function compareWorkspaceSectionText(left: string, right: string, locale?: string | string[]): number {
@@ -31,6 +31,27 @@ function compareWorkspaceSectionText(left: string, right: string, locale?: strin
 
 export function workspaceNameFromPath(path: string): string {
   return defaultWorkspaceNameFromPath(path);
+}
+
+function resolveWorkspaceSectionTitle(
+  currentTitle: string,
+  nextTitle: string,
+  workspaceRootPath: string,
+): string {
+  const current = String(currentTitle || "").trim();
+  const next = String(nextTitle || "").trim();
+  if (!current) return next;
+  if (!next) return current;
+  if (current === next) return current;
+
+  const fallback = workspaceNameFromPath(workspaceRootPath);
+  const currentIsFallback = !!fallback && current.localeCompare(fallback, undefined, { sensitivity: "accent" }) === 0;
+  const nextIsFallback = !!fallback && next.localeCompare(fallback, undefined, { sensitivity: "accent" }) === 0;
+
+  if (currentIsFallback && !nextIsFallback) return next;
+  if (nextIsFallback && !currentIsFallback) return current;
+
+  return current.length >= next.length ? current : next;
 }
 
 function resolveRemoteConversationSectionMeta(
@@ -65,12 +86,14 @@ export function buildWorkspaceConversationSections(
   const byWorkspace = new Map<string, ConversationSection>();
   for (const item of items) {
     const path = String(item.workspaceRootPath || "").trim();
+    const normalizedPath = normalizeWorkspaceSectionPath(path);
     const title = String(item.workspaceLabel || "").trim()
       || workspaceNameFromPath(path)
       || options.defaultWorkspaceTitle;
-    const key = `workspace:${path || title}`;
+    const key = `workspace:${normalizedPath || title}`;
     const existing = byWorkspace.get(key);
     if (existing) {
+      existing.title = resolveWorkspaceSectionTitle(existing.title, title, path || existing.workspaceRootPath || "");
       existing.items.push(item);
       continue;
     }
