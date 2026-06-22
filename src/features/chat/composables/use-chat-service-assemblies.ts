@@ -76,6 +76,8 @@ export function useChatServiceAssemblies(bindings: Record<string, any>) {
     createApiConfig: bindings.createApiConfig,
     createApiProvider: bindings.createApiProvider,
     normalizeApiBindingsLocal: bindings.normalizeApiBindingsLocal,
+    savePersonas: configPersistence.savePersonas,
+    saveChatPreferences: configPersistence.saveChatPreferences,
   });
 
   const chatRuntime = useChatRuntime({

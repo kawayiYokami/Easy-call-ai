@@ -15,6 +15,8 @@ type UseConfigEditorsOptions = {
   createApiConfig: (seed?: string) => ApiConfigItem;
   createApiProvider: (seed?: string) => ApiProviderConfigItem;
   normalizeApiBindingsLocal: () => void;
+  savePersonas: () => Promise<boolean>;
+  saveChatPreferences: () => Promise<void>;
 };
 
 export function useConfigEditors(options: UseConfigEditorsOptions) {
@@ -69,7 +71,19 @@ export function useConfigEditors(options: UseConfigEditorsOptions) {
     }
   }
 
-  function addPersona() {
+  async function addPersona() {
+    const previousPersonas = options.personas.value.map((persona) => ({
+      ...persona,
+      tools: Array.isArray(persona.tools)
+        ? persona.tools.map((tool) => ({
+            ...tool,
+            args: Array.isArray(tool.args) ? [...tool.args] : [],
+            values: { ...((tool.values || {}) as Record<string, unknown>) },
+          }))
+        : [],
+    }));
+    const previousAssistantDepartmentAgentId = options.assistantDepartmentAgentId.value;
+    const previousPersonaEditorId = options.personaEditorId.value;
     const id = `persona-${Date.now()}`;
     const now = new Date().toISOString();
     options.personas.value.push({
@@ -90,6 +104,14 @@ export function useConfigEditors(options: UseConfigEditorsOptions) {
     });
     options.assistantDepartmentAgentId.value = id;
     options.personaEditorId.value = id;
+    const saved = await options.savePersonas();
+    if (!saved) {
+      options.personas.value = previousPersonas;
+      options.assistantDepartmentAgentId.value = previousAssistantDepartmentAgentId;
+      options.personaEditorId.value = previousPersonaEditorId;
+      return;
+    }
+    await options.saveChatPreferences();
   }
 
   function removeSelectedPersona() {

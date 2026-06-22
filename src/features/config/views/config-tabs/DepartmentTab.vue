@@ -934,7 +934,10 @@ function nextDepartmentName() {
   }
 }
 
-function addDepartment() {
+async function addDepartment() {
+  if (props.savingConfig) return;
+  const previousDepartments = cloneDepartmentList(props.config.departments || []);
+  const previousSelectedDepartmentId = selectedDepartmentId.value;
   const now = new Date().toISOString();
   const id = `department-${Date.now()}`;
   const maxOrderIndex = departmentDrafts.value.reduce((max, item) => Math.max(max, Number(item.orderIndex || 0)), 0);
@@ -959,6 +962,16 @@ function addDepartment() {
     scope: "global",
     permissionControl: normalizePermissionControl(null),
   });
+  selectedDepartmentId.value = id;
+  props.config.departments = cloneDepartmentList(departmentDrafts.value);
+  const saved = await Promise.resolve(props.saveConfigAction());
+  if (!saved) {
+    props.config.departments = previousDepartments;
+    syncDepartmentDraftsFromSource();
+    selectedDepartmentId.value = previousSelectedDepartmentId;
+    return;
+  }
+  syncDepartmentDraftsFromSource();
   selectedDepartmentId.value = id;
 }
 

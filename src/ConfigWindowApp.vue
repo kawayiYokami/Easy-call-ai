@@ -633,6 +633,7 @@ const {
   updateRecordHotkey,
   loadPersonas,
   savePersonas,
+  saveChatPreferences,
   convertPrivatePersonaToPublic,
   patchChatSettings,
   patchConversationApiSettings,
@@ -655,6 +656,8 @@ const {
   createApiConfig,
   createApiProvider,
   normalizeApiBindingsLocal,
+  savePersonas,
+  saveChatPreferences,
 });
 
 const {
