@@ -1,7 +1,12 @@
 {
-  "generatedAt": "2026-06-23T00:33:02.690Z",
-  "latestVersion": "v0.13.7",
+  "generatedAt": "2026-06-23T12:20:32.956Z",
+  "latestVersion": "v0.13.8",
   "releases": [
+    {
+      "version": "v0.13.8",
+      "path": "docs/changelog/releases/v0.13.8.md",
+      "summary": "**配置编辑**：模型卡片的图片/视频能力开关改为使用模型数据库返回的能力字段；数据库未命中时保留人工配置入口，避免按模型名推断导致多模态开关消失"
+    },
     {
       "version": "v0.13.7",
       "path": "docs/changelog/releases/v0.13.7.md",
