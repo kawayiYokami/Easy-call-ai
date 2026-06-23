@@ -2045,6 +2045,19 @@ fn sync_remote_im_contact_conversation_binding(
             None,
         )?;
     }
+    let preferred_api_changed = conversation_meta
+        .preferred_api_config_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .is_some();
+    if preferred_api_changed {
+        conversation_service_v2().set_preferred_api_config_id(
+            state,
+            conversation_id,
+            None,
+        )?;
+    }
     Ok(())
 }
 

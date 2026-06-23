@@ -2393,15 +2393,25 @@ async fn send_chat_message_inner(
         let candidate_models_started = std::time::Instant::now();
         let department_model_fallback_enabled =
             department_model_failure_fallback_enabled(effective_department);
-        let conversation_preferred_api_config_id = requested_conversation_id_for_prepare
+        let conversation_meta_for_model_selection = requested_conversation_id_for_prepare
             .as_deref()
             .or(runtime_main_conversation_id.as_deref())
             .and_then(|conversation_id| {
                 conversation_service_v2().get_conversation_meta(&state, conversation_id).ok()
+            });
+        let conversation_preferred_api_config_id = conversation_meta_for_model_selection
+            .as_ref()
+            .filter(|conversation| {
+                conversation.conversation_kind.trim() != CONVERSATION_KIND_REMOTE_IM_CONTACT
             })
-            .and_then(|conversation| conversation.preferred_api_config_id.map(|value| value.trim().to_string()))
-            .map(|api_config_id| api_config_id.trim().to_string())
-            .filter(|api_config_id| !api_config_id.is_empty());
+            .and_then(|conversation| {
+                conversation
+                    .preferred_api_config_id
+                    .as_deref()
+                    .map(str::trim)
+                    .filter(|value| !value.is_empty())
+                    .map(ToOwned::to_owned)
+            });
         let requested_api_config_id_snapshot = requested_api_config_id
             .as_deref()
             .map(str::trim)

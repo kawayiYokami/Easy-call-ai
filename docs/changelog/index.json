@@ -1,7 +1,12 @@
 {
-  "generatedAt": "2026-06-23T12:20:32.956Z",
-  "latestVersion": "v0.13.8",
+  "generatedAt": "2026-06-23T13:39:42.688Z",
+  "latestVersion": "v0.13.9",
   "releases": [
+    {
+      "version": "v0.13.9",
+      "path": "docs/changelog/releases/v0.13.9.md",
+      "summary": "**远程联系人**：远程联系人独立会话不再应用会话首选模型覆盖，回复始终跟随绑定部门模型；同步联系人会话绑定时会清理残留首选模型，避免历史会话继续误用旧模型"
+    },
     {
       "version": "v0.13.8",
       "path": "docs/changelog/releases/v0.13.8.md",
