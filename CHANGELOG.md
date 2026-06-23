@@ -5,6 +5,7 @@
 
 ## 最近版本
 
+- [v0.13.7](docs/changelog/releases/v0.13.7.md) - **对话输入**：@ 提及智能体时支持按 @ 后输入的内容过滤候选列表，匹配智能体名称或所属部门名称
 - [v0.13.6](docs/changelog/releases/v0.13.6.md) - **聊天窗口**：聚合工具调用浮层，减少工具消息显示噪音
 - [v0.13.5](docs/changelog/releases/v0.13.5.md) - **聊天窗口**：补全工具调用展开内容，修正 tool 标记渲染与去重，减少工具消息显示错乱
 - [v0.13.4](docs/changelog/releases/v0.13.4.md) - **聊天窗口**：修复最小化、最大化或恢复激活后，前台会话被轻量快照覆盖，导致已上翻的历史消息丢失的问题
@@ -133,4 +134,5 @@
 - [v0.9.3](docs/changelog/releases/v0.9.3.md) - 发布（release-0.9.3）：同步版本号并承接当前 `rust-genai` 运行时迁移成果
 - [v0.9.1](docs/changelog/releases/v0.9.1.md) - 发布（release-0.9.1）：整合委托功能修复与聊天交互打磨后发布补丁版本
 - [v0.9.0](docs/changelog/releases/v0.9.0.md) - 发布（release-0.9.0）：整理并发布当前这一轮聊天窗口、Markdown 渲染、流式输出与会话链路重构成果
+- [UNRELEASED](docs/changelog/releases/UNRELEASED.md)
 

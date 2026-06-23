@@ -1,7 +1,12 @@
 {
-  "generatedAt": "2026-06-22T01:43:13.525Z",
-  "latestVersion": "v0.13.6",
+  "generatedAt": "2026-06-23T00:33:02.690Z",
+  "latestVersion": "v0.13.7",
   "releases": [
+    {
+      "version": "v0.13.7",
+      "path": "docs/changelog/releases/v0.13.7.md",
+      "summary": "**对话输入**：@ 提及智能体时支持按 @ 后输入的内容过滤候选列表，匹配智能体名称或所属部门名称"
+    },
     {
       "version": "v0.13.6",
       "path": "docs/changelog/releases/v0.13.6.md",
@@ -641,6 +646,11 @@
       "version": "v0.9.0",
       "path": "docs/changelog/releases/v0.9.0.md",
       "summary": "发布（release-0.9.0）：整理并发布当前这一轮聊天窗口、Markdown 渲染、流式输出与会话链路重构成果"
+    },
+    {
+      "version": "UNRELEASED",
+      "path": "docs/changelog/releases/UNRELEASED.md",
+      "summary": ""
     }
   ]
 }
