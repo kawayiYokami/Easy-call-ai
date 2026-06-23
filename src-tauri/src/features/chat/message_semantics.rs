@@ -561,6 +561,43 @@ fn merged_assistant_display_text(final_text: &str, activity_events: &[Value]) ->
     merged.join("\n\n")
 }
 
+fn strip_toolcall_markers_from_persisted_text(text: &str) -> String {
+    text.split('\n')
+        .map(|line| {
+            let mut output = String::new();
+            let mut rest = line;
+            while let Some(start) = rest.find("[toolcall:") {
+                output.push_str(&rest[..start]);
+                let Some(end) = rest[start + "[toolcall:".len()..].find(']') else {
+                    output.push_str(&rest[start..]);
+                    rest = "";
+                    break;
+                };
+                rest = &rest[start + "[toolcall:".len() + end + 1..];
+            }
+            output.push_str(rest);
+            let mut compact = String::new();
+            let mut prev_was_space = false;
+            for ch in output.chars() {
+                if ch == ' ' || ch == '\t' {
+                    if prev_was_space {
+                        continue;
+                    }
+                    compact.push(' ');
+                    prev_was_space = true;
+                    continue;
+                }
+                compact.push(ch);
+                prev_was_space = false;
+            }
+            compact.trim().to_string()
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+        .trim()
+        .to_string()
+}
+
 fn build_assistant_message_from_request_sequence(
     id: String,
     agent_id: &str,
@@ -570,14 +607,14 @@ fn build_assistant_message_from_request_sequence(
 ) -> ChatMessage {
     let folded = fold_request_messages_to_assistant_content(request_messages);
     let activity_events = folded.tool_history_events;
-    let display_text = merged_assistant_display_text(&folded.assistant_text, &activity_events);
+    let persisted_text = strip_toolcall_markers_from_persisted_text(&folded.assistant_text);
     ChatMessage {
         id,
         role: "assistant".to_string(),
         created_at,
         speaker_agent_id: Some(agent_id.to_string()),
         parts: vec![MessagePart::Text {
-            text: display_text,
+            text: persisted_text,
             reasoning_content: folded.activity_reasoning_text,
         }],
         extra_text_blocks: Vec::new(),
@@ -1060,7 +1097,7 @@ mod message_semantics_tests {
             MessagePart::Text { text, .. } => {
                 assert_eq!(
                     text,
-                    "三个并发 shell 跑完后我再汇总。 [toolcall:call_node]\n\n三个并发 shell 跑完，结果是：\n\nNode.js v24.2.0"
+                    "三个并发 shell 跑完，结果是：\n\nNode.js v24.2.0"
                 );
             }
             _ => panic!("expected text part"),
@@ -1123,7 +1160,7 @@ mod message_semantics_tests {
             MessagePart::Text { text, .. } => {
                 assert_eq!(
                     text,
-                    "先说明第一步 [toolcall:call_1]\n\n再说明第二步 [toolcall:call_2]\n\n最后汇总"
+                    "先说明第一步\n\n再说明第二步\n\n最后汇总"
                 );
             }
             _ => panic!("expected text part"),
@@ -1184,7 +1221,7 @@ mod message_semantics_tests {
 
         match &message.parts[0] {
             MessagePart::Text { text, .. } => {
-                assert_eq!(text, "[toolcall:call_a] [toolcall:call_b]\n\n最后汇总");
+                assert_eq!(text, "最后汇总");
             }
             _ => panic!("expected text part"),
         }
@@ -1245,7 +1282,7 @@ mod message_semantics_tests {
 
         match &message.parts[0] {
             MessagePart::Text { text, .. } => {
-                assert_eq!(text, "[toolcall:call_a] [toolcall:call_b]\n\n最后汇总");
+                assert_eq!(text, "最后汇总");
             }
             _ => panic!("expected text part"),
         }
@@ -1356,7 +1393,7 @@ mod message_semantics_tests {
         );
         match &message.parts[0] {
             MessagePart::Text { text, .. } => {
-                assert_eq!(text, "[toolcall:call_1]");
+                assert_eq!(text, "");
             }
             _ => panic!("expected text part"),
         }
@@ -1453,7 +1490,7 @@ mod message_semantics_tests {
                 text,
                 reasoning_content,
             } => {
-                assert_eq!(text, "[toolcall:call_1]\n\n最终答案");
+                assert_eq!(text, "最终答案");
                 assert_eq!(
                     reasoning_content.as_deref(),
                     Some("我已经拿到结果，现在直接回答。")
