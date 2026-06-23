@@ -842,6 +842,15 @@ function normalizedStreamingPhaseLabel(block: ChatMessageBlock): string {
     return "";
   };
 
+  if (doingTool || block.activityStatus === "running_tool") {
+    return t("chat.statusGeneratingTools");
+  }
+  if (hasSpeechContent) {
+    return t("chat.statusTypingBody");
+  }
+  if (hasReasoning) {
+    return t("chat.statusReadMessage");
+  }
   if (toolStatusState === "running") {
     const requestPhase = normalizeRequestPhaseText(toolStatusText);
     if (requestPhase) return requestPhase;
@@ -849,15 +858,6 @@ function normalizedStreamingPhaseLabel(block: ChatMessageBlock): string {
   if (preStreamingStatusText) {
     const requestPhase = normalizeRequestPhaseText(preStreamingStatusText);
     if (requestPhase) return requestPhase;
-  }
-  if (hasSpeechContent) {
-    return t("chat.statusTypingBody");
-  }
-  if (doingTool || block.activityStatus === "running_tool") {
-    return t("chat.statusGeneratingTools");
-  }
-  if (hasReasoning) {
-    return t("chat.statusThinking");
   }
   return t("chat.statusWaitingReply");
 }
