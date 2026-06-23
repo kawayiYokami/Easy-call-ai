@@ -315,13 +315,13 @@
 
                     <div v-if="activeCapability === 'text'" class="grid gap-2 md:grid-cols-5">
                       <label
-                        v-if="supportsModelMultimodalToggles(modelCard)"
+                        v-if="shouldShowModelImageToggle(modelCard)"
                         class="flex items-center justify-between rounded-box border border-base-300 bg-base-300 px-3 py-2">
                         <span class="text-sm">{{ t("config.api.capImage") }}</span>
                         <input v-model="modelCard.enableImage" type="checkbox" class="checkbox checkbox-sm" />
                       </label>
                       <label
-                        v-if="supportsModelMultimodalToggles(modelCard)"
+                        v-if="shouldShowModelVideoToggle(modelCard)"
                         class="flex items-center justify-between rounded-box border border-base-300 bg-base-300 px-3 py-2">
                         <span class="text-sm">{{ t("config.api.capVideo") }}</span>
                         <input v-model="modelCard.enableVideo" type="checkbox" class="checkbox checkbox-sm" />
@@ -473,7 +473,6 @@ import SettingsStickyLayout from "../../components/SettingsStickyLayout.vue";
 import { invokeTauri } from "../../../../services/tauri-api";
 import CodexProviderPanel from "./CodexProviderPanel.vue";
 import { normalizeApiRequestFormat } from "../../utils/api-request-format";
-import { supportsMultimodalCapabilityToggles } from "../../utils/multimodal-routing";
 
 type ApiCapability = "text" | "voice" | "embedding" | "rerank";
 type ProviderPresetCategory = "official" | "domestic" | "openaiCompatible" | "local";
@@ -498,8 +497,13 @@ type FetchModelMetadataResult = {
   enableAudio?: boolean | null;
 };
 type ModelCapabilityLimits = {
+  metadataFound?: boolean;
   contextWindowMax?: number;
   maxOutputTokensMax?: number;
+  enableImage?: boolean;
+  enableVideo?: boolean;
+  enableAudio?: boolean;
+  enableTools?: boolean;
 };
 
 const SLIDER_CONTEXT_MIN = 16_000;
@@ -856,10 +860,24 @@ function isDeepSeekModelAdapter(adapter: string | undefined): boolean {
   return String(adapter || "").trim().toLowerCase() === "deepseek";
 }
 
-function supportsModelMultimodalToggles(modelCard: ApiModelConfigItem): boolean {
-  const provider = selectedProvider.value;
-  if (!provider) return false;
-  return supportsMultimodalCapabilityToggles(provider.requestFormat, modelCard.model);
+function modelCapability(modelCard: ApiModelConfigItem): ModelCapabilityLimits | undefined {
+  return modelCapabilityById.value[modelCard.id];
+}
+
+function shouldShowModelImageToggle(modelCard: ApiModelConfigItem): boolean {
+  const capability = modelCapability(modelCard);
+  if (capability?.metadataFound) {
+    return capability.enableImage === true;
+  }
+  return true;
+}
+
+function shouldShowModelVideoToggle(modelCard: ApiModelConfigItem): boolean {
+  const capability = modelCapability(modelCard);
+  if (capability?.metadataFound) {
+    return capability.enableVideo === true;
+  }
+  return true;
 }
 
 function openaiReasoningEffortValue(modelCard: ApiModelConfigItem): string {
@@ -1439,18 +1457,33 @@ async function syncModelMetadata(modelCard: ApiModelConfigItem) {
     if (!metadata?.found) {
       modelCapabilityById.value = {
         ...modelCapabilityById.value,
-        [modelCard.id]: {},
+        [modelCard.id]: { metadataFound: false },
       };
       applyAutoContextWindowTokens(modelCard);
       clampModelCardValues(modelCard);
       return;
     }
-    const nextLimits: ModelCapabilityLimits = {};
+    const nextLimits: ModelCapabilityLimits = { metadataFound: true };
     if (Number.isFinite(Number(metadata.contextWindowTokens))) {
       nextLimits.contextWindowMax = Number(metadata.contextWindowTokens);
     }
     if (Number.isFinite(Number(metadata.maxOutputTokens))) {
       nextLimits.maxOutputTokensMax = Number(metadata.maxOutputTokens);
+    }
+    if (typeof metadata.enableImage === "boolean") {
+      nextLimits.enableImage = metadata.enableImage;
+      modelCard.enableImage = metadata.enableImage;
+    }
+    if (typeof metadata.enableVideo === "boolean") {
+      nextLimits.enableVideo = metadata.enableVideo;
+      modelCard.enableVideo = metadata.enableVideo;
+    }
+    if (typeof metadata.enableAudio === "boolean") {
+      nextLimits.enableAudio = metadata.enableAudio;
+    }
+    if (typeof metadata.enableTools === "boolean") {
+      nextLimits.enableTools = metadata.enableTools;
+      modelCard.enableTools = metadata.enableTools;
     }
     modelCapabilityById.value = {
       ...modelCapabilityById.value,
