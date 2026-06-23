@@ -5,6 +5,7 @@
 
 ## 最近版本
 
+- [v0.14.0](docs/changelog/releases/v0.14.0.md) - **聊天窗口**：增强任务 CRON 编辑体验
 - [v0.13.9](docs/changelog/releases/v0.13.9.md) - **远程联系人**：远程联系人独立会话不再应用会话首选模型覆盖，回复始终跟随绑定部门模型；同步联系人会话绑定时会清理残留首选模型，避免历史会话继续误用旧模型
 - [v0.13.8](docs/changelog/releases/v0.13.8.md) - **配置编辑**：模型卡片的图片/视频能力开关改为使用模型数据库返回的能力字段；数据库未命中时保留人工配置入口，避免按模型名推断导致多模态开关消失
 - [v0.13.7](docs/changelog/releases/v0.13.7.md) - **对话输入**：@ 提及智能体时支持按 @ 后输入的内容过滤候选列表，匹配智能体名称或所属部门名称
@@ -136,5 +137,5 @@
 - [v0.9.3](docs/changelog/releases/v0.9.3.md) - 发布（release-0.9.3）：同步版本号并承接当前 `rust-genai` 运行时迁移成果
 - [v0.9.1](docs/changelog/releases/v0.9.1.md) - 发布（release-0.9.1）：整合委托功能修复与聊天交互打磨后发布补丁版本
 - [v0.9.0](docs/changelog/releases/v0.9.0.md) - 发布（release-0.9.0）：整理并发布当前这一轮聊天窗口、Markdown 渲染、流式输出与会话链路重构成果
-- [UNRELEASED](docs/changelog/releases/UNRELEASED.md)
+- [UNRELEASED](docs/changelog/releases/UNRELEASED.md) - 修复（chat）：聊天窗口顶部错误条在超长报错时改为内部滚动，并固定关闭按钮位置，避免按钮被长文本挤出可点击区域。
 

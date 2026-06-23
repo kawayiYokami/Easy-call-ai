@@ -1,7 +1,12 @@
 {
-  "generatedAt": "2026-06-23T13:39:42.688Z",
-  "latestVersion": "v0.13.9",
+  "generatedAt": "2026-06-23T19:37:24.751Z",
+  "latestVersion": "v0.14.0",
   "releases": [
+    {
+      "version": "v0.14.0",
+      "path": "docs/changelog/releases/v0.14.0.md",
+      "summary": "**聊天窗口**：增强任务 CRON 编辑体验"
+    },
     {
       "version": "v0.13.9",
       "path": "docs/changelog/releases/v0.13.9.md",
@@ -660,7 +665,7 @@
     {
       "version": "UNRELEASED",
       "path": "docs/changelog/releases/UNRELEASED.md",
-      "summary": ""
+      "summary": "修复（chat）：聊天窗口顶部错误条在超长报错时改为内部滚动，并固定关闭按钮位置，避免按钮被长文本挤出可点击区域。"
     }
   ]
 }
