@@ -77,30 +77,79 @@
 
           <div v-if="scheduleMode === 'interval'" class="space-y-3">
             <label class="block space-y-2">
-              <span class="block text-sm font-medium">{{ t("chat.taskCreate.intervalLabel") }}</span>
-              <div class="join w-full">
+              <span class="block text-sm font-medium">{{ t("chat.taskCreate.scheduleDetailModeLabel") }}</span>
+              <SegmentedControl
+                v-model="scheduleDetailMode"
+                :options="scheduleDetailModeOptions"
+                :disabled="dialogBusy"
+                size="sm"
+              />
+            </label>
+
+            <div v-if="scheduleDetailMode === 'simple'" class="space-y-3">
+              <label class="block space-y-2">
+                <span class="block text-sm font-medium">{{ t("chat.taskCreate.intervalLabel") }}</span>
+                <div class="join w-full">
+                  <input
+                    v-model="repeatEvery"
+                    class="input input-bordered join-item min-w-0 flex-1"
+                    type="number"
+                    min="1"
+                    :max="repeatUnit === 'months' ? 12 : undefined"
+                    step="1"
+                    :disabled="dialogBusy"
+                  />
+                  <select
+                    v-model="repeatUnit"
+                    class="select select-bordered join-item w-32 shrink-0"
+                    :disabled="dialogBusy"
+                  >
+                    <option value="minutes">{{ t("chat.taskCreate.intervalUnits.minutes") }}</option>
+                    <option value="hours">{{ t("chat.taskCreate.intervalUnits.hours") }}</option>
+                    <option value="days">{{ t("chat.taskCreate.intervalUnits.days") }}</option>
+                    <option value="weeks">{{ t("chat.taskCreate.intervalUnits.weeks") }}</option>
+                    <option value="months">{{ t("chat.taskCreate.intervalUnits.months") }}</option>
+                  </select>
+                </div>
+              </label>
+            </div>
+
+            <div v-else class="space-y-3 rounded-box border border-base-300/70 bg-base-200/30 p-3">
+              <CronLight
+                v-model="cronExpression"
+                v-model:period="cronPeriod"
+                class="cron-light-shell"
+                theme="ant"
+                :locale="locale"
+                :custom-locale="cronCustomLocale"
+                :periods="cronPeriods"
+                :disabled="dialogBusy"
+                @error="handleCronError"
+              />
+
+              <label class="block space-y-2">
+                <span class="block text-sm font-medium">{{ t("chat.taskCreate.cronExpressionLabel") }}</span>
                 <input
-                  v-model="repeatEvery"
-                  class="input input-bordered join-item min-w-0 flex-1"
-                  type="number"
-                  min="1"
-                  :max="repeatUnit === 'months' ? 12 : undefined"
-                  step="1"
+                  v-model="cronExpression"
+                  class="input input-bordered w-full font-mono text-sm"
+                  type="text"
+                  placeholder="*/5 * * * *"
                   :disabled="dialogBusy"
                 />
-                <select
-                  v-model="repeatUnit"
-                  class="select select-bordered join-item w-32 shrink-0"
-                  :disabled="dialogBusy"
-                >
-                  <option value="minutes">{{ t("chat.taskCreate.intervalUnits.minutes") }}</option>
-                  <option value="hours">{{ t("chat.taskCreate.intervalUnits.hours") }}</option>
-                  <option value="days">{{ t("chat.taskCreate.intervalUnits.days") }}</option>
-                  <option value="weeks">{{ t("chat.taskCreate.intervalUnits.weeks") }}</option>
-                  <option value="months">{{ t("chat.taskCreate.intervalUnits.months") }}</option>
-                </select>
+              </label>
+
+              <div
+                class="text-sm"
+                :class="
+                  simpleModeAllowed
+                    ? 'opacity-70'
+                    : 'inline-flex rounded-full border border-warning/30 bg-warning/10 px-3 py-1 text-warning'
+                "
+              >
+                {{ simpleModeAllowed ? t("chat.taskCreate.cronAdvancedHint") : t("chat.taskCreate.cronAdvancedLockedHint") }}
               </div>
-            </label>
+            </div>
+
             <label class="block space-y-2">
               <span class="block text-sm font-medium">{{ t("config.task.fields.endAt") }}</span>
               <TaskDateTimeInput v-model="endAt" :disabled="dialogBusy" />
@@ -122,6 +171,9 @@
             </button>
             <span v-else class="hidden sm:block"></span>
             <div class="flex items-center justify-end gap-2">
+              <button type="button" class="btn btn-ghost" :disabled="dialogBusy || !canRestore" @click="handleRestore">
+                {{ t("common.reset") }}
+              </button>
               <button type="button" class="btn btn-ghost" :disabled="dialogBusy" @click="handleClose">
                 {{ t("common.cancel") }}
               </button>
@@ -163,15 +215,18 @@
 import { computed, nextTick, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 import { Trash2, WandSparkles, X } from "@lucide/vue";
+import { CronLight } from "@vue-js-cron/light";
+import "@vue-js-cron/light/dist/light.css";
 import { invokeTauri } from "../../../../services/tauri-api";
 import { formatDateToLocalRfc3339 } from "../../../../utils/time";
 import { toErrorMessage } from "../../../../utils/error";
 import SegmentedControl from "../../../config/components/SegmentedControl.vue";
 import TaskDateTimeInput from "../../../config/views/config-tabs/TaskDateTimeInput.vue";
 import type { TaskEntry, TaskScheduleMode } from "../../../config/views/config-tabs/task-editor";
-import { inferFixedIntervalFromCronExpression, inferMonthlyIntervalFromCronExpression } from "../../utils/task-schedule-cron";
+import { inferCronPeriodFromExpression, inferFixedIntervalFromCronExpression, inferMonthlyIntervalFromCronExpression } from "../../utils/task-schedule-cron";
 
 type RepeatIntervalUnit = "minutes" | "hours" | "days" | "weeks" | "months";
+type ScheduleDetailMode = "simple" | "advanced";
 
 type TaskTriggerInputWire = {
   run_at: string;
@@ -243,7 +298,7 @@ const emit = defineEmits<{
   (e: "updated", task: TaskEntry): void;
 }>();
 
-const { t } = useI18n();
+const { t, locale } = useI18n();
 const contentInputRef = ref<HTMLTextAreaElement | null>(null);
 const saving = ref(false);
 const optimizing = ref(false);
@@ -253,11 +308,16 @@ const title = ref("");
 const content = ref("");
 const runAt = ref("");
 const scheduleMode = ref<TaskScheduleMode>("once");
+const scheduleDetailMode = ref<ScheduleDetailMode>("simple");
 const repeatEvery = ref("1");
 const repeatUnit = ref<RepeatIntervalUnit>("hours");
 const endAt = ref("");
+const cronExpression = ref("");
+const cronPeriod = ref("");
+const cronErrorText = ref("");
 const preservedCronExpression = ref("");
 const initialScheduleSnapshot = ref("");
+const lastScheduleDetailMode = ref<ScheduleDetailMode>("simple");
 const dialogMode = computed(() => props.mode === "edit" ? "edit" : "create");
 const isEditMode = computed(() => dialogMode.value === "edit");
 const dialogBusy = computed(() => saving.value || optimizing.value);
@@ -268,15 +328,123 @@ const existingRecurringTask = computed(() =>
     || (Number.isFinite(Number(props.task?.trigger?.every_minutes)) && Number(props.task?.trigger?.every_minutes) > 0)
   ),
 );
+const simpleModeAllowed = computed(() => {
+  const existingEveryMinutes = Number(props.task?.trigger?.every_minutes);
+  if (Number.isFinite(existingEveryMinutes) && existingEveryMinutes > 0) {
+    return true;
+  }
+  const cron = String(cronExpression.value || preservedCronExpression.value || "").trim();
+  if (!cron) return true;
+  if (inferMonthlyIntervalFromCronExpression(cron)) return true;
+  return !!inferFixedIntervalFromCronExpression(cron);
+});
 const scheduleModeOptions = computed(() => [
   { value: "once" as const, label: t("config.task.scheduleModes.once"), disabled: existingRecurringTask.value },
   { value: "interval" as const, label: t("config.task.scheduleModes.interval") },
 ]);
+const scheduleDetailModeOptions = computed(() => [
+  {
+    value: "simple" as const,
+    label: t("chat.taskCreate.scheduleDetailModes.simple"),
+  },
+  { value: "advanced" as const, label: t("chat.taskCreate.scheduleDetailModes.advanced") },
+]);
+const cronPeriods = computed(() => [
+  { id: "minute", value: ["minute"], text: t("chat.taskCreate.cronPeriods.minute") },
+  { id: "hour", value: ["minute", "hour"], text: t("chat.taskCreate.cronPeriods.hour") },
+  { id: "day", value: ["hour", "minute"], text: t("chat.taskCreate.cronPeriods.day") },
+  { id: "week", value: ["dayOfWeek", "hour", "minute"], text: t("chat.taskCreate.cronPeriods.week") },
+  { id: "month", value: ["day", "dayOfWeek", "hour", "minute"], text: t("chat.taskCreate.cronPeriods.month") },
+  { id: "year", value: ["month", "day", "dayOfWeek", "hour", "minute"], text: t("chat.taskCreate.cronPeriods.year") },
+]);
+const cronCustomLocale = computed(() => {
+  const currentLocale = String(locale.value || "").trim();
+  if (currentLocale === "en-US") {
+    return undefined;
+  }
+  const isTraditionalChinese = currentLocale === "zh-TW";
+  const periodPrefix = isTraditionalChinese ? "週期級別" : "周期级别";
+  return {
+    minute: { prefix: periodPrefix, text: isTraditionalChinese ? "分鐘" : "分钟" },
+    hour: {
+      prefix: periodPrefix,
+      text: isTraditionalChinese ? "小時" : "小时",
+      minute: { "*": { prefix: isTraditionalChinese ? "在" : "在", suffix: isTraditionalChinese ? "分" : "分" }, any: { text: isTraditionalChinese ? "每" : "每" } },
+    },
+    day: { prefix: periodPrefix, text: isTraditionalChinese ? "天" : "天" },
+    week: { prefix: periodPrefix, text: isTraditionalChinese ? "週" : "周" },
+    month: {
+      prefix: periodPrefix,
+      text: isTraditionalChinese ? "月" : "月",
+      dayOfWeek: { "*": { prefix: isTraditionalChinese ? "且" : "且" } },
+    },
+    year: {
+      prefix: periodPrefix,
+      text: isTraditionalChinese ? "年" : "年",
+      dayOfWeek: { "*": { prefix: isTraditionalChinese ? "且" : "且" } },
+    },
+    "q-second": { text: isTraditionalChinese ? "秒" : "秒" },
+    "q-minute": {
+      text: isTraditionalChinese ? "分鐘" : "分钟",
+      second: { "*": { prefix: isTraditionalChinese ? "在" : "在", suffix: isTraditionalChinese ? "秒" : "秒" }, any: { text: isTraditionalChinese ? "每" : "每" } },
+    },
+    "q-hour": { text: isTraditionalChinese ? "小時" : "小时", minute: { "*": { prefix: isTraditionalChinese ? "在" : "在" } } },
+    "*": {
+      prefix: isTraditionalChinese ? "每" : "每",
+      suffix: "",
+      text: isTraditionalChinese ? "未知" : "未知",
+      "*": {
+        value: { text: "{{value.text}}" },
+        range: { text: "{{start.text}}-{{end.text}}" },
+        step: { text: isTraditionalChinese ? "每 {{step.value}}" : "每 {{step.value}}" },
+        rangeStep: { text: "{{start.text}}-{{end.text}}/{{step.value}}" },
+        stepFrom: { text: "{{start.text}}/{{step.value}}" },
+      },
+      month: {
+        "*": { prefix: isTraditionalChinese ? "在" : "在" },
+        any: { text: isTraditionalChinese ? "每月" : "每月" },
+        value: { text: "{{value.alt}}" },
+        range: { text: "{{start.alt}}-{{end.alt}}" },
+        rangeStep: { text: "{{start.alt}}-{{end.alt}}/{{step.value}}" },
+        stepFrom: { text: "{{start.alt}}/{{step.value}}" },
+      },
+      day: {
+        "*": { prefix: isTraditionalChinese ? "在" : "在" },
+        any: { text: isTraditionalChinese ? "每天" : "每天" },
+        noSpecific: { text: isTraditionalChinese ? "不指定日期" : "不指定日期" },
+      },
+      dayOfWeek: {
+        "*": { prefix: isTraditionalChinese ? "在" : "在" },
+        any: { text: isTraditionalChinese ? "每週每天" : "每周每天" },
+        value: { text: "{{value.alt}}" },
+        range: { text: "{{start.alt}}-{{end.alt}}" },
+        rangeStep: { text: "{{start.alt}}-{{end.alt}}/{{step.value}}" },
+        stepFrom: { text: "{{start.alt}}/{{step.value}}" },
+        noSpecific: { text: isTraditionalChinese ? "不指定星期" : "不指定星期" },
+      },
+      hour: {
+        "*": { prefix: isTraditionalChinese ? "在" : "在" },
+        any: { text: isTraditionalChinese ? "每小時" : "每小时" },
+      },
+      minute: {
+        "*": { prefix: ":" },
+        any: { text: isTraditionalChinese ? "每分鐘" : "每分钟" },
+        step: { text: isTraditionalChinese ? "每 {{step.value}} 分鐘" : "每 {{step.value}} 分钟" },
+      },
+      second: {
+        "*": { prefix: ":" },
+        any: { text: isTraditionalChinese ? "每秒" : "每秒" },
+      },
+    },
+  };
+});
 const dialogTitle = computed(() => isEditMode.value ? t("config.task.editorEditTitle") : t("chat.taskCreate.title"));
 const submitButtonLabel = computed(() => {
   if (saving.value) return t("config.task.saving");
   return isEditMode.value ? t("config.task.saveUpdate") : t("config.task.createAction");
 });
+const initialFormSnapshot = ref("");
+const canRestore = computed(() => initialFormSnapshot.value !== formInputSnapshot());
 
 function defaultRunAt(): string {
   const next = new Date(Date.now() + DEFAULT_RUN_AT_DELAY_MINUTES * 60_000);
@@ -289,11 +457,17 @@ function resetForm() {
   content.value = "";
   runAt.value = defaultRunAt();
   scheduleMode.value = "once";
+  scheduleDetailMode.value = "simple";
+  lastScheduleDetailMode.value = "simple";
   repeatEvery.value = "1";
   repeatUnit.value = "hours";
   endAt.value = "";
+  cronExpression.value = "";
+  cronPeriod.value = "minute";
+  cronErrorText.value = "";
   preservedCronExpression.value = "";
   initialScheduleSnapshot.value = scheduleInputSnapshot();
+  initialFormSnapshot.value = formInputSnapshot();
   errorText.value = "";
 }
 
@@ -303,12 +477,21 @@ function resetFormFromTask(task: TaskEntry) {
   runAt.value = String(task.trigger?.run_at || task.trigger?.next_run_at || "").trim() || defaultRunAt();
   endAt.value = String(task.trigger?.end_at || "").trim();
   preservedCronExpression.value = String(task.trigger?.cron_expression || "").trim();
+  cronExpression.value = preservedCronExpression.value;
+  cronPeriod.value = preservedCronExpression.value
+    ? inferCronPeriodFromExpression(preservedCronExpression.value)
+    : "minute";
+  cronErrorText.value = "";
   const everyMinutes = Number(task.trigger?.every_minutes);
   if (Number.isFinite(everyMinutes) && everyMinutes > 0) {
     scheduleMode.value = "interval";
+    scheduleDetailMode.value = "simple";
+    lastScheduleDetailMode.value = "simple";
     setRepeatFromEveryMinutes(everyMinutes);
   } else if (preservedCronExpression.value) {
     scheduleMode.value = "interval";
+    scheduleDetailMode.value = "advanced";
+    lastScheduleDetailMode.value = "advanced";
     const monthlyInterval = inferMonthlyIntervalFromCronExpression(preservedCronExpression.value);
     if (monthlyInterval) {
       repeatEvery.value = String(monthlyInterval);
@@ -325,10 +508,13 @@ function resetFormFromTask(task: TaskEntry) {
     }
   } else {
     scheduleMode.value = "once";
+    scheduleDetailMode.value = "simple";
+    lastScheduleDetailMode.value = "simple";
     repeatEvery.value = "1";
     repeatUnit.value = "hours";
   }
   initialScheduleSnapshot.value = scheduleInputSnapshot();
+  initialFormSnapshot.value = formInputSnapshot();
   errorText.value = "";
 }
 
@@ -361,6 +547,27 @@ function buildMonthlyCronExpression(runAtDate: Date, repeatEveryValue: number): 
     }
   }
   return `${minute} ${hour} ${day} ${months.sort((left, right) => left - right).join(",")} *`;
+}
+
+function buildSimpleCronExpression(runAtDate: Date, repeatEveryValue: number, unit: RepeatIntervalUnit): string | null {
+  const minute = runAtDate.getMinutes();
+  const hour = runAtDate.getHours();
+  if (unit === "months") {
+    return buildMonthlyCronExpression(runAtDate, repeatEveryValue);
+  }
+  if (unit === "minutes") {
+    if (repeatEveryValue === 1) return "* * * * *";
+    return `*/${repeatEveryValue} * * * *`;
+  }
+  if (unit === "hours") {
+    if (repeatEveryValue === 1) return `${minute} * * * *`;
+    return `${minute} */${repeatEveryValue} * * *`;
+  }
+  if (unit === "days") {
+    if (repeatEveryValue === 1) return `${minute} ${hour} * * *`;
+    return null;
+  }
+  return null;
 }
 
 function setRepeatFromEveryMinutes(value: number) {
@@ -414,10 +621,29 @@ function scheduleInputSnapshot(): string {
   return JSON.stringify({
     runAt: String(runAt.value || "").trim(),
     scheduleMode: scheduleMode.value,
+    scheduleDetailMode: scheduleDetailMode.value,
     repeatEvery: String(repeatEvery.value || "").trim(),
     repeatUnit: repeatUnit.value,
+    cronExpression: String(cronExpression.value || "").trim(),
     endAt: String(endAt.value || "").trim(),
   });
+}
+
+function formInputSnapshot(): string {
+  return JSON.stringify({
+    title: String(title.value || "").trim(),
+    content: String(content.value || "").trim(),
+    schedule: scheduleInputSnapshot(),
+  });
+}
+
+function handleCronError(message: string) {
+  cronErrorText.value = String(message || "").trim();
+}
+
+function syncCronPeriodFromExpression() {
+  const normalizedCron = String(cronExpression.value || "").trim();
+  cronPeriod.value = normalizedCron ? inferCronPeriodFromExpression(normalizedCron) : "minute";
 }
 
 function buildPayload(): TaskCreateInputWire | TaskUpdateInputWire | null {
@@ -459,6 +685,17 @@ function buildPayload(): TaskCreateInputWire | TaskUpdateInputWire | null {
       && initialScheduleSnapshot.value === scheduleInputSnapshot()
     ) {
       trigger.cron_expression = preservedCronExpression.value;
+    } else if (scheduleDetailMode.value === "advanced") {
+      const normalizedCronExpression = String(cronExpression.value || "").trim();
+      if (!normalizedCronExpression) {
+        errorText.value = t("chat.taskCreate.validation.cronRequired");
+        return null;
+      }
+      if (cronErrorText.value) {
+        errorText.value = `${t("chat.taskCreate.validation.cronInvalid")} ${cronErrorText.value}`;
+        return null;
+      }
+      trigger.cron_expression = normalizedCronExpression;
     } else {
       const repeatEveryValue = Number(String(repeatEvery.value || "1").trim() || "1");
       if (!Number.isInteger(repeatEveryValue) || repeatEveryValue <= 0) {
@@ -470,15 +707,23 @@ function buildPayload(): TaskCreateInputWire | TaskUpdateInputWire | null {
           errorText.value = t("chat.taskCreate.validation.monthIntervalInvalid");
           return null;
         }
-        trigger.cron_expression = buildMonthlyCronExpression(runAtDate, repeatEveryValue);
+      }
+      const simpleCronExpression = buildSimpleCronExpression(runAtDate, repeatEveryValue, repeatUnit.value);
+      if (simpleCronExpression) {
+        trigger.cron_expression = simpleCronExpression;
       } else {
-        const unitToMinutes: Record<Exclude<RepeatIntervalUnit, "months">, number> = {
+        const unitToMinutes: Record<"minutes" | "hours" | "days" | "weeks", number> = {
           minutes: 1,
           hours: 60,
           days: 24 * 60,
           weeks: 7 * 24 * 60,
         };
-        trigger.everyMinutes = repeatEveryValue * unitToMinutes[repeatUnit.value];
+        const repeatUnitValue = repeatUnit.value;
+        if (repeatUnitValue === "months") {
+          errorText.value = t("chat.taskCreate.validation.monthIntervalInvalid");
+          return null;
+        }
+        trigger.everyMinutes = repeatEveryValue * unitToMinutes[repeatUnitValue];
       }
     }
 
@@ -684,6 +929,16 @@ function handleClose() {
   emit("close");
 }
 
+function handleRestore() {
+  if (dialogBusy.value || !canRestore.value) return;
+  errorText.value = "";
+  if (isEditMode.value && props.task) {
+    resetFormFromTask(props.task);
+    return;
+  }
+  resetForm();
+}
+
 watch(
   () => props.open,
   async (open) => {
@@ -706,4 +961,77 @@ watch(
     resetFormFromTask(task);
   },
 );
+
+watch(
+  [scheduleMode, scheduleDetailMode, runAt, repeatEvery, repeatUnit],
+  () => {
+    if (scheduleMode.value !== "interval" || scheduleDetailMode.value !== "advanced") return;
+    if (String(cronExpression.value || "").trim()) return;
+    const runAtDate = new Date(String(runAt.value || "").trim());
+    const repeatEveryValue = Number(String(repeatEvery.value || "1").trim() || "1");
+    if (!Number.isFinite(runAtDate.getTime()) || !Number.isInteger(repeatEveryValue) || repeatEveryValue <= 0) {
+      return;
+    }
+    const nextCronExpression = buildSimpleCronExpression(runAtDate, repeatEveryValue, repeatUnit.value);
+    if (nextCronExpression) {
+      cronExpression.value = nextCronExpression;
+    }
+  },
+  { immediate: true },
+);
+
+watch(
+  scheduleDetailMode,
+  (nextMode, prevMode) => {
+    if (nextMode === prevMode) return;
+    if (nextMode !== "simple" || simpleModeAllowed.value) {
+      if (nextMode === "advanced") {
+        syncCronPeriodFromExpression();
+      }
+      lastScheduleDetailMode.value = nextMode;
+      return;
+    }
+    const confirmed = typeof window !== "undefined"
+      ? window.confirm(t("chat.taskCreate.confirmSwitchToSimple"))
+      : false;
+    if (!confirmed) {
+      scheduleDetailMode.value = (prevMode || lastScheduleDetailMode.value || "advanced");
+      return;
+    }
+    cronExpression.value = "";
+    cronErrorText.value = "";
+    preservedCronExpression.value = "";
+    lastScheduleDetailMode.value = "simple";
+  },
+);
+
+watch(
+  () => props.open,
+  (open) => {
+    if (!open || scheduleDetailMode.value !== "advanced") return;
+    syncCronPeriodFromExpression();
+  },
+);
 </script>
+
+<style scoped>
+.cron-light-shell:deep(.cl-btn) {
+  min-height: 2.4rem;
+  border-radius: 0.75rem;
+  border: 1px solid color-mix(in srgb, var(--color-base-content) 14%, transparent);
+  background: var(--color-base-100);
+  padding: 0.35rem 0.75rem;
+}
+
+.cron-light-shell:deep(.cl-menu) {
+  border-radius: 0.9rem;
+  border: 1px solid color-mix(in srgb, var(--color-base-content) 12%, transparent);
+  background: var(--color-base-100);
+}
+
+.cron-light-shell:deep(.cl-col.selected),
+.cron-light-shell:deep(.cl-col.selected:hover) {
+  background: color-mix(in srgb, var(--color-primary) 16%, white);
+  color: var(--color-base-content);
+}
+</style>

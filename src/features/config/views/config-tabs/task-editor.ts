@@ -1,3 +1,5 @@
+import { inferFixedIntervalFromCronExpression } from "../../../chat/utils/task-schedule-cron";
+
 export type TaskFilter = "" | "active" | "completed";
 
 export type TaskTrigger = {
@@ -103,37 +105,15 @@ function inferSupportedIntervalFromCron(cronExpression: string): {
   repeatDays: string;
   repeatHours: string;
 } | null {
-  const normalized = String(cronExpression || "").trim();
-  if (!normalized) return null;
-  let match = normalized.match(/^(\d{1,2}) \* \* \* \*$/);
-  if (match) {
-    return buildIntervalPartsFromHours(1);
-  }
-  match = normalized.match(/^(\d{1,2}) (\d{1,2}) \* \* \*$/);
-  if (match) {
-    return buildIntervalPartsFromHours(HOURS_PER_DAY);
-  }
-  match = normalized.match(/^(\d{1,2}) (\d+(?:,\d+)*) \* \* \*$/);
-  if (!match) {
+  const fixedInterval = inferFixedIntervalFromCronExpression(cronExpression);
+  if (!fixedInterval) return null;
+  if (fixedInterval.repeatUnit === "minutes") {
     return null;
   }
-  const hours = match[2]
-    .split(",")
-    .map((value) => Number.parseInt(value, 10))
-    .filter((value) => Number.isFinite(value))
-    .sort((left, right) => left - right);
-  if (hours.length < 2) {
-    return null;
-  }
-  const diffs = hours.map((value, index) => {
-    const next = index === hours.length - 1 ? hours[0] + HOURS_PER_DAY : hours[index + 1];
-    return next - value;
-  });
-  const firstDiff = diffs[0];
-  if (firstDiff <= 0 || !diffs.every((value) => value === firstDiff)) {
-    return null;
-  }
-  return buildIntervalPartsFromHours(firstDiff);
+  const totalHours = fixedInterval.repeatUnit === "days"
+    ? fixedInterval.repeatEvery * HOURS_PER_DAY
+    : fixedInterval.repeatEvery;
+  return buildIntervalPartsFromHours(totalHours);
 }
 
 export function createEmptyTaskEditorForm(): TaskEditorForm {

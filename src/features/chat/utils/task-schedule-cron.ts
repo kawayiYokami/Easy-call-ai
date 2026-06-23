@@ -5,6 +5,23 @@ export type FixedIntervalFromCron = {
   repeatUnit: FixedIntervalUnit;
 };
 
+export type CronPeriodId = "minute" | "hour" | "day" | "week" | "month" | "year";
+
+function expandSteppedRange(
+  start: number,
+  end: number,
+  step: number,
+): number[] | null {
+  if (!Number.isInteger(start) || !Number.isInteger(end) || !Number.isInteger(step) || step <= 0 || start > end) {
+    return null;
+  }
+  const values: number[] = [];
+  for (let current = start; current <= end; current += step) {
+    values.push(current);
+  }
+  return values.length ? values : null;
+}
+
 function parseSortedUniqueNumericList(
   value: string,
   min: number,
@@ -12,9 +29,41 @@ function parseSortedUniqueNumericList(
 ): number[] | null {
   const normalized = String(value || "").trim();
   if (!normalized) return null;
+  if (normalized === "*") {
+    return expandSteppedRange(min, max, 1);
+  }
   if (/^\d{1,2}$/.test(normalized)) {
     const single = Number.parseInt(normalized, 10);
     return Number.isInteger(single) && single >= min && single <= max ? [single] : null;
+  }
+  const steppedMatch = normalized.match(/^(\*|\d{1,2}|\d{1,2}-\d{1,2})\/(\d{1,2})$/);
+  if (steppedMatch) {
+    const step = Number.parseInt(steppedMatch[2], 10);
+    if (!Number.isInteger(step) || step <= 0) return null;
+    if (steppedMatch[1] === "*") {
+      return expandSteppedRange(min, max, step);
+    }
+    if (/^\d{1,2}$/.test(steppedMatch[1])) {
+      const start = Number.parseInt(steppedMatch[1], 10);
+      if (start < min || start > max) return null;
+      return expandSteppedRange(start, max, step);
+    }
+    const [rawStart, rawEnd] = steppedMatch[1].split("-");
+    const start = Number.parseInt(rawStart, 10);
+    const end = Number.parseInt(rawEnd, 10);
+    if (!Number.isInteger(start) || !Number.isInteger(end) || start < min || end > max) {
+      return null;
+    }
+    return expandSteppedRange(start, end, step);
+  }
+  if (/^\d{1,2}-\d{1,2}$/.test(normalized)) {
+    const [rawStart, rawEnd] = normalized.split("-");
+    const start = Number.parseInt(rawStart, 10);
+    const end = Number.parseInt(rawEnd, 10);
+    if (!Number.isInteger(start) || !Number.isInteger(end) || start < min || end > max) {
+      return null;
+    }
+    return expandSteppedRange(start, end, 1);
   }
   if (!/^\d{1,2}(,\d{1,2})+$/.test(normalized)) {
     return null;
@@ -122,4 +171,42 @@ export function inferMonthlyIntervalFromCronExpression(value: string): number | 
   });
   const firstDiff = diffs[0];
   return firstDiff > 0 && diffs.every((item) => item === firstDiff) ? firstDiff : null;
+}
+
+function isWildcardCronField(value: string): boolean {
+  return String(value || "").trim() === "*";
+}
+
+export function inferCronPeriodFromExpression(value: string): CronPeriodId {
+  const fixedInterval = inferFixedIntervalFromCronExpression(value);
+  if (fixedInterval) {
+    if (fixedInterval.repeatUnit === "minutes") return "minute";
+    if (fixedInterval.repeatUnit === "hours") return "hour";
+    return "day";
+  }
+  if (inferMonthlyIntervalFromCronExpression(value)) {
+    return "month";
+  }
+
+  const parts = String(value || "").trim().split(/\s+/);
+  if (parts.length !== 5) return "year";
+
+  const [minutePart, hourPart, dayOfMonthPart, monthPart, dayOfWeekPart] = parts;
+
+  if (!isWildcardCronField(monthPart)) {
+    return "year";
+  }
+  if (!isWildcardCronField(dayOfMonthPart)) {
+    return "month";
+  }
+  if (!isWildcardCronField(dayOfWeekPart)) {
+    return "week";
+  }
+  if (!isWildcardCronField(hourPart)) {
+    return "day";
+  }
+  if (!isWildcardCronField(minutePart)) {
+    return "hour";
+  }
+  return "minute";
 }

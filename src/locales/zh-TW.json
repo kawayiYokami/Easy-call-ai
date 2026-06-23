@@ -1398,7 +1398,25 @@
       "optimizeFailed": "優化任務內容失敗",
       "titleLabel": "任務標題",
       "titlePlaceholder": "預設使用正文第一行",
+      "scheduleDetailModeLabel": "編輯方式",
+      "scheduleDetailModes": {
+        "simple": "固定間隔",
+        "advanced": "週期計畫"
+      },
+      "cronPeriods": {
+        "minute": "分鐘級",
+        "hour": "小時級",
+        "day": "天級",
+        "week": "週級",
+        "month": "月級",
+        "year": "年級"
+      },
       "intervalLabel": "重複間隔",
+      "cronBuilderLabel": "CRON 產生器",
+      "cronExpressionLabel": "表達式",
+      "cronAdvancedHint": "目前相容固定間隔。",
+      "cronAdvancedLockedHint": "目前狀態切換到固定間隔將會覆蓋週期計畫。",
+      "confirmSwitchToSimple": "切換到簡單模式將清空目前複雜 CRON 規則，是否繼續？",
       "intervalUnits": {
         "minutes": "分鐘",
         "hours": "小時",
@@ -1412,6 +1430,8 @@
         "runAtInvalid": "觸發時間格式無效。",
         "runAtPast": "觸發時間不能早於目前時間。",
         "intervalInvalid": "重複間隔必須是大於 0 的整數。",
+        "cronRequired": "CRON 表達式不能為空。",
+        "cronInvalid": "CRON 表達式無效。",
         "monthIntervalInvalid": "月間隔只支援 1、2、3、4、6、12。",
         "endAtInvalid": "結束時間格式無效。",
         "endAtNotAfterRunAt": "結束時間必須晚於首次觸發時間。",

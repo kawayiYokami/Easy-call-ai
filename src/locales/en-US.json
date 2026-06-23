@@ -1405,7 +1405,25 @@
       "optimizeFailed": "Failed to optimize task content",
       "titleLabel": "Task Title",
       "titlePlaceholder": "Defaults to the first line",
+      "scheduleDetailModeLabel": "Editor",
+      "scheduleDetailModes": {
+        "simple": "Fixed Interval",
+        "advanced": "Schedule Plan"
+      },
+      "cronPeriods": {
+        "minute": "Minute Level",
+        "hour": "Hour Level",
+        "day": "Day Level",
+        "week": "Week Level",
+        "month": "Month Level",
+        "year": "Year Level"
+      },
       "intervalLabel": "Repeat Every",
+      "cronBuilderLabel": "CRON Builder",
+      "cronExpressionLabel": "Expression",
+      "cronAdvancedHint": "Currently compatible with Fixed Interval.",
+      "cronAdvancedLockedHint": "Switching the current schedule to Fixed Interval will overwrite the Schedule Plan.",
+      "confirmSwitchToSimple": "Switching to simple mode will clear the current complex CRON rule. Continue?",
       "intervalUnits": {
         "minutes": "Minutes",
         "hours": "Hours",
@@ -1419,6 +1437,8 @@
         "runAtInvalid": "Trigger time format is invalid.",
         "runAtPast": "Trigger time cannot be earlier than the current time.",
         "intervalInvalid": "Repeat interval must be an integer greater than 0.",
+        "cronRequired": "CRON expression is required.",
+        "cronInvalid": "CRON expression is invalid.",
         "monthIntervalInvalid": "Month interval only supports 1, 2, 3, 4, 6, or 12.",
         "endAtInvalid": "End time format is invalid.",
         "endAtNotAfterRunAt": "End time must be later than the first trigger time.",

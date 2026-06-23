@@ -1394,7 +1394,25 @@
       "optimizeFailed": "优化任务内容失败",
       "titleLabel": "任务标题",
       "titlePlaceholder": "默认使用正文第一行",
+      "scheduleDetailModeLabel": "编辑方式",
+      "scheduleDetailModes": {
+        "simple": "固定间隔",
+        "advanced": "周期计划"
+      },
+      "cronPeriods": {
+        "minute": "分钟级",
+        "hour": "小时级",
+        "day": "天级",
+        "week": "周级",
+        "month": "月级",
+        "year": "年级"
+      },
       "intervalLabel": "重复间隔",
+      "cronBuilderLabel": "CRON 生成器",
+      "cronExpressionLabel": "表达式",
+      "cronAdvancedHint": "当前兼容固定间隔。",
+      "cronAdvancedLockedHint": "当前状态切换到固定间隔将会覆盖周期计划。",
+      "confirmSwitchToSimple": "切换到简单模式将清空当前复杂 CRON 规则，是否继续？",
       "intervalUnits": {
         "minutes": "分钟",
         "hours": "小时",
@@ -1408,6 +1426,8 @@
         "runAtInvalid": "触发时间格式无效。",
         "runAtPast": "触发时间不能早于当前时间。",
         "intervalInvalid": "重复间隔必须是大于 0 的整数。",
+        "cronRequired": "CRON 表达式不能为空。",
+        "cronInvalid": "CRON 表达式无效。",
         "monthIntervalInvalid": "月间隔只支持 1、2、3、4、6、12。",
         "endAtInvalid": "结束时间格式无效。",
         "endAtNotAfterRunAt": "结束时间必须晚于首次触发时间。",
