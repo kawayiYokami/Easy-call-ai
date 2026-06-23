@@ -11,8 +11,89 @@ const STRUCTURED_ERROR_KEYS = [
   "body",
 ] as const;
 
+const HTML_ENTITY_MAP: Record<string, string> = {
+  "&quot;": "\"",
+  "&#39;": "'",
+  "&apos;": "'",
+  "&lt;": "<",
+  "&gt;": ">",
+  "&amp;": "&",
+  "&nbsp;": " ",
+};
+
+function decodeHtmlEntities(value: string): string {
+  return value.replace(/&(quot|#39|apos|lt|gt|amp|nbsp);/g, (entity) => HTML_ENTITY_MAP[entity] || entity);
+}
+
 function cleanErrorText(value: unknown): string {
   return String(value ?? "").trim();
+}
+
+function collapseWhitespace(value: string): string {
+  return cleanErrorText(value).replace(/\s+/g, " ");
+}
+
+function stripHtmlTags(value: string): string {
+  return value.replace(/<[^>]*>/g, " ");
+}
+
+function takePreview(value: string, maxChars: number): string {
+  const normalized = collapseWhitespace(value);
+  if (!normalized) return "";
+  const chars = Array.from(normalized);
+  if (chars.length <= maxChars) return normalized;
+  return `${chars.slice(0, maxChars).join("")}...`;
+}
+
+function looksLikeHtmlErrorPage(value: string): boolean {
+  const text = cleanErrorText(value);
+  if (!text) return false;
+  if (/<\s*html[\s>]/i.test(text) || /<!doctype\s+html/i.test(text)) return true;
+  if (/<\s*(head|body|title|meta|script|style|p|div)[\s>]/i.test(text) && /<\/\s*(html|body|head|title|p|div)\s*>/i.test(text)) {
+    return true;
+  }
+  return false;
+}
+
+function summarizeHtmlErrorPage(value: string): string {
+  const text = cleanErrorText(value);
+  if (!text) return "";
+
+  const titleMatch = text.match(/<title[^>]*>([\s\S]*?)<\/title>/i);
+  const title = takePreview(decodeHtmlEntities(stripHtmlTags(titleMatch?.[1] || "")), 80);
+
+  const bodyText = collapseWhitespace(decodeHtmlEntities(stripHtmlTags(text)));
+  const hints: string[] = [];
+  const lower = bodyText.toLowerCase();
+
+  if (lower.includes("cloudflare")) hints.push("Cloudflare");
+  if (lower.includes("waf")) hints.push("WAF");
+  if (lower.includes("region") || lower.includes("country block")) hints.push("地区限制");
+  if (lower.includes("network unavailable")) hints.push("网络不可用");
+  if (lower.includes("ip-access block") || lower.includes("ip access block") || lower.includes("forbidden")) {
+    hints.push("IP 访问受限");
+  }
+
+  const uniqueHints = hints.filter((item, index) => hints.indexOf(item) === index);
+  const hintText = uniqueHints.length > 0 ? `：${uniqueHints.join(" / ")}` : "";
+  if (title) {
+    return `接口返回了网页错误页（${title}）${hintText}`;
+  }
+
+  const preview = takePreview(bodyText, 120);
+  if (preview) {
+    return `接口返回了网页错误页：${preview}`;
+  }
+  return "接口返回了网页错误页";
+}
+
+function normalizeErrorText(value: string): string {
+  const text = cleanErrorText(value);
+  if (!text) return text;
+  if (looksLikeHtmlErrorPage(text)) {
+    return summarizeHtmlErrorPage(text);
+  }
+  return text;
 }
 
 function isGenericErrorText(value: string): boolean {
@@ -33,6 +114,7 @@ function isGenericErrorText(value: string): boolean {
 function tryParseStructuredErrorString(value: string, depth: number): string {
   const text = cleanErrorText(value);
   if (!text || depth > 4) return text;
+  if (looksLikeHtmlErrorPage(text)) return summarizeHtmlErrorPage(text);
   const first = text[0];
   if (first !== "{" && first !== "[") return text;
   try {
@@ -92,7 +174,7 @@ function toErrorMessageInner(error: unknown, depth: number): string {
 }
 
 export function toErrorMessage(error: unknown): string {
-  return cleanErrorText(toErrorMessageInner(error, 0)) || "unknown";
+  return normalizeErrorText(cleanErrorText(toErrorMessageInner(error, 0))) || "unknown";
 }
 
 function resolveKnownI18nErrorKey(errorMessage: string): string {

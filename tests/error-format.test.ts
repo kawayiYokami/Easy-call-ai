@@ -49,4 +49,12 @@ describe("error formatting", () => {
       "请求过于频繁或额度受限: HTTP 429 rate limit",
     );
   });
+
+  it("summarizes html error pages instead of leaking full page content", () => {
+    const htmlError = `Web stream error for model: <!DOCTYPE html><html><head><meta name="robots" content="noindex"><title>暂时无法访问 · evomap.ai</title></head><body><p>Cloudflare block page</p><p>REGION / NETWORK unavailable</p><p>Cloudflare WAF / IP-Access block</p></body></html>`;
+
+    expect(toErrorMessage(htmlError)).toBe(
+      "接口返回了网页错误页（暂时无法访问 · evomap.ai）：Cloudflare / WAF / 地区限制 / 网络不可用 / IP 访问受限",
+    );
+  });
 });

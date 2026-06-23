@@ -192,14 +192,14 @@
 
         <div ref="composerContainer" class="relative shrink-0 border-t border-base-300 bg-base-100 px-2 pt-2 pb-1.5">
           <div v-if="chatStatusBanner" class="absolute inset-x-0 top-0 z-10 -translate-y-full">
-            <div class="relative flex w-full items-center justify-center gap-2 rounded-none px-4 py-1.5 text-center text-[12px] backdrop-blur-md"
+            <div class="relative max-h-32 w-full overflow-y-auto rounded-none px-4 py-1.5 text-center text-[12px] backdrop-blur-md"
               :class="chatStatusBanner.tone === 'error' ? 'bg-error/12 text-error' : chatStatusBanner.text === t('chat.statusCompactingContext') ? 'bg-info/12 text-info' : 'bg-base-200/75 text-base-content'">
-              <span class="relative z-1" :class="chatStatusBanner.tone === 'error' ? '' : 'text-base-content/80 ecall-shimmer-text ecall-reasoning-shimmer'"
+              <span class="relative z-1 block px-8 whitespace-pre-wrap break-all" :class="chatStatusBanner.tone === 'error' ? '' : 'text-base-content/80 ecall-shimmer-text ecall-reasoning-shimmer'"
                 :data-shimmer-text="chatStatusBanner.tone === 'error' ? '' : chatStatusBanner.text">{{ chatStatusBanner.text }}</span>
               <button
                 v-if="chatStatusBanner.tone === 'error'"
                 type="button"
-                class="btn btn-ghost btn-xs h-5 min-h-5 w-5 shrink-0 p-0 text-error hover:bg-error/15"
+                class="btn btn-ghost btn-xs absolute right-2 top-1 h-5 min-h-5 w-5 p-0 text-error hover:bg-error/15"
                 :title="t('common.close')"
                 @click="$emit('clearChatError')"
               >
