@@ -366,6 +366,8 @@ struct ToolReviewItemSummary {
     tool_name: String,
     order_index: usize,
     has_review: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    review_opinion: Option<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     affected_paths: Vec<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -604,13 +606,53 @@ fn tool_review_prefixed_preview_lines(prefix: &str, text: &str) -> Vec<String> {
         .collect()
 }
 
-fn tool_review_patch_operations_preview(args: &Value) -> Option<String> {
+fn tool_review_patch_line_ranges_from_changed_entry(entry: &Value) -> Vec<(usize, usize)> {
+    entry
+        .get("lineRanges")
+        .and_then(Value::as_array)
+        .map(|ranges| {
+            ranges
+                .iter()
+                .filter_map(|range| {
+                    let start = range.get("start")?.as_u64()? as usize;
+                    let end = range.get("end")?.as_u64()? as usize;
+                    Some((start, end))
+                })
+                .collect::<Vec<_>>()
+        })
+        .filter(|ranges| !ranges.is_empty())
+        .or_else(|| {
+            let start = entry.get("lineStart")?.as_u64()? as usize;
+            let end = entry
+                .get("lineEnd")
+                .and_then(Value::as_u64)
+                .map(|value| value as usize)
+                .unwrap_or(start);
+            Some(vec![(start, end)])
+        })
+        .unwrap_or_default()
+}
+
+fn tool_review_patch_line_header(changed_entry: Option<&Value>) -> Option<String> {
+    let ranges = changed_entry
+        .map(tool_review_patch_line_ranges_from_changed_entry)
+        .unwrap_or_default();
+    if ranges.is_empty() {
+        return None;
+    }
+    let formatted = ranges
+        .into_iter()
+        .map(apply_patch_format_line_range)
+        .collect::<Vec<_>>()
+        .join(", ");
+    Some(format!("@@ {formatted} @@"))
+}
+
+fn tool_review_patch_operations_preview(args: &Value, changed_entries: Option<&[Value]>) -> Option<String> {
     let operations = args.get("operations")?.as_array()?;
-    let mut lines = vec!["*** Begin Patch".to_string()];
-    for operation in operations {
+    let mut lines = Vec::<String>::new();
+    for (index, operation) in operations.iter().enumerate() {
         let action = tool_review_json_string_field(operation, "action").unwrap_or("");
-        let path = tool_review_json_string_field(operation, "path").unwrap_or("");
-        let to = tool_review_json_string_field(operation, "to").unwrap_or("");
         let old_string = tool_review_json_string_field(operation, "old_string")
             .or_else(|| tool_review_json_string_field(operation, "oldString"))
             .unwrap_or("");
@@ -620,28 +662,25 @@ fn tool_review_patch_operations_preview(args: &Value) -> Option<String> {
         let content = tool_review_json_string_field(operation, "content").unwrap_or("");
         match action {
             "add" => {
-                lines.push(format!("*** Add File: {path}"));
                 lines.extend(tool_review_prefixed_preview_lines("+", content));
             }
-            "delete" => lines.push(format!("*** Delete File: {path}")),
-            "move" => {
-                lines.push(format!("*** Update File: {path}"));
-                lines.push(format!("*** Move to: {to}"));
-            }
+            "delete" => {}
+            "move" => {}
             _ => {
-                lines.push(format!("*** Update File: {path}"));
+                if let Some(header) = tool_review_patch_line_header(changed_entries.and_then(|entries| entries.get(index))) {
+                    lines.push(header);
+                }
                 lines.extend(tool_review_prefixed_preview_lines("-", old_string));
                 lines.extend(tool_review_prefixed_preview_lines("+", new_string));
             }
         }
     }
-    lines.push("*** End Patch".to_string());
-    Some(lines.join("\n"))
+    (!lines.is_empty()).then(|| lines.join("\n"))
 }
 
-fn tool_review_single_edit_preview(tool_name: &str, args: &Value) -> Option<String> {
-    let path = tool_review_json_string_field(args, "path")?;
-    let mut lines = vec!["*** Begin Patch".to_string()];
+fn tool_review_single_edit_preview(tool_name: &str, args: &Value, changed_entry: Option<&Value>) -> Option<String> {
+    let _path = tool_review_json_string_field(args, "path")?;
+    let mut lines = Vec::<String>::new();
     match tool_name {
         "write" => {
             let content = tool_review_json_string_field(args, "content").unwrap_or("");
@@ -649,22 +688,19 @@ fn tool_review_single_edit_preview(tool_name: &str, args: &Value) -> Option<Stri
                 .get("overwrite")
                 .and_then(Value::as_bool)
                 .unwrap_or(false);
+            if overwrite && changed_entry.is_some() {
+                if let Some(header) = tool_review_patch_line_header(changed_entry) {
+                    lines.push(header);
+                }
+            }
             if overwrite {
-                lines.push(format!("*** Update File: {path}"));
                 lines.extend(tool_review_prefixed_preview_lines("+", content));
             } else {
-                lines.push(format!("*** Add File: {path}"));
                 lines.extend(tool_review_prefixed_preview_lines("+", content));
             }
         }
-        "delete" => {
-            lines.push(format!("*** Delete File: {path}"));
-        }
-        "move" => {
-            let to = tool_review_json_string_field(args, "to").unwrap_or("");
-            lines.push(format!("*** Update File: {path}"));
-            lines.push(format!("*** Move to: {to}"));
-        }
+        "delete" => {}
+        "move" => {}
         "update" => {
             let old_string = tool_review_json_string_field(args, "old_string")
                 .or_else(|| tool_review_json_string_field(args, "oldString"))
@@ -672,23 +708,33 @@ fn tool_review_single_edit_preview(tool_name: &str, args: &Value) -> Option<Stri
             let new_string = tool_review_json_string_field(args, "new_string")
                 .or_else(|| tool_review_json_string_field(args, "newString"))
                 .unwrap_or("");
-            lines.push(format!("*** Update File: {path}"));
+            if let Some(header) = tool_review_patch_line_header(changed_entry) {
+                lines.push(header);
+            }
             lines.extend(tool_review_prefixed_preview_lines("-", old_string));
             lines.extend(tool_review_prefixed_preview_lines("+", new_string));
         }
         _ => return None,
     }
-    lines.push("*** End Patch".to_string());
-    Some(lines.join("\n"))
+    (!lines.is_empty()).then(|| lines.join("\n"))
 }
 
 fn tool_review_preview_for_item(item: &ToolReviewCollectedItem) -> (String, String) {
     match item.tool_name.as_str() {
         "apply_patch" | "write" | "delete" | "update" | "move" => {
-            if let Some(preview) = tool_review_patch_operations_preview(&item.args_value) {
+            let changed_entries = item
+                .result_value
+                .as_ref()
+                .and_then(|value| value.get("changed"))
+                .and_then(Value::as_array);
+            if let Some(preview) = tool_review_patch_operations_preview(&item.args_value, changed_entries.map(|items| items.as_slice())) {
                 return ("patch".to_string(), preview);
             }
-            if let Some(preview) = tool_review_single_edit_preview(&item.tool_name, &item.args_value) {
+            if let Some(preview) = tool_review_single_edit_preview(
+                &item.tool_name,
+                &item.args_value,
+                changed_entries.and_then(|entries| entries.first()),
+            ) {
                 return ("patch".to_string(), preview);
             }
             let preview = tool_review_json_string_field(&item.args_value, "input")
@@ -856,6 +902,12 @@ fn tool_review_batch_summary_from_collected(batch: &ToolReviewCollectedBatch) ->
                 tool_name: item.tool_name.clone(),
                 order_index: item.order_index,
                 has_review: item.review_value.is_some(),
+                review_opinion: item
+                    .review_value
+                    .as_ref()
+                    .and_then(tool_review_value_to_stored_review)
+                    .map(|review| review.review_opinion)
+                    .filter(|value| !value.trim().is_empty()),
                 affected_paths: if matches!(item.tool_name.as_str(), "apply_patch" | "write" | "delete" | "update" | "move") {
                     tool_review_patch_paths_for_item(item)
                 } else {
@@ -2143,6 +2195,48 @@ mod tool_review_tests {
         assert_eq!(context["operations"][0]["action"], "update");
         assert_eq!(context["operations"][0]["old_preview"], "let value = ;");
         assert_eq!(context["operations"][0]["new_preview"], "let value = 1;");
+    }
+
+    #[test]
+    fn tool_review_apply_patch_preview_should_include_persisted_line_header() {
+        let args_value = serde_json::json!({
+            "operations": [
+                {
+                    "action": "update",
+                    "path": "E:/github/easy_call_ai/src/main.rs",
+                    "old_string": "let value = ;",
+                    "new_string": "let value = 1;",
+                    "replace_all": false
+                }
+            ]
+        });
+        let item = ToolReviewCollectedItem {
+            batch_key: "batch-1".to_string(),
+            call_id: "call-1".to_string(),
+            message_id: "message-1".to_string(),
+            tool_name: "apply_patch".to_string(),
+            order_index: 0,
+            args_text: args_value.to_string(),
+            args_value,
+            result_text: "{}".to_string(),
+            result_value: Some(serde_json::json!({
+                "ok": true,
+                "changed": [
+                    {
+                        "op": "update",
+                        "path": "E:/github/easy_call_ai/src/main.rs",
+                        "lineStart": 42,
+                        "lineEnd": 42,
+                        "lineRanges": [{ "start": 42, "end": 42 }]
+                    }
+                ]
+            })),
+            review_value: None,
+        };
+
+        let (_, preview_text) = tool_review_preview_for_item(&item);
+
+        assert!(preview_text.contains("@@ line 42 @@"));
     }
 
     #[test]

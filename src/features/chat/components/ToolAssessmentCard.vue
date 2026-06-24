@@ -29,7 +29,9 @@
     :show-preview="!!detail"
     :preview-mode="detail?.previewKind === 'patch' ? 'patch' : 'plain'"
     :preview-text="detail ? detail.previewText || detail.resultText : ''"
-    :raw-review="detail?.review?.rawContent || ''"
+    :review-opinion="dialogReviewOpinion"
+    :review-allow="detail?.review?.allow"
+    :review-model-name="detail?.review?.modelName || ''"
     :is-dark="isDark"
   />
 </template>
@@ -88,9 +90,13 @@ const title = computed(() => {
 const reviewOpinionText = computed(() => {
   const direct = props.detail?.review?.reviewOpinion;
   if (direct && direct.trim()) return direct;
+  const summaryOpinion = String(props.item.reviewOpinion || "").trim();
+  if (summaryOpinion) return summaryOpinion;
   if (props.item.hasReview && !props.detail) return t("chat.toolReview.evaluated");
   return props.item.hasReview ? t("chat.toolReview.reviewUnavailable") : t("chat.toolReview.unevaluated");
 });
+
+const dialogReviewOpinion = computed(() => String(props.detail?.review?.reviewOpinion || props.item.reviewOpinion || "").trim());
 
 watch(() => props.detail, (detail) => {
   if (!pendingOpen.value || !detail) return;

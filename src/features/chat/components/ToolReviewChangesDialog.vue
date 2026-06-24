@@ -15,18 +15,26 @@
         </button>
       </div>
       <div class="flex h-[calc(90vh-61px)] min-h-0 flex-col overflow-hidden">
+        <div v-if="reviewOpinion || reviewModelName || typeof reviewAllow === 'boolean'" class="shrink-0 border-b border-base-300 px-4 py-3">
+          <div class="flex flex-wrap items-center gap-2 text-xs text-base-content/65">
+            <span
+              v-if="typeof reviewAllow === 'boolean'"
+              class="badge badge-sm"
+              :class="reviewAllow ? 'badge-success' : 'badge-error'"
+            >
+              {{ reviewAllow ? t("chat.toolReview.allowed") : t("chat.toolReview.blocked") }}
+            </span>
+            <span v-if="reviewModelName">{{ reviewModelName }}</span>
+          </div>
+          <div v-if="reviewOpinion" class="mt-2 whitespace-pre-wrap text-sm leading-6 text-base-content/80">
+            {{ reviewOpinion }}
+          </div>
+        </div>
         <ToolReviewCodePreview
           v-if="showPreview"
           :mode="previewMode"
           :title="previewMode === 'patch' ? '' : t('chat.toolReview.commandPreview')"
           :code="previewText"
-          :is-dark="isDark"
-        />
-        <ToolReviewCodePreview
-          v-if="rawReview"
-          mode="plain"
-          :title="t('chat.toolReview.rawReview')"
-          :code="rawReview"
           :is-dark="isDark"
         />
       </div>
@@ -48,10 +56,14 @@ withDefaults(defineProps<{
   showPreview: boolean;
   previewMode: "plain" | "patch";
   previewText: string;
-  rawReview?: string;
+  reviewOpinion?: string;
+  reviewAllow?: boolean;
+  reviewModelName?: string;
   isDark?: boolean;
 }>(), {
-  rawReview: "",
+  reviewOpinion: "",
+  reviewAllow: undefined,
+  reviewModelName: "",
   isDark: false,
 });
 

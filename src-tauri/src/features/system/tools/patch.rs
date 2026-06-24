@@ -85,6 +85,12 @@ struct ApplyPatchExecutionOutcome {
     failure: Option<ApplyPatchExecutionFailure>,
 }
 
+#[derive(Debug, Clone)]
+struct ApplyPatchUpdateResult {
+    content: String,
+    match_line_ranges: Vec<(usize, usize)>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 enum ApplyPatchBackupKind {
@@ -256,8 +262,12 @@ fn apply_patch_prepare_backup_entry(
             let old_content = decode_text_file_bytes(&raw)
                 .map_err(|err| format!("Update 操作失败，{}：{}", err, from.to_string_lossy()))?
                 .text;
-            let new_content =
-                apply_patch_apply_update_with_line_ending_fallback(&old_content, old_string, new_string, *replace_all)?;
+            let new_content = apply_patch_apply_update_with_line_ending_fallback(
+                &old_content,
+                old_string,
+                new_string,
+                *replace_all,
+            )?;
             let blob_file = format!("{}.bin", Uuid::new_v4());
             std::fs::write(apply_patch_blob_path(data_path, &blob_file), raw)
                 .map_err(|err| format!("写入修改备份失败（{}）：{err}", from.to_string_lossy()))?;
@@ -270,7 +280,7 @@ fn apply_patch_prepare_backup_entry(
                 path: to.as_ref().unwrap_or(from).to_string_lossy().to_string(),
                 from_path: to.as_ref().map(|_| from.to_string_lossy().to_string()),
                 to_path: to.as_ref().map(|dest| dest.to_string_lossy().to_string()),
-                expected_current_content: Some(new_content),
+                expected_current_content: Some(new_content.content),
                 backup_blob_file: Some(blob_file),
             })
         }
@@ -841,9 +851,12 @@ fn apply_patch_apply_update(
     old_string: &str,
     new_string: &str,
     replace_all: bool,
-) -> Result<String, String> {
+) -> Result<ApplyPatchUpdateResult, String> {
     if old_string.is_empty() {
-        return Ok(new_string.to_string());
+        return Ok(ApplyPatchUpdateResult {
+            content: new_string.to_string(),
+            match_line_ranges: Vec::new(),
+        });
     }
     let old_preview = apply_patch_preview_text(old_string, 300);
     if !content.contains(old_string) {
@@ -887,6 +900,7 @@ fn apply_patch_apply_update(
             ));
         }
     }
+    let match_line_ranges = apply_patch_exact_match_ranges(content, old_string);
     let result = if replace_all {
         content.replace(old_string, new_string)
     } else {
@@ -895,7 +909,10 @@ fn apply_patch_apply_update(
     if result == content {
         return Err("apply_patch update 失败：替换后文件内容未变化。".to_string());
     }
-    Ok(result)
+    Ok(ApplyPatchUpdateResult {
+        content: result,
+        match_line_ranges,
+    })
 }
 
 fn apply_patch_apply_update_with_line_ending_fallback(
@@ -903,7 +920,7 @@ fn apply_patch_apply_update_with_line_ending_fallback(
     old_string: &str,
     new_string: &str,
     replace_all: bool,
-) -> Result<String, String> {
+) -> Result<ApplyPatchUpdateResult, String> {
     match apply_patch_apply_update(content, old_string, new_string, replace_all) {
         Ok(value) => Ok(value),
         Err(original_err) => {
@@ -913,7 +930,10 @@ fn apply_patch_apply_update_with_line_ending_fallback(
                 return Err(original_err);
             };
             apply_patch_apply_update(&normalized_content, &normalized_old, &normalized_new, replace_all)
-                .map(|value| apply_patch_normalized_lf_to_newline(&value, newline))
+                .map(|value| ApplyPatchUpdateResult {
+                    content: apply_patch_normalized_lf_to_newline(&value.content, newline),
+                    match_line_ranges: value.match_line_ranges,
+                })
                 .map_err(|_| original_err)
         }
     }
@@ -1241,15 +1261,30 @@ async fn apply_patch_execute_single_op(op: &ApplyPatchResolvedOp) -> Result<Valu
                 .map_err(|_| format!("Update 操作失败，文件不存在：{}", from.to_string_lossy()))?;
             let decoded = decode_text_file_bytes(&raw)
                 .map_err(|err| format!("Update 操作失败，{}：{}", err, from.to_string_lossy()))?;
-            let new_content =
-                apply_patch_apply_update_with_line_ending_fallback(&decoded.text, old_string, new_string, *replace_all)?;
+            let update_result = apply_patch_apply_update_with_line_ending_fallback(
+                &decoded.text,
+                old_string,
+                new_string,
+                *replace_all,
+            )?;
             let encoded = decoded
-                .encode_like_original(&new_content)
+                .encode_like_original(&update_result.content)
                 .map_err(|err| format!("Update 操作失败，{}：{}", err, from.to_string_lossy()))?;
             tokio::fs::write(from, encoded)
                 .await
                 .map_err(|err| format!("更新文件失败（{}）：{err}", from.to_string_lossy()))?;
-            Ok(serde_json::json!({ "op": "update", "path": terminal_path_for_user(from) }))
+            Ok(serde_json::json!({
+                "op": "update",
+                "path": terminal_path_for_user(from),
+                "matchCount": update_result.match_line_ranges.len(),
+                "lineStart": update_result.match_line_ranges.first().map(|(start, _)| *start),
+                "lineEnd": update_result.match_line_ranges.first().map(|(_, end)| *end),
+                "lineRanges": update_result
+                    .match_line_ranges
+                    .iter()
+                    .map(|(start, end)| serde_json::json!({ "start": start, "end": end }))
+                    .collect::<Vec<_>>(),
+            }))
         }
     }
 }
@@ -1918,14 +1953,16 @@ mod apply_patch_tool_tests {
     #[test]
     fn apply_update_should_replace_single_occurrence() {
         let updated = apply_patch_apply_update("a\nb\nc\n", "b", "B", false).expect("apply");
-        assert_eq!(updated, "a\nB\nc\n");
+        assert_eq!(updated.content, "a\nB\nc\n");
+        assert_eq!(updated.match_line_ranges, vec![(2, 2)]);
     }
 
     #[test]
     fn apply_update_should_return_new_string_when_old_string_is_empty() {
         let updated = apply_patch_apply_update("ignored", "", "new content\n", false)
             .expect("empty old_string should succeed");
-        assert_eq!(updated, "new content\n");
+        assert_eq!(updated.content, "new content\n");
+        assert!(updated.match_line_ranges.is_empty());
     }
 
     #[test]
@@ -1983,7 +2020,8 @@ mod apply_patch_tool_tests {
     fn apply_update_should_replace_all() {
         let updated = apply_patch_apply_update("target\nkeep\ntarget\nkeep\n", "target", "changed", true)
             .expect("replace_all apply");
-        assert_eq!(updated, "changed\nkeep\nchanged\nkeep\n");
+        assert_eq!(updated.content, "changed\nkeep\nchanged\nkeep\n");
+        assert_eq!(updated.match_line_ranges, vec![(1, 1), (3, 3)]);
     }
 
     #[test]
@@ -1995,7 +2033,8 @@ mod apply_patch_tool_tests {
             false,
         )
         .expect("line ending fallback should apply");
-        assert_eq!(updated, "a\r\nnew\r\nvalue\r\nc\r\n");
+        assert_eq!(updated.content, "a\r\nnew\r\nvalue\r\nc\r\n");
+        assert_eq!(updated.match_line_ranges, vec![(2, 3)]);
     }
 
     #[test]
@@ -2007,7 +2046,8 @@ mod apply_patch_tool_tests {
             false,
         )
         .expect("line ending fallback should apply");
-        assert_eq!(updated, "a\nnew\nvalue\nc\n");
+        assert_eq!(updated.content, "a\nnew\nvalue\nc\n");
+        assert_eq!(updated.match_line_ranges, vec![(2, 3)]);
     }
 
     #[tokio::test]
@@ -2046,6 +2086,10 @@ mod apply_patch_tool_tests {
         assert_eq!(std::fs::read_to_string(&first).expect("read first"), "new\n");
         assert_eq!(std::fs::read_to_string(&second).expect("read second"), "still old\n");
         assert_eq!(outcome.changed.len(), 1);
+        assert_eq!(outcome.changed[0]["lineStart"], 1);
+        assert_eq!(outcome.changed[0]["lineEnd"], 1);
+        assert_eq!(outcome.changed[0]["lineRanges"][0]["start"], 1);
+        assert_eq!(outcome.changed[0]["lineRanges"][0]["end"], 1);
         assert_eq!(record.entries.len(), 1);
         let failure = outcome.failure.expect("second op should fail");
         assert_eq!(failure.index, 1);

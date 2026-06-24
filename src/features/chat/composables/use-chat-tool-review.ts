@@ -14,6 +14,7 @@ export type ToolReviewItemSummary = {
   toolName: string;
   orderIndex: number;
   hasReview: boolean;
+  reviewOpinion?: string;
   affectedPaths?: string[];
   patchOperation?: "add" | "update" | "delete" | "mixed" | string;
   command?: string;
