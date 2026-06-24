@@ -164,6 +164,7 @@
       :error-text="codeReviewErrorText"
       :current-department-id="activeDepartmentId"
       :department-options="createConversationDepartmentOptions"
+      :persona-avatar-url-map="sidebarPersonaAvatarUrlMap"
       :commit-options="commitOptions"
       :commit-options-loading="commitOptionsLoading"
       :commit-total="commitTotal"

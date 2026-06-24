@@ -294,6 +294,7 @@
           :error-text="codeReviewErrorText"
           :current-department-id="props.currentDepartmentId"
           :department-options="props.createConversationDepartmentOptions"
+          :persona-avatar-url-map="props.personaAvatarUrlMap"
           :commit-options="commitOptions"
           :commit-options-loading="commitOptionsLoading"
           :commit-total="commitTotal"

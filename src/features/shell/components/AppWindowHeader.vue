@@ -287,8 +287,8 @@
     </div>
   </div>
 
-  <dialog v-if="viewMode === 'chat'" class="modal" :class="{ 'modal-open': createConversationDialogOpen }">
-    <div class="modal-box max-w-lg">
+  <dialog v-if="viewMode === 'chat'" class="modal !items-start pt-[8vh]" :class="{ 'modal-open': createConversationDialogOpen }">
+    <div class="modal-box mx-auto max-w-lg overflow-visible">
       <div class="flex items-center justify-between gap-3">
         <h3 class="text-base font-semibold">{{ t("chat.newConversation") }}</h3>
         <button
@@ -332,13 +332,12 @@
             </div>
           </div>
         </div>
-        <AgentSelector
+        <DepartmentPersonaSelect
           v-model:department-id="createConversationDepartmentId"
           v-model:agent-id="createConversationAgentId"
-          v-model:api-config-id="createConversationApiConfigId"
           :options="createConversationDepartmentOptions"
           :persona-avatar-url-map="personaAvatarUrlMap"
-          :api-configs="apiConfigs"
+          :show-model="false"
           auto-select-first
         />
         <div class="grid grid-cols-[minmax(0,1fr)_5rem] gap-2">
@@ -478,7 +477,7 @@ import { buildWorkspaceConversationSections } from "../../chat/utils/conversatio
 import { resolveConversationDisplayTitle } from "../../chat/utils/conversation-title";
 import { AppMarkdownRenderer, initKatex } from "../../chat/markdown";
 import type { ConfigSearchResult, ConfigSearchTab } from "../../config/search/config-search";
-import AgentSelector from "../../shared/components/AgentSelector.vue";
+import DepartmentPersonaSelect from "../../shared/components/DepartmentPersonaSelect.vue";
 import WorkspaceDirectoryPickerDialog from "../../shared/components/WorkspaceDirectoryPickerDialog.vue";
 import type { DepartmentPersonaOption } from "../../shared/department-persona-options";
 import { isDarkAppTheme } from "../composables/use-app-theme";
@@ -706,7 +705,6 @@ const createConversationDialogOpen = ref(false);
 const createConversationTitle = ref("");
 const createConversationDepartmentId = ref("");
 const createConversationAgentId = ref("");
-const createConversationApiConfigId = ref("");
 const createConversationTopicSuggestionsOpen = ref(false);
 const suppressNextCreateConversationTopicFocus = ref(false);
 const createConversationWorkspacePath = ref("");

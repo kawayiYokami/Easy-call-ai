@@ -549,16 +549,18 @@
             <ul class="list gap-2">
               <li class="list-row flex items-start justify-between gap-3">
                 <div class="font-medium">{{ t("config.remoteIm.processingDepartment") }}</div>
-                <div class="flex w-64 flex-col gap-1">
+                <div class="flex w-[28rem] max-w-full flex-col gap-1">
                   <DepartmentPersonaSelect
                     v-model:department-id="contactDraft.boundDepartmentId"
                     v-model:agent-id="contactDraft.boundAgentId"
                     :departments="config.departments"
                     :personas="personas"
+                    :persona-avatar-url-map="personaAvatarUrlMap"
                     :api-configs="config.apiConfigs"
                     :assistant-department-api-config-id="config.assistantDepartmentApiConfigId"
                     :tool-review-api-config-id="config.toolReviewApiConfigId"
                     :placeholder="t('config.department.assistantBadge')"
+                    :show-model="false"
                     :disabled="contactsDisabled"
                   />
                   <span class="text-[11px] opacity-60">{{ contactDraftRoutingHint }}</span>
@@ -828,6 +830,7 @@ import {
 const props = defineProps<{
   config: AppConfig;
   personas: PersonaProfile[];
+  personaAvatarUrlMap: Record<string, string>;
   saveConfigAction: () => Promise<boolean> | boolean;
   setStatusAction: (text: string) => void;
 }>();

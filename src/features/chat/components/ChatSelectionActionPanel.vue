@@ -86,6 +86,7 @@
         v-model:agent-id="selectionDelegateAgentId"
         class="mt-3"
         :options="delegateDepartmentOptions"
+        :persona-avatar-url-map="personaAvatarUrlMap"
         auto-select-first
       />
       <label class="form-control mt-3">
@@ -157,6 +158,7 @@ const props = defineProps<{
   unarchivedConversationItems: ChatConversationOverviewItem[];
   remoteImContactConversations: RemoteImContactConversationOption[];
   createConversationDepartmentOptions: ConversationDepartmentOption[];
+  personaAvatarUrlMap?: Record<string, string>;
 }>();
 
 const emit = defineEmits<{

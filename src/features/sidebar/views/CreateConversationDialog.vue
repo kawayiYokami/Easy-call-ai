@@ -1,6 +1,6 @@
 <template>
-  <dialog class="modal" :class="{ 'modal-open': open }">
-    <div class="modal-box max-w-md">
+  <dialog class="modal !items-start pt-[8vh]" :class="{ 'modal-open': open }">
+    <div class="modal-box mx-auto max-w-md overflow-visible">
       <h3 class="text-base font-semibold">新建会话</h3>
       <div class="mt-3 flex flex-col gap-3">
         <input
@@ -10,7 +10,7 @@
           placeholder="会话主题"
           @keydown.enter.prevent="confirm"
         />
-        <AgentSelector
+        <DepartmentPersonaSelect
           v-model:department-id="localDepartmentId"
           v-model:agent-id="localAgentId"
           :options="departments"
@@ -37,7 +37,7 @@
 
 <script setup lang="ts">
 import { ref, watch } from "vue";
-import AgentSelector from "../../shared/components/AgentSelector.vue";
+import DepartmentPersonaSelect from "../../shared/components/DepartmentPersonaSelect.vue";
 import type { DepartmentPersonaOption } from "../../shared/department-persona-options";
 
 export type SidebarCreateDepartmentOption = DepartmentPersonaOption;

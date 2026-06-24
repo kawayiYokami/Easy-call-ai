@@ -1,24 +1,130 @@
 <template>
-  <select
-    class="select select-bordered w-full"
-    :value="selectedValue"
-    :disabled="disabled || normalizedOptions.length === 0"
-    @change="handleChange"
-  >
-    <option v-if="placeholder" value="">{{ placeholder }}</option>
-    <option
-      v-for="option in normalizedOptions"
-      :key="option.id"
-      :value="option.id"
-    >
-      {{ optionLabel(option) }}
-    </option>
-  </select>
+  <div class="flex flex-col gap-2">
+    <div ref="rootRef" class="relative">
+      <button
+        type="button"
+        class="select select-bordered flex w-full items-center justify-between gap-2 pr-3 text-left"
+        :disabled="disabled || normalizedOptions.length === 0"
+        @click="toggleOpen"
+      >
+        <div class="flex min-w-0 flex-1 items-center gap-2">
+          <div
+            v-if="selectedOption"
+            class="avatar shrink-0"
+          >
+            <div class="h-7 w-7 rounded-full">
+              <img
+                v-if="resolveAvatarUrl(selectedOption.agentId)"
+                :src="resolveAvatarUrl(selectedOption.agentId)"
+                :alt="selectedOption.agentName"
+                class="h-7 w-7 rounded-full object-cover"
+              />
+              <div
+                v-else
+                class="flex h-7 w-7 items-center justify-center rounded-full bg-primary text-xs font-semibold text-primary-content"
+              >
+                {{ agentInitials(selectedOption.agentName) }}
+              </div>
+            </div>
+          </div>
+          <span class="min-w-0 flex-1 truncate" :class="selectedOption ? '' : 'text-base-content/50'">
+            {{ selectedSummaryLabel }}
+          </span>
+        </div>
+        <ChevronDown class="h-4 w-4 shrink-0 opacity-70 transition-transform" :class="dropdownOpen ? 'rotate-180' : ''" />
+      </button>
+
+      <div
+        v-if="dropdownOpen && !disabled && (normalizedOptions.length > 0 || placeholder)"
+        ref="dropdownPanelRef"
+        class="absolute z-50 w-full overflow-hidden rounded-box border border-base-300 bg-base-100 shadow-xl"
+        :class="dropdownDirection === 'up' ? 'bottom-full mb-2' : 'top-full mt-2'"
+      >
+        <div>
+          <button
+            v-if="placeholder"
+            type="button"
+            class="flex w-full items-center rounded-none px-3 py-2 text-left text-sm transition-colors hover:bg-base-200"
+            :class="!selectedOption ? 'bg-base-200 font-medium' : ''"
+            @click="clearSelection"
+          >
+            <span class="truncate">{{ placeholder }}</span>
+          </button>
+
+          <div class="min-h-0" :style="{ height: `${dropdownBodyHeight}px` }">
+            <ChatConversationFloatingScroll class="h-full">
+              <div ref="dropdownContentRef" class="flex flex-wrap gap-x-2 gap-y-4 p-4">
+                <div
+                  v-for="group in departmentGroups"
+                  :key="group.departmentId"
+                  class="relative shrink-0 min-w-max flex flex-col gap-1 rounded-xl border-x border-t border-base-300 bg-base-100 p-2 transition-colors"
+                >
+                  <div class="absolute -top-2.5 left-1/2 -translate-x-1/2 whitespace-nowrap bg-base-100 px-2 text-center text-xs font-semibold text-base-content/70">
+                    {{ group.departmentName }}
+                  </div>
+                  <div class="flex flex-wrap justify-center gap-1">
+                    <button
+                      v-for="option in group.agents"
+                      :key="option.id"
+                      type="button"
+                      class="flex w-20 flex-col items-center gap-1 rounded-lg px-1 py-1 transition-colors hover:bg-base-200"
+                      :class="selectedValue === option.id ? 'bg-primary/10' : ''"
+                      @click="selectOption(option)"
+                    >
+                      <div class="avatar">
+                        <div
+                          class="h-10 w-10 rounded-full transition-shadow"
+                          :class="selectedValue === option.id ? 'ring-2 ring-primary ring-offset-1 ring-offset-base-100' : ''"
+                        >
+                          <img
+                            v-if="resolveAvatarUrl(option.agentId)"
+                            :src="resolveAvatarUrl(option.agentId)"
+                            :alt="option.agentName"
+                            class="h-10 w-10 rounded-full object-cover"
+                          />
+                          <div
+                            v-else
+                            class="flex h-10 w-10 items-center justify-center rounded-full bg-primary text-sm font-semibold text-primary-content"
+                          >
+                            {{ agentInitials(option.agentName) }}
+                          </div>
+                        </div>
+                      </div>
+                      <span class="max-w-full truncate text-center text-xs leading-tight">
+                        {{ option.agentName }}
+                      </span>
+                      <span v-if="option.unavailable" class="text-[10px] leading-none text-warning">
+                        已移除
+                      </span>
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </ChatConversationFloatingScroll>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div v-if="showModelSelector" class="min-w-0 pt-2">
+      <select
+        :value="selectedApiConfigId"
+        class="select select-bordered w-full"
+        @change="handleModelChange"
+      >
+        <option v-for="config in textApiConfigs" :key="config.id" :value="config.id">
+          {{ config.name }}
+        </option>
+      </select>
+    </div>
+  </div>
 </template>
 
 <script setup lang="ts">
-import { computed, watch } from "vue";
+import { ChevronDown } from "@lucide/vue";
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import type { ApiConfigItem, DepartmentConfig, PersonaProfile } from "../../../types/app";
+import ChatConversationFloatingScroll from "../../chat/components/ChatConversationFloatingScroll.vue";
 import {
   buildDepartmentPersonaOptions,
   departmentPersonaOptionId,
@@ -28,6 +134,7 @@ import {
 const props = withDefaults(defineProps<{
   departmentId?: string;
   agentId?: string;
+  apiConfigId?: string;
   departments?: DepartmentConfig[];
   personas?: PersonaProfile[];
   apiConfigs?: ApiConfigItem[];
@@ -39,9 +146,11 @@ const props = withDefaults(defineProps<{
   showModel?: boolean;
   autoSelectFirst?: boolean;
   preserveCurrent?: boolean;
+  personaAvatarUrlMap?: Record<string, string>;
 }>(), {
   departmentId: "",
   agentId: "",
+  apiConfigId: "",
   assistantDepartmentApiConfigId: "",
   placeholder: "",
   disabled: false,
@@ -53,8 +162,27 @@ const props = withDefaults(defineProps<{
 const emit = defineEmits<{
   "update:departmentId": [value: string];
   "update:agentId": [value: string];
+  "update:apiConfigId": [value: string];
   change: [value: { departmentId: string; agentId: string; option: DepartmentPersonaOption | null }];
 }>();
+
+type AgentGroup = {
+  departmentId: string;
+  departmentName: string;
+  agents: DepartmentPersonaOption[];
+};
+
+const rootRef = ref<HTMLElement | null>(null);
+const dropdownPanelRef = ref<HTMLElement | null>(null);
+const dropdownContentRef = ref<HTMLElement | null>(null);
+const dropdownOpen = ref(false);
+const dropdownDirection = ref<"up" | "down">("down");
+const dropdownBodyHeight = ref(320);
+
+const DROPDOWN_MARGIN = 16;
+const DROPDOWN_GAP = 8;
+const DROPDOWN_MIN_HEIGHT = 120;
+const DROPDOWN_MAX_HEIGHT = 520;
 
 const baseOptions = computed(() => (
   Array.isArray(props.options) && props.options.length > 0
@@ -111,20 +239,64 @@ const normalizedOptions = computed(() => {
   return [buildCurrentMissingOption(departmentId, agentId), ...options];
 });
 
+const selectedDepartmentId = computed(() => String(props.departmentId || "").trim());
+const selectedAgentId = computed(() => String(props.agentId || "").trim());
+const selectedApiConfigId = computed(() => String(props.apiConfigId || "").trim());
+
 const selectedValue = computed(() => {
-  const departmentId = String(props.departmentId || "").trim();
-  const agentId = String(props.agentId || "").trim();
+  const departmentId = selectedDepartmentId.value;
+  const agentId = selectedAgentId.value;
   if (!departmentId || !agentId) return "";
   const key = departmentPersonaOptionId(departmentId, agentId);
   if (normalizedOptions.value.some((option) => option.id === key)) return key;
   return "";
 });
 
-function optionLabel(option: DepartmentPersonaOption): string {
-  const label = String(option.label || "").trim() || `${option.departmentName} / ${option.agentName}`;
-  const modelName = String(option.modelName || "").trim();
-  return props.showModel && modelName ? `${label} · ${modelName}` : label;
-}
+const selectedOption = computed(() =>
+  normalizedOptions.value.find((option) => option.id === selectedValue.value) || null
+);
+
+const textApiConfigs = computed(() =>
+  (props.apiConfigs || []).filter((item) => !!item.enableText),
+);
+
+const showModelSelector = computed(() => props.showModel && textApiConfigs.value.length > 0);
+
+const departmentGroups = computed<AgentGroup[]>(() => {
+  const groups = new Map<string, AgentGroup>();
+  for (const option of normalizedOptions.value) {
+    const departmentId = String(option.departmentId || "").trim();
+    if (!departmentId) continue;
+    const existing = groups.get(departmentId);
+    if (existing) {
+      existing.agents.push(option);
+      continue;
+    }
+    groups.set(departmentId, {
+      departmentId,
+      departmentName: String(option.departmentName || "").trim() || departmentId,
+      agents: [option],
+    });
+  }
+  return Array.from(groups.values());
+});
+
+const selectedSummaryLabel = computed(() => {
+  if (selectedOption.value) {
+    const departmentName = String(selectedOption.value.departmentName || "").trim();
+    const agentName = String(selectedOption.value.agentName || "").trim();
+    const modelName = String(selectedOption.value.modelName || "").trim();
+    return [departmentName, agentName, modelName].filter(Boolean).join(" · ");
+  }
+  if (props.placeholder) return props.placeholder;
+  const firstOption = normalizedOptions.value[0];
+  if (!firstOption) return "";
+  return [
+    String(firstOption.departmentName || "").trim(),
+    String(firstOption.agentName || "").trim(),
+    String(firstOption.modelName || "").trim(),
+  ].filter(Boolean).join(" · ");
+});
 
 function emitSelection(option: DepartmentPersonaOption | null) {
   const departmentId = String(option?.departmentId || "").trim();
@@ -134,9 +306,79 @@ function emitSelection(option: DepartmentPersonaOption | null) {
   emit("change", { departmentId, agentId, option });
 }
 
-function handleChange(event: Event) {
+function selectOption(option: DepartmentPersonaOption) {
+  emitSelection(option);
+  const configId = String(option.apiConfigId || "").trim();
+  if (configId) {
+    emit("update:apiConfigId", configId);
+  }
+  dropdownOpen.value = false;
+}
+
+function clearSelection() {
+  emitSelection(null);
+  dropdownOpen.value = false;
+}
+
+function handleModelChange(event: Event) {
   const value = String((event.target as HTMLSelectElement | null)?.value || "").trim();
-  emitSelection(normalizedOptions.value.find((option) => option.id === value) || null);
+  emit("update:apiConfigId", value);
+}
+
+function resolveAvatarUrl(agentId: string): string {
+  return props.personaAvatarUrlMap?.[agentId] || "";
+}
+
+function agentInitials(name: string): string {
+  const text = String(name || "").trim();
+  if (!text) return "?";
+  const firstTwo = text.slice(0, 2);
+  if (/^[A-Za-z]{2}/.test(firstTwo)) {
+    return firstTwo.toUpperCase();
+  }
+  return text.charAt(0).toUpperCase();
+}
+
+function toggleOpen() {
+  if (props.disabled || (normalizedOptions.value.length === 0 && !props.placeholder)) return;
+  dropdownOpen.value = !dropdownOpen.value;
+}
+
+function clampDropdownBodyHeight(space: number): number {
+  return Math.max(
+    Math.min(Math.floor(space), DROPDOWN_MAX_HEIGHT),
+    Math.min(DROPDOWN_MIN_HEIGHT, Math.max(96, Math.floor(space))),
+  );
+}
+
+function updateDropdownLayout() {
+  if (!dropdownOpen.value) return;
+  const root = rootRef.value;
+  if (!root) return;
+  const rect = root.getBoundingClientRect();
+  const viewportHeight = window.innerHeight || document.documentElement.clientHeight || 0;
+  const availableAbove = Math.max(0, rect.top - DROPDOWN_MARGIN - DROPDOWN_GAP);
+  const availableBelow = Math.max(0, viewportHeight - rect.bottom - DROPDOWN_MARGIN - DROPDOWN_GAP);
+  const shouldOpenUp = availableAbove > availableBelow && availableAbove >= DROPDOWN_MIN_HEIGHT;
+  const preferredDirection = shouldOpenUp ? "up" : "down";
+  const chosenSpace = preferredDirection === "up" ? availableAbove : availableBelow;
+  const fallbackSpace = preferredDirection === "up" ? availableBelow : availableAbove;
+  const finalSpace = Math.max(chosenSpace, fallbackSpace);
+  dropdownDirection.value = preferredDirection;
+  const availableHeight = clampDropdownBodyHeight(
+    finalSpace >= DROPDOWN_MIN_HEIGHT ? chosenSpace : finalSpace,
+  );
+  const contentHeight = dropdownContentRef.value?.scrollHeight ?? 0;
+  const naturalHeight = contentHeight > 0 ? contentHeight : availableHeight;
+  dropdownBodyHeight.value = Math.min(availableHeight, Math.max(96, naturalHeight));
+}
+
+function handleDocumentPointerDown(event: PointerEvent) {
+  if (!dropdownOpen.value) return;
+  const target = event.target as Node | null;
+  if (rootRef.value && target && !rootRef.value.contains(target)) {
+    dropdownOpen.value = false;
+  }
 }
 
 watch(
@@ -144,8 +386,33 @@ watch(
   () => {
     if (!props.autoSelectFirst) return;
     if (selectedValue.value || normalizedOptions.value.length === 0) return;
-    emitSelection(normalizedOptions.value[0] || null);
+    const firstAvailable = normalizedOptions.value.find((option) => !option.unavailable) || normalizedOptions.value[0];
+    emitSelection(firstAvailable || null);
+    const configId = String(firstAvailable?.apiConfigId || "").trim();
+    if (configId) {
+      emit("update:apiConfigId", configId);
+    }
   },
   { immediate: true },
 );
+
+watch(() => props.disabled, (disabled) => {
+  if (disabled) dropdownOpen.value = false;
+});
+
+watch(dropdownOpen, async (open) => {
+  if (!open) return;
+  await nextTick();
+  updateDropdownLayout();
+});
+
+onMounted(() => {
+  document.addEventListener("pointerdown", handleDocumentPointerDown);
+  window.addEventListener("resize", updateDropdownLayout, { passive: true });
+});
+
+onBeforeUnmount(() => {
+  document.removeEventListener("pointerdown", handleDocumentPointerDown);
+  window.removeEventListener("resize", updateDropdownLayout);
+});
 </script>

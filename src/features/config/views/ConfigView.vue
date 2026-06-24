@@ -184,6 +184,7 @@
             v-else-if="props.configTab === 'remoteIm'"
             :config="config"
             :personas="personas"
+            :persona-avatar-url-map="props.personaAvatarUrlMap"
             :save-config-action="saveConfigAction"
             :set-status-action="setStatusAction"
           />
@@ -202,6 +203,7 @@
             v-else-if="props.configTab === 'task'"
             :config="config"
             :personas="personas"
+            :persona-avatar-url-map="props.personaAvatarUrlMap"
           />
 
           <LogTab
@@ -455,6 +457,7 @@ const props = defineProps<{
   modelRefreshError: string;
   toolStatuses: ToolLoadStatus[];
   personas: PersonaProfile[];
+  personaAvatarUrlMap: Record<string, string>;
   assistantPersonas: PersonaProfile[];
   userPersona: PersonaProfile | null;
   personaEditorId: string;

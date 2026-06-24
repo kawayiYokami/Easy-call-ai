@@ -1,17 +1,19 @@
 <template>
   <dialog class="modal" :class="{ 'modal-open': open }">
-    <div class="modal-box w-[88vw] max-w-4xl p-0">
+    <div class="modal-box w-[88vw] max-w-4xl overflow-visible p-0">
       <div class="border-b border-base-300 px-5 py-4">
         <div class="text-base font-semibold">{{ t("chat.toolReview.generateReviewReport") }}</div>
       </div>
-      <div class="px-5 pt-4">
+      <div class="relative z-20 overflow-visible px-5 pt-4">
         <div class="mb-4 grid gap-1.5">
           <div class="text-xs font-medium text-base-content/60">{{ t("chat.toolReview.departmentLabel") }}</div>
-          <select v-model="selectedDepartmentId" class="select select-bordered select-sm w-full">
-            <option v-for="department in departmentSelectOptions" :key="department.departmentId" :value="department.departmentId">
-              {{ departmentOptionLabel(department) }}
-            </option>
-          </select>
+          <DepartmentPersonaSelect
+            v-model:department-id="selectedDepartmentId"
+            v-model:agent-id="selectedAgentId"
+            :options="departmentSelectOptions"
+            :persona-avatar-url-map="personaAvatarUrlMap"
+            auto-select-first
+          />
         </div>
         <div role="tablist" class="tabs tabs-border">
           <button type="button" role="tab" class="tab" :class="{ 'tab-active': scope === 'commit' }" @click="setScope('commit')">{{ t("chat.toolReview.scopeCommit") }}</button>
@@ -20,7 +22,7 @@
           <button type="button" role="tab" class="tab" :class="{ 'tab-active': scope === 'custom' }" @click="setScope('custom')">{{ t("chat.toolReview.scopeCustom") }}</button>
         </div>
       </div>
-      <div class="px-5 py-4">
+      <div class="relative z-0 px-5 py-4">
         <div v-if="scope === 'commit'" class="rounded-box border border-base-300">
           <div class="sticky top-0 z-10 flex items-center justify-between border-b border-base-300 bg-base-100 px-4 py-3 text-sm">
             <button type="button" class="btn btn-sm" :disabled="commitOptionsLoading || commitPage <= 1" @click="requestCommitPage(commitPage - 1)">上一页</button>
@@ -72,17 +74,11 @@
 <script setup lang="ts">
 import { computed, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
+import DepartmentPersonaSelect from "../../shared/components/DepartmentPersonaSelect.vue";
 import type { ToolReviewCodeReviewScope, ToolReviewCommitOption } from "../composables/use-chat-tool-review";
+import type { DepartmentPersonaOption } from "../../shared/department-persona-options";
 
-type DepartmentOption = {
-  id: string;
-  departmentId?: string;
-  agentId?: string;
-  name: string;
-  ownerName: string;
-  providerName?: string;
-  modelName?: string;
-};
+type DepartmentOption = DepartmentPersonaOption;
 
 const props = defineProps<{
   open: boolean;
@@ -90,6 +86,7 @@ const props = defineProps<{
   errorText: string;
   currentDepartmentId: string;
   departmentOptions: DepartmentOption[];
+  personaAvatarUrlMap?: Record<string, string>;
   commitOptions: ToolReviewCommitOption[];
   commitOptionsLoading: boolean;
   commitTotal: number;
@@ -105,17 +102,22 @@ const emit = defineEmits<{
 
 const { t } = useI18n();
 const selectedDepartmentId = ref("");
+const selectedAgentId = ref("");
 const selectedCommitHashes = ref<string[]>([]);
 const customTargetText = ref("");
 const scope = ref<ToolReviewCodeReviewScope>("main");
 
-const departmentSelectOptions = computed(() => {
+const departmentSelectOptions = computed<DepartmentPersonaOption[]>(() => {
   const seen = new Set<string>();
   return (Array.isArray(props.departmentOptions) ? props.departmentOptions : [])
-    .map((item) => ({
-      ...item,
-      departmentId: String(item.departmentId || item.id || "").trim(),
-    }))
+    .map((item) => {
+      const departmentId = String(item.departmentId || item.id || "").trim();
+      return {
+        ...item,
+        departmentId,
+        id: String(item.id || `${departmentId}::${String(item.agentId || "").trim()}`).trim(),
+      };
+    })
     .filter((item) => {
       if (!item.departmentId || seen.has(item.departmentId)) return false;
       seen.add(item.departmentId);
@@ -144,9 +146,11 @@ watch(
   () => [props.currentDepartmentId, departmentSelectOptions.value.map((item) => item.departmentId).join("|")] as const,
   () => {
     const current = String(props.currentDepartmentId || "").trim();
-    selectedDepartmentId.value = departmentSelectOptions.value.some((item) => item.departmentId === current)
-      ? current
-      : String(departmentSelectOptions.value[0]?.departmentId || "").trim();
+    const selectedOption = departmentSelectOptions.value.find((item) => item.departmentId === current)
+      || departmentSelectOptions.value[0]
+      || null;
+    selectedDepartmentId.value = String(selectedOption?.departmentId || "").trim();
+    selectedAgentId.value = String(selectedOption?.agentId || "").trim();
   },
   { immediate: true },
 );
@@ -156,9 +160,11 @@ watch(
   (open) => {
     if (!open) return;
     const current = String(props.currentDepartmentId || "").trim();
-    selectedDepartmentId.value = departmentSelectOptions.value.some((item) => item.departmentId === current)
-      ? current
-      : String(departmentSelectOptions.value[0]?.departmentId || "").trim();
+    const selectedOption = departmentSelectOptions.value.find((item) => item.departmentId === current)
+      || departmentSelectOptions.value[0]
+      || null;
+    selectedDepartmentId.value = String(selectedOption?.departmentId || "").trim();
+    selectedAgentId.value = String(selectedOption?.agentId || "").trim();
   },
 );
 
@@ -206,14 +212,5 @@ function confirm() {
   }
   emit("reviewCode", { scope: scope.value, target: "", departmentId });
   close();
-}
-
-function departmentOptionLabel(department: DepartmentOption) {
-  const name = String(department.name || department.id || "").trim();
-  const ownerName = String(department.ownerName || "").trim();
-  const providerName = String(department.providerName || "").trim();
-  const modelName = String(department.modelName || "").trim();
-  const modelText = [providerName, modelName].filter(Boolean).join(" / ");
-  return [name, ownerName, modelText].filter(Boolean).join(" · ");
 }
 </script>

@@ -65,6 +65,7 @@
         :model-refresh-error="modelRefreshError"
         :tool-statuses="toolStatuses"
         :personas="personas"
+        :persona-avatar-url-map="chatPersonaAvatarUrlMap"
         :assistant-personas="assistantPersonas"
         :user-persona="userPersona"
         :persona-editor-id="personaEditorId"

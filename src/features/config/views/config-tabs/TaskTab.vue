@@ -76,6 +76,7 @@
         :task="editorTask"
         :config="config"
         :personas="personas"
+        :persona-avatar-url-map="personaAvatarUrlMap"
         :logs="runLogs"
         :can-complete="editorCanComplete"
         :editable="editorEditable"
@@ -190,6 +191,7 @@ const SYSTEM_NOTIFICATION_CONVERSATION_ID = "system-notification-conversation";
 const props = defineProps<{
   config: AppConfig;
   personas: PersonaProfile[];
+  personaAvatarUrlMap: Record<string, string>;
 }>();
 
 const { t } = useI18n();

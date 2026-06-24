@@ -23,6 +23,7 @@
       :unarchived-conversation-items="unarchivedConversationItems"
       :remote-im-contact-conversations="remoteImContactConversations"
       :create-conversation-department-options="createConversationDepartmentOptions"
+      :persona-avatar-url-map="personaAvatarUrlMap"
       @exit-selection-mode="emit('exitSelectionMode')"
       @selection-action-branch="emit('selectionActionBranch')"
       @selection-action-forward="emit('selectionActionForward', $event)"

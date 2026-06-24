@@ -54,6 +54,7 @@
                   v-model:agent-id="form.agentId"
                   :departments="config.departments"
                   :personas="personas"
+                  :persona-avatar-url-map="personaAvatarUrlMap"
                   :api-configs="config.apiConfigs"
                   :assistant-department-api-config-id="config.assistantDepartmentApiConfigId"
                   :tool-review-api-config-id="config.toolReviewApiConfigId"
@@ -230,6 +231,7 @@ const props = defineProps<{
   task: TaskEntry | null;
   config: AppConfig;
   personas: PersonaProfile[];
+  personaAvatarUrlMap: Record<string, string>;
   logs: TaskRunLogEntry[];
   canComplete: boolean;
   editable: boolean;
