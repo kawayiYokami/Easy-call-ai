@@ -2,6 +2,7 @@
   <aside v-bind="rootAttrs" class="w-full flex h-full min-h-0 flex-col bg-base-200">
     <div role="tablist" class="tabs tabs-border px-2 pb-2">
       <button type="button" role="tab" class="tab" :class="{ 'tab-active': activeTab === 'delegates' }" @click="activeTab = 'delegates'">{{ t("chat.toolReview.delegatesTab") }}</button>
+      <button type="button" role="tab" class="tab" :class="{ 'tab-active': activeTab === 'tasks' }" @click="activeTab = 'tasks'">{{ t("chat.toolReview.tasksTab") }}</button>
       <button type="button" role="tab" class="tab" :class="{ 'tab-active': activeTab === 'tools' }" @click="activeTab = 'tools'">{{ t("chat.toolReview.toolsTab") }}</button>
     </div>
 
@@ -115,6 +116,40 @@
           </div>
         </CollapsibleGroup>
       </template>
+
+      <template v-else-if="activeTab === 'tasks'">
+        <div v-if="taskErrorText" class="mx-4 my-4 rounded-box border border-error/30 bg-error/10 px-3 py-2 text-sm text-error">
+          {{ taskErrorText }}
+        </div>
+        <div v-else-if="taskLoading && taskSections.length === 0" class="flex min-h-0 flex-1 items-center justify-center px-4 py-8">
+          <span class="loading loading-spinner loading-sm text-base-content/45"></span>
+        </div>
+        <div v-else-if="taskSections.length === 0" class="flex min-h-0 flex-1 items-center justify-center px-4 py-8 text-sm text-base-content/65">
+          {{ t("chat.toolReview.taskEmpty") }}
+        </div>
+        <CollapsibleGroup
+          v-for="section in taskSections"
+          :key="section.key"
+          :title="section.title"
+          :count="section.items.length"
+          :model-value="isTaskSectionCollapsed(section.key)"
+          @update:model-value="toggleTaskSection(section.key)"
+          @collapse-all="collapseAllTaskSections"
+        >
+          <div v-if="!isTaskSectionCollapsed(section.key)">
+            <TaskListItem
+              v-for="task in section.items"
+              :key="task.taskId"
+              :label="taskListTitle(task)"
+              :description="taskListTodo(task)"
+              :title="taskListTitle(task)"
+              :time-label="taskListTime(task)"
+              :disabled="!canEditTaskInSidebar"
+              @click="openTaskEditor(task)"
+            />
+          </div>
+        </CollapsibleGroup>
+      </template>
     </div>
     <FloatingScrollbar :target="contentScroller" />
   </aside>
@@ -141,22 +176,37 @@
     </form>
   </dialog>
 
+  <TaskCreateCard
+    :open="taskEditorOpen"
+    mode="edit"
+    :conversation-id="activeConversationId"
+    :task="taskEditorTask"
+    :bridge-request="bridgeRequest"
+    @close="closeTaskEditor"
+    @created="handleTaskMutated"
+    @updated="handleTaskMutated"
+  />
+
 </template>
 
 <script setup lang="ts">
-import { computed, ref, useAttrs, watch } from "vue";
+import { computed, onBeforeUnmount, onMounted, ref, useAttrs } from "vue";
 import { useI18n } from "vue-i18n";
 import { CircleCheckBig } from "@lucide/vue";
 import { invokeTauri } from "../../../services/tauri-api";
 import type { ArchiveBlockPage, ChatMessage, ConversationDelegateStatusSummary, ShellWorkspace } from "../../../types/app";
+import { toErrorMessage } from "../../../utils/error";
 import { defaultWorkspaceNameFromPath, inferWorkspaceName, isLegacyGenericWorkspaceName, normalizeWorkspaceLevel } from "../../../utils/shell-workspaces";
 import type { ToolReviewBatchSummary, ToolReviewItemDetail, ToolReviewItemSummary } from "../composables/use-chat-tool-review";
+import { formatConversationListTime } from "../utils/conversation-time";
 import { AppMarkdownRenderer, initKatex } from "../markdown";
 import ToolAssessmentCard from "./ToolAssessmentCard.vue";
 import DelegateCard from "./DelegateCard.vue";
-import DelegateProgressLine from "./DelegateProgressLine.vue";
 import FloatingScrollbar from "../../shell/components/FloatingScrollbar.vue";
 import CollapsibleGroup from "./CollapsibleGroup.vue";
+import TaskListItem from "./TaskListItem.vue";
+import TaskCreateCard from "./dialogs/TaskCreateCard.vue";
+import type { TaskEntry } from "../../config/views/config-tabs/task-editor";
 
 initKatex();
 
@@ -169,6 +219,7 @@ const props = defineProps<{
   batchReviewingKey: string;
   errorText: string;
   markdownIsDark: boolean;
+  activeConversationId: string;
   currentWorkspaceName: string;
   currentWorkspaceRootPath: string;
   workspaces: ShellWorkspace[];
@@ -189,8 +240,8 @@ const emit = defineEmits<{
   (e: "abortDelegate", status: ConversationDelegateStatusSummary): void;
 }>();
 
-const { t } = useI18n();
-const activeTab = ref<"tools" | "delegates">("delegates");
+const { t, locale } = useI18n();
+const activeTab = ref<"tools" | "delegates" | "tasks">("delegates");
 const contentScroller = ref<HTMLElement | null>(null);
 const delegateResultDialogOpen = ref(false);
 const delegateResultLoading = ref(false);
@@ -204,11 +255,30 @@ const collapsedDelegateSectionKeys = ref<Record<string, boolean>>({
   interrupted: true,
   failed: true,
 });
+const collapsedTaskSectionKeys = ref<Record<string, boolean>>({
+  active: false,
+  completed: true,
+  failed_completed: true,
+});
+const taskEntries = ref<TaskEntry[]>([]);
+const taskLoading = ref(false);
+const taskErrorText = ref("");
+const taskEditorOpen = ref(false);
+const taskEditorTask = ref<TaskEntry | null>(null);
 
 type DelegateStatusSection = {
   key: string;
   title: string;
   items: ConversationDelegateStatusSummary[];
+};
+
+type TaskSectionKey = "active" | "completed" | "failed_completed";
+
+type TaskSection = {
+  key: TaskSectionKey;
+  title: string;
+  items: TaskEntry[];
+  order: number;
 };
 
 const delegateStatusSections = computed<DelegateStatusSection[]>(() => {
@@ -224,6 +294,30 @@ const delegateStatusSections = computed<DelegateStatusSection[]>(() => {
   return sections.filter((section) => section.items.length > 0);
 });
 
+const canEditTaskInSidebar = computed(() => true);
+const currentConversationTasks = computed(() => {
+  const conversationId = String(props.activeConversationId || "").trim();
+  if (!conversationId) return [];
+  return taskEntries.value.filter((task) => String(task.conversationId || "").trim() === conversationId);
+});
+const taskSections = computed<TaskSection[]>(() => {
+  const sections: TaskSection[] = [
+    { key: "active", title: t("config.task.filters.active"), items: [], order: 0 },
+    { key: "completed", title: t("config.task.completionStates.completed"), items: [], order: 1 },
+    { key: "failed_completed", title: t("config.task.completionStates.failedCompleted"), items: [], order: 2 },
+  ];
+  for (const task of currentConversationTasks.value) {
+    const section = sections.find((item) => item.key === normalizeTaskSectionKey(task.completionState));
+    section?.items.push(task);
+  }
+  return sections
+    .map((section) => ({
+      ...section,
+      items: section.items.slice().sort(compareTaskForSidebar),
+    }))
+    .filter((section) => section.items.length > 0)
+    .sort((left, right) => left.order - right.order);
+});
 function delegateStatusSectionIndex(delegate: ConversationDelegateStatusSummary) {
   const status = String(delegate.status || "").trim();
   if (status === "failed") return 3;
@@ -266,6 +360,50 @@ function collapseAllDelegateSections() {
     next[section.key] = true;
     return next;
   }, { ...collapsedDelegateSectionKeys.value } as Record<string, boolean>);
+}
+
+function normalizeTaskSectionKey(value: string): TaskSectionKey {
+  return value === "completed" || value === "failed_completed" ? value : "active";
+}
+
+function isTaskSectionCollapsed(key: TaskSectionKey) {
+  return !!collapsedTaskSectionKeys.value[key];
+}
+
+function toggleTaskSection(key: TaskSectionKey) {
+  collapsedTaskSectionKeys.value = {
+    ...collapsedTaskSectionKeys.value,
+    [key]: !collapsedTaskSectionKeys.value[key],
+  };
+}
+
+function collapseAllTaskSections() {
+  collapsedTaskSectionKeys.value = taskSections.value.reduce((next, section) => {
+    next[section.key] = true;
+    return next;
+  }, { ...collapsedTaskSectionKeys.value } as Record<string, boolean>);
+}
+
+function taskListTitle(task: TaskEntry) {
+  return String(task.goal || "").trim() || t("config.task.noTodo");
+}
+
+function taskListTodo(task: TaskEntry) {
+  return String(task.todo || "").trim() || t("config.task.noTodo");
+}
+
+function taskListTime(task: TaskEntry) {
+  const raw = String(task.trigger?.next_run_at || task.trigger?.run_at || task.updatedAtLocal || "").trim();
+  return raw ? formatConversationListTime(raw, locale.value) : "";
+}
+
+function compareTaskForSidebar(left: TaskEntry, right: TaskEntry) {
+  const leftRaw = String(left.trigger?.next_run_at || left.trigger?.run_at || left.updatedAtLocal || "").trim();
+  const rightRaw = String(right.trigger?.next_run_at || right.trigger?.run_at || right.updatedAtLocal || "").trim();
+  const leftTime = leftRaw ? new Date(leftRaw).getTime() : Number.POSITIVE_INFINITY;
+  const rightTime = rightRaw ? new Date(rightRaw).getTime() : Number.POSITIVE_INFINITY;
+  if (leftTime !== rightTime) return leftTime - rightTime;
+  return Number(left.orderIndex || 0) - Number(right.orderIndex || 0);
 }
 
 const currentBatchIndex = computed(() => {
@@ -528,6 +666,45 @@ function workspaceDisplayName(workspace: ShellWorkspace, root: string, index: nu
   return inferWorkspaceName(level, root, index) || defaultWorkspaceNameFromPath(root) || root;
 }
 
+async function requestTaskList() {
+  if (props.bridgeRequest) return props.bridgeRequest<TaskEntry[]>("task.list", {});
+  return invokeTauri<TaskEntry[]>("task_list_tasks");
+}
+
+async function loadConversationTasks() {
+  taskLoading.value = true;
+  taskErrorText.value = "";
+  try {
+    taskEntries.value = await requestTaskList();
+  } catch (error) {
+    taskErrorText.value = `${t("config.task.listLoadFailed")}: ${toErrorMessage(error)}`;
+  } finally {
+    taskLoading.value = false;
+  }
+}
+
+function openTaskEditor(task: TaskEntry) {
+  if (!canEditTaskInSidebar.value) return;
+  if (!String(task.taskId || "").trim()) return;
+  taskEditorTask.value = task;
+  taskEditorOpen.value = true;
+}
+
+function closeTaskEditor() {
+  taskEditorOpen.value = false;
+  taskEditorTask.value = null;
+}
+
+function handleTaskRefreshEvent() {
+  void loadConversationTasks();
+}
+
+function handleTaskMutated(task: TaskEntry) {
+  taskEditorOpen.value = false;
+  taskEditorTask.value = task;
+  void loadConversationTasks();
+}
+
 function openDelegatesTab() {
   activeTab.value = "delegates";
 }
@@ -535,13 +712,6 @@ function openDelegatesTab() {
 defineExpose({
   openDelegatesTab,
 });
-
-function formatDelegateStatus(status: string) {
-  if (status === "running" || status === "delivered") return t('chat.toolReview.statusRunning');
-  if (status === "completed") return t('chat.toolReview.statusCompleted');
-  if (status === "failed") return t('chat.toolReview.statusFailed');
-  return t('chat.toolReview.statusUnknown');
-}
 
 function isDelegateRunning(delegate: ConversationDelegateStatusSummary) {
   const status = String(delegate.status || "").trim();
@@ -554,30 +724,20 @@ function canShowDelegateResult(delegate: ConversationDelegateStatusSummary) {
   return true;
 }
 
-function delegateStatusBadgeClass(status: string) {
-  if (status === "completed") return "badge-primary";
-  if (status === "failed") return "badge-error";
-  if (status === "running" || status === "delivered") return "badge-warning";
-  return "badge-ghost";
-}
+onMounted(() => {
+  void loadConversationTasks();
+  window.addEventListener("easy-call:task-created", handleTaskRefreshEvent);
+  window.addEventListener("easy-call:task-updated", handleTaskRefreshEvent);
+  window.addEventListener("easy-call:task-completed", handleTaskRefreshEvent);
+  window.addEventListener("easy-call:task-deleted", handleTaskRefreshEvent);
+});
 
-function formatTokenK(value: number) {
-  if (!Number.isFinite(value) || value <= 0) return "0K";
-  const k = value / 1000;
-  if (k < 10) return `${k.toFixed(1)}K`;
-  return `${Math.round(k)}K`;
-}
-
-function formatElapsedMs(value: number) {
-  if (!Number.isFinite(value) || value <= 0) return t('chat.toolReview.durationZero');
-  const totalSeconds = Math.floor(value / 1000);
-  const hours = Math.floor(totalSeconds / 3600);
-  const minutes = Math.floor((totalSeconds % 3600) / 60);
-  const seconds = totalSeconds % 60;
-  if (hours > 0) return t('chat.toolReview.durationHoursMinutes', { hours, minutes });
-  if (minutes > 0) return t('chat.toolReview.durationMinutesSeconds', { minutes, seconds });
-  return t('chat.toolReview.durationSeconds', { seconds });
-}
+onBeforeUnmount(() => {
+  window.removeEventListener("easy-call:task-created", handleTaskRefreshEvent);
+  window.removeEventListener("easy-call:task-updated", handleTaskRefreshEvent);
+  window.removeEventListener("easy-call:task-completed", handleTaskRefreshEvent);
+  window.removeEventListener("easy-call:task-deleted", handleTaskRefreshEvent);
+});
 </script>
 
 <style scoped>

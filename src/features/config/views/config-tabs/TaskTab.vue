@@ -67,7 +67,7 @@
     </div>
 
     <dialog ref="editorDialog" class="modal" @cancel.prevent="onEditorDialogCancel">
-      <TaskEditorCard
+      <TaskDebugCard
         :mode="editorMode"
         :loading="editorLoading"
         :saving="editorSaving"
@@ -135,7 +135,7 @@ import { invokeTauri } from "../../../../services/tauri-api";
 import { formatIsoToLocalDateTime } from "../../../../utils/time";
 import type { AppConfig, PersonaProfile } from "../../../../types/app";
 import SegmentedControl from "../../components/SegmentedControl.vue";
-import TaskEditorCard from "./TaskEditorCard.vue";
+import TaskDebugCard from "./TaskDebugCard.vue";
 import {
   createEmptyTaskEditorForm,
   taskEditorFormFromEntry,

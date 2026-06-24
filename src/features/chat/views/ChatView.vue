@@ -304,7 +304,7 @@
           @pick-commit-review="loadCodeReviewCommitOptions"
           @review-code="handleSubmitCodeReview"
         />
-        <ChatTaskCreateDialog
+        <TaskCreateCard
           v-if="!sidebarMode"
           :open="taskDialogOpen"
           :mode="taskDialogMode"
@@ -373,6 +373,7 @@
           :reviewing-call-id="toolReviewReviewingCallId" :batch-reviewing-key="toolReviewBatchReviewingKey"
           :error-text="toolReviewErrorText"
           :markdown-is-dark="markdownIsDark"
+          :active-conversation-id="activeConversationId"
           :current-workspace-name="currentWorkspaceName" :current-workspace-root-path="currentWorkspaceRootPath"
           :workspaces="workspaces" :current-department-id="currentDepartmentId"
           :department-options="toolReviewDepartmentOptions"
@@ -437,7 +438,7 @@ import ToolReviewTargetDialog from "../components/ToolReviewTargetDialog.vue";
 import FileReaderPanel from "../../file-reader/components/FileReaderPanel.vue";
 import ChatImagePreviewDialog from "../components/dialogs/ChatImagePreviewDialog.vue";
 import ChatSupervisionTaskDialog from "../components/dialogs/ChatSupervisionTaskDialog.vue";
-import ChatTaskCreateDialog from "../components/dialogs/ChatTaskCreateDialog.vue";
+import TaskCreateCard from "../components/dialogs/TaskCreateCard.vue";
 import ConversationTodoDropdown from "../components/ConversationTodoDropdown.vue";
 import CompactionSummaryCard from "../components/CompactionSummaryCard.vue";
 import ConversationAutoPushCard from "../components/ConversationAutoPushCard.vue";

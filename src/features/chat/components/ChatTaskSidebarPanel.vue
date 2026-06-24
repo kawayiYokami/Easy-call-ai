@@ -18,33 +18,15 @@
         @after-enter="emit('layoutChange')"
         @after-leave="emit('layoutChange')"
       >
-        <div v-for="task in section.items" :key="task.taskId" class="group relative mx-1">
-          <button
-            type="button"
-            class="block w-full rounded-lg px-2 py-2 text-left transition-colors hover:bg-base-100/70"
-            :title="taskItemTitle(task, section.title)"
-            @click="emit('editTask', task)"
-          >
-            <div class="flex min-w-0 items-start gap-2">
-              <div class="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-base-100 text-base-content/65">
-                <ListTodo class="h-4 w-4" />
-              </div>
-              <div class="min-w-0 flex-1">
-                <div class="flex min-w-0 items-start justify-between gap-2">
-                  <div class="min-w-0 truncate text-sm font-medium">
-                    {{ taskTitle(task) }}
-                  </div>
-                  <span v-if="taskTimeLabel(task)" class="shrink-0 text-[11px] text-base-content/55">
-                    {{ taskTimeLabel(task) }}
-                  </span>
-                </div>
-                <div class="mt-1 truncate text-xs text-base-content/55">
-                  {{ taskTodo(task) }}
-                </div>
-              </div>
-            </div>
-          </button>
-        </div>
+        <TaskListItem
+          v-for="task in section.items"
+          :key="task.taskId"
+          :label="taskTitle(task)"
+          :description="taskTodo(task)"
+          :title="taskItemTitle(task, section.title)"
+          :time-label="taskTimeLabel(task)"
+          @click="emit('editTask', task)"
+        />
       </CollapsibleGroup>
       <div v-if="groupedTaskSections.length === 0" class="px-3 py-4 text-center text-sm text-base-content/60">
         {{ normalizedSearchQuery ? t("chat.taskSidebar.searchEmpty") : t("chat.taskSidebar.empty") }}
@@ -56,12 +38,12 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref } from "vue";
 import { useI18n } from "vue-i18n";
-import { ListTodo } from "@lucide/vue";
 import { invokeTauri } from "../../../services/tauri-api";
 import type { ChatConversationOverviewItem } from "../../../types/app";
 import type { TaskEntry } from "../../config/views/config-tabs/task-editor";
 import { toErrorMessage } from "../../../utils/error";
 import CollapsibleGroup from "./CollapsibleGroup.vue";
+import TaskListItem from "./TaskListItem.vue";
 import { formatConversationListTime } from "../utils/conversation-time";
 import { resolveConversationDisplayTitle } from "../utils/conversation-title";
 
