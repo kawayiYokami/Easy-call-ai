@@ -3,6 +3,7 @@ import FileReaderApp from "./apps/file-reader/FileReaderApp.vue";
 import "./style.css";
 import "./features/chat/markdown/markdown-content.css";
 import "katex/dist/katex.min.css";
+import { i18n } from "./i18n";
 import { initMarkdownAppearance } from "./features/shell/composables/use-markdown-appearance";
 import { LUCIDE_CONTEXT } from "./lucide-context";
 
@@ -28,4 +29,4 @@ window.addEventListener("unhandledrejection", (event) => {
   console.error(`[未处理的Promise拒绝] 消息: ${message}, 堆栈: ${stack}`);
 });
 
-createApp(FileReaderApp).provide(LUCIDE_CONTEXT, {}).mount("#app");
+createApp(FileReaderApp).use(i18n).provide(LUCIDE_CONTEXT, {}).mount("#app");
