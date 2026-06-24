@@ -150,45 +150,69 @@ struct ConversationUsageBucket {
     #[serde(default)]
     output_tokens: u64,
     #[serde(default)]
+    total_tokens: u64,
+    #[serde(default)]
     cache_read_tokens: u64,
     #[serde(default)]
     cache_write_tokens: u64,
+    #[serde(default)]
+    reasoning_tokens: u64,
 }
 
 impl ConversationUsageBucket {
+    fn needs_legacy_total_tokens_backfill(&self) -> bool {
+        self.total_tokens < self.input_tokens.saturating_add(self.output_tokens)
+    }
+
+    fn normalized_legacy_totals(mut self) -> Self {
+        let floor_total_tokens = self.input_tokens.saturating_add(self.output_tokens);
+        self.total_tokens = self.total_tokens.max(floor_total_tokens);
+        self
+    }
+
     fn is_empty(&self) -> bool {
         self.input_tokens == 0
             && self.output_tokens == 0
+            && self.total_tokens == 0
             && self.cache_read_tokens == 0
             && self.cache_write_tokens == 0
+            && self.reasoning_tokens == 0
     }
 
     fn keep_at_least(&mut self, other: &ConversationUsageBucket) {
         self.input_tokens = self.input_tokens.max(other.input_tokens);
         self.output_tokens = self.output_tokens.max(other.output_tokens);
+        self.total_tokens = self.total_tokens.max(other.total_tokens);
         self.cache_read_tokens = self.cache_read_tokens.max(other.cache_read_tokens);
         self.cache_write_tokens = self.cache_write_tokens.max(other.cache_write_tokens);
+        self.reasoning_tokens = self.reasoning_tokens.max(other.reasoning_tokens);
     }
 
     fn saturating_add_assign(&mut self, other: &ConversationUsageBucket) {
         self.input_tokens = self.input_tokens.saturating_add(other.input_tokens);
         self.output_tokens = self.output_tokens.saturating_add(other.output_tokens);
+        self.total_tokens = self.total_tokens.saturating_add(other.total_tokens);
         self.cache_read_tokens = self.cache_read_tokens.saturating_add(other.cache_read_tokens);
         self.cache_write_tokens = self.cache_write_tokens.saturating_add(other.cache_write_tokens);
+        self.reasoning_tokens = self.reasoning_tokens.saturating_add(other.reasoning_tokens);
     }
 
     fn saturating_sub_from_totals(
         total_input_tokens: u64,
         total_output_tokens: u64,
+        total_total_tokens: u64,
         total_cache_read_tokens: u64,
         total_cache_write_tokens: u64,
+        total_reasoning_tokens: u64,
         used: &ConversationUsageBucket,
     ) -> ConversationUsageBucket {
         ConversationUsageBucket {
             input_tokens: total_input_tokens.saturating_sub(used.input_tokens),
             output_tokens: total_output_tokens.saturating_sub(used.output_tokens),
+            total_tokens: total_total_tokens.saturating_sub(used.total_tokens),
             cache_read_tokens: total_cache_read_tokens.saturating_sub(used.cache_read_tokens),
             cache_write_tokens: total_cache_write_tokens.saturating_sub(used.cache_write_tokens),
+            reasoning_tokens: total_reasoning_tokens.saturating_sub(used.reasoning_tokens),
         }
     }
 }
@@ -207,28 +231,63 @@ struct ConversationCumulativeUsage {
     #[serde(default)]
     output_tokens: u64,
     #[serde(default)]
+    total_tokens: u64,
+    #[serde(default)]
     cache_read_tokens: u64,
     #[serde(default)]
     cache_write_tokens: u64,
+    #[serde(default)]
+    reasoning_tokens: u64,
     #[serde(default, skip_serializing_if = "conversation_provider_model_usage_is_empty")]
     by_provider_model:
         std::collections::BTreeMap<String, std::collections::BTreeMap<String, ConversationUsageBucket>>,
 }
 
 impl ConversationCumulativeUsage {
+    fn needs_legacy_total_tokens_backfill(&self) -> bool {
+        self.total_tokens < self.input_tokens.saturating_add(self.output_tokens)
+            || self
+                .by_provider_model
+                .values()
+                .any(|models| models.values().any(ConversationUsageBucket::needs_legacy_total_tokens_backfill))
+    }
+
+    fn normalized_legacy_totals(mut self) -> Self {
+        let floor_total_tokens = self.input_tokens.saturating_add(self.output_tokens);
+        self.total_tokens = self.total_tokens.max(floor_total_tokens);
+        self.by_provider_model = self
+            .by_provider_model
+            .into_iter()
+            .map(|(provider_key, models)| {
+                let normalized_models = models
+                    .into_iter()
+                    .map(|(model_name, bucket)| {
+                        (model_name, bucket.normalized_legacy_totals())
+                    })
+                    .collect();
+                (provider_key, normalized_models)
+            })
+            .collect();
+        self
+    }
+
     fn is_empty(&self) -> bool {
         self.input_tokens == 0
             && self.output_tokens == 0
+            && self.total_tokens == 0
             && self.cache_read_tokens == 0
             && self.cache_write_tokens == 0
+            && self.reasoning_tokens == 0
             && self.by_provider_model.is_empty()
     }
 
     fn keep_at_least(&mut self, other: &ConversationCumulativeUsage) {
         self.input_tokens = self.input_tokens.max(other.input_tokens);
         self.output_tokens = self.output_tokens.max(other.output_tokens);
+        self.total_tokens = self.total_tokens.max(other.total_tokens);
         self.cache_read_tokens = self.cache_read_tokens.max(other.cache_read_tokens);
         self.cache_write_tokens = self.cache_write_tokens.max(other.cache_write_tokens);
+        self.reasoning_tokens = self.reasoning_tokens.max(other.reasoning_tokens);
         for (provider_key, other_models) in &other.by_provider_model {
             let target_models = self
                 .by_provider_model
@@ -257,8 +316,10 @@ impl ConversationCumulativeUsage {
         ConversationUsageBucket::saturating_sub_from_totals(
             self.input_tokens,
             self.output_tokens,
+            self.total_tokens,
             self.cache_read_tokens,
             self.cache_write_tokens,
+            self.reasoning_tokens,
             &self.detailed_usage_sum(),
         )
     }
@@ -281,9 +342,14 @@ fn conversation_cumulative_usage_add_provider_usage(
             .unwrap_or(0)
     }
 
+    let input_tokens = read_u64(usage, &["promptTokens", "prompt_tokens"]);
+    let output_tokens = read_u64(usage, &["completionTokens", "completion_tokens"]);
+    let total_tokens = read_u64(usage, &["totalTokens", "total_tokens"])
+        .max(input_tokens.saturating_add(output_tokens));
     let delta = ConversationUsageBucket {
-        input_tokens: read_u64(usage, &["promptTokens", "prompt_tokens"]),
-        output_tokens: read_u64(usage, &["completionTokens", "completion_tokens"]),
+        input_tokens,
+        output_tokens,
+        total_tokens,
         cache_read_tokens: read_u64(usage, &["cachedTokens", "cached_tokens"]),
         cache_write_tokens: read_u64(
             usage,
@@ -297,18 +363,23 @@ fn conversation_cumulative_usage_add_provider_usage(
             usage,
             &["cacheCreation1hTokens", "cache_creation_1h_tokens"],
         )),
+        reasoning_tokens: read_u64(usage, &["reasoningTokens", "reasoning_tokens"]),
     };
     if delta.is_empty() {
         return false;
     }
     target.input_tokens = target.input_tokens.saturating_add(delta.input_tokens);
     target.output_tokens = target.output_tokens.saturating_add(delta.output_tokens);
+    target.total_tokens = target.total_tokens.saturating_add(delta.total_tokens);
     target.cache_read_tokens = target
         .cache_read_tokens
         .saturating_add(delta.cache_read_tokens);
     target.cache_write_tokens = target
         .cache_write_tokens
         .saturating_add(delta.cache_write_tokens);
+    target.reasoning_tokens = target
+        .reasoning_tokens
+        .saturating_add(delta.reasoning_tokens);
     let normalized_provider_key = provider_key
         .map(str::trim)
         .filter(|value| !value.is_empty());

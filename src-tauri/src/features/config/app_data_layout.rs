@@ -499,6 +499,11 @@ fn read_conversation_meta_shard(
         Ok(Some(meta))
             if meta.schema_version() >= message_store::CONVERSATION_META_SCHEMA_VERSION =>
         {
+            if meta.cumulative_usage().needs_legacy_total_tokens_backfill() {
+                let repaired = meta.clone().normalized_legacy_usage_totals();
+                write_conversation_meta_shard_from_meta(path, &repaired)?;
+                return Ok(repaired);
+            }
             return Ok(meta);
         }
         Ok(Some(_)) | Ok(None) | Err(_) => {}
@@ -563,6 +568,15 @@ fn read_conversation_shard_raw(path: &PathBuf, conversation_id: &str) -> Result<
     if let Some(conversation) =
         message_store::read_ready_message_store_directory_conversation(&store_paths)?
     {
+        if conversation
+            .cumulative_usage
+            .needs_legacy_total_tokens_backfill()
+        {
+            let mut repaired = conversation;
+            repaired.cumulative_usage = repaired.cumulative_usage.clone().normalized_legacy_totals();
+            let _ = write_conversation_shard(path, &repaired)?;
+            return Ok(repaired);
+        }
         return Ok(conversation);
     }
     let recovered_manifest =
@@ -571,6 +585,15 @@ fn read_conversation_shard_raw(path: &PathBuf, conversation_id: &str) -> Result<
         if let Some(conversation) =
             message_store::read_ready_message_store_directory_conversation(&store_paths)?
         {
+            if conversation
+                .cumulative_usage
+                .needs_legacy_total_tokens_backfill()
+            {
+                let mut repaired = conversation;
+                repaired.cumulative_usage = repaired.cumulative_usage.clone().normalized_legacy_totals();
+                let _ = write_conversation_shard(path, &repaired)?;
+                return Ok(repaired);
+            }
             return Ok(conversation);
         }
     }
@@ -582,7 +605,17 @@ fn read_conversation_shard_raw(path: &PathBuf, conversation_id: &str) -> Result<
     }
     let conversation_path = app_layout_chat_conversation_path(path, conversation_id);
     if conversation_path.exists() {
-        return read_json_file::<Conversation>(&conversation_path, "conversation file");
+        let conversation = read_json_file::<Conversation>(&conversation_path, "conversation file")?;
+        if conversation
+            .cumulative_usage
+            .needs_legacy_total_tokens_backfill()
+        {
+            let mut repaired = conversation;
+            repaired.cumulative_usage = repaired.cumulative_usage.clone().normalized_legacy_totals();
+            let _ = write_conversation_shard(path, &repaired)?;
+            return Ok(repaired);
+        }
+        return Ok(conversation);
     }
     if !app_layout_exists(path) && path.exists() {
         let data = read_app_data(path)?;
@@ -591,6 +624,15 @@ fn read_conversation_shard_raw(path: &PathBuf, conversation_id: &str) -> Result<
             .into_iter()
             .find(|item| item.id.trim() == conversation_id)
         {
+            if conversation
+                .cumulative_usage
+                .needs_legacy_total_tokens_backfill()
+            {
+                let mut repaired = conversation;
+                repaired.cumulative_usage = repaired.cumulative_usage.clone().normalized_legacy_totals();
+                let _ = write_conversation_shard(path, &repaired)?;
+                return Ok(repaired);
+            }
             return Ok(conversation);
         }
     }

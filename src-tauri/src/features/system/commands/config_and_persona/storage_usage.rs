@@ -28,8 +28,10 @@ struct UsageOverviewTotals {
     weighted_tokens: u64,
     input_tokens: u64,
     output_tokens: u64,
+    total_tokens: u64,
     cache_read_tokens: u64,
     cache_write_tokens: u64,
+    reasoning_tokens: u64,
 }
 
 #[derive(Debug, Clone, Serialize, Default)]
@@ -41,8 +43,10 @@ struct UsageAggregateItem {
     weighted_tokens: u64,
     input_tokens: u64,
     output_tokens: u64,
+    total_tokens: u64,
     cache_read_tokens: u64,
     cache_write_tokens: u64,
+    reasoning_tokens: u64,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -56,8 +60,10 @@ struct UsageProviderModelAggregateItem {
     weighted_tokens: u64,
     input_tokens: u64,
     output_tokens: u64,
+    total_tokens: u64,
     cache_read_tokens: u64,
     cache_write_tokens: u64,
+    reasoning_tokens: u64,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -65,12 +71,15 @@ struct UsageProviderModelAggregateItem {
 struct UsageConversationItem {
     conversation_id: String,
     title: String,
+    summary_title: Option<String>,
     updated_at: String,
     archived_at: Option<String>,
     agent_id: String,
     agent_name: String,
     department_id: String,
     department_name: String,
+    avatar_path: Option<String>,
+    avatar_updated_at: Option<String>,
     api_config_id: String,
     api_config_name: String,
     model_name: String,
@@ -81,8 +90,10 @@ struct UsageConversationItem {
     weighted_tokens: u64,
     input_tokens: u64,
     output_tokens: u64,
+    total_tokens: u64,
     cache_read_tokens: u64,
     cache_write_tokens: u64,
+    reasoning_tokens: u64,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -788,8 +799,10 @@ fn usage_aggregate_push(
     entry.weighted_tokens = entry.weighted_tokens.saturating_add(item.weighted_tokens);
     entry.input_tokens = entry.input_tokens.saturating_add(item.input_tokens);
     entry.output_tokens = entry.output_tokens.saturating_add(item.output_tokens);
+    entry.total_tokens = entry.total_tokens.saturating_add(item.total_tokens);
     entry.cache_read_tokens = entry.cache_read_tokens.saturating_add(item.cache_read_tokens);
     entry.cache_write_tokens = entry.cache_write_tokens.saturating_add(item.cache_write_tokens);
+    entry.reasoning_tokens = entry.reasoning_tokens.saturating_add(item.reasoning_tokens);
 }
 
 fn usage_sort_aggregate_items(items: std::collections::HashMap<String, UsageAggregateItem>) -> Vec<UsageAggregateItem> {
@@ -845,22 +858,28 @@ fn usage_provider_model_aggregate_push(
         weighted_tokens: 0,
         input_tokens: 0,
         output_tokens: 0,
+        total_tokens: 0,
         cache_read_tokens: 0,
         cache_write_tokens: 0,
+        reasoning_tokens: 0,
     });
     entry.conversation_count = entry.conversation_count.saturating_add(1);
     entry.input_tokens = entry.input_tokens.saturating_add(usage.input_tokens);
     entry.output_tokens = entry.output_tokens.saturating_add(usage.output_tokens);
+    entry.total_tokens = entry.total_tokens.saturating_add(usage.total_tokens);
     entry.cache_read_tokens = entry.cache_read_tokens.saturating_add(usage.cache_read_tokens);
     entry.cache_write_tokens = entry.cache_write_tokens.saturating_add(usage.cache_write_tokens);
+    entry.reasoning_tokens = entry.reasoning_tokens.saturating_add(usage.reasoning_tokens);
     entry.weighted_tokens = entry
         .weighted_tokens
         .saturating_add(conversation_cumulative_usage_weighted_tokens(
             &ConversationCumulativeUsage {
                 input_tokens: usage.input_tokens,
                 output_tokens: usage.output_tokens,
+                total_tokens: usage.total_tokens,
                 cache_read_tokens: usage.cache_read_tokens,
                 cache_write_tokens: usage.cache_write_tokens,
+                reasoning_tokens: usage.reasoning_tokens,
                 ..ConversationCumulativeUsage::default()
             },
         ));
@@ -975,11 +994,12 @@ fn usage_push_provider_model_breakdown(
 
 fn usage_cumulative_from_conversation(conversation: &Conversation) -> (ConversationCumulativeUsage, u64) {
     if conversation_is_delegate(conversation) && conversation.cumulative_usage.is_empty() {
-        let stats = conversation_delegate_stats_from_conversation(conversation, &[]);
+        let mut stats = conversation_delegate_stats_from_conversation(conversation, &[]);
+        stats.cumulative_usage = stats.cumulative_usage.normalized_legacy_totals();
         let weighted = conversation_cumulative_usage_weighted_tokens(&stats.cumulative_usage);
         return (stats.cumulative_usage, weighted);
     }
-    let cumulative = conversation.cumulative_usage.clone();
+    let cumulative = conversation.cumulative_usage.clone().normalized_legacy_totals();
     let weighted = conversation_cumulative_usage_weighted_tokens(&cumulative);
     (cumulative, weighted)
 }
@@ -991,6 +1011,8 @@ fn usage_push_conversation(
     api_config_name_map: &std::collections::HashMap<String, String>,
     api_config_model_map: &std::collections::HashMap<String, String>,
     agent_name_map: &std::collections::HashMap<String, String>,
+    agent_avatar_path_map: &std::collections::HashMap<String, String>,
+    agent_avatar_updated_at_map: &std::collections::HashMap<String, String>,
     department_name_map: &std::collections::HashMap<String, String>,
     totals: &mut UsageOverviewTotals,
     conversations: &mut Vec<UsageConversationItem>,
@@ -1019,8 +1041,10 @@ fn usage_push_conversation(
     totals.weighted_tokens = totals.weighted_tokens.saturating_add(weighted);
     totals.input_tokens = totals.input_tokens.saturating_add(cumulative.input_tokens);
     totals.output_tokens = totals.output_tokens.saturating_add(cumulative.output_tokens);
+    totals.total_tokens = totals.total_tokens.saturating_add(cumulative.total_tokens);
     totals.cache_read_tokens = totals.cache_read_tokens.saturating_add(cumulative.cache_read_tokens);
     totals.cache_write_tokens = totals.cache_write_tokens.saturating_add(cumulative.cache_write_tokens);
+    totals.reasoning_tokens = totals.reasoning_tokens.saturating_add(cumulative.reasoning_tokens);
 
     let api_config_id = usage_resolve_api_config_id(conversation, config);
     let api_config_name = api_config_name_map
@@ -1045,12 +1069,15 @@ fn usage_push_conversation(
     let usage_item = UsageConversationItem {
         conversation_id: conversation.id.clone(),
         title: conversation.title.clone(),
+        summary_title: conversation_latest_summary_title(conversation),
         updated_at: conversation.updated_at.clone(),
         archived_at: conversation.archived_at.clone(),
         agent_id: conversation.agent_id.clone(),
         agent_name: agent_name.clone(),
         department_id: conversation.department_id.clone(),
         department_name: department_name.clone(),
+        avatar_path: agent_avatar_path_map.get(&conversation.agent_id).cloned(),
+        avatar_updated_at: agent_avatar_updated_at_map.get(&conversation.agent_id).cloned(),
         api_config_id: api_config_id.clone(),
         api_config_name: api_config_name.clone(),
         model_name: model_name.clone(),
@@ -1061,8 +1088,10 @@ fn usage_push_conversation(
         weighted_tokens: weighted,
         input_tokens: cumulative.input_tokens,
         output_tokens: cumulative.output_tokens,
+        total_tokens: cumulative.total_tokens,
         cache_read_tokens: cumulative.cache_read_tokens,
         cache_write_tokens: cumulative.cache_write_tokens,
+        reasoning_tokens: cumulative.reasoning_tokens,
     };
     usage_push_provider_model_breakdown(
         &cumulative,
@@ -1101,6 +1130,8 @@ fn usage_push_conversation_meta(
     api_config_name_map: &std::collections::HashMap<String, String>,
     api_config_model_map: &std::collections::HashMap<String, String>,
     agent_name_map: &std::collections::HashMap<String, String>,
+    agent_avatar_path_map: &std::collections::HashMap<String, String>,
+    agent_avatar_updated_at_map: &std::collections::HashMap<String, String>,
     department_name_map: &std::collections::HashMap<String, String>,
     totals: &mut UsageOverviewTotals,
     conversations: &mut Vec<UsageConversationItem>,
@@ -1128,7 +1159,7 @@ fn usage_push_conversation_meta(
         totals.delegate_conversation_count = totals.delegate_conversation_count.saturating_add(1);
     }
 
-    let cumulative = conversation_meta.cumulative_usage.clone();
+    let cumulative = conversation_meta.cumulative_usage.clone().normalized_legacy_totals();
     let weighted = conversation_cumulative_usage_weighted_tokens(&cumulative);
     if !cumulative.is_empty() || weighted > 0 {
         totals.with_usage_conversation_count = totals.with_usage_conversation_count.saturating_add(1);
@@ -1136,8 +1167,10 @@ fn usage_push_conversation_meta(
     totals.weighted_tokens = totals.weighted_tokens.saturating_add(weighted);
     totals.input_tokens = totals.input_tokens.saturating_add(cumulative.input_tokens);
     totals.output_tokens = totals.output_tokens.saturating_add(cumulative.output_tokens);
+    totals.total_tokens = totals.total_tokens.saturating_add(cumulative.total_tokens);
     totals.cache_read_tokens = totals.cache_read_tokens.saturating_add(cumulative.cache_read_tokens);
     totals.cache_write_tokens = totals.cache_write_tokens.saturating_add(cumulative.cache_write_tokens);
+    totals.reasoning_tokens = totals.reasoning_tokens.saturating_add(cumulative.reasoning_tokens);
 
     let api_config_id = usage_resolve_api_config_id_from_meta(conversation_meta, config);
     let api_config_name = api_config_name_map
@@ -1170,12 +1203,19 @@ fn usage_push_conversation_meta(
     let usage_item = UsageConversationItem {
         conversation_id: conversation_meta.id.to_string(),
         title: conversation_meta.title.to_string(),
+        summary_title: conversation_meta.latest_summary_title.clone(),
         updated_at: conversation_meta.updated_at.to_string(),
         archived_at: conversation_meta.archived_at.clone(),
         agent_id: conversation_meta.agent_id.to_string(),
         agent_name: agent_name.clone(),
         department_id: conversation_meta.department_id.to_string(),
         department_name: department_name.clone(),
+        avatar_path: agent_avatar_path_map
+            .get(conversation_meta.agent_id.as_str())
+            .cloned(),
+        avatar_updated_at: agent_avatar_updated_at_map
+            .get(conversation_meta.agent_id.as_str())
+            .cloned(),
         api_config_id: api_config_id.clone(),
         api_config_name: api_config_name.clone(),
         model_name: model_name.clone(),
@@ -1188,8 +1228,10 @@ fn usage_push_conversation_meta(
         weighted_tokens: weighted,
         input_tokens: cumulative.input_tokens,
         output_tokens: cumulative.output_tokens,
+        total_tokens: cumulative.total_tokens,
         cache_read_tokens: cumulative.cache_read_tokens,
         cache_write_tokens: cumulative.cache_write_tokens,
+        reasoning_tokens: cumulative.reasoning_tokens,
     };
     usage_push_provider_model_breakdown(
         &cumulative,
@@ -1233,8 +1275,21 @@ fn build_usage_overview(state: &AppState) -> Result<UsageOverview, String> {
         api_config_model_map.insert(item.id.clone(), item.model.clone());
     }
     let mut agent_name_map = std::collections::HashMap::<String, String>::new();
+    let mut agent_avatar_path_map = std::collections::HashMap::<String, String>::new();
+    let mut agent_avatar_updated_at_map = std::collections::HashMap::<String, String>::new();
     for agent in &runtime.agents {
         agent_name_map.insert(agent.id.clone(), agent.name.clone());
+        if let Some(path) = agent.avatar_path.as_ref().map(|value| value.trim()).filter(|value| !value.is_empty()) {
+            agent_avatar_path_map.insert(agent.id.clone(), path.to_string());
+        }
+        if let Some(updated_at) = agent
+            .avatar_updated_at
+            .as_ref()
+            .map(|value| value.trim())
+            .filter(|value| !value.is_empty())
+        {
+            agent_avatar_updated_at_map.insert(agent.id.clone(), updated_at.to_string());
+        }
     }
     let mut department_name_map = std::collections::HashMap::<String, String>::new();
     for department in &config.departments {
@@ -1263,6 +1318,8 @@ fn build_usage_overview(state: &AppState) -> Result<UsageOverview, String> {
             &api_config_name_map,
             &api_config_model_map,
             &agent_name_map,
+            &agent_avatar_path_map,
+            &agent_avatar_updated_at_map,
             &department_name_map,
             &mut totals,
             &mut conversations,
@@ -1287,6 +1344,8 @@ fn build_usage_overview(state: &AppState) -> Result<UsageOverview, String> {
             &api_config_name_map,
             &api_config_model_map,
             &agent_name_map,
+            &agent_avatar_path_map,
+            &agent_avatar_updated_at_map,
             &department_name_map,
             &mut totals,
             &mut conversations,
@@ -1309,6 +1368,8 @@ fn build_usage_overview(state: &AppState) -> Result<UsageOverview, String> {
             &api_config_name_map,
             &api_config_model_map,
             &agent_name_map,
+            &agent_avatar_path_map,
+            &agent_avatar_updated_at_map,
             &department_name_map,
             &mut totals,
             &mut conversations,
@@ -1335,6 +1396,8 @@ fn build_usage_overview(state: &AppState) -> Result<UsageOverview, String> {
             &api_config_name_map,
             &api_config_model_map,
             &agent_name_map,
+            &agent_avatar_path_map,
+            &agent_avatar_updated_at_map,
             &department_name_map,
             &mut totals,
             &mut conversations,

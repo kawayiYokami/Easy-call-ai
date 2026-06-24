@@ -1008,8 +1008,10 @@ export type UsageOverviewTotals = {
   weightedTokens: number;
   inputTokens: number;
   outputTokens: number;
+  totalTokens: number;
   cacheReadTokens: number;
   cacheWriteTokens: number;
+  reasoningTokens: number;
 };
 
 export type UsageAggregateItem = {
@@ -1019,8 +1021,10 @@ export type UsageAggregateItem = {
   weightedTokens: number;
   inputTokens: number;
   outputTokens: number;
+  totalTokens: number;
   cacheReadTokens: number;
   cacheWriteTokens: number;
+  reasoningTokens: number;
 };
 
 export type UsageProviderModelAggregateItem = {
@@ -1032,19 +1036,24 @@ export type UsageProviderModelAggregateItem = {
   weightedTokens: number;
   inputTokens: number;
   outputTokens: number;
+  totalTokens: number;
   cacheReadTokens: number;
   cacheWriteTokens: number;
+  reasoningTokens: number;
 };
 
 export type UsageConversationItem = {
   conversationId: string;
   title: string;
+  summaryTitle?: string;
   updatedAt: string;
   archivedAt?: string | null;
   agentId: string;
   agentName: string;
   departmentId: string;
   departmentName: string;
+  avatarPath?: string;
+  avatarUpdatedAt?: string;
   apiConfigId: string;
   apiConfigName: string;
   modelName: string;
@@ -1055,8 +1064,10 @@ export type UsageConversationItem = {
   weightedTokens: number;
   inputTokens: number;
   outputTokens: number;
+  totalTokens: number;
   cacheReadTokens: number;
   cacheWriteTokens: number;
+  reasoningTokens: number;
 };
 
 export type UsageOverview = {

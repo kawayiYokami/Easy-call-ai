@@ -312,6 +312,11 @@ impl ConversationShardMeta {
         &self.cumulative_usage
     }
 
+    pub(super) fn normalized_legacy_usage_totals(mut self) -> Self {
+        self.cumulative_usage = self.cumulative_usage.clone().normalized_legacy_totals();
+        self
+    }
+
     pub(super) fn preview_messages(&self) -> &[ConversationShardPreviewMessage] {
         self.preview_messages.as_slice()
     }
