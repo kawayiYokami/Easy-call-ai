@@ -45,6 +45,8 @@ async fn collect_streaming_model_reply_genai<S>(
     on_delta: Option<&tauri::ipc::Channel<AssistantDeltaEvent>>,
     app_state: Option<&AppState>,
     usage_conversation_id: Option<&str>,
+    usage_provider_key: Option<&str>,
+    usage_model_name: Option<&str>,
 ) -> Result<ModelReply, String>
 where
     S: futures_util::Stream<Item = Result<genai::chat::ChatStreamEvent, genai::Error>> + Unpin,
@@ -137,6 +139,8 @@ where
                     add_provider_usage_delta_to_conversation(
                         app_state,
                         usage_conversation_id,
+                        usage_provider_key,
+                        usage_model_name,
                         usage,
                     );
                 }
@@ -210,7 +214,14 @@ mod stream_collect_tests {
             },
         ))]);
 
-        let reply = collect_streaming_model_reply_genai(stream, Some(&channel), None, None)
+        let reply = collect_streaming_model_reply_genai(
+            stream,
+            Some(&channel),
+            None,
+            None,
+            None,
+            None,
+        )
             .await
             .expect("stream collection should succeed");
 

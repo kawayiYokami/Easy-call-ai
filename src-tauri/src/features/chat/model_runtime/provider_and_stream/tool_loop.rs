@@ -1821,9 +1821,12 @@ async fn run_genai_tool_loop(
                             .filter(|value| *value > 0);
                         round_usage = end.captured_usage.as_ref().and_then(genai_usage_to_log_value);
                         if let Some(usage) = round_usage.as_ref() {
+                            let usage_provider_key = usage_provider_key_from_api_config(&api_config);
                             add_provider_usage_delta_to_conversation(
                                 tool_abort_state,
                                 usage_conversation_id,
+                                Some(usage_provider_key.as_str()),
+                                Some(model_name),
                                 usage,
                             );
                         }
@@ -2262,6 +2265,8 @@ async fn run_genai_tool_loop(
 }
 
 async fn execute_genai_non_stream_round(
+    api_config: &ResolvedApiConfig,
+    model_name: &str,
     client: &genai::Client,
     model_spec: &genai::ModelSpec,
     request: genai::chat::ChatRequest,
@@ -2286,7 +2291,14 @@ async fn execute_genai_non_stream_round(
         .filter(|value| *value > 0);
     let usage = genai_usage_to_log_value(&response.usage);
     if let Some(usage) = usage.as_ref() {
-        add_provider_usage_delta_to_conversation(app_state, usage_conversation_id, usage);
+        let usage_provider_key = usage_provider_key_from_api_config(&api_config);
+        add_provider_usage_delta_to_conversation(
+            app_state,
+            usage_conversation_id,
+            Some(usage_provider_key.as_str()),
+            Some(model_name),
+            usage,
+        );
     }
 
     if !turn_reasoning.is_empty() {
@@ -2397,6 +2409,8 @@ async fn run_genai_tool_loop_non_stream(
             )
             .await?;
             execute_genai_non_stream_round(
+                &api_config,
+                model_name,
                 &client,
                 &model_spec,
                 request,

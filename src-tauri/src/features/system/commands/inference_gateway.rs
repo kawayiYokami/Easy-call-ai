@@ -688,7 +688,7 @@ async fn invoke_quick_model_reply_with_prepared_prompt(
             .await
             .map_err(|err| format!("快速模型流式请求失败：{err}"))?
             .stream;
-        collect_streaming_model_reply_genai(&mut stream, None, None, None).await
+        collect_streaming_model_reply_genai(&mut stream, None, None, None, None, None).await
     };
     if let Some(timeout_secs) = timeout_secs {
         let call_started = std::time::Instant::now();

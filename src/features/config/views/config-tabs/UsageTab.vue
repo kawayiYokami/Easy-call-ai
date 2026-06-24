@@ -30,6 +30,39 @@
       <div class="grid gap-4 xl:grid-cols-2">
         <section class="card border border-base-300 bg-base-100 shadow-sm">
           <div class="card-body p-4">
+            <div class="card-title text-base">分供应商/模型用量</div>
+            <div class="mt-1 text-xs opacity-60">新累计按供应商和模型细分；历史未细分残留会并入当前推断的供应商/模型。</div>
+            <div class="mt-2 overflow-x-auto">
+              <table class="table table-sm">
+                <thead>
+                  <tr>
+                    <th>供应商</th>
+                    <th>模型</th>
+                    <th class="text-right">总量</th>
+                    <th class="text-right">缓存写入</th>
+                    <th class="text-right">输出</th>
+                    <th class="text-right">缓存读</th>
+                    <th class="text-right">会话</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-for="item in topProviderModels" :key="`provider-model-${item.key}`">
+                    <td class="min-w-28">{{ item.providerLabel }}</td>
+                    <td class="min-w-36">{{ item.modelName }}</td>
+                    <td class="text-right">{{ formatTokens(item.weightedTokens) }}</td>
+                    <td class="text-right">{{ formatTokens(deriveCacheWriteTokens(item.inputTokens, item.cacheReadTokens)) }}</td>
+                    <td class="text-right">{{ formatTokens(item.outputTokens) }}</td>
+                    <td class="text-right">{{ formatTokens(item.cacheReadTokens) }}</td>
+                    <td class="text-right">{{ item.conversationCount }}</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </section>
+
+        <section class="card border border-base-300 bg-base-100 shadow-sm">
+          <div class="card-body p-4">
             <div class="card-title text-base">分人格用量</div>
             <div class="mt-2 overflow-x-auto">
               <table class="table table-sm">
@@ -228,6 +261,7 @@ const summaryCards = computed(() => {
     { label: "缓存命中", value: formatTokens(totals.cacheReadTokens), hint: `缓存写入 ${formatTokens(totals.cacheWriteTokens)}` },
   ];
 });
+const topProviderModels = computed(() => (overview.value?.byProviderModel || []).slice(0, 12));
 const topAgents = computed(() => (overview.value?.byAgent || []).slice(0, 12));
 const topApiConfigs = computed(() => (overview.value?.byApiConfig || []).slice(0, 12));
 const conversationPageCount = computed(() => Math.max(1, Math.ceil((overview.value?.conversations.length || 0) / conversationPageSize)));

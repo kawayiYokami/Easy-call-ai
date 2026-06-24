@@ -47,6 +47,21 @@ struct UsageAggregateItem {
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
+struct UsageProviderModelAggregateItem {
+    key: String,
+    provider_key: String,
+    provider_label: String,
+    model_name: String,
+    conversation_count: usize,
+    weighted_tokens: u64,
+    input_tokens: u64,
+    output_tokens: u64,
+    cache_read_tokens: u64,
+    cache_write_tokens: u64,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 struct UsageConversationItem {
     conversation_id: String,
     title: String,
@@ -76,6 +91,7 @@ struct UsageOverview {
     generated_at: String,
     totals: UsageOverviewTotals,
     conversations: Vec<UsageConversationItem>,
+    by_provider_model: Vec<UsageProviderModelAggregateItem>,
     by_model: Vec<UsageAggregateItem>,
     by_api_config: Vec<UsageAggregateItem>,
     by_agent: Vec<UsageAggregateItem>,
@@ -789,6 +805,174 @@ fn usage_sort_aggregate_items(items: std::collections::HashMap<String, UsageAggr
     out
 }
 
+fn usage_provider_model_compound_key(provider_key: &str, model_name: &str) -> String {
+    format!("{provider_key}::{model_name}")
+}
+
+fn usage_provider_model_sort_aggregate_items(
+    items: std::collections::HashMap<String, UsageProviderModelAggregateItem>,
+) -> Vec<UsageProviderModelAggregateItem> {
+    let mut out = items.into_values().collect::<Vec<_>>();
+    out.sort_by(|left, right| {
+        right
+            .weighted_tokens
+            .cmp(&left.weighted_tokens)
+            .then_with(|| right.output_tokens.cmp(&left.output_tokens))
+            .then_with(|| right.conversation_count.cmp(&left.conversation_count))
+            .then_with(|| left.provider_label.cmp(&right.provider_label))
+            .then_with(|| left.model_name.cmp(&right.model_name))
+    });
+    out
+}
+
+fn usage_provider_model_aggregate_push(
+    map: &mut std::collections::HashMap<String, UsageProviderModelAggregateItem>,
+    provider_key: String,
+    provider_label: String,
+    model_name: String,
+    usage: &ConversationUsageBucket,
+) {
+    if usage.is_empty() {
+        return;
+    }
+    let key = usage_provider_model_compound_key(&provider_key, &model_name);
+    let entry = map.entry(key.clone()).or_insert_with(|| UsageProviderModelAggregateItem {
+        key,
+        provider_key,
+        provider_label,
+        model_name,
+        conversation_count: 0,
+        weighted_tokens: 0,
+        input_tokens: 0,
+        output_tokens: 0,
+        cache_read_tokens: 0,
+        cache_write_tokens: 0,
+    });
+    entry.conversation_count = entry.conversation_count.saturating_add(1);
+    entry.input_tokens = entry.input_tokens.saturating_add(usage.input_tokens);
+    entry.output_tokens = entry.output_tokens.saturating_add(usage.output_tokens);
+    entry.cache_read_tokens = entry.cache_read_tokens.saturating_add(usage.cache_read_tokens);
+    entry.cache_write_tokens = entry.cache_write_tokens.saturating_add(usage.cache_write_tokens);
+    entry.weighted_tokens = entry
+        .weighted_tokens
+        .saturating_add(conversation_cumulative_usage_weighted_tokens(
+            &ConversationCumulativeUsage {
+                input_tokens: usage.input_tokens,
+                output_tokens: usage.output_tokens,
+                cache_read_tokens: usage.cache_read_tokens,
+                cache_write_tokens: usage.cache_write_tokens,
+                ..ConversationCumulativeUsage::default()
+            },
+        ));
+}
+
+fn usage_provider_label_from_api_config_id(
+    api_config_id: &str,
+    config: &AppConfig,
+) -> String {
+    let normalized_api_config_id = api_config_id.trim();
+    if normalized_api_config_id.is_empty() {
+        return "未识别供应商".to_string();
+    }
+    if let Some((provider_id, _)) = parse_api_endpoint_id(normalized_api_config_id) {
+        if let Some(provider) = config.api_providers.iter().find(|item| item.id == provider_id) {
+            return provider.name.clone();
+        }
+        return provider_id;
+    }
+    config
+        .api_configs
+        .iter()
+        .find(|item| item.id.trim() == normalized_api_config_id)
+        .map(|item| item.request_format.as_str().to_string())
+        .unwrap_or_else(|| "未识别供应商".to_string())
+}
+
+fn usage_provider_label_from_provider_key(
+    provider_key: &str,
+    config: &AppConfig,
+) -> String {
+    let normalized_provider_key = provider_key.trim();
+    if normalized_provider_key.is_empty() {
+        return "未识别供应商".to_string();
+    }
+    config
+        .api_providers
+        .iter()
+        .find(|item| item.id.trim() == normalized_provider_key)
+        .map(|item| item.name.clone())
+        .unwrap_or_else(|| normalized_provider_key.to_string())
+}
+
+fn usage_provider_key_from_api_config_id(api_config_id: &str, config: &AppConfig) -> String {
+    let normalized_api_config_id = api_config_id.trim();
+    if normalized_api_config_id.is_empty() {
+        return "unknown_provider".to_string();
+    }
+    parse_api_endpoint_id(normalized_api_config_id)
+        .map(|(provider_id, _)| provider_id)
+        .or_else(|| {
+            config
+                .api_configs
+                .iter()
+                .find(|item| item.id.trim() == normalized_api_config_id)
+                .map(|item| item.request_format.as_str().to_string())
+        })
+        .unwrap_or_else(|| "unknown_provider".to_string())
+}
+
+fn usage_push_provider_model_breakdown(
+    cumulative: &ConversationCumulativeUsage,
+    config: &AppConfig,
+    fallback_provider_key: String,
+    fallback_provider_label: String,
+    fallback_model_name: String,
+    by_provider_model: &mut std::collections::HashMap<String, UsageProviderModelAggregateItem>,
+) {
+    let mut per_conversation =
+        std::collections::BTreeMap::<String, (String, String, String, ConversationUsageBucket)>::new();
+    for (provider_key, models) in &cumulative.by_provider_model {
+        for (model_name, bucket) in models {
+            if bucket.is_empty() {
+                continue;
+            }
+            let key = usage_provider_model_compound_key(provider_key, model_name);
+            let provider_label = usage_provider_label_from_provider_key(provider_key, config);
+            let entry = per_conversation.entry(key).or_insert_with(|| {
+                (
+                    provider_key.clone(),
+                    provider_label,
+                    model_name.clone(),
+                    ConversationUsageBucket::default(),
+                )
+            });
+            entry.3.saturating_add_assign(bucket);
+        }
+    }
+    let remainder = cumulative.legacy_remainder();
+    if !remainder.is_empty() {
+        let key = usage_provider_model_compound_key(&fallback_provider_key, &fallback_model_name);
+        let entry = per_conversation.entry(key).or_insert_with(|| {
+            (
+                fallback_provider_key.clone(),
+                fallback_provider_label,
+                fallback_model_name.clone(),
+                ConversationUsageBucket::default(),
+            )
+        });
+        entry.3.saturating_add_assign(&remainder);
+    }
+    for (_key, (provider_key, provider_label, model_name, usage)) in per_conversation {
+        usage_provider_model_aggregate_push(
+            by_provider_model,
+            provider_key,
+            provider_label,
+            model_name,
+            &usage,
+        );
+    }
+}
+
 fn usage_cumulative_from_conversation(conversation: &Conversation) -> (ConversationCumulativeUsage, u64) {
     if conversation_is_delegate(conversation) && conversation.cumulative_usage.is_empty() {
         let stats = conversation_delegate_stats_from_conversation(conversation, &[]);
@@ -810,6 +994,7 @@ fn usage_push_conversation(
     department_name_map: &std::collections::HashMap<String, String>,
     totals: &mut UsageOverviewTotals,
     conversations: &mut Vec<UsageConversationItem>,
+    by_provider_model: &mut std::collections::HashMap<String, UsageProviderModelAggregateItem>,
     by_model: &mut std::collections::HashMap<String, UsageAggregateItem>,
     by_api_config: &mut std::collections::HashMap<String, UsageAggregateItem>,
     by_agent: &mut std::collections::HashMap<String, UsageAggregateItem>,
@@ -846,6 +1031,8 @@ fn usage_push_conversation(
         .get(&api_config_id)
         .cloned()
         .unwrap_or_else(|| "未绑定模型".to_string());
+    let provider_key = usage_provider_key_from_api_config_id(&api_config_id, config);
+    let provider_label = usage_provider_label_from_api_config_id(&api_config_id, config);
     let agent_name = agent_name_map
         .get(&conversation.agent_id)
         .cloned()
@@ -877,6 +1064,14 @@ fn usage_push_conversation(
         cache_read_tokens: cumulative.cache_read_tokens,
         cache_write_tokens: cumulative.cache_write_tokens,
     };
+    usage_push_provider_model_breakdown(
+        &cumulative,
+        config,
+        provider_key,
+        provider_label,
+        model_name.clone(),
+        by_provider_model,
+    );
     usage_aggregate_push(
         by_model,
         if model_name == "未绑定模型" { "unbound_model".to_string() } else { model_name.clone() },
@@ -909,6 +1104,7 @@ fn usage_push_conversation_meta(
     department_name_map: &std::collections::HashMap<String, String>,
     totals: &mut UsageOverviewTotals,
     conversations: &mut Vec<UsageConversationItem>,
+    by_provider_model: &mut std::collections::HashMap<String, UsageProviderModelAggregateItem>,
     by_model: &mut std::collections::HashMap<String, UsageAggregateItem>,
     by_api_config: &mut std::collections::HashMap<String, UsageAggregateItem>,
     by_agent: &mut std::collections::HashMap<String, UsageAggregateItem>,
@@ -952,6 +1148,8 @@ fn usage_push_conversation_meta(
         .get(&api_config_id)
         .cloned()
         .unwrap_or_else(|| "未绑定模型".to_string());
+    let provider_key = usage_provider_key_from_api_config_id(&api_config_id, config);
+    let provider_label = usage_provider_label_from_api_config_id(&api_config_id, config);
     let agent_name = agent_name_map
         .get(conversation_meta.agent_id.as_str())
         .cloned()
@@ -993,6 +1191,14 @@ fn usage_push_conversation_meta(
         cache_read_tokens: cumulative.cache_read_tokens,
         cache_write_tokens: cumulative.cache_write_tokens,
     };
+    usage_push_provider_model_breakdown(
+        &cumulative,
+        config,
+        provider_key,
+        provider_label,
+        model_name.clone(),
+        by_provider_model,
+    );
     usage_aggregate_push(
         by_model,
         if model_name == "未绑定模型" { "unbound_model".to_string() } else { model_name.clone() },
@@ -1038,6 +1244,8 @@ fn build_usage_overview(state: &AppState) -> Result<UsageOverview, String> {
     let mut totals = UsageOverviewTotals::default();
 
     let mut conversations = Vec::<UsageConversationItem>::new();
+    let mut by_provider_model =
+        std::collections::HashMap::<String, UsageProviderModelAggregateItem>::new();
     let mut by_model = std::collections::HashMap::<String, UsageAggregateItem>::new();
     let mut by_api_config = std::collections::HashMap::<String, UsageAggregateItem>::new();
     let mut by_agent = std::collections::HashMap::<String, UsageAggregateItem>::new();
@@ -1058,6 +1266,7 @@ fn build_usage_overview(state: &AppState) -> Result<UsageOverview, String> {
             &department_name_map,
             &mut totals,
             &mut conversations,
+            &mut by_provider_model,
             &mut by_model,
             &mut by_api_config,
             &mut by_agent,
@@ -1081,6 +1290,7 @@ fn build_usage_overview(state: &AppState) -> Result<UsageOverview, String> {
             &department_name_map,
             &mut totals,
             &mut conversations,
+            &mut by_provider_model,
             &mut by_model,
             &mut by_api_config,
             &mut by_agent,
@@ -1102,6 +1312,7 @@ fn build_usage_overview(state: &AppState) -> Result<UsageOverview, String> {
             &department_name_map,
             &mut totals,
             &mut conversations,
+            &mut by_provider_model,
             &mut by_model,
             &mut by_api_config,
             &mut by_agent,
@@ -1127,6 +1338,7 @@ fn build_usage_overview(state: &AppState) -> Result<UsageOverview, String> {
             &department_name_map,
             &mut totals,
             &mut conversations,
+            &mut by_provider_model,
             &mut by_model,
             &mut by_api_config,
             &mut by_agent,
@@ -1148,6 +1360,7 @@ fn build_usage_overview(state: &AppState) -> Result<UsageOverview, String> {
         generated_at: now_iso(),
         totals,
         conversations,
+        by_provider_model: usage_provider_model_sort_aggregate_items(by_provider_model),
         by_model: usage_sort_aggregate_items(by_model),
         by_api_config: usage_sort_aggregate_items(by_api_config),
         by_agent: usage_sort_aggregate_items(by_agent),

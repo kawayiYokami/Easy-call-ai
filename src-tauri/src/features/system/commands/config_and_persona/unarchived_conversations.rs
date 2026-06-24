@@ -3081,6 +3081,7 @@ mod unarchived_conversations_tests {
             output_tokens: 50,
             cache_read_tokens: 1000,
             cache_write_tokens: 30,
+            ..ConversationCumulativeUsage::default()
         };
 
         let stats = conversation_delegate_stats_from_conversation(&conversation, &[]);

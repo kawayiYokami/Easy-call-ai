@@ -3858,6 +3858,8 @@ impl ConversationServiceV2 {
         &self,
         state: &AppState,
         conversation_id: &str,
+        provider_key: Option<&str>,
+        model_name: Option<&str>,
         usage: &Value,
     ) -> Result<bool, String> {
         let normalized_conversation_id = conversation_id.trim();
@@ -3865,7 +3867,12 @@ impl ConversationServiceV2 {
             return Ok(false);
         }
         let mut probe = ConversationCumulativeUsage::default();
-        if !conversation_cumulative_usage_add_provider_usage(&mut probe, usage) {
+        if !conversation_cumulative_usage_add_provider_usage(
+            &mut probe,
+            provider_key,
+            model_name,
+            usage,
+        ) {
             return Ok(false);
         }
         let _guard = lock_conversation_with_metrics(state, "add_conversation_cumulative_usage")?;
@@ -3875,6 +3882,8 @@ impl ConversationServiceV2 {
             |conversation| {
                 Ok(conversation_cumulative_usage_add_provider_usage(
                     &mut conversation.cumulative_usage,
+                    provider_key,
+                    model_name,
                     usage,
                 ))
             },

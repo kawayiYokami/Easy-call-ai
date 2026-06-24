@@ -1023,6 +1023,19 @@ export type UsageAggregateItem = {
   cacheWriteTokens: number;
 };
 
+export type UsageProviderModelAggregateItem = {
+  key: string;
+  providerKey: string;
+  providerLabel: string;
+  modelName: string;
+  conversationCount: number;
+  weightedTokens: number;
+  inputTokens: number;
+  outputTokens: number;
+  cacheReadTokens: number;
+  cacheWriteTokens: number;
+};
+
 export type UsageConversationItem = {
   conversationId: string;
   title: string;
@@ -1050,6 +1063,7 @@ export type UsageOverview = {
   generatedAt: string;
   totals: UsageOverviewTotals;
   conversations: UsageConversationItem[];
+  byProviderModel: UsageProviderModelAggregateItem[];
   byModel: UsageAggregateItem[];
   byApiConfig: UsageAggregateItem[];
   byAgent: UsageAggregateItem[];

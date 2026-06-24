@@ -49,6 +49,8 @@ fn genai_usage_to_log_value(usage: &genai::chat::Usage) -> Option<Value> {
 fn add_provider_usage_delta_to_conversation(
     app_state: Option<&AppState>,
     conversation_id: Option<&str>,
+    provider_key: Option<&str>,
+    model_name: Option<&str>,
     usage: &Value,
 ) {
     let Some(app_state) = app_state else {
@@ -65,6 +67,8 @@ fn add_provider_usage_delta_to_conversation(
         Ok(Some(mut conversation)) => {
             let changed = conversation_cumulative_usage_add_provider_usage(
                 &mut conversation.cumulative_usage,
+                provider_key,
+                model_name,
                 usage,
             );
             if changed {
@@ -79,7 +83,13 @@ fn add_provider_usage_delta_to_conversation(
             }
         }
         Ok(None) => conversation_service_v2()
-            .add_conversation_cumulative_usage_delta(app_state, conversation_id, usage),
+            .add_conversation_cumulative_usage_delta(
+                app_state,
+                conversation_id,
+                provider_key,
+                model_name,
+                usage,
+            ),
         Err(err) => Err(err),
     };
 
@@ -101,6 +111,16 @@ fn add_provider_usage_delta_to_conversation(
             conversation_id, err
         )),
     }
+}
+
+fn usage_provider_key_from_api_config(api_config: &ResolvedApiConfig) -> String {
+    api_config
+        .provider_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToOwned::to_owned)
+        .unwrap_or_else(|| api_config.request_format.as_str().to_string())
 }
 
 fn normalize_openai_genai_base_url(raw: &str) -> String {
@@ -704,11 +724,14 @@ async fn call_model_openai_stream_internal(
         .await
         .map_err(|err| format!("genai openai stream build failed: {err}"))?
         .stream;
+    let usage_provider_key = usage_provider_key_from_api_config(&api_config);
     collect_streaming_model_reply_genai(
         &mut stream,
         on_delta,
         app_state,
         usage_conversation_id,
+        Some(usage_provider_key.as_str()),
+        Some(model_name),
     )
     .await
 }
@@ -767,8 +790,15 @@ async fn call_model_openai_non_stream(
         .await
         .map_err(|err| format!("genai openai non-stream failed: {err}"))?;
     let usage = genai_usage_to_log_value(&response.usage);
+    let usage_provider_key = usage_provider_key_from_api_config(&api_config);
     if let Some(usage) = usage.as_ref() {
-        add_provider_usage_delta_to_conversation(app_state, usage_conversation_id, usage);
+        add_provider_usage_delta_to_conversation(
+            app_state,
+            usage_conversation_id,
+            Some(usage_provider_key.as_str()),
+            Some(model_name),
+            usage,
+        );
     }
     let response_texts = response.content.into_texts();
     let assistant_text = join_model_text_blocks(response_texts.iter().map(String::as_str));
@@ -826,11 +856,14 @@ async fn call_model_openai_responses(
         .await
         .map_err(|err| format!("genai responses stream build failed: {err}"))?
         .stream;
+    let usage_provider_key = usage_provider_key_from_api_config(&api_config);
     collect_streaming_model_reply_genai(
         &mut stream,
         on_delta,
         app_state,
         usage_conversation_id,
+        Some(usage_provider_key.as_str()),
+        Some(model_name),
     )
     .await
 }
@@ -869,8 +902,15 @@ async fn call_model_gemini(
         .await
         .map_err(|err| format!("genai gemini non-stream failed: {err}"))?;
     let usage = genai_usage_to_log_value(&response.usage);
+    let usage_provider_key = usage_provider_key_from_api_config(&api_config);
     if let Some(usage) = usage.as_ref() {
-        add_provider_usage_delta_to_conversation(app_state, usage_conversation_id, usage);
+        add_provider_usage_delta_to_conversation(
+            app_state,
+            usage_conversation_id,
+            Some(usage_provider_key.as_str()),
+            Some(model_name),
+            usage,
+        );
     }
     let response_texts = response.content.into_texts();
     let assistant_text = join_model_text_blocks(response_texts.iter().map(String::as_str));
@@ -925,11 +965,14 @@ async fn call_model_anthropic(
         .await
         .map_err(|err| format!("genai anthropic stream build failed: {err}"))?
         .stream;
+    let usage_provider_key = usage_provider_key_from_api_config(&api_config);
     collect_streaming_model_reply_genai(
         &mut stream,
         None,
         app_state,
         usage_conversation_id,
+        Some(usage_provider_key.as_str()),
+        Some(model_name),
     )
     .await
 }

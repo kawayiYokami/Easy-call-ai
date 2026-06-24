@@ -144,7 +144,7 @@ struct ConversationTodoItem {
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct ConversationCumulativeUsage {
+struct ConversationUsageBucket {
     #[serde(default)]
     input_tokens: u64,
     #[serde(default)]
@@ -155,7 +155,7 @@ struct ConversationCumulativeUsage {
     cache_write_tokens: u64,
 }
 
-impl ConversationCumulativeUsage {
+impl ConversationUsageBucket {
     fn is_empty(&self) -> bool {
         self.input_tokens == 0
             && self.output_tokens == 0
@@ -163,16 +163,111 @@ impl ConversationCumulativeUsage {
             && self.cache_write_tokens == 0
     }
 
-    fn keep_at_least(&mut self, other: &ConversationCumulativeUsage) {
+    fn keep_at_least(&mut self, other: &ConversationUsageBucket) {
         self.input_tokens = self.input_tokens.max(other.input_tokens);
         self.output_tokens = self.output_tokens.max(other.output_tokens);
         self.cache_read_tokens = self.cache_read_tokens.max(other.cache_read_tokens);
         self.cache_write_tokens = self.cache_write_tokens.max(other.cache_write_tokens);
     }
+
+    fn saturating_add_assign(&mut self, other: &ConversationUsageBucket) {
+        self.input_tokens = self.input_tokens.saturating_add(other.input_tokens);
+        self.output_tokens = self.output_tokens.saturating_add(other.output_tokens);
+        self.cache_read_tokens = self.cache_read_tokens.saturating_add(other.cache_read_tokens);
+        self.cache_write_tokens = self.cache_write_tokens.saturating_add(other.cache_write_tokens);
+    }
+
+    fn saturating_sub_from_totals(
+        total_input_tokens: u64,
+        total_output_tokens: u64,
+        total_cache_read_tokens: u64,
+        total_cache_write_tokens: u64,
+        used: &ConversationUsageBucket,
+    ) -> ConversationUsageBucket {
+        ConversationUsageBucket {
+            input_tokens: total_input_tokens.saturating_sub(used.input_tokens),
+            output_tokens: total_output_tokens.saturating_sub(used.output_tokens),
+            cache_read_tokens: total_cache_read_tokens.saturating_sub(used.cache_read_tokens),
+            cache_write_tokens: total_cache_write_tokens.saturating_sub(used.cache_write_tokens),
+        }
+    }
+}
+
+fn conversation_provider_model_usage_is_empty(
+    value: &std::collections::BTreeMap<String, std::collections::BTreeMap<String, ConversationUsageBucket>>,
+) -> bool {
+    value.is_empty()
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ConversationCumulativeUsage {
+    #[serde(default)]
+    input_tokens: u64,
+    #[serde(default)]
+    output_tokens: u64,
+    #[serde(default)]
+    cache_read_tokens: u64,
+    #[serde(default)]
+    cache_write_tokens: u64,
+    #[serde(default, skip_serializing_if = "conversation_provider_model_usage_is_empty")]
+    by_provider_model:
+        std::collections::BTreeMap<String, std::collections::BTreeMap<String, ConversationUsageBucket>>,
+}
+
+impl ConversationCumulativeUsage {
+    fn is_empty(&self) -> bool {
+        self.input_tokens == 0
+            && self.output_tokens == 0
+            && self.cache_read_tokens == 0
+            && self.cache_write_tokens == 0
+            && self.by_provider_model.is_empty()
+    }
+
+    fn keep_at_least(&mut self, other: &ConversationCumulativeUsage) {
+        self.input_tokens = self.input_tokens.max(other.input_tokens);
+        self.output_tokens = self.output_tokens.max(other.output_tokens);
+        self.cache_read_tokens = self.cache_read_tokens.max(other.cache_read_tokens);
+        self.cache_write_tokens = self.cache_write_tokens.max(other.cache_write_tokens);
+        for (provider_key, other_models) in &other.by_provider_model {
+            let target_models = self
+                .by_provider_model
+                .entry(provider_key.clone())
+                .or_default();
+            for (model_name, other_bucket) in other_models {
+                target_models
+                    .entry(model_name.clone())
+                    .or_default()
+                    .keep_at_least(other_bucket);
+            }
+        }
+    }
+
+    fn detailed_usage_sum(&self) -> ConversationUsageBucket {
+        let mut sum = ConversationUsageBucket::default();
+        for models in self.by_provider_model.values() {
+            for bucket in models.values() {
+                sum.saturating_add_assign(bucket);
+            }
+        }
+        sum
+    }
+
+    fn legacy_remainder(&self) -> ConversationUsageBucket {
+        ConversationUsageBucket::saturating_sub_from_totals(
+            self.input_tokens,
+            self.output_tokens,
+            self.cache_read_tokens,
+            self.cache_write_tokens,
+            &self.detailed_usage_sum(),
+        )
+    }
 }
 
 fn conversation_cumulative_usage_add_provider_usage(
     target: &mut ConversationCumulativeUsage,
+    provider_key: Option<&str>,
+    model_name: Option<&str>,
     usage: &Value,
 ) -> bool {
     fn read_u64(usage: &Value, keys: &[&str]) -> u64 {
@@ -186,7 +281,7 @@ fn conversation_cumulative_usage_add_provider_usage(
             .unwrap_or(0)
     }
 
-    let delta = ConversationCumulativeUsage {
+    let delta = ConversationUsageBucket {
         input_tokens: read_u64(usage, &["promptTokens", "prompt_tokens"]),
         output_tokens: read_u64(usage, &["completionTokens", "completion_tokens"]),
         cache_read_tokens: read_u64(usage, &["cachedTokens", "cached_tokens"]),
@@ -214,6 +309,23 @@ fn conversation_cumulative_usage_add_provider_usage(
     target.cache_write_tokens = target
         .cache_write_tokens
         .saturating_add(delta.cache_write_tokens);
+    let normalized_provider_key = provider_key
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
+    let normalized_model_name = model_name
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
+    if let (Some(provider_key), Some(model_name)) = (normalized_provider_key, normalized_model_name)
+    {
+        let models = target
+            .by_provider_model
+            .entry(provider_key.to_string())
+            .or_default();
+        models
+            .entry(model_name.to_string())
+            .or_default()
+            .saturating_add_assign(&delta);
+    }
     true
 }
 
@@ -382,6 +494,78 @@ impl Default for ConversationRuntimeSlot {
             plan_mode_enabled: false,
             last_activity_at: String::new(),
         }
+    }
+}
+
+#[cfg(test)]
+mod conversation_usage_tests {
+    use super::*;
+
+    #[test]
+    fn conversation_cumulative_usage_should_record_provider_model_breakdown() {
+        let mut usage = ConversationCumulativeUsage::default();
+        let payload = serde_json::json!({
+            "promptTokens": 120,
+            "completionTokens": 45,
+            "cachedTokens": 20,
+            "cacheCreationTokens": 7
+        });
+
+        let changed = conversation_cumulative_usage_add_provider_usage(
+            &mut usage,
+            Some("openai"),
+            Some("gpt-5"),
+            &payload,
+        );
+
+        assert!(changed);
+        assert_eq!(usage.input_tokens, 120);
+        assert_eq!(usage.output_tokens, 45);
+        assert_eq!(usage.cache_read_tokens, 20);
+        assert_eq!(usage.cache_write_tokens, 7);
+        assert_eq!(
+            usage
+                .by_provider_model
+                .get("openai")
+                .and_then(|models| models.get("gpt-5"))
+                .cloned(),
+            Some(ConversationUsageBucket {
+                input_tokens: 120,
+                output_tokens: 45,
+                cache_read_tokens: 20,
+                cache_write_tokens: 7,
+            })
+        );
+    }
+
+    #[test]
+    fn conversation_cumulative_usage_legacy_remainder_should_subtract_breakdown_sum() {
+        let mut usage = ConversationCumulativeUsage {
+            input_tokens: 200,
+            output_tokens: 100,
+            cache_read_tokens: 50,
+            cache_write_tokens: 25,
+            ..ConversationCumulativeUsage::default()
+        };
+        usage.by_provider_model.insert(
+            "openai".to_string(),
+            std::collections::BTreeMap::from([(
+                "gpt-5".to_string(),
+                ConversationUsageBucket {
+                    input_tokens: 120,
+                    output_tokens: 60,
+                    cache_read_tokens: 20,
+                    cache_write_tokens: 5,
+                },
+            )]),
+        );
+
+        let remainder = usage.legacy_remainder();
+
+        assert_eq!(remainder.input_tokens, 80);
+        assert_eq!(remainder.output_tokens, 40);
+        assert_eq!(remainder.cache_read_tokens, 30);
+        assert_eq!(remainder.cache_write_tokens, 20);
     }
 }
 

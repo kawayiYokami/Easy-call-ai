@@ -349,12 +349,14 @@ mod goal_tests {
             output_tokens: 20,
             cache_read_tokens: 30,
             cache_write_tokens: 40,
+            ..ConversationCumulativeUsage::default()
         };
         let end = ConversationCumulativeUsage {
             input_tokens: 15,
             output_tokens: 18,
             cache_read_tokens: 35,
             cache_write_tokens: 60,
+            ..ConversationCumulativeUsage::default()
         };
         let delta = goal_usage_delta(&start, &end);
         assert_eq!(delta.input_tokens, 5);

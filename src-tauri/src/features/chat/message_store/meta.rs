@@ -857,6 +857,7 @@ mod message_store_meta_tests {
                 output_tokens: 20,
                 cache_read_tokens: 30,
                 cache_write_tokens: 40,
+                ..ConversationCumulativeUsage::default()
             },
             active_goal: Some(ConversationGoalState {
                 goal_id: "goal-a".to_string(),

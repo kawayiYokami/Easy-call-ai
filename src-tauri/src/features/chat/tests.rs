@@ -4007,6 +4007,8 @@
             .add_conversation_cumulative_usage_delta(
                 &state,
                 &conversation.id,
+                None,
+                None,
                 &serde_json::json!({
                     "completionTokens": 20,
                     "cachedTokens": 100,
