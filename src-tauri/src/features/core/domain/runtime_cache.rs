@@ -232,6 +232,7 @@ fn sync_cached_app_data_agents(state: &AppState, agents: &[AgentProfile]) -> Res
     if let Some(data) = cached.as_mut() {
         data.agents = agents.to_vec();
     }
+    drop(cached);
     sync_cached_app_data_signature(state)
 }
 
@@ -254,6 +255,7 @@ fn sync_cached_app_data_runtime(
         sanitize_runtime_cached_app_data(data);
         apply_runtime_state_to_app_data(data, runtime);
     }
+    drop(cached);
     sync_cached_app_data_signature(state)
 }
 
@@ -268,6 +270,7 @@ fn sync_cached_app_data_conversation(
     if let Some(data) = cached.as_mut() {
         sanitize_runtime_cached_app_data(data);
     }
+    drop(cached);
     sync_cached_app_data_signature(state)
 }
 
@@ -282,6 +285,7 @@ fn sync_cached_app_data_conversation_metadata(
     if let Some(data) = cached.as_mut() {
         sanitize_runtime_cached_app_data(data);
     }
+    drop(cached);
     sync_cached_app_data_signature(state)
 }
 
@@ -296,6 +300,7 @@ fn sync_cached_app_data_conversation_deleted(
     if let Some(data) = cached.as_mut() {
         sanitize_runtime_cached_app_data(data);
     }
+    drop(cached);
     sync_cached_app_data_signature(state)
 }
 

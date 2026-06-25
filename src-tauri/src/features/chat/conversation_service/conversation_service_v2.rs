@@ -720,12 +720,21 @@ impl ConversationServiceV2 {
         audit: &ConversationOverwriteAudit,
         snapshot: &Conversation,
     ) -> Result<(), String> {
+        let _guard =
+            lock_conversation_with_metrics(state, "conversation_v2_privileged_overwrite")?;
+        self.apply_privileged_snapshot_overwrite_inner(state, audit, snapshot)
+    }
+
+    fn apply_privileged_snapshot_overwrite_inner(
+        &self,
+        state: &AppState,
+        audit: &ConversationOverwriteAudit,
+        snapshot: &Conversation,
+    ) -> Result<(), String> {
         self.validate_overwrite_audit(audit)?;
         if snapshot.id.trim().is_empty() {
             return Err("overwrite snapshot conversation.id is required.".to_string());
         }
-        let _guard =
-            lock_conversation_with_metrics(state, "conversation_v2_privileged_overwrite")?;
         runtime_log_info(format!(
             "[会话V2] 开始，任务=特批覆写会话，conversation_id={}，source={}，job_id={}，operator={}，reason={}，message_count={}",
             snapshot.id,
@@ -1012,10 +1021,6 @@ impl ConversationServiceV2 {
         if normalized_conversation_id.is_empty() {
             return Err("conversationId is required.".to_string());
         }
-        let guard = state
-            .conversation_lock
-            .lock()
-            .map_err(|err| format!("Failed to lock state mutex at {}:{} {}: {err}", file!(), line!(), module_path!()))?;
         let conversation = self.read_persisted_conversation(state, normalized_conversation_id)
             .map_err(|err| {
                 format!(
@@ -1024,7 +1029,6 @@ impl ConversationServiceV2 {
             })?;
         self.ensure_unarchived_conversation(&conversation, normalized_conversation_id)?;
         let result = reader(&conversation)?;
-        drop(guard);
         Ok(result)
     }
 
@@ -3525,18 +3529,9 @@ impl ConversationServiceV2 {
         &self,
         state: &AppState,
     ) -> Result<UnarchivedConversationOverviewUpdatedPayload, String> {
-        let guard = state.conversation_lock.lock().map_err(|err| {
-            format!(
-                "Failed to lock state mutex at {}:{} {}: {err}",
-                file!(),
-                line!(),
-                module_path!()
-            )
-        })?;
         let app_config = state_read_config_cached(state)?;
         let unarchived_conversations =
             self.collect_unarchived_conversation_summaries_cached(state, &app_config)?;
-        drop(guard);
         Ok(UnarchivedConversationOverviewUpdatedPayload {
             preferred_conversation_id: unarchived_conversations
                 .first()
@@ -3549,17 +3544,8 @@ impl ConversationServiceV2 {
         &self,
         state: &AppState,
     ) -> Result<ListUnarchivedConversationsMutationResult, String> {
-        let guard = state.conversation_lock.lock().map_err(|err| {
-            format!(
-                "Failed to lock state mutex at {}:{} {}: {err}",
-                file!(),
-                line!(),
-                module_path!()
-            )
-        })?;
         let app_config = state_read_config_cached(state)?;
         let summaries = self.collect_unarchived_conversation_summaries_cached(state, &app_config)?;
-        drop(guard);
         Ok(ListUnarchivedConversationsMutationResult { summaries })
     }
 

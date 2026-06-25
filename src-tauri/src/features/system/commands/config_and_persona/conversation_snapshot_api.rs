@@ -1,9 +1,14 @@
 #[tauri::command]
-fn get_chat_snapshot(
+async fn get_chat_snapshot(
     input: SessionSelector,
     state: State<'_, AppState>,
 ) -> Result<ChatSnapshot, String> {
-    conversation_service_v2().get_chat_snapshot(state.inner(), &input)
+    let app_state = state.inner().clone();
+    tokio::task::spawn_blocking(move || {
+        conversation_service_v2().get_chat_snapshot(&app_state, &input)
+    })
+    .await
+    .map_err(|err| format!("读取聊天快照任务异常：{err}"))?
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -739,16 +744,27 @@ fn ensure_unarchived_conversation_not_organizing(
 }
 
 #[tauri::command]
-fn list_unarchived_conversations(state: State<'_, AppState>) -> Result<Vec<UnarchivedConversationSummary>, String> {
+async fn list_unarchived_conversations(
+    state: State<'_, AppState>,
+) -> Result<Vec<UnarchivedConversationSummary>, String> {
+    let app_state = state.inner().clone();
+    tokio::task::spawn_blocking(move || list_unarchived_conversations_blocking(&app_state))
+        .await
+        .map_err(|err| format!("读取未归档会话列表任务异常：{err}"))?
+}
+
+fn list_unarchived_conversations_blocking(
+    state: &AppState,
+) -> Result<Vec<UnarchivedConversationSummary>, String> {
     let summaries = conversation_service_v2()
-        .list_unarchived_conversation_summaries(state.inner())?
+        .list_unarchived_conversation_summaries(state)?
         .summaries;
     if !summaries.is_empty() {
         return Ok(summaries);
     }
 
     runtime_log_info("[会话] 开始，任务=确保默认未归档会话，触发条件=未归档会话列表为空".to_string());
-    let config = state_read_config_cached(state.inner())?;
+    let config = state_read_config_cached(state)?;
     let create_input = CreateUnarchivedConversationInput {
         api_config_id: None,
         agent_id: Some(
@@ -760,8 +776,8 @@ fn list_unarchived_conversations(state: State<'_, AppState>) -> Result<Vec<Unarc
         shell_workspaces: None,
         shell_autonomous_mode: None,
     };
-    let result = conversation_service_v2().create_conversation(state.inner(), &create_input)?;
-    emit_unarchived_conversation_overview_updated_payload(state.inner(), &result.overview_payload);
+    let result = conversation_service_v2().create_conversation(state, &create_input)?;
+    emit_unarchived_conversation_overview_updated_payload(state, &result.overview_payload);
     runtime_log_info(format!(
         "[会话] 完成，任务=确保默认未归档会话，conversation_id={}，overview_count={}",
         result.conversation_id,

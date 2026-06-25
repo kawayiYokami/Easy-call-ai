@@ -59,11 +59,14 @@ fn ensure_ready_message_store_from_legacy_conversation(
     let recovery_job_id = format!("runtime-ready-store-recover-{normalized_conversation_id}");
     let recovery_reason =
         format!("运行时补建 ready message store，conversation_id={normalized_conversation_id}");
-    conversation_service_v2().recover_conversation_snapshot(
+    conversation_service_v2().apply_privileged_snapshot_overwrite_inner(
         state,
-        &recovery_job_id,
-        "runtime_ready_store_recover",
-        &recovery_reason,
+        &ConversationOverwriteAudit {
+            job_id: recovery_job_id,
+            source: ConversationOverwriteSource::MigrationRecovery,
+            operator: "runtime_ready_store_recover".to_string(),
+            reason: recovery_reason,
+        },
         &conversation,
     )?;
     flush_pending_persists_blocking(state)?;

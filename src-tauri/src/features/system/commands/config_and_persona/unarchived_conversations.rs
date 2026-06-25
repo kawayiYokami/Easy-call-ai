@@ -116,9 +116,21 @@ fn switch_active_conversation_snapshot(
 }
 
 #[tauri::command]
-fn get_foreground_conversation_light_snapshot(
+async fn get_foreground_conversation_light_snapshot(
     input: ForegroundConversationLightSnapshotInput,
     state: State<'_, AppState>,
+) -> Result<ForegroundConversationLightSnapshotOutput, String> {
+    let app_state = state.inner().clone();
+    tokio::task::spawn_blocking(move || {
+        get_foreground_conversation_light_snapshot_blocking(input, &app_state)
+    })
+    .await
+    .map_err(|err| format!("读取前台轻量快照任务异常：{err}"))?
+}
+
+fn get_foreground_conversation_light_snapshot_blocking(
+    input: ForegroundConversationLightSnapshotInput,
+    state: &AppState,
 ) -> Result<ForegroundConversationLightSnapshotOutput, String> {
     let started_at = std::time::Instant::now();
     let recent_limit = input
@@ -126,18 +138,18 @@ fn get_foreground_conversation_light_snapshot(
         .unwrap_or(DEFAULT_FOREGROUND_SNAPSHOT_RECENT_LIMIT)
         .clamp(1, 50);
     let mut snapshot = conversation_service_v2().get_foreground_snapshot(
-        state.inner(),
+        state,
         input.conversation_id.as_deref(),
         input.agent_id.as_deref(),
         recent_limit,
     )?;
     if let Some(conversation) = conversation_service_v2()
-        .mark_conversation_read(state.inner(), &snapshot.conversation_id)?
+        .mark_conversation_read(state, &snapshot.conversation_id)?
         .conversation
     {
         snapshot.preferred_api_config_id =
-            repair_conversation_preferred_model_for_snapshot(state.inner(), &conversation)?;
-        snapshot.runtime_state = unarchived_conversation_runtime_state(state.inner(), &conversation.id);
+            repair_conversation_preferred_model_for_snapshot(state, &conversation)?;
+        snapshot.runtime_state = unarchived_conversation_runtime_state(state, &conversation.id);
         snapshot.current_todo = conversation_current_todo_text(&conversation);
         snapshot.current_todos = conversation.current_todos.clone();
         snapshot.active_goal = goal_active_goal_from_conversation(&conversation);
@@ -146,7 +158,7 @@ fn get_foreground_conversation_light_snapshot(
     let mut should_bind_stream = false;
     let mut resume_projection_authoritative = false;
     if input.resume_projection {
-        let runtime_snapshot = read_conversation_runtime_snapshot(state.inner(), &snapshot.conversation_id)?;
+        let runtime_snapshot = read_conversation_runtime_snapshot(state, &snapshot.conversation_id)?;
         should_bind_stream = foreground_runtime_snapshot_should_bind(&runtime_snapshot);
         resume_projection_authoritative = true;
         snapshot.runtime_state = Some(runtime_snapshot.runtime_state.clone());
@@ -186,7 +198,7 @@ fn get_foreground_conversation_light_snapshot(
         preferred_api_config_id: snapshot.preferred_api_config_id,
         active_goal: snapshot.active_goal,
         unarchived_conversations: conversation_service_v2()
-            .list_unarchived_conversation_summaries(state.inner())?
+            .list_unarchived_conversation_summaries(state)?
             .summaries,
         stream_cache,
         should_bind_stream,
@@ -1032,10 +1044,24 @@ fn latest_compaction_message_for_branch(source: &Conversation) -> Option<ChatMes
 }
 
 #[tauri::command]
-fn create_unarchived_conversation(
+async fn create_unarchived_conversation(
     input: CreateUnarchivedConversationInput,
     state: State<'_, AppState>,
 ) -> Result<CreateUnarchivedConversationOutput, String> {
+    let app_state = state.inner().clone();
+    let (output, overview_payload) = tokio::task::spawn_blocking(move || {
+        create_unarchived_conversation_blocking(input, &app_state)
+    })
+    .await
+    .map_err(|err| format!("新建未归档会话任务异常：{err}"))??;
+    emit_unarchived_conversation_overview_updated_payload(state.inner(), &overview_payload);
+    Ok(output)
+}
+
+fn create_unarchived_conversation_blocking(
+    input: CreateUnarchivedConversationInput,
+    state: &AppState,
+) -> Result<(CreateUnarchivedConversationOutput, UnarchivedConversationOverviewUpdatedPayload), String> {
     let started_at = std::time::Instant::now();
     runtime_log_info(format!(
         "[会话] 开始，任务=新建未归档会话，department_id={}，agent_id={}，api_config_id={}，title_len={}，copy_source_conversation_id={}",
@@ -1045,7 +1071,7 @@ fn create_unarchived_conversation(
         input.title.as_deref().unwrap_or("").chars().count(),
         input.copy_source_conversation_id.as_deref().unwrap_or("")
     ));
-    let result = conversation_service_v2().create_conversation(state.inner(), &input)?;
+    let result = conversation_service_v2().create_conversation(state, &input)?;
     let conversation_id = result.conversation_id.clone();
     let overview_count = result.overview_payload.unarchived_conversations.len();
     let preferred_conversation_id = result
@@ -1061,17 +1087,20 @@ fn create_unarchived_conversation(
         overview_count,
         started_at.elapsed().as_millis()
     ));
-    emit_unarchived_conversation_overview_updated_payload(state.inner(), &result.overview_payload);
     runtime_log_info(format!(
         "[会话] 完成，任务=新建未归档会话，阶段=返回前端，conversation_id={}，overview_count={}，duration_ms={}",
         conversation_id,
         overview_count,
         started_at.elapsed().as_millis()
     ));
-    Ok(CreateUnarchivedConversationOutput {
-        conversation_id,
-        unarchived_conversations: result.overview_payload.unarchived_conversations,
-    })
+    let overview_payload = result.overview_payload;
+    Ok((
+        CreateUnarchivedConversationOutput {
+            conversation_id,
+            unarchived_conversations: overview_payload.unarchived_conversations.clone(),
+        },
+        overview_payload,
+    ))
 }
 
 #[tauri::command]
@@ -2365,10 +2394,24 @@ struct DeleteUnarchivedConversationOutput {
 }
 
 #[tauri::command]
-fn delete_unarchived_conversation(
+async fn delete_unarchived_conversation(
     input: DeleteUnarchivedConversationInput,
     state: State<'_, AppState>,
 ) -> Result<DeleteUnarchivedConversationOutput, String> {
+    let app_state = state.inner().clone();
+    let (output, overview_payload) = tokio::task::spawn_blocking(move || {
+        delete_unarchived_conversation_blocking(input, &app_state)
+    })
+    .await
+    .map_err(|err| format!("删除未归档会话任务异常：{err}"))??;
+    emit_unarchived_conversation_overview_updated_payload(state.inner(), &overview_payload);
+    Ok(output)
+}
+
+fn delete_unarchived_conversation_blocking(
+    input: DeleteUnarchivedConversationInput,
+    state: &AppState,
+) -> Result<(DeleteUnarchivedConversationOutput, UnarchivedConversationOverviewUpdatedPayload), String> {
     let conversation_id = input.conversation_id.trim();
     if conversation_id.is_empty() {
         return Err("conversationId is required.".to_string());
@@ -2379,7 +2422,7 @@ fn delete_unarchived_conversation(
         conversation_id
     ));
     let result = match conversation_service_v2().delete_conversation(
-        state.inner(),
+        state,
         conversation_id,
     ) {
         Ok(result) => result,
@@ -2407,7 +2450,7 @@ fn delete_unarchived_conversation(
         conversation_id,
         started_at.elapsed().as_millis()
     ));
-    match delegate_runtime_thread_conversation_delete_by_root(state.inner(), conversation_id) {
+    match delegate_runtime_thread_conversation_delete_by_root(state, conversation_id) {
         Ok(deleted_count) => runtime_log_info(format!(
             "[委托会话] 完成，任务=随会话删除级联清理，root_conversation_id={}，deleted_count={}",
             conversation_id, deleted_count
@@ -2417,12 +2460,15 @@ fn delete_unarchived_conversation(
             conversation_id, err
         )),
     }
-    emit_unarchived_conversation_overview_updated_payload(state.inner(), &result.overview_payload);
     cleanup_pdf_session_memory_cache_for_conversation(conversation_id);
-    Ok(DeleteUnarchivedConversationOutput {
-        deleted_conversation_id: result.deleted_conversation_id,
-        active_conversation_id: result.active_conversation_id,
-    })
+    let overview_payload = result.overview_payload;
+    Ok((
+        DeleteUnarchivedConversationOutput {
+            deleted_conversation_id: result.deleted_conversation_id,
+            active_conversation_id: result.active_conversation_id,
+        },
+        overview_payload,
+    ))
 }
 
 #[tauri::command]
