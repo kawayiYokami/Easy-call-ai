@@ -1373,11 +1373,12 @@ ul.ecall-md-list {
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
   font-size: 0.82rem;
   line-height: 1.55;
-  margin: 0;
+  margin: 0 !important;
   white-space: pre;
 }
 
 .ecall-md-code-plain {
+  margin: 0 !important;
   background: color-mix(in srgb, currentColor 5%, transparent);
 }
 
