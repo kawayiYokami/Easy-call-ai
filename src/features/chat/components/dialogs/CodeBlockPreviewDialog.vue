@@ -90,7 +90,7 @@ onBeforeUnmount(() => {
 <template>
   <Teleport to="body">
     <dialog v-if="open" class="modal modal-open">
-      <div class="modal-box h-[95vh] max-h-[95vh] w-[95vw] max-w-none p-0">
+      <div class="modal-box flex h-[95vh] max-h-[95vh] w-[95vw] max-w-none flex-col overflow-hidden p-0">
         <div class="flex items-center gap-2 border-b border-base-300 px-4 py-2">
           <div class="min-w-0 flex-1 truncate text-xs font-semibold">{{ languageLabel }}</div>
           <button
@@ -111,15 +111,12 @@ onBeforeUnmount(() => {
             <X class="h-3.5 w-3.5" />
           </button>
         </div>
-        <div class="h-[calc(95vh-45px)] min-h-0 px-4 py-3">
-          <div class="ecall-code-preview-shell" :class="previewIsDark ? 'ecall-code-preview-dark' : 'ecall-code-preview-light'">
-            <div
-              v-if="highlightedHtml"
-              class="ecall-code-preview-body"
-              v-html="highlightedHtml"
-            ></div>
-            <pre v-else class="ecall-code-preview-body ecall-code-preview-plain"><code>{{ code }}</code></pre>
-          </div>
+        <div class="ecall-code-preview-body flex-1 min-h-0" :class="previewIsDark ? 'ecall-code-preview-dark' : 'ecall-code-preview-light'">
+          <div
+            v-if="highlightedHtml"
+            v-html="highlightedHtml"
+          ></div>
+          <pre v-else class="ecall-code-preview-plain"><code>{{ code }}</code></pre>
         </div>
       </div>
       <form method="dialog" class="modal-backdrop">
@@ -130,14 +127,6 @@ onBeforeUnmount(() => {
 </template>
 
 <style scoped>
-.ecall-code-preview-shell {
-  height: 100%;
-  min-height: 0;
-  overflow: hidden;
-  border-radius: 0.5rem;
-  border: 1px solid color-mix(in srgb, currentColor 12%, transparent);
-}
-
 .ecall-code-preview-body {
   height: 100%;
   min-height: 0;
@@ -147,11 +136,14 @@ onBeforeUnmount(() => {
   font-size: 0.88rem;
   line-height: 1.6;
   margin: 0;
-  white-space: pre;
+  white-space: normal;
 }
 
 .ecall-code-preview-plain {
-  background: color-mix(in srgb, currentColor 5%, transparent);
+  background: transparent;
+  border: 0;
+  margin: 0;
+  white-space: pre;
 }
 
 .ecall-code-preview-plain code {
@@ -188,12 +180,12 @@ onBeforeUnmount(() => {
   text-shadow: none !important;
 }
 
-.ecall-code-preview-dark .ecall-code-preview-body {
+.ecall-code-preview-dark {
   background: #101828;
   color: #e5e7eb;
 }
 
-.ecall-code-preview-light .ecall-code-preview-body {
+.ecall-code-preview-light {
   background: #f6f8fa;
   color: #24292f;
 }
