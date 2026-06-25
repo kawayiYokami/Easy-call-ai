@@ -145,7 +145,7 @@
         </div>
       </aside>
 
-      <main v-if="!directoryOnly" class="flex min-h-0 flex-1 flex-col overflow-hidden bg-base-100" :class="activeTab?.kind === 'markdown' && !activeTab?.rawMode ? '' : 'file-reader-code-main'">
+      <main v-if="!directoryOnly" class="flex min-h-0 flex-1 flex-col overflow-hidden bg-base-100">
         <div
           v-if="activeTab"
           class="relative flex h-8 shrink-0 items-center gap-2 border-b border-base-300 bg-base-100 px-3 text-sm text-base-content/60"
@@ -201,52 +201,119 @@
             <RefreshCw class="h-4 w-4" />
           </button>
           <button
+            v-if="activeTab && canToggleRawMode(activeTab)"
             class="btn btn-ghost btn-xs h-6 min-h-6 w-6 shrink-0 px-0"
             type="button"
-            :disabled="!activeTab"
-            :title="activeTab?.rawMode ? t('fileReader.switchToRendered') : t('fileReader.switchToRaw')"
-            :aria-label="activeTab?.rawMode ? t('fileReader.currentRawView') : t('fileReader.currentRenderedView')"
+            :title="isTabRawMode(activeTab) ? t('fileReader.switchToRendered') : t('fileReader.switchToRaw')"
+            :aria-label="isTabRawMode(activeTab) ? t('fileReader.currentRawView') : t('fileReader.currentRenderedView')"
             @click.stop="toggleActiveRawMode"
           >
-            <Code2 v-if="activeTab?.rawMode" class="h-4 w-4" />
+            <Code2 v-if="isTabRawMode(activeTab)" class="h-4 w-4" />
             <Eye v-else class="h-4 w-4" />
           </button>
         </div>
-        <div class="relative min-h-0 flex-1" @mouseenter="contentScrollbarRef?.reveal()" @mouseleave="contentScrollbarRef?.hide()">
-        <div
-          ref="contentScroller"
-          class="file-reader-scroll-container h-full min-h-0 overflow-auto"
-          :class="activeTab?.kind === 'markdown' && !activeTab?.rawMode ? '' : 'file-reader-code-main'"
-          @scroll="captureVisibleRangeContext"
-          @mouseup="captureCurrentTextSelection"
-          @keyup="captureCurrentTextSelection"
-        >
-          <div v-if="!activeTab" class="flex h-full items-center justify-center text-sm text-base-content/55">
-            <slot name="empty">
-              <span>{{ t('fileReader.noFileOpen') }}</span>
-            </slot>
+        <div class="relative min-h-0 flex-1">
+          <div
+            ref="contentScroller"
+            class="file-reader-content-stage h-full min-h-0 overflow-hidden"
+          >
+            <div v-if="!activeTab" class="flex h-full items-center justify-center text-sm text-base-content/55">
+              <slot name="empty">
+                <span>{{ t('fileReader.noFileOpen') }}</span>
+              </slot>
+            </div>
+            <div v-else-if="activeTab.loading" class="flex h-full items-center justify-center gap-3 text-sm text-base-content/65">
+              <span class="loading loading-spinner loading-sm"></span>
+              {{ t('fileReader.loadingFile') }}
+            </div>
+            <div v-else-if="activeTab.error" class="m-4 rounded-box border border-error/30 bg-error/10 p-4 text-sm text-error">
+              {{ activeTab.error }}
+            </div>
+            <div
+              v-else-if="activeTab.kind === 'markdown' && !isTabRawMode(activeTab)"
+              ref="markdownScroller"
+              class="file-reader-content file-reader-markdown-scroller mx-auto h-full w-full max-w-300 overflow-auto px-4 py-4"
+              @scroll="captureVisibleRangeContext"
+              @mouseup="captureCurrentTextSelection"
+              @keyup="captureCurrentTextSelection"
+            >
+              <AppMarkdownRenderer
+                class="ecall-markdown-content max-w-none"
+                :text="activeMarkdownSource"
+                :is-dark="markdownIsDark"
+                variant="document"
+              />
+            </div>
+            <div
+              v-else-if="activeTab.virtualized"
+              class="relative h-full min-h-0"
+              @mouseenter="!isTabRawMode(activeTab) && virtualCodeScrollbarRef?.reveal()"
+              @mouseleave="!isTabRawMode(activeTab) && virtualCodeScrollbarRef?.hide()"
+            >
+              <div
+                ref="virtualCodeScroller"
+                class="file-reader-code-virtual-scroller h-full min-h-0 overflow-auto"
+                :class="isTabRawMode(activeTab) ? 'file-reader-code-virtual-scroller-raw' : 'file-reader-code-virtual-scroller-shiki'"
+                @scroll="captureVisibleRangeContext"
+                @mouseup="captureCurrentTextSelection"
+                @keyup="captureCurrentTextSelection"
+              >
+                <div class="file-reader-code-virtual-canvas" :style="{ height: `${activeVirtualCodeTotalSize}px` }">
+                  <div
+                    v-for="entry in activeVirtualCodeEntries"
+                    :key="entry.block.key"
+                    :data-index="entry.row.index"
+                    :data-file-block-key="entry.block.key"
+                    :data-start-line="entry.block.startLine"
+                    :data-end-line="entry.block.endLine"
+                    :ref="measureVirtualCodeRow"
+                    class="file-reader-code-virtual-row"
+                    :style="{
+                      top: `${entry.row.start}px`,
+                      '--file-reader-code-gutter-ch': String(virtualCodeLineNumberDigits),
+                    }"
+                  >
+                    <div
+                      class="file-reader-code-virtual-block"
+                      :class="isTabRawMode(activeTab) ? 'file-reader-code-virtual-block-raw' : 'file-reader-code-virtual-block-shiki'"
+                    >
+                      <div
+                        aria-hidden="true"
+                        class="file-reader-code-virtual-gutter"
+                        :class="isTabRawMode(activeTab) ? 'file-reader-code-virtual-gutter-raw' : 'file-reader-code-virtual-gutter-shiki'"
+                      >
+                        <div
+                          v-for="lineNumber in blockLineNumbers(entry.block)"
+                          :key="`${entry.block.key}-${lineNumber}`"
+                          class="file-reader-code-virtual-gutter-line"
+                        >
+                          {{ lineNumber }}
+                        </div>
+                      </div>
+                      <pre v-if="isTabRawMode(activeTab)" class="file-reader-raw-pre file-reader-code-virtual-raw">{{ blockContentText(entry.block.key) }}</pre>
+                      <div
+                        v-else
+                        class="file-reader-code-virtual-shiki"
+                        v-html="blockContentHtml(entry.block.key)"
+                      ></div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+              <FloatingScrollbar
+                v-if="!isTabRawMode(activeTab)"
+                ref="virtualCodeScrollbarRef"
+                :target="virtualCodeScroller"
+                variant="code-dark"
+              />
+              <FloatingScrollbar
+                v-if="!isTabRawMode(activeTab)"
+                :target="virtualCodeScroller"
+                variant="code-dark"
+                orientation="horizontal"
+              />
+            </div>
           </div>
-          <div v-else-if="activeTab.loading" class="flex h-full items-center justify-center gap-3 text-sm text-base-content/65">
-            <span class="loading loading-spinner loading-sm"></span>
-            {{ t('fileReader.loadingFile') }}
-          </div>
-          <div v-else-if="activeTab.error" class="m-4 rounded-box border border-error/30 bg-error/10 p-4 text-sm text-error">
-            {{ activeTab.error }}
-          </div>
-          <div v-else-if="activeTab.rawMode" class="file-reader-code-view">
-            <pre class="file-reader-raw-pre">{{ activeTab.content }}</pre>
-          </div>
-          <div v-else-if="activeTab.kind === 'markdown'" class="file-reader-content mx-auto w-full max-w-300 px-4 py-4">
-            <AppMarkdownRenderer
-              class="ecall-markdown-content max-w-none"
-              :text="activeMarkdownSource"
-              :is-dark="markdownIsDark"
-              variant="document"
-            />
-          </div>
-          <div v-else class="file-reader-code-view" v-html="activeHighlightedCodeHtml"></div>
-        </div>
-        <FloatingScrollbar ref="contentScrollbarRef" :target="contentScroller" />
         </div>
       </main>
       <main v-else-if="!directoryTreeRoot" class="flex min-h-0 flex-1 items-center justify-center bg-base-100 px-4 text-center text-sm text-base-content/55">
@@ -346,6 +413,7 @@
 
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
+import { useVirtualizer } from "@tanstack/vue-virtual";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { open } from "@tauri-apps/plugin-dialog";
@@ -370,6 +438,16 @@ type FileReaderFilePayload = {
   kind: "markdown" | "code" | string;
   content: string;
   forcePlain?: boolean;
+  virtualized?: boolean;
+  totalLines?: number;
+  blockLineCount?: number;
+};
+
+type FileReaderFileBlockPayload = {
+  path: string;
+  startLine: number;
+  endLine: number;
+  content: string;
 };
 
 type FileReaderDirectoryEntry = {
@@ -392,9 +470,20 @@ type FileTab = {
   content: string;
   rawMode: boolean;
   forcePlain: boolean;
+  virtualized: boolean;
+  totalLines: number;
+  blockLineCount: number;
   loaded: boolean;
   loading: boolean;
   error: string;
+};
+
+type VirtualCodeBlock = {
+  key: string;
+  path: string;
+  startLine: number;
+  endLine: number;
+  lineCount: number;
 };
 
 type DirectoryNode = {
@@ -482,13 +571,19 @@ const CODE_LANGUAGE_BY_EXTENSION: Record<string, string> = {
 };
 
 const CONTEXT_TEXT_BLOCK_CONTENT_LIMIT = 2000;
+const FILE_READER_VIRTUAL_BLOCK_OVERSCAN = 6;
+const FILE_READER_VIRTUAL_BLOCK_LINE_HEIGHT_PX = 24;
+const FILE_READER_VIRTUAL_BLOCK_PADDING_Y_PX = 8;
 
 // ==================== State ====================
 
 const tabs = ref<FileTab[]>([]);
 const activePath = ref("");
 const actionErrorMessage = ref("");
-const highlightedCodeHtmlByPath = ref<Record<string, string>>({});
+const highlightedCodeHtmlByBlockKey = ref<Record<string, string>>({});
+const fileBlockContentByKey = ref<Record<string, string>>({});
+const fileBlockLoadingByKey = ref<Record<string, boolean>>({});
+const fileBlockErrorByKey = ref<Record<string, string>>({});
 const directoryRootPath = ref("");
 const directoryTreeFilter = ref("");
 const directoryTreeSearchVisible = ref(false);
@@ -496,9 +591,11 @@ const directoryNodes = ref<Record<string, DirectoryNode>>({});
 const fileDragActive = ref(false);
 const addressScroller = ref<HTMLElement | null>(null);
 const contentScroller = ref<HTMLElement | null>(null);
+const markdownScroller = ref<HTMLElement | null>(null);
+const virtualCodeScroller = ref<HTMLElement | null>(null);
 const directoryScroller = ref<HTMLElement | null>(null);
-const contentScrollbarRef = ref<InstanceType<typeof FloatingScrollbar> | null>(null);
 const directoryScrollbarRef = ref<InstanceType<typeof FloatingScrollbar> | null>(null);
+const virtualCodeScrollbarRef = ref<InstanceType<typeof FloatingScrollbar> | null>(null);
 const addressScrollState = ref({ scrollable: false, left: 0, clientWidth: 0, scrollWidth: 0 });
 const showTabs = computed(() => props.showTabs !== false && !props.directoryOnly);
 const showPickFileButton = computed(() => props.showPickFileButton !== false && !props.directoryOnly);
@@ -525,6 +622,7 @@ let watchTargetUpdateTimer = 0;
 let autoRefreshFileTimer = 0;
 let autoRefreshDirectoryTimer = 0;
 const pendingAutoRefreshDirectoryPaths = new Set<string>();
+let activeHighlightRefreshId = 0;
 
 // ==================== Computed ====================
 
@@ -564,16 +662,27 @@ function isHoverDirectoryCollapsed(path: string) {
 const activeMarkdownSource = computed(() => {
   const tab = activeTab.value;
   if (!tab) return "";
-  if (tab.rawMode) return "";
+  if (isTabRawMode(tab)) return "";
   return tab.kind === "markdown" ? stripMarkdownHtmlComments(tab.content) : "";
 });
 
-const activeHighlightedCodeHtml = computed(() => {
+const activeVirtualCodeBlocks = computed<VirtualCodeBlock[]>(() => {
   const tab = activeTab.value;
-  if (!tab) return "";
-  if (!tab.loaded) return "";
-  if (tab.rawMode) return "";
-  return highlightedCodeHtmlByPath.value[tab.path] || escapeHtml(tab.content);
+  if (!tab || !tab.virtualized) return [];
+  const totalLines = Math.max(0, tab.totalLines);
+  const blockLineCount = Math.max(1, tab.blockLineCount || 120);
+  const blocks: VirtualCodeBlock[] = [];
+  for (let startLine = 1; startLine <= totalLines; startLine += blockLineCount) {
+    const endLine = Math.min(totalLines, startLine + blockLineCount - 1);
+    blocks.push({
+      key: buildFileBlockKey(tab.path, startLine, endLine),
+      path: tab.path,
+      startLine,
+      endLine,
+      lineCount: endLine - startLine + 1,
+    });
+  }
+  return blocks;
 });
 
 const addressScrollbarThumbStyle = computed(() => {
@@ -587,6 +696,37 @@ const addressScrollbarThumbStyle = computed(() => {
   const left = Math.round((state.left / maxLeft) * maxThumbLeft);
   return { width: `${width}px`, transform: `translateX(${left}px)` };
 });
+
+const virtualCodeBlockVirtualizer = useVirtualizer(
+  computed(() => ({
+    count: activeVirtualCodeBlocks.value.length,
+    getScrollElement: () => virtualCodeScroller.value,
+    getItemKey: (index: number) => activeVirtualCodeBlocks.value[index]?.key ?? `file-block-${index}`,
+    estimateSize: (index: number) => {
+      const block = activeVirtualCodeBlocks.value[index];
+      if (!block) return FILE_READER_VIRTUAL_BLOCK_LINE_HEIGHT_PX;
+      return block.lineCount * FILE_READER_VIRTUAL_BLOCK_LINE_HEIGHT_PX + FILE_READER_VIRTUAL_BLOCK_PADDING_Y_PX * 2;
+    },
+    overscan: FILE_READER_VIRTUAL_BLOCK_OVERSCAN,
+    measureElement: (element: Element) => (element as HTMLElement).getBoundingClientRect().height,
+  })),
+);
+
+const activeVirtualCodeEntries = computed(() =>
+  virtualCodeBlockVirtualizer.value.getVirtualItems().map((row) => ({
+    row,
+    block: activeVirtualCodeBlocks.value[row.index],
+  })).filter((entry): entry is { row: ReturnType<typeof virtualCodeBlockVirtualizer.value.getVirtualItems>[number]; block: VirtualCodeBlock } => Boolean(entry.block)),
+);
+
+const activeVirtualCodeTotalSize = computed(() => virtualCodeBlockVirtualizer.value.getTotalSize());
+
+const virtualCodeLineNumberDigits = computed(() => {
+  const totalLines = Math.max(1, activeTab.value?.totalLines || 1);
+  return Math.max(2, String(totalLines).length);
+});
+
+const activeShikiTheme = computed(() => (props.markdownIsDark ? "github-dark" : "github-light"));
 
 const visibleTreeRows = computed<TreeRow[]>(() => {
   const root = directoryTreeRoot.value;
@@ -648,6 +788,22 @@ watch(
 );
 
 watch(visibleTreeRows, () => scheduleFileReaderWatchTargetUpdate());
+watch(
+  activeVirtualCodeEntries,
+  (entries) => {
+    for (const entry of entries) {
+      void ensureVirtualCodeBlockLoaded(entry.block);
+    }
+  },
+  { immediate: true },
+);
+
+watch(
+  () => props.markdownIsDark,
+  () => {
+    void refreshActiveCodeHighlights();
+  },
+);
 
 // ==================== Address Scroll ====================
 
@@ -805,7 +961,7 @@ function sameNormalizedPath(left: string, right: string) {
 
 function captureCurrentTextSelection() {
   const tab = activeTab.value;
-  const scroller = contentScroller.value;
+  const scroller = activeContentScroller();
   if (!tab || !scroller || tab.loading || tab.error) return;
   const selection = window.getSelection();
   if (!selection || selection.isCollapsed || selection.rangeCount === 0) {
@@ -856,12 +1012,14 @@ function captureVisibleRangeContext() {
 
 function captureVisibleRangeContextNow(options: { force?: boolean } = {}) {
   const tab = activeTab.value;
-  const scroller = contentScroller.value;
+  const scroller = activeContentScroller();
   if (!tab || !scroller || tab.loading || tab.error || !tab.loaded) return;
-  const lines = splitContentLines(tab.content);
-  if (lines.length === 0) return;
-  const lineRange = resolveVisibleLineRange(scroller, lines.length);
-  const content = lines.slice(lineRange.startLine - 1, lineRange.endLine).join("\n").trim();
+  const totalLines = tab.virtualized ? Math.max(1, tab.totalLines) : splitContentLines(tab.content).length;
+  if (totalLines === 0) return;
+  const lineRange = resolveVisibleLineRange(scroller, totalLines);
+  const content = tab.virtualized
+    ? collectVirtualizedVisibleContent(tab, lineRange)
+    : splitContentLines(tab.content).slice(lineRange.startLine - 1, lineRange.endLine).join("\n").trim();
   if (!content) return;
   const meta = buildContextMeta(tab);
   const visibleRangeKey = [meta.filePath, lineRange.startLine, lineRange.endLine, content].join("\n");
@@ -918,6 +1076,24 @@ function emitContextReference(input: {
   });
 }
 
+function activeContentScroller() {
+  const tab = activeTab.value;
+  if (!tab) return contentScroller.value;
+  if (tab.virtualized) return virtualCodeScroller.value;
+  if (tab.kind === "markdown") return markdownScroller.value;
+  return contentScroller.value;
+}
+
+function canToggleRawMode(tab: FileTab | null | undefined) {
+  return !!tab && tab.kind === "markdown";
+}
+
+function isTabRawMode(tab: FileTab | null | undefined) {
+  if (!tab) return false;
+  if (tab.kind === "markdown") return tab.rawMode;
+  return tab.kind !== "code";
+}
+
 function buildContextMeta(tab: FileTab) {
   const filePath = normalizePath(tab.path);
   const workspacePath = normalizePath(props.initialRootPath || directoryFromPath(filePath));
@@ -942,6 +1118,73 @@ function splitContentLines(value: string) {
   return normalized.length > 0 ? normalized.split("\n") : [];
 }
 
+function buildFileBlockKey(path: string, startLine: number, endLine: number) {
+  return `${normalizePath(path)}::${startLine}-${endLine}`;
+}
+
+function blockLineNumbers(block: VirtualCodeBlock) {
+  return Array.from({ length: block.lineCount }, (_, index) => block.startLine + index);
+}
+
+function blockContentText(blockKey: string) {
+  return fileBlockContentByKey.value[blockKey] || "";
+}
+
+function blockContentHtml(blockKey: string) {
+  return highlightedCodeHtmlByBlockKey.value[blockKey] || escapeHtml(blockContentText(blockKey));
+}
+
+function normalizeShikiLineHtml(html: string) {
+  return html
+    .replace(/<\/span>\s+<span class="line"/g, '</span><span class="line"')
+    .replace(/<span class="line"><\/span>/g, '<span class="line"><span class="file-reader-code-empty-line">&#8203;</span></span>');
+}
+
+async function renderHighlightedCodeHtml(tab: FileTab, content: string) {
+  const language = resolveShikiLanguage(tab.extension);
+  const html = await codeToHtml(content, { lang: language, theme: activeShikiTheme.value });
+  return normalizeShikiLineHtml(html);
+}
+
+async function updateHighlightedCodeBlock(tab: FileTab, blockKey: string, content: string) {
+  if (isTabRawMode(tab)) return;
+  if (tab.kind === "markdown") return;
+  try {
+    const html = await renderHighlightedCodeHtml(tab, content);
+    highlightedCodeHtmlByBlockKey.value = {
+      ...highlightedCodeHtmlByBlockKey.value,
+      [blockKey]: html,
+    };
+  } catch {
+    highlightedCodeHtmlByBlockKey.value = { ...highlightedCodeHtmlByBlockKey.value, [blockKey]: escapeHtml(content) };
+  }
+}
+
+async function refreshActiveCodeHighlights() {
+  const active = activeTab.value;
+  if (!active || isTabRawMode(active) || active.kind === "markdown") return;
+  const activePathKey = `${normalizePath(active.path)}::`;
+  const blockEntries = Object.entries(fileBlockContentByKey.value).filter(([key]) => key.startsWith(activePathKey));
+  if (blockEntries.length <= 0) return;
+
+  const refreshId = ++activeHighlightRefreshId;
+  const nextHtml = { ...highlightedCodeHtmlByBlockKey.value };
+  for (const [key] of blockEntries) {
+    delete nextHtml[key];
+  }
+
+  await Promise.all(blockEntries.map(async ([key, content]) => {
+    try {
+      nextHtml[key] = await renderHighlightedCodeHtml(active, content);
+    } catch {
+      nextHtml[key] = escapeHtml(content);
+    }
+  }));
+
+  if (refreshId !== activeHighlightRefreshId) return;
+  highlightedCodeHtmlByBlockKey.value = nextHtml;
+}
+
 function resolveVisibleLineRange(scroller: HTMLElement, totalLines: number): { startLine: number; endLine: number } {
   const scrollableHeight = Math.max(1, scroller.scrollHeight - scroller.clientHeight);
   const startRatio = Math.max(0, Math.min(1, scroller.scrollTop / scrollableHeight));
@@ -953,7 +1196,10 @@ function resolveVisibleLineRange(scroller: HTMLElement, totalLines: number): { s
 }
 
 function resolveSelectedLineRange(tab: FileTab, scroller: HTMLElement, selectedText: string): { startLine: number; endLine: number } {
-  if (tab.kind === "markdown" && !tab.rawMode) {
+  if (tab.virtualized) {
+    return resolveVisibleLineRange(scroller, Math.max(1, tab.totalLines));
+  }
+  if (tab.kind === "markdown" && !isTabRawMode(tab)) {
     return resolveVisibleLineRange(scroller, Math.max(1, splitContentLines(tab.content).length));
   }
   return resolveRawSelectedLineRange(tab.content, selectedText)
@@ -1005,6 +1251,13 @@ function hashText(value: string) {
   return (hash >>> 0).toString(16);
 }
 
+function measureVirtualCodeRow(element: Element | { $el?: Element } | null) {
+  if (!element) return;
+  const target = element instanceof Element ? element : element.$el;
+  if (!(target instanceof Element)) return;
+  virtualCodeBlockVirtualizer.value.measureElement(target);
+}
+
 function buildContextTextBlock(input: {
   filePath: string;
   lineRange: { startLine?: number; endLine?: number };
@@ -1024,6 +1277,22 @@ function buildContextTextBlock(input: {
     input.content,
     "```",
   ].join("\n");
+}
+
+function collectVirtualizedVisibleContent(tab: FileTab, lineRange: { startLine: number; endLine: number }) {
+  const chunks: string[] = [];
+  for (const block of activeVirtualCodeBlocks.value) {
+    if (block.path !== tab.path) continue;
+    if (block.endLine < lineRange.startLine || block.startLine > lineRange.endLine) continue;
+    const blockContent = blockContentText(block.key);
+    if (!blockContent) continue;
+    const blockLines = splitContentLines(blockContent);
+    const sliceStart = Math.max(0, lineRange.startLine - block.startLine);
+    const sliceEndExclusive = Math.min(blockLines.length, lineRange.endLine - block.startLine + 1);
+    if (sliceEndExclusive <= sliceStart) continue;
+    chunks.push(blockLines.slice(sliceStart, sliceEndExclusive).join("\n"));
+  }
+  return chunks.join("\n").trim();
 }
 
 // ==================== Helpers ====================
@@ -1071,7 +1340,10 @@ async function restoreFileReaderSession(key = props.sessionKey, fallbackRootPath
   try {
     tabs.value = [];
     activePath.value = "";
-    highlightedCodeHtmlByPath.value = {};
+    highlightedCodeHtmlByBlockKey.value = {};
+    fileBlockContentByKey.value = {};
+    fileBlockLoadingByKey.value = {};
+    fileBlockErrorByKey.value = {};
     directoryRootPath.value = "";
     directoryTreeFilter.value = "";
     directoryTreeSearchVisible.value = false;
@@ -1129,6 +1401,9 @@ function createRestoredTab(path: string): FileTab {
     content: "",
     rawMode: false,
     forcePlain: false,
+    virtualized: false,
+    totalLines: 0,
+    blockLineCount: 0,
     loaded: false,
     loading: false,
     error: "",
@@ -1162,25 +1437,6 @@ function escapeHtml(value: string) {
 
 function stripMarkdownHtmlComments(value: string) {
   return String(value || "").replace(/<!--[\s\S]*?-->/g, "");
-}
-
-function normalizeShikiLineHtml(html: string) {
-  return html.replace(/<\/span>\s+<span class="line"/g, '</span><span class="line"');
-}
-
-async function updateHighlightedCode(tab: FileTab) {
-  if (tab.kind === "markdown") return;
-  if (tab.forcePlain) {
-    highlightedCodeHtmlByPath.value = { ...highlightedCodeHtmlByPath.value, [tab.path]: escapeHtml(tab.content) };
-    return;
-  }
-  const language = resolveShikiLanguage(tab.extension);
-  try {
-    const html = await codeToHtml(tab.content, { lang: language, theme: "github-dark" });
-    highlightedCodeHtmlByPath.value = { ...highlightedCodeHtmlByPath.value, [tab.path]: normalizeShikiLineHtml(html) };
-  } catch {
-    highlightedCodeHtmlByPath.value = { ...highlightedCodeHtmlByPath.value, [tab.path]: escapeHtml(tab.content) };
-  }
 }
 
 function resolveShikiLanguage(extension: string) {
@@ -1223,13 +1479,17 @@ function upsertLoadingTab(path: string, reuseActiveTab = false) {
   const current = activeTab.value;
   if (reuseActiveTab && current && !current.loading) {
     const previousPath = current.path;
-    deleteHighlightedCode(previousPath);
+    clearFileBlockCaches(previousPath);
     current.path = normalizedPath;
     current.title = titleFromPath(normalizedPath);
     current.extension = "";
     current.kind = "code";
     current.content = "";
     current.rawMode = false;
+    current.forcePlain = false;
+    current.virtualized = false;
+    current.totalLines = 0;
+    current.blockLineCount = 0;
     current.loaded = false;
     current.loading = true;
     current.error = "";
@@ -1240,7 +1500,7 @@ function upsertLoadingTab(path: string, reuseActiveTab = false) {
   }
   const tab: FileTab = {
     path: normalizedPath, title: titleFromPath(normalizedPath), extension: "",
-    kind: "code", content: "", rawMode: false, forcePlain: false, loaded: false, loading: true, error: "",
+    kind: "code", content: "", rawMode: false, forcePlain: false, virtualized: false, totalLines: 0, blockLineCount: 0, loaded: false, loading: true, error: "",
   };
   tabs.value = [...tabs.value, tab];
   activePath.value = normalizedPath;
@@ -1262,7 +1522,7 @@ function setActiveTab(path: string) {
 
 function toggleActiveRawMode() {
   const tab = activeTab.value;
-  if (!tab) return;
+  if (!tab || !canToggleRawMode(tab)) return;
   tab.rawMode = !tab.rawMode;
   replaceTabState(tab);
 }
@@ -1294,33 +1554,44 @@ function handleTreeEntryClick(entry: FileReaderDirectoryEntry) {
   openOrActivatePath(normalizedPath);
 }
 
-function deleteHighlightedCode(path: string) {
-  const normalizedPath = normalizePath(path);
-  const next = { ...highlightedCodeHtmlByPath.value };
-  delete next[normalizedPath];
-  highlightedCodeHtmlByPath.value = next;
-}
-
 function migrateTabPath(tab: FileTab, fromPath: string, toPath: string) {
   if (fromPath === toPath) return tab;
   const normalizedFromPath = normalizePath(fromPath);
   const duplicated = tabs.value.find((item) => item !== tab && item.path === toPath);
   if (duplicated) {
     tabs.value = tabs.value.filter((item) => item.path !== normalizedFromPath);
-    deleteHighlightedCode(fromPath);
+    clearFileBlockCaches(fromPath);
     activePath.value = toPath;
     scheduleAddressScrollStateUpdate();
     return duplicated;
   }
-  const previousHighlightedHtml = highlightedCodeHtmlByPath.value[fromPath];
-  if (previousHighlightedHtml) {
-    const next = { ...highlightedCodeHtmlByPath.value };
-    delete next[fromPath];
-    next[toPath] = previousHighlightedHtml;
-    highlightedCodeHtmlByPath.value = next;
-  } else {
-    deleteHighlightedCode(fromPath);
+  const contentNext = { ...fileBlockContentByKey.value };
+  const loadingNext = { ...fileBlockLoadingByKey.value };
+  const errorNext = { ...fileBlockErrorByKey.value };
+  const htmlNext = { ...highlightedCodeHtmlByBlockKey.value };
+  for (const key of Object.keys(contentNext)) {
+    if (!key.startsWith(`${normalizedFromPath}::`)) continue;
+    const suffix = key.slice(normalizedFromPath.length);
+    const nextKey = `${toPath}${suffix}`;
+    contentNext[nextKey] = contentNext[key];
+    delete contentNext[key];
+    if (loadingNext[key] !== undefined) {
+      loadingNext[nextKey] = loadingNext[key];
+      delete loadingNext[key];
+    }
+    if (errorNext[key] !== undefined) {
+      errorNext[nextKey] = errorNext[key];
+      delete errorNext[key];
+    }
+    if (htmlNext[key] !== undefined) {
+      htmlNext[nextKey] = htmlNext[key];
+      delete htmlNext[key];
+    }
   }
+  fileBlockContentByKey.value = contentNext;
+  fileBlockLoadingByKey.value = loadingNext;
+  fileBlockErrorByKey.value = errorNext;
+  highlightedCodeHtmlByBlockKey.value = htmlNext;
   tab.path = toPath;
   activePath.value = toPath;
   replaceTabState(tab, fromPath);
@@ -1361,12 +1632,15 @@ async function openPath(path: string, options: { reuseActiveTab?: boolean } = {}
     tab.content = String(payload.content || "");
     tab.rawMode = false;
     tab.forcePlain = !!payload.forcePlain;
+    tab.virtualized = !!payload.virtualized;
+    tab.totalLines = Number(payload.totalLines || 0);
+    tab.blockLineCount = Number(payload.blockLineCount || 0);
     tab.loaded = true;
     tab.error = "";
     tab.loading = false;
     activePath.value = resolvedPath;
     replaceTabState(tab);
-    await updateHighlightedCode(tab);
+    clearFileBlockCaches(resolvedPath);
     scheduleAddressScrollStateUpdate();
     void nextTick(() => captureVisibleRangeContextNow());
     emit("openPath", resolvedPath);
@@ -1390,7 +1664,7 @@ function closeTab(path: string) {
   if (index < 0) return;
   const wasActive = activePath.value === path;
   tabs.value = tabs.value.filter((tab) => tab.path !== path);
-  deleteHighlightedCode(path);
+  clearFileBlockCaches(path);
   if (wasActive) {
     activePath.value = tabs.value[Math.max(0, index - 1)]?.path || tabs.value[0]?.path || "";
     scheduleAddressScrollStateUpdate();
@@ -1450,12 +1724,79 @@ async function requestFileReaderFile(path: string): Promise<FileReaderFilePayloa
       kind: "code",
       content: "",
       forcePlain: false,
+      virtualized: false,
+      totalLines: 0,
+      blockLineCount: 0,
     };
   }
   if (props.bridgeRequest) {
     return await props.bridgeRequest<FileReaderFilePayload>("fileReader.readFile", { path: normalizedPath });
   }
   return await invokeTauri<FileReaderFilePayload>("read_file_reader_file", { path: normalizedPath });
+}
+
+async function requestFileReaderFileBlock(path: string, startLine: number, lineCount: number): Promise<FileReaderFileBlockPayload> {
+  const normalizedPath = normalizePath(path);
+  if (!normalizedPath) {
+    return { path: "", startLine: 1, endLine: 1, content: "" };
+  }
+  if (props.bridgeRequest) {
+    return await props.bridgeRequest<FileReaderFileBlockPayload>("fileReader.readFileBlock", {
+      path: normalizedPath,
+      startLine,
+      lineCount,
+    });
+  }
+  return await invokeTauri<FileReaderFileBlockPayload>("read_file_reader_file_block", {
+    path: normalizedPath,
+    startLine,
+    lineCount,
+  });
+}
+
+function clearFileBlockCaches(path: string) {
+  const normalizedPath = normalizePath(path);
+  if (!normalizedPath) return;
+  const contentNext = { ...fileBlockContentByKey.value };
+  const loadingNext = { ...fileBlockLoadingByKey.value };
+  const errorNext = { ...fileBlockErrorByKey.value };
+  const htmlNext = { ...highlightedCodeHtmlByBlockKey.value };
+  for (const key of Object.keys(contentNext)) {
+    if (!key.startsWith(`${normalizedPath}::`)) continue;
+    delete contentNext[key];
+    delete loadingNext[key];
+    delete errorNext[key];
+    delete htmlNext[key];
+  }
+  fileBlockContentByKey.value = contentNext;
+  fileBlockLoadingByKey.value = loadingNext;
+  fileBlockErrorByKey.value = errorNext;
+  highlightedCodeHtmlByBlockKey.value = htmlNext;
+}
+
+async function ensureVirtualCodeBlockLoaded(block: VirtualCodeBlock) {
+  if (!block.path) return;
+  if (fileBlockContentByKey.value[block.key] !== undefined) return;
+  if (fileBlockLoadingByKey.value[block.key]) return;
+  fileBlockLoadingByKey.value = { ...fileBlockLoadingByKey.value, [block.key]: true };
+  try {
+    const payload = await requestFileReaderFileBlock(block.path, block.startLine, block.lineCount);
+    const normalizedKey = buildFileBlockKey(payload.path || block.path, payload.startLine, payload.endLine);
+    fileBlockContentByKey.value = { ...fileBlockContentByKey.value, [normalizedKey]: String(payload.content || "") };
+    const active = activeTab.value;
+    if (active && sameNormalizedPath(active.path, block.path) && !isTabRawMode(active)) {
+      await updateHighlightedCodeBlock(active, normalizedKey, String(payload.content || ""));
+    }
+    const errorNext = { ...fileBlockErrorByKey.value };
+    delete errorNext[block.key];
+    fileBlockErrorByKey.value = errorNext;
+  } catch (error) {
+    fileBlockErrorByKey.value = { ...fileBlockErrorByKey.value, [block.key]: error instanceof Error ? error.message : String(error) };
+  } finally {
+    const loadingNext = { ...fileBlockLoadingByKey.value };
+    delete loadingNext[block.key];
+    fileBlockLoadingByKey.value = loadingNext;
+  }
 }
 
 async function loadDirectory(path: string, expanded: boolean) {
@@ -1862,6 +2203,22 @@ defineExpose({
 .file-reader-scroll-container::-webkit-scrollbar {
   display: none;
 }
+.file-reader-content-scroller {
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in srgb, currentColor 28%, transparent) transparent;
+}
+.file-reader-content-scroller::-webkit-scrollbar {
+  display: block;
+  width: 10px;
+  height: 10px;
+}
+.file-reader-content-scroller::-webkit-scrollbar-thumb {
+  background-color: color-mix(in srgb, currentColor 28%, transparent);
+  border-radius: 999px;
+}
+.file-reader-content-scroller::-webkit-scrollbar-track {
+  background: transparent;
+}
 .file-reader-address-scrollbar-thumb {
   opacity: 0;
   transition: opacity 160ms ease;
@@ -1890,48 +2247,140 @@ defineExpose({
   width: 100%;
   font-size: 0.92rem;
 }
-.file-reader-code-main {
-  background: #101828;
+.file-reader-raw-main {
+  min-height: 0;
 }
-.file-reader-code-view {
+.file-reader-raw-scroller {
   min-height: 100%;
-  background: #101828;
-}
-.file-reader-code-view :deep(.shiki) {
-  min-height: 100%;
-  margin: 0;
-  padding: 0.75rem 0;
-  border: 0;
-  border-radius: 0;
-  background: #101828 !important;
-  box-shadow: none;
-  overflow: visible;
-  counter-reset: file-reader-code-line;
+  overflow: auto;
+  background: transparent;
 }
 .file-reader-raw-pre {
   min-height: 100%;
   margin: 0;
   padding: 0.75rem 1rem;
   white-space: pre;
-  color: #e5e7eb;
+  color: inherit;
+  background: transparent;
 }
-.file-reader-code-view :deep(code) {
+.file-reader-code-virtual-scroller {
+  min-height: 100%;
+  overflow: auto;
+}
+.file-reader-code-virtual-scroller-shiki {
+  background: var(--color-base-100);
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.file-reader-code-virtual-scroller-shiki::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+}
+.file-reader-code-virtual-canvas {
+  position: relative;
+  min-width: 100%;
+}
+.file-reader-code-virtual-row {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 100%;
+}
+.file-reader-code-virtual-block {
+  display: grid;
+  grid-template-columns: calc(var(--file-reader-code-gutter-ch, 2) * 1ch + 1rem) minmax(0, 1fr);
+  align-items: flex-start;
+  min-width: 100%;
+}
+.file-reader-code-virtual-block-raw {
+  width: 100%;
+  font-family: inherit;
+  font-size: 14px;
+  line-height: 21px;
+}
+.file-reader-code-virtual-block-shiki {
+  width: max-content;
+  font-family: inherit;
+  font-size: 14px;
+  line-height: 21px;
+}
+.file-reader-code-virtual-gutter {
+  position: sticky;
+  left: 0;
+  z-index: 2;
+  width: calc(var(--file-reader-code-gutter-ch, 2) * 1ch + 0.75rem);
+  padding-top: 5px;
+  padding-bottom: 4px;
+  padding-right: 0.25rem;
+  text-align: right;
+  user-select: none;
+}
+.file-reader-code-virtual-gutter::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  right: -4px;
+  width: 4px;
+  height: 100%;
+}
+.file-reader-code-virtual-gutter-raw {
+  background: var(--color-base-100);
+}
+.file-reader-code-virtual-gutter-raw::after {
+  background: var(--color-base-100);
+}
+.file-reader-code-virtual-gutter-shiki {
+  background: var(--color-base-100);
+}
+.file-reader-code-virtual-gutter-shiki::after {
+  background: var(--color-base-100);
+}
+.file-reader-code-virtual-gutter-line {
+  min-height: 21px;
+  line-height: inherit;
+  color: rgb(100 116 139 / 0.92);
+}
+.file-reader-code-virtual-raw {
+  margin: 0;
+  padding: 4px 8px;
+  min-width: 0;
+  flex: 1 1 auto;
+  font-family: inherit;
+  font-size: inherit;
+  line-height: inherit;
+}
+.file-reader-code-virtual-shiki :deep(pre.shiki) {
+  display: block;
+  margin: 0;
+  padding: 4px 8px;
+  min-width: 100%;
+  width: max-content;
+  box-sizing: border-box;
+  font-family: inherit !important;
+  font-size: inherit !important;
+  line-height: inherit !important;
+  background: transparent !important;
+  overflow: visible;
+}
+.file-reader-code-virtual-shiki :deep(pre.shiki code) {
   display: block;
   min-width: max-content;
+  font-family: inherit !important;
+  font-size: inherit !important;
+  line-height: inherit !important;
 }
-.file-reader-code-view :deep(.line) {
+.file-reader-code-virtual-shiki :deep(pre.shiki code .line) {
   display: block;
-  min-height: 1.5em;
-  line-height: 1.5;
-  counter-increment: file-reader-code-line;
+  min-height: 21px;
+  line-height: inherit;
 }
-.file-reader-code-view :deep(.line::before) {
-  content: counter(file-reader-code-line);
+.file-reader-code-virtual-shiki :deep(pre.shiki span) {
+  font-family: inherit !important;
+}
+.file-reader-code-virtual-shiki :deep(.file-reader-code-empty-line) {
   display: inline-block;
-  width: 2.75rem;
-  padding-right: 0.75rem;
-  text-align: right;
-  color: #64748b;
-  user-select: none;
+  width: 0;
+  opacity: 0;
+  pointer-events: none;
 }
 </style>

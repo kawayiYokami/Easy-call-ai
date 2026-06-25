@@ -55,15 +55,14 @@
 </template>
 
 <script setup lang="ts">
-import { onBeforeUnmount, onMounted, ref } from "vue";
+import { computed, onBeforeUnmount, onMounted, ref } from "vue";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { FilePlus, FileText, Minus, Square, X } from "@lucide/vue";
 import { open } from "@tauri-apps/plugin-dialog";
 import FileReaderPanel from "../../features/file-reader/components/FileReaderPanel.vue";
-import { type AppThemeState, type GeneratedThemeControls } from "../../features/shell/theme/theme-types";
-import { useAppTheme } from "../../features/shell/composables/use-app-theme";
-import { buildGeneratedThemeStyleText, generateGeneratedThemeTokens, GENERATED_THEME_NAME } from "../../features/shell/theme/theme-generator";
+import type { AppThemeState } from "../../features/shell/theme/theme-types";
+import { isDarkAppTheme, useAppTheme } from "../../features/shell/composables/use-app-theme";
 import Win10ResizeHandles from "../../features/shell/components/Win10ResizeHandles.vue";
 
 const FILE_READER_SESSION_STORAGE_KEY = "easy_call.file_reader_session.v1";
@@ -75,11 +74,11 @@ type FileReaderSessionState = {
   directoryRootPath?: string;
 };
 
-const { currentTheme, restoreThemeFromStorage } = useAppTheme();
+const { applyTheme, currentTheme, restoreThemeFromStorage } = useAppTheme();
 const appWindow = getCurrentWindow();
 const maximized = ref(false);
 const fileReaderPanelRef = ref<InstanceType<typeof FileReaderPanel> | null>(null);
-const markdownIsDark = ref(currentTheme.value !== "light");
+const markdownIsDark = computed(() => isDarkAppTheme(currentTheme.value));
 
 let unlistenOpenPath: UnlistenFn | null = null;
 let unlistenThemeChanged: UnlistenFn | null = null;
@@ -168,24 +167,7 @@ onMounted(async () => {
   restoreThemeFromStorage();
   try {
     unlistenThemeChanged = await listen<AppThemeState>("easy-call:theme-changed", (event) => {
-      const state = event.payload;
-      if (state.kind === "preset" && state.name) {
-        document.documentElement.setAttribute("data-theme", state.name);
-      } else if (state.kind === "generated" && state.controls) {
-        const tokens = generateGeneratedThemeTokens(state.controls as GeneratedThemeControls);
-        const styleText = buildGeneratedThemeStyleText(tokens);
-        const existing = document.getElementById("easy-call-generated-theme-style");
-        if (existing instanceof HTMLStyleElement) {
-          existing.textContent = styleText;
-        } else {
-          const element = document.createElement("style");
-          element.id = "easy-call-generated-theme-style";
-          element.textContent = styleText;
-          document.head.appendChild(element);
-        }
-        document.documentElement.setAttribute("data-theme", GENERATED_THEME_NAME);
-      }
-      markdownIsDark.value = currentTheme.value !== "light";
+      applyTheme(event.payload);
     });
   } catch (error) {
     console.error("[文件阅读窗口] 监听主题变化失败", error);
