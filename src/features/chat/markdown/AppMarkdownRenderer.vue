@@ -175,6 +175,7 @@ import { invokeTauri } from "../../../services/tauri-api";
 import FloatingScrollbar from "../../shell/components/FloatingScrollbar.vue";
 import { isAbsoluteLocalPath, normalizeLocalLinkHref } from "../utils/local-link";
 import { parseMarkdownBlocks, parseInlineSegments, normalizedTableRow, type MarkdownBlock, type InlineSegment } from "./parse-markdown";
+import { IncrementalMarkdownBlockParser } from "./incremental-markdown";
 import CodeBlockPreviewDialog from "../components/dialogs/CodeBlockPreviewDialog.vue";
 
 defineOptions({
@@ -328,6 +329,7 @@ const parseState = {
   lastParseTime: 0,
   cachedBlocks: [] as MarkdownBlock[],
   cachedText: "",
+  incrementalParser: new IncrementalMarkdownBlockParser(),
   batchLimit: 0,
   batchTimer: 0,
   parseRetryTimer: 0,
@@ -346,7 +348,10 @@ function parseAndCacheBlocks(text: string, streaming: boolean): MarkdownBlock[] 
   clearParseRetryTimer();
   parseState.lastParseTime = Date.now();
   parseState.cachedText = text;
-  parseState.cachedBlocks = parseMarkdownBlocks(text, streaming);
+  parseState.cachedBlocks = streaming
+    ? parseState.incrementalParser.parse(text)
+    : parseMarkdownBlocks(text, false);
+  if (!streaming) parseState.incrementalParser.reset();
   return parseState.cachedBlocks;
 }
 
@@ -361,7 +366,12 @@ function scheduleStreamingParseRetry(delayMs: number) {
 const allBlocks = computed<MarkdownBlock[]>(() => {
   void parseRetryTick.value;
   const text = props.text;
-  if (!text) return [];
+  if (!text) {
+    parseState.incrementalParser.reset();
+    parseState.cachedText = "";
+    parseState.cachedBlocks = [];
+    return [];
+  }
 
   if (!props.streaming) {
     return parseAndCacheBlocks(text, false);
@@ -423,6 +433,7 @@ watch(
   (streaming) => {
     if (!streaming) {
       clearParseRetryTimer();
+      parseState.incrementalParser.reset();
       parseState.batchLimit = 0;
       if (parseState.batchTimer) {
         clearTimeout(parseState.batchTimer);
