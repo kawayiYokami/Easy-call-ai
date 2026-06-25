@@ -120,6 +120,11 @@
   text-decoration-color: currentColor !important;
 }
 
+.ecall-markdown-content .ecall-md-image-link,
+.ecall-markdown-content .ecall-md-image-link:hover {
+  text-decoration: none !important;
+}
+
 .ecall-markdown-content .ecall-md-footnote-ref {
   color: var(--color-primary);
 }

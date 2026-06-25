@@ -21,6 +21,7 @@ export type InlineSegment =
   | { type: "math"; text: string }
   | { type: "link"; text: string; href: string }
   | { type: "image"; alt: string; src: string }
+  | { type: "imageLink"; alt: string; src: string; href: string }
   | { type: "strong"; children: InlineSegment[] }
   | { type: "em"; children: InlineSegment[] }
   | { type: "strongEm"; children: InlineSegment[] }
@@ -295,6 +296,7 @@ export function parseMarkdownBlocks(input: string, streaming = false): MarkdownB
 // ==================== Inline Parser ====================
 
 const URL_PATTERN = /(https?:\/\/[^\s<>()]+|file:\/\/\/[^\s<>()]+)/g;
+const MARKDOWN_IMAGE_LINK_PATTERN = /\[!\[([^\]\n]*)\]\(([^)\n]+)\)\]\(([^)\n]+)\)/g;
 const MARKDOWN_LINK_PATTERN = /!?\[([^\]\n]*)\]\(([^)\n]+)\)/g;
 const TOOLCALL_REF_PATTERN = /\[toolcall:([^\]\n]+)\]/g;
 const FOOTNOTE_REF_PATTERN = /\[\^([^\]\n]+)\]/g;
@@ -320,6 +322,7 @@ function pushTextSegment(segments: InlineSegment[], text: string) {
 }
 
 type LinkMatch =
+  | { kind: "image_link"; start: number; end: number; raw: string; alt: string; src: string; href: string }
   | { kind: "markdown"; start: number; end: number; raw: string; text: string; href: string; image: boolean }
   | { kind: "auto"; start: number; end: number; href: string }
   | { kind: "toolcall_ref"; start: number; end: number; raw: string; id: string }
@@ -329,6 +332,21 @@ function pickEarlierLink(left: LinkMatch | null, right: LinkMatch | null): LinkM
   if (!left) return right;
   if (!right) return left;
   return left.start <= right.start ? left : right;
+}
+
+function nextMarkdownImageLink(input: string, from: number): LinkMatch | null {
+  MARKDOWN_IMAGE_LINK_PATTERN.lastIndex = from;
+  const match = MARKDOWN_IMAGE_LINK_PATTERN.exec(input);
+  if (!match) return null;
+  return {
+    kind: "image_link",
+    start: match.index,
+    end: match.index + match[0].length,
+    raw: match[0],
+    alt: match[1],
+    src: match[2],
+    href: match[3],
+  };
 }
 
 function nextMarkdownLink(input: string, from: number): LinkMatch | null {
@@ -456,14 +474,26 @@ function pushEmphasisIntoSegments(input: string, segments: InlineSegment[]) {
 function parseLinksIntoSegments(input: string, segments: InlineSegment[]) {
   let cursor = 0;
   while (cursor < input.length) {
+    const imageLink = nextMarkdownImageLink(input, cursor);
     const markdownLink = nextMarkdownLink(input, cursor);
     const autoLink = nextAutoLink(input, cursor);
     const toolcallRef = nextToolcallRef(input, cursor);
     const footnoteRef = nextFootnoteRef(input, cursor);
-    const next = pickEarlierLink(pickEarlierLink(pickEarlierLink(markdownLink, autoLink), toolcallRef), footnoteRef);
+    const next = pickEarlierLink(
+      pickEarlierLink(pickEarlierLink(pickEarlierLink(imageLink, markdownLink), autoLink), toolcallRef),
+      footnoteRef,
+    );
     if (!next) break;
     pushEmphasisIntoSegments(input.slice(cursor, next.start), segments);
-    if (next.kind === "markdown") {
+    if (next.kind === "image_link") {
+      const src = normalizeMarkdownHref(next.src);
+      const href = normalizeMarkdownHref(next.href);
+      if (src && href) {
+        segments.push({ type: "imageLink", src, href, alt: next.alt });
+      } else {
+        pushEmphasisIntoSegments(next.raw, segments);
+      }
+    } else if (next.kind === "markdown") {
       const href = normalizeMarkdownHref(next.href);
       if (href) {
         if (next.image) {

@@ -242,6 +242,7 @@
                 :text="activeMarkdownSource"
                 :is-dark="markdownIsDark"
                 variant="document"
+                :local-image-base-path="directoryFromPath(activeTab.path)"
               />
             </div>
             <div

@@ -764,6 +764,27 @@ function renderSegments(
       }));
       continue;
     }
+    if (segment.type === "imageLink") {
+      const href = sanitizeMarkdownHref(segment.href);
+      const imageNode = h(MarkdownImage, {
+        src: segment.src,
+        alt: segment.alt,
+        localImageBasePath,
+      });
+      if (!href) {
+        nodes.push(imageNode);
+        continue;
+      }
+      const isExternalUrl = /^https?:\/\//i.test(href);
+      nodes.push(h("a", {
+        key: `${keyPrefix}-img-link-${index}`,
+        href: isExternalUrl ? href : "#",
+        "data-href": isExternalUrl ? undefined : href,
+        class: "ecall-md-image-link",
+        ...(isExternalUrl ? { target: "_blank", rel: "noopener noreferrer" } : {}),
+      }, [imageNode]));
+      continue;
+    }
     if (segment.type === "strong") {
       nodes.push(h("strong", { key: `${keyPrefix}-b-${index}`, class: "ecall-md-strong" }, renderSegments(segment.children, `${keyPrefix}-b-${index}`, localImageBasePath, options)));
       continue;
@@ -1422,6 +1443,13 @@ ul.ecall-md-list {
   text-decoration: underline;
   text-decoration-thickness: 0.08em;
   text-underline-offset: 0.18em;
+}
+
+.ecall-md-image-link {
+  display: inline-flex;
+  max-width: 100%;
+  text-decoration: none;
+  vertical-align: middle;
 }
 
 /* ==================== Images ==================== */
