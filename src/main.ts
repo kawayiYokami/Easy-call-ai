@@ -7,7 +7,9 @@ import "katex/dist/katex.min.css";
 import { i18n } from "./i18n";
 import { initMarkdownAppearance } from "./features/shell/composables/use-markdown-appearance";
 import { LUCIDE_CONTEXT } from "./lucide-context";
+import { installNativeSelectionGuard } from "./utils/native-selection";
 
+installNativeSelectionGuard();
 initMarkdownAppearance();
 
 // 监听全局错误事件

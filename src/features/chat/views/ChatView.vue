@@ -462,6 +462,7 @@ import type { ToolReviewCodeReviewScope, ToolReviewCommitOption } from "../compo
 import { useChatBlockTracking } from "../composables/use-chat-block-tracking";
 import type { TaskEntry } from "../../config/views/config-tabs/task-editor";
 import type { DepartmentPersonaOption } from "../../shared/department-persona-options";
+import { clearNativeTextSelection } from "../../../utils/native-selection";
 
 // ==================== props / emits ====================
 
@@ -668,17 +669,6 @@ const showSideConversationList = computed(() => !!props.sideConversationListVisi
 const sidebarMode = computed(() => !!props.sidebarMode);
 const bridgeMode = computed(() => !!props.bridgeMode);
 const openLocalFilesInHost = computed(() => !!props.openLocalFilesInHost);
-
-function clearNativeTextSelection() {
-  try {
-    const selection = window.getSelection?.();
-    if (selection && selection.rangeCount > 0 && String(selection.toString() || "").trim()) {
-      selection.removeAllRanges();
-    }
-  } catch {
-    // 忽略浏览器选区清理失败，避免影响主流程
-  }
-}
 
 function canRegenerateBlock(block: ChatMessageBlock, blockIndex: number): boolean {
   if (block.role !== "assistant" || block.isExtraTextBlock) return false;

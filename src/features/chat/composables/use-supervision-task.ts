@@ -2,6 +2,7 @@ import { computed, ref, type Ref } from "vue";
 import { invokeTauri } from "../../../services/tauri-api";
 import { toErrorMessage } from "../../../utils/error";
 import type { ConversationGoalState } from "../../../types/app";
+import { clearNativeTextSelection } from "../../../utils/native-selection";
 
 const SUPERVISION_TASK_HISTORY_STORAGE_KEY = "chat-supervision-task-history";
 const SUPERVISION_TASK_HISTORY_LIMIT = 3;
@@ -37,17 +38,6 @@ type UseSupervisionTaskOptions = {
   currentConversationId: Ref<string>;
   setStatus: (message: string) => void;
 };
-
-function clearNativeTextSelection() {
-  try {
-    const selection = window.getSelection?.();
-    if (selection && selection.rangeCount > 0 && String(selection.toString() || "").trim()) {
-      selection.removeAllRanges();
-    }
-  } catch {
-    // 忽略浏览器选区清理失败，避免影响主流程
-  }
-}
 
 function goalIsActive(goal?: ConversationGoalState | null): goal is ConversationGoalState {
   return String(goal?.status || "").trim() === "active";

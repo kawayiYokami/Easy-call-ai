@@ -6,6 +6,7 @@ import "../chat/markdown/markdown-content.css";
 import "./assets/sidebar-theme.css";
 import { LUCIDE_CONTEXT } from "../../lucide-context";
 import { useAppTheme } from "../shell/composables/use-app-theme";
+import { installNativeSelectionGuard } from "../../utils/native-selection";
 
 function isVsCodeSidebarHost(): boolean {
   const bridgeWindow = window as Window & { acquireVsCodeApi?: unknown };
@@ -22,6 +23,7 @@ function prepareSidebarThemeHost() {
   restoreThemeFromStorage();
 }
 
+installNativeSelectionGuard();
 prepareSidebarThemeHost();
 
 createApp(App).use(i18n).provide(LUCIDE_CONTEXT, {}).mount("#app");
