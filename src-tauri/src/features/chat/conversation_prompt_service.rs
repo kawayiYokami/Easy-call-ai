@@ -824,6 +824,13 @@ impl ConversationPromptService {
             if let Some(log_stage) = stage_logger {
                 log_stage("prepare_context.skill_snapshot_ready");
             }
+            let remote_contact_mode = conversation_is_remote_im_contact(conversation)
+                || resolve_bound_remote_im_activation_source(&overrides.remote_im_activation_sources)
+                    .is_some();
+            blocks.push(build_human_interface_environment_block(remote_contact_mode));
+            if let Some(log_stage) = stage_logger {
+                log_stage("prepare_context.interface_ready");
+            }
             if let Some(workspace_agents_block) =
                 build_workspace_agents_md_block(conversation, state)
             {

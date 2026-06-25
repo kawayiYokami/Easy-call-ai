@@ -265,6 +265,19 @@ fn conversation_user_main_workspace_root(conversation: &Conversation, state: &Ap
 }
 
 const WORKSPACE_AGENTS_MD_MAX_BYTES: u64 = 32 * 1024;
+const INTERFACE_REMOTE_CONTACT_PROMPT_MD: &str =
+    include_str!("../../../../resources/prompts/interface_remote_contact.md");
+const INTERFACE_LOCAL_CONVERSATION_PROMPT_MD: &str =
+    include_str!("../../../../resources/prompts/interface_local_conversation.md");
+
+fn build_human_interface_environment_block(remote_contact_mode: bool) -> String {
+    let body = if remote_contact_mode {
+        INTERFACE_REMOTE_CONTACT_PROMPT_MD
+    } else {
+        INTERFACE_LOCAL_CONVERSATION_PROMPT_MD
+    };
+    prompt_xml_block("interface", body.trim())
+}
 
 fn build_workspace_agents_md_block(conversation: &Conversation, state: &AppState) -> Option<String> {
     let Some(workspace_root) = conversation_user_main_workspace_root(conversation, state) else {
