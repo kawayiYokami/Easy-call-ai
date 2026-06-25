@@ -603,8 +603,10 @@ mod conversation_usage_tests {
             Some(ConversationUsageBucket {
                 input_tokens: 120,
                 output_tokens: 45,
+                total_tokens: 165,
                 cache_read_tokens: 20,
                 cache_write_tokens: 7,
+                reasoning_tokens: 0,
             })
         );
     }
@@ -625,8 +627,10 @@ mod conversation_usage_tests {
                 ConversationUsageBucket {
                     input_tokens: 120,
                     output_tokens: 60,
+                    total_tokens: 180,
                     cache_read_tokens: 20,
                     cache_write_tokens: 5,
+                    reasoning_tokens: 0,
                 },
             )]),
         );

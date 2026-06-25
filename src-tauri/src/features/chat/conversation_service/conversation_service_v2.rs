@@ -420,17 +420,16 @@ fn assistant_message_tool_append_closed(message: &ChatMessage) -> bool {
 }
 
 fn merge_optional_text_block_v2(current: &mut Option<String>, next: Option<String>) {
-    let Some(next) = next.map(|value| value.trim().to_string()) else {
+    let Some(next) = next else {
         return;
     };
-    if next.is_empty() {
-        return;
-    }
     match current {
-        Some(current) if !current.trim().is_empty() => {
+        Some(current) if !current.is_empty() && !next.is_empty() => {
             current.push_str("\n\n");
             current.push_str(&next);
         }
+        Some(current) if current.is_empty() => *current = next,
+        Some(_) => {}
         _ => *current = Some(next),
     }
 }
@@ -6621,7 +6620,7 @@ impl ConversationServiceV2 {
         if assistant_message_id.is_empty() {
             return Err("assistantMessageId is required.".to_string());
         }
-        let final_text = input.final_text.trim();
+        let final_text = input.final_text.as_str();
         let _guard = lock_conversation_with_metrics(
             state,
             "conversation_v2_append_final_text_to_assistant_message",
@@ -6643,25 +6642,6 @@ impl ConversationServiceV2 {
                 .into_string(),
             );
         }
-        let has_reasoning_patch = input
-            .reasoning_text
-            .as_deref()
-            .map(str::trim)
-            .filter(|value| !value.is_empty())
-            .is_some();
-        let has_provider_meta_patch = input
-            .provider_meta_patch
-            .as_ref()
-            .and_then(Value::as_object)
-            .map(|value| !value.is_empty())
-            .unwrap_or(false);
-        if final_text.is_empty()
-            && !has_reasoning_patch
-            && !has_provider_meta_patch
-        {
-            return Err("finalText/reasoningText/providerMetaPatch 至少需要一个".to_string());
-        }
-
         let mut text_part_updated = false;
         for part in &mut target_message.parts {
             if let MessagePart::Text {
@@ -6669,15 +6649,13 @@ impl ConversationServiceV2 {
                 reasoning_content,
             } = part
             {
-                if !final_text.is_empty() {
-                    *text = final_text.to_string();
-                }
+                *text = final_text.to_string();
                 merge_optional_text_block_v2(reasoning_content, input.reasoning_text.clone());
                 text_part_updated = true;
                 break;
             }
         }
-        if !text_part_updated && (!final_text.is_empty() || has_reasoning_patch) {
+        if !text_part_updated {
             target_message.parts.push(MessagePart::Text {
                 text: final_text.to_string(),
                 reasoning_content: input.reasoning_text.clone(),

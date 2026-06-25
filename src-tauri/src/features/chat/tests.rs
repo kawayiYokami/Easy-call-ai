@@ -4734,7 +4734,7 @@
     }
 
     #[test]
-    fn conversation_service_v2_should_append_final_text_to_last_assistant_message() {
+    fn conversation_service_v2_should_preserve_final_text_verbatim() {
         let state = test_chat_runtime_state();
         let now = now_iso();
         let mut conversation =
@@ -4767,14 +4767,15 @@
         state_mark_conversation_direct_persisted(&state, &conversation)
             .expect("mark direct persisted");
 
+        let final_text = "\n```python\ndef hello():\n    return True\n```\n";
         let append = conversation_service_v2()
             .append_final_text_to_assistant_message(
                 &state,
                 &AssistantMessageFinalTextAppendInput {
                     conversation_id: conversation.id.clone(),
                     assistant_message_id: "assistant-final-open".to_string(),
-                    final_text: "这是最终正文".to_string(),
-                    reasoning_text: Some("这是最终思考".to_string()),
+                    final_text: final_text.to_string(),
+                    reasoning_text: Some("  这是最终思考  ".to_string()),
                     provider_meta_patch: Some(serde_json::json!({
                         "usage": { "outputTokens": 12 }
                     })),
@@ -4794,8 +4795,8 @@
                 text,
                 reasoning_content,
             } => {
-                assert_eq!(text, "这是最终正文");
-                assert_eq!(reasoning_content.as_deref(), Some("这是最终思考"));
+                assert_eq!(text, final_text);
+                assert_eq!(reasoning_content.as_deref(), Some("  这是最终思考  "));
             }
             _ => panic!("expected text part"),
         }
@@ -4987,12 +4988,12 @@
                     conversation_id: conversation.id.clone(),
                     assistant_message_id: "assistant-empty-final".to_string(),
                     final_text: String::new(),
-                    reasoning_text: Some("被压缩提前结束".to_string()),
+                    reasoning_text: None,
                     provider_meta_patch: None,
                     meme_annotations: None,
                 },
             )
-            .expect("empty final text with reasoning should still commit");
+            .expect("empty final text should still commit");
         assert!(final_append.final_text_committed);
         assert!(final_append.tool_append_closed);
 
@@ -5005,7 +5006,7 @@
                 reasoning_content,
             } => {
                 assert!(text.is_empty());
-                assert_eq!(reasoning_content.as_deref(), Some("被压缩提前结束"));
+                assert_eq!(reasoning_content.as_deref(), None);
             }
             _ => panic!("expected text part"),
         }

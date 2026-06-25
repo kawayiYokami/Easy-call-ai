@@ -375,43 +375,6 @@ fn normalize_assistant_provider_meta(provider_meta: Option<Value>) -> Option<Val
     Some(merged)
 }
 
-fn strip_toolcall_markers_from_persisted_text(text: &str) -> String {
-    text.split('\n')
-        .map(|line| {
-            let mut output = String::new();
-            let mut rest = line;
-            while let Some(start) = rest.find("[toolcall:") {
-                output.push_str(&rest[..start]);
-                let Some(end) = rest[start + "[toolcall:".len()..].find(']') else {
-                    output.push_str(&rest[start..]);
-                    rest = "";
-                    break;
-                };
-                rest = &rest[start + "[toolcall:".len() + end + 1..];
-            }
-            output.push_str(rest);
-            let mut compact = String::new();
-            let mut prev_was_space = false;
-            for ch in output.chars() {
-                if ch == ' ' || ch == '\t' {
-                    if prev_was_space {
-                        continue;
-                    }
-                    compact.push(' ');
-                    prev_was_space = true;
-                    continue;
-                }
-                compact.push(ch);
-                prev_was_space = false;
-            }
-            compact.trim().to_string()
-        })
-        .collect::<Vec<_>>()
-        .join("\n")
-        .trim()
-        .to_string()
-}
-
 fn build_assistant_message_from_request_sequence(
     id: String,
     agent_id: &str,
@@ -421,14 +384,13 @@ fn build_assistant_message_from_request_sequence(
 ) -> ChatMessage {
     let folded = fold_request_messages_to_assistant_content(request_messages);
     let activity_events = folded.tool_history_events;
-    let persisted_text = strip_toolcall_markers_from_persisted_text(&folded.assistant_text);
     ChatMessage {
         id,
         role: "assistant".to_string(),
         created_at,
         speaker_agent_id: Some(agent_id.to_string()),
         parts: vec![MessagePart::Text {
-            text: persisted_text,
+            text: folded.assistant_text,
             reasoning_content: folded.activity_reasoning_text,
         }],
         extra_text_blocks: Vec::new(),
@@ -982,6 +944,24 @@ mod message_semantics_tests {
     }
 
     #[test]
+    fn build_assistant_message_from_request_sequence_should_preserve_final_text_verbatim() {
+        let final_text = "\n```python\ndef hello():\n    name = \"Incremark\"\n    if name:\n        print(name)\n```\n\n[toolcall:literal]\n";
+        let request_messages = assistant_request_sequence_from_tool_history(&[], final_text, "");
+        let message = build_assistant_message_from_request_sequence(
+            "assistant-final".to_string(),
+            "agent-a",
+            "2026-06-03T21:41:00Z".to_string(),
+            &request_messages,
+            None,
+        );
+
+        match &message.parts[0] {
+            MessagePart::Text { text, .. } => assert_eq!(text, final_text),
+            _ => panic!("expected text part"),
+        }
+    }
+
+    #[test]
     fn build_assistant_message_from_request_sequence_should_keep_marker_only_rounds_before_final_text() {
         let tool_history_events = vec![
             serde_json::json!({
@@ -1042,8 +1022,7 @@ mod message_semantics_tests {
     }
 
     #[test]
-    fn build_assistant_message_from_request_sequence_should_not_duplicate_marker_only_rounds_already_in_final_text(
-    ) {
+    fn build_assistant_message_from_request_sequence_should_keep_raw_final_text_with_marker_like_content() {
         let tool_history_events = vec![
             serde_json::json!({
                 "role": "assistant",
@@ -1096,7 +1075,7 @@ mod message_semantics_tests {
 
         match &message.parts[0] {
             MessagePart::Text { text, .. } => {
-                assert_eq!(text, "最后汇总");
+                assert_eq!(text, "[toolcall:call_a] [toolcall:call_b]\n\n最后汇总");
             }
             _ => panic!("expected text part"),
         }
