@@ -161,9 +161,9 @@
 }
 
 .ecall-markdown-content :where(blockquote,.blockquote) {
-  border: 1px solid color-mix(in srgb, var(--color-base-content) 9%, transparent);
+  border: 1px solid color-mix(in srgb, var(--color-base-300) 72%, transparent);
   border-radius: var(--ecall-md-block-radius);
-  background: var(--color-base-300);
+  background: color-mix(in srgb, var(--color-base-300) 58%, transparent);
   padding: 0.5rem 0.68rem 0.5rem 0.82rem;
   color: color-mix(in srgb, var(--color-base-content) 82%, transparent);
 }
@@ -206,7 +206,7 @@
   width: 100%;
   border-collapse: separate !important;
   border-spacing: 0 !important;
-  border: 1px solid color-mix(in srgb, var(--color-base-content) 16%, transparent) !important;
+  border: 1px solid color-mix(in srgb, var(--color-base-300) 72%, transparent) !important;
   border-radius: var(--ecall-md-block-radius);
   color: inherit;
   overflow: hidden;
@@ -230,7 +230,7 @@
 
 .ecall-markdown-content :where(td,.table-node td) {
   color: inherit !important;
-  background: var(--color-base-200) !important;
+  background: color-mix(in srgb, var(--color-base-300) 34%, transparent) !important;
   border-bottom: 1px solid color-mix(in srgb, var(--color-base-content) 10%, transparent) !important;
   border-right: 1px solid color-mix(in srgb, var(--color-base-content) 14%, transparent) !important;
   padding: 0.36rem 0.52rem;

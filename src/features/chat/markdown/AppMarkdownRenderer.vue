@@ -1249,9 +1249,9 @@ h4.ecall-md-heading { font-size: 0.9rem; }
 .ecall-md-quote {
   margin: 0.35rem 0;
   padding: 0.5rem 0.68rem 0.5rem 0.82rem;
-  border: 1px solid color-mix(in srgb, currentColor 9%, transparent);
+  border: 1px solid color-mix(in srgb, var(--color-base-300) 72%, transparent);
   border-radius: var(--ecall-md-block-radius);
-  background: var(--color-base-300);
+  background: color-mix(in srgb, var(--color-base-300) 58%, transparent);
   color: color-mix(in srgb, currentColor 86%, transparent);
   white-space: pre-wrap;
 }
@@ -1289,7 +1289,7 @@ ul.ecall-md-list {
   min-width: 100%;
   border-collapse: separate;
   border-spacing: 0;
-  border: 1px solid color-mix(in srgb, currentColor 20%, transparent);
+  border: 1px solid color-mix(in srgb, var(--color-base-300) 72%, transparent);
   border-radius: inherit;
   font-size: 0.84rem;
   line-height: 1.45;
@@ -1308,7 +1308,11 @@ ul.ecall-md-list {
 
 .ecall-md-table th {
   font-weight: 650;
-  background: color-mix(in srgb, currentColor 7%, transparent);
+  background: var(--color-base-300);
+}
+
+.ecall-md-table td {
+  background: color-mix(in srgb, var(--color-base-300) 34%, transparent);
 }
 
 .ecall-md-table th:last-child,
@@ -1325,7 +1329,7 @@ ul.ecall-md-list {
   margin: 0.25rem 0;
   border-radius: var(--ecall-md-block-radius);
   overflow: hidden;
-  border: 1px solid color-mix(in srgb, currentColor 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--color-base-300) 72%, transparent);
 }
 
 .ecall-md-code-title {
@@ -1333,8 +1337,8 @@ ul.ecall-md-list {
   align-items: center;
   justify-content: space-between;
   padding: 0.4rem 0.75rem;
-  background: color-mix(in srgb, currentColor 6%, transparent);
-  border-bottom: 1px solid color-mix(in srgb, currentColor 10%, transparent);
+  background: color-mix(in srgb, var(--color-base-300) 42%, transparent);
+  border-bottom: 1px solid color-mix(in srgb, var(--color-base-300) 64%, transparent);
 }
 
 .ecall-md-code-lang {
