@@ -395,5 +395,16 @@ body {
   [tabindex]
 ):focus-visible {
   outline: none !important;
+  outline-offset: 0 !important;
+  box-shadow: none !important;
+}
+
+:where(
+  .input,
+  .textarea,
+  .select
+):focus-within {
+  outline: none !important;
+  outline-offset: 0 !important;
   box-shadow: none !important;
 }

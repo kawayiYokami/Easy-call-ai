@@ -6,7 +6,7 @@ const PANE_RESIZE_MOVE_THRESHOLD = 4;
 const PANE_COLLAPSE_EDGE_RATIO = 0.1;
 
 export const PANE_WIDTH_LIMITS = {
-  left: { min: 160, max: 360, default: 320 },
+  left: { min: 200, max: 360, default: 320 },
   right: { min: 260, max: 10000, default: 320 },
 } as const;
 
