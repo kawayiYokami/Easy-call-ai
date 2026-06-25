@@ -1930,16 +1930,46 @@
       "custom": "自訂"
     },
     "steps": {
-      "voiceTheme": {},
-      "llm": {},
-      "style": {},
-      "identity": {},
-      "workspace": {},
-      "hotkey": {},
-      "finish": {},
-      "advancedRerank": {},
-      "advancedEmbedding": {},
-      "advancedStt": {}
+      "voiceTheme": {
+        "title": "語言與主題",
+        "summary": "選擇介面語言和淺色/深色外觀。"
+      },
+      "llm": {
+        "title": "文字模型",
+        "summary": "填寫模型供應商、API Key，並測試連通性。"
+      },
+      "style": {
+        "title": "回應風格",
+        "summary": "設定背景語音喚醒和助理預設回應方式。"
+      },
+      "identity": {
+        "title": "身分與頭像",
+        "summary": "設定使用者、助理和主部門名稱。"
+      },
+      "workspace": {
+        "title": "私人目錄",
+        "summary": "選擇 AI 工具執行時讀寫檔案的位置。"
+      },
+      "hotkey": {
+        "title": "快捷鍵",
+        "summary": "設定呼喚視窗和錄音輸入的按鍵。"
+      },
+      "finish": {
+        "title": "完成",
+        "summary": "儲存基礎設定並開啟對話窗。"
+      },
+      "advancedRerank": {
+        "title": "進階：重排模型",
+        "summary": "可選設定搜尋結果重排模型。"
+      },
+      "advancedEmbedding": {
+        "title": "進階：向量模型",
+        "summary": "可選設定語意檢索使用的向量模型。"
+      },
+      "advancedStt": {
+        "title": "進階：語音辨識",
+        "summary": "可選設定遠端語音轉文字服務。"
+      }
     },
     "fields": {
       "backgroundWake": "背景語音喚醒",

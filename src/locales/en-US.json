@@ -1931,16 +1931,46 @@
       "custom": "Custom"
     },
     "steps": {
-      "voiceTheme": {},
-      "llm": {},
-      "style": {},
-      "identity": {},
-      "workspace": {},
-      "hotkey": {},
-      "finish": {},
-      "advancedRerank": {},
-      "advancedEmbedding": {},
-      "advancedStt": {}
+      "voiceTheme": {
+        "title": "Language and Theme",
+        "summary": "Choose the interface language and light or dark appearance."
+      },
+      "llm": {
+        "title": "Text Model",
+        "summary": "Enter the model provider, API Key, and test connectivity."
+      },
+      "style": {
+        "title": "Response Style",
+        "summary": "Set background voice wake and the assistant's default response style."
+      },
+      "identity": {
+        "title": "Identity and Avatars",
+        "summary": "Set the user, assistant, and primary department names."
+      },
+      "workspace": {
+        "title": "Private Directory",
+        "summary": "Choose where AI tools can read and write runtime files."
+      },
+      "hotkey": {
+        "title": "Hotkeys",
+        "summary": "Set keys for summoning the window and recording voice input."
+      },
+      "finish": {
+        "title": "Finish",
+        "summary": "Save basic setup and open the chat window."
+      },
+      "advancedRerank": {
+        "title": "Advanced: Rerank Model",
+        "summary": "Optionally configure the model used to rerank search results."
+      },
+      "advancedEmbedding": {
+        "title": "Advanced: Embedding Model",
+        "summary": "Optionally configure the embedding model used for semantic search."
+      },
+      "advancedStt": {
+        "title": "Advanced: Speech Recognition",
+        "summary": "Optionally configure remote speech-to-text."
+      }
     },
     "fields": {
       "backgroundWake": "Background Voice Wake",

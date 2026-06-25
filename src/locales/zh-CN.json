@@ -1938,16 +1938,46 @@
       "custom": "自定义"
     },
     "steps": {
-      "voiceTheme": {},
-      "llm": {},
-      "style": {},
-      "identity": {},
-      "workspace": {},
-      "hotkey": {},
-      "finish": {},
-      "advancedRerank": {},
-      "advancedEmbedding": {},
-      "advancedStt": {}
+      "voiceTheme": {
+        "title": "语言与主题",
+        "summary": "选择界面语言和浅色/深色外观。"
+      },
+      "llm": {
+        "title": "文本模型",
+        "summary": "填写模型供应商、API Key，并测试连通性。"
+      },
+      "style": {
+        "title": "响应风格",
+        "summary": "设置后台语音唤醒和助理默认回应方式。"
+      },
+      "identity": {
+        "title": "身份与头像",
+        "summary": "设置用户、助理和主部门名称。"
+      },
+      "workspace": {
+        "title": "私人目录",
+        "summary": "选择 AI 工具运行时读写文件的位置。"
+      },
+      "hotkey": {
+        "title": "快捷键",
+        "summary": "设置呼唤窗口和录音输入的按键。"
+      },
+      "finish": {
+        "title": "完成",
+        "summary": "保存基础设置并打开对话窗。"
+      },
+      "advancedRerank": {
+        "title": "高级：重排模型",
+        "summary": "可选配置搜索结果重排模型。"
+      },
+      "advancedEmbedding": {
+        "title": "高级：向量模型",
+        "summary": "可选配置语义检索使用的向量模型。"
+      },
+      "advancedStt": {
+        "title": "高级：语音识别",
+        "summary": "可选配置远程语音转文字服务。"
+      }
     },
     "fields": {
       "backgroundWake": "后台语音唤醒",
