@@ -884,7 +884,7 @@ onBeforeUnmount(() => {
 }
 
 .assistant-markdown :deep(.ecall-markdown-content :where(blockquote,.blockquote)) {
-  padding-left: 0.68rem;
+  padding: 0.5rem 0.68rem 0.5rem 0.82rem;
 }
 
 .assistant-markdown :deep(.ecall-markdown-content :where(blockquote,.blockquote) .markdown-renderer),

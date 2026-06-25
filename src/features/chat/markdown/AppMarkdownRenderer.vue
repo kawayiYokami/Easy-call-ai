@@ -12,21 +12,37 @@
         v-if="block.type === 'heading'"
         class="ecall-md-heading"
       >
-        <InlineRenderer :segments="parseInlineSegments(block.text)" :local-image-base-path="localImageBasePath" />
+        <InlineRenderer
+          :segments="parseInlineSegments(block.text)"
+          :local-image-base-path="localImageBasePath"
+          :footnote-index-map="footnoteIndexMap"
+        />
       </component>
 
       <blockquote v-else-if="block.type === 'quote'" class="ecall-md-quote">
-        <InlineRenderer :segments="parseInlineSegments(block.text)" :local-image-base-path="localImageBasePath" />
+        <InlineRenderer
+          :segments="parseInlineSegments(block.text)"
+          :local-image-base-path="localImageBasePath"
+          :footnote-index-map="footnoteIndexMap"
+        />
       </blockquote>
 
       <ul v-else-if="block.type === 'list' && !block.ordered" class="ecall-md-list">
         <li v-for="(item, itemIndex) in block.items" :key="`${index}-${itemIndex}`">
-          <InlineRenderer :segments="parseInlineSegments(item)" :local-image-base-path="localImageBasePath" />
+          <InlineRenderer
+            :segments="parseInlineSegments(item)"
+            :local-image-base-path="localImageBasePath"
+            :footnote-index-map="footnoteIndexMap"
+          />
         </li>
       </ul>
       <ol v-else-if="block.type === 'list'" class="ecall-md-list ecall-md-list-ordered">
         <li v-for="(item, itemIndex) in block.items" :key="`${index}-${itemIndex}`">
-          <InlineRenderer :segments="parseInlineSegments(item)" :local-image-base-path="localImageBasePath" />
+          <InlineRenderer
+            :segments="parseInlineSegments(item)"
+            :local-image-base-path="localImageBasePath"
+            :footnote-index-map="footnoteIndexMap"
+          />
         </li>
       </ol>
 
@@ -35,14 +51,22 @@
           <thead>
             <tr>
               <th v-for="(cell, ci) in block.headers" :key="`${index}-h-${ci}`">
-                <InlineRenderer :segments="parseInlineSegments(cell)" :local-image-base-path="localImageBasePath" />
+                <InlineRenderer
+                  :segments="parseInlineSegments(cell)"
+                  :local-image-base-path="localImageBasePath"
+                  :footnote-index-map="footnoteIndexMap"
+                />
               </th>
             </tr>
           </thead>
           <tbody>
             <tr v-for="(row, ri) in block.rows" :key="`${index}-r-${ri}`">
               <td v-for="(cell, ci) in normalizedTableRow(row, block.headers.length)" :key="`${index}-r-${ri}-c-${ci}`">
-                <InlineRenderer :segments="parseInlineSegments(cell)" :local-image-base-path="localImageBasePath" />
+                <InlineRenderer
+                  :segments="parseInlineSegments(cell)"
+                  :local-image-base-path="localImageBasePath"
+                  :footnote-index-map="footnoteIndexMap"
+                />
               </td>
             </tr>
           </tbody>
@@ -65,10 +89,32 @@
         :streaming="streaming"
       />
 
+      <section v-else-if="block.type === 'footnotes'" class="ecall-md-footnotes">
+        <ol class="ecall-md-footnote-list">
+          <li
+            v-for="item in block.items"
+            :id="footnoteDomId(item.id)"
+            :key="`${index}-${item.id}`"
+            class="ecall-md-footnote-item"
+            :class="activeFootnoteId === item.id ? 'ecall-md-footnote-active' : ''"
+          >
+            <InlineRenderer
+              :segments="parseInlineSegments(item.text)"
+              :local-image-base-path="localImageBasePath"
+              :footnote-index-map="footnoteIndexMap"
+            />
+          </li>
+        </ol>
+      </section>
+
       <hr v-else-if="block.type === 'hr'" class="ecall-md-hr" />
 
       <p v-else class="ecall-md-paragraph">
-        <InlineRenderer :segments="parseInlineSegments(block.text)" :local-image-base-path="localImageBasePath" />
+        <InlineRenderer
+          :segments="parseInlineSegments(block.text)"
+          :local-image-base-path="localImageBasePath"
+          :footnote-index-map="footnoteIndexMap"
+        />
       </p>
     </template>
   </div>
@@ -155,6 +201,9 @@ const activeToolcallAnchorEl = ref<HTMLButtonElement | null>(null);
 const toolcallPopupRef = ref<HTMLElement | null>(null);
 const toolcallScrollerRef = ref<HTMLElement | null>(null);
 const toolcallScrollbarRef = ref<InstanceType<typeof FloatingScrollbar> | null>(null);
+const rendererInstanceId = `md-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+const activeFootnoteId = ref("");
+let activeFootnoteTimer = 0;
 const toolcallPopupStyle = ref<Record<string, string>>({
   left: "0px",
   top: "0px",
@@ -341,6 +390,17 @@ const visibleBlocks = computed<MarkdownBlock[]>(() => {
   return blocks;
 });
 
+const footnoteIndexMap = computed<Record<string, number>>(() => {
+  const map: Record<string, number> = {};
+  for (const block of allBlocks.value) {
+    if (block.type !== "footnotes") continue;
+    block.items.forEach((item, index) => {
+      map[item.id] = index + 1;
+    });
+  }
+  return map;
+});
+
 // Progressive batch reveal during streaming
 watch(
   () => allBlocks.value.length,
@@ -394,6 +454,10 @@ onBeforeUnmount(() => {
   document.removeEventListener("pointerdown", handleDocumentPointerDown, true);
   window.removeEventListener("resize", handleWindowResizeOrScroll, true);
   document.removeEventListener("scroll", handleWindowResizeOrScroll, true);
+  if (activeFootnoteTimer) {
+    clearTimeout(activeFootnoteTimer);
+    activeFootnoteTimer = 0;
+  }
 });
 
 onMounted(() => {
@@ -419,6 +483,10 @@ const InlineRenderer = defineComponent({
       required: true,
     },
     localImageBasePath: { type: String, default: "" },
+    footnoteIndexMap: {
+      type: Object as PropType<Record<string, number>>,
+      default: () => ({}),
+    },
   },
   setup(inlineProps) {
     return () => renderSegments(
@@ -427,6 +495,7 @@ const InlineRenderer = defineComponent({
       inlineProps.localImageBasePath,
       {
         onToolcallClick: toggleToolcallPreview,
+        footnoteIndexMap: inlineProps.footnoteIndexMap,
       },
     );
   },
@@ -434,6 +503,7 @@ const InlineRenderer = defineComponent({
 
 type RenderSegmentOptions = {
   onToolcallClick?: (ids: string[], anchorEl: HTMLButtonElement | null) => void;
+  footnoteIndexMap?: Record<string, number>;
 };
 
 type MarkdownImageSource =
@@ -443,6 +513,37 @@ type MarkdownImageSource =
 
 const markdownImageThumbnailCache = new Map<string, string>();
 const markdownImageThumbnailPromiseCache = new Map<string, Promise<string>>();
+
+function stableHash(value: string): string {
+  let hash = 0;
+  for (let index = 0; index < value.length; index += 1) {
+    hash = ((hash << 5) - hash + value.charCodeAt(index)) | 0;
+  }
+  return Math.abs(hash).toString(36);
+}
+
+function footnoteDomId(rawId: string): string {
+  const id = String(rawId || "").trim();
+  const slug = id
+    .replace(/[^A-Za-z0-9_-]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 40) || "note";
+  return `ecall-fn-${rendererInstanceId}-${slug}-${stableHash(id)}`;
+}
+
+function scrollToFootnote(rawId: string) {
+  const id = String(rawId || "").trim();
+  if (!id) return;
+  const target = rendererRootRef.value?.ownerDocument.getElementById(footnoteDomId(id));
+  if (!(target instanceof HTMLElement)) return;
+  activeFootnoteId.value = id;
+  target.scrollIntoView({ behavior: "smooth", block: "center", inline: "nearest" });
+  if (activeFootnoteTimer) clearTimeout(activeFootnoteTimer);
+  activeFootnoteTimer = window.setTimeout(() => {
+    if (activeFootnoteId.value === id) activeFootnoteId.value = "";
+    activeFootnoteTimer = 0;
+  }, 1800);
+}
 
 function hasUrlScheme(value: string): boolean {
   return /^[A-Za-z][A-Za-z0-9+.-]*:/.test(value);
@@ -608,6 +709,29 @@ function renderSegments(
         count > 1
           ? h("span", { class: "ecall-md-toolcall-ref-count" }, `+${count}`)
           : null,
+      ]));
+      continue;
+    }
+    if (segment.type === "footnote_ref") {
+      const footnoteIndex = options.footnoteIndexMap?.[segment.id];
+      if (!footnoteIndex) {
+        nodes.push(`[^${segment.id}]`);
+        continue;
+      }
+      nodes.push(h("sup", {
+        key: `${keyPrefix}-fn-${index}`,
+        class: "ecall-md-footnote-ref",
+      }, [
+        h("button", {
+          type: "button",
+          class: "ecall-md-footnote-link",
+          "aria-label": `注脚 ${footnoteIndex}`,
+          onClick: (event: MouseEvent) => {
+            event.preventDefault();
+            event.stopPropagation();
+            scrollToFootnote(segment.id);
+          },
+        }, String(footnoteIndex)),
       ]));
       continue;
     }
@@ -1031,12 +1155,71 @@ h4.ecall-md-heading { font-size: 0.9rem; }
   height: 0;
 }
 
+/* ==================== Footnotes ==================== */
+.ecall-md-footnote-ref {
+  margin-left: 0.08rem;
+  font-size: 0.72em;
+  font-weight: 650;
+  line-height: 0;
+  vertical-align: super;
+}
+
+.ecall-md-footnote-link {
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: var(--color-primary);
+  font: inherit;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.ecall-md-footnote-link:hover {
+  text-decoration: underline;
+  text-underline-offset: 0.12em;
+}
+
+.ecall-md-footnotes {
+  margin: 0.75rem 0 0.25rem;
+  padding-top: 0.45rem;
+  border-top: 1px solid color-mix(in srgb, currentColor 14%, transparent);
+  color: color-mix(in srgb, currentColor 76%, transparent);
+  font-size: 0.78rem;
+  line-height: 1.45;
+}
+
+.ecall-md-footnote-list {
+  margin: 0;
+  padding-left: 1.15rem;
+  list-style: decimal;
+  list-style-position: outside;
+}
+
+.ecall-md-footnote-item {
+  margin: 0.18rem 0;
+  padding-left: 0.12rem;
+  white-space: pre-wrap;
+}
+
+.ecall-md-footnote-item::marker {
+  color: color-mix(in srgb, currentColor 72%, transparent);
+  font-weight: 650;
+}
+
+.ecall-md-footnote-item:target,
+.ecall-md-footnote-active {
+  border-radius: 0.25rem;
+  background: color-mix(in srgb, var(--color-primary) 12%, transparent);
+}
+
 /* ==================== Blockquote ==================== */
 .ecall-md-quote {
-  margin: 0.25rem 0;
-  border-left: 2px solid color-mix(in srgb, currentColor 22%, transparent);
-  padding-left: 0.68rem;
-  color: color-mix(in srgb, currentColor 82%, transparent);
+  margin: 0.35rem 0;
+  padding: 0.5rem 0.68rem 0.5rem 0.82rem;
+  border: 1px solid color-mix(in srgb, currentColor 9%, transparent);
+  border-radius: 0.45rem;
+  background: var(--color-base-300);
+  color: color-mix(in srgb, currentColor 86%, transparent);
   white-space: pre-wrap;
 }
 
@@ -1363,9 +1546,15 @@ ul.ecall-md-list {
 
 .ecall-md-document .ecall-md-quote {
   margin: 0.6rem 0;
-  border-left-width: 3px;
-  padding-left: 0.85rem;
+  padding: 0.65rem 0.85rem 0.65rem 0.95rem;
   line-height: 1.75;
+}
+
+.ecall-md-document .ecall-md-footnotes {
+  margin: 1.1rem 0 0.45rem;
+  padding-top: 0.65rem;
+  font-size: 0.84rem;
+  line-height: 1.65;
 }
 
 .ecall-md-document .ecall-md-list {

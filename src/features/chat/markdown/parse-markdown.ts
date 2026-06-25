@@ -10,11 +10,13 @@ export type MarkdownBlock =
   | { type: "table"; headers: string[]; rows: string[][]; key: string }
   | { type: "code"; lang: string; text: string; key: string }
   | { type: "math"; text: string; key: string }
+  | { type: "footnotes"; items: { id: string; text: string }[]; key: string }
   | { type: "hr"; key: string };
 
 export type InlineSegment =
   | { type: "text"; text: string }
   | { type: "toolcall_ref"; id: string; label: string }
+  | { type: "footnote_ref"; id: string }
   | { type: "code"; text: string }
   | { type: "math"; text: string }
   | { type: "link"; text: string; href: string }
@@ -26,11 +28,13 @@ export type InlineSegment =
 
 // ==================== Block Parser ====================
 
-function pushParagraph(blocks: MarkdownBlock[], lines: string[], keyPrefix: string) {
+function pushParagraph(blocks: MarkdownBlock[], lines: string[], keyPrefix: string): MarkdownBlock | null {
   const text = lines.join("\n").trim();
   lines.length = 0;
-  if (!text) return;
-  blocks.push({ type: "paragraph", text, key: `${keyPrefix}-p-${blocks.length}` });
+  if (!text) return null;
+  const block = { type: "paragraph" as const, text, key: `${keyPrefix}-p-${blocks.length}` };
+  blocks.push(block);
+  return block;
 }
 
 function parseTableRow(line: string | undefined): string[] | null {
@@ -53,6 +57,9 @@ export function parseMarkdownBlocks(input: string, streaming = false): MarkdownB
   const lines = normalized.split("\n");
   const result: MarkdownBlock[] = [];
   const paragraphLines: string[] = [];
+  const footnotes = new Map<string, string>();
+  const referencedFootnoteIds: string[] = [];
+  const referencedFootnoteIdSet = new Set<string>();
   let inCode = false;
   let codeLang = "";
   let codeLines: string[] = [];
@@ -60,8 +67,20 @@ export function parseMarkdownBlocks(input: string, streaming = false): MarkdownB
   let mathLines: string[] = [];
   let activeList: { ordered: boolean; items: string[] } | null = null;
 
+  const recordFootnoteRefs = (text: string) => {
+    const pattern = /\[\^([^\]\n]+)\]/g;
+    let match: RegExpExecArray | null;
+    while ((match = pattern.exec(text))) {
+      const id = String(match[1] || "").trim();
+      if (!id || referencedFootnoteIdSet.has(id)) continue;
+      referencedFootnoteIdSet.add(id);
+      referencedFootnoteIds.push(id);
+    }
+  };
+
   const flushList = () => {
     if (!activeList) return;
+    activeList.items.forEach(recordFootnoteRefs);
     result.push({
       type: "list",
       ordered: activeList.ordered,
@@ -73,7 +92,8 @@ export function parseMarkdownBlocks(input: string, streaming = false): MarkdownB
 
   const flushParagraph = () => {
     flushList();
-    pushParagraph(result, paragraphLines, "root");
+    const block = pushParagraph(result, paragraphLines, "root");
+    if (block?.type === "paragraph") recordFootnoteRefs(block.text);
   };
 
   for (let lineIndex = 0; lineIndex < lines.length; lineIndex += 1) {
@@ -129,6 +149,22 @@ export function parseMarkdownBlocks(input: string, streaming = false): MarkdownB
       continue;
     }
 
+    // Footnote definitions are collected and rendered together at the end.
+    const footnoteMatch = line.match(/^\s{0,3}\[\^([^\]\n]+)\]:\s*(.*)$/);
+    if (footnoteMatch) {
+      flushParagraph();
+      const id = String(footnoteMatch[1] || "").trim();
+      const noteLines = [String(footnoteMatch[2] || "").trim()];
+      while (lineIndex + 1 < lines.length) {
+        const continuationMatch = lines[lineIndex + 1].match(/^(?: {4}|\t)(.*)$/);
+        if (!continuationMatch) break;
+        noteLines.push(String(continuationMatch[1] || "").trimEnd());
+        lineIndex += 1;
+      }
+      if (id) footnotes.set(id, noteLines.join("\n").trim());
+      continue;
+    }
+
     if (!line.trim()) {
       flushParagraph();
       continue;
@@ -155,6 +191,8 @@ export function parseMarkdownBlocks(input: string, streaming = false): MarkdownB
         lineIndex += 1;
       }
       lineIndex -= 1;
+      tableHeader.forEach(recordFootnoteRefs);
+      rows.forEach((row) => row.forEach(recordFootnoteRefs));
       result.push({
         type: "table",
         headers: tableHeader,
@@ -168,6 +206,7 @@ export function parseMarkdownBlocks(input: string, streaming = false): MarkdownB
     const headingMatch = line.match(/^\s{0,3}(#{1,4})\s+(.+?)\s*#*\s*$/);
     if (headingMatch) {
       flushParagraph();
+      recordFootnoteRefs(headingMatch[2]);
       result.push({
         type: "heading",
         level: headingMatch[1].length as 1 | 2 | 3 | 4,
@@ -181,9 +220,18 @@ export function parseMarkdownBlocks(input: string, streaming = false): MarkdownB
     const quoteMatch = line.match(/^\s{0,3}>\s?(.*)$/);
     if (quoteMatch) {
       flushParagraph();
+      const quoteLines = [quoteMatch[1].trim()];
+      while (lineIndex + 1 < lines.length) {
+        const nextQuoteMatch = lines[lineIndex + 1].match(/^\s{0,3}>\s?(.*)$/);
+        if (!nextQuoteMatch) break;
+        quoteLines.push(nextQuoteMatch[1].trim());
+        lineIndex += 1;
+      }
+      const quoteText = quoteLines.join("\n").trim();
+      recordFootnoteRefs(quoteText);
       result.push({
         type: "quote",
-        text: quoteMatch[1].trim(),
+        text: quoteText,
         key: `quote-${result.length}`,
       });
       continue;
@@ -192,7 +240,8 @@ export function parseMarkdownBlocks(input: string, streaming = false): MarkdownB
     // List item
     const listMatch = line.match(/^\s{0,3}(?:([-*+])|(\d+)[.)])\s+(.+)$/);
     if (listMatch) {
-      pushParagraph(result, paragraphLines, "list-before");
+      const block = pushParagraph(result, paragraphLines, "list-before");
+      if (block?.type === "paragraph") recordFootnoteRefs(block.text);
       const ordered = !!listMatch[2];
       if (!activeList || activeList.ordered !== ordered) {
         flushList();
@@ -226,8 +275,20 @@ export function parseMarkdownBlocks(input: string, streaming = false): MarkdownB
     }
   }
   flushParagraph();
+  const footnoteItems = referencedFootnoteIds
+    .map((id) => ({ id, text: footnotes.get(id) || "" }))
+    .filter((item) => item.text.trim());
+  if (footnoteItems.length > 0) {
+    result.push({
+      type: "footnotes",
+      items: footnoteItems,
+      key: `footnotes-${result.length}`,
+    });
+  }
   return result.length > 0
     ? result
+    : footnotes.size > 0
+      ? []
     : [{ type: "paragraph", text: normalized, key: "fallback" }];
 }
 
@@ -236,6 +297,7 @@ export function parseMarkdownBlocks(input: string, streaming = false): MarkdownB
 const URL_PATTERN = /(https?:\/\/[^\s<>()]+|file:\/\/\/[^\s<>()]+)/g;
 const MARKDOWN_LINK_PATTERN = /!?\[([^\]\n]*)\]\(([^)\n]+)\)/g;
 const TOOLCALL_REF_PATTERN = /\[toolcall:([^\]\n]+)\]/g;
+const FOOTNOTE_REF_PATTERN = /\[\^([^\]\n]+)\]/g;
 
 function trimTrailingUrlPunctuation(value: string): { href: string; trailing: string } {
   let href = value;
@@ -260,7 +322,8 @@ function pushTextSegment(segments: InlineSegment[], text: string) {
 type LinkMatch =
   | { kind: "markdown"; start: number; end: number; raw: string; text: string; href: string; image: boolean }
   | { kind: "auto"; start: number; end: number; href: string }
-  | { kind: "toolcall_ref"; start: number; end: number; raw: string; id: string };
+  | { kind: "toolcall_ref"; start: number; end: number; raw: string; id: string }
+  | { kind: "footnote_ref"; start: number; end: number; raw: string; id: string };
 
 function pickEarlierLink(left: LinkMatch | null, right: LinkMatch | null): LinkMatch | null {
   if (!left) return right;
@@ -301,6 +364,19 @@ function nextToolcallRef(input: string, from: number): LinkMatch | null {
   if (!match) return null;
   return {
     kind: "toolcall_ref",
+    start: match.index,
+    end: match.index + match[0].length,
+    raw: match[0],
+    id: String(match[1] || "").trim(),
+  };
+}
+
+function nextFootnoteRef(input: string, from: number): LinkMatch | null {
+  FOOTNOTE_REF_PATTERN.lastIndex = from;
+  const match = FOOTNOTE_REF_PATTERN.exec(input);
+  if (!match) return null;
+  return {
+    kind: "footnote_ref",
     start: match.index,
     end: match.index + match[0].length,
     raw: match[0],
@@ -383,7 +459,8 @@ function parseLinksIntoSegments(input: string, segments: InlineSegment[]) {
     const markdownLink = nextMarkdownLink(input, cursor);
     const autoLink = nextAutoLink(input, cursor);
     const toolcallRef = nextToolcallRef(input, cursor);
-    const next = pickEarlierLink(pickEarlierLink(markdownLink, autoLink), toolcallRef);
+    const footnoteRef = nextFootnoteRef(input, cursor);
+    const next = pickEarlierLink(pickEarlierLink(pickEarlierLink(markdownLink, autoLink), toolcallRef), footnoteRef);
     if (!next) break;
     pushEmphasisIntoSegments(input.slice(cursor, next.start), segments);
     if (next.kind === "markdown") {
@@ -401,12 +478,16 @@ function parseLinksIntoSegments(input: string, segments: InlineSegment[]) {
       const { href, trailing } = trimTrailingUrlPunctuation(next.href);
       if (href) segments.push({ type: "link", href, text: href });
       pushEmphasisIntoSegments(trailing, segments);
-    } else {
+    } else if (next.kind === "toolcall_ref") {
       segments.push({
         type: "toolcall_ref",
         id: next.id,
         label: toolcallRefLabel(next.id),
       });
+    } else if (next.id) {
+      segments.push({ type: "footnote_ref", id: next.id });
+    } else {
+      pushEmphasisIntoSegments(next.raw, segments);
     }
     cursor = next.end;
   }

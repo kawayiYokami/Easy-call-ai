@@ -46,6 +46,8 @@
 .ecall-markdown-content .link-node,
 .ecall-markdown-content .strong-node,
 .ecall-markdown-content .inline-code,
+.ecall-markdown-content .ecall-md-footnotes,
+.ecall-markdown-content .ecall-md-footnote-item,
 .ecall-markdown-content .table-node-wrapper,
 .ecall-markdown-content .hr-node {
   color: inherit;
@@ -111,9 +113,46 @@
   text-decoration-color: currentColor !important;
 }
 
+.ecall-markdown-content .ecall-md-footnote-ref {
+  color: var(--color-primary);
+}
+
+.ecall-markdown-content .ecall-md-footnote-link {
+  background: transparent !important;
+  color: var(--color-primary) !important;
+  font: inherit !important;
+  text-decoration: none !important;
+}
+
+.ecall-markdown-content .ecall-md-footnote-link:hover {
+  text-decoration-line: underline !important;
+  text-underline-offset: 0.12em !important;
+}
+
+.ecall-markdown-content .ecall-md-footnotes {
+  border-top-color: color-mix(in srgb, var(--color-base-content) 14%, transparent);
+}
+
+.ecall-markdown-content .ecall-md-footnote-list {
+  list-style: decimal !important;
+  list-style-position: outside !important;
+}
+
+.ecall-markdown-content .ecall-md-footnote-item::marker {
+  color: color-mix(in srgb, var(--color-base-content) 72%, transparent);
+  font-weight: var(--ecall-md-strong-weight);
+}
+
+.ecall-markdown-content .ecall-md-footnote-item:target,
+.ecall-markdown-content .ecall-md-footnote-active {
+  background: color-mix(in srgb, var(--color-primary) 12%, transparent);
+}
+
 .ecall-markdown-content :where(blockquote,.blockquote) {
-  border-left: 3px solid color-mix(in srgb, var(--color-base-content) 16%, transparent);
-  padding-left: 0.72rem;
+  border: 1px solid color-mix(in srgb, var(--color-base-content) 9%, transparent);
+  border-radius: 0.45rem;
+  background: var(--color-base-300);
+  padding: 0.5rem 0.68rem 0.5rem 0.82rem;
   color: color-mix(in srgb, var(--color-base-content) 82%, transparent);
 }
 

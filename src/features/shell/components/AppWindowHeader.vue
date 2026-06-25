@@ -1307,7 +1307,6 @@ onBeforeUnmount(() => {
 }
 
 .config-changelog-markdown:deep(.ecall-markdown-content :where(blockquote,.blockquote)) {
-  border-left: 3px solid color-mix(in srgb, currentColor 18%, transparent);
   padding-left: 0.9rem;
   opacity: 0.9;
 }
