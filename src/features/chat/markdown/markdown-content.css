@@ -4,6 +4,7 @@
   --ecall-md-strong-weight: var(--ecall-md-strong-weight-setting, 700);
   --ecall-md-code-weight: var(--ecall-md-code-weight-setting, 550);
   --ecall-md-table-heading-weight: var(--ecall-md-table-heading-weight-setting, 650);
+  --ecall-md-block-radius: var(--radius-box, 0.5rem);
   color: inherit;
   min-width: 0;
   max-width: 100%;
@@ -61,6 +62,12 @@
   content-visibility: visible;
   contain: none;
   contain-intrinsic-size: auto;
+}
+
+.ecall-markdown-content .code-block-container,
+.ecall-markdown-content .ecall-md-code-block {
+  border-radius: var(--ecall-md-block-radius);
+  overflow: hidden;
 }
 
 .ecall-markdown-content .code-block-container pre.shiki,
@@ -150,7 +157,7 @@
 
 .ecall-markdown-content :where(blockquote,.blockquote) {
   border: 1px solid color-mix(in srgb, var(--color-base-content) 9%, transparent);
-  border-radius: 0.45rem;
+  border-radius: var(--ecall-md-block-radius);
   background: var(--color-base-300);
   padding: 0.5rem 0.68rem 0.5rem 0.82rem;
   color: color-mix(in srgb, var(--color-base-content) 82%, transparent);
@@ -185,6 +192,8 @@
 
 .ecall-markdown-content .table-node-wrapper {
   overflow-x: auto;
+  overflow-y: hidden;
+  border-radius: var(--ecall-md-block-radius);
   box-shadow: none !important;
 }
 
@@ -193,6 +202,7 @@
   border-collapse: separate !important;
   border-spacing: 0 !important;
   border: 1px solid color-mix(in srgb, var(--color-base-content) 16%, transparent) !important;
+  border-radius: var(--ecall-md-block-radius);
   color: inherit;
   overflow: hidden;
   box-shadow: none !important;
