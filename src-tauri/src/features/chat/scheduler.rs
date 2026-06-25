@@ -906,7 +906,7 @@ fn should_emit_assistant_delta_via_app_event_only(event: &AssistantDeltaEvent) -
 }
 
 fn is_visible_stream_progress_event(event: &AssistantDeltaEvent) -> bool {
-    if !event.delta.trim().is_empty() {
+    if !event.delta.is_empty() {
         return true;
     }
     matches!(
