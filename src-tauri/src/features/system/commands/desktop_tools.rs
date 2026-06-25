@@ -1369,6 +1369,18 @@ struct FileReaderFilePayload {
     kind: String,
     content: String,
     force_plain: bool,
+    virtualized: bool,
+    total_lines: usize,
+    block_line_count: usize,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct FileReaderFileBlockPayload {
+    path: String,
+    start_line: usize,
+    end_line: usize,
+    content: String,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -1432,6 +1444,7 @@ static FILE_READER_WATCH_THREAD_STARTED: OnceLock<()> = OnceLock::new();
 
 const FILE_READER_PLAIN_TEXT_THRESHOLD: u64 = 2 * 1024 * 1024;
 const FILE_READER_LINE_TRUNCATE_CHARS: usize = 10000;
+const FILE_READER_BLOCK_LINE_COUNT: usize = 120;
 const FILE_READER_READ_BURST_WINDOW_MS: u64 = 100;
 const FILE_READER_WATCH_POLL_MS: u64 = 700;
 const FILE_READER_WATCH_MAX_TARGETS: usize = 160;
@@ -1655,17 +1668,71 @@ fn format_hex_dump(bytes: &[u8]) -> String {
     lines.join("\n")
 }
 
+fn truncate_single_line(line: &str, max_chars: usize) -> String {
+    if line.chars().count() > max_chars {
+        format!("{}...", line.chars().take(max_chars).collect::<String>())
+    } else {
+        line.to_string()
+    }
+}
+
 fn truncate_long_lines(text: &str, max_chars: usize) -> String {
     text.lines()
-        .map(|line| {
-            if line.chars().count() > max_chars {
-                format!("{}...", line.chars().take(max_chars).collect::<String>())
-            } else {
-                line.to_string()
-            }
-        })
+        .map(|line| truncate_single_line(line, max_chars))
         .collect::<Vec<_>>()
         .join("\n")
+}
+
+fn file_reader_decode_text_content(path: &PathBuf) -> Result<String, String> {
+    match decode_text_file_from_path(path) {
+        Ok(decoded) => Ok(decoded.text),
+        Err(_) => {
+            let bytes = fs::read(path).map_err(|err| format!("读取文件失败：{err}"))?;
+            Ok(format_hex_dump(&bytes))
+        }
+    }
+}
+
+fn file_reader_decode_text_rope(path: &PathBuf) -> Result<ropey::Rope, String> {
+    let content = file_reader_decode_text_content(path)?;
+    Ok(ropey::Rope::from_str(&content))
+}
+
+fn file_reader_rope_line_count(rope: &ropey::Rope) -> usize {
+    rope.len_lines().max(1)
+}
+
+fn file_reader_rope_lines_to_string(
+    rope: &ropey::Rope,
+    start_line: usize,
+    line_count: usize,
+    truncate_chars: Option<usize>,
+) -> String {
+    let total_lines = file_reader_rope_line_count(rope);
+    if total_lines == 0 {
+        return String::new();
+    }
+    let start_index = start_line.saturating_sub(1).min(total_lines.saturating_sub(1));
+    let end_index_exclusive = (start_index + line_count.max(1)).min(total_lines);
+    let mut output = String::new();
+    for index in start_index..end_index_exclusive {
+        let mut line = rope.line(index).to_string();
+        if line.ends_with('\n') {
+            line.pop();
+            if line.ends_with('\r') {
+                line.pop();
+            }
+        }
+        let normalized_line = match truncate_chars {
+            Some(limit) => truncate_single_line(&line, limit),
+            None => line,
+        };
+        if !output.is_empty() {
+            output.push('\n');
+        }
+        output.push_str(&normalized_line);
+    }
+    output
 }
 
 #[tauri::command]
@@ -1685,19 +1752,6 @@ fn read_file_reader_file(window: tauri::Window, path: String) -> Result<FileRead
     let metadata = fs::metadata(&file_path).map_err(|err| format!("读取文件信息失败：{err}"))?;
     let file_size = metadata.len();
     let force_plain = file_size > FILE_READER_PLAIN_TEXT_THRESHOLD;
-    let content = match decode_text_file_from_path(&file_path) {
-        Ok(decoded) => {
-            if force_plain {
-                truncate_long_lines(&decoded.text, FILE_READER_LINE_TRUNCATE_CHARS)
-            } else {
-                decoded.text
-            }
-        }
-        Err(_) => {
-            let bytes = fs::read(&file_path).map_err(|err| format!("读取文件失败：{err}"))?;
-            format_hex_dump(&bytes)
-        }
-    };
     let resolved_path = file_path.canonicalize().unwrap_or_else(|_| file_path.clone());
     let extension = file_path
         .extension()
@@ -1715,13 +1769,73 @@ fn read_file_reader_file(window: tauri::Window, path: String) -> Result<FileRead
     } else {
         extension.clone()
     };
+    let kind = file_reader_file_kind(&file_key).to_string();
+    let rope = file_reader_decode_text_rope(&file_path)?;
+    let total_lines = file_reader_rope_line_count(&rope);
+    let virtualized = true;
+    let content = if kind == "markdown" {
+        rope.to_string()
+    } else if virtualized {
+        String::new()
+    } else if force_plain {
+        file_reader_rope_lines_to_string(&rope, 1, total_lines, Some(FILE_READER_LINE_TRUNCATE_CHARS))
+    } else {
+        rope.to_string()
+    };
     Ok(FileReaderFilePayload {
         path: resolved_path.to_string_lossy().replace('\\', "/"),
         name,
         extension: file_key.clone(),
-        kind: file_reader_file_kind(&file_key).to_string(),
+        kind,
         content,
         force_plain,
+        virtualized,
+        total_lines,
+        block_line_count: FILE_READER_BLOCK_LINE_COUNT,
+    })
+}
+
+#[tauri::command]
+fn read_file_reader_file_block(path: String, start_line: usize, line_count: usize) -> Result<FileReaderFileBlockPayload, String> {
+    let raw_path = path.trim();
+    if raw_path.is_empty() {
+        return Err("path is required".to_string());
+    }
+    let file_path = PathBuf::from(raw_path);
+    if !file_path.exists() {
+        return Err(format!("文件不存在：{raw_path}"));
+    }
+    if !file_path.is_file() {
+        return Err(format!("目标不是文件：{raw_path}"));
+    }
+    let metadata = fs::metadata(&file_path).map_err(|err| format!("读取文件信息失败：{err}"))?;
+    let force_plain = metadata.len() > FILE_READER_PLAIN_TEXT_THRESHOLD;
+    let requested_start_line = start_line.max(1);
+    let requested_line_count = line_count.max(1);
+    let resolved_path = file_path.canonicalize().unwrap_or_else(|_| file_path.clone());
+    let rope = file_reader_decode_text_rope(&file_path)?;
+    let total_lines = file_reader_rope_line_count(&rope);
+    if total_lines == 0 {
+        return Ok(FileReaderFileBlockPayload {
+            path: resolved_path.to_string_lossy().replace('\\', "/"),
+            start_line: 1,
+            end_line: 1,
+            content: String::new(),
+        });
+    }
+    let start_index = requested_start_line.saturating_sub(1).min(total_lines.saturating_sub(1));
+    let end_index_exclusive = (start_index + requested_line_count).min(total_lines);
+    let block_content = file_reader_rope_lines_to_string(
+        &rope,
+        start_index + 1,
+        end_index_exclusive.saturating_sub(start_index),
+        if force_plain { Some(FILE_READER_LINE_TRUNCATE_CHARS) } else { None },
+    );
+    Ok(FileReaderFileBlockPayload {
+        path: resolved_path.to_string_lossy().replace('\\', "/"),
+        start_line: start_index + 1,
+        end_line: end_index_exclusive.max(start_index + 1),
+        content: block_content,
     })
 }
 

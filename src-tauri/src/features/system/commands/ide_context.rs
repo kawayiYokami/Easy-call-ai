@@ -733,6 +733,7 @@ fn ide_chat_file_reader_read(params: Value) -> Result<Value, String> {
     } else {
         extension.clone()
     };
+    let total_lines = content.lines().count().max(1);
     serde_json::to_value(FileReaderFilePayload {
         path: resolved_path.to_string_lossy().replace('\\', "/"),
         name,
@@ -740,6 +741,9 @@ fn ide_chat_file_reader_read(params: Value) -> Result<Value, String> {
         kind: file_reader_file_kind(&file_key).to_string(),
         content,
         force_plain,
+        virtualized: false,
+        total_lines,
+        block_line_count: 0,
     })
     .map_err(|err| format!("serialize file reader payload failed: {err}"))
 }

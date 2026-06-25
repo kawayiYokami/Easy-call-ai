@@ -1162,6 +1162,7 @@ fn main() {
             resolve_terminal_approval,
             open_file_reader_window_command,
             read_file_reader_file,
+            read_file_reader_file_block,
             list_file_reader_directory,
             update_file_reader_watch_targets,
             open_file_reader_directory_shell,

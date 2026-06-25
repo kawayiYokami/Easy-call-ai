@@ -69,6 +69,7 @@ undoc = "0.1.8"
 litchi = { git = "https://github.com/DevExzh/litchi.git", rev = "5a931961d58bf71c6bb5b7e82f450bda34349e3d" }
 walkdir = "2.5.0"
 zip = { version = "8.5.1", default-features = false, features = ["deflate", "aes-crypto"] }
+ropey = "1.6.1"
 
 [features]
 default = ["custom-protocol"]

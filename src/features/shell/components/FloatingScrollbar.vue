@@ -2,16 +2,16 @@
   <div
     v-if="canScroll"
     ref="trackRef"
-    class="floating-scrollbar-track absolute bottom-1 right-1 top-1 z-20 w-2 transition-opacity"
-    :class="scrollbarVisible || dragging ? 'opacity-100' : 'opacity-0'"
+    class="floating-scrollbar-track absolute z-20 transition-opacity"
+    :class="[trackClassName, scrollbarVisible || dragging ? 'opacity-100' : 'opacity-0']"
     @mouseenter="reveal"
     @mouseleave="hide"
     @pointerdown="onTrackPointerDown"
   >
     <div
       ref="thumbRef"
-      class="floating-scrollbar-thumb absolute right-0 w-1.5 rounded-full bg-base-content/30 transition-[width,background-color] hover:w-2 hover:bg-base-content/45"
-      :class="dragging ? 'w-2 bg-base-content/50' : ''"
+      class="floating-scrollbar-thumb absolute rounded-full transition-[width,height,background-color] hover:w-2 hover:h-2"
+      :class="[thumbClassName, thumbGeometryClassName, dragging ? draggingClassName : '']"
       :style="thumbStyle"
       @pointerdown.stop="onThumbPointerDown"
     ></div>
@@ -23,6 +23,8 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, toRef, watch, type
 
 const props = defineProps<{
   target: HTMLElement | null;
+  variant?: "theme" | "code-dark";
+  orientation?: "vertical" | "horizontal";
 }>();
 
 const targetRef = toRef(props, "target") as Ref<HTMLElement | null>;
@@ -31,20 +33,49 @@ const thumbRef = ref<HTMLElement | null>(null);
 const canScroll = ref(false);
 const scrollbarVisible = ref(false);
 const dragging = ref(false);
-const thumbHeight = ref(24);
-const thumbTop = ref(0);
+const thumbSize = ref(24);
+const thumbOffset = ref(0);
 
 let resizeObserver: ResizeObserver | null = null;
-let dragStartY = 0;
-let dragStartScrollTop = 0;
+let dragStartPointer = 0;
+let dragStartScrollOffset = 0;
 let activePointerId: number | null = null;
 let observedScroller: HTMLElement | null = null;
 let pendingThumbFrame = 0;
 
-const thumbStyle = computed(() => ({
-  height: `${thumbHeight.value}px`,
-  transform: `translateY(${thumbTop.value}px)`,
-}));
+const isHorizontal = computed(() => props.orientation === "horizontal");
+
+const thumbClassName = computed(() => (
+  props.variant === "code-dark"
+    ? "bg-slate-400/45 hover:bg-slate-300/60"
+    : "bg-base-content/30 hover:bg-base-content/45"
+));
+
+const trackClassName = computed(() => (
+  isHorizontal.value
+    ? "bottom-1 left-1 right-1 h-2"
+    : "bottom-1 right-1 top-1 w-2"
+));
+
+const thumbGeometryClassName = computed(() => (
+  isHorizontal.value
+    ? "bottom-0 h-1.5"
+    : "right-0 w-1.5"
+));
+
+const draggingClassName = computed(() => (isHorizontal.value ? "h-2" : "w-2"));
+
+const thumbStyle = computed(() => (
+  isHorizontal.value
+    ? {
+      width: `${thumbSize.value}px`,
+      transform: `translateX(${thumbOffset.value}px)`,
+    }
+    : {
+      height: `${thumbSize.value}px`,
+      transform: `translateY(${thumbOffset.value}px)`,
+    }
+));
 
 function setDocumentDragging(active: boolean) {
   document.body.classList.toggle("floating-scrollbar-dragging", active);
@@ -54,29 +85,31 @@ function updateThumbNow() {
   const scroller = targetRef.value;
   if (!scroller) return;
 
-  const { clientHeight, scrollHeight, scrollTop } = scroller;
-  const scrollable = scrollHeight > clientHeight + 1;
+  const clientExtent = isHorizontal.value ? scroller.clientWidth : scroller.clientHeight;
+  const scrollExtent = isHorizontal.value ? scroller.scrollWidth : scroller.scrollHeight;
+  const scrollOffset = isHorizontal.value ? scroller.scrollLeft : scroller.scrollTop;
+  const scrollable = scrollExtent > clientExtent + 1;
   if (canScroll.value !== scrollable) {
     canScroll.value = scrollable;
   }
   if (!scrollable) {
-    if (thumbTop.value !== 0) {
-      thumbTop.value = 0;
+    if (thumbOffset.value !== 0) {
+      thumbOffset.value = 0;
     }
     return;
   }
 
-  const trackHeight = Math.max(clientHeight - 8, 0);
-  const height = Math.max(24, Math.round((clientHeight / scrollHeight) * trackHeight));
-  const maxTop = Math.max(trackHeight - height, 0);
-  const top = maxTop === 0
+  const trackExtent = Math.max(clientExtent - 8, 0);
+  const size = Math.max(24, Math.round((clientExtent / scrollExtent) * trackExtent));
+  const maxOffset = Math.max(trackExtent - size, 0);
+  const nextOffset = maxOffset === 0
     ? 0
-    : Math.round((scrollTop / (scrollHeight - clientHeight)) * maxTop);
-  if (thumbHeight.value !== height) {
-    thumbHeight.value = height;
+    : Math.round((scrollOffset / (scrollExtent - clientExtent)) * maxOffset);
+  if (thumbSize.value !== size) {
+    thumbSize.value = size;
   }
-  if (thumbTop.value !== top) {
-    thumbTop.value = top;
+  if (thumbOffset.value !== nextOffset) {
+    thumbOffset.value = nextOffset;
   }
 }
 
@@ -137,19 +170,31 @@ function observeScroller(scroller: HTMLElement | null) {
   void nextTick(updateThumb);
 }
 
-function scrollByThumbDelta(deltaY: number) {
+function scrollByThumbDelta(deltaPointer: number) {
   const scroller = targetRef.value;
   if (!scroller) return;
-  const maxScrollTop = Math.max(scroller.scrollHeight - scroller.clientHeight, 0);
-  const maxThumbTop = Math.max(scroller.clientHeight - 8 - thumbHeight.value, 0);
-  if (maxScrollTop <= 0 || maxThumbTop <= 0) return;
-  scroller.scrollTop = dragStartScrollTop + (deltaY / maxThumbTop) * maxScrollTop;
+  const maxScrollOffset = Math.max(
+    (isHorizontal.value ? scroller.scrollWidth : scroller.scrollHeight)
+      - (isHorizontal.value ? scroller.clientWidth : scroller.clientHeight),
+    0,
+  );
+  const maxThumbOffset = Math.max(
+    (isHorizontal.value ? scroller.clientWidth : scroller.clientHeight) - 8 - thumbSize.value,
+    0,
+  );
+  if (maxScrollOffset <= 0 || maxThumbOffset <= 0) return;
+  const nextOffset = dragStartScrollOffset + (deltaPointer / maxThumbOffset) * maxScrollOffset;
+  if (isHorizontal.value) {
+    scroller.scrollLeft = nextOffset;
+  } else {
+    scroller.scrollTop = nextOffset;
+  }
 }
 
 function onDocumentPointerMove(event: PointerEvent) {
   if (!dragging.value || activePointerId !== event.pointerId) return;
   event.preventDefault();
-  scrollByThumbDelta(event.clientY - dragStartY);
+  scrollByThumbDelta((isHorizontal.value ? event.clientX : event.clientY) - dragStartPointer);
 }
 
 function stopDragging() {
@@ -180,8 +225,8 @@ function onThumbPointerDown(event: PointerEvent) {
   reveal();
   dragging.value = true;
   activePointerId = event.pointerId;
-  dragStartY = event.clientY;
-  dragStartScrollTop = scroller.scrollTop;
+  dragStartPointer = isHorizontal.value ? event.clientX : event.clientY;
+  dragStartScrollOffset = isHorizontal.value ? scroller.scrollLeft : scroller.scrollTop;
   setDocumentDragging(true);
   thumbRef.value?.setPointerCapture?.(event.pointerId);
   document.addEventListener("pointermove", onDocumentPointerMove, { passive: false });
@@ -197,13 +242,25 @@ function onTrackPointerDown(event: PointerEvent) {
   event.preventDefault();
   reveal();
   const trackRect = track.getBoundingClientRect();
-  const nextThumbTop = Math.min(
-    Math.max(event.clientY - trackRect.top - thumbHeight.value / 2, 0),
-    Math.max(trackRect.height - thumbHeight.value, 0),
+  const trackStart = isHorizontal.value ? trackRect.left : trackRect.top;
+  const trackExtent = isHorizontal.value ? trackRect.width : trackRect.height;
+  const pointer = isHorizontal.value ? event.clientX : event.clientY;
+  const nextThumbOffset = Math.min(
+    Math.max(pointer - trackStart - thumbSize.value / 2, 0),
+    Math.max(trackExtent - thumbSize.value, 0),
   );
-  const maxThumbTop = Math.max(trackRect.height - thumbHeight.value, 0);
-  const maxScrollTop = Math.max(scroller.scrollHeight - scroller.clientHeight, 0);
-  scroller.scrollTop = maxThumbTop === 0 ? 0 : (nextThumbTop / maxThumbTop) * maxScrollTop;
+  const maxThumbOffset = Math.max(trackExtent - thumbSize.value, 0);
+  const maxScrollOffset = Math.max(
+    (isHorizontal.value ? scroller.scrollWidth : scroller.scrollHeight)
+      - (isHorizontal.value ? scroller.clientWidth : scroller.clientHeight),
+    0,
+  );
+  const nextScrollOffset = maxThumbOffset === 0 ? 0 : (nextThumbOffset / maxThumbOffset) * maxScrollOffset;
+  if (isHorizontal.value) {
+    scroller.scrollLeft = nextScrollOffset;
+  } else {
+    scroller.scrollTop = nextScrollOffset;
+  }
 }
 
 defineExpose({
