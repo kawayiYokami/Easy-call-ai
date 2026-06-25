@@ -15,7 +15,7 @@
       selectionModeEnabled && selected ? 'ecall-message-selected bg-neutral/10 ring-1 ring-neutral/20 shadow-sm' : '',
     ]"
     @click="handleSelectionRowClick"
-    @contextmenu.prevent="openContextMenu($event)"
+    @contextmenu="openContextMenu($event)"
   >
     <div
       v-if="selectionModeEnabled && isOwnMessage(block)"
@@ -1803,6 +1803,15 @@ function handleSelectionRowClick(event: MouseEvent): void {
   emit("toggleMessageSelected", props.selectionKey);
 }
 
+function hasNativeTextSelection(): boolean {
+  try {
+    const selection = window.getSelection?.();
+    return !!selection && selection.rangeCount > 0 && !selection.isCollapsed && !!String(selection.toString() || "").trim();
+  } catch {
+    return false;
+  }
+}
+
 function handleGlobalPointerDownForContextMenu(event: PointerEvent) {
   const target = event.target;
   if (!(target instanceof Node)) {
@@ -1814,6 +1823,11 @@ function handleGlobalPointerDownForContextMenu(event: PointerEvent) {
 }
 
 function openContextMenu(event: MouseEvent) {
+  if (hasNativeTextSelection()) {
+    closeContextMenu();
+    return;
+  }
+  event.preventDefault();
   const menuWidth = 176; // w-44
   const menuHeight = 200; // estimate
   const margin = 8;

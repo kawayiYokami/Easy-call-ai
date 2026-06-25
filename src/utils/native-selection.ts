@@ -36,6 +36,7 @@ function shouldClearSelectionForTarget(target: EventTarget | null): boolean {
 }
 
 function clearBeforeInteractiveAction(event: Event) {
+  if (event instanceof PointerEvent && event.button !== 0) return;
   if (!shouldClearSelectionForTarget(event.target)) return;
   clearNativeTextSelection();
 }
