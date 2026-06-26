@@ -284,6 +284,7 @@
             last_message_at: None,
             dingtalk_session_webhook: None,
             dingtalk_session_webhook_expired_time: None,
+            onebot_group_members: Vec::new(),
             shell_workspaces: Vec::new(),
         };
         state_write_runtime_state_cached(&state, &runtime).expect("write runtime state");
@@ -436,6 +437,7 @@
             last_message_at: None,
             dingtalk_session_webhook: None,
             dingtalk_session_webhook_expired_time: None,
+            onebot_group_members: Vec::new(),
             shell_workspaces: Vec::new(),
         };
         state_write_runtime_state_cached(&state, &runtime).expect("write runtime state");
@@ -715,6 +717,77 @@
         assert_eq!(embedded_refs[0].id, "123");
         assert!(matches!(embedded_refs[1].kind, OnebotEmbeddedRefKind::Forward));
         assert_eq!(embedded_refs[1].id, "456");
+    }
+
+    #[test]
+    fn onebot_message_array_should_extract_record_and_video_media_refs() {
+        let payload = serde_json::json!([
+            { "type": "record", "data": { "url": "https://example.com/a.silk", "file_id": "voice-1" } },
+            { "type": "video", "data": { "file": "https://example.com/a.mp4", "file_id": "video-1" } }
+        ]);
+        let (text, media_refs, embedded_refs) =
+            parse_onebot_message_array(payload.as_array().expect("array"));
+
+        assert!(text.is_empty());
+        assert!(embedded_refs.is_empty());
+        assert_eq!(media_refs.len(), 2);
+        assert!(matches!(media_refs[0].kind, OnebotInboundMediaKind::File));
+        assert_eq!(media_refs[0].file_ref, "https://example.com/a.silk");
+        assert_eq!(media_refs[0].file_id.as_deref(), Some("voice-1"));
+        assert_eq!(media_refs[0].mime_hint.as_deref(), Some("audio/x-silk"));
+        assert!(matches!(media_refs[1].kind, OnebotInboundMediaKind::File));
+        assert_eq!(media_refs[1].file_ref, "https://example.com/a.mp4");
+        assert_eq!(media_refs[1].file_id.as_deref(), Some("video-1"));
+        assert_eq!(media_refs[1].mime_hint.as_deref(), Some("video/mp4"));
+    }
+
+    #[test]
+    fn onebot_cq_info_segments_should_render_markdown_quote_blocks() {
+        let (text, media_refs, embedded_refs) =
+            parse_onebot_cq_string("[CQ:face,id=123][CQ:share,title=文档,url=https://example.com]");
+
+        assert!(media_refs.is_empty());
+        assert!(embedded_refs.is_empty());
+        assert!(text.contains("> **QQ 表情**"));
+        assert!(text.contains("> id: 123"));
+        assert!(text.contains("> **链接分享**"));
+        assert!(text.contains("> title: 文档"));
+        assert!(text.contains("> url: https://example.com"));
+    }
+
+    #[test]
+    fn onebot_reply_sender_should_use_card_then_nickname_then_id() {
+        let with_card = serde_json::json!({
+            "sender": {
+                "user_id": "10000",
+                "nickname": "昵称甲",
+                "card": "群名片甲"
+            }
+        });
+        let with_nickname = serde_json::json!({
+            "sender": {
+                "user_id": "10001",
+                "nickname": "昵称乙"
+            }
+        });
+        let with_id = serde_json::json!({
+            "sender": {
+                "user_id": "10002"
+            }
+        });
+
+        assert_eq!(
+            onebot_resolve_reply_sender_display_name(&with_card).as_deref(),
+            Some("群名片甲")
+        );
+        assert_eq!(
+            onebot_resolve_reply_sender_display_name(&with_nickname).as_deref(),
+            Some("昵称乙")
+        );
+        assert_eq!(
+            onebot_resolve_reply_sender_display_name(&with_id).as_deref(),
+            Some("10002")
+        );
     }
 
     #[test]
@@ -1126,6 +1199,7 @@
             last_message_at: None,
             dingtalk_session_webhook: None,
             dingtalk_session_webhook_expired_time: None,
+            onebot_group_members: Vec::new(),
             shell_workspaces: Vec::new(),
         }
     }

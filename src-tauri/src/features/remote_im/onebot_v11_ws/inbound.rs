@@ -73,11 +73,52 @@ async fn parse_and_enqueue_onebot_event(
     let group_id = onebot_read_u64_like(event, "group_id");
     let sender_id = onebot_read_id_as_string(event, "user_id").unwrap_or_else(|| user_id_for_media.to_string());
     let sender_name = resolve_sender_name(event);
+    let (remote_contact_type, remote_contact_id, mut remote_contact_name) =
+        resolve_contact_info(event, manager, channel_id).await?;
+    if remote_contact_type != "group" {
+        remote_contact_name = Some(sender_name.clone());
+    }
+    let channel_config = read_channel_config(state, channel_id)?;
+    let im_name = channel_config
+        .as_ref()
+        .map(|ch| ch.name.clone())
+        .unwrap_or_else(|| "OneBot v11".to_string());
+    let mut group_member_cache = if remote_contact_type == "group" {
+        onebot_group_member_cache_for_contact(state, channel_id, group_id)
+    } else {
+        std::collections::HashMap::new()
+    };
+    if remote_contact_type == "group" {
+        let updated_at = now_iso();
+        if let Some(member) =
+            onebot_group_member_info_from_event_sender(event, &sender_name, &updated_at)
+        {
+            onebot_merge_group_member_cache_entry(&mut group_member_cache, member);
+        }
+    }
     let message_field = event.get("message");
-    let (mut text, mut media_refs, embedded_refs) = extract_message_content(event);
+    let parsed = extract_message_content_detail(event);
+    let mut text = onebot_resolve_mentions_in_text(
+        manager,
+        channel_id,
+        group_id,
+        parsed.text,
+        &parsed.mention_refs,
+        &mut group_member_cache,
+    )
+    .await;
+    let mut media_refs = parsed.media_refs;
+    let embedded_refs = parsed.embedded_refs;
     if !embedded_refs.is_empty() {
         let (embedded_text, nested_media_refs) =
-            onebot_expand_embedded_content(manager, channel_id, &embedded_refs).await;
+            onebot_expand_embedded_content(
+                manager,
+                channel_id,
+                group_id,
+                &mut group_member_cache,
+                &embedded_refs,
+            )
+            .await;
         if !embedded_text.is_empty() {
             text = if text.trim().is_empty() {
                 embedded_text
@@ -110,17 +151,7 @@ async fn parse_and_enqueue_onebot_event(
         ));
     }
 
-    let (remote_contact_type, remote_contact_id, mut remote_contact_name) =
-        resolve_contact_info(event, manager, channel_id).await?;
-    if remote_contact_type != "group" {
-        remote_contact_name = Some(sender_name.clone());
-    }
     let platform_message_id = onebot_read_id_as_string(event, "message_id");
-    let channel_config = read_channel_config(state, channel_id)?;
-    let im_name = channel_config
-        .as_ref()
-        .map(|ch| ch.name.clone())
-        .unwrap_or_else(|| "OneBot v11".to_string());
     let activate_assistant = channel_config.as_ref().map(|ch| ch.activate_assistant);
     let input = build_remote_im_enqueue_input(
         channel_id,
@@ -136,7 +167,10 @@ async fn parse_and_enqueue_onebot_event(
         images,
         attachments,
     );
-    remote_im_enqueue_message_internal(input, state)
+    let result = remote_im_enqueue_message_internal(input, state)?;
+    let group_members = group_member_cache.into_values().collect::<Vec<_>>();
+    onebot_persist_group_member_cache(state, &result.contact_id, group_members)?;
+    Ok(result)
 }
 
 async fn napcat_run_event_consumer_loop(

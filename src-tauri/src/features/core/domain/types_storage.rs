@@ -175,6 +175,22 @@ impl Default for AppData {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct RemoteImGroupMemberInfo {
+    user_id: String,
+    #[serde(default)]
+    nickname: String,
+    #[serde(default)]
+    card: String,
+    #[serde(default)]
+    display_name: String,
+    #[serde(default)]
+    updated_at: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    raw: Option<Value>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct RemoteImContact {
@@ -231,6 +247,8 @@ struct RemoteImContact {
     dingtalk_session_webhook: Option<String>,
     #[serde(default)]
     dingtalk_session_webhook_expired_time: Option<i64>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    onebot_group_members: Vec<RemoteImGroupMemberInfo>,
     #[serde(default)]
     shell_workspaces: Vec<ShellWorkspaceConfig>,
 }

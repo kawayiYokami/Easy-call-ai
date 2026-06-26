@@ -277,6 +277,7 @@ fn upsert_weixin_oc_contact(
         last_message_at: None,
         dingtalk_session_webhook: None,
         dingtalk_session_webhook_expired_time: None,
+        onebot_group_members: Vec::new(),
         shell_workspaces: Vec::new(),
     });
     (contact_id, true)

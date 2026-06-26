@@ -1550,6 +1550,7 @@ mod remote_im_adapter_tests {
             last_message_at: None,
             dingtalk_session_webhook: None,
             dingtalk_session_webhook_expired_time: None,
+            onebot_group_members: Vec::new(),
             shell_workspaces: Vec::new(),
         };
         let private = RemoteImContact {

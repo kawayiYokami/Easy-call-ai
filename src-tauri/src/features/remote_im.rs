@@ -306,6 +306,7 @@ fn remote_im_upsert_contact_for_inbound(
         } else {
             None
         },
+        onebot_group_members: Vec::new(),
         shell_workspaces: Vec::new(),
     });
     contact_id

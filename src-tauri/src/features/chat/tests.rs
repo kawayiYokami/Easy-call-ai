@@ -2725,6 +2725,7 @@
             last_message_at: None,
             dingtalk_session_webhook: None,
             dingtalk_session_webhook_expired_time: None,
+            onebot_group_members: Vec::new(),
             shell_workspaces: Vec::new(),
         });
         state_write_app_data_cached(&state, &data).expect("write app data");
@@ -5291,6 +5292,7 @@
             last_message_at: Some(now),
             dingtalk_session_webhook: None,
             dingtalk_session_webhook_expired_time: None,
+            onebot_group_members: Vec::new(),
             shell_workspaces: Vec::new(),
         });
         state_write_runtime_state_cached(&state, &runtime).expect("write runtime state");
@@ -5395,6 +5397,7 @@
             last_message_at: Some(now.clone()),
             dingtalk_session_webhook: None,
             dingtalk_session_webhook_expired_time: None,
+            onebot_group_members: Vec::new(),
             shell_workspaces: Vec::new(),
         };
         let mut target_remote = build_conversation_record(
@@ -5637,6 +5640,7 @@
             last_message_at: Some(now.clone()),
             dingtalk_session_webhook: None,
             dingtalk_session_webhook_expired_time: None,
+            onebot_group_members: Vec::new(),
             shell_workspaces: Vec::new(),
         };
         let mut runtime = RuntimeStateFile::default();
@@ -5721,6 +5725,7 @@
             last_message_at: Some(now.clone()),
             dingtalk_session_webhook: None,
             dingtalk_session_webhook_expired_time: None,
+            onebot_group_members: Vec::new(),
             shell_workspaces: Vec::new(),
         };
         let mut runtime = RuntimeStateFile::default();
@@ -6557,6 +6562,7 @@
             last_message_at: None,
             dingtalk_session_webhook: None,
             dingtalk_session_webhook_expired_time: None,
+            onebot_group_members: Vec::new(),
             shell_workspaces: Vec::new(),
         });
         state_write_app_data_cached(&state, &data).expect("write app data");
