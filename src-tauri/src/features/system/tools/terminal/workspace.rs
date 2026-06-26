@@ -876,6 +876,7 @@ fn terminal_prompt_trusted_roots_block(
     let mut lines = Vec::<String>::new();
     lines.push(format!("当前操作系统: {}", std::env::consts::OS));
     lines.push(format!("当前 shell: {}", shell_title));
+    lines.push("说明: 当前工作目录是用户任务的默认执行目录。".to_string());
     if terminal_conversation_shell_autonomous_mode(conversation) {
         lines.push("当前会话已开启“给予本会话最大权限”：终端与补丁工具可访问任意目录，并跳过目录权限、智能评估与人工审批。".to_string());
     }
@@ -890,7 +891,7 @@ fn terminal_prompt_trusted_roots_block(
         prompt_xml_block(
             "assistant space",
             format!(
-                "{}：PAI 助理空间（Assistant Space）",
+                "说明: 助理空间是 PAI 的配置目录与助理个人长期目录，用于跨项目记忆和个人配置。\n{}：PAI 助理空间（Assistant Space）",
                 terminal_path_for_user(&workspace.path)
             ),
         )
@@ -901,7 +902,7 @@ fn terminal_prompt_trusted_roots_block(
             blocks.push(assistant_block);
         }
     }
-    Some(blocks.join("\n\n"))
+    Some(blocks.join("\n"))
 }
 
 fn terminal_default_session_root_canonical(state: &AppState) -> Result<PathBuf, String> {
@@ -1469,6 +1470,9 @@ mod terminal_workspace_tests {
 
         assert!(block.contains("PowerShell 7"));
         assert!(!block.contains("Git Bash"));
+        assert!(block.contains("当前工作目录是用户任务的默认执行目录"));
+        assert!(block.contains("助理空间是 PAI 的配置目录与助理个人长期目录"));
+        assert!(block.contains("</shell workspace>\n<assistant space>"));
 
         let _ = std::fs::remove_dir_all(temp_root);
     }
