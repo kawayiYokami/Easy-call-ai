@@ -42,13 +42,53 @@ export function useChatScrollOrchestration(options: UseChatScrollOrchestrationOp
   } = options;
 
   const LOAD_OLDER_HISTORY_THRESHOLD_PX = 8;
-  const OLDER_HISTORY_THROTTLE_MS = 1000;
+  const OLDER_HISTORY_MAX_COOLDOWN_MS = 1000;
   const SCROLL_SETTLE_DELAY_MS = 120;
   const olderHistoryRequestPending = ref(false);
   const suppressOlderHistoryPaginationOnce = ref(false);
   let pendingProgrammaticScrollPaginationResetFrame = 0;
   let pendingScrollSettleTimer = 0;
+  let pendingOlderHistoryReleaseTimer = 0;
   let olderHistoryCooldownUntil = 0;
+
+  function waitAnimationFrames(count: number) {
+    return new Promise<void>((resolve) => {
+      let remaining = Math.max(1, count);
+      const step = () => {
+        remaining -= 1;
+        if (remaining <= 0) {
+          resolve();
+          return;
+        }
+        requestAnimationFrame(step);
+      };
+      requestAnimationFrame(step);
+    });
+  }
+
+  function clearOlderHistoryReleaseTimer() {
+    if (!pendingOlderHistoryReleaseTimer) return;
+    window.clearTimeout(pendingOlderHistoryReleaseTimer);
+    pendingOlderHistoryReleaseTimer = 0;
+  }
+
+  function releaseOlderHistoryRequestGate() {
+    clearOlderHistoryReleaseTimer();
+    olderHistoryCooldownUntil = 0;
+    olderHistoryRequestPending.value = false;
+  }
+
+  function armOlderHistoryRequestGate() {
+    clearOlderHistoryReleaseTimer();
+    olderHistoryRequestPending.value = true;
+    olderHistoryCooldownUntil = Date.now() + OLDER_HISTORY_MAX_COOLDOWN_MS;
+    pendingOlderHistoryReleaseTimer = window.setTimeout(() => {
+      pendingOlderHistoryReleaseTimer = 0;
+      if (props.loadingOlderHistory.value) return;
+      releaseOlderHistoryRequestGate();
+      scheduleSettledOlderHistoryCheck();
+    }, OLDER_HISTORY_MAX_COOLDOWN_MS);
+  }
 
   function armProgrammaticScrollPaginationSuppression() {
     suppressOlderHistoryPaginationOnce.value = true;
@@ -70,9 +110,13 @@ export function useChatScrollOrchestration(options: UseChatScrollOrchestrationOp
     if (!props.hasMoreHistory.value || props.loadingOlderHistory.value || olderHistoryRequestPending.value) return;
     if (scrollEl.scrollTop > LOAD_OLDER_HISTORY_THRESHOLD_PX) return;
     if (Date.now() < olderHistoryCooldownUntil) return;
-    olderHistoryRequestPending.value = true;
-    olderHistoryCooldownUntil = Date.now() + OLDER_HISTORY_THROTTLE_MS;
+    armOlderHistoryRequestGate();
     emit.loadOlderHistory();
+  }
+
+  function isNearOlderHistoryTriggerPoint() {
+    const scrollEl = scrollContainer.value;
+    return !!scrollEl && scrollEl.scrollTop <= LOAD_OLDER_HISTORY_THRESHOLD_PX;
   }
 
   function scheduleSettledOlderHistoryCheck() {
@@ -88,17 +132,17 @@ export function useChatScrollOrchestration(options: UseChatScrollOrchestrationOp
 
   function shouldLockUpwardWheelInput(deltaY: number): boolean {
     if (deltaY >= 0) return false;
-    const scrollEl = scrollContainer.value;
-    if (!scrollEl) return false;
     if (!props.hasMoreHistory.value) return false;
     if (props.loadingOlderHistory.value || olderHistoryRequestPending.value) return true;
-    const nearTop = scrollEl.scrollTop <= LOAD_OLDER_HISTORY_THRESHOLD_PX;
     const inCooldown = Date.now() < olderHistoryCooldownUntil;
-    return nearTop && inCooldown;
+    return isNearOlderHistoryTriggerPoint() && inCooldown;
   }
 
   function onConversationWheel(event: WheelEvent) {
     if (event.shiftKey) return;
+    if (event.deltaY < 0 && isNearOlderHistoryTriggerPoint()) {
+      maybeRequestOlderHistory();
+    }
     if (!shouldLockUpwardWheelInput(event.deltaY)) return;
     event.preventDefault();
     event.stopPropagation();
@@ -144,7 +188,7 @@ export function useChatScrollOrchestration(options: UseChatScrollOrchestrationOp
     () => String(props.activeConversationId.value || "").trim(),
     () => {
       chatScrollbarRef.value?.hide?.();
-      olderHistoryRequestPending.value = false;
+      releaseOlderHistoryRequestGate();
       armProgrammaticScrollPaginationSuppression();
       void prepareBottomAlignmentLayout?.();
     },
@@ -178,9 +222,13 @@ export function useChatScrollOrchestration(options: UseChatScrollOrchestrationOp
     async (loading, wasLoading) => {
       if (loading || !wasLoading) return;
       await nextTick();
-      await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+      await waitAnimationFrames(1);
       refreshObservedVirtualItemElements();
-      olderHistoryRequestPending.value = false;
+      chatScrollbarRef.value?.updateThumb();
+      await waitAnimationFrames(1);
+      chatScrollbarRef.value?.updateThumb();
+      releaseOlderHistoryRequestGate();
+      scheduleSettledOlderHistoryCheck();
     },
   );
 
@@ -193,6 +241,7 @@ export function useChatScrollOrchestration(options: UseChatScrollOrchestrationOp
       window.clearTimeout(pendingScrollSettleTimer);
       pendingScrollSettleTimer = 0;
     }
+    clearOlderHistoryReleaseTimer();
   });
 
   return {
@@ -200,7 +249,7 @@ export function useChatScrollOrchestration(options: UseChatScrollOrchestrationOp
     onConversationWheel,
     handleJumpToBottom,
     activeConversationChangedCleanup: () => {
-      olderHistoryRequestPending.value = false;
+      releaseOlderHistoryRequestGate();
     },
     armProgrammaticScrollPaginationSuppression,
   };

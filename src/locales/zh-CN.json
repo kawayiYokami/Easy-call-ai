@@ -1199,6 +1199,7 @@
       "minutesAgo": "{count} 分钟前"
     },
     "loadMore": "加载更多...",
+    "noMoreHistory": "已经没有更多消息",
     "copy": "复制",
     "regenerate": "重新生成",
     "recall": "撤回",

@@ -1191,6 +1191,7 @@
       "minutesAgo": "{count} 分鐘前"
     },
     "loadMore": "載入更多...",
+    "noMoreHistory": "已經沒有更多訊息",
     "copy": "複製",
     "regenerate": "重新生成",
     "recall": "撤回",

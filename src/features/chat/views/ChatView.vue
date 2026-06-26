@@ -50,6 +50,14 @@
           >
           <ConversationTodoDropdown :todos="normalizedConversationTodos" :persona-name="personaName" />
           <div class="ecall-chat-history-flow flex min-w-0 shrink-0 flex-col">
+            <div
+              v-if="showNoMoreHistoryDivider"
+              class="mx-auto flex w-full max-w-225 items-center gap-3 px-4 pb-2 pt-1 text-[11px] text-base-content/45"
+            >
+              <div class="h-px flex-1 bg-base-300/70"></div>
+              <span class="shrink-0 font-semibold text-base-content/55">{{ t("chat.noMoreHistory") }}</span>
+              <div class="h-px flex-1 bg-base-300/70"></div>
+            </div>
             <div class="relative min-w-0 w-full shrink-0" :style="{ height: `${totalVirtualSize}px` }">
               <div
                 v-for="entry in virtualEntries"
@@ -851,6 +859,12 @@ const { chatRenderItems, messageMemoKey } = useChatVirtualList({
 });
 
 const virtualRenderItems = computed<ChatRenderItem[]>(() => [...chatRenderItems.value]);
+const showNoMoreHistoryDivider = computed(() =>
+  !!String(props.activeConversationId || "").trim()
+  && props.messageBlocks.length > 0
+  && !props.loadingOlderHistory
+  && !props.hasMoreHistory,
+);
 
 // ==================== block tracking ====================
 

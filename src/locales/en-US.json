@@ -1192,6 +1192,7 @@
       "minutesAgo": "{count}m ago"
     },
     "loadMore": "Load more...",
+    "noMoreHistory": "No more messages",
     "stop": "Stop",
     "stopReplying": "Stop Replying",
     "dropImageOrPdf": "Drop files (images/PDF can be multimodal)",
