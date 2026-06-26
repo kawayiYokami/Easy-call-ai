@@ -724,6 +724,9 @@ impl ConversationPromptService {
         if !fixed.is_empty() {
             department_blocks.push(fixed.to_string());
         }
+        if let Some(model_block) = driving_model_prompt_block(selected_api) {
+            department_blocks.push(model_block);
+        }
         let department_prompt_block = department_snapshot.department_prompt_block.trim();
         if !department_prompt_block.is_empty() {
             department_blocks.push(department_prompt_block.to_string());
@@ -758,7 +761,6 @@ impl ConversationPromptService {
             &environment_prompt,
             &abstract_messages,
         );
-        let _ = selected_api;
         ConversationPromptSnapshot {
             conversation_id: conversation.id.clone(),
             agent_id: agent.id.clone(),
@@ -1065,11 +1067,12 @@ impl ConversationPromptService {
                 .unwrap_or_default(),
         );
         let final_cache_key = format!(
-            "scope={}|conversation_id={}|department={}|agent={}",
+            "scope={}|conversation_id={}|department={}|agent={}|model={}",
             prompt_cache_scope_key(state),
             conversation.id.trim(),
             department_id,
             agent.id.trim(),
+            selected_api_prompt_model_name(selected_api).unwrap_or_default(),
         );
         let mut rebuild_reason = "cache_miss";
         {

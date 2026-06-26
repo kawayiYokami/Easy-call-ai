@@ -384,6 +384,8 @@ enum SystemPromptExtraBlockGroup {
     ImRules,
 }
 
+const REMOTE_CONVERSATION_IDENTITY_FALLBACK_MESSAGE_LIMIT: usize = 32;
+
 fn classify_system_prompt_extra_block(block: &str) -> SystemPromptExtraBlockGroup {
     let trimmed = block.trim();
     if trimmed.contains("<remote im runtime activation>") {
@@ -398,6 +400,201 @@ fn classify_system_prompt_extra_block(block: &str) -> SystemPromptExtraBlockGrou
     SystemPromptExtraBlockGroup::Runtime
 }
 
+#[derive(Debug, Clone)]
+struct RemoteConversationPromptIdentity {
+    conversation_type_label: &'static str,
+    name_label: &'static str,
+    id_label: &'static str,
+    display_name: String,
+    id: String,
+    latest_sender_name: String,
+    latest_sender_id: String,
+}
+
+fn remote_conversation_type_label(contact_type: &str) -> &'static str {
+    match contact_type.trim().to_ascii_lowercase().as_str() {
+        "group" => "群聊",
+        "private" => "私聊",
+        _ => "远程联系人会话",
+    }
+}
+
+fn remote_conversation_name_label(contact_type: &str) -> &'static str {
+    match contact_type.trim().to_ascii_lowercase().as_str() {
+        "group" => "群名",
+        "private" => "用户名",
+        _ => "联系人名称",
+    }
+}
+
+fn remote_conversation_id_label(contact_type: &str) -> &'static str {
+    match contact_type.trim().to_ascii_lowercase().as_str() {
+        "group" => "群ID",
+        "private" => "用户ID",
+        _ => "联系人ID",
+    }
+}
+
+fn remote_conversation_identity_from_contact(
+    contact: &RemoteImContact,
+) -> RemoteConversationPromptIdentity {
+    RemoteConversationPromptIdentity {
+        conversation_type_label: remote_conversation_type_label(&contact.remote_contact_type),
+        name_label: remote_conversation_name_label(&contact.remote_contact_type),
+        id_label: remote_conversation_id_label(&contact.remote_contact_type),
+        display_name: remote_im_contact_display_name(contact),
+        id: contact.remote_contact_id.trim().to_string(),
+        latest_sender_name: String::new(),
+        latest_sender_id: String::new(),
+    }
+}
+
+fn remote_conversation_identity_from_message_origin(
+    origin: &Value,
+) -> Option<RemoteConversationPromptIdentity> {
+    let contact_type = remote_im_origin_string(origin, "contact_type").unwrap_or("");
+    let contact_name = remote_im_origin_string(origin, "contact_name").unwrap_or("");
+    let contact_id = remote_im_origin_string(origin, "contact_id").unwrap_or("");
+    let sender_name = remote_im_origin_string(origin, "sender_name").unwrap_or("");
+    let sender_id = remote_im_origin_string(origin, "sender_id").unwrap_or("");
+    let is_group = contact_type.trim().eq_ignore_ascii_case("group");
+    let display_name = if is_group {
+        contact_name
+    } else if !contact_name.trim().is_empty() {
+        contact_name
+    } else {
+        sender_name
+    };
+    let id = if !contact_id.trim().is_empty() {
+        contact_id
+    } else {
+        sender_id
+    };
+    if contact_type.trim().is_empty()
+        && display_name.trim().is_empty()
+        && id.trim().is_empty()
+        && sender_name.trim().is_empty()
+    {
+        return None;
+    }
+    Some(RemoteConversationPromptIdentity {
+        conversation_type_label: remote_conversation_type_label(contact_type),
+        name_label: remote_conversation_name_label(contact_type),
+        id_label: remote_conversation_id_label(contact_type),
+        display_name: display_name.trim().to_string(),
+        id: id.trim().to_string(),
+        latest_sender_name: sender_name.trim().to_string(),
+        latest_sender_id: sender_id.trim().to_string(),
+    })
+}
+
+fn remote_conversation_identity_from_messages(
+    conversation: &Conversation,
+) -> Option<RemoteConversationPromptIdentity> {
+    conversation
+        .messages
+        .iter()
+        .rev()
+        .take(REMOTE_CONVERSATION_IDENTITY_FALLBACK_MESSAGE_LIMIT)
+        .filter_map(remote_im_origin_from_message)
+        .find_map(remote_conversation_identity_from_message_origin)
+}
+
+fn remote_conversation_identity_from_state(
+    state: Option<&AppState>,
+    conversation: &Conversation,
+) -> Option<RemoteConversationPromptIdentity> {
+    let state = state?;
+    let runtime = state_read_runtime_state_cached(state).ok()?;
+    let conversation_id = conversation.id.trim();
+    let root_key = conversation
+        .root_conversation_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
+    runtime
+        .remote_im_contacts
+        .iter()
+        .find(|contact| {
+            root_key
+                .map(|key| remote_im_contact_conversation_key(contact) == key)
+                .unwrap_or(false)
+                || contact
+                    .bound_conversation_id
+                    .as_deref()
+                    .map(str::trim)
+                    .filter(|value| !value.is_empty())
+                    == Some(conversation_id)
+        })
+        .map(remote_conversation_identity_from_contact)
+}
+
+fn remote_conversation_settings_body(
+    state: Option<&AppState>,
+    conversation: &Conversation,
+) -> String {
+    let identity = remote_conversation_identity_from_state(state, conversation)
+        .or_else(|| remote_conversation_identity_from_messages(conversation));
+    let Some(identity) = identity else {
+        return "本会话是远程联系人会话。".to_string();
+    };
+    let mut lines = vec![format!("本会话是{}。", identity.conversation_type_label)];
+    if !identity.display_name.trim().is_empty() {
+        lines.push(format!(
+            "{}：{}",
+            identity.name_label,
+            xml_escape_prompt(&identity.display_name)
+        ));
+    }
+    if !identity.id.trim().is_empty() {
+        lines.push(format!(
+            "{}：{}",
+            identity.id_label,
+            xml_escape_prompt(&identity.id)
+        ));
+    }
+    if identity.conversation_type_label == "群聊" {
+        if !identity.latest_sender_name.trim().is_empty() {
+            lines.push(format!(
+                "最近发言用户名：{}",
+                xml_escape_prompt(&identity.latest_sender_name)
+            ));
+        }
+        if !identity.latest_sender_id.trim().is_empty() {
+            lines.push(format!(
+                "最近发言用户ID：{}",
+                xml_escape_prompt(&identity.latest_sender_id)
+            ));
+        }
+    }
+    lines.join("\n")
+}
+
+fn selected_api_prompt_model_name(selected_api: Option<&ApiConfig>) -> Option<String> {
+    let raw = selected_api?.model.trim();
+    if raw.is_empty() {
+        return None;
+    }
+    let model = raw
+        .rsplit_once("::")
+        .map(|(_, model)| model.trim())
+        .unwrap_or(raw)
+        .trim();
+    if model.is_empty() {
+        None
+    } else {
+        Some(model.to_string())
+    }
+}
+
+fn driving_model_prompt_block(selected_api: Option<&ApiConfig>) -> Option<String> {
+    let model = selected_api_prompt_model_name(selected_api)?;
+    Some(prompt_xml_block(
+        "model settings",
+        format!("驱动模型：{}", xml_escape_prompt(&model)),
+    ))
+}
+
 fn build_core_system_prompt_text(
     conversation: &Conversation,
     agent: &AgentProfile,
@@ -405,7 +602,7 @@ fn build_core_system_prompt_text(
     user_profile: Option<(&str, &str)>,
     response_style_id: &str,
     ui_language: &str,
-    _state: Option<&AppState>,
+    state: Option<&AppState>,
 ) -> String {
     let response_style_block = response_style_preset_optional(response_style_id).map(|response_style| {
         prompt_xml_block(
@@ -419,27 +616,42 @@ fn build_core_system_prompt_text(
         not_provided_label,
         assistant_settings_label,
         user_settings_label,
-        role_constraints_label,
+        remote_settings_label,
         language_settings_label,
         user_nickname_label,
         user_intro_label,
-        role_identity_line,
-        role_confusion_line,
         language_follow_user_line,
         language_instruction,
     ) = (
         "未提供",
         "persona settings",
         "admin user settings",
-        "role constraints",
+        "remote conversation settings",
         "language settings",
         "用户昵称",
         "用户自我介绍",
-        "- 你是“{}”，用户是“{}”。",
-        "- 不要把自己当作用户，不要混淆双方身份。",
         "- 若用户明确指定回答语言，以用户指定为准。",
         "默认使用中文回答。",
     );
+    if conversation_is_remote_im_contact(conversation) {
+        return [
+            highest_instruction_md.to_string(),
+            prompt_xml_block(assistant_settings_label, agent.system_prompt.trim()),
+            prompt_xml_block(
+                remote_settings_label,
+                remote_conversation_settings_body(state, conversation),
+            ),
+            response_style_block.clone().unwrap_or_default(),
+            prompt_xml_block(
+                language_settings_label,
+                format!(
+                    "{}\n{}\n{}",
+                    language_instruction, language_follow_user_line, date_timezone_line
+                ),
+            ),
+        ]
+        .join("\n");
+    }
     if let Some((user_name, user_intro)) = user_profile {
         let user_intro_display = if user_intro.trim().is_empty() {
             not_provided_label.to_string()
@@ -465,17 +677,10 @@ fn build_core_system_prompt_text(
                 user_profile_snapshot
             )
         };
-        let role_identity_text = role_identity_line
-            .replacen("{}", &xml_escape_prompt(&agent.name), 1)
-            .replacen("{}", &xml_escape_prompt(user_name), 1);
         [
             highest_instruction_md.to_string(),
             prompt_xml_block(assistant_settings_label, agent.system_prompt.trim()),
             prompt_xml_block(user_settings_label, user_settings_body),
-            prompt_xml_block(
-                role_constraints_label,
-                format!("{}\n{}", role_identity_text, role_confusion_line),
-            ),
             response_style_block.clone().unwrap_or_default(),
             prompt_xml_block(
                 language_settings_label,
@@ -487,16 +692,9 @@ fn build_core_system_prompt_text(
         ]
         .join("\n")
     } else {
-        let delegate_role_line = "- 这是一条委托线程。此线程不存在默认用户人格。";
-        let delegate_scope_line =
-            "- 只依据本轮委托任务块与本线程历史处理工作，不要自行补充用户设定、昵称或来源会话背景。";
         [
             highest_instruction_md.to_string(),
             prompt_xml_block(assistant_settings_label, agent.system_prompt.trim()),
-            prompt_xml_block(
-                role_constraints_label,
-                format!("{}\n{}", delegate_role_line, delegate_scope_line),
-            ),
             response_style_block.unwrap_or_default(),
             prompt_xml_block(
                 language_settings_label,

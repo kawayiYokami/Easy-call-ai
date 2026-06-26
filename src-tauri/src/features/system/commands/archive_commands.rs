@@ -13,6 +13,31 @@ fn parse_prompt_preview_mode(raw: Option<&str>) -> PromptPreviewMode {
     }
 }
 
+fn resolve_chat_prompt_preview_api_config(
+    app_config: &AppConfig,
+    conversation: &Conversation,
+    requested_api_config_id: Option<&str>,
+) -> Result<ApiConfig, String> {
+    let preferred_api_config_id = if conversation_is_remote_im_contact(conversation) {
+        department_by_id(app_config, &conversation.department_id)
+            .and_then(|department| department_primary_chat_api_config_id(app_config, department))
+    } else {
+        conversation
+            .preferred_api_config_id
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(ToOwned::to_owned)
+    };
+    resolve_selected_api_config(
+        app_config,
+        preferred_api_config_id
+            .as_deref()
+            .or_else(|| requested_api_config_id.map(str::trim).filter(|value| !value.is_empty())),
+    )
+    .ok_or_else(|| "No API config available".to_string())
+}
+
 #[tauri::command]
 async fn get_prompt_preview(
     input: SessionSelector,
@@ -23,9 +48,6 @@ async fn get_prompt_preview(
     let runtime_snapshot = load_runtime_organization_snapshot(state.inner())?;
     let app_config = runtime_snapshot.config;
     data.agents = runtime_snapshot.agents;
-    let api_config = resolve_selected_api_config(&app_config, input.api_config_id.as_deref())
-        .ok_or_else(|| "No API config available".to_string())?;
-    let mut resolved_api = resolve_api_config(&app_config, Some(&api_config.id))?;
     let preview_mode = parse_prompt_preview_mode(preview_mode.as_deref());
     let requested_conversation_id = input
         .conversation_id
@@ -49,6 +71,18 @@ async fn get_prompt_preview(
     let agent =
         resolve_conversation_bound_agent(&conversation, &data.agents, &app_config.departments)?
             .clone();
+    let api_config = match preview_mode {
+        PromptPreviewMode::Chat => resolve_chat_prompt_preview_api_config(
+            &app_config,
+            &conversation,
+            input.api_config_id.as_deref(),
+        )?,
+        PromptPreviewMode::Compaction | PromptPreviewMode::Archive => {
+            resolve_selected_api_config(&app_config, input.api_config_id.as_deref())
+                .ok_or_else(|| "No API config available".to_string())?
+        }
+    };
+    let mut resolved_api = resolve_api_config(&app_config, Some(&api_config.id))?;
     let latest_user_message = conversation.messages.iter().rev().find(|message| {
         prompt_role_for_message(message, &agent.id).as_deref() == Some("user")
     });
