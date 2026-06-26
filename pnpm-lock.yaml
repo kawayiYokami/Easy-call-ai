@@ -79,8 +79,8 @@ importers:
         specifier: ^6.0.7
         version: 6.0.7(vite@8.0.14(jiti@2.7.0)(yaml@2.8.2))(vue@3.5.34(typescript@6.0.3))
       daisyui:
-        specifier: ^5.5.20
-        version: 5.5.20
+        specifier: ^5.6.0
+        version: 5.6.0
       postcss:
         specifier: 8.5.10
         version: 8.5.10
@@ -1030,8 +1030,8 @@ packages:
   dagre-d3-es@7.0.14:
     resolution: {integrity: sha512-P4rFMVq9ESWqmOgK+dlXvOtLwYg0i7u0HBGJER0LZDJT2VHIPAMZ/riPxqJceWMStH5+E61QxFra9kIS3AqdMg==}
 
-  daisyui@5.5.20:
-    resolution: {integrity: sha512-HemJcjl0Gk9rQ8BcgofN6p+EURrqftQG9wK1Hkxs98i49xe68+QxpNvry+PyxwkIUgrbMpNmZ5ZWjmtffAjfhQ==}
+  daisyui@5.6.0:
+    resolution: {integrity: sha512-zogSaxtxZqm4I7QqHmjk/8k1oXW1EtK5Tf4fnS8e4PPQrOukMId9WDGHCUanP2duBZBBLA5E1JHDbOdwRqc/Gg==}
 
   dayjs@1.11.20:
     resolution: {integrity: sha512-YbwwqR/uYpeoP4pu043q+LTDLFBLApUP6VxRihdfNTqu4ubqMlGDLd6ErXhEgsyvY0K6nCs7nggYumAN+9uEuQ==}
@@ -2546,7 +2546,7 @@ snapshots:
       d3: 7.9.0
       lodash-es: 4.18.1
 
-  daisyui@5.5.20: {}
+  daisyui@5.6.0: {}
 
   dayjs@1.11.20: {}
 
