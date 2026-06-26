@@ -1601,6 +1601,12 @@ ul.ecall-md-list {
 .ecall-md-document h3.ecall-md-heading { font-size: 1.12rem; }
 .ecall-md-document h4.ecall-md-heading { font-size: 1.02rem; }
 
+.ecall-md-document h1.ecall-md-heading,
+.ecall-md-document h2.ecall-md-heading {
+  padding-bottom: 0.35rem;
+  border-bottom: 1px solid color-mix(in srgb, var(--color-base-300) 84%, var(--color-base-content) 10%);
+}
+
 .ecall-md-document .ecall-md-paragraph {
   margin: 0.6rem 0;
   line-height: 1.8;
