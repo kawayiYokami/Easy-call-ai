@@ -87,6 +87,24 @@ describe("chat-message semantics", () => {
     );
   });
 
+  it("reads downloaded image markers through the stored media path", () => {
+    const message: ChatMessage = {
+      ...textMessage("remote-img", "user", "这个指的是什么？"),
+      parts: [
+        { type: "text", text: "这个指的是什么？" },
+        { type: "image", mime: "image/png", bytesBase64: "@download:contact-1/example.png" },
+      ],
+    };
+
+    expect(projectMessageForDisplay(message).images).toEqual([
+      {
+        mime: "image/png",
+        bytesBase64: undefined,
+        mediaRef: "@download:contact-1/example.png",
+      },
+    ]);
+  });
+
   it("drops orphan assistant tool call only for prompt replay view", () => {
     const message: ChatMessage = {
       ...textMessage("a-2", "assistant", "处理中"),

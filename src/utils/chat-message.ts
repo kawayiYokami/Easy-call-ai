@@ -1,6 +1,11 @@
 import type { ChatMessage } from "../types/app";
 
 const MEDIA_REF_PREFIX = "@media:";
+const DOWNLOAD_REF_PREFIX = "@download:";
+
+function isStoredImageRef(value: string): boolean {
+  return value.startsWith(MEDIA_REF_PREFIX) || value.startsWith(DOWNLOAD_REF_PREFIX);
+}
 
 export function stripHiddenExtraBlocks(text: string): string {
   return (text || "")
@@ -50,10 +55,11 @@ export function extractMessageImages(
     .map((p) => {
       const anyPart = p as unknown as { mime?: string; bytesBase64?: string; bytes_base64?: string };
       const raw = String(anyPart.bytesBase64 || anyPart.bytes_base64 || "").trim();
+      const storedRef = isStoredImageRef(raw);
       return {
         mime: anyPart.mime || "image/webp",
-        bytesBase64: raw && !raw.startsWith(MEDIA_REF_PREFIX) ? raw : undefined,
-        mediaRef: raw.startsWith(MEDIA_REF_PREFIX) ? raw : undefined,
+        bytesBase64: raw && !storedRef ? raw : undefined,
+        mediaRef: storedRef ? raw : undefined,
       };
     })
     .filter((p) => !!p.bytesBase64 || !!p.mediaRef);
