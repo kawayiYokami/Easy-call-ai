@@ -577,6 +577,10 @@ function resolveMarkdownImageSource(rawSrc: string, basePath: string): MarkdownI
   return { kind: "local", path: `${root}/${normalized.replace(/^\.\//, "")}` };
 }
 
+function isMemeImagePath(path: string): boolean {
+  return /(^|[/\\])\.meme([/\\]|$)/.test(String(path || ""));
+}
+
 const MarkdownImage = defineComponent({
   name: "MarkdownImage",
   props: {
@@ -636,6 +640,9 @@ const MarkdownImage = defineComponent({
     return () => {
       const current = source.value;
       const alt = String(imageProps.alt || "").trim();
+      const memeImageClass = current.kind === "local" && isMemeImagePath(current.path)
+        ? "ecall-md-meme-image"
+        : "";
       if (current.kind === "remote") {
         return h("img", {
           class: "ecall-md-image",
@@ -649,7 +656,7 @@ const MarkdownImage = defineComponent({
         const title = alt || current.path;
         if (thumbnailSrc.value) {
           return h("img", {
-            class: "ecall-md-image ecall-md-local-image",
+            class: ["ecall-md-image", "ecall-md-local-image", memeImageClass],
             src: thumbnailSrc.value,
             alt: title,
             title,
@@ -1476,6 +1483,11 @@ ul.ecall-md-list {
   border-radius: 0.5rem;
   object-fit: contain;
   vertical-align: middle;
+}
+
+.ecall-md-meme-image {
+  max-width: min(150px, 40vw);
+  max-height: 150px;
 }
 
 .ecall-md-local-image {
