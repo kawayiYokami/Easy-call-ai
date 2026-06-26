@@ -76,6 +76,17 @@ describe("chat-message semantics", () => {
     });
   });
 
+  it("renders meme annotation images as standalone markdown blocks", () => {
+    const message: ChatMessage = {
+      ...textMessage("a-meme-block", "assistant", "实挺漂亮的 :纳西妲: 三层融合"),
+      memeAnnotations: [{ meme: ":纳西妲:", path: ".meme/纳西妲.webp" }],
+    };
+
+    expect(projectMessageForDisplay(message).text).toBe(
+      "实挺漂亮的\n\n![纳西妲](.meme/纳西妲.webp)\n\n三层融合",
+    );
+  });
+
   it("drops orphan assistant tool call only for prompt replay view", () => {
     const message: ChatMessage = {
       ...textMessage("a-2", "assistant", "处理中"),

@@ -1086,6 +1086,17 @@ function applyMemeAnnotationReplacements(text: string, annotations?: MemeAnnotat
   if (!annotations || annotations.length === 0) return text;
   let cursor = 0;
   let result = "";
+  const appendMemeImageBlock = (base: string, imageMarkdown: string): string => {
+    const trimmedBase = base.replace(/[ \t]+$/g, "");
+    const separator = !trimmedBase
+      ? ""
+      : trimmedBase.endsWith("\n\n")
+        ? ""
+        : trimmedBase.endsWith("\n")
+          ? "\n"
+          : "\n\n";
+    return `${trimmedBase}${separator}${imageMarkdown}\n\n`;
+  };
   for (const { meme, path } of annotations) {
     const token = String(meme || "").trim();
     const imagePath = String(path || "").trim();
@@ -1096,8 +1107,11 @@ function applyMemeAnnotationReplacements(text: string, annotations?: MemeAnnotat
       ? token.slice(1, -1)
       : token;
     result += text.slice(cursor, nextIndex);
-    result += `![${alt}](${imagePath})`;
+    result = appendMemeImageBlock(result, `![${alt}](${imagePath})`);
     cursor = nextIndex + token.length;
+    while (cursor < text.length && /[ \t]/.test(text[cursor] || "")) {
+      cursor += 1;
+    }
   }
   return result ? `${result}${text.slice(cursor)}` : text;
 }
