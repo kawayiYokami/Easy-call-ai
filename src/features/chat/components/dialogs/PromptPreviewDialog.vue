@@ -13,6 +13,38 @@
       </button>
     </div>
     <div class="mb-2 flex shrink-0 items-center gap-2">
+      <div class="join shrink-0" role="radiogroup">
+        <button
+          type="button"
+          role="radio"
+          class="join-item btn btn-sm"
+          :class="conversationScope === 'local' ? 'btn-primary' : 'bg-base-200 border-base-300'"
+          :aria-checked="conversationScope === 'local'"
+          @click="emit('selectScope', 'local')"
+        >
+          {{ localScopeText }}
+        </button>
+        <button
+          type="button"
+          role="radio"
+          class="join-item btn btn-sm"
+          :class="conversationScope === 'remote' ? 'btn-primary' : 'bg-base-200 border-base-300'"
+          :aria-checked="conversationScope === 'remote'"
+          @click="emit('selectScope', 'remote')"
+        >
+          {{ remoteScopeText }}
+        </button>
+        <button
+          type="button"
+          role="radio"
+          class="join-item btn btn-sm"
+          :class="conversationScope === 'delegate' ? 'btn-primary' : 'bg-base-200 border-base-300'"
+          :aria-checked="conversationScope === 'delegate'"
+          @click="emit('selectScope', 'delegate')"
+        >
+          {{ delegateScopeText }}
+        </button>
+      </div>
       <div class="text-xs opacity-70 whitespace-nowrap">{{ conversationText }}</div>
       <select
         class="select select-sm select-bordered w-full"
@@ -51,10 +83,11 @@
 </template>
 
 <script setup lang="ts">
-import type { RequestPreviewMode } from "../../composables/use-prompt-preview";
+import type { PromptPreviewConversationScope, RequestPreviewMode } from "../../composables/use-prompt-preview";
 
 defineProps<{
   mode: RequestPreviewMode | "system" | null;
+  conversationScope: PromptPreviewConversationScope;
   loading: boolean;
   title: string;
   loadingText: string;
@@ -62,6 +95,9 @@ defineProps<{
   chatText: string;
   compactionText: string;
   archiveText: string;
+  localScopeText: string;
+  remoteScopeText: string;
+  delegateScopeText: string;
   latestInputLengthText: string;
   imagesText: string;
   audiosText: string;
@@ -78,6 +114,7 @@ defineProps<{
 const emit = defineEmits<{
   close: [];
   selectMode: [mode: RequestPreviewMode];
+  selectScope: [scope: PromptPreviewConversationScope];
   selectConversation: [conversationId: string];
 }>();
 

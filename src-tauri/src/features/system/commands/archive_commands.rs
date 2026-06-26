@@ -33,10 +33,17 @@ async fn get_prompt_preview(
         .map(str::trim)
         .filter(|value| !value.is_empty())
         .ok_or_else(|| "conversationId is required.".to_string())?;
-    let mut conversation = conversation_service_v2()
+    let mut conversation = match conversation_service_v2()
         .get_conversation_snapshot(state.inner(), requested_conversation_id)
-        .map_err(|_| format!("指定会话不存在或不可用：{requested_conversation_id}"))?;
-    if !conversation.summary.trim().is_empty() || conversation_is_delegate(&conversation) {
+    {
+        Ok(conversation) => conversation,
+        Err(_) => delegate_runtime_thread_conversation_get_any(
+            state.inner(),
+            requested_conversation_id,
+        )?
+        .ok_or_else(|| format!("指定会话不存在或不可用：{requested_conversation_id}"))?,
+    };
+    if !conversation.summary.trim().is_empty() {
         return Err(format!("指定会话不存在或不可用：{requested_conversation_id}"));
     }
     let agent =
@@ -93,7 +100,11 @@ async fn get_prompt_preview(
         .map(|conversation_meta| conversation_meta.summary.to_string());
     let mut prepared = match preview_mode {
         PromptPreviewMode::Chat => build_prepared_prompt_for_mode(
-            PromptBuildMode::Chat,
+            if conversation_is_delegate(&conversation) {
+                PromptBuildMode::Delegate
+            } else {
+                PromptBuildMode::Chat
+            },
             &conversation,
             &agent,
             &data.agents,

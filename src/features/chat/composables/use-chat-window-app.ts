@@ -281,6 +281,7 @@ export function useChatWindowApp() {
   });
   const {
     unarchivedConversations,
+    delegateConversations,
     remoteImContactConversations,
     loadArchives,
     loadDelegateConversations,
@@ -583,6 +584,7 @@ export function useChatWindowApp() {
     configTab,
     tauriWindowLabel,
     unarchivedConversations,
+    delegateConversations,
     remoteImContactConversations,
     conversationForegroundSyncing,
     sideConversationListVisible,

@@ -179,6 +179,7 @@
     <dialog ref="promptPreviewDialog" class="modal">
       <PromptPreviewDialog
         :mode="promptPreviewMode"
+        :conversation-scope="promptPreviewConversationScope"
         :loading="promptPreviewLoading"
         :title="promptPreviewMode === 'system' ? t('prompt.systemPreview') : t('prompt.requestPreview')"
         :loading-text="t('common.loading')"
@@ -186,6 +187,9 @@
         :chat-text="t('prompt.chat')"
         :compaction-text="t('prompt.compaction')"
         :archive-text="t('prompt.archive')"
+        :local-scope-text="t('prompt.local')"
+        :remote-scope-text="t('prompt.remote')"
+        :delegate-scope-text="t('prompt.delegate')"
         :conversation-text="t('prompt.conversation')"
         :selected-conversation-id="promptPreviewConversationId"
         :conversation-options="promptPreviewConversationOptions"
@@ -198,6 +202,7 @@
         :latest-audios="promptPreviewLatestAudios"
         :text="promptPreviewText"
         @select-mode="loadPromptPreview"
+        @select-scope="selectPromptPreviewConversationScope"
         @select-conversation="selectPromptPreviewConversation"
         @close="closePromptPreview"
       />
@@ -713,6 +718,8 @@ const {
 
 const promptPreviewCurrentConversationId = ref("");
 const promptPreviewLocalConversations = computed(() => [] as import("./types/app").UnarchivedConversationSummary[]);
+const promptPreviewRemoteConversations = computed(() => [] as import("./types/app").RemoteImContactConversationSummary[]);
+const promptPreviewDelegateConversations = computed(() => [] as import("./types/app").DelegateConversationSummary[]);
 const {
   promptPreviewDialog,
   promptPreviewLoading,
@@ -721,17 +728,21 @@ const {
   promptPreviewLatestImages,
   promptPreviewLatestAudios,
   promptPreviewMode,
+  promptPreviewConversationScope,
   promptPreviewConversationId,
   promptPreviewConversationOptions,
   loadPromptPreview,
   openPromptPreview,
   openSystemPromptPreview,
+  selectPromptPreviewConversationScope,
   selectPromptPreviewConversation,
   closePromptPreview,
 } = usePromptPreview({
   t: tr,
   currentConversationId: promptPreviewCurrentConversationId,
   localConversations: promptPreviewLocalConversations,
+  remoteConversations: promptPreviewRemoteConversations,
+  delegateConversations: promptPreviewDelegateConversations,
 });
 
 function updateConfigSearchQuery(value: string) {

@@ -336,6 +336,7 @@
     <dialog :ref="promptPreviewDialogVNodeRef" class="modal">
       <PromptPreviewDialog
         :mode="promptPreviewMode"
+        :conversation-scope="promptPreviewConversationScope"
         :loading="promptPreviewLoading"
         :title="promptPreviewMode === 'system' ? t('prompt.systemPreview') : t('prompt.requestPreview')"
         :loading-text="t('common.loading')"
@@ -343,6 +344,9 @@
         :chat-text="t('prompt.chat')"
         :compaction-text="t('prompt.compaction')"
         :archive-text="t('prompt.archive')"
+        :local-scope-text="t('prompt.local')"
+        :remote-scope-text="t('prompt.remote')"
+        :delegate-scope-text="t('prompt.delegate')"
         :conversation-text="t('prompt.conversation')"
         :selected-conversation-id="promptPreviewConversationId"
         :conversation-options="promptPreviewConversationOptions"
@@ -355,6 +359,7 @@
         :latest-audios="promptPreviewLatestAudios"
         :text="promptPreviewText"
         @select-mode="loadPromptPreview"
+        @select-scope="selectPromptPreviewConversationScope"
         @select-conversation="selectPromptPreviewConversation"
         @close="closePromptPreview"
       />
@@ -610,9 +615,11 @@ const props = defineProps<{
   promptPreviewLatestUserText: string;
   promptPreviewLatestImages: number;
   promptPreviewLatestAudios: number;
+  promptPreviewConversationScope: "local" | "remote" | "delegate";
   promptPreviewConversationId: string;
   promptPreviewConversationOptions: Array<{ conversationId: string; title: string }>;
   loadPromptPreview: (mode: "chat" | "compaction" | "archive") => void;
+  selectPromptPreviewConversationScope: (scope: "local" | "remote" | "delegate") => void;
   selectPromptPreviewConversation: (conversationId: string) => void;
   setMemoryDialogRef: (el: Element | null) => void;
   setPromptPreviewDialogRef: (el: Element | null) => void;

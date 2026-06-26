@@ -86,6 +86,8 @@ export function useChatWindowRuntimeOrchestrator(bindings: Record<string, any>) 
     tauriWindowLabel: bindings.tauriWindowLabel,
     currentForegroundDepartmentId: bindings.currentForegroundDepartmentId,
     unarchivedConversations: bindings.unarchivedConversations,
+    delegateConversations: bindings.delegateConversations,
+    remoteImContactConversations: bindings.remoteImContactConversations,
     deleteUnarchivedConversationFromArchives: bindings.deleteUnarchivedConversationFromArchives,
   });
 

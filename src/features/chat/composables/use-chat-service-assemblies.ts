@@ -108,6 +108,8 @@ export function useChatServiceAssemblies(bindings: Record<string, any>) {
     t: bindings.tr,
     currentConversationId: bindings.currentChatConversationId,
     localConversations: computed(() => bindings.unarchivedConversations.value),
+    remoteConversations: computed(() => bindings.remoteImContactConversations.value),
+    delegateConversations: computed(() => bindings.delegateConversations.value),
   });
   const memoryViewerActions = useMemoryViewer({
     t: bindings.tr,
