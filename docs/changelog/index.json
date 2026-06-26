@@ -1,7 +1,12 @@
 {
-  "generatedAt": "2026-06-23T19:37:24.751Z",
-  "latestVersion": "v0.14.0",
+  "generatedAt": "2026-06-26T03:39:09.707Z",
+  "latestVersion": "v0.15.0",
   "releases": [
+    {
+      "version": "v0.15.0",
+      "path": "docs/changelog/releases/v0.15.0.md",
+      "summary": "**聊天窗口**：Markdown 渲染支持注脚、README 图片徽章和本地相对图片路径，阅读文档、README 与模型输出时更接近原始排版。"
+    },
     {
       "version": "v0.14.0",
       "path": "docs/changelog/releases/v0.14.0.md",
@@ -665,7 +670,7 @@
     {
       "version": "UNRELEASED",
       "path": "docs/changelog/releases/UNRELEASED.md",
-      "summary": "修复（chat）：聊天窗口顶部错误条在超长报错时改为内部滚动，并固定关闭按钮位置，避免按钮被长文本挤出可点击区域。"
+      "summary": ""
     }
   ]
 }
