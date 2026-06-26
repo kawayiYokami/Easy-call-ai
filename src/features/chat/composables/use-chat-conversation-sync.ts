@@ -361,10 +361,6 @@ export function useChatConversationSync(bindings: Record<string, any>) {
     if (!conversationId || bindings.loadingOlderConversationHistory.value || !bindings.hasMoreBackendHistory.value) {
       return;
     }
-    const apiConfigId = String(bindings.currentForegroundApiConfigId.value || "").trim();
-    const agentId = String(bindings.currentForegroundAgentId.value || "").trim();
-    if (!apiConfigId || !agentId) return;
-
     const formalMessages = formalizeConversationMessages(bindings.allMessages.value);
     const oldestMessageId = String(formalMessages[0]?.id || "").trim();
     if (!oldestMessageId) {
@@ -376,19 +372,13 @@ export function useChatConversationSync(bindings: Record<string, any>) {
     try {
       const result = await invokeTauri("get_active_conversation_messages_before", {
         input: {
-          session: {
-            apiConfigId,
-            agentId,
-            conversationId,
-          },
+          conversationId,
           beforeMessageId: oldestMessageId,
           limit: bindings.OLDER_HISTORY_PAGE_SIZE,
         },
       }) as { messages?: any[]; hasMore?: boolean };
       if (
         String(bindings.currentChatConversationId.value || "").trim() !== conversationId
-        || String(bindings.currentForegroundApiConfigId.value || "").trim() !== apiConfigId
-        || String(bindings.currentForegroundAgentId.value || "").trim() !== agentId
       ) {
         return;
       }

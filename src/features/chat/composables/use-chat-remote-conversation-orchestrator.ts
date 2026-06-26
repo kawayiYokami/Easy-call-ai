@@ -1,13 +1,6 @@
 import { invokeTauri } from "../../../services/tauri-api";
-import type { ChatMessage } from "../../../types/app";
 
 export function useChatRemoteConversationOrchestrator(bindings: Record<string, any>) {
-  async function requestRemoteImConversationMessages(contactId: string): Promise<ChatMessage[]> {
-    return invokeTauri<ChatMessage[]>("remote_im_get_contact_conversation_messages", {
-      input: { contactId },
-    });
-  }
-
   async function switchRemoteImContactConversation(contactId: string) {
     const normalizedContactId = String(contactId || "").trim();
     if (!normalizedContactId) return;
@@ -16,37 +9,7 @@ export function useChatRemoteConversationOrchestrator(bindings: Record<string, a
     );
     const conversationId = String(targetOverview?.conversationId || "").trim();
     if (!conversationId) return;
-    const previousConversationId = String(bindings.currentChatConversationId.value || "").trim();
-    try {
-      bindings.conversationForegroundSyncing.value = true;
-      if (previousConversationId) {
-        bindings.cacheConversationMessages(previousConversationId, bindings.allMessages.value);
-        bindings.clearConversationBadge(previousConversationId);
-        bindings.markConversationReadPersisted(previousConversationId);
-      }
-      bindings.getChatFlow().freezeForegroundRoundState();
-      bindings.currentChatConversationId.value = conversationId;
-      bindings.currentChatTodos.value = [];
-      bindings.clearPendingManualScrollToBottom();
-      const cachedDisplay = bindings.freezeConversationMessages(bindings.conversationMessageCache.value[conversationId] || []);
-      bindings.allMessages.value = cachedDisplay;
-      bindings.hasMoreBackendHistory.value = cachedDisplay.length >= bindings.FOREGROUND_SNAPSHOT_RECENT_LIMIT;
-      bindings.foregroundTailLatestReady.value = true;
-      const messages = await requestRemoteImConversationMessages(normalizedContactId);
-      const nextMessages = bindings.reuseStableMessageReferences(
-        bindings.freezeConversationMessages(Array.isArray(messages) ? messages : []),
-        bindings.allMessages.value,
-      );
-      bindings.allMessages.value = nextMessages;
-      bindings.cacheConversationMessages(conversationId, nextMessages);
-      bindings.hasMoreBackendHistory.value = nextMessages.length >= bindings.FOREGROUND_SNAPSHOT_RECENT_LIMIT;
-      bindings.clearConversationBadge(conversationId);
-      bindings.markConversationReadPersisted(conversationId);
-    } catch (error) {
-      bindings.setStatusError("status.loadMessagesFailed", error);
-    } finally {
-      bindings.conversationForegroundSyncing.value = false;
-    }
+    await bindings.switchUnarchivedConversation(conversationId);
   }
 
   async function openConversationInDetachedWindowById(conversationId: string) {
@@ -92,7 +55,6 @@ export function useChatRemoteConversationOrchestrator(bindings: Record<string, a
   }
 
   return {
-    requestRemoteImConversationMessages,
     switchRemoteImContactConversation,
     openConversationInDetachedWindowById,
     switchChatConversation,

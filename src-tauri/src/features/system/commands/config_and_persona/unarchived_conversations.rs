@@ -2482,7 +2482,10 @@ fn get_active_conversation_messages(
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct GetActiveConversationMessagesBeforeInput {
-    session: SessionSelector,
+    #[serde(default)]
+    conversation_id: Option<String>,
+    #[serde(default)]
+    session: Option<SessionSelector>,
     before_message_id: String,
     limit: usize,
 }
@@ -2497,7 +2500,10 @@ struct GetActiveConversationMessagesBeforeOutput {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct GetActiveConversationMessagesAfterInput {
-    session: SessionSelector,
+    #[serde(default)]
+    conversation_id: Option<String>,
+    #[serde(default)]
+    session: Option<SessionSelector>,
     after_message_id: String,
     #[serde(default = "default_message_page_limit")]
     limit: usize,
@@ -2595,27 +2601,24 @@ fn get_active_conversation_messages_before(
         return Err("beforeMessageId is required.".to_string());
     }
     let limit = input.limit.clamp(1, 100);
-    let page = if let Some(conversation_id) = input
-        .session
+    let conversation_id = input
         .conversation_id
         .as_deref()
+        .or_else(|| {
+            input
+                .session
+                .as_ref()
+                .and_then(|session| session.conversation_id.as_deref())
+        })
         .map(str::trim)
         .filter(|value| !value.is_empty())
-    {
-        conversation_service_v2().get_messages_before(
-            state.inner(),
-            conversation_id,
-            before_message_id,
-            limit,
-        )?
-    } else {
-        conversation_service_v2().get_messages_before_from_session(
-            state.inner(),
-            &input.session,
-            before_message_id,
-            limit,
-        )?
-    };
+        .ok_or_else(|| "conversationId is required.".to_string())?;
+    let page = conversation_service_v2().get_messages_before(
+        state.inner(),
+        conversation_id,
+        before_message_id,
+        limit,
+    )?;
     Ok(GetActiveConversationMessagesBeforeOutput {
         messages: page.messages,
         has_more: page.has_more,
@@ -2632,27 +2635,24 @@ fn get_active_conversation_messages_after(
         return Err("afterMessageId is required.".to_string());
     }
     let limit = input.limit.clamp(1, 200);
-    let page = if let Some(conversation_id) = input
-        .session
+    let conversation_id = input
         .conversation_id
         .as_deref()
+        .or_else(|| {
+            input
+                .session
+                .as_ref()
+                .and_then(|session| session.conversation_id.as_deref())
+        })
         .map(str::trim)
         .filter(|value| !value.is_empty())
-    {
-        conversation_service_v2().get_messages_after(
-            state.inner(),
-            conversation_id,
-            after_message_id,
-            limit,
-        )?
-    } else {
-        conversation_service_v2().get_messages_after_from_session(
-            state.inner(),
-            &input.session,
-            after_message_id,
-            limit,
-        )?
-    };
+        .ok_or_else(|| "conversationId is required.".to_string())?;
+    let page = conversation_service_v2().get_messages_after(
+        state.inner(),
+        conversation_id,
+        after_message_id,
+        limit,
+    )?;
     Ok(GetActiveConversationMessagesAfterOutput {
         messages: page.messages,
     })

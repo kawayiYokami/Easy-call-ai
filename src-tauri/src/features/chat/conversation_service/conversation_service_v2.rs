@@ -1739,10 +1739,13 @@ impl ConversationServiceV2 {
         state: &AppState,
         input: &SessionSelector,
     ) -> Result<Vec<ChatMessage>, String> {
-        let Some(conversation_id) = self.resolve_session_conversation_id_fast(state, input)? else {
-            return Ok(Vec::new());
-        };
-        self.get_all_messages(state, &conversation_id)
+        let conversation_id = input
+            .conversation_id
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .ok_or_else(|| "conversationId is required.".to_string())?;
+        self.get_all_messages(state, conversation_id)
     }
 
     // 前端消息展示专用读取：返回值已经做过展示投影，禁止写路径/撤回路径复用。
@@ -1760,7 +1763,7 @@ impl ConversationServiceV2 {
     fn read_messages_before_internal(
         &self,
         state: &AppState,
-        session: &SessionSelector,
+        conversation_id: &str,
         before_message_id: &str,
         limit: usize,
     ) -> Result<(Vec<ChatMessage>, bool), String> {
@@ -1769,63 +1772,28 @@ impl ConversationServiceV2 {
             return Err("beforeMessageId is required.".to_string());
         }
         let normalized_limit = limit.clamp(1, 100);
-        let direct_conversation_id = self.resolve_session_conversation_id_fast(state, session)?;
+        let conversation_id = conversation_id.trim();
+        if conversation_id.is_empty() {
+            return Err("conversationId is required.".to_string());
+        }
 
-        let (mut page, has_more) = if let Some(conversation_id) = direct_conversation_id {
-            let store_paths = message_store::message_store_paths(&state.data_path, &conversation_id)?;
-            if let Some(page) = message_store::read_ready_message_store_messages_before(
+        let store_paths = message_store::message_store_paths(&state.data_path, conversation_id)?;
+        let (mut page, has_more) = if let Some(page) =
+            message_store::read_ready_message_store_messages_before(
                 &store_paths,
                 normalized_before_message_id,
                 normalized_limit,
-            )? {
-                (page.messages, page.has_more)
-            } else {
-                self.with_unarchived_conversation_by_id_fast(state, &conversation_id, |conversation| {
-                    clone_messages_before_page(
-                        &conversation.messages,
-                        normalized_before_message_id,
-                        normalized_limit,
-                    )
-                })?
-            }
+            )?
+        {
+            (page.messages, page.has_more)
         } else {
-            let mut app_config = state_read_config_cached(state)?;
-            let runtime = state_read_runtime_state_cached(state)?;
-            let agents = state_read_agents_cached(state)?;
-            let effective_agent_id = self.resolve_effective_agent_id_for_read(
-                state,
-                &mut app_config,
-                &agents,
-                &runtime.assistant_department_agent_id,
-                &session.agent_id,
-            )?;
-            if let Some(conversation_id) =
-                self.resolve_latest_foreground_conversation_id(state, &effective_agent_id)?
-            {
-                let store_paths =
-                    message_store::message_store_paths(&state.data_path, &conversation_id)?;
-                if let Some(page) = message_store::read_ready_message_store_messages_before(
-                    &store_paths,
+            self.with_unarchived_conversation_by_id_fast(state, conversation_id, |conversation| {
+                clone_messages_before_page(
+                    &conversation.messages,
                     normalized_before_message_id,
                     normalized_limit,
-                )? {
-                    (page.messages, page.has_more)
-                } else {
-                    self.with_unarchived_conversation_by_id_fast(
-                        state,
-                        &conversation_id,
-                        |conversation| {
-                            clone_messages_before_page(
-                                &conversation.messages,
-                                normalized_before_message_id,
-                                normalized_limit,
-                            )
-                        },
-                    )?
-                }
-            } else {
-                return Err("当前前台会话不存在，无法加载更早消息。".to_string());
-            }
+                )
+            })?
         };
 
         materialize_chat_message_parts_from_media_refs(&mut page, &state.data_path);
@@ -1835,7 +1803,7 @@ impl ConversationServiceV2 {
     fn read_messages_after_internal(
         &self,
         state: &AppState,
-        session: &SessionSelector,
+        conversation_id: &str,
         after_message_id: &str,
         limit: usize,
     ) -> Result<Vec<ChatMessage>, String> {
@@ -1844,63 +1812,26 @@ impl ConversationServiceV2 {
             return Err("afterMessageId is required.".to_string());
         }
         let normalized_limit = limit.clamp(1, 100);
-        let direct_conversation_id = self.resolve_session_conversation_id_fast(state, session)?;
+        let conversation_id = conversation_id.trim();
+        if conversation_id.is_empty() {
+            return Err("conversationId is required.".to_string());
+        }
 
-        let mut page = if let Some(conversation_id) = direct_conversation_id {
-            let store_paths = message_store::message_store_paths(&state.data_path, &conversation_id)?;
-            if let Some(page) = message_store::read_ready_message_store_messages_after(
-                &store_paths,
-                normalized_after_message_id,
-                normalized_limit,
-            )? {
-                page.messages
-            } else {
-                self.with_unarchived_conversation_by_id_fast(state, &conversation_id, |conversation| {
-                    clone_messages_after_page(
-                        &conversation.messages,
-                        normalized_after_message_id,
-                        normalized_limit,
-                    )
-                })?
-            }
+        let store_paths = message_store::message_store_paths(&state.data_path, conversation_id)?;
+        let mut page = if let Some(page) = message_store::read_ready_message_store_messages_after(
+            &store_paths,
+            normalized_after_message_id,
+            normalized_limit,
+        )? {
+            page.messages
         } else {
-            let mut app_config = state_read_config_cached(state)?;
-            let runtime = state_read_runtime_state_cached(state)?;
-            let agents = state_read_agents_cached(state)?;
-            let effective_agent_id = self.resolve_effective_agent_id_for_read(
-                state,
-                &mut app_config,
-                &agents,
-                &runtime.assistant_department_agent_id,
-                &session.agent_id,
-            )?;
-            if let Some(conversation_id) =
-                self.resolve_latest_foreground_conversation_id(state, &effective_agent_id)?
-            {
-                let store_paths =
-                    message_store::message_store_paths(&state.data_path, &conversation_id)?;
-                if let Some(page) = message_store::read_ready_message_store_messages_after(
-                    &store_paths,
+            self.with_unarchived_conversation_by_id_fast(state, conversation_id, |conversation| {
+                clone_messages_after_page(
+                    &conversation.messages,
                     normalized_after_message_id,
                     normalized_limit,
-                )? {
-                    page.messages
-                } else {
-                    self.with_unarchived_conversation_by_id_fast(
-                        state,
-                        &conversation_id,
-                        |conversation| {
-                            clone_messages_after_page(
-                                &conversation.messages,
-                                normalized_after_message_id,
-                                normalized_limit,
-                            )
-                        },
-                    )?
-                }
-            } else {
-                return Err("当前前台会话不存在，无法加载后续消息。".to_string());
-            }
+                )
+            })?
         };
 
         materialize_chat_message_parts_from_media_refs(&mut page, &state.data_path);
@@ -1914,30 +1845,12 @@ impl ConversationServiceV2 {
         anchor_message_id: &str,
         limit: usize,
     ) -> Result<ConversationMessagePageView, String> {
-        let session = SessionSelector {
-            api_config_id: None,
-            department_id: None,
-            agent_id: String::new(),
-            conversation_id: Some(conversation_id.trim().to_string()),
-        };
         let (messages, has_more) = self.read_messages_before_internal(
             state,
-            &session,
+            conversation_id,
             anchor_message_id,
             limit,
         )?;
-        Ok(build_message_page_view_v2(messages, has_more, false))
-    }
-
-    fn get_messages_before_from_session(
-        &self,
-        state: &AppState,
-        session: &SessionSelector,
-        before_message_id: &str,
-        limit: usize,
-    ) -> Result<ConversationMessagePageView, String> {
-        let (messages, has_more) =
-            self.read_messages_before_internal(state, session, before_message_id, limit)?;
         Ok(build_message_page_view_v2(messages, has_more, false))
     }
 
@@ -1948,15 +1861,9 @@ impl ConversationServiceV2 {
         anchor_message_id: &str,
         limit: usize,
     ) -> Result<ConversationMessagePageView, String> {
-        let session = SessionSelector {
-            api_config_id: None,
-            department_id: None,
-            agent_id: String::new(),
-            conversation_id: Some(conversation_id.trim().to_string()),
-        };
         let messages = self.read_messages_after_internal(
             state,
-            &session,
+            conversation_id,
             anchor_message_id,
             limit,
         )?;
@@ -1966,19 +1873,6 @@ impl ConversationServiceV2 {
             false,
             has_more_after,
         ))
-    }
-
-    fn get_messages_after_from_session(
-        &self,
-        state: &AppState,
-        session: &SessionSelector,
-        after_message_id: &str,
-        limit: usize,
-    ) -> Result<ConversationMessagePageView, String> {
-        let messages =
-            self.read_messages_after_internal(state, session, after_message_id, limit)?;
-        let has_more_after = messages.len() >= limit.clamp(1, 100);
-        Ok(build_message_page_view_v2(messages, false, has_more_after))
     }
 
     fn get_messages_after_with_fallback(
@@ -4174,40 +4068,6 @@ impl ConversationServiceV2 {
         Ok(self
             .try_get_conversation_snapshot_fast(state, conversation_id)?
             .filter(conversation_is_unarchived))
-    }
-
-    fn resolve_session_conversation_id_fast(
-        &self,
-        state: &AppState,
-        session: &SessionSelector,
-    ) -> Result<Option<String>, String> {
-        if let Some(conversation_id) = session
-            .conversation_id
-            .as_deref()
-            .map(str::trim)
-            .filter(|value| !value.is_empty())
-        {
-            return Ok(Some(conversation_id.to_string()));
-        }
-        if !session.agent_id.trim().is_empty() {
-            return Ok(None);
-        }
-        let runtime = state_read_runtime_state_cached(state)?;
-        let Some(main_conversation_id) = runtime
-            .main_conversation_id
-            .as_deref()
-            .map(str::trim)
-            .filter(|value| !value.is_empty())
-        else {
-            return Ok(None);
-        };
-        let meta = match self.get_conversation_meta(state, main_conversation_id) {
-            Ok(meta) => meta,
-            Err(_) => return Ok(None),
-        };
-        Ok(meta
-            .visible_in_foreground_lists
-            .then(|| meta.id.to_string()))
     }
 
     fn resolve_effective_agent_id_for_read(
