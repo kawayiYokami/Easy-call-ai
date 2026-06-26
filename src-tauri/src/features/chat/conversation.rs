@@ -1722,6 +1722,25 @@ fn build_prompt_speaker_block(
     user_name: &str,
     _ui_language: &str,
 ) -> String {
+    if let Some(origin) = remote_im_origin_from_message(message) {
+        let speaker_name = remote_im_origin_string(origin, "sender_name")
+            .or_else(|| remote_im_origin_string(origin, "contact_name"))
+            .unwrap_or("");
+        let speaker_id = if remote_im_origin_string(origin, "contact_type")
+            .unwrap_or("")
+            .eq_ignore_ascii_case("group")
+        {
+            remote_im_origin_string(origin, "sender_id").unwrap_or("")
+        } else {
+            remote_im_origin_canonical_user_id(origin).unwrap_or("")
+        };
+        return match (!speaker_name.is_empty(), !speaker_id.is_empty()) {
+            (true, true) => format!("[{}/{}]", speaker_name, speaker_id),
+            (true, false) => format!("[{}]", speaker_name),
+            (false, true) => format!("[{}]", speaker_id),
+            (false, false) => String::new(),
+        };
+    }
     let speaker_name = prompt_speaker_label(message, agents, user_name);
     if speaker_name.trim().is_empty() {
         return String::new();
@@ -1734,7 +1753,7 @@ fn build_prompt_user_meta_text(
     agents: &[AgentProfile],
     user_name: &str,
     ui_language: &str,
-    include_remote_identity: bool,
+    _include_remote_identity: bool,
 ) -> Option<String> {
     if is_context_compaction_message(message, "user") {
         return None;
@@ -1750,21 +1769,7 @@ fn build_prompt_user_meta_text(
         (false, false) => String::new(),
     };
     let mut tags = Vec::<String>::new();
-    if let Some(origin) = remote_im_origin_from_message(message) {
-        if let Some(user_id) = remote_im_origin_canonical_user_id(origin) {
-            tags.push(format!("user_id={}", user_id));
-        }
-        if include_remote_identity {
-            let channel_id = remote_im_origin_string(origin, "channel_id").unwrap_or("");
-            let contact_id = remote_im_origin_string(origin, "contact_id").unwrap_or("");
-            if !channel_id.is_empty() {
-                tags.push(format!("channel_id={}", channel_id));
-            }
-            if !contact_id.is_empty() {
-                tags.push(format!("contact_id={}", contact_id));
-            }
-        }
-    } else if message
+    if remote_im_origin_from_message(message).is_none() && message
         .speaker_agent_id
         .as_deref()
         .map(str::trim)
@@ -2582,7 +2587,7 @@ fn build_builtin_tool_rule_block(tool_id: &str) -> Option<String> {
         "image_reference" => (
             "image reference rule",
             "## 在回复中展示本地图片\n\
-             - 当本地已经有一张图片文件时（比如截图、脚本输出图表、分析结果图），在回复正文中使用标准 Markdown 图片语法 `![说明](路径)`，就能直接把本地图片展示在对话里。\n\
+             - 当本地已经有一张图片文件时（比如截图、脚本输出图表、分析结果图），在回复正文中使用语法 `![说明](路径)`，就能直接把本地图片展示在对话里。\n\
              - 示例：`![结果图](E:/path/to/result.png)`、`![结果图](outputs/result.png)`\n\
              - 路径可以是绝对路径或相对于工作区目录的相对路径。\n\
              - 只能引用已经存在的本地图片文件，不要编造路径。\n\

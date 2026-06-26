@@ -473,6 +473,9 @@ impl ConversationPromptService {
             if let Some(v) = hm.user_time_text.as_deref() {
                 history_text += estimated_tokens_for_text(v);
             }
+            for block in prepared_binary_payload_source_blocks("image", &hm.images) {
+                history_text += estimated_tokens_for_text(&block);
+            }
             // reasoning_content 是输出，不算输入 token
             if let Some(calls) = hm.tool_calls.as_ref() {
                 // 只算 function.name + function.arguments，不算 call_id/id/type

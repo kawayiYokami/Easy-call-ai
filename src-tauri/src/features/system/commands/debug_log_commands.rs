@@ -512,14 +512,18 @@ fn normalize_prepared_prompt_messages(messages: &mut [Value]) {
 fn prepared_prompt_latest_user_text_blocks_for_json(prepared: &PreparedPrompt) -> Vec<String> {
     let mut blocks = Vec::<String>::new();
     for text in [
-        prepared.latest_user_text.trim(),
         prepared.latest_user_meta_text.trim(),
+        prepared.latest_user_text.trim(),
     ] {
         if !text.is_empty() {
             blocks.push(text.to_string());
         }
     }
     blocks.extend(prepared_prompt_latest_user_extra_blocks(prepared));
+    blocks.extend(prepared_binary_payload_source_blocks(
+        "image",
+        &prepared.latest_images,
+    ));
     blocks
 }
 
@@ -573,6 +577,14 @@ fn prepared_prompt_to_messages_json(prepared: &PreparedPrompt) -> Vec<Value> {
 
         if hm.role == "user" {
             let mut content = Vec::<Value>::new();
+            if let Some(time_text) = &hm.user_time_text {
+                if !time_text.trim().is_empty() {
+                    content.push(serde_json::json!({
+                        "type": "text",
+                        "text": time_text,
+                    }));
+                }
+            }
             if !hm.text.trim().is_empty() {
                 content.push(serde_json::json!({
                     "type": "text",
@@ -588,13 +600,11 @@ fn prepared_prompt_to_messages_json(prepared: &PreparedPrompt) -> Vec<Value> {
                     "text": block,
                 }));
             }
-            if let Some(time_text) = &hm.user_time_text {
-                if !time_text.trim().is_empty() {
-                    content.push(serde_json::json!({
-                        "type": "text",
-                        "text": time_text,
-                    }));
-                }
+            for source_block in prepared_binary_payload_source_blocks("image", &hm.images) {
+                content.push(serde_json::json!({
+                    "type": "text",
+                    "text": source_block,
+                }));
             }
             for image in &hm.images {
                 if image.mime.trim().eq_ignore_ascii_case("application/pdf") {

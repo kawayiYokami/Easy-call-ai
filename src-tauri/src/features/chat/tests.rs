@@ -440,6 +440,7 @@
                 "contact_type": "group",
                 "contact_id": "group-42",
                 "contact_name": "测试群",
+                "sender_id": "member-7",
                 "sender_name": "张三"
             }
         }));
@@ -453,9 +454,10 @@
         )
         .expect("meta text");
 
-        assert!(meta.contains("张三 (测试群)"));
-        assert!(meta.contains("channel_id=remote-im-1"));
-        assert!(meta.contains("contact_id=group-42"));
+        assert!(meta.contains("[张三/member-7]"));
+        assert!(!meta.contains("测试群"));
+        assert!(!meta.contains("channel_id=remote-im-1"));
+        assert!(!meta.contains("contact_id=group-42"));
         assert!(!meta.contains("channelId="));
         assert!(!meta.contains("contactId="));
     }
@@ -981,10 +983,10 @@
                     .map(|arr| {
                         arr.len() == 2
                             && arr[0].get("type").and_then(Value::as_str) == Some("text")
-                            && arr[0].get("text").and_then(Value::as_str) == Some("你好")
-                            && arr[1].get("type").and_then(Value::as_str) == Some("text")
-                            && arr[1].get("text").and_then(Value::as_str)
+                            && arr[0].get("text").and_then(Value::as_str)
                                 == Some("[测试用户] 2026-03-18T12:18")
+                            && arr[1].get("type").and_then(Value::as_str) == Some("text")
+                            && arr[1].get("text").and_then(Value::as_str) == Some("你好")
                     })
                     .unwrap_or(false)
         }));

@@ -85,6 +85,30 @@ struct PreparedPrompt {
     latest_audios: Vec<PreparedBinaryPayload>,
 }
 
+fn prepared_binary_payload_source_block(
+    label: &str,
+    index: usize,
+    payload: &PreparedBinaryPayload,
+) -> Option<String> {
+    let path = payload
+        .saved_path
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())?;
+    Some(format!("[{} {}] path: {}", label, index + 1, path))
+}
+
+fn prepared_binary_payload_source_blocks(
+    label: &str,
+    payloads: &[PreparedBinaryPayload],
+) -> Vec<String> {
+    payloads
+        .iter()
+        .enumerate()
+        .filter_map(|(index, payload)| prepared_binary_payload_source_block(label, index, payload))
+        .collect()
+}
+
 #[derive(Debug, Clone)]
 struct PendingAppDataPersist {
     seq: u64,
@@ -218,14 +242,18 @@ fn prepared_prompt_prepend_latest_user_extra_block(
 fn prepared_prompt_latest_user_text_blocks(prepared: &PreparedPrompt) -> Vec<String> {
     let mut blocks = Vec::<String>::new();
     for text in [
-        prepared.latest_user_text.trim(),
         prepared.latest_user_meta_text.trim(),
+        prepared.latest_user_text.trim(),
     ] {
         if !text.is_empty() {
             blocks.push(text.to_string());
         }
     }
     blocks.extend(prepared_prompt_latest_user_extra_blocks(prepared));
+    blocks.extend(prepared_binary_payload_source_blocks(
+        "image",
+        &prepared.latest_images,
+    ));
     if blocks.is_empty() {
         blocks.push(" ".to_string());
     }

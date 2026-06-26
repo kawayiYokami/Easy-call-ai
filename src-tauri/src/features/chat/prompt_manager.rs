@@ -405,6 +405,7 @@ struct RemoteConversationPromptIdentity {
     conversation_type_label: &'static str,
     name_label: &'static str,
     id_label: &'static str,
+    channel_id: String,
     display_name: String,
     id: String,
     latest_sender_name: String,
@@ -442,6 +443,7 @@ fn remote_conversation_identity_from_contact(
         conversation_type_label: remote_conversation_type_label(&contact.remote_contact_type),
         name_label: remote_conversation_name_label(&contact.remote_contact_type),
         id_label: remote_conversation_id_label(&contact.remote_contact_type),
+        channel_id: contact.channel_id.trim().to_string(),
         display_name: remote_im_contact_display_name(contact),
         id: contact.remote_contact_id.trim().to_string(),
         latest_sender_name: String::new(),
@@ -453,6 +455,7 @@ fn remote_conversation_identity_from_message_origin(
     origin: &Value,
 ) -> Option<RemoteConversationPromptIdentity> {
     let contact_type = remote_im_origin_string(origin, "contact_type").unwrap_or("");
+    let channel_id = remote_im_origin_string(origin, "channel_id").unwrap_or("");
     let contact_name = remote_im_origin_string(origin, "contact_name").unwrap_or("");
     let contact_id = remote_im_origin_string(origin, "contact_id").unwrap_or("");
     let sender_name = remote_im_origin_string(origin, "sender_name").unwrap_or("");
@@ -481,6 +484,7 @@ fn remote_conversation_identity_from_message_origin(
         conversation_type_label: remote_conversation_type_label(contact_type),
         name_label: remote_conversation_name_label(contact_type),
         id_label: remote_conversation_id_label(contact_type),
+        channel_id: channel_id.trim().to_string(),
         display_name: display_name.trim().to_string(),
         id: id.trim().to_string(),
         latest_sender_name: sender_name.trim().to_string(),
@@ -539,6 +543,12 @@ fn remote_conversation_settings_body(
         return "本会话是远程联系人会话。".to_string();
     };
     let mut lines = vec![format!("本会话是{}。", identity.conversation_type_label)];
+    if !identity.channel_id.trim().is_empty() {
+        lines.push(format!(
+            "渠道ID：{}",
+            xml_escape_prompt(&identity.channel_id)
+        ));
+    }
     if !identity.display_name.trim().is_empty() {
         lines.push(format!(
             "{}：{}",

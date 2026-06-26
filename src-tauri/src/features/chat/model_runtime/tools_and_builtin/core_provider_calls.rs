@@ -235,17 +235,19 @@ fn prepared_history_to_genai_messages(
             } else {
                 hm.text.clone()
             };
-            let mut text_blocks = vec![base_user_text];
-            for block in &hm.extra_text_blocks {
-                if !block.trim().is_empty() {
-                    text_blocks.push(block.clone());
-                }
-            }
+            let mut text_blocks = Vec::<String>::new();
             if let Some(time_text) = &hm.user_time_text {
                 if !time_text.trim().is_empty() {
                     text_blocks.push(time_text.clone());
                 }
             }
+            text_blocks.push(base_user_text);
+            for block in &hm.extra_text_blocks {
+                if !block.trim().is_empty() {
+                    text_blocks.push(block.clone());
+                }
+            }
+            text_blocks.extend(prepared_binary_payload_source_blocks("image", &hm.images));
             let parts =
                 genai_content_parts_from_text_and_binary(&text_blocks, &hm.images, &hm.audios);
             chat_history.push(genai::chat::ChatMessage::user(
