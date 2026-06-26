@@ -1,5 +1,5 @@
 <template>
-  <dialog class="modal" :class="{ 'modal-open': open }">
+  <dialog class="modal" :class="{ 'modal-open': open }" @cancel.prevent="emit('close')">
     <div class="modal-box flex h-[90vh] max-h-[90vh] w-[90vw] max-w-[90vw] flex-col p-2 bg-base-100">
       <div class="mb-2 flex shrink-0 items-center justify-end gap-1">
         <button class="btn btn-xs" :disabled="zoom <= minZoom" @click="emit('zoomOut')">
@@ -19,6 +19,9 @@
             <Download class="h-3 w-3" />
           </button>
         </template>
+        <button class="btn btn-xs btn-ghost btn-square" type="button" title="关闭" aria-label="关闭" @click="emit('close')">
+          <X class="h-3.5 w-3.5" />
+        </button>
       </div>
       <div
         class="flex min-h-0 flex-1 items-center justify-center overflow-hidden"
@@ -45,7 +48,7 @@
 </template>
 
 <script setup lang="ts">
-import { Copy, Download, Minus, Plus } from "@lucide/vue";
+import { Copy, Download, Minus, Plus, X } from "@lucide/vue";
 
 defineProps<{
   open: boolean;
