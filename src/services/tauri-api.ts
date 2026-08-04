@@ -10,6 +10,9 @@ type WebBridgeConfig = {
   workspaceRoots?: Array<{ path?: string; name?: string }>;
 };
 
+// 远程前端模式：iframe 内电脑 PAI 页面与手机 PAI 壳层之间的密码认证消息源标识。
+const REMOTE_AUTH_BRIDGE_SOURCE = "pai-remote-bridge-auth";
+
 export type TransportHostWorkspace = {
   path: string;
   name: string;
@@ -192,6 +195,10 @@ const WEB_BRIDGE_COMMAND_TIMEOUT_MS: Record<string, number> = {
 
 function isTauriRuntimeAvailable(): boolean {
   if (typeof window === "undefined") return false;
+  // 被 iframe 嵌入（远程前端 / VSCode 侧边栏）时视为 Web 宿主：宿主 WebView
+  // 可能注入 __TAURI_INTERNALS__（如手机 Tauri WebView 会注入到跨域 iframe），
+  // 若按原生检测会误判为桌面 Tauri 环境，从而跳过 WS 桥接走 invoke。
+  if (typeof window.top !== "undefined" && window.self !== window.top) return false;
   const internals = (window as Window & { __TAURI_INTERNALS__?: { invoke?: unknown } }).__TAURI_INTERNALS__;
   return typeof internals?.invoke === "function";
 }
@@ -2051,7 +2058,13 @@ async function loginWebBridge(password: string): Promise<WebBridgeState> {
   return getWebBridgeState();
 }
 
-function requestWebBridgePassword(): string {
+async function requestWebBridgePassword(): Promise<string> {
+  // 远程前端模式：iframe 嵌入时优先向父窗口（手机 PAI 壳层）请求已保存密码，
+  // 避免 Android WebView 对跨域 iframe 的 window.prompt 静默拦截。
+  if (typeof window !== "undefined" && window.self !== window.top) {
+    const fromParent = await requestRemotePasswordFromParent();
+    if (fromParent) return fromParent;
+  }
   if (typeof window === "undefined" || typeof window.prompt !== "function") {
     throw new Error("远程访问需要密码，但当前宿主无法显示认证输入框");
   }
@@ -2060,11 +2073,47 @@ function requestWebBridgePassword(): string {
   return password;
 }
 
+/** 向父窗口（手机 PAI 壳层）请求远程访问密码；父窗口未回复或超时返回空串。 */
+function requestRemotePasswordFromParent(): Promise<string> {
+  return new Promise((resolve) => {
+    if (typeof window === "undefined" || typeof window.parent === "undefined") {
+      resolve("");
+      return;
+    }
+    let settled = false;
+    const settle = (password: string) => {
+      if (settled) return;
+      settled = true;
+      window.removeEventListener("message", listener);
+      window.clearTimeout(timer);
+      resolve(password);
+    };
+    const listener = (event: MessageEvent) => {
+      const data = event.data as { source?: unknown; method?: unknown; payload?: unknown } | null;
+      if (!data || typeof data !== "object") return;
+      if (data.source !== REMOTE_AUTH_BRIDGE_SOURCE) return;
+      if (data.method !== "password") return;
+      const password = String((data.payload as { password?: unknown } | null)?.password || "").trim();
+      settle(password);
+    };
+    const timer = window.setTimeout(() => settle(""), 1500);
+    window.addEventListener("message", listener);
+    try {
+      window.parent.postMessage(
+        { source: REMOTE_AUTH_BRIDGE_SOURCE, method: "request-password" },
+        "*",
+      );
+    } catch {
+      settle("");
+    }
+  });
+}
+
 async function ensureWebBridgeAuthenticated(): Promise<void> {
   if (!webBridgeState.authRequired || webBridgeState.authenticated) return;
   if (!webBridgeAuthenticationPromise) {
     webBridgeAuthenticationPromise = (async () => {
-      const password = requestWebBridgePassword();
+      const password = await requestWebBridgePassword();
       await loginWebBridge(password);
       if (!webBridgeState.authenticated) throw new Error("远程访问认证失败");
     })().finally(() => {
@@ -2197,6 +2246,19 @@ function isWebBridgeAuthenticationRefreshError(error: unknown): boolean {
 }
 
 function emitWebBridgeNotification(method: string, payload: unknown) {
+  // 远程前端场景：sidebar 页面被外部宿主以 iframe 嵌入时（window.self !== window.top），
+  // 把 bridge 通知转发给父窗口（如手机端 PAI 壳层），供宿主消费同一事件流；
+  // 桌面独立窗口 self === top 不触发，既有行为不变。
+  if (typeof window !== "undefined" && window.self !== window.top) {
+    try {
+      window.parent.postMessage(
+        { source: "pai-remote-bridge", method, payload },
+        "*",
+      );
+    } catch {
+      // 转发失败不影响本地事件分发
+    }
+  }
   const handlers = webBridgeNotificationHandlers.get(method);
   if (!handlers) return;
   for (const handler of handlers) handler(payload);

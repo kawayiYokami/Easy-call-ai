@@ -1,6 +1,7 @@
 <template>
   <div class="window-shell text-sm bg-base-200">
     <AppWindowHeader
+      v-if="!hideWindowHeader"
       view-mode="config"
       :current-theme="currentTheme"
       :title-text="t('window.configTitle')"
@@ -305,6 +306,16 @@ const { t, locale } = useI18n();
 const tr = (key: string, params?: Record<string, unknown>) => t(key, params as never);
 const isMacPlatform = /Mac|iPhone|iPad|iPod/i.test(window.navigator.platform || "");
 const windowControlsVisible = getTransportCapabilities().windowControls;
+
+/** iframe 嵌入且非 VSCode 宿主时隐藏窗口栏：远程前端模式下由宿主壳层提供 header。 */
+const hideWindowHeader = (() => {
+  if (window.self === window.top) return false;
+  const bridgeWindow = window as Window & { acquireVsCodeApi?: unknown };
+  const isVscodeHost =
+    typeof bridgeWindow.acquireVsCodeApi === "function"
+    || window.location.protocol === "vscode-webview:";
+  return !isVscodeHost;
+})();
 
 type ConfigTab =
   | "welcome"
