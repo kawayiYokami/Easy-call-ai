@@ -390,9 +390,74 @@ jobs:
             src-tauri/target/release/bundle/**/latest-linux.json
           if-no-files-found: error
 
+  build_macos:
+    name: Build macOS Universal
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v6
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin,x86_64-apple-darwin
+
+      - name: Validate version consistency
+        shell: pwsh
+        run: |
+          $pkgVersion = (Get-Content package.json -Raw | ConvertFrom-Json).version
+          $tauriVersion = (Get-Content src-tauri/tauri.conf.json -Raw | ConvertFrom-Json).version
+          if ($pkgVersion -ne $tauriVersion) {
+            throw "Version mismatch: package.json=$pkgVersion, tauri.conf.json=$tauriVersion"
+          }
+
+          $expectedTag = "v$pkgVersion"
+          "EXPECTED_TAG=$expectedTag" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "PACKAGE_VERSION=$pkgVersion" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+          if ("${{ github.event_name }}" -eq "push" -and "${{ github.ref_name }}" -ne $expectedTag) {
+            throw "Tag/version mismatch: tag=${{ github.ref_name }}, expected=$expectedTag"
+          }
+
+          if ("${{ github.event_name }}" -eq "workflow_dispatch" -and "${{ inputs.version }}" -and "${{ inputs.version }}" -ne $expectedTag) {
+            throw "Manual input version mismatch: input=${{ inputs.version }}, expected=$expectedTag"
+          }
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build universal macOS DMG
+        run: pnpm tauri:build:macos
+
+      - name: List packaged artifacts
+        shell: pwsh
+        run: |
+          Write-Host "=== release bundle files ==="
+          Get-ChildItem -Path src-tauri/target/universal-apple-darwin/release/bundle -Recurse -File |
+            Sort-Object FullName |
+            ForEach-Object { $_.FullName }
+
+      - name: Upload bundle artifacts
+        uses: actions/upload-artifact@v7
+        with:
+          name: bundle-macos-universal
+          path: src-tauri/target/universal-apple-darwin/release/bundle/**/*.dmg
+          if-no-files-found: error
+
   release:
     name: Publish Release
-    needs: [build_windows, build_linux]
+    needs: [build_windows, build_linux, build_macos]
     runs-on: ubuntu-22.04
     if: startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && inputs.publish_release == true)
 
@@ -444,5 +509,6 @@ jobs:
             release-assets/**/*.deb
             release-assets/**/*.AppImage
             release-assets/**/*.appimage
+            release-assets/**/*.dmg
             release-assets/**/*.sig
             release-assets/**/latest*.json

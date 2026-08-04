@@ -39,6 +39,7 @@ fn parse_named_key(name: &str) -> Option<enigo::Key> {
         "space" | "spacebar" => Some(enigo::Key::Space),
         "backspace" => Some(enigo::Key::Backspace),
         "delete" | "del" => Some(enigo::Key::Delete),
+        #[cfg(not(target_os = "macos"))]
         "insert" => Some(enigo::Key::Insert),
         "up" | "arrowup" => Some(enigo::Key::UpArrow),
         "down" | "arrowdown" => Some(enigo::Key::DownArrow),
@@ -49,8 +50,11 @@ fn parse_named_key(name: &str) -> Option<enigo::Key> {
         "pageup" => Some(enigo::Key::PageUp),
         "pagedown" => Some(enigo::Key::PageDown),
         "capslock" => Some(enigo::Key::CapsLock),
+        #[cfg(not(target_os = "macos"))]
         "printscreen" => Some(enigo::Key::PrintScr),
+        #[cfg(not(target_os = "macos"))]
         "pause" => Some(enigo::Key::Pause),
+        #[cfg(not(target_os = "macos"))]
         "numlock" => Some(enigo::Key::Numlock),
         "f1" => Some(enigo::Key::F1),
         "f2" => Some(enigo::Key::F2),
