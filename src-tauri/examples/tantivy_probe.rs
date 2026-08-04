@@ -4,6 +4,8 @@ use tantivy::schema::{IndexRecordOption, Schema, TextFieldIndexing, TextOptions,
 use tantivy::tokenizer::{SimpleTokenizer, TextAnalyzer};
 use tantivy::{doc, Index};
 
+// Manual tokenizer benchmark kept as an example so release bundles only include the app binary.
+
 fn is_cjk_char(ch: char) -> bool {
     matches!(
         ch as u32,

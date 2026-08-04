@@ -144,7 +144,23 @@ fn normalize_terminal_path_for_compare(path: &Path) -> String {
     }
     #[cfg(not(target_os = "windows"))]
     {
-        path.to_string_lossy().to_string()
+        let text = path.to_string_lossy().to_string();
+        #[cfg(target_os = "macos")]
+        {
+            for (canonical_prefix, user_prefix) in [
+                ("/private/var", "/var"),
+                ("/private/tmp", "/tmp"),
+                ("/private/etc", "/etc"),
+            ] {
+                if text == canonical_prefix {
+                    return user_prefix.to_string();
+                }
+                if let Some(suffix) = text.strip_prefix(&format!("{canonical_prefix}/")) {
+                    return format!("{user_prefix}/{suffix}");
+                }
+            }
+        }
+        text
     }
 }
 

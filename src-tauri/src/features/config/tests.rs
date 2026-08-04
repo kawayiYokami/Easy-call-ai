@@ -1659,7 +1659,7 @@ model = "gpt-4.1"
             .expect("conversation paths");
         let before = message_store::message_store_shard_write_signature(&paths);
 
-        let mut restored = read_app_data(&data_path).expect("read app data");
+        let restored = read_app_data(&data_path).expect("read app data");
         let after = message_store::message_store_shard_write_signature(&paths);
 
         assert_eq!(
@@ -1667,12 +1667,12 @@ model = "gpt-4.1"
             DATA_MIGRATION_VERSION_V2_ASSISTANT_WORKSPACE_FOR_EMPTY_SHELL_WORKSPACES
         );
         assert_eq!(after, before);
-        assert!(restored.conversations[0].messages[0].speaker_agent_id.is_none());
-        for conversation in restored.conversations.iter_mut() {
-            normalize_conversation_runtime_volatile_fields(conversation);
-        }
+        let mut conversation = read_conversation_shard_raw(&data_path, "conv-baseline")
+            .expect("read raw conversation shard");
+        assert!(conversation.messages[0].speaker_agent_id.is_none());
+        normalize_conversation_runtime_volatile_fields(&mut conversation);
         assert_eq!(
-            restored.conversations[0].messages[0].speaker_agent_id.as_deref(),
+            conversation.messages[0].speaker_agent_id.as_deref(),
             Some(USER_PERSONA_ID)
         );
     }

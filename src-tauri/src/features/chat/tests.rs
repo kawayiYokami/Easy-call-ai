@@ -7279,6 +7279,28 @@
         )
     }
 
+    fn wait_for_session_notification(
+        state: &AppState,
+        conversation_id: &str,
+    ) -> Conversation {
+        let mut last_error = None;
+        for _ in 0..20 {
+            match state_read_conversation_cached(state, conversation_id) {
+                Ok(conversation) if !conversation.messages.is_empty() => return conversation,
+                Ok(_) => last_error = None,
+                Err(err) => last_error = Some(err),
+            }
+            std::thread::sleep(std::time::Duration::from_millis(50));
+        }
+        match state_read_conversation_cached(state, conversation_id) {
+            Ok(conversation) => conversation,
+            Err(err) => panic!(
+                "read notification target after timeout: {err}; previous_error={:?}",
+                last_error
+            ),
+        }
+    }
+
     #[test]
     fn list_tool_session_targets_should_include_local_and_remote_sessions() {
         let (state, _source_id, _local_target_id, remote_target_id) = seed_session_forward_test_state();
@@ -7309,14 +7331,7 @@
 
         assert_eq!(result.target_kind, "queued");
         assert!(!result.pushed_to_remote);
-        let mut target = state_read_conversation_cached(&state, &target_local_id).expect("read local target");
-        for _ in 0..20 {
-            if !target.messages.is_empty() {
-                break;
-            }
-            std::thread::sleep(std::time::Duration::from_millis(50));
-            target = state_read_conversation_cached(&state, &target_local_id).expect("read local target");
-        }
+        let target = wait_for_session_notification(&state, &target_local_id);
         assert_eq!(target.messages.len(), 1);
         assert_eq!(target.messages[0].role, "assistant");
         assert_eq!(
@@ -7341,14 +7356,7 @@
 
         assert_eq!(result.target_kind, "queued");
         assert!(!result.pushed_to_remote);
-        let mut target = state_read_conversation_cached(&state, &remote_target_id).expect("read remote target");
-        for _ in 0..20 {
-            if !target.messages.is_empty() {
-                break;
-            }
-            std::thread::sleep(std::time::Duration::from_millis(50));
-            target = state_read_conversation_cached(&state, &remote_target_id).expect("read remote target");
-        }
+        let target = wait_for_session_notification(&state, &remote_target_id);
         assert_eq!(target.messages.len(), 1);
         match &target.messages[0].parts[0] {
             MessagePart::Text { text, .. } => {
@@ -7381,16 +7389,7 @@
             )
             .expect("enqueue auto push remote contact");
 
-        let mut target =
-            state_read_conversation_cached(&state, &remote_target_id).expect("read remote target");
-        for _ in 0..20 {
-            if !target.messages.is_empty() {
-                break;
-            }
-            std::thread::sleep(std::time::Duration::from_millis(50));
-            target = state_read_conversation_cached(&state, &remote_target_id)
-                .expect("read remote target");
-        }
+        let target = wait_for_session_notification(&state, &remote_target_id);
         assert_eq!(target.messages.len(), 1);
         match &target.messages[0].parts[0] {
             MessagePart::Text { text, .. } => {
@@ -7421,14 +7420,7 @@
             .expect("forward selection to remote contact");
 
         assert_eq!(result.forwarded_count, 2);
-        let mut target = state_read_conversation_cached(&state, &remote_target_id).expect("read remote target");
-        for _ in 0..20 {
-            if !target.messages.is_empty() {
-                break;
-            }
-            std::thread::sleep(std::time::Duration::from_millis(50));
-            target = state_read_conversation_cached(&state, &remote_target_id).expect("read remote target");
-        }
+        let target = wait_for_session_notification(&state, &remote_target_id);
         assert_eq!(target.messages.len(), 1);
         assert_eq!(target.messages[0].role, "assistant");
         assert_eq!(
@@ -12787,4 +12779,3 @@
         assert!(!get_conversation_plan_mode_enabled(&state, "conversation-plan-d").unwrap());
         assert!(!get_conversation_plan_mode_enabled(&state, "conversation-plan-e").unwrap());
     }
-
