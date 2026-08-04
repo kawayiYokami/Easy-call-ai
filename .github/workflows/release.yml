@@ -69,6 +69,7 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Validate signing secrets early
+        if: github.event_name == 'push' || inputs.publish_release == true
         shell: pwsh
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
@@ -113,14 +114,20 @@ jobs:
             Remove-Item -LiteralPath $signProbePath -ErrorAction SilentlyContinue
           }
 
-      - name: Build Tauri app
+      - name: Build signed Tauri app
+        if: github.event_name == 'push' || inputs.publish_release == true
         run: pnpm tauri build --bundles nsis
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
           TAURI_UPDATER_PUBLIC_KEY: ${{ secrets.TAURI_UPDATER_PUBLIC_KEY }}
 
+      - name: Build unsigned Tauri app
+        if: github.event_name == 'workflow_dispatch' && inputs.publish_release != true
+        run: pnpm tauri build --bundles nsis --config src-tauri/tauri.no-updater.conf.json
+
       - name: Build updater manifests
+        if: github.event_name == 'push' || inputs.publish_release == true
         shell: pwsh
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
@@ -332,12 +339,17 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Build Tauri app for Linux
+      - name: Build signed Tauri app for Linux
+        if: github.event_name == 'push' || inputs.publish_release == true
         run: pnpm tauri build --bundles deb,appimage
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
           TAURI_UPDATER_PUBLIC_KEY: ${{ secrets.TAURI_UPDATER_PUBLIC_KEY }}
+
+      - name: Build unsigned Tauri app for Linux
+        if: github.event_name == 'workflow_dispatch' && inputs.publish_release != true
+        run: pnpm tauri build --bundles deb,appimage --config src-tauri/tauri.no-updater.conf.json
 
       - name: Generate Linux updater manifest
         run: |
