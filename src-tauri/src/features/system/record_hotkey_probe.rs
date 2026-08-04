@@ -468,7 +468,10 @@ fn start_record_hotkey_probe(app: AppHandle, config_path: std::path::PathBuf) ->
 #[cfg(target_os = "macos")]
 fn start_record_hotkey_probe(app: AppHandle, config_path: std::path::PathBuf) -> Result<(), String> {
     use core_foundation::runloop::CFRunLoop;
-    use core_graphics::event::{CallbackResult, CGEventTap, CGEventTapLocation, CGEventTapOptions, CGEventTapPlacement, CGEventType, EventField, KeyCode};
+    use core_graphics::event::{
+        CallbackResult, CGEventTap, CGEventTapLocation, CGEventTapOptions,
+        CGEventTapPlacement, CGEventType, EventField,
+    };
 
     let started = RECORD_HOTKEY_PROBE_STARTED.get_or_init(|| std::sync::atomic::AtomicBool::new(false));
     if started.compare_exchange(false, true, std::sync::atomic::Ordering::AcqRel, std::sync::atomic::Ordering::Acquire).is_err() {
@@ -484,15 +487,24 @@ fn start_record_hotkey_probe(app: AppHandle, config_path: std::path::PathBuf) ->
     let _ = RECORD_HOTKEY_PROBE_STATE.set(state.clone());
     let parsed_state = RECORD_HOTKEY_PROBE_PARSED.get_or_init(|| std::sync::Arc::new(std::sync::Mutex::new(None))).clone();
     std::thread::Builder::new().name("macos-record-hotkey-probe".to_string()).spawn(move || {
-        let install = CGEventTap::with_enabled(CGEventTapLocation::HID, CGEventTapPlacement::HeadInsertEventTap, CGEventTapOptions::ListenOnly, vec![CGEventType::KeyDown, CGEventType::KeyUp], move |_proxy, event_type, event| {
+        let install = CGEventTap::with_enabled(CGEventTapLocation::HID, CGEventTapPlacement::HeadInsertEventTap, CGEventTapOptions::ListenOnly, vec![CGEventType::KeyDown, CGEventType::KeyUp, CGEventType::FlagsChanged], move |_proxy, event_type, event| {
+            if matches!(event_type, CGEventType::FlagsChanged) {
+                handle_macos_record_hotkey_modifier_flags(&app, &state, &parsed_state, event.get_flags());
+                return CallbackResult::Keep;
+            }
+            if !matches!(event_type, CGEventType::KeyDown | CGEventType::KeyUp) {
+                return CallbackResult::Keep;
+            }
             let keycode = event.get_integer_value_field(EventField::KEYBOARD_EVENT_KEYCODE) as u16;
-            let token = match keycode {
-                KeyCode::CAPS_LOCK => Some("CAPSLOCK"), KeyCode::SPACE => Some("SPACE"), KeyCode::RETURN => Some("ENTER"), KeyCode::TAB => Some("TAB"),
-                KeyCode::ANSI_GRAVE => Some("·"), KeyCode::ANSI_A..=KeyCode::ANSI_Z => None, _ => None,
-            };
-            let token = token.map(str::to_string).or_else(|| macos_key_token(keycode));
+            let token = macos_key_token(keycode);
             if let Some(token) = token {
-                handle_record_hotkey_probe_key(&app, &state, &parsed_state, token, event_type as u32 == CGEventType::KeyDown as u32);
+                handle_record_hotkey_probe_key(
+                    &app,
+                    &state,
+                    &parsed_state,
+                    token,
+                    matches!(event_type, CGEventType::KeyDown),
+                );
             }
             CallbackResult::Keep
         }, CFRunLoop::run_current);
@@ -502,10 +514,114 @@ fn start_record_hotkey_probe(app: AppHandle, config_path: std::path::PathBuf) ->
 }
 
 #[cfg(target_os = "macos")]
+fn handle_macos_record_hotkey_modifier_flags(
+    app: &AppHandle,
+    state_arc: &std::sync::Arc<std::sync::Mutex<RecordHotkeyProbeState>>,
+    parsed_state: &std::sync::Arc<std::sync::Mutex<Option<ParsedRecordHotkey>>>,
+    flags: core_graphics::event::CGEventFlags,
+) {
+    use core_graphics::event::CGEventFlags;
+
+    let parsed = match parsed_state.lock() {
+        Ok(slot) => slot.clone(),
+        Err(_) => return,
+    };
+    let Some(parsed) = parsed else { return };
+    let Ok(mut state) = state_arc.lock() else { return };
+    let was_active = state.active;
+    let was_exact = modifiers_exact(&state, &parsed.modifiers);
+    state.ctrl = flags.contains(CGEventFlags::CGEventFlagControl);
+    state.alt = flags.contains(CGEventFlags::CGEventFlagAlternate);
+    state.shift = flags.contains(CGEventFlags::CGEventFlagShift);
+    state.meta = flags.contains(CGEventFlags::CGEventFlagCommand);
+    let is_exact = modifiers_exact(&state, &parsed.modifiers);
+    let is_modifier_only = parsed.modifiers.contains(&parsed.main);
+    let can_activate = is_record_hotkey_probe_background_wake_enabled()
+        && !is_record_hotkey_probe_chat_window_active();
+    let should_emit_pressed = can_activate && !was_active && !was_exact && is_exact && is_modifier_only;
+    let should_emit_released = was_active && !is_exact;
+    if should_emit_pressed {
+        state.active = true;
+    } else if should_emit_released {
+        state.active = false;
+    }
+    drop(state);
+    if should_emit_pressed {
+        emit_record_hotkey_probe_event(app, "pressed");
+    } else if should_emit_released {
+        emit_record_hotkey_probe_event(app, "released");
+    }
+}
+
+#[cfg(target_os = "macos")]
 fn macos_key_token(keycode: u16) -> Option<String> {
+    use core_graphics::event::KeyCode;
+
     let token = match keycode {
-        0x00 => "A", 0x0B => "B", 0x08 => "C", 0x02 => "D", 0x0E => "E", 0x03 => "F", 0x05 => "G", 0x04 => "H", 0x22 => "I", 0x26 => "J", 0x28 => "K", 0x25 => "L", 0x2E => "M", 0x2D => "N", 0x1F => "O", 0x23 => "P", 0x0C => "Q", 0x0F => "R", 0x01 => "S", 0x11 => "T", 0x20 => "U", 0x09 => "V", 0x0D => "W", 0x07 => "X", 0x10 => "Y", 0x06 => "Z",
-        0x1D => "0", 0x12 => "1", 0x13 => "2", 0x14 => "3", 0x15 => "4", 0x17 => "5", 0x16 => "6", 0x1A => "7", 0x1C => "8", 0x19 => "9", _ => return None,
+        KeyCode::ANSI_A => "A",
+        KeyCode::ANSI_B => "B",
+        KeyCode::ANSI_C => "C",
+        KeyCode::ANSI_D => "D",
+        KeyCode::ANSI_E => "E",
+        KeyCode::ANSI_F => "F",
+        KeyCode::ANSI_G => "G",
+        KeyCode::ANSI_H => "H",
+        KeyCode::ANSI_I => "I",
+        KeyCode::ANSI_J => "J",
+        KeyCode::ANSI_K => "K",
+        KeyCode::ANSI_L => "L",
+        KeyCode::ANSI_M => "M",
+        KeyCode::ANSI_N => "N",
+        KeyCode::ANSI_O => "O",
+        KeyCode::ANSI_P => "P",
+        KeyCode::ANSI_Q => "Q",
+        KeyCode::ANSI_R => "R",
+        KeyCode::ANSI_S => "S",
+        KeyCode::ANSI_T => "T",
+        KeyCode::ANSI_U => "U",
+        KeyCode::ANSI_V => "V",
+        KeyCode::ANSI_W => "W",
+        KeyCode::ANSI_X => "X",
+        KeyCode::ANSI_Y => "Y",
+        KeyCode::ANSI_Z => "Z",
+        KeyCode::ANSI_0 => "0",
+        KeyCode::ANSI_1 => "1",
+        KeyCode::ANSI_2 => "2",
+        KeyCode::ANSI_3 => "3",
+        KeyCode::ANSI_4 => "4",
+        KeyCode::ANSI_5 => "5",
+        KeyCode::ANSI_6 => "6",
+        KeyCode::ANSI_7 => "7",
+        KeyCode::ANSI_8 => "8",
+        KeyCode::ANSI_9 => "9",
+        KeyCode::ANSI_MINUS => "-",
+        KeyCode::ANSI_EQUAL => "=",
+        KeyCode::ANSI_LEFT_BRACKET => "[",
+        KeyCode::ANSI_RIGHT_BRACKET => "]",
+        KeyCode::ANSI_BACKSLASH => "\\",
+        KeyCode::ANSI_SEMICOLON => ";",
+        KeyCode::ANSI_QUOTE => "'",
+        KeyCode::ANSI_COMMA => ",",
+        KeyCode::ANSI_PERIOD => ".",
+        KeyCode::ANSI_SLASH => "/",
+        KeyCode::ANSI_GRAVE => "·",
+        KeyCode::CAPS_LOCK => "CAPSLOCK",
+        KeyCode::SPACE => "SPACE",
+        KeyCode::RETURN => "ENTER",
+        KeyCode::TAB => "TAB",
+        KeyCode::F1 => "F1",
+        KeyCode::F2 => "F2",
+        KeyCode::F3 => "F3",
+        KeyCode::F4 => "F4",
+        KeyCode::F5 => "F5",
+        KeyCode::F6 => "F6",
+        KeyCode::F7 => "F7",
+        KeyCode::F8 => "F8",
+        KeyCode::F9 => "F9",
+        KeyCode::F10 => "F10",
+        KeyCode::F11 => "F11",
+        KeyCode::F12 => "F12",
+        _ => return None,
     };
     Some(token.to_string())
 }
@@ -546,5 +662,14 @@ mod record_hotkey_probe_tests {
             record_hotkey_signature("Shift+Meta+K"),
             Some("SHIFT+META+K".to_string())
         );
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn maps_macos_function_and_punctuation_keys() {
+        assert_eq!(macos_key_token(0x7A), Some("F1".to_string()));
+        assert_eq!(macos_key_token(0x60), Some("F5".to_string()));
+        assert_eq!(macos_key_token(0x2F), Some(".".to_string()));
+        assert_eq!(macos_key_token(0x1B), Some("-".to_string()));
     }
 }
