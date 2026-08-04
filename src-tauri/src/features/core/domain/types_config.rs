@@ -1002,6 +1002,10 @@ fn default_message_notification_sound_enabled() -> bool {
     false
 }
 
+fn default_desktop_operation_notice_enabled() -> bool {
+    true
+}
+
 fn default_ui_language() -> String {
     "zh-CN".to_string()
 }
@@ -1275,6 +1279,8 @@ struct AppConfig {
     message_notification_enabled: bool,
     #[serde(default = "default_message_notification_sound_enabled")]
     message_notification_sound_enabled: bool,
+    #[serde(default = "default_desktop_operation_notice_enabled")]
+    desktop_operation_notice_enabled: bool,
     selected_api_config_id: String,
     #[serde(default, alias = "chatApiConfigId")]
     assistant_department_api_config_id: String,
@@ -1331,6 +1337,7 @@ impl Default for AppConfig {
             llm_round_log_capacity: default_llm_round_log_capacity(),
             message_notification_enabled: default_message_notification_enabled(),
             message_notification_sound_enabled: default_message_notification_sound_enabled(),
+            desktop_operation_notice_enabled: default_desktop_operation_notice_enabled(),
             selected_api_config_id: api_config.id.clone(),
             assistant_department_api_config_id: api_config.id.clone(),
             vision_api_config_id: None,

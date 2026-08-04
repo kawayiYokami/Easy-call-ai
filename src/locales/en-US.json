@@ -112,7 +112,9 @@
       "enableLabel": "Enable notifications",
       "enableHint": "When off, no system notification is shown for background local chat completion or failure.",
       "soundLabel": "Enable sound",
-      "soundHint": "When on, Windows native notifications use the system default sound."
+      "soundHint": "When on, Windows native notifications use the system default sound.",
+      "desktopNoticeLabel": "Desktop operation alerts",
+      "desktopNoticeHint": "Show a system notification before the model simulates mouse/keyboard actions on your PC."
     },
     "api": {
       "saving": "Saving...",

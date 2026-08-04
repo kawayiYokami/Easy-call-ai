@@ -1005,6 +1005,7 @@ fn build_builtin_runtime_tool_executor(
             memory_context: memory_context.ok_or_else(|| "记忆上下文不可用".to_string())?,
         }),
         "operate" => Box::new(BuiltinOperateTool {
+            app_state: state.clone(),
             model_supports_image: selected_api.enable_image,
         }),
         "reload" => Box::new(BuiltinReloadTool { app_state: state.clone() }),
@@ -1131,8 +1132,67 @@ fn build_cached_mcp_runtime_tool_executor(
     }))
 }
 
+const DESKTOP_OPERATION_NOTICE_MIN_INTERVAL: std::time::Duration =
+    std::time::Duration::from_secs(20);
+
+fn last_desktop_operation_notice_at() -> &'static Mutex<Option<std::time::Instant>> {
+    static STORE: OnceLock<Mutex<Option<std::time::Instant>>> = OnceLock::new();
+    STORE.get_or_init(|| Mutex::new(None))
+}
+
+/// 模型即将操作电脑（operate 工具）时，提前发送一条系统通知提醒用户。
+/// 受配置开关控制，且按 `DESKTOP_OPERATION_NOTICE_MIN_INTERVAL` 节流，避免连续工具调用刷屏。
+fn notify_desktop_operation_started(state: &AppState, script: &str) {
+    let enabled = match state_read_config_cached(state) {
+        Ok(config) => config.desktop_operation_notice_enabled,
+        Err(err) => {
+            runtime_log_warn(format!(
+                "[桌面操作提醒] 跳过，任务=读取通知设置失败，error={err}"
+            ));
+            return;
+        }
+    };
+    if !enabled {
+        return;
+    }
+    {
+        let last = last_desktop_operation_notice_at();
+        let mut guard = match last.lock() {
+            Ok(guard) => guard,
+            Err(poisoned) => poisoned.into_inner(),
+        };
+        let now = std::time::Instant::now();
+        if let Some(prev) = *guard {
+            if now.duration_since(prev) < DESKTOP_OPERATION_NOTICE_MIN_INTERVAL {
+                return;
+            }
+        }
+        *guard = Some(now);
+    }
+    let app_handle = match state.app_handle.lock() {
+        Ok(guard) => guard.as_ref().cloned(),
+        Err(_) => None,
+    };
+    let Some(app_handle) = app_handle else {
+        return;
+    };
+    let action_count = script
+        .lines()
+        .filter(|line| !line.trim().is_empty())
+        .count();
+    let body = format!("模型即将模拟鼠标/键盘操作你的电脑（脚本共 {action_count} 步），请注意不要与它同时操作。");
+    tauri::async_runtime::spawn(async move {
+        if let Err(err) =
+            send_native_notification(&app_handle, "PAI 正在操作你的电脑", &body, false)
+        {
+            runtime_log_warn(format!("[桌面操作提醒] 通知发送失败：{err}"));
+        }
+    });
+}
+
 #[derive(Debug, Clone)]
 struct BuiltinOperateTool {
+    app_state: AppState,
     model_supports_image: bool,
 }
 
@@ -1165,7 +1225,10 @@ impl RuntimeValueTool for BuiltinOperateTool {
 
     fn call_typed(&self, args: Self::Args) -> RuntimeToolValueFuture<'_, Self::Error> {
         let model_supports_image = self.model_supports_image;
+        let app_state = self.app_state.clone();
         Box::pin(async move {
+            // 模型即将操作电脑：先发系统通知提醒用户
+            notify_desktop_operation_started(&app_state, &args.script);
             // 如果模型不支持图片，检查脚本中是否包含 screenshot 动作
             if !model_supports_image && script_contains_screenshot(&args.script) {
                 return Err(ToolInvokeError::from(

@@ -221,6 +221,7 @@ export function useSimpleSetup() {
       llmRoundLogCapacity: 3,
       messageNotificationEnabled: true,
       messageNotificationSoundEnabled: false,
+      desktopOperationNoticeEnabled: true,
       selectedApiConfigId: "",
       assistantDepartmentApiConfigId: "",
       toolReviewApiConfigId: "",

@@ -346,6 +346,7 @@ const config = reactive<AppConfig>({
   llmRoundLogCapacity: 3,
   messageNotificationEnabled: true,
   messageNotificationSoundEnabled: false,
+  desktopOperationNoticeEnabled: true,
   selectedApiConfigId: "",
   assistantDepartmentApiConfigId: "",
   visionApiConfigId: undefined,

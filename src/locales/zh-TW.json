@@ -112,7 +112,9 @@
       "enableLabel": "是否通知",
       "enableHint": "關閉後，背景本地會話完成或失敗時不再彈出系統通知。",
       "soundLabel": "是否聲音",
-      "soundHint": "開啟後，Windows 原生通知會使用系統預設提示音。"
+      "soundHint": "開啟後，Windows 原生通知會使用系統預設提示音。",
+      "desktopNoticeLabel": "桌面操作提醒",
+      "desktopNoticeHint": "模型即將模擬滑鼠/鍵盤操作電腦時，提前彈出系統通知提醒你。"
     },
     "api": {
       "saving": "保存中...",
