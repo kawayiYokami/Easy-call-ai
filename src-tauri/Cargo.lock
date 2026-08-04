@@ -1838,6 +1838,8 @@ dependencies = [
  "base64 0.22.1",
  "chardetng",
  "chrono",
+ "core-foundation 0.10.1",
+ "core-graphics 0.25.0",
  "dingtalk-stream",
  "directories",
  "encoding_rs",

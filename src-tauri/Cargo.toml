@@ -114,5 +114,9 @@ windows-sys = { version = "0.61.2", features = [
 ] }
 rdev = "0.5"
 
-[target.'cfg(any(target_os = "macos", target_os = "linux"))'.dependencies]
+[target.'cfg(target_os = "linux")'.dependencies]
 rdev = "0.5"
+
+[target.'cfg(target_os = "macos")'.dependencies]
+core-foundation = "0.10"
+core-graphics = "0.25"

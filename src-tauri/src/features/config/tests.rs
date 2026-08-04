@@ -1675,6 +1675,7 @@ model = "gpt-4.1"
             conversation.messages[0].speaker_agent_id.as_deref(),
             Some(USER_PERSONA_ID)
         );
+        assert!(restored.conversations[0].messages.is_empty());
     }
 
     #[test]

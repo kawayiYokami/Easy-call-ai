@@ -144,7 +144,11 @@ fn normalize_terminal_path_for_compare(path: &Path) -> String {
     }
     #[cfg(not(target_os = "windows"))]
     {
-        let text = path.to_string_lossy().to_string();
+        let text = path
+            .canonicalize()
+            .unwrap_or_else(|_| path.to_path_buf())
+            .to_string_lossy()
+            .to_string();
         #[cfg(target_os = "macos")]
         {
             for (canonical_prefix, user_prefix) in [
@@ -1094,13 +1098,16 @@ fn terminal_normalize_for_access_check(path: &Path) -> PathBuf {
     if let Ok(canonical) = path.canonicalize() {
         return canonical;
     }
-    if let Some(parent) = path.parent() {
-        if let Ok(parent_canonical) = parent.canonicalize() {
-            if let Some(name) = path.file_name() {
-                return parent_canonical.join(name);
-            }
-            return parent_canonical;
+    let mut missing = Vec::<std::ffi::OsString>::new();
+    let mut cursor = path;
+    loop {
+        if let Ok(canonical) = cursor.canonicalize() {
+            return missing.into_iter().rev().fold(canonical, |base, name| base.join(name));
         }
+        let Some(name) = cursor.file_name() else { break };
+        missing.push(name.to_os_string());
+        let Some(parent) = cursor.parent() else { break };
+        cursor = parent;
     }
     path.to_path_buf()
 }

@@ -2440,6 +2440,7 @@ mod terminal_exec_tests {
         let _ = fs::remove_dir_all(&outside_root);
     }
 
+    #[cfg(target_os = "windows")]
     #[tokio::test]
     async fn blocked_local_rule_should_return_local_tool_review() {
         let root = std::env::temp_dir().join(format!("eca-terminal-blocked-{}", Uuid::new_v4()));
