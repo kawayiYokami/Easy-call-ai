@@ -1181,13 +1181,12 @@ fn notify_desktop_operation_started(state: &AppState, script: &str) {
         .filter(|line| !line.trim().is_empty())
         .count();
     let body = format!("模型即将模拟鼠标/键盘操作你的电脑（脚本共 {action_count} 步），请注意不要与它同时操作。");
-    tauri::async_runtime::spawn(async move {
-        if let Err(err) =
-            send_native_notification(&app_handle, "PAI 正在操作你的电脑", &body, false)
-        {
-            runtime_log_warn(format!("[桌面操作提醒] 通知发送失败：{err}"));
-        }
-    });
+    // 同步等待通知提交确认（不等待系统展示完成），保证"先提醒后操作"；
+    // 发送失败仅记录日志，不阻断工具执行。
+    if let Err(err) = send_native_notification(&app_handle, "PAI 正在操作你的电脑", &body, false)
+    {
+        runtime_log_warn(format!("[桌面操作提醒] 通知发送失败：{err}"));
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -1227,14 +1226,14 @@ impl RuntimeValueTool for BuiltinOperateTool {
         let model_supports_image = self.model_supports_image;
         let app_state = self.app_state.clone();
         Box::pin(async move {
-            // 模型即将操作电脑：先发系统通知提醒用户
-            notify_desktop_operation_started(&app_state, &args.script);
             // 如果模型不支持图片，检查脚本中是否包含 screenshot 动作
             if !model_supports_image && script_contains_screenshot(&args.script) {
                 return Err(ToolInvokeError::from(
                     "你的驱动模型并不支持图片，请放弃该功能".to_string(),
                 ));
             }
+            // 模型即将操作电脑：发送系统通知提醒用户（仅在脚本会真正执行时触发）
+            notify_desktop_operation_started(&app_state, &args.script);
             let args_value = serde_json::to_value(&args).unwrap_or(Value::Null);
             runtime_log_debug(format!(
                 "[工具调试] 内置工具执行开始 name=operate args={}",

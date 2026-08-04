@@ -114,7 +114,7 @@
       "soundLabel": "Enable sound",
       "soundHint": "When on, Windows native notifications use the system default sound.",
       "desktopNoticeLabel": "Desktop operation alerts",
-      "desktopNoticeHint": "Show a system notification before the model simulates mouse/keyboard actions on your PC."
+      "desktopNoticeHint": "Show a system notification before the model performs mouse, keyboard, text input, or screenshot actions on your PC."
     },
     "api": {
       "saving": "Saving...",

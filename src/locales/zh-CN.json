@@ -114,7 +114,7 @@
       "soundLabel": "是否声音",
       "soundHint": "开启后，Windows 原生通知会使用系统默认提示音。",
       "desktopNoticeLabel": "桌面操作提醒",
-      "desktopNoticeHint": "模型即将模拟鼠标/键盘操作电脑时，提前弹出系统通知提醒你。"
+      "desktopNoticeHint": "模型即将执行鼠标、键盘、文本输入或截图操作时，提前弹出系统通知提醒你。"
     },
     "api": {
       "saving": "保存中...",
