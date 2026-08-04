@@ -165,6 +165,7 @@ fn emit_assistant_delta_app_event(
     let payload = serde_json::json!({
         "conversationId": conversation_id,
         "event": event,
+        "conversationTitle": assistant_delta_broadcast_conversation_title(state, conversation_id),
     });
     ide_chat_broadcast_notification("chat.assistantDelta", payload.clone());
     let _ = app_handle.emit(CHAT_ASSISTANT_DELTA_EVENT, payload);
@@ -184,6 +185,27 @@ fn assistant_delta_broadcast_event(event: &AssistantDeltaEvent) -> AssistantDelt
     next
 }
 
+/// 广播 chat.assistantDelta 时附加会话标题，供远程前端（手机壳层）通知对齐本地标题。
+/// 标题来源与本地 live update 通知一致：会话 meta 标题 + 部门名 + 失败标记。
+fn assistant_delta_broadcast_conversation_title(
+    state: &AppState,
+    conversation_id: &str,
+) -> Option<String> {
+    let meta = match conversation_service_v2().get_conversation_meta(state, conversation_id) {
+        Ok(meta) => meta,
+        Err(_) => return None,
+    };
+    if !conversation_meta_is_local_normal_chat_for_notification(&meta) {
+        return None;
+    }
+    Some(notification_title_for_conversation_meta(
+        state,
+        &meta,
+        "zh-CN",
+        false,
+    ))
+}
+
 fn is_assistant_delta_stream_channel_event(event: &AssistantDeltaEvent) -> bool {
     if is_visible_stream_progress_event(event) {
         return true;
@@ -195,12 +217,14 @@ fn is_assistant_delta_stream_channel_event(event: &AssistantDeltaEvent) -> bool 
 }
 
 fn emit_assistant_delta_to_open_sidebar(
+    state: &AppState,
     conversation_id: &str,
     event: &AssistantDeltaEvent,
 ) -> bool {
     let payload = serde_json::json!({
         "conversationId": conversation_id.trim(),
         "event": event,
+        "conversationTitle": assistant_delta_broadcast_conversation_title(state, conversation_id),
     });
     ide_chat_emit_notification_to_sidebar_conversation(
         conversation_id,
@@ -1035,6 +1059,7 @@ fn dispatch_assistant_delta_to_active_view(
     let targets =
         collect_active_chat_view_delta_channels(state, conversation_id).unwrap_or_default();
     let ide_sidebar_delivered = emit_assistant_delta_to_open_sidebar(
+        state,
         conversation_id,
         event,
     );
