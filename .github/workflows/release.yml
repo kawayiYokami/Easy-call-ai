@@ -406,6 +406,8 @@ jobs:
   build_macos:
     name: Build macOS Universal
     runs-on: macos-latest
+    env:
+      HAS_APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE != '' }}
 
     steps:
       - name: Checkout
@@ -451,11 +453,11 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Build unsigned macOS DMG
-        if: ${{ secrets.APPLE_CERTIFICATE == '' }}
+        if: env.HAS_APPLE_CERTIFICATE == 'false'
         run: pnpm tauri:build:macos
 
       - name: Build signed macOS DMG
-        if: ${{ secrets.APPLE_CERTIFICATE != '' }}
+        if: env.HAS_APPLE_CERTIFICATE == 'true'
         env:
           APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
