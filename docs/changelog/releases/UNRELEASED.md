@@ -22,6 +22,8 @@
 
 ## 修复
 
+- 输入法组合确认回车判定抽为纯函数并加固（`chat-composer-ime`）：IME 确认键永远是裸 Enter，带 Ctrl/Shift/Alt/Meta 修饰的 Enter 直接放行，不再受 compositionend 后 100ms 窗口影响——修复 ctrl_enter 发送模式下组合输入后 Ctrl+Enter 被误吞的问题；同时补 `compositionEndedAt` 初始 0 值边界（页面加载后 100ms 内普通 Enter 不再被误判为组合确认），并补齐窗口边界与修饰键放行的单元测试。
+
 - 修复 macOS 支持 PR（#18）合并后的三类问题：rdev 录音热键回调返回类型错误导致 Windows/Linux 分支无法编译（回调改为 `if let` 消费 token）；macOS 构建拆分为签名/未签名两个互斥步骤（按 `APPLE_CERTIFICATE` secrets 是否存在分流，避免 tauri-bundler 对空字符串 env 走证书导入分支导致构建失败；签名步骤注入证书 env，公证三件套任一缺失时 shell 内 unset 让 bundler warn 跳过公证，未配置时走未签名构建不阻塞）；Linux 手动未签名构建补 `Generate updater manifest` 发布条件（非发布路径不再因缺 `.sig` 失败）。
 - 登录 shell PATH 同步加固：shell 解析改为 `SHELL` → 系统账户登录 shell（`users` 查询 passwd）→ `/bin/sh` 兜底，不再固定回退 `/bin/zsh`（Linux 不保证存在）；同步改为 spawn + stdin 隔离 + 5 秒超时 kill，stdout 由子线程读取、主线程统一超时轮询，避免用户 rc 文件存在阻塞命令或后台进程持有 stdout 时应用永久卡在启动阶段，超时后降级系统默认 PATH 并记录 warn 日志。
 

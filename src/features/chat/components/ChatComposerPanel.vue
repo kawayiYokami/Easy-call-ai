@@ -418,6 +418,7 @@ import ChatQueuePreview from "./ChatQueuePreview.vue";
 import ChatSelectionActionPanel from "./ChatSelectionActionPanel.vue";
 import FloatingScrollbar from "../../shell/components/FloatingScrollbar.vue";
 import { useChatQueue } from "../composables/use-chat-queue";
+import { chatInputEnterConfirmsComposition } from "../composables/chat-composer-ime";
 import type { DepartmentPersonaOption } from "../../shared/department-persona-options";
 import ApiConfigSelectionMenu from "../../config/components/ApiConfigSelectionMenu.vue";
 import { formatApiConfigOptionLabel } from "../../config/utils/api-config-display";
@@ -1166,11 +1167,6 @@ function handleChatInputCompositionEnd() {
   chatInputCompositionEndedAt.value = performance.now();
 }
 
-function chatInputEnterConfirmsComposition(event: KeyboardEvent): boolean {
-  if (event.isComposing || event.keyCode === 229 || chatInputComposing.value) return true;
-  return event.key === "Enter" && performance.now() - chatInputCompositionEndedAt.value < 100;
-}
-
 function scheduleResizeChatInput() {
   if (resizeInputRaf.value) cancelAnimationFrame(resizeInputRaf.value);
   resizeInputRaf.value = requestAnimationFrame(() => {
@@ -1261,7 +1257,16 @@ function handleWindowKeydown(event: KeyboardEvent) {
 }
 
 function handleChatInputKeydown(event: KeyboardEvent) {
-  if (chatInputEnterConfirmsComposition(event)) return;
+  if (
+    chatInputEnterConfirmsComposition(
+      event,
+      chatInputComposing.value,
+      chatInputCompositionEndedAt.value,
+      performance.now(),
+    )
+  ) {
+    return;
+  }
   if (mentionPanelOpen.value) {
     if (event.key === "Escape") {
       event.preventDefault();
