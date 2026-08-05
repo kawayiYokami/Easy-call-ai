@@ -462,7 +462,13 @@ jobs:
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-        run: pnpm tauri:build:macos
+        run: |
+          # 公证三件套任一缺失时整体 unset，让 tauri-bundler 走 warn 跳过公证；
+          # 空串会被 notarize_auth 当作有效凭证导致空凭证公证失败。
+          if [ -z "$APPLE_ID" ] || [ -z "$APPLE_PASSWORD" ] || [ -z "$APPLE_TEAM_ID" ]; then
+            unset APPLE_ID APPLE_PASSWORD APPLE_TEAM_ID
+          fi
+          pnpm tauri:build:macos
 
       - name: List packaged artifacts
         shell: pwsh
