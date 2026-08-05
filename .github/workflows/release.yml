@@ -352,6 +352,7 @@ jobs:
         run: pnpm tauri build --bundles deb,appimage --config src-tauri/tauri.no-updater.conf.json
 
       - name: Generate Linux updater manifest
+        if: github.event_name == 'push' || inputs.publish_release == true
         run: |
           set -euo pipefail
           TAG_NAME="v${PACKAGE_VERSION}"
@@ -450,6 +451,13 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Build universal macOS DMG
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: pnpm tauri:build:macos
 
       - name: List packaged artifacts
