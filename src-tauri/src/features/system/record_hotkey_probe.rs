@@ -454,9 +454,17 @@ fn start_record_hotkey_probe(app: AppHandle, config_path: std::path::PathBuf) ->
     std::thread::spawn(move || {
         let state_for_callback = state.clone();
         let callback = move |event: rdev::Event| match event.event_type {
-            rdev::EventType::KeyPress(key) => token_from_key(key).map(|token| handle_record_hotkey_probe_key(&app, &state_for_callback, &parsed_state, token, true)),
-            rdev::EventType::KeyRelease(key) => token_from_key(key).map(|token| handle_record_hotkey_probe_key(&app, &state_for_callback, &parsed_state, token, false)),
-            _ => None,
+            rdev::EventType::KeyPress(key) => {
+                if let Some(token) = token_from_key(key) {
+                    handle_record_hotkey_probe_key(&app, &state_for_callback, &parsed_state, token, true);
+                }
+            }
+            rdev::EventType::KeyRelease(key) => {
+                if let Some(token) = token_from_key(key) {
+                    handle_record_hotkey_probe_key(&app, &state_for_callback, &parsed_state, token, false);
+                }
+            }
+            _ => {}
         };
         if let Err(err) = rdev::listen(callback) {
             runtime_log_error(format!("[RDEV-RECORD-PROBE] listen failed: {err:?}"));

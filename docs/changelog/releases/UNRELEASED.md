@@ -22,6 +22,9 @@
 
 ## 修复
 
+- 修复 macOS 支持 PR（#18）合并后的三类问题：rdev 录音热键回调返回类型错误导致 Windows/Linux 分支无法编译（回调改为 `if let` 消费 token）；macOS 构建步骤补 Apple 签名/公证 secrets env 注入（配置了证书才签名公证，未配置自动降级 ad-hoc，不阻塞构建）；Linux 手动未签名构建补 `Generate updater manifest` 发布条件（非发布路径不再因缺 `.sig` 失败）。
+- 登录 shell PATH 同步加固：shell 解析改为 `SHELL` → 系统账户登录 shell（`users` 查询 passwd）→ `/bin/sh` 兜底，不再固定回退 `/bin/zsh`（Linux 不保证存在）；同步改为 spawn + stdin 隔离 + 5 秒超时 kill，避免用户 rc 文件中存在阻塞命令时应用永久卡在启动阶段，超时后降级系统默认 PATH 并记录 warn 日志。
+
 - 移除副手部门（deputy/explorer）的硬编码工具限制：删除 `c8d53b02` 引入的「副手部门默认只能使用调查型工具、预设 Skill 一律禁止」硬编码短路（`deputy_department_builtin_tool_allowed` / `deputy_department_restricted_reason` 及 `is_deputy` 判定分支）。副手部门与其他部门一样完全由部门权限卡（白/黑名单）控制，权限控制外不再有任何硬编码限制；该硬编码因配置归一化强制 `is_deputy=false` 本就从未在运行时生效。
 - operate 工具权限普通化：移除 `tool_restricted_by_department` 中「非 assistant 部门一律拒绝 reload/organize_context/screenshot/operate」的硬编码分支，operate 改为普通工具，权限完全由部门权限卡（白/黑名单）控制；副手部门默认防护与预设白名单保持不变。前端部门权限页同步移除对 operate 等工具的强制隐藏。
 - 全链清理死名工具：删除从未装配的 `reload`（已被 config 工具取代）、`organize_context`（用户整理功能被错误封装成 LLM 工具的历史残留）与 `screenshot`（能力已并入 operate）三个工具名的全部残留——后端实现、tool_loop 的 OrganizeContext 机制与压缩检查点、`legacy_command_enabled` 兼容逻辑、前端默认工具列表与展示分支、相关测试，零兼容保留。
