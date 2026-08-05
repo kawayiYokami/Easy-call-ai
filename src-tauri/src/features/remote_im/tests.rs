@@ -4492,6 +4492,7 @@
         let mut behavior = RemoteImChannelBehaviorSettings::default();
         behavior.group_reply_pacing.base_reply_energy_cost = 100.0;
         behavior.group_reply_pacing.energy_cost_per_character = 100.0;
+        behavior.group_reply_pacing.energy_recovery_per_second = 0.0;
         state_write_config_cached(
             &state,
             &AppConfig {

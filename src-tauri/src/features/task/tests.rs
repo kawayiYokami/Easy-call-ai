@@ -1,15 +1,15 @@
     fn test_task_data_path(label: &str) -> PathBuf {
-        let path = std::env::temp_dir().join(format!(
+        let root = std::env::temp_dir().join(format!(
             "easy_call_ai_task_test_{}_{}",
             label,
             Uuid::new_v4()
         ));
-        let _ = fs::remove_dir_all(&path);
-        path
+        let _ = fs::remove_dir_all(&root);
+        root.join("config").join("app_data.json")
     }
 
     fn task_test_state(label: &str) -> AppState {
-        let data_path = test_task_data_path(label).join("app_data.json");
+        let data_path = test_task_data_path(label);
         let state = AppState::new().expect("create test app state");
         AppState { data_path, ..state }
     }

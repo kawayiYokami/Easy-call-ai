@@ -51,8 +51,7 @@ include!("features/core/time_semantics.rs");
 include!("features/config/storage_and_stt.rs");
 include!("features/config/app_data_layout.rs");
 include!("features/chat/message_store/mod.rs");
-#[path = "features/config/pai_config_tool.rs"]
-mod pai_config_tool;
+use easy_call_ai::pai_config_tool;
 
 // ==================== 独立图像生成 ====================
 include!("features/image_generation.rs");
@@ -111,6 +110,70 @@ fn should_enable_devtools() -> bool {
         Some("1") | Some("true") | Some("yes") | Some("on")
     )
 }
+
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+fn unix_extend_process_path_from_login_shell() {
+    const PATH_BEGIN: &str = "__PAI_LOGIN_PATH_BEGIN__";
+    const PATH_END: &str = "__PAI_LOGIN_PATH_END__";
+    let shell = std::env::var_os("SHELL")
+        .filter(|path| PathBuf::from(path).is_file())
+        .unwrap_or_else(|| "/bin/zsh".into());
+    let output = match std::process::Command::new(&shell)
+        .args([
+            "-ilc",
+            "printf '__PAI_LOGIN_PATH_BEGIN__%s__PAI_LOGIN_PATH_END__' \"$PATH\"",
+        ])
+        .output()
+    {
+        Ok(output) if output.status.success() => output,
+        Ok(output) => {
+            runtime_log_warn(format!(
+                "[启动] 读取登录 shell PATH 失败: exit_code={}",
+                output.status.code().unwrap_or(-1)
+            ));
+            return;
+        }
+        Err(err) => {
+            runtime_log_warn(format!("[启动] 启动登录 shell 失败: err={err}"));
+            return;
+        }
+    };
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let Some(path_start) = stdout.rfind(PATH_BEGIN).map(|index| index + PATH_BEGIN.len()) else {
+        runtime_log_warn(format!("[启动] 登录 shell 未返回 PATH 标记，跳过环境同步"));
+        return;
+    };
+    let Some(path_end) = stdout[path_start..]
+        .find(PATH_END)
+        .map(|index| path_start + index)
+    else {
+        runtime_log_warn(format!("[启动] 登录 shell PATH 标记不完整，跳过环境同步"));
+        return;
+    };
+    let login_path = std::ffi::OsString::from(stdout[path_start..path_end].trim());
+    if login_path.is_empty() {
+        runtime_log_warn(format!("[启动] 登录 shell PATH 为空，跳过环境同步"));
+        return;
+    }
+
+    let current_path = std::env::var_os("PATH").unwrap_or_default();
+    let mut merged = Vec::<PathBuf>::new();
+    for path in std::env::split_paths(&login_path).chain(std::env::split_paths(&current_path)) {
+        if !path.as_os_str().is_empty() && !merged.iter().any(|item| item == &path) {
+            merged.push(path);
+        }
+    }
+    let Ok(path) = std::env::join_paths(merged) else {
+        runtime_log_warn(format!("[启动] 合并登录 shell PATH 失败，跳过环境同步"));
+        return;
+    };
+    std::env::set_var("PATH", path);
+    runtime_log_info(format!("[启动] 已同步登录 shell PATH"));
+}
+
+#[cfg(not(any(target_os = "macos", target_os = "linux")))]
+fn unix_extend_process_path_from_login_shell() {}
 
 fn install_tauri_async_runtime() -> Result<tokio::runtime::Runtime, String> {
     let runtime = tokio::runtime::Builder::new_multi_thread()
@@ -825,6 +888,7 @@ fn graceful_restart_app(app: &AppHandle) {
 fn main() {
     init_backend_file_logging();
     install_backend_file_panic_hook();
+    unix_extend_process_path_from_login_shell();
 
     if std::env::args().any(|arg| arg == MCP_SCREENSHOT_SERVER_FLAG) {
         if let Err(err) = run_desktop_screenshot_mcp_server() {

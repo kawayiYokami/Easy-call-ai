@@ -2458,13 +2458,15 @@ mod terminal_exec_tests {
         let _ = fs::remove_dir_all(&outside_root);
     }
 
+    #[cfg(target_os = "windows")]
     #[tokio::test]
     async fn blocked_local_rule_should_return_local_tool_review() {
         let root = std::env::temp_dir().join(format!("eca-terminal-blocked-{}", Uuid::new_v4()));
         fs::create_dir_all(&root).expect("create root");
-        let shell = shell_candidate_by_kind("powershell7")
-            .or_else(|| shell_candidate_by_kind("powershell5"))
-            .expect("powershell shell");
+        let shell = detect_terminal_shell_candidates()
+            .into_iter()
+            .next()
+            .expect("available shell");
         let state = build_test_state(shell, root.clone());
         let (_system_root, main_root, _secondary_root) = configure_test_workspaces(
             &state,

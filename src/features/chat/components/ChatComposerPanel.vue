@@ -191,6 +191,8 @@
             rows="1"
             :placeholder="effectiveChatInputPlaceholder"
             @input="handleChatInputInput"
+            @compositionstart="handleChatInputCompositionStart"
+            @compositionend="handleChatInputCompositionEnd"
             @keydown="handleChatInputKeydown"
           ></textarea>
         </div>
@@ -635,6 +637,8 @@ const SEND_MODE_STORAGE_KEY = "easy_call.send_mode.v1";
 type SendMode = "enter" | "ctrl_enter";
 const composerRootRef = ref<HTMLDivElement | null>(null);
 const chatInputRef = ref<HTMLTextAreaElement | null>(null);
+const chatInputComposing = ref(false);
+const chatInputCompositionEndedAt = ref(0);
 
 const sendMode = ref<SendMode>("enter");
 const sendModeMenuOpen = ref(false);
@@ -1153,6 +1157,20 @@ function handleChatInputInput() {
   updateMentionState();
 }
 
+function handleChatInputCompositionStart() {
+  chatInputComposing.value = true;
+}
+
+function handleChatInputCompositionEnd() {
+  chatInputComposing.value = false;
+  chatInputCompositionEndedAt.value = performance.now();
+}
+
+function chatInputEnterConfirmsComposition(event: KeyboardEvent): boolean {
+  if (event.isComposing || event.keyCode === 229 || chatInputComposing.value) return true;
+  return event.key === "Enter" && performance.now() - chatInputCompositionEndedAt.value < 100;
+}
+
 function scheduleResizeChatInput() {
   if (resizeInputRaf.value) cancelAnimationFrame(resizeInputRaf.value);
   resizeInputRaf.value = requestAnimationFrame(() => {
@@ -1243,7 +1261,7 @@ function handleWindowKeydown(event: KeyboardEvent) {
 }
 
 function handleChatInputKeydown(event: KeyboardEvent) {
-  if (event.isComposing) return;
+  if (chatInputEnterConfirmsComposition(event)) return;
   if (mentionPanelOpen.value) {
     if (event.key === "Escape") {
       event.preventDefault();

@@ -17,7 +17,8 @@
     "smoke": "powershell -ExecutionPolicy Bypass -File scripts/smoke.ps1",
     "i18n:check": "node scripts/check-i18n-keys.mjs",
     "preview": "vite preview",
-    "tauri": "tauri"
+    "tauri": "tauri",
+    "tauri:build:macos": "tauri build --target universal-apple-darwin --bundles dmg --config src-tauri/tauri.macos.conf.json"
   },
   "dependencies": {
     "@dagrejs/dagre": "^3.0.0",
