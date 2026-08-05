@@ -117,29 +117,64 @@ fn unix_extend_process_path_from_login_shell() {
     const PATH_END: &str = "__PAI_LOGIN_PATH_END__";
     let shell = std::env::var_os("SHELL")
         .filter(|path| PathBuf::from(path).is_file())
-        .unwrap_or_else(|| "/bin/zsh".into());
-    let output = match std::process::Command::new(&shell)
+        .or_else(|| {
+            users::get_user_by_uid(users::get_current_uid())
+                .map(|user| user.shell().to_os_string())
+                .filter(|path| PathBuf::from(path).is_file())
+        })
+        .unwrap_or_else(|| "/bin/sh".into());
+    let mut child = match std::process::Command::new(&shell)
         .args([
             "-ilc",
             "printf '__PAI_LOGIN_PATH_BEGIN__%s__PAI_LOGIN_PATH_END__' \"$PATH\"",
         ])
-        .output()
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::null())
+        .spawn()
     {
-        Ok(output) if output.status.success() => output,
-        Ok(output) => {
-            runtime_log_warn(format!(
-                "[启动] 读取登录 shell PATH 失败: exit_code={}",
-                output.status.code().unwrap_or(-1)
-            ));
-            return;
-        }
+        Ok(child) => child,
         Err(err) => {
             runtime_log_warn(format!("[启动] 启动登录 shell 失败: err={err}"));
             return;
         }
     };
-
-    let stdout = String::from_utf8_lossy(&output.stdout);
+    let Some(mut stdout_pipe) = child.stdout.take() else {
+        runtime_log_warn("[启动] 获取登录 shell stdout 失败，跳过环境同步");
+        return;
+    };
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    let status = loop {
+        match child.try_wait() {
+            Ok(Some(status)) => break status,
+            Ok(None) => {
+                if std::time::Instant::now() >= deadline {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    runtime_log_warn("[启动] 读取登录 shell PATH 超时，跳过环境同步");
+                    return;
+                }
+                std::thread::sleep(std::time::Duration::from_millis(50));
+            }
+            Err(err) => {
+                runtime_log_warn(format!("[启动] 等待登录 shell 退出失败: err={err}"));
+                return;
+            }
+        }
+    };
+    if !status.success() {
+        runtime_log_warn(format!(
+            "[启动] 读取登录 shell PATH 失败: exit_code={}",
+            status.code().unwrap_or(-1)
+        ));
+        return;
+    }
+    let mut raw_stdout = String::new();
+    if let Err(err) = std::io::Read::read_to_string(&mut stdout_pipe, &mut raw_stdout) {
+        runtime_log_warn(format!("[启动] 读取登录 shell PATH 输出失败: err={err}"));
+        return;
+    }
+    let stdout = raw_stdout;
     let Some(path_start) = stdout.rfind(PATH_BEGIN).map(|index| index + PATH_BEGIN.len()) else {
         runtime_log_warn(format!("[启动] 登录 shell 未返回 PATH 标记，跳过环境同步"));
         return;

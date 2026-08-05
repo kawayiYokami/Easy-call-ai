@@ -116,7 +116,9 @@ rdev = "0.5"
 
 [target.'cfg(target_os = "linux")'.dependencies]
 rdev = "0.5"
+users = "0.11"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 core-foundation = "0.10"
 core-graphics = "0.25"
+users = "0.11"
