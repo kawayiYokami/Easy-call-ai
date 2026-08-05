@@ -367,6 +367,8 @@ async fn run_genai_tool_loop(
     chat_session_key: &str,
     usage_conversation_id: Option<&str>,
 ) -> Result<ModelReply, String> {
+    // 一次调度开始：允许该会话在本轮调度内再次发送桌面操作提醒。
+    reset_desktop_operation_notice_for_session(chat_session_key);
     let api_config = resolve_request_api_config(api_config).await?;
     let request_api_key = consume_api_key_for_request(&api_config);
     let service_target = build_provider_genai_service_target(
@@ -1019,6 +1021,8 @@ async fn run_genai_tool_loop_non_stream(
     chat_session_key: &str,
     usage_conversation_id: Option<&str>,
 ) -> Result<ModelReply, String> {
+    // 一次调度开始：允许该会话在本轮调度内再次发送桌面操作提醒。
+    reset_desktop_operation_notice_for_session(chat_session_key);
     let api_config = resolve_request_api_config(api_config).await?;
     let request_api_key = consume_api_key_for_request(&api_config);
     let service_target = build_provider_genai_service_target(
