@@ -450,11 +450,15 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Build universal macOS DMG
+      - name: Build unsigned macOS DMG
+        if: ${{ secrets.APPLE_CERTIFICATE == '' }}
+        run: pnpm tauri:build:macos
+
+      - name: Build signed macOS DMG
+        if: ${{ secrets.APPLE_CERTIFICATE != '' }}
         env:
           APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
-          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
