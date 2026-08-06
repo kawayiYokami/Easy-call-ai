@@ -509,6 +509,7 @@ import AppWindowContent from "./features/shell/components/AppWindowContent.vue";
 import AppWindowHeader from "./features/shell/components/AppWindowHeader.vue";
 import ShellDialogsHost from "./features/shell/components/ShellDialogsHost.vue";
 import { useChatWindowApp } from "./features/chat/composables/use-chat-window-app";
+import { REMOTE_BRIDGE_ALLOWED_ORIGIN } from "./services/tauri-api";
 
 /** 远程前端壳层 → 本页面的命令消息来源标识（与 tauri-api.ts 通知转发方向相反）。 */
 const REMOTE_COMMAND_SOURCE = "pai-remote-bridge-command";
@@ -541,6 +542,8 @@ export default defineComponent({
     // postMessage 转发到这里执行，由电脑 PAI 页面在自己的会话状态上完成操作。
     if (embedded) {
       const handleRemoteCommand = (event: MessageEvent) => {
+        // 只接受约定壳层 origin 的命令，防恶意父页面伪造会话操作。
+        if (event.origin !== REMOTE_BRIDGE_ALLOWED_ORIGIN) return;
         const data = event.data as { source?: unknown; method?: unknown } | null;
         if (!data || typeof data !== "object") return;
         if (data.source !== REMOTE_COMMAND_SOURCE) return;

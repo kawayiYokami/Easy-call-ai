@@ -162,10 +162,15 @@ fn emit_assistant_delta_app_event(
     let Some(app_handle) = app_handle else {
         return;
     };
+    let conversation_title = if has_sidebar_conversation_subscriber() {
+        assistant_delta_broadcast_conversation_title(state, conversation_id)
+    } else {
+        None
+    };
     let payload = serde_json::json!({
         "conversationId": conversation_id,
         "event": event,
-        "conversationTitle": assistant_delta_broadcast_conversation_title(state, conversation_id),
+        "conversationTitle": conversation_title,
     });
     ide_chat_broadcast_notification("chat.assistantDelta", payload.clone());
     let _ = app_handle.emit(CHAT_ASSISTANT_DELTA_EVENT, payload);
@@ -185,6 +190,15 @@ fn assistant_delta_broadcast_event(event: &AssistantDeltaEvent) -> AssistantDelt
     next
 }
 
+/// 是否存在已映射会话的 sidebar 客户端（IDE 侧边栏 / 远程前端订阅者）。
+/// 无订阅者时广播不附带会话标题，避免高频流式路径白付元数据查询与标题拼接开销。
+fn has_sidebar_conversation_subscriber() -> bool {
+    ide_context_chat_client_conversations()
+        .lock()
+        .map(|conversations| !conversations.is_empty())
+        .unwrap_or(false)
+}
+
 /// 广播 chat.assistantDelta 时附加会话标题，供远程前端（手机壳层）通知对齐本地标题。
 /// 标题来源与本地 live update 通知一致：会话 meta 标题 + 部门名 + 失败标记。
 fn assistant_delta_broadcast_conversation_title(
@@ -201,7 +215,7 @@ fn assistant_delta_broadcast_conversation_title(
     Some(notification_title_for_conversation_meta(
         state,
         &meta,
-        "zh-CN",
+        local_chat_notification_settings(state, conversation_id).ui_language,
         false,
     ))
 }
@@ -221,10 +235,15 @@ fn emit_assistant_delta_to_open_sidebar(
     conversation_id: &str,
     event: &AssistantDeltaEvent,
 ) -> bool {
+    let conversation_title = if has_sidebar_conversation_subscriber() {
+        assistant_delta_broadcast_conversation_title(state, conversation_id)
+    } else {
+        None
+    };
     let payload = serde_json::json!({
         "conversationId": conversation_id.trim(),
         "event": event,
-        "conversationTitle": assistant_delta_broadcast_conversation_title(state, conversation_id),
+        "conversationTitle": conversation_title,
     });
     ide_chat_emit_notification_to_sidebar_conversation(
         conversation_id,

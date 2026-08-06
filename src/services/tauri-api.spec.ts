@@ -43,6 +43,7 @@ import {
   ensureTransportReady,
   exportTransportConfigMigrationPackage,
   invokeTauri,
+  isTauriRuntimeAvailable,
   onTransportNotification,
   applyTransportConfigMigrationPackage,
   previewTransportConfigMigrationPackage,
@@ -565,5 +566,33 @@ describe("统一传输通知适配器", () => {
       conversationId: "conversation-race",
       probeId: "probe-expired",
     })).toBe(false);
+  });
+});
+
+describe("isTauriRuntimeAvailable", () => {
+  it("iframe 嵌入（self !== top）时即使宿主注入 __TAURI_INTERNALS__ 也视为 Web 宿主", () => {
+    expect(
+      isTauriRuntimeAvailable({
+        self: {},
+        top: {},
+        __TAURI_INTERNALS__: { invoke: (() => undefined) as unknown },
+      }),
+    ).toBe(false);
+  });
+
+  it("桌面独立窗口（self === top）无 __TAURI_INTERNALS__ 时返回 false", () => {
+    const self = {} as unknown;
+    expect(isTauriRuntimeAvailable({ self, top: self })).toBe(false);
+  });
+
+  it("桌面独立窗口存在 __TAURI_INTERNALS__.invoke 时返回 true", () => {
+    const self = {} as unknown;
+    expect(
+      isTauriRuntimeAvailable({
+        self,
+        top: self,
+        __TAURI_INTERNALS__: { invoke: (() => undefined) as unknown },
+      }),
+    ).toBe(true);
   });
 });

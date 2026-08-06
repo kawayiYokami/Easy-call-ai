@@ -5135,6 +5135,50 @@
     }
 
     #[test]
+    fn assistant_delta_broadcast_conversation_title_should_return_title_for_local_chat() {
+        // 钉死：本地普通会话广播 assistantDelta 时附带会话标题（供远程前端通知对齐）。
+        let state = test_chat_runtime_state();
+        let now = now_iso();
+        let mut conversation = test_chat_conversation("title-local-chat", "active", &now);
+        conversation.title = "会话标题".to_string();
+        conversation.department_id = ASSISTANT_DEPARTMENT_ID.to_string();
+        conversation.agent_id = DEFAULT_AGENT_ID.to_string();
+        state_schedule_conversation_persist(&state, &conversation).expect("persist conversation");
+
+        let title = assistant_delta_broadcast_conversation_title(&state, &conversation.id);
+        assert!(title.is_some(), "本地普通会话应返回会话标题");
+        assert!(
+            title.unwrap().contains("会话标题"),
+            "标题应包含会话标题文本"
+        );
+    }
+
+    #[test]
+    fn assistant_delta_broadcast_conversation_title_should_return_none_for_non_local_chat() {
+        // 钉死：delegate / remote-IM / system-notification 会话不参与本地通知标题，
+        // 广播不应附带标题。
+        let state = test_chat_runtime_state();
+        let now = now_iso();
+        let mut conversation = test_chat_conversation("title-delegate", "active", &now);
+        conversation.conversation_kind = CONVERSATION_KIND_DELEGATE.to_string();
+        state_schedule_conversation_persist(&state, &conversation).expect("persist conversation");
+
+        let title = assistant_delta_broadcast_conversation_title(&state, &conversation.id);
+        assert!(title.is_none(), "delegate 会话不应返回本地通知标题");
+    }
+
+    #[test]
+    fn assistant_delta_broadcast_conversation_title_should_return_none_for_missing_conversation() {
+        // 钉死：会话元数据读取失败时广播不附带标题，不能 panic。
+        let state = test_chat_runtime_state();
+        let title = assistant_delta_broadcast_conversation_title(
+            &state,
+            "nonexistent-conversation-id",
+        );
+        assert!(title.is_none(), "读取失败的会话不应返回标题");
+    }
+
+    #[test]
     fn conversation_service_v2_should_read_messages_before_and_after_anchor() {
         let state = test_chat_runtime_state();
         let now = now_iso();

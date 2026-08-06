@@ -13,6 +13,13 @@ type WebBridgeConfig = {
 // 远程前端模式：iframe 内电脑 PAI 页面与手机 PAI 壳层之间的密码认证消息源标识。
 const REMOTE_AUTH_BRIDGE_SOURCE = "pai-remote-bridge-auth";
 
+// 远程前端模式：允许与 iframe 内电脑 PAI 页面做 postMessage 桥接的父窗口 origin。
+// 与手机 PAI 壳层约定：壳层页面必须以该 origin 加载（Tauri Android WebView 默认
+// asset 协议为 https://tauri.localhost）。桌面独立窗口（self === top）与 VSCode
+// 侧边栏（走 acquireVsCodeApi，不经 postMessage）不受影响；若壳层实际 origin
+// 不同，需两端同步修改。
+export const REMOTE_BRIDGE_ALLOWED_ORIGIN = "https://tauri.localhost";
+
 export type TransportHostWorkspace = {
   path: string;
   name: string;
@@ -193,13 +200,24 @@ const WEB_BRIDGE_COMMAND_TIMEOUT_MS: Record<string, number> = {
   test_voice_connection: WEB_BRIDGE_LONG_TIMEOUT_MS,
 };
 
-function isTauriRuntimeAvailable(): boolean {
-  if (typeof window === "undefined") return false;
-  // 被 iframe 嵌入（远程前端 / VSCode 侧边栏）时视为 Web 宿主：宿主 WebView
-  // 可能注入 __TAURI_INTERNALS__（如手机 Tauri WebView 会注入到跨域 iframe），
-  // 若按原生检测会误判为桌面 Tauri 环境，从而跳过 WS 桥接走 invoke。
-  if (typeof window.top !== "undefined" && window.self !== window.top) return false;
-  const internals = (window as Window & { __TAURI_INTERNALS__?: { invoke?: unknown } }).__TAURI_INTERNALS__;
+export type TauriRuntimeProbeWindow = {
+  top?: unknown;
+  self: unknown;
+  __TAURI_INTERNALS__?: { invoke?: unknown };
+};
+
+/** 探测当前是否运行在桌面 Tauri 原生环境（用于宿主能力判定）。
+ *  被 iframe 嵌入（远程前端 / VSCode 侧边栏）时视为 Web 宿主：宿主 WebView
+ *  可能注入 __TAURI_INTERNALS__（如手机 Tauri WebView 会注入到跨域 iframe），
+ *  若按原生检测会误判为桌面 Tauri 环境，从而跳过 WS 桥接走 invoke。
+ *  hostWindow 参数仅测试注入用；缺省取全局 window。 */
+export function isTauriRuntimeAvailable(
+  hostWindow?: TauriRuntimeProbeWindow,
+): boolean {
+  const win = hostWindow ?? (typeof window !== "undefined" ? window : undefined);
+  if (!win) return false;
+  if (typeof win.top !== "undefined" && win.self !== win.top) return false;
+  const internals = (win as TauriRuntimeProbeWindow).__TAURI_INTERNALS__;
   return typeof internals?.invoke === "function";
 }
 
@@ -422,7 +440,7 @@ function postTransportHostMessage(message: unknown): boolean {
     return true;
   }
   if (window.parent && window.parent !== window) {
-    window.parent.postMessage(message, "*");
+    window.parent.postMessage(message, REMOTE_BRIDGE_ALLOWED_ORIGIN);
     return true;
   }
   return false;
@@ -2089,6 +2107,8 @@ function requestRemotePasswordFromParent(): Promise<string> {
       resolve(password);
     };
     const listener = (event: MessageEvent) => {
+      // 只接受约定壳层 origin 的消息，防恶意父页面伪造密码注入。
+      if (event.origin !== REMOTE_BRIDGE_ALLOWED_ORIGIN) return;
       const data = event.data as { source?: unknown; method?: unknown; payload?: unknown } | null;
       if (!data || typeof data !== "object") return;
       if (data.source !== REMOTE_AUTH_BRIDGE_SOURCE) return;
@@ -2101,7 +2121,7 @@ function requestRemotePasswordFromParent(): Promise<string> {
     try {
       window.parent.postMessage(
         { source: REMOTE_AUTH_BRIDGE_SOURCE, method: "request-password" },
-        "*",
+        REMOTE_BRIDGE_ALLOWED_ORIGIN,
       );
     } catch {
       settle("");
@@ -2253,7 +2273,7 @@ function emitWebBridgeNotification(method: string, payload: unknown) {
     try {
       window.parent.postMessage(
         { source: "pai-remote-bridge", method, payload },
-        "*",
+        REMOTE_BRIDGE_ALLOWED_ORIGIN,
       );
     } catch {
       // 转发失败不影响本地事件分发
