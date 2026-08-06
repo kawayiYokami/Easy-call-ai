@@ -146,6 +146,7 @@
             llm_round_log_capacity: 9,
             message_notification_enabled: default_message_notification_enabled(),
             message_notification_sound_enabled: default_message_notification_sound_enabled(),
+            desktop_operation_notice_enabled: default_desktop_operation_notice_enabled(),
             selected_api_config_id: "a1".to_string(),
             assistant_department_api_config_id: "a1".to_string(),
             simple_setup_mode: false,
@@ -253,6 +254,7 @@
             llm_round_log_capacity: default_llm_round_log_capacity(),
             message_notification_enabled: default_message_notification_enabled(),
             message_notification_sound_enabled: default_message_notification_sound_enabled(),
+            desktop_operation_notice_enabled: default_desktop_operation_notice_enabled(),
             selected_api_config_id: "edit-b".to_string(),
             assistant_department_api_config_id: "chat-a".to_string(),
             vision_api_config_id: None,
@@ -716,6 +718,7 @@
             llm_round_log_capacity: default_llm_round_log_capacity(),
             message_notification_enabled: default_message_notification_enabled(),
             message_notification_sound_enabled: default_message_notification_sound_enabled(),
+            desktop_operation_notice_enabled: default_desktop_operation_notice_enabled(),
             selected_api_config_id: "embed-a".to_string(),
             assistant_department_api_config_id: "chat-a".to_string(),
             vision_api_config_id: None,
@@ -904,6 +907,7 @@
             llm_round_log_capacity: default_llm_round_log_capacity(),
             message_notification_enabled: default_message_notification_enabled(),
             message_notification_sound_enabled: default_message_notification_sound_enabled(),
+            desktop_operation_notice_enabled: default_desktop_operation_notice_enabled(),
             selected_api_config_id: "chat-a".to_string(),
             assistant_department_api_config_id: String::new(),
             vision_api_config_id: None,
@@ -1375,6 +1379,7 @@ model = "gpt-4.1"
                     ApiModelConfig {
                         id: model_a.clone(),
                         model: "gpt-4.1".to_string(),
+                        display_name: String::new(),
                         deprecated: false,
                         enable_image: false,
                         enable_audio: false,
@@ -1390,6 +1395,7 @@ model = "gpt-4.1"
                     ApiModelConfig {
                         id: model_b.clone(),
                         model: "gpt-4.1-mini".to_string(),
+                        display_name: String::new(),
                         deprecated: false,
                         enable_image: false,
                         enable_audio: false,
@@ -1463,6 +1469,7 @@ model = "gpt-4.1"
                 models: vec![ApiModelConfig {
                     id: model_id.clone(),
                     model: "gpt-5.4".to_string(),
+                    display_name: String::new(),
                     deprecated: false,
                     enable_image: false,
                     enable_audio: false,
@@ -1659,7 +1666,7 @@ model = "gpt-4.1"
             .expect("conversation paths");
         let before = message_store::message_store_shard_write_signature(&paths);
 
-        let mut restored = read_app_data(&data_path).expect("read app data");
+        let restored = read_app_data(&data_path).expect("read app data");
         let after = message_store::message_store_shard_write_signature(&paths);
 
         assert_eq!(
@@ -1667,14 +1674,17 @@ model = "gpt-4.1"
             DATA_MIGRATION_VERSION_V2_ASSISTANT_WORKSPACE_FOR_EMPTY_SHELL_WORKSPACES
         );
         assert_eq!(after, before);
-        assert!(restored.conversations[0].messages[0].speaker_agent_id.is_none());
-        for conversation in restored.conversations.iter_mut() {
-            normalize_conversation_runtime_volatile_fields(conversation);
-        }
+        let mut conversation = read_conversation_shard_raw(&data_path, "conv-baseline")
+            .expect("read raw conversation shard");
+        assert!(conversation.messages[0].speaker_agent_id.is_none());
+        normalize_conversation_runtime_volatile_fields(&mut conversation);
         assert_eq!(
-            restored.conversations[0].messages[0].speaker_agent_id.as_deref(),
+            conversation.messages[0].speaker_agent_id.as_deref(),
             Some(USER_PERSONA_ID)
         );
+        // 迁移版本已记录时读取不重写 message store：上面 after == before 已钉死。
+        // 不断言 restored.conversations[0].messages 为空——分片读取必然返回完整消息，
+        // 该断言在旧布局删除后不可能成立（99f5b81d 合并测试时遗留的矛盾断言）。
     }
 
     #[test]

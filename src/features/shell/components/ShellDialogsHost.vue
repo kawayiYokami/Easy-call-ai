@@ -111,28 +111,28 @@ function canShowUpdateSecondaryActions() {
 
 <template>
   <dialog class="modal" :class="{ 'modal-open': updateDialogOpen }">
-    <div class="modal-box w-[min(92vw,48rem)] max-w-[48rem] overflow-x-hidden">
+    <div class="modal-box w-[min(92vw,48rem)] max-w-[48rem] flex max-h-[85dvh] flex-col overflow-hidden">
       <h3 class="font-semibold text-base">
         {{ updateDialogTitle }}
       </h3>
+      <progress
+        v-if="typeof updateProgressPercent === 'number'"
+        class="progress progress-primary mt-3 w-full"
+        :value="Math.max(0, Math.min(100, updateProgressPercent))"
+        max="100"
+      />
       <pre
         v-if="updateDialogKind === 'error'"
-        class="mt-2 whitespace-pre-wrap break-words text-sm overflow-x-hidden text-error"
+        class="mt-3 min-h-0 flex-1 whitespace-pre-wrap break-words text-sm overflow-y-auto text-error"
       >{{ updateDialogBody }}</pre>
-      <div v-else class="mt-2 overflow-x-hidden">
+      <div v-else class="mt-3 min-h-0 flex-1 overflow-x-hidden overflow-y-auto">
         <AppMarkdownRenderer
           :text="updateDialogBody"
           :is-dark="!!props.markdownIsDark"
           variant="document"
         />
       </div>
-      <progress
-        v-if="typeof updateProgressPercent === 'number'"
-        class="progress progress-primary mt-4 w-full"
-        :value="Math.max(0, Math.min(100, updateProgressPercent))"
-        max="100"
-      />
-      <div class="modal-action flex items-center justify-between gap-3">
+      <div class="modal-action mt-4 flex items-center justify-between gap-3">
         <button
           class="btn btn-sm btn-warning"
           @click="emit('openUpdateRepository')"

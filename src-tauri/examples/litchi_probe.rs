@@ -18,7 +18,7 @@ fn build_preview(text: &str, max_chars: usize) -> String {
 fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let mut args = std::env::args().skip(1);
     let file_path = args.next().ok_or_else(|| {
-        "usage: cargo run --bin litchi_probe -- <absolute-path-to-office-file>".to_string()
+        "usage: cargo run --example litchi_probe -- <absolute-path-to-office-file>".to_string()
     })?;
 
     if args.next().is_some() {

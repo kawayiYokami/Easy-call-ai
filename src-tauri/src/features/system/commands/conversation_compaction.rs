@@ -303,6 +303,20 @@ async fn run_context_compaction_pipeline_inner(
             ));
         }
     }
+    match clear_operate_screenshots_temp(&state.data_path, &source.id) {
+        Ok((file_count, dir_count)) => {
+            runtime_log_info(format!(
+                "[operate截图缓存] 完成，任务=clear_temp_on_compaction，conversation_id={}，截图文件数={}，子目录数={}",
+                source.id, file_count, dir_count
+            ));
+        }
+        Err(err) => {
+            runtime_log_error(format!(
+                "[operate截图缓存] 失败，任务=clear_temp_on_compaction，conversation_id={}，error={}",
+                source.id, err
+            ));
+        }
+    }
     emit_compaction_history_flushed_event(
         state,
         &source.id,

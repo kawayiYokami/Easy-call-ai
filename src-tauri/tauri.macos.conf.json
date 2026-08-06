@@ -1,0 +1,12 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "bundle": {
+    "createUpdaterArtifacts": false,
+    "targets": [
+      "dmg"
+    ],
+    "icon": [
+      "icons/icon.icns"
+    ]
+  }
+}

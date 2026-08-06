@@ -77,31 +77,42 @@
               {{ option.label }}
             </button>
           </div>
-          <label v-if="draft.providerId === 'custom'" class="grid gap-1.5">
-            <span class="text-xs font-medium opacity-70">base_url</span>
-            <input v-model.trim="draft.customBaseUrl" class="input input-bordered font-mono" />
-          </label>
+          <template v-if="draft.providerId === 'custom'">
+            <label class="grid gap-1.5">
+              <span class="text-xs font-medium opacity-70">{{ t("simpleSetup.apiProtocol") }}</span>
+              <select v-model="draft.customRequestFormat" class="select select-bordered select-sm font-mono">
+                <option v-for="option in simpleSetupProtocolOptions" :key="option.value" :value="option.value">
+                  {{ option.label }}
+                </option>
+              </select>
+            </label>
+            <label class="grid gap-1.5">
+              <span class="text-xs font-medium opacity-70">base_url</span>
+              <input v-model.trim="draft.customBaseUrl" class="input input-bordered input-sm font-mono" />
+            </label>
+          </template>
+          <div class="divider divider-sm my-0"></div>
           <div class="grid gap-1.5">
             <span class="text-xs font-medium opacity-70">{{ t("quickSetup.fields.apiKey") }}</span>
-            <div class="grid grid-cols-[minmax(0,1fr)_auto_auto] gap-2">
+            <div class="flex items-center gap-2">
               <input
                 v-model.trim="draft.apiKey"
                 :type="showApiKey ? 'text' : 'password'"
-                class="input input-bordered min-w-0 font-mono"
+                class="input input-bordered input-sm min-w-0 flex-1 font-mono"
                 placeholder="sk-..."
               />
               <button
-                class="btn bg-base-200 px-3"
+                class="btn btn-sm btn-square bg-base-200"
                 type="button"
                 :aria-label="showApiKey ? t('quickSetup.actions.hideKey') : t('quickSetup.actions.showKey')"
                 @click="showApiKey = !showApiKey"
               >
-                <EyeOff v-if="showApiKey" class="h-4 w-4" />
-                <Eye v-else class="h-4 w-4" />
+                <EyeOff v-if="showApiKey" class="h-3.5 w-3.5" />
+                <Eye v-else class="h-3.5 w-3.5" />
               </button>
               <button
                 v-if="providerApiKeyUrl"
-                class="btn bg-base-200"
+                class="btn btn-sm bg-base-200"
                 type="button"
                 @click="openProviderKeyUrl"
               >
@@ -129,23 +140,26 @@
             </button>
           </div>
           <div class="grid gap-3">
-            <ApiModelCard
-              v-for="card in modelCards"
-              :key="card.id"
-              :card="draft.models[card.id]"
-              :title="card.label"
-              :hint="card.hint"
-              :model-options="draft.providerId === 'custom' ? draft.customModelOptions : []"
-              :show-delete="false"
-              :show-capability-toggles="false"
-              :show-context-window="false"
-              :show-reasoning="card.id !== 'vision'"
-              :show-temperature="false"
-              :show-max-output-tokens="false"
-              :reasoning-items="reasoningEffortOptions"
-              :reasoning-checked-values="[String(draft.models[card.id].reasoningEffort || '')]"
-              @reasoning-change="(payload: { value: string; checked: boolean }) => { if (payload.checked) draft.models[card.id].reasoningEffort = payload.value as SimpleReasoningEffort }"
-            />
+            <div v-for="card in modelCards" :key="card.id">
+              <div class="mb-2 flex items-center gap-3">
+                <span class="whitespace-nowrap text-sm font-semibold">{{ card.label }}</span>
+                <span v-if="card.hint" class="whitespace-nowrap text-xs opacity-60">{{ card.hint }}</span>
+                <div class="divider divider-sm my-0 flex-1"></div>
+              </div>
+              <ApiModelCard
+                :card="draft.models[card.id]"
+                :model-options="draft.providerId === 'custom' ? draft.customModelOptions : []"
+                :show-delete="false"
+                :show-capability-toggles="false"
+                :show-context-window="false"
+                :show-reasoning="card.id !== 'vision'"
+                :show-temperature="false"
+                :show-max-output-tokens="false"
+                :reasoning-items="reasoningEffortOptions"
+                :reasoning-checked-values="[String(draft.models[card.id].reasoningEffort || '')]"
+                @reasoning-change="(payload: { value: string; checked: boolean }) => { if (payload.checked) draft.models[card.id].reasoningEffort = payload.value as SimpleReasoningEffort }"
+              />
+            </div>
           </div>
         </div>
       </section>
@@ -194,23 +208,23 @@
         <div class="card-body gap-3 p-4 pt-0">
           <div class="grid gap-1.5">
             <span class="text-xs font-medium opacity-70">{{ t("quickSetup.fields.apiKey") }}</span>
-            <div class="grid grid-cols-[minmax(0,1fr)_auto_auto] gap-2">
+            <div class="flex items-center gap-2">
               <input
                 v-model.trim="draft.siliconFlowKey"
                 :type="showSiliconFlowKey ? 'text' : 'password'"
-                class="input input-bordered min-w-0 font-mono"
+                class="input input-bordered input-sm min-w-0 flex-1 font-mono"
                 placeholder="sk-..."
               />
               <button
-                class="btn bg-base-200 px-3"
+                class="btn btn-sm btn-square bg-base-200"
                 type="button"
                 :aria-label="showSiliconFlowKey ? t('quickSetup.actions.hideKey') : t('quickSetup.actions.showKey')"
                 @click="showSiliconFlowKey = !showSiliconFlowKey"
               >
-                <EyeOff v-if="showSiliconFlowKey" class="h-4 w-4" />
-                <Eye v-else class="h-4 w-4" />
+                <EyeOff v-if="showSiliconFlowKey" class="h-3.5 w-3.5" />
+                <Eye v-else class="h-3.5 w-3.5" />
               </button>
-              <button class="btn bg-base-200" type="button" @click="openSiliconFlowKeyUrl">
+              <button class="btn btn-sm bg-base-200" type="button" @click="openSiliconFlowKeyUrl">
                 {{ t("quickSetup.actions.getKey") }}
               </button>
             </div>
@@ -229,7 +243,7 @@ import { Eye, EyeOff, Moon, RefreshCw, Sun } from "@lucide/vue";
 import ApiModelCard from "../../components/ApiModelCard.vue";
 import SettingsStickyLayout from "../../components/SettingsStickyLayout.vue";
 import { openTransportWindow, hideCurrentTransportWindow } from "../../../../services/tauri-api";
-import { clearSimpleSetupDraft, saveSimpleSetupDraft, simpleProviderOptions, useSimpleSetup } from "../../quick-setup/use-simple-setup";
+import { clearSimpleSetupDraft, saveSimpleSetupDraft, simpleProviderOptions, simpleSetupProtocolOptions, useSimpleSetup } from "../../quick-setup/use-simple-setup";
 import type { SimpleModelCard, SimpleReasoningEffort } from "../../quick-setup/use-simple-setup";
 
 const { t } = useI18n();
@@ -261,8 +275,8 @@ const providerOptions = simpleProviderOptions.filter((option) => option.id !== "
 
 const modelCards = computed(() => {
   const cards = [
-    { id: "quick" as SimpleModelCard, label: t("simpleSetup.modelQuick"), hint: "" },
-    { id: "expert" as SimpleModelCard, label: t("simpleSetup.modelExpert"), hint: "" },
+    { id: "quick" as SimpleModelCard, label: t("simpleSetup.modelQuick"), hint: t("simpleSetup.modelQuickHint") },
+    { id: "expert" as SimpleModelCard, label: t("simpleSetup.modelExpert"), hint: t("simpleSetup.modelExpertHint") },
     { id: "vision" as SimpleModelCard, label: t("simpleSetup.modelVision"), hint: t("simpleSetup.modelVisionHint") },
   ];
   if (draft.providerId === "deepseek") {

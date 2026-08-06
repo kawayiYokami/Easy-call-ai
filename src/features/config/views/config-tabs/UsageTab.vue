@@ -4,8 +4,8 @@
       <div>
         <div class="text-sm font-semibold">{{ t("config.usage.pageTitle") }}</div>
       </div>
-      <button class="btn btn-primary btn-sm shrink-0" :disabled="loading" @click="refreshOverview">
-        <span v-if="loading" class="loading loading-spinner loading-xs"></span>
+      <button class="btn btn-sm bg-base-100 shrink-0" :disabled="loading" @click="refreshOverview">
+        <RefreshCw class="h-4 w-4" :class="{ 'animate-spin': loading }" />
         <span>{{ t("common.refresh") }}</span>
       </button>
     </div>
@@ -17,7 +17,7 @@
 
     <template v-else-if="overview">
       <section class="rounded-box border border-base-300 bg-base-100 shadow-sm">
-        <div class="stats stats-vertical w-full lg:stats-horizontal">
+        <div class="stats stats-vertical w-full md:stats-horizontal">
           <div v-for="item in summaryStats" :key="item.label" class="stat">
             <div class="stat-title text-xs">{{ item.label }}</div>
             <div class="stat-value text-2xl">{{ item.value }}</div>
@@ -35,28 +35,20 @@
               <table class="table table-sm">
                 <thead>
                   <tr>
-                    <th><button class="btn btn-ghost btn-xs px-1 font-semibold" @click="toggleProviderModelSort('providerLabel')">{{ columnLabel("provider") }}{{ sortIndicator(providerModelSort, 'providerLabel') }}</button></th>
-                    <th><button class="btn btn-ghost btn-xs px-1 font-semibold" @click="toggleProviderModelSort('modelName')">{{ columnLabel("model") }}{{ sortIndicator(providerModelSort, 'modelName') }}</button></th>
-                    <th class="text-right"><button class="btn btn-ghost btn-xs px-1 font-semibold" @click="toggleProviderModelSort('weightedTokens')">{{ columnLabel("weightedTokens") }}{{ sortIndicator(providerModelSort, 'weightedTokens') }}</button></th>
+                    <th><button class="btn btn-ghost btn-xs px-1 font-semibold" @click="toggleProviderModelSort('providerLabel')">{{ columnLabel("model") }}{{ sortIndicator(providerModelSort, 'providerLabel') }}</button></th>
                     <th class="text-right"><button class="btn btn-ghost btn-xs px-1 font-semibold" @click="toggleProviderModelSort('totalTokens')">{{ columnLabel("totalTokens") }}{{ sortIndicator(providerModelSort, 'totalTokens') }}</button></th>
-                    <th class="text-right"><button class="btn btn-ghost btn-xs px-1 font-semibold" @click="toggleProviderModelSort('cacheHitRate')">{{ columnLabel("cacheHitRate") }}{{ sortIndicator(providerModelSort, 'cacheHitRate') }}</button></th>
                     <th class="text-right"><button class="btn btn-ghost btn-xs px-1 font-semibold" @click="toggleProviderModelSort('outputTokens')">{{ columnLabel("outputTokens") }}{{ sortIndicator(providerModelSort, 'outputTokens') }}</button></th>
-                    <th class="text-right"><button class="btn btn-ghost btn-xs px-1 font-semibold" @click="toggleProviderModelSort('cacheReadTokens')">{{ columnLabel("cacheReadTokens") }}{{ sortIndicator(providerModelSort, 'cacheReadTokens') }}</button></th>
-                    <th class="text-right"><button class="btn btn-ghost btn-xs px-1 font-semibold" @click="toggleProviderModelSort('cacheWrite')">{{ columnLabel("cacheWrite") }}{{ sortIndicator(providerModelSort, 'cacheWrite') }}</button></th>
-                    <th class="text-right"><button class="btn btn-ghost btn-xs px-1 font-semibold" @click="toggleProviderModelSort('conversationCount')">{{ columnLabel("conversationCount") }}{{ sortIndicator(providerModelSort, 'conversationCount') }}</button></th>
+                    <th class="text-right"><button class="btn btn-ghost btn-xs px-1 font-semibold" @click="toggleProviderModelSort('reasoningTokens')">{{ columnLabel("reasoningTokens") }}{{ sortIndicator(providerModelSort, 'reasoningTokens') }}</button></th>
+                    <th class="text-right"><button class="btn btn-ghost btn-xs px-1 font-semibold" @click="toggleProviderModelSort('cacheHitRate')">{{ columnLabel("cacheHitRate") }}{{ sortIndicator(providerModelSort, 'cacheHitRate') }}</button></th>
                   </tr>
                 </thead>
                 <tbody>
                   <tr v-for="item in sortedProviderModels" :key="`provider-model-${item.key}`">
-                    <td class="min-w-28">{{ item.providerLabel }}</td>
-                    <td class="min-w-36">{{ item.modelName }}</td>
-                    <td class="text-right">{{ formatTokens(item.weightedTokens) }}</td>
+                    <td class="min-w-40">{{ providerLabel(item) }} · {{ item.modelName }}</td>
                     <td class="text-right">{{ formatTokens(totalInputTokens(item)) }}</td>
-                    <td class="text-right">{{ formatPercent(cacheHitRate(item)) }}</td>
                     <td class="text-right">{{ formatTokens(item.outputTokens) }}</td>
-                    <td class="text-right">{{ formatTokens(item.cacheReadTokens) }}</td>
-                    <td class="text-right">{{ formatTokens(cacheWriteAmount(item)) }}</td>
-                    <td class="text-right">{{ item.conversationCount }}</td>
+                    <td class="text-right">{{ formatTokens(item.reasoningTokens) }}</td>
+                    <td class="text-right">{{ formatPercent(cacheHitRate(item)) }}</td>
                   </tr>
                 </tbody>
               </table>
@@ -74,25 +66,19 @@
                 <thead>
                   <tr>
                     <th><button class="btn btn-ghost btn-xs px-1 font-semibold" @click="toggleAgentSort('label')">{{ columnLabel("agent") }}{{ sortIndicator(agentSort, 'label') }}</button></th>
-                    <th class="text-right"><button class="btn btn-ghost btn-xs px-1 font-semibold" @click="toggleAgentSort('weightedTokens')">{{ columnLabel("weightedTokens") }}{{ sortIndicator(agentSort, 'weightedTokens') }}</button></th>
                     <th class="text-right"><button class="btn btn-ghost btn-xs px-1 font-semibold" @click="toggleAgentSort('totalTokens')">{{ columnLabel("totalTokens") }}{{ sortIndicator(agentSort, 'totalTokens') }}</button></th>
-                    <th class="text-right"><button class="btn btn-ghost btn-xs px-1 font-semibold" @click="toggleAgentSort('cacheHitRate')">{{ columnLabel("cacheHitRate") }}{{ sortIndicator(agentSort, 'cacheHitRate') }}</button></th>
                     <th class="text-right"><button class="btn btn-ghost btn-xs px-1 font-semibold" @click="toggleAgentSort('outputTokens')">{{ columnLabel("outputTokens") }}{{ sortIndicator(agentSort, 'outputTokens') }}</button></th>
-                    <th class="text-right"><button class="btn btn-ghost btn-xs px-1 font-semibold" @click="toggleAgentSort('cacheReadTokens')">{{ columnLabel("cacheReadTokens") }}{{ sortIndicator(agentSort, 'cacheReadTokens') }}</button></th>
-                    <th class="text-right"><button class="btn btn-ghost btn-xs px-1 font-semibold" @click="toggleAgentSort('cacheWrite')">{{ columnLabel("cacheWrite") }}{{ sortIndicator(agentSort, 'cacheWrite') }}</button></th>
-                    <th class="text-right"><button class="btn btn-ghost btn-xs px-1 font-semibold" @click="toggleAgentSort('conversationCount')">{{ columnLabel("conversationCount") }}{{ sortIndicator(agentSort, 'conversationCount') }}</button></th>
+                    <th class="text-right"><button class="btn btn-ghost btn-xs px-1 font-semibold" @click="toggleAgentSort('reasoningTokens')">{{ columnLabel("reasoningTokens") }}{{ sortIndicator(agentSort, 'reasoningTokens') }}</button></th>
+                    <th class="text-right"><button class="btn btn-ghost btn-xs px-1 font-semibold" @click="toggleAgentSort('cacheHitRate')">{{ columnLabel("cacheHitRate") }}{{ sortIndicator(agentSort, 'cacheHitRate') }}</button></th>
                   </tr>
                 </thead>
                 <tbody>
                   <tr v-for="item in sortedAgents" :key="`agent-${item.key}`">
-                    <td class="min-w-36">{{ item.label }}</td>
-                    <td class="text-right">{{ formatTokens(item.weightedTokens) }}</td>
+                    <td class="min-w-36">{{ agentLabel(item) }}</td>
                     <td class="text-right">{{ formatTokens(totalInputTokens(item)) }}</td>
-                    <td class="text-right">{{ formatPercent(cacheHitRate(item)) }}</td>
                     <td class="text-right">{{ formatTokens(item.outputTokens) }}</td>
-                    <td class="text-right">{{ formatTokens(item.cacheReadTokens) }}</td>
-                    <td class="text-right">{{ formatTokens(cacheWriteAmount(item)) }}</td>
-                    <td class="text-right">{{ item.conversationCount }}</td>
+                    <td class="text-right">{{ formatTokens(item.reasoningTokens) }}</td>
+                    <td class="text-right">{{ formatPercent(cacheHitRate(item)) }}</td>
                   </tr>
                 </tbody>
               </table>
@@ -110,25 +96,19 @@
                 <thead>
                   <tr>
                     <th><button class="btn btn-ghost btn-xs px-1 font-semibold" @click="toggleKindSort('label')">{{ columnLabel("kind") }}{{ sortIndicator(kindSort, 'label') }}</button></th>
-                    <th class="text-right"><button class="btn btn-ghost btn-xs px-1 font-semibold" @click="toggleKindSort('weightedTokens')">{{ columnLabel("weightedTokens") }}{{ sortIndicator(kindSort, 'weightedTokens') }}</button></th>
                     <th class="text-right"><button class="btn btn-ghost btn-xs px-1 font-semibold" @click="toggleKindSort('totalTokens')">{{ columnLabel("totalTokens") }}{{ sortIndicator(kindSort, 'totalTokens') }}</button></th>
-                    <th class="text-right"><button class="btn btn-ghost btn-xs px-1 font-semibold" @click="toggleKindSort('cacheHitRate')">{{ columnLabel("cacheHitRate") }}{{ sortIndicator(kindSort, 'cacheHitRate') }}</button></th>
                     <th class="text-right"><button class="btn btn-ghost btn-xs px-1 font-semibold" @click="toggleKindSort('outputTokens')">{{ columnLabel("outputTokens") }}{{ sortIndicator(kindSort, 'outputTokens') }}</button></th>
-                    <th class="text-right"><button class="btn btn-ghost btn-xs px-1 font-semibold" @click="toggleKindSort('cacheReadTokens')">{{ columnLabel("cacheReadTokens") }}{{ sortIndicator(kindSort, 'cacheReadTokens') }}</button></th>
-                    <th class="text-right"><button class="btn btn-ghost btn-xs px-1 font-semibold" @click="toggleKindSort('cacheWrite')">{{ columnLabel("cacheWrite") }}{{ sortIndicator(kindSort, 'cacheWrite') }}</button></th>
-                    <th class="text-right"><button class="btn btn-ghost btn-xs px-1 font-semibold" @click="toggleKindSort('conversationCount')">{{ columnLabel("conversationCount") }}{{ sortIndicator(kindSort, 'conversationCount') }}</button></th>
+                    <th class="text-right"><button class="btn btn-ghost btn-xs px-1 font-semibold" @click="toggleKindSort('reasoningTokens')">{{ columnLabel("reasoningTokens") }}{{ sortIndicator(kindSort, 'reasoningTokens') }}</button></th>
+                    <th class="text-right"><button class="btn btn-ghost btn-xs px-1 font-semibold" @click="toggleKindSort('cacheHitRate')">{{ columnLabel("cacheHitRate") }}{{ sortIndicator(kindSort, 'cacheHitRate') }}</button></th>
                   </tr>
                 </thead>
                 <tbody>
                   <tr v-for="item in sortedKinds" :key="`kind-${item.key}`">
-                    <td>{{ item.label }}</td>
-                    <td class="text-right">{{ formatTokens(item.weightedTokens) }}</td>
+                    <td>{{ kindLabel(item) }}</td>
                     <td class="text-right">{{ formatTokens(totalInputTokens(item)) }}</td>
-                    <td class="text-right">{{ formatPercent(cacheHitRate(item)) }}</td>
                     <td class="text-right">{{ formatTokens(item.outputTokens) }}</td>
-                    <td class="text-right">{{ formatTokens(item.cacheReadTokens) }}</td>
-                    <td class="text-right">{{ formatTokens(cacheWriteAmount(item)) }}</td>
-                    <td class="text-right">{{ item.conversationCount }}</td>
+                    <td class="text-right">{{ formatTokens(item.reasoningTokens) }}</td>
+                    <td class="text-right">{{ formatPercent(cacheHitRate(item)) }}</td>
                   </tr>
                 </tbody>
               </table>
@@ -170,13 +150,10 @@
               <thead>
                 <tr>
                   <th><button class="btn btn-ghost btn-xs px-1 font-semibold" @click="toggleConversationSort('activityAt')">{{ columnLabel("conversation") }}{{ sortIndicator(conversationSort, 'activityAt') }}</button></th>
-                  <th class="text-right"><button class="btn btn-ghost btn-xs px-1 font-semibold" @click="toggleConversationSort('weightedTokens')">{{ columnLabel("weightedTokens") }}{{ sortIndicator(conversationSort, 'weightedTokens') }}</button></th>
                   <th class="text-right"><button class="btn btn-ghost btn-xs px-1 font-semibold" @click="toggleConversationSort('totalTokens')">{{ columnLabel("totalTokens") }}{{ sortIndicator(conversationSort, 'totalTokens') }}</button></th>
-                  <th class="text-right"><button class="btn btn-ghost btn-xs px-1 font-semibold" @click="toggleConversationSort('cacheHitRate')">{{ columnLabel("cacheHitRate") }}{{ sortIndicator(conversationSort, 'cacheHitRate') }}</button></th>
                   <th class="text-right"><button class="btn btn-ghost btn-xs px-1 font-semibold" @click="toggleConversationSort('outputTokens')">{{ columnLabel("outputTokens") }}{{ sortIndicator(conversationSort, 'outputTokens') }}</button></th>
-                  <th class="text-right"><button class="btn btn-ghost btn-xs px-1 font-semibold" @click="toggleConversationSort('cacheReadTokens')">{{ columnLabel("cacheReadTokens") }}{{ sortIndicator(conversationSort, 'cacheReadTokens') }}</button></th>
-                  <th class="text-right"><button class="btn btn-ghost btn-xs px-1 font-semibold" @click="toggleConversationSort('cacheWrite')">{{ columnLabel("cacheWrite") }}{{ sortIndicator(conversationSort, 'cacheWrite') }}</button></th>
-                  <th class="text-right"><button class="btn btn-ghost btn-xs px-1 font-semibold" @click="toggleConversationSort('messageCount')">{{ columnLabel("messageCount") }}{{ sortIndicator(conversationSort, 'messageCount') }}</button></th>
+                  <th class="text-right"><button class="btn btn-ghost btn-xs px-1 font-semibold" @click="toggleConversationSort('reasoningTokens')">{{ columnLabel("reasoningTokens") }}{{ sortIndicator(conversationSort, 'reasoningTokens') }}</button></th>
+                  <th class="text-right"><button class="btn btn-ghost btn-xs px-1 font-semibold" @click="toggleConversationSort('cacheHitRate')">{{ columnLabel("cacheHitRate") }}{{ sortIndicator(conversationSort, 'cacheHitRate') }}</button></th>
                 </tr>
               </thead>
               <tbody>
@@ -201,13 +178,10 @@
                       </div>
                     </div>
                   </td>
-                  <td class="text-right font-medium">{{ formatTokens(item.weightedTokens) }}</td>
-                  <td class="text-right">{{ formatTokens(totalInputTokens(item)) }}</td>
-                  <td class="text-right">{{ formatPercent(cacheHitRate(item)) }}</td>
+                  <td class="text-right font-medium">{{ formatTokens(totalInputTokens(item)) }}</td>
                   <td class="text-right">{{ formatTokens(item.outputTokens) }}</td>
-                  <td class="text-right">{{ formatTokens(item.cacheReadTokens) }}</td>
-                  <td class="text-right">{{ formatTokens(cacheWriteAmount(item)) }}</td>
-                  <td class="text-right">{{ item.messageCount }}</td>
+                  <td class="text-right">{{ formatTokens(item.reasoningTokens) }}</td>
+                  <td class="text-right">{{ formatPercent(cacheHitRate(item)) }}</td>
                 </tr>
               </tbody>
             </table>
@@ -255,6 +229,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watchEffect } from "vue";
 import { useI18n } from "vue-i18n";
+import { RefreshCw } from "@lucide/vue";
 import { invokeTauri } from "../../../../services/tauri-api";
 import type {
   PersonaProfile,
@@ -298,6 +273,7 @@ type ProviderModelSortKey =
   | "totalTokens"
   | "cacheHitRate"
   | "outputTokens"
+  | "reasoningTokens"
   | "cacheReadTokens"
   | "cacheWrite"
   | "conversationCount";
@@ -307,6 +283,7 @@ type AggregateSortKey =
   | "totalTokens"
   | "cacheHitRate"
   | "outputTokens"
+  | "reasoningTokens"
   | "cacheReadTokens"
   | "cacheWrite"
   | "conversationCount";
@@ -316,6 +293,7 @@ type ConversationSortKey =
   | "totalTokens"
   | "cacheHitRate"
   | "outputTokens"
+  | "reasoningTokens"
   | "cacheReadTokens"
   | "cacheWrite"
   | "messageCount";
@@ -337,40 +315,25 @@ const conversationFilterOptions = computed(() => [
   { value: "archived" as const, label: t("config.usage.filters.archived") },
 ]);
 
-const summaryStats = computed(() => {
+const summaryStats = computed<Array<{ label: string; value: string; desc?: string }>>(() => {
   if (!overview.value) return [];
   const totals = overview.value.totals;
-  const overallCacheHitRate = cacheHitRate(totals);
   return [
     {
-      label: t("config.usage.stats.weightedTokens"),
-      value: formatTokens(totals.weightedTokens),
-      desc: t("config.usage.stats.referenceOnly"),
+      label: t("config.usage.stats.totalTokens"),
+      value: formatTokens(totals.totalTokens),
     },
     {
       label: t("config.usage.stats.outputTokens"),
       value: formatTokens(totals.outputTokens),
-      desc: " ",
     },
     {
       label: t("config.usage.stats.reasoningTokens"),
       value: formatTokens(totals.reasoningTokens),
-      desc: " ",
-    },
-    {
-      label: t("config.usage.stats.cacheReadTokens"),
-      value: formatTokens(totals.cacheReadTokens),
-      desc: " ",
-    },
-    {
-      label: t("config.usage.stats.cacheWrite"),
-      value: formatTokens(cacheWriteAmount(totals)),
-      desc: " ",
     },
     {
       label: t("config.usage.stats.averageCacheHitRate"),
-      value: formatPercent(overallCacheHitRate),
-      desc: t("config.usage.stats.cacheHitRateHint"),
+      value: formatPercent(cacheHitRate(totals)),
     },
   ];
 });
@@ -478,6 +441,34 @@ function columnLabel(key: string): string {
   return t(`config.usage.columns.${key}`);
 }
 
+// 用量页 by_kind 的 label 由后端硬编码中文，这里按 kind key 映射到当前语言
+function kindLabel(item: UsageAggregateItem): string {
+  const kindKeyMap: Record<string, string> = {
+    normal: t("config.usage.kinds.normal"),
+    delegate: t("config.usage.kinds.delegate"),
+    archived: t("config.usage.kinds.archived"),
+    system_notification: t("config.usage.kinds.systemNotification"),
+    remote_im_contact: t("config.usage.kinds.remoteImContact"),
+  };
+  return kindKeyMap[item.key] ?? item.label;
+}
+
+// 后端对未识别供应商写入硬编码中文占位，这里映射到当前语言
+function providerLabel(item: UsageProviderModelAggregateItem): string {
+  if (item.providerLabel === "未识别供应商") {
+    return t("config.usage.unknownProvider");
+  }
+  return item.providerLabel;
+}
+
+// 后端对未绑定人格写入硬编码中文占位，这里映射到当前语言
+function agentLabel(item: UsageAggregateItem): string {
+  if (item.label === "未绑定人格") {
+    return t("config.usage.unboundAgent");
+  }
+  return item.label;
+}
+
 function compareNumber(left: number, right: number): number {
   return left - right;
 }
@@ -497,6 +488,7 @@ function providerModelSortValue(item: UsageProviderModelAggregateItem, key: Prov
   if (key === "totalTokens") return item.totalTokens || 0;
   if (key === "cacheHitRate") return cacheHitRate(item);
   if (key === "outputTokens") return item.outputTokens || 0;
+  if (key === "reasoningTokens") return item.reasoningTokens || 0;
   if (key === "cacheReadTokens") return item.cacheReadTokens || 0;
   if (key === "cacheWrite") return cacheWriteSortValue(item);
   return item.conversationCount || 0;
@@ -508,6 +500,7 @@ function aggregateSortValue(item: UsageAggregateItem, key: AggregateSortKey): nu
   if (key === "totalTokens") return item.totalTokens || 0;
   if (key === "cacheHitRate") return cacheHitRate(item);
   if (key === "outputTokens") return item.outputTokens || 0;
+  if (key === "reasoningTokens") return item.reasoningTokens || 0;
   if (key === "cacheReadTokens") return item.cacheReadTokens || 0;
   if (key === "cacheWrite") return cacheWriteSortValue(item);
   return item.conversationCount || 0;
@@ -521,6 +514,7 @@ function conversationSortValue(item: UsageConversationItem, key: ConversationSor
   if (key === "totalTokens") return item.totalTokens || 0;
   if (key === "cacheHitRate") return cacheHitRate(item);
   if (key === "outputTokens") return item.outputTokens || 0;
+  if (key === "reasoningTokens") return item.reasoningTokens || 0;
   if (key === "cacheReadTokens") return item.cacheReadTokens || 0;
   if (key === "cacheWrite") return cacheWriteSortValue(item);
   return item.messageCount || 0;
@@ -639,6 +633,10 @@ function formatConversationMeta(item: UsageConversationItem): string {
 }
 
 function displayConversationTitle(item: UsageConversationItem): string {
+  // 后端对已删除会话写入硬编码中文占位，这里映射到当前语言
+  if (item.title === "已删除会话") {
+    return t("config.usage.deletedConversation");
+  }
   return resolveConversationDisplayTitle(
     {
       conversationId: item.conversationId,
@@ -663,7 +661,10 @@ function conversationAvatarUrl(item: UsageConversationItem): string {
 
 function conversationAvatarLabel(item: UsageConversationItem): string {
   const fallback = t("config.usage.conversationAvatar");
-  return String(item.agentName || displayConversationTitle(item) || fallback).trim() || fallback;
+  const agentName = item.agentName === "未绑定人格"
+    ? t("config.usage.unboundAgent")
+    : item.agentName;
+  return String(agentName || displayConversationTitle(item) || fallback).trim() || fallback;
 }
 
 function conversationAvatarInitial(item: UsageConversationItem): string {

@@ -2,6 +2,7 @@ import { computed, onScopeDispose, ref, shallowRef, watch, type Ref } from "vue"
 import {
   bindTransportConversationStream,
   invokeTauri,
+  isTauriRuntimeAvailable,
   onTransportNotification,
   probeTransportConversationStream,
   unbindTransportConversationStream,
@@ -23,6 +24,7 @@ import {
 } from "./chat-foreground-coordinator";
 import { reconcileForegroundRuntime } from "./foreground-recovery-state-machine";
 import { useChatFlow } from "./use-chat-flow";
+import { useChatScrollCoordinator } from "./use-chat-scroll-coordinator";
 import { useChatRewindActions } from "./use-chat-rewind-actions";
 import { DRAFT_USER_ID_PREFIX } from "./use-chat-flow-drafts";
 import type { ConversationRuntimeStreamCacheSnapshot } from "./use-chat-flow-stream-cache";
@@ -94,12 +96,15 @@ export function useConversationViewRuntime(options: ConversationViewRuntimeOptio
   const planModeEnabled = ref(false);
   const runtimeState = ref<ConversationRuntimeState>("idle");
   const foregroundSyncing = ref(false);
+  // flow 发送保护用：流式/提交/组织上下文都算忙碌（与主窗口 use-chat-runtime-setup 一致）。
   const conversationBusy = computed(() =>
     submitPending.value
     || chatting.value
     || runtimeState.value === "assistant_streaming"
     || runtimeState.value === "organizing_context"
   );
+  // 视图层交互忙碌由组件层统一调用 isViewLayerBusy 判定（chat-view-busy.ts），
+  // 不再在 runtime 内自建一份拼装，避免与主会话外壳分叉。
   let snapshotRequestSequence = 0;
   let disposed = false;
   const foregroundTailWatermark = createForegroundTailWatermarkCoordinator({
@@ -207,6 +212,7 @@ export function useConversationViewRuntime(options: ConversationViewRuntimeOptio
           requestSnapshot: () => requestSnapshot(conversationId),
           applySnapshot: (snapshot) => applySnapshot(snapshot, syncOptions.preserveExistingHistory),
           bind: () => flow.bindActiveConversationStream(conversationId, true),
+          alwaysBind: !isTauriRuntimeAvailable(),
           resume: (snapshot) => {
             const runtimeState = String(snapshot?.runtimeState || "").trim();
             const streamCache = snapshot?.streamCache as Record<string, unknown> | null | undefined;
@@ -284,6 +290,14 @@ export function useConversationViewRuntime(options: ConversationViewRuntimeOptio
     allMessages.value = mergeAuthoritativeMessages(allMessages.value, [message], { forceReplace: true });
     return true;
   }
+
+  const {
+    conversationScrollToBottomRequest,
+    scrollToBottomBehavior,
+    triggerConversationScrollToBottom,
+  } = useChatScrollCoordinator({
+    currentChatConversationId: options.conversationId,
+  });
 
   const flow = useChatFlow({
     chatting,
@@ -366,6 +380,13 @@ export function useConversationViewRuntime(options: ConversationViewRuntimeOptio
       });
     },
     onReloadMessages: loadSnapshot,
+    onOwnUserDraftInserted: ({ conversationId }) => {
+      triggerConversationScrollToBottom(conversationId, "draft_inserted", "smooth_light");
+    },
+    onStreamingAssistantBubbleInserted: () => {
+      const cid = currentConversationId();
+      if (cid) triggerConversationScrollToBottom(cid, "assistant_bubble_inserted", "smooth_light");
+    },
     onHistoryFlushed: async ({ conversationId, pendingMessages }) => {
       if (conversationId !== currentConversationId()) return;
       allMessages.value = mergeAuthoritativeMessages(allMessages.value, pendingMessages, {
@@ -637,6 +658,8 @@ export function useConversationViewRuntime(options: ConversationViewRuntimeOptio
     runtimeState,
     conversationBusy,
     foregroundSyncing,
+    conversationScrollToBottomRequest,
+    scrollToBottomBehavior,
     preferredApiConfigId,
     hasMoreHistory,
     loadingOlderHistory,

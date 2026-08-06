@@ -366,7 +366,7 @@ describe("useChatFlow stream isolation", () => {
     expect(visibleTurnCount.value).toBe(1);
 
     capturedChannel!.emit({ delta: "N" });
-    await vi.advanceTimersByTimeAsync(34);
+    await vi.advanceTimersByTimeAsync(110);
     expect(chatting.value).toBe(true);
     expect(latestAssistantText.value).toBe("N");
 
@@ -456,7 +456,7 @@ describe("useChatFlow stream isolation", () => {
     expect(toolStatusText.value).toBe("模型请求失败 code 500，正在重试 (1/5)，等待 1 秒...");
 
     capturedChannel!.emit({ delta: "N" });
-    await vi.advanceTimersByTimeAsync(34);
+    await vi.advanceTimersByTimeAsync(110);
 
     const streamingDraft = allMessages.value.find((message) => String(message.id || "").startsWith("__draft_assistant__:"));
     expect(streamingDraft?.providerMeta?._preStreamingStatusText).toBe("");
@@ -2062,6 +2062,7 @@ describe("useChatFlowStop", () => {
       deleteSendStartedAtMs: () => {},
       clearConversationStreamCache: () => {},
       reasoningStartedAtMs,
+      flushStreamTextBuffer: () => {},
     });
 
     await stop.stopChat();
@@ -2175,6 +2176,7 @@ describe("useChatFlowStop", () => {
       deleteSendStartedAtMs: () => {},
       clearConversationStreamCache: () => {},
       reasoningStartedAtMs,
+      flushStreamTextBuffer: () => {},
     });
 
     await stop.stopChat();

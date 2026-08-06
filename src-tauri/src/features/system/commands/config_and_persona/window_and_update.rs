@@ -726,6 +726,10 @@ fn save_config_inner(
                 main_config.hotkey,
                 err
             ));
+            return Err(format!(
+                "Register hotkey failed: {}, config saved but hotkey inactive. err={}",
+                main_config.hotkey, err
+            ));
         }
     }
     if !main_config.web_access_enabled && IDE_CONTEXT_BRIDGE_STARTED.load(Ordering::SeqCst) {

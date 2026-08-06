@@ -83,6 +83,7 @@ Current release strategy:
 
 - Windows: NSIS installer + zip portable (`PORTABLE` marker), in-app auto-update
 - Linux: `.deb` / `AppImage`, release pipeline maintained
+- macOS: universal DMG for Intel and Apple Silicon, release pipeline maintained
 
 ## Data & Privacy
 

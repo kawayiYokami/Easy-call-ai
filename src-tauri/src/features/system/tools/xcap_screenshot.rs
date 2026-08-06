@@ -271,7 +271,11 @@ fn encode_screenshot_response(
         },
     )
     .map_err(DesktopToolError::internal_error)?;
-    let image_base64 = B64.encode(&normalized.bytes);
+    let image_base64 = if input.include_base64 {
+        Some(B64.encode(&normalized.bytes))
+    } else {
+        None
+    };
     let encode_ms = encode_started.elapsed().as_millis() as u64;
 
     let (path, save_ms) = maybe_save_screenshot_bytes(input, &normalized.bytes)?;
@@ -450,11 +454,18 @@ fn run_capture_window_tool(input: ScreenshotRequest, window_id: Option<u32>) -> 
 }
 
 async fn run_screenshot_tool(input: ScreenshotRequest) -> DesktopToolResult<ScreenshotResponse> {
-    validate_screenshot_request(&input)?;
-    let started = Instant::now();
-
-    let (rgba, width, height, bounds, capture_ms) = capture_once_xcap(&input)?;
-    encode_screenshot_response(&input, &rgba, width, height, bounds, capture_ms, started)
+    // 截图捕获、WebP 编码与写盘都是同步 IO + CPU 密集操作，移到 blocking 线程池，
+    // 避免每次截图占住 tokio 工作线程。
+    tokio::task::spawn_blocking(move || {
+        validate_screenshot_request(&input)?;
+        let started = Instant::now();
+        let (rgba, width, height, bounds, capture_ms) = capture_once_xcap(&input)?;
+        encode_screenshot_response(&input, &rgba, width, height, bounds, capture_ms, started)
+    })
+    .await
+    .map_err(|err| {
+        DesktopToolError::internal_error(format!("screenshot task failed: {err}"))
+    })?
 }
 
 #[cfg(test)]
@@ -466,6 +477,7 @@ fn encode_screenshot_response_should_reject_over_10k_capture() {
         region: None,
         save_path: None,
         webp_quality: 75.0,
+        include_base64: true,
     };
     let width = 10_001u32;
     let height = 8u32;
@@ -488,4 +500,49 @@ fn encode_screenshot_response_should_reject_over_10k_capture() {
 
     assert!(matches!(err.code, DesktopToolErrorCode::InvalidParams));
     assert!(err.message.contains("10000x10000"));
+}
+
+#[test]
+fn encode_screenshot_response_should_skip_base64_and_save_file_when_disabled() {
+    let save_path = std::env::temp_dir()
+        .join(format!("easy-call-ai-encode-test-{}.webp", Uuid::new_v4()))
+        .to_string_lossy()
+        .to_string();
+    let input = ScreenshotRequest {
+        mode: ScreenshotMode::Desktop,
+        monitor_id: None,
+        region: None,
+        save_path: Some(save_path.clone()),
+        webp_quality: 75.0,
+        include_base64: false,
+    };
+    let width = 64u32;
+    let height = 64u32;
+    let rgba = vec![0u8; (width as usize) * (height as usize) * 4];
+    let result = encode_screenshot_response(
+        &input,
+        &rgba,
+        width,
+        height,
+        ScreenBounds {
+            x: 0,
+            y: 0,
+            width,
+            height,
+        },
+        0,
+        Instant::now(),
+    )
+    .expect("small screenshot should encode");
+
+    assert!(
+        result.image_base64.is_none(),
+        "base64 should be skipped when include_base64=false"
+    );
+    let saved = result.path.expect("file should be saved when save_path given");
+    assert!(
+        std::path::Path::new(&saved).exists(),
+        "screenshot file should exist on disk: {saved}"
+    );
+    let _ = std::fs::remove_file(&saved);
 }

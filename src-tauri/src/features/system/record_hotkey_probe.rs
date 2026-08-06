@@ -170,7 +170,7 @@ fn record_hotkey_signature(raw: &str) -> Option<String> {
     Some(parts.join("+"))
 }
 
-#[cfg(any(target_os = "windows", target_os = "macos", target_os = "linux"))]
+#[cfg(any(target_os = "windows", target_os = "linux"))]
 fn modifier_token_from_key(key: rdev::Key) -> Option<&'static str> {
     match key {
         rdev::Key::ControlLeft | rdev::Key::ControlRight => Some("CTRL"),
@@ -181,7 +181,7 @@ fn modifier_token_from_key(key: rdev::Key) -> Option<&'static str> {
     }
 }
 
-#[cfg(any(target_os = "windows", target_os = "macos", target_os = "linux"))]
+#[cfg(any(target_os = "windows", target_os = "linux"))]
 fn token_from_key(key: rdev::Key) -> Option<String> {
     if let Some(token) = modifier_token_from_key(key) {
         return Some(token.to_string());
@@ -249,6 +249,7 @@ fn token_from_key(key: rdev::Key) -> Option<String> {
         rdev::Key::Slash => "/",
         rdev::Key::Return => "ENTER",
         rdev::Key::Tab => "TAB",
+        rdev::Key::CapsLock => "CAPSLOCK",
         _ => return None,
     };
     Some(token.to_string())
@@ -281,6 +282,48 @@ fn set_modifier_state(state: &mut RecordHotkeyProbeState, token: &str, value: bo
 #[cfg(any(target_os = "windows", target_os = "macos", target_os = "linux"))]
 fn should_stop_on_release(parsed: &ParsedRecordHotkey, released_token: &str) -> bool {
     released_token == parsed.main || parsed.modifiers.contains(released_token)
+}
+
+#[cfg(any(target_os = "windows", target_os = "macos", target_os = "linux"))]
+fn handle_record_hotkey_probe_key(
+    app: &AppHandle,
+    state_arc: &std::sync::Arc<std::sync::Mutex<RecordHotkeyProbeState>>,
+    parsed_state: &std::sync::Arc<std::sync::Mutex<Option<ParsedRecordHotkey>>>,
+    token: String,
+    pressed: bool,
+) {
+    if pressed && (!is_record_hotkey_probe_background_wake_enabled() || is_record_hotkey_probe_chat_window_active()) {
+        return;
+    }
+    let parsed = match parsed_state.lock() {
+        Ok(slot) => slot.clone(),
+        Err(_) => return,
+    };
+    let Some(parsed) = parsed else { return };
+    let Ok(mut state) = state_arc.lock() else { return };
+    if pressed {
+        if let Some(modifier) = ["CTRL", "ALT", "SHIFT", "META"].iter().find(|item| **item == token) {
+            set_modifier_state(&mut state, modifier, true);
+        }
+        if state.active || token != parsed.main || !modifiers_exact(&state, &parsed.modifiers) {
+            return;
+        }
+        state.active = true;
+        drop(state);
+        emit_record_hotkey_probe_event(app, "pressed");
+        return;
+    }
+    let should_emit_release = state.active && should_stop_on_release(&parsed, &token);
+    if let Some(modifier) = ["CTRL", "ALT", "SHIFT", "META"].iter().find(|item| **item == token) {
+        set_modifier_state(&mut state, modifier, false);
+    }
+    if should_emit_release {
+        state.active = false;
+    }
+    drop(state);
+    if should_emit_release {
+        emit_record_hotkey_probe_event(app, "released");
+    }
 }
 
 #[cfg(any(target_os = "windows", target_os = "macos", target_os = "linux"))]
@@ -377,7 +420,7 @@ fn is_record_hotkey_probe_chat_window_active() -> bool {
         .unwrap_or(false)
 }
 
-#[cfg(any(target_os = "windows", target_os = "macos", target_os = "linux"))]
+#[cfg(any(target_os = "windows", target_os = "linux"))]
 fn start_record_hotkey_probe(app: AppHandle, config_path: std::path::PathBuf) -> Result<(), String> {
     let started = RECORD_HOTKEY_PROBE_STARTED
         .get_or_init(|| std::sync::atomic::AtomicBool::new(false));
@@ -412,70 +455,13 @@ fn start_record_hotkey_probe(app: AppHandle, config_path: std::path::PathBuf) ->
         let state_for_callback = state.clone();
         let callback = move |event: rdev::Event| match event.event_type {
             rdev::EventType::KeyPress(key) => {
-                if !is_record_hotkey_probe_background_wake_enabled() {
-                    return;
+                if let Some(token) = token_from_key(key) {
+                    handle_record_hotkey_probe_key(&app, &state_for_callback, &parsed_state, token, true);
                 }
-                if is_record_hotkey_probe_chat_window_active() {
-                    return;
-                }
-                let Some(token) = token_from_key(key) else {
-                    return;
-                };
-                let parsed = {
-                    let Ok(slot) = parsed_state.lock() else {
-                        return;
-                    };
-                    slot.clone()
-                };
-                let Some(parsed) = parsed else {
-                    return;
-                };
-                let Ok(mut state) = state_for_callback.lock() else {
-                    return;
-                };
-                if let Some(modifier) = modifier_token_from_key(key) {
-                    set_modifier_state(&mut state, modifier, true);
-                }
-                if state.active {
-                    return;
-                }
-                if token != parsed.main {
-                    return;
-                }
-                if !modifiers_exact(&state, &parsed.modifiers) {
-                    return;
-                }
-                state.active = true;
-                drop(state);
-                emit_record_hotkey_probe_event(&app, "pressed");
             }
             rdev::EventType::KeyRelease(key) => {
-                let Some(token) = token_from_key(key) else {
-                    return;
-                };
-                let parsed = {
-                    let Ok(slot) = parsed_state.lock() else {
-                        return;
-                    };
-                    slot.clone()
-                };
-                let Some(parsed) = parsed else {
-                    return;
-                };
-                let mut should_emit_release = false;
-                let Ok(mut state) = state_for_callback.lock() else {
-                    return;
-                };
-                if state.active && should_stop_on_release(&parsed, &token) {
-                    state.active = false;
-                    should_emit_release = true;
-                }
-                if let Some(modifier) = modifier_token_from_key(key) {
-                    set_modifier_state(&mut state, modifier, false);
-                }
-                drop(state);
-                if should_emit_release {
-                    emit_record_hotkey_probe_event(&app, "released");
+                if let Some(token) = token_from_key(key) {
+                    handle_record_hotkey_probe_key(&app, &state_for_callback, &parsed_state, token, false);
                 }
             }
             _ => {}
@@ -485,6 +471,167 @@ fn start_record_hotkey_probe(app: AppHandle, config_path: std::path::PathBuf) ->
         }
     });
     Ok(())
+}
+
+#[cfg(target_os = "macos")]
+fn start_record_hotkey_probe(app: AppHandle, config_path: std::path::PathBuf) -> Result<(), String> {
+    use core_foundation::runloop::CFRunLoop;
+    use core_graphics::event::{
+        CallbackResult, CGEventTap, CGEventTapLocation, CGEventTapOptions,
+        CGEventTapPlacement, CGEventType, EventField,
+    };
+
+    let started = RECORD_HOTKEY_PROBE_STARTED.get_or_init(|| std::sync::atomic::AtomicBool::new(false));
+    if started.compare_exchange(false, true, std::sync::atomic::Ordering::AcqRel, std::sync::atomic::Ordering::Acquire).is_err() {
+        return Ok(());
+    }
+    let config = read_config(&config_path).unwrap_or_default();
+    set_record_hotkey_probe_background_wake_enabled(config.record_background_wake_enabled);
+    set_record_hotkey_probe_hotkey(&config.record_hotkey)?;
+    if config.record_hotkey.trim().is_empty() {
+        return Ok(());
+    }
+    let state = std::sync::Arc::new(std::sync::Mutex::new(RecordHotkeyProbeState::default()));
+    let _ = RECORD_HOTKEY_PROBE_STATE.set(state.clone());
+    let parsed_state = RECORD_HOTKEY_PROBE_PARSED.get_or_init(|| std::sync::Arc::new(std::sync::Mutex::new(None))).clone();
+    std::thread::Builder::new().name("macos-record-hotkey-probe".to_string()).spawn(move || {
+        let install = CGEventTap::with_enabled(CGEventTapLocation::HID, CGEventTapPlacement::HeadInsertEventTap, CGEventTapOptions::ListenOnly, vec![CGEventType::KeyDown, CGEventType::KeyUp, CGEventType::FlagsChanged], move |_proxy, event_type, event| {
+            if matches!(event_type, CGEventType::FlagsChanged) {
+                handle_macos_record_hotkey_modifier_flags(&app, &state, &parsed_state, event.get_flags());
+                return CallbackResult::Keep;
+            }
+            if !matches!(event_type, CGEventType::KeyDown | CGEventType::KeyUp) {
+                return CallbackResult::Keep;
+            }
+            let keycode = event.get_integer_value_field(EventField::KEYBOARD_EVENT_KEYCODE) as u16;
+            let token = macos_key_token(keycode);
+            if let Some(token) = token {
+                handle_record_hotkey_probe_key(
+                    &app,
+                    &state,
+                    &parsed_state,
+                    token,
+                    matches!(event_type, CGEventType::KeyDown),
+                );
+            }
+            CallbackResult::Keep
+        }, CFRunLoop::run_current);
+        if install.is_err() { runtime_log_error("[录音热键] macOS Event Tap 创建失败，请授予辅助功能权限".to_string()); }
+    }).map_err(|err| format!("启动 macOS 录音热键监听失败：{err}"))?;
+    Ok(())
+}
+
+#[cfg(target_os = "macos")]
+fn handle_macos_record_hotkey_modifier_flags(
+    app: &AppHandle,
+    state_arc: &std::sync::Arc<std::sync::Mutex<RecordHotkeyProbeState>>,
+    parsed_state: &std::sync::Arc<std::sync::Mutex<Option<ParsedRecordHotkey>>>,
+    flags: core_graphics::event::CGEventFlags,
+) {
+    use core_graphics::event::CGEventFlags;
+
+    let parsed = match parsed_state.lock() {
+        Ok(slot) => slot.clone(),
+        Err(_) => return,
+    };
+    let Some(parsed) = parsed else { return };
+    let Ok(mut state) = state_arc.lock() else { return };
+    let was_active = state.active;
+    let was_exact = modifiers_exact(&state, &parsed.modifiers);
+    state.ctrl = flags.contains(CGEventFlags::CGEventFlagControl);
+    state.alt = flags.contains(CGEventFlags::CGEventFlagAlternate);
+    state.shift = flags.contains(CGEventFlags::CGEventFlagShift);
+    state.meta = flags.contains(CGEventFlags::CGEventFlagCommand);
+    let is_exact = modifiers_exact(&state, &parsed.modifiers);
+    let is_modifier_only = parsed.modifiers.contains(&parsed.main);
+    let can_activate = is_record_hotkey_probe_background_wake_enabled()
+        && !is_record_hotkey_probe_chat_window_active();
+    let should_emit_pressed = can_activate && !was_active && !was_exact && is_exact && is_modifier_only;
+    let should_emit_released = was_active && !is_exact;
+    if should_emit_pressed {
+        state.active = true;
+    } else if should_emit_released {
+        state.active = false;
+    }
+    drop(state);
+    if should_emit_pressed {
+        emit_record_hotkey_probe_event(app, "pressed");
+    } else if should_emit_released {
+        emit_record_hotkey_probe_event(app, "released");
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn macos_key_token(keycode: u16) -> Option<String> {
+    use core_graphics::event::KeyCode;
+
+    let token = match keycode {
+        KeyCode::ANSI_A => "A",
+        KeyCode::ANSI_B => "B",
+        KeyCode::ANSI_C => "C",
+        KeyCode::ANSI_D => "D",
+        KeyCode::ANSI_E => "E",
+        KeyCode::ANSI_F => "F",
+        KeyCode::ANSI_G => "G",
+        KeyCode::ANSI_H => "H",
+        KeyCode::ANSI_I => "I",
+        KeyCode::ANSI_J => "J",
+        KeyCode::ANSI_K => "K",
+        KeyCode::ANSI_L => "L",
+        KeyCode::ANSI_M => "M",
+        KeyCode::ANSI_N => "N",
+        KeyCode::ANSI_O => "O",
+        KeyCode::ANSI_P => "P",
+        KeyCode::ANSI_Q => "Q",
+        KeyCode::ANSI_R => "R",
+        KeyCode::ANSI_S => "S",
+        KeyCode::ANSI_T => "T",
+        KeyCode::ANSI_U => "U",
+        KeyCode::ANSI_V => "V",
+        KeyCode::ANSI_W => "W",
+        KeyCode::ANSI_X => "X",
+        KeyCode::ANSI_Y => "Y",
+        KeyCode::ANSI_Z => "Z",
+        KeyCode::ANSI_0 => "0",
+        KeyCode::ANSI_1 => "1",
+        KeyCode::ANSI_2 => "2",
+        KeyCode::ANSI_3 => "3",
+        KeyCode::ANSI_4 => "4",
+        KeyCode::ANSI_5 => "5",
+        KeyCode::ANSI_6 => "6",
+        KeyCode::ANSI_7 => "7",
+        KeyCode::ANSI_8 => "8",
+        KeyCode::ANSI_9 => "9",
+        KeyCode::ANSI_MINUS => "-",
+        KeyCode::ANSI_EQUAL => "=",
+        KeyCode::ANSI_LEFT_BRACKET => "[",
+        KeyCode::ANSI_RIGHT_BRACKET => "]",
+        KeyCode::ANSI_BACKSLASH => "\\",
+        KeyCode::ANSI_SEMICOLON => ";",
+        KeyCode::ANSI_QUOTE => "'",
+        KeyCode::ANSI_COMMA => ",",
+        KeyCode::ANSI_PERIOD => ".",
+        KeyCode::ANSI_SLASH => "/",
+        KeyCode::ANSI_GRAVE => "·",
+        KeyCode::CAPS_LOCK => "CAPSLOCK",
+        KeyCode::SPACE => "SPACE",
+        KeyCode::RETURN => "ENTER",
+        KeyCode::TAB => "TAB",
+        KeyCode::F1 => "F1",
+        KeyCode::F2 => "F2",
+        KeyCode::F3 => "F3",
+        KeyCode::F4 => "F4",
+        KeyCode::F5 => "F5",
+        KeyCode::F6 => "F6",
+        KeyCode::F7 => "F7",
+        KeyCode::F8 => "F8",
+        KeyCode::F9 => "F9",
+        KeyCode::F10 => "F10",
+        KeyCode::F11 => "F11",
+        KeyCode::F12 => "F12",
+        _ => return None,
+    };
+    Some(token.to_string())
 }
 
 #[cfg(not(any(target_os = "windows", target_os = "macos", target_os = "linux")))]
@@ -501,4 +648,36 @@ fn set_record_hotkey_probe_chat_window_active(_active: bool) {}
 #[cfg(not(any(target_os = "windows", target_os = "macos", target_os = "linux")))]
 fn set_record_hotkey_probe_hotkey(_raw_hotkey: &str) -> Result<(), String> {
     Ok(())
+}
+
+#[cfg(test)]
+mod record_hotkey_probe_tests {
+    use super::*;
+
+    #[test]
+    fn normalizes_modifier_only_record_hotkey() {
+        assert_eq!(normalize_record_hotkey_label("option"), Ok("Alt".to_string()));
+        assert_eq!(normalize_record_hotkey_label("Command"), Ok("Meta".to_string()));
+    }
+
+    #[test]
+    fn normalizes_combined_record_hotkey() {
+        assert_eq!(
+            normalize_record_hotkey_label(" command + shift + k "),
+            Ok("Shift+Meta+K".to_string())
+        );
+        assert_eq!(
+            record_hotkey_signature("Shift+Meta+K"),
+            Some("SHIFT+META+K".to_string())
+        );
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn maps_macos_function_and_punctuation_keys() {
+        assert_eq!(macos_key_token(0x7A), Some("F1".to_string()));
+        assert_eq!(macos_key_token(0x60), Some("F5".to_string()));
+        assert_eq!(macos_key_token(0x2F), Some(".".to_string()));
+        assert_eq!(macos_key_token(0x1B), Some("-".to_string()));
+    }
 }

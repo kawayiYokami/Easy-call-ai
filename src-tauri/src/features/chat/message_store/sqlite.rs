@@ -2,6 +2,7 @@ use rusqlite::{OptionalExtension as _, TransactionBehavior};
 
 const CHAT_METADATA_DB_FILE_NAME: &str = "chat_metadata.sqlite";
 const CHAT_STORAGE_MIGRATION_KEY: &str = "v3_chat_metadata_sqlite";
+pub(super) const USAGE_TRAIL_MIGRATION_KEY: &str = "usage_trail_v1";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct ChatStorageOperationDetail {
@@ -176,7 +177,28 @@ fn chat_metadata_store_open(data_path: &PathBuf) -> Result<rusqlite::Connection,
            detail_json TEXT NOT NULL,
            created_at TEXT NOT NULL,
            committed_at TEXT
-         );",
+         );
+         CREATE TABLE IF NOT EXISTS usage_trail (
+           bucket TEXT NOT NULL,
+           conversation_id TEXT NOT NULL,
+           agent_id TEXT NOT NULL DEFAULT '',
+           department_id TEXT NOT NULL DEFAULT '',
+           conversation_kind TEXT NOT NULL DEFAULT '',
+           api_config_id TEXT NOT NULL DEFAULT '',
+           provider_key TEXT NOT NULL DEFAULT '',
+           provider_label TEXT NOT NULL DEFAULT '',
+           model_name TEXT NOT NULL DEFAULT '',
+           input_tokens INTEGER NOT NULL DEFAULT 0,
+           output_tokens INTEGER NOT NULL DEFAULT 0,
+           total_tokens INTEGER NOT NULL DEFAULT 0,
+           cache_read_tokens INTEGER NOT NULL DEFAULT 0,
+           cache_write_tokens INTEGER NOT NULL DEFAULT 0,
+           reasoning_tokens INTEGER NOT NULL DEFAULT 0,
+           updated_at TEXT NOT NULL,
+           PRIMARY KEY (bucket, conversation_id, provider_key, model_name)
+         );
+         CREATE INDEX IF NOT EXISTS idx_usage_trail_bucket ON usage_trail(bucket);
+         CREATE INDEX IF NOT EXISTS idx_usage_trail_conversation ON usage_trail(conversation_id);",
     )
     .map_err(|err| format!("初始化聊天元数据数据库失败: {err}"))?;
     for (column, definition) in [

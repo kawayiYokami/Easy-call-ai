@@ -8,6 +8,13 @@ import {
 } from "../../../services/attachment-transfer";
 import { useHotkeyRecordTest } from "../../shell/composables/use-hotkey-record-test";
 import { isAbsoluteLocalPath } from "../utils/local-link";
+import { getActiveChatComposerScope } from "./chat-composer-focus";
+import {
+  applyQueuedAttachmentResult as sharedApplyQueuedAttachmentResult,
+  collectPastedFiles,
+  ingestPastedImages,
+  normalizeFileMime,
+} from "./chat-paste-ingest";
 
 type TrFn = (key: string, params?: Record<string, unknown>) => string;
 
@@ -37,8 +44,13 @@ export function useChatMedia(options: UseChatMediaOptions) {
     isBlocked: options.isRecording,
   });
 
-  function canAcceptImage(apiConfig: ApiConfigItem): boolean {
-    return !!apiConfig.enableImage || options.hasVisionFallback.value;
+  function hasFileTransferPayload(transfer: DataTransfer | null): boolean {
+    if (!transfer) return false;
+    const types = Array.from(transfer.types || []).map((value) => String(value || "").toLowerCase());
+    if (types.includes("files")) return true;
+    if (transfer.files && transfer.files.length > 0) return true;
+    if (transfer.items && Array.from(transfer.items).some((item) => item.kind === "file")) return true;
+    return false;
   }
 
   async function queueTextAttachment(fileName: string, text: string, mime = "text/markdown") {
@@ -49,75 +61,6 @@ export function useChatMedia(options: UseChatMediaOptions) {
       file: textAttachmentFile(fileName, normalizedText, mime),
     });
     applyQueuedAttachmentResult(queued, options.activeChatApiConfig.value || ({ enableImage: false } as ApiConfigItem));
-  }
-
-  function classifyFileMime(
-    mime: string,
-    apiConfig: ApiConfigItem,
-  ): { kind: "image" | "pdf" | null; reason: "imageUnsupported" | null } {
-    const normalized = (mime || "").trim().toLowerCase();
-    if (normalized.startsWith("image/")) {
-      return canAcceptImage(apiConfig)
-        ? { kind: "image", reason: null }
-        : { kind: null, reason: "imageUnsupported" };
-    }
-    if (normalized === "application/pdf") {
-      // PDF 不再走多模态直发，统一入队为普通附件，交由后端阅读链路处理。
-      return { kind: null, reason: null };
-    }
-    return { kind: null, reason: null };
-  }
-
-  function inferMimeFromFileName(name: string): string {
-    const lower = (name || "").trim().toLowerCase();
-    if (lower.endsWith(".pdf")) return "application/pdf";
-    if (lower.endsWith(".png")) return "image/png";
-    if (lower.endsWith(".jpg") || lower.endsWith(".jpeg")) return "image/jpeg";
-    if (lower.endsWith(".gif")) return "image/gif";
-    if (lower.endsWith(".webp")) return "image/webp";
-    if (lower.endsWith(".heic")) return "image/heic";
-    if (lower.endsWith(".heif")) return "image/heif";
-    if (lower.endsWith(".svg")) return "image/svg+xml";
-    return "";
-  }
-
-  function normalizeFileMime(file: File): string {
-    const raw = (file.type || "").trim().toLowerCase();
-    if (raw) return raw;
-    return inferMimeFromFileName(file.name);
-  }
-
-  function hasFileTransferPayload(transfer: DataTransfer | null): boolean {
-    if (!transfer) return false;
-    const types = Array.from(transfer.types || []).map((value) => String(value || "").toLowerCase());
-    if (types.includes("files")) return true;
-    if (transfer.files && transfer.files.length > 0) return true;
-    if (transfer.items && Array.from(transfer.items).some((item) => item.kind === "file")) return true;
-    return false;
-  }
-
-  function collectPastedFiles(
-    event: ClipboardEvent,
-  ): Array<{ file: File; mime: string }> {
-    const data = event.clipboardData;
-    if (!data) return [];
-    const items = data.items;
-    const filesFromItems =
-      items && items.length > 0
-        ? Array.from(items)
-            .filter((item) => item.kind === "file")
-            .map((item) => item.getAsFile())
-            .filter((file): file is File => !!file)
-        : [];
-    const filesFromList = data.files ? Array.from(data.files) : [];
-    const sourceFiles = filesFromItems.length > 0 ? filesFromItems : filesFromList;
-    if (sourceFiles.length === 0) return [];
-    const files: Array<{ file: File; mime: string }> = [];
-    for (const file of sourceFiles) {
-      const mime = normalizeFileMime(file);
-      files.push({ file, mime });
-    }
-    return files;
   }
 
   function collectDroppedFiles(
@@ -144,36 +87,13 @@ export function useChatMedia(options: UseChatMediaOptions) {
   }
 
   function applyQueuedAttachmentResult(queued: AttachmentReceipt, apiConfig: ApiConfigItem) {
-    const mime = String(queued.mime || "").trim().toLowerCase();
-    const classified = classifyFileMime(mime, apiConfig);
-    const canAttachAsMedia = !!queued.attachAsMedia && !!classified.kind;
-    const path = String(queued.path || "").trim().replace(/\\/g, "/");
-    if (!isAbsoluteLocalPath(path)) {
-      options.setChatError("附件保存未返回绝对路径，已跳过该附件。其他消息内容仍可继续发送。");
-      return;
-    }
-
-    if (!canAttachAsMedia) {
-      const fileName = String(queued.fileName || "").trim() || path.split("/").pop() || "attachment";
-      const id = `${path}::${mime}`;
-      if (!options.queuedAttachmentNotices.value.some((item) => item.id === id)) {
-        options.queuedAttachmentNotices.value.push({
-          id,
-          fileName,
-          path,
-          mime,
-        });
-      }
-      return;
-    }
-
-    const previewImage = {
-      mime,
-      bytesBase64: attachmentPreviewBase64(queued),
-      savedPath: path,
-      previewDataUrl: String(queued.previewDataUrl || "").trim() || undefined,
-    };
-    options.clipboardImages.value.push(previewImage);
+    return sharedApplyQueuedAttachmentResult(queued, apiConfig, {
+      setChatError: options.setChatError,
+      setStatusError: options.setStatusError,
+      clipboardImages: options.clipboardImages,
+      queuedAttachmentNotices: options.queuedAttachmentNotices,
+      hasVisionFallback: options.hasVisionFallback.value,
+    });
   }
 
   async function queueInlineBrowserFile(file: File, _mime: string): Promise<AttachmentReceipt> {
@@ -188,7 +108,8 @@ export function useChatMedia(options: UseChatMediaOptions) {
     const collected = collectPastedFiles(event);
     // 焦点位于某个会话输入框（主会话或侧边追问）内时，文本粘贴交给浏览器
     // 原生行为，内容会落到焦点所在的 textarea，而不是被全局拦截后固定写进
-    // 主会话输入框；图片文件仍由本通道统一接管进入附件队列。
+    // 主会话输入框；图片文件按焦点归属路由：焦点在追问输入框时由追问视图的
+    // paste 监听接管入队，本通道只处理主会话输入框（或焦点不在任何输入框）的图片。
     const activeElement = document.activeElement;
     const composerInputFocused = activeElement instanceof HTMLElement
       && activeElement.classList.contains("ecall-chat-composer-input");
@@ -196,6 +117,10 @@ export function useChatMedia(options: UseChatMediaOptions) {
       return;
     }
     if (collected.length > 0) {
+      if (getActiveChatComposerScope() === "side") {
+        // 焦点在追问输入框：图片交给追问侧处理，主会话不拦截。
+        return;
+      }
       event.preventDefault();
       options.setChatError("");
       void (async () => {

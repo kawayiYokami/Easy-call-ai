@@ -49,14 +49,14 @@
       "department": "部门",
       "departmentTree": "部门树",
       "demo": "Demo",
-      "chatSettings": "对话",
+      "chatSettings": "常用",
       "notification": "通知",
       "networkAccess": "网络访问",
       "remoteIm": "联系人",
       "usage": "用量",
       "memory": "记忆",
       "task": "任务",
-      "logs": "日志",
+      "logs": "调试",
       "appearance": "外观",
       "migration": "储存",
       "about": "关于"
@@ -67,21 +67,20 @@
     },
     "language": {},
     "hotkey": {
-      "label": "呼唤热键",
-      "recordButton": "录制热键",
-      "callNowButton": "呼叫 AI",
-      "callNowHint": "本软件支持托盘，可通过托盘菜单打开聊天窗口。",
+      "label": "快捷键",
+      "recordButton": "录制快捷键",
       "recording": "按键中...",
-      "captureDefaultHint": "点击「录制热键」，然后按下组合键（如 Alt+·）。Esc 取消。",
+      "captureDefaultHint": "点击「录制快捷键」，然后按下组合键（如 Alt+·）。Esc 取消。",
       "captureListeningHint": "请按下组合键...",
       "captureCancelledHint": "已取消录制。",
       "captureNeedMainKeyHint": "请再按一个非修饰键。",
-      "captureNeedModifierHint": "全局热键至少需要一个修饰键（Ctrl/Alt/Shift/Meta）。",
+      "captureNeedModifierHint": "全局快捷键至少需要一个修饰键（Ctrl/Alt/Shift）。",
+      "captureMetaNotSupportedHint": "不支持使用 Win/⌘ 键作为全局快捷键。",
       "captureUnrecognizedHint": "未识别到按键，请重试。",
       "captureCapturedHint": "已捕获：{combo}",
       "voiceTitle": "语音",
       "recordKey": "录音键",
-      "backgroundWakeHint": "开启后支持后台语音唤醒（按住录音键）",
+      "backgroundWakeTitle": "后台语音唤醒（按住录音键）",
       "backgroundWakeOn": "后台唤醒: 开",
       "backgroundWakeOff": "后台唤醒: 关",
       "minRecordSeconds": "最短录音(s)",
@@ -98,12 +97,19 @@
       "holdToRecord": "按住开始录音",
       "holdRecordButton": "按住录音",
       "playRecord": "播放录音",
-      "builtinShortcuts": "内置快捷键",
+      "sendMode": "发送快捷键",
+      "sendModeHint": "切换聊天输入框的发送方式：Enter 或 Ctrl+Enter。",
       "builtinTabInstruction": "快捷指令",
+      "builtinTabInstructionHint": "打开快捷指令面板，快速选择指令。",
       "builtinEscStopReplying": "打断当前回复",
+      "builtinEscStopReplyingHint": "停止 AI 正在进行的回复。",
       "builtinShiftTabPlanMode": "切换计划模式",
+      "builtinShiftTabPlanModeHint": "在普通模式与计划模式之间切换。",
       "builtinAltZLineWrap": "切换代码预览自动换行",
-      "builtinShiftWheelConversationSwitch": "切换会话"
+      "builtinAltZLineWrapHint": "切换代码预览的自动换行显示。",
+      "builtinShiftWheelConversationSwitch": "切换会话",
+      "builtinShiftWheelConversationSwitchHint": "滚动切换最近会话。",
+      "builtinWheelKey": "滚轮"
     },
     "notification": {
       "title": "消息通知",
@@ -111,7 +117,9 @@
       "enableLabel": "是否通知",
       "enableHint": "关闭后，后台本地会话完成或失败时不再弹出系统通知。",
       "soundLabel": "是否声音",
-      "soundHint": "开启后，Windows 原生通知会使用系统默认提示音。"
+      "soundHint": "开启后，Windows 原生通知会使用系统默认提示音。",
+      "desktopNoticeLabel": "桌面操作提醒",
+      "desktopNoticeHint": "模型即将执行鼠标、键盘、文本输入或截图操作时，提前弹出系统通知提醒你。"
     },
     "api": {
       "saving": "保存中...",
@@ -131,6 +139,9 @@
       "modelCardsHint": "支持手填模型名，也支持从刷新结果里点选辅助填入。",
       "addModel": "新增模型",
       "unnamedModel": "未命名模型",
+      "emptyModelNotAllowed": "存在未填模型名的模型卡，请先填写模型名或删除该模型卡后再保存。",
+      "editDisplayName": "点击修改显示名",
+      "displayNamePlaceholder": "输入你想要的模型显示名",
       "matchedProtocol": "匹配协议：{protocol}",
       "capabilityText": "大模型",
       "capabilityVoice": "语音",
@@ -276,6 +287,16 @@
       "modelHint": "新累计按供应商和模型细分；历史未细分残留会并入当前推断的供应商/模型。",
       "agentTitle": "人格用量",
       "kindTitle": "会话类型用量",
+      "kinds": {
+        "normal": "普通",
+        "delegate": "委托",
+        "archived": "已归档",
+        "systemNotification": "系统通知",
+        "remoteImContact": "远程联系人"
+      },
+      "deletedConversation": "已删除会话",
+      "unboundAgent": "未绑定人格",
+      "unknownProvider": "未识别供应商",
       "conversationTitle": "会话用量",
       "conversationHint": "按综合总量排序，方便直接定位最耗的会话。",
       "empty": "暂无用量数据。",
@@ -287,12 +308,12 @@
       "updatedAt": "更新：{time}",
       "conversationAvatar": "会话头像",
       "columns": {
-        "provider": "供应商",
         "model": "模型",
         "weightedTokens": "综合总量",
-        "totalTokens": "总输入",
+        "totalTokens": "总量",
         "cacheHitRate": "缓存命中率",
         "outputTokens": "输出",
+        "reasoningTokens": "思考",
         "cacheReadTokens": "缓存读",
         "cacheWrite": "缓存写入",
         "conversationCount": "会话",
@@ -310,14 +331,10 @@
         "archived": "归档"
       },
       "stats": {
-        "weightedTokens": "综合总量",
-        "referenceOnly": "仅供参考",
-        "outputTokens": "总输出",
-        "reasoningTokens": "思维链",
-        "cacheReadTokens": "总缓存读取",
-        "cacheWrite": "缓存写入",
-        "averageCacheHitRate": "平均缓存命中率",
-        "cacheHitRateHint": "未排除无法缓存的"
+        "totalTokens": "总量",
+        "outputTokens": "输出",
+        "reasoningTokens": "思考",
+        "averageCacheHitRate": "缓存命中率"
       }
     },
     "migration": {
@@ -355,121 +372,58 @@
       "applySuccess": "迁移导入完成，应用即将重启。"
     },
     "welcome": {
-      "title": "PAI 配置仪表盘",
-      "subtitle": "红色标记的先补上，黄色的也尽量填一下，剩下的按需来就好。",
-      "askLlmHint": "不知道怎么填？截图发给任意 AI，它能带你一步步配好。",
-      "requiredBadge": "必须",
-      "stronglyRecommendedBadge": "建议",
-      "recommendedBadge": "可选",
-      "currentState": "当前状态：",
       "autoInstall": "一键安装",
-      "manualInstall": "手动安装",
+      "notInstalled": "未安装",
+      "notSet": "未设置",
       "installing": "安装中...",
       "installSuccess": "安装完成，已重新检测。",
       "installFailedFallback": "自动安装失败，已打开官方下载页：{err}",
-      "stats": {},
+      "trail": {
+        "title": "足迹",
+        "viewToday": "今天",
+        "viewHistory": "历史",
+        "conversationCount": "会话数",
+        "totalTokens": "总 Token",
+        "epochTitle": "历史累计",
+        "epochHint": "迁移前的旧账本用量",
+        "loadFailed": "足迹墙加载失败：{err}",
+        "chartArea": "面积图",
+        "yearTotal": "{year} 年用量",
+        "activePeriod": "最活跃时段：{period}",
+        "legendLess": "少",
+        "legendMore": "多",
+        "months": [
+          "",
+          "一月",
+          "二月",
+          "三月",
+          "四月",
+          "五月",
+          "六月",
+          "七月",
+          "八月",
+          "九月",
+          "十月",
+          "十一月",
+          "十二月"
+        ],
+        "chartPolar": "极区图"
+      },
       "cards": {
         "git": {
-          "title": "Git",
-          "summary": "Git 是 PAI 帮你自动跑命令、安装 Skill 的底层工具。装好之后，很多操作可以直接交给 PAI 代办。",
-          "currentOk": "已装好，没问题。",
-          "currentMissing": "还没装。点一键安装，失败时会自动打开官网。",
-          "action": "去看工具",
-          "install": "安装 Git"
+          "title": "Git"
         },
         "node": {
-          "title": "Node.js",
-          "summary": "Node.js 是 Skill 和工具插件的运行环境。没有它，Skill 装不上也用不了。点右边就能装，一两分钟的事。",
-          "currentOk": "已装好，没问题。",
-          "currentMissing": "还没装。点一键安装，失败时会自动打开官网。",
-          "action": "去看工具",
-          "install": "安装 Node.js"
+          "title": "Node.js"
         },
         "ripgrep": {
-          "title": "ripgrep（rg）",
-          "summary": "rg 是编程场景常用的高速代码搜索工具，大项目里搜文件、搜文本会更快。",
-          "currentOk": "已检测到 rg。",
-          "currentMissing": "未检测到 rg。可以直接问 PAI：怎么安装 rg？",
-          "action": "去看工具"
-        },
-        "textModel": {
-          "title": "可用文本模型",
-          "summary": "文本模型是 PAI 的「大脑」。有了它，PAI 才能读你的消息、思考问题、给你回复。建议顺便准备一个支持图片的多模态模型，截图也能直接发给它看。",
-          "currentOkMultimodal": "已接入 {name}，支持文字也支持识图。",
-          "currentOk": "已接入 {name}。暂时还不能识图，但不影响对话。",
-          "currentMissing": "还没接入。去 LLM 页面填个 API Key 就能用。",
-          "action": "去设置 LLM"
+          "title": "ripgrep（rg）"
         },
         "expertModel": {
-          "title": "专家模型",
-          "summary": "主要对话和专家任务默认使用这里。",
-          "currentOk": "已设置：{name}",
-          "currentMissing": "还没设置专家模型。",
-          "action": "去设置模型分工"
+          "title": "专家模型"
         },
         "quickModel": {
-          "title": "快速模型",
-          "summary": "工具审查、联系人秘书等轻量流程默认使用这里。",
-          "currentOk": "已设置：{name}",
-          "currentMissing": "还没设置快速模型。",
-          "action": "去设置模型分工"
-        },
-        "voice": {
-          "title": "语音识别",
-          "summary": "不想打字的时候，直接说话就行。语音识别模型负责把你的语音转成文字发给 PAI。",
-          "currentOk": "已接入 {name}，可以语音输入了。",
-          "currentMissing": "还没接入。去 LLM 页面加个 STT 配置就能用。",
-          "action": "去设置语音"
-        },
-        "embedding": {
-          "title": "嵌入模型",
-          "summary": "嵌入模型是记忆和知识检索的基础。想让 PAI 记住重要的事情、以后能翻出来用，就需要它。",
-          "currentOk": "已接入 {name}。",
-          "currentMissing": "还没接入。想用记忆功能的话需要先补上。",
-          "action": "去设置嵌入"
-        },
-        "rerank": {
-          "title": "重排模型",
-          "summary": "重排模型帮 PAI 在一堆资料里挑出最相关的内容。以后用记忆、做检索的时候，有它会更准。",
-          "currentOk": "已接入 {name}。",
-          "currentMissing": "还没接入。配好之后记忆和搜索能力会明显提升。",
-          "action": "去设置重排"
-        },
-        "memory": {
-          "title": "记忆功能",
-          "summary": "开启之后，PAI 会记住你告诉它的事情。下次聊到相关内容，它自己就能回想起来。",
-          "currentOk": "已就绪，PAI 可以记住对话了。",
-          "currentMissingModel": "嵌入和重排模型都还没配，先补上它们再开记忆。",
-          "currentMissingBinding": "模型有了，但记忆页里还没完成设置。点右边去补一下。",
-          "action": "去设置记忆"
-        },
-        "persona": {
-          "title": "人格",
-          "summary": "人格就是不同风格的助手。你可以给它起名字、设专属头像，什么时候想加再加，不急。",
-          "currentOk": "已有 {count} 个人格。",
-          "currentMissing": "还没有，先用默认助理完全够。想加的时候再来。",
-          "action": "去看人格"
-        },
-        "department": {
-          "title": "部门",
-          "summary": "部门是分工小组，每个部门有自己的名称和工作范围。不是必须的，有需要再建。",
-          "currentOk": "已有 {count} 个部门。",
-          "currentMissing": "还没有，先用主部门完全没问题。",
-          "action": "去看部门"
-        },
-        "skill": {
-          "title": "技能",
-          "summary": "Skill 是 PAI 的「技能包」，教它怎么做某类事情。你不用自己配，告诉 PAI 你需要什么，它能帮你装。",
-          "currentOk": "已安装 {count} 个 Skill。",
-          "currentMissing": "还没装。以后需要什么能力，跟 PAI 说一声就行。",
-          "action": "去看技能"
-        },
-        "mcp": {
-          "title": "MCP",
-          "summary": "MCP 是 PAI 的工具扩展方式。和 Skill 一样，PAI 可以自己安装、自己配置。需要新能力，跟它说就行。",
-          "currentOk": "已启用 {count} 个 MCP。",
-          "currentMissing": "还没装。以后需要扩展能力时再跟 PAI 说。",
-          "action": "去看 MCP"
+          "title": "快速模型"
         }
       }
     },
@@ -565,10 +519,6 @@
       "testFailed": "生图测试失败"
     },
     "tools": {
-      "gitRequiredHint": "检测到未安装可用终端。请先安装 Git，并使用 Git Bash。",
-      "installGit": "安装 Git（Git Bash）",
-      "terminalRuntime": "终端运行环境",
-      "terminalRuntimeHint": "",
       "shellWorkspace": "PAI 助理空间",
       "openDir": "打开目录",
       "initializeWorkspace": "初始化助理空间",
@@ -784,6 +734,10 @@
     "chatSettings": {
       "defaultModelsTitle": "模型分工",
       "defaultModelsHint": "这里设置各类默认模型，其他地方没设置时优先使用这里。",
+      "execTerminalTitle": "执行终端",
+      "execTerminalHint": "",
+      "gitRequiredHint": "检测到未安装可用终端。请先安装 Git，并使用 Git Bash。",
+      "installGit": "安装 Git（Git Bash）",
       "visionApi": "多模态分析模型（可选）",
       "visionApiHint": "给 `read_media` 绑定专用的多模态分析模型；可用于图片、音频、视频理解；选择不配置时不会向模型提供 read_media 工具。",
       "toolReviewApi": "快速模型",
@@ -793,7 +747,7 @@
       "sttTitle": "语音转文字模型",
       "sttHint": "未单独指定语音转文字时，优先使用这里。",
       "sttLocalWebSpeech": "本地（Web Speech）",
-      "sttAutoSend": "完成后发送",
+      "sttAutoSend": "语音转文字后直接发送",
       "noVision": "不配置多模态分析模型",
       "responseStyle": "对话风格",
       "pdfReadMode": "PDF 阅读方式",
@@ -1352,7 +1306,7 @@
       "recentElapsed": "最近拉取耗时"
     },
     "logs": {
-      "title": "调用日志（内存）",
+      "title": "调试设置",
       "backendLogs": "后台日志",
       "refreshPipelineLogs": "刷新调度日志",
       "clearPipelineLogs": "清空调度日志",
@@ -1460,8 +1414,7 @@
     "none": "无要求",
     "concise": "简洁",
     "academic": "学术",
-    "teaching": "教学",
-    "abstract": "抽象"
+    "teaching": "教学"
   },
   "chat": {
     "loadingOlderMessages": "加载更早消息中",
@@ -1559,7 +1512,10 @@
     "recording": "录音中 {seconds}s",
     "transcribing": "语音转写中...",
     "holdRecord": "按住{hotkey}或按钮录音",
-    "placeholder": "跟PAI说话吧",
+    "placeholder": "问问{personaName}",
+    "placeholderBusyIdle": "继续发消息，{personaName} 忙碌完成后一条一条发送",
+    "placeholderBusyQueued": "排队的消息可以切换为引导，让 {personaName} 尽快收到此消息",
+    "placeholderGuided": "你可以继续引导更多消息，{personaName} 接受引导时会一次性收到所有引导消息",
     "trimTip": "点击选择压缩或归档当前对话",
     "branchingConversation": "正在创建会话分支...",
     "branchingConversationDetail": "请稍候，正在准备新的会话分支。",
@@ -1609,12 +1565,16 @@
     "dropImageOrPdf": "拖放文件（图片/PDF 可直接多模态）",
     "attach": "添加附件",
     "send": "发送",
+    "sendModeEnter": "按 Enter 键发送消息",
+    "sendModeCtrlEnter": "按 Ctrl + Enter 键发送消息",
+    "sendModeMenu": "切换发送快捷键",
     "newConversation": "新建会话",
     "newTask": "新建任务",
     "conversationList": "会话列表",
     "untitledConversation": "未命名会话",
     "mainConversationPinned": "系统通知会话始终置顶",
     "recentConversations": "最近会话",
+    "revealConversationSection": "展开所在分组",
     "pinnedConversations": "置顶",
     "otherConversations": "其他",
     "localConversationTab": "本地",
@@ -1658,9 +1618,9 @@
     "defaultWorkspace": "默认会话目录",
     "workspacePickerTitle": "允许 AI 访问的目录",
     "workspacePickerHint": "在这里，你可以设置希望 AI 看到的文件夹，以及工具执行的根目录。",
-    "workspaceWorkModeDirectory": "在此目录",
-    "workspaceWorkModeIsolated": "工作树",
-    "workspaceWorkModeIndependent": "独立工作树",
+    "workspaceWorkModeDirectory": "在此目录工作",
+    "workspaceWorkModeIsolated": "在此目录的所有工作树工作",
+    "workspaceWorkModeIndependent": "在此目录的会话工作树工作",
     "workspaceWorktreeRequiresApproval": "工作树模式至少需要审批权限。",
     "workspaceWorktreeUnavailable": "所选目录不是 Git 仓库根目录，已切换为“在此目录”。",
     "workspaceWorktreeChecking": "正在确认 Git 仓库…",
@@ -1671,7 +1631,7 @@
     "workspaceStatusPermissionApproval": "审查",
     "workspaceStatusPermissionFull": "全权",
     "workspaceStatusPermissionAutonomous": "全权",
-    "workspacePickerAutonomous": "给予本会话最大权限",
+    "workspacePickerAutonomous": "本会话始终批准一切请求",
     "workspacePickerAutonomousHint": "开启后，终端与补丁工具可访问任意目录，并跳过目录权限、智能评估与人工审批。",
     "workspacePermissionReadOnly": "只读",
     "workspacePermissionDirectoryApproval": "目录审批",
@@ -1681,7 +1641,7 @@
     "allowedWorkspaceButton": "允许 AI 访问的目录",
     "createConversationAction": "创建",
     "createConversationCreating": "正在创建",
-    "createConversationMaxPermission": "给予会话最大权限",
+    "createConversationMaxPermission": "本会话始终批准一切请求",
     "createConversationDepartmentPersonaLockedHint": "会话中途不可切换部门/人格",
     "conversationMenu": {
       "autoPush": "自动推送",
@@ -1881,7 +1841,8 @@
       "durationHoursMinutes": "{hours}时{minutes}分",
       "durationMinutesSeconds": "{minutes}分{seconds}秒",
       "durationSeconds": "{seconds}秒",
-      "scopeUnknown": "未知范围"
+      "scopeUnknown": "未知范围",
+      "patchOperationMove": "移动"
     },
     "fastRequest": {
       "tab": "杂务",
@@ -2014,7 +1975,7 @@
     "saveConfigDialogTitle": "保存配置失败",
     "saveConfigDialogHint": "你可以到「快捷键」页改用其他组合键后重试。",
     "saveConfigHotkeyOccupied": "保存失败：快捷键 {hotkey} 已被其他软件占用，请更换后再试。",
-    "hotkeyUpdated": "呼唤热键已更新为 {hotkey}",
+    "hotkeyUpdated": "呼唤快捷键已更新为 {hotkey}",
     "personaSaved": "人格已保存。",
     "conversationRenamed": "会话标题已更新。",
     "conversationRecipientRebound": "会话接管人已更新。",
@@ -2195,7 +2156,7 @@
     "quickSetupLlmRequired": "LLM 供应商需要 base_url、模型和 API Key。",
     "quickSetupIdentityRequired": "用户、助理、主部门名称都不能为空。",
     "quickSetupWorkspaceRequired": "Shell 工作目录不能为空。",
-    "quickSetupHotkeyRequired": "呼唤热键和录音键不能为空。",
+    "quickSetupHotkeyRequired": "呼唤快捷键和录音键不能为空。",
     "quickSetupSaveFailed": "配置保存失败：{error}",
     "quickSetupAdvancedModelHint": "高级模型需要填写 base_url、API Key 和模型；不需要可点跳过。",
     "quickSetupNoLlmDetected": "配置已保存，但仍未检测到可用文本 LLM。请检查 API Key、base_url、模型和主部门绑定。",
@@ -2377,7 +2338,7 @@
       "avatar": "头像",
       "workspaceName": "工作区名称",
       "privateDirectory": "AI 私人目录",
-      "summonHotkey": "呼唤热键",
+      "summonHotkey": "呼唤快捷键",
       "recordHotkey": "录音键"
     },
     "actions": {
@@ -2424,7 +2385,7 @@
       "recording": "请按下快捷键，Esc 取消。",
       "cancelled": "已取消录制。",
       "cleared": "已清空录音键。",
-      "summonNeedsModifier": "呼唤热键需要至少一个修饰键。",
+      "summonNeedsModifier": "呼唤快捷键需要至少一个修饰键。",
       "unrecognized": "未识别按键。",
       "recorded": "已录制：{combo}"
     }
@@ -2621,10 +2582,14 @@
     "actionOpenDirectory": "打开目录"
   },
   "simpleSetup": {
+    "providerName": "简单供应商",
     "provider": "供应商",
+    "apiProtocol": "API 协议",
     "models": "模型",
     "modelQuick": "快速",
+    "modelQuickHint": "廉价的快速的用来处理简单任务的模型",
     "modelExpert": "专家",
+    "modelExpertHint": "直接跟你对话的模型",
     "modelVision": "多模态",
     "modelVisionHint": "多模态指可读取图片、音频和视频",
     "modelPlaceholder": "输入模型名称",

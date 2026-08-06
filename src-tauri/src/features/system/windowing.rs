@@ -1653,15 +1653,34 @@ fn build_tray(app: &AppHandle) -> Result<(), String> {
 }
 
 fn hide_on_close(app: &AppHandle) {
-    for label in ["main", "chat", "archives"] {
-        if let Some(window) = app.get_webview_window(label) {
-            let cloned = window.clone();
-            let _ = window.on_window_event(move |event| {
-                if let tauri::WindowEvent::CloseRequested { api, .. } = event {
-                    api.prevent_close();
-                    let _ = cloned.hide();
-                }
-            });
+    #[cfg(target_os = "windows")]
+    {
+        for label in ["main", "chat", "archives"] {
+            if let Some(window) = app.get_webview_window(label) {
+                let cloned = window.clone();
+                let _ = window.on_window_event(move |event| {
+                    if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                        api.prevent_close();
+                        let _ = cloned.hide();
+                    }
+                });
+            }
+        }
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        // Linux/macOS 部分桌面环境不显示托盘，隐藏后可能无法恢复窗口；
+        // 关闭任一主窗口直接优雅退出，避免无退出途径的死锁。
+        for label in ["main", "chat", "archives"] {
+            if let Some(window) = app.get_webview_window(label) {
+                let app_clone = app.clone();
+                let _ = window.on_window_event(move |event| {
+                    if let tauri::WindowEvent::CloseRequested { .. } = event {
+                        runtime_log_info(format!("[窗口] {label} 关闭请求，非 Windows 平台直接退出应用"));
+                        graceful_exit_app(&app_clone, 0);
+                    }
+                });
+            }
         }
     }
 }

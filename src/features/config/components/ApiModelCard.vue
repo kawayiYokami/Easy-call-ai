@@ -2,10 +2,31 @@
   <div class="card border border-base-300 bg-base-200/50 transition">
     <div class="card-body gap-3 p-4">
       <div class="flex items-start justify-between gap-2">
-        <button class="min-w-0 flex-1 text-left" type="button" @click="emit('select')">
-          <div class="card-title text-base mb-1">{{ title }}</div>
-          <span v-if="hint" class="text-xs font-normal opacity-60">{{ hint }}</span>
-        </button>
+        <div class="min-w-0 flex-1">
+          <template v-if="editingTitle">
+            <input
+              ref="titleInputRef"
+              v-model="titleDraft"
+              class="input input-bordered input-sm mb-1 w-full"
+              :placeholder="t('config.api.displayNamePlaceholder')"
+              @blur="commitTitle"
+              @keydown.enter.prevent="commitTitle"
+              @keydown.esc.stop.prevent="cancelTitle"
+            />
+          </template>
+          <template v-else>
+            <button
+              class="flex min-w-0 w-full items-center gap-1.5 text-left"
+              type="button"
+              :title="t('config.api.editDisplayName')"
+              @click="startEditTitle"
+            >
+              <div class="card-title text-base mb-0 truncate">{{ displayTitle }}</div>
+              <Pencil class="h-3.5 w-3.5 shrink-0 opacity-50" />
+            </button>
+            <span v-if="hint" class="text-xs font-normal opacity-60">{{ hint }}</span>
+          </template>
+        </div>
         <button
           v-if="showDelete"
           class="btn btn-sm btn-square btn-ghost"
@@ -242,9 +263,9 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref } from "vue";
+import { computed, nextTick, ref } from "vue";
 import { useI18n } from "vue-i18n";
-import { AlertTriangle, ChevronDown, Trash2 } from "@lucide/vue";
+import { AlertTriangle, ChevronDown, Pencil, Trash2 } from "@lucide/vue";
 import type { ApiModelConfigItem } from "../../../types/app";
 
 const SLIDER_CONTEXT_MIN = 16_000;
@@ -263,7 +284,7 @@ export interface ModelConnectionResult {
 
 const props = withDefaults(defineProps<{
   card: ApiModelConfigItem;
-  title: string;
+  title?: string;
   hint?: string;
   modelOptions?: string[];
   showDelete?: boolean;
@@ -282,6 +303,7 @@ const props = withDefaults(defineProps<{
   connectionResult?: ModelConnectionResult | null;
   contextWindowMax?: number;
 }>(), {
+  title: "",
   hint: "",
   modelOptions: () => [],
   showDelete: true,
@@ -315,6 +337,35 @@ const { t } = useI18n();
 
 const pickerOpen = ref(false);
 const modelSearch = ref("");
+
+const displayTitle = computed(() => {
+  const explicit = String(props.title || "").trim();
+  if (explicit) return explicit;
+  const displayName = String(props.card.displayName || "").trim();
+  if (displayName) return displayName;
+  return String(props.card.model || "").trim() || t("config.api.unnamedModel");
+});
+
+const editingTitle = ref(false);
+const titleDraft = ref("");
+const titleInputRef = ref<HTMLInputElement | null>(null);
+
+function startEditTitle() {
+  titleDraft.value = props.card.displayName ?? "";
+  editingTitle.value = true;
+  void nextTick(() => titleInputRef.value?.focus());
+}
+
+function commitTitle() {
+  if (!editingTitle.value) return;
+  props.card.displayName = titleDraft.value.trim();
+  editingTitle.value = false;
+  emit("sync-metadata");
+}
+
+function cancelTitle() {
+  editingTitle.value = false;
+}
 
 const filteredModelOptions = computed(() => {
   const options = Array.from(new Set([

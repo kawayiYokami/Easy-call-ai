@@ -1,10 +1,13 @@
-import type { Ref } from "vue";
-import type { ChatMessage } from "../../../types/app";
+import { shallowReactive } from "vue";
 import type { ConversationStreamCache } from "./use-chat-flow-stream-cache";
 import { positiveRoundedNumber } from "./use-chat-flow-utils";
 
+// 流式耗时数字独立于消息对象存储：计时器每秒更新不应重建 allMessages 数组、
+// 破坏消息块签名缓存，否则整个虚拟列表会被每秒空转重算。
+// 显示层（ChatMessageItem）直接读这个 map，按消息 id 索引。
+export const frontendDispatchElapsedByMessageId = shallowReactive(new Map<string, number>());
+
 type UseChatFlowFrontendDispatchOptions = {
-  allMessages: Ref<ChatMessage[]>;
   getMessageIdForGen: (gen: number) => string;
   isRoundActiveForGen: (gen: number) => boolean;
   syncCurrentDisplayStateToConversationStreamCache: () => void;
@@ -39,29 +42,16 @@ export function useChatFlowFrontendDispatch(options: UseChatFlowFrontendDispatch
     timerGen = 0;
     startedAtMs = 0;
     elapsedMs = 0;
+    frontendDispatchElapsedByMessageId.clear();
   }
 
   function updateMessageMeta(gen: number) {
     if (!gen || startedAtMs <= 0) return;
     const nextElapsedMs = currentElapsedMs();
     const messageId = options.getMessageIdForGen(gen);
-    let touched = false;
-    options.allMessages.value = options.allMessages.value.map((message) => {
-      if (message.id !== messageId) return message;
-      touched = true;
-      const meta = ((message.providerMeta || {}) as Record<string, unknown>);
-      return {
-        ...message,
-        providerMeta: {
-          ...meta,
-          _frontendDispatchStartedAtMs: startedAtMs,
-          _frontendDispatchElapsedMs: nextElapsedMs,
-        },
-      };
-    });
-    if (touched) {
-      options.syncCurrentDisplayStateToConversationStreamCache();
-    }
+    if (!messageId) return;
+    frontendDispatchElapsedByMessageId.set(messageId, nextElapsedMs);
+    options.syncCurrentDisplayStateToConversationStreamCache();
   }
 
   function start(gen: number, nextStartedAtMs?: number, nextElapsedMs?: number) {

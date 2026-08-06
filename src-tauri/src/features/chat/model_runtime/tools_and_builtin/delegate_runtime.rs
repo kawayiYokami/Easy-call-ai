@@ -555,3 +555,32 @@ async fn delegate_run_thread_to_completion(
         }
     }
 }
+
+#[cfg(test)]
+mod delegate_session_parse_tests {
+    use super::*;
+
+    #[test]
+    fn delegate_session_conversation_id_should_extract_conversation_part() {
+        assert_eq!(
+            delegate_session_conversation_id("agent-1::convo-123"),
+            Some("convo-123".to_string())
+        );
+        assert_eq!(
+            delegate_session_conversation_id(" agent-1 :: convo-123 "),
+            Some("convo-123".to_string())
+        );
+        assert_eq!(
+            delegate_session_conversation_id("agent-1::convo-123::remote_reply_delegate:tag"),
+            Some("convo-123".to_string())
+        );
+    }
+
+    #[test]
+    fn delegate_session_conversation_id_should_be_none_without_conversation_part() {
+        assert_eq!(delegate_session_conversation_id("agent-1"), None);
+        assert_eq!(delegate_session_conversation_id("agent-1::"), None);
+        assert_eq!(delegate_session_conversation_id("agent-1::  "), None);
+        assert_eq!(delegate_session_conversation_id(""), None);
+    }
+}

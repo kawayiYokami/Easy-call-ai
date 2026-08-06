@@ -7,6 +7,7 @@ import type { ChatMessage } from "../../../types/app";
 import {
   projectMessageForDisplay,
   stripToolcallMarkers,
+  TOOL_TEXT_BREAK_PLACEHOLDER,
 } from "../../../utils/chat-message-semantics";
 import ShareDocument from "../components/ShareDocument.vue";
 import type { ShareDocumentEntry } from "../components/share-document-types";
@@ -208,7 +209,9 @@ export async function projectShareMessages(
       const projection = projectMessageForDisplay(message);
       const speakerAgentId = String(projection.speakerAgentId || "").trim();
       const own = isOwnMessage(message, speakerAgentId);
-      const text = stripToolcallMarkers(projection.text || "");
+      const text = stripToolcallMarkers(
+        (projection.text || "").split(TOOL_TEXT_BREAK_PLACEHOLDER).join("\n\n"),
+      );
       const images = await Promise.all(
         (projection.images || []).map(async (image, imageIndex) => {
           const src = await resolveShareImageSrc(image);

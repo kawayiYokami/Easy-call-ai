@@ -10,19 +10,15 @@
           <div class="text-sm font-semibold">{{ t("chat.workspacePickerTitle") }}</div>
           <div class="mt-1 text-xs opacity-70">{{ t("chat.workspacePickerHint") }}</div>
         </div>
-        <label
-          class="flex max-w-56 shrink-0 cursor-pointer items-center gap-2 rounded-full bg-base-200 px-3 py-2 text-xs font-medium leading-tight"
-          :title="t('chat.workspacePickerAutonomousHint')"
+        <button
+          v-if="!hideAddWorkspace"
+          class="btn btn-sm shrink-0"
+          type="button"
+          :disabled="saving"
+          @click="emit('addWorkspace')"
         >
-          <span class="whitespace-normal">{{ t("chat.workspacePickerAutonomous") }}</span>
-          <input
-            type="checkbox"
-            class="checkbox checkbox-primary checkbox-sm"
-            :checked="autonomousMode"
-            :disabled="saving"
-            @change="onAutonomousModeChange"
-          />
-        </label>
+          {{ t("config.tools.addWorkspace") }}
+        </button>
       </div>
       <div class="max-h-[65vh] overflow-y-auto">
         <div
@@ -55,18 +51,18 @@
                   >
                     <option value="directory">{{ t("chat.workspaceWorkModeDirectory") }}</option>
                     <option
-                      v-if="worktreeAvailable || workMode === 'isolated_worktree' || Boolean(worktreeCheckMessage)"
-                      value="isolated_worktree"
-                      :disabled="!worktreeAvailable && workMode !== 'isolated_worktree'"
-                    >
-                      {{ t("chat.workspaceWorkModeIsolated") }}
-                    </option>
-                    <option
                       v-if="worktreeAvailable || workMode === 'independent_worktree' || Boolean(worktreeCheckMessage)"
                       value="independent_worktree"
                       :disabled="!worktreeAvailable && workMode !== 'independent_worktree'"
                     >
                       {{ t("chat.workspaceWorkModeIndependent") }}
+                    </option>
+                    <option
+                      v-if="worktreeAvailable || workMode === 'isolated_worktree' || Boolean(worktreeCheckMessage)"
+                      value="isolated_worktree"
+                      :disabled="!worktreeAvailable && workMode !== 'isolated_worktree'"
+                    >
+                      {{ t("chat.workspaceWorkModeIsolated") }}
                     </option>
                   </select>
                 </div>
@@ -93,7 +89,7 @@
                   <SquareTerminal class="h-4 w-4" />
                 </button>
                 <select
-                  v-if="item.level !== 'system'"
+                  v-if="item.level !== 'system' && !autonomousMode"
                   class="select select-sm select-bordered w-32"
                   :disabled="saving"
                   :value="item.access"
@@ -119,9 +115,19 @@
         </div>
       </div>
       <div class="flex items-center justify-between gap-3 border-t border-base-300 px-4 py-3">
-        <button v-if="!hideAddWorkspace" class="btn btn-sm" type="button" :disabled="saving" @click="emit('addWorkspace')">
-          {{ t("config.tools.addWorkspace") }}
-        </button>
+        <label
+          class="flex max-w-64 shrink-0 cursor-pointer items-center gap-2 rounded-full bg-base-200 px-3 py-2 text-xs font-medium leading-tight"
+          :title="t('chat.workspacePickerAutonomousHint')"
+        >
+          <span class="whitespace-normal">{{ t("chat.workspacePickerAutonomous") }}</span>
+          <input
+            type="checkbox"
+            class="checkbox checkbox-primary checkbox-sm"
+            :checked="autonomousMode"
+            :disabled="saving"
+            @change="onAutonomousModeChange"
+          />
+        </label>
         <div class="ml-auto flex min-w-0 items-center gap-3">
           <span v-if="validationMessage" class="max-w-72 text-right text-xs text-error">{{ validationMessage }}</span>
           <div class="flex items-center gap-2">

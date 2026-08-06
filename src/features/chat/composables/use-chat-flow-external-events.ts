@@ -19,9 +19,6 @@ type UseChatFlowExternalEventsOptions = {
   hasRecentlyCompletedRoundIds: () => boolean;
   markRecentlyCompletedRoundIds: (payload: { activationId?: string; requestId?: string } | null | undefined) => void;
   matchesRecentlyCompletedRoundIds: (payload: { activationId?: string; requestId?: string } | null | undefined) => boolean;
-  hasStoppedRound: () => boolean;
-  matchesStoppedRound: (payload: { assistantMessageId?: string; activationId?: string; requestId?: string }) => boolean;
-  clearStoppedRound: () => void;
   getRound: () => RoundState;
   setRound: (next: RoundState) => void;
   getSendChatActiveGen: () => number;
@@ -36,7 +33,6 @@ type UseChatFlowExternalEventsOptions = {
     gen: number,
     parsed: any,
     source: "sendChat" | "bound",
-    options?: { suppressActivationProjection?: boolean },
   ) => Promise<void>;
   beginAssistantActivationFromEvent: (payload: any) => number;
   markRoundStarted: (gen: number) => Promise<void>;
@@ -50,7 +46,6 @@ type UseChatFlowExternalEventsOptions = {
   clearFrontendDispatchTimer: () => void;
   onReloadMessages: () => Promise<void>;
   onAssistantMessageCompleted?: (input: { conversationId: string; assistantMessage: any }) => Promise<void> | void;
-  applyStoppedAssistantMessage?: (assistantMessage: any) => Promise<void> | void;
   setChatErrorText: (text: string, conversationId?: string | null) => void;
   formatRequestFailed: (error: unknown) => string;
   latestAssistantText: { value: string };
@@ -82,14 +77,6 @@ export function externalTerminalTargetsRound(
     .filter(Boolean);
   if (currentActivationId && incomingIds.length > 0 && !incomingIds.includes(currentActivationId)) return false;
   return true;
-}
-
-/** 正式历史照常合并；停止只抑制它对旧轮次的等待/流式投影。 */
-export function shouldSuppressStoppedHistoryActivation(
-  activateAssistant: boolean,
-  hasStoppedRound: boolean,
-): boolean {
-  return activateAssistant && hasStoppedRound;
 }
 
 export function useChatFlowExternalEvents(options: UseChatFlowExternalEventsOptions) {
@@ -134,7 +121,6 @@ export function useChatFlowExternalEvents(options: UseChatFlowExternalEventsOpti
     if (!sameForegroundConversation(payloadConversationId)) {
       return;
     }
-    if (options.hasStoppedRound()) return;
     if (foregroundAlreadyHandlingCurrentConversation()) {
       return;
     }
@@ -173,14 +159,7 @@ export function useChatFlowExternalEvents(options: UseChatFlowExternalEventsOpti
     if (currentConversationId && payloadConversationId && currentConversationId !== payloadConversationId) {
       return;
     }
-    // 正式历史永远不能因停止而丢弃。停止只禁止旧轮次复活；由于
-    // historyFlushed 没有轮次身份，先合并消息，并把激活投影延后交给
-    // 随后的 roundStarted 按身份精确判断。
-    const suppressActivationProjection = shouldSuppressStoppedHistoryActivation(
-      !!parsed.activateAssistant,
-      options.hasStoppedRound(),
-    );
-    if (parsed.activateAssistant && !suppressActivationProjection) {
+    if (parsed.activateAssistant) {
       options.clearRecentlyCompletedRoundIds();
     }
     const treatAsSendChat = options.getSendChatActiveGen() > 0 && !!parsed.activateAssistant;
@@ -193,7 +172,6 @@ export function useChatFlowExternalEvents(options: UseChatFlowExternalEventsOpti
         message: JSON.stringify(parsed),
       },
       source,
-      { suppressActivationProjection },
     );
   }
 
@@ -206,14 +184,6 @@ export function useChatFlowExternalEvents(options: UseChatFlowExternalEventsOpti
     if (currentConversationId && payloadConversationId && currentConversationId !== payloadConversationId) {
       return;
     }
-    if (options.matchesStoppedRound({
-      assistantMessageId: parsed.assistantMessageId,
-      activationId: parsed.activationId,
-      requestId: parsed.requestId,
-    })) {
-      return;
-    }
-    options.clearStoppedRound();
     options.clearRecentlyCompletedRoundIds();
     const gen = options.beginAssistantActivationFromEvent(parsed);
     if (!gen) return;
@@ -235,14 +205,6 @@ export function useChatFlowExternalEvents(options: UseChatFlowExternalEventsOpti
       activationId: parsed.activationId,
       requestId: parsed.requestId,
     };
-    if (options.matchesStoppedRound(terminalIdentity)) {
-      if (parsed.assistantMessage) {
-        await options.applyStoppedAssistantMessage?.(parsed.assistantMessage);
-      } else if (String(parsed.assistantText || "").trim()) {
-        await options.onReloadMessages();
-      }
-      return;
-    }
     options.markRecentlyCompletedRoundIds(parsed);
     const round = options.getRound();
     if (round.phase !== "streaming" && round.phase !== "queued") {
@@ -252,8 +214,16 @@ export function useChatFlowExternalEvents(options: UseChatFlowExternalEventsOpti
       options.clearConversationStreamCache(payloadConversationId || currentConversationId);
       options.clearFrontendDispatchTimer();
       options.setActiveActivationId("");
-      // 这里是外部终态兜底：当前前台已经不持有该轮次时，仍需走既有对账链路，避免切会话后失去正式历史刷新。
-      await options.onReloadMessages();
+      // 外部终态兜底：事件自带后端正式消息时直接应用（停止/他窗口收尾都走这条，
+      // 本地已冻结的消息被覆盖一次即可），避免多余的全量重拉；事件没带消息才重拉。
+      if (parsed.assistantMessage) {
+        await options.onAssistantMessageCompleted?.({
+          conversationId: payloadConversationId || currentConversationId,
+          assistantMessage: parsed.assistantMessage,
+        });
+      } else {
+        await options.onReloadMessages();
+      }
       return;
     }
     if (!terminalTargetsCurrentRound(terminalIdentity)) return;
@@ -276,10 +246,6 @@ export function useChatFlowExternalEvents(options: UseChatFlowExternalEventsOpti
       options.clearConversationStreamCache(payloadConversationId);
       return;
     }
-    if (options.matchesStoppedRound({
-      activationId: parsed?.activationId,
-      requestId: parsed?.requestId,
-    })) return;
     const round = options.getRound();
     if (round.phase !== "streaming" && round.phase !== "queued") {
       options.setRound({ phase: "idle" });
@@ -331,7 +297,6 @@ export function useChatFlowExternalEvents(options: UseChatFlowExternalEventsOpti
     const parsed = readAssistantEvent(rawObj?.event ?? payload);
     const cacheConversationId = payloadConversationId || currentConversationId;
     const round = options.getRound();
-    if (options.matchesStoppedRound(parsed)) return;
     if (options.matchesRecentlyCompletedRoundIds(parsed)) {
       return;
     }

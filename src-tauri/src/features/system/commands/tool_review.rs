@@ -441,6 +441,21 @@ struct ToolReviewItemDetail {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+struct ToolReviewSegment {
+    path: String,
+    action: String,
+    diff_lines: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ToolReviewBatchDetailsOutput {
+    batch_key: String,
+    segments: Vec<ToolReviewSegment>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 struct RunToolReviewBatchOutput {
     batch_key: String,
     reviewed_call_ids: Vec<String>,
@@ -767,6 +782,199 @@ fn tool_review_preview_for_item(item: &ToolReviewCollectedItem) -> (String, Stri
                 .unwrap_or(item.args_text.trim());
             ("command".to_string(), preview.to_string())
         }
+    }
+}
+
+fn tool_review_git_hunk_header(
+    old_start: usize,
+    old_count: usize,
+    new_start: usize,
+    new_count: usize,
+) -> String {
+    format!("@@ -{},{} +{},{} @@", old_start, old_count, new_start, new_count)
+}
+
+fn tool_review_prefixed_git_lines(prefix: &str, text: &str) -> Vec<String> {
+    if text.is_empty() {
+        return Vec::new();
+    }
+    text.lines()
+        .map(|line| format!("{prefix}{line}"))
+        .collect()
+}
+
+fn tool_review_segment_update_lines(
+    old_start: usize,
+    old_string: &str,
+    new_string: &str,
+) -> Vec<String> {
+    let old_count = old_string.lines().count();
+    let new_count = new_string.lines().count();
+    let mut lines = vec![tool_review_git_hunk_header(old_start, old_count, old_start, new_count)];
+    lines.extend(tool_review_prefixed_git_lines("-", old_string));
+    lines.extend(tool_review_prefixed_git_lines("+", new_string));
+    lines
+}
+
+fn tool_review_segments_for_apply_patch(item: &ToolReviewCollectedItem) -> Vec<ToolReviewSegment> {
+    let mut segments = Vec::<ToolReviewSegment>::new();
+    let Some(operations) = item.args_value.get("operations").and_then(Value::as_array) else {
+        return segments;
+    };
+    let changed_entries = item
+        .result_value
+        .as_ref()
+        .and_then(|value| value.get("changed"))
+        .and_then(Value::as_array);
+    for (index, operation) in operations.iter().enumerate() {
+        let action = tool_review_json_string_field(operation, "action").unwrap_or("").to_string();
+        let path = tool_review_json_string_field(operation, "path")
+            .or_else(|| tool_review_json_string_field(operation, "to"))
+            .unwrap_or("")
+            .to_string();
+        let old_string = tool_review_json_string_field(operation, "old_string")
+            .or_else(|| tool_review_json_string_field(operation, "oldString"))
+            .unwrap_or("");
+        let new_string = tool_review_json_string_field(operation, "new_string")
+            .or_else(|| tool_review_json_string_field(operation, "newString"))
+            .unwrap_or("");
+        let content = tool_review_json_string_field(operation, "content").unwrap_or("");
+        let changed_entry = changed_entries.and_then(|entries| entries.get(index));
+        match action.as_str() {
+            "add" => {
+                let new_count = content.lines().count();
+                let mut lines = vec![tool_review_git_hunk_header(0, 0, 1, new_count)];
+                lines.extend(tool_review_prefixed_git_lines("+", content));
+                segments.push(ToolReviewSegment {
+                    path,
+                    action: "add".to_string(),
+                    diff_lines: lines,
+                });
+            }
+            "delete" => {
+                segments.push(ToolReviewSegment {
+                    path,
+                    action: "delete".to_string(),
+                    diff_lines: Vec::new(),
+                });
+            }
+            "move" => {
+                segments.push(ToolReviewSegment {
+                    path,
+                    action: "move".to_string(),
+                    diff_lines: Vec::new(),
+                });
+            }
+            _ => {
+                let ranges = changed_entry
+                    .map(tool_review_patch_line_ranges_from_changed_entry)
+                    .unwrap_or_default();
+                if ranges.is_empty() {
+                    let mut lines = tool_review_segment_update_lines(1, old_string, new_string);
+                    if old_string.is_empty() && !new_string.is_empty() {
+                        lines = vec![tool_review_git_hunk_header(0, 0, 1, new_string.lines().count())];
+                        lines.extend(tool_review_prefixed_git_lines("+", new_string));
+                    }
+                    segments.push(ToolReviewSegment {
+                        path,
+                        action: "update".to_string(),
+                        diff_lines: lines,
+                    });
+                } else {
+                    for (start, _end) in ranges {
+                        let lines = tool_review_segment_update_lines(start, old_string, new_string);
+                        segments.push(ToolReviewSegment {
+                            path: path.clone(),
+                            action: "update".to_string(),
+                            diff_lines: lines,
+                        });
+                    }
+                }
+            }
+        }
+    }
+    segments
+}
+
+fn tool_review_segments_for_single_edit(item: &ToolReviewCollectedItem) -> Vec<ToolReviewSegment> {
+    let tool_name = item.tool_name.as_str();
+    let path = tool_review_json_string_field(&item.args_value, "path")
+        .or_else(|| tool_review_json_string_field(&item.args_value, "to"))
+        .unwrap_or("")
+        .to_string();
+    let changed_entry = item
+        .result_value
+        .as_ref()
+        .and_then(|value| value.get("changed"))
+        .and_then(Value::as_array)
+        .and_then(|entries| entries.first());
+    match tool_name {
+        "write" => {
+            let content = tool_review_json_string_field(&item.args_value, "content").unwrap_or("");
+            let new_count = content.lines().count();
+            let mut lines = vec![tool_review_git_hunk_header(0, 0, 1, new_count)];
+            lines.extend(tool_review_prefixed_git_lines("+", content));
+            let entry_action = changed_entry
+                .and_then(|entry| tool_review_json_string_field(entry, "op"))
+                .unwrap_or("add")
+                .to_string();
+            vec![ToolReviewSegment {
+                path,
+                action: if entry_action == "update" { "update".to_string() } else { "add".to_string() },
+                diff_lines: lines,
+            }]
+        }
+        "update" => {
+            let old_string = tool_review_json_string_field(&item.args_value, "old_string")
+                .or_else(|| tool_review_json_string_field(&item.args_value, "oldString"))
+                .unwrap_or("");
+            let new_string = tool_review_json_string_field(&item.args_value, "new_string")
+                .or_else(|| tool_review_json_string_field(&item.args_value, "newString"))
+                .unwrap_or("");
+            let ranges = changed_entry
+                .map(tool_review_patch_line_ranges_from_changed_entry)
+                .unwrap_or_default();
+            if ranges.is_empty() {
+                let lines = tool_review_segment_update_lines(1, old_string, new_string);
+                vec![ToolReviewSegment {
+                    path,
+                    action: "update".to_string(),
+                    diff_lines: lines,
+                }]
+            } else {
+                ranges
+                    .into_iter()
+                    .map(|(start, _end)| ToolReviewSegment {
+                        path: path.clone(),
+                        action: "update".to_string(),
+                        diff_lines: tool_review_segment_update_lines(start, old_string, new_string),
+                    })
+                    .collect()
+            }
+        }
+        "delete" => {
+            vec![ToolReviewSegment {
+                path,
+                action: "delete".to_string(),
+                diff_lines: Vec::new(),
+            }]
+        }
+        "move" => {
+            vec![ToolReviewSegment {
+                path,
+                action: "move".to_string(),
+                diff_lines: Vec::new(),
+            }]
+        }
+        _ => Vec::new(),
+    }
+}
+
+fn tool_review_segments_for_item(item: &ToolReviewCollectedItem) -> Vec<ToolReviewSegment> {
+    match item.tool_name.as_str() {
+        "apply_patch" => tool_review_segments_for_apply_patch(item),
+        "write" | "update" | "delete" | "move" => tool_review_segments_for_single_edit(item),
+        _ => Vec::new(),
     }
 }
 
@@ -1644,6 +1852,33 @@ fn get_tool_review_item_detail(
 }
 
 #[tauri::command]
+fn get_tool_review_batch_details(
+    input: ToolReviewBatchActionInput,
+    state: State<'_, AppState>,
+) -> Result<ToolReviewBatchDetailsOutput, String> {
+    let conversation_id = input.conversation_id.trim();
+    if conversation_id.is_empty() {
+        return Err("conversationId 不能为空。".to_string());
+    }
+    with_tool_review_conversation(state.inner(), conversation_id, |conversation| {
+        let (_display_number, batch) = tool_review_find_batch_by_index(conversation, input.batch_index)?;
+        let mut segments = Vec::<ToolReviewSegment>::new();
+        for item in batch.items.iter() {
+            if matches!(
+                item.tool_name.as_str(),
+                "apply_patch" | "write" | "delete" | "update" | "move"
+            ) {
+                segments.extend(tool_review_segments_for_item(item));
+            }
+        }
+        Ok(ToolReviewBatchDetailsOutput {
+            batch_key: batch.batch_key,
+            segments,
+        })
+    })
+}
+
+#[tauri::command]
 async fn run_tool_review_for_call(
     input: ToolReviewCallInput,
     state: State<'_, AppState>,
@@ -2103,7 +2338,7 @@ async fn submit_tool_review_code_internal(
 
 #[cfg(test)]
 mod tool_review_tests {
-    use super::{tool_review_build_context, tool_review_preview_for_item, tool_review_prune_legacy_batch_report_records, ChatMessage, Conversation, MessagePart, ToolReviewCollectedItem, ToolReviewReportRecord};
+    use super::{tool_review_build_context, tool_review_preview_for_item, tool_review_prune_legacy_batch_report_records, tool_review_segments_for_item, ChatMessage, Conversation, MessagePart, ToolReviewCollectedItem, ToolReviewReportRecord};
     use crate::{app_root_from_data_path, ConversationCumulativeUsage, ASSISTANT_DEPARTMENT_ID, DEFAULT_AGENT_ID};
     use std::{env, fs};
     use uuid::Uuid;
@@ -2333,5 +2568,300 @@ mod tool_review_tests {
         assert_eq!(records.len(), 1);
         assert_eq!(records[0].scope, "commit");
         let _ = fs::remove_dir_all(root);
+    }
+
+    fn test_segment_item(
+        tool_name: &str,
+        args_value: serde_json::Value,
+        result_value: Option<serde_json::Value>,
+    ) -> ToolReviewCollectedItem {
+        ToolReviewCollectedItem {
+            batch_key: "batch-1".to_string(),
+            call_id: "call-1".to_string(),
+            message_id: "message-1".to_string(),
+            finished_at: None,
+            tool_name: tool_name.to_string(),
+            order_index: 0,
+            args_text: args_value.to_string(),
+            args_value,
+            result_text: result_value
+                .as_ref()
+                .map(serde_json::Value::to_string)
+                .unwrap_or_default(),
+            result_value,
+            review_value: None,
+        }
+    }
+
+    #[test]
+    fn tool_review_segments_apply_patch_update_single_hunk() {
+        let item = test_segment_item(
+            "apply_patch",
+            serde_json::json!({
+                "operations": [{
+                    "action": "update",
+                    "path": "src/main.rs",
+                    "old_string": "let a = 1;\nlet b = 2;",
+                    "new_string": "let a = 10;\nlet b = 20;",
+                    "replace_all": false
+                }]
+            }),
+            Some(serde_json::json!({
+                "changed": [{
+                    "op": "update",
+                    "path": "src/main.rs",
+                    "lineRanges": [{ "start": 5, "end": 6 }]
+                }]
+            })),
+        );
+
+        let segments = tool_review_segments_for_item(&item);
+
+        assert_eq!(segments.len(), 1);
+        assert_eq!(segments[0].path, "src/main.rs");
+        assert_eq!(segments[0].action, "update");
+        assert_eq!(segments[0].diff_lines[0], "@@ -5,2 +5,2 @@");
+        assert_eq!(segments[0].diff_lines[1], "-let a = 1;");
+        assert_eq!(segments[0].diff_lines[2], "-let b = 2;");
+        assert_eq!(segments[0].diff_lines[3], "+let a = 10;");
+        assert_eq!(segments[0].diff_lines[4], "+let b = 20;");
+    }
+
+    #[test]
+    fn tool_review_segments_apply_patch_replace_all_splits_each_match() {
+        let item = test_segment_item(
+            "apply_patch",
+            serde_json::json!({
+                "operations": [{
+                    "action": "update",
+                    "path": "src/a.ts",
+                    "old_string": "旧行",
+                    "new_string": "新行",
+                    "replace_all": true
+                }]
+            }),
+            Some(serde_json::json!({
+                "changed": [{
+                    "op": "update",
+                    "path": "src/a.ts",
+                    "lineRanges": [
+                        { "start": 10, "end": 10 },
+                        { "start": 40, "end": 40 },
+                        { "start": 70, "end": 70 }
+                    ]
+                }]
+            })),
+        );
+
+        let segments = tool_review_segments_for_item(&item);
+
+        assert_eq!(segments.len(), 3);
+        assert_eq!(segments[0].diff_lines[0], "@@ -10,1 +10,1 @@");
+        assert_eq!(segments[1].diff_lines[0], "@@ -40,1 +40,1 @@");
+        assert_eq!(segments[2].diff_lines[0], "@@ -70,1 +70,1 @@");
+    }
+
+    #[test]
+    fn tool_review_segments_apply_patch_add_delete_move() {
+        let item = test_segment_item(
+            "apply_patch",
+            serde_json::json!({
+                "operations": [
+                    { "action": "add", "path": "src/new.ts", "content": "export const x = 1;\nexport const y = 2;" },
+                    { "action": "delete", "path": "src/old.ts" },
+                    { "action": "move", "path": "src/a.ts", "to": "src/b.ts" }
+                ]
+            }),
+            Some(serde_json::json!({
+                "changed": [
+                    { "op": "add", "path": "src/new.ts" },
+                    { "op": "delete", "path": "src/old.ts" },
+                    { "op": "move", "from": "src/a.ts", "to": "src/b.ts" }
+                ]
+            })),
+        );
+
+        let segments = tool_review_segments_for_item(&item);
+
+        assert_eq!(segments.len(), 3);
+        assert_eq!(segments[0].action, "add");
+        assert_eq!(segments[0].diff_lines[0], "@@ -0,0 +1,2 @@");
+        assert_eq!(segments[0].diff_lines[1], "+export const x = 1;");
+        assert_eq!(segments[0].diff_lines[2], "+export const y = 2;");
+        assert_eq!(segments[1].action, "delete");
+        assert!(segments[1].diff_lines.is_empty());
+        assert_eq!(segments[2].action, "move");
+        assert!(segments[2].diff_lines.is_empty());
+    }
+
+    #[test]
+    fn tool_review_segments_update_tool_replace_all() {
+        let item = test_segment_item(
+            "update",
+            serde_json::json!({
+                "path": "src/lib.ts",
+                "old_string": "name",
+                "new_string": "title",
+                "replace_all": true
+            }),
+            Some(serde_json::json!({
+                "changed": [{
+                    "op": "update",
+                    "path": "src/lib.ts",
+                    "lineRanges": [
+                        { "start": 3, "end": 3 },
+                        { "start": 8, "end": 8 }
+                    ]
+                }]
+            })),
+        );
+
+        let segments = tool_review_segments_for_item(&item);
+
+        assert_eq!(segments.len(), 2);
+        assert_eq!(segments[0].path, "src/lib.ts");
+        assert_eq!(segments[0].diff_lines[0], "@@ -3,1 +3,1 @@");
+        assert_eq!(segments[1].diff_lines[0], "@@ -8,1 +8,1 @@");
+    }
+
+    #[test]
+    fn tool_review_segments_write_add_file() {
+        let item = test_segment_item(
+            "write",
+            serde_json::json!({
+                "path": "src/hello.ts",
+                "content": "export function hello() {\n  return 1;\n}\n",
+                "overwrite": false
+            }),
+            Some(serde_json::json!({
+                "changed": [{ "op": "add", "path": "src/hello.ts" }]
+            })),
+        );
+
+        let segments = tool_review_segments_for_item(&item);
+
+        assert_eq!(segments.len(), 1);
+        assert_eq!(segments[0].action, "add");
+        assert_eq!(segments[0].diff_lines[0], "@@ -0,0 +1,3 @@");
+        assert_eq!(segments[0].diff_lines[1], "+export function hello() {");
+        assert_eq!(segments[0].diff_lines[2], "+  return 1;");
+        assert_eq!(segments[0].diff_lines[3], "+}");
+    }
+
+    #[test]
+    fn tool_review_segments_write_overwrite_is_update_action() {
+        let item = test_segment_item(
+            "write",
+            serde_json::json!({
+                "path": "src/hello.ts",
+                "content": "export const v = 2;\n",
+                "overwrite": true
+            }),
+            Some(serde_json::json!({
+                "changed": [{ "op": "update", "path": "src/hello.ts" }]
+            })),
+        );
+
+        let segments = tool_review_segments_for_item(&item);
+
+        assert_eq!(segments.len(), 1);
+        assert_eq!(segments[0].action, "update");
+        assert_eq!(segments[0].diff_lines[0], "@@ -0,0 +1,1 @@");
+        assert_eq!(segments[0].diff_lines[1], "+export const v = 2;");
+    }
+
+    #[test]
+    fn tool_review_segments_missing_line_ranges_falls_back_to_line_1() {
+        let item = test_segment_item(
+            "apply_patch",
+            serde_json::json!({
+                "operations": [{
+                    "action": "update",
+                    "path": "src/main.rs",
+                    "old_string": "旧",
+                    "new_string": "新",
+                    "replace_all": false
+                }]
+            }),
+            Some(serde_json::json!({
+                "changed": [{ "op": "update", "path": "src/main.rs" }]
+            })),
+        );
+
+        let segments = tool_review_segments_for_item(&item);
+
+        assert_eq!(segments.len(), 1);
+        assert_eq!(segments[0].diff_lines[0], "@@ -1,1 +1,1 @@");
+    }
+
+    #[test]
+    fn tool_review_segments_empty_old_new_strings_produce_header_only() {
+        let item = test_segment_item(
+            "apply_patch",
+            serde_json::json!({
+                "operations": [{
+                    "action": "update",
+                    "path": "src/main.rs",
+                    "old_string": "a\nb",
+                    "new_string": "",
+                    "replace_all": false
+                }]
+            }),
+            Some(serde_json::json!({
+                "changed": [{ "op": "update", "path": "src/main.rs", "lineRanges": [{ "start": 20, "end": 21 }] }]
+            })),
+        );
+
+        let segments = tool_review_segments_for_item(&item);
+
+        assert_eq!(segments.len(), 1);
+        assert_eq!(segments[0].diff_lines[0], "@@ -20,2 +20,0 @@");
+        assert_eq!(segments[0].diff_lines.len(), 3);
+    }
+
+    #[test]
+    fn tool_review_segments_shell_tool_returns_empty() {
+        let item = test_segment_item(
+            "shell_exec",
+            serde_json::json!({ "command": "ls" }),
+            Some(serde_json::json!({ "command": "ls", "exitCode": 0 })),
+        );
+
+        let segments = tool_review_segments_for_item(&item);
+
+        assert!(segments.is_empty());
+    }
+
+    #[test]
+    fn tool_review_segments_multi_operation_apply_patch_preserves_order() {
+        let item = test_segment_item(
+            "apply_patch",
+            serde_json::json!({
+                "operations": [
+                    { "action": "update", "path": "src/a.ts", "old_string": "1", "new_string": "2", "replace_all": false },
+                    { "action": "update", "path": "src/b.ts", "old_string": "3", "new_string": "4", "replace_all": true },
+                    { "action": "add", "path": "src/c.ts", "content": "5" }
+                ]
+            }),
+            Some(serde_json::json!({
+                "changed": [
+                    { "op": "update", "path": "src/a.ts", "lineRanges": [{ "start": 1, "end": 1 }] },
+                    { "op": "update", "path": "src/b.ts", "lineRanges": [{ "start": 2, "end": 2 }, { "start": 9, "end": 9 }] },
+                    { "op": "add", "path": "src/c.ts" }
+                ]
+            })),
+        );
+
+        let segments = tool_review_segments_for_item(&item);
+
+        assert_eq!(segments.len(), 4);
+        assert_eq!(segments[0].path, "src/a.ts");
+        assert_eq!(segments[0].diff_lines[0], "@@ -1,1 +1,1 @@");
+        assert_eq!(segments[1].path, "src/b.ts");
+        assert_eq!(segments[1].diff_lines[0], "@@ -2,1 +2,1 @@");
+        assert_eq!(segments[2].path, "src/b.ts");
+        assert_eq!(segments[2].diff_lines[0], "@@ -9,1 +9,1 @@");
+        assert_eq!(segments[3].path, "src/c.ts");
+        assert_eq!(segments[3].action, "add");
     }
 }

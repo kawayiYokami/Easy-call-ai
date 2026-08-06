@@ -47,7 +47,6 @@ describe("useChatFlowStop", () => {
       setActiveActivationId: vi.fn(),
       getActiveActivationId: () => "activation-1",
       setActiveRoundAgentId: vi.fn(),
-      markStoppedRound: vi.fn(),
       clearFrontendDispatchTimer: vi.fn(),
       getPendingUserDraftId: () => "",
       removeMessage: vi.fn(),
@@ -57,6 +56,7 @@ describe("useChatFlowStop", () => {
       deleteSendStartedAtMs: vi.fn(),
       clearConversationStreamCache: vi.fn(),
       reasoningStartedAtMs: ref(0),
+      flushStreamTextBuffer: vi.fn(),
     });
 
     await stopChat();

@@ -9,7 +9,6 @@ export interface UseChatScrollOrchestrationOptions {
   scheduleVirtualMeasure: () => void;
   resetConversationToBottom: (behavior?: "auto" | "smooth") => void;
   scrollConversationToBottomLightweight: (behavior?: "auto" | "smooth") => void;
-  refreshObservedVirtualItemElements: () => void;
   olderHistoryCorrectionAllowed?: Ref<boolean>;
   props: {
     hasMoreHistory: Ref<boolean>;
@@ -37,7 +36,6 @@ export function useChatScrollOrchestration(options: UseChatScrollOrchestrationOp
     scheduleVirtualMeasure,
     resetConversationToBottom,
     scrollConversationToBottomLightweight,
-    refreshObservedVirtualItemElements,
     olderHistoryCorrectionAllowed,
     props,
     emit,
@@ -218,7 +216,6 @@ export function useChatScrollOrchestration(options: UseChatScrollOrchestrationOp
   watch(
     () => props.renderItems.value,
     () => {
-      refreshObservedVirtualItemElements();
       void nextTick(() => {
         chatScrollbarRef.value?.updateThumb();
       });
@@ -231,7 +228,6 @@ export function useChatScrollOrchestration(options: UseChatScrollOrchestrationOp
       if (loading || !wasLoading) return;
       await nextTick();
       await waitAnimationFrames(1);
-      refreshObservedVirtualItemElements();
       chatScrollbarRef.value?.updateThumb();
       await waitAnimationFrames(1);
       chatScrollbarRef.value?.updateThumb();

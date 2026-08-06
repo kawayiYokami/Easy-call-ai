@@ -264,6 +264,7 @@ fn migrate_legacy_api_configs_into_providers(config: &mut AppConfig) {
                 models: vec![ApiModelConfig {
                     id: model_id,
                     model: legacy.model.clone(),
+                    display_name: String::new(),
                     deprecated: false,
                     enable_image: legacy.enable_image,
                     enable_audio: false,
@@ -408,18 +409,11 @@ fn expand_api_configs_from_providers(config: &mut AppConfig) {
     config.api_configs = expanded;
 }
 
-fn normalize_tools_list(
-    tools: &mut Vec<ApiToolConfig>,
-    enable_tools: bool,
-    legacy_command_enabled: bool,
-) {
+fn normalize_tools_list(tools: &mut Vec<ApiToolConfig>, enable_tools: bool) {
     for tool in tools.iter_mut() {
         match tool.id.as_str() {
             "bing-search" => {
                 tool.id = "websearch".to_string();
-            }
-            "desktop-screenshot" | "screenshot" => {
-                tool.id = "__merged_into_operate__".to_string();
             }
             "desktop-wait" | "wait" => {
                 tool.id = "__merged_into_operate__".to_string();
@@ -455,13 +449,6 @@ fn normalize_tools_list(
                 if !tools.iter().any(|tool| tool.id == default_tool.id) {
                     tools.push(default_tool);
                 }
-            }
-        }
-    }
-    if legacy_command_enabled {
-        for tool_id in ["reload", "organize_context"] {
-            if let Some(tool) = tools.iter_mut().find(|tool| tool.id == tool_id) {
-                tool.enabled = true;
             }
         }
     }
@@ -548,15 +535,7 @@ fn normalize_api_tools(config: &mut AppConfig) {
                 }
             }
         }
-        let legacy_command_enabled = provider
-            .tools
-            .iter()
-            .any(|tool| tool.id == "command" && tool.enabled);
-        normalize_tools_list(
-            &mut provider.tools,
-            provider.enable_tools,
-            legacy_command_enabled,
-        );
+        normalize_tools_list(&mut provider.tools, provider.enable_tools);
     }
 
     for api in &mut config.api_configs {
@@ -594,11 +573,7 @@ fn normalize_api_tools(config: &mut AppConfig) {
         api.custom_max_output_tokens_enabled =
             api.request_format.is_anthropic() || api.custom_max_output_tokens_enabled;
         api.failure_retry_count = api.failure_retry_count.clamp(0, 20);
-        let legacy_command_enabled = api
-            .tools
-            .iter()
-            .any(|tool| tool.id == "command" && tool.enabled);
-        normalize_tools_list(&mut api.tools, api.enable_tools, legacy_command_enabled);
+        normalize_tools_list(&mut api.tools, api.enable_tools);
     }
 }
 
@@ -732,7 +707,10 @@ fn normalize_shell_workspaces(config: &mut AppConfig) {
                 }
             }
         }
+        #[cfg(target_os = "windows")]
         let path_key = normalized_path.to_ascii_lowercase();
+        #[cfg(not(target_os = "windows"))]
+        let path_key = normalized_path.clone();
         if !seen_paths.insert(path_key) {
             continue;
         }

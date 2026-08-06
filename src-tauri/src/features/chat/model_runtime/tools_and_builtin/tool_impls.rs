@@ -246,105 +246,6 @@ impl RuntimeValueTool for BuiltinRecallTool {
 }
 
 #[derive(Debug, Clone)]
-struct BuiltinReloadTool {
-    app_state: AppState,
-}
-
-#[derive(Debug, Clone)]
-struct BuiltinOrganizeContextTool {
-    app_state: AppState,
-    session_id: String,
-    api_config_id: String,
-    agent_id: String,
-}
-
-impl RuntimeValueTool for BuiltinReloadTool {
-    const NAME: &'static str = "reload";
-    type Args = EmptyToolArgs;
-    type Error = ToolInvokeError;
-
-    fn call_typed(&self, _args: Self::Args) -> RuntimeToolValueFuture<'_, Self::Error> {
-        Box::pin(async move {
-            runtime_log_debug("[工具调试] 内置工具执行开始 name=reload".to_string());
-            let result = builtin_reload(&self.app_state)
-                .await
-                .map_err(ToolInvokeError::from);
-            match &result {
-                Ok(v) => runtime_log_debug(format!(
-                    "[工具调试] 内置工具执行完成 name=reload result={}",
-                    debug_value_snippet(v, 240)
-                )),
-                Err(err) => runtime_log_debug(format!(
-                    "[工具调试] 内置工具执行失败 name=reload err={err}"
-                )),
-            }
-            result
-        })
-    }
-}
-
-impl RuntimeToolMetadata for BuiltinReloadTool {
-    fn provider_tool_definition(&self) -> ProviderToolDefinition {
-        ProviderToolDefinition::new(
-            "reload",
-            "清空工作区运行态缓存后，重新加载 MCP、技能、私有人格与私有部门。不合法配置会被跳过，并在 repairSummary/repairItems 中返回路径、错误和修复建议。",
-            serde_json::json!({
-              "type": "object",
-              "properties": {},
-              "required": [],
-              "additionalProperties": false
-            }),
-        )
-    }
-}
-
-impl RuntimeValueTool for BuiltinOrganizeContextTool {
-    const NAME: &'static str = "organize_context";
-    type Args = EmptyToolArgs;
-    type Error = ToolInvokeError;
-
-    fn call_typed(&self, _args: Self::Args) -> RuntimeToolValueFuture<'_, Self::Error> {
-        Box::pin(async move {
-            runtime_log_debug(
-                "[工具调试] 内置工具执行开始 name=organize_context".to_string(),
-            );
-            let result = builtin_organize_context(
-                &self.app_state,
-                &self.session_id,
-                &self.api_config_id,
-                &self.agent_id,
-            )
-            .await
-            .map_err(ToolInvokeError::from);
-            match &result {
-                Ok(v) => runtime_log_debug(format!(
-                    "[工具调试] 内置工具执行完成 name=organize_context result={}",
-                    debug_value_snippet(v, 240)
-                )),
-                Err(err) => runtime_log_debug(format!(
-                    "[工具调试] 内置工具执行失败 name=organize_context err={err}"
-                )),
-            }
-            result
-        })
-    }
-}
-
-impl RuntimeToolMetadata for BuiltinOrganizeContextTool {
-    fn provider_tool_definition(&self) -> ProviderToolDefinition {
-        ProviderToolDefinition::new(
-            "organize_context",
-            "整理当前活跃对话上下文。",
-            serde_json::json!({
-              "type": "object",
-              "properties": {},
-              "additionalProperties": false
-            }),
-        )
-    }
-}
-
-#[derive(Debug, Clone)]
 struct BuiltinTerminalExecTool {
     app_state: AppState,
     session_id: String,
@@ -598,7 +499,8 @@ impl RuntimeToolMetadata for BuiltinTerminalExecTool {
               "type": "object",
               "properties": {
                 "command": { "type": "string", "description": "要执行的一次性 shell 命令。" },
-                "timeout_ms": { "type": "integer", "minimum": 1, "default": 300000, "description": "命令超时时间，单位毫秒；未指定时默认 300000ms，超时后回收本次进程树。长耗时检查/构建应显式传入足够大的值。" }
+                "timeout_ms": { "type": "integer", "minimum": 1, "default": 300000, "description": "命令超时时间，单位毫秒；未指定时默认 300000ms，超时后回收本次进程树。长耗时检查/构建应显式传入足够大的值。" },
+                "commitment": { "type": "string", "description": "危险命令确认承诺。平时留空；仅当 exec 返回 blockedReason=local_rule_blocked 且 message 要求确认时，向用户说明危险性并取得明确许可后，填入返回中的 commitmentHint 文案再重新调用。" }
               },
               "required": ["command"],
               "additionalProperties": false
@@ -736,6 +638,7 @@ impl RuntimeValueTool for BuiltinTerminalExecTool {
             resolved_action,
             resolved_command,
             args.timeout_ms,
+            args.commitment.as_deref(),
         )
         .await
         .map_err(ToolInvokeError::from);

@@ -3,7 +3,7 @@
     <button
       type="button"
       tabindex="0"
-      class="btn btn-ghost btn-sm min-w-0 shrink-0 gap-1.5"
+      class="btn btn-sm min-w-0 shrink-0 gap-1.5 border-0 bg-base-100/60 shadow-none hover:bg-base-300"
       :title="t('chat.rightPanelSwitcherTitle')"
       @click.stop
     >

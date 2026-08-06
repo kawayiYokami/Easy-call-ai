@@ -68,8 +68,7 @@
                 v-for="entry in virtualEntries"
                 :key="entry.item.id"
                 :data-index="entry.row.index"
-                :data-render-item-id="entry.item.id"
-                :ref="(el) => measureVirtualRow(entry.item.id, el)"
+                :ref="measureElementRef"
                 class="absolute left-0 top-0 w-full ecall-chat-virtual-item"
                 :style="{ transform: `translateY(${entry.row.start}px)` }"
               >
@@ -353,9 +352,10 @@
           </div>
           <ChatComposerPanel
             v-else ref="composerPanelRef" :selection-mode-enabled="messageSelectionModeEnabled"
+            :composer-scope="composerScope"
             :selected-message-count="selectedMessageBlocks.length"
             :chat-input="chatInput" :instruction-presets="instructionPresets" :mention-entries="mentionEntries"
-            :selected-mentions="selectedMentions" :chat-input-placeholder="chatInputPlaceholder"
+            :selected-mentions="selectedMentions"
             :clipboard-images="clipboardImages" :queued-attachment-notices="queuedAttachmentNotices"
             :link-open-error-text="linkOpenErrorText"
             :transcribing="transcribing" :can-record="canRecord" :recording="recording" :recording-ms="recordingMs"
@@ -377,7 +377,7 @@
             :active-conversation-id="activeConversationId" :unarchived-conversation-items="unarchivedConversationItems"
             :remote-im-contact-conversations="remoteImContactConversations"
             :user-alias="userAlias" :user-avatar-url="userAvatarUrl"
-            :persona-name-map="personaNameMap" :persona-avatar-url-map="personaAvatarUrlMap"
+            :persona-name="personaName" :persona-name-map="personaNameMap" :persona-avatar-url-map="personaAvatarUrlMap"
             :create-conversation-department-options="createConversationDepartmentOptions"
             :default-create-conversation-department-id="defaultCreateConversationDepartmentId"
             :ide-context-groups="mergedVisibleIdeContextGroups" :attached-ide-context-references="attachedIdeContextReferences"
@@ -541,7 +541,8 @@
           <ToolReviewSidebar class="min-h-0 flex-1"
             :active-tab="toolReviewSidebarActiveTab"
             :batches="toolReviewBatches" :current-batch-key="toolReviewCurrentBatchKey"
-            :detail-map="toolReviewDetailMap" :detail-loading-call-id="toolReviewDetailLoadingCallId"
+            :detail-map="toolReviewDetailMap" :segment-map="toolReviewSegmentMap"
+            :detail-loading-call-id="toolReviewDetailLoadingCallId"
             :reviewing-call-id="toolReviewReviewingCallId" :batch-reviewing-key="toolReviewBatchReviewingKey"
             :error-text="toolReviewErrorText"
             :markdown-is-dark="markdownIsDark"
@@ -660,6 +661,7 @@ import { clearNativeTextSelection } from "../../../utils/native-selection";
 // ==================== props / emits ====================
 
 const props = defineProps<{
+  composerScope?: "main" | "side";
   userAlias: string; personaName: string; userAvatarUrl: string; assistantAvatarUrl: string;
   personaNameMap: Record<string, string>; personaAvatarUrlMap: Record<string, string>;
   mentionEntries: ChatMentionEntry[]; selectedMentions: ChatMentionTarget[];
@@ -670,7 +672,7 @@ const props = defineProps<{
   toolStatusText: string; toolStatusState: "running" | "done" | "failed" | "";
   chatErrorText: string; clipboardImages: Array<{ mime: string; bytesBase64: string; previewDataUrl?: string }>;
   queuedAttachmentNotices: Array<{ id: string; fileName: string; path: string; mime: string }>;
-  chatInput: string; instructionPresets: PromptCommandPreset[]; chatInputPlaceholder: string;
+  chatInput: string; instructionPresets: PromptCommandPreset[];
   canRecord: boolean; recording: boolean; recordingMs: number; transcribing: boolean; recordHotkey: string;
   conversationCallPrimaryApiConfigId: string; preferredChatModelId?: string; toolReviewApiConfigId?: string; toolReviewRefreshTick: number; chatModelOptions: ApiConfigItem[];
   planModeEnabled: boolean; chatUsagePercent: number;
@@ -1302,10 +1304,11 @@ const {
 // ==================== virtual scroll ====================
 
 const {
-  virtualizer, virtualEntries, totalVirtualSize, measureVirtualRow,
+  virtualizer, virtualEntries, totalVirtualSize,
   latestOwnTailContentHeight, latestOwnTailContentMeasured, scheduleVirtualMeasure, syncViewportMetrics,
   scrollVirtualizerToIndex, scrollVirtualizerToConversationBottomLightweight,
-  resetVirtualizerAtConversationBottom, refreshObservedVirtualItemElements,
+  resetVirtualizerAtConversationBottom,
+  measureElementRef,
 } = useChatVirtualScroll({
   renderItems: virtualRenderItems,
   scrollContainer, scrollbarRef: chatScrollbarRef as Ref<{ updateThumb: () => void } | null>,
@@ -1451,7 +1454,7 @@ const showJumpToNextUserMessage = computed(() =>
 
 const {
   toolReviewPanelOpen, toolReviewBatches, toolReviewCurrentBatchKey,
-  toolReviewDetailMap, toolReviewDetailLoadingCallId, toolReviewReviewingCallId,
+  toolReviewDetailMap, toolReviewSegmentMap, toolReviewDetailLoadingCallId, toolReviewReviewingCallId,
   toolReviewBatchReviewingKey, toolReviewSubmittingBatchKey, toolReviewErrorText,
   setToolReviewCurrentBatchKey,
   loadToolReviewItemDetail, runToolReviewForCall, runToolReviewForBatch,
@@ -1591,7 +1594,6 @@ const {
   onScroll, scheduleVirtualMeasure,
   scrollConversationToBottomLightweight: scrollVirtualizerToConversationBottomLightweight,
   resetConversationToBottom: resetVirtualizerAtConversationBottom,
-  refreshObservedVirtualItemElements,
   olderHistoryCorrectionAllowed,
   props: {
     hasMoreHistory: toRef(props, "hasMoreHistory"), loadingOlderHistory: toRef(props, "loadingOlderHistory"),

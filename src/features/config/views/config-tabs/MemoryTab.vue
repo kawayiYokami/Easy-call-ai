@@ -549,6 +549,7 @@ const emit = defineEmits<{
   (e: "sync-lock-change", value: boolean): void;
 }>();
 const MEMORY_VIEW_MODE_STORAGE_KEY = "easy_call.memory.view_mode.v1";
+const SHOW_DEV_MEMORY_DIAGNOSIS = import.meta.env.DEV;
 const DETAILED_MEMORY_PAGE_SIZE = 10;
 const COMPACT_MEMORY_PAGE_SIZE = 20;
 const PROFILE_ATTRIBUTE_TAGS = ["用户别名", "事实属性", "技能树", "关系图谱", "活跃项目", "用户要求"] as const;
@@ -705,16 +706,20 @@ const memoryTemplateGroups = computed<ConfigTemplateGroup[]>(() => ([
       { key: "rerank", items: [] },
     ],
   },
-  {
-    key: "chat-history",
-    title: t("config.memory.chatHistory"),
-    rows: [{ key: "chat-history", items: [] }],
-  },
-  {
-    key: "recall-diagnosis",
-    title: t("config.memory.recallDiagnosis"),
-    rows: [{ key: "recall-diagnosis", items: [] }],
-  },
+  ...(SHOW_DEV_MEMORY_DIAGNOSIS
+    ? [
+        {
+          key: "chat-history",
+          title: t("config.memory.chatHistory"),
+          rows: [{ key: "chat-history", items: [] }],
+        },
+        {
+          key: "recall-diagnosis",
+          title: t("config.memory.recallDiagnosis"),
+          rows: [{ key: "recall-diagnosis", items: [] }],
+        },
+      ]
+    : []),
   {
     key: "memory-list",
     title: t("config.memory.list"),

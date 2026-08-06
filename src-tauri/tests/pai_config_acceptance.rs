@@ -1,9 +1,9 @@
 use std::{
     fs,
     path::{Path, PathBuf},
-    process::Command,
 };
 
+use easy_call_ai::pai_config_tool;
 use serde_json::Value;
 use uuid::Uuid;
 
@@ -139,36 +139,27 @@ fn sample_agents_json() -> &'static str {
 }
 
 fn run_cli(root: &Path, args: &[&str]) -> String {
-    let output = Command::new(env!("CARGO_BIN_EXE_pai_config"))
-        .args(args)
-        .env("PAI_APP_ROOT", root)
-        .output()
-        .expect("run pai_config");
-    if !output.status.success() {
-        panic!(
-            "command failed: {:?}\nstdout={}\nstderr={}",
-            args,
-            String::from_utf8_lossy(&output.stdout),
-            String::from_utf8_lossy(&output.stderr)
-        );
-    }
-    String::from_utf8(output.stdout).expect("stdout utf8")
+    let args = args.iter().map(|value| (*value).to_string()).collect::<Vec<_>>();
+    pai_config_tool::run_with_paths(
+        root.to_path_buf(),
+        root.join("app_config.toml"),
+        root.join("app_data.json"),
+        root.join("llm-workspace"),
+        &args,
+    )
+    .unwrap_or_else(|err| panic!("command failed: {args:?}\nerror={err}"))
 }
 
 fn run_cli_err(root: &Path, args: &[&str]) -> String {
-    let output = Command::new(env!("CARGO_BIN_EXE_pai_config"))
-        .args(args)
-        .env("PAI_APP_ROOT", root)
-        .output()
-        .expect("run pai_config");
-    assert!(
-        !output.status.success(),
-        "command should fail: {:?}\nstdout={}\nstderr={}",
-        args,
-        String::from_utf8_lossy(&output.stdout),
-        String::from_utf8_lossy(&output.stderr)
-    );
-    String::from_utf8(output.stderr).expect("stderr utf8")
+    let args = args.iter().map(|value| (*value).to_string()).collect::<Vec<_>>();
+    pai_config_tool::run_with_paths(
+        root.to_path_buf(),
+        root.join("app_config.toml"),
+        root.join("app_data.json"),
+        root.join("llm-workspace"),
+        &args,
+    )
+    .unwrap_err()
 }
 
 fn write_png(path: &Path) {

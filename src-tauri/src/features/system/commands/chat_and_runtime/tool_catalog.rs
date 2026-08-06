@@ -50,12 +50,6 @@ async fn builtin_tool_definitions_for_frontend(
             .provider_tool_definition(),
         ),
         frontend_tool_definition(operate_provider_tool_definition()),
-        frontend_tool_definition(
-            BuiltinReloadTool {
-                app_state: state.clone(),
-            }
-            .provider_tool_definition(),
-        ),
         frontend_tool_definition(read_provider_tool_definition()),
         frontend_tool_definition(read_media_provider_tool_definition()),
         frontend_tool_definition(
@@ -300,7 +294,7 @@ mod tool_catalog_tests {
             .enable_all()
             .build()
             .expect("build tokio runtime for tool catalog tests should succeed")
-            .block_on(catalog_tool_definition_by_name(MCP_OPERATE_TOOL_NAME))
+            .block_on(catalog_tool_definition_by_name(OPERATE_TOOL_NAME))
             .expect("load operate definition from frontend catalog should succeed");
         let operate_runtime =
             frontend_tool_definition(operate_provider_tool_definition());

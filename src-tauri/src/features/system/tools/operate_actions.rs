@@ -39,7 +39,12 @@ fn parse_named_key(name: &str) -> Option<enigo::Key> {
         "space" | "spacebar" => Some(enigo::Key::Space),
         "backspace" => Some(enigo::Key::Backspace),
         "delete" | "del" => Some(enigo::Key::Delete),
-        "insert" => Some(enigo::Key::Insert),
+        "insert" => {
+            #[cfg(any(target_os = "windows", target_os = "linux"))]
+            { Some(enigo::Key::Insert) }
+            #[cfg(target_os = "macos")]
+            { None }
+        }
         "up" | "arrowup" => Some(enigo::Key::UpArrow),
         "down" | "arrowdown" => Some(enigo::Key::DownArrow),
         "left" | "arrowleft" => Some(enigo::Key::LeftArrow),
@@ -49,9 +54,24 @@ fn parse_named_key(name: &str) -> Option<enigo::Key> {
         "pageup" => Some(enigo::Key::PageUp),
         "pagedown" => Some(enigo::Key::PageDown),
         "capslock" => Some(enigo::Key::CapsLock),
-        "printscreen" => Some(enigo::Key::PrintScr),
-        "pause" => Some(enigo::Key::Pause),
-        "numlock" => Some(enigo::Key::Numlock),
+        "printscreen" => {
+            #[cfg(any(target_os = "windows", target_os = "linux"))]
+            { Some(enigo::Key::PrintScr) }
+            #[cfg(target_os = "macos")]
+            { None }
+        }
+        "pause" => {
+            #[cfg(any(target_os = "windows", target_os = "linux"))]
+            { Some(enigo::Key::Pause) }
+            #[cfg(target_os = "macos")]
+            { None }
+        }
+        "numlock" => {
+            #[cfg(any(target_os = "windows", target_os = "linux"))]
+            { Some(enigo::Key::Numlock) }
+            #[cfg(target_os = "macos")]
+            { None }
+        }
         "f1" => Some(enigo::Key::F1),
         "f2" => Some(enigo::Key::F2),
         "f3" => Some(enigo::Key::F3),
@@ -178,7 +198,26 @@ async fn execute_text_action(enigo: &mut enigo::Enigo, text: &str, repeat: u32, 
     Ok(())
 }
 
-async fn execute_screenshot_action(mode: &ScreenshotModeSpec, save_path: Option<String>, quality: f32) -> DesktopToolResult<(ScreenshotResponse, String)> {
+/// 生成 operate 截图默认保存路径：{screenshots_root}/operate_{毫秒时间戳}.webp
+fn default_operate_screenshot_path(screenshots_root: &std::path::Path) -> String {
+    let ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis())
+        .unwrap_or_default();
+    screenshots_root
+        .join(format!("operate_{ms}.webp"))
+        .to_string_lossy()
+        .to_string()
+}
+
+async fn execute_screenshot_action(
+    mode: &ScreenshotModeSpec,
+    save_path: Option<String>,
+    quality: f32,
+    screenshots_root: &std::path::Path,
+    include_base64: bool,
+) -> DesktopToolResult<(ScreenshotResponse, String)> {
+    let save_path = save_path.or_else(|| Some(default_operate_screenshot_path(screenshots_root)));
     let request = ScreenshotRequest {
         mode: match mode {
             ScreenshotModeSpec::Desktop | ScreenshotModeSpec::FocusedWindow => ScreenshotMode::Desktop,
@@ -194,6 +233,7 @@ async fn execute_screenshot_action(mode: &ScreenshotModeSpec, save_path: Option<
         },
         save_path,
         webp_quality: quality,
+        include_base64,
     };
     let result = match mode {
         ScreenshotModeSpec::Desktop | ScreenshotModeSpec::Region(_) => run_screenshot_tool(request).await?,
@@ -233,5 +273,34 @@ mod operate_actions_tests {
         assert_eq!(screen.y, 500);
         assert_eq!(screen.width, 320);
         assert_eq!(screen.height, 150);
+    }
+
+    #[test]
+    fn default_operate_screenshot_path_should_be_named_with_timestamp() {
+        let root = std::path::Path::new("C:/tmp/screenshots");
+        let path = default_operate_screenshot_path(root);
+        let file_name = std::path::Path::new(&path)
+            .file_name()
+            .expect("path should have a file name")
+            .to_string_lossy()
+            .to_string();
+        assert!(file_name.starts_with("operate_"), "unexpected file name: {file_name}");
+        assert!(file_name.ends_with(".webp"), "unexpected file name: {file_name}");
+        let ms_part = file_name
+            .trim_start_matches("operate_")
+            .trim_end_matches(".webp");
+        assert!(
+            ms_part.parse::<u128>().is_ok(),
+            "timestamp part should be numeric: {file_name}"
+        );
+        // 默认路径必须落在传入的会话截图根目录下（按会话建目录）。
+        let parent = std::path::Path::new(&path)
+            .parent()
+            .expect("path should have a parent");
+        let parent_norm = parent.to_string_lossy().replace('\\', "/");
+        assert_eq!(
+            parent_norm, "C:/tmp/screenshots",
+            "default path must stay inside the per-conversation screenshots root"
+        );
     }
 }

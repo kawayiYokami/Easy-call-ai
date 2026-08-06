@@ -169,6 +169,8 @@ struct ApiModelConfig {
     id: String,
     model: String,
     #[serde(default)]
+    display_name: String,
+    #[serde(default)]
     enable_image: bool,
     #[serde(default)]
     enable_audio: bool,
@@ -354,13 +356,13 @@ pub(crate) struct CliContext {
 }
 
 #[allow(dead_code)]
-pub(crate) fn run_cli(args: &[String]) -> Result<String, String> {
+pub fn run_cli(args: &[String]) -> Result<String, String> {
     let ctx = CliContext::detect()?;
     run_with_context(&ctx, args)
 }
 
 #[allow(dead_code)]
-pub(crate) fn run_with_paths(
+pub fn run_with_paths(
     app_root: PathBuf,
     config_path: PathBuf,
     data_path: PathBuf,
@@ -377,7 +379,7 @@ pub(crate) fn run_with_paths(
 }
 
 #[allow(dead_code)]
-pub(crate) fn run_command_with_paths(
+pub fn run_command_with_paths(
     app_root: PathBuf,
     config_path: PathBuf,
     data_path: PathBuf,
@@ -1752,6 +1754,7 @@ fn build_new_provider(name: &str) -> ApiProviderConfig {
         models: vec![ApiModelConfig {
             id: "default-model".to_string(),
             model: "gpt-4o-mini".to_string(),
+            display_name: String::new(),
             enable_image: false,
             enable_audio: false,
             enable_video: false,
@@ -2334,7 +2337,7 @@ fn push_output(text: &str) {
 }
 
 #[allow(dead_code)]
-pub(crate) fn split_command_line(command: &str) -> Result<Vec<String>, String> {
+pub fn split_command_line(command: &str) -> Result<Vec<String>, String> {
     let mut out = Vec::<String>::new();
     let mut current = String::new();
     let mut quote = None::<char>;

@@ -10,7 +10,7 @@
         </div>
       </div>
       <button
-        class="btn btn-primary btn-sm shrink-0"
+        class="btn btn-sm bg-base-100 shrink-0"
         :disabled="storageLoading || !!cleanupBusyKind"
         @click="refreshStorageOverview"
       >

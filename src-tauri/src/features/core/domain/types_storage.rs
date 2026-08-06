@@ -646,59 +646,6 @@ fn builtin_tool_visible_in_department_permissions(tool_id: &str) -> bool {
     builtin_tool_visible_in_department_permissions_from_policy(tool_id)
 }
 
-fn deputy_department_builtin_tool_allowed(tool_id: &str) -> bool {
-    matches!(tool_id.trim(), "fetch" | "websearch" | "exec" | "read" | "read_file")
-}
-
-fn workspace_preset_skill_name(name: &str) -> bool {
-    matches!(
-        name.trim(),
-        "agent-office"
-            | "agents-md-setup"
-            | "assistant-interaction-guide"
-            | "assistant-space-guide"
-            | "browser-automation"
-            | "mcp-setup"
-            | "news-analyst"
-            | "pai-guide"
-            | "private-organization-guide"
-            | "skill-setup"
-            | "workspace-guide"
-    )
-}
-
-fn deputy_department_restricted_reason(
-    department: &DepartmentConfig,
-    category: DepartmentPermissionCategory,
-    item_name: &str,
-) -> Option<String> {
-    if !department.is_deputy {
-        return None;
-    }
-    let item_name = item_name.trim();
-    match category {
-        DepartmentPermissionCategory::BuiltinTool => {
-            if deputy_department_builtin_tool_allowed(item_name) {
-                None
-            } else {
-                Some(format!(
-                    "副手部门默认只能使用调查型工具，工具 `{item_name}` 不被允许"
-                ))
-            }
-        }
-        DepartmentPermissionCategory::Skill => {
-            if workspace_preset_skill_name(item_name) {
-                Some(format!(
-                    "副手部门默认禁止使用预设 Skill，Skill `{item_name}` 不被允许"
-                ))
-            } else {
-                None
-            }
-        }
-        DepartmentPermissionCategory::McpTool => None,
-    }
-}
-
 fn normalize_department_permission_mode(value: &str) -> String {
     match value.trim().to_ascii_lowercase().as_str() {
         "whitelist" => "whitelist".to_string(),
@@ -755,24 +702,6 @@ fn department_permission_allows_any_name(
     category: DepartmentPermissionCategory,
     candidate_names: &[&str],
 ) -> bool {
-    if let Some(department) = department {
-        if department.is_deputy {
-            match category {
-                DepartmentPermissionCategory::BuiltinTool => {
-                    return candidate_names.iter().any(|candidate| {
-                        let candidate = candidate.trim();
-                        !candidate.is_empty() && deputy_department_builtin_tool_allowed(candidate)
-                    });
-                }
-                DepartmentPermissionCategory::Skill => {
-                    if candidate_names.iter().any(|candidate| workspace_preset_skill_name(candidate)) {
-                        return false;
-                    }
-                }
-                DepartmentPermissionCategory::McpTool => {}
-            }
-        }
-    }
     let Some((control, list)) = department_permission_candidates(department, category) else {
         return true;
     };
@@ -800,11 +729,6 @@ fn department_permission_restricted_reason(
     category: DepartmentPermissionCategory,
     item_name: &str,
 ) -> Option<String> {
-    if let Some(department) = department {
-        if let Some(reason) = deputy_department_restricted_reason(department, category, item_name) {
-            return Some(reason);
-        }
-    }
     let Some((control, _)) = department_permission_candidates(department, category) else {
         return None;
     };
@@ -832,27 +756,6 @@ fn tool_restricted_by_department(
         return None;
     }
     let department = department?;
-    if let Some(reason) = deputy_department_restricted_reason(
-        department,
-        DepartmentPermissionCategory::BuiltinTool,
-        tool_id,
-    ) {
-        return Some(reason);
-    }
-    let is_assistant = department.id == ASSISTANT_DEPARTMENT_ID || department.is_built_in_assistant;
-    if !is_assistant
-        && matches!(tool_id, "reload" | "organize_context" | "screenshot" | "operate")
-    {
-        let department_name = department.name.trim();
-        let department_name = if department_name.is_empty() {
-            "当前部门"
-        } else {
-            department_name
-        };
-        return Some(format!(
-            "因为当前人格在 {department_name} 部门，本工具不被允许"
-        ));
-    }
     department_permission_restricted_reason(
         Some(department),
         DepartmentPermissionCategory::BuiltinTool,
@@ -1014,41 +917,71 @@ mod types_storage_tests {
     }
 
     #[test]
-    fn deputy_department_permission_should_apply_default_guard_even_when_control_disabled() {
-        let mut deputy = default_deputy_department("api-a");
-        deputy.permission_control.enabled = false;
-        deputy.is_deputy = true;
+    fn operate_should_be_controlled_by_permission_card_for_regular_departments() {
+        let mut regular_whitelisted = build_department_with_permission_control(
+            "whitelist",
+            vec!["fetch", "operate"],
+            vec![],
+            vec![],
+        );
+        regular_whitelisted.is_built_in_assistant = false;
 
-        assert!(department_permission_allows_any_name(
-            Some(&deputy),
-            DepartmentPermissionCategory::BuiltinTool,
-            &["exec"],
-        ));
-        assert!(department_permission_allows_any_name(
-            Some(&deputy),
-            DepartmentPermissionCategory::BuiltinTool,
-            &["read"],
-        ));
-        assert!(!department_permission_allows_any_name(
-            Some(&deputy),
-            DepartmentPermissionCategory::BuiltinTool,
-            &["operate"],
-        ));
-        assert!(!department_permission_allows_any_name(
-            Some(&deputy),
-            DepartmentPermissionCategory::BuiltinTool,
-            &["screenshot"],
-        ));
-        assert!(!department_permission_allows_any_name(
-            Some(&deputy),
-            DepartmentPermissionCategory::Skill,
-            &["workspace-guide"],
-        ));
-        assert!(department_permission_allows_any_name(
-            Some(&deputy),
-            DepartmentPermissionCategory::Skill,
-            &["github-project-breakdown"],
-        ));
+        let mut regular_blocklisted = build_department_with_permission_control(
+            "blacklist",
+            vec!["operate"],
+            vec![],
+            vec![],
+        );
+        regular_blocklisted.is_built_in_assistant = false;
+
+        let mut regular_whitelist_without_operate = build_department_with_permission_control(
+            "whitelist",
+            vec!["fetch"],
+            vec![],
+            vec![],
+        );
+        regular_whitelist_without_operate.is_built_in_assistant = false;
+
+        let mut regular_control_disabled = build_department_with_permission_control(
+            "whitelist",
+            vec![],
+            vec![],
+            vec![],
+        );
+        regular_control_disabled.is_built_in_assistant = false;
+        regular_control_disabled.permission_control.enabled = false;
+
+        // 白名单显式授权 operate → 允许
+        assert_eq!(
+            tool_restricted_by_department(Some(&regular_whitelisted), "operate"),
+            None
+        );
+        // 黑名单显式拒绝 operate → 拒绝
+        assert!(tool_restricted_by_department(Some(&regular_blocklisted), "operate").is_some());
+        // 白名单未授权 operate → 拒绝
+        assert!(tool_restricted_by_department(Some(&regular_whitelist_without_operate), "operate")
+            .is_some());
+        // 权限卡未启用 → 默认放行（普通工具语义）
+        assert_eq!(
+            tool_restricted_by_department(Some(&regular_control_disabled), "operate"),
+            None
+        );
+    }
+
+    #[test]
+    fn deputy_department_operate_should_be_controlled_by_permission_card() {
+        // 副手部门默认权限卡（explorer 白名单）不含 operate → 权限卡机制拒绝
+        let mut explorer = default_deputy_department("api-a");
+        assert!(tool_restricted_by_department(Some(&explorer), "operate").is_some());
+        // 权限卡显式授权 operate → 允许（无硬编码锁死）
+        explorer
+            .permission_control
+            .builtin_tool_names
+            .push("operate".to_string());
+        assert_eq!(
+            tool_restricted_by_department(Some(&explorer), "operate"),
+            None
+        );
     }
 
     #[test]

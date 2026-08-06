@@ -117,6 +117,7 @@ function cleanupAnimation(element: Element) {
 function animateEnter(element: Element, done: () => void) {
   const sectionElement = element as HTMLElement;
   cleanupAnimation(sectionElement);
+  delete sectionElement.dataset.ecallCollapseFinished;
   sectionElement.style.height = "0px";
   sectionElement.style.opacity = "0";
   sectionElement.style.transform = "translateY(-6px)";
@@ -125,10 +126,7 @@ function animateEnter(element: Element, done: () => void) {
   void sectionElement.offsetHeight;
   const onTransitionEnd = (event: TransitionEvent) => {
     if (event.target !== sectionElement || event.propertyName !== "height") return;
-    sectionElement.removeEventListener("transitionend", onTransitionEnd);
-    cleanupAnimation(sectionElement);
-    emit("after-enter");
-    done();
+    finishAnimation(sectionElement, onTransitionEnd, "after-enter", done);
   };
   sectionElement.addEventListener("transitionend", onTransitionEnd);
   sectionElement.style.transition = [
@@ -141,11 +139,14 @@ function animateEnter(element: Element, done: () => void) {
     sectionElement.style.opacity = "1";
     sectionElement.style.transform = "translateY(0)";
   });
+  // 兜底：transitionend 可能因高度无变化等场景不触发，超时后强制清理，避免 overflow:hidden 残留裁剪内容
+  window.setTimeout(() => finishAnimation(sectionElement, onTransitionEnd, "after-enter", done), 400);
 }
 
 function animateLeave(element: Element, done: () => void) {
   const sectionElement = element as HTMLElement;
   cleanupAnimation(sectionElement);
+  delete sectionElement.dataset.ecallCollapseFinished;
   sectionElement.style.height = `${sectionElement.scrollHeight}px`;
   sectionElement.style.opacity = "1";
   sectionElement.style.transform = "translateY(0)";
@@ -154,10 +155,7 @@ function animateLeave(element: Element, done: () => void) {
   void sectionElement.offsetHeight;
   const onTransitionEnd = (event: TransitionEvent) => {
     if (event.target !== sectionElement || event.propertyName !== "height") return;
-    sectionElement.removeEventListener("transitionend", onTransitionEnd);
-    cleanupAnimation(sectionElement);
-    emit("after-leave");
-    done();
+    finishAnimation(sectionElement, onTransitionEnd, "after-leave", done);
   };
   sectionElement.addEventListener("transitionend", onTransitionEnd);
   sectionElement.style.transition = [
@@ -170,6 +168,26 @@ function animateLeave(element: Element, done: () => void) {
     sectionElement.style.opacity = "0";
     sectionElement.style.transform = "translateY(-6px)";
   });
+  // 兜底：同 enter，防止 transitionend 不触发时样式残留
+  window.setTimeout(() => finishAnimation(sectionElement, onTransitionEnd, "after-leave", done), 400);
+}
+
+function finishAnimation(
+  sectionElement: HTMLElement,
+  onTransitionEnd: (event: TransitionEvent) => void,
+  eventName: "after-enter" | "after-leave",
+  done: () => void,
+) {
+  if (sectionElement.dataset.ecallCollapseFinished === "1") return;
+  sectionElement.dataset.ecallCollapseFinished = "1";
+  sectionElement.removeEventListener("transitionend", onTransitionEnd);
+  cleanupAnimation(sectionElement);
+  if (eventName === "after-enter") {
+    emit("after-enter");
+  } else {
+    emit("after-leave");
+  }
+  done();
 }
 </script>
 

@@ -1,7 +1,17 @@
 {
-  "generatedAt": "2026-08-03T16:35:22.894Z",
-  "latestVersion": "v0.51.0",
+  "generatedAt": "2026-08-06T03:12:42.181Z",
+  "latestVersion": "v0.55.0",
   "releases": [
+    {
+      "version": "v0.55.0",
+      "path": "docs/changelog/releases/v0.55.0.md",
+      "summary": "会话列表分组优化：同目录、同助手的会话自动聚合，最新一条完整展示，其余折叠为单行条目；打开会话不再自动展开所在分组，最近会话的文件夹胶囊可点击展开并定位到分组。"
+    },
+    {
+      "version": "v0.52.0",
+      "path": "docs/changelog/releases/v0.52.0.md",
+      "summary": "Linux 应用内自动更新（AppImage）：支持自动检查、下载并替换安装新版本，发布流程同步生成 Linux 更新清单与签名；macOS 仍不启用。"
+    },
     {
       "version": "v0.51.0",
       "path": "docs/changelog/releases/v0.51.0.md",

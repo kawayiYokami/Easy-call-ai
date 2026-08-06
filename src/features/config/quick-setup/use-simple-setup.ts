@@ -31,6 +31,8 @@ export interface SimpleSetupDraft {
   providerId: SimpleProviderId;
   apiKey: string;
   customBaseUrl: string;
+  /** 自定义供应商的 API 协议（requestFormat），预设供应商固定各自协议 */
+  customRequestFormat: ApiRequestFormat;
   models: Record<SimpleModelCard, ApiModelConfigItem>;
   /** 自定义供应商刷新模型列表后拉到的候选模型 */
   customModelOptions: string[];
@@ -67,12 +69,43 @@ export const SILICON_FLOW_EMBEDDING_MODEL = "BAAI/bge-m3";
 export const SILICON_FLOW_RERANK_MODEL = "BAAI/bge-reranker-v2-m3";
 export const SILICON_FLOW_STT_MODEL = "TeleAI/TeleSpeechASR";
 
-export const responseStyleOptions = (responseStylesJson as ResponseStyleOption[]).filter((style) => style.id !== "abstract");
+export const responseStyleOptions = responseStylesJson as ResponseStyleOption[];
+
+/** 简单页自定义供应商可选的文本协议（与高级配置页 text 能力列表一致） */
+export const simpleSetupProtocolOptions: Array<{ value: ApiRequestFormat; label: string }> = [
+  { value: "auto", label: "Auto" },
+  { value: "openai", label: "OpenAI Compatible" },
+  { value: "deepseek", label: "DeepSeek" },
+  { value: "openai_responses", label: "OpenAI Responses" },
+  { value: "codex", label: "OpenAI Codex" },
+  { value: "gemini", label: "Google Gemini" },
+  { value: "anthropic", label: "Anthropic" },
+  { value: "fireworks", label: "Fireworks" },
+  { value: "together", label: "Together AI" },
+  { value: "groq", label: "Groq" },
+  { value: "mimo", label: "Mimo" },
+  { value: "minimax", label: "MiniMax" },
+  { value: "moonshot", label: "Moonshot/Kimi" },
+  { value: "nebius", label: "Nebius" },
+  { value: "xai", label: "xAI" },
+  { value: "zai", label: "Zai" },
+  { value: "bigmodel", label: "BigModel" },
+  { value: "aliyun", label: "Aliyun" },
+  { value: "baidu", label: "Baidu" },
+  { value: "cohere", label: "Cohere" },
+  { value: "ollama", label: "Ollama" },
+  { value: "ollama_cloud", label: "Ollama Cloud" },
+  { value: "vertex", label: "Google Vertex AI" },
+  { value: "github_copilot", label: "GitHub Copilot" },
+  { value: "opencode_go", label: "OpenCode Go" },
+  { value: "bedrock_api", label: "AWS Bedrock API" },
+];
 
 export function createDraftModelCard(id: string, model: string, reasoningEffort: SimpleReasoningEffort): ApiModelConfigItem {
   return {
     id,
     model,
+    displayName: "",
     enableImage: false,
     enableAudio: false,
     enableVideo: false,
@@ -92,6 +125,7 @@ export function defaultSimpleSetupDraft(): SimpleSetupDraft {
     providerId: preset.id,
     apiKey: "",
     customBaseUrl: preset.baseUrl,
+    customRequestFormat: "auto",
     models: {
       quick: createDraftModelCard(SIMPLE_SETUP_MODEL_IDS.quick, preset.defaultModel, "low"),
       expert: createDraftModelCard(SIMPLE_SETUP_MODEL_IDS.expert, preset.defaultModel, "high"),
@@ -115,6 +149,7 @@ function parseDraft(raw: unknown): SimpleSetupDraft | null {
   if (simpleProviderOptions.some((item) => item.id === providerId)) draft.providerId = providerId as SimpleProviderId;
   draft.apiKey = String(obj.apiKey || "");
   draft.customBaseUrl = String(obj.customBaseUrl || "");
+  draft.customRequestFormat = normalizeApiRequestFormat(obj.customRequestFormat);
   const models = (obj.models && typeof obj.models === "object" ? obj.models : {}) as Record<string, Record<string, unknown>>;
   for (const card of Object.keys(SIMPLE_SETUP_MODEL_IDS) as SimpleModelCard[]) {
     const cardRaw = models[card] || {};
@@ -221,6 +256,7 @@ export function useSimpleSetup() {
       llmRoundLogCapacity: 3,
       messageNotificationEnabled: true,
       messageNotificationSoundEnabled: false,
+      desktopOperationNoticeEnabled: true,
       selectedApiConfigId: "",
       assistantDepartmentApiConfigId: "",
       toolReviewApiConfigId: "",
@@ -293,6 +329,7 @@ export function useSimpleSetup() {
       const preset = providerPresetFromConfig(existing.requestFormat, existing.baseUrl);
       draft.providerId = preset.id;
       draft.customBaseUrl = preset.baseUrl;
+      draft.customRequestFormat = preset.requestFormat;
       draft.apiKey = existing.apiKey;
       draft.models.quick.model = existing.model || preset.defaultModel;
       draft.models.expert.model = existing.model || preset.defaultModel;
@@ -361,7 +398,7 @@ export function useSimpleSetup() {
         input: {
           baseUrl,
           apiKey,
-          requestFormat: "auto",
+          requestFormat: draft.customRequestFormat,
           providerId: null,
           codexAuthMode: "read_local",
           codexLocalAuthPath: "~/.codex/auth.json",
@@ -408,7 +445,7 @@ export function useSimpleSetup() {
   }
 
   function currentProviderRequestFormat(): ApiRequestFormat {
-    return selectedProvider.value.requestFormat;
+    return draft.providerId === "custom" ? draft.customRequestFormat : selectedProvider.value.requestFormat;
   }
 
   function buildProviderAndEndpoints(): ApiProviderConfigItem & { endpoints: ApiConfigItem[] } {
@@ -471,7 +508,7 @@ export function useSimpleSetup() {
     ];
     const provider: ApiProviderConfigItem = {
       id: SIMPLE_SETUP_PROVIDER_ID,
-      name: selectedProvider.value.label,
+      name: t("simpleSetup.providerName"),
       requestFormat,
       allowConcurrentRequests: true,
       enableText,

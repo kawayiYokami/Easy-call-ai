@@ -12,52 +12,41 @@
               v-for="group in reviewGroups"
               :key="group.key"
               :title="group.title"
-              :count="group.items.length"
+              :count="group.segments.length || group.items.length"
               :model-value="isToolAssessmentSectionCollapsed(group.key)"
               @update:model-value="toggleToolAssessmentSection(group.key)"
               @collapse-all="collapseAllToolAssessmentSections"
             >
               <div v-if="!isToolAssessmentSectionCollapsed(group.key)">
-                <ToolAssessmentCard
-                  v-for="item in group.items"
-                  :key="`${group.key}:${item.callId}`"
-                  :item="item"
-                  :detail="detailMap[item.callId]"
-                  :loading="detailLoadingCallId === item.callId"
-                  :reviewing="reviewingCallId === item.callId"
-                  :is-dark="markdownIsDark"
-                  @load-detail="emit('loadItemDetail', $event)"
-                  @review="emit('reviewItem', $event)"
-                />
+                <template v-if="group.segments.length > 0">
+                  <div v-for="(segment, idx) in group.segments" :key="`${group.key}:segment:${idx}`" class="mx-1 mb-1">
+                    <TerminalApprovalPatchSample
+                      v-if="segment.diffLines.length > 0"
+                      :lines="segment.diffLines"
+                      :diff-only="true"
+                      :title="segmentActionLabel(segment)"
+                      :collapsed="isSegmentCollapsed(group.key, idx)"
+                      class="mt-1 rounded-lg"
+                      @update:collapsed="setSegmentCollapsed(group.key, idx, $event)"
+                      @collapse-all="collapseAllSegmentsInGroup(group.key)"
+                    />
+                  </div>
+                </template>
+                <template v-else>
+                  <ToolAssessmentCard
+                    v-for="item in group.items"
+                    :key="`${group.key}:${item.callId}`"
+                    :item="item"
+                    :detail="detailMap[item.callId]"
+                    :loading="detailLoadingCallId === item.callId"
+                    :reviewing="reviewingCallId === item.callId"
+                    :is-dark="markdownIsDark"
+                    @load-detail="emit('loadItemDetail', $event)"
+                    @review="emit('reviewItem', $event)"
+                  />
+                </template>
               </div>
             </CollapsibleGroup>
-          </div>
-          <div v-if="props.batches.length > 1" class="px-4 py-3">
-            <div class="join flex justify-center">
-              <button
-                type="button"
-                class="join-item btn btn-sm bg-base-100 hover:bg-base-100"
-                :disabled="!previousBatch"
-                @click="previousBatch && emit('selectBatch', previousBatch.batchKey)"
-              >
-                «
-              </button>
-              <button
-                type="button"
-                class="join-item btn btn-sm bg-base-100 hover:bg-base-100"
-                @click.prevent
-              >
-                {{ t("chat.toolReview.pageLabel", { current: currentBatchIndex + 1, total: props.batches.length }) }}
-              </button>
-              <button
-                type="button"
-                class="join-item btn btn-sm bg-base-100 hover:bg-base-100"
-                :disabled="!nextBatch"
-                @click="nextBatch && emit('selectBatch', nextBatch.batchKey)"
-              >
-                »
-              </button>
-            </div>
           </div>
         </div>
       </template>
@@ -145,6 +134,36 @@
         active
       />
     </div>
+    <div
+      v-if="activeTab === 'tools' && currentBatch && props.batches.length > 1"
+      class="shrink-0 border-t border-base-300 bg-base-200 px-4 py-3"
+    >
+      <div class="join flex justify-center">
+        <button
+          type="button"
+          class="join-item btn btn-sm bg-base-100 hover:bg-base-100"
+          :disabled="!previousBatch"
+          @click="previousBatch && emit('selectBatch', previousBatch.batchKey)"
+        >
+          «
+        </button>
+        <button
+          type="button"
+          class="join-item btn btn-sm bg-base-100 hover:bg-base-100"
+          @click.prevent
+        >
+          {{ t("chat.toolReview.pageLabel", { current: currentBatchIndex + 1, total: props.batches.length }) }}
+        </button>
+        <button
+          type="button"
+          class="join-item btn btn-sm bg-base-100 hover:bg-base-100"
+          :disabled="!nextBatch"
+          @click="nextBatch && emit('selectBatch', nextBatch.batchKey)"
+        >
+          »
+        </button>
+      </div>
+    </div>
     <FloatingScrollbar :target="contentScroller" />
   </aside>
 
@@ -196,13 +215,15 @@ import { invokeTauri } from "../../../services/tauri-api";
 import type { ArchiveBlockPage, ChatMessage, ConversationDelegateStatusSummary, ShellWorkspace } from "../../../types/app";
 import { toErrorMessage } from "../../../utils/error";
 import { defaultWorkspaceNameFromPath, inferWorkspaceName, isLegacyGenericWorkspaceName, normalizeWorkspaceLevel } from "../../../utils/shell-workspaces";
-import type { ToolReviewBatchSummary, ToolReviewItemDetail, ToolReviewItemSummary } from "../composables/use-chat-tool-review";
+import type { ToolReviewBatchSummary, ToolReviewItemDetail, ToolReviewItemSummary, ToolReviewSegment } from "../composables/use-chat-tool-review";
+import { groupSegmentsByFile } from "../composables/tool-review-segments";
 import { formatConversationListTime, formatConversationListTimeWithMinuteDetails } from "../utils/conversation-time";
 import { AppMarkdownRenderer, initKatex } from "../markdown";
 import ToolAssessmentCard from "./ToolAssessmentCard.vue";
 import DelegateCard from "./DelegateCard.vue";
 import FloatingScrollbar from "../../shell/components/FloatingScrollbar.vue";
 import CollapsibleGroup from "./CollapsibleGroup.vue";
+import TerminalApprovalPatchSample from "../../shell/components/TerminalApprovalPatchSample.vue";
 import TaskListItem from "./TaskListItem.vue";
 import TaskCreateCard from "./dialogs/TaskCreateCard.vue";
 import FastRequestTurnsPanel from "./FastRequestTurnsPanel.vue";
@@ -217,6 +238,7 @@ const props = defineProps<{
   batches: ToolReviewBatchSummary[];
   currentBatchKey: string;
   detailMap: Record<string, ToolReviewItemDetail>;
+  segmentMap: Record<string, ToolReviewSegment[]>;
   detailLoadingCallId: string;
   reviewingCallId: string;
   batchReviewingKey: string;
@@ -260,6 +282,7 @@ async function handleDelegateResultLinkClick(event: MouseEvent) {
   emit("assistantLinkClick", event);
 }
 const collapsedToolAssessmentSectionKeys = ref<Record<string, boolean>>({});
+const collapsedSegmentKeys = ref<Record<string, boolean>>({});
 const collapsedDelegateSectionKeys = ref<Record<string, boolean>>({
   running: false,
   completed: true,
@@ -342,10 +365,15 @@ function isToolAssessmentSectionCollapsed(key: string) {
 }
 
 function toggleToolAssessmentSection(key: string) {
-  collapsedToolAssessmentSectionKeys.value = {
-    ...collapsedToolAssessmentSectionKeys.value,
-    [key]: !collapsedToolAssessmentSectionKeys.value[key],
-  };
+  const nextCollapsed = !collapsedToolAssessmentSectionKeys.value[key];
+  const next = { ...collapsedToolAssessmentSectionKeys.value, [key]: nextCollapsed };
+  if (!nextCollapsed) {
+    // 手风琴：展开当前分组时，折叠其余所有分组
+    for (const section of reviewGroups.value) {
+      if (section.key !== key) next[section.key] = true;
+    }
+  }
+  collapsedToolAssessmentSectionKeys.value = next;
 }
 
 function collapseAllToolAssessmentSections() {
@@ -353,6 +381,33 @@ function collapseAllToolAssessmentSections() {
     next[section.key] = true;
     return next;
   }, { ...collapsedToolAssessmentSectionKeys.value } as Record<string, boolean>);
+}
+
+function segmentCollapseKey(groupKey: string, idx: number) {
+  return `${groupKey}:segment:${idx}`;
+}
+
+function isSegmentCollapsed(groupKey: string, idx: number) {
+  return !!collapsedSegmentKeys.value[segmentCollapseKey(groupKey, idx)];
+}
+
+function setSegmentCollapsed(groupKey: string, idx: number, value: boolean) {
+  const key = segmentCollapseKey(groupKey, idx);
+  if (!!collapsedSegmentKeys.value[key] === value) return;
+  collapsedSegmentKeys.value = {
+    ...collapsedSegmentKeys.value,
+    [key]: value,
+  };
+}
+
+function collapseAllSegmentsInGroup(groupKey: string) {
+  const group = reviewGroups.value.find((item) => item.key === groupKey);
+  if (!group) return;
+  const next = { ...collapsedSegmentKeys.value };
+  group.segments.forEach((_, idx) => {
+    next[segmentCollapseKey(groupKey, idx)] = true;
+  });
+  collapsedSegmentKeys.value = next;
 }
 
 function isDelegateSectionCollapsed(key: string) {
@@ -503,6 +558,7 @@ type ToolReviewGroup = {
   title: string;
   firstOrderIndex: number;
   items: ToolReviewItemSummary[];
+  segments: ToolReviewSegment[];
 };
 
 function isTerminalTool(toolName: string) {
@@ -521,7 +577,6 @@ function isFileChangeTool(toolName: string) {
 
 const reviewGroups = computed<ToolReviewGroup[]>(() => {
   const terminalItems = [] as ToolReviewItemSummary[];
-  const patchGroups = new Map<string, ToolReviewGroup>();
   const otherGroups = new Map<string, ToolReviewGroup>();
   for (const item of currentBatch.value?.items ?? []) {
     if (isTerminalTool(item.toolName)) {
@@ -536,27 +591,28 @@ const reviewGroups = computed<ToolReviewGroup[]>(() => {
         title: toolName,
         firstOrderIndex: Number(item.orderIndex || 0),
         items: [],
+        segments: [],
       };
       group.firstOrderIndex = Math.min(group.firstOrderIndex, Number(item.orderIndex || 0));
       group.items.push(item);
       otherGroups.set(groupKey, group);
       continue;
     }
-    const paths = Array.isArray(item.affectedPaths) ? item.affectedPaths.filter(Boolean) : [];
-    const key = paths.length === 1 ? paths[0] : "__multi_patch__";
-    const title = paths.length === 1
-      ? formatPatchGroupTitle(paths[0])
-      : t("chat.toolReview.patchMultiFileGroup");
-    const group = patchGroups.get(key) || {
-      key: `patch:${key}`,
-      title,
-      firstOrderIndex: Number(item.orderIndex || 0),
-      items: [],
-    };
-    group.firstOrderIndex = Math.min(group.firstOrderIndex, Number(item.orderIndex || 0));
-    group.items.push(item);
-    patchGroups.set(key, group);
   }
+
+  const segments = Array.isArray(props.segmentMap[props.currentBatchKey]) ? props.segmentMap[props.currentBatchKey] : [];
+  const fileGroups = new Map<string, ToolReviewGroup>();
+  groupSegmentsByFile(segments).forEach((fileGroup, index) => {
+    const key = `file:${fileGroup.path || "__unknown__"}`;
+    fileGroups.set(key, {
+      key,
+      title: formatPatchGroupTitle(fileGroup.path),
+      firstOrderIndex: index,
+      items: [],
+      segments: fileGroup.segments,
+    });
+  });
+
   const groups = [] as ToolReviewGroup[];
   if (terminalItems.length > 0) {
     groups.push({
@@ -564,11 +620,11 @@ const reviewGroups = computed<ToolReviewGroup[]>(() => {
       title: t("chat.toolReview.terminalGroup"),
       firstOrderIndex: Math.min(...terminalItems.map((item) => Number(item.orderIndex || 0))),
       items: terminalItems.sort(sortByOrderIndex),
+      segments: [],
     });
   }
   groups.push(
-    ...Array.from(patchGroups.values())
-      .map((group) => ({ ...group, items: group.items.sort(sortByOrderIndex) }))
+    ...Array.from(fileGroups.values())
       .sort((a, b) => a.firstOrderIndex - b.firstOrderIndex)
   );
   groups.push(
@@ -581,6 +637,14 @@ const reviewGroups = computed<ToolReviewGroup[]>(() => {
 
 function sortByOrderIndex(left: ToolReviewItemSummary, right: ToolReviewItemSummary) {
   return Number(left.orderIndex || 0) - Number(right.orderIndex || 0);
+}
+
+function segmentActionLabel(segment: ToolReviewSegment) {
+  const action = String(segment.action || "").trim();
+  if (action === "add") return t("chat.toolReview.patchOperationAdd");
+  if (action === "delete") return t("chat.toolReview.patchOperationDelete");
+  if (action === "move") return t("chat.toolReview.patchOperationMove");
+  return t("chat.toolReview.patchOperationUpdate");
 }
 
 function formatPatchGroupTitle(path: string) {

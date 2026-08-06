@@ -115,9 +115,18 @@ fn add_provider_usage_delta_to_conversation(
                 delegate_runtime_thread_conversation_update(
                     app_state,
                     conversation_id,
-                    conversation,
+                    conversation.clone(),
                 )
-                .map(|_| true)
+                .map(|_| {
+                    usage_trail_record_conversation_delta(
+                        app_state,
+                        &conversation,
+                        provider_key,
+                        model_name,
+                        usage,
+                    );
+                    true
+                })
             } else {
                 Ok(false)
             }
@@ -244,7 +253,7 @@ fn legacy_tool_call_text_for_history(call: &NormalizedToolCallRecord) -> Option<
 
 fn legacy_tool_result_text_for_history(tool_call_id: Option<&str>, text: &str) -> String {
     let trimmed = text.trim();
-    let content = if trimmed.is_empty() { " " } else { text };
+    let content = if trimmed.is_empty() { "(no output)" } else { text };
     match tool_call_id.map(str::trim).filter(|value| !value.is_empty()) {
         Some(call_id) => format!("工具结果 ({call_id}):\n{content}"),
         None => format!("工具结果:\n{content}"),
@@ -260,24 +269,23 @@ fn prepared_history_to_genai_messages(
     let normalized_history_messages = normalized_prepared_history_messages(&prepared.history_messages);
     for hm in normalized_history_messages.iter() {
         if hm.role == "user" {
-            let base_user_text = if hm.text.trim().is_empty()
-                && (!hm.images.is_empty() || !hm.audios.is_empty())
-            {
-                " ".to_string()
-            } else {
-                hm.text.clone()
-            };
             let mut text_blocks = Vec::<String>::new();
             if let Some(time_text) = &hm.user_time_text {
                 if !time_text.trim().is_empty() {
                     text_blocks.push(time_text.clone());
                 }
             }
-            text_blocks.push(base_user_text);
+            if !hm.text.trim().is_empty() {
+                text_blocks.push(hm.text.clone());
+            }
             for block in &hm.extra_text_blocks {
                 if !block.trim().is_empty() {
                     text_blocks.push(block.clone());
                 }
+            }
+            // 空消息（无文本块且无媒体）不进请求体
+            if text_blocks.is_empty() && hm.images.is_empty() && hm.audios.is_empty() {
+                continue;
             }
             let parts =
                 genai_content_parts_from_text_and_binary(&text_blocks, &hm.images, &hm.audios);
@@ -333,9 +341,6 @@ fn prepared_history_to_genai_messages(
                 }
             }
             let assistant_reasoning_content = Some(hm.reasoning_content.clone().unwrap_or_default());
-            if assistant_parts.is_empty() {
-                assistant_parts.push(genai::chat::ContentPart::from_text(" "));
-            }
             let assistant_message = genai::chat::ChatMessage::assistant(
                 genai::chat::MessageContent::from_parts(assistant_parts),
             )
@@ -343,7 +348,7 @@ fn prepared_history_to_genai_messages(
             chat_history.push(assistant_message);
         } else if hm.role == "tool" {
             let safe_tool_text = if hm.text.trim().is_empty() {
-                " ".to_string()
+                "(no output)".to_string()
             } else {
                 hm.text.clone()
             };
@@ -433,10 +438,13 @@ fn build_genai_chat_request(prepared: &PreparedPrompt) -> Result<genai::chat::Ch
     );
     let mut request = genai::chat::ChatRequest::from_messages(
         sanitize_genai_messages_before_request(history_messages, "prepared_history"),
-    )
-    .append_message(genai::chat::ChatMessage::user(
-        genai::chat::MessageContent::from_parts(latest_parts),
-    ));
+    );
+    // 最新消息全空（无文本块且无媒体）时不追加空 user 消息
+    if !latest_parts.is_empty() {
+        request = request.append_message(genai::chat::ChatMessage::user(
+            genai::chat::MessageContent::from_parts(latest_parts),
+        ));
+    }
     let system = prepared.preamble.trim();
     if !system.is_empty() {
         request = request.with_system(system.to_string());
@@ -1279,6 +1287,90 @@ mod openai_responses_genai_request_tests {
         assert_eq!(request.messages.len(), 1);
         assert!(matches!(
             request.messages[0].role,
+            genai::chat::ChatRole::User
+        ));
+    }
+
+    #[test]
+    fn build_genai_chat_request_should_skip_empty_latest_user_when_no_media() {
+        let prepared = PreparedPrompt {
+            preamble: "你是系统提示".to_string(),
+            history_messages: vec![PreparedHistoryMessage {
+                role: "user".to_string(),
+                text: "上一轮问题".to_string(),
+                extra_text_blocks: Vec::new(),
+                user_time_text: None,
+                images: Vec::new(),
+                audios: Vec::new(),
+                tool_calls: None,
+                tool_call_id: None,
+                reasoning_content: None,
+            }],
+            latest_user_text: String::new(),
+            latest_user_meta_text: String::new(),
+            latest_user_extra_text: String::new(),
+            latest_user_extra_blocks: Vec::new(),
+            latest_images: Vec::new(),
+            latest_audios: Vec::new(),
+        };
+
+        let request = build_genai_chat_request(&prepared)
+            .expect("build_genai_chat_request should succeed");
+
+        assert_eq!(request.messages.len(), 1);
+        assert!(matches!(
+            request.messages[0].role,
+            genai::chat::ChatRole::User
+        ));
+    }
+
+    #[test]
+    fn build_genai_chat_request_should_skip_empty_history_user_when_no_media() {
+        let prepared = PreparedPrompt {
+            preamble: String::new(),
+            history_messages: vec![
+                PreparedHistoryMessage {
+                    role: "user".to_string(),
+                    text: String::new(),
+                    extra_text_blocks: Vec::new(),
+                    user_time_text: None,
+                    images: Vec::new(),
+                    audios: Vec::new(),
+                    tool_calls: None,
+                    tool_call_id: None,
+                    reasoning_content: None,
+                },
+                PreparedHistoryMessage {
+                    role: "assistant".to_string(),
+                    text: "这是结论".to_string(),
+                    extra_text_blocks: Vec::new(),
+                    user_time_text: None,
+                    images: Vec::new(),
+                    audios: Vec::new(),
+                    tool_calls: None,
+                    tool_call_id: None,
+                    reasoning_content: None,
+                },
+            ],
+            latest_user_text: "继续".to_string(),
+            latest_user_meta_text: String::new(),
+            latest_user_extra_text: String::new(),
+            latest_user_extra_blocks: Vec::new(),
+            latest_images: Vec::new(),
+            latest_audios: Vec::new(),
+        };
+
+        let request = build_genai_chat_request(&prepared)
+            .expect("build_genai_chat_request should succeed");
+
+        // 空 user 历史消息被跳过，只保留 assistant 与 latest user
+        assert_eq!(request.messages.len(), 2);
+        assert!(matches!(
+            request.messages[0].role,
+            genai::chat::ChatRole::Assistant
+        ));
+        assert!(matches!(
+            request.messages[1].role,
             genai::chat::ChatRole::User
         ));
     }

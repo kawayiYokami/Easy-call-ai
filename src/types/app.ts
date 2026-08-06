@@ -120,6 +120,7 @@ export type ApiConfigItem = {
 export type ApiModelConfigItem = {
   id: string;
   model: string;
+  displayName?: string;
   deprecated?: boolean;
   enableImage: boolean;
   enableAudio?: boolean;
@@ -375,6 +376,7 @@ export type AppConfig = {
   llmRoundLogCapacity: 1 | 3 | 10;
   messageNotificationEnabled: boolean;
   messageNotificationSoundEnabled: boolean;
+  desktopOperationNoticeEnabled: boolean;
   selectedApiConfigId: string;
   // Active chat LLM provider config id (kept as legacy key name for storage compatibility).
   assistantDepartmentApiConfigId: string;

@@ -13,9 +13,18 @@
             {{ server.name || server.id }}
           </option>
         </select>
-        <button class="btn btn-sm btn-ghost shrink-0" type="button" @click="reloadServers" :disabled="loading">{{ t('config.mcp.refresh') }}</button>
-        <button v-if="localFileSystemAvailable" class="btn btn-sm btn-ghost shrink-0" type="button" @click="openMcpDir" :disabled="loading">{{ t('config.mcp.openDir') }}</button>
-        <button class="btn btn-sm btn-ghost shrink-0" type="button" @click="addServer">{{ t('config.mcp.add') }}</button>
+        <button class="btn btn-sm bg-base-100 shrink-0" type="button" @click="reloadServers" :disabled="loading">
+          <RefreshCw class="h-4 w-4" :class="{ 'animate-spin': loading }" />
+          {{ t('config.mcp.refresh') }}
+        </button>
+        <button v-if="localFileSystemAvailable" class="btn btn-sm bg-base-100 shrink-0" type="button" @click="openMcpDir" :disabled="loading">
+          <FolderOpen class="h-4 w-4" />
+          {{ t('config.mcp.openDir') }}
+        </button>
+        <button class="btn btn-sm bg-base-100 shrink-0" type="button" @click="addServer">
+          <Plus class="h-4 w-4" />
+          {{ t('config.mcp.add') }}
+        </button>
       </div>
     </template>
 
@@ -54,6 +63,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from "vue";
 import { useI18n } from "vue-i18n";
+import { FolderOpen, Plus, RefreshCw } from "@lucide/vue";
 import { getTransportCapabilities, invokeTauri, openTransportMcpWorkspaceDirectory } from "../../../../services/tauri-api";
 import type {
   McpDefinitionValidateResult,

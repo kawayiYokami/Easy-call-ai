@@ -56,12 +56,16 @@ const MEME_NORMALIZED_MAX_EDGE: u32 = 300;
 const MEME_NORMALIZED_WEBP_QUALITY: f32 = 85.0;
 const MEME_NORMALIZED_MIME: &str = "image/webp";
 const MEME_NORMALIZED_EXT: &str = "webp";
+/// GIF 原样保留入库时的体积上限，超过则拒绝收编
+const MEME_GIF_MAX_BYTES: u64 = 5 * 1024 * 1024;
 
 struct MemeNormalizedImage {
     bytes: Vec<u8>,
     frame_count: usize,
     width: u32,
     height: u32,
+    ext: String,
+    mime: String,
 }
 
 fn meme_workspace_root(state: &AppState) -> PathBuf {
@@ -388,6 +392,8 @@ fn meme_encode_static_webp(image: image::RgbaImage) -> Result<MemeNormalizedImag
         frame_count: 1,
         width,
         height,
+        ext: MEME_NORMALIZED_EXT.to_string(),
+        mime: MEME_NORMALIZED_MIME.to_string(),
     })
 }
 
@@ -425,6 +431,8 @@ fn meme_encode_animated_webp(
         frame_count: frames.len(),
         width,
         height,
+        ext: MEME_NORMALIZED_EXT.to_string(),
+        mime: MEME_NORMALIZED_MIME.to_string(),
     })
 }
 
@@ -472,11 +480,54 @@ fn meme_decode_animation_frames(
     Ok(Some(out))
 }
 
-fn meme_normalize_image_to_webp(path: &Path) -> Result<MemeNormalizedImage, String> {
+/// 解析 GIF 的尺寸与帧数，不修改原始字节（用于原样保留入库时的元数据）
+fn meme_inspect_gif_frames(raw: &[u8]) -> Result<(u32, u32, usize), String> {
+    use image::AnimationDecoder;
+    let cursor = std::io::Cursor::new(raw);
+    let decoder = image::codecs::gif::GifDecoder::new(cursor)
+        .map_err(|err| format!("解码 GIF 贴纸失败: {err}"))?;
+    let frames = decoder
+        .into_frames()
+        .collect_frames()
+        .map_err(|err| format!("读取 GIF 贴纸帧失败: {err}"))?;
+    let first = frames
+        .first()
+        .ok_or_else(|| "GIF 贴纸没有可用帧".to_string())?;
+    let buffer = first.buffer();
+    Ok((buffer.width(), buffer.height(), frames.len()))
+}
+
+/// 判断 GIF 源文件是否超过体积上限
+fn meme_check_gif_size_limit(detected_ext: &str, source_path: &Path) -> Result<(), String> {
+    if detected_ext != "gif" {
+        return Ok(());
+    }
+    let size = std::fs::metadata(source_path)
+        .map_err(|err| format!("读取表情源文件大小失败: path={}, err={err}", source_path.display()))?
+        .len();
+    if size > MEME_GIF_MAX_BYTES {
+        return Err("图片过大，无法作为表情".to_string());
+    }
+    Ok(())
+}
+
+/// 准备入库素材：GIF 原样保留（动画与帧时序不丢失），其余格式归一化为 WebP
+fn meme_prepare_image_asset(path: &Path) -> Result<MemeNormalizedImage, String> {
     let raw = std::fs::read(path)
         .map_err(|err| format!("读取表情源文件失败: path={}, err={err}", path.display()))?;
     let detected = meme_detect_image_format_from_bytes(&raw)
         .ok_or_else(|| format!("无法识别图片真实格式: {}", path.display()))?;
+    if detected.ext == "gif" {
+        let (width, height, frame_count) = meme_inspect_gif_frames(&raw)?;
+        return Ok(MemeNormalizedImage {
+            bytes: raw,
+            frame_count,
+            width,
+            height,
+            ext: "gif".to_string(),
+            mime: "image/gif".to_string(),
+        });
+    }
     if let Some(frames) = meme_decode_animation_frames(&raw, &detected)? {
         return meme_encode_animated_webp(frames);
     }
@@ -898,22 +949,22 @@ fn meme_resolve_source_path(state: &AppState, raw: &str) -> Result<PathBuf, Stri
     Ok(candidate)
 }
 
-fn meme_root_file_path(state: &AppState, emotion: &str) -> PathBuf {
-    meme_workspace_root(state).join(format!("{emotion}.{MEME_NORMALIZED_EXT}"))
+fn meme_root_file_path(state: &AppState, emotion: &str, ext: &str) -> PathBuf {
+    meme_workspace_root(state).join(format!("{emotion}.{ext}"))
 }
 
-fn meme_variant_file_name(emotion: &str, index: usize) -> String {
+fn meme_variant_file_name(emotion: &str, index: usize, ext: &str) -> String {
     if index <= 1 {
-        format!("{emotion}.{MEME_NORMALIZED_EXT}")
+        format!("{emotion}.{ext}")
     } else {
-        format!("{emotion}({index}).{MEME_NORMALIZED_EXT}")
+        format!("{emotion}({index}).{ext}")
     }
 }
 
-fn meme_next_variant_path(dir: &Path, emotion: &str) -> PathBuf {
+fn meme_next_variant_path(dir: &Path, emotion: &str, ext: &str) -> PathBuf {
     let mut index = 1usize;
     loop {
-        let candidate = dir.join(meme_variant_file_name(emotion, index));
+        let candidate = dir.join(meme_variant_file_name(emotion, index, ext));
         if !candidate.exists() {
             return candidate;
         }
@@ -921,15 +972,33 @@ fn meme_next_variant_path(dir: &Path, emotion: &str) -> PathBuf {
     }
 }
 
+/// 扫描根目录下与表情名同名的图片根文件（任意支持的后缀，如 .webp/.gif）
+fn meme_find_root_asset_file(state: &AppState, emotion: &str) -> Option<PathBuf> {
+    let root = meme_workspace_root(state);
+    let entries = std::fs::read_dir(&root).ok()?;
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if !path.is_file() || meme_is_dhash_index_file(&path) {
+            continue;
+        }
+        if meme_asset_name_from_path(&path) != emotion {
+            continue;
+        }
+        if meme_detect_image_format_from_path(&path).is_ok() {
+            return Some(path);
+        }
+    }
+    None
+}
+
 fn meme_move_root_asset_into_folder(
     state: &AppState,
     emotion: &str,
     dhash_index: &mut std::collections::BTreeMap<String, String>,
 ) -> Result<(), String> {
-    let root_file = meme_root_file_path(state, emotion);
-    if !root_file.exists() {
+    let Some(root_file) = meme_find_root_asset_file(state, emotion) else {
         return Ok(());
-    }
+    };
     let target_dir = meme_workspace_root(state).join(emotion);
     std::fs::create_dir_all(&target_dir).map_err(|err| {
         format!(
@@ -937,7 +1006,13 @@ fn meme_move_root_asset_into_folder(
             target_dir.display()
         )
     })?;
-    let target_path = meme_next_variant_path(&target_dir, emotion);
+    let ext = root_file
+        .extension()
+        .and_then(|value| value.to_str())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or(MEME_NORMALIZED_EXT);
+    let target_path = meme_next_variant_path(&target_dir, emotion, ext);
     let old_relative_path = workspace_relative_path(state, &root_file);
     std::fs::rename(&root_file, &target_path).map_err(|err| {
         format!(
@@ -959,12 +1034,13 @@ fn meme_move_root_asset_into_folder(
 fn meme_target_path_for_new_asset(
     state: &AppState,
     emotion: &str,
+    ext: &str,
     dhash_index: &mut std::collections::BTreeMap<String, String>,
 ) -> Result<PathBuf, String> {
     let root = meme_workspace_root(state);
-    let root_file = meme_root_file_path(state, emotion);
     let target_dir = root.join(emotion);
-    if target_dir.exists() || root_file.exists() {
+    let has_root_file = meme_find_root_asset_file(state, emotion).is_some();
+    if target_dir.exists() || has_root_file {
         meme_move_root_asset_into_folder(state, emotion, dhash_index)?;
         std::fs::create_dir_all(&target_dir).map_err(|err| {
             format!(
@@ -972,7 +1048,7 @@ fn meme_target_path_for_new_asset(
                 target_dir.display()
             )
         })?;
-        return Ok(meme_next_variant_path(&target_dir, emotion));
+        return Ok(meme_next_variant_path(&target_dir, emotion, ext));
     }
     std::fs::create_dir_all(&root).map_err(|err| {
         format!(
@@ -980,7 +1056,7 @@ fn meme_target_path_for_new_asset(
             root.display()
         )
     })?;
-    Ok(root_file)
+    Ok(meme_root_file_path(state, emotion, ext))
 }
 
 impl RuntimeToolMetadata for BuiltinMemeTool {
@@ -1039,13 +1115,22 @@ impl RuntimeValueTool for BuiltinMemeTool {
                     .get(&duplicate.category)
                     .map(|items| items.len())
                     .unwrap_or(0);
+                let duplicate_mime = grouped
+                    .get(&duplicate.category)
+                    .and_then(|items| {
+                        items
+                            .iter()
+                            .find(|item| item.relative_path == duplicate.relative_path)
+                    })
+                    .map(|item| item.mime.clone())
+                    .unwrap_or_else(|| MEME_NORMALIZED_MIME.to_string());
                 return Ok(serde_json::json!({
                     "ok": true,
                     "action": "duplicate_skipped",
                     "duplicate": true,
                     "name": duplicate.name,
                     "category": duplicate.category,
-                    "mime": MEME_NORMALIZED_MIME,
+                    "mime": duplicate_mime,
                     "relativePath": duplicate.relative_path,
                     "variantCount": variant_count,
                     "distance": duplicate.distance,
@@ -1070,28 +1155,54 @@ impl RuntimeValueTool for BuiltinMemeTool {
                     detected.source
                 ));
             }
-            let normalized =
-                meme_normalize_image_to_webp(&source_path).map_err(ToolInvokeError::from)?;
-            let target_path =
-                meme_target_path_for_new_asset(&self.app_state, &emotion, &mut dhash_index)
-                    .map_err(ToolInvokeError::from)?;
-            std::fs::write(&target_path, &normalized.bytes).map_err(|err| {
+            meme_check_gif_size_limit(&detected.ext, &source_path).map_err(ToolInvokeError::from)?;
+            // 读文件 + 解码 + 编码是同步 IO 与 CPU 密集操作，移到 blocking 线程池，
+            // 避免占住 async 工作线程阻塞其他并发任务（流式回复/工具调用）。
+            let prepare_source = source_path.clone();
+            let normalized = tokio::task::spawn_blocking(move || {
+                meme_prepare_image_asset(&prepare_source)
+            })
+            .await
+            .map_err(|err| {
+                ToolInvokeError::from(format!("表情素材准备任务失败: err={err}"))
+            })?
+            .map_err(ToolInvokeError::from)?;
+            let target_path = meme_target_path_for_new_asset(
+                &self.app_state,
+                &emotion,
+                &normalized.ext,
+                &mut dhash_index,
+            )
+            .map_err(ToolInvokeError::from)?;
+            let output_size = normalized.bytes.len();
+            let write_target = target_path.clone();
+            let write_bytes = normalized.bytes;
+            tokio::task::spawn_blocking(move || {
+                std::fs::write(&write_target, &write_bytes)
+            })
+            .await
+            .map_err(|err| {
+                ToolInvokeError::from(format!("表情保存任务失败: err={err}"))
+            })?
+            .map_err(|err| {
                 ToolInvokeError::from(format!(
-                    "保存 WebP 表情失败: from={}, to={}, err={err}",
+                    "保存表情失败: from={}, to={}, err={err}",
                     source_path.display(),
                     target_path.display()
                 ))
             })?;
+            let preserved = normalized.ext == "gif";
             runtime_log_info(format!(
-                "[表情贴纸] 归一化入库 完成: source={}, target={}, original_mime={}, target_mime={}, width={}, height={}, frame_count={}, output_size={}",
+                "[表情贴纸] {} 完成: source={}, target={}, original_mime={}, target_mime={}, width={}, height={}, frame_count={}, output_size={}",
+                if preserved { "原样保留入库" } else { "归一化入库" },
                 source_path.display(),
                 target_path.display(),
                 detected.mime,
-                MEME_NORMALIZED_MIME,
+                normalized.mime,
                 normalized.width,
                 normalized.height,
                 normalized.frame_count,
-                normalized.bytes.len()
+                output_size
             ));
             let relative_path = workspace_relative_path(&self.app_state, &target_path);
             dhash_index.insert(relative_path.clone(), source_hash);
@@ -1112,7 +1223,7 @@ impl RuntimeValueTool for BuiltinMemeTool {
                 "name": emotion,
                 "category": emotion,
                 "emotion": emotion,
-                "mime": MEME_NORMALIZED_MIME,
+                "mime": normalized.mime,
                 "relativePath": relative_path,
                 "width": normalized.width,
                 "height": normalized.height,
@@ -1222,13 +1333,18 @@ mod builtin_meme_tests {
     #[test]
     fn meme_target_path_should_merge_root_file_into_folder_for_second_variant() {
         let state = meme_test_state();
-        let root_file = meme_root_file_path(&state, "坏笑");
+        let root_file = meme_root_file_path(&state, "坏笑", MEME_NORMALIZED_EXT);
         write_test_png(&root_file);
         let mut dhash_index = std::collections::BTreeMap::new();
         dhash_index.insert(".meme/坏笑.webp".to_string(), "abcd".to_string());
 
-        let target =
-            meme_target_path_for_new_asset(&state, "坏笑", &mut dhash_index).expect("target path");
+        let target = meme_target_path_for_new_asset(
+            &state,
+            "坏笑",
+            MEME_NORMALIZED_EXT,
+            &mut dhash_index,
+        )
+        .expect("target path");
 
         assert!(!root_file.exists());
         assert!(meme_workspace_root(&state)
@@ -1368,18 +1484,93 @@ mod builtin_meme_tests {
         image.save(path).expect("save png");
     }
 
+    fn write_test_gif(path: &Path, frames: u8) {
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent).expect("create gif parent");
+        }
+        let file = std::fs::File::create(path).expect("create gif file");
+        let mut encoder = image::codecs::gif::GifEncoder::new(file);
+        for i in 0..frames {
+            let frame =
+                image::RgbImage::from_pixel(48, 48, image::Rgb([i * 40, 0, 255 - i * 40]));
+            encoder
+                .encode(&frame, 48, 48, image::ExtendedColorType::Rgb8)
+                .expect("encode gif frame");
+        }
+    }
+
     #[test]
-    fn meme_normalize_image_to_webp_should_resize_static_image() {
+    fn meme_prepare_image_asset_should_resize_static_image() {
         let state = meme_test_state();
         let source = state.llm_workspace_path.join("downloads").join("large.png");
         write_test_png_with_size(&source, 640, 320);
 
-        let normalized = meme_normalize_image_to_webp(&source).expect("normalize image");
+        let normalized = meme_prepare_image_asset(&source).expect("normalize image");
         let features = webp::BitstreamFeatures::new(&normalized.bytes).expect("webp features");
 
         assert_eq!(normalized.frame_count, 1);
+        assert_eq!(normalized.ext, "webp");
+        assert_eq!(normalized.mime, "image/webp");
         assert_eq!(features.width().max(features.height()), MEME_NORMALIZED_MAX_EDGE);
         assert!(!features.has_animation());
+    }
+
+    #[test]
+    fn meme_prepare_image_asset_should_preserve_gif_as_is() {
+        let state = meme_test_state();
+        let source = state.llm_workspace_path.join("downloads").join("anim.gif");
+        write_test_gif(&source, 3);
+
+        let normalized = meme_prepare_image_asset(&source).expect("preserve gif");
+        let raw = std::fs::read(&source).expect("read source");
+
+        // 字节原样保留，不经过任何转换
+        assert_eq!(normalized.bytes, raw);
+        assert_eq!(normalized.ext, "gif");
+        assert_eq!(normalized.mime, "image/gif");
+        assert_eq!(normalized.frame_count, 3);
+    }
+
+    #[test]
+    fn meme_gif_size_limit_should_reject_oversized_gif() {
+        let state = meme_test_state();
+        let source = state.llm_workspace_path.join("downloads").join("big.gif");
+        if let Some(parent) = source.parent() {
+            std::fs::create_dir_all(parent).expect("create source parent");
+        }
+        std::fs::write(&source, vec![0u8; (5 * 1024 * 1024 + 1) as usize]).expect("write big gif");
+
+        let err = meme_check_gif_size_limit("gif", &source).expect_err("should reject");
+        assert!(err.contains("图片过大"));
+
+        // 非 GIF 不受大小限制
+        assert!(meme_check_gif_size_limit("png", &source).is_ok());
+    }
+
+    #[test]
+    fn meme_target_path_should_keep_gif_suffix_in_folder_variants() {
+        let state = meme_test_state();
+        let root_file = meme_root_file_path(&state, "小猪", "gif");
+        write_test_gif(&root_file, 2);
+        let mut dhash_index = std::collections::BTreeMap::new();
+        dhash_index.insert(".meme/小猪.gif".to_string(), "abcd".to_string());
+
+        let target = meme_target_path_for_new_asset(&state, "小猪", "gif", &mut dhash_index)
+            .expect("target path");
+
+        assert!(!root_file.exists());
+        assert!(meme_workspace_root(&state)
+            .join("小猪")
+            .join("小猪.gif")
+            .exists());
+        assert_eq!(
+            target,
+            meme_workspace_root(&state).join("小猪").join("小猪(2).gif")
+        );
+        assert_eq!(
+            dhash_index.get(".meme/小猪/小猪.gif").map(String::as_str),
+            Some("abcd"),
+        );
     }
 
     #[test]

@@ -112,6 +112,7 @@
     <div v-else-if="viewMode === 'chat'" class="relative flex-1 min-h-0">
       <ChatView
         ref="chatViewRef"
+        composer-scope="main"
         :user-alias="userAlias"
         :persona-name="selectedPersonaName"
         :user-avatar-url="userAvatarUrl"
@@ -132,7 +133,6 @@
         :queued-attachment-notices="queuedAttachmentNotices"
         :chat-input="chatInput"
         :instruction-presets="instructionPresets"
-        :chat-input-placeholder="chatInputPlaceholder"
         :can-record="speechRecognitionSupported"
         :recording="recording"
         :recording-ms="recordingMs"
@@ -155,8 +155,14 @@
         :compacting-conversation="compactingConversation"
         :compacting-conversation-id="compactingConversationId"
         :conversation-busy="
-          (trimming && (!trimmingConversationId || trimmingConversationId === currentChatConversationId))
-          || (compactingConversation && (!compactingConversationId || compactingConversationId === currentChatConversationId))
+          isViewLayerBusy({
+            trimming,
+            trimmingConversationId,
+            compactingConversation,
+            compactingConversationId,
+            activeConversationId: currentChatConversationId,
+            organizingContext: false,
+          })
         "
         :frozen="branchingConversation || forwardingConversationSelection"
         :message-blocks="visibleMessageBlocks"
@@ -313,7 +319,6 @@
               :workspaces="currentChatWorkspaces"
               :workspace-access="currentChatWorkspaces.find((item) => item.level === 'main')?.access || 'read_only'"
               :current-theme="currentTheme"
-              :chat-input-placeholder="chatInputPlaceholder"
               :terminal-approvals="terminalApprovals"
               :terminal-approval-resolving="terminalApprovalResolving"
               :approve-terminal-approval="(requestId) => approveTerminalApproval(requestId)"
@@ -495,6 +500,7 @@ import type { GeneratedThemeControls, GeneratedThemeTokens } from "../../shell/t
 import type { DepartmentPersonaOption } from "../../shared/department-persona-options";
 import type { ChatMonitorPanelMode, ChatRightPanelMode } from "../../chat/composables/chat-ui-layout-storage";
 import { createExclusiveChatViewSubscriptionSlot } from "../../chat/composables/exclusive-chat-view-subscription-slot";
+import { isViewLayerBusy } from "../../chat/composables/chat-view-busy";
 import {
   buildShareExportFileName,
   generateShareFromMessageIds,
@@ -599,7 +605,6 @@ const props = defineProps<{
   clipboardImages: Array<{ mime: string; bytesBase64: string }>;
   queuedAttachmentNotices: Array<{ id: string; fileName: string; path: string; mime: string }>;
   chatInput: string;
-  chatInputPlaceholder: string;
   speechRecognitionSupported: boolean;
   recording: boolean;
   recordingMs: number;

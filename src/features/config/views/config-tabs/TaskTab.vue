@@ -11,8 +11,9 @@
     <ConfigTemplate :model-value="{}" :groups="taskTemplateGroups">
       <template #group-actions-task-list>
         <div class="flex items-center gap-2">
-          <button class="btn btn-sm btn-ghost" :disabled="listLoading" @click="loadTasks()">
-            <svg xmlns="http://www.w3.org/2000/svg" class="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/><path d="M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16"/><path d="M16 21h5v-5"/></svg>
+          <button class="btn btn-sm bg-base-100" :disabled="listLoading" @click="loadTasks()">
+            <RefreshCw class="h-4 w-4" :class="{ 'animate-spin': listLoading }" />
+            {{ t("common.refresh") }}
           </button>
         </div>
       </template>
@@ -131,6 +132,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
+import { RefreshCw } from "@lucide/vue";
 import { invokeTauri } from "../../../../services/tauri-api";
 import { formatIsoToLocalDateTime } from "../../../../utils/time";
 import type { AppConfig, PersonaProfile } from "../../../../types/app";

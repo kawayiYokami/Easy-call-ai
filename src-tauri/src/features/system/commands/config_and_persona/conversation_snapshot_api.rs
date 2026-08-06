@@ -1415,6 +1415,13 @@ fn emit_unarchived_conversation_overview_item_updated_from_state(
         overview_register_missing_item(conversation_id);
         return Ok(false);
     };
+    // 追问会话（side_chat）只出现在侧边追问视图，不参与前台会话列表：
+    // 不广播列表项更新事件，避免其被前端 applyConversationOverviewItemUpdated
+    // 无条件 push 进「最近会话」列表。追问视图运行时依赖的是
+    // runtimeStateUpdated / messageAppended 等事件，与本事件无关。
+    if conversation.conversation_kind.trim() == CONVERSATION_KIND_SIDE_CHAT {
+        return Ok(true);
+    }
     emit_unarchived_conversation_overview_item_updated_payload(
         state,
         &UnarchivedConversationOverviewItemUpdatedPayload {

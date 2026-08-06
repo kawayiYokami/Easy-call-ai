@@ -237,7 +237,6 @@ fn tool_loop_guided_close_reply(
 
 #[derive(Debug, Clone)]
 enum DeferredToolLoopOutcome {
-    OrganizeContext,
     PlanPresent(TerminalToolResultMessage),
 }
 
@@ -246,9 +245,6 @@ fn deferred_tool_loop_outcome_from_result(
     tool_args: &str,
     tool_result: &ProviderToolResult,
 ) -> Option<DeferredToolLoopOutcome> {
-    if organize_context_succeeded(tool_name, tool_result) {
-        return Some(DeferredToolLoopOutcome::OrganizeContext);
-    }
     terminal_plan_present_result(tool_name, tool_args, tool_result)
         .map(DeferredToolLoopOutcome::PlanPresent)
 }
@@ -260,17 +256,6 @@ fn finalize_deferred_tool_loop_outcome(
     trusted_input_tokens: Option<u64>,
 ) -> ModelReply {
     match outcome {
-        DeferredToolLoopOutcome::OrganizeContext => ModelReply {
-            assistant_text: String::new(),
-            final_response_text: String::new(),
-            activity_reasoning_text: full_activity_reasoning_text,
-            assistant_provider_meta: None,
-            tool_history_events: tool_history_without_organize_context(tool_history_events),
-            suppress_assistant_message: true,
-            trusted_input_tokens: None,
-            usage: None,
-            round_logs_recorded_internally: true,
-        },
         DeferredToolLoopOutcome::PlanPresent(plan_result) => {
             ModelReply {
                 assistant_text: plan_result.assistant_text.clone(),
@@ -338,16 +323,6 @@ fn build_tool_loop_prepared_for_continuation(
     Ok(Some((conversation, prepared)))
 }
 
-fn organize_context_succeeded(tool_name: &str, tool_result: &ProviderToolResult) -> bool {
-    if tool_name != "organize_context" {
-        return false;
-    }
-    matches!(
-        tool_result.metadata.control,
-        ProviderToolControl::OrganizeContext { applied: true }
-    )
-}
-
 include!("tool_loop/remote_im_tools.rs");
 include!("tool_loop/tool_result_handling.rs");
 include!("tool_loop/runtime_execution.rs");
@@ -367,6 +342,8 @@ async fn run_genai_tool_loop(
     chat_session_key: &str,
     usage_conversation_id: Option<&str>,
 ) -> Result<ModelReply, String> {
+    // 本轮调度内桌面操作提醒最多一次：局部变量随调度结束销毁，无全局状态。
+    let mut desktop_notice_sent = false;
     let api_config = resolve_request_api_config(api_config).await?;
     let request_api_key = consume_api_key_for_request(&api_config);
     let service_target = build_provider_genai_service_target(
@@ -665,6 +642,17 @@ async fn run_genai_tool_loop(
             let mut repeat_block = None::<(PreparedToolCall, String)>;
             let mut batch_repeat_signatures = std::collections::HashSet::new();
             for call in batch.calls {
+                // 模型即将操作电脑：本轮调度内首次调用 operate 时发一次系统通知（由调度器控制，无全局状态）。
+                if !desktop_notice_sent && call.tool_name == "operate" {
+                    desktop_notice_sent = true;
+                    if let Some(state) = tool_abort_state {
+                        if let Ok(args) = serde_json::from_str::<Value>(&call.tool_args) {
+                            if let Some(script) = args.get("script").and_then(Value::as_str) {
+                                notify_desktop_operation_started(state, script);
+                            }
+                        }
+                    }
+                }
                 let repeat_streak = register_tool_repeat_attempt_once_per_batch(
                     &mut tool_repeat_guard,
                     &mut batch_repeat_signatures,
@@ -884,26 +872,6 @@ async fn run_genai_tool_loop(
             ));
         }
 
-        if deferred_outcome
-            .as_ref()
-            .is_some_and(|outcome| matches!(outcome, DeferredToolLoopOutcome::OrganizeContext))
-        {
-            apply_organize_context_compaction_checkpoint(
-                tool_abort_state,
-                auto_compaction_context,
-                selected_api,
-                resolved_api,
-                on_delta,
-                &tool_history_events,
-                &full_assistant_text,
-                &full_activity_reasoning_text,
-                chat_session_key,
-                &mut pending_tool_group_result_persists,
-            )
-            .await?;
-            return Err(CHAT_DISPATCH_RESTART_AFTER_COMPACTION.to_string());
-        }
-
         if let Some(outcome) = deferred_outcome {
             return Ok(finalize_deferred_tool_loop_outcome(
                 outcome,
@@ -1019,6 +987,8 @@ async fn run_genai_tool_loop_non_stream(
     chat_session_key: &str,
     usage_conversation_id: Option<&str>,
 ) -> Result<ModelReply, String> {
+    // 本轮调度内桌面操作提醒最多一次：局部变量随调度结束销毁，无全局状态。
+    let mut desktop_notice_sent = false;
     let api_config = resolve_request_api_config(api_config).await?;
     let request_api_key = consume_api_key_for_request(&api_config);
     let service_target = build_provider_genai_service_target(
@@ -1228,6 +1198,17 @@ async fn run_genai_tool_loop_non_stream(
             let mut repeat_block = None::<(PreparedToolCall, String)>;
             let mut batch_repeat_signatures = std::collections::HashSet::new();
             for call in batch.calls {
+                // 模型即将操作电脑：本轮调度内首次调用 operate 时发一次系统通知（由调度器控制，无全局状态）。
+                if !desktop_notice_sent && call.tool_name == "operate" {
+                    desktop_notice_sent = true;
+                    if let Some(state) = tool_abort_state {
+                        if let Ok(args) = serde_json::from_str::<Value>(&call.tool_args) {
+                            if let Some(script) = args.get("script").and_then(Value::as_str) {
+                                notify_desktop_operation_started(state, script);
+                            }
+                        }
+                    }
+                }
                 let repeat_streak = register_tool_repeat_attempt_once_per_batch(
                     &mut tool_repeat_guard,
                     &mut batch_repeat_signatures,
@@ -1445,26 +1426,6 @@ async fn run_genai_tool_loop_non_stream(
                 tool_history_events,
                 trusted_input_tokens,
             ));
-        }
-
-        if deferred_outcome
-            .as_ref()
-            .is_some_and(|outcome| matches!(outcome, DeferredToolLoopOutcome::OrganizeContext))
-        {
-            apply_organize_context_compaction_checkpoint(
-                tool_abort_state,
-                auto_compaction_context,
-                selected_api,
-                resolved_api,
-                on_delta,
-                &tool_history_events,
-                &full_assistant_text,
-                &full_activity_reasoning_text,
-                chat_session_key,
-                &mut pending_tool_group_result_persists,
-            )
-            .await?;
-            return Err(CHAT_DISPATCH_RESTART_AFTER_COMPACTION.to_string());
         }
 
         if let Some(outcome) = deferred_outcome {
@@ -1783,57 +1744,6 @@ mod tool_loop_tests {
         assert!(runtime_tool_call_requires_serial_execution(&tools, &definitions, "workspace_edit"));
         assert!(runtime_tool_call_requires_serial_execution(&tools, &definitions, "repo_lookup"));
         assert!(!runtime_tool_call_requires_serial_execution(&tools, &definitions, "profile_lookup"));
-    }
-
-    #[test]
-    fn tool_history_without_organize_context_should_keep_prior_business_tools() {
-        let read_call_id = "call-read";
-        let organize_call_id = "call-organize";
-        let events = vec![
-            serde_json::json!({
-                "role": "assistant",
-                "content": Value::Null,
-                "tool_calls": [{
-                    "id": read_call_id,
-                    "type": "function",
-                    "function": {
-                        "name": "read",
-                        "arguments": "{}"
-                    }
-                }]
-            }),
-            serde_json::json!({
-                "role": "tool",
-                "tool_call_id": read_call_id,
-                "content": "读取完成"
-            }),
-            serde_json::json!({
-                "role": "assistant",
-                "content": Value::Null,
-                "tool_calls": [{
-                    "id": organize_call_id,
-                    "type": "function",
-                    "function": {
-                        "name": "organize_context",
-                        "arguments": "{}"
-                    }
-                }]
-            }),
-            serde_json::json!({
-                "role": "tool",
-                "tool_call_id": organize_call_id,
-                "content": r#"{"ok":true,"applied":true}"#
-            }),
-        ];
-
-        let filtered = tool_history_without_organize_context(events);
-
-        assert_eq!(filtered.len(), 2);
-        assert_eq!(
-            filtered[0]["tool_calls"][0]["function"]["name"].as_str(),
-            Some("read")
-        );
-        assert_eq!(filtered[1]["tool_call_id"].as_str(), Some(read_call_id));
     }
 
     #[test]

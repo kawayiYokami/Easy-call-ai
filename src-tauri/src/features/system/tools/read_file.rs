@@ -416,11 +416,11 @@ fn build_text_read_result(
 
 fn resolve_pdf_image_mode(state: &AppState, api_config_id: &str) -> Result<bool, String> {
     let app_config = state_read_config_cached(state)?;
-    let runtime = state_read_runtime_state_cached(state)?;
     let selected_api = resolve_selected_api_config(&app_config, Some(api_config_id))
         .or_else(|| resolve_selected_api_config(&app_config, None))
         .ok_or_else(|| "当前未找到可用聊天模型配置。".to_string())?;
-    Ok(runtime.pdf_read_mode == "image" && selected_api.enable_image)
+    // PDF 阅读方式固定为图片模式：忽略持久化的 pdf_read_mode，仅受模型图片能力约束
+    Ok(selected_api.enable_image)
 }
 
 fn build_pdf_image_read_result(
@@ -1765,23 +1765,42 @@ async fn builtin_read_file(
             }),
         ));
     }
-    let readers: [&dyn ReadFileReader; 3] = [
-        &TextFileReader,
-        &PdfFileReader,
-        &OfficeLitchiReader,
-    ];
-    let reader = readers
-        .into_iter()
-        .find(|item| item.supports(detected))
-        .ok_or_else(|| format!("未找到可用读取器：{}", detected.as_str()))?;
-    let result = reader.read(state, session_id, api_config_id, &request, detected);
+    // 文件读取与 PDF 渲染是同步 IO + CPU 密集操作，移到 blocking 线程池，
+    // 避免每次 read 工具调用占住 tokio 工作线程阻塞其他并发任务。
+    let state = state.clone();
+    let session_id_owned = session_id.to_string();
+    let api_config_id_owned = api_config_id.to_string();
+    let (reader_kind, result) = tokio::task::spawn_blocking(
+        move || -> Result<(String, Result<Value, String>), String> {
+            let readers: [&dyn ReadFileReader; 3] = [
+                &TextFileReader,
+                &PdfFileReader,
+                &OfficeLitchiReader,
+            ];
+            let reader = readers
+                .into_iter()
+                .find(|item| item.supports(detected))
+                .ok_or_else(|| format!("未找到可用读取器：{}", detected.as_str()))?;
+            let kind = reader.reader_kind().to_string();
+            let result = reader.read(
+                &state,
+                &session_id_owned,
+                &api_config_id_owned,
+                &request,
+                detected,
+            );
+            Ok((kind, result))
+        },
+    )
+    .await
+    .map_err(|err| format!("read 工具后台执行失败：{err}"))??;
     let elapsed_ms = started.elapsed().as_millis().min(u128::from(u64::MAX)) as u64;
     match &result {
         Ok(_) => runtime_log_info(format!(
             "[read] 完成，任务=read，session_id={}，api_config_id={}，reader={}，detected_type={}，elapsed_ms={}",
             session_id,
             api_config_id,
-            reader.reader_kind(),
+            reader_kind,
             detected.as_str(),
             elapsed_ms
         )),
@@ -1789,7 +1808,7 @@ async fn builtin_read_file(
             "[read] 失败，任务=read，session_id={}，api_config_id={}，reader={}，detected_type={}，elapsed_ms={}，error={}",
             session_id,
             api_config_id,
-            reader.reader_kind(),
+            reader_kind,
             detected.as_str(),
             elapsed_ms,
             err

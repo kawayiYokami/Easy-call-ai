@@ -15,7 +15,7 @@ fn build_preview(text: &str, max_chars: usize) -> String {
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut args = std::env::args().skip(1);
     let file_path = args.next().ok_or_else(|| {
-        "usage: cargo run --bin undoc_probe -- <absolute-path-to-docx/xlsx/pptx>".to_string()
+        "usage: cargo run --example undoc_probe -- <absolute-path-to-docx/xlsx/pptx>".to_string()
     })?;
 
     if args.next().is_some() {

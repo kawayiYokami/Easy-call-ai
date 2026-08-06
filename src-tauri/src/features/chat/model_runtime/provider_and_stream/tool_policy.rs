@@ -64,10 +64,6 @@ const BUILTIN_TOOL_POLICY_TABLE: &[BuiltinToolPolicy] = &[
         ..DEFAULT_BUILTIN_TOOL_POLICY
     },
     BuiltinToolPolicy {
-        id: "reload",
-        ..DEFAULT_BUILTIN_TOOL_POLICY
-    },
-    BuiltinToolPolicy {
         id: "read",
         ..DEFAULT_BUILTIN_TOOL_POLICY
     },

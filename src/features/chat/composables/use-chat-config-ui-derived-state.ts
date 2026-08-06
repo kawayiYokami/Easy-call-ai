@@ -44,7 +44,6 @@ export function useChatConfigUiDerivedState(options: UseChatConfigUiDerivedState
     if (format === "openai_rerank") return "https://api.openai.com/v1";
     return "https://api.openai.com/v1";
   });
-  const chatInputPlaceholder = computed(() => options.t("chat.placeholder"));
   const defaultCreateConversationDepartmentId = computed(() => "assistant-department");
   const configDirty = computed(() => options.buildConfigSnapshotJson() !== options.lastSavedConfigJson.value);
   const personaDirty = computed(() => buildPersonasSnapshotJsonValue(options.personas.value) !== options.lastSavedPersonasJson.value);
@@ -55,7 +54,6 @@ export function useChatConfigUiDerivedState(options: UseChatConfigUiDerivedState
     selectedModelRefreshOk,
     responseStyleOptions,
     baseUrlReference,
-    chatInputPlaceholder,
     defaultCreateConversationDepartmentId,
     configDirty,
     personaDirty,

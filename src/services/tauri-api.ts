@@ -875,7 +875,7 @@ export function installTransportHostRuntimePrerequisite<T>(kind: string): Promis
 }
 
 export function updateTransportRecordHotkey<T>(recordHotkey: string): Promise<T> {
-  return invokeRequiredNativeTransport<T>("录音热键注册", "update_record_hotkey", {
+  return invokeRequiredNativeTransport<T>("录音快捷键注册", "update_record_hotkey", {
     input: { recordHotkey: String(recordHotkey || "").trim() },
   });
 }
@@ -1357,6 +1357,7 @@ const TAURI_COMMAND_ALIASES: Record<string, string> = {
   "toolReview.code.submit": "submit_tool_review_code",
   "toolReview.batches.list": "list_tool_review_batches",
   "toolReview.item.detail": "get_tool_review_item_detail",
+  "toolReview.batch.details": "get_tool_review_batch_details",
   "toolReview.item.review": "run_tool_review_for_call",
   "toolReview.batch.review": "run_tool_review_for_batch",
   "toolReview.item.decision": "set_tool_review_item_user_decision",
@@ -1476,6 +1477,7 @@ const TAURI_INPUT_WRAPPED_COMMANDS = new Set([
   "toolReview.code.submit",
   "toolReview.batches.list",
   "toolReview.item.detail",
+  "toolReview.batch.details",
   "toolReview.item.review",
   "toolReview.batch.review",
   "toolReview.item.decision",
@@ -1880,7 +1882,8 @@ function createWebTransportStreamBinding(
     const record = payload && typeof payload === "object"
       ? payload as { conversationId?: unknown; event?: unknown }
       : null;
-    if (String(record?.conversationId || "").trim() !== conversationId) return;
+    const payloadConversationId = String(record?.conversationId || "").trim();
+    if (payloadConversationId !== conversationId) return;
     const event = record?.event;
     const kind = event && typeof event === "object"
       ? String((event as { kind?: unknown }).kind || "").trim()

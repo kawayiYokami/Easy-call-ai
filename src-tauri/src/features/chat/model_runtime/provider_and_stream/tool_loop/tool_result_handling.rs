@@ -217,40 +217,6 @@ fn terminal_plan_present_result(
     })
 }
 
-fn tool_history_without_organize_context(events: Vec<Value>) -> Vec<Value> {
-    let mut filtered = Vec::<Value>::new();
-    let mut skip_next_tool = false;
-    for event in events {
-        let role = event.get("role").and_then(Value::as_str).unwrap_or_default();
-        if role == "assistant" {
-            let has_organize_call = event
-                .get("tool_calls")
-                .and_then(Value::as_array)
-                .map(|calls| {
-                    calls.iter().any(|call| {
-                        call.get("function")
-                            .and_then(|func| func.get("name"))
-                            .and_then(Value::as_str)
-                            .map(|name| name == "organize_context")
-                            .unwrap_or(false)
-                    })
-                })
-                .unwrap_or(false);
-            if has_organize_call {
-                skip_next_tool = true;
-                continue;
-            }
-        }
-        if skip_next_tool && role == "tool" {
-            skip_next_tool = false;
-            continue;
-        }
-        skip_next_tool = false;
-        filtered.push(event);
-    }
-    filtered
-}
-
 fn sync_completed_tool_history_cache(
     state: Option<&AppState>,
     chat_session_key: &str,

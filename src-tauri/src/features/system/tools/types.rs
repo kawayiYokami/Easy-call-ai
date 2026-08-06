@@ -70,6 +70,8 @@ struct ScreenshotRequest {
     save_path: Option<String>,
     #[serde(default = "default_webp_quality")]
     webp_quality: f32,
+    #[serde(default = "default_include_screenshot_base64")]
+    include_base64: bool,
 }
 
 fn default_screenshot_mode() -> ScreenshotMode {
@@ -80,6 +82,10 @@ fn default_webp_quality() -> f32 {
     75.0
 }
 
+fn default_include_screenshot_base64() -> bool {
+    true
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct ScreenshotResponse {
@@ -87,7 +93,8 @@ struct ScreenshotResponse {
     #[serde(skip_serializing_if = "Option::is_none")]
     path: Option<String>,
     image_mime: String,
-    image_base64: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    image_base64: Option<String>,
     width: u32,
     height: u32,
     bounds: ScreenBounds,

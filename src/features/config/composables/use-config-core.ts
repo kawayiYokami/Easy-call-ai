@@ -74,7 +74,7 @@ export function useConfigCore(options: UseConfigCoreOptions) {
     return provider.baseUrl;
   }
 
-  function createApiModel(seed = Date.now().toString(), model = "gpt-4o-mini"): ApiModelConfigItem {
+  function createApiModel(seed = Date.now().toString(), model = ""): ApiModelConfigItem {
     return {
       id: `api-model-${seed}`,
       model,
@@ -91,7 +91,7 @@ export function useConfigCore(options: UseConfigCoreOptions) {
     };
   }
 
-  function createApiProvider(seed = Date.now().toString()): ApiProviderConfigItem {
+  function createApiProvider(seed = Date.now().toString(), modelName = ""): ApiProviderConfigItem {
     return {
       id: `api-provider-${seed}`,
       name: `API Provider ${options.config.apiProviders.length + 1}`,
@@ -110,14 +110,14 @@ export function useConfigCore(options: UseConfigCoreOptions) {
       codexLocalAuthPath: DEFAULT_CODEX_LOCAL_AUTH_PATH,
       apiKeys: [],
       keyCursor: 0,
-      cachedModelOptions: ["gpt-4o-mini"],
-      models: [createApiModel(seed, "gpt-4o-mini")],
+      cachedModelOptions: modelName ? [modelName] : [],
+      models: [createApiModel(seed, modelName)],
       failureRetryCount: 0,
     };
   }
 
   function createApiConfig(seed = Date.now().toString()): ApiConfigItem {
-    const provider = createApiProvider(seed);
+    const provider = createApiProvider(seed, "gpt-4o-mini");
     const model = provider.models[0];
     const reasoningEffort = String(model.reasoningEffort || DEFAULT_REASONING_EFFORT).trim() || DEFAULT_REASONING_EFFORT;
     return {
@@ -357,6 +357,7 @@ export function useConfigCore(options: UseConfigCoreOptions) {
       llmRoundLogCapacity: normalizeLlmRoundLogCapacity(options.config.llmRoundLogCapacity),
       messageNotificationEnabled: !!options.config.messageNotificationEnabled,
       messageNotificationSoundEnabled: !!options.config.messageNotificationSoundEnabled,
+      desktopOperationNoticeEnabled: !!options.config.desktopOperationNoticeEnabled,
       selectedApiConfigId: options.config.selectedApiConfigId,
       assistantDepartmentApiConfigId: options.config.assistantDepartmentApiConfigId,
       ...(options.config.visionApiConfigId ? { visionApiConfigId: options.config.visionApiConfigId } : {}),
@@ -497,6 +498,7 @@ export function useConfigCore(options: UseConfigCoreOptions) {
       llmRoundLogCapacity: normalizeLlmRoundLogCapacity(options.config.llmRoundLogCapacity),
       messageNotificationEnabled: !!options.config.messageNotificationEnabled,
       messageNotificationSoundEnabled: !!options.config.messageNotificationSoundEnabled,
+      desktopOperationNoticeEnabled: !!options.config.desktopOperationNoticeEnabled,
       selectedApiConfigId: options.config.selectedApiConfigId,
       assistantDepartmentApiConfigId: options.config.assistantDepartmentApiConfigId,
       visionApiConfigId: options.config.visionApiConfigId,

@@ -28,7 +28,7 @@
         ></span>
         <button
           class="btn btn-ghost btn-sm h-8 min-h-8 px-2"
-          :class="sideConversationListVisible ? 'btn-active bg-base-100 hover:bg-base-100' : ''"
+          :class="sideConversationListVisible ? 'btn-active border-0 bg-base-100/60 hover:bg-base-100/60' : ''"
           :title="t('chat.conversationList')"
           @click.stop="emit('toggle-side-conversation-list')"
         >
@@ -51,7 +51,7 @@
           ></span>
           <button
             class="btn btn-ghost btn-sm h-8 min-h-8 px-2"
-            :class="sideConversationListVisible ? 'btn-active bg-base-100 hover:bg-base-100' : ''"
+            :class="sideConversationListVisible ? 'btn-active border-0 bg-base-100/60 hover:bg-base-100/60' : ''"
             :title="t('chat.conversationList')"
             @click.stop="emit('toggle-side-conversation-list')"
           >
@@ -135,7 +135,7 @@
 
       <button
         class="btn btn-ghost btn-sm"
-        :class="toolReviewPanelOpenVisible ? 'btn-active bg-base-100 hover:bg-base-100' : ''"
+        :class="toolReviewPanelOpenVisible ? 'btn-active border-0 bg-base-100/60 hover:bg-base-100/60' : ''"
         :title="t('chat.rightSidebarToggle')"
         @mousedown.stop
         @click.stop="$emit('toggle-tool-review-panel')"
@@ -381,6 +381,7 @@
             </button>
           </div>
           <select
+            v-if="!createConversationMaxPermission"
             v-model="createConversationWorkspaceAccess"
             class="select select-bordered min-w-0"
             :disabled="!createConversationWorkspacePath"
@@ -397,8 +398,8 @@
           :disabled="!createConversationWorkspacePath"
         >
           <option value="directory">{{ t("chat.workspaceWorkModeDirectory") }}</option>
-          <option value="isolated_worktree" :disabled="createConversationWorkspaceAccess === 'read_only' || !createConversationWorktreeAvailable">{{ t("chat.workspaceWorkModeIsolated") }}</option>
-          <option value="independent_worktree" :disabled="createConversationWorkspaceAccess === 'read_only' || !createConversationWorktreeAvailable">{{ t("chat.workspaceWorkModeIndependent") }}</option>
+          <option value="independent_worktree" :disabled="(createConversationWorkspaceAccess === 'read_only' && !createConversationMaxPermission) || !createConversationWorktreeAvailable">{{ t("chat.workspaceWorkModeIndependent") }}</option>
+          <option value="isolated_worktree" :disabled="(createConversationWorkspaceAccess === 'read_only' && !createConversationMaxPermission) || !createConversationWorktreeAvailable">{{ t("chat.workspaceWorkModeIsolated") }}</option>
         </select>
         <div
           v-if="createConversationWorkspacePath && createConversationWorkspaceAccess !== 'read_only' && createConversationWorktreeCheckMessage"
@@ -408,9 +409,16 @@
         </div>
       </div>
       <div class="modal-action mt-4 items-center justify-between gap-3">
-        <label class="label min-w-0 cursor-pointer justify-start gap-3 p-0">
-          <input v-model="createConversationMaxPermission" type="checkbox" class="checkbox checkbox-sm" />
-          <span class="truncate text-sm">{{ t("chat.createConversationMaxPermission") }}</span>
+        <label
+          class="flex max-w-64 shrink-0 cursor-pointer items-center gap-2 rounded-full bg-base-200 px-3 py-2 text-xs font-medium leading-tight"
+          :title="t('chat.workspacePickerAutonomousHint')"
+        >
+          <span class="whitespace-normal">{{ t("chat.createConversationMaxPermission") }}</span>
+          <input
+            v-model="createConversationMaxPermission"
+            type="checkbox"
+            class="checkbox checkbox-primary checkbox-sm"
+          />
         </label>
         <div class="flex shrink-0 items-center justify-end gap-2">
           <button class="btn btn-sm" @click="closeCreateConversationDialog">{{ t("common.cancel") }}</button>
@@ -1250,7 +1258,7 @@ function confirmCreateConversation() {
   createConversationAgentId.value = "";
   createConversationTopicSuggestionsOpen.value = false;
   const shellWorkspaces = createConversationWorkspacePayload();
-  const shellWorkMode = createConversationWorkspaceAccess.value === "read_only"
+  const shellWorkMode = (createConversationWorkspaceAccess.value === "read_only" && !createConversationMaxPermission.value)
     ? "directory"
     : createConversationWorkMode.value;
   const shellAutonomousMode = createConversationMaxPermission.value;
@@ -1289,7 +1297,7 @@ async function importConversationFromExternal() {
     createConversationAgentId.value = "";
     createConversationTopicSuggestionsOpen.value = false;
     const shellWorkspaces = createConversationWorkspacePayload();
-    const shellWorkMode = createConversationWorkspaceAccess.value === "read_only"
+    const shellWorkMode = (createConversationWorkspaceAccess.value === "read_only" && !createConversationMaxPermission.value)
       ? "directory"
       : createConversationWorkMode.value;
     const shellAutonomousMode = createConversationMaxPermission.value;

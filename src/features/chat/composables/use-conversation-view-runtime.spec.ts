@@ -25,6 +25,7 @@ const flowMock = vi.hoisted(() => ({
 
 vi.mock("../../../services/tauri-api", () => ({
   invokeTauri: invokeTauriMock,
+  isTauriRuntimeAvailable: vi.fn(() => true),
   bindTransportConversationStream: vi.fn(async () => {}),
   unbindTransportConversationStream: vi.fn(async () => {}),
   probeTransportConversationStream: vi.fn(async () => true),
@@ -164,6 +165,29 @@ describe("useConversationViewRuntime", () => {
     expect(runtime.runtimeState.value).toBe("assistant_streaming");
     expect(runtime.conversationBusy.value).toBe(true);
     expect(runtime.allMessages.value.map((item) => item.id)).toEqual(["user-1", "assistant-1"]);
+    scope.stop();
+  });
+
+  it("流式期间 conversationBusy 为 true（flow 发送保护保留），视图层忙碌由 isViewLayerBusy 判定（chat-view-busy.spec.ts 钉死）", async () => {
+    invokeTauriMock.mockResolvedValueOnce({
+      conversationId: "conversation-a",
+      messages: [message("user-1", "question", "user")],
+      runtimeState: "idle",
+      shouldBindStream: false,
+    });
+    flowMock.frontendRoundPhase.value = "streaming";
+    flowMock.hasActiveBoundDeltaChannel.mockReturnValue(true);
+
+    const { runtime, scope } = await createRuntime();
+    await vi.waitFor(() => expect(runtime.allMessages.value).toHaveLength(1));
+    const handlers = runtime.flow as any;
+    handlers.handleExternalRuntimeStateUpdated({
+      conversationId: "conversation-a",
+      runtimeState: "assistant_streaming",
+    });
+
+    expect(runtime.runtimeState.value).toBe("assistant_streaming");
+    expect(runtime.conversationBusy.value).toBe(true);
     scope.stop();
   });
 

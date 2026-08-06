@@ -39,7 +39,6 @@ export function createToolCallPresentation(options: ToolCallPresentationOptions)
     "fetch",
     "websearch",
     "operate",
-    "screenshot",
     "wait",
     "akasha_search",
     "akasha_read",
@@ -550,7 +549,6 @@ export function createToolCallPresentation(options: ToolCallPresentationOptions)
     if (toolName === "fetch" || toolName === "websearch" || toolName.startsWith("tavily_")) return summarizeWebTool(args);
     if (toolName.startsWith("akasha_")) return summarizeAkashaTool(args);
     if (toolName === "operate") return summarizeOperateTool(args);
-    if (toolName === "screenshot") return summarizeFileTool(args);
     if (toolName === "wait") return compactObjectEntries((typeof args === "object" && args !== null ? args : { ms: args }) as Record<string, unknown>);
     return "";
   }

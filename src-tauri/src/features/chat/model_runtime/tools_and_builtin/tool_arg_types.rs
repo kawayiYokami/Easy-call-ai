@@ -43,9 +43,6 @@ struct RecallToolArgs {
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
-struct EmptyToolArgs {}
-
-#[derive(Debug, Clone, Deserialize, Serialize)]
 struct TerminalExecToolArgs {
     #[serde(default)]
     action: Option<String>,
@@ -53,6 +50,8 @@ struct TerminalExecToolArgs {
     command: Option<String>,
     #[serde(default)]
     timeout_ms: Option<u64>,
+    #[serde(default)]
+    commitment: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]

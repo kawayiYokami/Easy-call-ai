@@ -165,7 +165,7 @@ fn persist_tool_loop_compaction_checkpoint(
     chat_session_key: &str,
     reason: &str,
 ) -> Result<ToolLoopCompactionCheckpoint, String> {
-    let history_for_checkpoint = tool_history_without_organize_context(transient_tool_history.to_vec());
+    let history_for_checkpoint = transient_tool_history.to_vec();
     let should_persist = !partial_assistant_text.trim().is_empty()
         || !partial_activity_reasoning_text.trim().is_empty()
         || !history_for_checkpoint.is_empty();
@@ -229,72 +229,5 @@ fn persist_tool_loop_compaction_checkpoint(
         refreshed_source,
         boundary_messages,
     })
-}
-
-async fn apply_organize_context_compaction_checkpoint(
-    state: Option<&AppState>,
-    context: Option<&ToolLoopAutoCompactionContext>,
-    selected_api: &ApiConfig,
-    resolved_api: &ResolvedApiConfig,
-    on_delta: &tauri::ipc::Channel<AssistantDeltaEvent>,
-    _transient_tool_history: &[Value],
-    partial_assistant_text: &str,
-    partial_activity_reasoning_text: &str,
-    chat_session_key: &str,
-    pending_tool_group_result_persists: &mut Vec<tauri::async_runtime::JoinHandle<Result<(), String>>>,
-) -> Result<(), String> {
-    let state = state.ok_or_else(|| "缺少应用状态，无法整理上下文。".to_string())?;
-    let context = context.ok_or_else(|| "缺少当前调度上下文，无法整理上下文。".to_string())?;
-    // Same boundary rule as automatic compaction: organize_context stops the
-    // current dispatch and builds a summary from the durable conversation, so
-    // any spawned tool-result appends from this dispatch must finish first.
-    await_pending_tool_group_result_persists(
-        pending_tool_group_result_persists,
-        chat_session_key,
-        "organize_context",
-    )
-    .await?;
-
-    let checkpoint = persist_tool_loop_compaction_checkpoint(
-        state,
-        context,
-        on_delta,
-        &[],
-        partial_assistant_text,
-        partial_activity_reasoning_text,
-        chat_session_key,
-        "organize_context",
-    )?;
-    let archive_res = run_context_compaction_pipeline(
-        state,
-        selected_api,
-        resolved_api,
-        &checkpoint.refreshed_source,
-        &context.agent.id,
-        "organize_context",
-        "ORGANIZE-CONTEXT-AUTO",
-        &checkpoint.boundary_messages,
-        false,
-    )
-    .await;
-    match archive_res {
-        Ok(result) => {
-            if let Some(warning) = result
-                .warning
-                .as_deref()
-                .map(str::trim)
-                .filter(|value| !value.is_empty())
-            {
-                runtime_log_warn(format!(
-                    "[上下文整理] organize_context 完成但有降级 warning conversation_id={} warning={}",
-                    context.conversation_id, warning
-                ));
-            }
-            Ok(())
-        }
-        Err(err) => {
-            Err(format!("整理失败：{err}"))
-        }
-    }
 }
 

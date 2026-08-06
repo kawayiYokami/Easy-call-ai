@@ -1,4 +1,8 @@
-async fn run_operate_tool(input: OperateRequest) -> DesktopToolResult<OperateResponse> {
+async fn run_operate_tool(
+    input: OperateRequest,
+    screenshots_root: &std::path::Path,
+    include_base64: bool,
+) -> DesktopToolResult<OperateResponse> {
     let started = std::time::Instant::now();
     ensure_dpi_awareness_once();
     let actions = parse_script(&input)?;
@@ -95,7 +99,8 @@ async fn run_operate_tool(input: OperateRequest) -> DesktopToolResult<OperateRes
                 steps.push(step);
             }
             DesktopScriptAction::Screenshot { line, mode, save_path, quality } => {
-                let (result, mode_name) = execute_screenshot_action(&mode, save_path, quality).await?;
+                let (result, mode_name) =
+                    execute_screenshot_action(&mode, save_path, quality, screenshots_root, include_base64).await?;
                 latest_screenshot = Some(LatestScreenshotInfo {
                     mode: mode_name.clone(),
                     width: result.width,
@@ -103,7 +108,7 @@ async fn run_operate_tool(input: OperateRequest) -> DesktopToolResult<OperateRes
                     saved_path: result.path.clone(),
                 });
                 image_mime = Some(result.image_mime.clone());
-                image_base64 = Some(result.image_base64.clone());
+                image_base64 = result.image_base64.clone();
                 width = Some(result.width);
                 height = Some(result.height);
                 let step = DesktopScriptStepResult {
@@ -158,6 +163,37 @@ async fn run_operate_tool(input: OperateRequest) -> DesktopToolResult<OperateRes
         width,
         height,
     })
+}
+
+/// 清空指定会话的 operate 截图临时目录（temp/screenshots/{conversation_id}/），
+/// 会话压缩/归档/删除/撤回时调用。返回 (删除文件数, 删除子目录数)；目录不存在时视为已清空。
+fn clear_operate_screenshots_temp(
+    data_path: &PathBuf,
+    conversation_id: &str,
+) -> Result<(usize, usize), String> {
+    let dir = app_root_from_data_path(data_path)
+        .join("temp")
+        .join("screenshots")
+        .join(conversation_id);
+    let mut removed_files = 0usize;
+    let mut removed_dirs = 0usize;
+    if let Ok(entries) = std::fs::read_dir(&dir) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_file() {
+                std::fs::remove_file(&path).map_err(|err| {
+                    format!("清理 operate 截图失败（{}）：{err}", path.to_string_lossy())
+                })?;
+                removed_files = removed_files.saturating_add(1);
+            } else if path.is_dir() {
+                std::fs::remove_dir_all(&path).map_err(|err| {
+                    format!("清理 operate 截图子目录失败（{}）：{err}", path.to_string_lossy())
+                })?;
+                removed_dirs = removed_dirs.saturating_add(1);
+            }
+        }
+    }
+    Ok((removed_files, removed_dirs))
 }
 
 #[cfg(test)]
@@ -215,5 +251,55 @@ mod operate_tool_tests {
             DesktopScriptAction::Screenshot { mode: ScreenshotModeSpec::Region(_), .. } => {}
             _ => panic!("expected screenshot region"),
         }
+    }
+
+    #[test]
+    fn clear_operate_screenshots_temp_should_only_remove_screenshots() {
+        let root = std::env::temp_dir().join("easy-call-ai-clear-operate-test");
+        let _ = std::fs::remove_dir_all(&root);
+        let data_path = root.join("config");
+        let conversation_id = "convo-test-1";
+        let screenshots = root
+            .join("temp")
+            .join("screenshots")
+            .join(conversation_id);
+        let sub = screenshots.join("sub");
+        std::fs::create_dir_all(&sub).unwrap();
+        std::fs::write(screenshots.join("a.webp"), b"a").unwrap();
+        std::fs::write(sub.join("b.webp"), b"b").unwrap();
+        // 其他会话的截图不应被清理
+        let other = root.join("temp").join("screenshots").join("convo-other");
+        std::fs::create_dir_all(&other).unwrap();
+        std::fs::write(other.join("keep.webp"), b"keep").unwrap();
+        let records = root.join("temp").join("apply_patch").join("records");
+        let blobs = root.join("temp").join("apply_patch").join("blobs");
+        std::fs::create_dir_all(&records).unwrap();
+        std::fs::create_dir_all(&blobs).unwrap();
+        std::fs::write(records.join("r.json"), b"{}").unwrap();
+        std::fs::write(blobs.join("b.json"), b"{}").unwrap();
+
+        let (files, dirs) = clear_operate_screenshots_temp(&data_path, conversation_id).unwrap();
+        assert_eq!(files, 1, "top-level screenshot file should be removed");
+        assert_eq!(dirs, 1, "nested screenshot dir should be removed recursively");
+        assert!(!screenshots.join("a.webp").exists());
+        assert!(!sub.exists(), "nested dir with inner file should be gone");
+        assert!(
+            !screenshots.join("sub").join("b.webp").exists(),
+            "inner screenshot file should be gone with its dir"
+        );
+        assert!(
+            other.join("keep.webp").exists(),
+            "other conversation screenshots must survive"
+        );
+        assert!(
+            records.join("r.json").exists(),
+            "apply_patch records must survive cleanup"
+        );
+        assert!(
+            blobs.join("b.json").exists(),
+            "apply_patch blobs must survive cleanup"
+        );
+
+        let _ = std::fs::remove_dir_all(&root);
     }
 }

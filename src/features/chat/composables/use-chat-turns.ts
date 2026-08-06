@@ -131,8 +131,9 @@ export function useChatMessageBlocks(options: UseChatMessageBlocksOptions) {
       Array.isArray(meta._streamSegments) ? (meta._streamSegments as unknown[]).length : 0,
       String(meta._toolStatusText || "").length,
       String(meta._toolStatusState || ""),
-      String(meta.dispatchElapsedMs || ""),
-      String(meta._frontendDispatchElapsedMs || ""),
+      // 耗时数字（dispatchElapsedMs/_frontendDispatchElapsedMs）不进签名：
+      // 它由显示层独立状态驱动（frontendDispatchElapsedByMessageId），
+      // 若计入签名，计时器每秒更新会破坏消息块缓存、带动虚拟列表空转重算。
       attachments,
       String(meta.planCard ? "1" : "0"),
       String(meta.taskTrigger ? "1" : "0"),

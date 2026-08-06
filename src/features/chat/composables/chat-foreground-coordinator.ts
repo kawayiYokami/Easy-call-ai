@@ -33,6 +33,8 @@ export async function runForegroundSnapshotBindingTransaction<TSnapshot extends 
   applySnapshot: (snapshot: TSnapshot) => void;
   bind: () => Promise<void>;
   resume: (snapshot: TSnapshot) => void;
+  /** Web 端打开/切换会话即注册订阅：跳过 snapshotCanBindAssistantStream 门槛，无条件 bind。 */
+  alwaysBind?: boolean;
   onStage?: (stage: ForegroundSnapshotBindingStage) => void;
   onUnbindError?: (error: unknown) => void;
 }): Promise<TSnapshot | null> {
@@ -52,7 +54,7 @@ export async function runForegroundSnapshotBindingTransaction<TSnapshot extends 
   input.applySnapshot(snapshot);
   await unbindPromise;
   if (!input.isCurrent()) return null;
-  if (!snapshotCanBindAssistantStream(snapshot)) return snapshot;
+  if (!input.alwaysBind && !snapshotCanBindAssistantStream(snapshot)) return snapshot;
   input.onStage?.("bind");
   await input.bind();
   if (!input.isCurrent()) return null;

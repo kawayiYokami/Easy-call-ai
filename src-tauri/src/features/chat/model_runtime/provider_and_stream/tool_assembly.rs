@@ -124,7 +124,7 @@ fn runtime_tool_names_for_log(tool_assembly: &RuntimeToolAssembly) -> Option<Val
 
 fn operate_provider_tool_definition() -> ProviderToolDefinition {
     ProviderToolDefinition::new(
-        MCP_OPERATE_TOOL_NAME,
+        OPERATE_TOOL_NAME,
         "统一桌面脚本工具。入参只有 script:string，一行一个动作。\n可用语法：\nmouse <button> click @x,y [repeat=n] [delay=s] [pre_delay=s] [press=s]\nmouse scroll_up [repeat=n] [delay=s] [pre_delay=s]\nmouse scroll_down [repeat=n] [delay=s] [pre_delay=s]\nkey <combo> [repeat=n] [delay=s] [pre_delay=s] [press=s]\ntext \"内容\" [repeat=n] [delay=s] [pre_delay=s]\nwait <seconds>\nscreenshot [focused_window] [region=@x,y,w,h] [save=\"绝对路径\"] [quality=1..100]\n参数说明：button=left|right|middle|back|forward；combo 用 + 连接按键，如 Control+L、Control+Shift+P、Enter；x/y/w/h 为 0~1 百分比坐标；repeat=1~100；delay/pre_delay/press=0~300 秒；save 必须是绝对路径；quality 默认 75。规则：screenshot 对模型只保留最新一张，旧画面视为已经离去。",
         serde_json::json!({
             "type": "object",
@@ -263,7 +263,6 @@ fn build_global_tool_schema_cache(state: &AppState) -> Vec<CachedRuntimeToolSche
         }
         .provider_tool_definition(),
         operate_provider_tool_definition(),
-        BuiltinReloadTool { app_state: state.clone() }.provider_tool_definition(),
         read_provider_tool_definition(),
         read_media_provider_tool_definition(),
         BuiltinTerminalExecTool {
@@ -1005,9 +1004,10 @@ fn build_builtin_runtime_tool_executor(
             memory_context: memory_context.ok_or_else(|| "记忆上下文不可用".to_string())?,
         }),
         "operate" => Box::new(BuiltinOperateTool {
+            app_state: state.clone(),
             model_supports_image: selected_api.enable_image,
+            session_id: tool_session_id.to_string(),
         }),
-        "reload" => Box::new(BuiltinReloadTool { app_state: state.clone() }),
         "read" => Box::new(BuiltinReadFileTool {
             app_state: state.clone(),
             session_id: tool_session_id.to_string(),
@@ -1131,9 +1131,50 @@ fn build_cached_mcp_runtime_tool_executor(
     }))
 }
 
+/// 模型即将操作电脑（operate 工具）时，发送一条系统通知提醒用户。
+/// 每轮调度内最多提醒一次由调度器（tool_loop）控制，本函数只负责发通知；
+/// 通知异步发出，不等待提交确认，不阻塞工具执行。
+fn notify_desktop_operation_started(state: &AppState, script: &str) {
+    let enabled = match state_read_config_cached(state) {
+        Ok(config) => config.desktop_operation_notice_enabled,
+        Err(err) => {
+            runtime_log_warn(format!(
+                "[桌面操作提醒] 跳过，任务=读取通知设置失败，error={err}"
+            ));
+            return;
+        }
+    };
+    if !enabled {
+        return;
+    }
+    let app_handle = match state.app_handle.lock() {
+        Ok(guard) => guard.as_ref().cloned(),
+        Err(poisoned) => poisoned.into_inner().as_ref().cloned(),
+    };
+    let Some(app_handle) = app_handle else {
+        return;
+    };
+    let action_count = script
+        .lines()
+        .filter(|line| !line.trim().is_empty())
+        .count();
+    let body = format!("模型即将模拟鼠标/键盘操作你的电脑（脚本共 {action_count} 步），请注意不要与它同时操作。");
+    // 异步发送，不等待通知提交，不阻塞工具执行；发送失败仅记录日志。
+    tauri::async_runtime::spawn(async move {
+        if let Err(err) = send_native_notification(&app_handle, "PAI 正在操作你的电脑", &body, false)
+        {
+            runtime_log_warn(format!("[桌面操作提醒] 通知发送失败：{err}"));
+        }
+    });
+}
+
+const OPERATE_TOOL_NAME: &str = "operate";
+
 #[derive(Debug, Clone)]
 struct BuiltinOperateTool {
+    app_state: AppState,
     model_supports_image: bool,
+    session_id: String,
 }
 
 #[derive(Debug, Clone)]
@@ -1155,7 +1196,7 @@ impl RuntimeToolMetadata for BuiltinOperateTool {
 }
 
 impl RuntimeValueTool for BuiltinOperateTool {
-    const NAME: &'static str = MCP_OPERATE_TOOL_NAME;
+    const NAME: &'static str = OPERATE_TOOL_NAME;
     type Args = OperateRequest;
     type Error = ToolInvokeError;
 
@@ -1165,19 +1206,23 @@ impl RuntimeValueTool for BuiltinOperateTool {
 
     fn call_typed(&self, args: Self::Args) -> RuntimeToolValueFuture<'_, Self::Error> {
         let model_supports_image = self.model_supports_image;
+        // 截图按会话建目录：解析 session_id（agent_id::conversation_id）取 conversation_id，
+        // 解析失败时用完整 session_id 兜底，保证不同会话目录天然隔离。
+        let conversation_id = delegate_session_conversation_id(&self.session_id)
+            .unwrap_or_else(|| self.session_id.clone());
+        let screenshots_root = app_root_from_data_path(&self.app_state.data_path)
+            .join("temp")
+            .join("screenshots")
+            .join(conversation_id);
         Box::pin(async move {
-            // 如果模型不支持图片，检查脚本中是否包含 screenshot 动作
-            if !model_supports_image && script_contains_screenshot(&args.script) {
-                return Err(ToolInvokeError::from(
-                    "你的驱动模型并不支持图片，请放弃该功能".to_string(),
-                ));
-            }
+            // 截图始终可执行：驱动模型不支持图片时仍返回保存路径，
+            // 是否携带 base64 由模型能力决定（不支持时跳过编码省 CPU）。
             let args_value = serde_json::to_value(&args).unwrap_or(Value::Null);
             runtime_log_debug(format!(
                 "[工具调试] 内置工具执行开始 name=operate args={}",
                 debug_value_snippet(&args_value, 240)
             ));
-            let result = run_operate_tool(args)
+            let result = run_operate_tool(args, &screenshots_root, model_supports_image)
                 .await
                 .map_err(|err| ToolInvokeError::from(err.message))
                 .and_then(|output| {

@@ -5,6 +5,7 @@ const invokeTauriMock = vi.hoisted(() => vi.fn());
 
 vi.mock("../../../services/tauri-api", () => ({
   invokeTauri: invokeTauriMock,
+  isTauriRuntimeAvailable: () => true,
 }));
 
 import { useChatForegroundOrchestrator } from "./use-chat-foreground-orchestrator";

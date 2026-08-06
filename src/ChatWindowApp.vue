@@ -144,7 +144,6 @@
       :queued-attachment-notices="queuedAttachmentNotices"
       :chat-input="chatInput"
       :instruction-presets="instructionPresets"
-      :chat-input-placeholder="chatInputPlaceholder"
       :speech-recognition-supported="speechRecognitionSupported"
       :recording="recording"
       :recording-ms="recordingMs"

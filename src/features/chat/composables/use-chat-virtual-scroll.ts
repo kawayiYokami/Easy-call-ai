@@ -1,4 +1,4 @@
-import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch, type Ref } from "vue";
+import { computed, nextTick, onBeforeUnmount, ref, watch, type ComponentPublicInstance, type Ref } from "vue";
 import { useVirtualizer } from "@tanstack/vue-virtual";
 import type { ChatRenderItem } from "../utils/chat-render";
 
@@ -29,15 +29,8 @@ export function useChatVirtualScroll(options: UseChatVirtualScrollOptions) {
     onUserScroll,
   } = options;
 
-  const observedVirtualItemElements = new Map<string, HTMLElement>();
-  const observedVirtualItemResizeElements = new Map<string, HTMLElement>();
-  const measuredVirtualItemHeights = new Map<string, number>();
-  const measuredVirtualItemRevision = ref(0);
-
   let pendingMeasureFrame = 0;
-  let pendingVirtualResizeFrame = 0;
-  const pendingVirtualResizeElements = new Set<HTMLElement>();
-  let virtualItemResizeObserver: ResizeObserver | null = null;
+
   let completionLayoutGuardActive = false;
   let completionLayoutGuardFrame = 0;
   let explicitVirtualScrollActive = false;
@@ -68,8 +61,10 @@ export function useChatVirtualScroll(options: UseChatVirtualScrollOptions) {
 
   // ==================== virtualizer ====================
 
+  // 弹性尾部高度直接读 TanStack itemSizeCache（与布局同源，官方 measureElement
+  // 维护）；virtualizer 是 shallowRef，TanStack notify 时 vue-virtual 会 triggerRef，
+  // 因此 computed 读 virtualizer.value 会在测量更新时自动重算。
   const latestOwnTailContentRange = computed(() => {
-    measuredVirtualItemRevision.value;
     const itemId = String(latestOwnElasticItemId.value || "").trim();
     if (!itemId) return [];
     const startIndex = renderItems.value.findIndex((item) => item.id === itemId);
@@ -77,15 +72,17 @@ export function useChatVirtualScroll(options: UseChatVirtualScrollOptions) {
   });
 
   const latestOwnTailContentHeight = computed(() => {
+    const itemSizeCache = virtualizer.value.itemSizeCache;
     return latestOwnTailContentRange.value.reduce(
-      (total, item) => total + (measuredVirtualItemHeights.get(item.id) ?? 0),
+      (total, item) => total + (itemSizeCache.get(item.id) ?? 0),
       0,
     );
   });
 
   const latestOwnTailContentMeasured = computed(() => {
     const tailItems = latestOwnTailContentRange.value;
-    return tailItems.length > 0 && tailItems.every((item) => measuredVirtualItemHeights.has(item.id));
+    const itemSizeCache = virtualizer.value.itemSizeCache;
+    return tailItems.length > 0 && tailItems.every((item) => itemSizeCache.has(item.id));
   });
 
   function chatVirtualScrollDebugEnabled(): boolean {
@@ -212,7 +209,6 @@ export function useChatVirtualScroll(options: UseChatVirtualScrollOptions) {
         // 只补偿当前视口上方的尺寸变化；底部新增内容和视口内变化不要自动推着用户往下走。
         return item.end <= viewportTop || viewportBottom <= 0;
       },
-      measureElement: (element: Element) => (element as HTMLElement).getBoundingClientRect().height,
       overscan: 600,
     })),
   );
@@ -310,7 +306,8 @@ export function useChatVirtualScroll(options: UseChatVirtualScrollOptions) {
     if (!scrollEl) return;
     const lastItem = renderItems.value[lastIndex];
     const lastItemId = String(lastItem?.id || "").trim();
-    const lastElement = lastItemId ? observedVirtualItemElements.get(lastItemId) : undefined;
+    // 元素挂载判断走官方 elementsCache（ref 回调注册），与项目缓存解耦。
+    const lastElement = lastItemId ? virtualizer.value.elementsCache.get(lastItemId) : undefined;
     const total = Math.round(virtualizer.value.getTotalSize());
     if (total === lastItemIntentStableTotal) {
       lastItemIntentStableFrames += 1;
@@ -333,25 +330,19 @@ export function useChatVirtualScroll(options: UseChatVirtualScrollOptions) {
     }
   }
 
-  // ==================== resize handling ====================
+  // ==================== measurement ====================
 
-  function handleVirtualItemResize(element: HTMLElement) {
-    const itemId = String(element.getAttribute("data-render-item-id") || "").trim();
-    if (!itemId) return;
-    const nextHeight = Math.round(element.getBoundingClientRect().height);
-    const previousHeight = measuredVirtualItemHeights.get(itemId);
-    if (previousHeight === nextHeight) {
-      observedVirtualItemElements.set(itemId, element);
-      return;
+  // 测量完全走官方 virtualizer.measureElement（模板 ref 直接绑定）：
+  // 它负责 observe 元素（内部 ResizeObserver 驱动布局）并自带 itemSizeCache
+  // 缓存短路，重复 patch 调用零 DOM 访问。弹性尾部高度从 itemSizeCache 读取，
+  // 与布局同源，不再维护项目侧测量缓存。
+  // measureElementRef 只是 Vue 模板 ref 回调签名的纯类型适配（官方签名只收
+  // Element，Vue 的回调可能传入组件实例），不做任何测量逻辑，直接透传官方。
+  const measureElementRef = (node: Element | ComponentPublicInstance | null) => {
+    if (node instanceof Element) {
+      virtualizer.value.measureElement(node);
     }
-    // 先更新缓存再测量：measureElement 的缓存分支会读取 measuredVirtualItemHeights，
-    // 若仍为旧值会返回旧高度导致 virtualizer 不更新布局。
-    measuredVirtualItemHeights.set(itemId, nextHeight);
-    measuredVirtualItemRevision.value += 1;
-    virtualizer.value.measureElement(element);
-    observedVirtualItemElements.set(itemId, element);
-    maybeRetryLastItemVisibleIntent();
-  }
+  };
 
   function scheduleVirtualMeasure() {
     if (pendingMeasureFrame) return;
@@ -359,117 +350,9 @@ export function useChatVirtualScroll(options: UseChatVirtualScrollOptions) {
       if (pendingMeasureFrame) return;
       pendingMeasureFrame = requestAnimationFrame(() => {
         pendingMeasureFrame = 0;
-        refreshObservedVirtualItemElements();
         virtualizer.value.measure();
       });
     });
-  }
-
-  function scheduleVirtualResizeMeasure(entries: ResizeObserverEntry[]) {
-    for (const entry of entries) {
-      if (entry.target instanceof HTMLElement) {
-        pendingVirtualResizeElements.add(entry.target);
-      }
-    }
-    if (pendingVirtualResizeFrame) return;
-    pendingVirtualResizeFrame = requestAnimationFrame(() => {
-      pendingVirtualResizeFrame = 0;
-      const elements = Array.from(pendingVirtualResizeElements);
-      pendingVirtualResizeElements.clear();
-      for (const element of elements) {
-        if (!element.isConnected) continue;
-        handleVirtualItemResize(element);
-      }
-    });
-  }
-
-  // ==================== measurement ====================
-
-  function measureVirtualRow(itemId: string, element: Element | { $el?: Element } | null) {
-    const normalizedItemId = String(itemId || "").trim();
-    if (!element) {
-      if (normalizedItemId) {
-        const previousResizeElement = observedVirtualItemResizeElements.get(normalizedItemId);
-        if (previousResizeElement && virtualItemResizeObserver) {
-          virtualItemResizeObserver.unobserve(previousResizeElement);
-        }
-        observedVirtualItemResizeElements.delete(normalizedItemId);
-        observedVirtualItemElements.delete(normalizedItemId);
-        if (measuredVirtualItemHeights.delete(normalizedItemId)) {
-          measuredVirtualItemRevision.value += 1;
-        }
-      }
-      return;
-    }
-    const target = element instanceof Element ? element : ((element as any).$el as Element | undefined) ?? null;
-    if (!target) {
-      if (normalizedItemId) {
-        const previousResizeElement = observedVirtualItemResizeElements.get(normalizedItemId);
-        if (previousResizeElement && virtualItemResizeObserver) {
-          virtualItemResizeObserver.unobserve(previousResizeElement);
-        }
-        observedVirtualItemResizeElements.delete(normalizedItemId);
-        observedVirtualItemElements.delete(normalizedItemId);
-        if (measuredVirtualItemHeights.delete(normalizedItemId)) {
-          measuredVirtualItemRevision.value += 1;
-        }
-      }
-      return;
-    }
-    const resolvedItemId = normalizedItemId || String(target.getAttribute("data-render-item-id") || "").trim();
-    if (resolvedItemId && target instanceof HTMLElement) {
-      const previousResizeElement = observedVirtualItemResizeElements.get(resolvedItemId);
-      if (previousResizeElement && previousResizeElement !== target && virtualItemResizeObserver) {
-        virtualItemResizeObserver.unobserve(previousResizeElement);
-      }
-      if (virtualItemResizeObserver && previousResizeElement !== target) {
-        virtualItemResizeObserver.observe(target);
-      }
-      observedVirtualItemResizeElements.set(resolvedItemId, target);
-      const nextHeight = Math.round(target.getBoundingClientRect().height);
-      measuredVirtualItemHeights.set(resolvedItemId, nextHeight);
-      measuredVirtualItemRevision.value += 1;
-      virtualizer.value.measureElement(target);
-      observedVirtualItemElements.set(resolvedItemId, target);
-      maybeRetryLastItemVisibleIntent();
-    }
-  }
-
-  function refreshObservedVirtualItemElements() {
-    const validIds = new Set<string>();
-    for (const entry of virtualEntries.value) {
-      const itemId = String(entry.item.id || "").trim();
-      if (!itemId) continue;
-      validIds.add(itemId);
-      if (entry.item.kind === "message") {
-        const blockId = String(entry.item.block.id || "").trim();
-        if (blockId) validIds.add(blockId);
-      }
-    }
-    for (const [itemId] of observedVirtualItemElements.entries()) {
-      if (!validIds.has(itemId)) {
-        const resizeElement = observedVirtualItemResizeElements.get(itemId);
-        if (resizeElement && virtualItemResizeObserver) {
-          virtualItemResizeObserver.unobserve(resizeElement);
-        }
-        observedVirtualItemResizeElements.delete(itemId);
-        observedVirtualItemElements.delete(itemId);
-        if (measuredVirtualItemHeights.delete(itemId)) {
-          measuredVirtualItemRevision.value += 1;
-        }
-      }
-    }
-  }
-
-  function clearMeasuredVirtualState() {
-    for (const element of observedVirtualItemResizeElements.values()) {
-      virtualItemResizeObserver?.unobserve(element);
-    }
-    observedVirtualItemElements.clear();
-    observedVirtualItemResizeElements.clear();
-    measuredVirtualItemHeights.clear();
-    measuredVirtualItemRevision.value += 1;
-    pendingVirtualResizeElements.clear();
   }
 
   function scrollVirtualizerToConversationBottomLightweight(behavior: "auto" | "smooth" = "auto") {
@@ -485,7 +368,6 @@ export function useChatVirtualScroll(options: UseChatVirtualScrollOptions) {
 
   function resetVirtualizerAtConversationBottom(behavior: "auto" | "smooth" = "auto") {
     const requestId = ++conversationVirtualizerResetRequest;
-    clearMeasuredVirtualState();
     initialBottomOffset.value = 0;
     virtualizer.value.measure();
     void nextTick(async () => {
@@ -512,7 +394,6 @@ export function useChatVirtualScroll(options: UseChatVirtualScrollOptions) {
     pendingConversationBottomInitializationId = conversationId;
     cancelPendingLastItemIntent("begin");
     cancelCompletionLayoutGuard();
-    clearMeasuredVirtualState();
     initialBottomOffset.value = 0;
   }
 
@@ -537,7 +418,6 @@ export function useChatVirtualScroll(options: UseChatVirtualScrollOptions) {
     lastItemIntentStableTotal = -1;
     lastItemIntentStableFrames = 0;
     cancelCompletionLayoutGuard();
-    clearMeasuredVirtualState();
     initialBottomOffset.value = 0;
     virtualizer.value.measure();
     void nextTick(() => {
@@ -561,18 +441,6 @@ export function useChatVirtualScroll(options: UseChatVirtualScrollOptions) {
   }
 
   // ==================== lifecycle ====================
-
-  onMounted(() => {
-    if (typeof ResizeObserver !== "undefined") {
-      virtualItemResizeObserver = new ResizeObserver((entries) => {
-        scheduleVirtualResizeMeasure(entries);
-      });
-      for (const element of observedVirtualItemResizeElements.values()) {
-        if (!element.isConnected) continue;
-        virtualItemResizeObserver.observe(element);
-      }
-    }
-  });
 
   // 用户主动滚动（滚轮/触屏）立即取消「最后一条可见」意图，避免重试循环与用户对抗。
   const cancelByWheel = () => cancelPendingLastItemIntent("wheel");
@@ -644,20 +512,10 @@ export function useChatVirtualScroll(options: UseChatVirtualScrollOptions) {
     stopScrollContainerAnchorWatch = null;
     conversationVirtualizerResetRequest += 1;
     pendingConversationBottomInitializationId = "";
-    virtualItemResizeObserver?.disconnect();
-    virtualItemResizeObserver = null;
     if (pendingMeasureFrame) {
       cancelAnimationFrame(pendingMeasureFrame);
       pendingMeasureFrame = 0;
     }
-    if (pendingVirtualResizeFrame) {
-      cancelAnimationFrame(pendingVirtualResizeFrame);
-      pendingVirtualResizeFrame = 0;
-    }
-    pendingVirtualResizeElements.clear();
-    observedVirtualItemElements.clear();
-    observedVirtualItemResizeElements.clear();
-    measuredVirtualItemHeights.clear();
   });
 
   return {
@@ -667,10 +525,9 @@ export function useChatVirtualScroll(options: UseChatVirtualScrollOptions) {
     totalVirtualSize,
     latestOwnTailContentHeight,
     latestOwnTailContentMeasured,
+    measureElementRef,
     virtualDebugVisible,
     virtualDebugState,
-    measureVirtualRow,
-    refreshObservedVirtualItemElements,
     scheduleVirtualMeasure,
     syncViewportMetrics,
     scrollVirtualizerToIndex,

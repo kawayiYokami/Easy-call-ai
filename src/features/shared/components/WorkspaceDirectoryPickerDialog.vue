@@ -78,7 +78,7 @@
           </div>
         </div>
         <div class="grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end">
-          <label class="grid w-full gap-1">
+          <label v-if="!autonomousMode" class="grid w-full gap-1">
             <span class="text-xs">{{ accessLabelText }}</span>
             <select
               :value="access"

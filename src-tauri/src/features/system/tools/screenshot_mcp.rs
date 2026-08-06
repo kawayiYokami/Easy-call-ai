@@ -39,6 +39,7 @@ impl DesktopScreenshotMcpServer {
             region: None,
             save_path: None,
             webp_quality: 75.0,
+            include_base64: true,
         };
         let res = run_screenshot_tool(request).await.map_err(|err| {
             rmcp::ErrorData::internal_error(

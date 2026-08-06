@@ -6,6 +6,14 @@ fn terminal_workspace_access_rank(access: &str) -> i32 {
     }
 }
 
+const TERMINAL_EXEC_COMMITMENT_TEXT: &str = "用户已经充分理解本命令的危险性并且批准本次执行";
+
+fn terminal_commitment_approves(commitment: Option<&str>) -> bool {
+    commitment
+        .map(|value| value.trim() == TERMINAL_EXEC_COMMITMENT_TEXT)
+        .unwrap_or(false)
+}
+
 fn terminal_output_only_command_is_read_only(base_cmd: &str) -> bool {
     matches!(
         base_cmd,
@@ -857,6 +865,7 @@ async fn builtin_shell_exec(
     action: &str,
     command: &str,
     timeout_ms: Option<u64>,
+    commitment: Option<&str>,
 ) -> Result<Value, String> {
     let action = action.trim().to_ascii_lowercase();
     let cmd = command.trim();
@@ -912,19 +921,28 @@ async fn builtin_shell_exec(
     if !autonomous_mode {
         if let Some(reason) = terminal_command_block_reason(cmd) {
             let review = terminal_local_review_value(&ui_language, terminal_local_rule_reason_message(&ui_language, reason));
-            return Ok(serde_json::json!({
-                "ok": false,
-                "approved": false,
-                "blockedReason": "local_rule_blocked",
-                "message": terminal_localized_text(
-                    &ui_language,
-                    "本地规则已直接拦截此命令，存在明确风险，不进入 AI 评估。",
-                    "本地規則已直接攔截此命令，存在明確風險，不進入 AI 評估。",
-                    "This command was blocked by local rules because it has a clearly identified risk and does not go to AI assessment.",
-                ),
-                "toolReview": review,
-                "command": cmd,
-            }));
+            if !terminal_commitment_approves(commitment) {
+                let reason_message = terminal_local_rule_reason_message(&ui_language, reason);
+                let message = format!(
+                    "{} {}",
+                    reason_message,
+                    terminal_localized_text(
+                        &ui_language,
+                        "你正在执行高度危险的指令。请向用户确认是否真的要执行，并向用户说明危险性；得到用户明确许可后，重新调用 exec 并在 commitment 参数中填入承诺文案。",
+                        "你正在執行高度危險的指令。請向用戶確認是否真的要執行，並向用戶說明危險性；得到用戶明確許可後，重新調用 exec 並在 commitment 參數中填入承諾文案。",
+                        "You are about to run a high-risk command. Confirm with the user whether it should really run and explain the risk; after explicit approval, call exec again and fill the commitment parameter with the required text.",
+                    ),
+                );
+                return Ok(serde_json::json!({
+                    "ok": false,
+                    "approved": false,
+                    "blockedReason": "local_rule_blocked",
+                    "message": message,
+                    "commitmentHint": TERMINAL_EXEC_COMMITMENT_TEXT,
+                    "toolReview": review,
+                    "command": cmd,
+                }));
+            }
         }
     }
     let allowed_project_roots = terminal_allowed_project_roots_for_session_canonical(state, &normalized_session)?
@@ -1837,7 +1855,7 @@ mod terminal_exec_tests {
             "test-session",
             "run",
             "echo changed > ./existing.txt",
-            Some(8_000),
+            Some(8_000), None,
         );
         let result = timeout(Duration::from_secs(15), run)
             .await
@@ -1904,7 +1922,7 @@ mod terminal_exec_tests {
 
         let result = timeout(
             Duration::from_secs(15),
-            builtin_shell_exec(&state, &session_id, "run", command, Some(8_000)),
+            builtin_shell_exec(&state, &session_id, "run", command, Some(8_000), None),
         )
         .await
         .map_err(|_| "builtin_shell_exec timed out".to_string())??;
@@ -1983,7 +2001,7 @@ mod terminal_exec_tests {
             "read-outside-session",
             "run",
             "Get-Content C:\\Windows\\win.ini | Select-Object -First 1",
-            Some(8_000),
+            Some(8_000), None,
         )
         .await
         .expect("run read command");
@@ -2019,7 +2037,7 @@ mod terminal_exec_tests {
             outside_path.to_string_lossy()
         );
 
-        let result = builtin_shell_exec(&state, "write-outside-session", "run", &command, Some(8_000))
+        let result = builtin_shell_exec(&state, "write-outside-session", "run", &command, Some(8_000), None)
             .await
             .expect("run write command");
 
@@ -2068,7 +2086,7 @@ mod terminal_exec_tests {
             &session_id,
             "run",
             "python -c \"print('hello')\"",
-            Some(8_000),
+            Some(8_000), None,
         )
         .await
         .expect("run python command");
@@ -2151,7 +2169,7 @@ mod terminal_exec_tests {
             &session_id,
             "run",
             "Set-Content -Path .\\note.txt -Value 'hi'",
-            Some(8_000),
+            Some(8_000), None,
         )
         .await
         .expect("run readonly command");
@@ -2201,7 +2219,7 @@ mod terminal_exec_tests {
             &session_id,
             "run",
             "Get-Content C:\\Windows\\win.ini | Select-Object -First 1 | Set-Content -Path '.\\note.txt'",
-            Some(8_000),
+            Some(8_000), None,
         )
         .await
         .expect("run mixed read/write command");
@@ -2429,7 +2447,7 @@ mod terminal_exec_tests {
             "git-read-outside-roots",
             "run",
             &command,
-            Some(8_000),
+            Some(8_000), None,
         )
         .await
         .expect("run git read command outside roots");
@@ -2440,13 +2458,15 @@ mod terminal_exec_tests {
         let _ = fs::remove_dir_all(&outside_root);
     }
 
+    #[cfg(target_os = "windows")]
     #[tokio::test]
     async fn blocked_local_rule_should_return_local_tool_review() {
         let root = std::env::temp_dir().join(format!("eca-terminal-blocked-{}", Uuid::new_v4()));
         fs::create_dir_all(&root).expect("create root");
-        let shell = shell_candidate_by_kind("powershell7")
-            .or_else(|| shell_candidate_by_kind("powershell5"))
-            .expect("powershell shell");
+        let shell = detect_terminal_shell_candidates()
+            .into_iter()
+            .next()
+            .expect("available shell");
         let state = build_test_state(shell, root.clone());
         let (_system_root, main_root, _secondary_root) = configure_test_workspaces(
             &state,
@@ -2471,7 +2491,7 @@ mod terminal_exec_tests {
             &session_id,
             "run",
             "powershell -EncodedCommand AAAA",
-            Some(8_000),
+            Some(8_000), None,
         )
         .await
         .expect("run blocked command");
@@ -2498,6 +2518,69 @@ mod terminal_exec_tests {
     }
 
     #[tokio::test]
+    async fn commitment_approval_should_bypass_local_rule_block() {
+        let root = std::env::temp_dir().join(format!("eca-terminal-commitment-{}", Uuid::new_v4()));
+        fs::create_dir_all(&root).expect("create root");
+        let shell = shell_candidate_by_kind("powershell7")
+            .or_else(|| shell_candidate_by_kind("powershell5"));
+        let Some(shell) = shell else {
+            // 非 Windows 或未安装 PowerShell：无可用 shell，跳过该场景测试
+            let _ = fs::remove_dir_all(&root);
+            return;
+        };
+        let state = build_test_state(shell, root.clone());
+        let (_system_root, main_root, _secondary_root) = configure_test_workspaces(
+            &state,
+            SHELL_WORKSPACE_ACCESS_FULL_ACCESS,
+            SHELL_WORKSPACE_ACCESS_READ_ONLY,
+        )
+        .expect("configure workspaces");
+        let session_id = configure_test_conversation_workspaces(
+            &state,
+            "conv-commitment-approval",
+            "agent-commitment-approval",
+            Some(&main_root),
+            &main_root,
+            SHELL_WORKSPACE_ACCESS_FULL_ACCESS,
+            &_secondary_root,
+            SHELL_WORKSPACE_ACCESS_READ_ONLY,
+        )
+        .expect("configure conversation workspaces");
+
+        let result = builtin_shell_exec(
+            &state,
+            &session_id,
+            "run",
+            "powershell -EncodedCommand AAAA",
+            Some(8_000),
+            Some(TERMINAL_EXEC_COMMITMENT_TEXT),
+        )
+        .await
+        .expect("run blocked command with commitment");
+
+        assert_eq!(
+            result.get("blockedReason").and_then(Value::as_str),
+            None,
+            "commitment 应放行本地规则拦截：{result}"
+        );
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn commitment_approval_should_require_exact_text() {
+        assert!(!terminal_commitment_approves(None));
+        assert!(!terminal_commitment_approves(Some("")));
+        assert!(!terminal_commitment_approves(Some("用户已批准")));
+        assert!(!terminal_commitment_approves(Some(
+            "用户已经充分理解本命令的危险性并且批准本次执行（追加内容）"
+        )));
+        assert!(terminal_commitment_approves(Some(
+            "用户已经充分理解本命令的危险性并且批准本次执行"
+        )));
+        assert!(terminal_commitment_approves(Some("  用户已经充分理解本命令的危险性并且批准本次执行  ")));
+    }
+
+    #[tokio::test]
     async fn shell_exec_result_should_not_expose_session_id() -> Result<(), String> {
         let Some(shell) = shell_candidate_by_kind("git-bash") else {
             runtime_log_warn(format!("[测试] 跳过 Shell，类型=git-bash: 当前设备不可用"));
@@ -2507,7 +2590,8 @@ mod terminal_exec_tests {
         fs::create_dir_all(&root).map_err(|err| format!("create temp root failed: {err}"))?;
         let state = build_test_state(shell, root.clone());
 
-        let run_result = builtin_shell_exec(&state, "no-session-id", "run", "echo ok", Some(8_000)).await?;
+        let run_result =
+            builtin_shell_exec(&state, "no-session-id", "run", "echo ok", Some(8_000), None).await?;
         assert!(run_result.get("sessionId").is_none(), "run result leaked sessionId: {run_result}");
         assert_eq!(
             run_result
@@ -2517,7 +2601,8 @@ mod terminal_exec_tests {
             Some("ok")
         );
 
-        let list_result = builtin_shell_exec(&state, "no-session-id", "list", "", Some(8_000)).await?;
+        let list_result =
+            builtin_shell_exec(&state, "no-session-id", "list", "", Some(8_000), None).await?;
         assert!(list_result.get("sessionId").is_none(), "list result leaked sessionId: {list_result}");
         for session in list_result
             .get("sessions")
@@ -2528,7 +2613,8 @@ mod terminal_exec_tests {
             assert!(session.get("sessionId").is_none(), "listed session leaked sessionId: {session}");
         }
 
-        let close_result = builtin_shell_exec(&state, "no-session-id", "close", "", Some(8_000)).await?;
+        let close_result =
+            builtin_shell_exec(&state, "no-session-id", "close", "", Some(8_000), None).await?;
         assert!(close_result.get("sessionId").is_none(), "close result leaked sessionId: {close_result}");
 
         let _ = fs::remove_dir_all(&root);

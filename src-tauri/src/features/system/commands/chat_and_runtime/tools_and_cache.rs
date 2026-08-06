@@ -53,8 +53,6 @@ fn check_tools_status_inner(
                     reason
                 } else if forced_by_department {
                     "远程客服部门已强制启用该工具。".to_string()
-                } else if tool.id == "screenshot" {
-                    "旧 screenshot 工具已并入 operate，请改用 operate。".to_string()
                 } else if tool.enabled {
                     "系统默认已启用该工具，但当前尚未绑定部门运行模型。".to_string()
                 } else {
@@ -67,7 +65,7 @@ fn check_tools_status_inner(
                     } else if forced_by_department {
                         "loaded".to_string()
                     } else if tool.enabled {
-                        if tool.id == "screenshot" { "unavailable".to_string() } else { "loaded".to_string() }
+                        "loaded".to_string()
                     } else {
                         "disabled".to_string()
                     },
@@ -119,16 +117,7 @@ fn check_tools_status_inner(
             "websearch" => ("loaded".to_string(), "内置网页搜索工具可用".to_string()),
             "remember" => ("loaded".to_string(), "记住工具可用".to_string()),
             "recall" => ("loaded".to_string(), "回忆工具可用".to_string()),
-            "screenshot" => (
-                "unavailable".to_string(),
-                "旧 screenshot 工具已并入 operate，请改用 operate 脚本中的 screenshot 动作。".to_string(),
-            ),
             "operate" => ("loaded".to_string(), "桌面输入工具可用（鼠标/键盘/文本）".to_string()),
-            "reload" => ("loaded".to_string(), "刷新工作区 MCP 与技能工具可用".to_string()),
-            "organize_context" => (
-                "hidden".to_string(),
-                "整理上下文工具已隐藏。".to_string(),
-            ),
             "wait" => (
                 "unavailable".to_string(),
                 "wait 工具已删除；请改用 operate 脚本中的 wait 动作。".to_string(),

@@ -858,6 +858,21 @@ impl ConversationServiceV2 {
                 archive_reason,
                 archived_at
             ));
+            // 会话归档后按会话清空截图目录（已归档的不重复清理）。
+            match clear_operate_screenshots_temp(&state.data_path, &conversation_id) {
+                Ok((file_count, dir_count)) => {
+                    runtime_log_info(format!(
+                        "[operate截图缓存] 完成，任务=clear_temp_on_archive，conversation_id={}，截图文件数={}，子目录数={}",
+                        conversation_id, file_count, dir_count
+                    ));
+                }
+                Err(err) => {
+                    runtime_log_error(format!(
+                        "[operate截图缓存] 失败，任务=clear_temp_on_archive，conversation_id={}，error={}",
+                        conversation_id, err
+                    ));
+                }
+            }
         }
         Ok(mutation_result)
     }

@@ -37,6 +37,18 @@
             {{ t("config.logs.clearPipelineLogs") }}
           </button>
         </div>
+
+        <div class="grid grid-cols-3 gap-2 border-t border-base-200 pt-4">
+          <button class="btn btn-sm w-full bg-base-200" @click="props.openConversationList">
+            {{ t("config.chatSettings.openConversationList") }}
+          </button>
+          <button class="btn btn-sm w-full bg-base-200" @click="props.openPromptPreview">
+            {{ t("config.chatSettings.previewRequest") }}
+          </button>
+          <button class="btn btn-sm w-full bg-base-200" @click="props.openSystemPromptPreview">
+            {{ t("config.chatSettings.previewSystemPrompt") }}
+          </button>
+        </div>
       </div>
     </template>
   </ConfigTemplate>
@@ -431,6 +443,9 @@ const ToolNameSection = defineComponent({
 const props = defineProps<{
   config: AppConfig;
   openRuntimeLogs: () => void;
+  openConversationList: () => void;
+  openPromptPreview: () => void;
+  openSystemPromptPreview: () => void;
 }>();
 
 const { t, locale } = useI18n();

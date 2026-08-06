@@ -1,8 +1,9 @@
 <template>
   <ConfigTemplate :model-value="templateValues" :groups="templateGroups">
     <template #group-actions-network-access>
-      <button class="btn btn-sm btn-ghost shrink-0" :disabled="loading" :title="t('common.refresh')" @click="refreshInfo">
+      <button class="btn btn-sm bg-base-100 shrink-0" :disabled="loading" :title="t('common.refresh')" @click="refreshInfo">
         <RefreshCw class="h-4 w-4" :class="{ 'animate-spin': loading }" />
+        <span>{{ t("common.refresh") }}</span>
       </button>
     </template>
 

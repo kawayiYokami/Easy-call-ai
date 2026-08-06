@@ -2830,6 +2830,21 @@ fn delete_unarchived_conversation_blocking(
         )),
     }
     cleanup_pdf_session_memory_cache_for_conversation(conversation_id);
+    // 会话删除后按会话清空截图目录。
+    match clear_operate_screenshots_temp(&state.data_path, conversation_id) {
+        Ok((file_count, dir_count)) => {
+            runtime_log_info(format!(
+                "[operate截图缓存] 完成，任务=clear_temp_on_delete，conversation_id={}，截图文件数={}，子目录数={}",
+                conversation_id, file_count, dir_count
+            ));
+        }
+        Err(err) => {
+            runtime_log_error(format!(
+                "[operate截图缓存] 失败，任务=clear_temp_on_delete，conversation_id={}，error={}",
+                conversation_id, err
+            ));
+        }
+    }
     let overview_payload = result.overview_payload;
     Ok((
         DeleteUnarchivedConversationOutput {
@@ -3386,6 +3401,22 @@ async fn rewind_conversation_from_message_inner(
         "[会话撤回] 完成，任务=rewind_conversation_from_message，removed_count={}，remaining_count={}，duration_ms={}",
         removed_count, remaining_count, elapsed_ms
     ));
+
+    // 撤回按消息撤：该消息及其后消息全部删除，按会话清空截图目录语义正确。
+    match clear_operate_screenshots_temp(&state.data_path, &conversation_id) {
+        Ok((file_count, dir_count)) => {
+            runtime_log_info(format!(
+                "[operate截图缓存] 完成，任务=clear_temp_on_rewind，conversation_id={}，截图文件数={}，子目录数={}",
+                conversation_id, file_count, dir_count
+            ));
+        }
+        Err(err) => {
+            runtime_log_error(format!(
+                "[operate截图缓存] 失败，任务=clear_temp_on_rewind，conversation_id={}，error={}",
+                conversation_id, err
+            ));
+        }
+    }
 
     Ok(RewindConversationResult {
         removed_count,

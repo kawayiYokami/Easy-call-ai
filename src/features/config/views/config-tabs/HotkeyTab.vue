@@ -19,15 +19,20 @@
       </div>
     </template>
 
-    <template #row-summon-chat>
+    <template #row-send-mode>
       <div class="flex min-w-0 items-center justify-between gap-4">
         <div class="min-w-0">
-          <div class="text-sm">{{ t("config.hotkey.callNowButton") }}</div>
-          <p class="mt-1 text-xs text-base-content/60">{{ t("config.hotkey.callNowHint") }}</p>
+          <div class="text-sm">{{ t("config.hotkey.sendMode") }}</div>
+          <p class="mt-1 text-xs text-base-content/60">{{ t("config.hotkey.sendModeHint") }}</p>
         </div>
-        <button class="btn btn-sm btn-primary shrink-0" @click="$emit('summonChatNow')">
-          {{ t("config.hotkey.callNowButton") }}
-        </button>
+        <select
+          class="select select-bordered select-sm w-56 max-w-full"
+          :value="sendMode"
+          @change="onSendModeChange"
+        >
+          <option value="enter">{{ t("chat.sendModeEnter") }}</option>
+          <option value="ctrl_enter">{{ t("chat.sendModeCtrlEnter") }}</option>
+        </select>
       </div>
     </template>
 
@@ -47,12 +52,9 @@
       </div>
     </template>
 
-    <template #row-background-wake>
+    <template v-if="isWindowsHost" #row-background-wake>
       <div class="flex min-w-0 items-center justify-between gap-4">
-        <div class="min-w-0">
-          <div class="text-sm">{{ t("config.hotkey.backgroundWakeOn") }}</div>
-          <p class="mt-1 text-xs text-base-content/60">{{ t('config.hotkey.backgroundWakeHint') }}</p>
-        </div>
+        <div class="text-sm">{{ t("config.hotkey.backgroundWakeTitle") }}</div>
         <button
           type="button"
           class="btn btn-sm shrink-0"
@@ -167,40 +169,55 @@
     </template>
 
     <template #row-builtin-tab>
-      <div class="flex items-center justify-between gap-4">
-        <span class="font-mono">Tab</span>
-        <span class="text-right text-sm opacity-60">{{ t("config.hotkey.builtinTabInstruction") }}</span>
+      <div class="flex min-w-0 items-center justify-between gap-4">
+        <div class="min-w-0">
+          <div class="text-sm">{{ t("config.hotkey.builtinTabInstruction") }}</div>
+          <p class="mt-1 text-xs text-base-content/60">{{ t("config.hotkey.builtinTabInstructionHint") }}</p>
+        </div>
+        <input value="Tab" class="input input-bordered input-sm w-40 max-w-full shrink-0 text-center font-mono" disabled />
       </div>
     </template>
     <template #row-builtin-esc>
-      <div class="flex items-center justify-between gap-4">
-        <span class="font-mono">Esc</span>
-        <span class="text-right text-sm opacity-60">{{ t("config.hotkey.builtinEscStopReplying") }}</span>
+      <div class="flex min-w-0 items-center justify-between gap-4">
+        <div class="min-w-0">
+          <div class="text-sm">{{ t("config.hotkey.builtinEscStopReplying") }}</div>
+          <p class="mt-1 text-xs text-base-content/60">{{ t("config.hotkey.builtinEscStopReplyingHint") }}</p>
+        </div>
+        <input value="Esc" class="input input-bordered input-sm w-40 max-w-full shrink-0 text-center font-mono" disabled />
       </div>
     </template>
     <template #row-builtin-shift-tab>
-      <div class="flex items-center justify-between gap-4">
-        <span class="font-mono">Shift + Tab</span>
-        <span class="text-right text-sm opacity-60">{{ t("config.hotkey.builtinShiftTabPlanMode") }}</span>
+      <div class="flex min-w-0 items-center justify-between gap-4">
+        <div class="min-w-0">
+          <div class="text-sm">{{ t("config.hotkey.builtinShiftTabPlanMode") }}</div>
+          <p class="mt-1 text-xs text-base-content/60">{{ t("config.hotkey.builtinShiftTabPlanModeHint") }}</p>
+        </div>
+        <input value="Shift + Tab" class="input input-bordered input-sm w-40 max-w-full shrink-0 text-center font-mono" disabled />
       </div>
     </template>
     <template #row-builtin-alt-z>
-      <div class="flex items-center justify-between gap-4">
-        <span class="font-mono">Alt + Z</span>
-        <span class="text-right text-sm opacity-60">{{ t("config.hotkey.builtinAltZLineWrap") }}</span>
+      <div class="flex min-w-0 items-center justify-between gap-4">
+        <div class="min-w-0">
+          <div class="text-sm">{{ t("config.hotkey.builtinAltZLineWrap") }}</div>
+          <p class="mt-1 text-xs text-base-content/60">{{ t("config.hotkey.builtinAltZLineWrapHint") }}</p>
+        </div>
+        <input value="Alt + Z" class="input input-bordered input-sm w-40 max-w-full shrink-0 text-center font-mono" disabled />
       </div>
     </template>
     <template #row-builtin-wheel>
-      <div class="flex items-center justify-between gap-4">
-        <span class="font-mono">Shift + Wheel</span>
-        <span class="text-right text-sm opacity-60">{{ t("config.hotkey.builtinShiftWheelConversationSwitch") }}</span>
+      <div class="flex min-w-0 items-center justify-between gap-4">
+        <div class="min-w-0">
+          <div class="text-sm">{{ t("config.hotkey.builtinShiftWheelConversationSwitch") }}</div>
+          <p class="mt-1 text-xs text-base-content/60">{{ t("config.hotkey.builtinShiftWheelConversationSwitchHint") }}</p>
+        </div>
+        <input :value="`Shift + ${t('config.hotkey.builtinWheelKey')}`" class="input input-bordered input-sm w-40 max-w-full shrink-0 text-center font-mono" disabled />
       </div>
     </template>
   </ConfigTemplate>
 </template>
 
 <script setup lang="ts">
-import { computed, onBeforeUnmount, ref, watch } from "vue";
+import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 import SegmentedControl from "../../components/SegmentedControl.vue";
 import ConfigTemplate from "../../components/ConfigTemplate.vue";
@@ -219,7 +236,6 @@ const props = defineProps<{
 }>();
 
 const emit = defineEmits<{
-  (e: "summonChatNow"): void;
   (e: "startHotkeyRecordTest"): void;
   (e: "stopHotkeyRecordTest"): void;
   (e: "playHotkeyRecordTest"): void;
@@ -235,6 +251,8 @@ const emit = defineEmits<{
 }>();
 
 const { t } = useI18n();
+// 录音后台唤醒仅 Windows 支持，其他平台直接隐藏开关
+const isWindowsHost = typeof navigator !== "undefined" && /windows/i.test(String(navigator.userAgent || ""));
 const templateValues = {};
 const templateGroups = computed<ConfigTemplateGroup[]>(() => [
   {
@@ -242,7 +260,12 @@ const templateGroups = computed<ConfigTemplateGroup[]>(() => [
     title: t("config.hotkey.label"),
     rows: [
       { key: "hotkey", items: [] },
-      { key: "summon-chat", items: [] },
+      { key: "send-mode", items: [] },
+      { key: "builtin-tab", items: [] },
+      { key: "builtin-esc", items: [] },
+      { key: "builtin-shift-tab", items: [] },
+      { key: "builtin-alt-z", items: [] },
+      { key: "builtin-wheel", items: [] },
     ],
   },
   {
@@ -256,17 +279,6 @@ const templateGroups = computed<ConfigTemplateGroup[]>(() => [
       { key: "record-test", items: [] },
       { key: "background-voice-keywords", items: [] },
       { key: "background-voice-mode", items: [] },
-    ],
-  },
-  {
-    key: "builtin-shortcuts",
-    title: t("config.hotkey.builtinShortcuts"),
-    rows: [
-      { key: "builtin-tab", items: [] },
-      { key: "builtin-esc", items: [] },
-      { key: "builtin-shift-tab", items: [] },
-      { key: "builtin-alt-z", items: [] },
-      { key: "builtin-wheel", items: [] },
     ],
   },
 ]);
@@ -289,6 +301,29 @@ const microphonePermissionBadgeClass = computed(() => {
   if (props.microphonePermissionState === "prompt") return "badge-warning";
   return "badge-ghost";
 });
+
+const SEND_MODE_STORAGE_KEY = "easy_call.send_mode.v1";
+const sendMode = ref<"enter" | "ctrl_enter">("enter");
+
+onMounted(() => {
+  try {
+    const raw = window.localStorage.getItem(SEND_MODE_STORAGE_KEY);
+    if (raw === "ctrl_enter") sendMode.value = "ctrl_enter";
+  } catch {
+    // ignore storage failures
+  }
+});
+
+function onSendModeChange(event: Event) {
+  const next = String((event.target as HTMLSelectElement | null)?.value || "");
+  if (next !== "enter" && next !== "ctrl_enter") return;
+  sendMode.value = next;
+  try {
+    window.localStorage.setItem(SEND_MODE_STORAGE_KEY, next);
+  } catch {
+    // ignore persistence failures
+  }
+}
 
 const hotkeyCapturing = ref(false);
 const hotkeyCaptureHint = ref(t("config.hotkey.captureDefaultHint"));
@@ -396,12 +431,15 @@ function startHotkeyCapture() {
       stopHotkeyCapture();
       return;
     }
+    if (event.metaKey) {
+      hotkeyCaptureHint.value = t("config.hotkey.captureMetaNotSupportedHint");
+      return;
+    }
 
     const modifiers: string[] = [];
     if (event.ctrlKey) modifiers.push("Ctrl");
     if (event.altKey) modifiers.push("Alt");
     if (event.shiftKey) modifiers.push("Shift");
-    if (event.metaKey) modifiers.push("Meta");
 
     if (isModifierKey(event.code)) {
       hotkeyCaptureHint.value = t("config.hotkey.captureNeedMainKeyHint");
@@ -436,12 +474,12 @@ function startRecordHotkeyCapture() {
       stopRecordHotkeyCapture();
       return;
     }
+    if (event.metaKey) return;
 
     const modifiers: string[] = [];
     if (event.ctrlKey) modifiers.push("Ctrl");
     if (event.altKey) modifiers.push("Alt");
     if (event.shiftKey) modifiers.push("Shift");
-    if (event.metaKey) modifiers.push("Meta");
 
     if (isModifierKey(event.code)) {
       const modifierOnly = modifiers[0];

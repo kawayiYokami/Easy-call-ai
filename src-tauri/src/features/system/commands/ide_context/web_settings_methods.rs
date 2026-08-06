@@ -310,6 +310,32 @@ async fn ide_chat_refresh_usage_overview_for_web_settings(state: &AppState) -> R
     ide_chat_serialize(start_usage_overview_refresh_if_needed(state.clone(), true).await)
 }
 
+async fn ide_chat_get_usage_trail_for_web_settings(
+    state: &AppState,
+    params: Value,
+) -> Result<Value, String> {
+    let (view, year) = match params {
+        Value::Object(map) => {
+            let view = map
+                .get("view")
+                .and_then(|value| value.as_str().map(ToOwned::to_owned))
+                .unwrap_or_else(|| "today".to_string());
+            let year = map
+                .get("year")
+                .and_then(|value| value.as_str().map(ToOwned::to_owned));
+            (view, year)
+        }
+        _ => ("today".to_string(), None),
+    };
+    let query = UsageTrailWallQuery { view, year };
+    let state = state.clone();
+    let result = tauri::async_runtime::spawn_blocking(move || build_usage_trail_wall(&state, &query))
+        .await
+        .map_err(|err| format!("计算足迹墙失败：{err}"))?
+        .map_err(|err| err.to_string())?;
+    ide_chat_serialize(result)
+}
+
 fn ide_chat_list_recent_llm_round_logs_for_web_settings(
     state: &AppState,
 ) -> Result<Value, String> {

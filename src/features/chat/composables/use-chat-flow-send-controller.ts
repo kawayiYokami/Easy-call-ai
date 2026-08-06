@@ -58,6 +58,8 @@ type UseChatFlowSendControllerOptions = {
   streamBlocks?: Ref<AssistantStreamBlock[]>;
   getConversationId?: () => string;
   getSession: () => { apiConfigId: string; agentId: string; departmentId?: string } | null;
+  /** Web 端专用：发起对话前幂等补绑定，确保后端已注册本客户端的会话订阅。桌面端不注入，避免与 sendChat 原生 Channel 双写。 */
+  bindActiveConversationStream?: (conversationId: string, force?: boolean) => Promise<void>;
   createSendChatDeltaChannel: (gen: number, conversationId: string) => TransportChannel<AssistantDeltaEvent>;
   invokeSendChatMessage: (input: {
     text: string;
@@ -180,6 +182,19 @@ export function useChatFlowSendController(options: UseChatFlowSendControllerOpti
 
     try {
       const onDelta = options.createSendChatDeltaChannel(gen, sendConversationId);
+      // Web 端：sendChat 的 onDelta 会被 WebSocket 序列化丢弃（无法携带 Tauri Channel），
+      // 正文 delta 只能走 bound channel。这里幂等补一次绑定（已绑定则跳过），
+      // 确保后端已注册本客户端 → conversation 映射，否则 delta 无处投递。
+      if (options.bindActiveConversationStream) {
+        try {
+          await options.bindActiveConversationStream(sendConversationId);
+        } catch (bindError) {
+          console.error("[聊天] sendChat 前补绑定失败", {
+            conversationId: sendConversationId,
+            message: String((bindError as { message?: string })?.message ?? bindError ?? ""),
+          });
+        }
+      }
       if (shouldBlockStopUntilHistoryFlushed && options.submitPending) {
         options.submitPending.value = true;
       }

@@ -163,11 +163,8 @@
             >
               <button
                 type="button"
-                class="flex min-h-0 w-full items-center gap-2 rounded-xl px-2 py-1.5 text-left text-base-content transition-colors"
-                :class="[
-                  entry.mentionable ? 'hover:bg-base-200/80' : 'opacity-65',
-                ]"
-                :disabled="chatting || frozen || !entry.mentionable"
+                class="flex min-h-0 w-full items-center gap-2 rounded-xl px-2 py-1.5 text-left text-base-content transition-colors hover:bg-base-200/80"
+                :disabled="chatting || frozen"
                 @click="handleCompactPersonaEntryClick($event, entry)"
               >
                 <div class="indicator shrink-0">
@@ -370,15 +367,11 @@ const mentionListPopupStyle = ref<Record<string, string>>({
 const uniqueMentionEntries = computed(() => {
   const seen = new Map<string, ChatMentionEntry>();
   for (const entry of props.mentionEntries || []) {
+    if (!entry.mentionable) continue;
     const agentId = String(entry.agentId || "").trim();
     if (!agentId) continue;
     if (!seen.has(agentId)) {
       seen.set(agentId, { ...entry, selected: false });
-    } else {
-      const existing = seen.get(agentId)!;
-      if (entry.mentionable && !existing.mentionable) {
-        seen.set(agentId, { ...entry, selected: false });
-      }
     }
   }
   const result = Array.from(seen.values());
@@ -407,7 +400,7 @@ const filteredAvatarPopupOptions = computed(() => {
   const target = avatarPopupTarget.value;
   if (!target) return [];
   return (props.mentionEntries || [])
-    .filter((entry) => String(entry.agentId || "").trim() === target.agentId)
+    .filter((entry) => String(entry.agentId || "").trim() === target.agentId && entry.mentionable)
     .map((entry) => ({
       agentId: String(entry.agentId || "").trim(),
       agentName: String(entry.agentName || "").trim(),
@@ -420,7 +413,9 @@ const filteredAvatarPopupOptions = computed(() => {
 
 function handleMentionEntryClick(event: MouseEvent, entry: ChatMentionEntry & { selected?: boolean }) {
   const agentId = String(entry.agentId || "").trim();
-  const deptEntries = (props.mentionEntries || []).filter((e) => String(e.agentId || "").trim() === agentId);
+  const deptEntries = (props.mentionEntries || []).filter(
+    (e) => String(e.agentId || "").trim() === agentId && e.mentionable,
+  );
   if (deptEntries.length <= 1) {
     mentionListPopupOpen.value = false;
     emit('mentionEntry', deptEntries[0] || entry);

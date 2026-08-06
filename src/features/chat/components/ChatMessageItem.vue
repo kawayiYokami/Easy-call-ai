@@ -64,7 +64,10 @@
             >
               <span class="flex min-w-0 flex-1 items-center gap-1.5">
                 <span class="shrink-0">
-                  {{ activitySummaryLabel(block) }}
+                  <template v-if="showActivityPanel(block)">
+                    {{ activityStatusText(block) }}<AnimatedCountText :target="block.activityReasoningCharCount || 0" />
+                  </template>
+                  <template v-else>{{ t("chat.messageItem.notThought") }}</template>
                 </span>
                 <span v-if="showActivityPanel(block) && activityToolCountsLabel(block)" class="inline-flex h-3 items-center text-base-content/40">·</span>
                 <span
@@ -206,7 +209,11 @@
               <PlainMarkdownRenderer :text="assistantRenderedText" />
             </div>
             <div v-else ref="markdownContainerRef">
-              <div v-if="assistantUsesSegmentedMarkdown" class="ecall-assistant-segment-list">
+              <div
+                v-if="assistantUsesSegmentedMarkdown"
+                class="ecall-assistant-segment-list"
+                :class="{ 'ecall-assistant-segment-list-plain': !assistantBubbleBackgroundEnabled }"
+              >
                 <div
                   v-for="(segment, segmentIndex) in assistantMarkdownSegments"
                   :key="segment.key"
@@ -245,7 +252,18 @@
               />
             </div>
           </div>
-          <div v-if="block.planCard" class="space-y-3" :class="block.text ? 'mt-3' : ''">
+          <div
+            v-if="block.planCard"
+            class="space-y-3"
+            :class="[
+              block.text ? 'mt-3' : '',
+              assistantUsesSegmentedMarkdown
+                ? assistantBubbleBackgroundEnabled
+                  ? 'ecall-assistant-segment ecall-assistant-segment-text ecall-assistant-segment-surface'
+                  : 'ecall-assistant-segment ecall-assistant-segment-text ecall-assistant-segment-plain ecall-assistant-segment-plan-separated'
+                : '',
+            ]"
+          >
             <div class="text-xs italic opacity-60 mb-1">{{ t("chat.plan.sidebarHint") }}</div>
             <div @click="emit('assistantLinkClick', $event)">
               <a :href="block.planCard.path" class="link link-primary text-sm" :title="block.planCard.path">{{ t("chat.plan.linkLabel") }}{{ block.planCard.path.split(/[/\\]/).filter(Boolean).pop() }}</a>
@@ -499,20 +517,23 @@ import {
   normalizeAssistantStreamBlocks,
   assistantContentBlocksFromMessage,
   streamBlocksToActivityItems,
+  TOOL_TEXT_BREAK_PLACEHOLDER,
 } from "../../../utils/chat-message-semantics";
 import { formatIsoToLocalDateTime } from "../../../utils/time";
 import { useChatMessageAppearance } from "../../shell/composables/use-chat-message-appearance";
-import { AppMarkdownRenderer, groupMarkdownSegments, initKatex, parseMarkdownBlocks, type MarkdownBlock, type MarkdownSegment } from "../markdown";
+import { AppMarkdownRenderer, groupMarkdownSegments, initKatex, parseMarkdownBlocks, type MarkdownSegment } from "../markdown";
 import { hideIncompleteInlineMath } from "../markdown/streaming-math";
 import { normalizeLocalLinkHref } from "../utils/local-link";
 import { textContentSignature } from "../utils/text-signature";
 import { createToolCallPresentation } from "../utils/tool-call-presentation";
 import { buildToolcallPreviewMap } from "../utils/toolcall-preview";
 import { generateShareFromMessageIds } from "../utils/share-generator";
+import { frontendDispatchElapsedByMessageId } from "../composables/use-chat-flow-frontend-dispatch";
 import { displayFileName, extraTextReferenceDisplayParts } from "../utils/chat-attachment-display";
 import ChatBubbleShell from "./ChatBubbleShell.vue";
 import ChatAttachmentItem from "./ChatAttachmentItem.vue";
 import PlainMarkdownRenderer from "./PlainMarkdownRenderer.vue";
+import AnimatedCountText from "./AnimatedCountText.vue";
 
 initKatex();
 
@@ -590,15 +611,27 @@ const planMarkdownText = ref("");
 const planMarkdownError = ref("");
 const planMarkdownLoading = ref(false);
 const plainMarkdownDebugEnabled = debugPlainMarkdownRender;
-const assistantRenderedText = computed(() => formatAssistantStreamingText(props.block));
-const segmentedMarkdownActive = computed(() => segmentedMarkdownEnabled.value && assistantBubbleBackgroundEnabled.value);
-const assistantMarkdownBlocks = computed<MarkdownBlock[]>(() => {
+const assistantRawRenderedText = computed(() => formatAssistantStreamingText(props.block));
+const assistantRenderedText = computed(() =>
+  assistantRawRenderedText.value.split(TOOL_TEXT_BREAK_PLACEHOLDER).join("\n\n"),
+);
+const segmentedMarkdownActive = computed(() => segmentedMarkdownEnabled.value);
+const assistantMarkdownSegments = computed<MarkdownSegment[]>(() => {
   if (plainMarkdownDebugEnabled || !segmentedMarkdownActive.value) return [];
-  const text = assistantRenderedText.value;
+  const text = assistantRawRenderedText.value;
   if (!text) return [];
-  return parseMarkdownBlocks(text, !!props.block.isStreaming);
+  const pieces = text.split(TOOL_TEXT_BREAK_PLACEHOLDER);
+  const segments: MarkdownSegment[] = [];
+  pieces.forEach((piece, pieceIndex) => {
+    if (!piece.trim()) return;
+    const blocks = parseMarkdownBlocks(piece, !!props.block.isStreaming);
+    const grouped = groupMarkdownSegments(blocks);
+    for (const segment of grouped) {
+      segments.push({ ...segment, key: `seg-${pieceIndex}-${segment.key}` });
+    }
+  });
+  return segments;
 });
-const assistantMarkdownSegments = computed<MarkdownSegment[]>(() => groupMarkdownSegments(assistantMarkdownBlocks.value));
 const assistantUsesSegmentedMarkdown = computed(() => {
   if (plainMarkdownDebugEnabled || !segmentedMarkdownActive.value) return false;
   return assistantMarkdownSegments.value.length > 0;
@@ -920,13 +953,6 @@ function showActivitySummary(block: ChatMessageBlock): boolean {
   return !block.isStreaming;
 }
 
-function activitySummaryLabel(block: ChatMessageBlock): string {
-  if (!showActivityPanel(block)) {
-    return t('chat.messageItem.notThought');
-  }
-  return `${activityStatusText(block)}${activityReasoningCountLabel(block)}`;
-}
-
 function hasExpandableActivityItem(item: ChatActivityItem): boolean {
   if (item.kind === "reasoning") return !!String(item.text || "").trim();
   if (item.kind === "tool") return !!String(item.name || item.argsText || item.resultText || "").trim();
@@ -1241,8 +1267,12 @@ function numericMetaValue(block: ChatMessageBlock, key: string): number {
 
 function frontendDispatchElapsedLabel(block: ChatMessageBlock): string {
   if (!showStreamingUi(block)) return "";
-  const elapsedMs = numericMetaValue(block, "frontendDispatchElapsedMs")
-    || numericMetaValue(block, "_frontendDispatchElapsedMs");
+  const messageId = String(block.sourceMessageId || block.id || "").trim();
+  // 优先读独立计时器状态：它每秒更新但不触碰消息对象，避免带动虚拟列表重算；
+  // 无活跃计时器时（历史消息/缓存恢复）回退读 block 投影里的耗时字段。
+  const liveElapsedMs = messageId ? frontendDispatchElapsedByMessageId.get(messageId) : undefined;
+  const elapsedMs = liveElapsedMs ?? (numericMetaValue(block, "frontendDispatchElapsedMs")
+    || numericMetaValue(block, "_frontendDispatchElapsedMs"));
   const startedAtMs = numericMetaValue(block, "_frontendDispatchStartedAtMs");
   if (elapsedMs <= 0 && startedAtMs <= 0) return "";
   return formatDispatchElapsed(elapsedMs);
@@ -2007,6 +2037,22 @@ function openAttachmentPath(path: string) {
   display: flex;
   flex-direction: column;
   gap: 0.5rem;
+}
+
+/* 无背景模式：段之间用分割线区分，替代卡片背景 */
+.ecall-assistant-segment-list-plain {
+  gap: 0;
+}
+
+.ecall-assistant-segment-list-plain > .ecall-assistant-segment + .ecall-assistant-segment {
+  border-top: 1px solid var(--color-base-300);
+  padding-top: 0.5rem;
+}
+
+/* 无背景模式：计划卡跟在正文段后，顶部用分割线区分 */
+.ecall-assistant-segment-plan-separated {
+  border-top: 1px solid var(--color-base-300);
+  padding-top: 0.5rem;
 }
 
 .ecall-assistant-segment {

@@ -3,7 +3,6 @@ import { ref } from "vue";
 import { ShieldAlert } from "@lucide/vue";
 import { useI18n } from "vue-i18n";
 import type { TerminalApprovalConversationItem } from "../../shell/composables/use-terminal-approval";
-import TerminalApprovalPatchSample from "../../shell/components/TerminalApprovalPatchSample.vue";
 import ToolReviewChangesDialog from "./ToolReviewChangesDialog.vue";
 
 const props = withDefaults(defineProps<{

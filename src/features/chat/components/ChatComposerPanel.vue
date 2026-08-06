@@ -189,9 +189,13 @@
             v-model="localChatInput"
             class="ecall-chat-composer-input w-full resize-none overflow-y-auto chat-input-no-focus min-h-0"
             rows="1"
-            :placeholder="chatInputPlaceholder"
+            :placeholder="effectiveChatInputPlaceholder"
             @input="handleChatInputInput"
+            @compositionstart="handleChatInputCompositionStart"
+            @compositionend="handleChatInputCompositionEnd"
             @keydown="handleChatInputKeydown"
+            @focus="handleChatInputFocus"
+            @blur="handleChatInputBlur"
           ></textarea>
         </div>
         <FloatingScrollbar v-if="chatInputRef" :target="chatInputRef" />
@@ -315,23 +319,68 @@
           </div>
         </div>
         <div class="flex items-center gap-2">
-          <span
+          <button
             v-if="planModeEnabled"
+            type="button"
             class="inline-flex h-8 min-h-8 shrink-0 select-none items-center rounded-full bg-info px-3 text-xs font-medium leading-none text-info-content"
             :title="`Shift+Tab ${t('chat.plan.mode')}`"
+            @click="togglePlanMode()"
           >
             {{ t("chat.plan.mode") }}
-          </span>
-          <button
-            class="btn btn-sm btn-circle shrink-0"
-            :class="showStopAction ? 'btn-error' : 'btn-success'"
-            :disabled="frozen || busy || (showStopAction && !!stopChatDisabled)"
-            :title="showStopAction ? `${t('chat.stop')} / ${t('chat.stopReplying')}` : t('chat.send')"
-            @click="showStopAction ? emit('stopChat') : handleSendChat()"
-          >
-            <Square v-if="showStopAction" class="h-3.5 w-3.5 fill-current" />
-            <CornerRightUp v-else class="h-3.5 w-3.5" />
           </button>
+          <button
+            v-else-if="planSuggestionVisible"
+            type="button"
+            class="inline-flex h-8 min-h-8 shrink-0 select-none items-center rounded-full bg-base-200 px-3 text-xs font-medium leading-none text-base-content"
+            :title="`Shift+Tab ${t('chat.plan.mode')}`"
+            @click="togglePlanMode()"
+          >
+            {{ t("chat.plan.mode") }}
+          </button>
+          <button
+            v-if="showStopAction"
+            class="btn btn-sm btn-circle shrink-0 btn-error"
+            :disabled="frozen || busy || !!stopChatDisabled"
+            :title="`${t('chat.stop')} / ${t('chat.stopReplying')}`"
+            @click="emit('stopChat')"
+          >
+            <Square class="h-3.5 w-3.5 fill-current" />
+          </button>
+          <div v-else ref="sendModeMenuRef" class="relative flex shrink-0">
+            <button
+              class="btn btn-sm btn-circle shrink-0"
+              :class="composerInputBlank ? 'bg-base-200' : 'btn-success'"
+              :disabled="!composerInputBlank && (frozen || busy)"
+              :title="composerInputBlank ? t('chat.sendModeMenu') : t('chat.send')"
+              @click="composerInputBlank ? (sendModeMenuOpen = !sendModeMenuOpen) : handleSendChat()"
+              @contextmenu.prevent="sendModeMenuOpen = !sendModeMenuOpen"
+            >
+              <CornerRightUp class="h-3.5 w-3.5" />
+            </button>
+            <div
+              v-if="sendModeMenuOpen"
+              class="absolute bottom-full right-0 z-50 mb-1.5 min-w-52 overflow-hidden rounded-box border border-base-300 bg-base-100 text-base-content shadow-xl"
+            >
+              <div class="flex flex-col p-1">
+                <button
+                  type="button"
+                  class="flex min-h-8 w-full items-center justify-between gap-3 rounded-lg px-2.5 text-left text-sm transition-colors hover:bg-base-200"
+                  @click="setSendMode('enter')"
+                >
+                  <span>{{ t("chat.sendModeEnter") }}</span>
+                  <Check v-if="sendMode === 'enter'" class="h-4 w-4 shrink-0 text-primary" />
+                </button>
+                <button
+                  type="button"
+                  class="flex min-h-8 w-full items-center justify-between gap-3 rounded-lg px-2.5 text-left text-sm transition-colors hover:bg-base-200"
+                  @click="setSendMode('ctrl_enter')"
+                >
+                  <span>{{ t("chat.sendModeCtrlEnter") }}</span>
+                  <Check v-if="sendMode === 'ctrl_enter'" class="h-4 w-4 shrink-0 text-primary" />
+                </button>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
     </div>
@@ -365,12 +414,14 @@
 <script setup lang="ts">
 import { Teleport, computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
-import { CalendarPlus, ChevronDown, ClipboardList, CornerRightUp, FileText, History, Menu, Mic, Minus, Paperclip, Plus, Settings, Square, Target, X } from "@lucide/vue";
+import { CalendarPlus, Check, ChevronDown, ClipboardList, CornerRightUp, FileText, History, Menu, Mic, Minus, Paperclip, Plus, Settings, Square, Target, X } from "@lucide/vue";
 import type { ApiConfigItem, ChatConversationOverviewItem, ChatMentionEntry, ChatMentionTarget, ConversationForwardTarget, IdeContextReferenceItem, IdeContextWorkspaceGroup, PromptCommandPreset, RemoteImContactConversationOption } from "../../../types/app";
 import ChatQueuePreview from "./ChatQueuePreview.vue";
 import ChatSelectionActionPanel from "./ChatSelectionActionPanel.vue";
 import FloatingScrollbar from "../../shell/components/FloatingScrollbar.vue";
 import { useChatQueue } from "../composables/use-chat-queue";
+import { chatInputEnterConfirmsComposition } from "../composables/chat-composer-ime";
+import { clearChatComposerFocus, registerChatComposerFocus } from "../composables/chat-composer-focus";
 import type { DepartmentPersonaOption } from "../../shared/department-persona-options";
 import ApiConfigSelectionMenu from "../../config/components/ApiConfigSelectionMenu.vue";
 import { formatApiConfigOptionLabel } from "../../config/utils/api-config-display";
@@ -393,6 +444,7 @@ type MentionOptionView = {
 };
 
 const props = defineProps<{
+  composerScope?: "main" | "side";
   selectionModeEnabled: boolean;
   selectionDelegateOnly?: boolean;
   selectedMessageCount: number;
@@ -400,9 +452,7 @@ const props = defineProps<{
   instructionPresets: PromptCommandPreset[];
   mentionEntries: ChatMentionEntry[];
   selectedMentions: ChatMentionTarget[];
-  chatInputPlaceholder: string;
-  clipboardImages: BinaryAttachment[];
-  queuedAttachmentNotices: QueuedAttachmentNotice[];
+  clipboardImages: BinaryAttachment[];  queuedAttachmentNotices: QueuedAttachmentNotice[];
   linkOpenErrorText: string;
   transcribing: boolean;
   canRecord: boolean;
@@ -430,6 +480,7 @@ const props = defineProps<{
   remoteImContactConversations: RemoteImContactConversationOption[];
   userAlias: string;
   userAvatarUrl: string;
+  personaName: string;
   personaNameMap: Record<string, string>;
   personaAvatarUrlMap: Record<string, string>;
   createConversationDepartmentOptions: ConversationDepartmentOption[];
@@ -478,6 +529,21 @@ const showConversationActions = computed(() => props.showConversationActions ?? 
 const systemNotificationMode = computed(() => !!props.systemNotificationMode);
 const remoteContactMode = computed(() => !!props.remoteContactMode);
 
+/** 输入区无可发送内容（无文字、无图片、无待发附件）时，发送按钮降级为菜单入口。 */
+const composerInputBlank = computed(() => {
+  if (String(props.chatInput || "").trim()) return false;
+  return props.clipboardImages.length === 0 && props.queuedAttachmentNotices.length === 0;
+});
+
+/** 计划类请求关键词：命中时显示可点击的「计划」按钮（base-200），点击进入计划模式。 */
+const PLAN_SUGGESTION_KEYWORDS = ["计划", "方案", "plan", "design"];
+const planSuggestionVisible = computed(() => {
+  if (props.planModeEnabled) return false;
+  const text = String(props.chatInput || "").toLowerCase();
+  if (!text) return false;
+  return PLAN_SUGGESTION_KEYWORDS.some((keyword) => text.includes(keyword.toLowerCase()));
+});
+
 // Product rule: an in-flight assistant reply must not lock the input toolbar.
 // Users can keep typing while streaming, so do not use `chatting` as the disabled
 // condition for attach/record/command/task/delegate actions. Only gate on real
@@ -520,10 +586,16 @@ function handleOpenConfig() {
 }
 
 function onMenuOutsideClick(event: MouseEvent) {
-  if (!menuOpen.value) return;
   const target = event.target as Node | null;
-  if (menuWrapperRef.value && menuWrapperRef.value.contains(target)) return;
-  closeMenu();
+  if (menuOpen.value) {
+    if (menuWrapperRef.value && menuWrapperRef.value.contains(target)) return;
+    closeMenu();
+  }
+  if (sendModeMenuOpen.value) {
+    const sendModeRoot = sendModeMenuRef.value;
+    if (sendModeRoot && sendModeRoot.contains(target)) return;
+    sendModeMenuOpen.value = false;
+  }
 }
 
 onMounted(() => { document.addEventListener('pointerdown', onMenuOutsideClick); });
@@ -545,14 +617,56 @@ const queueUserPersonaName = computed(() =>
   String(props.personaNameMap["user-persona"] || props.userAlias || "").trim(),
 );
 
+/** 输入框占位文案：按忙碌/队列/引导状态切换，忙碌态嵌入人格名。 */
+const effectiveChatInputPlaceholder = computed(() => {
+  const personaName = String(props.personaName || "").trim();
+  if (visibleQueueEvents.value.some((event) => event.queueMode === "guided")) {
+    return t("chat.placeholderGuided", { personaName });
+  }
+  if (visibleQueueEvents.value.length > 0) {
+    return t("chat.placeholderBusyQueued", { personaName });
+  }
+  if (props.busy || props.chatting) {
+    return t("chat.placeholderBusyIdle", { personaName });
+  }
+  return t("chat.placeholder", { personaName });
+});
+
 const localChatInput = computed({
   get: () => props.chatInput,
   set: (value: string) => emit("update:chatInput", value),
 });
 const CHAT_INPUT_HISTORY_STORAGE_KEY = "easy_call.chat_input_history.v1";
 const CHAT_INPUT_HISTORY_LIMIT = 100;
+const SEND_MODE_STORAGE_KEY = "easy_call.send_mode.v1";
+type SendMode = "enter" | "ctrl_enter";
 const composerRootRef = ref<HTMLDivElement | null>(null);
 const chatInputRef = ref<HTMLTextAreaElement | null>(null);
+const chatInputComposing = ref(false);
+const chatInputCompositionEndedAt = ref(0);
+
+const sendMode = ref<SendMode>("enter");
+const sendModeMenuOpen = ref(false);
+const sendModeMenuRef = ref<HTMLDivElement | null>(null);
+
+function loadSendMode() {
+  try {
+    const raw = window.localStorage.getItem(SEND_MODE_STORAGE_KEY);
+    if (raw === "ctrl_enter") sendMode.value = "ctrl_enter";
+  } catch {
+    // ignore storage failures
+  }
+}
+
+function setSendMode(mode: SendMode) {
+  sendMode.value = mode;
+  sendModeMenuOpen.value = false;
+  try {
+    window.localStorage.setItem(SEND_MODE_STORAGE_KEY, mode);
+  } catch {
+    // ignore persistence failures
+  }
+}
 
 const chatInputHistory = ref<string[]>([]);
 const chatInputHistoryCursor = ref(-1);
@@ -1048,6 +1162,15 @@ function handleChatInputInput() {
   updateMentionState();
 }
 
+function handleChatInputCompositionStart() {
+  chatInputComposing.value = true;
+}
+
+function handleChatInputCompositionEnd() {
+  chatInputComposing.value = false;
+  chatInputCompositionEndedAt.value = performance.now();
+}
+
 function scheduleResizeChatInput() {
   if (resizeInputRaf.value) cancelAnimationFrame(resizeInputRaf.value);
   resizeInputRaf.value = requestAnimationFrame(() => {
@@ -1137,8 +1260,29 @@ function handleWindowKeydown(event: KeyboardEvent) {
   togglePlanMode();
 }
 
+function handleChatInputFocus() {
+  if (props.composerScope) {
+    registerChatComposerFocus(props.composerScope);
+  }
+}
+
+function handleChatInputBlur() {
+  if (props.composerScope) {
+    clearChatComposerFocus(props.composerScope);
+  }
+}
+
 function handleChatInputKeydown(event: KeyboardEvent) {
-  if (event.isComposing) return;
+  if (
+    chatInputEnterConfirmsComposition(
+      event,
+      chatInputComposing.value,
+      chatInputCompositionEndedAt.value,
+      performance.now(),
+    )
+  ) {
+    return;
+  }
   if (mentionPanelOpen.value) {
     if (event.key === "Escape") {
       event.preventDefault();
@@ -1193,7 +1337,18 @@ function handleChatInputKeydown(event: KeyboardEvent) {
     emit("stopChat");
     return;
   }
-  if (event.key === "Enter" && !event.ctrlKey && !event.altKey && !event.metaKey && !event.shiftKey) {
+  const ctrlEnterPressed = event.key === "Enter" && event.ctrlKey && !event.altKey && !event.metaKey && !event.shiftKey;
+  const plainEnterPressed = event.key === "Enter" && !event.ctrlKey && !event.altKey && !event.metaKey && !event.shiftKey;
+  if (sendMode.value === "ctrl_enter") {
+    if (ctrlEnterPressed) {
+      if (props.frozen) return;
+      event.preventDefault();
+      handleSendChat();
+      return;
+    }
+    // Ctrl+Enter 模式：普通 Enter 保留为换行
+    if (plainEnterPressed) return;
+  } else if (plainEnterPressed) {
     if (props.frozen) return;
     event.preventDefault();
     handleSendChat();
@@ -1278,6 +1433,7 @@ defineExpose({
 
 onMounted(() => {
   loadChatInputHistory();
+  loadSendMode();
   window.addEventListener("keydown", handleWindowKeydown);
   window.addEventListener("resize", refreshMentionPanelPosition);
   window.addEventListener("scroll", refreshMentionPanelPosition, true);

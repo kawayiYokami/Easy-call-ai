@@ -1,7 +1,4 @@
-#[path = "../features/skill/presets.rs"]
-mod presets;
-#[path = "../features/config/pai_config_tool.rs"]
-mod pai_config_tool;
+use easy_call_ai::pai_config_tool;
 
 fn main() {
     let args = std::env::args().skip(1).collect::<Vec<_>>();

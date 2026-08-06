@@ -555,7 +555,7 @@ async fn summarize_archived_conversation_with_model_v2(
         .find(|agent| agent.id == USER_PERSONA_ID || agent.is_built_in_user)
         .map(|agent| agent.system_prompt.trim().to_string())
         .unwrap_or_default();
-    let prepared = build_prepared_prompt_for_mode(
+    let mut prepared = build_prepared_prompt_for_mode(
         PromptBuildMode::Chat,
         source_conversation,
         agent,
@@ -582,6 +582,17 @@ async fn summarize_archived_conversation_with_model_v2(
         Some(selected_api),
         Some(resolved_api),
     )?;
+    // 与正常对话对齐：按模型能力处理历史图片/音频（vision 转文或丢弃），
+    // 防止 image_url 泄漏给不支持图片输入的模型（如 DeepSeek 文本模型）。
+    let _ = apply_prompt_image_fallbacks_to_prepared(
+        state,
+        &source_conversation.id,
+        &app_config,
+        selected_api,
+        &mut prepared,
+    )
+    .await?;
+    drop_unsupported_prepared_audios(selected_api, &mut prepared);
     let timeout_secs = 360u64;
     let tool_definitions = assemble_compaction_tool_definitions(
         state,
@@ -1675,6 +1686,95 @@ mod archive_pipeline_tests {
             tool_review_api_config_id: Some(quick_api_id.to_string()),
             ..AppConfig::default()
         }
+    }
+
+    /// 压缩场景的 prepared：历史消息带图片、最新消息图片为空（overrides 置空后的产物）。
+    fn test_compaction_prepared_with_history_image() -> PreparedPrompt {
+        PreparedPrompt {
+            preamble: String::new(),
+            history_messages: vec![PreparedHistoryMessage {
+                role: "user".to_string(),
+                text: "历史带图消息".to_string(),
+                extra_text_blocks: Vec::new(),
+                user_time_text: None,
+                images: vec![PreparedBinaryPayload {
+                    label: "图片#1".to_string(),
+                    mime: "image/png".to_string(),
+                    content: B64.encode(b"history-image"),
+                    saved_path: Some("downloads/history.png".to_string()),
+                }],
+                audios: Vec::new(),
+                tool_calls: None,
+                tool_call_id: None,
+                reasoning_content: None,
+            }],
+            latest_user_text: "压缩请求文本".to_string(),
+            latest_user_meta_text: String::new(),
+            latest_user_extra_text: String::new(),
+            latest_user_extra_blocks: Vec::new(),
+            latest_images: Vec::new(),
+            latest_audios: Vec::new(),
+        }
+    }
+
+    #[tokio::test]
+    async fn compaction_media_fallback_should_drop_history_images_when_model_lacks_vision() {
+        let state = AppState::new().expect("create test app state");
+        // 无 vision 配置（vision_api_config_id=None）→ 图片转文不可用，应整体丢弃而非泄漏 image_url
+        let app_config = AppConfig::default();
+        let selected_api = ApiConfig {
+            enable_image: false,
+            ..ApiConfig::default()
+        };
+        let mut prepared = test_compaction_prepared_with_history_image();
+
+        apply_prompt_image_fallbacks_to_prepared(
+            &state,
+            "conversation-compaction",
+            &app_config,
+            &selected_api,
+            &mut prepared,
+        )
+        .await
+        .expect("图片降级应成功");
+
+        assert!(prepared
+            .history_messages
+            .iter()
+            .all(|message| message.images.is_empty()));
+        assert!(prepared.latest_images.is_empty());
+        let raw = serde_json::to_string(&prepared_prompt_to_messages_json(&prepared))
+            .expect("序列化应成功");
+        assert!(
+            !raw.contains("image_url"),
+            "压缩请求体不应包含 image_url: {raw}"
+        );
+        assert!(raw.contains("压缩请求文本"));
+    }
+
+    #[tokio::test]
+    async fn compaction_media_should_keep_history_images_when_model_supports_image() {
+        let state = AppState::new().expect("create test app state");
+        let app_config = AppConfig::default();
+        let selected_api = ApiConfig {
+            enable_image: true,
+            ..ApiConfig::default()
+        };
+        let mut prepared = test_compaction_prepared_with_history_image();
+
+        apply_prompt_image_fallbacks_to_prepared(
+            &state,
+            "conversation-compaction",
+            &app_config,
+            &selected_api,
+            &mut prepared,
+        )
+        .await
+        .expect("图片降级应成功");
+
+        // enable_image=true 时图片保留（与正常对话行为一致）
+        assert_eq!(prepared.history_messages[0].images.len(), 1);
+        assert_eq!(prepared.history_messages[0].text, "历史带图消息");
     }
 
     #[test]

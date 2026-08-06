@@ -7,7 +7,6 @@
 include!("tools_and_builtin/core_provider.rs");
 include!("tools_and_builtin/builtin_network.rs");
 include!("tools_and_builtin/builtin_memory.rs");
-include!("tools_and_builtin/builtin_runtime_context.rs");
 include!("tools_and_builtin/builtin_plan.rs");
 include!("tools_and_builtin/tool_arg_types.rs");
 include!("tools_and_builtin/builtin_session.rs");

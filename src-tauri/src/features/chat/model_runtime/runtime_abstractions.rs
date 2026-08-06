@@ -138,12 +138,6 @@ fn provider_tool_metadata_from_value(tool_name: &str, value: &Value) -> Provider
                     .filter_map(|key| value_string(value, key)),
             );
         }
-        "organize_context" => {
-            metadata.control = ProviderToolControl::OrganizeContext {
-                applied: value.get("ok").and_then(Value::as_bool).unwrap_or(false)
-                    && value.get("applied").and_then(Value::as_bool).unwrap_or(false),
-            };
-        }
         "contact_send_files" => {
             let status = value_string(value, "status").unwrap_or_default();
             let stop = status.eq_ignore_ascii_case("done")
@@ -377,7 +371,6 @@ fn provider_tool_control_is_none(control: &ProviderToolControl) -> bool {
 enum ProviderToolControl {
     #[default]
     None,
-    OrganizeContext { applied: bool },
     Contact { stop: bool },
     Plan { action: String, path: String, stop: bool },
     Task { completion_state: Option<String>, completion_conclusion: Option<String> },

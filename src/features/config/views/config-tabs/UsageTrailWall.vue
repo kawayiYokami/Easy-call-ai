@@ -1,0 +1,572 @@
+<template>
+  <section class="card bg-base-100 card-border border-base-300 from-base-content/5 bg-linear-to-bl to-50% card-sm overflow-hidden">
+    <div class="card-body gap-5">
+      <!-- 标题 -->
+      <div class="border-base-300/60 border-b pb-3">
+        <h2 class="text-lg font-bold">
+          {{ t("config.welcome.trail.title") }}
+        </h2>
+      </div>
+
+      <!-- 加载态 -->
+      <div v-if="loading && !todayData && !historyData" class="flex items-center justify-center gap-2 py-6 text-sm opacity-70">
+        <span class="loading loading-spinner loading-sm"></span>
+        <span>{{ t("common.loading") }}</span>
+      </div>
+
+      <!-- 错误态 -->
+      <div v-else-if="errorText" class="rounded-box bg-error/10 px-3 py-2.5 text-sm text-error">
+        {{ errorText }}
+      </div>
+
+      <template v-else>
+        <!-- ============ 今天 ============ -->
+        <div v-if="todayData" class="space-y-2.5">
+          <div class="flex items-center gap-2">
+            <span class="badge badge-primary badge-sm">{{ t("config.welcome.trail.viewToday") }}</span>
+            <span class="text-sm opacity-70">
+              {{ t("config.welcome.trail.totalTokens") }}
+            </span>
+          </div>
+
+          <div class="flex flex-wrap items-end justify-between gap-3">
+            <div>
+              <div class="text-3xl font-bold tabular-nums">{{ formatTokens(todayData.totals.totalTokens) }}</div>
+            </div>
+            <div v-if="todayData.hourly.length" class="join join-horizontal shrink-0">
+              <button
+                type="button"
+                class="btn btn-xs join-item"
+                :class="chartMode === 'area' ? 'btn-primary' : 'btn-outline'"
+                @click="chartMode = 'area'"
+              >
+                {{ t("config.welcome.trail.chartArea") }}
+              </button>
+              <button
+                type="button"
+                class="btn btn-xs join-item"
+                :class="chartMode === 'polar' ? 'btn-primary' : 'btn-outline'"
+                @click="chartMode = 'polar'"
+              >
+                {{ t("config.welcome.trail.chartPolar") }}
+              </button>
+            </div>
+          </div>
+
+          <!-- 24 小时堆叠图表（柱状图/面积图切换） -->
+          <div v-if="todayData.hourly.length" class="space-y-1">
+
+            <!-- 图表区：Chart.js 渲染 -->
+            <ChartView :config="chartConfig" class="h-28 w-full" />
+
+            <!-- 模型图例：流式布局，完整显示 供应商·模型·思考等级 -->
+            <div class="flex flex-wrap gap-x-3 gap-y-1 pt-1">
+              <span
+                v-for="m in todayModelDetails"
+                :key="m.model"
+                class="flex items-center gap-1.5 text-[10px] opacity-80"
+              >
+                <span class="size-2 shrink-0 rounded-field" :style="{ backgroundColor: modelColor(m.model) }"></span>
+                <span class="min-w-0">{{ modelDisplayName(m) }}</span>
+              </span>
+            </div>
+          </div>
+        </div>
+
+        <!-- ============ 历史 ============ -->
+        <div v-if="historyData" class="border-base-300/60 space-y-2.5 border-t pt-3">
+          <div class="flex flex-wrap items-center justify-between gap-2">
+            <div class="flex items-center gap-2">
+              <span class="badge badge-primary badge-sm">{{ t("config.welcome.trail.viewHistory") }}</span>
+              <span class="text-sm opacity-70">{{ t("config.welcome.trail.yearTotal", { year: historyData.year }) }}</span>
+            </div>
+            <div v-if="historyData.years.length > 1" class="join join-horizontal">
+              <button
+                v-for="year in historyData.years"
+                :key="year"
+                class="btn btn-xs join-item"
+                :class="year === historyData.year ? 'btn-primary' : 'btn-ghost'"
+                type="button"
+                @click="switchYear(year)"
+              >
+                {{ year }}
+              </button>
+            </div>
+          </div>
+
+          <div class="flex flex-wrap items-end justify-between gap-3">
+            <div>
+              <div class="text-3xl font-bold tabular-nums">{{ formatTokens(historyData.totals.totalTokens) }}</div>
+            </div>
+          </div>
+
+          <!-- 年历热力（GitHub 式） -->
+          <div v-if="historyData.calendar.length" class="w-full pr-1">
+            <!-- 月份标记行：与该月 1 号所在周列对齐 -->
+            <div class="grid gap-px pb-0.5" :style="calendarGridStyle">
+              <div
+                v-for="(week, weekIndex) in calendarWeeks"
+                :key="`m-${weekIndex}`"
+                class="min-w-0 overflow-hidden text-left text-[9px] leading-none opacity-50"
+                :style="{ gridColumn: String(weekIndex + 1) }"
+              >
+                <span v-if="week.monthLabel" class="inline-block align-top [writing-mode:vertical-rl]">{{ cnMonth(week.monthLabel) }}</span>
+              </div>
+            </div>
+            <div class="flex w-full gap-1">
+              <!-- 周几标签列 -->
+              <div class="grid shrink-0 grid-rows-7 gap-px pr-1">
+                <span v-for="label in weekdayLabels" :key="label" class="flex h-3 items-center text-[9px] opacity-50">{{ label }}</span>
+              </div>
+              <!-- 年历 grid：列=周序号，行=星期几，列宽严格 1fr 均分 -->
+              <div class="grid min-w-0 flex-1 gap-px" :style="calendarGridStyle">
+                <div
+                  v-for="cell in flatCalendarDays"
+                  :key="cell.day.date"
+                  class="relative aspect-square rounded-field"
+                  :style="{ ...calendarCellStyle(cell.day), gridColumn: String(cell.col), gridRow: String(cell.row) }"
+                  @mouseenter="showDayTooltip($event, cell.day)"
+                  @mouseleave="hideDayTooltip()"
+                ></div>
+              </div>
+            </div>
+            <!-- Less/More 色阶图例 -->
+            <div class="mt-1 flex w-full items-center justify-end gap-1 text-[9px] opacity-50">
+              <span>{{ t("config.welcome.trail.legendLess") }}</span>
+              <div class="flex gap-px">
+                <div
+                  v-for="pct in legendLevels"
+                  :key="pct"
+                  class="size-2 rounded-field"
+                  :style="legendStyle(pct)"
+                ></div>
+              </div>
+              <span>{{ t("config.welcome.trail.legendMore") }}</span>
+            </div>
+          </div>
+
+          <!-- 叙事行 -->
+          <div v-if="historyData.activePeriodLabel" class="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm opacity-80">
+            <span v-if="historyData.activePeriodLabel" class="flex items-center gap-1.5">
+              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="size-3.5 opacity-50">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" />
+              </svg>
+              {{ t("config.welcome.trail.activePeriod", { period: historyData.activePeriodLabel }) }}
+            </span>
+          </div>
+        </div>
+
+        <!-- 历史累计（迁移前旧账本） -->
+        <div
+          v-if="(todayData?.epochTotals || historyData?.epochTotals) && (todayData?.epochTotals?.totalTokens || 0) > 0"
+          class="flex items-center gap-1.5 border-base-300/60 border-t pt-2 text-xs opacity-60"
+        >
+          <span class="tooltip" :data-tip="t('config.welcome.trail.epochHint')">
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="size-3.5">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M9.879 7.519c1.171-1.025 3.071-1.025 4.242 0 1.172 1.025 1.172 2.687 0 3.712-.203.179-.43.326-.67.442-.745.361-1.45.999-1.45 1.827v.75M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Zm-9 5.25h.008v.008H12v-.008Z" />
+            </svg>
+          </span>
+          <span>{{ t("config.welcome.trail.epochTitle") }}：{{ formatTokens(todayData?.epochTotals?.totalTokens || historyData?.epochTotals?.totalTokens || 0) }}</span>
+        </div>
+      </template>
+    </div>
+  </section>
+
+  <!-- 历史格子 tooltip：Teleport 到 body，避免被卡片 overflow 裁剪 -->
+  <Teleport to="body">
+    <div
+      v-if="dayTooltip"
+      class="pointer-events-none fixed z-50 -translate-x-1/2 whitespace-nowrap rounded bg-base-content px-1.5 py-0.5 text-[10px] text-base-100"
+      :style="{ left: `${dayTooltip.left}px`, top: `${dayTooltip.top}px` }"
+    >
+      {{ dayTooltip.date }} · {{ formatTokens(dayTooltip.totalTokens) }}
+      <span v-if="dayTooltip.conversationCount > 0"> · {{ dayTooltip.conversationCount }} {{ t("config.welcome.trail.conversationCount") }}</span>
+    </div>
+  </Teleport>
+</template>
+
+<script setup lang="ts">
+import { computed, onBeforeUnmount, onMounted, ref } from "vue";
+import { useI18n } from "vue-i18n";
+import { invokeTauri } from "../../../../services/tauri-api";
+import { toErrorMessage } from "../../../../utils/error";
+import { apiConfigDisplayName } from "../../utils/api-config-display";
+import ChartView from "./ChartView.vue";
+
+type TrailView = "today" | "history";
+
+type UsageTrailWallTotals = {
+  conversationCount: number;
+  weightedTokens: number;
+  inputTokens: number;
+  outputTokens: number;
+  totalTokens: number;
+  cacheReadTokens: number;
+  cacheWriteTokens: number;
+  reasoningTokens: number;
+};
+
+type UsageTrailWallHour = {
+  hour: number;
+  totalTokens: number;
+  conversationCount: number;
+  models: UsageTrailWallModel[];
+};
+
+type UsageTrailWallModel = {
+  model: string;
+  tokens: number;
+  providerLabel: string;
+  reasoningEffort: string;
+};
+
+type UsageTrailWallDay = {
+  date: string;
+  totalTokens: number;
+  conversationCount: number;
+};
+
+type UsageTrailWallView = {
+  generatedAt: string;
+  view: TrailView;
+  totals: UsageTrailWallTotals;
+  epochTotals: UsageTrailWallTotals | null;
+  hourly: UsageTrailWallHour[];
+  year: string;
+  years: string[];
+  calendar: UsageTrailWallDay[];
+  topConversationLabel: string | null;
+  topConversationPercent: number | null;
+  activePeriodLabel: string | null;
+};
+
+const { t, tm } = useI18n();
+const todayData = ref<UsageTrailWallView | null>(null);
+const historyData = ref<UsageTrailWallView | null>(null);
+const loading = ref(false);
+const errorText = ref("");
+const dayTooltip = ref<{ date: string; totalTokens: number; conversationCount: number; left: number; top: number } | null>(null);
+let trailUnmounted = false;
+
+function showDayTooltip(event: MouseEvent, day: UsageTrailWallDay): void {
+  const target = event.currentTarget as HTMLElement;
+  const rect = target.getBoundingClientRect();
+  dayTooltip.value = {
+    date: day.date,
+    totalTokens: day.totalTokens,
+    conversationCount: day.conversationCount,
+    left: rect.left + rect.width / 2,
+    top: rect.top - 6,
+  };
+}
+
+function hideDayTooltip(): void {
+  dayTooltip.value = null;
+}
+
+// ============ 今日图表（面积图 / 极区玫瑰图） ============
+const chartMode = ref<"area" | "polar">("area");
+
+// 模型颜色板：与参考图一致的 5 色
+const MODEL_COLORS = [
+  "#22c55e", // 绿
+  "#3b82f6", // 蓝
+  "#a855f7", // 紫
+  "#06b6d4", // 浅蓝
+  "#f97316", // 橙
+];
+
+// 今日全部模型列表（按首次出现顺序），供图例与堆叠顺序
+const todayModels = computed<string[]>(() => {
+  const seen: string[] = [];
+  const set = new Set<string>();
+  for (const cell of todayData.value?.hourly || []) {
+    for (const m of cell.models || []) {
+      if (!set.has(m.model)) {
+        set.add(m.model);
+        seen.push(m.model);
+      }
+    }
+  }
+  return seen;
+});
+
+// 模型完整信息（按首次出现顺序），供流式图例显示 供应商·模型·思考等级
+const todayModelDetails = computed<UsageTrailWallModel[]>(() => {
+  const seen: UsageTrailWallModel[] = [];
+  const set = new Set<string>();
+  for (const cell of todayData.value?.hourly || []) {
+    for (const m of cell.models || []) {
+      if (!set.has(m.model)) {
+        set.add(m.model);
+        seen.push(m);
+      }
+    }
+  }
+  return seen;
+});
+
+function modelDisplayName(m: UsageTrailWallModel): string {
+  return apiConfigDisplayName(m.providerLabel, m.model, m.reasoningEffort, t);
+}
+
+function modelColor(model: string): string {
+  const index = todayModels.value.indexOf(model);
+  return MODEL_COLORS[index % MODEL_COLORS.length] ?? "#94a3b8";
+}
+
+// Chart.js 配置：平滑堆叠面积图（24 小时坐标轴）/ 极区玫瑰图（按模型聚合今日总量）
+const chartConfig = computed<Record<string, unknown>>(() => {
+  if (chartMode.value === "polar") {
+    // 极区图：每个模型一个扇区，半径 = 该模型今日 total_tokens 之和
+    const totalsByModel = new Map<string, number>();
+    for (const cell of todayData.value?.hourly || []) {
+      for (const m of cell.models || []) {
+        totalsByModel.set(m.model, (totalsByModel.get(m.model) ?? 0) + m.tokens);
+      }
+    }
+    const models = todayModels.value.filter((model) => (totalsByModel.get(model) ?? 0) > 0);
+    const colors = models.map(
+      (model, index) => MODEL_COLORS[index % MODEL_COLORS.length] ?? "#94a3b8",
+    );
+    return {
+      type: "polarArea",
+      data: {
+        labels: models,
+        datasets: [
+          {
+            data: models.map((model) => totalsByModel.get(model) ?? 0),
+            backgroundColor: colors.map((color) => `${color}CC`),
+            borderColor: colors,
+            borderWidth: 1.5,
+          },
+        ],
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+          legend: { display: false },
+          tooltip: {
+            displayColors: true,
+            callbacks: {
+              label: (item: { label?: string; formattedValue?: string }) =>
+                ` ${item.label ?? ""}: ${formatTokens(Number(item.formattedValue ?? 0))}`,
+            },
+          },
+        },
+        scales: {
+          r: {
+            ticks: {
+              display: false,
+              stepSize: 1,
+            },
+            grid: { color: "rgba(128,128,128,0.12)" },
+            angleLines: { color: "rgba(128,128,128,0.12)" },
+          },
+        },
+      },
+    };
+  }
+  // 面积图：固定 24 小时坐标轴，按模型堆叠
+  const cells = todayData.value?.hourly || [];
+  const labels = Array.from({ length: 24 }, (_, hour) => String(hour).padStart(2, "0"));
+  const datasets = todayModels.value.map((model, index) => {
+    const color = MODEL_COLORS[index % MODEL_COLORS.length] ?? "#94a3b8";
+    const data = labels.map((label) => {
+      const cell = cells.find((item) => String(item.hour).padStart(2, "0") === label);
+      const m = (cell?.models || []).find((item) => item.model === model);
+      return m?.tokens ?? 0;
+    });
+    return {
+      label: model,
+      data,
+      borderColor: color,
+      backgroundColor: color,
+      fill: true,
+      tension: 0.4,
+      pointRadius: 0,
+      borderWidth: 1.5,
+    };
+  });
+  return {
+    type: "line",
+    data: { labels, datasets },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          displayColors: true,
+          callbacks: {
+            title: (items: { label?: string }[]) => {
+              const hour = items[0]?.label ?? "";
+              return `${hour}:00`;
+            },
+            label: (item: { dataset?: { label?: string }; formattedValue?: string }) =>
+              ` ${item.dataset?.label ?? ""}: ${formatTokens(Number(item.formattedValue ?? 0))}`,
+          },
+        },
+      },
+      scales: {
+        x: {
+          stacked: true,
+          grid: { display: false },
+          ticks: { font: { size: 10 }, autoSkip: true, maxTicksLimit: 12 },
+        },
+        y: {
+          stacked: true,
+          grid: { color: "rgba(128,128,128,0.12)" },
+          ticks: {
+            callback: (value: number) => formatTokens(value),
+            font: { size: 10 },
+          },
+        },
+      },
+    },
+  };
+});
+
+const weekdayLabels = computed(() => {
+  const weekdays = ["一", "二", "三", "四", "五", "六", "日"];
+  return weekdays.map((day) => (day === "一" || day === "三" || day === "五" ? day : ""));
+});
+
+const legendLevels = [0, 15, 30, 60, 85];
+
+function legendStyle(pct: number): Record<string, string> {
+  if (pct === 0) {
+    return { backgroundColor: "var(--color-base-200)" };
+  }
+  return { backgroundColor: `color-mix(in oklab, var(--color-primary) ${pct}%, var(--color-base-100))` };
+}
+function cnMonth(datePrefix: string): string {
+  const months = tm("config.welcome.trail.months") as unknown as string[];
+  return months[Number(datePrefix.slice(5))] || "";
+}
+
+type TrailWeek = { days: UsageTrailWallDay[]; monthLabel: string | null };
+
+const calendarWeeks = computed<TrailWeek[]>(() => {
+  if (!historyData.value || !historyData.value.calendar.length) return [];
+  const weeks: TrailWeek[] = [];
+  let currentWeek: UsageTrailWallDay[] = [];
+  for (const day of historyData.value.calendar) {
+    const date = new Date(`${day.date}T00:00:00`);
+    // 周一起始：getDay() 0=周日，转成周一=0
+    const weekday = (date.getDay() + 6) % 7;
+    if (weekday === 0 && currentWeek.length > 0) {
+      weeks.push({ days: currentWeek, monthLabel: null });
+      currentWeek = [];
+    }
+    currentWeek.push(day);
+  }
+  if (currentWeek.length > 0) {
+    weeks.push({ days: currentWeek, monthLabel: null });
+  }
+  // 月份标记：某月 1 号落在哪一周，该周顶部显示月份
+  return weeks.map((week) => {
+    const firstOfMonth = week.days.find((d) => d.date.endsWith("-01"));
+    return { days: week.days, monthLabel: firstOfMonth ? firstOfMonth.date.slice(0, 7) : null };
+  });
+});
+
+// 年历 grid 列模板：周数均分，minmax(0,1fr) 保证列宽不超容器
+const calendarGridStyle = computed(() => {
+  const count = Math.max(calendarWeeks.value.length, 1);
+  return { gridTemplateColumns: `repeat(${count}, minmax(0, 1fr))` };
+});
+
+// 展平为 grid 定位单元：col=周序号(1 起)，row=星期几(1=周一..7=周日)
+const flatCalendarDays = computed(() => {
+  const cells: { day: UsageTrailWallDay; col: number; row: number }[] = [];
+  calendarWeeks.value.forEach((week, colIndex) => {
+    for (const day of week.days) {
+      const date = new Date(`${day.date}T00:00:00`);
+      const row = (date.getDay() + 6) % 7 + 1;
+      cells.push({ day, col: colIndex + 1, row });
+    }
+  });
+  return cells;
+});
+
+async function loadTrail() {
+  loading.value = true;
+  errorText.value = "";
+  try {
+    const [today, history] = await Promise.all([
+      invokeTauri<UsageTrailWallView>("get_usage_trail", {
+        input: { view: "today" as TrailView },
+      }),
+      invokeTauri<UsageTrailWallView>("get_usage_trail", {
+        input: {
+          view: "history" as TrailView,
+          year: historyData.value?.year,
+        },
+      }),
+    ]);
+    if (!trailUnmounted) {
+      todayData.value = today;
+      historyData.value = history;
+    }
+  } catch (error) {
+    if (!trailUnmounted) {
+      errorText.value = t("config.welcome.trail.loadFailed", { err: toErrorMessage(error) });
+    }
+  } finally {
+    if (!trailUnmounted) {
+      loading.value = false;
+    }
+  }
+}
+
+async function switchYear(year: string) {
+  if (!historyData.value || historyData.value.year === year) return;
+  historyData.value = { ...historyData.value, year };
+  await loadTrail();
+}
+
+function formatTokens(value: number): string {
+  const numeric = Number(value || 0);
+  if (!Number.isFinite(numeric)) return "0";
+  const abs = Math.abs(numeric);
+  const units = [
+    { threshold: 1_000_000_000_000, suffix: "T" },
+    { threshold: 1_000_000_000, suffix: "B" },
+    { threshold: 1_000_000, suffix: "M" },
+    { threshold: 1_000, suffix: "K" },
+  ];
+  for (const unit of units) {
+    if (abs >= unit.threshold) {
+      const scaled = numeric / unit.threshold;
+      const digits = Math.abs(scaled) >= 100 ? 0 : Math.abs(scaled) >= 10 ? 1 : 2;
+      return `${scaled.toFixed(digits).replace(/\.0+$|(\.\d*[1-9])0+$/, "$1")}${unit.suffix}`;
+    }
+  }
+  return new Intl.NumberFormat("zh-CN").format(Math.round(numeric));
+}
+
+function calendarCellStyle(day: UsageTrailWallDay): Record<string, string> {
+  // 绝对分档：空 → 10M → 100M → 1B，1B/天 为最深色
+  // 用 color-mix 与背景色混合（而非透明叠加），深浅主题下都保持干净的实色阶梯
+  const tokens = day.totalTokens;
+  let pct = 0;
+  if (tokens >= 1_000_000_000) pct = 85;
+  else if (tokens >= 100_000_000) pct = 60;
+  else if (tokens >= 10_000_000) pct = 30;
+  else if (tokens > 0) pct = 15;
+  if (pct === 0) {
+    return { backgroundColor: "var(--color-base-200)" };
+  }
+  return { backgroundColor: `color-mix(in oklab, var(--color-primary) ${pct}%, var(--color-base-100))` };
+}
+
+onMounted(() => {
+  void loadTrail();
+});
+
+onBeforeUnmount(() => {
+  trailUnmounted = true;
+});
+</script>

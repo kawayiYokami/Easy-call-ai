@@ -980,47 +980,6 @@ fn usage_resolve_api_config_id(conversation: &Conversation, config: &AppConfig) 
         .unwrap_or_default()
 }
 
-fn usage_resolve_api_config_id_from_meta(
-    conversation_meta: &ConversationMetaView,
-    config: &AppConfig,
-) -> String {
-    let preferred = conversation_meta
-        .preferred_api_config_id
-        .as_deref()
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .map(ToOwned::to_owned);
-    if let Some(value) = preferred {
-        return value;
-    }
-    let department_id = conversation_meta.department_id.trim();
-    if department_id.is_empty() {
-        return String::new();
-    }
-    config
-        .departments
-        .iter()
-        .find(|item| item.id.trim() == department_id)
-        .map(|item| {
-            let primary = item.api_config_id.trim();
-            if !primary.is_empty() {
-                return primary.to_string();
-            }
-            item.api_config_ids
-                .iter()
-                .find_map(|value| {
-                    let trimmed = value.trim();
-                    if trimmed.is_empty() {
-                        None
-                    } else {
-                        Some(trimmed.to_string())
-                    }
-                })
-                .unwrap_or_default()
-        })
-        .unwrap_or_default()
-}
-
 fn usage_kind_key_and_label(conversation: &Conversation) -> (String, String) {
     if conversation_is_system_notification(conversation) {
         return ("system_notification".to_string(), "系统通知".to_string());
@@ -1039,40 +998,6 @@ fn usage_kind_key_and_label(conversation: &Conversation) -> (String, String) {
         return ("remote_im_contact".to_string(), "远程联系人".to_string());
     }
     if conversation.archived_at.is_some() {
-        return ("archived".to_string(), "已归档".to_string());
-    }
-    ("normal".to_string(), "普通".to_string())
-}
-
-fn usage_kind_key_and_label_from_meta(
-    conversation_meta: &ConversationMetaView,
-) -> (String, String) {
-    if conversation_meta.id.trim() == SYSTEM_NOTIFICATION_CONVERSATION_ID
-        || conversation_meta.conversation_kind.trim() == CONVERSATION_KIND_SYSTEM_NOTIFICATION
-    {
-        return ("system_notification".to_string(), "系统通知".to_string());
-    }
-    if conversation_meta
-        .delegate_id
-        .as_deref()
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .is_some()
-    {
-        return ("delegate".to_string(), "委托".to_string());
-    }
-    let kind = conversation_meta.conversation_kind.trim();
-    if kind == CONVERSATION_KIND_REMOTE_IM_CONTACT {
-        return ("remote_im_contact".to_string(), "远程联系人".to_string());
-    }
-    if conversation_meta.status.trim() == "archived"
-        || conversation_meta
-            .archived_at
-            .as_deref()
-            .map(str::trim)
-            .filter(|value| !value.is_empty())
-            .is_some()
-    {
         return ("archived".to_string(), "已归档".to_string());
     }
     ("normal".to_string(), "普通".to_string())
@@ -1179,28 +1104,6 @@ fn usage_provider_model_aggregate_push(
         ));
 }
 
-fn usage_provider_label_from_api_config_id(
-    api_config_id: &str,
-    config: &AppConfig,
-) -> String {
-    let normalized_api_config_id = api_config_id.trim();
-    if normalized_api_config_id.is_empty() {
-        return "未识别供应商".to_string();
-    }
-    if let Some((provider_id, _)) = parse_api_endpoint_id(normalized_api_config_id) {
-        if let Some(provider) = config.api_providers.iter().find(|item| item.id == provider_id) {
-            return provider.name.clone();
-        }
-        return provider_id;
-    }
-    config
-        .api_configs
-        .iter()
-        .find(|item| item.id.trim() == normalized_api_config_id)
-        .map(|item| item.request_format.as_str().to_string())
-        .unwrap_or_else(|| "未识别供应商".to_string())
-}
-
 fn usage_provider_label_from_provider_key(
     provider_key: &str,
     config: &AppConfig,
@@ -1217,638 +1120,56 @@ fn usage_provider_label_from_provider_key(
         .unwrap_or_else(|| normalized_provider_key.to_string())
 }
 
-fn usage_provider_key_from_api_config_id(api_config_id: &str, config: &AppConfig) -> String {
-    let normalized_api_config_id = api_config_id.trim();
-    if normalized_api_config_id.is_empty() {
-        return "unknown_provider".to_string();
-    }
-    parse_api_endpoint_id(normalized_api_config_id)
-        .map(|(provider_id, _)| provider_id)
-        .or_else(|| {
-            config
-                .api_configs
-                .iter()
-                .find(|item| item.id.trim() == normalized_api_config_id)
-                .map(|item| item.request_format.as_str().to_string())
-        })
-        .unwrap_or_else(|| "unknown_provider".to_string())
-}
-
-fn usage_push_provider_model_breakdown(
-    cumulative: &ConversationCumulativeUsage,
-    config: &AppConfig,
-    fallback_provider_key: String,
-    fallback_provider_label: String,
-    fallback_model_name: String,
-    by_provider_model: &mut std::collections::HashMap<String, UsageProviderModelAggregateItem>,
+/// 用量台账统一记账入口：把一次 LLM 调用按小时桶 UPSERT 累加进 usage_trail，
+/// 同时快照会话维度与 provider_label。由 add_conversation_cumulative_usage_delta
+/// 与委托线程 usage 落盘路径调用；失败只告警，不阻塞主流程。
+fn usage_trail_record_conversation_delta(
+    state: &AppState,
+    conversation: &Conversation,
+    provider_key: Option<&str>,
+    model_name: Option<&str>,
+    usage: &Value,
 ) {
-    let mut per_conversation =
-        std::collections::BTreeMap::<String, (String, String, String, ConversationUsageBucket)>::new();
-    for (provider_key, models) in &cumulative.by_provider_model {
-        for (model_name, bucket) in models {
-            if bucket.is_empty() {
-                continue;
-            }
-            let key = usage_provider_model_compound_key(provider_key, model_name);
-            let provider_label = usage_provider_label_from_provider_key(provider_key, config);
-            let entry = per_conversation.entry(key).or_insert_with(|| {
-                (
-                    provider_key.clone(),
-                    provider_label,
-                    model_name.clone(),
-                    ConversationUsageBucket::default(),
-                )
-            });
-            entry.3.saturating_add_assign(bucket);
-        }
-    }
-    let remainder = cumulative.legacy_remainder();
-    if !remainder.is_empty() {
-        let key = usage_provider_model_compound_key(&fallback_provider_key, &fallback_model_name);
-        let entry = per_conversation.entry(key).or_insert_with(|| {
-            (
-                fallback_provider_key.clone(),
-                fallback_provider_label,
-                fallback_model_name.clone(),
-                ConversationUsageBucket::default(),
-            )
-        });
-        entry.3.saturating_add_assign(&remainder);
-    }
-    for (_key, (provider_key, provider_label, model_name, usage)) in per_conversation {
-        usage_provider_model_aggregate_push(
-            by_provider_model,
-            provider_key,
-            provider_label,
-            model_name,
-            &usage,
-        );
-    }
-}
-
-fn usage_cumulative_from_conversation(conversation: &Conversation) -> (ConversationCumulativeUsage, u64) {
-    if conversation_is_delegate(conversation) && conversation.cumulative_usage.is_empty() {
-        let mut stats = conversation_delegate_stats_from_conversation(conversation, &[]);
-        stats.cumulative_usage = stats.cumulative_usage.normalized_legacy_totals();
-        let weighted = conversation_cumulative_usage_weighted_tokens(&stats.cumulative_usage);
-        return (stats.cumulative_usage, weighted);
-    }
-    let cumulative = conversation.cumulative_usage.clone().normalized_legacy_totals();
-    let weighted = conversation_cumulative_usage_weighted_tokens(&cumulative);
-    (cumulative, weighted)
-}
-
-fn usage_resolve_model_name_from_api_config_id(
-    api_config_id: &str,
-    config: &AppConfig,
-) -> Option<String> {
-    let normalized_api_config_id = api_config_id.trim();
-    if normalized_api_config_id.is_empty() {
-        return None;
-    }
-    if let Some(model_name) = config
-        .api_configs
-        .iter()
-        .find(|item| item.id.trim() == normalized_api_config_id)
-        .map(|item| item.model.trim())
-        .filter(|value| !value.is_empty())
-        .map(ToOwned::to_owned)
-    {
-        return Some(model_name);
-    }
-    let (provider_id, model_id) = parse_api_endpoint_id(normalized_api_config_id)?;
-    config
-        .api_providers
-        .iter()
-        .find(|provider| provider.id.trim() == provider_id.trim())
-        .and_then(|provider| {
-            provider
-                .models
-                .iter()
-                .find(|model| model.id.trim() == model_id.trim())
-        })
-        .map(|model| model.model.trim())
-        .filter(|value| !value.is_empty())
-        .map(ToOwned::to_owned)
-}
-
-fn usage_backfill_provider_model_breakdown(
-    cumulative: &mut ConversationCumulativeUsage,
-    provider_key: &str,
-    model_name: &str,
-) -> bool {
-    let normalized_provider_key = provider_key.trim();
-    let normalized_model_name = model_name.trim();
-    if normalized_provider_key.is_empty() || normalized_model_name.is_empty() {
-        return false;
-    }
-    let remainder = cumulative.legacy_remainder();
-    if remainder.is_empty() {
-        return false;
-    }
-    let provider_models = cumulative
-        .by_provider_model
-        .entry(normalized_provider_key.to_string())
-        .or_default();
-    provider_models
-        .entry(normalized_model_name.to_string())
-        .or_default()
-        .saturating_add_assign(&remainder);
-    true
-}
-
-fn usage_preferred_model_name_for_display(
-    cumulative: &ConversationCumulativeUsage,
-    fallback_model_name: Option<String>,
-) -> String {
-    let detailed_model_name = cumulative
-        .by_provider_model
-        .iter()
-        .flat_map(|(_provider_key, models)| models.iter())
-        .filter(|(model_name, bucket)| !model_name.trim().is_empty() && !bucket.is_empty())
-        .max_by(|(left_name, left_bucket), (right_name, right_bucket)| {
-            let left_total = left_bucket.total_tokens.max(
-                left_bucket
-                    .input_tokens
-                    .saturating_add(left_bucket.output_tokens),
-            );
-            let right_total = right_bucket.total_tokens.max(
-                right_bucket
-                    .input_tokens
-                    .saturating_add(right_bucket.output_tokens),
-            );
-            left_total
-                .cmp(&right_total)
-                .then_with(|| left_bucket.output_tokens.cmp(&right_bucket.output_tokens))
-                .then_with(|| left_name.cmp(right_name))
-        })
-        .map(|(model_name, _bucket)| model_name.trim().to_string());
-    detailed_model_name
-        .or(fallback_model_name.filter(|value| !value.trim().is_empty()))
-        .unwrap_or_else(|| "unknown".to_string())
-}
-
-fn usage_backfill_cumulative_model_name(
-    cumulative: &mut ConversationCumulativeUsage,
-    api_config_id: &str,
-    config: &AppConfig,
-) -> bool {
-    let model_name = usage_resolve_model_name_from_api_config_id(api_config_id, config)
-        .unwrap_or_else(|| "unknown".to_string());
-    let provider_key = usage_provider_key_from_api_config_id(api_config_id, config);
-    usage_backfill_provider_model_breakdown(cumulative, &provider_key, &model_name)
-}
-
-fn usage_push_conversation(
-    conversation: &mut Conversation,
-    message_count: usize,
-    _state: &AppState,
-    config: &AppConfig,
-    api_config_name_map: &std::collections::HashMap<String, String>,
-    agent_name_map: &std::collections::HashMap<String, String>,
-    agent_avatar_path_map: &std::collections::HashMap<String, String>,
-    agent_avatar_updated_at_map: &std::collections::HashMap<String, String>,
-    department_name_map: &std::collections::HashMap<String, String>,
-    totals: &mut UsageOverviewTotals,
-    conversations: &mut Vec<UsageConversationItem>,
-    by_provider_model: &mut std::collections::HashMap<String, UsageProviderModelAggregateItem>,
-    by_model: &mut std::collections::HashMap<String, UsageAggregateItem>,
-    by_api_config: &mut std::collections::HashMap<String, UsageAggregateItem>,
-    by_agent: &mut std::collections::HashMap<String, UsageAggregateItem>,
-    by_department: &mut std::collections::HashMap<String, UsageAggregateItem>,
-    by_kind: &mut std::collections::HashMap<String, UsageAggregateItem>,
-) {
-    totals.conversation_count = totals.conversation_count.saturating_add(1);
-    if conversation.archived_at.is_some() {
-        totals.archived_conversation_count = totals.archived_conversation_count.saturating_add(1);
-    } else {
-        totals.active_conversation_count = totals.active_conversation_count.saturating_add(1);
-    }
-    let is_delegate = conversation_is_delegate(conversation);
-    if is_delegate {
-        totals.delegate_conversation_count = totals.delegate_conversation_count.saturating_add(1);
-    }
-
-    let api_config_id = usage_resolve_api_config_id(conversation, config);
-    let _ = usage_backfill_cumulative_model_name(
-        &mut conversation.cumulative_usage,
-        &api_config_id,
-        config,
-    );
-    let (cumulative, weighted) = usage_cumulative_from_conversation(conversation);
-    if !cumulative.is_empty() || weighted > 0 {
-        totals.with_usage_conversation_count = totals.with_usage_conversation_count.saturating_add(1);
-    }
-    totals.weighted_tokens = totals.weighted_tokens.saturating_add(weighted);
-    totals.input_tokens = totals.input_tokens.saturating_add(cumulative.input_tokens);
-    totals.output_tokens = totals.output_tokens.saturating_add(cumulative.output_tokens);
-    totals.total_tokens = totals.total_tokens.saturating_add(cumulative.total_tokens);
-    totals.cache_read_tokens = totals.cache_read_tokens.saturating_add(cumulative.cache_read_tokens);
-    totals.cache_write_tokens = totals.cache_write_tokens.saturating_add(cumulative.cache_write_tokens);
-    totals.reasoning_tokens = totals.reasoning_tokens.saturating_add(cumulative.reasoning_tokens);
-
-    let api_config_name = api_config_name_map
-        .get(&api_config_id)
-        .cloned()
-        .unwrap_or_else(|| if api_config_id.is_empty() { "未绑定配置".to_string() } else { api_config_id.clone() });
-    let model_name = usage_preferred_model_name_for_display(
-        &cumulative,
-        usage_resolve_model_name_from_api_config_id(&api_config_id, config),
-    );
-    let provider_key = usage_provider_key_from_api_config_id(&api_config_id, config);
-    let provider_label = usage_provider_label_from_api_config_id(&api_config_id, config);
-    let agent_name = agent_name_map
-        .get(&conversation.agent_id)
-        .cloned()
-        .unwrap_or_else(|| if conversation.agent_id.trim().is_empty() { "未绑定人格".to_string() } else { conversation.agent_id.clone() });
-    let department_name = department_name_map
-        .get(&conversation.department_id)
-        .cloned()
-        .unwrap_or_else(|| if conversation.department_id.trim().is_empty() { "未绑定部门".to_string() } else { conversation.department_id.clone() });
-    let (kind_key, kind_label) = usage_kind_key_and_label(conversation);
-    let usage_item = UsageConversationItem {
-        conversation_id: conversation.id.clone(),
-        title: conversation.title.clone(),
-        summary_title: conversation_latest_summary_title(conversation),
-        updated_at: conversation.updated_at.clone(),
-        archived_at: conversation.archived_at.clone(),
-        agent_id: conversation.agent_id.clone(),
-        agent_name: agent_name.clone(),
-        department_id: conversation.department_id.clone(),
-        department_name: department_name.clone(),
-        avatar_path: agent_avatar_path_map.get(&conversation.agent_id).cloned(),
-        avatar_updated_at: agent_avatar_updated_at_map.get(&conversation.agent_id).cloned(),
-        api_config_id: api_config_id.clone(),
-        api_config_name: api_config_name.clone(),
-        model_name: model_name.clone(),
-        conversation_kind: conversation.conversation_kind.clone(),
-        is_delegate,
-        is_system_notification_conversation: conversation_is_system_notification(conversation),
-        message_count,
-        weighted_tokens: weighted,
-        input_tokens: cumulative.input_tokens,
-        output_tokens: cumulative.output_tokens,
-        total_tokens: cumulative.total_tokens,
-        cache_read_tokens: cumulative.cache_read_tokens,
-        cache_write_tokens: cumulative.cache_write_tokens,
-        reasoning_tokens: cumulative.reasoning_tokens,
-    };
-    usage_push_provider_model_breakdown(
-        &cumulative,
-        config,
-        provider_key,
-        provider_label,
-        model_name.clone(),
-        by_provider_model,
-    );
-    usage_aggregate_push(
-        by_model,
-        if model_name == "unknown" { "unknown_model".to_string() } else { model_name.clone() },
-        model_name,
-        &usage_item,
-    );
-    usage_aggregate_push(
-        by_api_config,
-        if api_config_id.trim().is_empty() { "unbound_api_config".to_string() } else { api_config_id.clone() },
-        api_config_name,
-        &usage_item,
-    );
-    usage_aggregate_push(by_agent, usage_item.agent_id.clone(), agent_name, &usage_item);
-    usage_aggregate_push(
-        by_department,
-        if usage_item.department_id.trim().is_empty() { "unbound_department".to_string() } else { usage_item.department_id.clone() },
-        department_name,
-        &usage_item,
-    );
-    usage_aggregate_push(by_kind, kind_key, kind_label, &usage_item);
-    conversations.push(usage_item);
-}
-
-fn usage_push_conversation_meta(
-    conversation_meta: &mut ConversationMetaView,
-    config: &AppConfig,
-    api_config_name_map: &std::collections::HashMap<String, String>,
-    agent_name_map: &std::collections::HashMap<String, String>,
-    agent_avatar_path_map: &std::collections::HashMap<String, String>,
-    agent_avatar_updated_at_map: &std::collections::HashMap<String, String>,
-    department_name_map: &std::collections::HashMap<String, String>,
-    totals: &mut UsageOverviewTotals,
-    conversations: &mut Vec<UsageConversationItem>,
-    by_provider_model: &mut std::collections::HashMap<String, UsageProviderModelAggregateItem>,
-    by_model: &mut std::collections::HashMap<String, UsageAggregateItem>,
-    by_api_config: &mut std::collections::HashMap<String, UsageAggregateItem>,
-    by_agent: &mut std::collections::HashMap<String, UsageAggregateItem>,
-    by_department: &mut std::collections::HashMap<String, UsageAggregateItem>,
-    by_kind: &mut std::collections::HashMap<String, UsageAggregateItem>,
-) {
-    totals.conversation_count = totals.conversation_count.saturating_add(1);
-    if conversation_meta.archived_at.is_some() || conversation_meta.status.trim() == "archived" {
-        totals.archived_conversation_count = totals.archived_conversation_count.saturating_add(1);
-    } else {
-        totals.active_conversation_count = totals.active_conversation_count.saturating_add(1);
-    }
-    let is_delegate = conversation_meta.conversation_kind.trim() == CONVERSATION_KIND_DELEGATE
-        || conversation_meta
-            .delegate_id
-            .as_deref()
-            .map(str::trim)
-            .filter(|value| !value.is_empty())
-            .is_some();
-    if is_delegate {
-        totals.delegate_conversation_count = totals.delegate_conversation_count.saturating_add(1);
-    }
-
-    let api_config_id = usage_resolve_api_config_id_from_meta(conversation_meta, config);
-    let _ = usage_backfill_cumulative_model_name(
-        &mut conversation_meta.cumulative_usage,
-        &api_config_id,
-        config,
-    );
-    let cumulative = conversation_meta.cumulative_usage.clone().normalized_legacy_totals();
-    let weighted = conversation_cumulative_usage_weighted_tokens(&cumulative);
-    if !cumulative.is_empty() || weighted > 0 {
-        totals.with_usage_conversation_count = totals.with_usage_conversation_count.saturating_add(1);
-    }
-    totals.weighted_tokens = totals.weighted_tokens.saturating_add(weighted);
-    totals.input_tokens = totals.input_tokens.saturating_add(cumulative.input_tokens);
-    totals.output_tokens = totals.output_tokens.saturating_add(cumulative.output_tokens);
-    totals.total_tokens = totals.total_tokens.saturating_add(cumulative.total_tokens);
-    totals.cache_read_tokens = totals.cache_read_tokens.saturating_add(cumulative.cache_read_tokens);
-    totals.cache_write_tokens = totals.cache_write_tokens.saturating_add(cumulative.cache_write_tokens);
-    totals.reasoning_tokens = totals.reasoning_tokens.saturating_add(cumulative.reasoning_tokens);
-
-    let api_config_name = api_config_name_map
-        .get(&api_config_id)
-        .cloned()
-        .unwrap_or_else(|| if api_config_id.is_empty() { "未绑定配置".to_string() } else { api_config_id.clone() });
-    let model_name = usage_preferred_model_name_for_display(
-        &cumulative,
-        usage_resolve_model_name_from_api_config_id(&api_config_id, config),
-    );
-    let provider_key = usage_provider_key_from_api_config_id(&api_config_id, config);
-    let provider_label = usage_provider_label_from_api_config_id(&api_config_id, config);
-    let agent_name = agent_name_map
-        .get(conversation_meta.agent_id.as_str())
-        .cloned()
-        .unwrap_or_else(|| if conversation_meta.agent_id.trim().is_empty() {
-            "未绑定人格".to_string()
-        } else {
-            conversation_meta.agent_id.to_string()
-        });
-    let department_name = department_name_map
-        .get(conversation_meta.department_id.as_str())
-        .cloned()
-        .unwrap_or_else(|| if conversation_meta.department_id.trim().is_empty() {
-            "未绑定部门".to_string()
-        } else {
-            conversation_meta.department_id.to_string()
-        });
-    let (kind_key, kind_label) = usage_kind_key_and_label_from_meta(conversation_meta);
-    let usage_item = UsageConversationItem {
-        conversation_id: conversation_meta.id.to_string(),
-        title: conversation_meta.title.to_string(),
-        summary_title: conversation_meta.latest_summary_title.clone(),
-        updated_at: conversation_meta.updated_at.to_string(),
-        archived_at: conversation_meta.archived_at.clone(),
-        agent_id: conversation_meta.agent_id.to_string(),
-        agent_name: agent_name.clone(),
-        department_id: conversation_meta.department_id.to_string(),
-        department_name: department_name.clone(),
-        avatar_path: agent_avatar_path_map
-            .get(conversation_meta.agent_id.as_str())
-            .cloned(),
-        avatar_updated_at: agent_avatar_updated_at_map
-            .get(conversation_meta.agent_id.as_str())
-            .cloned(),
-        api_config_id: api_config_id.clone(),
-        api_config_name: api_config_name.clone(),
-        model_name: model_name.clone(),
-        conversation_kind: conversation_meta.conversation_kind.to_string(),
-        is_delegate,
-        is_system_notification_conversation: conversation_meta.id.trim()
-            == SYSTEM_NOTIFICATION_CONVERSATION_ID
-            || conversation_meta.conversation_kind.trim() == CONVERSATION_KIND_SYSTEM_NOTIFICATION,
-        message_count: conversation_meta.message_count,
-        weighted_tokens: weighted,
-        input_tokens: cumulative.input_tokens,
-        output_tokens: cumulative.output_tokens,
-        total_tokens: cumulative.total_tokens,
-        cache_read_tokens: cumulative.cache_read_tokens,
-        cache_write_tokens: cumulative.cache_write_tokens,
-        reasoning_tokens: cumulative.reasoning_tokens,
-    };
-    usage_push_provider_model_breakdown(
-        &cumulative,
-        config,
-        provider_key,
-        provider_label,
-        model_name.clone(),
-        by_provider_model,
-    );
-    usage_aggregate_push(
-        by_model,
-        if model_name == "unknown" { "unknown_model".to_string() } else { model_name.clone() },
-        model_name,
-        &usage_item,
-    );
-    usage_aggregate_push(
-        by_api_config,
-        if api_config_id.trim().is_empty() { "unbound_api_config".to_string() } else { api_config_id.clone() },
-        api_config_name,
-        &usage_item,
-    );
-    usage_aggregate_push(by_agent, usage_item.agent_id.clone(), agent_name, &usage_item);
-    usage_aggregate_push(
-        by_department,
-        if usage_item.department_id.trim().is_empty() { "unbound_department".to_string() } else { usage_item.department_id.clone() },
-        department_name,
-        &usage_item,
-    );
-    usage_aggregate_push(by_kind, kind_key, kind_label, &usage_item);
-    conversations.push(usage_item);
-}
-
-fn usage_push_delegate_snapshot(
-    snapshot: &DelegateConversationSnapshot,
-    config: &AppConfig,
-    api_config_name_map: &std::collections::HashMap<String, String>,
-    agent_name_map: &std::collections::HashMap<String, String>,
-    agent_avatar_path_map: &std::collections::HashMap<String, String>,
-    agent_avatar_updated_at_map: &std::collections::HashMap<String, String>,
-    department_name_map: &std::collections::HashMap<String, String>,
-    totals: &mut UsageOverviewTotals,
-    conversations: &mut Vec<UsageConversationItem>,
-    by_provider_model: &mut std::collections::HashMap<String, UsageProviderModelAggregateItem>,
-    by_model: &mut std::collections::HashMap<String, UsageAggregateItem>,
-    by_api_config: &mut std::collections::HashMap<String, UsageAggregateItem>,
-    by_agent: &mut std::collections::HashMap<String, UsageAggregateItem>,
-    by_department: &mut std::collections::HashMap<String, UsageAggregateItem>,
-    by_kind: &mut std::collections::HashMap<String, UsageAggregateItem>,
-) {
-    totals.conversation_count = totals.conversation_count.saturating_add(1);
-    if snapshot
-        .archived_at
-        .as_deref()
+    let Some(provider_key) = provider_key
         .map(str::trim)
         .filter(|value| !value.is_empty())
-        .is_some()
+    else {
+        return;
+    };
+    let Ok(config) = state_read_config_cached(state) else {
+        return;
+    };
+    let tokens = message_store::usage_trail_token_delta_from_usage_value(usage);
+    if tokens.is_empty() {
+        return;
+    }
+    let delta = message_store::UsageTrailDelta {
+        conversation_id: conversation.id.clone(),
+        agent_id: conversation.agent_id.clone(),
+        department_id: conversation.department_id.clone(),
+        conversation_kind: usage_kind_key_and_label(conversation).0,
+        api_config_id: usage_resolve_api_config_id(conversation, &config),
+        provider_key: provider_key.to_string(),
+        provider_label: usage_provider_label_from_provider_key(provider_key, &config),
+        model_name: model_name.unwrap_or("").trim().to_string(),
+        tokens,
+    };
+    let bucket = message_store::usage_trail_hour_bucket(now_utc());
+    if let Err(err) =
+        message_store::chat_metadata_store_usage_trail_upsert_delta(&state.data_path, &bucket, &delta)
     {
-        totals.archived_conversation_count = totals.archived_conversation_count.saturating_add(1);
-    } else {
-        totals.active_conversation_count = totals.active_conversation_count.saturating_add(1);
+        runtime_log_warn(format!(
+            "[用量台账] 写入失败，conversation_id={}，error={}",
+            conversation.id, err
+        ));
     }
-    totals.delegate_conversation_count = totals.delegate_conversation_count.saturating_add(1);
-
-    let cumulative = snapshot.cumulative_usage.clone().normalized_legacy_totals();
-    let weighted = conversation_cumulative_usage_weighted_tokens(&cumulative);
-    if !cumulative.is_empty() || weighted > 0 {
-        totals.with_usage_conversation_count = totals.with_usage_conversation_count.saturating_add(1);
-    }
-    totals.weighted_tokens = totals.weighted_tokens.saturating_add(weighted);
-    totals.input_tokens = totals.input_tokens.saturating_add(cumulative.input_tokens);
-    totals.output_tokens = totals.output_tokens.saturating_add(cumulative.output_tokens);
-    totals.total_tokens = totals.total_tokens.saturating_add(cumulative.total_tokens);
-    totals.cache_read_tokens = totals.cache_read_tokens.saturating_add(cumulative.cache_read_tokens);
-    totals.cache_write_tokens = totals.cache_write_tokens.saturating_add(cumulative.cache_write_tokens);
-    totals.reasoning_tokens = totals.reasoning_tokens.saturating_add(cumulative.reasoning_tokens);
-
-    let department_id = snapshot.target_department_id.trim().to_string();
-    let api_config_id = if department_id.is_empty() {
-        String::new()
-    } else {
-        config
-            .departments
-            .iter()
-            .find(|item| item.id.trim() == department_id)
-            .map(|item| {
-                let primary = item.api_config_id.trim();
-                if !primary.is_empty() {
-                    return primary.to_string();
-                }
-                item.api_config_ids
-                    .iter()
-                    .find_map(|value| {
-                        let trimmed = value.trim();
-                        if trimmed.is_empty() {
-                            None
-                        } else {
-                            Some(trimmed.to_string())
-                        }
-                    })
-                    .unwrap_or_default()
-            })
-            .unwrap_or_default()
-    };
-    let api_config_name = api_config_name_map.get(&api_config_id).cloned().unwrap_or_else(|| {
-        if api_config_id.is_empty() {
-            "未绑定配置".to_string()
-        } else {
-            api_config_id.clone()
-        }
-    });
-    let model_name = usage_preferred_model_name_for_display(
-        &cumulative,
-        usage_resolve_model_name_from_api_config_id(&api_config_id, config),
-    );
-    let provider_key = usage_provider_key_from_api_config_id(&api_config_id, config);
-    let provider_label = usage_provider_label_from_api_config_id(&api_config_id, config);
-    let agent_id = snapshot.target_agent_id.trim().to_string();
-    let agent_name = agent_name_map.get(&agent_id).cloned().unwrap_or_else(|| {
-        if agent_id.is_empty() {
-            "未绑定人格".to_string()
-        } else {
-            agent_id.clone()
-        }
-    });
-    let department_name = department_name_map
-        .get(&department_id)
-        .cloned()
-        .unwrap_or_else(|| {
-            if department_id.is_empty() {
-                "未绑定部门".to_string()
-            } else {
-                department_id.clone()
-            }
-        });
-    let usage_item = UsageConversationItem {
-        conversation_id: snapshot.conversation_id.clone(),
-        title: snapshot.title.clone(),
-        summary_title: None,
-        updated_at: snapshot.updated_at.clone(),
-        archived_at: snapshot.archived_at.clone(),
-        agent_id: agent_id.clone(),
-        agent_name: agent_name.clone(),
-        department_id: department_id.clone(),
-        department_name: department_name.clone(),
-        avatar_path: agent_avatar_path_map.get(&agent_id).cloned(),
-        avatar_updated_at: agent_avatar_updated_at_map.get(&agent_id).cloned(),
-        api_config_id: api_config_id.clone(),
-        api_config_name: api_config_name.clone(),
-        model_name: model_name.clone(),
-        conversation_kind: CONVERSATION_KIND_DELEGATE.to_string(),
-        is_delegate: true,
-        is_system_notification_conversation: false,
-        message_count: snapshot.message_count,
-        weighted_tokens: weighted,
-        input_tokens: cumulative.input_tokens,
-        output_tokens: cumulative.output_tokens,
-        total_tokens: cumulative.total_tokens,
-        cache_read_tokens: cumulative.cache_read_tokens,
-        cache_write_tokens: cumulative.cache_write_tokens,
-        reasoning_tokens: cumulative.reasoning_tokens,
-    };
-    usage_push_provider_model_breakdown(
-        &cumulative,
-        config,
-        provider_key,
-        provider_label,
-        model_name.clone(),
-        by_provider_model,
-    );
-    usage_aggregate_push(
-        by_model,
-        if model_name == "unknown" {
-            "unknown_model".to_string()
-        } else {
-            model_name
-        },
-        usage_item.model_name.clone(),
-        &usage_item,
-    );
-    usage_aggregate_push(
-        by_api_config,
-        if api_config_id.trim().is_empty() {
-            "unbound_api_config".to_string()
-        } else {
-            api_config_id
-        },
-        api_config_name,
-        &usage_item,
-    );
-    usage_aggregate_push(by_agent, agent_id, agent_name, &usage_item);
-    usage_aggregate_push(
-        by_department,
-        if department_id.trim().is_empty() {
-            "unbound_department".to_string()
-        } else {
-            department_id
-        },
-        department_name,
-        &usage_item,
-    );
-    usage_aggregate_push(
-        by_kind,
-        "delegate".to_string(),
-        "委托".to_string(),
-        &usage_item,
-    );
-    conversations.push(usage_item);
 }
 
 fn build_usage_overview(state: &AppState) -> Result<UsageOverview, String> {
     let config = state_read_config_cached(state)?;
     let runtime = state_read_agents_runtime_snapshot(state)?;
-    let chat_index = state_read_chat_index_cached(state)?;
+    message_store::chat_metadata_store_run_usage_trail_migration(&state.data_path, &config)?;
+    let rows = message_store::chat_metadata_store_usage_trail_query(&state.data_path, None)?;
     let mut api_config_name_map = std::collections::HashMap::<String, String>::new();
     for item in &config.api_configs {
         api_config_name_map.insert(item.id.clone(), item.name.clone());
@@ -1886,104 +1207,192 @@ fn build_usage_overview(state: &AppState) -> Result<UsageOverview, String> {
     let mut by_department = std::collections::HashMap::<String, UsageAggregateItem>::new();
     let mut by_kind = std::collections::HashMap::<String, UsageAggregateItem>::new();
 
-    for item in chat_index.conversations {
-        let mut conversation_meta = match conversation_service_v2().get_conversation_meta(state, &item.id) {
-            Ok(value) => value,
-            Err(_) => continue,
-        };
-        usage_push_conversation_meta(
-            &mut conversation_meta,
-            &config,
-            &api_config_name_map,
-            &agent_name_map,
-            &agent_avatar_path_map,
-            &agent_avatar_updated_at_map,
-            &department_name_map,
-            &mut totals,
-            &mut conversations,
-            &mut by_provider_model,
-            &mut by_model,
-            &mut by_api_config,
-            &mut by_agent,
-            &mut by_department,
-            &mut by_kind,
-        );
+    let mut per_conversation =
+        std::collections::BTreeMap::<String, Vec<&message_store::UsageTrailRow>>::new();
+    for row in &rows {
+        per_conversation
+            .entry(row.conversation_id.clone())
+            .or_default()
+            .push(row);
     }
 
-    let mut seen_delegate_ids = std::collections::HashSet::<String>::new();
-    for thread in delegate_runtime_thread_list(state)? {
-        if !seen_delegate_ids.insert(thread.delegate_id.clone()) {
-            continue;
+    for (conversation_id, conv_rows) in per_conversation {
+        let representative = conv_rows
+            .iter()
+            .max_by_key(|row| row.tokens.total_tokens)
+            .expect("conv_rows is non-empty");
+        let mut tokens = message_store::UsageTrailTokenDelta::default();
+        let mut provider_model = std::collections::BTreeMap::<
+            (String, String),
+            (String, message_store::UsageTrailTokenDelta),
+        >::new();
+        for row in &conv_rows {
+            tokens.saturating_add_assign(&row.tokens);
+            let entry = provider_model
+                .entry((row.provider_key.clone(), row.model_name.clone()))
+                .or_insert_with(|| (row.provider_label.clone(), message_store::UsageTrailTokenDelta::default()));
+            entry.1.saturating_add_assign(&row.tokens);
         }
-        let mut conversation = thread.conversation;
-        let message_count = conversation.messages.len();
-        usage_push_conversation(
-            &mut conversation,
-            message_count,
-            state,
-            &config,
-            &api_config_name_map,
-            &agent_name_map,
-            &agent_avatar_path_map,
-            &agent_avatar_updated_at_map,
-            &department_name_map,
-            &mut totals,
-            &mut conversations,
-            &mut by_provider_model,
-            &mut by_model,
-            &mut by_api_config,
-            &mut by_agent,
-            &mut by_department,
-            &mut by_kind,
-        );
-    }
-    for thread in delegate_recent_thread_list(state)? {
-        if !seen_delegate_ids.insert(thread.delegate_id.clone()) {
-            continue;
+        let weighted = usage_trail_weighted_tokens(&tokens);
+        let meta = conversation_service_v2()
+            .get_conversation_meta(state, &conversation_id)
+            .ok();
+        let agent_id = representative.agent_id.clone();
+        let department_id = representative.department_id.clone();
+        let agent_name = agent_name_map.get(&agent_id).cloned().unwrap_or_else(|| {
+            if agent_id.trim().is_empty() {
+                "未绑定人格".to_string()
+            } else {
+                agent_id.clone()
+            }
+        });
+        let department_name = department_name_map
+            .get(&department_id)
+            .cloned()
+            .unwrap_or_else(|| {
+                if department_id.trim().is_empty() {
+                    "未绑定部门".to_string()
+                } else {
+                    department_id.clone()
+                }
+            });
+        let api_config_id = representative.api_config_id.clone();
+        let api_config_name = api_config_name_map
+            .get(&api_config_id)
+            .cloned()
+            .unwrap_or_else(|| {
+                if api_config_id.is_empty() {
+                    "未绑定配置".to_string()
+                } else {
+                    api_config_id.clone()
+                }
+            });
+        let model_name = if representative.model_name.trim().is_empty() {
+            "unknown".to_string()
+        } else {
+            representative.model_name.clone()
+        };
+        let snapshot_kind = representative.conversation_kind.clone();
+        let is_delegate = snapshot_kind == "delegate";
+        let is_system_notification_conversation = snapshot_kind == "system_notification";
+        // 与 usage_kind_key_and_label 一致：delegate / system_notification 优先于归档，
+        // 归档只覆盖普通/远程联系人等常规 kind，避免委托会话归档后统计口径漂移
+        let is_archived = meta
+            .as_ref()
+            .and_then(|item| item.archived_at.clone())
+            .map(|value| !value.trim().is_empty())
+            .unwrap_or(false);
+        let kind_key = if is_delegate || is_system_notification_conversation {
+            snapshot_kind
+        } else if is_archived {
+            "archived".to_string()
+        } else {
+            snapshot_kind
+        };
+        let kind_label = usage_kind_label_from_key(&kind_key);
+
+        totals.conversation_count = totals.conversation_count.saturating_add(1);
+        if kind_key == "archived" {
+            totals.archived_conversation_count = totals.archived_conversation_count.saturating_add(1);
+        } else {
+            totals.active_conversation_count = totals.active_conversation_count.saturating_add(1);
         }
-        let mut conversation = thread.conversation;
-        let message_count = conversation.messages.len();
-        usage_push_conversation(
-            &mut conversation,
-            message_count,
-            state,
-            &config,
-            &api_config_name_map,
-            &agent_name_map,
-            &agent_avatar_path_map,
-            &agent_avatar_updated_at_map,
-            &department_name_map,
-            &mut totals,
-            &mut conversations,
-            &mut by_provider_model,
-            &mut by_model,
-            &mut by_api_config,
-            &mut by_agent,
-            &mut by_department,
-            &mut by_kind,
-        );
-    }
-    for snapshot in delegate_persisted_conversation_summary_list(state)? {
-        if !seen_delegate_ids.insert(snapshot.delegate_id.clone()) {
-            continue;
+        if is_delegate {
+            totals.delegate_conversation_count = totals.delegate_conversation_count.saturating_add(1);
         }
-        usage_push_delegate_snapshot(
-            &snapshot,
-            &config,
-            &api_config_name_map,
-            &agent_name_map,
-            &agent_avatar_path_map,
-            &agent_avatar_updated_at_map,
-            &department_name_map,
-            &mut totals,
-            &mut conversations,
-            &mut by_provider_model,
+        totals.with_usage_conversation_count = totals.with_usage_conversation_count.saturating_add(1);
+        totals.weighted_tokens = totals.weighted_tokens.saturating_add(weighted);
+        totals.input_tokens = totals.input_tokens.saturating_add(tokens.input_tokens);
+        totals.output_tokens = totals.output_tokens.saturating_add(tokens.output_tokens);
+        totals.total_tokens = totals.total_tokens.saturating_add(tokens.total_tokens);
+        totals.cache_read_tokens = totals.cache_read_tokens.saturating_add(tokens.cache_read_tokens);
+        totals.cache_write_tokens = totals.cache_write_tokens.saturating_add(tokens.cache_write_tokens);
+        totals.reasoning_tokens = totals.reasoning_tokens.saturating_add(tokens.reasoning_tokens);
+
+        let usage_item = UsageConversationItem {
+            conversation_id: conversation_id.clone(),
+            title: meta
+                .as_ref()
+                .map(|item| item.title.clone())
+                .unwrap_or_else(|| "已删除会话".to_string()),
+            summary_title: meta.as_ref().and_then(|item| item.latest_summary_title.clone()),
+            updated_at: meta.as_ref().map(|item| item.updated_at.clone()).unwrap_or_default(),
+            archived_at: meta.as_ref().and_then(|item| item.archived_at.clone()),
+            agent_id: agent_id.clone(),
+            agent_name: agent_name.clone(),
+            department_id: department_id.clone(),
+            department_name: department_name.clone(),
+            avatar_path: agent_avatar_path_map.get(&agent_id).cloned(),
+            avatar_updated_at: agent_avatar_updated_at_map.get(&agent_id).cloned(),
+            api_config_id: api_config_id.clone(),
+            api_config_name: api_config_name.clone(),
+            model_name: model_name.clone(),
+            conversation_kind: kind_key.clone(),
+            is_delegate,
+            is_system_notification_conversation,
+            message_count: meta.as_ref().map(|item| item.message_count).unwrap_or(0),
+            weighted_tokens: weighted,
+            input_tokens: tokens.input_tokens,
+            output_tokens: tokens.output_tokens,
+            total_tokens: tokens.total_tokens,
+            cache_read_tokens: tokens.cache_read_tokens,
+            cache_write_tokens: tokens.cache_write_tokens,
+            reasoning_tokens: tokens.reasoning_tokens,
+        };
+        for ((provider_key, provider_model_name), (provider_label, provider_tokens)) in provider_model {
+            let display_model_name = if provider_model_name.trim().is_empty() {
+                "unknown".to_string()
+            } else {
+                provider_model_name.clone()
+            };
+            usage_provider_model_aggregate_push(
+                &mut by_provider_model,
+                provider_key,
+                provider_label,
+                display_model_name,
+                &ConversationUsageBucket {
+                    input_tokens: provider_tokens.input_tokens,
+                    output_tokens: provider_tokens.output_tokens,
+                    total_tokens: provider_tokens.total_tokens,
+                    cache_read_tokens: provider_tokens.cache_read_tokens,
+                    cache_write_tokens: provider_tokens.cache_write_tokens,
+                    reasoning_tokens: provider_tokens.reasoning_tokens,
+                },
+            );
+        }
+        usage_aggregate_push(
             &mut by_model,
-            &mut by_api_config,
-            &mut by_agent,
-            &mut by_department,
-            &mut by_kind,
+            if model_name == "unknown" {
+                "unknown_model".to_string()
+            } else {
+                model_name.clone()
+            },
+            model_name,
+            &usage_item,
         );
+        usage_aggregate_push(
+            &mut by_api_config,
+            if api_config_id.trim().is_empty() {
+                "unbound_api_config".to_string()
+            } else {
+                api_config_id.clone()
+            },
+            api_config_name,
+            &usage_item,
+        );
+        usage_aggregate_push(&mut by_agent, agent_id, agent_name, &usage_item);
+        usage_aggregate_push(
+            &mut by_department,
+            if department_id.trim().is_empty() {
+                "unbound_department".to_string()
+            } else {
+                department_id.clone()
+            },
+            department_name,
+            &usage_item,
+        );
+        usage_aggregate_push(&mut by_kind, kind_key, kind_label, &usage_item);
+        conversations.push(usage_item);
     }
 
     conversations.sort_by(|left, right| {
@@ -2006,6 +1415,29 @@ fn build_usage_overview(state: &AppState) -> Result<UsageOverview, String> {
         by_department: usage_sort_aggregate_items(by_department),
         by_kind: usage_sort_aggregate_items(by_kind),
     })
+}
+
+fn usage_trail_weighted_tokens(tokens: &message_store::UsageTrailTokenDelta) -> u64 {
+    conversation_cumulative_usage_weighted_tokens(&ConversationCumulativeUsage {
+        input_tokens: tokens.input_tokens,
+        output_tokens: tokens.output_tokens,
+        total_tokens: tokens.total_tokens,
+        cache_read_tokens: tokens.cache_read_tokens,
+        cache_write_tokens: tokens.cache_write_tokens,
+        reasoning_tokens: tokens.reasoning_tokens,
+        ..ConversationCumulativeUsage::default()
+    })
+}
+
+fn usage_kind_label_from_key(key: &str) -> String {
+    match key {
+        "system_notification" => "系统通知".to_string(),
+        "delegate" => "委托".to_string(),
+        "remote_im_contact" => "远程联系人".to_string(),
+        "archived" => "已归档".to_string(),
+        "normal" => "普通".to_string(),
+        other => other.to_string(),
+    }
 }
 
 fn usage_overview_runtime() -> &'static tokio::sync::Mutex<OverviewRuntime<UsageOverview>> {
@@ -2065,6 +1497,418 @@ async fn refresh_usage_overview(
     state: State<'_, AppState>,
 ) -> Result<OverviewSnapshot<UsageOverview>, String> {
     Ok(start_usage_overview_refresh_if_needed(state.inner().clone(), true).await)
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct UsageTrailWallQuery {
+    view: String,
+    year: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct UsageTrailWallView {
+    generated_at: String,
+    view: String,
+    totals: UsageTrailWallTotals,
+    epoch_totals: Option<UsageTrailWallTotals>,
+    hourly: Vec<UsageTrailWallHour>,
+    peak_hour: Option<u8>,
+    year: String,
+    years: Vec<String>,
+    calendar: Vec<UsageTrailWallDay>,
+    top_conversation_label: Option<String>,
+    top_conversation_percent: Option<u64>,
+    active_period_label: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Default)]
+#[serde(rename_all = "camelCase")]
+struct UsageTrailWallTotals {
+    conversation_count: usize,
+    weighted_tokens: u64,
+    input_tokens: u64,
+    output_tokens: u64,
+    total_tokens: u64,
+    cache_read_tokens: u64,
+    cache_write_tokens: u64,
+    reasoning_tokens: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Default)]
+#[serde(rename_all = "camelCase")]
+struct UsageTrailWallHour {
+    hour: u8,
+    total_tokens: u64,
+    conversation_count: usize,
+    models: Vec<UsageTrailWallModel>,
+}
+
+#[derive(Debug, Clone, Serialize, Default)]
+#[serde(rename_all = "camelCase")]
+struct UsageTrailWallModel {
+    model: String,
+    tokens: u64,
+    provider_label: String,
+    reasoning_effort: String,
+}
+
+#[derive(Debug, Clone, Serialize, Default)]
+#[serde(rename_all = "camelCase")]
+struct UsageTrailWallDay {
+    date: String,
+    total_tokens: u64,
+    conversation_count: usize,
+}
+
+/// 足迹墙 today 起点：本地时区当天 00:00。
+fn usage_trail_wall_today_start(now_local: OffsetDateTime) -> String {
+    format!(
+        "{:04}-{:02}-{:02}T00:00:00",
+        now_local.year(),
+        now_local.month() as u8,
+        now_local.day()
+    )
+}
+
+fn usage_trail_wall_totals_from_rows(rows: &[message_store::UsageTrailRow]) -> UsageTrailWallTotals {
+    let mut totals = UsageTrailWallTotals::default();
+    let mut seen = std::collections::HashSet::<String>::new();
+    for row in rows {
+        seen.insert(row.conversation_id.clone());
+        totals.weighted_tokens = totals
+            .weighted_tokens
+            .saturating_add(usage_trail_weighted_tokens(&row.tokens));
+        totals.input_tokens = totals.input_tokens.saturating_add(row.tokens.input_tokens);
+        totals.output_tokens = totals.output_tokens.saturating_add(row.tokens.output_tokens);
+        totals.total_tokens = totals.total_tokens.saturating_add(row.tokens.total_tokens);
+        totals.cache_read_tokens = totals
+            .cache_read_tokens
+            .saturating_add(row.tokens.cache_read_tokens);
+        totals.cache_write_tokens = totals
+            .cache_write_tokens
+            .saturating_add(row.tokens.cache_write_tokens);
+        totals.reasoning_tokens = totals
+            .reasoning_tokens
+            .saturating_add(row.tokens.reasoning_tokens);
+    }
+    totals.conversation_count = seen.len();
+    totals
+}
+
+/// 从小时桶字符串解析小时（bucket 格式 YYYY-MM-DDTHH:00:00）。
+fn usage_trail_wall_hour_from_bucket(bucket: &str) -> Option<u8> {
+    bucket.get(11..13)?.parse::<u8>().ok()
+}
+
+/// 今天视图：24 小时格 + 峰值小时（weighted token 最大）+ 每格按模型拆分。
+fn usage_trail_wall_hourly(
+    rows: &[message_store::UsageTrailRow],
+    config: &AppConfig,
+) -> (Vec<UsageTrailWallHour>, Option<u8>) {
+    let mut effort_by_config = std::collections::HashMap::<String, String>::new();
+    for item in &config.api_configs {
+        effort_by_config.insert(item.id.clone(), item.reasoning_effort.clone());
+    }
+    let mut by_hour = std::collections::BTreeMap::<
+        u8,
+        (
+            u64,
+            u64,
+            std::collections::HashSet<String>,
+            std::collections::BTreeMap<String, (u64, String, String)>,
+        ),
+    >::new();
+    for row in rows {
+        let Some(hour) = usage_trail_wall_hour_from_bucket(&row.bucket) else {
+            continue;
+        };
+        let entry = by_hour
+            .entry(hour)
+            .or_insert_with(|| (0, 0, std::collections::HashSet::new(), std::collections::BTreeMap::new()));
+        entry.0 = entry
+            .0
+            .saturating_add(row.tokens.total_tokens);
+        entry.1 = entry.1.saturating_add(row.tokens.total_tokens);
+        entry.2.insert(row.conversation_id.clone());
+        let model_entry = entry.3.entry(row.model_name.clone()).or_insert_with(|| {
+            let effort = effort_by_config
+                .get(&row.api_config_id)
+                .cloned()
+                .unwrap_or_default();
+            (0, row.provider_label.clone(), effort)
+        });
+        model_entry.0 = model_entry
+            .0
+            .saturating_add(row.tokens.total_tokens);
+    }
+    let mut out = Vec::<UsageTrailWallHour>::with_capacity(24);
+    let mut peak_hour: Option<u8> = None;
+    let mut peak_weighted = 0_u64;
+    for hour in 0..24_u8 {
+        let entry = by_hour.get(&hour);
+        let weighted = entry.map(|item| item.0).unwrap_or(0);
+        if weighted > peak_weighted {
+            peak_weighted = weighted;
+            peak_hour = Some(hour);
+        }
+        let models = entry
+            .map(|item| {
+                item.3
+                    .iter()
+                    .map(|(model, (tokens, provider_label, reasoning_effort))| {
+                        UsageTrailWallModel {
+                            model: model.clone(),
+                            tokens: *tokens,
+                            provider_label: provider_label.clone(),
+                            reasoning_effort: reasoning_effort.clone(),
+                        }
+                    })
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
+        out.push(UsageTrailWallHour {
+            hour,
+            total_tokens: entry.map(|item| item.1).unwrap_or(0),
+            conversation_count: entry.map(|item| item.2.len()).unwrap_or(0),
+            models,
+        });
+    }
+    (out, peak_hour)
+}
+
+/// 历史视图：给定年份的全年日历（1/1~12/31，含无数据日补 0）。
+fn usage_trail_wall_calendar(
+    year: i32,
+    rows: &[message_store::UsageTrailRow],
+) -> Vec<UsageTrailWallDay> {
+    let mut by_day = std::collections::BTreeMap::<String, (u64, std::collections::HashSet<String>)>::new();
+    for row in rows {
+        if row.bucket.len() < 10 || row.bucket[..4] != format!("{:04}", year) {
+            continue;
+        }
+        let day = row.bucket[..10].to_string();
+        let entry = by_day
+            .entry(day)
+            .or_insert_with(|| (0, std::collections::HashSet::new()));
+        entry.0 = entry.0.saturating_add(row.tokens.total_tokens);
+        entry.1.insert(row.conversation_id.clone());
+    }
+    let jan1 = time::Date::from_calendar_date(year, time::Month::January, 1)
+        .unwrap_or_else(|_| time::Date::from_calendar_date(2026, time::Month::January, 1).unwrap());
+    let days_in_year = time::Date::from_calendar_date(year, time::Month::December, 31)
+        .ok()
+        .and_then(|dec31| {
+            let start = time::Date::from_calendar_date(year, time::Month::January, 1).ok()?;
+            Some((dec31 - start).whole_days() + 1)
+        })
+        .unwrap_or(365);
+    let mut out = Vec::<UsageTrailWallDay>::with_capacity(days_in_year as usize);
+    for offset in 0..days_in_year {
+        let date = jan1.saturating_add(time::Duration::days(offset));
+        let key = format!(
+            "{:04}-{:02}-{:02}",
+            date.year(),
+            date.month() as u8,
+            date.day()
+        );
+        let entry = by_day.get(&key);
+        out.push(UsageTrailWallDay {
+            date: key,
+            total_tokens: entry.map(|item| item.0).unwrap_or(0),
+            conversation_count: entry.map(|item| item.1.len()).unwrap_or(0),
+        });
+    }
+    out
+}
+
+/// 历史视图可用年份（小时桶数据年份，升序）。
+fn usage_trail_wall_years(rows: &[message_store::UsageTrailRow]) -> Vec<String> {
+    let mut years = rows
+        .iter()
+        .filter_map(|row| {
+            if row.bucket.len() >= 4 && row.bucket[..4].parse::<i32>().is_ok() {
+                Some(row.bucket[..4].to_string())
+            } else {
+                None
+            }
+        })
+        .collect::<std::collections::BTreeSet<_>>()
+        .into_iter()
+        .collect::<Vec<_>>();
+    years.reverse();
+    years
+}
+
+/// 历史视图 top 会话：按 weighted token 聚合取最大，label 走 title → summary → 未命名 → 已删除 兜底链。
+fn usage_trail_wall_top_conversation(
+    state: &AppState,
+    rows: &[message_store::UsageTrailRow],
+) -> Result<Option<(String, u64)>, String> {
+    let mut by_conversation = std::collections::BTreeMap::<String, u64>::new();
+    let mut total_weighted = 0_u64;
+    for row in rows {
+        let weighted = usage_trail_weighted_tokens(&row.tokens);
+        total_weighted = total_weighted.saturating_add(weighted);
+        let entry = by_conversation
+            .entry(row.conversation_id.clone())
+            .or_insert(0);
+        *entry = entry.saturating_add(weighted);
+    }
+    if total_weighted == 0 {
+        return Ok(None);
+    }
+    let Some((conversation_id, weighted)) = by_conversation
+        .into_iter()
+        .max_by(|left, right| left.1.cmp(&right.1))
+    else {
+        return Ok(None);
+    };
+    let label = conversation_service_v2()
+        .get_conversation_meta(state, &conversation_id)
+        .map(|meta| {
+            let title = meta.title.trim();
+            if !title.is_empty() {
+                title.to_string()
+            } else if let Some(summary) = meta
+                .latest_summary_title
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+            {
+                summary.to_string()
+            } else {
+                "未命名会话".to_string()
+            }
+        })
+        .unwrap_or_else(|_| "已删除会话".to_string());
+    let percent = if total_weighted > 0 {
+        (weighted as u128 * 100 / total_weighted as u128) as u64
+    } else {
+        0
+    };
+    Ok(Some((label, percent)))
+}
+
+/// 历史视图最活跃时段：凌晨 0-5 / 上午 6-11 / 下午 12-17 / 晚上 18-23，按 weighted token 取最大。
+fn usage_trail_wall_active_period(rows: &[message_store::UsageTrailRow]) -> Option<String> {
+    let mut buckets = [0_u64; 4];
+    for row in rows {
+        let Some(hour) = usage_trail_wall_hour_from_bucket(&row.bucket) else {
+            continue;
+        };
+        let index = match hour {
+            0..=5 => 0,
+            6..=11 => 1,
+            12..=17 => 2,
+            _ => 3,
+        };
+        buckets[index] = buckets[index].saturating_add(usage_trail_weighted_tokens(&row.tokens));
+    }
+    let max_index = buckets
+        .iter()
+        .enumerate()
+        .max_by_key(|(_, value)| **value)
+        .map(|(index, _)| index)?;
+    if buckets[max_index] == 0 {
+        return None;
+    }
+    Some(match max_index {
+        0 => "凌晨".to_string(),
+        1 => "上午".to_string(),
+        2 => "下午".to_string(),
+        _ => "晚上".to_string(),
+    })
+}
+
+fn build_usage_trail_wall(
+    state: &AppState,
+    query: &UsageTrailWallQuery,
+) -> Result<UsageTrailWallView, String> {
+    let config = state_read_config_cached(state)?;
+    message_store::chat_metadata_store_run_usage_trail_migration(&state.data_path, &config)?;
+    let view = query.view.trim().to_string();
+    let now_local = to_local_datetime(now_utc());
+    let rows = message_store::chat_metadata_store_usage_trail_query(&state.data_path, None)?;
+    let (window_rows, epoch_rows): (Vec<_>, Vec<_>) = rows
+        .into_iter()
+        .partition(|row| row.bucket != message_store::USAGE_TRAIL_EPOCH_BUCKET);
+    let epoch_totals = usage_trail_wall_totals_from_rows(&epoch_rows);
+    let years = usage_trail_wall_years(&window_rows);
+    let default_year = years
+        .first()
+        .cloned()
+        .unwrap_or_else(|| format!("{:04}", now_local.year()));
+    if view == "today" {
+        let bucket_start = usage_trail_wall_today_start(now_local);
+        let today_rows = window_rows
+            .iter()
+            .filter(|row| row.bucket >= bucket_start)
+            .cloned()
+            .collect::<Vec<_>>();
+        let totals = usage_trail_wall_totals_from_rows(&today_rows);
+        let (hourly, peak_hour) = usage_trail_wall_hourly(&today_rows, &config);
+        return Ok(UsageTrailWallView {
+            generated_at: now_iso(),
+            view: "today".to_string(),
+            totals,
+            epoch_totals: Some(epoch_totals),
+            hourly,
+            peak_hour,
+            year: default_year,
+            years,
+            calendar: Vec::new(),
+            top_conversation_label: None,
+            top_conversation_percent: None,
+            active_period_label: None,
+        });
+    }
+    let year = query
+        .year
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToOwned::to_owned)
+        .unwrap_or_else(|| default_year.clone());
+    let year_rows = window_rows
+        .iter()
+        .filter(|row| row.bucket.len() >= 4 && row.bucket[..4] == year)
+        .cloned()
+        .collect::<Vec<_>>();
+    let totals = usage_trail_wall_totals_from_rows(&year_rows);
+    let parsed_year = year
+        .parse::<i32>()
+        .unwrap_or_else(|_| now_local.year());
+    let calendar = usage_trail_wall_calendar(parsed_year, &year_rows);
+    let top_conversation = usage_trail_wall_top_conversation(state, &year_rows)?;
+    let active_period_label = usage_trail_wall_active_period(&year_rows);
+    Ok(UsageTrailWallView {
+        generated_at: now_iso(),
+        view: "history".to_string(),
+        totals,
+        epoch_totals: Some(epoch_totals),
+        hourly: Vec::new(),
+        peak_hour: None,
+        year,
+        years,
+        calendar,
+        top_conversation_label: top_conversation.as_ref().map(|item| item.0.clone()),
+        top_conversation_percent: top_conversation.as_ref().map(|item| item.1),
+        active_period_label,
+    })
+}
+
+#[tauri::command]
+async fn get_usage_trail(
+    state: State<'_, AppState>,
+    input: UsageTrailWallQuery,
+) -> Result<UsageTrailWallView, String> {
+    let state = state.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || build_usage_trail_wall(&state, &input))
+        .await
+        .map_err(|err| format!("计算足迹墙失败：{err}"))
+        .and_then(|result| result)
 }
 
 fn storage_existing_directory_for_open(path: &PathBuf) -> Result<PathBuf, String> {
@@ -2287,6 +2131,7 @@ fn cleanup_storage_legacy_items_inner(
 #[cfg(test)]
 mod storage_usage_tests {
     use super::*;
+    use serde_json::json;
 
     fn storage_usage_test_state() -> AppState {
         let root = std::env::temp_dir().join(format!("eca-storage-usage-test-{}", Uuid::new_v4()));
@@ -2462,24 +2307,6 @@ mod storage_usage_tests {
         }
     }
 
-    fn storage_usage_test_delegate_input(conversation_id: &str, delegate_id: &str) -> DelegateCreateInput {
-        DelegateCreateInput {
-            kind: "wait".to_string(),
-            conversation_id: conversation_id.to_string(),
-            parent_delegate_id: None,
-            source_department_id: ASSISTANT_DEPARTMENT_ID.to_string(),
-            target_department_id: ASSISTANT_DEPARTMENT_ID.to_string(),
-            source_agent_id: DEFAULT_AGENT_ID.to_string(),
-            target_agent_id: DEFAULT_AGENT_ID.to_string(),
-            title: "测试委托".to_string(),
-            why: "测试背景".to_string(),
-            goal: "测试目标".to_string(),
-            todo: "测试待办".to_string(),
-            notify_assistant_when_done: false,
-            call_stack: vec![delegate_id.to_string()],
-        }
-    }
-
     fn storage_usage_test_delegate_legacy_path(data_path: &PathBuf, conversation_id: &str) -> PathBuf {
         delegate_conversation_store_dir(data_path).join(format!("{conversation_id}.json"))
     }
@@ -2640,7 +2467,7 @@ mod storage_usage_tests {
     }
 
     #[test]
-    fn usage_overview_should_resolve_legacy_model_name_without_persisting_usage() {
+    fn usage_overview_should_resolve_model_name_from_usage_trail() {
         let state = storage_usage_test_state();
         let config = AppConfig {
             api_providers: vec![ApiProviderConfig {
@@ -2660,15 +2487,24 @@ mod storage_usage_tests {
         };
         state_write_config_cached(&state, &config).expect("write config");
 
-        let mut conversation = storage_usage_test_conversation("legacy-model-name", "");
+        let mut conversation = storage_usage_test_conversation("usage-trail-model", "");
         conversation.preferred_api_config_id = Some("provider-a::model-a".to_string());
-        conversation.cumulative_usage = ConversationCumulativeUsage {
-            input_tokens: 11,
-            output_tokens: 7,
-            total_tokens: 18,
-            ..ConversationCumulativeUsage::default()
-        };
         state_write_conversation_cached(&state, &conversation).expect("write conversation");
+        conversation_service_v2()
+            .add_conversation_cumulative_usage_delta(
+                &state,
+                &conversation.id,
+                Some("provider-a"),
+                Some("real-model-v1"),
+                &json!({"promptTokens": 11, "completionTokens": 7, "totalTokens": 18}),
+            )
+            .expect("add usage delta");
+
+        let rows = message_store::chat_metadata_store_usage_trail_query(&state.data_path, None)
+            .expect("query usage trail");
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].provider_label, "主供应商", "provider_label 应写时快照");
+        assert_eq!(rows[0].model_name, "real-model-v1");
 
         let overview = build_usage_overview(&state).expect("build usage overview");
         let conversation_item = overview
@@ -2677,6 +2513,9 @@ mod storage_usage_tests {
             .find(|item| item.conversation_id == conversation.id)
             .expect("conversation item");
         assert_eq!(conversation_item.model_name, "real-model-v1");
+        assert_eq!(conversation_item.total_tokens, 18);
+        assert_eq!(conversation_item.input_tokens, 11);
+        assert_eq!(conversation_item.output_tokens, 7);
         assert!(
             overview.by_provider_model.iter().any(|item| {
                 item.model_name == "real-model-v1"
@@ -2684,20 +2523,12 @@ mod storage_usage_tests {
                     && item.input_tokens == 11
                     && item.output_tokens == 7
             }),
-            "usage overview should expose migrated provider/model breakdown"
-        );
-
-        let persisted = conversation_service_v2()
-            .get_conversation_meta(&state, &conversation.id)
-            .expect("read conversation meta after overview");
-        assert!(
-            persisted.cumulative_usage.by_provider_model.is_empty(),
-            "usage overview should stay read-only and not mutate persisted conversation metadata"
+            "usage overview should expose provider/model breakdown from usage trail"
         );
     }
 
     #[test]
-    fn usage_overview_should_resolve_unknown_legacy_model_without_persisting_usage() {
+    fn usage_overview_should_resolve_unknown_model_when_model_missing() {
         let state = storage_usage_test_state();
         let config = AppConfig {
             departments: vec![default_assistant_department("missing-provider::missing-model")],
@@ -2705,15 +2536,18 @@ mod storage_usage_tests {
         };
         state_write_config_cached(&state, &config).expect("write config");
 
-        let mut conversation = storage_usage_test_conversation("legacy-model-unknown", "");
+        let mut conversation = storage_usage_test_conversation("usage-trail-unknown", "");
         conversation.preferred_api_config_id = Some("missing-provider::missing-model".to_string());
-        conversation.cumulative_usage = ConversationCumulativeUsage {
-            input_tokens: 3,
-            output_tokens: 2,
-            total_tokens: 5,
-            ..ConversationCumulativeUsage::default()
-        };
         state_write_conversation_cached(&state, &conversation).expect("write conversation");
+        conversation_service_v2()
+            .add_conversation_cumulative_usage_delta(
+                &state,
+                &conversation.id,
+                Some("missing-provider"),
+                None,
+                &json!({"promptTokens": 3, "completionTokens": 2, "totalTokens": 5}),
+            )
+            .expect("add usage delta");
 
         let overview = build_usage_overview(&state).expect("build usage overview");
         let conversation_item = overview
@@ -2729,15 +2563,7 @@ mod storage_usage_tests {
                     && item.input_tokens == 3
                     && item.output_tokens == 2
             }),
-            "usage overview should persist unknown model breakdown"
-        );
-
-        let persisted = conversation_service_v2()
-            .get_conversation_meta(&state, &conversation.id)
-            .expect("read conversation meta after overview");
-        assert!(
-            persisted.cumulative_usage.by_provider_model.is_empty(),
-            "usage overview should not persist fallback unknown model breakdown into metadata"
+            "usage overview should degrade missing model name to unknown"
         );
     }
 
@@ -2752,38 +2578,25 @@ mod storage_usage_tests {
 
         let mut conversation = storage_usage_test_conversation("multi-model-usage", "");
         conversation.preferred_api_config_id = Some("provider-a::model-a".to_string());
-        conversation.cumulative_usage = ConversationCumulativeUsage {
-            input_tokens: 15,
-            output_tokens: 12,
-            total_tokens: 27,
-            by_provider_model: std::collections::BTreeMap::from([
-                (
-                    "provider-a".to_string(),
-                    std::collections::BTreeMap::from([
-                        (
-                            "small-model".to_string(),
-                            ConversationUsageBucket {
-                                input_tokens: 2,
-                                output_tokens: 1,
-                                total_tokens: 3,
-                                ..ConversationUsageBucket::default()
-                            },
-                        ),
-                        (
-                            "big-model".to_string(),
-                            ConversationUsageBucket {
-                                input_tokens: 13,
-                                output_tokens: 11,
-                                total_tokens: 24,
-                                ..ConversationUsageBucket::default()
-                            },
-                        ),
-                    ]),
-                ),
-            ]),
-            ..ConversationCumulativeUsage::default()
-        };
         state_write_conversation_cached(&state, &conversation).expect("write conversation");
+        conversation_service_v2()
+            .add_conversation_cumulative_usage_delta(
+                &state,
+                &conversation.id,
+                Some("provider-a"),
+                Some("small-model"),
+                &json!({"promptTokens": 2, "completionTokens": 1, "totalTokens": 3}),
+            )
+            .expect("add small model usage");
+        conversation_service_v2()
+            .add_conversation_cumulative_usage_delta(
+                &state,
+                &conversation.id,
+                Some("provider-a"),
+                Some("big-model"),
+                &json!({"promptTokens": 13, "completionTokens": 11, "totalTokens": 24}),
+            )
+            .expect("add big model usage");
 
         let overview = build_usage_overview(&state).expect("build usage overview");
         let conversation_item = overview
@@ -2792,10 +2605,13 @@ mod storage_usage_tests {
             .find(|item| item.conversation_id == conversation.id)
             .expect("conversation item");
         assert_eq!(conversation_item.model_name, "big-model");
+        assert_eq!(conversation_item.total_tokens, 27);
+        assert_eq!(conversation_item.input_tokens, 15);
+        assert_eq!(conversation_item.output_tokens, 12);
     }
 
     #[test]
-    fn usage_overview_should_read_delegate_usage_from_snapshot_only() {
+    fn usage_overview_should_include_delegate_usage_from_usage_trail() {
         let state = storage_usage_test_state();
         let config = AppConfig {
             departments: vec![default_assistant_department("provider-a::model-a")],
@@ -2803,59 +2619,633 @@ mod storage_usage_tests {
         };
         state_write_config_cached(&state, &config).expect("write config");
 
-        let entry = delegate_store_create_delegate(
-            &state.data_path,
-            &storage_usage_test_delegate_input("root-conversation", "delegate-snapshot-only"),
-        )
-        .expect("create delegate");
-        let mut conversation =
-            storage_usage_test_conversation(&entry.delegate_id, CONVERSATION_KIND_DELEGATE);
-        conversation.title = "快照委托".to_string();
-        conversation.cumulative_usage = ConversationCumulativeUsage {
-            input_tokens: 21,
-            output_tokens: 8,
-            total_tokens: 29,
-            by_provider_model: std::collections::BTreeMap::from([(
-                "provider-a".to_string(),
-                std::collections::BTreeMap::from([(
-                    "delegate-model".to_string(),
-                    ConversationUsageBucket {
-                        input_tokens: 21,
-                        output_tokens: 8,
-                        total_tokens: 29,
-                        ..ConversationUsageBucket::default()
-                    },
-                )]),
-            )]),
-            ..ConversationCumulativeUsage::default()
+        let delta = message_store::UsageTrailDelta {
+            conversation_id: "delegate-usage-trail".to_string(),
+            agent_id: DEFAULT_AGENT_ID.to_string(),
+            department_id: ASSISTANT_DEPARTMENT_ID.to_string(),
+            conversation_kind: "delegate".to_string(),
+            api_config_id: "provider-a::model-a".to_string(),
+            provider_key: "provider-a".to_string(),
+            provider_label: "主供应商".to_string(),
+            model_name: "delegate-model".to_string(),
+            tokens: message_store::UsageTrailTokenDelta {
+                input_tokens: 21,
+                output_tokens: 8,
+                total_tokens: 29,
+                cache_read_tokens: 0,
+                cache_write_tokens: 0,
+                reasoning_tokens: 0,
+            },
         };
-        delegate_conversation_store_write(&state.data_path, &conversation)
-            .expect("write delegate conversation");
-
-        let paths = delegate_conversation_message_store_paths(&state.data_path, &entry.delegate_id)
-            .expect("delegate paths");
-        message_store::delete_message_store_shard_artifacts(&paths)
-            .expect("delete delegate conversation shard");
+        message_store::chat_metadata_store_usage_trail_upsert_delta(
+            &state.data_path,
+            &message_store::usage_trail_hour_bucket(now_utc()),
+            &delta,
+        )
+        .expect("upsert delegate usage trail");
 
         let overview = build_usage_overview(&state).expect("build usage overview");
         let conversation_item = overview
             .conversations
             .iter()
-            .find(|item| item.conversation_id == conversation.id)
+            .find(|item| item.conversation_id == "delegate-usage-trail")
             .expect("delegate conversation item");
         assert_eq!(conversation_item.model_name, "delegate-model");
         assert_eq!(conversation_item.weighted_tokens, 16);
         assert_eq!(conversation_item.input_tokens, 21);
         assert_eq!(conversation_item.output_tokens, 8);
-        assert_eq!(conversation_item.message_count, 2);
+        assert!(conversation_item.is_delegate);
         assert!(
             overview.by_provider_model.iter().any(|item| {
                 item.model_name == "delegate-model"
                     && item.input_tokens == 21
                     && item.output_tokens == 8
             }),
-            "delegate snapshot usage should contribute provider/model breakdown"
+            "delegate usage should contribute provider/model breakdown from usage trail"
         );
+    }
+
+    #[test]
+    fn usage_overview_should_keep_delegate_kind_priority_over_archived() {
+        let state = storage_usage_test_state();
+        let config = AppConfig {
+            departments: vec![default_assistant_department("provider-a::model-a")],
+            ..AppConfig::default()
+        };
+        state_write_config_cached(&state, &config).expect("write config");
+
+        // 写一个 delegate 会话并归档，kind 口径应保持 delegate（与 usage_kind_key_and_label 一致）
+        let mut conversation = storage_usage_test_conversation("delegate-archived", CONVERSATION_KIND_DELEGATE);
+        conversation.title = "已归档委托".to_string();
+        conversation.archived_at = Some(now_iso());
+        state_write_conversation_cached(&state, &conversation).expect("write conversation");
+        message_store::chat_metadata_store_usage_trail_upsert_delta(
+            &state.data_path,
+            &message_store::usage_trail_hour_bucket(now_utc()),
+            &message_store::UsageTrailDelta {
+                conversation_id: conversation.id.clone(),
+                agent_id: DEFAULT_AGENT_ID.to_string(),
+                department_id: ASSISTANT_DEPARTMENT_ID.to_string(),
+                conversation_kind: "delegate".to_string(),
+                api_config_id: "provider-a::model-a".to_string(),
+                provider_key: "provider-a".to_string(),
+                provider_label: "主供应商".to_string(),
+                model_name: "delegate-model".to_string(),
+                tokens: message_store::UsageTrailTokenDelta {
+                    input_tokens: 5,
+                    output_tokens: 2,
+                    total_tokens: 7,
+                    cache_read_tokens: 0,
+                    cache_write_tokens: 0,
+                    reasoning_tokens: 0,
+                },
+            },
+        )
+        .expect("upsert archived delegate usage");
+
+        let overview = build_usage_overview(&state).expect("build usage overview");
+        let item = overview
+            .conversations
+            .iter()
+            .find(|item| item.conversation_id == conversation.id)
+            .expect("archived delegate item");
+        assert_eq!(item.conversation_kind, "delegate", "委托会话归档后仍应归 delegate");
+        assert!(item.is_delegate);
+        assert_eq!(item.title, "已归档委托");
+        assert_eq!(overview.totals.delegate_conversation_count, 1);
+        assert_eq!(overview.totals.archived_conversation_count, 0, "委托不计入 archived");
+        assert!(
+            overview.by_kind.iter().any(|item| item.key == "delegate"),
+            "by_kind 应包含 delegate 分组"
+        );
+    }
+
+    #[test]
+    fn usage_trail_wall_today_should_aggregate_hourly_and_peak() {
+        let state = storage_usage_test_state();
+        let config = AppConfig {
+            departments: vec![default_assistant_department("provider-a::model-a")],
+            ..AppConfig::default()
+        };
+        state_write_config_cached(&state, &config).expect("write config");
+
+        // 会话存在但 title 为空，足迹墙 top 会话 label 应走 summary/未命名兜底而不是空串
+        let mut conversation = storage_usage_test_conversation("empty-title-conv", "");
+        conversation.title = String::new();
+        state_write_conversation_cached(&state, &conversation).expect("write conversation");
+        message_store::chat_metadata_store_usage_trail_upsert_delta(
+            &state.data_path,
+            &message_store::usage_trail_hour_bucket(now_utc()),
+            &message_store::UsageTrailDelta {
+                conversation_id: conversation.id.clone(),
+                agent_id: DEFAULT_AGENT_ID.to_string(),
+                department_id: ASSISTANT_DEPARTMENT_ID.to_string(),
+                conversation_kind: "normal".to_string(),
+                api_config_id: "provider-a::model-a".to_string(),
+                provider_key: "provider-a".to_string(),
+                provider_label: "主供应商".to_string(),
+                model_name: "model-a".to_string(),
+                tokens: message_store::UsageTrailTokenDelta {
+                    input_tokens: 3,
+                    output_tokens: 1,
+                    total_tokens: 4,
+                    cache_read_tokens: 0,
+                    cache_write_tokens: 0,
+                    reasoning_tokens: 0,
+                },
+            },
+        )
+        .expect("upsert empty title usage");
+        // 同一小时另一个模型，验证 hourly.models 按模型拆分
+        message_store::chat_metadata_store_usage_trail_upsert_delta(
+            &state.data_path,
+            &message_store::usage_trail_hour_bucket(now_utc()),
+            &message_store::UsageTrailDelta {
+                conversation_id: conversation.id.clone(),
+                agent_id: DEFAULT_AGENT_ID.to_string(),
+                department_id: ASSISTANT_DEPARTMENT_ID.to_string(),
+                conversation_kind: "normal".to_string(),
+                api_config_id: "provider-a::model-b".to_string(),
+                provider_key: "provider-a".to_string(),
+                provider_label: "主供应商".to_string(),
+                model_name: "model-b".to_string(),
+                tokens: message_store::UsageTrailTokenDelta {
+                    input_tokens: 0,
+                    output_tokens: 3,
+                    total_tokens: 3,
+                    cache_read_tokens: 0,
+                    cache_write_tokens: 0,
+                    reasoning_tokens: 0,
+                },
+            },
+        )
+        .expect("upsert second model usage");
+
+        let view = build_usage_trail_wall(
+            &state,
+            &UsageTrailWallQuery {
+                view: "today".to_string(),
+                year: None,
+            },
+        )
+        .expect("build wall");
+        assert_eq!(view.view, "today");
+        assert_eq!(view.hourly.len(), 24, "today 应固定 24 个整点格");
+        assert_eq!(view.totals.conversation_count, 1);
+        assert_eq!(view.totals.total_tokens, 7);
+        let now_local = to_local_datetime(now_utc());
+        let current_hour = now_local.hour();
+        assert_eq!(
+            view.hourly[current_hour as usize].total_tokens, 7,
+            "当前小时格应聚合两个模型的 total"
+        );
+        assert_eq!(view.peak_hour, Some(current_hour as u8), "唯一有量小时应为峰值");
+        let hour_models = &view.hourly[current_hour as usize].models;
+        assert_eq!(hour_models.len(), 2, "两个模型应各自一条");
+        let model_a = hour_models.iter().find(|m| m.model == "model-a").expect("model-a 存在");
+        let model_b = hour_models.iter().find(|m| m.model == "model-b").expect("model-b 存在");
+        assert_eq!(model_a.tokens, 4, "model-a total_tokens = 4");
+        assert_eq!(model_b.tokens, 3, "model-b total_tokens = 3");
+        assert_eq!(model_a.provider_label, "主供应商", "provider_label 应快照进模型条目");
+        assert_eq!(model_b.provider_label, "主供应商", "provider_label 应快照进模型条目");
+    }
+
+    #[test]
+    fn usage_trail_should_accumulate_same_hour_same_model_same_conversation() {
+        let state = storage_usage_test_state();
+        let bucket = message_store::usage_trail_hour_bucket(now_utc());
+        let make_delta = |input: u64| message_store::UsageTrailDelta {
+            conversation_id: "conv-acc".to_string(),
+            agent_id: DEFAULT_AGENT_ID.to_string(),
+            department_id: ASSISTANT_DEPARTMENT_ID.to_string(),
+            conversation_kind: "normal".to_string(),
+            api_config_id: "provider-a::model-a".to_string(),
+            provider_key: "provider-a".to_string(),
+            provider_label: "主供应商".to_string(),
+            model_name: "model-a".to_string(),
+            tokens: message_store::UsageTrailTokenDelta {
+                input_tokens: input,
+                output_tokens: input,
+                total_tokens: input * 2,
+                cache_read_tokens: 0,
+                cache_write_tokens: 0,
+                reasoning_tokens: 0,
+            },
+        };
+        message_store::chat_metadata_store_usage_trail_upsert_delta(
+            &state.data_path,
+            &bucket,
+            &make_delta(10),
+        )
+        .expect("first upsert");
+        message_store::chat_metadata_store_usage_trail_upsert_delta(
+            &state.data_path,
+            &bucket,
+            &make_delta(20),
+        )
+        .expect("second upsert");
+
+        let rows = message_store::chat_metadata_store_usage_trail_query(&state.data_path, None)
+            .expect("query usage trail");
+        assert_eq!(rows.len(), 1, "同一小时同一会话同一模型应累加同一行");
+        assert_eq!(rows[0].tokens.input_tokens, 30);
+        assert_eq!(rows[0].tokens.total_tokens, 60);
+    }
+
+    #[test]
+    fn usage_trail_should_split_rows_across_model_and_conversation() {
+        let state = storage_usage_test_state();
+        let bucket = message_store::usage_trail_hour_bucket(now_utc());
+        let make_delta = |conversation_id: &str, model_name: &str, input: u64| {
+            message_store::UsageTrailDelta {
+                conversation_id: conversation_id.to_string(),
+                agent_id: DEFAULT_AGENT_ID.to_string(),
+                department_id: ASSISTANT_DEPARTMENT_ID.to_string(),
+                conversation_kind: "normal".to_string(),
+                api_config_id: "provider-a::model-a".to_string(),
+                provider_key: "provider-a".to_string(),
+                provider_label: "主供应商".to_string(),
+                model_name: model_name.to_string(),
+                tokens: message_store::UsageTrailTokenDelta {
+                    input_tokens: input,
+                    output_tokens: 0,
+                    total_tokens: input,
+                    cache_read_tokens: 0,
+                    cache_write_tokens: 0,
+                    reasoning_tokens: 0,
+                },
+            }
+        };
+        for (conversation_id, model_name, input) in [
+            ("conv-a", "model-a", 10),
+            ("conv-a", "model-b", 5),
+            ("conv-b", "model-a", 7),
+        ] {
+            message_store::chat_metadata_store_usage_trail_upsert_delta(
+                &state.data_path,
+                &bucket,
+                &make_delta(conversation_id, model_name, input),
+            )
+            .expect("upsert usage trail");
+        }
+
+        let rows = message_store::chat_metadata_store_usage_trail_query(&state.data_path, None)
+            .expect("query usage trail");
+        assert_eq!(rows.len(), 3, "跨模型/跨会话应分属不同行");
+    }
+
+    #[test]
+    fn usage_trail_wall_should_filter_today_vs_history_year() {
+        let state = storage_usage_test_state();
+        let config = AppConfig {
+            departments: vec![default_assistant_department("provider-a::model-a")],
+            ..AppConfig::default()
+        };
+        state_write_config_cached(&state, &config).expect("write config");
+
+        let today_bucket = message_store::usage_trail_hour_bucket(now_utc());
+        let make_delta = |conversation_id: &str, input: u64| message_store::UsageTrailDelta {
+            conversation_id: conversation_id.to_string(),
+            agent_id: DEFAULT_AGENT_ID.to_string(),
+            department_id: ASSISTANT_DEPARTMENT_ID.to_string(),
+            conversation_kind: "normal".to_string(),
+            api_config_id: "provider-a::model-a".to_string(),
+            provider_key: "provider-a".to_string(),
+            provider_label: "主供应商".to_string(),
+            model_name: "model-a".to_string(),
+            tokens: message_store::UsageTrailTokenDelta {
+                input_tokens: input,
+                output_tokens: 0,
+                total_tokens: input,
+                cache_read_tokens: 0,
+                cache_write_tokens: 0,
+                reasoning_tokens: 0,
+            },
+        };
+        message_store::chat_metadata_store_usage_trail_upsert_delta(
+            &state.data_path,
+            &today_bucket,
+            &make_delta("wall-conv-a", 10),
+        )
+        .expect("upsert today");
+        message_store::chat_metadata_store_usage_trail_upsert_delta(
+            &state.data_path,
+            "2020-01-01T10:00:00",
+            &message_store::UsageTrailDelta {
+                conversation_id: "wall-conv-a".to_string(),
+                agent_id: DEFAULT_AGENT_ID.to_string(),
+                department_id: ASSISTANT_DEPARTMENT_ID.to_string(),
+                conversation_kind: "normal".to_string(),
+                api_config_id: "provider-a::model-a".to_string(),
+                provider_key: "provider-a".to_string(),
+                provider_label: "主供应商".to_string(),
+                model_name: "model-a".to_string(),
+                tokens: message_store::UsageTrailTokenDelta {
+                    input_tokens: 10,
+                    output_tokens: 10,
+                    total_tokens: 20,
+                    cache_read_tokens: 0,
+                    cache_write_tokens: 0,
+                    reasoning_tokens: 0,
+                },
+            },
+        )
+        .expect("upsert historical");
+        message_store::chat_metadata_store_usage_trail_upsert_delta(
+            &state.data_path,
+            message_store::USAGE_TRAIL_EPOCH_BUCKET,
+            &make_delta("wall-conv-b", 30),
+        )
+        .expect("upsert epoch");
+
+        let view_today = build_usage_trail_wall(
+            &state,
+            &UsageTrailWallQuery {
+                view: "today".to_string(),
+                year: None,
+            },
+        )
+        .expect("build today wall");
+        assert_eq!(view_today.totals.conversation_count, 1, "today 只含今天会话");
+        assert_eq!(view_today.totals.total_tokens, 10);
+        assert_eq!(view_today.hourly.len(), 24, "today 固定 24 个整点格");
+        let epoch_totals = view_today.epoch_totals.expect("epoch totals");
+        assert_eq!(epoch_totals.total_tokens, 30, "epoch 历史累计独立返回");
+        assert_eq!(view_today.top_conversation_label, None, "today 不计算 top 会话");
+
+        let view_history = build_usage_trail_wall(
+            &state,
+            &UsageTrailWallQuery {
+                view: "history".to_string(),
+                year: Some("2020".to_string()),
+            },
+        )
+        .expect("build history wall");
+        assert_eq!(view_history.view, "history");
+        assert_eq!(view_history.year, "2020");
+        assert_eq!(view_history.totals.conversation_count, 1);
+        assert_eq!(view_history.totals.total_tokens, 20);
+        assert_eq!(view_history.calendar.len(), 366, "2020 为闰年应铺 366 天");
+        let jan1 = view_history
+            .calendar
+            .iter()
+            .find(|day| day.date == "2020-01-01")
+            .expect("jan 1 day");
+        assert_eq!(jan1.total_tokens, 20);
+        assert_eq!(
+            view_history.top_conversation_label.as_deref(),
+            Some("已删除会话"),
+            "会话不存在应降级为占位"
+        );
+        assert_eq!(
+            view_history.years.contains(&"2020".to_string()),
+            true,
+            "年份列表应含历史年份"
+        );
+        assert_eq!(
+            view_history.years.first().map(String::as_str),
+            Some("2026"),
+            "年份列表降序，最新年份在前"
+        );
+    }
+
+    #[test]
+    fn usage_overview_should_keep_deleted_conversation_totals() {
+        let state = storage_usage_test_state();
+        let config = AppConfig {
+            departments: vec![default_assistant_department("provider-a::model-a")],
+            ..AppConfig::default()
+        };
+        state_write_config_cached(&state, &config).expect("write config");
+
+        // 只写台账，不写会话缓存（模拟会话已删除）
+        let delta = message_store::UsageTrailDelta {
+            conversation_id: "deleted-conv".to_string(),
+            agent_id: "agent-deleted".to_string(),
+            department_id: "dept-deleted".to_string(),
+            conversation_kind: "normal".to_string(),
+            api_config_id: "provider-a::model-a".to_string(),
+            provider_key: "provider-a".to_string(),
+            provider_label: "主供应商".to_string(),
+            model_name: "model-a".to_string(),
+            tokens: message_store::UsageTrailTokenDelta {
+                input_tokens: 10,
+                output_tokens: 5,
+                total_tokens: 15,
+                cache_read_tokens: 0,
+                cache_write_tokens: 0,
+                reasoning_tokens: 0,
+            },
+        };
+        message_store::chat_metadata_store_usage_trail_upsert_delta(
+            &state.data_path,
+            &message_store::usage_trail_hour_bucket(now_utc()),
+            &delta,
+        )
+        .expect("upsert deleted conversation usage");
+
+        let overview = build_usage_overview(&state).expect("build usage overview");
+        assert_eq!(overview.totals.conversation_count, 1);
+        assert_eq!(overview.totals.total_tokens, 15, "会话删除后 totals 仍计入");
+        let item = overview
+            .conversations
+            .iter()
+            .find(|item| item.conversation_id == "deleted-conv")
+            .expect("deleted conversation item");
+        assert_eq!(item.title, "已删除会话", "明细应降级为已删除会话占位");
+        assert_eq!(item.total_tokens, 15);
+    }
+
+    #[test]
+    fn usage_trail_migration_should_be_idempotent() {
+        let state = storage_usage_test_state();
+        let config = AppConfig {
+            api_providers: vec![ApiProviderConfig {
+                id: "provider-a".to_string(),
+                name: "主供应商".to_string(),
+                deprecated: true,
+                models: vec![ApiModelConfig {
+                    id: "model-a".to_string(),
+                    model: "real-model-v1".to_string(),
+                    deprecated: true,
+                    ..ApiModelConfig::default()
+                }],
+                ..ApiProviderConfig::default()
+            }],
+            departments: vec![default_assistant_department("provider-a::model-a")],
+            ..AppConfig::default()
+        };
+        state_write_config_cached(&state, &config).expect("write config");
+
+        // 先完成 v3 消息仓库迁移，使台账迁移满足 ready 前置
+        message_store::chat_metadata_store_run_v3_migration(&state.data_path)
+            .expect("run v3 migration");
+
+        // 写入带旧账本（by_provider_model）的会话元数据
+        let mut conversation = storage_usage_test_conversation("migrate-legacy", "");
+        conversation.preferred_api_config_id = Some("provider-a::model-a".to_string());
+        conversation.cumulative_usage = ConversationCumulativeUsage {
+            input_tokens: 11,
+            output_tokens: 7,
+            total_tokens: 18,
+            by_provider_model: std::collections::BTreeMap::from([(
+                "provider-a".to_string(),
+                std::collections::BTreeMap::from([(
+                    "real-model-v1".to_string(),
+                    ConversationUsageBucket {
+                        input_tokens: 11,
+                        output_tokens: 7,
+                        total_tokens: 18,
+                        ..ConversationUsageBucket::default()
+                    },
+                )]),
+            )]),
+            ..ConversationCumulativeUsage::default()
+        };
+        state_write_conversation_cached(&state, &conversation).expect("write conversation");
+
+        // 第一次迁移：写入 epoch 桶
+        message_store::chat_metadata_store_run_usage_trail_migration(&state.data_path, &config)
+            .expect("first migration");
+        let rows_after_first =
+            message_store::chat_metadata_store_usage_trail_query(&state.data_path, None)
+                .expect("query after first");
+        assert_eq!(rows_after_first.len(), 1, "首次迁移应写入一条 epoch 行");
+        assert_eq!(rows_after_first[0].tokens.total_tokens, 18);
+        assert_eq!(rows_after_first[0].tokens.input_tokens, 11);
+        assert_eq!(rows_after_first[0].tokens.output_tokens, 7);
+
+        // 第二次迁移：completed 标记已写入，不应重复累加
+        message_store::chat_metadata_store_run_usage_trail_migration(&state.data_path, &config)
+            .expect("second migration");
+        let rows_after_second =
+            message_store::chat_metadata_store_usage_trail_query(&state.data_path, None)
+                .expect("query after second");
+        assert_eq!(rows_after_second.len(), 1, "重复迁移不应新增行");
+        assert_eq!(
+            rows_after_second[0].tokens.total_tokens, 18,
+            "重复迁移不应再次累加 epoch 行"
+        );
+        assert_eq!(rows_after_second[0].tokens.input_tokens, 11);
+        assert_eq!(rows_after_second[0].tokens.output_tokens, 7);
+    }
+
+    #[test]
+    fn usage_trail_wall_history_top_conversation_label_should_fallback_chain() {
+        let state = storage_usage_test_state();
+        let config = AppConfig {
+            departments: vec![default_assistant_department("provider-a::model-a")],
+            ..AppConfig::default()
+        };
+        state_write_config_cached(&state, &config).expect("write config");
+
+        // 会话存在但 title 为空：top 会话 label 应降级为未命名会话，而不是已删除会话
+        let mut conversation = storage_usage_test_conversation("wall-top-conv", "");
+        conversation.title = String::new();
+        state_write_conversation_cached(&state, &conversation).expect("write conversation");
+        message_store::chat_metadata_store_usage_trail_upsert_delta(
+            &state.data_path,
+            "2021-03-05T09:00:00",
+            &message_store::UsageTrailDelta {
+                conversation_id: conversation.id.clone(),
+                agent_id: DEFAULT_AGENT_ID.to_string(),
+                department_id: ASSISTANT_DEPARTMENT_ID.to_string(),
+                conversation_kind: "normal".to_string(),
+                api_config_id: "provider-a::model-a".to_string(),
+                provider_key: "provider-a".to_string(),
+                provider_label: "主供应商".to_string(),
+                model_name: "model-a".to_string(),
+                tokens: message_store::UsageTrailTokenDelta {
+                    input_tokens: 5,
+                    output_tokens: 5,
+                    total_tokens: 10,
+                    cache_read_tokens: 0,
+                    cache_write_tokens: 0,
+                    reasoning_tokens: 0,
+                },
+            },
+        )
+        .expect("upsert history");
+
+        let view = build_usage_trail_wall(
+            &state,
+            &UsageTrailWallQuery {
+                view: "history".to_string(),
+                year: Some("2021".to_string()),
+            },
+        )
+        .expect("build history wall");
+        assert_eq!(
+            view.top_conversation_label.as_deref(),
+            Some("未命名会话"),
+            "title 为空且无 summary 应降级为未命名会话"
+        );
+        assert_eq!(view.top_conversation_percent, Some(100));
+        assert_eq!(
+            view.active_period_label.as_deref(),
+            Some("上午"),
+            "09:00 应归为上午时段"
+        );
+    }
+
+    #[test]
+    fn usage_trail_wall_should_keep_epoch_totals_separate_from_today() {
+        let state = storage_usage_test_state();
+        let config = AppConfig {
+            departments: vec![default_assistant_department("provider-a::model-a")],
+            ..AppConfig::default()
+        };
+        state_write_config_cached(&state, &config).expect("write config");
+
+        // 同一会话在小时桶与 epoch 桶都出现，today 总量只计小时桶，epoch 独立返回
+        let make_delta = |_bucket: &str, conversation_id: &str, input: u64| {
+            message_store::UsageTrailDelta {
+                conversation_id: conversation_id.to_string(),
+                agent_id: DEFAULT_AGENT_ID.to_string(),
+                department_id: ASSISTANT_DEPARTMENT_ID.to_string(),
+                conversation_kind: "normal".to_string(),
+                api_config_id: "provider-a::model-a".to_string(),
+                provider_key: "provider-a".to_string(),
+                provider_label: "主供应商".to_string(),
+                model_name: "model-a".to_string(),
+                tokens: message_store::UsageTrailTokenDelta {
+                    input_tokens: input,
+                    output_tokens: 0,
+                    total_tokens: input,
+                    cache_read_tokens: 0,
+                    cache_write_tokens: 0,
+                    reasoning_tokens: 0,
+                },
+            }
+        };
+        message_store::chat_metadata_store_usage_trail_upsert_delta(
+            &state.data_path,
+            &message_store::usage_trail_hour_bucket(now_utc()),
+            &make_delta("", "shared-conv", 10),
+        )
+        .expect("upsert today");
+        message_store::chat_metadata_store_usage_trail_upsert_delta(
+            &state.data_path,
+            message_store::USAGE_TRAIL_EPOCH_BUCKET,
+            &make_delta("", "shared-conv", 20),
+        )
+        .expect("upsert epoch");
+
+        let view = build_usage_trail_wall(
+            &state,
+            &UsageTrailWallQuery {
+                view: "today".to_string(),
+                year: None,
+            },
+        )
+        .expect("build today wall");
+        assert_eq!(
+            view.totals.conversation_count, 1,
+            "today 只统计小时桶会话"
+        );
+        assert_eq!(view.totals.total_tokens, 10, "today 不含 epoch 桶");
+        let epoch_totals = view.epoch_totals.expect("epoch totals");
+        assert_eq!(epoch_totals.total_tokens, 20, "epoch 历史累计独立返回");
     }
 
 }

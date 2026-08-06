@@ -84,7 +84,58 @@ export function useChatFlowStreamingEvents(options: UseChatFlowStreamingEventsOp
     };
   }
 
+  // ==================== 流式正文节流 ====================
+  // 正文/思维链文本攒 100ms 批量应用（10fps），避免每个 chunk 都触发
+  // 消息数组整体替换 + 虚拟列表全链重算；工具状态类事件与权威快照即时处理。
+  const STREAM_TEXT_FLUSH_INTERVAL_MS = 100;
+  let pendingStreamText = "";
+  let pendingReasoningText = "";
+  let pendingStreamGen = 0;
+  let pendingStreamMessageId = "";
+  let streamTextFlushTimer: ReturnType<typeof setTimeout> | null = null;
+
+  function flushStreamTextBuffer() {
+    if (streamTextFlushTimer) {
+      clearTimeout(streamTextFlushTimer);
+      streamTextFlushTimer = null;
+    }
+    const gen = pendingStreamGen;
+    const messageId = pendingStreamMessageId;
+    const text = pendingStreamText;
+    const reasoning = pendingReasoningText;
+    pendingStreamText = "";
+    pendingReasoningText = "";
+    pendingStreamGen = 0;
+    pendingStreamMessageId = "";
+    if (reasoning && messageId) {
+      options.applyAssistantEventToMessage(messageId, { kind: "activity_reasoning_delta", delta: reasoning });
+    }
+    if (text && gen) {
+      options.enqueueStreamDelta(gen, text);
+    }
+  }
+
+  function scheduleStreamTextFlush() {
+    if (streamTextFlushTimer) return;
+    streamTextFlushTimer = setTimeout(() => {
+      streamTextFlushTimer = null;
+      flushStreamTextBuffer();
+    }, STREAM_TEXT_FLUSH_INTERVAL_MS);
+  }
+
+  function bufferStreamText(input: { gen: number; messageId: string; text?: string; reasoning?: string }) {
+    if (input.text) pendingStreamText += input.text;
+    if (input.reasoning) pendingReasoningText += input.reasoning;
+    if (!pendingStreamGen) pendingStreamGen = input.gen;
+    if (!pendingStreamMessageId) pendingStreamMessageId = input.messageId;
+    scheduleStreamTextFlush();
+  }
+
   function handleStreamingEvent(currentGen: number, parsed: AssistantDeltaEvent) {
+    if (parsed.kind === "round_completed" || parsed.kind === "round_failed") {
+      // 终态事件到达时先冲刷文本缓冲，避免最后一段正文/思维链丢失。
+      flushStreamTextBuffer();
+    }
     if (parsed.kind === "context_usage_update") {
       const p = readContextUsageUpdatePayload(parsed.message);
       const activeConversationId = options.getConversationId ? options.getConversationId() : "";
@@ -220,6 +271,8 @@ export function useChatFlowStreamingEvents(options: UseChatFlowStreamingEventsOp
         || snapshotBlocks.length > 0
       );
       if (currentRound.phase === "streaming" && snapshotHasVisibleProgress) {
+        // 权威快照到达前先冲刷缓冲，避免旧增量文本追加到快照状态之后造成错乱。
+        flushStreamTextBuffer();
         options.applyConversationStreamCacheSnapshotToDisplay(conversationId, parsed.streamCache);
         options.applyAssistantEventToMessage(currentRound.messageId, parsed);
         receivedCanonicalSnapshot = true;
@@ -227,6 +280,8 @@ export function useChatFlowStreamingEvents(options: UseChatFlowStreamingEventsOp
     }
 
     if (parsed.kind === "tool_status") {
+      // 工具状态即时处理（先冲刷缓冲保持事件顺序），不参与正文节流。
+      flushStreamTextBuffer();
       if (currentRound.phase === "streaming" && !receivedCanonicalSnapshot) {
         options.applyAssistantEventToMessage(currentRound.messageId, parsed);
       }
@@ -234,8 +289,17 @@ export function useChatFlowStreamingEvents(options: UseChatFlowStreamingEventsOp
 
     if (isActivityProjectionEvent) {
       if (delta && options.reasoningStartedAtMs.value === 0) options.reasoningStartedAtMs.value = Date.now();
-      if (currentRound.phase === "streaming" && !receivedCanonicalSnapshot) {
-        options.applyAssistantEventToMessage(currentRound.messageId, parsed);
+      if (parsed.kind === "activity_reasoning_delta" && delta) {
+        // 思维链文本与正文一起 100ms 节流。
+        if (currentRound.phase === "streaming" && !receivedCanonicalSnapshot) {
+          bufferStreamText({ gen: currentGen, messageId: currentRound.messageId, reasoning: delta });
+        }
+      } else {
+        // 工具事件即时处理（先冲刷缓冲保持顺序）。
+        flushStreamTextBuffer();
+        if (currentRound.phase === "streaming" && !receivedCanonicalSnapshot) {
+          options.applyAssistantEventToMessage(currentRound.messageId, parsed);
+        }
       }
     }
 
@@ -243,10 +307,13 @@ export function useChatFlowStreamingEvents(options: UseChatFlowStreamingEventsOp
       return;
     }
 
-    options.enqueueStreamDelta(currentGen, delta);
+    if (currentRound.phase === "streaming") {
+      bufferStreamText({ gen: currentGen, messageId: currentRound.messageId, text: delta });
+    }
   }
 
   return {
     handleStreamingEvent,
+    flushStreamTextBuffer,
   };
 }

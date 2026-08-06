@@ -434,6 +434,8 @@ fn run_message_store_migration_inner(
         >= DATA_MIGRATION_VERSION_V2_ASSISTANT_WORKSPACE_FOR_EMPTY_SHELL_WORKSPACES
     {
         message_store::chat_metadata_store_run_v3_migration(&state.data_path)?;
+        let config = state_read_config_cached(state)?;
+        message_store::chat_metadata_store_run_usage_trail_migration(&state.data_path, &config)?;
         runtime.message_store_migration_version = DATA_MIGRATION_VERSION_V3_CHAT_METADATA_SQLITE;
         state_write_runtime_state_cached(state, &runtime)?;
         return Ok(report);
@@ -570,6 +572,8 @@ fn run_message_store_migration_inner(
         DATA_MIGRATION_VERSION_V2_ASSISTANT_WORKSPACE_FOR_EMPTY_SHELL_WORKSPACES;
     state_write_runtime_state_cached(state, &runtime)?;
     message_store::chat_metadata_store_run_v3_migration(&state.data_path)?;
+    let config = state_read_config_cached(state)?;
+    message_store::chat_metadata_store_run_usage_trail_migration(&state.data_path, &config)?;
     runtime.message_store_migration_version = DATA_MIGRATION_VERSION_V3_CHAT_METADATA_SQLITE;
     state_write_runtime_state_cached(state, &runtime)?;
     Ok(report)

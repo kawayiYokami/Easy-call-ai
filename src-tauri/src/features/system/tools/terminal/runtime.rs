@@ -284,7 +284,7 @@ fn detect_terminal_shell_candidates() -> Vec<TerminalShellProfile> {
     #[cfg(all(unix, not(target_os = "macos")))]
     {
         let mut out = Vec::<TerminalShellProfile>::new();
-        for candidate in ["/bin/bash", "/usr/bin/bash", "/bin/sh"] {
+        for candidate in ["/bin/bash", "/usr/bin/bash", "/bin/zsh", "/usr/bin/zsh", "/bin/sh"] {
             if Path::new(candidate).is_file() {
                 let kind = Path::new(candidate)
                     .file_name()

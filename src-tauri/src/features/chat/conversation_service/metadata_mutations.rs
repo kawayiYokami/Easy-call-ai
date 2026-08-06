@@ -558,6 +558,7 @@ impl ConversationServiceV2 {
         )?;
         if changed {
             emit_provider_context_usage_update_from_conversation(state, &conversation, usage);
+            usage_trail_record_conversation_delta(state, &conversation, provider_key, model_name, usage);
         }
         Ok(changed)
     }

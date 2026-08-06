@@ -5,7 +5,7 @@
         <div class="flex items-center justify-between">
           <span class="text-sm font-semibold">{{ t("config.departmentTree.title") }}</span>
           <button
-            class="btn btn-sm btn-ghost"
+            class="btn btn-sm bg-base-100"
             type="button"
             :title="t('config.departmentTree.managePersonas')"
             @click="emit('openPersonaPage')"

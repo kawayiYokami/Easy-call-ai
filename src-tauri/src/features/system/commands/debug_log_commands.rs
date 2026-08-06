@@ -616,6 +616,10 @@ fn prepared_prompt_to_messages_json(prepared: &PreparedPrompt) -> Vec<Value> {
                     }
                 }));
             }
+            // 空消息（无文本块且无媒体）不进请求体，日志预览与生产一致
+            if content.is_empty() {
+                continue;
+            }
             messages.push(serde_json::json!({
                 "role": "user",
                 "content": content,

@@ -3,10 +3,20 @@
     <div class="flex items-center justify-between gap-3">
       <h3 class="text-sm font-semibold">{{ t('config.tools.shellWorkspace') }}</h3>
       <div class="flex flex-wrap items-center justify-end gap-2">
-        <button v-if="localFileSystemAvailable" class="btn btn-sm" type="button" @click="openShellWorkspaceDir">{{ t('config.tools.openDir') }}</button>
-        <button class="btn btn-sm" type="button" :disabled="shellWorkspacePathResetting" @click="resetShellWorkspacePath">{{ t('config.tools.resetWorkspacePath') }}</button>
-        <button class="btn btn-sm" type="button" :disabled="shellWorkspaceInitializing" @click="initializeShellWorkspace">{{ t('config.tools.initializeWorkspace') }}</button>
+        <button v-if="localFileSystemAvailable" class="btn btn-sm bg-base-100" type="button" @click="openShellWorkspaceDir">
+          <FolderOpen class="h-4 w-4" />
+          {{ t('config.tools.openDir') }}
+        </button>
+        <button class="btn btn-sm bg-base-100" type="button" :disabled="shellWorkspacePathResetting" @click="resetShellWorkspacePath">
+          <RotateCcw class="h-4 w-4" />
+          {{ t('config.tools.resetWorkspacePath') }}
+        </button>
+        <button class="btn btn-sm bg-base-100" type="button" :disabled="shellWorkspaceInitializing" @click="initializeShellWorkspace">
+          <FolderPlus class="h-4 w-4" />
+          {{ t('config.tools.initializeWorkspace') }}
+        </button>
         <button class="btn btn-sm btn-primary" :disabled="savingConfig" @click="$emit('saveApiConfig')">
+          <Save class="h-4 w-4" />
           {{ t('config.tools.save') }}
         </button>
       </div>
@@ -21,28 +31,6 @@
           <div class="flex items-center gap-2">
             <input v-model.trim="ws.path" class="input input-bordered input-sm flex-1 font-mono" :placeholder="t('config.tools.directoryPath')" />
             <button class="btn btn-sm btn-neutral" type="button" @click="pickWorkspacePath(index)">{{ t('config.tools.modifyWorkspaceDir') }}</button>
-          </div>
-        </div>
-        <div v-if="isWindowsHost" class="grid gap-2">
-          <div class="text-sm font-medium">{{ t("config.tools.terminalRuntime") }}</div>
-          <select
-            class="select select-bordered select-sm w-full"
-            :value="terminalShellKindValue"
-            :disabled="terminalShellOptionsLoading || savingConfig"
-            @change="onTerminalShellKindChange"
-          >
-            <option v-for="item in terminalShellOptions" :key="item.kind" :value="item.kind">
-              {{ item.label }}
-            </option>
-          </select>
-          <div v-if="t('config.tools.terminalRuntimeHint')" class="text-xs opacity-70">
-            {{ t("config.tools.terminalRuntimeHint") }}
-          </div>
-          <div v-if="showGitInstallHintInWorkspace" class="text-xs bg-warning/10 text-base-content rounded px-2 py-1 flex items-center gap-2">
-            <span>{{ t("config.tools.gitRequiredHint") }}</span>
-            <button class="btn btn-sm bg-base-100" @click="openGitDownloadLink">
-              {{ t("config.tools.installGit") }}
-            </button>
           </div>
         </div>
       </div>
@@ -114,8 +102,9 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref } from "vue";
+import { onMounted, ref } from "vue";
 import { useI18n } from "vue-i18n";
+import { FolderOpen, FolderPlus, RotateCcw, Save } from "@lucide/vue";
 import type {
   AppConfig,
   FrontendToolDefinition,
@@ -125,26 +114,11 @@ import {
   getTransportCapabilities,
   getTransportDefaultChatShellWorkspacePath,
   invokeTauri,
-  openTransportExternalUrl,
   openTransportFileDialog,
   openTransportWorkspaceDirectory,
   resetTransportChatShellWorkspace,
 } from "../../../../services/tauri-api";
 import { toErrorMessage } from "../../../../utils/error";
-
-type TerminalShellCandidate = {
-  kind: string;
-  label: string;
-  available: boolean;
-  path?: string;
-};
-
-type TerminalShellCandidatesResult = {
-  preferredKind?: string;
-  currentKind?: string;
-  currentPath?: string;
-  options?: TerminalShellCandidate[];
-};
 
 const props = defineProps<{
   config: AppConfig;
@@ -165,41 +139,10 @@ const shellWorkspaceStatus = ref("");
 const shellWorkspaceStatusError = ref(false);
 const initializeWorkspaceDialog = ref<HTMLDialogElement | null>(null);
 let resolveInitializeWorkspaceConfirm: ((value: boolean) => void) | null = null;
-const terminalShellOptionsLoading = ref(false);
-const terminalShellOptions = ref<TerminalShellCandidate[]>([]);
-const GIT_DOWNLOAD_URL = "https://git-scm.com/downloads";
-const isWindowsHost = typeof navigator !== "undefined" && /windows/i.test(String(navigator.userAgent || ""));
 const localFileSystemAvailable = getTransportCapabilities().localFileSystem;
-const terminalShellKindValue = computed(() => String(props.config.terminalShellKind || "auto"));
 function setShellWorkspaceStatus(text: string, isError = false) {
   shellWorkspaceStatus.value = text;
   shellWorkspaceStatusError.value = isError;
-}
-
-async function loadTerminalShellCandidates() {
-  if (!isWindowsHost) return;
-  terminalShellOptionsLoading.value = true;
-  try {
-    const payload = await invokeTauri<TerminalShellCandidatesResult>("list_terminal_shell_candidates");
-    const options = Array.isArray(payload.options) ? payload.options : [];
-    terminalShellOptions.value =
-      options.length > 0
-        ? options
-        : [{ kind: "auto", label: "Auto", available: true }];
-    const preferred = String(payload.preferredKind || "").trim();
-    if (preferred) {
-      props.config.terminalShellKind = preferred;
-    } else if (!String(props.config.terminalShellKind || "").trim()) {
-      props.config.terminalShellKind = "auto";
-    }
-  } catch {
-    terminalShellOptions.value = [{ kind: "auto", label: "Auto", available: true }];
-    if (!String(props.config.terminalShellKind || "").trim()) {
-      props.config.terminalShellKind = "auto";
-    }
-  } finally {
-    terminalShellOptionsLoading.value = false;
-  }
 }
 
 async function loadToolCatalog() {
@@ -209,12 +152,6 @@ async function loadToolCatalog() {
   } catch {
     toolDefinitions.value = [];
   }
-}
-
-function onTerminalShellKindChange(event: Event) {
-  const target = event.target as HTMLSelectElement | null;
-  const next = String(target?.value || "auto").trim() || "auto";
-  props.config.terminalShellKind = next;
 }
 
 async function openShellWorkspaceDir() {
@@ -323,14 +260,6 @@ async function pickWorkspacePath(index: number) {
     item.name = defaultWorkspaceNameFromPath(item.path) || `workspace-${index + 1}`;
   }
 }
-
-function toolStatusById(id: string): ToolLoadStatus | undefined {
-  return props.toolStatuses.find((s) => s.id === id);
-}
-
-const showGitInstallHintInWorkspace = computed(
-  () => isWindowsHost && toolStatusById("exec")?.status === "unavailable",
-);
 
 function definitionById(id: string): FrontendToolDefinition | undefined {
   return toolDefinitions.value.find((item) => item.function?.name === id);
@@ -503,13 +432,8 @@ function toolParameterExamples(id: string): string[] {
   return Array.from(new Set(collectToolSchemaExamples(propertiesRaw as ToolSchemaShape)));
 }
 
-function openGitDownloadLink() {
-  void openTransportExternalUrl(GIT_DOWNLOAD_URL);
-}
-
 onMounted(() => {
   emit("refreshToolStatuses");
-  void loadTerminalShellCandidates();
   void loadToolCatalog();
 });
 </script>

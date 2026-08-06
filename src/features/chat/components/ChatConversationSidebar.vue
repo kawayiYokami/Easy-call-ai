@@ -66,6 +66,7 @@
             <CollapsibleGroup
               v-for="section in displayedConversationSections"
               :key="section.key"
+              :ref="(el) => setConversationSectionElement(section.key, el)"
               :title="section.title"
               :count="section.totalItemCount"
               :model-value="isConversationSectionCollapsed(section.key)"
@@ -115,7 +116,7 @@
                     @keydown.enter.prevent="handleConversationCardClick(item)"
                     @keydown.space.prevent="handleConversationCardClick(item)"
                   >
-                    <div class="flex items-center gap-2 py-2">
+                    <div class="flex items-center gap-2 py-1">
                     <div class="shrink-0">
                       <div class="indicator">
                         <span
@@ -136,8 +137,13 @@
                           </div>
                           <span
                             v-if="isRecentConversationSection(section.key)"
-                            class="pointer-events-none absolute bottom-0 left-1/2 z-20 inline-block max-w-10 -translate-x-1/2 translate-y-1/3 truncate rounded-full bg-neutral px-1.5 py-[1px] text-micro font-normal leading-3 text-neutral-content shadow-sm"
-                            :title="conversationSourceBadgeLabel(item)"
+                            class="absolute bottom-0 left-1/2 z-20 inline-block max-w-10 -translate-x-1/2 translate-y-1/3 cursor-pointer truncate rounded-full bg-neutral px-1.5 py-[1px] text-micro font-normal leading-3 text-neutral-content shadow-sm transition-colors hover:bg-primary hover:text-primary-content"
+                            :title="t('chat.revealConversationSection')"
+                            role="button"
+                            tabindex="0"
+                            @click.stop="revealConversationSection(item)"
+                            @keydown.enter.prevent="revealConversationSection(item)"
+                            @keydown.space.prevent="revealConversationSection(item)"
                           >
                             {{ conversationSourceBadgeLabel(item) }}
                           </span>
@@ -260,6 +266,26 @@
                   </div>
 
                 </div>
+            <template v-for="item in section.visibleItems" :key="`followers-${item.conversationId}`">
+              <button
+                v-for="simpleItem in (section.simpleFollowers[String(item.conversationId || '').trim()] || [])"
+                :key="`simple-${simpleItem.conversationId}`"
+                type="button"
+                class="mx-1 flex w-[calc(100%-0.5rem)] items-center rounded-lg py-1 pl-2 pr-2 text-left text-sm transition-colors hover:bg-base-100/70"
+                :class="String(simpleItem.conversationId || '').trim() === String(props.activeConversationId || '').trim() ? 'bg-base-300/60' : 'bg-transparent'"
+                :title="conversationDisplayTitle(simpleItem)"
+                @click="handleConversationCardClick(simpleItem)"
+              >
+                <span class="relative w-10 shrink-0 self-stretch" aria-hidden="true">
+                  <span
+                    class="absolute right-0 top-1 bottom-1 w-1 rounded-full transition-colors"
+                    :class="simpleItemIndicatorClass(simpleItem)"
+                  ></span>
+                </span>
+                <span class="min-w-0 truncate pl-2 font-medium">{{ conversationDisplayTitle(simpleItem) }}</span>
+                <span class="ml-auto shrink-0 tabular-nums text-xs text-base-content/45">{{ formatConversationTime(simpleItem.updatedAt) }}</span>
+              </button>
+            </template>
             <div v-if="section.hiddenItemCount > 0" class="px-3 pb-2 pt-1">
               <button
                 type="button"
@@ -439,6 +465,10 @@ import { usePipelineStatus } from "../../shell/composables/use-pipeline-status";
 import ApiConfigTreeSelect from "../../config/components/ApiConfigTreeSelect.vue";
 import { formatConversationListTime } from "../utils/conversation-time";
 import {
+  aggregateConversationItems,
+  conversationLastUsedMs,
+} from "../utils/conversation-aggregation";
+import {
   applyConversationSectionOrder,
   buildRecentConversationSection,
   buildRemoteConversationSections,
@@ -455,6 +485,8 @@ import ChatTaskSidebarPanel from "./ChatTaskSidebarPanel.vue";
 type ConversationSidebarTab = "local" | "contact" | "task";
 type DisplayConversationSection = ConversationSection & {
   visibleItems: ChatConversationOverviewItem[];
+  /** full 会话 id → 聚合其后的简单条目（同人格旧会话，按更新时间倒序） */
+  simpleFollowers: Record<string, ChatConversationOverviewItem[]>;
   hiddenItemCount: number;
   totalItemCount: number;
 };
@@ -712,18 +744,6 @@ watch(
 );
 
 watch(
-  () => [
-    props.activeConversationId,
-    activeConversationTab.value,
-    orderedConversationSections.value.map((section) => `${section.key}:${section.items.length}`).join("|"),
-  ] as const,
-  () => {
-    expandSectionForActiveConversation();
-  },
-  { immediate: true },
-);
-
-watch(
   () => activeConversationTab.value,
   (nextValue, previousValue) => {
     if (previousValue && previousValue !== nextValue) {
@@ -871,13 +891,6 @@ function conversationSectionDragIndicator(section: ConversationSection): "before
   return dragOverConversationSectionPlacement.value;
 }
 
-function conversationLastUsedMs(item: ChatConversationOverviewItem): number {
-  const raw = String(item.lastMessageAt || item.updatedAt || "").trim();
-  if (!raw) return 0;
-  const timestamp = Date.parse(raw);
-  return Number.isFinite(timestamp) ? timestamp : 0;
-}
-
 function defaultVisibleConversationCount(section: ConversationSection): number {
   const items = Array.isArray(section.items) ? section.items : [];
   if (items.length <= CONVERSATION_SECTION_MIN_VISIBLE) return items.length;
@@ -902,9 +915,13 @@ function buildDisplayedConversationSection(section: ConversationSection): Displa
   const baseVisibleCount = defaultVisibleConversationCount(section);
   const extraVisibleCount = Math.max(0, Number(conversationSectionLoadMoreCounts.value[section.key] || 0));
   const visibleCount = Math.min(items.length, baseVisibleCount + extraVisibleCount);
+  const { reorderedItems, simpleFollowers } = aggregateConversationItems(items.slice(0, visibleCount), {
+    searchActive: !!normalizedConversationSearchQuery.value,
+  });
   return {
     ...section,
-    visibleItems: items.slice(0, visibleCount),
+    visibleItems: reorderedItems,
+    simpleFollowers,
     hiddenItemCount: Math.max(0, items.length - visibleCount),
     totalItemCount: items.length,
   };
@@ -986,42 +1003,30 @@ function expandConversationSection(key: string) {
   scheduleConversationListScrollbarUpdate();
 }
 
-function shouldKeepSectionOpenDuringAutoExpand(sectionKey: string, targetKey: string): boolean {
-  return sectionKey === targetKey
-    || sectionKey === "pinned"
-    || sectionKey === RECENT_CONVERSATION_SECTION_KEY;
+const conversationSectionElements = new Map<string, HTMLElement>();
+
+function setConversationSectionElement(key: string, element: unknown) {
+  const root = element instanceof HTMLElement
+    ? element
+    : (element as { $el?: HTMLElement | null } | null)?.$el ?? null;
+  if (root) conversationSectionElements.set(key, root);
+  else conversationSectionElements.delete(key);
 }
 
-function expandConversationSectionExclusively(key: string) {
-  if (!key) return;
-  let changed = false;
-  const next = { ...collapsedConversationSectionKeys.value };
-  for (const section of orderedConversationSections.value) {
-    if (shouldKeepSectionOpenDuringAutoExpand(section.key, key)) continue;
-    if (next[section.key] !== true) {
-      next[section.key] = true;
-      changed = true;
-    }
-  }
-  if (next[key] !== false) {
-    next[key] = false;
-    changed = true;
-  }
-  if (!changed) return;
-  collapsedConversationSectionKeys.value = next;
-  scheduleConversationListScrollbarUpdate();
-}
-
-function expandSectionForActiveConversation() {
-  if (normalizedConversationSearchQuery.value) return;
-  const activeConversationId = String(props.activeConversationId || "").trim();
-  if (!activeConversationId) return;
+function revealConversationSection(item: ChatConversationOverviewItem) {
+  const conversationId = String(item.conversationId || "").trim();
+  if (!conversationId) return;
   const section = orderedConversationSections.value.find((entry) =>
     entry.key !== RECENT_CONVERSATION_SECTION_KEY
-    && entry.items.some((item) => String(item.conversationId || "").trim() === activeConversationId),
+    && entry.items.some((candidate) => String(candidate.conversationId || "").trim() === conversationId),
   );
   if (!section) return;
-  expandConversationSectionExclusively(section.key);
+  const wasCollapsed = isConversationSectionCollapsed(section.key);
+  expandConversationSection(section.key);
+  const element = conversationSectionElements.get(section.key);
+  window.setTimeout(() => {
+    if (element) conversationFloatingScrollRef.value?.scrollToElement(element);
+  }, wasCollapsed ? 220 : 0);
 }
 
 function collapseAllConversationSections() {
@@ -1171,6 +1176,22 @@ function conversationSourceBadgeLabel(item: ChatConversationOverviewItem): strin
     || workspaceNameFromPath(workspacePath)
     || t("chat.defaultWorkspace"),
   ).trim();
+}
+
+function simpleItemIndicatorClass(item: ChatConversationOverviewItem): string {
+  if (unreadCountBadge(item)) return "bg-error";
+  const previews = normalizedPreviewMessages(item);
+  const last = previews[previews.length - 1];
+  if (!last) return "bg-success";
+  const role = last.role || "";
+  const speakerId = String(last.speakerAgentId || "").trim();
+  if (role === "tool" || role === "system") return "bg-warning";
+  if (role === "user") {
+    // 系统提醒/压缩摘要等系统消息的 role 也是 user，须用 agentId 区分用户与系统
+    if (!speakerId || speakerId === "user-persona") return "bg-info";
+    return "bg-warning";
+  }
+  return "bg-success";
 }
 
 function handleConversationCardClick(item: ChatConversationOverviewItem) {

@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
   externalTerminalTargetsRound,
-  shouldSuppressStoppedHistoryActivation,
 } from "./use-chat-flow-external-events";
 
 describe("external chat terminal identity", () => {
@@ -27,11 +26,5 @@ describe("external chat terminal identity", () => {
       "activation-1",
       {},
     )).toBe(true);
-  });
-
-  it("停止后仍接收正式 historyFlushed，只抑制其旧轮次激活投影", () => {
-    expect(shouldSuppressStoppedHistoryActivation(true, true)).toBe(true);
-    expect(shouldSuppressStoppedHistoryActivation(false, true)).toBe(false);
-    expect(shouldSuppressStoppedHistoryActivation(true, false)).toBe(false);
   });
 });

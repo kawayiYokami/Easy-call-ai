@@ -51,8 +51,7 @@ include!("features/core/time_semantics.rs");
 include!("features/config/storage_and_stt.rs");
 include!("features/config/app_data_layout.rs");
 include!("features/chat/message_store/mod.rs");
-#[path = "features/config/pai_config_tool.rs"]
-mod pai_config_tool;
+use easy_call_ai::pai_config_tool;
 
 // ==================== 独立图像生成 ====================
 include!("features/image_generation.rs");
@@ -111,6 +110,114 @@ fn should_enable_devtools() -> bool {
         Some("1") | Some("true") | Some("yes") | Some("on")
     )
 }
+
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+fn unix_extend_process_path_from_login_shell() {
+    use users::os::unix::UserExt;
+    const PATH_BEGIN: &str = "__PAI_LOGIN_PATH_BEGIN__";
+    const PATH_END: &str = "__PAI_LOGIN_PATH_END__";
+    let shell = std::env::var_os("SHELL")
+        .filter(|path| PathBuf::from(path).is_file())
+        .or_else(|| {
+            users::get_user_by_uid(users::get_current_uid())
+                .map(|user| user.shell().as_os_str().to_os_string())
+                .filter(|path| PathBuf::from(path).is_file())
+        })
+        .unwrap_or_else(|| "/bin/sh".into());
+    let mut child = match std::process::Command::new(&shell)
+        .args([
+            "-ilc",
+            "printf '__PAI_LOGIN_PATH_BEGIN__%s__PAI_LOGIN_PATH_END__' \"$PATH\"",
+        ])
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+    {
+        Ok(child) => child,
+        Err(err) => {
+            runtime_log_warn(format!("[启动] 启动登录 shell 失败: err={err}"));
+            return;
+        }
+    };
+    let Some(stdout_pipe) = child.stdout.take() else {
+        runtime_log_warn("[启动] 获取登录 shell stdout 失败，跳过环境同步".to_string());
+        return;
+    };
+    // 读线程负责读 stdout 直到 EOF：shell 退出但 rc 启动的后台进程仍持有
+    // stdout 写端时，阻塞只发生在子线程，不卡主线程（超时 kill 后由进程退出回收）。
+    let (stdout_tx, stdout_rx) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let mut bytes = Vec::new();
+        let _ = std::io::Read::read_to_end(&mut std::io::BufReader::new(stdout_pipe), &mut bytes);
+        let _ = stdout_tx.send(String::from_utf8_lossy(&bytes).into_owned());
+    });
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    let mut stdout = None;
+    let status = loop {
+        if stdout.is_none() {
+            if let Ok(buf) = stdout_rx.try_recv() {
+                stdout = Some(buf);
+            }
+        }
+        match child.try_wait() {
+            Ok(Some(status)) if stdout.is_some() => break status,
+            Ok(_) => {}
+            Err(err) => {
+                runtime_log_warn(format!("[启动] 等待登录 shell 退出失败: err={err}"));
+                return;
+            }
+        }
+        if std::time::Instant::now() >= deadline {
+            let _ = child.kill();
+            let _ = child.wait();
+            runtime_log_warn("[启动] 读取登录 shell PATH 超时，跳过环境同步".to_string());
+            return;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    };
+    let stdout = stdout.unwrap_or_default();
+    if !status.success() {
+        runtime_log_warn(format!(
+            "[启动] 读取登录 shell PATH 失败: exit_code={}",
+            status.code().unwrap_or(-1)
+        ));
+        return;
+    }
+    let Some(path_start) = stdout.rfind(PATH_BEGIN).map(|index| index + PATH_BEGIN.len()) else {
+        runtime_log_warn(format!("[启动] 登录 shell 未返回 PATH 标记，跳过环境同步"));
+        return;
+    };
+    let Some(path_end) = stdout[path_start..]
+        .find(PATH_END)
+        .map(|index| path_start + index)
+    else {
+        runtime_log_warn(format!("[启动] 登录 shell PATH 标记不完整，跳过环境同步"));
+        return;
+    };
+    let login_path = std::ffi::OsString::from(stdout[path_start..path_end].trim());
+    if login_path.is_empty() {
+        runtime_log_warn(format!("[启动] 登录 shell PATH 为空，跳过环境同步"));
+        return;
+    }
+
+    let current_path = std::env::var_os("PATH").unwrap_or_default();
+    let mut merged = Vec::<PathBuf>::new();
+    for path in std::env::split_paths(&login_path).chain(std::env::split_paths(&current_path)) {
+        if !path.as_os_str().is_empty() && !merged.iter().any(|item| item == &path) {
+            merged.push(path);
+        }
+    }
+    let Ok(path) = std::env::join_paths(merged) else {
+        runtime_log_warn(format!("[启动] 合并登录 shell PATH 失败，跳过环境同步"));
+        return;
+    };
+    std::env::set_var("PATH", path);
+    runtime_log_info(format!("[启动] 已同步登录 shell PATH"));
+}
+
+#[cfg(not(any(target_os = "macos", target_os = "linux")))]
+fn unix_extend_process_path_from_login_shell() {}
 
 fn install_tauri_async_runtime() -> Result<tokio::runtime::Runtime, String> {
     let runtime = tokio::runtime::Builder::new_multi_thread()
@@ -285,12 +392,21 @@ async fn run_deferred_setup(app_handle: AppHandle) {
             .await;
         }
     });
-    emit_progress("启动录音热键探针");
-    if let Err(err) = start_record_hotkey_probe(
-        app_handle.clone(),
-        app_state.config_path.clone(),
-    ) {
-        runtime_log_error(format!("[启动-延迟] 启动录音热键探针失败: {err}"));
+    #[cfg(any(target_os = "windows", target_os = "linux"))]
+    {
+        let wayland_only =
+            cfg!(target_os = "linux") && std::env::var_os("WAYLAND_DISPLAY").is_some();
+        if wayland_only {
+            runtime_log_info("[启动-延迟] Wayland 会话不支持按键监听，跳过录音热键探针".to_string());
+        } else {
+            emit_progress("启动录音热键探针");
+            if let Err(err) = start_record_hotkey_probe(
+                app_handle.clone(),
+                app_state.config_path.clone(),
+            ) {
+                runtime_log_error(format!("[启动-延迟] 启动录音热键探针失败: {err}"));
+            }
+        }
     }
     emit_progress("配置自检");
     match state_read_config_cached(app_state.inner()) {
@@ -816,15 +932,10 @@ fn graceful_restart_app(app: &AppHandle) {
 fn main() {
     init_backend_file_logging();
     install_backend_file_panic_hook();
+    unix_extend_process_path_from_login_shell();
 
     if std::env::args().any(|arg| arg == MCP_SCREENSHOT_SERVER_FLAG) {
         if let Err(err) = run_desktop_screenshot_mcp_server() {
-            runtime_log_info(format!("{err}"));
-        }
-        return;
-    }
-    if std::env::args().any(|arg| arg == MCP_OPERATE_SERVER_FLAG) {
-        if let Err(err) = run_operate_mcp_server() {
             runtime_log_info(format!("{err}"));
         }
         return;
@@ -1025,6 +1136,7 @@ fn main() {
             refresh_storage_usage_overview,
             get_usage_overview,
             refresh_usage_overview,
+            get_usage_trail,
             open_storage_usage_item_directory,
             cleanup_storage_legacy_items,
             load_app_bootstrap_snapshot,
@@ -1105,6 +1217,7 @@ fn main() {
             delete_tool_review_report,
             list_tool_review_commit_options,
             get_tool_review_item_detail,
+            get_tool_review_batch_details,
             run_tool_review_for_call,
             set_tool_review_item_user_decision,
             run_tool_review_for_batch,

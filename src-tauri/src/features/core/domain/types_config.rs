@@ -776,6 +776,8 @@ struct ApiModelConfig {
     id: String,
     model: String,
     #[serde(default)]
+    display_name: String,
+    #[serde(default)]
     deprecated: bool,
     #[serde(default = "default_false")]
     enable_image: bool,
@@ -804,6 +806,7 @@ impl Default for ApiModelConfig {
         Self {
             id: "default-model".to_string(),
             model: "gpt-4o-mini".to_string(),
+            display_name: String::new(),
             deprecated: false,
             enable_image: false,
             enable_audio: false,
@@ -991,7 +994,7 @@ fn default_provider_non_stream_base_urls() -> Vec<String> {
 }
 
 fn default_record_background_wake_enabled() -> bool {
-    true
+    false
 }
 
 fn default_message_notification_enabled() -> bool {
@@ -1000,6 +1003,10 @@ fn default_message_notification_enabled() -> bool {
 
 fn default_message_notification_sound_enabled() -> bool {
     false
+}
+
+fn default_desktop_operation_notice_enabled() -> bool {
+    true
 }
 
 fn default_ui_language() -> String {
@@ -1275,6 +1282,8 @@ struct AppConfig {
     message_notification_enabled: bool,
     #[serde(default = "default_message_notification_sound_enabled")]
     message_notification_sound_enabled: bool,
+    #[serde(default = "default_desktop_operation_notice_enabled")]
+    desktop_operation_notice_enabled: bool,
     selected_api_config_id: String,
     #[serde(default, alias = "chatApiConfigId")]
     assistant_department_api_config_id: String,
@@ -1331,6 +1340,7 @@ impl Default for AppConfig {
             llm_round_log_capacity: default_llm_round_log_capacity(),
             message_notification_enabled: default_message_notification_enabled(),
             message_notification_sound_enabled: default_message_notification_sound_enabled(),
+            desktop_operation_notice_enabled: default_desktop_operation_notice_enabled(),
             selected_api_config_id: api_config.id.clone(),
             assistant_department_api_config_id: api_config.id.clone(),
             vision_api_config_id: None,

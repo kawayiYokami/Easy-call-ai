@@ -16,8 +16,14 @@
           </select>
         </div>
         <div class="flex flex-wrap items-center justify-end gap-2">
-          <button class="btn btn-sm btn-ghost" type="button" @click="reload" :disabled="loading">刷新</button>
-          <button v-if="localFileSystemAvailable" class="btn btn-sm btn-ghost" type="button" @click="openSkillsDir" :disabled="loading">打开目录</button>
+          <button class="btn btn-sm bg-base-100" type="button" @click="reload" :disabled="loading">
+            <RefreshCw class="h-4 w-4" :class="{ 'animate-spin': loading }" />
+            刷新
+          </button>
+          <button v-if="localFileSystemAvailable" class="btn btn-sm bg-base-100" type="button" @click="openSkillsDir" :disabled="loading">
+            <FolderOpen class="h-4 w-4" />
+            打开目录
+          </button>
         </div>
       </div>
     </template>
@@ -53,6 +59,7 @@
 
 <script setup lang="ts">
 import { computed, onMounted, ref } from "vue";
+import { FolderOpen, RefreshCw } from "@lucide/vue";
 import { getTransportCapabilities, invokeTauri, openTransportSkillWorkspaceDirectory } from "../../../../services/tauri-api";
 import type { SkillListResult, SkillSummaryItem } from "../../../../types/app";
 import { toErrorMessage } from "../../../../utils/error";

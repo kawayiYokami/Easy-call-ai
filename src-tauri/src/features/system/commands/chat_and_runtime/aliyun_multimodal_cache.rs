@@ -701,11 +701,21 @@ async fn maybe_prepare_aliyun_multimodal_urls_for_candidate(
     used_url_count += used_urls;
 
     if !new_items.is_empty() {
-        apply_aliyun_multimodal_cache_items_to_conversation(
-            conversation,
-            &state.data_path,
-            &new_items,
-        );
+        // 缓存命中校验含同步文件读取与哈希计算，移到 blocking 线程池执行。
+        let mut conversation_owned = conversation.clone();
+        let data_path_owned = state.data_path.clone();
+        let items_owned = new_items.clone();
+        let patched = tokio::task::spawn_blocking(move || {
+            apply_aliyun_multimodal_cache_items_to_conversation(
+                &mut conversation_owned,
+                &data_path_owned,
+                &items_owned,
+            );
+            conversation_owned
+        })
+        .await
+        .map_err(|err| format!("百炼多模态缓存应用任务失败：{err}"))?;
+        *conversation = patched;
         if persist_cache {
             persist_aliyun_multimodal_cache_conversation_update(
                 state,

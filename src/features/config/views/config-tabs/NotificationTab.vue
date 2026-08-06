@@ -41,6 +41,20 @@
         />
       </label>
     </template>
+    <template #row-desktop-notice>
+      <label class="flex min-w-0 items-center justify-between gap-4">
+        <div class="min-w-0">
+          <div class="text-sm">{{ t("config.notification.desktopNoticeLabel") }}</div>
+          <div class="mt-1 text-xs text-base-content/60">{{ t("config.notification.desktopNoticeHint") }}</div>
+        </div>
+        <input
+          :checked="props.config.desktopOperationNoticeEnabled"
+          class="toggle toggle-sm toggle-primary shrink-0"
+          type="checkbox"
+          @change="props.config.desktopOperationNoticeEnabled = ($event.target as HTMLInputElement).checked"
+        />
+      </label>
+    </template>
   </ConfigTemplate>
 </template>
 
@@ -67,6 +81,7 @@ const templateGroups = computed<ConfigTemplateGroup[]>(() => [
     rows: [
       { key: "enable-notification", items: [] },
       { key: "sound-notification", items: [] },
+      { key: "desktop-notice", items: [] },
     ],
   },
 ]);
@@ -77,11 +92,13 @@ const savedNotificationSnapshot = computed(() => {
     return {
       messageNotificationEnabled: parsed.messageNotificationEnabled !== false,
       messageNotificationSoundEnabled: parsed.messageNotificationSoundEnabled === true,
+      desktopOperationNoticeEnabled: parsed.desktopOperationNoticeEnabled !== false,
     };
   } catch {
     return {
       messageNotificationEnabled: true,
       messageNotificationSoundEnabled: false,
+      desktopOperationNoticeEnabled: true,
     };
   }
 });
@@ -89,6 +106,7 @@ const savedNotificationSnapshot = computed(() => {
 const notificationDirty = computed(() => (
   props.config.messageNotificationEnabled !== savedNotificationSnapshot.value.messageNotificationEnabled
   || props.config.messageNotificationSoundEnabled !== savedNotificationSnapshot.value.messageNotificationSoundEnabled
+  || props.config.desktopOperationNoticeEnabled !== savedNotificationSnapshot.value.desktopOperationNoticeEnabled
 ));
 
 async function handleSaveConfig() {

@@ -33,7 +33,6 @@ type UseChatFlowStopOptions = {
   setActiveActivationId: (value: string) => void;
   getActiveActivationId: () => string;
   setActiveRoundAgentId: (value: string) => void;
-  markStoppedRound: (input: { messageId: string; activationId?: string }) => void;
   clearFrontendDispatchTimer: () => void;
   getPendingUserDraftId: () => string;
   removeMessage: (messageId: string) => void;
@@ -49,6 +48,8 @@ type UseChatFlowStopOptions = {
   deleteSendStartedAtMs: (gen: number) => void;
   clearConversationStreamCache: (conversationId?: string | null) => void;
   reasoningStartedAtMs: Ref<number>;
+  // 停止前冲刷流式文本缓冲，避免最后 100ms 的正文/思维链内容丢失。
+  flushStreamTextBuffer: () => void;
 };
 
 function stringifyStopError(error: unknown): string {
@@ -128,9 +129,6 @@ export function useChatFlowStop(options: UseChatFlowStopOptions) {
       options.removeMessage(pendingUserDraftId);
     }
 
-    if (messageId) {
-      options.markStoppedRound({ messageId, activationId });
-    }
     if (round.phase === "streaming" || round.phase === "queued") {
       options.deleteSendStartedAtMs(round.gen);
     }
@@ -154,6 +152,8 @@ export function useChatFlowStop(options: UseChatFlowStopOptions) {
   }
 
   async function stopChat() {
+    // 先冲刷流式文本缓冲，让最后一段正文进入消息状态，再冻结轮次。
+    options.flushStreamTextBuffer();
     const round = options.getRound();
     const hasStreamingAssistant = options.allMessages.value.some((message) => {
       const providerMeta = (message?.providerMeta || {}) as Record<string, unknown>;

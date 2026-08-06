@@ -76,6 +76,17 @@ export type ToolReviewItemDetail = {
   review?: ToolReviewStoredReview;
 };
 
+export type ToolReviewSegment = {
+  path: string;
+  action: "add" | "update" | "delete" | "move" | string;
+  diffLines: string[];
+};
+
+type ToolReviewBatchDetailsOutput = {
+  batchKey: string;
+  segments: ToolReviewSegment[];
+};
+
 type ToolReviewBatchListOutput = {
   batches: ToolReviewBatchSummary[];
   currentBatchKey?: string;
@@ -129,6 +140,7 @@ export function useChatToolReview(options: UseChatToolReviewOptions) {
   const toolReviewBatches = ref<ToolReviewBatchSummary[]>([]);
   const toolReviewCurrentBatchKey = ref("");
   const toolReviewDetailMap = ref<Record<string, ToolReviewItemDetail>>({});
+  const toolReviewSegmentMap = ref<Record<string, ToolReviewSegment[]>>({});
   const toolReviewDetailLoadingCallId = ref("");
   const toolReviewReviewingCallId = ref("");
   const toolReviewDecisionCallId = ref("");
@@ -292,6 +304,7 @@ export function useChatToolReview(options: UseChatToolReviewOptions) {
       toolReviewBatches.value = [];
       toolReviewCurrentBatchKey.value = "";
       toolReviewDetailMap.value = {};
+      toolReviewSegmentMap.value = {};
       return;
     }
     try {
@@ -308,6 +321,10 @@ export function useChatToolReview(options: UseChatToolReviewOptions) {
       const validCallIds = new Set(toolReviewBatches.value.flatMap((batch) => batch.items.map((item) => item.callId)));
       toolReviewDetailMap.value = Object.fromEntries(
         Object.entries(toolReviewDetailMap.value).filter(([callId]) => validCallIds.has(callId))
+      );
+      const validBatchKeys = new Set(toolReviewBatches.value.map((batch) => batch.batchKey));
+      toolReviewSegmentMap.value = Object.fromEntries(
+        Object.entries(toolReviewSegmentMap.value).filter(([batchKey]) => validBatchKeys.has(batchKey))
       );
       toolReviewErrorText.value = "";
       await refreshToolReviewReports();
@@ -343,6 +360,33 @@ export function useChatToolReview(options: UseChatToolReviewOptions) {
       if (toolReviewDetailLoadingCallId.value === normalizedCallId) {
         toolReviewDetailLoadingCallId.value = "";
       }
+    }
+  }
+
+  async function loadToolReviewBatchSegments(batchKey: string, force = false) {
+    const normalizedBatchKey = String(batchKey || "").trim();
+    const conversationId = String(options.activeConversationId.value || "").trim();
+    if (!normalizedBatchKey || !conversationId) return;
+    const cachedSegments = toolReviewSegmentMap.value[normalizedBatchKey];
+    if (!force && cachedSegments) return;
+    const batchIndex = toolReviewBatches.value.findIndex(
+      (batch) => String(batch.batchKey || "").trim() === normalizedBatchKey,
+    );
+    if (batchIndex < 0) return;
+    try {
+      const result = await requestToolReview<ToolReviewBatchDetailsOutput>("get_tool_review_batch_details", {
+        input: {
+          conversationId,
+          batchIndex,
+        },
+      });
+      toolReviewSegmentMap.value = {
+        ...toolReviewSegmentMap.value,
+        [normalizedBatchKey]: Array.isArray(result?.segments) ? result.segments : [],
+      };
+      toolReviewErrorText.value = "";
+    } catch (error) {
+      toolReviewErrorText.value = options.t("chat.toolReview.loadFailed", { err: formatToolReviewError(error) });
     }
   }
 
@@ -448,6 +492,14 @@ export function useChatToolReview(options: UseChatToolReviewOptions) {
   }
 
   watch(
+    () => toolReviewCurrentBatchKey.value,
+    (batchKey) => {
+      if (!String(batchKey || "").trim()) return;
+      void loadToolReviewBatchSegments(batchKey);
+    },
+  );
+
+  watch(
     () => options.refreshTick.value,
     () => {
       if (!String(options.activeConversationId.value || "").trim()) return;
@@ -469,6 +521,7 @@ export function useChatToolReview(options: UseChatToolReviewOptions) {
     (conversationId) => {
       toolReviewBatches.value = [];
       toolReviewDetailMap.value = {};
+      toolReviewSegmentMap.value = {};
       toolReviewDetailLoadingCallId.value = "";
       toolReviewReviewingCallId.value = "";
       toolReviewBatchReviewingKey.value = "";
@@ -490,6 +543,7 @@ export function useChatToolReview(options: UseChatToolReviewOptions) {
     toolReviewBatches,
     toolReviewCurrentBatchKey,
     toolReviewDetailMap,
+    toolReviewSegmentMap,
     toolReviewDetailLoadingCallId,
     toolReviewReviewingCallId,
     toolReviewBatchReviewingKey,
@@ -504,6 +558,7 @@ export function useChatToolReview(options: UseChatToolReviewOptions) {
     refreshToolReviewReports,
     setToolReviewCurrentBatchKey,
     loadToolReviewItemDetail,
+    loadToolReviewBatchSegments,
     runToolReviewForCall,
     runToolReviewForBatch,
     submitToolReviewCode,

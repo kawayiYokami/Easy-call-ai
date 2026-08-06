@@ -1547,12 +1547,16 @@ async fn send_chat_message_inner(
                         .collect::<Vec<_>>()
                 })
                 .unwrap_or_default();
+            // 附件二进制准备含同步文件读取与图片编码，用 block_in_place 执行，
+            // 将当前 worker 标记为 blocking，其他任务可调度到别的线程，避免卡死 executor。
             normalized_storage_media_for_prompt = Some(
-                build_prepared_binary_payloads_from_message_parts(
-                    &user_parts,
-                    &storage_image_saved_paths,
-                    &storage_audio_saved_paths,
-                ),
+                tokio::task::block_in_place(|| {
+                    build_prepared_binary_payloads_from_message_parts(
+                        &user_parts,
+                        &storage_image_saved_paths,
+                        &storage_audio_saved_paths,
+                    )
+                }),
             );
             let mut user_provider_meta =
                 provider_meta_without_legacy_attachments(input.payload.provider_meta.clone());
@@ -1718,7 +1722,14 @@ async fn send_chat_message_inner(
                                 == Some("user")
                         })
                         .ok_or_else(|| "当前对话没有可供发送的用户消息。".to_string())?;
-                    collect_prompt_media_parts(latest_user_message, Some(&state.data_path))
+                    // 历史消息附件读取是同步 IO，用 block_in_place 执行，
+                    // 将当前 worker 标记为 blocking，其他任务可调度到别的线程。
+                    tokio::task::block_in_place(|| {
+                        collect_prompt_media_parts(
+                            latest_user_message,
+                            Some(&state.data_path),
+                        )
+                    })
                 };
             build_effective_prompt_media_from_prepared(
                 &effective_payload,

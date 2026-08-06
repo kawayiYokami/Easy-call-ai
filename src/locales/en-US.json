@@ -49,14 +49,14 @@
       "department": "Departments",
       "departmentTree": "Department Tree",
       "demo": "Demo",
-      "chatSettings": "Chat",
+      "chatSettings": "Common",
       "notification": "Notification",
       "networkAccess": "Network",
       "remoteIm": "Contacts",
       "usage": "Usage",
       "memory": "Memory",
       "task": "Task",
-      "logs": "Logs",
+      "logs": "Debug",
       "appearance": "Appearance",
       "migration": "Storage",
       "about": "About"
@@ -67,21 +67,20 @@
     },
     "language": {},
     "hotkey": {
-      "label": "Summon Hotkey",
+      "label": "Hotkeys",
       "recordButton": "Record Hotkey",
-      "callNowButton": "Summon AI",
-      "callNowHint": "This app has a tray icon. You can open chat from the tray menu.",
       "recording": "Listening...",
       "captureDefaultHint": "Click \"Record Hotkey\", then press a combo (e.g. Alt+·). Esc to cancel.",
       "captureListeningHint": "Press a key combination...",
       "captureCancelledHint": "Capture cancelled.",
       "captureNeedMainKeyHint": "Press one non-modifier key as well.",
-      "captureNeedModifierHint": "Global hotkey requires at least one modifier (Ctrl/Alt/Shift/Meta).",
+      "captureNeedModifierHint": "Global hotkey requires at least one modifier (Ctrl/Alt/Shift).",
+      "captureMetaNotSupportedHint": "Win/⌘ keys are not supported as a global hotkey.",
       "captureUnrecognizedHint": "Key not recognized, please try again.",
       "captureCapturedHint": "Captured: {combo}",
       "voiceTitle": "Voice",
       "recordKey": "Record Key",
-      "backgroundWakeHint": "Enable background voice wake (hold record hotkey)",
+      "backgroundWakeTitle": "Background Voice Wake (hold record key)",
       "backgroundWakeOn": "Background Wake: On",
       "backgroundWakeOff": "Background Wake: Off",
       "minRecordSeconds": "Min Record (s)",
@@ -98,12 +97,19 @@
       "holdToRecord": "Hold to record",
       "holdRecordButton": "Hold to record",
       "playRecord": "Play Record",
-      "builtinShortcuts": "Built-in Shortcuts",
+      "sendMode": "Send Hotkey",
+      "sendModeHint": "Switch how Enter sends messages in the chat input: Enter or Ctrl+Enter.",
       "builtinTabInstruction": "Shortcut Command",
+      "builtinTabInstructionHint": "Open the quick command panel to pick a command.",
       "builtinEscStopReplying": "Interrupt current reply",
+      "builtinEscStopReplyingHint": "Stop the AI's ongoing reply.",
       "builtinShiftTabPlanMode": "Toggle Plan Mode",
+      "builtinShiftTabPlanModeHint": "Switch between normal mode and plan mode.",
       "builtinAltZLineWrap": "Toggle line wrap in code previews",
-      "builtinShiftWheelConversationSwitch": "Switch Conversation"
+      "builtinAltZLineWrapHint": "Toggle automatic line wrapping in code previews.",
+      "builtinShiftWheelConversationSwitch": "Switch Conversation",
+      "builtinShiftWheelConversationSwitchHint": "Scroll through recent conversations.",
+      "builtinWheelKey": "Wheel"
     },
     "notification": {
       "title": "Message Notifications",
@@ -111,7 +117,9 @@
       "enableLabel": "Enable notifications",
       "enableHint": "When off, no system notification is shown for background local chat completion or failure.",
       "soundLabel": "Enable sound",
-      "soundHint": "When on, Windows native notifications use the system default sound."
+      "soundHint": "When on, Windows native notifications use the system default sound.",
+      "desktopNoticeLabel": "Desktop operation alerts",
+      "desktopNoticeHint": "Show a system notification before the model performs mouse, keyboard, text input, or screenshot actions on your PC."
     },
     "api": {
       "saving": "Saving...",
@@ -131,6 +139,9 @@
       "modelCardsHint": "Enter model names manually, or pick from refreshed results.",
       "addModel": "Add Model",
       "unnamedModel": "Unnamed Model",
+      "emptyModelNotAllowed": "There are model cards without a model name. Fill in the model name or remove the card before saving.",
+      "editDisplayName": "Click to edit display name",
+      "displayNamePlaceholder": "Enter the display name you want",
       "matchedProtocol": "Matched protocol: {protocol}",
       "capabilityText": "Models",
       "capabilityVoice": "Voice",
@@ -276,6 +287,16 @@
       "modelHint": "New totals are split by provider and model. Older unsplit residue is merged into the inferred provider/model.",
       "agentTitle": "Persona Usage",
       "kindTitle": "Conversation Type Usage",
+      "kinds": {
+        "normal": "Normal",
+        "delegate": "Delegate",
+        "archived": "Archived",
+        "systemNotification": "System Notification",
+        "remoteImContact": "Remote Contact"
+      },
+      "deletedConversation": "Deleted conversation",
+      "unboundAgent": "Unbound persona",
+      "unknownProvider": "Unknown provider",
       "conversationTitle": "Conversation Usage",
       "conversationHint": "Sorted by weighted usage so the most expensive conversations are easy to spot.",
       "empty": "No usage data yet.",
@@ -287,12 +308,12 @@
       "updatedAt": "Updated: {time}",
       "conversationAvatar": "Conversation avatar",
       "columns": {
-        "provider": "Provider",
         "model": "Model",
         "weightedTokens": "Weighted",
-        "totalTokens": "Total Input",
+        "totalTokens": "Total",
         "cacheHitRate": "Cache Hit Rate",
         "outputTokens": "Output",
+        "reasoningTokens": "Reasoning",
         "cacheReadTokens": "Cache Read",
         "cacheWrite": "Cache Write",
         "conversationCount": "Conversations",
@@ -310,14 +331,10 @@
         "archived": "Archived"
       },
       "stats": {
-        "weightedTokens": "Weighted",
-        "referenceOnly": "Reference only",
-        "outputTokens": "Total Output",
+        "totalTokens": "Total",
+        "outputTokens": "Output",
         "reasoningTokens": "Reasoning",
-        "cacheReadTokens": "Total Cache Read",
-        "cacheWrite": "Cache Write",
-        "averageCacheHitRate": "Avg. Cache Hit Rate",
-        "cacheHitRateHint": "Includes non-cacheable requests"
+        "averageCacheHitRate": "Cache Hit Rate"
       }
     },
     "migration": {
@@ -355,121 +372,58 @@
       "applySuccess": "Migration applied. The app will restart now."
     },
     "welcome": {
-      "title": "Welcome Setup Check",
-      "subtitle": "These cards check whether your key settings are ready. Finish the required items first, then the recommended ones.",
-      "askLlmHint": "If you are unsure how to configure something, just send a screenshot to the LLM and ask it to guide you step by step.",
-      "requiredBadge": "Required",
-      "stronglyRecommendedBadge": "Strongly Recommended",
-      "recommendedBadge": "Recommended",
-      "currentState": "Current state: ",
       "autoInstall": "Install automatically",
-      "manualInstall": "Manual install",
+      "notInstalled": "not installed",
+      "notSet": "not set",
       "installing": "Installing...",
       "installSuccess": "Installed and checked again.",
       "installFailedFallback": "Automatic install failed. The official download page was opened: {err}",
-      "stats": {},
+      "trail": {
+        "title": "Usage",
+        "viewToday": "Today",
+        "viewHistory": "History",
+        "conversationCount": "Conversations",
+        "totalTokens": "Total Tokens",
+        "epochTitle": "Historical Total",
+        "epochHint": "Usage from the legacy ledger",
+        "loadFailed": "Failed to load usage wall: {err}",
+        "chartArea": "Area",
+        "yearTotal": "{year} usage",
+        "activePeriod": "Most active: {period}",
+        "legendLess": "Less",
+        "legendMore": "More",
+        "months": [
+          "",
+          "Jan",
+          "Feb",
+          "Mar",
+          "Apr",
+          "May",
+          "Jun",
+          "Jul",
+          "Aug",
+          "Sep",
+          "Oct",
+          "Nov",
+          "Dec"
+        ],
+        "chartPolar": "Polar"
+      },
       "cards": {
         "git": {
-          "title": "Git",
-          "summary": "Git is required. Terminal workflows, Git Bash, and a lot of later development collaboration depend on it.",
-          "currentOk": "Git was detected.",
-          "currentMissing": "Git was not detected yet. Try automatic install; if it fails, the official page will open.",
-          "action": "Open Tools",
-          "install": "Install Git"
+          "title": "Git"
         },
         "node": {
-          "title": "Node.js",
-          "summary": "Node.js is required. Frontend development, many script tools, and later MCP / skill installation depend on it.",
-          "currentOk": "Node.js was detected.",
-          "currentMissing": "Node.js was not detected yet. Try automatic install; if it fails, the official page will open.",
-          "action": "Open Tools",
-          "install": "Install Node.js"
+          "title": "Node.js"
         },
         "ripgrep": {
-          "title": "ripgrep (rg)",
-          "summary": "rg is a fast code search tool commonly used in programming workflows. It makes file and text search faster in large projects.",
-          "currentOk": "rg was detected.",
-          "currentMissing": "rg was not detected. You can ask PAI how to install rg.",
-          "action": "Open Tools"
-        },
-        "textModel": {
-          "title": "Available Text Model",
-          "summary": "The app needs at least one working text model. A multimodal one is recommended.",
-          "currentOkMultimodal": "A working multimodal text model was found: {name}",
-          "currentOk": "A working text model was found: {name}. It is not multimodal yet.",
-          "currentMissing": "No working text model was detected yet.",
-          "action": "Open LLM"
+          "title": "ripgrep (rg)"
         },
         "expertModel": {
-          "title": "Expert Model",
-          "summary": "Used by default for main chat and expert tasks.",
-          "currentOk": "Set to: {name}",
-          "currentMissing": "The expert model is not set yet.",
-          "action": "Open Model Roles"
+          "title": "Expert Model"
         },
         "quickModel": {
-          "title": "Fast Model",
-          "summary": "Used by default for tool review, contact secretary, and lightweight fixed flows.",
-          "currentOk": "Set to: {name}",
-          "currentMissing": "The fast model is not set yet.",
-          "action": "Open Model Roles"
-        },
-        "voice": {
-          "title": "Speech Recognition",
-          "summary": "If you want voice input, this is a very worthwhile setup.",
-          "currentOk": "A speech recognition model was found: {name}",
-          "currentMissing": "No speech recognition model was detected yet.",
-          "action": "Open Voice Setup"
-        },
-        "embedding": {
-          "title": "Embedding Model",
-          "summary": "If you want stronger memory, retrieval, and recall, you should prepare an embedding model.",
-          "currentOk": "An embedding model was found: {name}",
-          "currentMissing": "No embedding model was detected yet.",
-          "action": "Open Embedding Setup"
-        },
-        "rerank": {
-          "title": "Rerank Model",
-          "summary": "This helps the AI pick the most relevant items from a lot of information. It is a strong quality upgrade for search and memory, so it is strongly recommended.",
-          "currentOk": "A rerank model was found: {name}",
-          "currentMissing": "No rerank model was detected yet.",
-          "action": "Open Rerank Setup"
-        },
-        "memory": {
-          "title": "Memory",
-          "summary": "Memory helps the AI remember important things more reliably. After you prepare embedding and rerank, it is a good idea to finish the setup here.",
-          "currentOk": "Memory is ready to use.",
-          "currentMissingModel": "You have not prepared memory models yet. That is fine for now if you do not need memory yet.",
-          "currentMissingBinding": "You already have embedding or rerank models, but memory has not been fully turned on in the Memory page yet.",
-          "action": "Open Memory"
-        },
-        "persona": {
-          "title": "Persona",
-          "summary": "Personas are different helper styles. You can make one for writing, one for execution, or one just for casual chatting.",
-          "currentOk": "{count} usable personas are ready.",
-          "currentMissing": "You do not have extra personas yet. The default assistant is enough to get started.",
-          "action": "Open Persona"
-        },
-        "department": {
-          "title": "Department",
-          "summary": "Departments are work groups. Later you can split collection, planning, and execution into different departments.",
-          "currentOk": "{count} extra departments are ready.",
-          "currentMissing": "You do not have extra departments yet. Using only the primary department is totally fine.",
-          "action": "Open Departments"
-        },
-        "skill": {
-          "title": "Skill",
-          "summary": "Skills are small how-to guides for the AI. If you are new, you can leave this empty for now and add them later.",
-          "currentOk": "{count} skills were detected.",
-          "currentMissing": "No skills were detected yet. That is okay for now.",
-          "action": "Open Skill"
-        },
-        "mcp": {
-          "title": "MCP",
-          "summary": "MCP connects extra outside tools or services to the AI. Beginners can safely skip this until they really need it.",
-          "currentOk": "{count} MCP services are enabled.",
-          "currentMissing": "No MCP services are enabled yet. That is not a problem.",
-          "action": "Open MCP"
+          "title": "Fast Model"
         }
       }
     },
@@ -565,10 +519,6 @@
       "testFailed": "Image generation test failed"
     },
     "tools": {
-      "gitRequiredHint": "No supported shell was detected. Install Git first and use Git Bash.",
-      "installGit": "Install Git (Git Bash)",
-      "terminalRuntime": "Terminal Runtime",
-      "terminalRuntimeHint": "",
       "shellWorkspace": "PAI Assistant Space",
       "openDir": "Open Directory",
       "initializeWorkspace": "Initialize Assistant Space",
@@ -784,6 +734,10 @@
     "chatSettings": {
       "defaultModelsTitle": "Model Roles",
       "defaultModelsHint": "Set the default model for each role here when nothing more specific is configured.",
+      "execTerminalTitle": "Execute Terminal",
+      "execTerminalHint": "",
+      "gitRequiredHint": "No supported shell was detected. Install Git first and use Git Bash.",
+      "installGit": "Install Git (Git Bash)",
       "visionApi": "Multimodal Analysis Model (Optional)",
       "visionApiHint": "Bind a dedicated multimodal model for `read_media` to analyze images, audio, and video. When set to none, the read_media tool is not offered to the model.",
       "toolReviewApi": "Fast Model",
@@ -793,7 +747,7 @@
       "sttTitle": "Speech-to-Text Model",
       "sttHint": "Used first when no STT model is set elsewhere.",
       "sttLocalWebSpeech": "Local (Web Speech)",
-      "sttAutoSend": "Send on completion",
+      "sttAutoSend": "Send directly after speech-to-text",
       "noVision": "No multimodal model",
       "responseStyle": "Response Style",
       "pdfReadMode": "PDF Read Mode",
@@ -1352,7 +1306,7 @@
       "recentElapsed": "Recent elapsed time"
     },
     "logs": {
-      "title": "Call Logs (Memory)",
+      "title": "Debug Settings",
       "backendLogs": "Backend Logs",
       "refreshPipelineLogs": "Refresh Pipeline Logs",
       "clearPipelineLogs": "Clear Pipeline Logs",
@@ -1460,8 +1414,7 @@
     "none": "No Preference",
     "concise": "Concise",
     "academic": "Academic",
-    "teaching": "Teaching",
-    "abstract": "Abstract"
+    "teaching": "Teaching"
   },
   "chat": {
     "loadingOlderMessages": "Loading older messages",
@@ -1485,12 +1438,16 @@
     "dropImageOrPdf": "Drop files (images/PDF can be multimodal)",
     "attach": "Attach",
     "send": "Send",
+    "sendModeEnter": "Send message with Enter",
+    "sendModeCtrlEnter": "Send message with Ctrl + Enter",
+    "sendModeMenu": "Switch send shortcut",
     "newConversation": "New Conversation",
     "newTask": "New Task",
     "conversationList": "Conversation List",
     "untitledConversation": "Untitled",
     "mainConversationPinned": "System notification conversation is always pinned",
     "recentConversations": "Recent",
+    "revealConversationSection": "Reveal group",
     "pinnedConversations": "Pinned",
     "otherConversations": "Others",
     "localConversationTab": "Local",
@@ -1534,9 +1491,9 @@
     "defaultWorkspace": "Default session directory",
     "workspacePickerTitle": "Directories AI Can Access",
     "workspacePickerHint": "Here you can choose the folders you want the AI to see, and the root directory where tools run.",
-    "workspaceWorkModeDirectory": "In this directory",
-    "workspaceWorkModeIsolated": "Worktree",
-    "workspaceWorkModeIndependent": "Independent worktree",
+    "workspaceWorkModeDirectory": "Work in this directory",
+    "workspaceWorkModeIsolated": "Work in all worktrees of this directory",
+    "workspaceWorkModeIndependent": "Work in this conversation's worktree",
     "workspaceWorktreeRequiresApproval": "Worktree modes require at least approval access.",
     "workspaceWorktreeUnavailable": "The selected directory is not a Git repository root. Work location was changed to ‘In this directory’.",
     "workspaceWorktreeChecking": "Checking the Git repository…",
@@ -1547,7 +1504,7 @@
     "workspaceStatusPermissionApproval": "Review",
     "workspaceStatusPermissionFull": "Full access",
     "workspaceStatusPermissionAutonomous": "Full access",
-    "workspacePickerAutonomous": "Grant maximum permissions to this conversation",
+    "workspacePickerAutonomous": "Always approve all requests in this conversation",
     "workspacePickerAutonomousHint": "When enabled, terminal and patch tools can access any directory and skip directory permissions, smart assessment, and manual approval.",
     "workspacePermissionReadOnly": "Read-only",
     "workspacePermissionDirectoryApproval": "Approval in directory",
@@ -1557,7 +1514,7 @@
     "allowedWorkspaceButton": "Directories AI Can Access",
     "createConversationAction": "Create",
     "createConversationCreating": "Creating",
-    "createConversationMaxPermission": "Grant maximum permissions",
+    "createConversationMaxPermission": "Always approve all requests in this conversation",
     "createConversationDepartmentPersonaLockedHint": "Department/persona cannot be switched after the conversation starts",
     "conversationMenu": {
       "title": "Conversation Menu",
@@ -1688,7 +1645,10 @@
     "recording": "Recording {seconds}s",
     "transcribing": "Transcribing voice...",
     "holdRecord": "Hold {hotkey} or button to record",
-    "placeholder": "Talk to PAI",
+    "placeholder": "Ask {personaName}",
+    "placeholderBusyIdle": "Keep sending—{personaName} will process them one by one after finishing",
+    "placeholderBusyQueued": "Queued messages can switch to guide mode so {personaName} gets them sooner",
+    "placeholderGuided": "Keep guiding more messages; {personaName} receives all guided messages at once",
     "trimTip": "Choose compact or archive for the current chat",
     "branchingConversation": "Creating conversation branch...",
     "branchingConversationDetail": "Please wait while the new conversation branch is prepared.",
@@ -1903,7 +1863,8 @@
       "durationHoursMinutes": "{hours}h{minutes}m",
       "durationMinutesSeconds": "{minutes}m{seconds}s",
       "durationSeconds": "{seconds}s",
-      "scopeUnknown": "Unknown scope"
+      "scopeUnknown": "Unknown scope",
+      "patchOperationMove": "Move"
     },
     "fastRequest": {
       "tab": "Misc",
@@ -2621,10 +2582,14 @@
     "actionOpenDirectory": "Open directory"
   },
   "simpleSetup": {
+    "providerName": "Simple Provider",
     "provider": "Provider",
+    "apiProtocol": "API Protocol",
     "models": "Models",
     "modelQuick": "Quick",
+    "modelQuickHint": "Cheap and fast, for simple tasks",
     "modelExpert": "Expert",
+    "modelExpertHint": "The model you chat with directly",
     "modelVision": "Multimodal",
     "modelVisionHint": "Multimodal: reads images, audio and video",
     "modelPlaceholder": "Enter model name",

@@ -690,7 +690,7 @@ const skillPermissionListDisabled = computed(() =>
   permissionListDisabled.value || skillPermissionRequiresExec.value,
 );
 const visiblePermissionBuiltinTools = computed(() => {
-  return permissionCatalog.value.builtinTools.filter((item) => !builtinPermissionNameForceHidden(item.name));
+  return permissionCatalog.value.builtinTools;
 });
 const visiblePermissionSkills = computed(() => permissionCatalog.value.skills);
 
@@ -721,16 +721,6 @@ function sortPersonasForSelect(personas: PersonaProfile[]): PersonaProfile[] {
     .map((persona, index) => ({ persona, index }))
     .sort((a, b) => personaSelectRank(a.persona) - personaSelectRank(b.persona) || a.index - b.index)
     .map((item) => item.persona);
-}
-
-function builtinPermissionNameForceHidden(name: string): boolean {
-  const department = selectedDepartment.value;
-  if (!department) return false;
-  const toolName = String(name || "").trim();
-  if (!toolName) return true;
-  const isAssistant = department.id === "assistant-department" || !!department.isBuiltInAssistant;
-  if (isAssistant) return false;
-  return ["reload", "organize_context", "screenshot", "operate"].includes(toolName);
 }
 
 function ensureDepartmentPermissionControl(target: DepartmentConfig | null | undefined) {
@@ -908,7 +898,6 @@ function togglePermissionName(
 }
 
 function toggleBuiltinPermissionName(name: string) {
-  if (builtinPermissionNameForceHidden(name)) return;
   togglePermissionName("builtinToolNames", name, !permissionNameChecked("builtinToolNames", name));
 }
 

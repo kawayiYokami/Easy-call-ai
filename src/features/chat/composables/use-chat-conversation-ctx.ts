@@ -41,7 +41,7 @@ export function useChatConversationCtx(
 
   function isOrganizeContextToolCall(call: { name: string; status?: string }): boolean {
     const name = String(call.name || "").trim().toLowerCase();
-    return name === "organize_context" || name === "archive";
+    return name === "archive";
   }
 
   function isOrganizeContextStatusText(text: string): boolean {
