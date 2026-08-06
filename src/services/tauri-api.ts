@@ -2091,24 +2091,29 @@ async function requestWebBridgePassword(): Promise<string> {
   return password;
 }
 
-/** 向父窗口（手机 PAI 壳层）请求远程访问密码；父窗口未回复或超时返回空串。 */
-function requestRemotePasswordFromParent(): Promise<string> {
+/** 向父窗口（手机 PAI 壳层）请求远程访问密码；父窗口未回复或超时返回空串。
+ *  HostWindow 由调用方注入，便于在测试中提供可控的父窗口与消息监听。 */
+export async function requestRemotePasswordFromParent(
+  hostWindow?: Window,
+): Promise<string> {
+  const win =
+    hostWindow ?? (typeof window !== "undefined" ? window : undefined);
+  if (!win || typeof win.parent === "undefined") {
+    return "";
+  }
   return new Promise((resolve) => {
-    if (typeof window === "undefined" || typeof window.parent === "undefined") {
-      resolve("");
-      return;
-    }
     let settled = false;
     const settle = (password: string) => {
       if (settled) return;
       settled = true;
-      window.removeEventListener("message", listener);
-      window.clearTimeout(timer);
+      win.removeEventListener("message", listener);
+      win.clearTimeout(timer);
       resolve(password);
     };
     const listener = (event: MessageEvent) => {
-      // 只接受约定壳层 origin 的消息，防恶意父页面伪造密码注入。
+      // 只接受约定壳层 origin 与父窗口来源的消息，防恶意页面伪造密码注入。
       if (event.origin !== REMOTE_BRIDGE_ALLOWED_ORIGIN) return;
+      if (event.source !== win.parent) return;
       const data = event.data as { source?: unknown; method?: unknown; payload?: unknown } | null;
       if (!data || typeof data !== "object") return;
       if (data.source !== REMOTE_AUTH_BRIDGE_SOURCE) return;
@@ -2116,10 +2121,10 @@ function requestRemotePasswordFromParent(): Promise<string> {
       const password = String((data.payload as { password?: unknown } | null)?.password || "").trim();
       settle(password);
     };
-    const timer = window.setTimeout(() => settle(""), 1500);
-    window.addEventListener("message", listener);
+    const timer = win.setTimeout(() => settle(""), 1500);
+    win.addEventListener("message", listener);
     try {
-      window.parent.postMessage(
+      win.parent.postMessage(
         { source: REMOTE_AUTH_BRIDGE_SOURCE, method: "request-password" },
         REMOTE_BRIDGE_ALLOWED_ORIGIN,
       );

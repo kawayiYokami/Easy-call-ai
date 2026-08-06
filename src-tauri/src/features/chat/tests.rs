@@ -5137,10 +5137,20 @@
     #[test]
     fn assistant_delta_broadcast_conversation_title_should_return_title_for_local_chat() {
         // 钉死：本地普通会话广播 assistantDelta 时附带会话标题（供远程前端通知对齐）。
+        // 标题遵循用户配置的 ui_language：这里设为 en-US，构造无标题且时间解析失败的
+        // 会话，标题应走 "Untitled conversation" 英文兜底，验证标题生成使用用户配置语言。
         let state = test_chat_runtime_state();
-        let now = now_iso();
-        let mut conversation = test_chat_conversation("title-local-chat", "active", &now);
-        conversation.title = "会话标题".to_string();
+        let mut config = AppConfig::default();
+        config.ui_language = "en-US".to_string();
+        state_write_config_cached(&state, &config).expect("write config");
+
+        let mut conversation = test_chat_conversation(
+            "title-local-chat",
+            "active",
+            "not-a-valid-rfc3339-time",
+        );
+        conversation.title = String::new();
+        conversation.summary = String::new();
         conversation.department_id = ASSISTANT_DEPARTMENT_ID.to_string();
         conversation.agent_id = DEFAULT_AGENT_ID.to_string();
         state_schedule_conversation_persist(&state, &conversation).expect("persist conversation");
@@ -5148,23 +5158,33 @@
         let title = assistant_delta_broadcast_conversation_title(&state, &conversation.id);
         assert!(title.is_some(), "本地普通会话应返回会话标题");
         assert!(
-            title.unwrap().contains("会话标题"),
-            "标题应包含会话标题文本"
+            title.unwrap().contains("Untitled conversation"),
+            "en-US 配置下无标题会话的标题应走英文兜底文案"
         );
     }
 
     #[test]
     fn assistant_delta_broadcast_conversation_title_should_return_none_for_non_local_chat() {
         // 钉死：delegate / remote-IM / system-notification 会话不参与本地通知标题，
-        // 广播不应附带标题。
+        // 广播不应附带标题。逐一覆盖判定函数列出的全部过滤分支。
         let state = test_chat_runtime_state();
         let now = now_iso();
-        let mut conversation = test_chat_conversation("title-delegate", "active", &now);
-        conversation.conversation_kind = CONVERSATION_KIND_DELEGATE.to_string();
-        state_schedule_conversation_persist(&state, &conversation).expect("persist conversation");
+        for (conversation_id, kind) in [
+            ("title-delegate", CONVERSATION_KIND_DELEGATE),
+            ("title-remote-im", CONVERSATION_KIND_REMOTE_IM_CONTACT),
+            ("title-system-notification", CONVERSATION_KIND_SYSTEM_NOTIFICATION),
+        ] {
+            let mut conversation = test_chat_conversation(conversation_id, "active", &now);
+            conversation.title = format!("{conversation_id}-标题");
+            conversation.conversation_kind = kind.to_string();
+            state_schedule_conversation_persist(&state, &conversation).expect("persist conversation");
 
-        let title = assistant_delta_broadcast_conversation_title(&state, &conversation.id);
-        assert!(title.is_none(), "delegate 会话不应返回本地通知标题");
+            let title = assistant_delta_broadcast_conversation_title(&state, &conversation.id);
+            assert!(
+                title.is_none(),
+                "{kind} 会话不应返回本地通知标题，conversation_id={conversation_id}"
+            );
+        }
     }
 
     #[test]

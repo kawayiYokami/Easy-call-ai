@@ -48,6 +48,7 @@ import {
   applyTransportConfigMigrationPackage,
   previewTransportConfigMigrationPackage,
   probeTransportConversationStream,
+  requestRemotePasswordFromParent,
   unbindTransportConversationStream,
 } from "./tauri-api";
 
@@ -594,5 +595,86 @@ describe("isTauriRuntimeAvailable", () => {
         __TAURI_INTERNALS__: { invoke: (() => undefined) as unknown },
       }),
     ).toBe(true);
+  });
+});
+
+describe("requestRemotePasswordFromParent", () => {
+  const REMOTE_AUTH_SOURCE = "pai-remote-bridge-auth";
+  const ALLOWED_ORIGIN = "https://tauri.localhost";
+
+  function createHostWindowMock() {
+    const parent = { postMessage: vi.fn() } as unknown as Window;
+    const listeners = new Set<(event: MessageEvent) => void>();
+    let timeoutCallback: (() => void) | undefined;
+    const win = {
+      parent,
+      addEventListener: vi.fn(
+        (_type: string, listener: (event: MessageEvent) => void) => {
+          listeners.add(listener);
+        },
+      ),
+      removeEventListener: vi.fn(
+        (_type: string, listener: (event: MessageEvent) => void) => {
+          listeners.delete(listener);
+        },
+      ),
+      setTimeout: vi.fn((callback: () => void) => {
+        timeoutCallback = callback;
+        return 1;
+      }),
+      clearTimeout: vi.fn(),
+    } as unknown as Window;
+    return {
+      win,
+      parent,
+      listeners,
+      runTimeout: () => timeoutCallback?.(),
+    };
+  }
+
+  function makeMessageEvent(
+    source: unknown,
+    origin: string,
+    password: string,
+  ) {
+    return {
+      origin,
+      source,
+      data: {
+        source: REMOTE_AUTH_SOURCE,
+        method: "password",
+        payload: { password },
+      },
+    } as unknown as MessageEvent;
+  }
+
+  it("来源为 window.parent 且 origin 白名单匹配时返回密码", async () => {
+    const { win, parent, listeners } = createHostWindowMock();
+    const promise = requestRemotePasswordFromParent(win);
+    const listener = [...listeners][0];
+    listener(makeMessageEvent(parent, ALLOWED_ORIGIN, "secret"));
+    await expect(promise).resolves.toBe("secret");
+  });
+
+  it("拒绝非 window.parent 来源的密码消息", async () => {
+    const { win, listeners, runTimeout } = createHostWindowMock();
+    const promise = requestRemotePasswordFromParent(win);
+    const listener = [...listeners][0];
+    // 伪造来源：恶意 iframe 以自身作为 event.source，而非 window.parent。
+    listener(makeMessageEvent({} as Window, ALLOWED_ORIGIN, "evil"));
+    // 拒绝路径不 settle，最终由 1500ms 超时兜底返回空串。
+    runTimeout();
+    await expect(promise).resolves.toBe("");
+  });
+
+  it("拒绝非白名单 origin 的密码消息", async () => {
+    const { win, parent, listeners, runTimeout } = createHostWindowMock();
+    const promise = requestRemotePasswordFromParent(win);
+    const listener = [...listeners][0];
+    listener(
+      makeMessageEvent(parent, "https://evil.example.com", "evil"),
+    );
+    runTimeout();
+    await expect(promise).resolves.toBe("");
   });
 });
