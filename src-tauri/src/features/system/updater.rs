@@ -37,7 +37,10 @@ const UPDATER_GITHUB_RELEASE_PAGE_ORIGIN: &str =
 #[cfg(target_os = "windows")]
 const UPDATER_GITHUB_INSTALLER_MANIFEST_ORIGIN: &str =
     "https://github.com/kawayiYokami/P-ai/releases/latest/download/latest.json";
-#[cfg(not(target_os = "windows"))]
+#[cfg(target_os = "macos")]
+const UPDATER_GITHUB_INSTALLER_MANIFEST_ORIGIN: &str =
+    "https://github.com/kawayiYokami/P-ai/releases/latest/download/latest-darwin.json";
+#[cfg(target_os = "linux")]
 const UPDATER_GITHUB_INSTALLER_MANIFEST_ORIGIN: &str =
     "https://github.com/kawayiYokami/P-ai/releases/latest/download/latest-linux.json";
 const UPDATER_GITHUB_PORTABLE_MANIFEST_ORIGIN: &str =
@@ -1875,11 +1878,6 @@ async fn run_auto_update_cycle(app: AppHandle) {
 }
 
 fn start_github_auto_update_worker(app: AppHandle) {
-    #[cfg(target_os = "macos")]
-    {
-        let _ = app;
-        return;
-    }
     if GITHUB_AUTO_UPDATE_WORKER_STARTED.swap(true, Ordering::SeqCst) {
         return;
     }

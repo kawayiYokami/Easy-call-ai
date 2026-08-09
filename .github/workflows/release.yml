@@ -471,17 +471,24 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Build unsigned macOS DMG
-        if: env.HAS_APPLE_CERTIFICATE == 'false'
+        if: (github.event_name == 'push' || inputs.publish_release == true) && env.HAS_APPLE_CERTIFICATE == 'false'
         run: pnpm tauri:build:macos
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          TAURI_UPDATER_PUBLIC_KEY: ${{ secrets.TAURI_UPDATER_PUBLIC_KEY }}
 
       - name: Build signed macOS DMG
-        if: env.HAS_APPLE_CERTIFICATE == 'true'
+        if: (github.event_name == 'push' || inputs.publish_release == true) && env.HAS_APPLE_CERTIFICATE == 'true'
         env:
           APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          TAURI_UPDATER_PUBLIC_KEY: ${{ secrets.TAURI_UPDATER_PUBLIC_KEY }}
         run: |
           # 公证三件套任一缺失时整体 unset，让 tauri-bundler 走 warn 跳过公证；
           # 空串会被 notarize_auth 当作有效凭证导致空凭证公证失败。
@@ -489,6 +496,49 @@ jobs:
             unset APPLE_ID APPLE_PASSWORD APPLE_TEAM_ID
           fi
           pnpm tauri:build:macos
+
+      - name: Build preview macOS DMG (no updater artifacts)
+        if: github.event_name == 'workflow_dispatch' && inputs.publish_release != true
+        run: pnpm exec tauri build --target universal-apple-darwin --bundles app,dmg --config src-tauri/tauri.macos.conf.json --config src-tauri/tauri.no-updater.conf.json
+
+      - name: Generate macOS updater manifest
+        if: github.event_name == 'push' || inputs.publish_release == true
+        run: |
+          set -euo pipefail
+          TAG_NAME="v${PACKAGE_VERSION}"
+          APP_PATH="$(find src-tauri/target/universal-apple-darwin/release/bundle/macos -maxdepth 1 -name '*.app.tar.gz' | head -n1)"
+          if [ -z "${APP_PATH}" ]; then
+            echo "未找到 macOS 更新包产物" >&2
+            exit 1
+          fi
+          SIG_PATH="${APP_PATH}.sig"
+          if [ ! -f "${SIG_PATH}" ]; then
+            echo "未找到 macOS 更新包签名文件: ${SIG_PATH}" >&2
+            exit 1
+          fi
+          SIGNATURE="$(cat "${SIG_PATH}")"
+          APP_NAME="$(basename "${APP_PATH}")"
+          PUB_DATE="$(date -u +%Y-%m-%dT%H:%M:%S.000Z)"
+          URL="https://gh-proxy.org/https://github.com/${{ github.repository }}/releases/download/${TAG_NAME}/${APP_NAME}"
+          cat > src-tauri/target/universal-apple-darwin/release/bundle/macos/latest-darwin.json <<EOF
+          {
+            "version": "${PACKAGE_VERSION}",
+            "notes": "macOS update package for ${TAG_NAME}",
+            "pub_date": "${PUB_DATE}",
+            "platforms": {
+              "darwin-aarch64": {
+                "signature": "${SIGNATURE}",
+                "url": "${URL}"
+              },
+              "darwin-x86_64": {
+                "signature": "${SIGNATURE}",
+                "url": "${URL}"
+              }
+            }
+          }
+          EOF
+          echo "=== darwin updater manifest ==="
+          cat src-tauri/target/universal-apple-darwin/release/bundle/macos/latest-darwin.json
 
       - name: List packaged artifacts
         shell: pwsh
@@ -502,7 +552,11 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: bundle-macos-universal
-          path: src-tauri/target/universal-apple-darwin/release/bundle/**/*.dmg
+          path: |
+            src-tauri/target/universal-apple-darwin/release/bundle/**/*.dmg
+            src-tauri/target/universal-apple-darwin/release/bundle/**/*.app.tar.gz
+            src-tauri/target/universal-apple-darwin/release/bundle/**/*.sig
+            src-tauri/target/universal-apple-darwin/release/bundle/**/latest-darwin.json
           if-no-files-found: error
 
   release:
@@ -560,5 +614,6 @@ jobs:
             release-assets/**/*.AppImage
             release-assets/**/*.appimage
             release-assets/**/*.dmg
+            release-assets/**/*.app.tar.gz
             release-assets/**/*.sig
             release-assets/**/latest*.json

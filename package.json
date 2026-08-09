@@ -18,7 +18,7 @@
     "i18n:check": "node scripts/check-i18n-keys.mjs",
     "preview": "vite preview",
     "tauri": "tauri",
-    "tauri:build:macos": "tauri build --target universal-apple-darwin --bundles dmg --config src-tauri/tauri.macos.conf.json"
+    "tauri:build:macos": "tauri build --target universal-apple-darwin --bundles app,dmg --config src-tauri/tauri.macos.conf.json"
   },
   "dependencies": {
     "@dagrejs/dagre": "^3.0.0",
