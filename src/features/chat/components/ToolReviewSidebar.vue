@@ -24,6 +24,7 @@
                       v-if="segment.diffLines.length > 0"
                       :lines="segment.diffLines"
                       :diff-only="true"
+                      :lang="resolveShikiLanguage(extensionFromPath(segment.path))"
                       :title="segmentActionLabel(segment)"
                       :collapsed="isSegmentCollapsed(group.key, idx)"
                       class="mt-1 rounded-lg"
@@ -224,6 +225,7 @@ import DelegateCard from "./DelegateCard.vue";
 import FloatingScrollbar from "../../shell/components/FloatingScrollbar.vue";
 import CollapsibleGroup from "./CollapsibleGroup.vue";
 import TerminalApprovalPatchSample from "../../shell/components/TerminalApprovalPatchSample.vue";
+import { resolveShikiLanguage, extensionFromPath } from "../../file-reader/utils";
 import TaskListItem from "./TaskListItem.vue";
 import TaskCreateCard from "./dialogs/TaskCreateCard.vue";
 import FastRequestTurnsPanel from "./FastRequestTurnsPanel.vue";

@@ -60,3 +60,6 @@ include!("commands/chat_and_runtime.rs");
 
 // ==================== 桌面工具命令 ====================
 include!("commands/desktop_tools.rs");
+
+// ==================== Git 面板命令 ====================
+include!("commands/git_panel.rs");

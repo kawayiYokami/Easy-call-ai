@@ -31,6 +31,13 @@ export type FileReaderDirectoryPayload = {
   entries: FileReaderDirectoryEntry[];
 };
 
+export type GitDiffTabSource = {
+  workspacePath: string;
+  path: string;
+  staged: boolean;
+  hash?: string;
+};
+
 export type FileTab = {
   path: string;
   title: string;
@@ -45,6 +52,7 @@ export type FileTab = {
   loaded: boolean;
   loading: boolean;
   error: string;
+  diffSource?: GitDiffTabSource;
 };
 
 export type VirtualCodeBlock = {

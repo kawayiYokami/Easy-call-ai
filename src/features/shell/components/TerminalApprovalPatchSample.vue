@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { computed, ref } from "vue";
+import { computed, ref, watch } from "vue";
 import { ChevronRight } from "@lucide/vue";
+import { getSingletonHighlighter, hastToHtml } from "shiki";
 import { isDarkAppTheme, useAppTheme } from "../composables/use-app-theme";
 import { countTerminalApprovalPatchDelta, getTerminalApprovalPatchKind } from "../utils/terminal-approval-preview";
 
@@ -13,17 +14,33 @@ type ParsedLine = {
   marker: string;
 };
 
+type ShikiHastNode = {
+  type: string;
+  tagName?: string;
+  properties?: Record<string, unknown>;
+  children?: ShikiHastNode[];
+};
+
+type ShikiHastElement = ShikiHastNode & {
+  type: "element";
+  tagName: string;
+  properties: Record<string, unknown>;
+  children: ShikiHastNode[];
+};
+
 const props = withDefaults(defineProps<{
   lines: string[];
   diffOnly?: boolean;
   showPrefixes?: boolean;
   title?: string;
   collapsed?: boolean;
+  lang?: string;
 }>(), {
   diffOnly: true,
   showPrefixes: true,
   title: "",
   collapsed: undefined,
+  lang: "",
 });
 
 const emit = defineEmits<{
@@ -133,6 +150,75 @@ const kindLabel = computed(() => {
 const delta = computed(() => countTerminalApprovalPatchDelta(props.lines));
 
 const showTitleBar = computed(() => props.showPrefixes !== false);
+
+// ==================== shiki 行级高亮 ====================
+// 保留自定义解析（行号/标记/底色），仅把 code 文字换成语法高亮 HTML。
+// 逐行 codeToHast 会丢失跨行语法状态，但 diff 卡按行展示本就无连续状态，可接受。
+
+const highlightedLineHtml = ref<Record<number, string>>({});
+let highlighterPromise: Promise<Awaited<ReturnType<typeof getSingletonHighlighter>>> | null = null;
+
+function escapeHtml(value: string) {
+  return String(value || "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+}
+
+function hastLineHtml(root: ShikiHastNode): string {
+  const pre = root.children?.find((node): node is ShikiHastElement => node.type === "element" && node.tagName === "pre");
+  const code = pre?.children?.find((node): node is ShikiHastElement => node.type === "element" && node.tagName === "code");
+  const line = code?.children?.find((node): node is ShikiHastElement => (
+    node.type === "element" && node.tagName === "span" && String(node.properties?.class || "").split(/\s+/).includes("line")
+  ));
+  if (!line) return "";
+  return hastToHtml({ type: "root", children: line.children || [] } as Parameters<typeof hastToHtml>[0]) || "";
+}
+
+async function highlightParsedLines() {
+  const language = String(props.lang || "").trim().toLowerCase();
+  const target = parsedLines.value;
+  if (!language || target.length === 0 || isCollapsed.value) {
+    highlightedLineHtml.value = {};
+    return;
+  }
+  const theme = isDark.value ? "github-dark" : "github-light";
+  if (!highlighterPromise) {
+    highlighterPromise = getSingletonHighlighter({ langs: [language], themes: [theme] });
+  }
+  try {
+    const highlighter = await highlighterPromise;
+    const next: Record<number, string> = {};
+    await Promise.all(target.map(async (item, index) => {
+      if (item.kind === "warning") {
+        next[index] = escapeHtml(item.line);
+        return;
+      }
+      try {
+        const root = await highlighter.codeToHast(item.line || " ", { lang: language, theme });
+        const html = hastLineHtml(root);
+        next[index] = html || escapeHtml(item.line);
+      } catch {
+        next[index] = escapeHtml(item.line);
+      }
+    }));
+    highlightedLineHtml.value = next;
+  } catch {
+    highlightedLineHtml.value = {};
+  }
+}
+
+watch(
+  () => [parsedLines.value, props.lang, isDark.value, isCollapsed.value] as const,
+  () => {
+    void highlightParsedLines();
+  },
+  { immediate: true },
+);
+
+function lineHtml(index: number, fallback: string) {
+  return highlightedLineHtml.value[index] ?? escapeHtml(fallback);
+}
 </script>
 
 <template>
@@ -171,7 +257,7 @@ const showTitleBar = computed(() => props.showPrefixes !== false);
         <span v-if="showPrefixes" class="approval-patch-sample__old">{{ item.oldPrefix }}</span>
         <span v-if="showPrefixes" class="approval-patch-sample__new">{{ item.newPrefix }}</span>
         <span v-if="showPrefixes" class="approval-patch-sample__marker">{{ item.marker }}</span>
-        <code class="approval-patch-sample__code">{{ item.line }}</code>
+        <code class="approval-patch-sample__code" v-html="lineHtml(idx, item.line)"></code>
       </div>
       <div v-if="parsedLines.length === 0" class="approval-patch-sample__row approval-patch-sample__row--normal">
         <span v-if="showPrefixes" class="approval-patch-sample__old" />

@@ -110,43 +110,66 @@
         :class="directoryOnly ? 'w-full' : ''"
         :style="directoryOnly ? undefined : { width: `${effectiveDirectoryTreeWidth}px` }"
       >
-        <div class="flex h-8 shrink-0 items-center gap-1.5 border-b border-base-300 bg-base-200/35 px-3 text-sm">
+        <!-- 文件 / Git tab 切换 -->
+        <div class="flex h-8 shrink-0 items-center gap-1 border-b border-base-300 bg-base-200/35 px-2">
           <button
-            v-if="localFileSystemAvailable"
-            class="btn btn-ghost btn-xs min-w-0 flex-1 justify-start gap-1.5 overflow-hidden font-medium"
-            :title="directoryTreeRoot.path"
-            @click="openDirectoryInFileManager(directoryTreeRoot.path)"
-            @contextmenu.prevent.stop="openPathOnlyContextMenu(directoryTreeRoot.path, $event)"
+            type="button"
+            class="btn btn-ghost btn-xs h-6 min-h-6 flex-1 justify-center gap-1 font-medium"
+            :class="asideMode === 'files' ? 'bg-base-100 text-primary shadow-sm' : 'text-base-content/60 hover:bg-base-300/40'"
+            @click="asideMode = 'files'"
           >
-            <Folders class="h-3.5 w-3.5 shrink-0 opacity-75" />
-            <span class="min-w-0 truncate">{{ directoryTreeRoot.name }}</span>
+            <Files class="h-3.5 w-3.5" />
+            <span>{{ t('fileReader.filesTab') }}</span>
           </button>
-          <span
-            v-else
-            class="min-w-0 flex-1 truncate text-xs font-medium"
-            :title="directoryTreeRoot.path"
-            @contextmenu.prevent.stop="openPathOnlyContextMenu(directoryTreeRoot.path, $event)"
-          >{{ directoryTreeRoot.name }}</span>
+          <button
+            type="button"
+            class="btn btn-ghost btn-xs h-6 min-h-6 flex-1 justify-center gap-1 font-medium"
+            :class="asideMode === 'git' ? 'bg-base-100 text-primary shadow-sm' : 'text-base-content/60 hover:bg-base-300/40'"
+            @click="switchToGitMode"
+          >
+            <GitBranch class="h-3.5 w-3.5" />
+            <span>{{ t('fileReader.gitTab') }}</span>
+          </button>
         </div>
-        <div class="px-2 pt-2">
-          <label class="input input-bordered input-sm flex items-center gap-2">
-            <Search class="h-4 w-4 shrink-0 opacity-60" />
-            <input
-              v-model="directoryTreeFilter"
-              class="min-w-0 flex-1"
-              type="search"
-              :placeholder="t('fileReader.filterFiles')"
-            />
-          </label>
-        </div>
-        <div class="relative min-h-0 flex-1" @mouseenter="directoryScrollbarRef?.reveal()" @mouseleave="directoryScrollbarRef?.hide()">
-        <div ref="directoryScroller" class="file-reader-scroll-container min-h-0 h-full overflow-auto py-1 text-sm">
-          <div v-if="directoryTreeRoot.loading" class="flex items-center gap-2 px-3 py-2 text-xs opacity-65">
-            <span class="loading loading-spinner loading-xs"></span>
-            {{ t('fileReader.loadingDirectory') }}
+
+        <template v-if="asideMode === 'files'">
+          <div class="flex h-8 shrink-0 items-center gap-1.5 border-b border-base-300 bg-base-200/35 px-3 text-sm">
+            <button
+              v-if="localFileSystemAvailable"
+              class="btn btn-ghost btn-xs min-w-0 flex-1 justify-start gap-1.5 overflow-hidden font-medium"
+              :title="directoryTreeRoot.path"
+              @click="openDirectoryInFileManager(directoryTreeRoot.path)"
+              @contextmenu.prevent.stop="openPathOnlyContextMenu(directoryTreeRoot.path, $event)"
+            >
+              <Folders class="h-3.5 w-3.5 shrink-0 opacity-75" />
+              <span class="min-w-0 truncate">{{ directoryTreeRoot.name }}</span>
+            </button>
+            <span
+              v-else
+              class="min-w-0 flex-1 truncate text-xs font-medium"
+              :title="directoryTreeRoot.path"
+              @contextmenu.prevent.stop="openPathOnlyContextMenu(directoryTreeRoot.path, $event)"
+            >{{ directoryTreeRoot.name }}</span>
           </div>
-          <div v-else-if="directoryTreeRoot.error" class="px-3 py-2 text-xs text-error">
-            {{ directoryTreeRoot.error }}
+          <div class="px-2 pt-2">
+            <label class="input input-bordered input-sm flex items-center gap-2">
+              <Search class="h-4 w-4 shrink-0 opacity-60" />
+              <input
+                v-model="directoryTreeFilter"
+                class="min-w-0 flex-1"
+                type="search"
+                :placeholder="t('fileReader.filterFiles')"
+              />
+            </label>
+          </div>
+          <div class="relative min-h-0 flex-1" @mouseenter="directoryScrollbarRef?.reveal()" @mouseleave="directoryScrollbarRef?.hide()">
+          <div ref="directoryScroller" class="file-reader-scroll-container min-h-0 h-full overflow-auto py-1 text-sm">
+            <div v-if="directoryTreeRoot.loading" class="flex items-center gap-2 px-3 py-2 text-xs opacity-65">
+              <span class="loading loading-spinner loading-xs"></span>
+              {{ t('fileReader.loadingDirectory') }}
+            </div>
+            <div v-else-if="directoryTreeRoot.error" class="px-3 py-2 text-xs text-error">
+              {{ directoryTreeRoot.error }}
           </div>
           <div v-else-if="visibleTreeRows.length === 0" class="px-3 py-2 text-xs opacity-60">
             {{ directoryTreeFilter.trim() ? t('fileReader.noMatches') : t('fileReader.emptyDirectory') }}
@@ -195,6 +218,15 @@
         </div>
         <FloatingScrollbar ref="directoryScrollbarRef" :target="directoryScroller" />
         </div>
+        </template>
+
+        <template v-else>
+          <GitPanel
+            :workspace-path="gitPanelWorkspacePath"
+            :markdown-is-dark="markdownIsDark"
+            @open-diff="openGitDiffTab"
+          />
+        </template>
       </aside>
       <main v-if="!directoryOnly" class="flex min-h-0 flex-1 flex-col overflow-hidden bg-base-100">
         <div
@@ -364,6 +396,18 @@
                 variant="document"
                 :local-image-base-path="directoryFromPath(activeTab.path)"
                 @open-image-preview="openMarkdownImagePreview"
+              />
+            </div>
+            <div
+              v-else-if="activeTab.kind === 'diff'"
+              class="h-full min-h-0"
+            >
+              <ToolReviewCodePreview
+                :title="activeTab.title"
+                :code="activeTab.content"
+                mode="patch"
+                :is-dark="markdownIsDark"
+                :show-line-numbers="true"
               />
             </div>
             <div
@@ -681,10 +725,12 @@
 
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
-import { ChevronDown, ChevronRight, Check, Code2, Copy, Eye, ExternalLink, FilePlus, Folders, MessageSquarePlus, RefreshCw, Search, SquareTerminal } from "@lucide/vue";
+import { ChevronDown, ChevronRight, Check, Code2, Copy, Eye, ExternalLink, FilePlus, Files, Folders, GitBranch, MessageSquarePlus, RefreshCw, Search, SquareTerminal } from "@lucide/vue";
 import {
   copyTransportChatImageToClipboard,
   getTransportCapabilities,
+  gitPanelDiff,
+  gitPanelShow,
   invokeTauri,
   listTransportFileReaderDirectoryOpenTargets,
   listenCurrentTransportFileDrop,
@@ -706,6 +752,8 @@ import { isAbsoluteLocalPath, isAssistantSpacePath, normalizeLocalLinkHref, pars
 import FloatingScrollbar from "../../shell/components/FloatingScrollbar.vue";
 import { useFileReaderAppearance } from "../../shell/composables/use-file-reader-appearance";
 import PanelTabStrip from "../../shared/components/PanelTabStrip.vue";
+import GitPanel from "./GitPanel.vue";
+import ToolReviewCodePreview from "../../chat/components/ToolReviewCodePreview.vue";
 import { useI18n } from "vue-i18n";
 import type { IdeContextReferenceItem } from "../../../types/app";
 import {
@@ -728,6 +776,7 @@ import type {
   FileReaderWatchEventPayload,
   FileReaderWatchTarget,
   FileTab,
+  GitDiffTabSource,
   TreeRow,
 } from "../types";
 import {
@@ -828,6 +877,8 @@ const FILE_READER_OPEN_TARGET_STORAGE_KEY = "easy-call.file-reader.directory-ope
 
 const tabs = ref<FileTab[]>([]);
 const activePath = ref("");
+const asideMode = ref<"files" | "git">("files");
+const gitPanelWorkspacePath = computed(() => String(props.initialRootPath || directoryTreeRoot.value?.path || "").trim());
 const actionErrorMessage = ref("");
 const contextMenuOpen = ref(false);
 const contextMenuPosition = ref({ x: 0, y: 0 });
@@ -989,7 +1040,8 @@ const fileReaderPanelTabs = computed(() =>
     key: tab.path,
     label: tab.title,
     title: tab.path,
-    iconSrc: resolvePathIcon(tab.path),
+    iconSrc: tab.kind === "diff" ? undefined : resolvePathIcon(tab.path),
+    icon: tab.kind === "diff" ? GitBranch : undefined,
     closeable: true,
   })),
 );
@@ -1650,7 +1702,10 @@ function persistFileReaderSession(key = props.sessionKey) {
   if (suppressSessionPersist) return;
   const storageKey = String(key || "").trim();
   if (!storageKey || typeof window === "undefined") return;
-  const uniqueTabs = Array.from(new Set(tabs.value.map((tab) => normalizePath(tab.path)).filter(Boolean)));
+  const uniqueTabs = Array.from(new Set(tabs.value.map((tab) => normalizePath(tab.path)).filter((path) => {
+    // diff 标签是伪路径（git-diff:...），不持久化
+    return !path.startsWith("git-diff:");
+  })));
   const state: FileReaderSessionState = {
     tabs: uniqueTabs,
     activePath: normalizePath(activePath.value),
@@ -1685,7 +1740,7 @@ async function restoreFileReaderSession(key = props.sessionKey, fallbackRootPath
     const state = readFileReaderSessionState(storageKey);
     if (restoreId !== restoringSessionId) return;
 
-    const restoredTabs = Array.from(new Set((state.tabs || []).map((path) => normalizePath(path)).filter(Boolean)));
+    const restoredTabs = Array.from(new Set((state.tabs || []).map((path) => normalizePath(path)).filter((path) => Boolean(path) && !path.startsWith("git-diff:"))));
     tabs.value = restoredTabs.map((path) => createRestoredTab(path));
     const restoredActivePath = normalizePath(state.activePath || "");
     activePath.value = restoredTabs.includes(restoredActivePath) ? restoredActivePath : restoredTabs[0] || "";
@@ -2111,7 +2166,7 @@ function closeTabsByPaths(paths: string[], options?: { preferredActivePath?: str
 
 function refreshActiveTab() {
   const tab = activeTab.value;
-  if (!tab) return;
+  if (!tab || tab.kind === "diff") return;
   void openPath(tab.path);
 }
 
@@ -2138,6 +2193,84 @@ async function openPathWithDefaultProgram(path: string) {
     await openTransportFileWithDefaultProgram(normalizedPath);
   } catch (error) {
     reportFileReaderActionFailure(t('fileReader.actionOpenDefault'), normalizedPath, error);
+  }
+}
+
+// ==================== Git 面板 ====================
+
+function switchToGitMode() {
+  asideMode.value = "git";
+}
+
+function buildGitDiffTabKey(source: GitDiffTabSource) {
+  const hashPart = source.hash ? `:${source.hash}` : "";
+  return `git-diff:${source.workspacePath}:${source.staged ? "staged" : "worktree"}${hashPart}:${source.path}`;
+}
+
+function buildGitDiffTabTitle(source: GitDiffTabSource) {
+  if (source.hash) {
+    return `${source.hash.slice(0, 7)} ${titleFromPath(source.path)}`;
+  }
+  const base = titleFromPath(source.path);
+  return source.staged ? `${base} (已暂存)` : `${base} (更改)`;
+}
+
+async function openGitDiffTab(source: GitDiffTabSource) {
+  if (!localFileSystemAvailable) return;
+  const workspacePath = normalizePath(source.workspacePath);
+  if (!workspacePath) return;
+  const tabPath = buildGitDiffTabKey(source);
+  try {
+    const result = source.hash
+      ? await gitPanelShow(workspacePath, source.hash, source.path === source.hash ? "" : source.path)
+      : await gitPanelDiff({ workspacePath, path: source.path, staged: source.staged });
+    const diffText = String(result?.diff || "");
+    if (!diffText.trim()) {
+      reportFileReaderActionFailure(t('fileReader.noDiffContent'), source.path, null);
+      return;
+    }
+    const existing = tabs.value.find((tab) => tab.path === tabPath);
+    const tab: FileTab = existing || {
+      path: tabPath,
+      title: buildGitDiffTabTitle(source),
+      extension: "diff",
+      kind: "diff",
+      content: "",
+      rawMode: true,
+      forcePlain: true,
+      virtualized: false,
+      totalLines: 0,
+      blockLineCount: 0,
+      loaded: true,
+      loading: false,
+      error: "",
+    };
+    tab.title = buildGitDiffTabTitle(source);
+    tab.kind = "diff";
+    tab.extension = "diff";
+    tab.rawMode = true;
+    tab.forcePlain = true;
+    tab.virtualized = false;
+    tab.totalLines = 0;
+    tab.blockLineCount = 0;
+    tab.loaded = true;
+    tab.loading = false;
+    tab.error = "";
+    tab.content = diffText;
+    tab.diffSource = { ...source, workspacePath };
+    if (!existing) {
+      tabs.value = [...tabs.value, tab];
+    } else {
+      replaceTabState(tab);
+    }
+    activePath.value = tabPath;
+    scheduleAddressScrollStateUpdate();
+    void resetActiveContentScrollToTop();
+    if (asideMode.value !== "git") {
+      asideMode.value = "git";
+    }
+  } catch (error) {
+    reportFileReaderActionFailure(t('fileReader.loadGitDiffFailed'), source.path, error);
   }
 }
 

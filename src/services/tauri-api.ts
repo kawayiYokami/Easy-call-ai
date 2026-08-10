@@ -2738,3 +2738,224 @@ export function uploadTransportAttachment<T>(file: File): Promise<T> {
     ? uploadNativeAttachment<T>(file)
     : uploadWebBridgeAttachment<T>(file);
 }
+
+// ==================== Git 面板 ====================
+
+export type GitPanelDetectOutput = {
+  gitAvailable: boolean;
+  repoRoot?: string | null;
+  checked: boolean;
+  error?: string | null;
+};
+
+export type GitPanelRunOutput = {
+  stdout: string;
+  stderr: string;
+  exitCode: number;
+};
+
+export type GitPanelStatusEntry = {
+  path: string;
+  stagedStatus: string;
+  unstagedStatus: string;
+};
+
+export type GitPanelStatusOutput = {
+  repoRoot: string;
+  branch: string;
+  entries: GitPanelStatusEntry[];
+};
+
+export type GitPanelDiffOutput = {
+  diff: string;
+};
+
+export type GitPanelBranchEntry = {
+  name: string;
+  isCurrent: boolean;
+  isRemote: boolean;
+};
+
+export type GitPanelRemoteEntry = {
+  name: string;
+  url: string;
+};
+
+export type GitPanelStashEntry = {
+  reference: string;
+  message: string;
+};
+
+export type GitPanelLogEntry = {
+  hash: string;
+  shortHash: string;
+  author: string;
+  date: string;
+  message: string;
+};
+
+export type GitPanelLogOutput = {
+  graph: string;
+  entries: GitPanelLogEntry[];
+};
+
+function gitPanelWorkspaceArgs(workspacePath: string): Record<string, unknown> {
+  return { input: { workspacePath: String(workspacePath || "").trim() } };
+}
+
+function gitPanelPathsArgs(workspacePath: string, paths: string[]): Record<string, unknown> {
+  return {
+    input: {
+      workspacePath: String(workspacePath || "").trim(),
+      paths: Array.isArray(paths) ? paths.map((item) => String(item || "").trim()).filter(Boolean) : [],
+    },
+  };
+}
+
+function gitPanelRequiredWorkspace(workspacePath: string): string {
+  const normalized = String(workspacePath || "").trim();
+  if (!normalized) throw new Error("缺少工作区路径");
+  return normalized;
+}
+
+export function gitPanelDetect(workspacePath: string): Promise<GitPanelDetectOutput> {
+  return invokeTauri<GitPanelDetectOutput>("git_panel_detect", gitPanelWorkspaceArgs(gitPanelRequiredWorkspace(workspacePath)));
+}
+
+export function gitPanelStatus(workspacePath: string): Promise<GitPanelStatusOutput> {
+  return invokeTauri<GitPanelStatusOutput>("git_panel_status", gitPanelWorkspaceArgs(gitPanelRequiredWorkspace(workspacePath)));
+}
+
+export function gitPanelDiff(input: {
+  workspacePath: string;
+  path: string;
+  staged?: boolean;
+  hash?: string;
+}): Promise<GitPanelDiffOutput> {
+  const workspacePath = gitPanelRequiredWorkspace(input.workspacePath);
+  const path = String(input.path || "").trim();
+  if (!path) throw new Error("缺少文件路径");
+  return invokeTauri<GitPanelDiffOutput>("git_panel_diff", {
+    input: {
+      workspacePath,
+      path,
+      staged: !!input.staged,
+      hash: String(input.hash || "").trim(),
+    },
+  });
+}
+
+export function gitPanelStage(workspacePath: string, paths: string[]): Promise<GitPanelRunOutput> {
+  return invokeTauri<GitPanelRunOutput>("git_panel_stage", gitPanelPathsArgs(gitPanelRequiredWorkspace(workspacePath), paths));
+}
+
+export function gitPanelUnstage(workspacePath: string, paths: string[]): Promise<GitPanelRunOutput> {
+  return invokeTauri<GitPanelRunOutput>("git_panel_unstage", gitPanelPathsArgs(gitPanelRequiredWorkspace(workspacePath), paths));
+}
+
+export function gitPanelCommit(workspacePath: string, message: string, amend = false): Promise<GitPanelRunOutput> {
+  const normalizedWorkspace = gitPanelRequiredWorkspace(workspacePath);
+  const normalizedMessage = String(message || "").trim();
+  if (!normalizedMessage) throw new Error("提交信息不能为空");
+  return invokeTauri<GitPanelRunOutput>("git_panel_commit", {
+    input: { workspacePath: normalizedWorkspace, message: normalizedMessage, amend: !!amend },
+  });
+}
+
+export function gitPanelDiscard(workspacePath: string, paths: string[]): Promise<GitPanelRunOutput> {
+  return invokeTauri<GitPanelRunOutput>("git_panel_discard", gitPanelPathsArgs(gitPanelRequiredWorkspace(workspacePath), paths));
+}
+
+export function gitPanelStashList(workspacePath: string): Promise<GitPanelStashEntry[]> {
+  return invokeTauri<GitPanelStashEntry[]>("git_panel_stash_list", gitPanelWorkspaceArgs(gitPanelRequiredWorkspace(workspacePath)));
+}
+
+export function gitPanelStashCreate(workspacePath: string, message = ""): Promise<GitPanelRunOutput> {
+  return invokeTauri<GitPanelRunOutput>("git_panel_stash_create", {
+    input: { workspacePath: gitPanelRequiredWorkspace(workspacePath), message: String(message || "").trim() },
+  });
+}
+
+export function gitPanelStashApply(workspacePath: string, stashRef: string): Promise<GitPanelRunOutput> {
+  return invokeTauri<GitPanelRunOutput>("git_panel_stash_apply", {
+    input: { workspacePath: gitPanelRequiredWorkspace(workspacePath), stashRef: String(stashRef || "").trim() },
+  });
+}
+
+export function gitPanelStashPop(workspacePath: string, stashRef: string): Promise<GitPanelRunOutput> {
+  return invokeTauri<GitPanelRunOutput>("git_panel_stash_pop", {
+    input: { workspacePath: gitPanelRequiredWorkspace(workspacePath), stashRef: String(stashRef || "").trim() },
+  });
+}
+
+export function gitPanelStashDrop(workspacePath: string, stashRef: string): Promise<GitPanelRunOutput> {
+  return invokeTauri<GitPanelRunOutput>("git_panel_stash_drop", {
+    input: { workspacePath: gitPanelRequiredWorkspace(workspacePath), stashRef: String(stashRef || "").trim() },
+  });
+}
+
+export function gitPanelBranchList(workspacePath: string): Promise<GitPanelBranchEntry[]> {
+  return invokeTauri<GitPanelBranchEntry[]>("git_panel_branch_list", gitPanelWorkspaceArgs(gitPanelRequiredWorkspace(workspacePath)));
+}
+
+export function gitPanelBranchCreate(workspacePath: string, name: string, startPoint = ""): Promise<GitPanelRunOutput> {
+  const normalizedWorkspace = gitPanelRequiredWorkspace(workspacePath);
+  const normalizedName = String(name || "").trim();
+  if (!normalizedName) throw new Error("分支名不能为空");
+  return invokeTauri<GitPanelRunOutput>("git_panel_branch_create", {
+    input: { workspacePath: normalizedWorkspace, name: normalizedName, startPoint: String(startPoint || "").trim() },
+  });
+}
+
+export function gitPanelBranchDelete(workspacePath: string, name: string): Promise<GitPanelRunOutput> {
+  const normalizedWorkspace = gitPanelRequiredWorkspace(workspacePath);
+  const normalizedName = String(name || "").trim();
+  if (!normalizedName) throw new Error("分支名不能为空");
+  return invokeTauri<GitPanelRunOutput>("git_panel_branch_delete", {
+    input: { workspacePath: normalizedWorkspace, name: normalizedName, startPoint: "" },
+  });
+}
+
+export function gitPanelCheckout(workspacePath: string, reference: string): Promise<GitPanelRunOutput> {
+  const normalizedWorkspace = gitPanelRequiredWorkspace(workspacePath);
+  const normalizedReference = String(reference || "").trim();
+  if (!normalizedReference) throw new Error("引用不能为空");
+  return invokeTauri<GitPanelRunOutput>("git_panel_checkout", {
+    input: { workspacePath: normalizedWorkspace, reference: normalizedReference },
+  });
+}
+
+export function gitPanelRemoteList(workspacePath: string): Promise<GitPanelRemoteEntry[]> {
+  return invokeTauri<GitPanelRemoteEntry[]>("git_panel_remote_list", gitPanelWorkspaceArgs(gitPanelRequiredWorkspace(workspacePath)));
+}
+
+export function gitPanelFetch(workspacePath: string): Promise<GitPanelRunOutput> {
+  return invokeTauri<GitPanelRunOutput>("git_panel_fetch", gitPanelWorkspaceArgs(gitPanelRequiredWorkspace(workspacePath)));
+}
+
+export function gitPanelPull(workspacePath: string): Promise<GitPanelRunOutput> {
+  return invokeTauri<GitPanelRunOutput>("git_panel_pull", gitPanelWorkspaceArgs(gitPanelRequiredWorkspace(workspacePath)));
+}
+
+export function gitPanelPush(workspacePath: string): Promise<GitPanelRunOutput> {
+  return invokeTauri<GitPanelRunOutput>("git_panel_push", gitPanelWorkspaceArgs(gitPanelRequiredWorkspace(workspacePath)));
+}
+
+export function gitPanelSync(workspacePath: string): Promise<GitPanelRunOutput> {
+  return invokeTauri<GitPanelRunOutput>("git_panel_sync", gitPanelWorkspaceArgs(gitPanelRequiredWorkspace(workspacePath)));
+}
+
+export function gitPanelLog(workspacePath: string, limit?: number): Promise<GitPanelLogOutput> {
+  return invokeTauri<GitPanelLogOutput>("git_panel_log", {
+    input: { workspacePath: gitPanelRequiredWorkspace(workspacePath), limit: Number(limit) || undefined },
+  });
+}
+
+export function gitPanelShow(workspacePath: string, hash: string, path = ""): Promise<GitPanelDiffOutput> {
+  const normalizedWorkspace = gitPanelRequiredWorkspace(workspacePath);
+  const normalizedHash = String(hash || "").trim();
+  if (!normalizedHash) throw new Error("缺少提交哈希");
+  return invokeTauri<GitPanelDiffOutput>("git_panel_show", {
+    input: { workspacePath: normalizedWorkspace, hash: normalizedHash, path: String(path || "").trim() },
+  });
+}
