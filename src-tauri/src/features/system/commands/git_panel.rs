@@ -184,6 +184,9 @@ fn git_panel_validate_reference(reference: &str) -> Result<String, String> {
     if trimmed.contains('\0') {
         return Err("引用包含非法字符".to_string());
     }
+    if trimmed.starts_with('-') {
+        return Err("引用不能以 - 开头".to_string());
+    }
     Ok(trimmed)
 }
 
@@ -262,9 +265,30 @@ async fn git_panel_run(workdir: &str, args: &[&str]) -> Result<String, String> {
         } else {
             format!("退出码 {}", result.exit_code)
         };
-        return Err(format!("git {} 失败：{detail}", args.join(" ")));
+        let cmd = args.first().copied().unwrap_or("git");
+        return Err(format!("git {cmd} 失败：{detail}"));
     }
     Ok(result.stdout)
+}
+
+/// 执行 git 网络命令（fetch/pull/push），带超时控制；超时后终止子进程并返回可读错误。
+async fn git_panel_run_network(workdir: &str, args: &[&str]) -> Result<GitPanelRunOutput, String> {
+    let mut command = git_panel_spawn(workdir, args);
+    // future 被取消（超时）时自动杀死子进程，避免远端无响应时进程残留。
+    command.kill_on_drop(true);
+    let wait = command.output();
+    // 远端无响应时避免前端无限等待；60 秒足够覆盖大仓库传输。
+    match tokio::time::timeout(std::time::Duration::from_secs(60), wait).await {
+        Ok(result) => {
+            let output = result.map_err(|err| format!("无法运行 git：{err}"))?;
+            Ok(GitPanelRunOutput {
+                stdout: String::from_utf8_lossy(&output.stdout).to_string(),
+                stderr: String::from_utf8_lossy(&output.stderr).to_string(),
+                exit_code: output.status.code().unwrap_or(-1),
+            })
+        }
+        Err(_) => Err("git 网络操作超时：远端无响应，已终止".to_string()),
+    }
 }
 
 /// 在 workspace_path 向上探测仓库根（git rev-parse --show-toplevel）。
@@ -574,7 +598,11 @@ async fn git_panel_branch_create(input: GitPanelBranchInput) -> Result<GitPanelR
     let workspace_path = git_panel_validate_path(&input.workspace_path)?;
     let repo_root = git_panel_resolve_root(&workspace_path).await?;
     let name = git_panel_validate_branch_name(&input.name)?;
-    let start_point = input.start_point.trim().to_string();
+    let start_point = if input.start_point.trim().is_empty() {
+        String::new()
+    } else {
+        git_panel_validate_reference(&input.start_point)?
+    };
     let mut args: Vec<&str> = vec!["branch", &name];
     if !start_point.is_empty() {
         args.push(&start_point);
@@ -634,32 +662,32 @@ async fn git_panel_remote_list(input: GitPanelWorkspaceInput) -> Result<Vec<GitP
 async fn git_panel_fetch(input: GitPanelWorkspaceInput) -> Result<GitPanelRunOutput, String> {
     let workspace_path = git_panel_validate_path(&input.workspace_path)?;
     let repo_root = git_panel_resolve_root(&workspace_path).await?;
-    git_panel_run_raw(&repo_root, &["fetch"]).await
+    git_panel_run_network(&repo_root, &["fetch"]).await
 }
 
 #[tauri::command]
 async fn git_panel_pull(input: GitPanelWorkspaceInput) -> Result<GitPanelRunOutput, String> {
     let workspace_path = git_panel_validate_path(&input.workspace_path)?;
     let repo_root = git_panel_resolve_root(&workspace_path).await?;
-    git_panel_run_raw(&repo_root, &["pull"]).await
+    git_panel_run_network(&repo_root, &["pull"]).await
 }
 
 #[tauri::command]
 async fn git_panel_push(input: GitPanelWorkspaceInput) -> Result<GitPanelRunOutput, String> {
     let workspace_path = git_panel_validate_path(&input.workspace_path)?;
     let repo_root = git_panel_resolve_root(&workspace_path).await?;
-    git_panel_run_raw(&repo_root, &["push"]).await
+    git_panel_run_network(&repo_root, &["push"]).await
 }
 
 #[tauri::command]
 async fn git_panel_sync(input: GitPanelWorkspaceInput) -> Result<GitPanelRunOutput, String> {
     let workspace_path = git_panel_validate_path(&input.workspace_path)?;
     let repo_root = git_panel_resolve_root(&workspace_path).await?;
-    let fetch_result = git_panel_run_raw(&repo_root, &["fetch"]).await?;
+    let fetch_result = git_panel_run_network(&repo_root, &["fetch"]).await?;
     if fetch_result.exit_code != 0 {
         return Ok(fetch_result);
     }
-    git_panel_run_raw(&repo_root, &["pull"]).await
+    git_panel_run_network(&repo_root, &["pull"]).await
 }
 
 // ---------- 命令：历史与提交图 ----------
@@ -678,7 +706,8 @@ async fn git_panel_log(input: GitPanelLogInput) -> Result<GitPanelLogOutput, Str
             "--oneline",
             "--decorate",
             "--no-color",
-            &format!("-n {}", limit),
+            "-n",
+            &limit.to_string(),
         ],
     )
     .await
@@ -688,7 +717,8 @@ async fn git_panel_log(input: GitPanelLogInput) -> Result<GitPanelLogOutput, Str
         &repo_root,
         &[
             "log",
-            &format!("-n {}", limit),
+            "-n",
+            &limit.to_string(),
             "--format=%H%x1f%h%x1f%an%x1f%aI%x1f%s",
         ],
     )

@@ -26,7 +26,7 @@
         >{{ statusLabel(entry) }}</span>
         <span class="min-w-0 truncate">{{ entry.path }}</span>
       </button>
-      <span class="hidden shrink-0 items-center gap-0.5 group-hover:flex">
+      <span class="hidden shrink-0 items-center gap-0.5 group-hover:flex focus-within:flex">
         <button
           type="button"
           class="btn btn-ghost btn-xs h-5 min-h-5 w-5 px-0"

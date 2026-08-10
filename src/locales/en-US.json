@@ -2626,6 +2626,7 @@
     "commit": "Commit",
     "stashes": "Stashes",
     "stash": "Stash",
+    "detachedHead": "Detached HEAD",
     "stashPop": "Apply and drop stash",
     "stashDrop": "Drop stash",
     "stashDropConfirm": "Drop stash {reference}? This action cannot be undone.",

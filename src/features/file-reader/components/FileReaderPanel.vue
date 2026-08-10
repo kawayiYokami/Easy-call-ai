@@ -878,7 +878,6 @@ const FILE_READER_OPEN_TARGET_STORAGE_KEY = "easy-call.file-reader.directory-ope
 const tabs = ref<FileTab[]>([]);
 const activePath = ref("");
 const asideMode = ref<"files" | "git">("files");
-const gitPanelWorkspacePath = computed(() => String(props.initialRootPath || directoryTreeRoot.value?.path || "").trim());
 const actionErrorMessage = ref("");
 const contextMenuOpen = ref(false);
 const contextMenuPosition = ref({ x: 0, y: 0 });
@@ -1004,6 +1003,9 @@ const directoryTreeRoot = computed(() => {
   const rootPath = normalizePath(directoryRootPath.value);
   return rootPath ? directoryNodes.value[rootPath] || null : null;
 });
+
+// Git 面板跟随目录树根；声明在 directoryTreeRoot 之后避免 TDZ
+const gitPanelWorkspacePath = computed(() => String(props.initialRootPath || directoryTreeRoot.value?.path || "").trim());
 
 const hoverDirectoryTreeRows = computed<TreeRow[]>(() => {
   const root = hoverDirectoryTreeRoot.value;
@@ -1702,10 +1704,10 @@ function persistFileReaderSession(key = props.sessionKey) {
   if (suppressSessionPersist) return;
   const storageKey = String(key || "").trim();
   if (!storageKey || typeof window === "undefined") return;
-  const uniqueTabs = Array.from(new Set(tabs.value.map((tab) => normalizePath(tab.path)).filter((path) => {
-    // diff 标签是伪路径（git-diff:...），不持久化
-    return !path.startsWith("git-diff:");
-  })));
+  const uniqueTabs = Array.from(new Set(tabs.value.map((tab) => tab.path).filter((path) => {
+    // diff 标签是伪路径（git-diff:...），不持久化；普通路径再做归一化
+    return !String(path || "").startsWith("git-diff:");
+  }))).map((path) => normalizePath(path));
   const state: FileReaderSessionState = {
     tabs: uniqueTabs,
     activePath: normalizePath(activePath.value),
@@ -1740,7 +1742,7 @@ async function restoreFileReaderSession(key = props.sessionKey, fallbackRootPath
     const state = readFileReaderSessionState(storageKey);
     if (restoreId !== restoringSessionId) return;
 
-    const restoredTabs = Array.from(new Set((state.tabs || []).map((path) => normalizePath(path)).filter((path) => Boolean(path) && !path.startsWith("git-diff:"))));
+    const restoredTabs = Array.from(new Set((state.tabs || []).filter((path) => Boolean(path) && !String(path).startsWith("git-diff:")).map((path) => normalizePath(path))));
     tabs.value = restoredTabs.map((path) => createRestoredTab(path));
     const restoredActivePath = normalizePath(state.activePath || "");
     activePath.value = restoredTabs.includes(restoredActivePath) ? restoredActivePath : restoredTabs[0] || "";
@@ -2226,7 +2228,12 @@ async function openGitDiffTab(source: GitDiffTabSource) {
       : await gitPanelDiff({ workspacePath, path: source.path, staged: source.staged });
     const diffText = String(result?.diff || "");
     if (!diffText.trim()) {
-      reportFileReaderActionFailure(t('fileReader.noDiffContent'), source.path, null);
+      // 空 diff 是正常提示而非操作失败，直接展示文案，不套 actionFailed 模板
+      const message = t('fileReader.noDiffContent');
+      actionErrorMessage.value = message;
+      window.setTimeout(() => {
+        if (actionErrorMessage.value === message) actionErrorMessage.value = "";
+      }, 4500);
       return;
     }
     const existing = tabs.value.find((tab) => tab.path === tabPath);

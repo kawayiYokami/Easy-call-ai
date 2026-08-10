@@ -2622,6 +2622,7 @@
     "commit": "提交",
     "stashes": "儲藏",
     "stash": "儲藏",
+    "detachedHead": "游離 HEAD",
     "stashPop": "套用並刪除儲藏",
     "stashDrop": "刪除儲藏",
     "stashDropConfirm": "確定刪除儲藏 {reference}？此操作無法復原。",

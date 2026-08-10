@@ -29,7 +29,7 @@
       <div v-if="activeGitTab === 'changes'" class="flex h-8 shrink-0 items-center gap-1 border-b border-base-300 px-2">
         <span class="flex min-w-0 flex-1 items-center gap-1.5 overflow-hidden text-xs font-medium" :title="repoRoot">
           <GitBranch class="h-3.5 w-3.5 shrink-0 opacity-70" />
-          <span class="truncate">{{ currentBranch || '(游离 HEAD)' }}</span>
+          <span class="truncate">{{ currentBranch || t('gitPanel.detachedHead') }}</span>
         </span>
         <button class="btn btn-ghost btn-xs h-6 min-h-6 w-6 px-0" type="button" :title="t('gitPanel.refresh')" :disabled="busy" @click="refreshAll">
           <RefreshCw class="h-3.5 w-3.5" :class="{ 'animate-spin': busy }" />
@@ -99,7 +99,7 @@
                 {{ t('gitPanel.commit') }}
               </button>
             </div>
-            <div v-if="stashList.length > 0" class="mt-2 border-t border-base-300 pt-2">
+            <div class="mt-2 border-t border-base-300 pt-2">
               <div class="flex items-center gap-1 px-0.5 pb-1">
                 <span class="flex-1 text-xs font-medium opacity-70">{{ t('gitPanel.stashes') }}</span>
                 <button type="button" class="btn btn-ghost btn-xs h-5 min-h-5 px-1.5" :disabled="busy" @click="runStashCreate">
@@ -107,7 +107,7 @@
                   <span class="text-[11px]">{{ t('gitPanel.stash') }}</span>
                 </button>
               </div>
-              <div class="space-y-0.5">
+              <div v-if="stashList.length > 0" class="space-y-0.5">
                 <div v-for="stash in stashList" :key="stash.reference" class="flex items-center gap-1 rounded px-1.5 py-0.5 text-xs hover:bg-base-300/40">
                   <span class="min-w-0 flex-1 truncate opacity-80" :title="stash.message">
                     <span class="font-mono opacity-60">{{ stash.reference }}</span>
@@ -238,7 +238,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref } from "vue";
+import { computed, nextTick, onMounted, ref } from "vue";
 import {
   ArrowDownToLine,
   ArrowUpFromLine,
@@ -264,7 +264,6 @@ import {
   gitPanelDiscard,
   gitPanelFetch,
   gitPanelLog,
-  gitPanelPull,
   gitPanelPush,
   gitPanelRemoteList,
   gitPanelStage,
@@ -377,7 +376,7 @@ function appendOutput(command: string, result: GitPanelRunOutput | null, error: 
 }
 
 async function nextTickScrollOutput() {
-  await new Promise<void>((resolve) => setTimeout(resolve, 0));
+  await nextTick();
   const scroller = outputScroller.value;
   if (scroller) scroller.scrollTop = scroller.scrollHeight;
 }
@@ -475,8 +474,8 @@ function selectGitTab(key: string) {
 }
 
 // ==================== 更改操作 ====================
-async function runGitAction(command: string, action: () => Promise<GitPanelRunOutput>) {
-  if (busy.value) return;
+async function runGitAction(command: string, action: () => Promise<GitPanelRunOutput>): Promise<boolean> {
+  if (busy.value) return false;
   busy.value = true;
   try {
     const result = await action();
@@ -484,8 +483,10 @@ async function runGitAction(command: string, action: () => Promise<GitPanelRunOu
     await loadStatus();
     await loadBranches();
     await loadStashes();
+    return true;
   } catch (error) {
     appendOutput(command, null, error);
+    return false;
   } finally {
     busy.value = false;
   }
@@ -526,8 +527,8 @@ async function runCommit() {
 }
 
 async function runStashCreate() {
-  void runGitAction("stash push", () => gitPanelStashCreate(props.workspacePath, commitMessage.value.trim()));
-  commitMessage.value = "";
+  const ok = await runGitAction("stash push", () => gitPanelStashCreate(props.workspacePath, commitMessage.value.trim()));
+  if (ok) commitMessage.value = "";
 }
 
 async function runStashPop(stashRef: string) {
@@ -550,10 +551,6 @@ function runPush() {
 
 function runFetch() {
   void runGitAction("fetch", () => gitPanelFetch(props.workspacePath));
-}
-
-function runPull() {
-  void runGitAction("pull", () => gitPanelPull(props.workspacePath));
 }
 
 // ==================== 分支操作 ====================
@@ -628,10 +625,6 @@ onMounted(() => {
       void loadHistory();
     }
   });
-});
-
-onBeforeUnmount(() => {
-  // 无监听器需要清理
 });
 </script>
 

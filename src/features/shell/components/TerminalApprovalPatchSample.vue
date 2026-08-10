@@ -156,6 +156,7 @@ const showTitleBar = computed(() => props.showPrefixes !== false);
 // 逐行 codeToHast 会丢失跨行语法状态，但 diff 卡按行展示本就无连续状态，可接受。
 
 const highlightedLineHtml = ref<Record<number, string>>({});
+let highlightRequestId = 0;
 let highlighterPromise: Promise<Awaited<ReturnType<typeof getSingletonHighlighter>>> | null = null;
 
 function escapeHtml(value: string) {
@@ -176,10 +177,11 @@ function hastLineHtml(root: ShikiHastNode): string {
 }
 
 async function highlightParsedLines() {
+  const requestId = ++highlightRequestId;
   const language = String(props.lang || "").trim().toLowerCase();
   const target = parsedLines.value;
   if (!language || target.length === 0 || isCollapsed.value) {
-    highlightedLineHtml.value = {};
+    if (requestId === highlightRequestId) highlightedLineHtml.value = {};
     return;
   }
   const theme = isDark.value ? "github-dark" : "github-light";
@@ -188,6 +190,7 @@ async function highlightParsedLines() {
   }
   try {
     const highlighter = await highlighterPromise;
+    if (requestId !== highlightRequestId) return;
     const next: Record<number, string> = {};
     await Promise.all(target.map(async (item, index) => {
       if (item.kind === "warning") {
@@ -202,9 +205,10 @@ async function highlightParsedLines() {
         next[index] = escapeHtml(item.line);
       }
     }));
+    if (requestId !== highlightRequestId) return;
     highlightedLineHtml.value = next;
   } catch {
-    highlightedLineHtml.value = {};
+    if (requestId === highlightRequestId) highlightedLineHtml.value = {};
   }
 }
 
