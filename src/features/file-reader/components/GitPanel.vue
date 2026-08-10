@@ -252,26 +252,26 @@
             <div ref="branchesScroller" class="git-panel-scroller min-h-0 flex-1 overflow-y-auto">
               <div class="mb-1 px-1 text-xs font-medium opacity-60">{{ t('gitPanel.localBranches') }}</div>
               <div v-for="branch in localBranches" :key="branch.name" class="flex items-center gap-1.5 rounded px-1.5 py-1 text-sm hover:bg-base-300/40" :class="{ 'bg-primary/10 text-primary': branch.isCurrent }">
+                <button v-if="!branch.isCurrent" type="button" class="btn btn-ghost btn-xs h-5 min-h-5 w-5 shrink-0 px-0 opacity-70 hover:opacity-100" :title="t('gitPanel.checkoutBranch')" :disabled="busy" @click="runCheckoutBranch(branch.name)">
+                  <ArrowRightLeft class="h-3 w-3" />
+                </button>
                 <button type="button" class="flex min-w-0 flex-1 items-center gap-1.5 text-left" :class="{ 'cursor-default': branch.isCurrent }" @click="selectBranch(branch.name)">
                   <GitBranch v-if="branch.isCurrent" class="h-3.5 w-3.5 shrink-0" />
                   <span v-else class="h-3.5 w-3.5 shrink-0"></span>
                   <span class="min-w-0 truncate">{{ branch.name }}</span>
                 </button>
-                <button v-if="!branch.isCurrent" type="button" class="btn btn-ghost btn-xs h-5 min-h-5 px-1.5 text-[11px] opacity-70 hover:opacity-100" :disabled="busy" @click="runCheckoutBranch(branch.name)">
-                  {{ t('gitPanel.checkoutBranch') }}
-                </button>
-                <button v-if="!branch.isCurrent" type="button" class="btn btn-ghost btn-xs h-5 min-h-5 px-1.5 text-[11px] text-error/80 hover:opacity-100" :disabled="busy" @click="runBranchDelete(branch.name)">
+                <button v-if="!branch.isCurrent" type="button" class="btn btn-error btn-xs h-5 min-h-5 px-1.5 text-[11px]" :disabled="busy" @click="runBranchDelete(branch.name)">
                   {{ t('gitPanel.deleteBranch') }}
                 </button>
               </div>
               <div v-if="remoteBranches.length > 0" class="mb-1 mt-3 px-1 text-xs font-medium opacity-60">{{ t('gitPanel.remoteBranches') }}</div>
               <div v-for="branch in remoteBranches" :key="branch.name" class="flex items-center gap-1.5 rounded px-1.5 py-1 text-sm hover:bg-base-300/40">
+                <button type="button" class="btn btn-ghost btn-xs h-5 min-h-5 w-5 shrink-0 px-0 opacity-70 hover:opacity-100" :title="t('gitPanel.checkoutBranch')" :disabled="busy" @click="runCheckoutBranch(branch.name)">
+                  <ArrowRightLeft class="h-3 w-3" />
+                </button>
                 <button type="button" class="flex min-w-0 flex-1 items-center gap-1.5 text-left" @click="selectBranch(branch.name)">
                   <Cloud class="h-3.5 w-3.5 shrink-0 opacity-60" />
                   <span class="min-w-0 truncate">{{ branch.name }}</span>
-                </button>
-                <button type="button" class="btn btn-ghost btn-xs h-5 min-h-5 px-1.5 text-[11px] opacity-70 hover:opacity-100" :disabled="busy" @click="runCheckoutBranch(branch.name)">
-                  {{ t('gitPanel.checkoutBranch') }}
                 </button>
               </div>
               <div v-if="remotes.length > 0" class="mb-1 mt-3 px-1 text-xs font-medium opacity-60">{{ t('gitPanel.remotes') }}</div>
@@ -307,6 +307,7 @@
 import { computed, onMounted, ref } from "vue";
 import {
   ArrowDownToLine,
+  ArrowRightLeft,
   ArrowUpFromLine,
   ChevronRight,
   ChevronUp,
