@@ -148,17 +148,10 @@
                   </div>
                 </div>
               </div>
-              <!-- 加载更多 -->
-              <div v-if="logHasMore" class="px-2 py-1.5">
-                <button
-                  type="button"
-                  class="btn btn-ghost btn-xs w-full border border-dashed border-base-300"
-                  :disabled="busy || logLoadingMore"
-                  @click="loadMoreHistory"
-                >
-                  <span v-if="logLoadingMore" class="loading loading-spinner loading-xs" />
-                  {{ t('gitPanel.loadMore') }}
-                </button>
+              <!-- 滚动到底自动加载更多 -->
+              <div v-if="logHasMore" ref="logSentinel" class="flex justify-center px-2 py-2">
+                <span v-if="logLoadingMore" class="loading loading-spinner loading-xs opacity-60" />
+                <span v-else class="text-xs opacity-40">{{ t('gitPanel.loadMore') }}</span>
               </div>
             </div>
             <!-- commit 表底部：分支切换按钮 -->
@@ -312,7 +305,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref } from "vue";
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import {
   ArrowDownToLine,
   ArrowRightLeft,
@@ -402,6 +395,8 @@ const logEntries = ref<GitPanelLogEntry[]>([]);
 const logHasMore = ref(false);
 const logLoadingMore = ref(false);
 const logPageSize = 50;
+const logSentinel = ref<HTMLElement | null>(null);
+let logObserver: IntersectionObserver | undefined;
 const commitFilesMap = ref<Record<string, GitPanelCommitFileEntry[]>>({});
 const commitFilesLoading = ref<Record<string, boolean>>({});
 const expandedCommitHash = ref("");
@@ -546,6 +541,28 @@ async function loadMoreHistory() {
     logLoadingMore.value = false;
   }
 }
+
+function observeLogSentinel() {
+  logObserver?.disconnect();
+  if (!logSentinel.value) return;
+  logObserver = new IntersectionObserver(
+    (entries) => {
+      if (entries[0]?.isIntersecting) void loadMoreHistory();
+    },
+    { root: historyScroller.value, rootMargin: "120px" },
+  );
+  logObserver.observe(logSentinel.value);
+}
+
+watch(logHasMore, async (hasMore) => {
+  if (hasMore) {
+    await nextTick();
+    observeLogSentinel();
+  } else {
+    logObserver?.disconnect();
+    logObserver = undefined;
+  }
+});
 
 async function refreshAll() {
   if (busy.value || !repoRoot.value) return;
@@ -779,6 +796,11 @@ onMounted(() => {
       void loadHistory();
     }
   });
+});
+
+onBeforeUnmount(() => {
+  logObserver?.disconnect();
+  logObserver = undefined;
 });
 </script>
 
