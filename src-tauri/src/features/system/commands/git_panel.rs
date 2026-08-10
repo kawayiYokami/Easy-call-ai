@@ -73,6 +73,13 @@ struct GitPanelLogInput {
     limit: Option<usize>,
 }
 
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct GitPanelCommitFilesInput {
+    workspace_path: String,
+    hash: String,
+}
+
 // ---------- 输出结构 ----------
 
 #[derive(Debug, Clone, Serialize)]
@@ -112,6 +119,19 @@ struct GitPanelStatusOutput {
 #[serde(rename_all = "camelCase")]
 struct GitPanelDiffOutput {
     diff: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct GitPanelCommitFileEntry {
+    path: String,
+    status: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct GitPanelCommitFilesOutput {
+    entries: Vec<GitPanelCommitFileEntry>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -770,4 +790,37 @@ async fn git_panel_show(input: GitPanelShowInput) -> Result<GitPanelDiffOutput, 
         .await?
     };
     Ok(GitPanelDiffOutput { diff })
+}
+
+// ---------- 命令：提交文件列表 ----------
+
+#[tauri::command]
+async fn git_panel_commit_files(input: GitPanelCommitFilesInput) -> Result<GitPanelCommitFilesOutput, String> {
+    let workspace_path = git_panel_validate_path(&input.workspace_path)?;
+    let repo_root = git_panel_resolve_root(&workspace_path).await?;
+    let hash = git_panel_validate_hash(&input.hash)?;
+    // --name-status 输出 "状态\t路径"；--no-renames 保证 rename 也按 删+增 输出，避免旧路径行干扰
+    let stdout = git_panel_run(
+        &repo_root,
+        &["show", "--format=", "--name-status", "--no-renames", &hash],
+    )
+    .await?;
+    let mut entries = Vec::new();
+    for line in stdout.lines() {
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        let mut parts = trimmed.splitn(3, '\t');
+        let Some(status) = parts.next() else { continue };
+        let Some(path) = parts.next() else { continue };
+        if status.is_empty() || path.is_empty() {
+            continue;
+        }
+        entries.push(GitPanelCommitFileEntry {
+            path: path.to_string(),
+            status: status.chars().next().unwrap_or('?').to_string(),
+        });
+    }
+    Ok(GitPanelCommitFilesOutput { entries })
 }

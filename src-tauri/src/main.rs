@@ -1498,6 +1498,7 @@ fn main() {
             git_panel_sync,
             git_panel_log,
             git_panel_show,
+            git_panel_commit_files,
             mcp_list_servers,
             mcp_validate_definition,
             mcp_save_server,

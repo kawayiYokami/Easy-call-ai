@@ -2770,6 +2770,15 @@ export type GitPanelDiffOutput = {
   diff: string;
 };
 
+export type GitPanelCommitFileEntry = {
+  path: string;
+  status: string;
+};
+
+export type GitPanelCommitFilesOutput = {
+  entries: GitPanelCommitFileEntry[];
+};
+
 export type GitPanelBranchEntry = {
   name: string;
   isCurrent: boolean;
@@ -2961,5 +2970,14 @@ export async function gitPanelShow(workspacePath: string, hash: string, path = "
   if (!normalizedHash) throw new Error("缺少提交哈希");
   return invokeTauri<GitPanelDiffOutput>("git_panel_show", {
     input: { workspacePath: normalizedWorkspace, hash: normalizedHash, path: String(path || "").trim() },
+  });
+}
+
+export async function gitPanelCommitFiles(workspacePath: string, hash: string): Promise<GitPanelCommitFilesOutput> {
+  const normalizedWorkspace = gitPanelRequiredWorkspace(workspacePath);
+  const normalizedHash = String(hash || "").trim();
+  if (!normalizedHash) throw new Error("缺少提交哈希");
+  return invokeTauri<GitPanelCommitFilesOutput>("git_panel_commit_files", {
+    input: { workspacePath: normalizedWorkspace, hash: normalizedHash },
   });
 }
