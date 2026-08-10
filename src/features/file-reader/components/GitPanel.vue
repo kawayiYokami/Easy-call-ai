@@ -148,9 +148,17 @@
                   </div>
                 </div>
               </div>
-              <div v-if="logGraph" class="mt-3 border-t border-base-300 px-2 pt-2">
-                <div class="pb-1 text-xs font-medium opacity-60">{{ t('gitPanel.commitGraph') }}</div>
-                <pre class="git-panel-graph overflow-x-auto pb-2 font-mono text-[11px] leading-relaxed">{{ logGraph }}</pre>
+              <!-- 加载更多 -->
+              <div v-if="logHasMore" class="px-2 py-1.5">
+                <button
+                  type="button"
+                  class="btn btn-ghost btn-xs w-full border border-dashed border-base-300"
+                  :disabled="busy || logLoadingMore"
+                  @click="loadMoreHistory"
+                >
+                  <span v-if="logLoadingMore" class="loading loading-spinner loading-xs" />
+                  {{ t('gitPanel.loadMore') }}
+                </button>
               </div>
             </div>
             <!-- commit 表底部：分支切换按钮 -->
@@ -391,7 +399,9 @@ const branches = ref<GitPanelBranchEntry[]>([]);
 const remotes = ref<GitPanelRemoteEntry[]>([]);
 const stashList = ref<GitPanelStashEntry[]>([]);
 const logEntries = ref<GitPanelLogEntry[]>([]);
-const logGraph = ref("");
+const logHasMore = ref(false);
+const logLoadingMore = ref(false);
+const logPageSize = 50;
 const commitFilesMap = ref<Record<string, GitPanelCommitFileEntry[]>>({});
 const commitFilesLoading = ref<Record<string, boolean>>({});
 const expandedCommitHash = ref("");
@@ -514,11 +524,26 @@ async function loadStashes() {
 async function loadHistory() {
   if (!repoRoot.value) return;
   try {
-    const result = await gitPanelLog(props.workspacePath, 100);
+    const result = await gitPanelLog(props.workspacePath, logPageSize, 0);
     logEntries.value = result.entries || [];
-    logGraph.value = result.graph || "";
+    logHasMore.value = (result.entries || []).length >= logPageSize;
   } catch (error) {
     appendOutput("log", null, error);
+  }
+}
+
+async function loadMoreHistory() {
+  if (!repoRoot.value || logLoadingMore.value || busy.value || !logHasMore.value) return;
+  logLoadingMore.value = true;
+  try {
+    const result = await gitPanelLog(props.workspacePath, logPageSize, logEntries.value.length);
+    const next = result.entries || [];
+    logEntries.value = logEntries.value.concat(next);
+    logHasMore.value = next.length >= logPageSize;
+  } catch (error) {
+    appendOutput("log", null, error);
+  } finally {
+    logLoadingMore.value = false;
   }
 }
 

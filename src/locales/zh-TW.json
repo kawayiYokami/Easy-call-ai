@@ -2638,7 +2638,7 @@
     "current": "目前",
     "commitHistory": "提交歷史",
     "noCommits": "還沒有提交",
-    "commitGraph": "提交圖",
+    "loadMore": "載入更多",
     "loading": "載入中…",
     "noCommitFiles": "該提交沒有檔案變更"
   },

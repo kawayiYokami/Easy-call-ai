@@ -2642,7 +2642,7 @@
     "current": "当前",
     "commitHistory": "提交历史",
     "noCommits": "还没有提交",
-    "commitGraph": "提交图",
+    "loadMore": "加载更多",
     "loading": "加载中…",
     "noCommitFiles": "该提交没有文件变更"
   },

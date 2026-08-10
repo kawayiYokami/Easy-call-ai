@@ -2804,7 +2804,6 @@ export type GitPanelLogEntry = {
 };
 
 export type GitPanelLogOutput = {
-  graph: string;
   entries: GitPanelLogEntry[];
 };
 
@@ -2958,9 +2957,13 @@ export async function gitPanelSync(workspacePath: string): Promise<GitPanelRunOu
   return invokeTauri<GitPanelRunOutput>("git_panel_sync", gitPanelWorkspaceArgs(gitPanelRequiredWorkspace(workspacePath)));
 }
 
-export async function gitPanelLog(workspacePath: string, limit?: number): Promise<GitPanelLogOutput> {
+export async function gitPanelLog(workspacePath: string, limit?: number, skip?: number): Promise<GitPanelLogOutput> {
   return invokeTauri<GitPanelLogOutput>("git_panel_log", {
-    input: { workspacePath: gitPanelRequiredWorkspace(workspacePath), limit: Number(limit) || undefined },
+    input: {
+      workspacePath: gitPanelRequiredWorkspace(workspacePath),
+      limit: Number(limit) || undefined,
+      skip: Number(skip) || undefined,
+    },
   });
 }
 

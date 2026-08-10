@@ -2642,7 +2642,7 @@
     "current": "current",
     "commitHistory": "Commit History",
     "noCommits": "No commits yet",
-    "commitGraph": "Commit Graph",
+    "loadMore": "Load more",
     "loading": "Loading…",
     "noCommitFiles": "This commit has no file changes"
   },

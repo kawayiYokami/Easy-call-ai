@@ -71,6 +71,7 @@ struct GitPanelShowInput {
 struct GitPanelLogInput {
     workspace_path: String,
     limit: Option<usize>,
+    skip: Option<usize>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -169,7 +170,6 @@ struct GitPanelLogEntry {
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct GitPanelLogOutput {
-    graph: String,
     entries: Vec<GitPanelLogEntry>,
 }
 
@@ -717,32 +717,20 @@ async fn git_panel_log(input: GitPanelLogInput) -> Result<GitPanelLogOutput, Str
     let workspace_path = git_panel_validate_path(&input.workspace_path)?;
     let repo_root = git_panel_resolve_root(&workspace_path).await?;
     let limit = input.limit.unwrap_or(100).clamp(1, 500);
+    let skip = input.skip.unwrap_or(0);
 
-    let graph = git_panel_run(
-        &repo_root,
-        &[
-            "log",
-            "--graph",
-            "--oneline",
-            "--decorate",
-            "--no-color",
-            "-n",
-            &limit.to_string(),
-        ],
-    )
-    .await
-    .unwrap_or_default();
-
-    let stdout = git_panel_run(
-        &repo_root,
-        &[
-            "log",
-            "-n",
-            &limit.to_string(),
-            "--format=%H%x1f%h%x1f%an%x1f%aI%x1f%s",
-        ],
-    )
-    .await?;
+    let mut args: Vec<String> = vec![
+        "log".to_string(),
+        "-n".to_string(),
+        limit.to_string(),
+        "--format=%H%x1f%h%x1f%an%x1f%aI%x1f%s".to_string(),
+    ];
+    if skip > 0 {
+        args.push("--skip".to_string());
+        args.push(skip.to_string());
+    }
+    let args_ref: Vec<&str> = args.iter().map(String::as_str).collect();
+    let stdout = git_panel_run(&repo_root, &args_ref).await?;
     let entries = stdout
         .lines()
         .filter_map(|line| {
@@ -768,7 +756,7 @@ async fn git_panel_log(input: GitPanelLogInput) -> Result<GitPanelLogOutput, Str
             })
         })
         .collect();
-    Ok(GitPanelLogOutput { graph, entries })
+    Ok(GitPanelLogOutput { entries })
 }
 
 // ---------- 命令：提交 diff ----------
