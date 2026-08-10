@@ -2882,6 +2882,15 @@ export async function gitPanelStashList(workspacePath: string): Promise<GitPanel
   return invokeTauri<GitPanelStashEntry[]>("git_panel_stash_list", gitPanelWorkspaceArgs(gitPanelRequiredWorkspace(workspacePath)));
 }
 
+export async function gitPanelStashFiles(workspacePath: string, stashRef: string): Promise<GitPanelCommitFilesOutput> {
+  const normalizedWorkspace = gitPanelRequiredWorkspace(workspacePath);
+  const normalizedRef = String(stashRef || "").trim();
+  if (!normalizedRef) throw new Error("缺少存储引用");
+  return invokeTauri<GitPanelCommitFilesOutput>("git_panel_stash_files", {
+    input: { workspacePath: normalizedWorkspace, stashRef: normalizedRef },
+  });
+}
+
 export async function gitPanelStashCreate(workspacePath: string, message = ""): Promise<GitPanelRunOutput> {
   return invokeTauri<GitPanelRunOutput>("git_panel_stash_create", {
     input: { workspacePath: gitPanelRequiredWorkspace(workspacePath), message: String(message || "").trim() },
@@ -2933,6 +2942,21 @@ export async function gitPanelCheckout(workspacePath: string, reference: string)
   const normalizedReference = String(reference || "").trim();
   if (!normalizedReference) throw new Error("引用不能为空");
   return invokeTauri<GitPanelRunOutput>("git_panel_checkout", {
+    input: { workspacePath: normalizedWorkspace, reference: normalizedReference },
+  });
+}
+
+export type GitPanelCheckoutCheckOutput = {
+  dirtyPaths: string[];
+  changedPaths: string[];
+  conflictingPaths: string[];
+};
+
+export async function gitPanelCheckoutCheck(workspacePath: string, reference: string): Promise<GitPanelCheckoutCheckOutput> {
+  const normalizedWorkspace = gitPanelRequiredWorkspace(workspacePath);
+  const normalizedReference = String(reference || "").trim();
+  if (!normalizedReference) throw new Error("引用不能为空");
+  return invokeTauri<GitPanelCheckoutCheckOutput>("git_panel_checkout_check", {
     input: { workspacePath: normalizedWorkspace, reference: normalizedReference },
   });
 }

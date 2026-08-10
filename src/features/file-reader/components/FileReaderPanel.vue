@@ -224,6 +224,7 @@
           <GitPanel
             :workspace-path="gitPanelWorkspacePath"
             :markdown-is-dark="markdownIsDark"
+            :session-key="props.sessionKey"
             @open-diff="openGitDiffTab"
           />
         </template>
@@ -2272,6 +2273,14 @@ async function openGitDiffTab(source: GitDiffTabSource) {
       tabs.value = [...tabs.value, tab];
     } else {
       replaceTabState(tab);
+    }
+    // 同会话同时只保留一个 diff 文件：关闭其他已打开的 diff tab
+    const otherDiffTabs = tabs.value.filter((item) => item.kind === "diff" && item.path !== tabPath);
+    if (otherDiffTabs.length > 0) {
+      closeTabsByPaths(
+        otherDiffTabs.map((item) => item.path),
+        { preferredActivePath: tabPath },
+      );
     }
     activePath.value = tabPath;
     scheduleAddressScrollStateUpdate();

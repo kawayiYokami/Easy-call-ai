@@ -361,6 +361,22 @@ fn git_panel_parse_status_entry(record: &str) -> Option<GitPanelStatusEntry> {
     })
 }
 
+/// 从 porcelain v1 -z 记录中提取文件路径（忽略 rename 的旧路径记录）。
+fn git_panel_parse_status_path(record: &str) -> Option<String> {
+    let mut chars = record.chars();
+    chars.next()?;
+    chars.next()?;
+    if chars.next()? != ' ' {
+        return None;
+    }
+    let path = chars.as_str().trim_start_matches(' ').to_string();
+    if path.is_empty() {
+        return None;
+    }
+    let display_path = path.split(" -> ").next().unwrap_or(&path).to_string();
+    Some(display_path)
+}
+
 // ---------- 命令：探测 ----------
 
 #[tauri::command]
@@ -574,6 +590,34 @@ async fn git_panel_stash_drop(input: GitPanelStashRefInput) -> Result<GitPanelRu
     git_panel_run_raw(&repo_root, &["stash", "drop", &reference]).await
 }
 
+#[tauri::command]
+async fn git_panel_stash_files(input: GitPanelStashRefInput) -> Result<GitPanelCommitFilesOutput, String> {
+    let workspace_path = git_panel_validate_path(&input.workspace_path)?;
+    let repo_root = git_panel_resolve_root(&workspace_path).await?;
+    let reference = git_panel_validate_reference(&input.stash_ref)?;
+    // --name-status 输出 "状态\t路径"；--no-renames 保证 rename 按 删+增 输出
+    let stdout = git_panel_run(&repo_root, &["stash", "show", "--name-status", "--no-renames", &reference])
+        .await?;
+    let mut entries = Vec::new();
+    for line in stdout.lines() {
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        let mut parts = trimmed.splitn(3, '\t');
+        let Some(status) = parts.next() else { continue };
+        let Some(path) = parts.next() else { continue };
+        if status.is_empty() || path.is_empty() {
+            continue;
+        }
+        entries.push(GitPanelCommitFileEntry {
+            path: path.to_string(),
+            status: status.chars().next().unwrap_or('?').to_string(),
+        });
+    }
+    Ok(GitPanelCommitFilesOutput { entries })
+}
+
 // ---------- 命令：分支 ----------
 
 #[tauri::command]
@@ -647,6 +691,62 @@ async fn git_panel_checkout(input: GitPanelCheckoutInput) -> Result<GitPanelRunO
     let repo_root = git_panel_resolve_root(&workspace_path).await?;
     let reference = git_panel_validate_reference(&input.reference)?;
     git_panel_run_raw(&repo_root, &["checkout", &reference]).await
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct GitPanelCheckoutCheckOutput {
+    /// 工作区未提交/未跟踪的文件路径
+    dirty_paths: Vec<String>,
+    /// 目标分支相对当前 HEAD 修改的文件路径
+    changed_paths: Vec<String>,
+    /// 交集：切换会覆盖或冲突的文件路径
+    conflicting_paths: Vec<String>,
+}
+
+/// 切换分支预检：对比工作区未提交文件与目标分支改动，找出会冲突的文件
+#[tauri::command]
+async fn git_panel_checkout_check(input: GitPanelCheckoutInput) -> Result<GitPanelCheckoutCheckOutput, String> {
+    let workspace_path = git_panel_validate_path(&input.workspace_path)?;
+    let repo_root = git_panel_resolve_root(&workspace_path).await?;
+    let reference = git_panel_validate_reference(&input.reference)?;
+
+    // 工作区未提交/未跟踪文件（含重命名等，-z 按 NUL 分隔）
+    let status_stdout = git_panel_run(
+        &repo_root,
+        &["status", "--porcelain=v1", "-z", "-uall"],
+    )
+    .await?;
+    let dirty_paths: Vec<String> = status_stdout
+        .split('\0')
+        .filter(|record| !record.is_empty())
+        .filter_map(git_panel_parse_status_path)
+        .collect();
+
+    // 目标分支相对当前 HEAD 修改的文件
+    let changed_stdout = git_panel_run(
+        &repo_root,
+        &["diff", "--name-only", "HEAD", &reference],
+    )
+    .await?;
+    let changed_paths: Vec<String> = changed_stdout
+        .lines()
+        .map(|line| line.trim().to_string())
+        .filter(|line| !line.is_empty())
+        .collect();
+
+    let dirty_set: std::collections::HashSet<&String> = dirty_paths.iter().collect();
+    let conflicting_paths: Vec<String> = changed_paths
+        .iter()
+        .filter(|path| dirty_set.contains(*path))
+        .cloned()
+        .collect();
+
+    Ok(GitPanelCheckoutCheckOutput {
+        dirty_paths,
+        changed_paths,
+        conflicting_paths,
+    })
 }
 
 // ---------- 命令：远程 ----------
@@ -723,7 +823,7 @@ async fn git_panel_log(input: GitPanelLogInput) -> Result<GitPanelLogOutput, Str
         "log".to_string(),
         "-n".to_string(),
         limit.to_string(),
-        "--format=%H%x1f%h%x1f%an%x1f%aI%x1f%s".to_string(),
+        "--format=%H%x1f%h%x1f%an%x1f%aI%x1f%B%x1e".to_string(),
     ];
     if skip > 0 {
         args.push("--skip".to_string());
@@ -732,9 +832,9 @@ async fn git_panel_log(input: GitPanelLogInput) -> Result<GitPanelLogOutput, Str
     let args_ref: Vec<&str> = args.iter().map(String::as_str).collect();
     let stdout = git_panel_run(&repo_root, &args_ref).await?;
     let entries = stdout
-        .lines()
-        .filter_map(|line| {
-            let trimmed = line.trim();
+        .split('\u{1e}')
+        .filter_map(|record| {
+            let trimmed = record.trim();
             if trimmed.is_empty() {
                 return None;
             }
@@ -743,7 +843,7 @@ async fn git_panel_log(input: GitPanelLogInput) -> Result<GitPanelLogOutput, Str
             let short_hash = parts.next().unwrap_or("").to_string();
             let author = parts.next().unwrap_or("").to_string();
             let date = parts.next().unwrap_or("").to_string();
-            let message = parts.next().unwrap_or("").to_string();
+            let message = parts.next().unwrap_or("").trim().to_string();
             if hash.is_empty() {
                 return None;
             }
@@ -767,15 +867,30 @@ async fn git_panel_show(input: GitPanelShowInput) -> Result<GitPanelDiffOutput, 
     let repo_root = git_panel_resolve_root(&workspace_path).await?;
     let hash = git_panel_validate_hash(&input.hash)?;
     let path = input.path.trim().to_string();
+    // stash 是合并提交：git show 只会输出 combined diff（diff --cc），可读性差；
+    // 改走 diff 第一父提交（stash 创建时的 HEAD），得到标准 diff
+    let is_stash = hash.starts_with("stash@{");
     let diff = if path.is_empty() {
-        git_panel_run(&repo_root, &["show", "--format=", "--no-ext-diff", &hash]).await?
+        if is_stash {
+            git_panel_run(&repo_root, &["diff", &format!("{hash}^1"), &hash]).await?
+        } else {
+            git_panel_run(&repo_root, &["show", "--format=", "--no-ext-diff", &hash]).await?
+        }
     } else {
         let path = git_panel_validate_path(&path)?;
-        git_panel_run(
-            &repo_root,
-            &["show", "--format=", "--no-ext-diff", &hash, "--", &path],
-        )
-        .await?
+        if is_stash {
+            git_panel_run(
+                &repo_root,
+                &["diff", &format!("{hash}^1"), &hash, "--", &path],
+            )
+            .await?
+        } else {
+            git_panel_run(
+                &repo_root,
+                &["show", "--format=", "--no-ext-diff", &hash, "--", &path],
+            )
+            .await?
+        }
     };
     Ok(GitPanelDiffOutput { diff })
 }
