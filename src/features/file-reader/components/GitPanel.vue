@@ -257,11 +257,11 @@
                   <span v-else class="h-3.5 w-3.5 shrink-0"></span>
                   <span class="min-w-0 truncate">{{ branch.name }}</span>
                 </button>
-                <button v-if="!branch.isCurrent" type="button" class="btn btn-ghost btn-xs h-5 min-h-5 px-1 opacity-60 hover:opacity-100" :title="t('gitPanel.checkoutBranch')" :disabled="busy" @click="runCheckoutBranch(branch.name)">
-                  <GitCommitHorizontal class="h-3 w-3" />
+                <button v-if="!branch.isCurrent" type="button" class="btn btn-ghost btn-xs h-5 min-h-5 px-1.5 text-[11px] opacity-70 hover:opacity-100" :disabled="busy" @click="runCheckoutBranch(branch.name)">
+                  {{ t('gitPanel.checkoutBranch') }}
                 </button>
-                <button v-if="!branch.isCurrent" type="button" class="btn btn-ghost btn-xs h-5 min-h-5 px-1 opacity-60 hover:opacity-100" :title="t('gitPanel.deleteBranch')" :disabled="busy" @click="runBranchDelete(branch.name)">
-                  <Trash2 class="h-3 w-3" />
+                <button v-if="!branch.isCurrent" type="button" class="btn btn-ghost btn-xs h-5 min-h-5 px-1.5 text-[11px] text-error/80 hover:opacity-100" :disabled="busy" @click="runBranchDelete(branch.name)">
+                  {{ t('gitPanel.deleteBranch') }}
                 </button>
               </div>
               <div v-if="remoteBranches.length > 0" class="mb-1 mt-3 px-1 text-xs font-medium opacity-60">{{ t('gitPanel.remoteBranches') }}</div>
@@ -270,8 +270,8 @@
                   <Cloud class="h-3.5 w-3.5 shrink-0 opacity-60" />
                   <span class="min-w-0 truncate">{{ branch.name }}</span>
                 </button>
-                <button type="button" class="btn btn-ghost btn-xs h-5 min-h-5 px-1 opacity-60 hover:opacity-100" :title="t('gitPanel.checkoutBranch')" :disabled="busy" @click="runCheckoutBranch(branch.name)">
-                  <GitCommitHorizontal class="h-3 w-3" />
+                <button type="button" class="btn btn-ghost btn-xs h-5 min-h-5 px-1.5 text-[11px] opacity-70 hover:opacity-100" :disabled="busy" @click="runCheckoutBranch(branch.name)">
+                  {{ t('gitPanel.checkoutBranch') }}
                 </button>
               </div>
               <div v-if="remotes.length > 0" class="mb-1 mt-3 px-1 text-xs font-medium opacity-60">{{ t('gitPanel.remotes') }}</div>
