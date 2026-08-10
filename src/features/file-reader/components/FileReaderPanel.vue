@@ -1710,7 +1710,8 @@ function persistFileReaderSession(key = props.sessionKey) {
   }))).map((path) => normalizePath(path));
   const state: FileReaderSessionState = {
     tabs: uniqueTabs,
-    activePath: normalizePath(activePath.value),
+    // diff 标签不持久化，activePath 若指向 git-diff 伪路径则不保存
+    activePath: String(activePath.value || "").startsWith("git-diff:") ? "" : normalizePath(activePath.value),
     directoryRootPath: normalizePath(directoryRootPath.value),
     directoryTreeWidth: effectiveDirectoryTreeWidth.value,
   };
@@ -1744,8 +1745,10 @@ async function restoreFileReaderSession(key = props.sessionKey, fallbackRootPath
 
     const restoredTabs = Array.from(new Set((state.tabs || []).filter((path) => Boolean(path) && !String(path).startsWith("git-diff:")).map((path) => normalizePath(path))));
     tabs.value = restoredTabs.map((path) => createRestoredTab(path));
-    const restoredActivePath = normalizePath(state.activePath || "");
-    activePath.value = restoredTabs.includes(restoredActivePath) ? restoredActivePath : restoredTabs[0] || "";
+    // 会话里保存的 activePath 不可能是 git-diff 伪路径（持久化时已跳过），防御性过滤
+    const restoredActiveRaw = String(state.activePath || "");
+    const restoredActivePath = restoredActiveRaw.startsWith("git-diff:") ? "" : normalizePath(restoredActiveRaw);
+    activePath.value = restoredActivePath && restoredTabs.includes(restoredActivePath) ? restoredActivePath : restoredTabs[0] || "";
     setDirectoryTreeWidth(state.directoryTreeWidth || FILE_READER_DIRECTORY_TREE_DEFAULT_WIDTH);
 
     const restoredDirectoryRoot = normalizePath(state.directoryRootPath || "");
