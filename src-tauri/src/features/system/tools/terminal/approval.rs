@@ -271,6 +271,27 @@ async fn terminal_request_user_approval(
         ide_chat_broadcast_notification("terminalApproval.requested", value);
     }
 
+    // 同时发系统通知，用户不在聊天窗口时也能被提醒去审批；失败不阻断审批流程
+    // 通知只提示有人格请求许可，不暴露命令/路径等具体内容
+    let ui_language = state_read_config_cached(state)
+        .map(|config| config.ui_language)
+        .unwrap_or_else(|_| "zh-CN".to_string());
+    let notify_title = terminal_localized_text(
+        &ui_language,
+        "人格请求工具执行许可",
+        "人格請求工具執行許可",
+        "Agent requests tool execution permission",
+    );
+    let notify_body = terminal_localized_text(
+        &ui_language,
+        "PAI 正在等待你的审批，请打开应用查看并决定是否允许。",
+        "PAI 正在等待你的審批，請開啟應用程式檢視並決定是否允許。",
+        "PAI is waiting for your approval. Open the app to review and decide.",
+    );
+    if let Err(err) = send_native_notification(&app_handle, &notify_title, &notify_body, true) {
+        runtime_log_warn(format!("[审批通知] 发送失败: {err}"));
+    }
+
     let wait_result = rx.await;
 
     if let Ok(mut pending) = state.terminal_pending_approvals.lock() {
