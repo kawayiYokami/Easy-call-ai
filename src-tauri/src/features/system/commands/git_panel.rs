@@ -966,15 +966,21 @@ fn git_panel_repo_cache() -> &'static Mutex<HashMap<String, Vec<GitPanelRepoEntr
     GIT_REPO_SCAN_CACHE.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
-/// 仓库根路径比较（Windows 下忽略大小写）。
+/// 仓库根路径比较：统一分隔符（Windows 下再忽略大小写），避免
+/// rev-parse 输出的反斜杠路径与前端传入的正斜杠路径被误判为不同仓库。
 fn git_panel_repo_path_eq(a: &str, b: &str) -> bool {
+    git_panel_normalize_repo_path(a) == git_panel_normalize_repo_path(b)
+}
+
+/// 路径归一化：统一分隔符为 /（Windows 下再转小写），用于比较与分组键。
+fn git_panel_normalize_repo_path(path: &str) -> String {
     #[cfg(target_os = "windows")]
     {
-        a.eq_ignore_ascii_case(b)
+        path.replace('\\', "/").to_lowercase()
     }
     #[cfg(not(target_os = "windows"))]
     {
-        a == b
+        path.replace('\\', "/")
     }
 }
 
@@ -1022,21 +1028,22 @@ fn git_panel_scan_repos_inner(workspace_path: &str, max_depth: usize) -> Vec<Git
     repos
 }
 
-// ---------- 打开过的仓库历史（独立文件，持久化） ----------
+// ---------- 打开过的仓库历史（独立文件，按工作区分组，持久化） ----------
 
 fn git_panel_repo_history_path(state: &AppState) -> PathBuf {
     app_layout_state_dir(&state.data_path).join(GIT_REPO_HISTORY_FILE)
 }
 
-/// 读取历史（最近在前）；文件缺失或损坏时返回空列表。
-fn git_panel_read_repo_history(state: &AppState) -> Vec<String> {
+/// 读取历史：workspace_path(归一化) → 最近打开过的仓库列表。
+/// 文件缺失或损坏时返回空 Map。
+fn git_panel_read_repo_history(state: &AppState) -> HashMap<String, Vec<String>> {
     std::fs::read_to_string(git_panel_repo_history_path(state))
         .ok()
-        .and_then(|content| serde_json::from_str::<Vec<String>>(&content).ok())
+        .and_then(|content| serde_json::from_str::<HashMap<String, Vec<String>>>(&content).ok())
         .unwrap_or_default()
 }
 
-fn git_panel_write_repo_history(state: &AppState, history: &[String]) {
+fn git_panel_write_repo_history(state: &AppState, history: &HashMap<String, Vec<String>>) {
     let path = git_panel_repo_history_path(state);
     if let Some(parent) = path.parent() {
         let _ = std::fs::create_dir_all(parent);
@@ -1046,31 +1053,37 @@ fn git_panel_write_repo_history(state: &AppState, history: &[String]) {
     }
 }
 
-/// 把仓库根记入历史：最近在前、去重、封顶 50；已存在则移到最前。
-/// 返回历史是否发生变化（新增或重排），调用方据此决定是否写盘。
-fn git_panel_history_push(history: &mut Vec<String>, repo_root: &str) -> bool {
-    if let Some(index) = history
+/// 把仓库根记入历史：按当前工作区精确分组（O(1) 定位，无需遍历匹配），
+/// 组内最近在前、去重、封顶 50。返回该组历史是否发生变化。
+fn git_panel_history_push(
+    history: &mut HashMap<String, Vec<String>>,
+    workspace_path: &str,
+    repo_root: &str,
+) -> bool {
+    let key = git_panel_normalize_repo_path(workspace_path);
+    let group = history.entry(key).or_default();
+    if let Some(index) = group
         .iter()
         .position(|item| git_panel_repo_path_eq(item, repo_root))
     {
         if index == 0 {
             return false;
         }
-        let item = history.remove(index);
-        history.insert(0, item);
+        let item = group.remove(index);
+        group.insert(0, item);
         return true;
     }
-    history.insert(0, repo_root.to_string());
-    if history.len() > GIT_REPO_HISTORY_LIMIT {
-        history.truncate(GIT_REPO_HISTORY_LIMIT);
+    group.insert(0, repo_root.to_string());
+    if group.len() > GIT_REPO_HISTORY_LIMIT {
+        group.truncate(GIT_REPO_HISTORY_LIMIT);
     }
     true
 }
 
 /// 当前仓库进入历史；写盘失败静默忽略，不影响 git 命令本身。
-fn git_panel_remember_repo(state: &AppState, repo_root: &str) {
+fn git_panel_remember_repo(state: &AppState, workspace_path: &str, repo_root: &str) {
     let mut history = git_panel_read_repo_history(state);
-    if git_panel_history_push(&mut history, repo_root) {
+    if git_panel_history_push(&mut history, workspace_path, repo_root) {
         git_panel_write_repo_history(state, &history);
     }
 }
@@ -1117,21 +1130,24 @@ async fn git_panel_repos(
     // 当前仓库根（可能在工作区上方，扫描不到）：记录进历史，并恒保留在列表中
     let mut extra = Vec::new();
     if let Ok(root) = git_panel_resolve_root(&workspace_path).await {
-        git_panel_remember_repo(&state, &root);
+        git_panel_remember_repo(&state, &workspace_path, &root);
         let name = git_panel_repo_name(&root);
         extra.push(GitPanelRepoEntry { path: root, name });
     }
-    // 合并：历史（最近在前，过滤已删除目录）∪ 扫描结果 ∪ 当前仓库根，去重后按路径排序
+    // 合并：当前工作区的历史（最近在前，过滤已删除目录）∪ 扫描结果 ∪ 当前仓库根，去重后按路径排序
     let mut repos: Vec<GitPanelRepoEntry> = Vec::new();
-    for path in git_panel_read_repo_history(&state) {
-        if !Path::new(&path).is_dir() {
-            continue;
-        }
-        if !repos.iter().any(|repo| git_panel_repo_path_eq(&repo.path, &path)) {
-            repos.push(GitPanelRepoEntry {
-                path: path.clone(),
-                name: git_panel_repo_name(&path),
-            });
+    let history_key = git_panel_normalize_repo_path(&workspace_path);
+    if let Some(history) = git_panel_read_repo_history(&state).get(&history_key) {
+        for path in history {
+            if !Path::new(&path).is_dir() {
+                continue;
+            }
+            if !repos.iter().any(|repo| git_panel_repo_path_eq(&repo.path, path)) {
+                repos.push(GitPanelRepoEntry {
+                    path: path.clone(),
+                    name: git_panel_repo_name(path),
+                });
+            }
         }
     }
     for repo in scanned {
@@ -1234,28 +1250,67 @@ mod git_panel_repos_tests {
 
     #[test]
     fn history_push_dedupes_reorders_and_caps() {
-        let mut history: Vec<String> = Vec::new();
+        let mut history: HashMap<String, Vec<String>> = HashMap::new();
         for i in 0..GIT_REPO_HISTORY_LIMIT {
-            assert!(git_panel_history_push(&mut history, &format!("C:/repo/{i:02}")));
+            assert!(git_panel_history_push(
+                &mut history,
+                "E:/github/easy_call_ai",
+                &format!("E:/github/easy_call_ai/repo/{i:02}")
+            ));
         }
-        assert_eq!(history.len(), GIT_REPO_HISTORY_LIMIT);
+        let group = history.get("e:/github/easy_call_ai").expect("分组键应存在");
+        assert_eq!(group.len(), GIT_REPO_HISTORY_LIMIT);
         // 已存在（不在最前）：移到最前，不新增
-        assert!(git_panel_history_push(&mut history, "C:/repo/30"));
-        assert_eq!(history.len(), GIT_REPO_HISTORY_LIMIT);
-        assert_eq!(history[0], "C:/repo/30");
+        assert!(git_panel_history_push(
+            &mut history,
+            "E:/github/easy_call_ai",
+            "E:/github/easy_call_ai/repo/30"
+        ));
+        let group = history.get("e:/github/easy_call_ai").unwrap();
+        assert_eq!(group.len(), GIT_REPO_HISTORY_LIMIT);
+        assert_eq!(group[0], "E:/github/easy_call_ai/repo/30");
         // 已在最前：无变化
-        assert!(!git_panel_history_push(&mut history, "C:/repo/30"));
+        assert!(!git_panel_history_push(
+            &mut history,
+            "E:/github/easy_call_ai",
+            "E:/github/easy_call_ai/repo/30"
+        ));
         // 超限：新仓库插入头部，最旧的被丢弃
-        assert!(git_panel_history_push(&mut history, "C:/repo/new"));
-        assert_eq!(history.len(), GIT_REPO_HISTORY_LIMIT);
-        assert_eq!(history[0], "C:/repo/new");
-        assert!(!history.contains(&"C:/repo/00".to_string()), "最旧的应被丢弃");
+        assert!(git_panel_history_push(
+            &mut history,
+            "E:/github/easy_call_ai",
+            "E:/github/easy_call_ai/repo/new"
+        ));
+        let group = history.get("e:/github/easy_call_ai").unwrap();
+        assert_eq!(group.len(), GIT_REPO_HISTORY_LIMIT);
+        assert_eq!(group[0], "E:/github/easy_call_ai/repo/new");
+        assert!(!group.contains(&"E:/github/easy_call_ai/repo/00".to_string()), "最旧的应被丢弃");
     }
 
     #[test]
-    fn repo_path_eq_ignores_case_on_windows() {
+    fn history_groups_are_isolated_by_workspace() {
+        let mut history: HashMap<String, Vec<String>> = HashMap::new();
+        git_panel_history_push(&mut history, "E:/github/easy_call_ai", "E:/github/easy_call_ai/sub/repo");
+        git_panel_history_push(&mut history, "E:\\github\\other_project", "E:\\github\\other_project\\deep\\repo");
+
+        let first = history.get("e:/github/easy_call_ai").expect("第一个工作区分组应存在");
+        assert_eq!(first.len(), 1);
+        assert_eq!(first[0], "E:/github/easy_call_ai/sub/repo");
+
+        let second = history.get("e:/github/other_project").expect("第二个工作区分组应存在");
+        assert_eq!(second.len(), 1);
+        assert_eq!(second[0], "E:\\github\\other_project\\deep\\repo");
+
+        // 分隔符/大小写不同的同一工作区应命中同一分组
+        git_panel_history_push(&mut history, "E:/GITHUB/EASY_CALL_AI", "E:/github/easy_call_ai/another");
+        let first = history.get("e:/github/easy_call_ai").unwrap();
+        assert_eq!(first.len(), 2);
+    }
+
+    #[test]
+    fn repo_path_eq_ignores_case_and_separators_on_windows() {
         #[cfg(target_os = "windows")]
-        assert!(git_panel_repo_path_eq("E:\\GitHub\\Demo", "e:\\github\\demo"));
+        assert!(git_panel_repo_path_eq("E:\\GitHub\\Demo", "e:/github/demo"));
         #[cfg(not(target_os = "windows"))]
         assert!(!git_panel_repo_path_eq("/A/B", "/a/b"));
     }
