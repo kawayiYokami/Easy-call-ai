@@ -17,8 +17,25 @@
     </div>
 
     <template v-else>
-      <!-- 上栏：提交输入框 + 更改/暂存双树 -->
-      <div class="flex min-h-0 flex-1 flex-col">
+      <!-- 上栏：折叠条 + 提交输入框 + 更改/暂存双树 -->
+      <div class="flex min-h-0 flex-col overflow-hidden" :class="{ 'flex-1': !changesCollapsed }">
+        <GitSectionBar v-model="changesCollapsed">
+          <template #default>
+            <span class="text-xs font-medium opacity-70">{{ t('gitPanel.changes') }}</span>
+          </template>
+          <template #actions>
+            <button
+              type="button"
+              class="btn btn-ghost btn-xs h-6 min-h-6 w-6 px-0"
+              :title="t('gitPanel.refresh')"
+              :disabled="busy"
+              @click="refreshChanges"
+            >
+              <RefreshCw class="h-3.5 w-3.5" :class="{ 'animate-spin': changesRefreshing }" />
+            </button>
+          </template>
+        </GitSectionBar>
+        <div v-if="!changesCollapsed" class="flex min-h-0 flex-1 flex-col">
         <!-- 提交输入框（单行起，随内容增高，外观同 input） -->
         <div class="shrink-0 border-b border-base-300 bg-base-200/35 p-2">
           <textarea
@@ -82,74 +99,88 @@
             {{ t('gitPanel.noChanges') }}
           </div>
         </div>
+        </div>
       </div>
 
-      <!-- 下栏：tab 内容 + 底部标签页 -->
-      <div class="flex min-h-0 flex-1 flex-col border-t border-base-300">
-        <div class="min-h-0 flex-1 overflow-hidden">
-          <!-- 提交 tab：commit 表 + 底部分支切换 -->
-          <div v-if="activeGitTab === 'commits'" class="flex h-full min-h-0 flex-col">
-            <div class="relative shrink-0 border-b border-base-300 px-2 py-1.5">
-              <div class="flex items-center gap-1">
-                <!-- 最左边：分支名 + 切换分支下拉 -->
+      <!-- 分界线：仅两栏都展开时显示，独立于折叠条 -->
+      <GitResizeHandle v-if="!changesCollapsed && !historyCollapsed" @resize-start="onHistoryResizeStart" @resize="onHistoryResize" />
+
+      <!-- 下栏：折叠条 + tab 内容 + 底部标签页 -->
+      <div
+        ref="historySectionRef"
+        class="relative flex min-h-0 flex-col"
+        :class="{ 'flex-1': !historyCollapsed && (historyHeight === null || changesCollapsed) }"
+        :style="!historyCollapsed && !changesCollapsed && historyHeight !== null ? { height: `${historyHeight}px` } : undefined"
+      >
+        <!-- 下栏折叠条：折叠按钮 + 标题 + 分支名 + 刷新/同步/拉/推 -->
+        <GitSectionBar v-model="historyCollapsed">
+          <template #default>
+            <span class="text-xs font-medium opacity-70">
+              {{ activeGitTab === 'commits' ? t('gitPanel.commitHistory') : activeGitTab === 'stashes' ? t('gitPanel.stashesTab') : t('gitPanel.branchesTab') }}
+            </span>
+          </template>
+          <template #actions>
+            <button
+              v-if="activeGitTab === 'commits'"
+              type="button"
+              class="flex h-6 min-w-0 items-center gap-1 rounded px-1 text-xs font-medium hover:bg-base-300/40"
+              :disabled="busy"
+              @click="branchPickerOpen = !branchPickerOpen"
+            >
+              <GitBranch class="h-3.5 w-3.5 shrink-0 opacity-70" />
+              <span class="max-w-28 truncate">{{ currentBranch || t('gitPanel.detachedHead') }}</span>
+              <ChevronUp class="h-3 w-3 shrink-0 opacity-50" :class="{ 'rotate-180': !branchPickerOpen }" />
+            </button>
+            <!-- 分支切换下拉（absolute 相对折叠条） -->
+            <div v-if="branchPickerOpen" class="absolute left-0 right-0 top-full z-20 max-h-64 overflow-y-auto border border-base-300 bg-base-100 p-1 shadow-lg">
+              <div v-if="branchPickerLoading" class="px-2 py-2 text-xs opacity-50">{{ t('gitPanel.loading') }}</div>
+              <template v-else>
+                <div v-if="localBranches.length > 0" class="px-2 pb-0.5 pt-1 text-[11px] font-medium opacity-50">{{ t('gitPanel.localBranches') }}</div>
                 <button
+                  v-for="branch in localBranches"
+                  :key="branch.name"
                   type="button"
-                  class="flex h-6 min-w-0 items-center gap-1 rounded px-1 text-xs font-medium hover:bg-base-300/40"
-                  :disabled="busy"
-                  @click="branchPickerOpen = !branchPickerOpen"
+                  class="flex w-full items-center gap-1.5 rounded px-2 py-1 text-left text-xs hover:bg-base-300/40"
+                  :class="{ 'bg-primary/10 text-primary': branch.isCurrent }"
+                  :disabled="busy || branch.isCurrent"
+                  @click="runCheckoutBranch(branch.name)"
                 >
-                  <GitBranch class="h-3.5 w-3.5 shrink-0 opacity-70" />
-                  <span class="max-w-28 truncate">{{ currentBranch || t('gitPanel.detachedHead') }}</span>
-                  <ChevronUp class="h-3 w-3 shrink-0 opacity-50" :class="{ 'rotate-180': !branchPickerOpen }" />
+                  <GitBranch class="h-3 w-3 shrink-0 opacity-60" />
+                  <span class="min-w-0 flex-1 truncate">{{ branch.name }}</span>
+                  <span v-if="branch.isCurrent" class="shrink-0 opacity-50">{{ t('gitPanel.current') }}</span>
                 </button>
-                <span class="flex-1"></span>
-                <!-- 右边：推拉同步 -->
-                <button class="btn btn-ghost btn-xs h-6 min-h-6 w-6 px-0" type="button" :title="t('gitPanel.refresh')" :disabled="busy" @click="refreshHistory">
-                  <RefreshCw class="h-3.5 w-3.5" :class="{ 'animate-spin': busy }" />
+                <div v-if="remoteBranches.length > 0" class="px-2 pb-0.5 pt-2 text-[11px] font-medium opacity-50">{{ t('gitPanel.remoteBranches') }}</div>
+                <button
+                  v-for="branch in remoteBranches"
+                  :key="branch.name"
+                  type="button"
+                  class="flex w-full items-center gap-1.5 rounded px-2 py-1 text-left text-xs hover:bg-base-300/40"
+                  :disabled="busy"
+                  @click="runCheckoutBranch(branch.name)"
+                >
+                  <Cloud class="h-3 w-3 shrink-0 opacity-60" />
+                  <span class="min-w-0 flex-1 truncate">{{ branch.name }}</span>
                 </button>
-                <button class="btn btn-ghost btn-xs h-6 min-h-6 w-6 px-0" type="button" :title="t('gitPanel.sync')" :disabled="busy" @click="runSync">
-                  <CloudSync class="h-3.5 w-3.5" :class="{ 'animate-spin': busy }" />
-                </button>
-                <button class="btn btn-ghost btn-xs h-6 min-h-6 w-6 px-0" type="button" :title="t('gitPanel.pull')" :disabled="busy" @click="runPull">
-                  <ArrowDownToLine class="h-3.5 w-3.5" />
-                </button>
-                <button class="btn btn-ghost btn-xs h-6 min-h-6 w-6 px-0" type="button" :title="t('gitPanel.push')" :disabled="busy" @click="runPush">
-                  <ArrowUpFromLine class="h-3.5 w-3.5" />
-                </button>
-              </div>
-              <!-- 分支切换下拉 -->
-              <div v-if="branchPickerOpen" class="absolute left-0 right-0 top-full z-20 max-h-64 overflow-y-auto border border-base-300 bg-base-100 p-1 shadow-lg">
-                <div v-if="branchPickerLoading" class="px-2 py-2 text-xs opacity-50">{{ t('gitPanel.loading') }}</div>
-                <template v-else>
-                  <div v-if="localBranches.length > 0" class="px-2 pb-0.5 pt-1 text-[11px] font-medium opacity-50">{{ t('gitPanel.localBranches') }}</div>
-                  <button
-                    v-for="branch in localBranches"
-                    :key="branch.name"
-                    type="button"
-                    class="flex w-full items-center gap-1.5 rounded px-2 py-1 text-left text-xs hover:bg-base-300/40"
-                    :class="{ 'bg-primary/10 text-primary': branch.isCurrent }"
-                    :disabled="busy || branch.isCurrent"
-                    @click="runCheckoutBranch(branch.name)"
-                  >
-                    <GitBranch class="h-3 w-3 shrink-0 opacity-60" />
-                    <span class="min-w-0 flex-1 truncate">{{ branch.name }}</span>
-                    <span v-if="branch.isCurrent" class="shrink-0 opacity-50">{{ t('gitPanel.current') }}</span>
-                  </button>
-                  <div v-if="remoteBranches.length > 0" class="px-2 pb-0.5 pt-2 text-[11px] font-medium opacity-50">{{ t('gitPanel.remoteBranches') }}</div>
-                  <button
-                    v-for="branch in remoteBranches"
-                    :key="branch.name"
-                    type="button"
-                    class="flex w-full items-center gap-1.5 rounded px-2 py-1 text-left text-xs hover:bg-base-300/40"
-                    :disabled="busy"
-                    @click="runCheckoutBranch(branch.name)"
-                  >
-                    <Cloud class="h-3 w-3 shrink-0 opacity-60" />
-                    <span class="min-w-0 flex-1 truncate">{{ branch.name }}</span>
-                  </button>
-                </template>
-              </div>
+              </template>
             </div>
+            <button v-if="activeGitTab === 'commits'" class="btn btn-ghost btn-xs h-6 min-h-6 w-6 px-0" type="button" :title="t('gitPanel.refresh')" :disabled="busy" @click="refreshHistory">
+              <RefreshCw class="h-3.5 w-3.5" :class="{ 'animate-spin': busy }" />
+            </button>
+            <button v-if="activeGitTab === 'commits'" class="btn btn-ghost btn-xs h-6 min-h-6 w-6 px-0" type="button" :title="t('gitPanel.sync')" :disabled="busy" @click="runSync">
+              <CloudSync class="h-3.5 w-3.5" :class="{ 'animate-spin': busy }" />
+            </button>
+            <button v-if="activeGitTab === 'commits'" class="btn btn-ghost btn-xs h-6 min-h-6 w-6 px-0" type="button" :title="t('gitPanel.pull')" :disabled="busy" @click="runPull">
+              <ArrowDownToLine class="h-3.5 w-3.5" />
+            </button>
+            <button v-if="activeGitTab === 'commits'" class="btn btn-ghost btn-xs h-6 min-h-6 w-6 px-0" type="button" :title="t('gitPanel.push')" :disabled="busy" @click="runPush">
+              <ArrowUpFromLine class="h-3.5 w-3.5" />
+            </button>
+          </template>
+        </GitSectionBar>
+        <div v-if="!historyCollapsed" class="flex min-h-0 flex-1 flex-col">
+          <div class="min-h-0 flex-1 overflow-hidden">
+          <!-- 提交 tab：commit 表（工具条已上移到折叠条） -->
+          <div v-if="activeGitTab === 'commits'" class="flex h-full min-h-0 flex-col">
             <div ref="historyScroller" class="git-panel-scroller min-h-0 flex-1 overflow-y-auto py-1">
               <div v-if="logEntries.length === 0 && !busy" class="px-3 py-6 text-center text-xs text-base-content/50">
                 {{ t('gitPanel.noCommits') }}
@@ -313,8 +344,8 @@
           </div>
         </div>
 
-        <!-- 底部标签页：提交 / 储藏 / 分支 -->
-        <div class="flex h-8 shrink-0 items-center gap-1 border-t border-base-300 bg-base-200/35 px-2">
+          <!-- 底部标签页：提交 / 储藏 / 分支 -->
+          <div class="flex h-8 shrink-0 items-center gap-1 border-t border-base-300 bg-base-200/35 px-2">
           <button
             v-for="item in gitPanelTabs"
             :key="item.key"
@@ -323,9 +354,10 @@
             :class="activeGitTab === item.key ? 'bg-base-100 text-primary shadow-sm' : 'text-base-content/60 hover:bg-base-300/40'"
             @click="selectGitTab(item.key)"
           >
-            <component :is="item.icon" class="h-3.5 w-3.5" />
-            <span class="truncate">{{ item.label }}</span>
-          </button>
+              <component :is="item.icon" class="h-3.5 w-3.5" />
+              <span class="truncate">{{ item.label }}</span>
+            </button>
+          </div>
         </div>
       </div>
 
@@ -411,6 +443,8 @@ import {
   type GitPanelStatusEntry,
 } from "../../../services/tauri-api";
 import GitChangesGroup from "./GitChangesGroup.vue";
+import GitResizeHandle from "./GitResizeHandle.vue";
+import GitSectionBar from "./GitSectionBar.vue";
 
 const props = withDefaults(defineProps<{
   workspacePath: string;
@@ -435,6 +469,33 @@ const gitPanelTabs = computed(() => [
 
 const activeGitTab = ref("commits");
 const busy = ref(false);
+
+// ==================== 折叠状态 ====================
+const changesCollapsed = ref(false);
+const historyCollapsed = ref(false);
+const changesRefreshing = ref(false);
+
+// ==================== 分栏高度（分界线拖拽） ====================
+const historyHeight = ref<number | null>(null);
+const historySectionRef = ref<HTMLElement | null>(null);
+let historyResizeStart = 0;
+let historyContainerHeight = 0;
+
+// 上栏最小高度：保留折叠条高度，拖拽时不允许覆盖
+const CHANGES_MIN_HEIGHT = 40;
+// 下栏最小高度：折叠条 + 底部 tab 栏
+const HISTORY_MIN_HEIGHT = 96;
+
+function onHistoryResizeStart() {
+  historyResizeStart = historySectionRef.value?.offsetHeight ?? 300;
+  historyContainerHeight = historySectionRef.value?.parentElement?.offsetHeight ?? 0;
+}
+function onHistoryResize(dy: number) {
+  // 分界线向上拖（dy 为负）→ 下栏变大；向下拖 → 下栏变小
+  // 上限：容器高度 - 上栏最小高度，保证上栏折叠条不被覆盖
+  const maxHistory = Math.max(HISTORY_MIN_HEIGHT, historyContainerHeight - CHANGES_MIN_HEIGHT);
+  historyHeight.value = Math.min(Math.max(HISTORY_MIN_HEIGHT, historyResizeStart - dy), maxHistory);
+}
 const errorToast = ref("");
 let errorToastTimer: number | undefined;
 
@@ -585,6 +646,15 @@ async function loadStatus() {
     if (result.repoRoot) repoRoot.value = result.repoRoot;
   } catch (error) {
     appendOutput("status", null, error);
+  }
+}
+
+async function refreshChanges() {
+  changesRefreshing.value = true;
+  try {
+    await loadStatus();
+  } finally {
+    changesRefreshing.value = false;
   }
 }
 

@@ -2650,7 +2650,9 @@
     "collapseDirectory": "收起目录",
     "collapseAll": "折叠全部",
     "loading": "加载中…",
-    "noCommitFiles": "该提交没有文件变更"
+    "noCommitFiles": "该提交没有文件变更",
+    "collapse": "折叠",
+    "expand": "展开"
   },
   "simpleSetup": {
     "providerName": "简单供应商",

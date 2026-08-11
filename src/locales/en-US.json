@@ -2650,7 +2650,9 @@
     "collapseDirectory": "Collapse directory",
     "collapseAll": "Collapse all",
     "loading": "Loading…",
-    "noCommitFiles": "This commit has no file changes"
+    "noCommitFiles": "This commit has no file changes",
+    "collapse": "Collapse",
+    "expand": "Expand"
   },
   "simpleSetup": {
     "providerName": "Simple Provider",

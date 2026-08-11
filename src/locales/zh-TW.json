@@ -2646,7 +2646,9 @@
     "collapseDirectory": "收起目錄",
     "collapseAll": "摺疊全部",
     "loading": "載入中…",
-    "noCommitFiles": "該提交沒有檔案變更"
+    "noCommitFiles": "該提交沒有檔案變更",
+    "collapse": "摺疊",
+    "expand": "展開"
   },
   "simpleSetup": {
     "providerName": "簡單供應商",
