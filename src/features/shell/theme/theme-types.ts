@@ -48,9 +48,14 @@ export type AppThemeState =
   | { kind: "preset"; name: string }
   | { kind: "generated"; controls: GeneratedThemeControls };
 
+export type ThemeModeKind = "manual" | "auto";
+
 export type PersistedThemePreferences = {
-  version: 2;
+  version: 3;
+  mode: ThemeModeKind;
   activeState: AppThemeState;
+  autoLightTheme: string;
+  autoDarkTheme: string;
   generatedControls: GeneratedThemeControls;
   generatedControlsByMode: GeneratedThemeControlsByMode;
 };

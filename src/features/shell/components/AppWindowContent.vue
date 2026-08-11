@@ -14,8 +14,13 @@
       :ui-language="config.uiLanguage"
       :locale-options="localeOptions"
       :current-theme="currentTheme"
+      :theme-mode="themeMode"
+      :auto-light-theme="autoLightTheme"
+      :auto-dark-theme="autoDarkTheme"
       :generated-theme-controls="generatedThemeControls"
       :generated-theme-tokens="generatedThemeTokens"
+      :generated-light-tokens="generatedLightTokens"
+      :generated-dark-tokens="generatedDarkTokens"
       :ui-size-scale="config.uiSizeScale ?? 100"
       :selected-api-config="selectedApiConfig"
       :tool-api-config="toolApiConfig"
@@ -78,6 +83,8 @@
       @update:ui-size-scale="updateUiSizeScale"
       @update:github-update-method="updateGithubUpdateMethod"
       @set-theme="setTheme"
+      @set-theme-mode="setThemeMode"
+      @set-auto-theme="setAutoTheme"
       @activate-generated-theme="activateGeneratedTheme"
       @update-generated-theme-controls="updateGeneratedThemeControls"
       @reset-generated-theme="resetGeneratedTheme"
@@ -496,7 +503,7 @@ import type {
   ToolLoadStatus,
   UnarchivedConversationSummary,
 } from "../../../types/app";
-import type { GeneratedThemeControls, GeneratedThemeTokens } from "../../shell/theme/theme-types";
+import type { GeneratedThemeControls, GeneratedThemeTokens, ThemeMode, ThemeModeKind } from "../../shell/theme/theme-types";
 import type { DepartmentPersonaOption } from "../../shared/department-persona-options";
 import type { ChatMonitorPanelMode, ChatRightPanelMode } from "../../chat/composables/chat-ui-layout-storage";
 import { createExclusiveChatViewSubscriptionSlot } from "../../chat/composables/exclusive-chat-view-subscription-slot";
@@ -542,8 +549,13 @@ const props = defineProps<{
   configTab: "welcome" | "hotkey" | "api" | "tools" | "mcp" | "skill" | "persona" | "department" | "departmentTree" | "demo" | "chatSettings" | "notification" | "networkAccess" | "remoteIm" | "usage" | "memory" | "task" | "logs" | "appearance" | "migration" | "about";
   localeOptions: Array<{ value: "zh-CN" | "en-US" | "zh-TW"; label: string }>;
   currentTheme: string;
+  themeMode: ThemeModeKind;
+  autoLightTheme: string;
+  autoDarkTheme: string;
   generatedThemeControls: GeneratedThemeControls;
   generatedThemeTokens: GeneratedThemeTokens;
+  generatedLightTokens: GeneratedThemeTokens;
+  generatedDarkTokens: GeneratedThemeTokens;
   selectedApiConfig: ApiConfigItem | null;
   toolApiConfig: ApiConfigItem | null;
   baseUrlReference: string;
@@ -738,6 +750,8 @@ const props = defineProps<{
   updateUiSizeScale: (value: number) => void;
   updateGithubUpdateMethod: (value: import("../../../types/app").GithubUpdateMethod) => void;
   setTheme: (value: string) => void;
+  setThemeMode: (value: ThemeModeKind) => void;
+  setAutoTheme: (side: ThemeMode, value: string) => void;
   activateGeneratedTheme: () => void;
   updateGeneratedThemeControls: (patch: Partial<GeneratedThemeControls>) => void;
   resetGeneratedTheme: () => void;

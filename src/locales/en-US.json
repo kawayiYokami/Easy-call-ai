@@ -2233,9 +2233,12 @@
     "fileReaderLineWrap": "Line wrap",
     "fileReaderLineWrapHint": "Wrap long lines in code previews. Press Alt + Z to toggle.",
     "themeTabs": {
+      "auto": "Auto",
       "preset": "Preset",
       "generated": "Custom"
     },
+    "autoThemeLight": "Light",
+    "autoThemeDark": "Dark",
     "customThemeTitle": "Current Custom Theme",
     "customThemeControls": "Custom Controls",
     "resetGeneratedTheme": "Reset Defaults",
@@ -2291,12 +2294,6 @@
       "zhCN": "简中",
       "zhTW": "繁中",
       "enUS": "English"
-    },
-    "themeOptions": {
-      "light": "Light",
-      "dark": "Dark",
-      "switchToLight": "Switch to light",
-      "switchToDark": "Switch to dark"
     },
     "providers": {
       "custom": "Custom"

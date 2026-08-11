@@ -2229,9 +2229,12 @@
     "fileReaderLineWrap": "換行顯示",
     "fileReaderLineWrapHint": "程式碼檔案預覽自動換行；可按 Alt + Z 切換。",
     "themeTabs": {
+      "auto": "自動",
       "preset": "預設",
       "generated": "自訂"
     },
+    "autoThemeLight": "淺色時",
+    "autoThemeDark": "深色時",
     "customThemeTitle": "目前自訂主題",
     "customThemeControls": "自訂參數",
     "resetGeneratedTheme": "恢復預設",
@@ -2287,12 +2290,6 @@
       "zhCN": "簡中",
       "zhTW": "繁中",
       "enUS": "English"
-    },
-    "themeOptions": {
-      "light": "淺色",
-      "dark": "深色",
-      "switchToLight": "切換到亮色",
-      "switchToDark": "切換到暗色"
     },
     "providers": {
       "custom": "自訂"

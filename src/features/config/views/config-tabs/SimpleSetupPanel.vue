@@ -6,19 +6,6 @@
         <div v-if="statusText" class="alert alert-success py-2 text-sm">{{ statusText }}</div>
         <div class="flex items-center justify-between gap-2">
           <div class="flex min-w-0 items-center gap-2">
-            <button
-              class="btn btn-ghost btn-sm h-8 min-h-8 gap-1.5 px-2.5"
-              type="button"
-              :title="t('quickSetup.themeOptions.switchToDark')"
-              @click="toggleThemeDraft"
-            >
-              <span class="swap swap-rotate pointer-events-none">
-                <input type="checkbox" class="hidden" :checked="draft.theme === 'forest'" tabindex="-1" />
-                <Moon class="swap-on h-3.5 w-3.5" />
-                <Sun class="swap-off h-3.5 w-3.5" />
-              </span>
-              <span>{{ draft.theme === "autumn" ? t("quickSetup.themeOptions.switchToDark") : t("quickSetup.themeOptions.switchToLight") }}</span>
-            </button>
             <span class="text-xs opacity-70">{{ t("simpleSetup.overwriteHint") }}</span>
           </div>
           <button
@@ -239,7 +226,7 @@
 <script setup lang="ts">
 import { computed, onMounted } from "vue";
 import { useI18n } from "vue-i18n";
-import { Eye, EyeOff, Moon, RefreshCw, Sun } from "@lucide/vue";
+import { Eye, EyeOff, RefreshCw } from "@lucide/vue";
 import ApiModelCard from "../../components/ApiModelCard.vue";
 import SettingsStickyLayout from "../../components/SettingsStickyLayout.vue";
 import { openTransportWindow, hideCurrentTransportWindow } from "../../../../services/tauri-api";
@@ -267,7 +254,6 @@ const {
   openProviderKeyUrl,
   openSiliconFlowKeyUrl,
   setUiLanguage,
-  toggleThemeDraft,
   startHotkeyCapture,
   saveAll,
 } = useSimpleSetup();

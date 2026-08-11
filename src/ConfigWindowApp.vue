@@ -53,8 +53,13 @@
         :ui-language="config.uiLanguage"
         :locale-options="localeOptions"
         :current-theme="currentTheme"
+        :theme-mode="themeMode"
+        :auto-light-theme="autoLightTheme"
+        :auto-dark-theme="autoDarkTheme"
         :generated-theme-controls="generatedThemeControls"
         :generated-theme-tokens="generatedThemeTokens"
+        :generated-light-tokens="generatedLightTokens"
+        :generated-dark-tokens="generatedDarkTokens"
         :ui-size-scale="config.uiSizeScale ?? 100"
         :selected-api-config="selectedApiConfig"
         :tool-api-config="toolApiConfig"
@@ -118,6 +123,8 @@
         @update:ui-size-scale="config.uiSizeScale = setUiSizeScale($event)"
         @update:github-update-method="updateGithubUpdateMethod"
         @set-theme="setTheme"
+        @set-theme-mode="setThemeMode"
+        @set-auto-theme="setAutoTheme"
         @activate-generated-theme="activateGeneratedTheme"
         @update-generated-theme-controls="updateGeneratedThemeControls"
         @reset-generated-theme="resetGeneratedTheme"
@@ -419,13 +426,22 @@ const {
   currentTheme,
   generatedThemeControls,
   generatedThemeTokens,
+  generatedThemeTokensByMode,
+  themeMode,
+  autoLightTheme,
+  autoDarkTheme,
   applyTheme,
   setTheme,
+  setThemeMode,
+  setAutoTheme,
   activateGeneratedTheme,
   updateGeneratedThemeControls,
   resetGeneratedTheme,
   restoreThemeFromStorage,
 } = useAppTheme();
+
+const generatedLightTokens = computed(() => generatedThemeTokensByMode.value.light);
+const generatedDarkTokens = computed(() => generatedThemeTokensByMode.value.dark);
 
 const markdownIsDark = computed(() => isDarkAppTheme(currentTheme.value));
 

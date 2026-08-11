@@ -15,8 +15,10 @@ import type {
   AppThemeState,
   GeneratedThemeControls,
   GeneratedThemeControlsByMode,
+  GeneratedThemeTokens,
   PersistedThemePreferences,
   ThemeMode,
+  ThemeModeKind,
 } from "../theme/theme-types";
 
 const THEME_STORAGE_KEY = "easy-call.theme-state.v1";
@@ -94,6 +96,42 @@ const currentTheme = ref<string>(themeStateToThemeId(currentThemeState.value));
 const activeGeneratedMode = ref<ThemeMode>(DEFAULT_GENERATED_THEME_CONTROLS.mode);
 const generatedThemeControlsByMode = ref<GeneratedThemeControlsByMode>(createGeneratedThemeControlsByMode());
 const generatedThemeControls = computed(() => generatedThemeControlsByMode.value[activeGeneratedMode.value]);
+// 自动主题模式：跟随系统深浅切换；autoLight/autoDark 为主题 id（预设名或 generated-light/dark）
+const themeMode = ref<ThemeModeKind>("manual");
+const autoLightTheme = ref<string>(GENERATED_THEME_LIGHT_ID);
+const autoDarkTheme = ref<string>(GENERATED_THEME_DARK_ID);
+const systemPrefersDark = ref(false);
+let systemThemeListenerRegistered = false;
+
+function isVscodeHost(): boolean {
+  if (typeof document === "undefined") return false;
+  return document.documentElement.getAttribute("data-host") === "vscode";
+}
+
+function resolveSystemPrefersDark(): boolean {
+  if (typeof window === "undefined" || typeof window.matchMedia !== "function") return false;
+  return window.matchMedia("(prefers-color-scheme: dark)").matches;
+}
+
+function applyAutoModeTheme(): boolean {
+  if (isVscodeHost()) return false; // VS Code 侧边栏只跟随 VS Code 主题，不参与自动模式
+  const targetId = systemPrefersDark.value ? autoDarkTheme.value : autoLightTheme.value;
+  return applyThemeState(targetId);
+}
+
+function registerSystemThemeListener() {
+  if (typeof window === "undefined" || typeof window.matchMedia !== "function") return;
+  if (isVscodeHost()) return; // VS Code 侧边栏只跟随 VS Code 主题，不参与自动模式
+  if (systemThemeListenerRegistered) return;
+  systemThemeListenerRegistered = true;
+  systemPrefersDark.value = resolveSystemPrefersDark();
+  window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", (event) => {
+    systemPrefersDark.value = event.matches;
+    if (themeMode.value === "auto") {
+      applyAutoModeTheme();
+    }
+  });
+}
 
 function isGeneratedThemeState(value: unknown): value is Extract<AppThemeState, { kind: "generated" }> {
   if (!value || typeof value !== "object") return false;
@@ -148,8 +186,11 @@ function persistThemePreferences() {
   if (typeof window === "undefined") return;
   const activeState = cloneThemeState(currentThemeState.value);
   const payload: PersistedThemePreferences = {
-    version: 2,
+    version: 3,
+    mode: themeMode.value,
     activeState,
+    autoLightTheme: autoLightTheme.value,
+    autoDarkTheme: autoDarkTheme.value,
     generatedControls: cloneGeneratedThemeControls(generatedThemeControls.value),
     generatedControlsByMode: createGeneratedThemeControlsByMode(generatedThemeControlsByMode.value),
   };
@@ -225,16 +266,26 @@ function readStoredThemePreferences(): PersistedThemePreferences | null {
         : null,
       storedControls,
     );
+    // 自动模式主题：老数据（v2 无此字段）读取时给默认值，不写回、不改动老数据
+    const autoLight = typeof parsed.autoLightTheme === "string" && parsed.autoLightTheme.trim()
+      ? parsed.autoLightTheme.trim()
+      : GENERATED_THEME_LIGHT_ID;
+    const autoDark = typeof parsed.autoDarkTheme === "string" && parsed.autoDarkTheme.trim()
+      ? parsed.autoDarkTheme.trim()
+      : GENERATED_THEME_DARK_ID;
     const activeState = parsed.activeState && typeof parsed.activeState === "object" ? parsed.activeState : null;
     if (isGeneratedThemeState(activeState)) {
       const activeControls = cloneGeneratedThemeControls(activeState.controls);
       storedControlsByMode[activeControls.mode] = activeControls;
       return {
-        version: 2,
+        version: 3,
+        mode: parsed.mode === "auto" ? "auto" : "manual",
         activeState: {
           kind: "generated",
           controls: activeControls,
         },
+        autoLightTheme: autoLight,
+        autoDarkTheme: autoDark,
         generatedControls: storedControls,
         generatedControlsByMode: storedControlsByMode,
       };
@@ -243,11 +294,14 @@ function readStoredThemePreferences(): PersistedThemePreferences | null {
     const presetTheme = normalizePresetTheme(legacyThemeName);
     if (presetTheme) {
       return {
-        version: 2,
+        version: 3,
+        mode: parsed.mode === "auto" ? "auto" : "manual",
         activeState: {
           kind: "preset",
           name: presetTheme,
         },
+        autoLightTheme: autoLight,
+        autoDarkTheme: autoDark,
         generatedControls: storedControls,
         generatedControlsByMode: storedControlsByMode,
       };
@@ -263,11 +317,14 @@ function readStoredThemePreferences(): PersistedThemePreferences | null {
     });
     storedControlsByMode[migratedMode] = migratedControls;
     return {
-      version: 2,
+      version: 3,
+      mode: parsed.mode === "auto" ? "auto" : "manual",
       activeState: {
         kind: "generated",
         controls: migratedControls,
       },
+      autoLightTheme: autoLight,
+      autoDarkTheme: autoDark,
       generatedControls: storedControls,
       generatedControlsByMode: storedControlsByMode,
     };
@@ -283,18 +340,54 @@ export function isDarkAppTheme(theme: string): boolean {
 
 export function useAppTheme() {
   const generatedThemeTokens = computed(() => generateGeneratedThemeTokens(generatedThemeControls.value));
+  const generatedThemeTokensByMode = computed<Record<ThemeMode, GeneratedThemeTokens>>(() => ({
+    light: generateGeneratedThemeTokens(generatedThemeControlsByMode.value.light),
+    dark: generateGeneratedThemeTokens(generatedThemeControlsByMode.value.dark),
+  }));
 
-  function applyTheme(theme: AppThemeState | string): boolean {
+  function isPersistedPreferences(value: unknown): value is PersistedThemePreferences {
+    return !!value && typeof value === "object" && "mode" in value && "activeState" in value;
+  }
+
+  function applyTheme(theme: PersistedThemePreferences | AppThemeState | string): boolean {
+    // 跨窗口同步：配置窗口广播完整 v3 状态（含 mode/autoLight/autoDark），各窗口按模式应用
+    if (isPersistedPreferences(theme)) {
+      generatedThemeControlsByMode.value = createGeneratedThemeControlsByMode(
+        theme.generatedControlsByMode,
+        theme.generatedControls,
+      );
+      autoLightTheme.value = theme.autoLightTheme || GENERATED_THEME_LIGHT_ID;
+      autoDarkTheme.value = theme.autoDarkTheme || GENERATED_THEME_DARK_ID;
+      themeMode.value = theme.mode === "auto" ? "auto" : "manual";
+      if (theme.mode === "auto") {
+        return applyAutoModeTheme();
+      }
+      if (theme.activeState.kind === "preset") {
+        if (isValidTheme(theme.activeState.name)) {
+          return applyPresetTheme(theme.activeState.name);
+        }
+        return false;
+      }
+      return applyGeneratedTheme(theme.activeState.controls);
+    }
     return applyThemeState(theme);
   }
 
   function restoreThemeFromStorage() {
+    registerSystemThemeListener();
     const storedPreferences = readStoredThemePreferences();
     if (storedPreferences) {
       generatedThemeControlsByMode.value = createGeneratedThemeControlsByMode(
         storedPreferences.generatedControlsByMode,
         storedPreferences.generatedControls,
       );
+      autoLightTheme.value = storedPreferences.autoLightTheme || GENERATED_THEME_LIGHT_ID;
+      autoDarkTheme.value = storedPreferences.autoDarkTheme || GENERATED_THEME_DARK_ID;
+      themeMode.value = storedPreferences.mode === "auto" ? "auto" : "manual";
+      if (storedPreferences.mode === "auto") {
+        applyAutoModeTheme();
+        return;
+      }
       if (storedPreferences.activeState.kind === "preset") {
         if (isValidTheme(storedPreferences.activeState.name)) {
           applyPresetTheme(storedPreferences.activeState.name);
@@ -311,15 +404,23 @@ export function useAppTheme() {
       applyPresetTheme(savedTheme);
       return;
     }
-    // 全新安装无任何主题记录：跟随系统明暗，亮色用秋日、暗色用森林。
-    const systemPrefersDark =
-      typeof window.matchMedia === "function" &&
-      window.matchMedia("(prefers-color-scheme: dark)").matches;
-    applyPresetTheme(systemPrefersDark ? "forest" : "autumn");
+    // 全新安装无任何主题记录：默认自动模式，浅色/深色都用自定义主题。
+    themeMode.value = "auto";
+    autoLightTheme.value = GENERATED_THEME_LIGHT_ID;
+    autoDarkTheme.value = GENERATED_THEME_DARK_ID;
+    applyAutoModeTheme();
   }
 
-  function emitThemeChanged(state: AppThemeState) {
-    const payload = cloneThemeState(state);
+  function emitThemeChanged() {
+    const payload: PersistedThemePreferences = {
+      version: 3,
+      mode: themeMode.value,
+      activeState: cloneThemeState(currentThemeState.value),
+      autoLightTheme: autoLightTheme.value,
+      autoDarkTheme: autoDarkTheme.value,
+      generatedControls: cloneGeneratedThemeControls(generatedThemeControls.value),
+      generatedControlsByMode: createGeneratedThemeControlsByMode(generatedThemeControlsByMode.value),
+    };
     return emitTransportEvent("theme.changed", payload).catch((error) => {
       console.warn("[主题] 同步主题变化失败", error);
     });
@@ -327,8 +428,30 @@ export function useAppTheme() {
 
   function setTheme(theme: string) {
     if (!isValidTheme(theme)) return;
+    themeMode.value = "manual"; // 手动选预设主题即退出自动模式
     if (!applyPresetTheme(theme)) return;
-    void emitThemeChanged({ kind: "preset", name: theme });
+    void emitThemeChanged();
+  }
+
+  function setThemeMode(mode: ThemeModeKind) {
+    if (mode === "auto") {
+      themeMode.value = "auto";
+      applyAutoModeTheme();
+    } else {
+      themeMode.value = "manual";
+    }
+    void emitThemeChanged();
+  }
+
+  function setAutoTheme(side: ThemeMode, themeId: string) {
+    if (side === "light") {
+      autoLightTheme.value = themeId;
+    } else {
+      autoDarkTheme.value = themeId;
+    }
+    themeMode.value = "auto";
+    applyAutoModeTheme();
+    void emitThemeChanged();
   }
 
   function activateGeneratedTheme() {
@@ -338,8 +461,9 @@ export function useAppTheme() {
       kind: "generated",
       controls: cloneGeneratedThemeControls(generatedThemeControlsByMode.value[targetMode]),
     };
+    themeMode.value = "manual"; // 手动激活自定义主题即退出自动模式
     if (!applyGeneratedTheme(nextState.controls)) return;
-    void emitThemeChanged(nextState);
+    void emitThemeChanged();
   }
 
   function updateGeneratedThemeControls(patch: Partial<GeneratedThemeControls>) {
@@ -351,10 +475,7 @@ export function useAppTheme() {
       mode: targetMode,
     });
     if (!applyGeneratedTheme(nextControls)) return;
-    void emitThemeChanged({
-      kind: "generated",
-      controls: nextControls,
-    });
+    void emitThemeChanged();
   }
 
   function resetGeneratedTheme() {
@@ -362,6 +483,10 @@ export function useAppTheme() {
   }
 
   function toggleTheme() {
+    if (themeMode.value === "auto") {
+      // 自动模式下忽略手动明暗切换（跟随系统）
+      return;
+    }
     if (currentThemeState.value.kind === "preset") {
       setTheme(currentTheme.value === "light" ? "dark" : "light");
       return;
@@ -369,18 +494,23 @@ export function useAppTheme() {
     const nextMode = currentThemeState.value.controls.mode === "light" ? "dark" : "light";
     const nextControls = cloneGeneratedThemeControls(generatedThemeControlsByMode.value[nextMode]);
     if (!applyGeneratedTheme(nextControls)) return;
-    void emitThemeChanged({
-      kind: "generated",
-      controls: nextControls,
-    });
+    void emitThemeChanged();
   }
 
   return {
     currentTheme,
     generatedThemeControls,
+    generatedThemeControlsByMode,
     generatedThemeTokens,
+    generatedThemeTokensByMode,
+    themeMode,
+    autoLightTheme,
+    autoDarkTheme,
+    systemPrefersDark,
     applyTheme,
     setTheme,
+    setThemeMode,
+    setAutoTheme,
     activateGeneratedTheme,
     updateGeneratedThemeControls,
     resetGeneratedTheme,

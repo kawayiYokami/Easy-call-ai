@@ -1,5 +1,5 @@
 import type { AgentWorkSignalPayload, AppConfig } from "../../../types/app";
-import type { AppThemeState } from "../theme/theme-types";
+import type { PersistedThemePreferences } from "../theme/theme-types";
 import { clearWindowChatViewStreamBindings, onTransportNotification } from "../../../services/tauri-api";
 
 type ViewMode = "chat" | "archives" | "config";
@@ -42,7 +42,7 @@ export type TerminalApprovalRequestPayload = {
 type AppBootstrapOptions = {
   setViewMode: (mode: ViewMode) => void;
   initWindowMode: () => ViewMode;
-  onThemeChanged: (theme: AppThemeState) => void;
+  onThemeChanged: (theme: PersistedThemePreferences) => void;
   onLocaleChanged: (locale: string) => void;
   onTerminalApprovalRequested?: (payload: TerminalApprovalRequestPayload) => void;
   onConversationApiUpdated?: (payload: ConversationApiSettingsPayload) => void;
@@ -69,7 +69,7 @@ export function useAppBootstrap(options: AppBootstrapOptions) {
       const subscribe = <T>(method: string, handler: (payload: T) => void) => {
         unlisteners.push(onTransportNotification<T>(method, handler));
       };
-      subscribe<AppThemeState>("theme.changed", (payload) => {
+      subscribe<PersistedThemePreferences>("theme.changed", (payload) => {
         options.onThemeChanged(payload);
       });
       subscribe<string>("locale.changed", (payload) => {

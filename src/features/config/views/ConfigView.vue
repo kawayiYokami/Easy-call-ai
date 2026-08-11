@@ -223,12 +223,19 @@
             :ui-language="uiLanguage"
             :locale-options="localeOptions"
             :current-theme="currentTheme"
+            :theme-mode="themeMode"
+            :auto-light-theme="autoLightTheme"
+            :auto-dark-theme="autoDarkTheme"
             :generated-theme-controls="generatedThemeControls"
             :generated-theme-tokens="generatedThemeTokens"
+            :generated-light-tokens="generatedLightTokens"
+            :generated-dark-tokens="generatedDarkTokens"
             :ui-size-scale="uiSizeScale"
             @update:ui-language="$emit('update:uiLanguage', $event)"
             @update:ui-size-scale="$emit('update:uiSizeScale', $event)"
             @set-theme="$emit('setTheme', $event)"
+            @set-theme-mode="$emit('setThemeMode', $event)"
+            @set-auto-theme="(side, value) => $emit('setAutoTheme', side, value)"
             @activate-generated-theme="$emit('activateGeneratedTheme')"
             @update-generated-theme-controls="$emit('updateGeneratedThemeControls', $event)"
             @reset-generated-theme="$emit('resetGeneratedTheme')"
@@ -389,7 +396,7 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, type Component } from "vue";
 import { useI18n } from "vue-i18n";
 import type { ApiConfigItem, AppConfig, ChatSettingsPatch, ConversationApiSettingsPatch, PersonaProfile, PromptCommandPreset, ResponseStyleOption, ToolLoadStatus } from "../../../types/app";
-import type { GeneratedThemeControls, GeneratedThemeTokens } from "../../shell/theme/theme-types";
+import type { GeneratedThemeControls, GeneratedThemeTokens, ThemeMode, ThemeModeKind } from "../../shell/theme/theme-types";
 import Cropper from "cropperjs";
 import SettingsStickyLayout from "../components/SettingsStickyLayout.vue";
 import WelcomeTab from "./config-tabs/WelcomeTab.vue";
@@ -465,8 +472,13 @@ const props = defineProps<{
   uiLanguage: "zh-CN" | "en-US" | "zh-TW";
   localeOptions: Array<{ value: "zh-CN" | "en-US" | "zh-TW"; label: string }>;
   currentTheme: string;
+  themeMode: ThemeModeKind;
+  autoLightTheme: string;
+  autoDarkTheme: string;
   generatedThemeControls: GeneratedThemeControls;
   generatedThemeTokens: GeneratedThemeTokens;
+  generatedLightTokens: GeneratedThemeTokens;
+  generatedDarkTokens: GeneratedThemeTokens;
   uiSizeScale: number;
   selectedApiConfig: ApiConfigItem | null;
   toolApiConfig: ApiConfigItem | null;
@@ -532,6 +544,8 @@ const emit = defineEmits<{
   (e: "patchConversationApiSettings", value: ConversationApiSettingsPatch): void;
   (e: "patchChatSettings", value: ChatSettingsPatch): void;
   (e: "setTheme", value: string): void;
+  (e: "setThemeMode", value: ThemeModeKind): void;
+  (e: "setAutoTheme", side: ThemeMode, value: string): void;
   (e: "activateGeneratedTheme"): void;
   (e: "updateGeneratedThemeControls", value: Partial<GeneratedThemeControls>): void;
   (e: "resetGeneratedTheme"): void;

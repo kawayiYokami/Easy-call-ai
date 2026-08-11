@@ -2233,9 +2233,12 @@
     "fileReaderLineWrap": "换行显示",
     "fileReaderLineWrapHint": "代码文件预览自动换行；可按 Alt + Z 切换。",
     "themeTabs": {
+      "auto": "自动",
       "preset": "预设",
       "generated": "自定义"
     },
+    "autoThemeLight": "浅色时",
+    "autoThemeDark": "深色时",
     "customThemeTitle": "当前自定义主题",
     "customThemeControls": "自定义参数",
     "resetGeneratedTheme": "恢复默认",
@@ -2291,12 +2294,6 @@
       "zhCN": "简中",
       "zhTW": "繁中",
       "enUS": "English"
-    },
-    "themeOptions": {
-      "light": "浅色",
-      "dark": "深色",
-      "switchToLight": "切换到亮色",
-      "switchToDark": "切换到暗色"
     },
     "providers": {
       "custom": "自定义"

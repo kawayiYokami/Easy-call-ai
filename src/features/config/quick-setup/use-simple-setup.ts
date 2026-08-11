@@ -4,7 +4,7 @@ import { i18n, normalizeLocale } from "../../../i18n";
 import { invokeTauri, openTransportExternalUrl } from "../../../services/tauri-api";
 import type { ApiConfigItem, ApiModelConfigItem, ApiProviderConfigItem, AppConfig, ChatSettings, ResponseStyleOption, ApiRequestFormat } from "../../../types/app";
 import responseStylesJson from "../../../constants/response-styles.json";
-import { isDarkAppTheme, useAppTheme } from "../../shell/composables/use-app-theme";
+import { useAppTheme } from "../../shell/composables/use-app-theme";
 import { applyUiSizeScale } from "../../shell/composables/use-ui-size-appearance";
 import { defaultToolBindings } from "../utils/builtin-tools";
 import { normalizeApiRequestFormat } from "../utils/api-request-format";
@@ -38,7 +38,6 @@ export interface SimpleSetupDraft {
   customModelOptions: string[];
   responseStyleId: string;
   uiLanguage: AppConfig["uiLanguage"];
-  theme: "autumn" | "forest";
   hotkey: string;
   recordHotkey: string;
   siliconFlowKey: string;
@@ -134,7 +133,6 @@ export function defaultSimpleSetupDraft(): SimpleSetupDraft {
     customModelOptions: [],
     responseStyleId: "none",
     uiLanguage: "zh-CN",
-    theme: "autumn",
     hotkey: "Alt+·",
     recordHotkey: "CapsLock",
     siliconFlowKey: "",
@@ -177,8 +175,6 @@ function parseDraft(raw: unknown): SimpleSetupDraft | null {
   }
   const lang = String(obj.uiLanguage || "");
   if (lang === "zh-CN" || lang === "zh-TW" || lang === "en-US") draft.uiLanguage = lang;
-  const theme = String(obj.theme || "");
-  if (theme === "autumn" || theme === "forest") draft.theme = theme;
   const hotkey = String(obj.hotkey || "");
   if (hotkey) draft.hotkey = hotkey;
   const recordHotkey = String(obj.recordHotkey || "");
@@ -215,7 +211,7 @@ export function clearSimpleSetupDraft() {
 
 export function useSimpleSetup() {
   const { t, locale } = useI18n();
-  const { currentTheme, restoreThemeFromStorage, setTheme } = useAppTheme();
+  const { restoreThemeFromStorage } = useAppTheme();
 
   const loading = ref(true);
   const saving = ref(false);
@@ -357,8 +353,6 @@ export function useSimpleSetup() {
       if (savedDraft) {
         Object.assign(draft, savedDraft);
         hasDraft.value = true;
-      } else {
-        draft.theme = isDarkAppTheme(currentTheme.value) ? "forest" : "autumn";
       }
       hotkeyCaptureHint.value = t("quickSetup.hotkeyHints.idle");
     } catch (error) {
@@ -437,12 +431,6 @@ export function useSimpleSetup() {
     if (!hotkeyCaptureTarget.value) {
       hotkeyCaptureHint.value = t("quickSetup.hotkeyHints.idle");
     }
-  }
-
-  function toggleThemeDraft() {
-    const next = draft.theme === "autumn" ? "forest" : "autumn";
-    draft.theme = next;
-    setTheme(next);
   }
 
   function currentProviderBaseUrl(): string {
@@ -806,7 +794,6 @@ export function useSimpleSetup() {
     openProviderKeyUrl,
     openSiliconFlowKeyUrl,
     setUiLanguage,
-    toggleThemeDraft,
     startHotkeyCapture,
     stopHotkeyCapture,
     saveAll,

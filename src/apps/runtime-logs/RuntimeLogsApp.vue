@@ -65,8 +65,7 @@ import {
   onTransportNotification,
 } from "../../services/tauri-api";
 import { useAppTheme } from "../../features/shell/composables/use-app-theme";
-import type { AppThemeState, GeneratedThemeControls } from "../../features/shell/theme/theme-types";
-import { buildGeneratedThemeStyleText, generateGeneratedThemeTokens, GENERATED_THEME_NAME } from "../../features/shell/theme/theme-generator";
+import type { PersistedThemePreferences } from "../../features/shell/theme/theme-types";
 
 type RuntimeLogEntry = {
   id: string;
@@ -91,7 +90,7 @@ let pollTimer: ReturnType<typeof setInterval> | null = null;
 let lastCreatedAt = "";
 let unlistenTheme: (() => void) | null = null;
 
-const { restoreThemeFromStorage } = useAppTheme();
+const { applyTheme, restoreThemeFromStorage } = useAppTheme();
 
 const moduleOptions = computed(() => {
   const set = new Set<string>();
@@ -122,23 +121,8 @@ watch(filteredLogs, () => {
 onMounted(async () => {
   restoreThemeFromStorage();
   try {
-    unlistenTheme = onTransportNotification<AppThemeState>("theme.changed", (state) => {
-      if (state.kind === "preset" && state.name) {
-        document.documentElement.setAttribute("data-theme", state.name);
-      } else if (state.kind === "generated" && state.controls) {
-        const tokens = generateGeneratedThemeTokens(state.controls as GeneratedThemeControls);
-        const styleText = buildGeneratedThemeStyleText(tokens);
-        let existing = document.getElementById("easy-call-generated-theme-style");
-        if (existing instanceof HTMLStyleElement) {
-          existing.textContent = styleText;
-        } else {
-          existing = document.createElement("style");
-          existing.id = "easy-call-generated-theme-style";
-          existing.textContent = styleText;
-          document.head.appendChild(existing);
-        }
-        document.documentElement.setAttribute("data-theme", GENERATED_THEME_NAME);
-      }
+    unlistenTheme = onTransportNotification<PersistedThemePreferences>("theme.changed", (state) => {
+      applyTheme(state);
     });
   } catch (err) {
     console.error("[运行日志窗口] 监听主题变化失败", err);
