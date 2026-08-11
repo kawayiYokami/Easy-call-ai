@@ -927,3 +927,212 @@ async fn git_panel_commit_files(input: GitPanelCommitFilesInput) -> Result<GitPa
     }
     Ok(GitPanelCommitFilesOutput { entries })
 }
+
+// ---------- 命令：仓库列表（多仓库切换） ----------
+
+/// 仓库扫描最大深度：相对 workspace_path 的目录层级数（workspace 自身为 0）。
+const GIT_REPO_SCAN_MAX_DEPTH: usize = 3;
+
+/// 扫描时跳过的构建/依赖目录。
+const GIT_REPO_SCAN_SKIP_DIRS: &[&str] = &["node_modules", "target", "dist", "build"];
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct GitPanelRepoEntry {
+    path: String,
+    name: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct GitPanelReposOutput {
+    repos: Vec<GitPanelRepoEntry>,
+}
+
+/// 扫描结果缓存：workspace_path → 仓库列表；展开时只读缓存，点刷新（refresh=true）才重扫。
+static GIT_REPO_SCAN_CACHE: OnceLock<Mutex<HashMap<String, Vec<GitPanelRepoEntry>>>> = OnceLock::new();
+
+fn git_panel_repo_cache() -> &'static Mutex<HashMap<String, Vec<GitPanelRepoEntry>>> {
+    GIT_REPO_SCAN_CACHE.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+/// 仓库根路径比较（Windows 下忽略大小写）。
+fn git_panel_repo_path_eq(a: &str, b: &str) -> bool {
+    #[cfg(target_os = "windows")]
+    {
+        a.eq_ignore_ascii_case(b)
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        a == b
+    }
+}
+
+/// 取路径最后一段作为仓库名。
+fn git_panel_repo_name(path: &str) -> String {
+    Path::new(path)
+        .file_name()
+        .map(|name| name.to_string_lossy().to_string())
+        .filter(|name| !name.is_empty())
+        .unwrap_or_else(|| path.to_string())
+}
+
+/// 从 workspace_path 向下递归扫描 .git（目录或文件都算），每个命中的父目录即仓库根。
+/// 不进入 .git 内部；跳过忽略名单目录；深度不超过 max_depth。
+fn git_panel_scan_repos_inner(workspace_path: &str, max_depth: usize) -> Vec<GitPanelRepoEntry> {
+    let mut repos = Vec::new();
+    let mut stack = vec![(workspace_path.to_string(), 0usize)];
+    while let Some((dir, depth)) = stack.pop() {
+        let Ok(entries) = std::fs::read_dir(&dir) else {
+            continue;
+        };
+        for entry in entries.flatten() {
+            let name = entry.file_name().to_string_lossy().to_string();
+            if name == ".git" {
+                repos.push(GitPanelRepoEntry {
+                    path: dir.clone(),
+                    name: git_panel_repo_name(&dir),
+                });
+                continue;
+            }
+            if GIT_REPO_SCAN_SKIP_DIRS.contains(&name.as_str()) {
+                continue;
+            }
+            if depth + 1 > max_depth {
+                continue;
+            }
+            let Ok(file_type) = entry.file_type() else {
+                continue;
+            };
+            if file_type.is_dir() {
+                stack.push((entry.path().to_string_lossy().to_string(), depth + 1));
+            }
+        }
+    }
+    repos
+}
+
+#[tauri::command]
+async fn git_panel_repos(
+    input: GitPanelWorkspaceInput,
+    refresh: bool,
+) -> Result<GitPanelReposOutput, String> {
+    let workspace_path = git_panel_validate_path(&input.workspace_path)?;
+    // 缓存命中且非强制刷新：直接返回
+    {
+        let cache = git_panel_repo_cache()
+            .lock()
+            .map_err(|_| "仓库列表缓存读取失败".to_string())?;
+        if !refresh {
+            if let Some(cached) = cache.get(&workspace_path) {
+                return Ok(GitPanelReposOutput {
+                    repos: cached.clone(),
+                });
+            }
+        }
+    }
+    // 扫描走阻塞线程，避免卡住异步 runtime
+    let scanned = tokio::task::spawn_blocking({
+        let workspace_path = workspace_path.clone();
+        move || git_panel_scan_repos_inner(&workspace_path, GIT_REPO_SCAN_MAX_DEPTH)
+    })
+    .await
+    .map_err(|err| format!("仓库扫描失败：{err}"))?;
+    // 合并当前仓库根（可能在工作区上方，扫描不到；恒保留在列表中）
+    let mut repos = scanned;
+    if let Ok(root) = git_panel_resolve_root(&workspace_path).await {
+        if !repos.iter().any(|repo| git_panel_repo_path_eq(&repo.path, &root)) {
+            repos.push(GitPanelRepoEntry {
+                path: root.clone(),
+                name: git_panel_repo_name(&root),
+            });
+        }
+    }
+    repos.sort_by(|a, b| a.path.cmp(&b.path));
+    git_panel_repo_cache()
+        .lock()
+        .map_err(|_| "仓库列表缓存写入失败".to_string())?
+        .insert(workspace_path, repos.clone());
+    Ok(GitPanelReposOutput { repos })
+}
+
+#[cfg(test)]
+mod git_panel_repos_tests {
+    use super::*;
+
+    /// 构造临时目录树（用完由 guard 清理）：
+    /// - root/.git                     → root 仓库（深度 0）
+    /// - root/sub1/.git                → sub1 仓库（深度 1）
+    /// - root/sub1/inner/.git          → inner 仓库（深度 2）
+    /// - root/node_modules/dep/.git    → 忽略名单内，不命中
+    /// - root/sub2/a/b/.git            → 深度 3 仓库（边界内）
+    /// - root/sub2/a/b/deeper/.git     → 深度 4，超限不命中
+    /// - root/wt/.git（文件）           → worktree 模拟，命中
+    fn make_fixture() -> (TempDirGuard, String) {
+        let base = std::env::temp_dir().join(format!(
+            "git-panel-repos-test-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_nanos())
+                .unwrap_or_default()
+        ));
+        for rel in [
+            ".git",
+            "sub1/.git",
+            "sub1/inner/.git",
+            "node_modules/dep/.git",
+            "sub2/a/b/.git",
+            "sub2/a/b/deeper/.git",
+        ] {
+            std::fs::create_dir_all(base.join(rel)).expect("创建 fixture 失败");
+        }
+        std::fs::create_dir_all(base.join("wt")).expect("创建 fixture 失败");
+        std::fs::write(base.join("wt/.git"), "gitdir: ../.git/worktrees/wt")
+            .expect("创建 worktree 模拟失败");
+        let root = base.to_string_lossy().to_string();
+        (TempDirGuard(base), root)
+    }
+
+    struct TempDirGuard(std::path::PathBuf);
+
+    impl Drop for TempDirGuard {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+
+    #[test]
+    fn scans_nested_repos_within_depth_and_skips_ignored() {
+        let (_guard, root) = make_fixture();
+        let repos = git_panel_scan_repos_inner(&root, GIT_REPO_SCAN_MAX_DEPTH);
+        let paths: Vec<&str> = repos.iter().map(|repo| repo.path.as_str()).collect();
+        let sub1 = Path::new(&root).join("sub1").to_string_lossy().into_owned();
+        let inner = Path::new(&root).join("sub1").join("inner").to_string_lossy().into_owned();
+        let sub3 = Path::new(&root).join("sub2").join("a").join("b").to_string_lossy().into_owned();
+        let ignored = Path::new(&root).join("node_modules").join("dep").to_string_lossy().into_owned();
+        let deep = Path::new(&root).join("sub2").join("a").join("b").join("deeper").to_string_lossy().into_owned();
+        let wt = Path::new(&root).join("wt").to_string_lossy().into_owned();
+        assert!(paths.contains(&root.as_str()), "深度 0 仓库应命中，实际 {paths:?}");
+        assert!(paths.contains(&sub1.as_str()), "深度 1 仓库应命中");
+        assert!(paths.contains(&inner.as_str()), "深度 2 仓库应命中");
+        assert!(paths.contains(&sub3.as_str()), "深度 3 仓库应命中（边界内）");
+        assert!(!paths.contains(&ignored.as_str()), "忽略名单目录内的仓库不应命中");
+        assert!(!paths.contains(&deep.as_str()), "超过深度上限的仓库不应命中");
+        assert!(paths.contains(&wt.as_str()), ".git 文件（worktree）也应命中");
+    }
+
+    #[test]
+    fn repo_name_takes_last_segment() {
+        assert_eq!(git_panel_repo_name("E:\\github\\easy_call_ai"), "easy_call_ai");
+        assert_eq!(git_panel_repo_name("/home/user/project"), "project");
+    }
+
+    #[test]
+    fn repo_path_eq_ignores_case_on_windows() {
+        #[cfg(target_os = "windows")]
+        assert!(git_panel_repo_path_eq("E:\\GitHub\\Demo", "e:\\github\\demo"));
+        #[cfg(not(target_os = "windows"))]
+        assert!(!git_panel_repo_path_eq("/A/B", "/a/b"));
+    }
+}

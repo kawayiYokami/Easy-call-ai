@@ -2652,7 +2652,10 @@
     "loading": "Loading…",
     "noCommitFiles": "This commit has no file changes",
     "collapse": "Collapse",
-    "expand": "Expand"
+    "expand": "Expand",
+    "repoBar": "Repositories",
+    "currentRepo": "Current repo",
+    "noRepos": "No other repositories found"
   },
   "simpleSetup": {
     "providerName": "Simple Provider",

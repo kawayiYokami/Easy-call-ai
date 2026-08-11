@@ -2652,7 +2652,10 @@
     "loading": "加载中…",
     "noCommitFiles": "该提交没有文件变更",
     "collapse": "折叠",
-    "expand": "展开"
+    "expand": "展开",
+    "repoBar": "仓库",
+    "currentRepo": "在此仓库",
+    "noRepos": "未发现其他仓库"
   },
   "simpleSetup": {
     "providerName": "简单供应商",

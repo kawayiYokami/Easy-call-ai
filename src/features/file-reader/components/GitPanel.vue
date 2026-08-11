@@ -17,6 +17,45 @@
     </div>
 
     <template v-else>
+      <!-- 仓库栏：折叠条（标题=当前仓库名）+ 仓库列表（懒加载，可切换） -->
+      <div class="flex min-h-0 shrink-0 flex-col overflow-hidden">
+        <GitSectionBar v-model="repoCollapsed">
+          <template #default>
+            <span class="max-w-40 truncate text-xs font-medium opacity-70">{{ currentRepoName }}</span>
+          </template>
+          <template #actions>
+            <button
+              type="button"
+              class="btn btn-ghost btn-xs h-6 min-h-6 w-6 px-0"
+              :title="t('gitPanel.refresh')"
+              :disabled="reposLoading || busy"
+              @click="refreshRepos"
+            >
+              <RefreshCw class="h-3.5 w-3.5" :class="{ 'animate-spin': reposLoading }" />
+            </button>
+          </template>
+        </GitSectionBar>
+        <div v-if="!repoCollapsed" class="git-panel-scroller max-h-44 min-h-0 overflow-y-auto py-1">
+          <div v-if="reposLoading" class="px-3 py-2 text-xs opacity-50">{{ t('gitPanel.loading') }}</div>
+          <template v-else>
+            <button
+              v-for="repo in repos"
+              :key="repo.path"
+              type="button"
+              class="flex w-full items-center gap-1.5 rounded px-2 py-1 text-left text-xs hover:bg-base-300/40"
+              :class="{ 'bg-primary/10 text-primary': isCurrentRepo(repo.path) }"
+              :disabled="busy"
+              @click="switchRepo(repo.path)"
+            >
+              <GitBranch class="h-3 w-3 shrink-0 opacity-60" />
+              <span class="min-w-0 flex-1 truncate">{{ repo.name }}</span>
+              <span v-if="isCurrentRepo(repo.path)" class="shrink-0 opacity-50">{{ t('gitPanel.currentRepo') }}</span>
+            </button>
+            <div v-if="repos.length === 0" class="px-3 py-2 text-xs opacity-50">{{ t('gitPanel.noRepos') }}</div>
+          </template>
+        </div>
+      </div>
+
       <!-- 上栏：折叠条 + 提交输入框 + 更改/暂存双树 -->
       <div class="flex min-h-0 flex-col overflow-hidden" :class="{ 'flex-1': !changesCollapsed }">
         <GitSectionBar v-model="changesCollapsed">
@@ -425,6 +464,7 @@ import {
   gitPanelPull,
   gitPanelPush,
   gitPanelRemoteList,
+  gitPanelRepos,
   gitPanelStage,
   gitPanelStashCreate,
   gitPanelStashDrop,
@@ -438,6 +478,7 @@ import {
   type GitPanelCommitFileEntry,
   type GitPanelLogEntry,
   type GitPanelRemoteEntry,
+  type GitPanelRepoEntry,
   type GitPanelRunOutput,
   type GitPanelStashEntry,
   type GitPanelStatusEntry,
@@ -475,6 +516,12 @@ const changesCollapsed = ref(false);
 const historyCollapsed = ref(false);
 const changesRefreshing = ref(false);
 
+// 仓库栏：折叠/展开 + 列表（懒加载，展开首次才扫描）
+const repoCollapsed = ref(false);
+const repos = ref<GitPanelRepoEntry[]>([]);
+const reposLoading = ref(false);
+const reposLoaded = ref(false);
+
 // ==================== 分栏高度（分界线拖拽） ====================
 const historyHeight = ref<number | null>(null);
 const historySectionRef = ref<HTMLElement | null>(null);
@@ -505,6 +552,13 @@ const detectChecked = ref(false);
 const detectError = ref("");
 const repoRoot = ref("");
 const currentBranch = ref("");
+
+// 当前仓库名（仓库栏折叠条标题）：repoRoot 最后一段
+const currentRepoName = computed(() => {
+  if (!repoRoot.value) return t("gitPanel.repoBar");
+  const segments = repoRoot.value.replace(/\\/g, "/").split("/").filter(Boolean);
+  return segments[segments.length - 1] || repoRoot.value;
+});
 
 // ==================== 数据 ====================
 const statusEntries = ref<GitPanelStatusEntry[]>([]);
@@ -623,6 +677,52 @@ function appendOutput(command: string, result: GitPanelRunOutput | null, error: 
 }
 
 // ==================== 数据加载 ====================
+// 仓库列表：懒加载 + 后端缓存；force=true 强制重扫
+async function loadRepos(force = false) {
+  if (reposLoading.value) return;
+  reposLoading.value = true;
+  try {
+    const result = await gitPanelRepos(props.workspacePath, force);
+    repos.value = result.repos || [];
+    reposLoaded.value = true;
+  } catch (error) {
+    appendOutput("repos", null, error);
+  } finally {
+    reposLoading.value = false;
+  }
+}
+
+function refreshRepos() {
+  void loadRepos(true);
+}
+
+function isCurrentRepo(path: string): boolean {
+  if (!repoRoot.value || !path) return false;
+  const norm = (p: string) => p.replace(/\\/g, "/").toLowerCase();
+  return norm(path) === norm(repoRoot.value);
+}
+
+// 切换仓库：更新 repoRoot 后全量重载更改/历史/分支/远端/存储
+function switchRepo(path: string) {
+  if (!path || isCurrentRepo(path) || busy.value) return;
+  repoRoot.value = path;
+  branchPickerOpen.value = false;
+  expandedCommitHash.value = "";
+  expandedStashRef.value = "";
+  commitCard.value = { entry: null, x: 0, y: 0 };
+  lastClickedDiffPath.value = "";
+  commitFilesMap.value = {};
+  void refreshAll();
+  void loadHistory();
+}
+
+// 展开仓库栏才首次扫描（懒加载）；之后只读后端缓存
+watch(repoCollapsed, (collapsed) => {
+  if (!collapsed && !reposLoaded.value) {
+    void loadRepos(false);
+  }
+});
+
 async function loadDetect() {
   try {
     const result = await gitPanelDetect(props.workspacePath);
@@ -640,7 +740,7 @@ async function loadDetect() {
 async function loadStatus() {
   if (!repoRoot.value) return;
   try {
-    const result = await gitPanelStatus(props.workspacePath);
+    const result = await gitPanelStatus(repoRoot.value);
     statusEntries.value = result.entries || [];
     currentBranch.value = result.branch || "";
     if (result.repoRoot) repoRoot.value = result.repoRoot;
@@ -661,7 +761,7 @@ async function refreshChanges() {
 async function loadBranches() {
   if (!repoRoot.value) return;
   try {
-    branches.value = await gitPanelBranchList(props.workspacePath);
+    branches.value = await gitPanelBranchList(repoRoot.value);
   } catch (error) {
     appendOutput("branch -a", null, error);
   }
@@ -670,7 +770,7 @@ async function loadBranches() {
 async function loadRemotes() {
   if (!repoRoot.value) return;
   try {
-    remotes.value = await gitPanelRemoteList(props.workspacePath);
+    remotes.value = await gitPanelRemoteList(repoRoot.value);
   } catch (error) {
     appendOutput("remote -v", null, error);
   }
@@ -679,7 +779,7 @@ async function loadRemotes() {
 async function loadStashes() {
   if (!repoRoot.value) return;
   try {
-    stashList.value = await gitPanelStashList(props.workspacePath);
+    stashList.value = await gitPanelStashList(repoRoot.value);
   } catch (error) {
     appendOutput("stash list", null, error);
   }
@@ -688,7 +788,7 @@ async function loadStashes() {
 async function loadHistory() {
   if (!repoRoot.value) return;
   try {
-    const result = await gitPanelLog(props.workspacePath, logPageSize, 0);
+    const result = await gitPanelLog(repoRoot.value, logPageSize, 0);
     logEntries.value = result.entries || [];
     logHasMore.value = (result.entries || []).length >= logPageSize;
   } catch (error) {
@@ -700,7 +800,7 @@ async function loadMoreHistory() {
   if (!repoRoot.value || logLoadingMore.value || busy.value || !logHasMore.value) return;
   logLoadingMore.value = true;
   try {
-    const result = await gitPanelLog(props.workspacePath, logPageSize, logEntries.value.length);
+    const result = await gitPanelLog(repoRoot.value, logPageSize, logEntries.value.length);
     const next = result.entries || [];
     logEntries.value = logEntries.value.concat(next);
     logHasMore.value = next.length >= logPageSize;
@@ -861,18 +961,18 @@ async function runGitAction(command: string, action: () => Promise<GitPanelRunOu
 
 function stagePaths(paths: string[]) {
   if (paths.length === 0) return;
-  void runGitAction(`add ${paths.join(" ")}`, () => gitPanelStage(props.workspacePath, paths));
+  void runGitAction(`add ${paths.join(" ")}`, () => gitPanelStage(repoRoot.value, paths));
 }
 
 function unstagePaths(paths: string[]) {
   if (paths.length === 0) return;
-  void runGitAction(`restore --staged ${paths.join(" ")}`, () => gitPanelUnstage(props.workspacePath, paths));
+  void runGitAction(`restore --staged ${paths.join(" ")}`, () => gitPanelUnstage(repoRoot.value, paths));
 }
 
 function discardPaths(paths: string[]) {
   if (paths.length === 0) return;
   if (!window.confirm(t("gitPanel.discardConfirm", { paths: paths.join(", ") }))) return;
-  void runGitAction(`restore --staged --worktree ${paths.join(" ")}`, () => gitPanelDiscard(props.workspacePath, paths));
+  void runGitAction(`restore --staged --worktree ${paths.join(" ")}`, () => gitPanelDiscard(repoRoot.value, paths));
 }
 
 async function runCommit() {
@@ -880,7 +980,7 @@ async function runCommit() {
   if (!message || stagedEntries.value.length === 0 || busy.value) return;
   busy.value = true;
   try {
-    const result = await gitPanelCommit(props.workspacePath, message, amendCommit.value);
+    const result = await gitPanelCommit(repoRoot.value, message, amendCommit.value);
     appendOutput(`commit${amendCommit.value ? " --amend" : ""}`, result);
     commitMessage.value = "";
     amendCommit.value = false;
@@ -898,30 +998,30 @@ async function runCommit() {
 async function runStashCreate() {
   const message = stashMessage.value.trim();
   if (!message || busy.value) return;
-  const ok = await runGitAction("stash push", () => gitPanelStashCreate(props.workspacePath, message));
+  const ok = await runGitAction("stash push", () => gitPanelStashCreate(repoRoot.value, message));
   if (ok) stashMessage.value = "";
 }
 
 async function runStashPop(stashRef: string) {
-  void runGitAction(`stash pop ${stashRef}`, () => gitPanelStashPop(props.workspacePath, stashRef));
+  void runGitAction(`stash pop ${stashRef}`, () => gitPanelStashPop(repoRoot.value, stashRef));
 }
 
 async function runStashDrop(stashRef: string) {
   if (!window.confirm(t("gitPanel.stashDropConfirm", { reference: stashRef }))) return;
-  void runGitAction(`stash drop ${stashRef}`, () => gitPanelStashDrop(props.workspacePath, stashRef));
+  void runGitAction(`stash drop ${stashRef}`, () => gitPanelStashDrop(repoRoot.value, stashRef));
 }
 
 // ==================== 同步操作 ====================
 function runSync() {
-  void runGitAction("sync (fetch + pull)", () => gitPanelSync(props.workspacePath));
+  void runGitAction("sync (fetch + pull)", () => gitPanelSync(repoRoot.value));
 }
 
 function runPush() {
-  void runGitAction("push", () => gitPanelPush(props.workspacePath));
+  void runGitAction("push", () => gitPanelPush(repoRoot.value));
 }
 
 function runPull() {
-  void runGitAction("pull", () => gitPanelPull(props.workspacePath));
+  void runGitAction("pull", () => gitPanelPull(repoRoot.value));
 }
 
 // ==================== 分支操作 ====================
@@ -930,7 +1030,7 @@ async function runBranchCreate() {
   if (!name || busy.value) return;
   busy.value = true;
   try {
-    const result = await gitPanelBranchCreate(props.workspacePath, name);
+    const result = await gitPanelBranchCreate(repoRoot.value, name);
     appendOutput(`branch ${name}`, result);
     newBranchName.value = "";
     await loadBranches();
@@ -945,7 +1045,7 @@ async function runBranchDelete(name: string) {
   if (!window.confirm(t("gitPanel.deleteBranchConfirm", { name }))) return;
   busy.value = true;
   try {
-    const result = await gitPanelBranchDelete(props.workspacePath, name);
+    const result = await gitPanelBranchDelete(repoRoot.value, name);
     appendOutput(`branch -d ${name}`, result);
     await loadBranches();
   } catch (error) {
@@ -964,7 +1064,7 @@ async function runCheckoutBranch(name: string) {
   if (busy.value) return;
   // 预检：工作区未提交文件与目标分支改动有交集则禁止切换
   try {
-    const check = await gitPanelCheckoutCheck(props.workspacePath, name);
+    const check = await gitPanelCheckoutCheck(repoRoot.value, name);
     if (check.conflictingPaths.length > 0) {
       window.alert(
         t("gitPanel.checkoutBlocked", {
@@ -979,7 +1079,7 @@ async function runCheckoutBranch(name: string) {
   }
   if (!window.confirm(t("gitPanel.checkoutConfirm", { name }))) return;
   branchPickerOpen.value = false;
-  const ok = await runGitAction(`checkout ${name}`, () => gitPanelCheckout(props.workspacePath, name));
+  const ok = await runGitAction(`checkout ${name}`, () => gitPanelCheckout(repoRoot.value, name));
   if (ok) {
     await loadHistory();
   }
@@ -1032,7 +1132,7 @@ async function toggleCommitExpand(entry: GitPanelLogEntry) {
   if (commitFilesMap.value[entry.hash] || commitFilesLoading.value[entry.hash]) return;
   commitFilesLoading.value = { ...commitFilesLoading.value, [entry.hash]: true };
   try {
-    const result = await gitPanelCommitFiles(props.workspacePath, entry.hash);
+    const result = await gitPanelCommitFiles(repoRoot.value, entry.hash);
     commitFilesMap.value = { ...commitFilesMap.value, [entry.hash]: result.entries || [] };
   } catch (error) {
     appendOutput(`show --name-status ${entry.hash}`, null, error);
@@ -1044,7 +1144,7 @@ async function toggleCommitExpand(entry: GitPanelLogEntry) {
 
 function openCommitFileDiff(entry: GitPanelLogEntry, file: GitPanelCommitFileEntry) {
   emit("openDiff", {
-    workspacePath: repoRoot.value || props.workspacePath,
+    workspacePath: repoRoot.value,
     path: file.path,
     staged: false,
     hash: entry.hash,
@@ -1062,7 +1162,7 @@ async function toggleStashExpand(stash: GitPanelStashEntry) {
   if (stashFilesMap.value[stash.reference] || stashFilesLoading.value[stash.reference]) return;
   stashFilesLoading.value = { ...stashFilesLoading.value, [stash.reference]: true };
   try {
-    const result = await gitPanelStashFiles(props.workspacePath, stash.reference);
+    const result = await gitPanelStashFiles(repoRoot.value, stash.reference);
     stashFilesMap.value = { ...stashFilesMap.value, [stash.reference]: result.entries || [] };
   } catch (error) {
     appendOutput(`stash show --name-status ${stash.reference}`, null, error);
@@ -1074,7 +1174,7 @@ async function toggleStashExpand(stash: GitPanelStashEntry) {
 
 function openStashFileDiff(stash: GitPanelStashEntry, file: GitPanelCommitFileEntry) {
   emit("openDiff", {
-    workspacePath: repoRoot.value || props.workspacePath,
+    workspacePath: repoRoot.value,
     path: file.path,
     staged: false,
     hash: stash.reference,
@@ -1109,7 +1209,7 @@ const lastClickedDiffPath = ref("");
 function openDiff(payload: { path: string; staged: boolean }) {
   lastClickedDiffPath.value = payload.path;
   emit("openDiff", {
-    workspacePath: repoRoot.value || props.workspacePath,
+    workspacePath: repoRoot.value,
     path: payload.path,
     staged: payload.staged,
   });

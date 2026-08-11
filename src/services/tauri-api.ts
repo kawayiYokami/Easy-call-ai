@@ -2807,6 +2807,15 @@ export type GitPanelLogOutput = {
   entries: GitPanelLogEntry[];
 };
 
+export type GitPanelRepoEntry = {
+  path: string;
+  name: string;
+};
+
+export type GitPanelReposOutput = {
+  repos: GitPanelRepoEntry[];
+};
+
 function gitPanelWorkspaceArgs(workspacePath: string): Record<string, unknown> {
   return { input: { workspacePath: String(workspacePath || "").trim() } };
 }
@@ -2832,6 +2841,13 @@ function gitPanelRequiredWorkspace(workspacePath: string): string {
 
 export async function gitPanelDetect(workspacePath: string): Promise<GitPanelDetectOutput> {
   return invokeTauri<GitPanelDetectOutput>("git_panel_detect", gitPanelWorkspaceArgs(gitPanelRequiredWorkspace(workspacePath)));
+}
+
+export async function gitPanelRepos(workspacePath: string, refresh = false): Promise<GitPanelReposOutput> {
+  return invokeTauri<GitPanelReposOutput>("git_panel_repos", {
+    ...gitPanelWorkspaceArgs(gitPanelRequiredWorkspace(workspacePath)),
+    refresh,
+  });
 }
 
 export async function gitPanelStatus(workspacePath: string): Promise<GitPanelStatusOutput> {
