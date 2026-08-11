@@ -489,13 +489,14 @@ const providerText = computed(() => String(props.capability?.providerName || "")
 const protocolText = computed(() => String(props.capability?.providerApi || "").trim());
 
 const supportedCapabilities = computed<string[]>(() => {
-  if (!props.showCapabilityToggles) return [];
-  const candidates: Array<{ enabled: boolean; label: string }> = [
-    { enabled: props.card.enableImage === true, label: t("config.api.capImage") },
-    { enabled: props.card.enableAudio === true, label: t("config.api.capAudio") },
-    { enabled: props.card.enableVideo === true, label: t("config.api.capVideo") },
+  const capability = props.capability;
+  if (!capability || capability.metadataFound !== true) return [];
+  const candidates: Array<{ enabled: boolean | undefined; label: string }> = [
+    { enabled: capability.enableImage, label: t("config.api.capImage") },
+    { enabled: capability.enableAudio, label: t("config.api.capAudio") },
+    { enabled: capability.enableVideo, label: t("config.api.capVideo") },
   ];
-  return candidates.filter((item) => item.enabled).map((item) => item.label);
+  return candidates.filter((item) => item.enabled === true).map((item) => item.label);
 });
 
 const reasoningText = computed(() => {
