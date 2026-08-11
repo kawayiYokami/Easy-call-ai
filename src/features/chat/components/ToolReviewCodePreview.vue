@@ -46,8 +46,8 @@ const isPatchMode = computed(() => props.mode === "patch");
 const showGutter = computed(() => isPatchMode.value || props.showLineNumbers === true);
 
 async function updateHighlightedCode() {
-  const code = String(props.code || "");
-  if (!code.trim()) {
+  const rawCode = String(props.code || "");
+  if (!rawCode.trim()) {
     highlightedHtml.value = "";
     return;
   }
@@ -55,6 +55,8 @@ async function updateHighlightedCode() {
   highlightAbort = new AbortController();
   const signal = highlightAbort.signal;
   const language = resolveLanguage();
+  // patch 模式下先剥掉 git hunk 头后的 section heading，只留 `@@ ... @@`
+  const code = props.mode === "patch" ? stripPatchHeading(rawCode) : rawCode;
   try {
     const html = await codeToHtml(code, {
       lang: language,
@@ -66,6 +68,11 @@ async function updateHighlightedCode() {
     if (signal.aborted) return;
     highlightedHtml.value = "";
   }
+}
+
+function stripPatchHeading(code: string) {
+  // git 会在 hunk 头后附加 section heading（段落首行，如 `@@ -1,5 +1,5 @@ fn main()`）
+  return code.replace(/^(@@.*?@@).*$/gm, "$1");
 }
 
 function resolveLanguage() {
@@ -115,6 +122,16 @@ function buildPatchLineMeta(code: string) {
       oldLineNumber = Number.isFinite(start) ? start : null;
       newLineNumber = Number.isFinite(start) ? start : null;
       out.push({ gutter: "", kindClass: "tool-review-patch-line-header" });
+      continue;
+    }
+    // git diff 元信息行：diff --git / index / --- a/ / +++ b/，不参与行号，正文隐藏
+    if (
+      line.startsWith("diff --git ") ||
+      /^index [0-9a-f]{7,}\.\.[0-9a-f]{7,}/.test(line) ||
+      /^--- (a\/|\/dev\/null)/.test(line) ||
+      /^\+\+\+ (b\/|\/dev\/null)/.test(line)
+    ) {
+      out.push({ gutter: "", kindClass: "tool-review-patch-line-meta" });
       continue;
     }
     // git 的 "无末尾换行" 标记行：不占用行号
@@ -273,5 +290,9 @@ onBeforeUnmount(() => {
 
 .tool-review-code-main-with-lines :deep(.tool-review-code-view .line.tool-review-patch-line-header) {
   color: #c084fc;
+}
+
+.tool-review-code-main-with-lines :deep(.tool-review-code-view .line.tool-review-patch-line-meta) {
+  display: none;
 }
 </style>
