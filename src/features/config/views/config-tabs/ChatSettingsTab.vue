@@ -122,6 +122,21 @@
       </div>
     </template>
 
+    <template #row-desktop-operate>
+      <div class="flex min-w-0 items-center justify-between gap-4">
+        <div class="min-w-0">
+          <div class="text-sm">{{ t("config.chatSettings.desktopOperateEnabled") }}</div>
+          <p class="mt-1 text-xs text-base-content/60">{{ t("config.chatSettings.desktopOperateEnabledHint") }}</p>
+        </div>
+        <input
+          :checked="!!props.config.desktopOperateEnabled"
+          type="checkbox"
+          class="toggle toggle-sm toggle-primary shrink-0"
+          @change="props.config.desktopOperateEnabled = ($event.target as HTMLInputElement).checked"
+        />
+      </div>
+    </template>
+
     <template #row-instruction-presets>
       <div class="grid min-w-0 gap-3">
         <div v-if="instructionPresetsDraft.length === 0" class="text-sm opacity-60">
@@ -250,6 +265,11 @@ onMounted(() => {
   void loadTerminalShellCandidates();
 });
 const templateGroups = computed<ConfigTemplateGroup[]>(() => [
+  {
+    key: "desktop-operate",
+    title: t("config.chatSettings.desktopOperateTitle"),
+    rows: [{ key: "desktop-operate", items: [] }],
+  },
   {
     key: "default-models",
     title: t("config.chatSettings.defaultModelsTitle"),

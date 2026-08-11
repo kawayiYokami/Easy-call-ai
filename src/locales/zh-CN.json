@@ -774,7 +774,10 @@
       "quickActionsTitle": "快捷操作",
       "openConversationList": "会话列表",
       "previewRequest": "请求体预览",
-      "previewSystemPrompt": "系统提示词"
+      "previewSystemPrompt": "系统提示词",
+      "desktopOperateTitle": "电脑使用",
+      "desktopOperateEnabled": "允许操作电脑",
+      "desktopOperateEnabledHint": "关闭后，模型无法使用鼠标、键盘、截图等电脑操作能力。"
     },
     "networkAccess": {
       "title": "网络访问",

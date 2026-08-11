@@ -2852,6 +2852,7 @@ fn departments_only_config(departments: &[DepartmentConfig]) -> AppConfig {
         message_notification_enabled: default_message_notification_enabled(),
         message_notification_sound_enabled: default_message_notification_sound_enabled(),
         desktop_operation_notice_enabled: default_desktop_operation_notice_enabled(),
+        desktop_operate_enabled: default_desktop_operate_enabled(),
         selected_api_config_id: String::new(),
         assistant_department_api_config_id: String::new(),
         vision_api_config_id: None,

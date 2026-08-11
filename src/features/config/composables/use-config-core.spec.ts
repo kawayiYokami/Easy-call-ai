@@ -24,6 +24,7 @@ function createConfig(): AppConfig {
     messageNotificationEnabled: true,
     messageNotificationSoundEnabled: false,
     desktopOperationNoticeEnabled: true,
+    desktopOperateEnabled: true,
     selectedApiConfigId: "",
     assistantDepartmentApiConfigId: "",
     visionApiConfigId: undefined,

@@ -896,6 +896,14 @@ pub(crate) async fn assemble_runtime_tools(
         runtime_log_warn("[工具装配] Schema缓存为空，尝试按当前可发现能力重建".to_string());
         discoverable_tools = refresh_global_tool_schema_cache(state);
     }
+    // 电脑使用总开关：关闭时不提供 operate 工具（模型看不到、调不了）
+    let desktop_operate_enabled = state_read_config_cached(state)
+        .map(|config| config.desktop_operate_enabled)
+        .unwrap_or(true);
+    if !desktop_operate_enabled {
+        discoverable_tools.retain(|tool| tool.definition.name != OPERATE_TOOL_NAME);
+        runtime_log_info("[工具装配] 电脑使用已关闭，operate 工具不挂载".to_string());
+    }
     let resolved = resolve_legal_runtime_tools_for_department(
         app_config,
         selected_api,
@@ -1206,6 +1214,7 @@ impl RuntimeValueTool for BuiltinOperateTool {
 
     fn call_typed(&self, args: Self::Args) -> RuntimeToolValueFuture<'_, Self::Error> {
         let model_supports_image = self.model_supports_image;
+        let app_state = self.app_state.clone();
         // 截图按会话建目录：解析 session_id（agent_id::conversation_id）取 conversation_id，
         // 解析失败时用完整 session_id 兜底，保证不同会话目录天然隔离。
         let conversation_id = delegate_session_conversation_id(&self.session_id)
@@ -1215,6 +1224,15 @@ impl RuntimeValueTool for BuiltinOperateTool {
             .join("screenshots")
             .join(conversation_id);
         Box::pin(async move {
+            // 电脑使用总开关兜底：装配后开关被关闭时，执行前再拦一次
+            let operate_enabled = state_read_config_cached(&app_state)
+                .map(|config| config.desktop_operate_enabled)
+                .unwrap_or(true);
+            if !operate_enabled {
+                let err = ToolInvokeError::from("电脑使用已关闭，无法操作电脑".to_string());
+                runtime_log_warn(format!("[工具执行] operate 被电脑使用总开关拦截: 错误={err}"));
+                return Err(err);
+            }
             // 截图始终可执行：驱动模型不支持图片时仍返回保存路径，
             // 是否携带 base64 由模型能力决定（不支持时跳过编码省 CPU）。
             let args_value = serde_json::to_value(&args).unwrap_or(Value::Null);

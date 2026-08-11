@@ -774,7 +774,10 @@
       "quickActionsTitle": "Quick Actions",
       "openConversationList": "Conversation List",
       "previewRequest": "Request Body Preview",
-      "previewSystemPrompt": "System Prompt"
+      "previewSystemPrompt": "System Prompt",
+      "desktopOperateTitle": "Desktop Control",
+      "desktopOperateEnabled": "Allow controlling your computer",
+      "desktopOperateEnabledHint": "When off, the model cannot use mouse, keyboard, screenshot or other desktop operations."
     },
     "networkAccess": {
       "title": "Network Access",

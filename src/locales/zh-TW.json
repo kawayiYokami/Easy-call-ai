@@ -772,7 +772,10 @@
       "quickActionsTitle": "快捷操作",
       "openConversationList": "會話列表",
       "previewRequest": "請求體預覽",
-      "previewSystemPrompt": "系统提示词"
+      "previewSystemPrompt": "系统提示词",
+      "desktopOperateTitle": "電腦使用",
+      "desktopOperateEnabled": "允許操作電腦",
+      "desktopOperateEnabledHint": "關閉後，模型無法使用滑鼠、鍵盤、截圖等電腦操作能力。"
     },
     "networkAccess": {
       "title": "網路訪問",
