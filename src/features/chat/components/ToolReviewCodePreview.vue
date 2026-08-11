@@ -100,12 +100,26 @@ function buildPatchLineMeta(code: string) {
   let oldLineNumber: number | null = null;
   let newLineNumber: number | null = null;
   for (const line of lines) {
-    const headerMatch = line.match(/^@@\s+lines?\s+(\d+)(?:-\d+)?(?:\s*,\s*\d+(?:-\d+)?)?\s+@@/i);
-    if (headerMatch) {
-      const start = Number(headerMatch[1]);
+    // git diff 真实格式：@@ -oldStart,oldCount +newStart,newCount @@（count 为 1 时可省略）
+    const gitHeaderMatch = line.match(/^@@\s+-(\d+)(?:,\d+)?\s+\+(\d+)(?:,\d+)?\s+@@/);
+    if (gitHeaderMatch) {
+      oldLineNumber = Number(gitHeaderMatch[1]);
+      newLineNumber = Number(gitHeaderMatch[2]);
+      out.push({ gutter: "", kindClass: "tool-review-patch-line-header" });
+      continue;
+    }
+    // 工具生成的伪格式：@@ lines 10-15 @@ / @@ line 10 @@
+    const pseudoHeaderMatch = line.match(/^@@\s+lines?\s+(\d+)(?:-\d+)?(?:\s*,\s*\d+(?:-\d+)?)?\s+@@/i);
+    if (pseudoHeaderMatch) {
+      const start = Number(pseudoHeaderMatch[1]);
       oldLineNumber = Number.isFinite(start) ? start : null;
       newLineNumber = Number.isFinite(start) ? start : null;
       out.push({ gutter: "", kindClass: "tool-review-patch-line-header" });
+      continue;
+    }
+    // git 的 "无末尾换行" 标记行：不占用行号
+    if (line.startsWith("\\ No newline")) {
+      out.push({ gutter: "", kindClass: "tool-review-patch-line-context" });
       continue;
     }
 
