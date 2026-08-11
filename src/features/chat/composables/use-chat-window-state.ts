@@ -107,7 +107,7 @@ export function useChatWindowState(options: UseChatWindowStateOptions) {
   const saving = ref(false);
   const startupDataReady = ref(false);
   const startupOverlayVisible = ref(false);
-  const startupOverlayMessage = ref("等待后端加载中...");
+  const startupOverlayMessage = ref("正在启动应用...");
   const startupOverlayDetail = ref("正在建立启动连接...");
   const startupOverlayProgressCurrent = ref(0);
   const startupOverlayProgressTotal = ref(1);

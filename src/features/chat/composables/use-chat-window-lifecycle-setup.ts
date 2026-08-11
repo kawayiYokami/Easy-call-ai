@@ -21,7 +21,8 @@ export function useChatWindowLifecycleSetup(bindings: Record<string, any>) {
       afterRefreshData: () => {
         bindings.startupDataReady.value = true;
         if (bindings.viewMode.value === "chat") {
-          return bindings.refreshChatUnarchivedConversations().catch((error: unknown) => {
+          // 不阻塞启动遮罩：未归档会话概览后台加载，失败仅告警
+          void bindings.refreshChatUnarchivedConversations().catch((error: unknown) => {
             console.warn("[聊天追踪][会话概览] 启动数据就绪后加载失败", error);
           });
         }
@@ -33,10 +34,10 @@ export function useChatWindowLifecycleSetup(bindings: Record<string, any>) {
       cleanupChatMedia: bindings.cleanupChatMedia,
       onStartupOverlayChange: (visible, message) => {
         bindings.startupOverlayVisible.value = visible;
-        bindings.startupOverlayMessage.value = message || "等待后端加载中...";
+        bindings.startupOverlayMessage.value = message || "正在启动应用...";
       },
       onStartupProgressChange: ({ title, detail, current, total }) => {
-        bindings.startupOverlayMessage.value = title || "等待后端加载中...";
+        bindings.startupOverlayMessage.value = title || "正在启动应用...";
         bindings.startupOverlayDetail.value = detail || "请稍候...";
         bindings.startupOverlayProgressCurrent.value = Math.max(0, Number(current || 0));
         bindings.startupOverlayProgressTotal.value = Math.max(1, Number(total || 1));
@@ -44,9 +45,15 @@ export function useChatWindowLifecycleSetup(bindings: Record<string, any>) {
       onStartupStepFailed: (label, error) => {
         bindings.setStatus(`启动步骤失败：${label}：${bindings.formatRequestFailed(error)}`);
       },
-      afterSafetyGateReady: async () => {
-        const started = await invokeTauri<boolean>("remoteIm.services.start");
-        console.info("[启动] 迁移后会话准备完成，已通知后端启动后台服务", { started });
+      afterSafetyGateReady: () => {
+        // 不阻塞启动遮罩：通知后端启动后台服务即可，预热在后台完成
+        void invokeTauri<boolean>("remoteIm.services.start")
+          .then((started) => {
+            console.info("[启动] 迁移后会话准备完成，已通知后端启动后台服务", { started });
+          })
+          .catch((error: unknown) => {
+            console.warn("[启动] 通知后端启动后台服务失败", error);
+          });
       },
       afterMountedReady: async () => {
         void bindings.refreshGithubUpdateState();

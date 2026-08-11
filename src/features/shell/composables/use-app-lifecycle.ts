@@ -121,12 +121,12 @@ export function useAppLifecycle(options: UseAppLifecycleOptions) {
   let unlistenNativeFileDrop: (() => void) | null = null;
 
   onMounted(async () => {
-    options.onStartupOverlayChange?.(true, "等待后端加载中...");
+    options.onStartupOverlayChange?.(true, "正在启动应用...");
     options.onStartupProgressChange?.({
-      title: "等待后端加载中...",
+      title: "正在启动应用...",
       detail: "正在建立启动连接...",
       current: 0,
-      total: 7,
+      total: 4,
     });
     let unlistenProgress: (() => void) | null = null;
     try {
@@ -134,7 +134,7 @@ export function useAppLifecycle(options: UseAppLifecycleOptions) {
         title: "初始化窗口中...",
         detail: "正在挂载前端启动器...",
         current: 1,
-        total: 7,
+        total: 4,
       });
       const bootstrapMounted = await runStartupStep(
         "appBootstrapMount",
@@ -148,10 +148,10 @@ export function useAppLifecycle(options: UseAppLifecycleOptions) {
 
       try {
         options.onStartupProgressChange?.({
-          title: "等待后端加载中...",
+          title: "正在连接后端...",
           detail: "正在等待后端就绪信号...",
           current: 2,
-          total: 7,
+          total: 4,
         });
         await waitForBackendReady();
       } catch (error) {
@@ -162,20 +162,20 @@ export function useAppLifecycle(options: UseAppLifecycleOptions) {
       try {
         unlistenProgress = onTransportNotification<string>("startup.progress", (step) => {
           if (step === "done") {
-            options.onStartupOverlayChange?.(true, "加载数据中...");
+            options.onStartupOverlayChange?.(true, "正在初始化界面...");
             options.onStartupProgressChange?.({
-              title: "加载数据中...",
-              detail: "后端延迟初始化已完成，正在准备界面数据...",
+              title: "正在初始化界面...",
+              detail: "后端初始化已完成，正在准备界面...",
               current: 3,
-              total: 7,
+              total: 4,
             });
           } else {
             options.onStartupOverlayChange?.(true, `初始化: ${step}`);
             options.onStartupProgressChange?.({
-              title: "初始化组件中...",
+              title: "正在初始化后端...",
               detail: `当前步骤：${step}`,
               current: 3,
-              total: 7,
+              total: 4,
             });
           }
         });
@@ -183,12 +183,12 @@ export function useAppLifecycle(options: UseAppLifecycleOptions) {
         // 监听失败不影响启动
       }
 
-      options.onStartupOverlayChange?.(true, "加载数据中...");
+      options.onStartupOverlayChange?.(true, "正在初始化界面...");
       options.onStartupProgressChange?.({
-        title: "加载数据中...",
+        title: "正在初始化界面...",
         detail: "正在恢复主题与窗口基础状态...",
         current: 3,
-        total: 7,
+        total: 4,
       });
       options.restoreThemeFromStorage();
       window.addEventListener("paste", options.onPaste);
@@ -213,10 +213,10 @@ export function useAppLifecycle(options: UseAppLifecycleOptions) {
       options.recordHotkeyMount();
       try {
         options.onStartupProgressChange?.({
-          title: "加载数据中...",
+          title: "等待数据迁移完成...",
           detail: "正在执行启动前安全检查...",
           current: 4,
-          total: 7,
+          total: 4,
         });
         await options.beforeRefreshData?.();
       } catch (error) {
@@ -225,64 +225,9 @@ export function useAppLifecycle(options: UseAppLifecycleOptions) {
         options.onStartupOverlayChange?.(false, "");
         return;
       }
-      const backendReadyNotified = await runStartupStep(
+      await runStartupStep(
         "afterSafetyGateReady",
         () => options.afterSafetyGateReady?.(),
-        options.onStartupStepFailed,
-      );
-      if (!backendReadyNotified) {
-        options.onStartupOverlayChange?.(false, "");
-        return;
-      }
-      try {
-        options.onStartupProgressChange?.({
-          title: "加载数据中...",
-          detail: "正在读取配置与会话数据...",
-          current: 5,
-          total: 7,
-        });
-        await options.refreshAllViewData();
-      } catch (error) {
-        console.error("[生命周期] 启动刷新失败: refreshAllViewData", error);
-        options.onStartupStepFailed?.("refreshAllViewData", error);
-        options.onStartupOverlayChange?.(false, "");
-        return;
-      }
-      const afterRefreshCompleted = await runStartupStep(
-        "afterRefreshData",
-        () => options.afterRefreshData?.(),
-        options.onStartupStepFailed,
-      );
-      if (!afterRefreshCompleted) {
-        options.onStartupOverlayChange?.(false, "");
-        return;
-      }
-      if (options.viewMode.value === "chat") {
-        options.onStartupProgressChange?.({
-          title: "收尾处理中...",
-          detail: "正在同步聊天窗口状态...",
-          current: 6,
-          total: 7,
-        });
-        const windowControlsSynced = await runStartupStep(
-          "syncWindowControlsState",
-          () => options.syncWindowControlsState(),
-          options.onStartupStepFailed,
-        );
-        if (!windowControlsSynced) {
-          options.onStartupOverlayChange?.(false, "");
-          return;
-        }
-      }
-      options.onStartupProgressChange?.({
-        title: "收尾处理中...",
-        detail: "正在完成启动后的最后准备...",
-        current: 7,
-        total: 7,
-      });
-      await runStartupStep(
-        "afterMountedReady",
-        () => options.afterMountedReady?.(),
         options.onStartupStepFailed,
       );
     } catch (error) {
@@ -292,6 +237,37 @@ export function useAppLifecycle(options: UseAppLifecycleOptions) {
       if (unlistenProgress) unlistenProgress();
       options.onStartupOverlayChange?.(false, "");
     }
+
+    // ========== 遮罩关闭后：数据加载链，组件各自 loading，不阻塞画面 ==========
+    void (async () => {
+      try {
+        await options.refreshAllViewData();
+      } catch (error) {
+        console.error("[生命周期] 启动刷新失败: refreshAllViewData", error);
+        options.onStartupStepFailed?.("refreshAllViewData", error);
+        return;
+      }
+      try {
+        await options.afterRefreshData?.();
+      } catch (error) {
+        console.error("[生命周期] 刷新收尾失败: afterRefreshData", error);
+        options.onStartupStepFailed?.("afterRefreshData", error);
+      }
+      if (options.viewMode.value === "chat") {
+        try {
+          await options.syncWindowControlsState();
+        } catch (error) {
+          console.error("[生命周期] 窗口状态同步失败: syncWindowControlsState", error);
+          options.onStartupStepFailed?.("syncWindowControlsState", error);
+        }
+      }
+      try {
+        await options.afterMountedReady?.();
+      } catch (error) {
+        console.error("[生命周期] 启动收尾失败: afterMountedReady", error);
+        options.onStartupStepFailed?.("afterMountedReady", error);
+      }
+    })();
   });
 
   onBeforeUnmount(() => {

@@ -474,7 +474,7 @@ const {
   setStatusError,
 });
 const startupOverlayVisible = ref(false);
-const startupOverlayMessage = ref("等待后端加载中...");
+const startupOverlayMessage = ref("正在启动应用...");
 const { setUiSizeScale, uiSizeScale } = useUiSizeAppearance();
 const { updateGithubUpdateMethod } = useGithubUpdateMethod(config, setStatusError);
 
@@ -905,7 +905,7 @@ useAppLifecycle({
   cleanupChatMedia: cleanupHotkeyRecordTest,
   onStartupOverlayChange: (visible, message) => {
     startupOverlayVisible.value = visible;
-    startupOverlayMessage.value = message || "等待后端加载中...";
+    startupOverlayMessage.value = message || "正在启动应用...";
   },
   afterMountedReady: async () => {
     await refreshGithubUpdateState();
