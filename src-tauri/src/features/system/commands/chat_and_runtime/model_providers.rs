@@ -1158,6 +1158,7 @@ mod model_metadata_selection_tests {
         enable_video: bool,
     ) -> ModelMetadataCandidate {
         ModelMetadataCandidate {
+            provider_name: "mimo".to_string(),
             provider_api: provider_api.to_string(),
             model_id: "mimo-v2.5".to_string(),
             context_window_tokens: Some(context_window_tokens),
@@ -1206,9 +1207,9 @@ mod model_metadata_selection_tests {
 
         let (selected, documentation_candidates, strategy) =
             select_model_metadata_candidates(&candidates, &requested_base_url);
-        let merged = merge_model_metadata_candidates(&selected, &documentation_candidates);
+        let merged = merge_model_metadata_candidates(&selected, &documentation_candidates, strategy);
 
-        assert_eq!(strategy, "URL精准匹配");
+        assert!(strategy, "URL 精准匹配时应为 exact_match");
         assert_eq!(selected.len(), 1);
         assert_eq!(
             selected[0].provider_api,
@@ -1234,7 +1235,7 @@ mod model_metadata_selection_tests {
         let (selected, _documentation_candidates, strategy) =
             select_model_metadata_candidates(&candidates, &requested_base_url);
 
-        assert_eq!(strategy, "URL精准匹配");
+        assert!(strategy, "根路径与 v1 视为同一 provider 时应为 exact_match");
         assert_eq!(selected.len(), 1);
         assert_eq!(selected[0].provider_api, "https://api.deepseek.com");
     }
@@ -1255,9 +1256,9 @@ mod model_metadata_selection_tests {
             normalize_model_metadata_base_url("https://api.deepseek.com/v1");
 
         let binding = [fallback, exact];
-        let (selected, documentation_candidates, _) =
+        let (selected, documentation_candidates, strategy) =
             select_model_metadata_candidates(&binding, &requested_base_url);
-        let merged = merge_model_metadata_candidates(&selected, &documentation_candidates);
+        let merged = merge_model_metadata_candidates(&selected, &documentation_candidates, strategy);
 
         assert_eq!(
             merged.documentation_url.as_deref(),
@@ -1282,9 +1283,9 @@ mod model_metadata_selection_tests {
 
         let (selected, documentation_candidates, strategy) =
             select_model_metadata_candidates(&candidates, &requested_base_url);
-        let merged = merge_model_metadata_candidates(&selected, &documentation_candidates);
+        let merged = merge_model_metadata_candidates(&selected, &documentation_candidates, strategy);
 
-        assert_eq!(strategy, "未匹配URL，候选合并最大值");
+        assert!(!strategy, "URL 未匹配时应为模糊合并");
         assert_eq!(selected.len(), 2);
         assert_eq!(merged.context_window_tokens, Some(1_050_000));
         assert_eq!(merged.max_output_tokens, Some(131_100));
