@@ -164,7 +164,7 @@
               type="button"
               class="flex h-6 min-w-0 items-center gap-1 rounded px-1 text-xs font-medium hover:bg-base-300/40"
               :disabled="busy"
-              @click="branchPickerOpen = !branchPickerOpen"
+              @click="toggleBranchPicker"
             >
               <GitBranch class="h-3.5 w-3.5 shrink-0 opacity-70" />
               <span class="max-w-28 truncate">{{ currentBranch || t('gitPanel.detachedHead') }}</span>
@@ -677,6 +677,33 @@ function appendOutput(command: string, result: GitPanelRunOutput | null, error: 
 }
 
 // ==================== 数据加载 ====================
+// 按需懒加载：上栏展开才拉更改/暂存，下栏切到对应 tab 才拉历史/存储/分支；
+// 各数据首次加载成功置标记，折叠/切走不重复拉取
+const statusLoaded = ref(false);
+const historyLoaded = ref(false);
+const stashesLoaded = ref(false);
+const branchesLoaded = ref(false);
+
+// 按当前可见状态加载缺失数据：上栏展开 → 更改/暂存；下栏展开 → 当前 tab 对应数据
+function ensureVisibleData() {
+  if (!statusLoaded.value && !changesCollapsed.value) {
+    void loadStatus();
+  }
+  if (historyCollapsed.value) return;
+  if (activeGitTab.value === "commits" && !historyLoaded.value) {
+    void loadHistory();
+  } else if (activeGitTab.value === "stashes" && !stashesLoaded.value) {
+    void loadStashes();
+  } else if (activeGitTab.value === "branches" && !branchesLoaded.value) {
+    void Promise.all([loadBranches(), loadRemotes()]);
+  }
+}
+
+// 折叠/切 tab 变化时重新评估可见数据；immediate 保证初始即展开时也加载
+watch([changesCollapsed, activeGitTab, historyCollapsed], () => ensureVisibleData(), {
+  immediate: true,
+});
+
 // 仓库列表：懒加载 + 后端缓存；force=true 强制重扫
 async function loadRepos(force = false) {
   if (reposLoading.value) return;
@@ -702,7 +729,7 @@ function isCurrentRepo(path: string): boolean {
   return norm(path) === norm(repoRoot.value);
 }
 
-// 切换仓库：更新 repoRoot 后全量重载更改/历史/分支/远端/存储
+// 切换仓库：更新 repoRoot，重置各数据加载标记后按当前可见区域重载
 function switchRepo(path: string) {
   if (!path || isCurrentRepo(path) || busy.value) return;
   repoRoot.value = path;
@@ -712,8 +739,11 @@ function switchRepo(path: string) {
   commitCard.value = { entry: null, x: 0, y: 0 };
   lastClickedDiffPath.value = "";
   commitFilesMap.value = {};
-  void refreshAll();
-  void loadHistory();
+  statusLoaded.value = false;
+  historyLoaded.value = false;
+  stashesLoaded.value = false;
+  branchesLoaded.value = false;
+  ensureVisibleData();
 }
 
 // 展开仓库栏才首次扫描（懒加载）；之后只读后端缓存。
@@ -749,6 +779,7 @@ async function loadStatus() {
     statusEntries.value = result.entries || [];
     currentBranch.value = result.branch || "";
     if (result.repoRoot) repoRoot.value = result.repoRoot;
+    statusLoaded.value = true;
   } catch (error) {
     appendOutput("status", null, error);
   }
@@ -767,6 +798,7 @@ async function loadBranches() {
   if (!repoRoot.value) return;
   try {
     branches.value = await gitPanelBranchList(repoRoot.value);
+    branchesLoaded.value = true;
   } catch (error) {
     appendOutput("branch -a", null, error);
   }
@@ -785,6 +817,7 @@ async function loadStashes() {
   if (!repoRoot.value) return;
   try {
     stashList.value = await gitPanelStashList(repoRoot.value);
+    stashesLoaded.value = true;
   } catch (error) {
     appendOutput("stash list", null, error);
   }
@@ -796,6 +829,7 @@ async function loadHistory() {
     const result = await gitPanelLog(repoRoot.value, logPageSize, 0);
     logEntries.value = result.entries || [];
     logHasMore.value = (result.entries || []).length >= logPageSize;
+    historyLoaded.value = true;
   } catch (error) {
     appendOutput("log", null, error);
   }
@@ -886,16 +920,6 @@ watch([stashHasMore, activeGitTab], async ([hasMore, tab]) => {
   }
 });
 
-async function refreshAll() {
-  if (busy.value || !repoRoot.value) return;
-  busy.value = true;
-  try {
-    await Promise.all([loadStatus(), loadBranches(), loadRemotes(), loadStashes()]);
-  } finally {
-    busy.value = false;
-  }
-}
-
 async function refreshHistory() {
   if (busy.value) return;
   busy.value = true;
@@ -910,8 +934,13 @@ function selectGitTab(key: string) {
   activeGitTab.value = key;
   persistGitTab();
   branchPickerOpen.value = false;
-  if (key === "commits" && logEntries.value.length === 0) {
-    void refreshHistory();
+}
+
+// 分支下拉展开时才加载分支/远程数据（提交页底部的分支按钮也能用）
+function toggleBranchPicker() {
+  branchPickerOpen.value = !branchPickerOpen.value;
+  if (branchPickerOpen.value && !branchesLoaded.value) {
+    void Promise.all([loadBranches(), loadRemotes()]);
   }
 }
 
@@ -1241,8 +1270,7 @@ onMounted(() => {
   restoreGitTab();
   void loadDetect().then(() => {
     if (repoRoot.value) {
-      void refreshAll();
-      void loadHistory();
+      ensureVisibleData();
     }
   });
 });
