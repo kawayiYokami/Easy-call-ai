@@ -930,8 +930,18 @@ async fn git_panel_commit_files(input: GitPanelCommitFilesInput) -> Result<GitPa
 
 // ---------- 命令：仓库列表（多仓库切换） ----------
 
-/// 仓库扫描最大深度：相对 workspace_path 的目录层级数（workspace 自身为 0）。
+/// 主动刷新时的扫描深度：相对 workspace_path 的目录层级数（workspace 自身为 0）。
 const GIT_REPO_SCAN_MAX_DEPTH: usize = 3;
+
+/// 默认扫描深度：只扫工作区直接子目录（对齐 VSCode 的 repositoryScanMaxDepth=1 远虑），
+/// 深层仓库靠「打开过即记住」的历史列表覆盖，主动刷新才扩到 3 层。
+const GIT_REPO_SCAN_DEFAULT_DEPTH: usize = 1;
+
+/// 历史仓库文件名（state 目录，与窗口布局文件同模式：布局/缓存类状态独立成文件）。
+const GIT_REPO_HISTORY_FILE: &str = "git_panel_repo_history.json";
+
+/// 历史上限：最近打开过的仓库最多保留 50 个。
+const GIT_REPO_HISTORY_LIMIT: usize = 50;
 
 /// 扫描时跳过的构建/依赖目录。
 const GIT_REPO_SCAN_SKIP_DIRS: &[&str] = &["node_modules", "target", "dist", "build"];
@@ -1012,47 +1022,129 @@ fn git_panel_scan_repos_inner(workspace_path: &str, max_depth: usize) -> Vec<Git
     repos
 }
 
+// ---------- 打开过的仓库历史（独立文件，持久化） ----------
+
+fn git_panel_repo_history_path(state: &AppState) -> PathBuf {
+    app_layout_state_dir(&state.data_path).join(GIT_REPO_HISTORY_FILE)
+}
+
+/// 读取历史（最近在前）；文件缺失或损坏时返回空列表。
+fn git_panel_read_repo_history(state: &AppState) -> Vec<String> {
+    std::fs::read_to_string(git_panel_repo_history_path(state))
+        .ok()
+        .and_then(|content| serde_json::from_str::<Vec<String>>(&content).ok())
+        .unwrap_or_default()
+}
+
+fn git_panel_write_repo_history(state: &AppState, history: &[String]) {
+    let path = git_panel_repo_history_path(state);
+    if let Some(parent) = path.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    if let Ok(content) = serde_json::to_string_pretty(history) {
+        let _ = std::fs::write(path, content);
+    }
+}
+
+/// 把仓库根记入历史：最近在前、去重、封顶 50；已存在则移到最前。
+/// 返回历史是否发生变化（新增或重排），调用方据此决定是否写盘。
+fn git_panel_history_push(history: &mut Vec<String>, repo_root: &str) -> bool {
+    if let Some(index) = history
+        .iter()
+        .position(|item| git_panel_repo_path_eq(item, repo_root))
+    {
+        if index == 0 {
+            return false;
+        }
+        let item = history.remove(index);
+        history.insert(0, item);
+        return true;
+    }
+    history.insert(0, repo_root.to_string());
+    if history.len() > GIT_REPO_HISTORY_LIMIT {
+        history.truncate(GIT_REPO_HISTORY_LIMIT);
+    }
+    true
+}
+
+/// 当前仓库进入历史；写盘失败静默忽略，不影响 git 命令本身。
+fn git_panel_remember_repo(state: &AppState, repo_root: &str) {
+    let mut history = git_panel_read_repo_history(state);
+    if git_panel_history_push(&mut history, repo_root) {
+        git_panel_write_repo_history(state, &history);
+    }
+}
+
 #[tauri::command]
 async fn git_panel_repos(
     input: GitPanelWorkspaceInput,
     refresh: bool,
+    state: State<'_, AppState>,
 ) -> Result<GitPanelReposOutput, String> {
     let workspace_path = git_panel_validate_path(&input.workspace_path)?;
-    // 缓存命中且非强制刷新：直接返回
-    {
-        let cache = git_panel_repo_cache()
-            .lock()
-            .map_err(|_| "仓库列表缓存读取失败".to_string())?;
-        if !refresh {
-            if let Some(cached) = cache.get(&workspace_path) {
-                return Ok(GitPanelReposOutput {
-                    repos: cached.clone(),
-                });
+    // 扫描：默认深度 1 走缓存（懒加载只扫一次）；主动刷新扩到深度 3，直接重扫不写缓存
+    let scanned = if refresh {
+        tokio::task::spawn_blocking({
+            let workspace_path = workspace_path.clone();
+            move || git_panel_scan_repos_inner(&workspace_path, GIT_REPO_SCAN_MAX_DEPTH)
+        })
+        .await
+        .map_err(|err| format!("仓库扫描失败：{err}"))?
+    } else {
+        let cached = {
+            let cache = git_panel_repo_cache()
+                .lock()
+                .map_err(|_| "仓库列表缓存读取失败".to_string())?;
+            cache.get(&workspace_path).cloned()
+        };
+        match cached {
+            Some(repos) => repos,
+            None => {
+                let scanned = tokio::task::spawn_blocking({
+                    let workspace_path = workspace_path.clone();
+                    move || git_panel_scan_repos_inner(&workspace_path, GIT_REPO_SCAN_DEFAULT_DEPTH)
+                })
+                .await
+                .map_err(|err| format!("仓库扫描失败：{err}"))?;
+                git_panel_repo_cache()
+                    .lock()
+                    .map_err(|_| "仓库列表缓存写入失败".to_string())?
+                    .insert(workspace_path.clone(), scanned.clone());
+                scanned
             }
         }
-    }
-    // 扫描走阻塞线程，避免卡住异步 runtime
-    let scanned = tokio::task::spawn_blocking({
-        let workspace_path = workspace_path.clone();
-        move || git_panel_scan_repos_inner(&workspace_path, GIT_REPO_SCAN_MAX_DEPTH)
-    })
-    .await
-    .map_err(|err| format!("仓库扫描失败：{err}"))?;
-    // 合并当前仓库根（可能在工作区上方，扫描不到；恒保留在列表中）
-    let mut repos = scanned;
+    };
+    // 当前仓库根（可能在工作区上方，扫描不到）：记录进历史，并恒保留在列表中
+    let mut extra = Vec::new();
     if let Ok(root) = git_panel_resolve_root(&workspace_path).await {
-        if !repos.iter().any(|repo| git_panel_repo_path_eq(&repo.path, &root)) {
+        git_panel_remember_repo(&state, &root);
+        let name = git_panel_repo_name(&root);
+        extra.push(GitPanelRepoEntry { path: root, name });
+    }
+    // 合并：历史（最近在前，过滤已删除目录）∪ 扫描结果 ∪ 当前仓库根，去重后按路径排序
+    let mut repos: Vec<GitPanelRepoEntry> = Vec::new();
+    for path in git_panel_read_repo_history(&state) {
+        if !Path::new(&path).is_dir() {
+            continue;
+        }
+        if !repos.iter().any(|repo| git_panel_repo_path_eq(&repo.path, &path)) {
             repos.push(GitPanelRepoEntry {
-                path: root.clone(),
-                name: git_panel_repo_name(&root),
+                path: path.clone(),
+                name: git_panel_repo_name(&path),
             });
         }
     }
+    for repo in scanned {
+        if !repos.iter().any(|item| git_panel_repo_path_eq(&item.path, &repo.path)) {
+            repos.push(repo);
+        }
+    }
+    for repo in extra {
+        if !repos.iter().any(|item| git_panel_repo_path_eq(&item.path, &repo.path)) {
+            repos.push(repo);
+        }
+    }
     repos.sort_by(|a, b| a.path.cmp(&b.path));
-    git_panel_repo_cache()
-        .lock()
-        .map_err(|_| "仓库列表缓存写入失败".to_string())?
-        .insert(workspace_path, repos.clone());
     Ok(GitPanelReposOutput { repos })
 }
 
@@ -1126,6 +1218,38 @@ mod git_panel_repos_tests {
     fn repo_name_takes_last_segment() {
         assert_eq!(git_panel_repo_name("E:\\github\\easy_call_ai"), "easy_call_ai");
         assert_eq!(git_panel_repo_name("/home/user/project"), "project");
+    }
+
+    #[test]
+    fn default_depth_one_only_finds_direct_children() {
+        let (_guard, root) = make_fixture();
+        let repos = git_panel_scan_repos_inner(&root, GIT_REPO_SCAN_DEFAULT_DEPTH);
+        let paths: Vec<&str> = repos.iter().map(|repo| repo.path.as_str()).collect();
+        let sub1 = Path::new(&root).join("sub1").to_string_lossy().into_owned();
+        let inner = Path::new(&root).join("sub1").join("inner").to_string_lossy().into_owned();
+        assert!(paths.contains(&root.as_str()), "深度 0 仓库应命中");
+        assert!(paths.contains(&sub1.as_str()), "深度 1 仓库应命中");
+        assert!(!paths.contains(&inner.as_str()), "默认深度 1 时深度 2 仓库不应命中");
+    }
+
+    #[test]
+    fn history_push_dedupes_reorders_and_caps() {
+        let mut history: Vec<String> = Vec::new();
+        for i in 0..GIT_REPO_HISTORY_LIMIT {
+            assert!(git_panel_history_push(&mut history, &format!("C:/repo/{i:02}")));
+        }
+        assert_eq!(history.len(), GIT_REPO_HISTORY_LIMIT);
+        // 已存在（不在最前）：移到最前，不新增
+        assert!(git_panel_history_push(&mut history, "C:/repo/30"));
+        assert_eq!(history.len(), GIT_REPO_HISTORY_LIMIT);
+        assert_eq!(history[0], "C:/repo/30");
+        // 已在最前：无变化
+        assert!(!git_panel_history_push(&mut history, "C:/repo/30"));
+        // 超限：新仓库插入头部，最旧的被丢弃
+        assert!(git_panel_history_push(&mut history, "C:/repo/new"));
+        assert_eq!(history.len(), GIT_REPO_HISTORY_LIMIT);
+        assert_eq!(history[0], "C:/repo/new");
+        assert!(!history.contains(&"C:/repo/00".to_string()), "最旧的应被丢弃");
     }
 
     #[test]
