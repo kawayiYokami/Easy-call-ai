@@ -1256,7 +1256,11 @@ async fn builtin_read_media(
     state: &AppState,
     request: ReadMediaRequest,
 ) -> Result<Value, String> {
-    let path = ensure_absolute_media_path(&request)?;
+    // 路径校验（metadata）是同步文件 I/O，移入 blocking 线程池，避免阻塞 Tokio 工作线程
+    let request_for_check = request.clone();
+    let path = tokio::task::spawn_blocking(move || ensure_absolute_media_path(&request_for_check))
+        .await
+        .map_err(|err| format!("read_media 工具路径校验后台执行失败：{err}"))??;
     let detected = detect_read_media_type(&path).ok_or_else(|| "read_media 仅支持图片、音频或视频文件".to_string())?;
     let app_config = state_read_config_cached(state)?;
     let selected_api = resolve_vision_api_config(&app_config)?;
@@ -1745,8 +1749,18 @@ async fn builtin_read_file(
     let ui_language = state_read_config_cached(&state)
         .map(|config| config.ui_language)
         .unwrap_or_else(|_| "zh-CN".to_string());
-    let path = match ensure_absolute_file_path(&request) {
-        Ok(path) => path,
+    // 路径校验（metadata）是同步文件 I/O，可能被 TCC 拒绝、慢盘或网络卷拖慢；
+    // 移入 blocking 线程池，避免阻塞 Tokio 工作线程。
+    let request_for_check = request.clone();
+    let (path, detected) = match tokio::task::spawn_blocking(move || {
+        let path = ensure_absolute_file_path(&request_for_check)?;
+        let detected = detect_read_file_type(&path);
+        Ok::<_, String>((path, detected))
+    })
+    .await
+    .map_err(|err| format!("read 工具路径校验后台执行失败：{err}"))?
+    {
+        Ok(result) => result,
         Err(err) => {
             // 前置校验（metadata）也可能被 TCC 拦截，失败时同样附加授权建议
             let hint_path = std::path::Path::new(request.path.trim());
@@ -1756,7 +1770,6 @@ async fn builtin_read_file(
             };
         }
     };
-    let detected = detect_read_file_type(&path);
     runtime_log_info(format!(
         "[read] 开始，任务=read，session_id={}，api_config_id={}，{}，detected_type={}",
         session_id,
