@@ -571,7 +571,6 @@ async fn run_deferred_setup(app_handle: AppHandle) {
         runtime_log_warn(format!("[启动-延迟] 检测到 devtools 开关已开启，但当前构建未启用 open_devtools API，跳过打开 devtools"));
     }
     let _ = app_handle.emit("easy-call:startup-progress", "done");
-    start_webview_heartbeat_monitor(&app_handle);
     runtime_log_info(format!("[启动-延迟] 阶段 2 初始化完成"));
 }
 
@@ -1100,14 +1099,17 @@ fn main() {
                     }
                 }
             };
-            if let Err(err) = show_window(app, target) {
-                runtime_log_error(format!(
-                    "[单实例] 激活已有实例失败: target={}, error={}",
-                    target, err
-                ));
-            } else {
-                runtime_log_info(format!("[单实例] 已拦截重复启动并激活现有实例: target={}", target));
-            }
+            let app_handle = app.clone();
+            tauri::async_runtime::spawn(async move {
+                if let Err(err) = probe_and_show_window(&app_handle, target).await {
+                    runtime_log_error(format!(
+                        "[单实例] 激活已有实例失败: target={}, error={}",
+                        target, err
+                    ));
+                } else {
+                    runtime_log_info(format!("[单实例] 已拦截重复启动并激活现有实例: target={}", target));
+                }
+            });
         }))
     };
 
@@ -1183,6 +1185,7 @@ fn main() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            webview_pong,
             show_main_window,
             show_chat_window,
             show_archives_window,
@@ -1217,8 +1220,6 @@ fn main() {
             cleanup_storage_legacy_items,
             load_app_bootstrap_snapshot,
             is_backend_ready,
-            webview_pong,
-            debug_crash_webview,
             list_system_fonts,
             update_record_hotkey,
             update_record_background_wake,

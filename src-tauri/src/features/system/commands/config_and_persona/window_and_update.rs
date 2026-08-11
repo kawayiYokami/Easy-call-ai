@@ -1,16 +1,16 @@
 #[tauri::command]
-fn show_main_window(app: AppHandle) -> Result<(), String> {
-    show_window(&app, "main")
+async fn show_main_window(app: AppHandle) -> Result<(), String> {
+    probe_and_show_window(&app, "main").await
 }
 
 #[tauri::command]
-fn show_chat_window(app: AppHandle) -> Result<(), String> {
-    show_window(&app, "chat")
+async fn show_chat_window(app: AppHandle) -> Result<(), String> {
+    probe_and_show_window(&app, "chat").await
 }
 
 #[tauri::command]
-fn show_archives_window(app: AppHandle) -> Result<(), String> {
-    show_window(&app, "archives")
+async fn show_archives_window(app: AppHandle) -> Result<(), String> {
+    probe_and_show_window(&app, "archives").await
 }
 
 #[tauri::command]
@@ -486,17 +486,6 @@ fn load_app_bootstrap_snapshot(state: State<'_, AppState>) -> Result<AppBootstra
 #[tauri::command]
 fn is_backend_ready(state: State<'_, AppState>) -> bool {
     state.backend_ready.load(std::sync::atomic::Ordering::Acquire)
-}
-
-#[tauri::command]
-fn webview_pong(window: tauri::Window) {
-    webview_record_pong(window.label());
-}
-
-#[tauri::command]
-fn debug_crash_webview(webview: tauri::Webview) -> Result<(), String> {
-    webview.eval("(function(){const a=[];while(true){a.push(new Array(1000000).fill('x'));}})();")
-        .map_err(|err| format!("注入崩溃脚本失败：{err}"))
 }
 
 #[tauri::command]
