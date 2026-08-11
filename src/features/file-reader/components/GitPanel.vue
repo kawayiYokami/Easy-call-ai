@@ -716,12 +716,17 @@ function switchRepo(path: string) {
   void loadHistory();
 }
 
-// 展开仓库栏才首次扫描（懒加载）；之后只读后端缓存
-watch(repoCollapsed, (collapsed) => {
-  if (!collapsed && !reposLoaded.value) {
-    void loadRepos(false);
-  }
-});
+// 展开仓库栏才首次扫描（懒加载）；之后只读后端缓存。
+// immediate：初始即展开时也要触发加载，否则列表一直空到手动刷新。
+watch(
+  repoCollapsed,
+  (collapsed) => {
+    if (!collapsed && !reposLoaded.value) {
+      void loadRepos(false);
+    }
+  },
+  { immediate: true },
+);
 
 async function loadDetect() {
   try {

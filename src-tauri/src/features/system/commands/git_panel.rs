@@ -972,15 +972,29 @@ fn git_panel_repo_path_eq(a: &str, b: &str) -> bool {
     git_panel_normalize_repo_path(a) == git_panel_normalize_repo_path(b)
 }
 
-/// 路径归一化：统一分隔符为 /（Windows 下再转小写），用于比较与分组键。
+/// 路径归一化：剥离 Windows verbatim 前缀（\\?\）、统一分隔符为 /（Windows 下再转小写），
+/// 用于比较与分组键。前端传入的工作区路径常带 \\?\ 前缀，而 git rev-parse 输出不带，
+/// 不剥离会导致同一仓库被误判为两个。
 fn git_panel_normalize_repo_path(path: &str) -> String {
     #[cfg(target_os = "windows")]
     {
-        path.replace('\\', "/").to_lowercase()
+        git_panel_strip_verbatim_prefix(path).replace('\\', "/").to_lowercase()
     }
     #[cfg(not(target_os = "windows"))]
     {
         path.replace('\\', "/")
+    }
+}
+
+/// 剥离 Windows verbatim 前缀（\\?\），保留其余路径原样；无前缀时原样返回。
+fn git_panel_strip_verbatim_prefix(path: &str) -> &str {
+    #[cfg(target_os = "windows")]
+    {
+        path.strip_prefix("\\\\?\\").unwrap_or(path)
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        path
     }
 }
 
@@ -1160,6 +1174,10 @@ async fn git_panel_repos(
             repos.push(repo);
         }
     }
+    // 返回前统一剥离 verbatim 前缀，前端拿到的都是普通路径（切换后直接可作 git 工作目录）
+    for repo in &mut repos {
+        repo.path = git_panel_strip_verbatim_prefix(&repo.path).to_string();
+    }
     repos.sort_by(|a, b| a.path.cmp(&b.path));
     Ok(GitPanelReposOutput { repos })
 }
@@ -1308,9 +1326,16 @@ mod git_panel_repos_tests {
     }
 
     #[test]
-    fn repo_path_eq_ignores_case_and_separators_on_windows() {
+    fn repo_path_eq_ignores_case_separators_and_verbatim_prefix() {
         #[cfg(target_os = "windows")]
-        assert!(git_panel_repo_path_eq("E:\\GitHub\\Demo", "e:/github/demo"));
+        {
+            assert!(git_panel_repo_path_eq("E:\\GitHub\\Demo", "e:/github/demo"));
+            assert!(git_panel_repo_path_eq("\\\\?\\E:\\github\\story", "E:/github/story"));
+            assert!(git_panel_repo_path_eq(
+                "\\\\?\\E:\\github\\story\\AnimeGameData",
+                "e:/github/story/AnimeGameData"
+            ));
+        }
         #[cfg(not(target_os = "windows"))]
         assert!(!git_panel_repo_path_eq("/A/B", "/a/b"));
     }
