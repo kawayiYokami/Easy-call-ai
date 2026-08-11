@@ -27,6 +27,9 @@ type ReasoningCapabilityInput = {
 };
 
 export type ModelCapabilitySnapshot = {
+  fuzzyMatch?: boolean;
+  providerName?: string;
+  providerApi?: string;
   contextWindowMax?: number;
   maxOutputTokensMax?: number;
   enableImage?: boolean;

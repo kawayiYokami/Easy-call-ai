@@ -136,6 +136,7 @@
               <ApiModelCard
                 :card="draft.models[card.id]"
                 :model-options="draft.providerId === 'custom' ? draft.customModelOptions : []"
+                :default-open="false"
                 :show-delete="false"
                 :show-capability-toggles="false"
                 :show-context-window="false"

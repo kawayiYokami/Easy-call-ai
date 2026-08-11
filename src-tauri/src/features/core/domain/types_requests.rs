@@ -390,6 +390,9 @@ struct FetchModelMetadataInput {
 #[serde(rename_all = "camelCase")]
 struct FetchModelMetadataOutput {
     found: bool,
+    fuzzy_match: bool,
+    provider_name: Option<String>,
+    provider_api: Option<String>,
     matched_model_id: Option<String>,
     context_window_tokens: Option<u32>,
     max_output_tokens: Option<u32>,

@@ -196,11 +196,6 @@
                   </select>
                 </label>
               </div>
-
-              <label class="flex items-center justify-between rounded-box border border-base-300 bg-base-200 px-3 py-2">
-                <span class="text-sm">{{ t("config.api.capTools") }}</span>
-                <input v-model="modelCard.enableTools" type="checkbox" class="toggle toggle-sm" />
-              </label>
             </div>
           </div>
         </div>
@@ -718,7 +713,7 @@ function addModelCard() {
   const nextModel = providerModelOptions.value.find((item) => !existing.has(item)) || providerModelOptions.value[0] || DEFAULT_CODEX_MODELS[0];
   const seed = Date.now().toString();
   const model = createModel(seed, nextModel);
-  props.provider.models.push(model);
+  props.provider.models.unshift(model);
   syncCachedModels();
   emit("selectModel", model.id);
 }

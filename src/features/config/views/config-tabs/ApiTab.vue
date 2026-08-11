@@ -195,8 +195,9 @@
                 v-for="group in draftModelGroups"
                 :key="group.primary.id"
                 :card="group.primary"
-                :title="modelGroupDisplayLabel(group)"
                 :model-options="providerModelOptions"
+                :default-open="draftModelGroups.length <= 2"
+                :capability="reasoningCapability(group) ?? null"
                 :show-delete="true"
                 :delete-disabled="draftModelGroups.length <= 1"
                 :show-capability-toggles="selectedCapability === 'text'"
@@ -208,7 +209,6 @@
                 :reasoning-checked-values="reasoningEffortCheckedValues(group)"
                 :reasoning-status="reasoningCapabilityStatus(group)"
                 :protocol-hint="selectedProtocol === 'auto' ? resolvedAdapterByModelId[group.primary.id] : ''"
-                :warning-text="shouldWarnDeepSeekKimiProtocol(group) ? t('config.api.deepSeekKimiProtocolHint') : ''"
                 :documentation-url="modelDocumentationUrl(group)"
                 :connection-result="modelConnectionResult[group.primary.id] ?? null"
                 :context-window-max="contextWindowMax(group)"
@@ -301,6 +301,9 @@ type ProviderPreset = {
 type ProtocolOption = { value: ApiRequestFormat; label: string };
 type FetchModelMetadataResult = {
   found: boolean;
+  fuzzyMatch?: boolean | null;
+  providerName?: string | null;
+  providerApi?: string | null;
   matchedModelId?: string | null;
   contextWindowTokens?: number | null;
   maxOutputTokens?: number | null;
@@ -627,23 +630,6 @@ function commitDraftGroups() {
   }
 }
 
-function modelGroupDisplayLabel(group: DraftModelGroup): string {
-  const modelCard = group.primary;
-  const displayName = String(modelCard.displayName || "").trim();
-  const modelName = displayName || String(modelCard.model || "").trim() || t("config.api.unnamedModel");
-  const sameNameGroups = draftModelGroups.value.filter((candidate) => candidate.primary.model === modelCard.model);
-  if (!group || sameNameGroups.length <= 1) return modelName;
-  const peers = sameNameGroups.map((candidate) => candidate.primary);
-  const summary: string[] = [];
-  if (new Set(peers.map((item) => item.contextWindowTokens)).size > 1) summary.push(`${t("config.api.contextWindow")} ${Math.round(Number(modelCard.contextWindowTokens || 0) / 1000)}K`);
-  if (new Set(peers.map((item) => item.maxOutputTokens)).size > 1) summary.push(`${t("config.api.maxOutputTokens")} ${Math.round(Number(modelCard.maxOutputTokens || 0) / 1000)}K`);
-  if (new Set(peers.map((item) => item.temperature)).size > 1) summary.push(`${t("config.api.temperature")} ${Number(modelCard.temperature || 0).toFixed(1)}`);
-  if (new Set(peers.map((item) => item.enableTools)).size > 1) summary.push(`${t("config.api.capTools")} ${modelCard.enableTools ? "✓" : "—"}`);
-  if (new Set(peers.map((item) => item.enableImage)).size > 1) summary.push(`${t("config.api.capImage")} ${modelCard.enableImage ? "✓" : "—"}`);
-  if (new Set(peers.map((item) => item.enableAudio)).size > 1) summary.push(`${t("config.api.capAudio")} ${modelCard.enableAudio ? "✓" : "—"}`);
-  if (new Set(peers.map((item) => item.enableVideo)).size > 1) summary.push(`${t("config.api.capVideo")} ${modelCard.enableVideo ? "✓" : "—"}`);
-  return summary.length > 0 ? `${modelName} · ${summary.join(" · ")}` : modelName;
-}
 const selectedCapability = computed<ApiCapability>(() => capabilityFromRequestFormat(selectedProvider.value?.requestFormat || "openai"));
 const activeTopTab = ref<ApiTopTab>(selectedCapability.value);
 const emptyImageToolbarState: ImageGenerationToolbarState = {
@@ -1498,7 +1484,7 @@ function addModelCard() {
     reasoningEfforts: [normalizedModelReasoningEffortFor(model)],
     variantIdByEffort: new Map([[normalizedModelReasoningEffortFor(model), model.id]]),
   };
-  draftModelGroups.value.push(group);
+  draftModelGroups.value.unshift(group);
   props.config.selectedApiConfigId = `${provider.id}::${model.id}`;
 }
 
@@ -1524,12 +1510,6 @@ function autoContextWindowTokens(group: DraftModelGroup): number {
 
 function applyAutoContextWindowTokens(group: DraftModelGroup) {
   group.primary.contextWindowTokens = autoContextWindowTokens(group);
-}
-
-function shouldWarnDeepSeekKimiProtocol(group: DraftModelGroup): boolean {
-  if (selectedProtocol.value === "auto" || selectedProtocol.value === "deepseek") return false;
-  const modelName = String(group.primary.model || "").toLowerCase();
-  return modelName.includes("deepseek") || modelName.includes("kimi");
 }
 
 function clampModelCardValues(group: DraftModelGroup) {
@@ -1605,6 +1585,9 @@ async function syncModelMetadata(group: DraftModelGroup) {
     const nextCapability: ModelCapabilityLimits = metadata?.found
       ? {
           metadataFound: true,
+          fuzzyMatch: metadata.fuzzyMatch === true,
+          providerName: String(metadata.providerName || "").trim() || undefined,
+          providerApi: String(metadata.providerApi || "").trim() || undefined,
           ...buildModelCapability({
             metadataFound: true,
             contextWindowTokens: metadata.contextWindowTokens,

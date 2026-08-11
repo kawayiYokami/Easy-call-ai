@@ -436,7 +436,7 @@ export function useConfigCore(options: UseConfigCoreOptions) {
           enableImage: !!model.enableImage,
           enableAudio: !!model.enableAudio,
           enableVideo: !!model.enableVideo,
-          enableTools: model.enableTools !== false,
+          enableTools: true,
           reasoningEffort: String(model.reasoningEffort || DEFAULT_REASONING_EFFORT).trim() || DEFAULT_REASONING_EFFORT,
           temperature: Number(model.temperature ?? 1),
           customTemperatureEnabled: !!model.customTemperatureEnabled,
@@ -457,7 +457,7 @@ export function useConfigCore(options: UseConfigCoreOptions) {
         enableImage: !!a.enableImage,
         enableAudio: !!a.enableAudio,
         enableVideo: !!a.enableVideo,
-        enableTools: a.enableTools !== false,
+        enableTools: true,
         tools: (a.tools || []).map((t) => ({
           id: t.id,
           command: t.command,
