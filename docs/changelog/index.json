@@ -1,7 +1,12 @@
 {
-  "generatedAt": "2026-08-10T13:56:03.267Z",
-  "latestVersion": "v0.59.0",
+  "generatedAt": "2026-08-11T11:59:01.250Z",
+  "latestVersion": "v0.60.0",
   "releases": [
+    {
+      "version": "v0.60.0",
+      "path": "docs/changelog/releases/v0.60.0.md",
+      "summary": "外观新增「自动」主题模式：跟随系统深浅自动切换主题，浅色/深色可分别指定主题（含自定义主题），重启后保持；全新安装默认开启自动模式"
+    },
     {
       "version": "v0.59.0",
       "path": "docs/changelog/releases/v0.59.0.md",
