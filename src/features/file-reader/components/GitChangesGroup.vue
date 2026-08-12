@@ -19,7 +19,7 @@
       class="group flex h-7 items-center gap-1 rounded px-1.5"
       :class="row.item.kind === 'file' && row.item.path === props.highlightPath ? 'bg-primary/10 text-primary' : 'hover:bg-base-300/40'"
       :style="{ paddingLeft: `${6 + row.depth * 14}px` }"
-      @contextmenu.prevent="openContextMenu($event)"
+      @contextmenu="onRowContextMenu($event)"
     >
       <template v-if="row.item.kind === 'dir'">
         <button
@@ -63,20 +63,18 @@
         </span>
       </template>
       <template v-else>
-        <span class="h-5 w-5 shrink-0"></span>
+        <span v-if="mode === 'tree'" class="h-5 w-5 shrink-0"></span>
         <button
           type="button"
           class="flex min-w-0 flex-1 items-center gap-1.5 text-left text-xs"
           :title="row.item.path"
           @click="emit('openDiff', { path: row.item.path, staged: actionKind === 'unstage' })"
         >
-          <span
-            class="shrink-0 font-mono text-[10px] font-bold"
-            :class="statusClass(row.item.entry)"
-          >{{ statusLabel(row.item.entry) }}</span>
           <span class="min-w-0 truncate">{{ row.item.name }}</span>
         </button>
-        <span class="hidden shrink-0 items-center gap-0.5 group-hover:flex focus-within:flex">
+        <span
+          class="hidden shrink-0 items-center gap-0.5 group-hover:flex focus-within:flex"
+        >
           <button
             type="button"
             class="btn btn-ghost btn-xs h-5 min-h-5 w-5 px-0 text-error/70"
@@ -97,18 +95,23 @@
             <Minus v-else class="h-3 w-3" />
           </button>
         </span>
+        <span
+          class="ml-auto shrink-0 font-mono text-[10px] font-bold"
+          :class="statusClass(row.item.entry)"
+          :title="statusTitle(row.item.entry)"
+        >{{ statusLabel(row.item.entry) }}</span>
       </template>
     </div>
 
-    <!-- 右键菜单：折叠全部 -->
+    <!-- 右键菜单：折叠全部（仅树状模式） -->
     <div
-      v-if="contextMenu.visible"
+      v-if="contextMenu.visible && mode === 'tree'"
       class="fixed inset-0 z-50"
       @click="closeContextMenu"
       @contextmenu.prevent="closeContextMenu"
     ></div>
     <div
-      v-if="contextMenu.visible"
+      v-if="contextMenu.visible && mode === 'tree'"
       class="fixed z-50 w-40 overflow-hidden rounded-lg border border-base-300 bg-base-100 py-1 shadow-xl"
       :style="{ left: `${contextMenu.x}px`, top: `${contextMenu.y}px` }"
       @click.stop
@@ -142,12 +145,15 @@ const props = withDefaults(defineProps<{
   collapseTitle?: string;
   collapseAllTitle?: string;
   highlightPath?: string;
+  /** 展示模式：tree 按目录折叠分组；list 平铺全部文件（VSCode 风格） */
+  mode?: "tree" | "list";
 }>(), {
   busy: false,
   expandTitle: "",
   collapseTitle: "",
   collapseAllTitle: "",
   highlightPath: "",
+  mode: "tree",
 });
 
 const emit = defineEmits<{
@@ -193,6 +199,14 @@ function buildTree(entries: GitPanelStatusEntry[]): GitTreeItem[] {
 }
 
 const visibleRows = computed<GitTreeRow[]>(() => {
+  if (props.mode === "list") {
+    // 列表模式：平铺全部文件，depth 0，不折叠
+    return props.entries.map((entry) => ({
+      key: entry.path,
+      depth: 0,
+      item: { kind: "file", name: entry.path, path: entry.path, entry },
+    }));
+  }
   const rows: GitTreeRow[] = [];
   const walk = (items: GitTreeItem[], depth: number) => {
     for (const item of items) {
@@ -221,6 +235,13 @@ const contextMenu = ref<{ visible: boolean; x: number; y: number }>({ visible: f
 
 function openContextMenu(event: MouseEvent) {
   contextMenu.value = { visible: true, x: event.clientX, y: event.clientY };
+}
+
+/** 行右键：树状模式打开折叠菜单；列表模式不拦截，走浏览器默认菜单 */
+function onRowContextMenu(event: MouseEvent) {
+  if (props.mode !== "tree") return;
+  event.preventDefault();
+  openContextMenu(event);
 }
 
 function closeContextMenu() {
@@ -265,6 +286,19 @@ function statusLabel(entry: GitPanelStatusEntry) {
   if (staged === "?" && unstaged === "?") return "U";
   const code = props.actionKind === "unstage" ? staged : unstaged;
   return code || "M";
+}
+
+/** 状态码悬停提示：M 修改 / A 新增 / D 删除 / U 未跟踪 / R 重命名 */
+function statusTitle(entry: GitPanelStatusEntry) {
+  const label = statusLabel(entry);
+  const names: Record<string, string> = {
+    M: "Modified",
+    A: "Added",
+    D: "Deleted",
+    U: "Untracked",
+    R: "Renamed",
+  };
+  return names[label] || label;
 }
 
 function statusClass(entry: GitPanelStatusEntry) {

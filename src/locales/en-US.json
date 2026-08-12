@@ -2629,6 +2629,8 @@
     "push": "Push",
     "stagedChanges": "Staged Changes",
     "changes": "Changes",
+    "treeView": "Tree View",
+    "listView": "List View",
     "stage": "Stage",
     "unstage": "Unstage",
     "discard": "Discard",

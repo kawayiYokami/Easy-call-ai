@@ -66,6 +66,16 @@
             <button
               type="button"
               class="btn btn-ghost btn-xs h-6 min-h-6 w-6 px-0"
+              :title="changesViewMode === 'tree' ? t('gitPanel.listView') : t('gitPanel.treeView')"
+              :disabled="busy"
+              @click="changesViewMode = changesViewMode === 'tree' ? 'list' : 'tree'"
+            >
+              <ListTree v-if="changesViewMode === 'tree'" class="h-3.5 w-3.5" />
+              <Rows3 v-else class="h-3.5 w-3.5" />
+            </button>
+            <button
+              type="button"
+              class="btn btn-ghost btn-xs h-6 min-h-6 w-6 px-0"
               :title="t('gitPanel.refresh')"
               :disabled="busy"
               @click="refreshChanges"
@@ -108,6 +118,7 @@
             :title="t('gitPanel.stagedChanges')"
             :entries="stagedEntries"
             :busy="busy"
+            :mode="changesViewMode"
             action-kind="unstage"
             :action-title="t('gitPanel.unstage')"
             :discard-title="t('gitPanel.discard')"
@@ -123,6 +134,7 @@
             :title="t('gitPanel.changes')"
             :entries="unstagedEntries"
             :busy="busy"
+            :mode="changesViewMode"
             action-kind="stage"
             :action-title="t('gitPanel.stage')"
             :discard-title="t('gitPanel.discard')"
@@ -443,8 +455,10 @@ import {
   GitBranch,
   GitCommitHorizontal,
   History,
+  ListTree,
   Plus,
   RefreshCw,
+  Rows3,
   SquareTerminal,
   Trash2,
   Upload,
@@ -514,6 +528,9 @@ const busy = ref(false);
 const changesCollapsed = ref(false);
 const historyCollapsed = ref(false);
 const changesRefreshing = ref(false);
+
+// 更改列表展示模式：tree 树状分组 / list 平铺（VSCode 风格切换）
+const changesViewMode = ref<"tree" | "list">("tree");
 
 // 仓库栏：折叠/展开 + 列表（懒加载，展开首次才扫描）
 const repoCollapsed = ref(false);

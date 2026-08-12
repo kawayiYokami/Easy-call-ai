@@ -2629,6 +2629,8 @@
     "push": "推送",
     "stagedChanges": "暂存更改",
     "changes": "更改",
+    "treeView": "树状视图",
+    "listView": "列表视图",
     "stage": "暂存",
     "unstage": "取消暂存",
     "discard": "撤回",
