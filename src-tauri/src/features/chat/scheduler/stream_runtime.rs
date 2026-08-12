@@ -1038,23 +1038,6 @@ fn update_conversation_stream_runtime_cache(
         return Ok(None);
     }
     let snapshot = conversation_stream_runtime_cache_snapshot(cache.clone());
-    if matches!(
-        event.kind.as_deref(),
-        Some("assistant_tool_event") | Some("assistant_tool_result") | Some("tool_status")
-    ) {
-        let (block_count, reasoning_len, text_len, tool_count) =
-            stream_blocks_debug_counts(&snapshot.stream_blocks);
-        runtime_log_info(format!(
-            "[聊天流式块][后端缓存] 更新 conversation_id={} kind={} block_count={} reasoning_len={} text_len={} tool_count={} tool_status_state={}",
-            cid,
-            event.kind.as_deref().unwrap_or("delta"),
-            block_count,
-            reasoning_len,
-            text_len,
-            tool_count,
-            snapshot.tool_status_state.trim(),
-        ));
-    }
     Ok(Some(snapshot))
 }
 
@@ -1109,10 +1092,8 @@ fn dispatch_assistant_delta_to_active_view(
         }
     }
     prune_failed_active_chat_view_bindings(state, &failed_labels);
-    if matches!(
-        event.kind.as_deref(),
-        Some("assistant_tool_event") | Some("assistant_tool_result") | Some("tool_status")
-    ) {
+    if !delivered || !failed_labels.is_empty() {
+        // 只在投递失败时记录；成功路径静默，避免流式高频事件刷日志写盘。
         let stream_cache_blocks = event
             .stream_cache
             .as_ref()
@@ -1121,7 +1102,7 @@ fn dispatch_assistant_delta_to_active_view(
         let (block_count, reasoning_len, text_len, tool_count) =
             stream_blocks_debug_counts(stream_cache_blocks);
         runtime_log_error(format!(
-            "[聊天流式块][后端发送] conversation_id={} kind={} channel_targets={} delivered={} failed={} has_stream_cache={} block_count={} reasoning_len={} text_len={} tool_count={}",
+            "[聊天流式块][后端发送失败] conversation_id={} kind={} channel_targets={} delivered={} failed={} has_stream_cache={} block_count={} reasoning_len={} text_len={} tool_count={}",
             conversation_id.trim(),
             event.kind.as_deref().unwrap_or("delta"),
             target_count,
