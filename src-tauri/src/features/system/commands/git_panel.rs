@@ -1217,25 +1217,35 @@ fn git_panel_default_repo_root(
     None
 }
 
+/// 仓库列表：扫描 + 当前仓库根 extra + 历史合并，按路径排序。
+/// 供 tauri 命令与 Web dispatcher 共用（channel + Web 双接口）。
+async fn git_panel_repos_inner(
+    input: GitPanelWorkspaceInput,
+    refresh: bool,
+    state: &AppState,
+) -> Result<GitPanelReposOutput, String> {
+    let workspace_path = git_panel_validate_path(&input.workspace_path)?;
+    let repos = git_panel_collect_repos(&workspace_path, refresh, state).await?;
+    Ok(GitPanelReposOutput { repos })
+}
+
 #[tauri::command]
 async fn git_panel_repos(
     input: GitPanelWorkspaceInput,
     refresh: bool,
     state: State<'_, AppState>,
 ) -> Result<GitPanelReposOutput, String> {
-    let workspace_path = git_panel_validate_path(&input.workspace_path)?;
-    let repos = git_panel_collect_repos(&workspace_path, refresh, &state).await?;
-    Ok(GitPanelReposOutput { repos })
+    git_panel_repos_inner(input, refresh, &state).await
 }
 
 /// 一次探查：git 可用性 + 向上探测当前仓库根 + 向下扫描仓库列表 + 推荐默认仓库。
 /// 替代前端 loadDetect + loadRepos 两次并发调用，从根上消除「先刷出子仓库再被
 /// 向上探测失败覆盖」的时序竞态。
-#[tauri::command]
-async fn git_panel_discover(
+/// 供 tauri 命令与 Web dispatcher 共用（channel + Web 双接口）。
+async fn git_panel_discover_inner(
     input: GitPanelWorkspaceInput,
     refresh: bool,
-    state: State<'_, AppState>,
+    state: &AppState,
 ) -> Result<GitPanelDiscoverOutput, String> {
     let workspace_path = git_panel_validate_path(&input.workspace_path)?;
     let version = git_panel_run_raw(&workspace_path, &["--version"]).await;
@@ -1261,9 +1271,9 @@ async fn git_panel_discover(
     }
     // 向上探测：当前目录是否在仓库内（失败仅表示不在仓库内，不是错误）
     let current_repo_root = git_panel_resolve_root(&workspace_path).await.ok();
-    let repos = git_panel_collect_repos(&workspace_path, refresh, &state).await?;
+    let repos = git_panel_collect_repos(&workspace_path, refresh, state).await?;
     let default_repo_root =
-        git_panel_default_repo_root(&state, &workspace_path, &current_repo_root, &repos);
+        git_panel_default_repo_root(state, &workspace_path, &current_repo_root, &repos);
     Ok(GitPanelDiscoverOutput {
         git_available: true,
         current_repo_root,
@@ -1272,6 +1282,15 @@ async fn git_panel_discover(
         checked: true,
         error: None,
     })
+}
+
+#[tauri::command]
+async fn git_panel_discover(
+    input: GitPanelWorkspaceInput,
+    refresh: bool,
+    state: State<'_, AppState>,
+) -> Result<GitPanelDiscoverOutput, String> {
+    git_panel_discover_inner(input, refresh, &state).await
 }
 
 #[cfg(test)]
