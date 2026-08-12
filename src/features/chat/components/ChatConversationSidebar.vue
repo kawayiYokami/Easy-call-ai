@@ -88,204 +88,44 @@
               </button>
             </template>
             <template v-for="item in section.visibleItems" :key="item.conversationId">
-              <div
-                class="group relative mx-1"
-                @contextmenu.prevent="handleCardContextMenu(item, $event)"
-                @pointerdown="handleCardPointerDown(item, $event)"
-                @pointerup="handleCardPointerUp(item)"
-                @pointerleave="handleCardPointerLeave"
-              >
-                  <div
-                    class="block rounded-lg px-2 text-left transition-colors hover:bg-base-100/70"
-                    :class="[
-                      item.conversationId === activeConversationId ? 'bg-base-300 hover:bg-base-300' : 'bg-transparent',
-                      isConversationVisuallyOccupied(item) ? 'opacity-60' : '',
-                      isCurrentConversation(item) ? 'cursor-default' : 'cursor-pointer',
-                    ]"
-                    :role="isCurrentConversation(item) ? undefined : 'button'"
-                    :tabindex="isCurrentConversation(item) ? undefined : 0"
-                    :title="conversationItemTitle(item)"
-                    @click="handleConversationCardClick(item)"
-                    @keydown.enter.prevent="handleConversationCardClick(item)"
-                    @keydown.space.prevent="handleConversationCardClick(item)"
-                  >
-                    <div class="flex items-center gap-2 py-1">
-                    <div class="shrink-0">
-                      <div class="indicator">
-                        <span
-                          v-if="conversationIndicatorTone(item)"
-                          class="indicator-item indicator-top indicator-end z-10 h-2.5 w-2.5 translate-x-0.5 -translate-y-0.5 rounded-full"
-                          :class="conversationIndicatorClass(conversationIndicatorTone(item))"
-                          aria-hidden="true"
-                        ></span>
-                        <div class="avatar relative overflow-visible">
-                          <div class="flex h-10 w-10 items-center justify-center rounded-full bg-neutral text-neutral-content">
-                            <img
-                              v-if="sideListDisplaySpeakerAvatarUrl(item)"
-                              :src="sideListDisplaySpeakerAvatarUrl(item)"
-                              :alt="sideListDisplaySpeakerLabel(item)"
-                              class="w-10 h-10 rounded-full object-cover"
-                            />
-                            <span v-else class="text-sm font-bold">{{ sideListDisplaySpeakerInitial(item) }}</span>
-                          </div>
-                          <span
-                            v-if="isRecentConversationSection(section.key)"
-                            class="absolute bottom-0 left-1/2 z-20 inline-block max-w-10 -translate-x-1/2 translate-y-1/3 cursor-pointer truncate rounded-full bg-neutral px-1.5 py-[1px] text-micro font-normal leading-3 text-neutral-content shadow-sm transition-colors hover:bg-primary hover:text-primary-content"
-                            :title="t('chat.revealConversationSection')"
-                            role="button"
-                            tabindex="0"
-                            @click.stop="revealConversationSection(item)"
-                            @keydown.enter.prevent="revealConversationSection(item)"
-                            @keydown.space.prevent="revealConversationSection(item)"
-                          >
-                            {{ conversationSourceBadgeLabel(item) }}
-                          </span>
-                        </div>
-                      </div>
-                    </div>
-
-                    <div class="flex-1 min-w-0">
-                      <div class="flex items-start justify-between gap-1.5">
-                        <div class="flex min-w-0 items-center gap-1.5">
-                          <input
-                            v-if="isEditingTitle(item)"
-                            :ref="setRenameInputRef"
-                            v-model="editingTitleDraft"
-                            type="text"
-                            class="input input-bordered input-sm h-8 min-h-0 w-full max-w-full text-sm font-medium"
-                            @click.stop
-                            @mousedown.stop
-                            @keydown.enter.prevent="commitConversationTitleEdit(item)"
-                            @keydown.esc.prevent="cancelConversationTitleEdit()"
-                            @blur="handleConversationTitleBlur(item)"
-                          />
-                          <button
-                            v-else-if="canRenameConversation(item)"
-                            type="button"
-                            class="min-w-0 truncate rounded px-0.5 text-left text-sm font-medium hover:bg-base-300/70"
-                            @click.stop="startConversationTitleEdit(item)"
-                          >
-                            {{ conversationDisplayTitle(item) }}
-                          </button>
-                          <div v-else class="min-w-0 truncate text-sm font-medium">
-                            {{ conversationDisplayTitle(item) }}
-                          </div>
-                        </div>
-                        <div class="flex shrink-0 items-center gap-1">
-                          <span class="conversation-time-label text-xs text-base-content/60">
-                            {{ formatConversationTime(item.updatedAt) }}
-                          </span>
-                          <FloatingConversationMenu
-                            :ref="(el) => { if (el) menuRefs[String(item.conversationId || '').trim()] = el }"
-                            v-if="shouldShowConversationMenu(item) && !isEditingTitle(item)"
-                            :title="t('common.more')"
-                          >
-                            <template #default="{ close }">
-                              <li v-if="!item.isSystemNotificationConversation">
-                                <button
-                                  type="button"
-                                  :disabled="!canToggleConversationPin(item)"
-                                  @click.stop="close(); toggleConversationPin(item)"
-                                >
-                                  <PinOff v-if="item.isPinned" class="h-4 w-4" />
-                                  <Pin v-else class="h-4 w-4" />
-                                  <span>{{ pinConversationTitle(item) }}</span>
-                                </button>
-                              </li>
-                              <li v-if="!item.isSystemNotificationConversation">
-                                <button
-                                  type="button"
-                                  :disabled="!canRenameConversation(item)"
-                                  @click.stop="close(); startConversationTitleEdit(item)"
-                                >
-                                  <PencilLine class="h-4 w-4" />
-                                  <span>{{ t("common.rename") }}</span>
-                                </button>
-                              </li>
-                              <li>
-                                <button
-                                  type="button"
-                                  :disabled="!canExportConversation(item)"
-                                  @click.stop="close(); requestConversationExport(item)"
-                                >
-                                  <Upload class="h-4 w-4" />
-                                  <span>{{ t("chat.exportConversation") }}</span>
-                                </button>
-                              </li>
-                              <li v-if="!item.isSystemNotificationConversation">
-                                <button
-                                  type="button"
-                                  :disabled="!canArchiveConversation(item)"
-                                  @click.stop="close(); emit('archiveConversation', String(item.conversationId || '').trim())"
-                                >
-                                  <Archive class="h-4 w-4" />
-                                  <span>{{ t('common.archive') }}</span>
-                                </button>
-                              </li>
-                              <li v-if="!item.isSystemNotificationConversation">
-                                <button
-                                  type="button"
-                                  :disabled="!canDeleteConversation(item)"
-                                  class="text-error"
-                                  @click.stop="close(); emit('deleteConversation', String(item.conversationId || '').trim())"
-                                >
-                                  <Trash2 class="h-4 w-4" />
-                                  <span>{{ t('common.delete') }}</span>
-                                </button>
-                              </li>
-                            </template>
-                          </FloatingConversationMenu>
-                        </div>
-                      </div>
-
-                      <div class="mt-1 flex items-center justify-between gap-2 text-xs">
-                        <span class="min-w-0 truncate opacity-60">
-                          {{ latestPreviewLine(item) }}
-                        </span>
-                        <div class="flex shrink-0 items-center gap-2">
-                          <span v-if="conversationBusy(item)" class="loading loading-spinner loading-xs text-primary" :title="conversationStatusText(item)"></span>
-                          <span v-else-if="conversationPipelineStatus(item) === 'error'" class="badge badge-error badge-xs">{{ t("common.failed") }}</span>
-                          <span v-else-if="conversationStatusText(item)" class="text-xs text-base-content/60">{{ conversationStatusText(item) }}</span>
-                          <span
-                            v-if="unreadCountBadge(item)"
-                            class="inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-error px-1.5 text-xs font-medium text-error-content"
-                          >
-                            {{ unreadCountBadge(item) }}
-                          </span>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                  </div>
-
-                </div>
-                <template v-if="(section.simpleFollowers[String(item.conversationId || '').trim()] || []).length > 0">
-                  <button
-                    v-for="simpleItem in (section.simpleFollowers[String(item.conversationId || '').trim()] || [])"
-                    :key="`simple-${simpleItem.conversationId}`"
-                    type="button"
-                    class="group mx-1 flex w-[calc(100%-0.5rem)] items-center rounded-lg py-1 pl-2 pr-2 text-left text-sm transition-colors hover:bg-base-100/70"
-                    :class="String(simpleItem.conversationId || '').trim() === String(props.activeConversationId || '').trim() ? 'bg-base-300/60' : 'bg-transparent'"
-                    @click="handleConversationCardClick(simpleItem)"
-                  >
-                    <span class="relative w-10 shrink-0 self-stretch" aria-hidden="true">
-                      <span
-                        class="absolute right-0 top-1 bottom-1 w-1 rounded-full transition-colors"
-                        :class="simpleItemIndicatorClass(simpleItem)"
-                      ></span>
-                    </span>
-                    <span class="min-w-0 flex-1 pl-2">
-                      <span class="flex min-w-0 items-center justify-between gap-2">
-                        <span class="min-w-0 truncate font-medium">{{ conversationDisplayTitle(simpleItem) }}</span>
-                        <span class="shrink-0 tabular-nums text-xs text-base-content/45">{{ formatConversationTime(simpleItem.updatedAt) }}</span>
-                      </span>
-                      <span
-                        class="block truncate text-xs transition-all duration-200"
-                        :class="simpleItemSummaryClass(simpleItem)"
-                      >{{ latestPreviewLine(simpleItem) }}</span>
-                    </span>
-                  </button>
-                </template>
+              <ChatConversationItem
+                :item="item"
+                level="full"
+                :active-conversation-id="props.activeConversationId"
+                :user-alias="props.userAlias"
+                :user-avatar-url="props.userAvatarUrl"
+                :persona-name-map="props.personaNameMap"
+                :persona-avatar-url-map="props.personaAvatarUrlMap"
+                :pipeline-status-by-id="conversationStatusById"
+                :show-source-badge="isRecentConversationSection(section.key)"
+                @select="(payload) => emit('select', payload)"
+                @rename="(payload) => emit('rename', payload)"
+                @toggle-pin-conversation="(conversationId) => emit('togglePinConversation', conversationId)"
+                @archive-conversation="(conversationId) => emit('archiveConversation', conversationId)"
+                @export-conversation="(conversationId) => emit('exportConversation', conversationId)"
+                @delete-conversation="(conversationId) => emit('deleteConversation', conversationId)"
+                @reveal-section="revealConversationSection(item)"
+              />
+              <template v-if="(section.simpleFollowers[String(item.conversationId || '').trim()] || []).length > 0">
+                <ChatConversationItem
+                  v-for="simpleItem in (section.simpleFollowers[String(item.conversationId || '').trim()] || [])"
+                  :key="`simple-${simpleItem.conversationId}`"
+                  :item="simpleItem"
+                  :level="simpleItemLevel(simpleItem)"
+                  :active-conversation-id="props.activeConversationId"
+                  :user-alias="props.userAlias"
+                  :user-avatar-url="props.userAvatarUrl"
+                  :persona-name-map="props.personaNameMap"
+                  :persona-avatar-url-map="props.personaAvatarUrlMap"
+                  :pipeline-status-by-id="conversationStatusById"
+                  @select="(payload) => emit('select', payload)"
+                  @rename="(payload) => emit('rename', payload)"
+                  @toggle-pin-conversation="(conversationId) => emit('togglePinConversation', conversationId)"
+                  @archive-conversation="(conversationId) => emit('archiveConversation', conversationId)"
+                  @export-conversation="(conversationId) => emit('exportConversation', conversationId)"
+                  @delete-conversation="(conversationId) => emit('deleteConversation', conversationId)"
+                />
+              </template>
             </template>
             <div v-if="section.hiddenItemCount > 0" class="px-3 pb-2 pt-1">
               <button
@@ -453,11 +293,11 @@
 </template>
 
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch, watchEffect } from "vue";
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
-import { Archive, ChevronRight, PencilLine, Pin, PinOff, Search, SquarePen, Trash2, Upload } from "@lucide/vue";
+import { Archive, ChevronRight, Search, SquarePen } from "@lucide/vue";
 import CollapsibleGroup from "./CollapsibleGroup.vue";
-import FloatingConversationMenu from "./FloatingConversationMenu.vue";
+import ChatConversationItem from "./ChatConversationItem.vue";
 import type { ApiConfigItem, ChatConversationOverviewItem, ConversationPreviewMessage } from "../../../types/app";
 import { stripToolcallMarkers } from "../../../utils/chat-message-semantics";
 import type { TaskEntry } from "../../config/views/config-tabs/task-editor";
@@ -476,6 +316,7 @@ import {
   type ConversationSection,
 } from "../utils/conversation-sections";
 import { resolveConversationDisplayTitle } from "../utils/conversation-title";
+import { simpleConversationItemLevel } from "../utils/conversation-item-display";
 import ChatConversationFloatingScroll from "./ChatConversationFloatingScroll.vue";
 import ChatTaskSidebarPanel from "./ChatTaskSidebarPanel.vue";
 
@@ -524,12 +365,7 @@ const emit = defineEmits<{
 }>();
 
 const { t, locale } = useI18n();
-const SYSTEM_PERSONA_ID = "system-persona";
-const renameInputRef = ref<HTMLInputElement | null>(null);
-const editingConversationId = ref("");
-const editingTitleDraft = ref("");
 const conversationSearchQuery = ref("");
-const menuRefs = ref<Record<string, any>>({});
 const showSearch = ref(false);
 const searchInputRef = ref<HTMLInputElement | null>(null);
 const batchArchiveCardOpen = ref(false);
@@ -681,15 +517,6 @@ const displayedConversationSections = computed<DisplayConversationSection[]>(() 
   filteredConversationSections.value.map((section) => buildDisplayedConversationSection(section)),
 );
 
-watchEffect(() => {
-  const editingId = String(editingConversationId.value || "").trim();
-  if (!editingId) return;
-  const item = props.items.find((entry) => String(entry.conversationId || "").trim() === editingId);
-  if (!item || !canRenameConversation(item)) {
-    resetConversationTitleEdit();
-  }
-});
-
 watch(
   () => props.activeConversationId,
   (conversationId) => markConversationRead(conversationId),
@@ -707,9 +534,6 @@ watch(
     conversationTabTransitionName.value = conversationTabOrder(nextValue) > conversationTabOrder(previousValue)
       ? "conversation-tab-slide-left"
       : "conversation-tab-slide-right";
-    if (nextValue === "task") {
-      resetConversationTitleEdit();
-    }
   },
 );
 
@@ -803,11 +627,6 @@ watch(showSearch, async (visible) => {
     conversationSearchQuery.value = "";
   }
 });
-
-function resetConversationTitleEdit() {
-  editingConversationId.value = "";
-  editingTitleDraft.value = "";
-}
 
 function isConversationSectionCollapsed(key: string): boolean {
   if (normalizedConversationSearchQuery.value) return false;
@@ -910,10 +729,6 @@ function createConversationInSection(section: ConversationSection) {
   }));
 }
 
-function setRenameInputRef(element: Element | { $el?: Element | null } | null) {
-  renameInputRef.value = element instanceof HTMLInputElement ? element : null;
-}
-
 function normalizedPreviewMessages(item: ChatConversationOverviewItem): ConversationPreviewMessage[] {
   return conversationPreviewCache.value.get(String(item.conversationId || "").trim()) || [];
 }
@@ -929,49 +744,8 @@ function conversationMatchesSearch(item: ChatConversationOverviewItem, query: st
   return previewTextBlock.includes(query);
 }
 
-function isCurrentConversation(item: ChatConversationOverviewItem): boolean {
-  return String(item.conversationId || "").trim() === String(props.activeConversationId || "").trim();
-}
-
-function conversationIndicatorTone(item: ChatConversationOverviewItem): "error" | "info" | "success" | "" {
-  if (isCurrentConversation(item)) return "";
-  const conversationId = String(item.conversationId || "").trim();
-  if (!conversationId) return "";
-  const pipelineStatus = conversationStatusById.value[conversationId];
-  if (pipelineStatus === "error") return "error";
-  if (pipelineStatus === "busy") return "info";
-  if (pipelineStatus === "success") return "success";
-  return "";
-}
-
-function conversationIndicatorClass(tone: "error" | "info" | "success" | ""): string {
-  if (tone === "error") return "bg-error";
-  if (tone === "info") return "bg-warning";
-  if (tone === "success") return "bg-success";
-  return "";
-}
-
-function isConversationVisuallyOccupied(item: ChatConversationOverviewItem): boolean {
-  void item;
-  return false;
-}
-
 function isLocalConversation(item: ChatConversationOverviewItem): boolean {
   return item.kind !== "remote_im_contact";
-}
-
-function shouldShowConversationMenu(item: ChatConversationOverviewItem): boolean {
-  return isLocalConversation(item);
-}
-
-function canRenameConversation(item: ChatConversationOverviewItem): boolean {
-  return isLocalConversation(item)
-    && !item.isSystemNotificationConversation
-    && isCurrentConversation(item);
-}
-
-function isEditingTitle(item: ChatConversationOverviewItem): boolean {
-  return String(item.conversationId || "").trim() === String(editingConversationId.value || "").trim();
 }
 
 function conversationDisplayTitle(item: ChatConversationOverviewItem): string {
@@ -981,109 +755,13 @@ function conversationDisplayTitle(item: ChatConversationOverviewItem): string {
   });
 }
 
-function conversationItemTitle(item: ChatConversationOverviewItem): string {
-  return item.workspaceLabel || t("chat.defaultWorkspace");
-}
-
 function isRecentConversationSection(sectionKey: string): boolean {
   return sectionKey === RECENT_CONVERSATION_SECTION_KEY;
 }
 
-function conversationSourceBadgeLabel(item: ChatConversationOverviewItem): string {
-  if (item.kind === "remote_im_contact") {
-    return String(
-      item.channelName
-      || item.remoteContactDisplayName
-      || item.departmentName
-      || t("chat.otherConversations"),
-    ).trim();
-  }
-  const workspacePath = String(item.workspaceRootPath || "").trim();
-  return String(
-    item.workspaceLabel
-    || workspaceNameFromPath(workspacePath)
-    || t("chat.defaultWorkspace"),
-  ).trim();
-}
-
-/** 简单条目摘要的默认展开窗口：7 天内有更新的会话 */
-const SIMPLE_ITEM_RECENT_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
-
-/** 未读或 7 天内有更新的简单条目默认展开摘要，其余折叠、hover 展开 */
-function simpleItemSummaryClass(item: ChatConversationOverviewItem): string {
-  if (hasUnreadOrRecentActivity(item)) return "max-h-8 opacity-60";
-  return "max-h-0 opacity-0 group-hover:max-h-8 group-hover:opacity-60";
-}
-
-function hasUnreadOrRecentActivity(item: ChatConversationOverviewItem): boolean {
-  if (Number(item.unreadCount || 0) > 0) return true;
-  const raw = String(item.lastMessageAt || item.updatedAt || "").trim();
-  if (!raw) return false;
-  const time = Date.parse(raw);
-  if (!Number.isFinite(time)) return false;
-  return Date.now() - time <= SIMPLE_ITEM_RECENT_WINDOW_MS;
-}
-
-function simpleItemIndicatorClass(item: ChatConversationOverviewItem): string {
-  if (unreadCountBadge(item)) return "bg-error";
-  const previews = normalizedPreviewMessages(item);
-  const last = previews[previews.length - 1];
-  if (!last) return "bg-success";
-  const role = last.role || "";
-  const speakerId = String(last.speakerAgentId || "").trim();
-  if (role === "tool" || role === "system") return "bg-warning";
-  if (role === "user") {
-    // 系统提醒/压缩摘要等系统消息的 role 也是 user，须用 agentId 区分用户与系统
-    if (!speakerId || speakerId === "user-persona") return "bg-info";
-    return "bg-warning";
-  }
-  return "bg-success";
-}
-
-function handleConversationCardClick(item: ChatConversationOverviewItem) {
-  const conversationId = String(item.conversationId || "").trim();
-  if (isCurrentConversation(item)) return;
-  emit("select", {
-    conversationId,
-    kind: item.kind,
-    remoteContactId: String(item.remoteContactId || "").trim() || undefined,
-  });
-}
-
-let longPressTimer: ReturnType<typeof setTimeout> | null = null;
-
-function clearLongPressTimer() {
-  if (longPressTimer !== null) {
-    clearTimeout(longPressTimer);
-    longPressTimer = null;
-  }
-}
-
-function handleCardContextMenu(item: ChatConversationOverviewItem, event: MouseEvent) {
-  const id = String(item.conversationId || "").trim();
-  if (!id) return;
-  clearLongPressTimer();
-  menuRefs.value[id]?.openMenu(event.clientX, event.clientY);
-}
-
-function handleCardPointerDown(item: ChatConversationOverviewItem, event: PointerEvent) {
-  if (event.pointerType !== "touch") return;
-  const id = String(item.conversationId || "").trim();
-  if (!id) return;
-  clearLongPressTimer();
-  const clientX = event.clientX;
-  const clientY = event.clientY;
-  longPressTimer = setTimeout(() => {
-    menuRefs.value[id]?.openMenu(clientX, clientY);
-  }, 500);
-}
-
-function handleCardPointerUp(_item: ChatConversationOverviewItem) {
-  clearLongPressTimer();
-}
-
-function handleCardPointerLeave() {
-  clearLongPressTimer();
+/** 简单项等级：未读或 7 天内有更新 → sim（摘要常显）；否则 → mini（摘要折叠、hover 展开） */
+function simpleItemLevel(item: ChatConversationOverviewItem): "sim" | "mini" {
+  return simpleConversationItemLevel(item);
 }
 
 function openBatchArchiveCard() {
@@ -1177,119 +855,6 @@ function conversationWorkspaceLabel(item: ChatConversationOverviewItem): string 
   return String(item.workspaceLabel || workspaceNameFromPath(String(item.workspaceRootPath || "").trim()) || t("chat.defaultWorkspace")).trim();
 }
 
-function canToggleConversationPin(item: ChatConversationOverviewItem): boolean {
-  return isLocalConversation(item) && !item.isSystemNotificationConversation;
-}
-
-function canArchiveConversation(item: ChatConversationOverviewItem): boolean {
-  return isLocalConversation(item) && !item.isSystemNotificationConversation;
-}
-
-function canDeleteConversation(item: ChatConversationOverviewItem): boolean {
-  return isLocalConversation(item) && !item.isSystemNotificationConversation;
-}
-
-function canExportConversation(item: ChatConversationOverviewItem): boolean {
-  return isLocalConversation(item);
-}
-
-function pinConversationTitle(item: ChatConversationOverviewItem): string {
-  if (item.isSystemNotificationConversation) return t("chat.mainConversationPinned");
-  return item.isPinned ? t("chat.unpinConversation") : t("chat.pinConversation");
-}
-
-function toggleConversationPin(item: ChatConversationOverviewItem) {
-  if (!canToggleConversationPin(item)) return;
-  emit("togglePinConversation", String(item.conversationId || "").trim());
-}
-
-function requestConversationExport(item: ChatConversationOverviewItem) {
-  if (!canExportConversation(item)) return;
-  emit("exportConversation", String(item.conversationId || "").trim());
-}
-
-async function startConversationTitleEdit(item: ChatConversationOverviewItem) {
-  if (!canRenameConversation(item)) return;
-  editingConversationId.value = String(item.conversationId || "").trim();
-  editingTitleDraft.value = String(item.title || "").trim();
-  await nextTick();
-  renameInputRef.value?.focus();
-  renameInputRef.value?.select();
-}
-
-function cancelConversationTitleEdit() {
-  resetConversationTitleEdit();
-}
-
-function commitConversationTitleEdit(item: ChatConversationOverviewItem) {
-  if (!isEditingTitle(item)) return;
-  const conversationId = String(item.conversationId || "").trim();
-  const currentTitle = String(item.title || "").trim();
-  const nextTitle = String(editingTitleDraft.value || "").trim();
-  if (!conversationId || nextTitle === currentTitle) {
-    resetConversationTitleEdit();
-    return;
-  }
-  resetConversationTitleEdit();
-  emit("rename", {
-    conversationId,
-    title: nextTitle,
-  });
-}
-
-function handleConversationTitleBlur(item: ChatConversationOverviewItem) {
-  commitConversationTitleEdit(item);
-}
-
-function unreadCountBadge(item: ChatConversationOverviewItem): string {
-  if (String(item.conversationId || "").trim() === String(props.activeConversationId || "").trim()) {
-    return "";
-  }
-  const unreadCount = Math.max(0, Number(item.unreadCount || 0));
-  if (unreadCount <= 0) return "";
-  return unreadCount > 99 ? "99+" : String(unreadCount);
-}
-
-function conversationPipelineStatus(item: ChatConversationOverviewItem) {
-  return conversationStatusById.value[String(item.conversationId || "").trim()] || "";
-}
-
-function conversationRuntimeBusy(item: ChatConversationOverviewItem): boolean {
-  return item.runtimeState === "assistant_streaming"
-    || item.runtimeState === "organizing_context"
-    || item.runtimeState === "archiving"
-    || item.runtimeState === "compacting";
-}
-
-function conversationBusy(item: ChatConversationOverviewItem): boolean {
-  return conversationPipelineStatus(item) === "busy" || conversationRuntimeBusy(item);
-}
-
-function conversationStatusText(item: ChatConversationOverviewItem): string {
-  if (item.runtimeState && item.runtimeState !== "idle") return runtimeStateText(item.runtimeState);
-  const pipelineStatus = conversationPipelineStatus(item);
-  if (pipelineStatus === "busy") return t("chat.runtimeStreaming");
-  if (pipelineStatus === "error") return t("common.failed");
-  return "";
-}
-
-function runtimeStateText(runtimeState?: ChatConversationOverviewItem["runtimeState"]): string {
-  if (runtimeState === "assistant_streaming") return t("chat.runtimeStreaming");
-  if (runtimeState === "organizing_context") return t("chat.runtimeOrganizing");
-  if (runtimeState === "archiving") return "归档中";
-  if (runtimeState === "compacting") return "压缩中";
-  return t("chat.runtimeIdle");
-}
-
-function speakerLabel(preview: ConversationPreviewMessage): string {
-  if (preview.role === "tool") return t("archives.roleTool");
-  const speakerId = String(preview.speakerAgentId || "").trim();
-  if (!speakerId || speakerId === "user-persona") {
-    return props.userAlias || t("archives.roleUser");
-  }
-  return props.personaNameMap?.[speakerId] || speakerId;
-}
-
 function previewText(preview: ConversationPreviewMessage): string {
   const text = stripToolcallMarkers(preview.textPreview || "");
   if (text) return text;
@@ -1300,91 +865,8 @@ function previewText(preview: ConversationPreviewMessage): string {
   return t("chat.conversationNoPreview");
 }
 
-function hasVisiblePreview(preview: ConversationPreviewMessage): boolean {
-  return !!stripToolcallMarkers(preview.textPreview || "")
-    || !!preview.hasPdf
-    || !!preview.hasImage
-    || !!preview.hasAudio
-    || !!preview.hasAttachment;
-}
-
-function latestPreviewLine(item: ChatConversationOverviewItem): string {
-  if (conversationBusy(item)) return t("chat.runtimeTyping");
-  const previews = normalizedPreviewMessages(item);
-  const latestPreview = [...previews].reverse().find(hasVisiblePreview);
-  if (!latestPreview) return t("chat.conversationNoPreview");
-  return previewText(latestPreview);
-}
-
 function formatConversationTime(value?: string): string {
   return formatConversationListTime(value, locale.value);
-}
-
-function systemPersonaLabel(): string {
-  return props.personaNameMap?.[SYSTEM_PERSONA_ID] || "P-ai系统";
-}
-
-function systemPersonaInitial(): string {
-  return systemPersonaLabel().charAt(0).toUpperCase() || "P";
-}
-
-function systemPersonaAvatarUrl(): string {
-  return props.personaAvatarUrlMap?.[SYSTEM_PERSONA_ID] || "";
-}
-
-function sideListLastSpeakerInitial(item: ChatConversationOverviewItem): string {
-  if (item.isSystemNotificationConversation) return systemPersonaInitial();
-  const previews = normalizedPreviewMessages(item);
-  if (previews.length === 0) return "?";
-  return speakerLabel(previews[previews.length - 1]).charAt(0).toUpperCase();
-}
-
-function sideListLastSpeakerLabel(item: ChatConversationOverviewItem): string {
-  if (item.isSystemNotificationConversation) return systemPersonaLabel();
-  const previews = normalizedPreviewMessages(item);
-  if (previews.length === 0) return "";
-  return speakerLabel(previews[previews.length - 1]);
-}
-
-function sideListLastSpeakerAvatarUrl(item: ChatConversationOverviewItem): string {
-  if (item.isSystemNotificationConversation) return systemPersonaAvatarUrl();
-  const previews = normalizedPreviewMessages(item);
-  if (previews.length === 0) return "";
-  const speakerId = String(previews[previews.length - 1].speakerAgentId || "").trim();
-  if (!speakerId || speakerId === "user-persona") {
-    return props.userAvatarUrl || "";
-  }
-  return props.personaAvatarUrlMap?.[speakerId] || "";
-}
-
-function sideListConversationAssistantId(item: ChatConversationOverviewItem): string {
-  return String(item.agentId || "").trim();
-}
-
-function sideListConversationAssistantLabel(item: ChatConversationOverviewItem): string {
-  const agentId = sideListConversationAssistantId(item);
-  if (!agentId) return sideListLastSpeakerLabel(item);
-  return props.personaNameMap?.[agentId] || agentId;
-}
-
-function sideListConversationAssistantAvatarUrl(item: ChatConversationOverviewItem): string {
-  const agentId = sideListConversationAssistantId(item);
-  if (!agentId) return "";
-  return props.personaAvatarUrlMap?.[agentId] || "";
-}
-
-function sideListDisplaySpeakerLabel(item: ChatConversationOverviewItem): string {
-  if (!conversationBusy(item)) return sideListLastSpeakerLabel(item);
-  return sideListConversationAssistantLabel(item);
-}
-
-function sideListDisplaySpeakerInitial(item: ChatConversationOverviewItem): string {
-  return sideListDisplaySpeakerLabel(item).charAt(0).toUpperCase() || "?";
-}
-
-function sideListDisplaySpeakerAvatarUrl(item: ChatConversationOverviewItem): string {
-  if (!conversationBusy(item)) return sideListLastSpeakerAvatarUrl(item);
-  return sideListConversationAssistantAvatarUrl(item) || sideListLastSpeakerAvatarUrl(item);
 }
 
 </script>
