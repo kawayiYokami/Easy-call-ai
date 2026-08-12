@@ -1,7 +1,12 @@
 {
-  "generatedAt": "2026-08-11T11:59:01.250Z",
-  "latestVersion": "v0.60.0",
+  "generatedAt": "2026-08-12T03:17:43.298Z",
+  "latestVersion": "v0.60.1",
   "releases": [
+    {
+      "version": "v0.60.1",
+      "path": "docs/changelog/releases/v0.60.1.md",
+      "summary": "修复通过热键、托盘或其他入口唤出窗口时，应用可能停在“正在初始化界面”并失去响应的问题。"
+    },
     {
       "version": "v0.60.0",
       "path": "docs/changelog/releases/v0.60.0.md",
