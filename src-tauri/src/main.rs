@@ -1099,17 +1099,14 @@ fn main() {
                     }
                 }
             };
-            let app_handle = app.clone();
-            tauri::async_runtime::spawn(async move {
-                if let Err(err) = probe_and_show_window(&app_handle, target).await {
-                    runtime_log_error(format!(
-                        "[单实例] 激活已有实例失败: target={}, error={}",
-                        target, err
-                    ));
-                } else {
-                    runtime_log_info(format!("[单实例] 已拦截重复启动并激活现有实例: target={}", target));
-                }
-            });
+            if let Err(err) = show_window(app, target) {
+                runtime_log_error(format!(
+                    "[单实例] 激活已有实例失败: target={}, error={}",
+                    target, err
+                ));
+            } else {
+                runtime_log_info(format!("[单实例] 已拦截重复启动并激活现有实例: target={}", target));
+            }
         }))
     };
 
@@ -1185,7 +1182,6 @@ fn main() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
-            webview_pong,
             show_main_window,
             show_chat_window,
             show_archives_window,

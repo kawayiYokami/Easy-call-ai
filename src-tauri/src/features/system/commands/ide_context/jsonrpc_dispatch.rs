@@ -119,8 +119,6 @@ async fn ide_chat_handle_jsonrpc_request(
             "ok": true,
             "ts": chrono::Utc::now().to_rfc3339(),
         })),
-        "webview.ping" => Ok(serde_json::json!(true)),
-        "webview_pong" => Ok(serde_json::json!(true)),
         "conversation.list" => ide_chat_conversation_list(state, &sidebar_viewer_id),
         "conversation.changedSince" => ide_chat_conversation_changed_since(state, request.params).await,
         "conversation.blockPage" => ide_chat_conversation_block_page(state, request.params).await,

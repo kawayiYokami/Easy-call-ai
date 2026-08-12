@@ -1271,140 +1271,6 @@ fn show_window(app: &AppHandle, label: &str) -> Result<(), String> {
     Ok(())
 }
 
-// ==================== 唤出测活：按需 ping/pong，无响应则重建窗口 ====================
-
-const WEBVIEW_PROBE_TIMEOUT_MS: u64 = 800;
-
-/// 测活结果：Alive=存活直接显示；Dead=确认无响应需重建；Superseded=已被更新的并发唤出取代，放弃本次
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum ProbeResult {
-    Alive,
-    Dead,
-    Superseded,
-}
-
-static WEBVIEW_PROBE_NEXT_TOKEN: std::sync::atomic::AtomicU64 =
-    std::sync::atomic::AtomicU64::new(0);
-
-static WEBVIEW_PROBE_PENDING: OnceLock<
-    Mutex<std::collections::HashMap<String, (u64, tokio::sync::oneshot::Sender<()>)>>,
-> = OnceLock::new();
-
-fn webview_probe_pending(
-) -> &'static Mutex<std::collections::HashMap<String, (u64, tokio::sync::oneshot::Sender<()>)>> {
-    WEBVIEW_PROBE_PENDING.get_or_init(|| Mutex::new(std::collections::HashMap::new()))
-}
-
-#[tauri::command]
-fn webview_pong(window: tauri::Window) {
-    if let Ok(mut pending) = webview_probe_pending().lock() {
-        if let Some((_, tx)) = pending.remove(window.label()) {
-            let _ = tx.send(());
-        }
-    }
-}
-
-async fn probe_webview(app: &AppHandle, label: &str) -> ProbeResult {
-    let token = WEBVIEW_PROBE_NEXT_TOKEN.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-    let (tx, rx) = tokio::sync::oneshot::channel();
-    if let Ok(mut pending) = webview_probe_pending().lock() {
-        pending.insert(label.to_string(), (token, tx));
-    } else {
-        // 锁中毒：无法登记测活，按无响应处理由调用方重建
-        return ProbeResult::Dead;
-    }
-    let _ = app.emit_to(label, "easy-call:webview-ping", ());
-    match tokio::time::timeout(
-        std::time::Duration::from_millis(WEBVIEW_PROBE_TIMEOUT_MS),
-        rx,
-    )
-    .await
-    {
-        Ok(Ok(())) => ProbeResult::Alive,
-        _ => {
-            // 超时：检查该 label 的登记是否仍是自己；已被更新的唤出取代则放弃
-            if let Ok(mut pending) = webview_probe_pending().lock() {
-                match pending.get(label) {
-                    Some((stored_token, _)) if *stored_token == token => {
-                        pending.remove(label);
-                        ProbeResult::Dead
-                    }
-                    _ => ProbeResult::Superseded,
-                }
-            } else {
-                ProbeResult::Dead
-            }
-        }
-    }
-}
-
-fn webview_window_url_for_label(label: &str) -> &'static str {
-    match label {
-        "main" => "index.html",
-        "chat" => "chat.html",
-        "archives" => "archives.html",
-        _ => "index.html",
-    }
-}
-
-/// WebView 无响应时重建窗口（销毁 + 重建 + 恢复布局 + 显示）
-async fn rebuild_webview_window(app: &AppHandle, label: &str) -> Result<(), String> {
-    runtime_log_warn(format!("[唤出测活] WebView 无响应，重建窗口: label={label}"));
-    if let Some(window) = app.get_webview_window(label) {
-        let _ = window.destroy();
-    }
-    tokio::time::sleep(std::time::Duration::from_millis(200)).await;
-
-    let url = webview_window_url_for_label(label);
-    let (default_w, default_h) = default_window_size(label);
-    let (min_w, min_h) = minimum_window_size(label);
-    let window = tauri::WebviewWindowBuilder::new(app, label, tauri::WebviewUrl::App(url.into()))
-        .title(format!("PAI - {label}"))
-        .inner_size(default_w as f64, default_h as f64)
-        .min_inner_size(min_w as f64, min_h as f64)
-        .resizable(true)
-        .decorations(false)
-        .shadow(true)
-        .visible(false)
-        .build()
-        .map_err(|err| format!("重建窗口失败: label={label}, error={err}"))?;
-
-    // 重新注册关闭语义与布局持久化监听
-    install_hide_on_close(&window, app);
-    attach_window_layout_persistence_for(&window, app, label);
-    // 恢复布局并显示
-    let _ = apply_window_layout_before_show(app, label);
-    let _ = window.show();
-    ensure_window_visible_after_show(app, label, "rebuild_webview_window");
-    let _ = window.set_focus();
-    runtime_log_warn(format!("[唤出测活] 窗口重建完成: label={label}"));
-    Ok(())
-}
-
-/// 唤出窗口：先测活，WebView 活着直接显示；无响应则重建后显示
-pub async fn probe_and_show_window(app: &AppHandle, label: &str) -> Result<(), String> {
-    match probe_webview(app, label).await {
-        ProbeResult::Alive => show_window(app, label),
-        ProbeResult::Dead => rebuild_webview_window(app, label).await,
-        ProbeResult::Superseded => Ok(()),
-    }
-}
-
-/// 同步调用点（快捷键/托盘/单实例）fire-and-forget 异步测活
-fn spawn_probe_and_show(app: &AppHandle, label: &str) {
-    let app_handle = app.clone();
-    let label = label.to_string();
-    tauri::async_runtime::spawn(async move {
-        if let Err(err) = probe_and_show_window(&app_handle, &label).await {
-            runtime_log_error(format!(
-                "[唤出测活] 唤出窗口失败: label={}, error={}",
-                label.trim(),
-                err
-            ));
-        }
-    });
-}
-
 fn toggle_window_maximize_with_default_restore(
     app: &AppHandle,
     label: &str,
@@ -1504,8 +1370,7 @@ fn toggle_window(app: &AppHandle, label: &str) -> Result<(), String> {
             .map_err(|err| format!("Hide window failed: {err}"))?;
         return Ok(());
     }
-    spawn_probe_and_show(app, label);
-    Ok(())
+    show_window(app, label)
 }
 
 fn normalize_hotkey_for_parser(raw: &str) -> String {
@@ -1584,27 +1449,21 @@ fn show_chat_entry_window(app: &AppHandle) -> Result<(), String> {
             "main"
         }
     };
-    spawn_probe_and_show(app, target);
-    Ok(())
+    show_window(app, target)
 }
 
 fn run_tray_action(app: &AppHandle, action: &str) -> Result<(), String> {
     match action {
-        "config" => show_tray_probe_window(app, "main"),
+        "config" => show_window(app, "main"),
         "chat" => show_chat_entry_window(app),
         "file-reader" => {
             show_file_reader_window(app)?;
             Ok(())
         }
-        "archives" => show_tray_probe_window(app, "archives"),
+        "archives" => show_window(app, "archives"),
         "runtime-logs" => show_runtime_logs_window(app),
         other => Err(format!("未知托盘动作：{other}")),
     }
-}
-
-fn show_tray_probe_window(app: &AppHandle, label: &str) -> Result<(), String> {
-    spawn_probe_and_show(app, label);
-    Ok(())
 }
 
 fn dispatch_tray_action(app: &AppHandle, source: &'static str, action: &'static str) {
@@ -1879,4 +1738,3 @@ fn hide_on_close(app: &AppHandle) {
         }
     }
 }
-

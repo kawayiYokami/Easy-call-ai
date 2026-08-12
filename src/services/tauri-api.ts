@@ -799,10 +799,6 @@ export async function writeTransportBase64File(path: string, bytesBase64: string
   return true;
 }
 
-export async function acknowledgeTransportWebviewHeartbeat(): Promise<void> {
-  await invokeTauri("webview_pong");
-}
-
 export type TransportChatImageData = {
   dataUrl: string;
   mime?: string;
@@ -1845,7 +1841,6 @@ const TRANSPORT_NOTIFICATION_EVENT_ALIASES: Record<string, string | string[]> = 
   "messageStore.migrationProgress": "easy-call:message-store-migration-progress",
   "fileReader.openPath": "file-reader-open-path",
   "fileReader.addToChat": "easy-call:file-reader-add-to-chat",
-  "webview.ping": "easy-call:webview-ping",
   "codeReview.requested": "code-review-requested",
   "uiSize.changed": "easy-call:ui-size-changed",
   "markdownAppearance.changed": "easy-call:markdown-appearance-changed",

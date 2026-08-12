@@ -1,16 +1,16 @@
 #[tauri::command]
-async fn show_main_window(app: AppHandle) -> Result<(), String> {
-    probe_and_show_window(&app, "main").await
+fn show_main_window(app: AppHandle) -> Result<(), String> {
+    show_window(&app, "main")
 }
 
 #[tauri::command]
-async fn show_chat_window(app: AppHandle) -> Result<(), String> {
-    probe_and_show_window(&app, "chat").await
+fn show_chat_window(app: AppHandle) -> Result<(), String> {
+    show_window(&app, "chat")
 }
 
 #[tauri::command]
-async fn show_archives_window(app: AppHandle) -> Result<(), String> {
-    probe_and_show_window(&app, "archives").await
+fn show_archives_window(app: AppHandle) -> Result<(), String> {
+    show_window(&app, "archives")
 }
 
 #[tauri::command]

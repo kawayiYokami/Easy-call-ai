@@ -1,6 +1,5 @@
 import { createApp } from "vue";
 import ChatApp from "./apps/chat/ChatApp.vue";
-import "./webview-heartbeat";
 import "./style.css";
 import "./features/chat/markdown/markdown-content.css";
 import "katex/dist/katex.min.css";
