@@ -2664,7 +2664,8 @@
     "expand": "展開",
     "repoBar": "倉庫",
     "currentRepo": "在此倉庫",
-    "noRepos": "未發現其他倉庫"
+    "noRepos": "未發現其他倉庫",
+    "selectRepoHint": "從上方選擇要檢視的倉庫"
   },
   "simpleSetup": {
     "providerName": "簡單供應商",

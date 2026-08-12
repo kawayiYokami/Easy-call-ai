@@ -70,6 +70,7 @@ fn ide_chat_web_native_only_method(method: &str) -> bool {
             | "complete_quick_setup_and_open_chat"
             | "git_panel_repos"
             | "git_panel_detect"
+            | "git_panel_discover"
             | "git_panel_status"
             | "git_panel_diff"
             | "git_panel_stage"

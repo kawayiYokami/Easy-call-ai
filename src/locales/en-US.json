@@ -2668,7 +2668,8 @@
     "expand": "Expand",
     "repoBar": "Repositories",
     "currentRepo": "Current repo",
-    "noRepos": "No other repositories found"
+    "noRepos": "No other repositories found",
+    "selectRepoHint": "Select a repository from the bar above"
   },
   "simpleSetup": {
     "providerName": "Simple Provider",

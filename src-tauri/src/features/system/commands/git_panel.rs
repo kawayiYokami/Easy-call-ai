@@ -959,6 +959,17 @@ struct GitPanelReposOutput {
     repos: Vec<GitPanelRepoEntry>,
 }
 
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct GitPanelDiscoverOutput {
+    git_available: bool,
+    current_repo_root: Option<String>,
+    repos: Vec<GitPanelRepoEntry>,
+    default_repo_root: Option<String>,
+    checked: bool,
+    error: Option<String>,
+}
+
 /// 扫描结果缓存：workspace_path → 仓库列表；展开时只读缓存，点刷新（refresh=true）才重扫。
 static GIT_REPO_SCAN_CACHE: OnceLock<Mutex<HashMap<String, Vec<GitPanelRepoEntry>>>> = OnceLock::new();
 
@@ -1102,17 +1113,17 @@ fn git_panel_remember_repo(state: &AppState, workspace_path: &str, repo_root: &s
     }
 }
 
-#[tauri::command]
-async fn git_panel_repos(
-    input: GitPanelWorkspaceInput,
+/// 收集仓库列表：扫描（缓存/重扫）+ 当前仓库根 extra + 历史合并，去重后按路径排序。
+/// 供 git_panel_repos 与 git_panel_discover 共用，保证两者列表语义一致。
+async fn git_panel_collect_repos(
+    workspace_path: &str,
     refresh: bool,
-    state: State<'_, AppState>,
-) -> Result<GitPanelReposOutput, String> {
-    let workspace_path = git_panel_validate_path(&input.workspace_path)?;
+    state: &AppState,
+) -> Result<Vec<GitPanelRepoEntry>, String> {
     // 扫描：默认深度 1 走缓存（懒加载只扫一次）；主动刷新扩到深度 3，直接重扫不写缓存
     let scanned = if refresh {
         tokio::task::spawn_blocking({
-            let workspace_path = workspace_path.clone();
+            let workspace_path = workspace_path.to_string();
             move || git_panel_scan_repos_inner(&workspace_path, GIT_REPO_SCAN_MAX_DEPTH)
         })
         .await
@@ -1122,13 +1133,13 @@ async fn git_panel_repos(
             let cache = git_panel_repo_cache()
                 .lock()
                 .map_err(|_| "仓库列表缓存读取失败".to_string())?;
-            cache.get(&workspace_path).cloned()
+            cache.get(workspace_path).cloned()
         };
         match cached {
             Some(repos) => repos,
             None => {
                 let scanned = tokio::task::spawn_blocking({
-                    let workspace_path = workspace_path.clone();
+                    let workspace_path = workspace_path.to_string();
                     move || git_panel_scan_repos_inner(&workspace_path, GIT_REPO_SCAN_DEFAULT_DEPTH)
                 })
                 .await
@@ -1136,24 +1147,24 @@ async fn git_panel_repos(
                 git_panel_repo_cache()
                     .lock()
                     .map_err(|_| "仓库列表缓存写入失败".to_string())?
-                    .insert(workspace_path.clone(), scanned.clone());
+                    .insert(workspace_path.to_string(), scanned.clone());
                 scanned
             }
         }
     };
     // 当前仓库根（可能在工作区上方，扫描不到）：记录进历史，并恒保留在列表中
     let mut extra = Vec::new();
-    if let Ok(root) = git_panel_resolve_root(&workspace_path).await {
-        git_panel_remember_repo(&state, &workspace_path, &root);
+    if let Ok(root) = git_panel_resolve_root(workspace_path).await {
+        git_panel_remember_repo(state, workspace_path, &root);
         let name = git_panel_repo_name(&root);
         extra.push(GitPanelRepoEntry { path: root, name });
     }
     // 合并：当前工作区的历史（最近在前，过滤已删除目录）∪ 扫描结果 ∪ 当前仓库根，去重后按路径排序
     let mut repos: Vec<GitPanelRepoEntry> = Vec::new();
-    let history_key = git_panel_normalize_repo_path(&workspace_path);
-    if let Some(history) = git_panel_read_repo_history(&state).get(&history_key) {
+    let history_key = git_panel_normalize_repo_path(workspace_path);
+    if let Some(history) = git_panel_read_repo_history(state).get(&history_key) {
         for path in history {
-            if !Path::new(&path).is_dir() {
+            if !Path::new(path).is_dir() {
                 continue;
             }
             if !repos.iter().any(|repo| git_panel_repo_path_eq(&repo.path, path)) {
@@ -1179,7 +1190,88 @@ async fn git_panel_repos(
         repo.path = git_panel_strip_verbatim_prefix(&repo.path).to_string();
     }
     repos.sort_by(|a, b| a.path.cmp(&b.path));
+    Ok(repos)
+}
+
+/// 推荐默认打开的仓库：向上命中→当前仓库；否则→历史最近命中；否则→仅 1 个仓库时它自己；否则→null。
+fn git_panel_default_repo_root(
+    state: &AppState,
+    workspace_path: &str,
+    current_repo_root: &Option<String>,
+    repos: &[GitPanelRepoEntry],
+) -> Option<String> {
+    if let Some(root) = current_repo_root {
+        return Some(git_panel_strip_verbatim_prefix(root).to_string());
+    }
+    let history_key = git_panel_normalize_repo_path(workspace_path);
+    if let Some(history) = git_panel_read_repo_history(state).get(&history_key) {
+        for path in history {
+            if Path::new(path).is_dir() {
+                return Some(git_panel_strip_verbatim_prefix(path).to_string());
+            }
+        }
+    }
+    if repos.len() == 1 {
+        return Some(repos[0].path.clone());
+    }
+    None
+}
+
+#[tauri::command]
+async fn git_panel_repos(
+    input: GitPanelWorkspaceInput,
+    refresh: bool,
+    state: State<'_, AppState>,
+) -> Result<GitPanelReposOutput, String> {
+    let workspace_path = git_panel_validate_path(&input.workspace_path)?;
+    let repos = git_panel_collect_repos(&workspace_path, refresh, &state).await?;
     Ok(GitPanelReposOutput { repos })
+}
+
+/// 一次探查：git 可用性 + 向上探测当前仓库根 + 向下扫描仓库列表 + 推荐默认仓库。
+/// 替代前端 loadDetect + loadRepos 两次并发调用，从根上消除「先刷出子仓库再被
+/// 向上探测失败覆盖」的时序竞态。
+#[tauri::command]
+async fn git_panel_discover(
+    input: GitPanelWorkspaceInput,
+    refresh: bool,
+    state: State<'_, AppState>,
+) -> Result<GitPanelDiscoverOutput, String> {
+    let workspace_path = git_panel_validate_path(&input.workspace_path)?;
+    let version = git_panel_run_raw(&workspace_path, &["--version"]).await;
+    let Ok(version_output) = version else {
+        return Ok(GitPanelDiscoverOutput {
+            git_available: false,
+            current_repo_root: None,
+            repos: Vec::new(),
+            default_repo_root: None,
+            checked: false,
+            error: Some("无法运行 git 命令".to_string()),
+        });
+    };
+    if version_output.exit_code != 0 {
+        return Ok(GitPanelDiscoverOutput {
+            git_available: false,
+            current_repo_root: None,
+            repos: Vec::new(),
+            default_repo_root: None,
+            checked: false,
+            error: Some(version_output.stderr.trim().to_string()),
+        });
+    }
+    // 向上探测：当前目录是否在仓库内（失败仅表示不在仓库内，不是错误）
+    let current_repo_root = git_panel_resolve_root(&workspace_path).await.ok();
+    let repos = git_panel_collect_repos(&workspace_path, refresh, &state).await?;
+    let default_repo_root =
+        git_panel_default_repo_root(&state, &workspace_path, &current_repo_root, &repos);
+    Ok(GitPanelDiscoverOutput {
+        git_available: true,
+        current_repo_root,
+        repos,
+        default_repo_root,
+        checked: true,
+        error: None,
+    })
 }
 
 #[cfg(test)]
@@ -1264,6 +1356,125 @@ mod git_panel_repos_tests {
         assert!(paths.contains(&root.as_str()), "深度 0 仓库应命中");
         assert!(paths.contains(&sub1.as_str()), "深度 1 仓库应命中");
         assert!(!paths.contains(&inner.as_str()), "默认深度 1 时深度 2 仓库不应命中");
+    }
+
+    #[test]
+    fn default_repo_root_prefers_current_then_history_then_single() {
+        let base = std::env::temp_dir().join(format!(
+            "git-panel-discover-test-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_nanos())
+                .unwrap_or_default()
+        ));
+        for rel in [".git", "sub1/.git", "sub2/.git", "history_only/.git"] {
+            std::fs::create_dir_all(base.join(rel)).expect("创建 fixture 失败");
+        }
+        let _guard = TempDirGuard(base.clone());
+        let root = base.to_string_lossy().into_owned();
+        let sub1 = base.join("sub1").to_string_lossy().into_owned();
+        let sub2 = base.join("sub2").to_string_lossy().into_owned();
+        let history_only = base.join("history_only").to_string_lossy().into_owned();
+
+        let state = AppState {
+            app_handle: Arc::new(Mutex::new(None)),
+            config_path: base.join("app_config.toml"),
+            data_path: base.join("app_data.json"),
+            llm_workspace_path: base.join("llm-workspace"),
+            shared_http_client: reqwest::Client::new(),
+            terminal_shell: detect_default_terminal_shell(),
+            terminal_shell_candidates: detect_terminal_shell_candidates(),
+            conversation_lock: Arc::new(ConversationDomainLock::new()),
+            memory_lock: Arc::new(Mutex::new(())),
+            cached_config: Arc::new(Mutex::new(None)),
+            cached_config_mtime: Arc::new(Mutex::new(None)),
+            cached_agents: Arc::new(Mutex::new(None)),
+            cached_agents_mtime: Arc::new(Mutex::new(None)),
+            cached_runtime_state: Arc::new(Mutex::new(None)),
+            cached_runtime_state_mtime: Arc::new(Mutex::new(None)),
+            cached_chat_index: Arc::new(Mutex::new(None)),
+            cached_conversation_metadata: Arc::new(Mutex::new(std::collections::HashMap::new())),
+            cached_conversation_field_metadata_ids: Arc::new(Mutex::new(
+                std::collections::HashSet::new(),
+            )),
+            cached_conversation_mtimes: Arc::new(Mutex::new(std::collections::HashMap::new())),
+            cached_app_data: Arc::new(Mutex::new(None)),
+            cached_app_data_signature: Arc::new(Mutex::new(None)),
+            cached_app_data_dirty: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            app_data_persist_pending: Arc::new(Mutex::new(None)),
+            app_data_persist_notify: Arc::new(tokio::sync::Notify::new()),
+            app_data_persist_started: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            app_data_persist_latest_seq: Arc::new(std::sync::atomic::AtomicU64::new(0)),
+            conversation_persist_pending: Arc::new(Mutex::new(None)),
+            conversation_persist_notify: Arc::new(tokio::sync::Notify::new()),
+            conversation_persist_started: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            conversation_persist_latest_seq: Arc::new(std::sync::atomic::AtomicU64::new(0)),
+            cached_conversation_dirty_ids: Arc::new(Mutex::new(std::collections::HashSet::new())),
+            cached_deleted_conversation_ids: Arc::new(Mutex::new(std::collections::HashSet::new())),
+            app_data_persist_write_lock: Arc::new(Mutex::new(())),
+            last_panic_snapshot: Arc::new(Mutex::new(None)),
+            inflight_chat_abort_handles: Arc::new(Mutex::new(std::collections::HashMap::new())),
+            inflight_tool_abort_handles: Arc::new(Mutex::new(std::collections::HashMap::new())),
+            inflight_completed_tool_history: Arc::new(Mutex::new(std::collections::HashMap::new())),
+            terminal_session_roots: Arc::new(Mutex::new(std::collections::HashMap::new())),
+            terminal_live_sessions: Arc::new(tokio::sync::Mutex::new(std::collections::HashMap::new())),
+            terminal_pending_approvals: Arc::new(Mutex::new(std::collections::HashMap::new())),
+            llm_round_logs: Arc::new(Mutex::new(RecentLlmRoundLogs::default())),
+            conversation_runtime_slots: Arc::new(Mutex::new(std::collections::HashMap::new())),
+            conversation_processing_claims: Arc::new(Mutex::new(std::collections::HashSet::new())),
+            goal_continue_suppressed_conversation_ids: Arc::new(Mutex::new(
+                std::collections::HashSet::new(),
+            )),
+            pending_chat_result_senders: Arc::new(Mutex::new(std::collections::HashMap::new())),
+            pending_chat_delta_channels: Arc::new(Mutex::new(std::collections::HashMap::new())),
+            accepted_submit_trace_ids: Arc::new(Mutex::new(std::collections::VecDeque::new())),
+            active_chat_view_bindings: Arc::new(Mutex::new(std::collections::HashMap::new())),
+            conversation_list_activity_marks: Arc::new(Mutex::new(std::collections::HashMap::new())),
+            dequeue_lock: Arc::new(Mutex::new(())),
+            task_scheduler_notify: Arc::new(tokio::sync::Notify::new()),
+            delegate_runtime_threads: Arc::new(Mutex::new(std::collections::HashMap::new())),
+            delegate_recent_threads: Arc::new(Mutex::new(std::collections::VecDeque::new())),
+            provider_streaming_disabled_keys: Arc::new(Mutex::new(std::collections::HashMap::new())),
+            provider_system_message_user_fallback_keys: Arc::new(Mutex::new(
+                std::collections::HashSet::new(),
+            )),
+            provider_request_gates: Arc::new(tokio::sync::Mutex::new(std::collections::HashMap::new())),
+            remote_im_contact_runtime_states: Arc::new(Mutex::new(std::collections::HashMap::new())),
+            remote_im_reply_delegate_runtimes: Arc::new(Mutex::new(std::collections::HashMap::new())),
+            remote_im_reply_delegate_semaphore: Arc::new(tokio::sync::Semaphore::new(8)),
+            remote_im_channel_state_write_locks: Arc::new(Mutex::new(std::collections::HashMap::new())),
+            hidden_skill_snapshot_cache: Arc::new(Mutex::new(String::new())),
+            preferred_release_source: Arc::new(Mutex::new("github".to_string())),
+            migration_preview_dirs: Arc::new(Mutex::new(std::collections::HashMap::new())),
+            delegate_active_ids: Arc::new(std::sync::Mutex::new(std::collections::HashSet::new())),
+            backend_ready: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+        };
+        let repos = vec![
+            GitPanelRepoEntry { path: sub1.clone(), name: "sub1".to_string() },
+            GitPanelRepoEntry { path: sub2.clone(), name: "sub2".to_string() },
+        ];
+        // 1. 向上命中 → 当前仓库优先（即使有历史）
+        let current = Some(sub1.clone());
+        assert_eq!(
+            git_panel_default_repo_root(&state, &root, &current, &repos),
+            Some(sub1.clone())
+        );
+        // 2. 无当前仓库，历史最近命中（含不在扫描列表里的目录）→ 历史优先
+        let mut history = std::collections::HashMap::new();
+        let history_key = git_panel_normalize_repo_path(&root);
+        history.insert(history_key, vec![history_only.clone(), sub2.clone()]);
+        git_panel_write_repo_history(&state, &history);
+        assert_eq!(
+            git_panel_default_repo_root(&state, &root, &None, &repos),
+            Some(history_only.clone())
+        );
+        // 3. 无当前仓库、无历史，仅 1 个仓库 → 它自己
+        git_panel_write_repo_history(&state, &std::collections::HashMap::new());
+        let single = vec![GitPanelRepoEntry { path: sub2.clone(), name: "sub2".to_string() }];
+        assert_eq!(git_panel_default_repo_root(&state, &root, &None, &single), Some(sub2));
+        // 4. 无当前仓库、无历史、多仓库 → None（不瞎猜）
+        assert_eq!(git_panel_default_repo_root(&state, &root, &None, &repos), None);
     }
 
     #[test]

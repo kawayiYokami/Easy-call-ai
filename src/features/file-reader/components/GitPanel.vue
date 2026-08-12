@@ -7,8 +7,8 @@
       </div>
     </div>
 
-    <!-- 未检测到 git 或非仓库 -->
-    <div v-if="detectError" class="flex h-full min-h-0 flex-col items-center justify-center gap-2 px-4 text-center">
+    <!-- 未检测到 git 或非仓库（且没有可显示的仓库列表时） -->
+    <div v-if="detectError && repos.length === 0 && !reposLoading" class="flex h-full min-h-0 flex-col items-center justify-center gap-2 px-4 text-center">
       <SquareTerminal class="h-8 w-8 opacity-50" />
       <div class="text-sm font-medium">{{ detectError }}</div>
       <div v-if="detectChecked" class="max-w-56 text-xs leading-relaxed text-base-content/55">
@@ -135,7 +135,7 @@
             @discard="discardPaths"
           />
           <div v-if="!busy && totalChanges === 0" class="px-3 py-6 text-center text-xs text-base-content/50">
-            {{ t('gitPanel.noChanges') }}
+            {{ repoRoot ? t('gitPanel.noChanges') : t('gitPanel.selectRepoHint') }}
           </div>
         </div>
         </div>
@@ -458,13 +458,12 @@ import {
   gitPanelCheckoutCheck,
   gitPanelCommit,
   gitPanelCommitFiles,
-  gitPanelDetect,
+  gitPanelDiscover,
   gitPanelDiscard,
   gitPanelLog,
   gitPanelPull,
   gitPanelPush,
   gitPanelRemoteList,
-  gitPanelRepos,
   gitPanelStage,
   gitPanelStashCreate,
   gitPanelStashDrop,
@@ -704,23 +703,36 @@ watch([changesCollapsed, activeGitTab, historyCollapsed], () => ensureVisibleDat
   immediate: true,
 });
 
-// 仓库列表：懒加载 + 后端缓存；force=true 强制重扫
-async function loadRepos(force = false) {
+// 仓库列表：单次探查（向上探测 + 向下扫描 + 默认仓库推荐），后端一次返回；
+// force=true 强制重扫（绕过缓存）
+async function loadDiscover(force = false) {
   if (reposLoading.value) return;
   reposLoading.value = true;
   try {
-    const result = await gitPanelRepos(props.workspacePath, force);
+    const result = await gitPanelDiscover(props.workspacePath, force);
+    gitAvailable.value = !!result.gitAvailable;
+    detectChecked.value = !!result.checked;
     repos.value = result.repos || [];
     reposLoaded.value = true;
+    repoRoot.value = result.defaultRepoRoot || "";
+    detectError.value =
+      result.error ||
+      (!result.gitAvailable
+        ? t("gitPanel.gitNotInstalled")
+        : !result.currentRepoRoot && repos.value.length === 0
+          ? t("gitPanel.notRepository")
+          : "");
   } catch (error) {
-    appendOutput("repos", null, error);
+    gitAvailable.value = false;
+    detectChecked.value = true;
+    detectError.value = error instanceof Error ? error.message : String(error);
   } finally {
     reposLoading.value = false;
   }
 }
 
 function refreshRepos() {
-  void loadRepos(true);
+  void loadDiscover(true);
 }
 
 function isCurrentRepo(path: string): boolean {
@@ -746,31 +758,17 @@ function switchRepo(path: string) {
   ensureVisibleData();
 }
 
-// 展开仓库栏才首次扫描（懒加载）；之后只读后端缓存。
+// 展开仓库栏才首次探查（懒加载）；之后只读后端缓存。
 // immediate：初始即展开时也要触发加载，否则列表一直空到手动刷新。
 watch(
   repoCollapsed,
   (collapsed) => {
     if (!collapsed && !reposLoaded.value) {
-      void loadRepos(false);
+      void loadDiscover(false);
     }
   },
   { immediate: true },
 );
-
-async function loadDetect() {
-  try {
-    const result = await gitPanelDetect(props.workspacePath);
-    gitAvailable.value = !!result.gitAvailable;
-    detectChecked.value = !!result.checked;
-    repoRoot.value = result.repoRoot || "";
-    detectError.value = result.error || (!result.gitAvailable ? t("gitPanel.gitNotInstalled") : !result.repoRoot ? t("gitPanel.notRepository") : "");
-  } catch (error) {
-    gitAvailable.value = false;
-    detectChecked.value = true;
-    detectError.value = error instanceof Error ? error.message : String(error);
-  }
-}
 
 async function loadStatus() {
   if (!repoRoot.value) return;
@@ -1268,7 +1266,7 @@ function resetCommitInputHeight() {
 
 onMounted(() => {
   restoreGitTab();
-  void loadDetect().then(() => {
+  void loadDiscover().then(() => {
     if (repoRoot.value) {
       ensureVisibleData();
     }
