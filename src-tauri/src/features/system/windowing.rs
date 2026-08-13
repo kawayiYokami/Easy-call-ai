@@ -2,16 +2,12 @@ use std::str::FromStr;
 
 const MAIN_TRAY_ID: &str = "easy-call-tray";
 const WINDOW_LAYOUTS_FILE_NAME: &str = "window_layouts.json";
-const WINDOW_DIAGNOSTIC_LOG_FILE_NAME: &str = "window_diagnostics.log";
 const FILE_READER_WINDOW_LABEL: &str = "file-reader";
 const NEAR_FULLSCREEN_RESTORE_RATIO: f64 = 0.92;
 const WINDOW_LAYOUT_SAVE_INTERVAL: std::time::Duration = std::time::Duration::from_secs(60);
 
 static DETACHED_CHAT_WINDOWS: OnceLock<Mutex<std::collections::HashMap<String, String>>> =
     OnceLock::new();
-
-static OFFSCREEN_LAYOUT_LOGGED_ONCE: std::sync::atomic::AtomicBool =
-    std::sync::atomic::AtomicBool::new(false);
 
 static CHAT_WINDOW_SIDE_EXPANSION: OnceLock<Mutex<ChatWindowSideExpansion>> = OnceLock::new();
 static WINDOW_LAYOUT_STORE: OnceLock<Arc<Mutex<WindowLayoutStore>>> = OnceLock::new();
@@ -198,21 +194,6 @@ struct PersistedWindowLayout {
 
 fn window_layouts_path(data_path: &PathBuf) -> PathBuf {
     app_layout_state_dir(data_path).join(WINDOW_LAYOUTS_FILE_NAME)
-}
-
-fn append_window_diagnostic_log(app: &AppHandle, message: String) {
-    runtime_log_info(message.clone());
-
-    let state = app.state::<AppState>();
-    let dir = app_layout_state_dir(&state.data_path);
-    if fs::create_dir_all(&dir).is_err() {
-        return;
-    }
-    let path = dir.join(WINDOW_DIAGNOSTIC_LOG_FILE_NAME);
-    let line = format!("{} {}\n", now_iso(), message);
-    if let Ok(mut file) = std::fs::OpenOptions::new().create(true).append(true).open(path) {
-        let _ = std::io::Write::write_all(&mut file, line.as_bytes());
-    }
 }
 
 fn read_window_layouts(data_path: &PathBuf) -> Result<PersistedWindowLayouts, String> {
@@ -435,7 +416,7 @@ fn focus_file_reader_window(app: &AppHandle) -> Result<(), String> {
         .ok_or_else(|| "文件阅读窗口不存在".to_string())?;
     let _ = window.unminimize();
     let _ = window.show();
-    ensure_window_visible_after_show(app, FILE_READER_WINDOW_LABEL, "focus_file_reader_window");
+    ensure_window_visible_after_show(app, FILE_READER_WINDOW_LABEL);
     window
         .set_focus()
         .map_err(|err| format!("聚焦文件阅读窗口失败：{err}"))
@@ -525,11 +506,7 @@ fn schedule_file_reader_window_creation(app: &AppHandle, path: String) -> Result
             }
             let _ = window.unminimize();
             let _ = window.show();
-            ensure_window_visible_after_show(
-                &app_handle,
-                FILE_READER_WINDOW_LABEL,
-                "show_file_reader_window",
-            );
+            ensure_window_visible_after_show(&app_handle, FILE_READER_WINDOW_LABEL);
             let _ = window.set_focus();
             runtime_log_info(format!(
                 "[文件阅读窗口] 窗口已显示：window_label={}，elapsed_ms={}",
@@ -919,34 +896,7 @@ fn restore_window_to_default_drag_size(
     Ok(())
 }
 
-fn log_offscreen_layout_reset(
-    app: &AppHandle,
-    label: &str,
-    reason: &str,
-    x: i32,
-    y: i32,
-    width: u32,
-    height: u32,
-    monitor_count: usize,
-) {
-    if !OFFSCREEN_LAYOUT_LOGGED_ONCE.swap(true, std::sync::atomic::Ordering::Relaxed) {
-        append_window_diagnostic_log(
-            app,
-            format!(
-                "[窗口] 检测到离屏窗口布局，已重置到可见区域：label={}，reason={}，x={}，y={}，width={}，height={}，monitor_count={}",
-                label.trim(),
-                reason,
-                x,
-                y,
-                width,
-                height,
-                monitor_count
-            ),
-        );
-    }
-}
-
-fn ensure_window_visible_after_show(app: &AppHandle, label: &str, reason: &str) {
+fn ensure_window_visible_after_show(app: &AppHandle, label: &str) {
     let Some(window) = app.get_webview_window(label) else {
         return;
     };
@@ -974,16 +924,6 @@ fn ensure_window_visible_after_show(app: &AppHandle, label: &str, reason: &str) 
     let Some(monitor) = preferred_window_monitor(&window) else {
         return;
     };
-    log_offscreen_layout_reset(
-        app,
-        label,
-        reason,
-        position.x,
-        position.y,
-        size.width,
-        size.height,
-        monitors.len(),
-    );
     position_window_on_monitor(&window, label, &monitor, None, None);
 }
 
@@ -1027,21 +967,6 @@ fn apply_window_layout_before_show(app: &AppHandle, label: &str) -> Result<(), S
                 {
                     let _ = window.set_position(Position::Physical(PhysicalPosition::new(x, y)));
                 } else {
-                    let reason = if monitors.is_empty() {
-                        "monitor_list_empty"
-                    } else {
-                        "saved_position_offscreen"
-                    };
-                    log_offscreen_layout_reset(
-                        app,
-                        label,
-                        reason,
-                        x,
-                        y,
-                        resolved_width_physical,
-                        resolved_height_physical,
-                        monitors.len(),
-                    );
                     position_window_on_monitor(
                         &window,
                         label,
@@ -1266,7 +1191,7 @@ fn show_window(app: &AppHandle, label: &str) -> Result<(), String> {
 
     let _ = window.unminimize();
     let _ = window.show();
-    ensure_window_visible_after_show(app, label, "show_window");
+    ensure_window_visible_after_show(app, label);
     let _ = window.set_focus();
     Ok(())
 }
@@ -1499,63 +1424,17 @@ const RUNTIME_LOGS_WINDOW_LABEL: &str = "runtime-logs";
 
 fn show_runtime_logs_window(app: &AppHandle) -> Result<(), String> {
     if let Some(window) = app.get_webview_window(RUNTIME_LOGS_WINDOW_LABEL) {
-        append_window_diagnostic_log(
-            app,
-            format!(
-                "[运行日志窗口] 已存在，开始聚焦：window_label={}",
-                RUNTIME_LOGS_WINDOW_LABEL
-            ),
-        );
-        if let Err(err) = window.unminimize() {
-            append_window_diagnostic_log(
-                app,
-                format!(
-                    "[运行日志窗口] 取消最小化失败：window_label={}，error={}",
-                    RUNTIME_LOGS_WINDOW_LABEL, err
-                ),
-            );
-        }
-        if let Err(err) = window.show() {
-            append_window_diagnostic_log(
-                app,
-                format!(
-                    "[运行日志窗口] 显示失败：window_label={}，error={}",
-                    RUNTIME_LOGS_WINDOW_LABEL, err
-                ),
-            );
-        }
-        ensure_window_visible_after_show(app, RUNTIME_LOGS_WINDOW_LABEL, "focus_runtime_logs_window");
-        if let Err(err) = window.set_focus() {
-            append_window_diagnostic_log(
-                app,
-                format!(
-                    "[运行日志窗口] 聚焦失败：window_label={}，error={}",
-                    RUNTIME_LOGS_WINDOW_LABEL, err
-                ),
-            );
-        }
+        let _ = window.unminimize();
+        let _ = window.show();
+        ensure_window_visible_after_show(app, RUNTIME_LOGS_WINDOW_LABEL);
+        let _ = window.set_focus();
         return Ok(());
     }
     let app_handle = app.clone();
     std::thread::Builder::new()
         .name("runtime-logs-window-create".to_string())
         .spawn(move || {
-            let started_at = std::time::Instant::now();
-            append_window_diagnostic_log(
-                &app_handle,
-                format!(
-                    "[运行日志窗口] 开始创建窗口：window_label={}",
-                    RUNTIME_LOGS_WINDOW_LABEL
-                ),
-            );
             if app_handle.get_webview_window(RUNTIME_LOGS_WINDOW_LABEL).is_some() {
-                append_window_diagnostic_log(
-                    &app_handle,
-                    format!(
-                        "[运行日志窗口] 创建前发现窗口已存在，转为聚焦：window_label={}",
-                        RUNTIME_LOGS_WINDOW_LABEL
-                    ),
-                );
                 return;
             }
             let window = match tauri::WebviewWindowBuilder::new(
@@ -1573,66 +1452,13 @@ fn show_runtime_logs_window(app: &AppHandle) -> Result<(), String> {
             .build()
             {
                 Ok(w) => w,
-                Err(err) => {
-                    append_window_diagnostic_log(
-                        &app_handle,
-                        format!(
-                            "[运行日志窗口] 创建失败：window_label={}，error={}",
-                            RUNTIME_LOGS_WINDOW_LABEL, err
-                        ),
-                    );
-                    return;
-                }
+                Err(_) => return,
             };
-            if let Err(err) = apply_window_layout_before_show(&app_handle, RUNTIME_LOGS_WINDOW_LABEL) {
-                append_window_diagnostic_log(
-                    &app_handle,
-                    format!(
-                        "[运行日志窗口] 应用窗口布局失败：window_label={}，error={}",
-                        RUNTIME_LOGS_WINDOW_LABEL, err
-                    ),
-                );
-            }
-            if let Err(err) = window.unminimize() {
-                append_window_diagnostic_log(
-                    &app_handle,
-                    format!(
-                        "[运行日志窗口] 取消最小化失败：window_label={}，error={}",
-                        RUNTIME_LOGS_WINDOW_LABEL, err
-                    ),
-                );
-            }
-            if let Err(err) = window.show() {
-                append_window_diagnostic_log(
-                    &app_handle,
-                    format!(
-                        "[运行日志窗口] 显示失败：window_label={}，error={}",
-                        RUNTIME_LOGS_WINDOW_LABEL, err
-                    ),
-                );
-            }
-            ensure_window_visible_after_show(
-                &app_handle,
-                RUNTIME_LOGS_WINDOW_LABEL,
-                "show_runtime_logs_window",
-            );
-            if let Err(err) = window.set_focus() {
-                append_window_diagnostic_log(
-                    &app_handle,
-                    format!(
-                        "[运行日志窗口] 聚焦失败：window_label={}，error={}",
-                        RUNTIME_LOGS_WINDOW_LABEL, err
-                    ),
-                );
-            }
-            append_window_diagnostic_log(
-                &app_handle,
-                format!(
-                    "[运行日志窗口] 窗口已显示：window_label={}，elapsed_ms={}",
-                    RUNTIME_LOGS_WINDOW_LABEL,
-                    started_at.elapsed().as_millis()
-                ),
-            );
+            let _ = apply_window_layout_before_show(&app_handle, RUNTIME_LOGS_WINDOW_LABEL);
+            let _ = window.unminimize();
+            let _ = window.show();
+            ensure_window_visible_after_show(&app_handle, RUNTIME_LOGS_WINDOW_LABEL);
+            let _ = window.set_focus();
             let cloned = window.clone();
             let _ = window.on_window_event(move |event| {
                 if let tauri::WindowEvent::CloseRequested { api, .. } = event {
