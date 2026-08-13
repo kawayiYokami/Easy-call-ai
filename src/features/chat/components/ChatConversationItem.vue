@@ -112,12 +112,15 @@
     </div>
 
     <!-- 简单项：色条 + 一行/两行（normal 摘要常显，mini 折叠 hover 展开） -->
-    <button
+    <div
       v-else
-      type="button"
-      class="group mx-1 flex w-[calc(100%-0.5rem)] items-center rounded-lg py-1 pl-2 pr-2 text-left text-sm transition-colors hover:bg-base-100/70"
+      class="group mx-1 flex w-[calc(100%-0.5rem)] cursor-pointer items-center rounded-lg py-1 pl-2 pr-2 text-left text-sm transition-colors hover:bg-base-100/70"
       :class="isActiveConversation ? 'bg-base-300/60' : 'bg-transparent'"
+      :role="isActiveConversation ? undefined : 'button'"
+      :tabindex="isActiveConversation ? undefined : 0"
       @click="handleConversationCardClick"
+      @keydown.enter.prevent="handleConversationCardClick"
+      @keydown.space.prevent="handleConversationCardClick"
     >
       <span class="relative w-10 shrink-0 self-stretch" aria-hidden="true">
         <span
@@ -127,7 +130,24 @@
       </span>
       <span class="min-w-0 flex-1 pl-2">
         <span class="flex min-w-0 items-center justify-between gap-2">
-          <span class="min-w-0 truncate font-medium">{{ displayTitle }}</span>
+          <input
+            v-if="editing"
+            :ref="setRenameInputRef"
+            v-model="editingTitleDraft"
+            type="text"
+            class="input input-bordered input-sm h-8 min-h-0 w-full max-w-full text-sm font-medium"
+            @click.stop
+            @mousedown.stop
+            @keydown.enter.prevent="commitTitleEdit"
+            @keydown.esc.prevent="cancelTitleEdit"
+            @blur="commitTitleEdit"
+          />
+          <span
+            v-else-if="canRename"
+            class="min-w-0 cursor-pointer truncate rounded px-0.5 font-medium hover:bg-base-300/70"
+            @click.stop="startTitleEdit"
+          >{{ displayTitle }}</span>
+          <span v-else class="min-w-0 truncate font-medium">{{ displayTitle }}</span>
           <span class="shrink-0 tabular-nums text-xs text-base-content/45">{{ formatTime(item.updatedAt) }}</span>
         </span>
         <span
@@ -135,7 +155,7 @@
           :class="summaryClass"
         >{{ latestPreviewLine }}</span>
       </span>
-    </button>
+    </div>
 
     <FloatingConversationMenu
       v-if="isLocalConversation && !editing"
