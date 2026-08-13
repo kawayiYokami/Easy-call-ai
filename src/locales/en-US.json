@@ -2666,6 +2666,7 @@
     "collapseAll": "Collapse all",
     "loading": "Loading…",
     "noCommitFiles": "This commit has no file changes",
+    "viewCommitChanges": "View All Changes in This Commit",
     "collapse": "Collapse",
     "expand": "Expand",
     "repoBar": "Repositories",

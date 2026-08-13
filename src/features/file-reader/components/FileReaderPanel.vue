@@ -2221,6 +2221,10 @@ function buildGitDiffTabKey(source: GitDiffTabSource) {
 
 function buildGitDiffTabTitle(source: GitDiffTabSource) {
   if (source.hash) {
+    // 聚合模式（path === hash）：标题显示"全部更改"，避免 hash 重复
+    if (source.path === source.hash) {
+      return `${source.hash.slice(0, 7)} ${t('gitPanel.viewCommitChanges')}`;
+    }
     return `${source.hash.slice(0, 7)} ${titleFromPath(source.path)}`;
   }
   const base = titleFromPath(source.path);

@@ -2666,6 +2666,7 @@
     "collapseAll": "折叠全部",
     "loading": "加载中…",
     "noCommitFiles": "该提交没有文件变更",
+    "viewCommitChanges": "查看该提交所有更改",
     "collapse": "折叠",
     "expand": "展开",
     "repoBar": "仓库",

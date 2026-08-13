@@ -263,6 +263,15 @@
                 </div>
                 <!-- 展开的 diff 文件列表 -->
                 <div v-if="expandedCommitHash === entry.hash" class="ml-4 border-l border-base-300 py-0.5 pl-2">
+                  <button
+                    type="button"
+                    class="flex w-full cursor-pointer items-center gap-1.5 rounded px-2 py-1 text-left font-medium text-primary hover:bg-base-300/40"
+                    :disabled="busy"
+                    @click="openCommitAllDiff(entry)"
+                  >
+                    <Files class="h-3 w-3 shrink-0" />
+                    <span class="min-w-0 truncate">{{ t('gitPanel.viewCommitChanges') }}</span>
+                  </button>
                   <div v-if="commitFilesLoading[entry.hash]" class="px-2 py-1 opacity-50">
                     {{ t('gitPanel.loading') }}
                   </div>
@@ -461,6 +470,7 @@ import {
   Cloud,
   CloudSync,
   Copy,
+  Files,
   GitBranch,
   GitCommitHorizontal,
   History,
@@ -1300,6 +1310,16 @@ function openCommitFileDiff(entry: GitPanelLogEntry, file: GitPanelCommitFileEnt
   emit("openDiff", {
     workspacePath: repoRoot.value,
     path: file.path,
+    staged: false,
+    hash: entry.hash,
+  });
+}
+
+// 一次性聚合查看整个提交的全部文件更改（类似 VS Code 悬停提交时的"查看提交更改"）
+function openCommitAllDiff(entry: GitPanelLogEntry) {
+  emit("openDiff", {
+    workspacePath: repoRoot.value,
+    path: entry.hash,
     staged: false,
     hash: entry.hash,
   });
