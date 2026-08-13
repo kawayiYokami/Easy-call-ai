@@ -75,7 +75,7 @@
               class="btn btn-ghost btn-xs h-6 min-h-6 w-6 px-0"
               :title="changesViewMode === 'tree' ? t('gitPanel.listView') : t('gitPanel.treeView')"
               :disabled="busy"
-              @click="changesViewMode = changesViewMode === 'tree' ? 'list' : 'tree'"
+              @click="toggleChangesViewMode"
             >
               <ListTree v-if="changesViewMode === 'tree'" class="h-3.5 w-3.5" />
               <Rows3 v-else class="h-3.5 w-3.5" />
@@ -540,6 +540,12 @@ const changesRefreshing = ref(false);
 
 // 更改列表展示模式：tree 树状分组 / list 平铺（VSCode 风格切换）
 const changesViewMode = ref<"tree" | "list">("tree");
+
+// 切换更改列表视图模式，并持久化到会话
+function toggleChangesViewMode() {
+  changesViewMode.value = changesViewMode.value === "tree" ? "list" : "tree";
+  persistChangesViewMode();
+}
 
 // 仓库栏：折叠/展开 + 列表（懒加载，展开首次才扫描）
 const repoCollapsed = ref(false);
@@ -1040,6 +1046,36 @@ function persistGitTab() {
   }
 }
 
+// ==================== 更改列表视图模式持久化 ====================
+// 按会话记住更改列表是树状还是平铺，下次自动恢复
+function changesViewModeStorageKey() {
+  const key = String(props.sessionKey || "").trim();
+  return key ? `${key}:git-panel-view-mode` : "";
+}
+
+function restoreChangesViewMode() {
+  const storageKey = changesViewModeStorageKey();
+  if (!storageKey || typeof window === "undefined") return;
+  try {
+    const saved = window.localStorage.getItem(storageKey);
+    if (saved === "tree" || saved === "list") {
+      changesViewMode.value = saved;
+    }
+  } catch {
+    // 读取失败忽略，保持默认
+  }
+}
+
+function persistChangesViewMode() {
+  const storageKey = changesViewModeStorageKey();
+  if (!storageKey || typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(storageKey, changesViewMode.value);
+  } catch {
+    // 写入失败忽略
+  }
+}
+
 // ==================== 更改操作 ====================
 async function runGitAction(
   command: string,
@@ -1352,6 +1388,7 @@ function resetCommitInputHeight() {
 
 onMounted(() => {
   restoreGitTab();
+  restoreChangesViewMode();
   void loadDiscover().then(() => {
     if (repoRoot.value) {
       ensureVisibleData();
@@ -1359,11 +1396,12 @@ onMounted(() => {
   });
 });
 
-// 会话切换时（sessionKey 变化）重新恢复该会话记住的 git 标签
+// 会话切换时（sessionKey 变化）重新恢复该会话记住的 git 标签与视图模式
 watch(
   () => props.sessionKey,
   () => {
     restoreGitTab();
+    restoreChangesViewMode();
   },
 );
 

@@ -1138,7 +1138,7 @@ watch([() => props.sessionKey, () => props.initialRootPath], ([nextKey, nextRoot
 }, { immediate: true });
 
 watch(
-  [tabs, activePath, directoryRootPath],
+  [tabs, activePath, directoryRootPath, asideMode],
   () => {
     persistFileReaderSession();
     scheduleFileReaderWatchTargetUpdate();
@@ -1715,6 +1715,7 @@ function persistFileReaderSession(key = props.sessionKey) {
     activePath: String(activePath.value || "").startsWith("git-diff:") ? "" : normalizePath(activePath.value),
     directoryRootPath: normalizePath(directoryRootPath.value),
     directoryTreeWidth: effectiveDirectoryTreeWidth.value,
+    asideMode: asideMode.value,
   };
   window.localStorage.setItem(storageKey, JSON.stringify(state));
 }
@@ -1743,6 +1744,11 @@ async function restoreFileReaderSession(key = props.sessionKey, fallbackRootPath
     }
     const state = readFileReaderSessionState(storageKey);
     if (restoreId !== restoringSessionId) return;
+
+    // 恢复会话级左侧栏模式（文件 / git），非法值忽略保持默认
+    if (state.asideMode === "files" || state.asideMode === "git") {
+      asideMode.value = state.asideMode;
+    }
 
     const restoredTabs = Array.from(new Set((state.tabs || []).filter((path) => Boolean(path) && !String(path).startsWith("git-diff:")).map((path) => normalizePath(path))));
     tabs.value = restoredTabs.map((path) => createRestoredTab(path));

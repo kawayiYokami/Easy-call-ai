@@ -82,6 +82,8 @@ export type FileReaderSessionState = {
   activePath?: string;
   directoryRootPath?: string;
   directoryTreeWidth?: number;
+  /** 左侧栏模式：文件 / git，会话级记忆，下次自动恢复 */
+  asideMode?: "files" | "git";
 };
 
 export type FileReaderWatchTarget = {
