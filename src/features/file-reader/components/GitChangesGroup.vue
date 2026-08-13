@@ -20,11 +20,14 @@
       <button
         v-if="entries.length > 0"
         type="button"
-        class="btn btn-ghost btn-xs h-5 min-h-5 px-1.5 text-[11px]"
+        class="btn btn-ghost btn-xs h-5 min-h-5 w-5 px-0"
+        :class="{ 'text-primary': selectedCount > 0 }"
         :disabled="busy"
-        @click="emit('action', entries.map((entry) => entry.path))"
+        :title="selectedCount > 0 ? `${actionTitle} (${selectedCount})` : actionTitle"
+        @click="runAction(entries.map((entry) => entry.path))"
       >
-        {{ actionTitle }}
+        <Plus v-if="actionKind === 'stage'" class="h-3 w-3" />
+        <Minus v-else class="h-3 w-3" />
       </button>
       <span class="shrink-0 text-[11px] tabular-nums opacity-50">{{
         totalCount !== undefined && totalCount > 1000 ? "1000+" : (totalCount ?? entries.length)
@@ -35,8 +38,9 @@
         v-for="row in visibleRows"
         :key="row.key"
         class="group flex h-7 items-center gap-1 rounded px-1.5"
-        :class="row.item.kind === 'file' && row.item.path === props.highlightPath ? 'bg-primary/10 text-primary' : 'hover:bg-base-300/40'"
+        :class="rowClass(row)"
         :style="{ paddingLeft: `${6 + row.depth * 14}px` }"
+        @click="row.item.kind === 'file' && onFileRowClick(row.item.path, $event)"
         @contextmenu="onRowContextMenu($event)"
       >
       <template v-if="row.item.kind === 'dir'">
@@ -64,7 +68,7 @@
             class="btn btn-ghost btn-xs h-5 min-h-5 w-5 px-0 text-error/70"
             :title="discardTitle"
             :disabled="busy"
-            @click="emit('discard', collectDirPaths(row.item))"
+            @click.stop="discardSelected(collectDirPaths(row.item))"
           >
             <Undo2 class="h-3 w-3" />
           </button>
@@ -73,7 +77,7 @@
             class="btn btn-ghost btn-xs h-5 min-h-5 w-5 px-0"
             :title="actionTitle"
             :disabled="busy"
-            @click="emit('action', collectDirPaths(row.item))"
+            @click.stop="runAction(collectDirPaths(row.item))"
           >
             <Plus v-if="actionKind === 'stage'" class="h-3 w-3" />
             <Minus v-else class="h-3 w-3" />
@@ -86,7 +90,6 @@
           type="button"
           class="flex min-w-0 flex-1 items-center gap-1.5 text-left text-xs"
           :title="row.item.path"
-          @click="emit('openDiff', { path: row.item.path, staged: actionKind === 'unstage' })"
         >
           <span class="min-w-0 truncate">{{ row.item.name }}</span>
         </button>
@@ -98,7 +101,7 @@
             class="btn btn-ghost btn-xs h-5 min-h-5 w-5 px-0 text-error/70"
             :title="discardTitle"
             :disabled="busy"
-            @click="emit('discard', [row.item.path])"
+            @click.stop="discardSelected([row.item.path])"
           >
             <Undo2 class="h-3 w-3" />
           </button>
@@ -107,7 +110,7 @@
             class="btn btn-ghost btn-xs h-5 min-h-5 w-5 px-0"
             :title="actionTitle"
             :disabled="busy"
-            @click="emit('action', [row.item.path])"
+            @click.stop="runAction([row.item.path])"
           >
             <Plus v-if="actionKind === 'stage'" class="h-3 w-3" />
             <Minus v-else class="h-3 w-3" />
@@ -262,6 +265,78 @@ function toggleDirectory(path: string) {
 
 // ==================== 右键菜单 ====================
 const contextMenu = ref<{ visible: boolean; x: number; y: number }>({ visible: false, x: 0, y: 0 });
+
+// ==================== Shift 多选 ====================
+/** 当前选中的文件路径集合（仅文件，不含目录） */
+const selectedPaths = ref<Set<string>>(new Set());
+/** 范围选择的锚点（最后一次普通点击的文件路径） */
+const selectionAnchor = ref("");
+
+const selectedCount = computed(() => selectedPaths.value.size);
+
+function clearSelection() {
+  selectedPaths.value = new Set();
+  selectionAnchor.value = "";
+}
+
+/** 普通点击：选中该文件并打开 diff；该路径记为 Shift 范围选择的锚点 */
+function openDiff(path: string) {
+  selectedPaths.value = new Set([path]);
+  selectionAnchor.value = path;
+  emit("openDiff", { path, staged: props.actionKind === "unstage" });
+}
+
+/** 文件行点击：Shift 为范围选择（锚点=最后一次普通点击），否则普通选中并打开 diff */
+function onFileRowClick(path: string, event: MouseEvent) {
+  if (!event.shiftKey) {
+    openDiff(path);
+    return;
+  }
+  const filePaths = visibleRows.value
+    .filter((row) => row.item.kind === "file")
+    .map((row) => row.item.path);
+  const currentIndex = filePaths.indexOf(path);
+  if (currentIndex < 0) return;
+  const anchorIndex = selectionAnchor.value
+    ? filePaths.indexOf(selectionAnchor.value)
+    : -1;
+  const from = anchorIndex >= 0 && anchorIndex < currentIndex ? anchorIndex : currentIndex;
+  const to = anchorIndex >= 0 && anchorIndex > currentIndex ? anchorIndex : currentIndex;
+  const range = filePaths.slice(Math.min(from, to), Math.max(from, to) + 1);
+  selectedPaths.value = new Set(range);
+  if (selectionAnchor.value === "") {
+    selectionAnchor.value = path;
+  }
+}
+
+/** 批量操作：有选中集时作用于全部选中文件，否则作用于传入路径 */
+function runAction(paths: string[]) {
+  const targets = selectedPaths.value.size > 0 ? [...selectedPaths.value] : paths;
+  console.log(`[GitChangesGroup] runAction`, {
+    actionKind: props.actionKind,
+    callerPaths: paths,
+    selectedPaths: [...selectedPaths.value],
+    targets,
+  });
+  if (targets.length === 0) return;
+  emit("action", targets);
+  clearSelection();
+}
+
+function discardSelected(paths: string[]) {
+  const targets = selectedPaths.value.size > 0 ? [...selectedPaths.value] : paths;
+  if (targets.length === 0) return;
+  emit("discard", targets);
+  clearSelection();
+}
+
+/** 行样式：高亮仅由选中集驱动，与 diff 联动（highlightPath）无关，避免视觉混淆 */
+function rowClass(row: GitTreeRow) {
+  if (row.item.kind === "file" && selectedPaths.value.has(row.item.path)) {
+    return "bg-primary/20 text-primary";
+  }
+  return "hover:bg-base-300/40";
+}
 
 function openContextMenu(event: MouseEvent) {
   contextMenu.value = { visible: true, x: event.clientX, y: event.clientY };
