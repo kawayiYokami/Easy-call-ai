@@ -114,6 +114,12 @@ struct GitPanelStatusOutput {
     repo_root: String,
     branch: String,
     entries: Vec<GitPanelStatusEntry>,
+    /// 实际变更条目数超过展示上限时置 true（前端显示 1000+，不再全部加载）
+    truncated: bool,
+    /// 截断前暂存组实际数量（前端折叠条尾部显示）
+    staged_total: usize,
+    /// 截断前更改组实际数量（前端折叠条尾部显示）
+    unstaged_total: usize,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -432,11 +438,55 @@ async fn git_panel_status(input: GitPanelWorkspaceInput) -> Result<GitPanelStatu
         .filter(|record| !record.is_empty())
         .filter_map(git_panel_parse_status_entry)
         .collect();
+    // 截断前按前端分组规则统计两组实际数量（折叠条尾部显示用，可能同时属于两组）
+    let staged_total = entries
+        .iter()
+        .filter(|entry| git_panel_entry_is_staged(entry))
+        .count();
+    let unstaged_total = entries
+        .iter()
+        .filter(|entry| git_panel_entry_is_unstaged(entry))
+        .count();
+    let (entries, truncated) = git_panel_truncate_status_entries(entries);
     Ok(GitPanelStatusOutput {
         repo_root,
         branch,
         entries,
+        truncated,
+        staged_total,
+        unstaged_total,
     })
+}
+
+/// 前端暂存组过滤规则的 Rust 复刻：X 列非空且非 ?，且排除「未跟踪 + 已暂存」矛盾项。
+fn git_panel_entry_is_staged(entry: &GitPanelStatusEntry) -> bool {
+    let staged = entry.staged_status.trim();
+    let unstaged = entry.unstaged_status.trim();
+    staged != "" && staged != "?" && !(unstaged == "?" && staged == "?")
+}
+
+/// 前端更改组过滤规则的 Rust 复刻：未跟踪（??）或 Y 列非空，且不是「已暂存但未更改」。
+fn git_panel_entry_is_unstaged(entry: &GitPanelStatusEntry) -> bool {
+    let staged = entry.staged_status.trim();
+    let unstaged = entry.unstaged_status.trim();
+    if staged == "?" && unstaged == "?" {
+        return true;
+    }
+    unstaged != "" && !(staged != "" && staged != "?" && unstaged == "")
+}
+
+/// 变更条目过多时只返回前 1000 条，避免大仓库全量渲染卡死前端；前端据此显示 1000+。
+const GIT_PANEL_STATUS_MAX_ENTRIES: usize = 1000;
+
+fn git_panel_truncate_status_entries(
+    entries: Vec<GitPanelStatusEntry>,
+) -> (Vec<GitPanelStatusEntry>, bool) {
+    let truncated = entries.len() > GIT_PANEL_STATUS_MAX_ENTRIES;
+    let entries: Vec<GitPanelStatusEntry> = entries
+        .into_iter()
+        .take(GIT_PANEL_STATUS_MAX_ENTRIES)
+        .collect();
+    (entries, truncated)
 }
 
 // ---------- 命令：diff ----------
@@ -516,11 +566,46 @@ async fn git_panel_discard(input: GitPanelPathsInput) -> Result<GitPanelRunOutpu
     let workspace_path = git_panel_validate_path(&input.workspace_path)?;
     let repo_root = git_panel_resolve_root(&workspace_path).await?;
     let paths = git_panel_validate_paths(&input.paths)?;
-    // 一次性丢弃 staged + worktree 改动，回到 HEAD（VS Code discard 语义）
-    let mut args: Vec<&str> = vec!["restore", "--staged", "--worktree", "--"];
+    // restore 只对已跟踪文件生效；未跟踪文件（??）会报 pathspec 不匹配，需改用 clean 删除。
+    // 先查已跟踪列表，再分流执行。
+    let mut ls_args: Vec<&str> = vec!["ls-files", "--"];
     let path_refs: Vec<&str> = paths.iter().map(String::as_str).collect();
-    args.extend(path_refs);
-    git_panel_run_raw(&repo_root, &args).await
+    ls_args.extend(path_refs.iter().copied());
+    let tracked_stdout = git_panel_run(&repo_root, &ls_args).await?;
+    let tracked: std::collections::HashSet<&str> = tracked_stdout.lines().collect();
+
+    let mut restore_args: Vec<&str> = vec!["restore", "--staged", "--worktree", "--"];
+    let mut clean_args: Vec<&str> = vec!["clean", "-f", "--"];
+    let mut has_restore = false;
+    let mut has_clean = false;
+    for path in &paths {
+        if tracked.contains(path.as_str()) {
+            restore_args.push(path);
+            has_restore = true;
+        } else {
+            clean_args.push(path);
+            has_clean = true;
+        }
+    }
+
+    let mut stdout_parts: Vec<String> = Vec::new();
+    if has_restore {
+        let out = git_panel_run(&repo_root, &restore_args).await?;
+        if !out.trim().is_empty() {
+            stdout_parts.push(out.trim().to_string());
+        }
+    }
+    if has_clean {
+        let out = git_panel_run(&repo_root, &clean_args).await?;
+        if !out.trim().is_empty() {
+            stdout_parts.push(out.trim().to_string());
+        }
+    }
+    Ok(GitPanelRunOutput {
+        stdout: stdout_parts.join("\n"),
+        stderr: String::new(),
+        exit_code: 0,
+    })
 }
 
 // ---------- 命令：储藏 ----------
@@ -1568,5 +1653,61 @@ mod git_panel_repos_tests {
         }
         #[cfg(not(target_os = "windows"))]
         assert!(!git_panel_repo_path_eq("/A/B", "/a/b"));
+    }
+
+    #[test]
+    fn status_entries_truncated_at_max_with_flag() {
+        fn entry(path: &str) -> GitPanelStatusEntry {
+            GitPanelStatusEntry {
+                path: path.to_string(),
+                staged_status: " ".to_string(),
+                unstaged_status: "M".to_string(),
+            }
+        }
+        // 未超过上限：不截断，保留全部
+        let small: Vec<GitPanelStatusEntry> = (0..GIT_PANEL_STATUS_MAX_ENTRIES)
+            .map(|i| entry(&format!("file-{i}.txt")))
+            .collect();
+        let (kept, truncated) = git_panel_truncate_status_entries(small.clone());
+        assert_eq!(kept.len(), small.len());
+        assert!(!truncated);
+
+        // 超过上限：截断到 1000 且标记 truncated
+        let large: Vec<GitPanelStatusEntry> = (0..GIT_PANEL_STATUS_MAX_ENTRIES + 1)
+            .map(|i| entry(&format!("file-{i}.txt")))
+            .collect();
+        let (kept, truncated) = git_panel_truncate_status_entries(large);
+        assert_eq!(kept.len(), GIT_PANEL_STATUS_MAX_ENTRIES);
+        assert!(truncated);
+
+        // 空列表：不截断
+        let (kept, truncated) = git_panel_truncate_status_entries(Vec::new());
+        assert!(kept.is_empty());
+        assert!(!truncated);
+    }
+
+    #[test]
+    fn status_group_totals_match_frontend_filter_rules() {
+        fn entry(path: &str, staged: &str, unstaged: &str) -> GitPanelStatusEntry {
+            GitPanelStatusEntry {
+                path: path.to_string(),
+                staged_status: staged.to_string(),
+                unstaged_status: unstaged.to_string(),
+            }
+        }
+        // ?? 未跟踪：只进更改组
+        let untracked = entry("new.txt", "?", "?");
+        // M 在 X 列：只进暂存组
+        let staged_only = entry("a.txt", "M", " ");
+        // M 在 Y 列：只进更改组
+        let unstaged_only = entry("b.txt", " ", "M");
+        // 两侧都有 M：同时进两组
+        let both = entry("c.txt", "M", "M");
+        let entries = vec![untracked, staged_only, unstaged_only, both];
+
+        let staged_total = entries.iter().filter(|e| git_panel_entry_is_staged(e)).count();
+        let unstaged_total = entries.iter().filter(|e| git_panel_entry_is_unstaged(e)).count();
+        assert_eq!(staged_total, 2, "暂存组应含 staged_only 与 both");
+        assert_eq!(unstaged_total, 3, "更改组应含 untracked、unstaged_only 与 both");
     }
 }

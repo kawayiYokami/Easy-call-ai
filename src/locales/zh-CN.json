@@ -2627,7 +2627,7 @@
     "fetch": "抓取",
     "pull": "拉取",
     "push": "推送",
-    "stagedChanges": "暂存更改",
+    "stagedChanges": "暂存",
     "changes": "更改",
     "treeView": "树状视图",
     "listView": "列表视图",

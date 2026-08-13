@@ -2627,7 +2627,7 @@
     "fetch": "Fetch",
     "pull": "Pull",
     "push": "Push",
-    "stagedChanges": "Staged Changes",
+    "stagedChanges": "Staged",
     "changes": "Changes",
     "treeView": "Tree View",
     "listView": "List View",

@@ -2759,6 +2759,11 @@ export type GitPanelStatusOutput = {
   repoRoot: string;
   branch: string;
   entries: GitPanelStatusEntry[];
+  truncated: boolean;
+  /** 截断前暂存组实际数量（折叠条尾部显示） */
+  stagedTotal: number;
+  /** 截断前更改组实际数量（折叠条尾部显示） */
+  unstagedTotal: number;
 };
 
 export type GitPanelDiffOutput = {

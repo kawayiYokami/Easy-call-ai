@@ -2623,7 +2623,7 @@
     "fetch": "抓取",
     "pull": "拉取",
     "push": "推送",
-    "stagedChanges": "已暫存變更",
+    "stagedChanges": "已暫存",
     "changes": "變更",
     "treeView": "樹狀檢視",
     "listView": "清單檢視",

@@ -1,8 +1,22 @@
 <template>
   <div class="px-1">
     <div class="mb-0.5 flex h-6 items-center gap-1 px-1.5">
-      <span class="min-w-0 flex-1 truncate text-xs font-medium opacity-70">{{ title }}</span>
-      <span class="shrink-0 text-[11px] tabular-nums opacity-50">{{ entries.length }}</span>
+      <button
+        type="button"
+        class="btn btn-ghost btn-xs h-5 min-h-5 w-5 shrink-0 px-0"
+        :title="collapsed ? expandTitle : collapseTitle"
+        @click="collapsed = !collapsed"
+      >
+        <ChevronDown v-if="!collapsed" class="h-3.5 w-3.5" />
+        <ChevronRight v-else class="h-3.5 w-3.5" />
+      </button>
+      <button
+        type="button"
+        class="flex min-w-0 flex-1 items-center gap-1 truncate text-left text-xs font-medium opacity-70"
+        @click="collapsed = !collapsed"
+      >
+        {{ title }}
+      </button>
       <button
         v-if="entries.length > 0"
         type="button"
@@ -12,15 +26,19 @@
       >
         {{ actionTitle }}
       </button>
+      <span class="shrink-0 text-[11px] tabular-nums opacity-50">{{
+        totalCount !== undefined && totalCount > 1000 ? "1000+" : (totalCount ?? entries.length)
+      }}</span>
     </div>
-    <div
-      v-for="row in visibleRows"
-      :key="row.key"
-      class="group flex h-7 items-center gap-1 rounded px-1.5"
-      :class="row.item.kind === 'file' && row.item.path === props.highlightPath ? 'bg-primary/10 text-primary' : 'hover:bg-base-300/40'"
-      :style="{ paddingLeft: `${6 + row.depth * 14}px` }"
-      @contextmenu="onRowContextMenu($event)"
-    >
+    <div v-show="!collapsed">
+      <div
+        v-for="row in visibleRows"
+        :key="row.key"
+        class="group flex h-7 items-center gap-1 rounded px-1.5"
+        :class="row.item.kind === 'file' && row.item.path === props.highlightPath ? 'bg-primary/10 text-primary' : 'hover:bg-base-300/40'"
+        :style="{ paddingLeft: `${6 + row.depth * 14}px` }"
+        @contextmenu="onRowContextMenu($event)"
+      >
       <template v-if="row.item.kind === 'dir'">
         <button
           type="button"
@@ -101,6 +119,7 @@
           :title="statusTitle(row.item.entry)"
         >{{ statusLabel(row.item.entry) }}</span>
       </template>
+      </div>
     </div>
 
     <!-- 右键菜单：折叠全部（仅树状模式） -->
@@ -130,7 +149,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref } from "vue";
+import { computed, ref, watch } from "vue";
 import { ChevronDown, ChevronRight, Folder, Minus, Plus, Undo2 } from "@lucide/vue";
 import type { GitPanelStatusEntry } from "../../../services/tauri-api";
 
@@ -147,6 +166,8 @@ const props = withDefaults(defineProps<{
   highlightPath?: string;
   /** 展示模式：tree 按目录折叠分组；list 平铺全部文件（VSCode 风格） */
   mode?: "tree" | "list";
+  /** 截断前的组内实际数量；不传时回退 entries.length（未截断场景） */
+  totalCount?: number;
 }>(), {
   busy: false,
   expandTitle: "",
@@ -154,6 +175,7 @@ const props = withDefaults(defineProps<{
   collapseAllTitle: "",
   highlightPath: "",
   mode: "tree",
+  totalCount: undefined,
 });
 
 const emit = defineEmits<{
@@ -170,6 +192,14 @@ type GitTreeRow = { key: string; depth: number; item: GitTreeItem };
 
 // 折叠的目录路径集合；默认全部展开
 const collapsedPaths = ref<Set<string>>(new Set());
+
+// 分组整体折叠状态（暂存/更改各自独立）
+const collapsed = ref(false);
+
+// 折叠分组时关闭可能残留的右键菜单
+watch(collapsed, (value) => {
+  if (value) closeContextMenu();
+});
 
 function buildTree(entries: GitPanelStatusEntry[]): GitTreeItem[] {
   const root: GitTreeItem[] = [];

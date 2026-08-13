@@ -1,9 +1,12 @@
 <template>
   <div class="flex h-full min-h-0 w-full flex-col bg-base-200/35 text-base-content" @click="closeCommitCard">
-    <!-- 失败提示 -->
-    <div v-if="errorToast" class="pointer-events-none absolute inset-x-0 top-10 z-50 flex justify-center px-4">
-      <div class="pointer-events-auto max-w-full rounded bg-error px-3 py-1.5 text-xs text-error-content shadow-lg">
-        {{ errorToast }}
+    <!-- 操作提示：进行中 / 成功 / 失败 -->
+    <div v-if="toast" class="pointer-events-none absolute inset-x-0 top-10 z-50 flex justify-center px-4">
+      <div
+        class="pointer-events-auto max-w-full rounded px-3 py-1.5 text-xs shadow-lg"
+        :class="toast.kind === 'error' ? 'bg-error text-error-content' : toast.kind === 'success' ? 'bg-success text-success-content' : 'bg-neutral text-neutral-content'"
+      >
+        {{ toast.message }}
       </div>
     </div>
 
@@ -60,7 +63,11 @@
       <div class="flex min-h-0 flex-col overflow-hidden" :class="{ 'flex-1': !changesCollapsed }">
         <GitSectionBar v-model="changesCollapsed">
           <template #default>
-            <span class="text-xs font-medium opacity-70">{{ t('gitPanel.changes') }}</span>
+            <span class="text-xs font-medium opacity-70">
+              {{ t('gitPanel.changes') }}
+              <span v-if="statusTruncated" class="tabular-nums opacity-50">1000+</span>
+              <span v-else-if="totalChanges > 0" class="tabular-nums opacity-50">{{ totalChanges }}</span>
+            </span>
           </template>
           <template #actions>
             <button
@@ -119,6 +126,7 @@
             :entries="stagedEntries"
             :busy="busy"
             :mode="changesViewMode"
+            :total-count="stagedTotal"
             action-kind="unstage"
             :action-title="t('gitPanel.unstage')"
             :discard-title="t('gitPanel.discard')"
@@ -135,6 +143,7 @@
             :entries="unstagedEntries"
             :busy="busy"
             :mode="changesViewMode"
+            :total-count="unstagedTotal"
             action-kind="stage"
             :action-title="t('gitPanel.stage')"
             :discard-title="t('gitPanel.discard')"
@@ -559,8 +568,8 @@ function onHistoryResize(dy: number) {
   const maxHistory = Math.max(HISTORY_MIN_HEIGHT, historyContainerHeight - CHANGES_MIN_HEIGHT);
   historyHeight.value = Math.min(Math.max(HISTORY_MIN_HEIGHT, historyResizeStart - dy), maxHistory);
 }
-const errorToast = ref("");
-let errorToastTimer: number | undefined;
+const toast = ref<{ kind: "success" | "error" | "info"; message: string } | null>(null);
+let toastTimer: number | undefined;
 
 // ==================== 探测状态 ====================
 const gitAvailable = ref(false);
@@ -578,6 +587,12 @@ const currentRepoName = computed(() => {
 
 // ==================== 数据 ====================
 const statusEntries = ref<GitPanelStatusEntry[]>([]);
+/** 变更条目超过后端返回上限（1000）时为 true，前端显示 1000+ 而非全量加载 */
+const statusTruncated = ref(false);
+/** 截断前暂存组实际数量（折叠条尾部显示，可能大于展示上限） */
+const stagedTotal = ref(0);
+/** 截断前更改组实际数量（折叠条尾部显示，可能大于展示上限） */
+const unstagedTotal = ref(0);
 const branches = ref<GitPanelBranchEntry[]>([]);
 const remotes = ref<GitPanelRemoteEntry[]>([]);
 const stashList = ref<GitPanelStashEntry[]>([]);
@@ -669,19 +684,29 @@ const branchHasMore = computed(() => branchRows.value.length > branchVisibleCoun
 const visibleStashList = computed(() => stashList.value.slice(0, stashVisibleCount.value));
 const stashHasMore = computed(() => stashList.value.length > stashVisibleCount.value);
 
-// ==================== 错误提示 ====================
-function showErrorToast(message: string) {
-  errorToast.value = message;
-  if (errorToastTimer) window.clearTimeout(errorToastTimer);
-  errorToastTimer = window.setTimeout(() => {
-    errorToast.value = "";
+// ==================== 操作提示 ====================
+function showToast(kind: "success" | "error" | "info", message: string) {
+  toast.value = { kind, message };
+  if (toastTimer) window.clearTimeout(toastTimer);
+  toastTimer = window.setTimeout(() => {
+    toast.value = null;
   }, 5000);
+}
+
+/** 成功提示：中文动作描述，不展示 git 原始输出 */
+function showSuccessToast(message: string) {
+  showToast("success", message);
+}
+
+/** 失败提示：git stderr 或可读错误信息，保留排障细节 */
+function showErrorToast(message: string) {
+  showToast("error", message);
 }
 
 // ==================== 输出记录 ====================
 function appendOutput(command: string, result: GitPanelRunOutput | null, error: unknown = null) {
+  // 失败：展示 stderr / 退出码 / 异常信息；成功时不弹 git 原文（由调用方按动作弹中文成功提示）
   const body: string[] = [];
-  if (result?.stdout?.trim()) body.push(result.stdout.trim());
   if (result?.stderr?.trim()) body.push(result.stderr.trim());
   if (error) body.push(error instanceof Error ? error.message : String(error));
   const message = body.join("\n").trim();
@@ -792,6 +817,9 @@ async function loadStatus() {
   try {
     const result = await gitPanelStatus(repoRoot.value);
     statusEntries.value = result.entries || [];
+    statusTruncated.value = !!result.truncated;
+    stagedTotal.value = result.stagedTotal ?? 0;
+    unstagedTotal.value = result.unstagedTotal ?? 0;
     currentBranch.value = result.branch || "";
     if (result.repoRoot) repoRoot.value = result.repoRoot;
     statusLoaded.value = true;
@@ -990,17 +1018,32 @@ function persistGitTab() {
 }
 
 // ==================== 更改操作 ====================
-async function runGitAction(command: string, action: () => Promise<GitPanelRunOutput>): Promise<boolean> {
+async function runGitAction(
+  command: string,
+  action: () => Promise<GitPanelRunOutput>,
+  successText?: string,
+): Promise<boolean> {
   if (busy.value) return false;
   busy.value = true;
+  // 操作超过 300ms 未完成时显示进行中提示，避免快速操作闪烁
+  let processingTimer: number | undefined;
+  if (successText) {
+    processingTimer = window.setTimeout(() => showToast("info", "正在执行 git 操作…"), 300);
+  }
   try {
     const result = await action();
-    appendOutput(command, result);
+    if (processingTimer) window.clearTimeout(processingTimer);
+    if (result.exitCode !== 0) {
+      appendOutput(command, result);
+      return false;
+    }
+    if (successText) showSuccessToast(successText);
     await loadStatus();
     await loadBranches();
     await loadStashes();
     return true;
   } catch (error) {
+    if (processingTimer) window.clearTimeout(processingTimer);
     appendOutput(command, null, error);
     return false;
   } finally {
@@ -1010,18 +1053,18 @@ async function runGitAction(command: string, action: () => Promise<GitPanelRunOu
 
 function stagePaths(paths: string[]) {
   if (paths.length === 0) return;
-  void runGitAction(`add ${paths.join(" ")}`, () => gitPanelStage(repoRoot.value, paths));
+  void runGitAction(`add ${paths.join(" ")}`, () => gitPanelStage(repoRoot.value, paths), `已暂存 ${paths.length} 个文件`);
 }
 
 function unstagePaths(paths: string[]) {
   if (paths.length === 0) return;
-  void runGitAction(`restore --staged ${paths.join(" ")}`, () => gitPanelUnstage(repoRoot.value, paths));
+  void runGitAction(`restore --staged ${paths.join(" ")}`, () => gitPanelUnstage(repoRoot.value, paths), `已取消暂存 ${paths.length} 个文件`);
 }
 
 function discardPaths(paths: string[]) {
   if (paths.length === 0) return;
   if (!window.confirm(t("gitPanel.discardConfirm", { paths: paths.join(", ") }))) return;
-  void runGitAction(`restore --staged --worktree ${paths.join(" ")}`, () => gitPanelDiscard(repoRoot.value, paths));
+  void runGitAction(`restore --staged --worktree ${paths.join(" ")}`, () => gitPanelDiscard(repoRoot.value, paths), `已撤回 ${paths.length} 个文件`);
 }
 
 async function runCommit() {
@@ -1031,6 +1074,7 @@ async function runCommit() {
   try {
     const result = await gitPanelCommit(repoRoot.value, message, amendCommit.value);
     appendOutput(`commit${amendCommit.value ? " --amend" : ""}`, result);
+    if (result.exitCode === 0) showSuccessToast(amendCommit.value ? "已修改提交" : "已提交");
     commitMessage.value = "";
     amendCommit.value = false;
     resetCommitInputHeight();
@@ -1047,30 +1091,30 @@ async function runCommit() {
 async function runStashCreate() {
   const message = stashMessage.value.trim();
   if (!message || busy.value) return;
-  const ok = await runGitAction("stash push", () => gitPanelStashCreate(repoRoot.value, message));
+  const ok = await runGitAction("stash push", () => gitPanelStashCreate(repoRoot.value, message), "已创建储藏");
   if (ok) stashMessage.value = "";
 }
 
 async function runStashPop(stashRef: string) {
-  void runGitAction(`stash pop ${stashRef}`, () => gitPanelStashPop(repoRoot.value, stashRef));
+  void runGitAction(`stash pop ${stashRef}`, () => gitPanelStashPop(repoRoot.value, stashRef), "已恢复储藏");
 }
 
 async function runStashDrop(stashRef: string) {
   if (!window.confirm(t("gitPanel.stashDropConfirm", { reference: stashRef }))) return;
-  void runGitAction(`stash drop ${stashRef}`, () => gitPanelStashDrop(repoRoot.value, stashRef));
+  void runGitAction(`stash drop ${stashRef}`, () => gitPanelStashDrop(repoRoot.value, stashRef), "已删除储藏");
 }
 
 // ==================== 同步操作 ====================
 function runSync() {
-  void runGitAction("sync (fetch + pull)", () => gitPanelSync(repoRoot.value));
+  void runGitAction("sync (fetch + pull)", () => gitPanelSync(repoRoot.value), "已同步");
 }
 
 function runPush() {
-  void runGitAction("push", () => gitPanelPush(repoRoot.value));
+  void runGitAction("push", () => gitPanelPush(repoRoot.value), "已推送");
 }
 
 function runPull() {
-  void runGitAction("pull", () => gitPanelPull(repoRoot.value));
+  void runGitAction("pull", () => gitPanelPull(repoRoot.value), "已拉取");
 }
 
 // ==================== 分支操作 ====================
@@ -1081,6 +1125,7 @@ async function runBranchCreate() {
   try {
     const result = await gitPanelBranchCreate(repoRoot.value, name);
     appendOutput(`branch ${name}`, result);
+    if (result.exitCode === 0) showSuccessToast("已创建分支");
     newBranchName.value = "";
     await loadBranches();
   } catch (error) {
@@ -1096,6 +1141,7 @@ async function runBranchDelete(name: string) {
   try {
     const result = await gitPanelBranchDelete(repoRoot.value, name);
     appendOutput(`branch -d ${name}`, result);
+    if (result.exitCode === 0) showSuccessToast("已删除分支");
     await loadBranches();
   } catch (error) {
     appendOutput(`branch -d ${name}`, null, error);
@@ -1128,7 +1174,7 @@ async function runCheckoutBranch(name: string) {
   }
   if (!window.confirm(t("gitPanel.checkoutConfirm", { name }))) return;
   branchPickerOpen.value = false;
-  const ok = await runGitAction(`checkout ${name}`, () => gitPanelCheckout(repoRoot.value, name));
+  const ok = await runGitAction(`checkout ${name}`, () => gitPanelCheckout(repoRoot.value, name), `已切换分支 ${name}`);
   if (ok) {
     await loadHistory();
   }
