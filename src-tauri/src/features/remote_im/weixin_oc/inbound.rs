@@ -26,6 +26,18 @@ async fn handle_weixin_oc_inbound_message(
     if from_user_id.is_empty() {
         return Ok(());
     }
+    // 群聊：group_id 非空时按群会话处理；私聊退化为 from_user_id
+    let group_id = msg
+        .group_id
+        .as_deref()
+        .map(str::trim)
+        .unwrap_or("");
+    let contact_type = if group_id.is_empty() { "private" } else { "group" };
+    let contact_id = if group_id.is_empty() {
+        from_user_id.to_string()
+    } else {
+        group_id.to_string()
+    };
     if let Some(token) = msg
         .context_token
         .as_deref()
@@ -33,7 +45,7 @@ async fn handle_weixin_oc_inbound_message(
         .filter(|value| !value.is_empty())
     {
         weixin_oc_manager()
-            .set_context_token(state, &channel.id, from_user_id, token)
+            .set_context_token(state, &channel.id, &contact_id, token)
             .await;
     }
     let item_list = msg.item_list.unwrap_or_default();
@@ -71,7 +83,7 @@ async fn handle_weixin_oc_inbound_message(
         ChatIngressPart::Text { text } => Some(text.trim()),
         ChatIngressPart::Attachment { .. } => None,
     }).filter(|text| !text.is_empty()).collect::<Vec<_>>().join("\n");
-    let display_name = weixin_oc_contact_display_name(channel, from_user_id);
+    let display_name = weixin_oc_contact_display_name(channel, &contact_id);
     let message_id = msg
         .message_id
         .or(msg.msg_id)
@@ -82,11 +94,20 @@ async fn handle_weixin_oc_inbound_message(
             channel_id: channel.id.clone(),
             platform: RemoteImPlatform::WeixinOc,
             im_name: "weixin".to_string(),
-            remote_contact_type: "private".to_string(),
-            remote_contact_id: from_user_id.to_string(),
+            remote_contact_type: contact_type.to_string(),
+            remote_contact_id: contact_id.clone(),
             remote_contact_name: Some(display_name.clone()),
             sender_id: from_user_id.to_string(),
-            sender_name: display_name,
+            sender_name: if contact_type == "group" {
+                // 群聊中发送者是群成员，无独立昵称时用成员 id 标识
+                if from_user_id == contact_id {
+                    display_name.clone()
+                } else {
+                    from_user_id.to_string()
+                }
+            } else {
+                display_name
+            },
             sender_avatar_url: None,
             platform_message_id: Some(message_id),
             dingtalk_session_webhook: None,
@@ -145,9 +166,7 @@ async fn run_single_weixin_oc_poll_cycle(
         return Err("缺少 token，请先扫码登录".to_string());
     }
     let body = serde_json::json!({
-        "base_info": {
-            "channel_version": "easy_call_ai"
-        },
+        "base_info": weixin_oc_build_base_info(),
         "get_updates_buf": creds.sync_buf,
     });
     let body_text = serde_json::to_string(&body)
@@ -286,6 +305,86 @@ mod weixin_oc_inbound_tests {
 
         assert_eq!(display_name, "我的微信".to_string());
     }
+
+    #[test]
+    fn inbound_message_parses_group_and_state_fields() {
+        let raw = serde_json::json!({
+            "seq": 12,
+            "message_id": "msg-1",
+            "from_user_id": "member_a",
+            "to_user_id": "bot_id",
+            "context_token": "token-x",
+            "session_id": "session-1",
+            "group_id": "group-888",
+            "message_type": 1,
+            "message_state": 1,
+            "create_time_ms": 1750000000000i64,
+            "run_id": "run-1",
+            "client_id": "client-1",
+            "item_list": [
+                { "type": 1, "text_item": { "text": "群消息" } }
+            ]
+        });
+        let msg: WeixinOcInboundMessage = serde_json::from_value(raw).unwrap();
+
+        assert_eq!(msg.group_id.as_deref(), Some("group-888"));
+        assert_eq!(msg.message_state, Some(1));
+        assert_eq!(msg.run_id.as_deref(), Some("run-1"));
+        assert_eq!(msg.session_id.as_deref(), Some("session-1"));
+        assert_eq!(msg.seq, Some(12));
+        let items = msg.item_list.unwrap_or_default();
+        assert_eq!(items.len(), 1);
+        assert_eq!(items[0].item_type, Some(1));
+    }
+
+    #[test]
+    fn inbound_message_parses_voice_text_and_media_fields() {
+        let raw = serde_json::json!({
+            "message_id": "msg-2",
+            "from_user_id": "member_b",
+            "group_id": "group-888",
+            "item_list": [
+                {
+                    "type": 3,
+                    "voice_item": {
+                        "media": {
+                            "encrypt_query_param": "enc=1",
+                            "aes_key": "base64key",
+                            "encrypt_type": 1,
+                            "full_url": "https://cdn.example.com/full/voice.silk"
+                        },
+                        "encode_type": 6,
+                        "sample_rate": 24000,
+                        "playtime": 3000,
+                        "text": "你好，这是语音转文字"
+                    }
+                }
+            ]
+        });
+        let msg: WeixinOcInboundMessage = serde_json::from_value(raw).unwrap();
+
+        let items = msg.item_list.unwrap_or_default();
+        let voice = items[0].voice_item.as_ref().unwrap();
+        assert_eq!(voice.text.as_deref(), Some("你好，这是语音转文字"));
+        assert_eq!(voice.encode_type, Some(6));
+        assert_eq!(voice.sample_rate, Some(24000));
+        assert_eq!(voice.playtime, Some(3000));
+        let media = voice.media.as_ref().unwrap();
+        assert_eq!(media.full_url.as_deref(), Some("https://cdn.example.com/full/voice.silk"));
+        assert_eq!(media.encrypt_type, Some(1));
+    }
+
+    #[test]
+    fn inbound_message_without_group_is_private() {
+        let raw = serde_json::json!({
+            "message_id": "msg-3",
+            "from_user_id": "wxid_123",
+            "item_list": []
+        });
+        let msg: WeixinOcInboundMessage = serde_json::from_value(raw).unwrap();
+        assert!(msg.group_id.is_none());
+        assert_eq!(msg.from_user_id.as_deref(), Some("wxid_123"));
+    }
 }
 
 fn sync_weixin_oc_contact_from_user_id(
@@ -331,9 +430,7 @@ pub(crate) async fn weixin_oc_send_message_items(
         .map_err(RemoteImSdkSendError::definitely_not_sent)?;
     let client_id = Uuid::new_v4().simple().to_string();
     let body = serde_json::json!({
-        "base_info": {
-            "channel_version": "easy_call_ai"
-        },
+        "base_info": weixin_oc_build_base_info(),
         "msg": {
             "from_user_id": "",
             "to_user_id": to_user_id,

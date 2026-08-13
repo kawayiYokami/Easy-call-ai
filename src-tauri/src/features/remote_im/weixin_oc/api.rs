@@ -4,6 +4,29 @@ fn weixin_oc_random_wechat_uin() -> String {
     B64.encode(value.to_string())
 }
 
+/// 应用版本号（对齐 Cargo.toml / tauri.conf / package.json 三处一致的版本）
+fn weixin_oc_app_version() -> &'static str {
+    env!("CARGO_PKG_VERSION")
+}
+
+/// iLink-App-ClientVersion：uint32 编码 0x00MMNNPP，`(major&0xff)<<16 | (minor&0xff)<<8 | patch`
+/// 例："1.0.11" -> 0x0001000B = 65547
+fn weixin_oc_build_client_version(version: &str) -> u32 {
+    let mut parts = version.trim().split('.');
+    let major = parts.next().and_then(|value| value.parse::<u32>().ok()).unwrap_or(0);
+    let minor = parts.next().and_then(|value| value.parse::<u32>().ok()).unwrap_or(0);
+    let patch = parts.next().and_then(|value| value.parse::<u32>().ok()).unwrap_or(0);
+    ((major & 0xff) << 16) | ((minor & 0xff) << 8) | (patch & 0xff)
+}
+
+/// 每个 CGI 请求携带的 base_info：channel_version 为真实版本号，bot_agent 为自声明 UA（仅观测，不鉴权）
+fn weixin_oc_build_base_info() -> serde_json::Value {
+    serde_json::json!({
+        "channel_version": weixin_oc_app_version(),
+        "bot_agent": format!("easy_call_ai/{}", weixin_oc_app_version()),
+    })
+}
+
 fn weixin_oc_is_login_confirmed(status: &str) -> bool {
     matches!(
         status.trim().to_ascii_lowercase().as_str(),
@@ -29,6 +52,18 @@ fn weixin_oc_request_headers(
         reqwest::header::HeaderValue::from_str(weixin_oc_random_wechat_uin().as_str())
             .map_err(|err| format!("构造 X-WECHAT-UIN 失败: {err}"))?,
     );
+    // iLink-App-Id：通用 bot 应用标识，与官方插件一致（官方 package.json ilink_appid="bot"）
+    headers.insert(
+        "iLink-App-Id",
+        reqwest::header::HeaderValue::from_static("bot"),
+    );
+    headers.insert(
+        "iLink-App-ClientVersion",
+        reqwest::header::HeaderValue::from_str(
+            weixin_oc_build_client_version(weixin_oc_app_version()).to_string().as_str(),
+        )
+        .map_err(|err| format!("构造 iLink-App-ClientVersion 失败: {err}"))?,
+    );
     headers.insert(
         reqwest::header::CONTENT_LENGTH,
         reqwest::header::HeaderValue::from_str(body.len().to_string().as_str())
@@ -53,9 +88,7 @@ pub(crate) async fn weixin_oc_get_typing_config(
     let body = serde_json::json!({
         "ilink_user_id": ilink_user_id,
         "context_token": context_token.map(str::trim).filter(|value| !value.is_empty()),
-        "base_info": {
-            "channel_version": "easy_call_ai"
-        }
+        "base_info": weixin_oc_build_base_info()
     });
     let body_text = serde_json::to_string(&body)
         .map_err(|err| format!("序列化 getconfig 请求失败: {err}"))?;
@@ -123,9 +156,7 @@ pub(crate) async fn weixin_oc_send_typing(
         "ilink_user_id": ilink_user_id,
         "typing_ticket": typing_ticket,
         "status": status,
-        "base_info": {
-            "channel_version": "easy_call_ai"
-        }
+        "base_info": weixin_oc_build_base_info()
     });
     let body_text = serde_json::to_string(&body)
         .map_err(|err| format!("序列化 sendtyping 请求失败: {err}"))?;
@@ -168,3 +199,113 @@ pub(crate) async fn weixin_oc_send_typing(
     }
     Ok(())
 }
+
+/// 通知服务端本渠道客户端已启动（对应官方 notifyStart，失败仅记录不阻塞）
+async fn weixin_oc_notify_start(
+    credentials: &WeixinOcCredentials,
+) -> Result<(), String> {
+    let client = build_weixin_oc_http_client(credentials.normalized_api_timeout_ms())?;
+    let body = serde_json::json!({
+        "base_info": weixin_oc_build_base_info()
+    });
+    let body_text = serde_json::to_string(&body)
+        .map_err(|err| format!("序列化 notifystart 请求失败: {err}"))?;
+    let headers = weixin_oc_request_headers(&body_text, Some(credentials.token.as_str()))?;
+    let resp = client
+        .post(format!(
+            "{}/ilink/bot/msg/notifystart",
+            credentials.normalized_base_url().trim_end_matches('/')
+        ))
+        .headers(headers)
+        .body(body_text)
+        .send()
+        .await
+        .map_err(|err| format!("请求 notifystart 失败: {err}"))?;
+    let status_code = resp.status();
+    if !status_code.is_success() {
+        let body = resp.text().await.unwrap_or_default();
+        return Err(format!(
+            "请求 notifystart 结果=失败, 状态码={}, 响应={}",
+            status_code, body
+        ));
+    }
+    Ok(())
+}
+
+/// 通知服务端本渠道客户端已停止（对应官方 notifyStop，失败仅记录不阻塞）
+async fn weixin_oc_notify_stop(
+    credentials: &WeixinOcCredentials,
+) -> Result<(), String> {
+    let client = build_weixin_oc_http_client(credentials.normalized_api_timeout_ms())?;
+    let body = serde_json::json!({
+        "base_info": weixin_oc_build_base_info()
+    });
+    let body_text = serde_json::to_string(&body)
+        .map_err(|err| format!("序列化 notifystop 请求失败: {err}"))?;
+    let headers = weixin_oc_request_headers(&body_text, Some(credentials.token.as_str()))?;
+    let resp = client
+        .post(format!(
+            "{}/ilink/bot/msg/notifystop",
+            credentials.normalized_base_url().trim_end_matches('/')
+        ))
+        .headers(headers)
+        .body(body_text)
+        .send()
+        .await
+        .map_err(|err| format!("请求 notifystop 失败: {err}"))?;
+    let status_code = resp.status();
+    if !status_code.is_success() {
+        let body = resp.text().await.unwrap_or_default();
+        return Err(format!(
+            "请求 notifystop 结果=失败, 状态码={}, 响应={}",
+            status_code, body
+        ));
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod weixin_oc_api_tests {
+    use super::*;
+
+    #[test]
+    fn client_version_encodes_uint32_mmnpp() {
+        // 官方编码：0x00MMNNPP = (major&0xff)<<16 | (minor&0xff)<<8 | patch
+        assert_eq!(weixin_oc_build_client_version("1.0.11"), 0x0001_000B);
+        assert_eq!(weixin_oc_build_client_version("2.4.6"), 0x0002_0406);
+        assert_eq!(weixin_oc_build_client_version("0.60.1"), 0x0000_3C01);
+        assert_eq!(weixin_oc_build_client_version("0.0.0"), 0);
+    }
+
+    #[test]
+    fn client_version_tolerates_malformed_input() {
+        assert_eq!(weixin_oc_build_client_version(""), 0);
+        assert_eq!(weixin_oc_build_client_version("abc"), 0);
+        assert_eq!(weixin_oc_build_client_version("1"), 0x0001_0000);
+        assert_eq!(weixin_oc_build_client_version("1.2"), 0x0001_0200);
+    }
+
+    #[test]
+    fn base_info_uses_real_version_and_bot_agent() {
+        let info = weixin_oc_build_base_info();
+        assert_eq!(
+            info["channel_version"].as_str(),
+            Some(env!("CARGO_PKG_VERSION"))
+        );
+        assert_eq!(
+            info["bot_agent"].as_str(),
+            Some(format!("easy_call_ai/{}", env!("CARGO_PKG_VERSION")).as_str())
+        );
+    }
+
+    #[test]
+    fn request_headers_include_app_id_and_client_version() {
+        let headers = weixin_oc_request_headers("{}", None).unwrap();
+        // iLink-App-Id 与官方一致（通用 bot 标识）
+        assert_eq!(headers.get("iLink-App-Id").unwrap(), "bot");
+        assert!(headers.contains_key("iLink-App-ClientVersion"));
+        assert!(headers.contains_key("X-WECHAT-UIN"));
+        assert!(headers.contains_key("AuthorizationType"));
+    }
+}
+

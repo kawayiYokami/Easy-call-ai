@@ -552,6 +552,13 @@ impl WeixinOcManager {
             manager
                 .add_log(&task_channel_id, "info", "[个人微信] 轮询任务开始")
                 .await;
+            let task_credentials = WeixinOcCredentials::from_value(&channel.credentials);
+            if let Err(err) = weixin_oc_notify_start(&task_credentials).await {
+                runtime_log_warn(format!(
+                    "[个人微信] notifyStart 失败（忽略，不阻塞启动）: channel_id={}, error={}",
+                    task_channel_id, err
+                ));
+            }
             let mut stop_rx = stop_rx;
             loop {
                 if *stop_rx.borrow() {
@@ -617,6 +624,12 @@ impl WeixinOcManager {
             manager
                 .add_log(&task_channel_id, "info", "[个人微信] 轮询任务结束")
                 .await;
+            if let Err(err) = weixin_oc_notify_stop(&task_credentials).await {
+                runtime_log_warn(format!(
+                    "[个人微信] notifyStop 失败（忽略）: channel_id={}, error={}",
+                    task_channel_id, err
+                ));
+            }
         });
         self.tasks.write().await.insert(channel_id, handle);
         Ok(())

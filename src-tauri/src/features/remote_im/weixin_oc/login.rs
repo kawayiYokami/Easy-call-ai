@@ -41,6 +41,10 @@ impl WeixinOcManager {
         let resp = client
             .get(url)
             .query(&[("bot_type", creds.normalized_bot_type())])
+            .header(
+                "iLink-App-ClientVersion",
+                weixin_oc_build_client_version(weixin_oc_app_version()).to_string(),
+            )
             .send()
             .await
             .map_err(|err| format!("请求二维码失败: {err}"))?;
@@ -144,7 +148,10 @@ impl WeixinOcManager {
         let resp = client
             .get(url)
             .query(&[("qrcode", login.qrcode.clone())])
-            .header("iLink-App-ClientVersion", "1")
+            .header(
+                "iLink-App-ClientVersion",
+                weixin_oc_build_client_version(weixin_oc_app_version()).to_string(),
+            )
             .send()
             .await
             .map_err(|err| format!("查询二维码状态失败: {err}"))?;

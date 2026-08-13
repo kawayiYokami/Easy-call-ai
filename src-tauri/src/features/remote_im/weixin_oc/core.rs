@@ -6,6 +6,7 @@ const WEIXIN_OC_DEFAULT_BOT_TYPE: &str = "3";
 const WEIXIN_OC_LOGIN_TTL_SECS: i64 = 5 * 60;
 const WEIXIN_OC_TEXT_ITEM_TYPE: i64 = 1;
 const WEIXIN_OC_IMAGE_ITEM_TYPE: i64 = 2;
+const WEIXIN_OC_VOICE_ITEM_TYPE: i64 = 3;
 const WEIXIN_OC_FILE_ITEM_TYPE: i64 = 4;
 const WEIXIN_OC_VIDEO_ITEM_TYPE: i64 = 5;
 const WEIXIN_OC_IMAGE_UPLOAD_TYPE: i64 = 1;
@@ -183,12 +184,37 @@ struct WeixinOcGetUpdatesResp {
     get_updates_buf: Option<String>,
 }
 
+/// 入站消息结构，按官方 WeixinMessage 全字段对齐。
+/// 部分字段当前仅解析保留（seq/session_id/message_type/message_state/create_time_ms/run_id/client_id/to_user_id），
+/// 用于协议兼容与后续流式/生命周期功能，尚未参与业务分支。
 #[derive(Debug, Clone, Deserialize)]
+#[allow(dead_code)]
 struct WeixinOcInboundMessage {
+    #[serde(default)]
+    seq: Option<i64>,
     message_id: Option<Value>,
+    #[serde(default)]
     msg_id: Option<Value>,
+    #[serde(default)]
     from_user_id: Option<String>,
+    #[serde(default)]
+    to_user_id: Option<String>,
+    #[serde(default)]
     context_token: Option<String>,
+    #[serde(default)]
+    session_id: Option<String>,
+    #[serde(default)]
+    group_id: Option<String>,
+    #[serde(default)]
+    message_type: Option<i64>,
+    #[serde(default)]
+    message_state: Option<i64>,
+    #[serde(default)]
+    create_time_ms: Option<i64>,
+    #[serde(default)]
+    run_id: Option<String>,
+    #[serde(default)]
+    client_id: Option<String>,
     item_list: Option<Vec<WeixinOcMessageItem>>,
 }
 
@@ -215,14 +241,32 @@ struct WeixinOcImageItem {
 }
 
 #[derive(Debug, Clone, Deserialize)]
+#[allow(dead_code)]
 struct WeixinOcMediaPayload {
     encrypt_query_param: Option<String>,
     aes_key: Option<String>,
+    /// 加密类型：0=只加密 fileid，1=打包缩略图/中图
+    #[serde(default)]
+    encrypt_type: Option<i64>,
+    /// 完整下载 URL（服务端直接返回，无需客户端拼接）
+    #[serde(default)]
+    full_url: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
+#[allow(dead_code)]
 struct WeixinOcVoiceItem {
     media: Option<WeixinOcMediaPayload>,
+    /// 语音编码类型：1=pcm 2=adpcm 3=feature 4=speex 5=amr 6=silk 7=mp3 8=ogg-speex
+    #[serde(default)]
+    encode_type: Option<i64>,
+    #[serde(default)]
+    sample_rate: Option<i64>,
+    #[serde(default)]
+    playtime: Option<i64>,
+    /// 语音转文字内容
+    #[serde(default)]
+    text: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
