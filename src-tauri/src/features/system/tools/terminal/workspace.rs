@@ -1028,6 +1028,7 @@ fn terminal_prompt_trusted_roots_block(
         } else {
             lines.push("用户希望直接在当前工作目录中工作，请将其作为本次任务的默认读取、修改和命令执行根目录。".to_string());
         }
+        lines.push(".pai/ 是 PAI 的项目级资产目录（通常被 Git 忽略），存放与项目本身无关、不应残留进代码库的资产，请主动按目录职责管理与维护：\n- .pai/skills/：项目专用 Skill\n- .pai/mcp/：项目级 MCP 预留位置\n- .pai/plan/{domain}/：按领域归类的计划文件\n- .pai/report/：审查、调查、验收报告\n- .pai/workflow/：项目固定工作流\n- .pai/reference-projects/：外部参考仓库（独立 Git 状态）\n- .pai/.worktree/：隔离开发工作树\n- .pai/temp/：可丢弃的临时产物".to_string());
     }
     let shell_block = prompt_xml_block("shell workspace", lines.join("\n"));
     let assistant_block = assistant_space.map(|workspace| {

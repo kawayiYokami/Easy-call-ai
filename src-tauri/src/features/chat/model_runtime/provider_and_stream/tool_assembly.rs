@@ -1537,7 +1537,7 @@ mod tool_assembly_permission_tests {
         assert!(!department_permission_allows_any_name(
             Some(reviewer),
             DepartmentPermissionCategory::Skill,
-            &["workspace-guide"],
+            &["assistant-space-guide"],
         ));
         assert!(department_permission_allows_any_name(
             Some(reviewer),

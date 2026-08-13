@@ -213,11 +213,11 @@ fn render_hidden_skill_snapshot_block(
     }
     let example_path = skills
         .iter()
-        .find(|item| item.name.trim().eq_ignore_ascii_case("workspace-guide"))
+        .find(|item| item.name.trim().eq_ignore_ascii_case("assistant-space-guide"))
         .map(|item| item.path.trim().to_string())
         .unwrap_or_else(|| {
             skills_root_path
-                .join("workspace-guide")
+                .join("assistant-space-guide")
                 .join("SKILL.md")
                 .to_string_lossy()
                 .to_string()
@@ -228,7 +228,7 @@ fn render_hidden_skill_snapshot_block(
         prompt_xml_block(
             "skill usage",
             format!(
-                "System skill directory path: {}\n\nhow to read skill:\nexample:\nworkspace-guide\nread this path: {}",
+                "System skill directory path: {}\n\nhow to read skill:\nexample:\nassistant-space-guide\nread this path: {}",
                 skills_root, example_path
             ),
         ),
