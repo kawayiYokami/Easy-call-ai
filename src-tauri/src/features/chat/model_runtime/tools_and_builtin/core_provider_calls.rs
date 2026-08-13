@@ -728,6 +728,17 @@ async fn resolve_request_api_config(
     let fresh_auth = ensure_codex_runtime_auth_fresh(codex_auth).await?;
     let mut next = api_config.clone();
     next.api_key = fresh_auth.access_token.clone();
+    if let Some(account_id) = fresh_auth
+        .account_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        next.extra_headers
+            .retain(|(key, _)| !key.eq_ignore_ascii_case("ChatGPT-Account-Id"));
+        next.extra_headers
+            .push(("ChatGPT-Account-Id".to_string(), account_id.to_string()));
+    }
     next.codex_auth = Some(fresh_auth.clone());
     Ok(next)
 }

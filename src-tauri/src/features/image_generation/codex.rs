@@ -1,5 +1,6 @@
 struct CodexImageAuth {
     access_token: String,
+    account_id: Option<String>,
     base_url: String,
 }
 
@@ -33,13 +34,16 @@ async fn resolve_codex_image_auth(
     }
 
     let auth_mode = normalize_codex_auth_mode(&api_provider.codex_auth_mode);
-    let access_token = if auth_mode == CODEX_AUTH_MODE_CUSTOM_URL {
-        api_provider
-            .codex_custom_api_key
-            .as_deref()
-            .unwrap_or_default()
-            .trim()
-            .to_string()
+    let (access_token, account_id) = if auth_mode == CODEX_AUTH_MODE_CUSTOM_URL {
+        (
+            api_provider
+                .codex_custom_api_key
+                .as_deref()
+                .unwrap_or_default()
+                .trim()
+                .to_string(),
+            None,
+        )
     } else {
         let snapshot = read_codex_runtime_auth_snapshot(
             &api_provider.id,
@@ -47,7 +51,7 @@ async fn resolve_codex_image_auth(
             &api_provider.codex_local_auth_path,
         )?;
         let fresh = ensure_codex_runtime_auth_fresh(&snapshot).await?;
-        fresh.access_token
+        (fresh.access_token.clone(), fresh.account_id.clone())
     };
     if access_token.trim().is_empty() {
         return Err(format!(
@@ -73,6 +77,7 @@ async fn resolve_codex_image_auth(
     };
     Ok(CodexImageAuth {
         access_token,
+        account_id,
         base_url,
     })
 }
@@ -293,6 +298,18 @@ async fn generate_codex_image_once(
         reqwest::header::ACCEPT,
         HeaderValue::from_static("text/event-stream"),
     );
+    if let Some(account_id) = auth
+        .account_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        headers.insert(
+            "ChatGPT-Account-Id",
+            HeaderValue::from_str(account_id)
+                .map_err(|err| format!("Codex 生图请求头构造失败：{err}"))?,
+        );
+    }
     let response = state
         .shared_http_client
         .post(endpoint)

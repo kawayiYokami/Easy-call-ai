@@ -5,7 +5,7 @@ const CODEX_OAUTH_CALLBACK_PORT: u16 = 1455;
 const CODEX_OAUTH_CALLBACK_PATH: &str = "/auth/callback";
 const CODEX_OAUTH_REDIRECT_URI: &str = "http://localhost:1455/auth/callback";
 const CODEX_OAUTH_SCOPE: &str = "openid profile email offline_access";
-const CODEX_OAUTH_ORIGINATOR: &str = "cline";
+const CODEX_OAUTH_ORIGINATOR: &str = "pai";
 const CODEX_REFRESH_LEAD_MS: i64 = 5 * 24 * 60 * 60 * 1000;
 const CODEX_OAUTH_HTML_SUCCESS: &str = r#"<!DOCTYPE html><html><head><meta charset="utf-8"><title>Codex 登录成功</title></head><body style="font-family:Segoe UI,Arial,sans-serif;padding:32px;"><h2>Codex 登录成功</h2><p>可以关闭这个窗口，返回应用继续使用。</p><script>setTimeout(()=>window.close(),2000)</script></body></html>"#;
 const CODEX_OAUTH_HTML_ERROR: &str = r#"<!DOCTYPE html><html><head><meta charset="utf-8"><title>Codex 登录失败</title></head><body style="font-family:Segoe UI,Arial,sans-serif;padding:32px;"><h2>Codex 登录失败</h2><p>请回到应用查看错误信息后重试。</p></body></html>"#;
@@ -341,6 +341,7 @@ fn codex_build_authorize_url(code_challenge: &str, state: &str) -> String {
         ("response_type", "code"),
         ("state", state),
         ("codex_cli_simplified_flow", "true"),
+        ("id_token_add_organizations", "true"),
         ("originator", CODEX_OAUTH_ORIGINATOR),
     ];
     let query = params
@@ -1280,5 +1281,18 @@ mod codex_auth_tests {
             body.get("last_refresh").and_then(Value::as_str),
             Some("2026-06-18T10:00:00Z")
         );
+    }
+
+    #[test]
+    fn authorize_url_includes_codex_flow_and_pai_originator() {
+        let url = codex_build_authorize_url("verifier-challenge", "state-123");
+        assert!(url.contains("codex_cli_simplified_flow=true"), "url: {url}");
+        assert!(
+            url.contains("id_token_add_organizations=true"),
+            "url: {url}"
+        );
+        assert!(url.contains("originator=pai"), "url: {url}");
+        assert!(!url.contains("originator=cline"), "url: {url}");
+        assert!(url.contains("code_challenge_method=S256"), "url: {url}");
     }
 }
