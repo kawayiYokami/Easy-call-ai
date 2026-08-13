@@ -56,6 +56,66 @@
     }
 
     #[test]
+    fn remote_im_upsert_contact_for_inbound_weixin_defaults_allow_send_files() {
+        // 微信渠道为私聊场景（bot 为本人扫码授权账号），新建联系人默认允许发送文件
+        let mut runtime = RuntimeStateFile::default();
+        let input = RemoteImEnqueueInput {
+            channel_id: "wx-1".to_string(),
+            platform: RemoteImPlatform::WeixinOc,
+            im_name: "weixin".to_string(),
+            remote_contact_type: "private".to_string(),
+            remote_contact_id: "wxid_user".to_string(),
+            remote_contact_name: Some("微信好友".to_string()),
+            sender_id: "wxid_user".to_string(),
+            sender_name: "微信好友".to_string(),
+            sender_avatar_url: None,
+            platform_message_id: Some("m1".to_string()),
+            dingtalk_session_webhook: None,
+            dingtalk_session_webhook_expired_time: None,
+            session: SessionSelector {
+                api_config_id: None,
+                department_id: None,
+                agent_id: "agent".to_string(),
+                conversation_id: Some("conv-1".to_string()),
+            },
+            payload: ChatInputPayload {
+                text: Some("hello".to_string()),
+                display_text: None,
+                parts: None,
+                images: None,
+                audios: None,
+                attachments: None,
+                model: None,
+                extra_text_blocks: None,
+                mentions: None,
+                provider_meta: None,
+            },
+        };
+        let now = now_iso();
+        let contact_id = remote_im_upsert_contact_for_inbound(&mut runtime, &input, &now);
+        let contact = runtime
+            .remote_im_contacts
+            .iter()
+            .find(|item| item.id == contact_id)
+            .expect("contact exists");
+        assert!(contact.allow_send_files, "微信渠道新建联系人应默认允许发送文件");
+        // 非微信渠道仍保持默认关闭
+        let mut runtime_qq = RuntimeStateFile::default();
+        let input_qq = RemoteImEnqueueInput {
+            platform: RemoteImPlatform::OnebotV11,
+            ..input
+        };
+        let now_qq = now_iso();
+        let contact_id_qq = remote_im_upsert_contact_for_inbound(&mut runtime_qq, &input_qq, &now_qq);
+        let contact_qq = runtime_qq
+            .remote_im_contacts
+            .iter()
+            .find(|item| item.id == contact_id_qq)
+            .expect("contact exists");
+        assert!(!contact_qq.allow_send_files, "非微信渠道应保持默认关闭文件发送");
+    }
+
+    #[test]
     fn default_group_response_guidance_should_prefer_silence_and_direct_relation() {
         assert_eq!(default_remote_im_contact_response_strategy(), "smart_judge");
 

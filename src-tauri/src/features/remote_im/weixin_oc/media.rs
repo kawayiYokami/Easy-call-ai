@@ -390,17 +390,23 @@ async fn weixin_oc_collect_media(
             }
             _ => continue,
         };
-        let Some(encrypted_query_param) = media
+        // 官方 2.x：服务端可能只下发 full_url（encrypt_query_param 为空），两者任一存在即可下载
+        let full_url = media
+            .full_url
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty());
+        let encrypted_query_param = media
             .encrypt_query_param
             .as_deref()
             .map(str::trim)
-            .filter(|value| !value.is_empty())
-        else {
+            .filter(|value| !value.is_empty());
+        if full_url.is_none() && encrypted_query_param.is_none() {
             parts.push(ChatIngressPart::Text {
                 text: format!("[附件不可用：{} 缺少下载参数，已跳过并继续]", file_name),
             });
             continue;
-        };
+        }
         let aes_key_value = aes_key_override.or_else(|| {
             media.aes_key
                 .as_deref()
@@ -411,8 +417,8 @@ async fn weixin_oc_collect_media(
         let raw = match weixin_oc_download_image_bytes(
             client,
             &cdn_base_url,
-            media.full_url.as_deref(),
-            encrypted_query_param,
+            full_url,
+            encrypted_query_param.unwrap_or(""),
             aes_key_value.as_deref(),
         )
         .await {
@@ -855,6 +861,50 @@ mod weixin_oc_media_tests {
                 assert_eq!(text, "回复图片");
             }
             _ => panic!("引用媒体时应只保留当前文本"),
+        }
+    }
+
+    #[tokio::test]
+    async fn collect_media_full_url_only_attempts_download_not_skip() {
+        // 官方 2.x 可能只下发 full_url（无 encrypt_query_param），此时应走下载而非「缺少下载参数」跳过
+        let client = reqwest::Client::new();
+        let credentials = WeixinOcCredentials {
+            base_url: "https://example.com".to_string(),
+            cdn_base_url: "https://cdn.example.com".to_string(),
+            bot_type: String::new(),
+            qr_poll_interval: None,
+            long_poll_timeout_ms: None,
+            api_timeout_ms: None,
+            token: String::new(),
+            account_id: String::new(),
+            user_id: String::new(),
+            sync_buf: String::new(),
+        };
+        let item = WeixinOcMessageItem {
+            item_type: Some(WEIXIN_OC_FILE_ITEM_TYPE),
+            text_item: None,
+            image_item: None,
+            voice_item: None,
+            file_item: Some(WeixinOcFileItem {
+                media: Some(WeixinOcMediaPayload {
+                    encrypt_query_param: None,
+                    aes_key: None,
+                    encrypt_type: None,
+                    full_url: Some("https://cdn.example.com/not-exist.bin".to_string()),
+                }),
+                file_name: Some("doc.pdf".to_string()),
+            }),
+            video_item: None,
+            ref_msg: None,
+        };
+        let collected = weixin_oc_collect_media(&client, &credentials, std::slice::from_ref(&item)).await;
+        assert_eq!(collected.parts.len(), 1);
+        match &collected.parts[0] {
+            ChatIngressPart::Text { text } => {
+                // 走到下载分支（测试环境下载失败降级为提示），而不是「缺少下载参数」跳过
+                assert!(text.contains("下载失败"), "应为下载失败降级: {text}");
+            }
+            ChatIngressPart::Attachment { .. } => {}
         }
     }
 }

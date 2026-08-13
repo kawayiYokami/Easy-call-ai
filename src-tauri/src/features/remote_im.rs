@@ -347,7 +347,8 @@ fn remote_im_upsert_contact_for_inbound(
             .to_string(),
         remark_name: String::new(),
         allow_send: default_allow_receive,
-        allow_send_files: false,
+        // 微信渠道为私聊场景（bot 为本人扫码授权账号），默认允许发送文件；其余渠道保持默认关闭
+        allow_send_files: matches!(input.platform, RemoteImPlatform::WeixinOc),
         allow_receive: default_allow_receive,
         activation_mode: "never".to_string(),
         activation_keywords: Vec::new(),

@@ -253,7 +253,8 @@ fn upsert_weixin_oc_contact(
         avatar_url: String::new(),
         remark_name: String::new(),
         allow_send: true,
-        allow_send_files: false,
+        // 微信渠道为私聊场景（bot 为本人扫码授权账号），默认允许发送文件
+        allow_send_files: true,
         allow_receive: true,
         activation_mode: "never".to_string(),
         activation_keywords: Vec::new(),
