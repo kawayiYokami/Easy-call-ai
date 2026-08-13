@@ -105,16 +105,6 @@ impl ConversationServiceV2 {
             return Err("未找到可置顶的会话".to_string());
         }
 
-        let visible_ids = state_read_chat_index_cached(state)?
-            .conversations
-            .iter()
-            .filter_map(|item| self.get_conversation_meta(state, item.id.as_str()).ok())
-            .filter(|conversation_meta| {
-                self.conversation_meta_is_local_normal_chat_meta_view(conversation_meta)
-            })
-            .map(|conversation_meta| conversation_meta.id.trim().to_string())
-            .filter(|conversation_id| !conversation_id.is_empty())
-            .collect::<std::collections::HashSet<_>>();
         let mut seen = std::collections::HashSet::<String>::new();
         let previous_pinned = runtime
             .pinned_conversation_ids
@@ -122,7 +112,6 @@ impl ConversationServiceV2 {
             .map(|item| item.trim().to_string())
             .filter(|item| !item.is_empty())
             .filter(|item| *item != main_conversation_id)
-            .filter(|item| visible_ids.contains(item))
             .filter(|item| seen.insert(item.clone()))
             .collect::<Vec<_>>();
         let mut next_pinned = previous_pinned.clone();
