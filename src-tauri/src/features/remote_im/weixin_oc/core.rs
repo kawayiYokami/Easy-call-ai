@@ -227,6 +227,18 @@ struct WeixinOcMessageItem {
     voice_item: Option<WeixinOcVoiceItem>,
     file_item: Option<WeixinOcFileItem>,
     video_item: Option<WeixinOcVideoItem>,
+    /// 引用消息（官方 RefMessage：title 摘要 + 被引用 message_item）
+    #[serde(default)]
+    ref_msg: Option<WeixinOcRefMessage>,
+}
+
+/// 官方 RefMessage：被引用消息摘要与内容
+#[derive(Debug, Clone, Deserialize)]
+struct WeixinOcRefMessage {
+    #[serde(default)]
+    title: Option<String>,
+    #[serde(default)]
+    message_item: Option<Box<WeixinOcMessageItem>>,
 }
 
 #[derive(Debug, Clone, Deserialize)]

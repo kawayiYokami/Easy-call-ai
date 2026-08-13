@@ -198,6 +198,78 @@ fn weixin_oc_normalize_image_mime(raw: &[u8]) -> String {
     image_mime_from_bytes(raw).unwrap_or("image/jpeg").to_string()
 }
 
+fn weixin_oc_item_is_media(item: &WeixinOcMessageItem) -> bool {
+    matches!(
+        item.item_type,
+        Some(WEIXIN_OC_IMAGE_ITEM_TYPE)
+            | Some(WEIXIN_OC_VOICE_ITEM_TYPE)
+            | Some(WEIXIN_OC_FILE_ITEM_TYPE)
+            | Some(WEIXIN_OC_VIDEO_ITEM_TYPE)
+    )
+}
+
+/// 取引用消息内容（文本或语音转文字），与官方 bodyFromItemList 一致
+fn weixin_oc_ref_message_body(item: &WeixinOcMessageItem) -> Option<String> {
+    if item.item_type == Some(WEIXIN_OC_TEXT_ITEM_TYPE) {
+        if let Some(text) = item
+            .text_item
+            .as_ref()
+            .and_then(|value| value.text.as_deref())
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+        {
+            return Some(text.to_string());
+        }
+    }
+    if item.item_type == Some(WEIXIN_OC_VOICE_ITEM_TYPE) {
+        if let Some(text) = item
+            .voice_item
+            .as_ref()
+            .and_then(|value| value.text.as_deref())
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+        {
+            return Some(text.to_string());
+        }
+    }
+    None
+}
+
+/// 引用消息格式化：官方行为为 `[引用: title | body]\n当前文本`；引用媒体时只保留当前文本
+fn weixin_oc_format_quoted_text(item: &WeixinOcMessageItem) -> Option<String> {
+    let text = item
+        .text_item
+        .as_ref()
+        .and_then(|value| value.text.as_deref())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())?
+        .to_string();
+    let ref_msg = item.ref_msg.as_ref()?;
+    if let Some(ref_item) = ref_msg.message_item.as_deref() {
+        if weixin_oc_item_is_media(ref_item) {
+            return Some(text);
+        }
+    }
+    let mut parts = Vec::<String>::new();
+    if let Some(title) = ref_msg
+        .title
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        parts.push(title.to_string());
+    }
+    if let Some(ref_item) = ref_msg.message_item.as_deref() {
+        if let Some(body) = weixin_oc_ref_message_body(ref_item) {
+            parts.push(body);
+        }
+    }
+    if parts.is_empty() {
+        return Some(text);
+    }
+    Some(format!("[引用: {}]\n{}", parts.join(" | "), text))
+}
+
 fn weixin_oc_guess_attachment_mime(file_name: &str, fallback: &str) -> String {
     media_mime_from_path(std::path::Path::new(file_name))
         .unwrap_or(fallback)
@@ -214,16 +286,15 @@ async fn weixin_oc_collect_media(
     for item in item_list {
         let item_type = item.item_type.unwrap_or(0);
         if item_type == 1 {
-            if let Some(text) = item
-                .text_item
-                .as_ref()
-                .and_then(|value| value.text.as_deref())
-                .map(str::trim)
-                .filter(|value| !value.is_empty())
-            {
-                parts.push(ChatIngressPart::Text {
-                    text: text.to_string(),
-                });
+            if let Some(text) = weixin_oc_format_quoted_text(item).or_else(|| {
+                item.text_item
+                    .as_ref()
+                    .and_then(|value| value.text.as_deref())
+                    .map(str::trim)
+                    .filter(|value| !value.is_empty())
+                    .map(str::to_string)
+            }) {
+                parts.push(ChatIngressPart::Text { text });
             }
             continue;
         }
@@ -631,6 +702,7 @@ mod weixin_oc_media_tests {
             }),
             file_item: None,
             video_item: None,
+            ref_msg: None,
         };
         let collected = weixin_oc_collect_media(&client, &credentials, std::slice::from_ref(&item)).await;
         assert_eq!(collected.parts.len(), 1);
@@ -676,6 +748,7 @@ mod weixin_oc_media_tests {
             }),
             file_item: None,
             video_item: None,
+            ref_msg: None,
         };
         let collected = weixin_oc_collect_media(&client, &credentials, std::slice::from_ref(&item)).await;
         // 下载失败时降级为文本提示，不能 panic
@@ -685,6 +758,103 @@ mod weixin_oc_media_tests {
                 assert!(text.contains("附件不可用"));
             }
             ChatIngressPart::Attachment { .. } => {}
+        }
+    }
+
+    #[tokio::test]
+    async fn collect_media_formats_quoted_text_like_official() {
+        let client = reqwest::Client::new();
+        let credentials = WeixinOcCredentials {
+            base_url: "https://example.com".to_string(),
+            cdn_base_url: "https://cdn.example.com".to_string(),
+            bot_type: String::new(),
+            qr_poll_interval: None,
+            long_poll_timeout_ms: None,
+            api_timeout_ms: None,
+            token: String::new(),
+            account_id: String::new(),
+            user_id: String::new(),
+            sync_buf: String::new(),
+        };
+        let quoted = WeixinOcMessageItem {
+            item_type: Some(WEIXIN_OC_TEXT_ITEM_TYPE),
+            text_item: Some(WeixinOcTextItem {
+                text: Some("被引用的原文".to_string()),
+            }),
+            image_item: None,
+            voice_item: None,
+            file_item: None,
+            video_item: None,
+            ref_msg: None,
+        };
+        let item = WeixinOcMessageItem {
+            item_type: Some(WEIXIN_OC_TEXT_ITEM_TYPE),
+            text_item: Some(WeixinOcTextItem {
+                text: Some("当前回复".to_string()),
+            }),
+            image_item: None,
+            voice_item: None,
+            file_item: None,
+            video_item: None,
+            ref_msg: Some(WeixinOcRefMessage {
+                title: Some("引用摘要".to_string()),
+                message_item: Some(Box::new(quoted)),
+            }),
+        };
+        let collected = weixin_oc_collect_media(&client, &credentials, std::slice::from_ref(&item)).await;
+        assert_eq!(collected.parts.len(), 1);
+        match &collected.parts[0] {
+            ChatIngressPart::Text { text } => {
+                assert_eq!(text, "[引用: 引用摘要 | 被引用的原文]\n当前回复");
+            }
+            _ => panic!("引用文本应格式化为文本块"),
+        }
+    }
+
+    #[tokio::test]
+    async fn collect_media_quoted_media_keeps_only_current_text() {
+        let client = reqwest::Client::new();
+        let credentials = WeixinOcCredentials {
+            base_url: "https://example.com".to_string(),
+            cdn_base_url: "https://cdn.example.com".to_string(),
+            bot_type: String::new(),
+            qr_poll_interval: None,
+            long_poll_timeout_ms: None,
+            api_timeout_ms: None,
+            token: String::new(),
+            account_id: String::new(),
+            user_id: String::new(),
+            sync_buf: String::new(),
+        };
+        let quoted_media = WeixinOcMessageItem {
+            item_type: Some(WEIXIN_OC_IMAGE_ITEM_TYPE),
+            text_item: None,
+            image_item: None,
+            voice_item: None,
+            file_item: None,
+            video_item: None,
+            ref_msg: None,
+        };
+        let item = WeixinOcMessageItem {
+            item_type: Some(WEIXIN_OC_TEXT_ITEM_TYPE),
+            text_item: Some(WeixinOcTextItem {
+                text: Some("回复图片".to_string()),
+            }),
+            image_item: None,
+            voice_item: None,
+            file_item: None,
+            video_item: None,
+            ref_msg: Some(WeixinOcRefMessage {
+                title: None,
+                message_item: Some(Box::new(quoted_media)),
+            }),
+        };
+        let collected = weixin_oc_collect_media(&client, &credentials, std::slice::from_ref(&item)).await;
+        match &collected.parts[0] {
+            ChatIngressPart::Text { text } => {
+                assert_eq!(text, "回复图片");
+            }
+            _ => panic!("引用媒体时应只保留当前文本"),
         }
     }
 }

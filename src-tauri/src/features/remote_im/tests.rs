@@ -1459,6 +1459,7 @@
                 voice_item: None,
                 file_item: None,
                 video_item: None,
+                ref_msg: None,
             },
             WeixinOcMessageItem {
                 item_type: Some(2),
@@ -1467,6 +1468,7 @@
                 voice_item: None,
                 file_item: None,
                 video_item: None,
+                ref_msg: None,
             },
             WeixinOcMessageItem {
                 item_type: Some(1),
@@ -1477,6 +1479,7 @@
                 voice_item: None,
                 file_item: None,
                 video_item: None,
+                ref_msg: None,
             },
         ];
 

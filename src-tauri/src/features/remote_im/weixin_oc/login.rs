@@ -41,6 +41,7 @@ impl WeixinOcManager {
         let resp = client
             .get(url)
             .query(&[("bot_type", creds.normalized_bot_type())])
+            .header("iLink-App-Id", "bot")
             .header(
                 "iLink-App-ClientVersion",
                 weixin_oc_build_client_version(weixin_oc_app_version()).to_string(),
@@ -148,6 +149,7 @@ impl WeixinOcManager {
         let resp = client
             .get(url)
             .query(&[("qrcode", login.qrcode.clone())])
+            .header("iLink-App-Id", "bot")
             .header(
                 "iLink-App-ClientVersion",
                 weixin_oc_build_client_version(weixin_oc_app_version()).to_string(),
