@@ -62,4 +62,5 @@ include!("commands/chat_and_runtime.rs");
 include!("commands/desktop_tools.rs");
 
 // ==================== Git 面板命令 ====================
+include!("commands/git_executor.rs");
 include!("commands/git_panel.rs");

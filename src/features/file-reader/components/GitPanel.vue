@@ -764,6 +764,10 @@ async function loadDiscover(force = false) {
         : !result.currentRepoRoot && repos.value.length === 0
           ? t("gitPanel.notRepository")
           : "");
+    // 探查完成后统一触发可见数据加载：无论本次探查由 watch immediate、
+    // onMounted 还是手动刷新发起，都能补上首次数据，避免 onMounted 被
+    // reposLoading 防重入挡住时触发链断裂导致面板全空。
+    ensureVisibleData();
   } catch (error) {
     gitAvailable.value = false;
     detectChecked.value = true;
@@ -812,8 +816,18 @@ watch(
   { immediate: true },
 );
 
-async function loadStatus() {
+/** 数据加载冷却：自动触发 1 秒内不重复请求；写操作后的刷新与用户主动刷新可穿透 */
+const REFRESH_CD_MS = 1000;
+const lastStatusLoad = ref(0);
+const lastBranchesLoad = ref(0);
+const lastStashesLoad = ref(0);
+const lastHistoryLoad = ref(0);
+
+async function loadStatus(force = false) {
   if (!repoRoot.value) return;
+  const now = Date.now();
+  if (!force && now - lastStatusLoad.value < REFRESH_CD_MS) return;
+  lastStatusLoad.value = now;
   try {
     const result = await gitPanelStatus(repoRoot.value);
     statusEntries.value = result.entries || [];
@@ -831,14 +845,17 @@ async function loadStatus() {
 async function refreshChanges() {
   changesRefreshing.value = true;
   try {
-    await loadStatus();
+    await loadStatus(true);
   } finally {
     changesRefreshing.value = false;
   }
 }
 
-async function loadBranches() {
+async function loadBranches(force = false) {
   if (!repoRoot.value) return;
+  const now = Date.now();
+  if (!force && now - lastBranchesLoad.value < REFRESH_CD_MS) return;
+  lastBranchesLoad.value = now;
   try {
     branches.value = await gitPanelBranchList(repoRoot.value);
     branchesLoaded.value = true;
@@ -856,8 +873,11 @@ async function loadRemotes() {
   }
 }
 
-async function loadStashes() {
+async function loadStashes(force = false) {
   if (!repoRoot.value) return;
+  const now = Date.now();
+  if (!force && now - lastStashesLoad.value < REFRESH_CD_MS) return;
+  lastStashesLoad.value = now;
   try {
     stashList.value = await gitPanelStashList(repoRoot.value);
     stashesLoaded.value = true;
@@ -866,8 +886,11 @@ async function loadStashes() {
   }
 }
 
-async function loadHistory() {
+async function loadHistory(force = false) {
   if (!repoRoot.value) return;
+  const now = Date.now();
+  if (!force && now - lastHistoryLoad.value < REFRESH_CD_MS) return;
+  lastHistoryLoad.value = now;
   try {
     const result = await gitPanelLog(repoRoot.value, logPageSize, 0);
     logEntries.value = result.entries || [];
@@ -967,7 +990,7 @@ async function refreshHistory() {
   if (busy.value) return;
   busy.value = true;
   try {
-    await loadHistory();
+    await loadHistory(true);
   } finally {
     busy.value = false;
   }
@@ -1038,9 +1061,9 @@ async function runGitAction(
       return false;
     }
     if (successText) showSuccessToast(successText);
-    await loadStatus();
-    await loadBranches();
-    await loadStashes();
+    await loadStatus(true);
+    await loadBranches(true);
+    await loadStashes(true);
     return true;
   } catch (error) {
     if (processingTimer) window.clearTimeout(processingTimer);
@@ -1078,8 +1101,8 @@ async function runCommit() {
     commitMessage.value = "";
     amendCommit.value = false;
     resetCommitInputHeight();
-    await loadStatus();
-    await loadHistory();
+    await loadStatus(true);
+    await loadHistory(true);
   } catch (error) {
     appendOutput("commit", null, error);
   } finally {
@@ -1127,7 +1150,7 @@ async function runBranchCreate() {
     appendOutput(`branch ${name}`, result);
     if (result.exitCode === 0) showSuccessToast("已创建分支");
     newBranchName.value = "";
-    await loadBranches();
+    await loadBranches(true);
   } catch (error) {
     appendOutput(`branch ${name}`, null, error);
   } finally {
@@ -1142,7 +1165,7 @@ async function runBranchDelete(name: string) {
     const result = await gitPanelBranchDelete(repoRoot.value, name);
     appendOutput(`branch -d ${name}`, result);
     if (result.exitCode === 0) showSuccessToast("已删除分支");
-    await loadBranches();
+    await loadBranches(true);
   } catch (error) {
     appendOutput(`branch -d ${name}`, null, error);
   } finally {
@@ -1176,7 +1199,7 @@ async function runCheckoutBranch(name: string) {
   branchPickerOpen.value = false;
   const ok = await runGitAction(`checkout ${name}`, () => gitPanelCheckout(repoRoot.value, name), `已切换分支 ${name}`);
   if (ok) {
-    await loadHistory();
+    await loadHistory(true);
   }
 }
 

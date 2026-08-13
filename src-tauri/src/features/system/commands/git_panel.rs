@@ -3,8 +3,6 @@
 // 所有命令只接收业务字段（路径、消息、hash 等），不接受任意 args；
 // 参数安全在 Rust 侧硬编码约束，前端无法注入任意 git 参数。
 
-use tokio::process::Command as AsyncCommand;
-
 // ---------- 输入结构 ----------
 
 #[derive(Debug, Clone, Deserialize)]
@@ -90,14 +88,6 @@ struct GitPanelDetectOutput {
     repo_root: Option<String>,
     checked: bool,
     error: Option<String>,
-}
-
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-struct GitPanelRunOutput {
-    stdout: String,
-    stderr: String,
-    exit_code: i32,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -249,95 +239,34 @@ fn git_panel_validate_branch_name(name: &str) -> Result<String, String> {
     Ok(trimmed)
 }
 
-// ---------- git CLI 封装 ----------
-
-fn git_panel_spawn(workdir: &str, args: &[&str]) -> AsyncCommand {
-    let mut command = AsyncCommand::new("git");
-    command
-        .current_dir(workdir)
-        .args(args)
-        .env("GIT_TERMINAL_PROMPT", "0");
-    #[cfg(target_os = "windows")]
-    {
-        // 避免 Git 进程在 GUI 应用中创建短暂可见的控制台窗口。
-        command.creation_flags(0x08000000); // CREATE_NO_WINDOW
-    }
-    command
-}
-
-/// 执行 git 命令，返回 stdout/stderr/exit_code（不因非零退出码报错，由调用方判断）。
-async fn git_panel_run_raw(workdir: &str, args: &[&str]) -> Result<GitPanelRunOutput, String> {
-    let output = git_panel_spawn(workdir, args)
-        .output()
-        .await
-        .map_err(|err| format!("无法运行 git：{err}"))?;
-    Ok(GitPanelRunOutput {
-        stdout: String::from_utf8_lossy(&output.stdout).to_string(),
-        stderr: String::from_utf8_lossy(&output.stderr).to_string(),
-        exit_code: output.status.code().unwrap_or(-1),
-    })
-}
-
-/// 执行 git 命令，成功（退出码 0）返回 stdout，失败返回可读错误。
-async fn git_panel_run(workdir: &str, args: &[&str]) -> Result<String, String> {
-    let result = git_panel_run_raw(workdir, args).await?;
-    if result.exit_code != 0 {
-        let stderr = result.stderr.trim();
-        let stdout = result.stdout.trim();
-        let detail = if !stderr.is_empty() {
-            stderr.to_string()
-        } else if !stdout.is_empty() {
-            stdout.to_string()
-        } else {
-            format!("退出码 {}", result.exit_code)
-        };
-        let cmd = args.first().copied().unwrap_or("git");
-        return Err(format!("git {cmd} 失败：{detail}"));
-    }
-    Ok(result.stdout)
-}
-
-/// 执行 git 网络命令（fetch/pull/push），带超时控制；超时后终止子进程并返回可读错误。
-async fn git_panel_run_network(workdir: &str, args: &[&str]) -> Result<GitPanelRunOutput, String> {
-    let mut command = git_panel_spawn(workdir, args);
-    // future 被取消（超时）时自动杀死子进程，避免远端无响应时进程残留。
-    command.kill_on_drop(true);
-    let wait = command.output();
-    // 远端无响应时避免前端无限等待；60 秒足够覆盖大仓库传输。
-    match tokio::time::timeout(std::time::Duration::from_secs(60), wait).await {
-        Ok(result) => {
-            let output = result.map_err(|err| format!("无法运行 git：{err}"))?;
-            Ok(GitPanelRunOutput {
-                stdout: String::from_utf8_lossy(&output.stdout).to_string(),
-                stderr: String::from_utf8_lossy(&output.stderr).to_string(),
-                exit_code: output.status.code().unwrap_or(-1),
-            })
-        }
-        Err(_) => Err("git 网络操作超时：远端无响应，已终止".to_string()),
-    }
-}
+// ---------- git CLI 封装（执行逻辑见 git_executor.rs） ----------
 
 /// 在 workspace_path 向上探测仓库根（git rev-parse --show-toplevel）。
 async fn git_panel_resolve_root(workspace_path: &str) -> Result<String, String> {
     let normalized = git_panel_validate_path(workspace_path)?;
-    let result = git_panel_run_raw(&normalized, &["rev-parse", "--show-toplevel"]).await?;
-    if result.exit_code != 0 {
-        let stderr = result.stderr.trim();
-        if stderr.contains("not a git repository") || stderr.contains("不是 git 仓库") {
-            return Err("当前目录不是 Git 仓库".to_string());
+    match git_executor()
+        .run_read(&normalized, &["rev-parse", "--show-toplevel"])
+        .await
+    {
+        Ok(stdout) => {
+            let root = stdout.trim().to_string();
+            if root.is_empty() {
+                return Err("Git 仓库探测失败：无法解析仓库根".to_string());
+            }
+            Ok(root)
         }
-        return Err(format!("Git 仓库探测失败：{}", stderr));
+        Err(err) => {
+            if err.contains("not a git repository") || err.contains("不是 git 仓库") {
+                return Err("当前目录不是 Git 仓库".to_string());
+            }
+            Err(format!("Git 仓库探测失败：{err}"))
+        }
     }
-    let root = result.stdout.trim().to_string();
-    if root.is_empty() {
-        return Err("Git 仓库探测失败：无法解析仓库根".to_string());
-    }
-    Ok(root)
 }
 
 /// 获取当前分支名（detached HEAD 时返回空）。
 async fn git_panel_current_branch(workdir: &str) -> String {
-    git_panel_run(workdir, &["branch", "--show-current"])
+    git_executor().run_read(workdir, &["branch", "--show-current"])
         .await
         .unwrap_or_default()
         .trim()
@@ -388,21 +317,13 @@ fn git_panel_parse_status_path(record: &str) -> Option<String> {
 #[tauri::command]
 async fn git_panel_detect(input: GitPanelWorkspaceInput) -> Result<GitPanelDetectOutput, String> {
     let workspace_path = git_panel_validate_path(&input.workspace_path)?;
-    let version = git_panel_run_raw(&workspace_path, &["--version"]).await;
-    let Ok(version_output) = version else {
+    let version = git_executor().run_read(&workspace_path, &["--version"]).await;
+    if version.is_err() {
         return Ok(GitPanelDetectOutput {
             git_available: false,
             repo_root: None,
             checked: false,
             error: Some("无法运行 git 命令".to_string()),
-        });
-    };
-    if version_output.exit_code != 0 {
-        return Ok(GitPanelDetectOutput {
-            git_available: false,
-            repo_root: None,
-            checked: false,
-            error: Some(version_output.stderr.trim().to_string()),
         });
     }
     match git_panel_resolve_root(&workspace_path).await {
@@ -428,7 +349,7 @@ async fn git_panel_status(input: GitPanelWorkspaceInput) -> Result<GitPanelStatu
     let workspace_path = git_panel_validate_path(&input.workspace_path)?;
     let repo_root = git_panel_resolve_root(&workspace_path).await?;
     let branch = git_panel_current_branch(&repo_root).await;
-    let stdout = git_panel_run(
+    let stdout = git_executor().run_read(
         &repo_root,
         &["status", "--porcelain=v1", "-z", "-uall"],
     )
@@ -510,11 +431,11 @@ async fn git_panel_diff(input: GitPanelDiffInput) -> Result<GitPanelDiffOutput, 
 
     let diff = if !input.hash.trim().is_empty() {
         let hash = git_panel_validate_hash(&input.hash)?;
-        git_panel_run(&repo_root, &["show", "--format=", "--no-ext-diff", &hash, "--", &path]).await?
+        git_executor().run_read(&repo_root, &["show", "--format=", "--no-ext-diff", &hash, "--", &path]).await?
     } else if input.staged {
-        git_panel_run(&repo_root, &["diff", "--cached", "--no-ext-diff", "--", &path]).await?
+        git_executor().run_read(&repo_root, &["diff", "--cached", "--no-ext-diff", "--", &path]).await?
     } else {
-        git_panel_run(&repo_root, &["diff", "--no-ext-diff", "--", &path]).await?
+        git_executor().run_read(&repo_root, &["diff", "--no-ext-diff", "--", &path]).await?
     };
     Ok(GitPanelDiffOutput { diff })
 }
@@ -529,7 +450,7 @@ async fn git_panel_stage(input: GitPanelPathsInput) -> Result<GitPanelRunOutput,
     let mut args: Vec<&str> = vec!["add", "--"];
     let path_refs: Vec<&str> = paths.iter().map(String::as_str).collect();
     args.extend(path_refs);
-    git_panel_run_raw(&repo_root, &args).await
+    git_executor().run_write(&repo_root, &args).await
 }
 
 #[tauri::command]
@@ -540,7 +461,7 @@ async fn git_panel_unstage(input: GitPanelPathsInput) -> Result<GitPanelRunOutpu
     let mut args: Vec<&str> = vec!["restore", "--staged", "--"];
     let path_refs: Vec<&str> = paths.iter().map(String::as_str).collect();
     args.extend(path_refs);
-    git_panel_run_raw(&repo_root, &args).await
+    git_executor().run_write(&repo_root, &args).await
 }
 
 // ---------- 命令：提交 ----------
@@ -556,7 +477,7 @@ async fn git_panel_commit(input: GitPanelCommitInput) -> Result<GitPanelRunOutpu
     }
     args.push("-m");
     args.push(&message);
-    git_panel_run_raw(&repo_root, &args).await
+    git_executor().run_write(&repo_root, &args).await
 }
 
 // ---------- 命令：丢弃 ----------
@@ -571,7 +492,7 @@ async fn git_panel_discard(input: GitPanelPathsInput) -> Result<GitPanelRunOutpu
     let mut ls_args: Vec<&str> = vec!["ls-files", "--"];
     let path_refs: Vec<&str> = paths.iter().map(String::as_str).collect();
     ls_args.extend(path_refs.iter().copied());
-    let tracked_stdout = git_panel_run(&repo_root, &ls_args).await?;
+    let tracked_stdout = git_executor().run_read(&repo_root, &ls_args).await?;
     let tracked: std::collections::HashSet<&str> = tracked_stdout.lines().collect();
 
     let mut restore_args: Vec<&str> = vec!["restore", "--staged", "--worktree", "--"];
@@ -590,15 +511,17 @@ async fn git_panel_discard(input: GitPanelPathsInput) -> Result<GitPanelRunOutpu
 
     let mut stdout_parts: Vec<String> = Vec::new();
     if has_restore {
-        let out = git_panel_run(&repo_root, &restore_args).await?;
-        if !out.trim().is_empty() {
-            stdout_parts.push(out.trim().to_string());
+        // restore 是写命令：走互斥 + 写后失效
+        let out = git_executor().run_write(&repo_root, &restore_args).await?;
+        if !out.stdout.trim().is_empty() {
+            stdout_parts.push(out.stdout.trim().to_string());
         }
     }
     if has_clean {
-        let out = git_panel_run(&repo_root, &clean_args).await?;
-        if !out.trim().is_empty() {
-            stdout_parts.push(out.trim().to_string());
+        // clean 是写命令：走互斥 + 写后失效
+        let out = git_executor().run_write(&repo_root, &clean_args).await?;
+        if !out.stdout.trim().is_empty() {
+            stdout_parts.push(out.stdout.trim().to_string());
         }
     }
     Ok(GitPanelRunOutput {
@@ -614,7 +537,7 @@ async fn git_panel_discard(input: GitPanelPathsInput) -> Result<GitPanelRunOutpu
 async fn git_panel_stash_list(input: GitPanelWorkspaceInput) -> Result<Vec<GitPanelStashEntry>, String> {
     let workspace_path = git_panel_validate_path(&input.workspace_path)?;
     let repo_root = git_panel_resolve_root(&workspace_path).await?;
-    let stdout = git_panel_run(&repo_root, &["stash", "list"]).await?;
+    let stdout = git_executor().run_read(&repo_root, &["stash", "list"]).await?;
     let entries = stdout
         .lines()
         .filter_map(|line| {
@@ -648,7 +571,7 @@ async fn git_panel_stash_create(input: GitPanelStashInput) -> Result<GitPanelRun
         args.push("-m");
         args.push(&message);
     }
-    git_panel_run_raw(&repo_root, &args).await
+    git_executor().run_write(&repo_root, &args).await
 }
 
 #[tauri::command]
@@ -656,7 +579,7 @@ async fn git_panel_stash_apply(input: GitPanelStashRefInput) -> Result<GitPanelR
     let workspace_path = git_panel_validate_path(&input.workspace_path)?;
     let repo_root = git_panel_resolve_root(&workspace_path).await?;
     let reference = git_panel_validate_reference(&input.stash_ref)?;
-    git_panel_run_raw(&repo_root, &["stash", "apply", &reference]).await
+    git_executor().run_write(&repo_root, &["stash", "apply", &reference]).await
 }
 
 #[tauri::command]
@@ -664,7 +587,7 @@ async fn git_panel_stash_pop(input: GitPanelStashRefInput) -> Result<GitPanelRun
     let workspace_path = git_panel_validate_path(&input.workspace_path)?;
     let repo_root = git_panel_resolve_root(&workspace_path).await?;
     let reference = git_panel_validate_reference(&input.stash_ref)?;
-    git_panel_run_raw(&repo_root, &["stash", "pop", &reference]).await
+    git_executor().run_write(&repo_root, &["stash", "pop", &reference]).await
 }
 
 #[tauri::command]
@@ -672,7 +595,7 @@ async fn git_panel_stash_drop(input: GitPanelStashRefInput) -> Result<GitPanelRu
     let workspace_path = git_panel_validate_path(&input.workspace_path)?;
     let repo_root = git_panel_resolve_root(&workspace_path).await?;
     let reference = git_panel_validate_reference(&input.stash_ref)?;
-    git_panel_run_raw(&repo_root, &["stash", "drop", &reference]).await
+    git_executor().run_write(&repo_root, &["stash", "drop", &reference]).await
 }
 
 #[tauri::command]
@@ -681,7 +604,7 @@ async fn git_panel_stash_files(input: GitPanelStashRefInput) -> Result<GitPanelC
     let repo_root = git_panel_resolve_root(&workspace_path).await?;
     let reference = git_panel_validate_reference(&input.stash_ref)?;
     // --name-status 输出 "状态\t路径"；--no-renames 保证 rename 按 删+增 输出
-    let stdout = git_panel_run(&repo_root, &["stash", "show", "--name-status", "--no-renames", &reference])
+    let stdout = git_executor().run_read(&repo_root, &["stash", "show", "--name-status", "--no-renames", &reference])
         .await?;
     let mut entries = Vec::new();
     for line in stdout.lines() {
@@ -710,7 +633,7 @@ async fn git_panel_branch_list(input: GitPanelWorkspaceInput) -> Result<Vec<GitP
     let workspace_path = git_panel_validate_path(&input.workspace_path)?;
     let repo_root = git_panel_resolve_root(&workspace_path).await?;
     let current = git_panel_current_branch(&repo_root).await;
-    let stdout = git_panel_run(&repo_root, &["branch", "-a", "--no-color"]).await?;
+    let stdout = git_executor().run_read(&repo_root, &["branch", "-a", "--no-color"]).await?;
     let entries = stdout
         .lines()
         .filter_map(|line| {
@@ -756,7 +679,7 @@ async fn git_panel_branch_create(input: GitPanelBranchInput) -> Result<GitPanelR
     if !start_point.is_empty() {
         args.push(&start_point);
     }
-    git_panel_run_raw(&repo_root, &args).await
+    git_executor().run_write(&repo_root, &args).await
 }
 
 #[tauri::command]
@@ -765,7 +688,7 @@ async fn git_panel_branch_delete(input: GitPanelBranchInput) -> Result<GitPanelR
     let repo_root = git_panel_resolve_root(&workspace_path).await?;
     let name = git_panel_validate_branch_name(&input.name)?;
     // -d 仅删除已合并分支；未合并时 git 会拒绝并提示，前端可再确认用 -D
-    git_panel_run_raw(&repo_root, &["branch", "-d", &name]).await
+    git_executor().run_write(&repo_root, &["branch", "-d", &name]).await
 }
 
 // ---------- 命令：签出 ----------
@@ -775,7 +698,7 @@ async fn git_panel_checkout(input: GitPanelCheckoutInput) -> Result<GitPanelRunO
     let workspace_path = git_panel_validate_path(&input.workspace_path)?;
     let repo_root = git_panel_resolve_root(&workspace_path).await?;
     let reference = git_panel_validate_reference(&input.reference)?;
-    git_panel_run_raw(&repo_root, &["checkout", &reference]).await
+    git_executor().run_write(&repo_root, &["checkout", &reference]).await
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -797,7 +720,7 @@ async fn git_panel_checkout_check(input: GitPanelCheckoutInput) -> Result<GitPan
     let reference = git_panel_validate_reference(&input.reference)?;
 
     // 工作区未提交/未跟踪文件（含重命名等，-z 按 NUL 分隔）
-    let status_stdout = git_panel_run(
+    let status_stdout = git_executor().run_read(
         &repo_root,
         &["status", "--porcelain=v1", "-z", "-uall"],
     )
@@ -809,7 +732,7 @@ async fn git_panel_checkout_check(input: GitPanelCheckoutInput) -> Result<GitPan
         .collect();
 
     // 目标分支相对当前 HEAD 修改的文件
-    let changed_stdout = git_panel_run(
+    let changed_stdout = git_executor().run_read(
         &repo_root,
         &["diff", "--name-only", "HEAD", &reference],
     )
@@ -840,7 +763,7 @@ async fn git_panel_checkout_check(input: GitPanelCheckoutInput) -> Result<GitPan
 async fn git_panel_remote_list(input: GitPanelWorkspaceInput) -> Result<Vec<GitPanelRemoteEntry>, String> {
     let workspace_path = git_panel_validate_path(&input.workspace_path)?;
     let repo_root = git_panel_resolve_root(&workspace_path).await?;
-    let stdout = git_panel_run(&repo_root, &["remote", "-v"]).await?;
+    let stdout = git_executor().run_read(&repo_root, &["remote", "-v"]).await?;
     let mut seen = std::collections::HashSet::new();
     let mut entries = Vec::new();
     for line in stdout.lines() {
@@ -867,32 +790,32 @@ async fn git_panel_remote_list(input: GitPanelWorkspaceInput) -> Result<Vec<GitP
 async fn git_panel_fetch(input: GitPanelWorkspaceInput) -> Result<GitPanelRunOutput, String> {
     let workspace_path = git_panel_validate_path(&input.workspace_path)?;
     let repo_root = git_panel_resolve_root(&workspace_path).await?;
-    git_panel_run_network(&repo_root, &["fetch"]).await
+    git_executor().run_network(&repo_root, &["fetch"]).await
 }
 
 #[tauri::command]
 async fn git_panel_pull(input: GitPanelWorkspaceInput) -> Result<GitPanelRunOutput, String> {
     let workspace_path = git_panel_validate_path(&input.workspace_path)?;
     let repo_root = git_panel_resolve_root(&workspace_path).await?;
-    git_panel_run_network(&repo_root, &["pull"]).await
+    git_executor().run_network(&repo_root, &["pull"]).await
 }
 
 #[tauri::command]
 async fn git_panel_push(input: GitPanelWorkspaceInput) -> Result<GitPanelRunOutput, String> {
     let workspace_path = git_panel_validate_path(&input.workspace_path)?;
     let repo_root = git_panel_resolve_root(&workspace_path).await?;
-    git_panel_run_network(&repo_root, &["push"]).await
+    git_executor().run_network(&repo_root, &["push"]).await
 }
 
 #[tauri::command]
 async fn git_panel_sync(input: GitPanelWorkspaceInput) -> Result<GitPanelRunOutput, String> {
     let workspace_path = git_panel_validate_path(&input.workspace_path)?;
     let repo_root = git_panel_resolve_root(&workspace_path).await?;
-    let fetch_result = git_panel_run_network(&repo_root, &["fetch"]).await?;
+    let fetch_result = git_executor().run_network(&repo_root, &["fetch"]).await?;
     if fetch_result.exit_code != 0 {
         return Ok(fetch_result);
     }
-    git_panel_run_network(&repo_root, &["pull"]).await
+    git_executor().run_network(&repo_root, &["pull"]).await
 }
 
 // ---------- 命令：历史与提交图 ----------
@@ -915,7 +838,7 @@ async fn git_panel_log(input: GitPanelLogInput) -> Result<GitPanelLogOutput, Str
         args.push(skip.to_string());
     }
     let args_ref: Vec<&str> = args.iter().map(String::as_str).collect();
-    let stdout = git_panel_run(&repo_root, &args_ref).await?;
+    let stdout = git_executor().run_read(&repo_root, &args_ref).await?;
     let entries = stdout
         .split('\u{1e}')
         .filter_map(|record| {
@@ -957,20 +880,20 @@ async fn git_panel_show(input: GitPanelShowInput) -> Result<GitPanelDiffOutput, 
     let is_stash = hash.starts_with("stash@{");
     let diff = if path.is_empty() {
         if is_stash {
-            git_panel_run(&repo_root, &["diff", &format!("{hash}^1"), &hash]).await?
+            git_executor().run_read(&repo_root, &["diff", &format!("{hash}^1"), &hash]).await?
         } else {
-            git_panel_run(&repo_root, &["show", "--format=", "--no-ext-diff", &hash]).await?
+            git_executor().run_read(&repo_root, &["show", "--format=", "--no-ext-diff", &hash]).await?
         }
     } else {
         let path = git_panel_validate_path(&path)?;
         if is_stash {
-            git_panel_run(
+            git_executor().run_read(
                 &repo_root,
                 &["diff", &format!("{hash}^1"), &hash, "--", &path],
             )
             .await?
         } else {
-            git_panel_run(
+            git_executor().run_read(
                 &repo_root,
                 &["show", "--format=", "--no-ext-diff", &hash, "--", &path],
             )
@@ -988,7 +911,7 @@ async fn git_panel_commit_files(input: GitPanelCommitFilesInput) -> Result<GitPa
     let repo_root = git_panel_resolve_root(&workspace_path).await?;
     let hash = git_panel_validate_hash(&input.hash)?;
     // --name-status 输出 "状态\t路径"；--no-renames 保证 rename 也按 删+增 输出，避免旧路径行干扰
-    let stdout = git_panel_run(
+    let stdout = git_executor().run_read(
         &repo_root,
         &["show", "--format=", "--name-status", "--no-renames", &hash],
     )
@@ -1333,8 +1256,8 @@ async fn git_panel_discover_inner(
     state: &AppState,
 ) -> Result<GitPanelDiscoverOutput, String> {
     let workspace_path = git_panel_validate_path(&input.workspace_path)?;
-    let version = git_panel_run_raw(&workspace_path, &["--version"]).await;
-    let Ok(version_output) = version else {
+    let version = git_executor().run_read(&workspace_path, &["--version"]).await;
+    if version.is_err() {
         return Ok(GitPanelDiscoverOutput {
             git_available: false,
             current_repo_root: None,
@@ -1342,16 +1265,6 @@ async fn git_panel_discover_inner(
             default_repo_root: None,
             checked: false,
             error: Some("无法运行 git 命令".to_string()),
-        });
-    };
-    if version_output.exit_code != 0 {
-        return Ok(GitPanelDiscoverOutput {
-            git_available: false,
-            current_repo_root: None,
-            repos: Vec::new(),
-            default_repo_root: None,
-            checked: false,
-            error: Some(version_output.stderr.trim().to_string()),
         });
     }
     // 向上探测：当前目录是否在仓库内（失败仅表示不在仓库内，不是错误）
