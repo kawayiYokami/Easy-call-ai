@@ -368,10 +368,11 @@
               </button>
             </div>
             <div ref="branchesScroller" class="git-panel-scroller min-h-0 flex-1 overflow-y-auto">
-              <GitTree :nodes="branchTreeNodes" @row-click="onBranchRowClick">
-                <template #row="{ row }">
-                  <!-- 分组头 -->
+              <GitTree :nodes="branchTreeNodes" default-expanded @row-click="onBranchRowClick">
+                <template #row="{ row, expanded }">
+                  <!-- 分组头（树根：本地分支/远程分支/远程） -->
                   <template v-if="row.node.data.kind === 'header'">
+                    <ChevronRight class="h-3 w-3 shrink-0 opacity-50" :class="{ 'rotate-90': expanded }" />
                     <span class="text-xs font-medium opacity-60">{{ row.node.data.text }}</span>
                   </template>
                   <!-- 本地分支 -->
@@ -688,17 +689,36 @@ const branchRows = computed<BranchRow[]>(() => {
   return rows;
 });
 const visibleBranchRows = computed(() => branchRows.value.slice(0, branchVisibleCount.value));
-/** 分支 tab 树：每行一个叶子节点（分组头/本地分支/远程分支/远程 URL），无展开 */
-const branchTreeNodes = computed<GitTreeNode<BranchRow>[]>(() =>
-  visibleBranchRows.value.map((row) => ({
-    key: row.key,
-    data: row,
-    // 分组头与远程 URL 展示行不可交互（无 hover/点击）
-    interactive: row.kind === "header" || row.kind === "remote" ? false : undefined,
-    // 当前分支行高亮（数据声明的行级样式）
-    rowClass: row.kind === "branch" && row.branch.isCurrent ? "bg-primary/10 text-primary" : undefined,
-  })),
-);
+/** 分支 tab 树：分组头为树根（本地分支/远程分支/远程），分支行与远程 URL 为子节点 */
+const branchTreeNodes = computed<GitTreeNode<BranchRow>[]>(() => {
+  const roots: GitTreeNode<BranchRow>[] = [];
+  let currentHeader: BranchRow | null = null;
+  let currentChildren: GitTreeNode<BranchRow>[] = [];
+  const flush = () => {
+    if (currentHeader) {
+      roots.push({ key: currentHeader.key, data: currentHeader, children: currentChildren });
+      currentHeader = null;
+      currentChildren = [];
+    }
+  };
+  for (const row of visibleBranchRows.value) {
+    if (row.kind === "header") {
+      flush();
+      currentHeader = row;
+    } else {
+      currentChildren.push({
+        key: row.key,
+        data: row,
+        // 远程 URL 展示行不可交互（无 hover/点击）
+        interactive: row.kind === "remote" ? false : undefined,
+        // 当前分支行高亮（数据声明的行级样式）
+        rowClass: row.kind === "branch" && row.branch.isCurrent ? "bg-primary/10 text-primary" : undefined,
+      });
+    }
+  }
+  flush();
+  return roots;
+});
 
 /** 分支行点击：选中查看（不切换分支） */
 function onBranchRowClick(row: GitTreeFlatRow<BranchRow>) {
