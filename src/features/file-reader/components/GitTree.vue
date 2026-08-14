@@ -50,7 +50,7 @@ export interface GitTreeNode<T = unknown> {
   rowClass?: string;
 }
 
-/** 拍平后的行：depth 为层级深度（list 模式恒为 0） */
+/** 拍平后的行：depth 为层级深度（list 模式根为 0、叶子为 1） */
 export interface GitTreeFlatRow<T = unknown> {
   key: string;
   depth: number;
@@ -134,7 +134,8 @@ watch(() => props.nodes, (nodes) => syncDefaultExpanded(nodes), { immediate: tru
 // ==================== 行拍平 ====================
 const visibleRows = computed<GitTreeFlatRow<T>[]>(() => {
   if (props.mode === "list") {
-    // 平铺模式：根节点（分组头）始终显示；非根只渲染叶子，忽略层级
+    // 平铺模式：根节点（分组头）始终显示；非根跳过目录中间层只渲染叶子，
+    // 叶子视为第二级（缩进与 tree 模式的文件夹同级）
     const rows: GitTreeFlatRow<T>[] = [];
     const walk = (items: GitTreeNode<T>[], depth: number) => {
       for (const node of items) {
@@ -146,7 +147,7 @@ const visibleRows = computed<GitTreeFlatRow<T>[]>(() => {
         } else if (hasChildren(node)) {
           walk(node.children!, depth + 1);
         } else {
-          rows.push({ key: node.key, depth: 0, node });
+          rows.push({ key: node.key, depth: 1, node });
         }
       }
     };
