@@ -2958,15 +2958,6 @@ export async function gitPanelBranchCreate(workspacePath: string, name: string, 
   });
 }
 
-export async function gitPanelBranchDelete(workspacePath: string, name: string): Promise<GitPanelRunOutput> {
-  const normalizedWorkspace = gitPanelRequiredWorkspace(workspacePath);
-  const normalizedName = String(name || "").trim();
-  if (!normalizedName) throw new Error("分支名不能为空");
-  return invokeTauri<GitPanelRunOutput>("git_panel_branch_delete", {
-    input: { workspacePath: normalizedWorkspace, name: normalizedName, startPoint: "" },
-  });
-}
-
 export async function gitPanelCheckout(workspacePath: string, reference: string): Promise<GitPanelRunOutput> {
   const normalizedWorkspace = gitPanelRequiredWorkspace(workspacePath);
   const normalizedReference = String(reference || "").trim();

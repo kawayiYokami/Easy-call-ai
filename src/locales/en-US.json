@@ -2651,8 +2651,6 @@
     "localBranches": "Local Branches",
     "remoteBranches": "Remote Branches",
     "remotes": "Remotes",
-    "deleteBranch": "Delete",
-    "deleteBranchConfirm": "Delete branch {name}?",
     "checkoutBranch": "Checkout",
     "checkoutConfirm": "Switch to branch {name}?",
     "checkoutBlocked": "Cannot switch to branch {name}: these files have uncommitted changes that also differ in the target branch, switching would lose your work.\n{paths}\n\nAsk AI for help: e.g. commit or stash these changes first, then switch.",

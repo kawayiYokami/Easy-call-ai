@@ -376,22 +376,20 @@
                   </template>
                   <!-- 本地分支 -->
                   <template v-else-if="row.node.data.kind === 'branch'">
+                    <GitBranch v-if="row.node.data.branch.isCurrent" class="h-3.5 w-3.5 shrink-0" />
+                    <span v-else class="h-3.5 w-3.5 shrink-0"></span>
+                    <span class="min-w-0 flex-1 truncate text-xs">{{ row.node.data.branch.name }}</span>
                     <button v-if="!row.node.data.branch.isCurrent" type="button" class="btn btn-ghost btn-xs h-4 min-h-4 w-4 shrink-0 px-0 opacity-70 hover:opacity-100" :title="t('gitPanel.checkoutBranch')" :disabled="busy" @click.stop="runCheckoutBranch(row.node.data.branch.name)">
                       <ArrowRightLeft class="h-3 w-3" />
-                    </button>
-                    <GitBranch v-else class="h-3.5 w-3.5 shrink-0" />
-                    <span class="min-w-0 flex-1 truncate text-xs">{{ row.node.data.branch.name }}</span>
-                    <button v-if="!row.node.data.branch.isCurrent" type="button" class="btn btn-error btn-xs h-4 min-h-4 px-1 text-[10px]" :disabled="busy" @click.stop="runBranchDelete(row.node.data.branch.name)">
-                      {{ t('gitPanel.deleteBranch') }}
                     </button>
                   </template>
                   <!-- 远程分支 -->
                   <template v-else-if="row.node.data.kind === 'remote-branch'">
+                    <Cloud class="h-3 w-3 shrink-0 opacity-60" />
+                    <span class="min-w-0 flex-1 truncate text-xs">{{ row.node.data.branch.name }}</span>
                     <button type="button" class="btn btn-ghost btn-xs h-4 min-h-4 w-4 shrink-0 px-0 opacity-70 hover:opacity-100" :title="t('gitPanel.checkoutBranch')" :disabled="busy" @click.stop="runCheckoutBranch(row.node.data.branch.name)">
                       <ArrowRightLeft class="h-3 w-3" />
                     </button>
-                    <Cloud class="h-3 w-3 shrink-0 opacity-60" />
-                    <span class="min-w-0 flex-1 truncate text-xs">{{ row.node.data.branch.name }}</span>
                   </template>
                   <!-- 远程 URL -->
                   <template v-else>
@@ -481,7 +479,6 @@ import {
 import { useI18n } from "vue-i18n";
 import {
   gitPanelBranchCreate,
-  gitPanelBranchDelete,
   gitPanelBranchList,
   gitPanelCheckout,
   gitPanelCheckoutCheck,
@@ -1215,22 +1212,7 @@ async function runBranchCreate() {
   }
 }
 
-async function runBranchDelete(name: string) {
-  if (!window.confirm(t("gitPanel.deleteBranchConfirm", { name }))) return;
-  busy.value = true;
-  try {
-    const result = await gitPanelBranchDelete(repoRoot.value, name);
-    appendOutput(`branch -d ${name}`, result);
-    if (result.exitCode === 0) showSuccessToast("已删除分支");
-    await loadBranches(true);
-  } catch (error) {
-    appendOutput(`branch -d ${name}`, null, error);
-  } finally {
-    busy.value = false;
-  }
-}
-
-function selectBranch(name: string) {
+async function selectBranch(name: string) {
   // 仅选中查看，不切换分支；切换走显式按钮 + 确认
   selectedBranch.value = name;
 }
