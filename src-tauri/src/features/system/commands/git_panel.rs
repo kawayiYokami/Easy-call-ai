@@ -945,9 +945,6 @@ const GIT_REPO_SCAN_MAX_DEPTH: usize = 3;
 /// 深层仓库靠「打开过即记住」的历史列表覆盖，主动刷新才扩到 3 层。
 const GIT_REPO_SCAN_DEFAULT_DEPTH: usize = 1;
 
-/// 历史仓库文件名（state 目录，与窗口布局文件同模式：布局/缓存类状态独立成文件）。
-const GIT_REPO_HISTORY_FILE: &str = "git_panel_repo_history.json";
-
 /// 历史上限：最近打开过的仓库最多保留 50 个。
 const GIT_REPO_HISTORY_LIMIT: usize = 50;
 
@@ -1061,28 +1058,28 @@ fn git_panel_scan_repos_inner(workspace_path: &str, max_depth: usize) -> Vec<Git
     repos
 }
 
-// ---------- 打开过的仓库历史（独立文件，按工作区分组，持久化） ----------
-
-fn git_panel_repo_history_path(state: &AppState) -> PathBuf {
-    app_layout_state_dir(&state.data_path).join(GIT_REPO_HISTORY_FILE)
-}
+// ---------- 打开过的仓库历史（state.sqlite 持久化，按工作区分组） ----------
 
 /// 读取历史：workspace_path(归一化) → 最近打开过的仓库列表。
-/// 文件缺失或损坏时返回空 Map。
-fn git_panel_read_repo_history(state: &AppState) -> HashMap<String, Vec<String>> {
-    std::fs::read_to_string(git_panel_repo_history_path(state))
-        .ok()
-        .and_then(|content| serde_json::from_str::<HashMap<String, Vec<String>>>(&content).ok())
-        .unwrap_or_default()
+/// 读取失败时返回空 Map。
+async fn git_panel_read_repo_history(state: &AppState) -> HashMap<String, Vec<String>> {
+    let state = state.clone();
+    tokio::task::spawn_blocking(move || {
+        state_service_get_git_repo_history(&state).unwrap_or_default()
+    })
+    .await
+    .unwrap_or_default()
 }
 
-fn git_panel_write_repo_history(state: &AppState, history: &HashMap<String, Vec<String>>) {
-    let path = git_panel_repo_history_path(state);
-    if let Some(parent) = path.parent() {
-        let _ = std::fs::create_dir_all(parent);
-    }
-    if let Ok(content) = serde_json::to_string_pretty(history) {
-        let _ = std::fs::write(path, content);
+async fn git_panel_write_repo_history(state: &AppState, history: &HashMap<String, Vec<String>>) {
+    let state = state.clone();
+    let history = history.clone();
+    if let Err(err) = tokio::task::spawn_blocking(move || {
+        state_service_save_git_repo_history(&state, &history)
+    })
+    .await
+    {
+        runtime_log_warn(format!("[git面板] 仓库历史写盘失败：error={err}"));
     }
 }
 
@@ -1114,10 +1111,10 @@ fn git_panel_history_push(
 }
 
 /// 当前仓库进入历史；写盘失败静默忽略，不影响 git 命令本身。
-fn git_panel_remember_repo(state: &AppState, workspace_path: &str, repo_root: &str) {
-    let mut history = git_panel_read_repo_history(state);
+async fn git_panel_remember_repo(state: &AppState, workspace_path: &str, repo_root: &str) {
+    let mut history = git_panel_read_repo_history(state).await;
     if git_panel_history_push(&mut history, workspace_path, repo_root) {
-        git_panel_write_repo_history(state, &history);
+        git_panel_write_repo_history(state, &history).await;
     }
 }
 
@@ -1163,14 +1160,14 @@ async fn git_panel_collect_repos(
     // 当前仓库根（可能在工作区上方，扫描不到）：记录进历史，并恒保留在列表中
     let mut extra = Vec::new();
     if let Ok(root) = git_panel_resolve_root(workspace_path).await {
-        git_panel_remember_repo(state, workspace_path, &root);
+        git_panel_remember_repo(state, workspace_path, &root).await;
         let name = git_panel_repo_name(&root);
         extra.push(GitPanelRepoEntry { path: root, name });
     }
     // 合并：当前工作区的历史（最近在前，过滤已删除目录）∪ 扫描结果 ∪ 当前仓库根，去重后按路径排序
     let mut repos: Vec<GitPanelRepoEntry> = Vec::new();
     let history_key = git_panel_normalize_repo_path(workspace_path);
-    if let Some(history) = git_panel_read_repo_history(state).get(&history_key) {
+    if let Some(history) = git_panel_read_repo_history(state).await.get(&history_key) {
         for path in history {
             if !Path::new(path).is_dir() {
                 continue;
@@ -1202,7 +1199,7 @@ async fn git_panel_collect_repos(
 }
 
 /// 推荐默认打开的仓库：向上命中→当前仓库；否则→历史最近命中；否则→仅 1 个仓库时它自己；否则→null。
-fn git_panel_default_repo_root(
+async fn git_panel_default_repo_root(
     state: &AppState,
     workspace_path: &str,
     current_repo_root: &Option<String>,
@@ -1212,7 +1209,7 @@ fn git_panel_default_repo_root(
         return Some(git_panel_strip_verbatim_prefix(root).to_string());
     }
     let history_key = git_panel_normalize_repo_path(workspace_path);
-    if let Some(history) = git_panel_read_repo_history(state).get(&history_key) {
+    if let Some(history) = git_panel_read_repo_history(state).await.get(&history_key) {
         for path in history {
             if Path::new(path).is_dir() {
                 return Some(git_panel_strip_verbatim_prefix(path).to_string());
@@ -1271,7 +1268,7 @@ async fn git_panel_discover_inner(
     let current_repo_root = git_panel_resolve_root(&workspace_path).await.ok();
     let repos = git_panel_collect_repos(&workspace_path, refresh, state).await?;
     let default_repo_root =
-        git_panel_default_repo_root(state, &workspace_path, &current_repo_root, &repos);
+        git_panel_default_repo_root(state, &workspace_path, &current_repo_root, &repos).await;
     Ok(GitPanelDiscoverOutput {
         git_available: true,
         current_repo_root,
@@ -1375,8 +1372,8 @@ mod git_panel_repos_tests {
         assert!(!paths.contains(&inner.as_str()), "默认深度 1 时深度 2 仓库不应命中");
     }
 
-    #[test]
-    fn default_repo_root_prefers_current_then_history_then_single() {
+    #[tokio::test]
+    async fn default_repo_root_prefers_current_then_history_then_single() {
         let base = std::env::temp_dir().join(format!(
             "git-panel-discover-test-{}-{}",
             std::process::id(),
@@ -1408,8 +1405,6 @@ mod git_panel_repos_tests {
             cached_config_mtime: Arc::new(Mutex::new(None)),
             cached_agents: Arc::new(Mutex::new(None)),
             cached_agents_mtime: Arc::new(Mutex::new(None)),
-            cached_runtime_state: Arc::new(Mutex::new(None)),
-            cached_runtime_state_mtime: Arc::new(Mutex::new(None)),
             cached_chat_index: Arc::new(Mutex::new(None)),
             cached_conversation_metadata: Arc::new(Mutex::new(std::collections::HashMap::new())),
             cached_conversation_field_metadata_ids: Arc::new(Mutex::new(
@@ -1474,24 +1469,24 @@ mod git_panel_repos_tests {
         // 1. 向上命中 → 当前仓库优先（即使有历史）
         let current = Some(sub1.clone());
         assert_eq!(
-            git_panel_default_repo_root(&state, &root, &current, &repos),
+            git_panel_default_repo_root(&state, &root, &current, &repos).await,
             Some(sub1.clone())
         );
         // 2. 无当前仓库，历史最近命中（含不在扫描列表里的目录）→ 历史优先
         let mut history = std::collections::HashMap::new();
         let history_key = git_panel_normalize_repo_path(&root);
         history.insert(history_key, vec![history_only.clone(), sub2.clone()]);
-        git_panel_write_repo_history(&state, &history);
+        git_panel_write_repo_history(&state, &history).await;
         assert_eq!(
-            git_panel_default_repo_root(&state, &root, &None, &repos),
+            git_panel_default_repo_root(&state, &root, &None, &repos).await,
             Some(history_only.clone())
         );
         // 3. 无当前仓库、无历史，仅 1 个仓库 → 它自己
-        git_panel_write_repo_history(&state, &std::collections::HashMap::new());
+        git_panel_write_repo_history(&state, &std::collections::HashMap::new()).await;
         let single = vec![GitPanelRepoEntry { path: sub2.clone(), name: "sub2".to_string() }];
-        assert_eq!(git_panel_default_repo_root(&state, &root, &None, &single), Some(sub2));
+        assert_eq!(git_panel_default_repo_root(&state, &root, &None, &single).await, Some(sub2));
         // 4. 无当前仓库、无历史、多仓库 → None（不瞎猜）
-        assert_eq!(git_panel_default_repo_root(&state, &root, &None, &repos), None);
+        assert_eq!(git_panel_default_repo_root(&state, &root, &None, &repos).await, None);
     }
 
     #[test]

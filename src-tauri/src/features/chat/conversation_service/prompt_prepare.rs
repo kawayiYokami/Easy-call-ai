@@ -1,6 +1,7 @@
 impl ConversationServiceV2 {
     fn resolve_prompt_prepare_conversation_read_only(
         &self,
+        state: &AppState,
         data: &AppData,
         data_path: &PathBuf,
         runtime_conversation_id: Option<&str>,
@@ -11,6 +12,7 @@ impl ConversationServiceV2 {
     ) -> Result<Option<PromptPrepareConversationResolution>, String> {
         let mut cloned = data.clone();
         self.resolve_prompt_prepare_conversation_core_v2(
+            state,
             &mut cloned,
             data_path,
             runtime_conversation_id,
@@ -24,6 +26,7 @@ impl ConversationServiceV2 {
 
     fn resolve_prompt_prepare_conversation_core_v2(
         &self,
+        state: &AppState,
         data: &mut AppData,
         data_path: &PathBuf,
         runtime_conversation_id: Option<&str>,
@@ -56,14 +59,15 @@ impl ConversationServiceV2 {
                     .ok_or_else(|| format!("指定会话不存在或不可用：{conversation_id}"))?,
             )
         } else if read_only {
-            active_foreground_conversation_index_read_only(data, effective_agent_id)
+            active_foreground_conversation_index_read_only(data, state, effective_agent_id)?
         } else {
             Some(ensure_active_foreground_conversation_index_atomic(
                 data,
+                state,
                 data_path,
                 &selected_api.id,
                 effective_agent_id,
-            ))
+            )?)
         };
         if idx.is_some() && !read_only {
             for conversation in &mut data.conversations {
@@ -84,27 +88,29 @@ impl ConversationServiceV2 {
             runtime_conversation.clone()
         };
         Ok(Some(self.build_prompt_prepare_resolution_v2(
-            data,
+            state,
+            &data.agents,
             &conversation_before,
             is_runtime_conversation,
-        )))
+        )?))
     }
 
     fn build_prompt_prepare_resolution_v2(
         &self,
-        data: &AppData,
+        state: &AppState,
+        agents: &[AgentProfile],
         conversation_before: &Conversation,
         is_runtime_conversation: bool,
-    ) -> PromptPrepareConversationResolution {
+    ) -> Result<PromptPrepareConversationResolution, String> {
         let is_remote_im_contact_conversation = conversation_is_remote_im_contact(conversation_before);
         let remote_im_contact_processing_mode = if is_remote_im_contact_conversation {
-            remote_im_find_contact_by_conversation(data, &conversation_before.id)
+            self.find_remote_im_contact_by_conversation(state, conversation_before)?
                 .map(|contact| normalize_contact_processing_mode(&contact.processing_mode))
                 .unwrap_or_else(|| "continuous".to_string())
         } else {
             "continuous".to_string()
         };
-        PromptPrepareConversationResolution {
+        Ok(PromptPrepareConversationResolution {
             conversation_before: self.build_prompt_prepare_conversation_before_v2(
                 conversation_before,
                 is_remote_im_contact_conversation,
@@ -113,11 +119,20 @@ impl ConversationServiceV2 {
             last_archive_summary: None,
             is_remote_im_contact_conversation,
             remote_im_contact_processing_mode,
-            response_style_id: data.response_style_id.clone(),
-            user_name: user_persona_name(data),
-            user_intro: user_persona_intro(data),
+            response_style_id: state_service_get_response_style_id(state)?,
+            user_name: agents
+                .iter()
+                .find(|a| a.id == USER_PERSONA_ID || a.is_built_in_user)
+                .map(|a| a.name.trim().to_string())
+                .filter(|v| !v.is_empty())
+                .unwrap_or_else(default_user_alias),
+            user_intro: agents
+                .iter()
+                .find(|a| a.id == USER_PERSONA_ID || a.is_built_in_user)
+                .map(|a| a.system_prompt.trim().to_string())
+                .unwrap_or_default(),
             is_runtime_conversation,
-        }
+        })
     }
 
     fn build_prompt_prepare_conversation_before_v2(
@@ -139,49 +154,33 @@ impl ConversationServiceV2 {
         conversation_before.clone()
     }
 
-    fn find_remote_im_contact_by_conversation_in_data<'a>(
+    fn find_remote_im_contact_by_conversation(
         &self,
-        data: &'a AppData,
-        conversation_id: &str,
-    ) -> Option<&'a RemoteImContact> {
-        let conversation = data
-            .conversations
-            .iter()
-            .find(|item| item.id == conversation_id)?;
+        state: &AppState,
+        conversation: &Conversation,
+    ) -> Result<Option<RemoteImContact>, String> {
         let contact_conversation_key = conversation
             .root_conversation_id
             .as_deref()
             .map(str::trim)
             .filter(|value| !value.is_empty());
+        let contacts = state_service_list_remote_im_contacts(state, None)?;
         if let Some(key) = contact_conversation_key {
-            return data
-                .remote_im_contacts
+            if let Some(contact) = contacts
                 .iter()
-                .find(|contact| remote_im_contact_conversation_key(contact) == key);
+                .find(|contact| remote_im_contact_conversation_key(contact) == key)
+            {
+                return Ok(Some(contact.clone()));
+            }
         }
-        data.remote_im_contacts.iter().find(|contact| {
+        Ok(contacts.into_iter().find(|contact| {
             contact
                 .bound_conversation_id
                 .as_deref()
                 .map(str::trim)
                 .filter(|value| !value.is_empty())
-                == Some(conversation_id)
-        })
-    }
-
-    fn find_remote_im_contact_by_conversation_in_runtime<'a>(
-        &self,
-        runtime: &'a RuntimeStateFile,
-        conversation_id: &str,
-    ) -> Option<&'a RemoteImContact> {
-        runtime.remote_im_contacts.iter().find(|contact| {
-            contact
-                .bound_conversation_id
-                .as_deref()
-                .map(str::trim)
-                .filter(|value| !value.is_empty())
-                == Some(conversation_id)
-        })
+                == Some(conversation.id.as_str())
+        }))
     }
 
     fn try_get_conversation_snapshot_fast(

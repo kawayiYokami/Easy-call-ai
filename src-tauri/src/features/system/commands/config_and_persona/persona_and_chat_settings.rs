@@ -5,8 +5,8 @@ fn load_agents(state: State<'_, AppState>) -> Result<Vec<AgentProfile>, String> 
 
 fn load_agents_inner(state: &AppState) -> Result<Vec<AgentProfile>, String> {
     let config = state_read_config_cached(&state)?;
-    let data = state_read_agents_runtime_snapshot(&state)?;
-    build_runtime_organization_snapshot_from_parts(&state.data_path, &config, &data.agents)
+    let agents = state_read_agents_cached(&state)?;
+    build_runtime_organization_snapshot_from_parts(&state.data_path, &config, &agents)
         .map(|snapshot| snapshot.agents)
 }
 
@@ -76,14 +76,17 @@ fn save_agents_inner(
     }
 
     let base_config = read_config(&state.config_path)?;
-    let mut previous_runtime_data = state_read_agents_runtime_snapshot(&state)?;
-    previous_runtime_data.agents = state_read_agents_cached(&state)?;
+    let previous_runtime_data = AppData {
+        agents: state_read_agents_cached(&state)?,
+        ..Default::default()
+    };
     let previous_runtime_config =
         runtime_config_with_private_organization(&state, &base_config, &previous_runtime_data)?;
-    let runtime = state_read_runtime_state_cached(&state)?;
-    let mut data = AppData::default();
-    data.agents = state_read_agents_cached(&state)?;
-    apply_runtime_state_to_app_data(&mut data, &runtime);
+    let mut data = AppData {
+        agents: state_read_agents_cached(&state)?,
+        ..Default::default()
+    };
+    let assistant_department_agent_id = state_service_get_assistant_department_agent_id(&state)?;
     let previous_agents = data.agents.clone();
     let existing_user_persona = data
         .agents
@@ -244,22 +247,22 @@ fn save_agents_inner(
     for dept in &mut runtime_config.departments {
         let original_agent_ids = dept.agent_ids.clone();
         dept.agent_ids.retain(|id| valid_agent_ids.contains(id));
-        let assistant_agent_valid = !data.assistant_department_agent_id.trim().is_empty()
-            && valid_agent_ids.contains(&data.assistant_department_agent_id);
+        let assistant_agent_valid = !assistant_department_agent_id.trim().is_empty()
+            && valid_agent_ids.contains(&assistant_department_agent_id);
         if dept.id == ASSISTANT_DEPARTMENT_ID
             && assistant_agent_valid
             && !dept
                 .agent_ids
                 .iter()
-                .any(|id| id.trim() == data.assistant_department_agent_id)
+                .any(|id| id.trim() == assistant_department_agent_id)
         {
-            dept.agent_ids.push(data.assistant_department_agent_id.clone());
+            dept.agent_ids.push(assistant_department_agent_id.clone());
         } else if !original_agent_ids.is_empty()
             && dept.agent_ids.is_empty()
             && assistant_agent_valid
         {
             // 部门人格被删空时回退到助理人格，避免部门从选项列表消失
-            dept.agent_ids.push(data.assistant_department_agent_id.clone());
+            dept.agent_ids.push(assistant_department_agent_id.clone());
         }
         if dept.agent_ids != original_agent_ids {
             config_changed = true;
@@ -612,15 +615,14 @@ fn import_agent_memories_inner(
         return Err("agentId is required".to_string());
     }
 
-    let data = state_read_agents_runtime_snapshot(state)?;
+    let agents = state_read_agents_cached(state)?;
     let base_config = read_config(&state.config_path)?;
     let (private_agent_ids, _) =
-        runtime_private_organization_ids(&state.data_path, &base_config, &data.agents)?;
+        runtime_private_organization_ids(&state.data_path, &base_config, &agents)?;
     if private_agent_ids.contains(agent_id) {
         return Err(private_agent_operation_error(agent_id));
     }
-    if !data
-        .agents
+    if !agents
         .iter()
         .any(|a| a.id == agent_id && !a.is_built_in_user)
     {
@@ -643,30 +645,24 @@ fn load_chat_settings(state: State<'_, AppState>) -> Result<ChatSettings, String
 
 fn load_chat_settings_inner(state: &AppState) -> Result<ChatSettings, String> {
     let config = read_config(&state.config_path)?;
-    let mut data = state_read_agents_runtime_snapshot(&state)?;
-    let assistant_agent_id = assistant_department_agent_id(&config).unwrap_or_else(default_assistant_department_agent_id);
-    let runtime_changed = if data.assistant_department_agent_id != assistant_agent_id {
-        data.assistant_department_agent_id = assistant_agent_id.clone();
-        true
-    } else {
-        false
-    };
-    if runtime_changed {
-        state_write_runtime_state_cached(&state, &build_runtime_state_file(&data))?;
-    }
+    let agents = state_read_agents_cached(state)?;
     let runtime_snapshot =
-        build_runtime_organization_snapshot_from_parts(&state.data_path, &config, &data.agents)?;
-    let mut runtime_data = data.clone();
-    runtime_data.agents = runtime_snapshot.agents;
+        build_runtime_organization_snapshot_from_parts(&state.data_path, &config, &agents)?;
+    let runtime_agents = runtime_snapshot.agents;
+    let runtime_data = AppData {
+        agents: runtime_agents.clone(),
+        ..Default::default()
+    };
 
     Ok(ChatSettings {
-        assistant_department_agent_id: data.assistant_department_agent_id.clone(),
+        assistant_department_agent_id: state_service_get_assistant_department_agent_id(state)?,
         user_alias: user_persona_name(&runtime_data),
-        response_style_id: data.response_style_id.clone(),
-        pdf_read_mode: data.pdf_read_mode.clone(),
-        background_voice_screenshot_keywords: data.background_voice_screenshot_keywords.clone(),
-        background_voice_screenshot_mode: data.background_voice_screenshot_mode.clone(),
-        instruction_presets: data.instruction_presets.clone(),
+        response_style_id: state_service_get_response_style_id(state)?,
+        pdf_read_mode: state_service_get_pdf_read_mode(state)?,
+        background_voice_screenshot_keywords:
+            state_service_get_background_voice_screenshot_keywords(state)?,
+        background_voice_screenshot_mode: state_service_get_background_voice_screenshot_mode(state)?,
+        instruction_presets: state_service_get_instruction_presets(state)?,
     })
 }
 
@@ -689,87 +685,76 @@ struct ChatSettingsPatch {
     instruction_presets: Option<Vec<PromptCommandPreset>>,
 }
 
-fn build_chat_settings_payload(state: &AppState, data: &AppData, config: &AppConfig) -> Result<ChatSettings, String> {
+fn build_chat_settings_payload(state: &AppState, agents: &[AgentProfile], config: &AppConfig) -> Result<ChatSettings, String> {
     let runtime_snapshot =
-        build_runtime_organization_snapshot_from_parts(&state.data_path, config, &data.agents)?;
-    let mut runtime_data = data.clone();
-    runtime_data.agents = runtime_snapshot.agents;
+        build_runtime_organization_snapshot_from_parts(&state.data_path, config, agents)?;
+    let runtime_data = AppData {
+        agents: runtime_snapshot.agents,
+        ..Default::default()
+    };
     Ok(ChatSettings {
-        assistant_department_agent_id: data.assistant_department_agent_id.clone(),
+        assistant_department_agent_id: state_service_get_assistant_department_agent_id(state)?,
         user_alias: user_persona_name(&runtime_data),
-        response_style_id: data.response_style_id.clone(),
-        pdf_read_mode: data.pdf_read_mode.clone(),
-        background_voice_screenshot_keywords: data.background_voice_screenshot_keywords.clone(),
-        background_voice_screenshot_mode: data.background_voice_screenshot_mode.clone(),
-        instruction_presets: data.instruction_presets.clone(),
+        response_style_id: state_service_get_response_style_id(state)?,
+        pdf_read_mode: state_service_get_pdf_read_mode(state)?,
+        background_voice_screenshot_keywords: state_service_get_background_voice_screenshot_keywords(
+            state,
+        )?,
+        background_voice_screenshot_mode: state_service_get_background_voice_screenshot_mode(state)?,
+        instruction_presets: state_service_get_instruction_presets(state)?,
     })
 }
 
 fn apply_chat_settings_patch(
     state: &AppState,
     agents: &mut Vec<AgentProfile>,
-    runtime: &mut RuntimeStateFile,
     config: &AppConfig,
     input: ChatSettingsPatch,
 ) -> Result<ChatSettings, String> {
     let mut agents_changed = false;
-    let mut runtime_changed = false;
     if let Some(agent_id) = input.assistant_department_agent_id {
-        let fallback = runtime.assistant_department_agent_id.clone();
-        let target_agent_id = assistant_department_agent_id(config).unwrap_or_else(|| {
-            let trimmed = agent_id.trim();
-            if trimmed.is_empty() {
-                fallback.clone()
-            } else {
-                trimmed.to_string()
-            }
-        });
-        let mut runtime_data = AppData::default();
-        runtime_data.agents = agents.clone();
-        apply_runtime_state_to_app_data(&mut runtime_data, runtime);
+        let target_agent_id = agent_id.trim().to_string();
         let runtime_snapshot = build_runtime_organization_snapshot_from_parts(
             &state.data_path,
             config,
-            &runtime_data.agents,
+            agents,
         )?;
-        if !runtime_snapshot
-            .agents
-            .iter()
-            .any(|a| a.id == target_agent_id && !a.is_built_in_user)
+        if !target_agent_id.is_empty()
+            && !runtime_snapshot
+                .agents
+                .iter()
+                .any(|a| a.id == target_agent_id && !a.is_built_in_user)
         {
             return Err("Selected agent not found.".to_string());
         }
-        if runtime.assistant_department_agent_id != target_agent_id {
-            runtime.assistant_department_agent_id = target_agent_id;
-            runtime_changed = true;
+        if !target_agent_id.is_empty()
+            && state_service_get_assistant_department_agent_id(state)? != target_agent_id
+        {
+            state_service_set_assistant_department_agent_id(state, &target_agent_id)?;
         }
     }
     if let Some(response_style_id) = input.response_style_id {
         let next = normalize_response_style_id(&response_style_id);
-        if runtime.response_style_id != next {
-            runtime.response_style_id = next;
-            runtime_changed = true;
+        if state_service_get_response_style_id(state)? != next {
+            state_service_set_response_style_id(state, &next)?;
         }
     }
     if let Some(pdf_read_mode) = input.pdf_read_mode {
         let next = normalize_pdf_read_mode(&pdf_read_mode);
-        if runtime.pdf_read_mode != next {
-            runtime.pdf_read_mode = next;
-            runtime_changed = true;
+        if state_service_get_pdf_read_mode(state)? != next {
+            state_service_set_pdf_read_mode(state, &next)?;
         }
     }
     if let Some(background_voice_screenshot_keywords) = input.background_voice_screenshot_keywords {
         let next = background_voice_screenshot_keywords.trim().to_string();
-        if runtime.background_voice_screenshot_keywords != next {
-            runtime.background_voice_screenshot_keywords = next;
-            runtime_changed = true;
+        if state_service_get_background_voice_screenshot_keywords(state)? != next {
+            state_service_set_background_voice_screenshot_keywords(state, &next)?;
         }
     }
     if let Some(background_voice_screenshot_mode) = input.background_voice_screenshot_mode {
         let next = normalize_background_voice_screenshot_mode(&background_voice_screenshot_mode);
-        if runtime.background_voice_screenshot_mode != next {
-            runtime.background_voice_screenshot_mode = next;
-            runtime_changed = true;
+        if state_service_get_background_voice_screenshot_mode(state)? != next {
+            state_service_set_background_voice_screenshot_mode(state, &next)?;
         }
     }
     if let Some(instruction_presets) = input.instruction_presets {
@@ -782,9 +767,8 @@ fn apply_chat_settings_patch(
             })
             .filter(|item| !item.id.is_empty() && !item.name.is_empty() && !item.prompt.is_empty())
             .collect::<Vec<_>>();
-        if runtime.instruction_presets != next {
-            runtime.instruction_presets = next;
-            runtime_changed = true;
+        if state_service_get_instruction_presets(state)? != next {
+            state_service_set_instruction_presets(state, &next)?;
         }
     }
     if let Some(user_alias) = input.user_alias {
@@ -800,13 +784,7 @@ fn apply_chat_settings_patch(
     if agents_changed {
         state_write_agents_cached(state, agents)?;
     }
-    if runtime_changed {
-        state_write_runtime_state_cached(state, runtime)?;
-    }
-    let mut data = AppData::default();
-    data.agents = agents.clone();
-    apply_runtime_state_to_app_data(&mut data, runtime);
-    build_chat_settings_payload(state, &data, config)
+    build_chat_settings_payload(state, agents, config)
 }
 
 #[tauri::command]
@@ -844,10 +822,9 @@ fn patch_chat_settings_inner(
     app: &AppHandle,
     state: &AppState,
 ) -> Result<ChatSettings, String> {
-    let mut data = state_read_agents_runtime_snapshot(&state)?;
+    let mut agents = state_read_agents_cached(state)?;
     let config = read_config(&state.config_path)?;
-    let mut runtime = build_runtime_state_file(&data);
-    let payload = apply_chat_settings_patch(&state, &mut data.agents, &mut runtime, &config, input)?;
+    let payload = apply_chat_settings_patch(state, &mut agents, &config, input)?;
 
     let _ = app.emit("easy-call:chat-settings-updated", &payload);
     broadcast_sidebar_persona_changed();
@@ -953,8 +930,10 @@ fn save_agent_avatar_inner(
 
     let mut agents = state_read_agents_cached(&state)?;
     let base_config = read_config(&state.config_path)?;
-    let mut runtime_data = state_read_agents_runtime_snapshot(&state)?;
-    runtime_data.agents = agents.clone();
+    let runtime_data = AppData {
+        agents: agents.clone(),
+        ..Default::default()
+    };
     let runtime_agents = runtime_agents_with_private_organization(&state, &base_config, &runtime_data)?;
     let target = runtime_agents
         .iter()
@@ -1019,8 +998,10 @@ fn clear_agent_avatar_inner(
 
     let mut agents = state_read_agents_cached(&state)?;
     let base_config = read_config(&state.config_path)?;
-    let mut runtime_data = state_read_agents_runtime_snapshot(&state)?;
-    runtime_data.agents = agents.clone();
+    let runtime_data = AppData {
+        agents: agents.clone(),
+        ..Default::default()
+    };
     let runtime_agents = runtime_agents_with_private_organization(&state, &base_config, &runtime_data)?;
     let target = runtime_agents
         .iter()
@@ -1393,7 +1374,9 @@ fn set_department_primary_api_config_inner(
     config.selected_api_config_id = api_config_id.to_string();
 
     state_write_config_cached(state, &config)?;
-    let data = state_read_agents_runtime_snapshot(state)?;
+    let agents = state_read_agents_cached(state)?;
+    let mut data = AppData::default();
+    data.agents = agents;
     let runtime_config = runtime_config_with_private_organization(state, &config, &data)?;
 
     let _ = app.emit("easy-call:config-updated", &runtime_config);

@@ -25,24 +25,24 @@ fn task_tool_target_scope_from_conversation(
             TASK_TARGET_SCOPE_DESKTOP.to_string()
         });
     }
-    state_read_runtime_state_cached(app_state)
-        .map_err(|err| {
-            runtime_log_error(format!(
-                "[任务] target_scope解析失败: conversation_id={}, error={:?}",
-                conversation_id, err
-            ));
-            err
-        })
-        .ok()
-        .map(|runtime| {
-            if runtime.remote_im_contacts.iter().any(|contact| {
+    match state_service_list_remote_im_contacts(app_state, None) {
+        Ok(contacts) => {
+            if contacts.iter().any(|contact| {
                 contact.bound_conversation_id.as_deref().map(str::trim) == Some(conversation_id)
             }) {
-                TASK_TARGET_SCOPE_CONTACT.to_string()
+                Some(TASK_TARGET_SCOPE_CONTACT.to_string())
             } else {
-                TASK_TARGET_SCOPE_DESKTOP.to_string()
+                Some(TASK_TARGET_SCOPE_DESKTOP.to_string())
             }
-        })
+        }
+        Err(err) => {
+            runtime_log_error(format!(
+                "[任务] target_scope解析失败: conversation_id={}, error={}",
+                conversation_id, err
+            ));
+            None
+        }
+    }
 }
 
 fn task_tool_goal_from_args(args: &TaskToolArgsWire) -> Option<String> {
@@ -224,10 +224,17 @@ async fn builtin_task(
                 runtime_context_trimmed(Some(executor_department_id));
             runtime_context.executor_agent_id = runtime_context_trimmed(Some(executor_agent_id));
             runtime_context.model_config_id = runtime_context_trimmed(Some(model_config_id));
-            let target_scope = task_tool_target_scope_from_conversation(
-                app_state,
-                bound_conversation_id.as_deref(),
-            );
+            let target_scope = {
+                let app_state = app_state.clone();
+                let bound_conversation_id = bound_conversation_id.clone();
+                run_task_store_io(move || {
+                    Ok(task_tool_target_scope_from_conversation(
+                        &app_state,
+                        bound_conversation_id.as_deref(),
+                    ))
+                })
+                .await?
+            };
             let create_input = TaskCreateInput {
                 goal: task_tool_goal_from_args(&args).unwrap_or_default(),
                 conversation_id: bound_conversation_id,

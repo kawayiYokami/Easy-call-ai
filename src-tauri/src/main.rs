@@ -50,6 +50,7 @@ include!("features/core/time_semantics.rs");
 // ==================== 配置与存储 ====================
 include!("features/config/storage_and_stt.rs");
 include!("features/config/app_data_layout.rs");
+include!("features/state/mod.rs");
 include!("features/chat/message_store/mod.rs");
 use easy_call_ai::pai_config_tool;
 
@@ -1041,6 +1042,9 @@ fn main() {
     };
     if let Err(err) = cleanup_portable_update_temp_artifacts_for_current_runtime() {
         runtime_log_error(format!("[自动更新] 清理便携版更新临时文件失败: {err}"));
+    }
+    if let Err(err) = run_state_migration_if_needed(&state) {
+        runtime_log_error(format!("[启动] 执行 state 迁移失败: {err}"));
     }
     init_last_panic_snapshot_slot(state.last_panic_snapshot.clone());
     {

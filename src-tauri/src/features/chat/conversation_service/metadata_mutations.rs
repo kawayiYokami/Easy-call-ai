@@ -78,13 +78,9 @@ impl ConversationServiceV2 {
             .lock()
             .map_err(|err| format!("Failed to lock state mutex at {}:{} {}: {err}", file!(), line!(), module_path!()))?;
 
-        let mut runtime = state_read_runtime_state_cached(state)?;
-        let main_conversation_id = runtime
-            .main_conversation_id
-            .as_deref()
-            .map(str::trim)
-            .unwrap_or_default()
-            .to_string();
+        let main_conversation_id = state_service_get_main_conversation_id(state)?
+            .map(|id| id.trim().to_string())
+            .unwrap_or_default();
         if normalized_conversation_id == main_conversation_id {
             drop(guard);
             return Err("系统通知会话始终置顶".to_string());
@@ -106,8 +102,7 @@ impl ConversationServiceV2 {
         }
 
         let mut seen = std::collections::HashSet::<String>::new();
-        let previous_pinned = runtime
-            .pinned_conversation_ids
+        let previous_pinned = state_service_get_pinned_conversation_ids(state)?
             .iter()
             .map(|item| item.trim().to_string())
             .filter(|item| !item.is_empty())
@@ -123,8 +118,7 @@ impl ConversationServiceV2 {
         } else {
             next_pinned.insert(0, normalized_conversation_id.to_string());
         }
-        runtime.pinned_conversation_ids = next_pinned.clone();
-        state_write_runtime_state_cached(state, &runtime)?;
+        state_service_set_pinned_conversation_ids(state, &next_pinned)?;
         drop(guard);
 
         let is_pinned = next_pinned
@@ -226,12 +220,22 @@ impl ConversationServiceV2 {
             .map_err(|err| format!("Failed to lock state mutex at {}:{} {}: {err}", file!(), line!(), module_path!()))?;
         let mut app_config = state_read_config_cached(state)?;
         let agents = state_read_agents_cached(state)?;
-        let mut runtime = state_read_runtime_state_cached(state)?;
+        let assistant_department_agent_id = assistant_department_agent_id_downgraded(state);
+        let (main_conversation_id, main_conversation_id_readable) =
+            match state_service_get_main_conversation_id(state) {
+                Ok(value) => (value, true),
+                Err(err) => {
+                    runtime_log_warn(format!(
+                        "[会话切换] 读取主会话 ID 失败，按无主会话降级继续：error={err}"
+                    ));
+                    (None, false)
+                }
+            };
         let _effective_agent_id = self.resolve_effective_agent_id_for_read(
             state,
             &mut app_config,
             &agents,
-            &runtime.assistant_department_agent_id,
+            &assistant_department_agent_id,
             input.agent_id.as_deref().unwrap_or_default(),
         )?;
         let requested_conversation_id = input
@@ -254,8 +258,7 @@ impl ConversationServiceV2 {
                         "Requested conversation not found: {conversation_id}"
                     ));
                 }
-            } else if let Some(conversation_meta) = runtime
-                .main_conversation_id
+            } else if let Some(conversation_meta) = main_conversation_id
                 .as_deref()
                 .and_then(|conversation_id| {
                     self.get_conversation_meta(state, conversation_id.trim()).ok()
@@ -266,7 +269,7 @@ impl ConversationServiceV2 {
                 })
             {
                 (Some(conversation_meta), None, false)
-            } else if runtime.main_conversation_id.as_deref().map(str::trim)
+            } else if main_conversation_id.as_deref().map(str::trim)
                 == Some(SYSTEM_NOTIFICATION_CONVERSATION_ID)
             {
                 let conversation = build_system_notification_conversation_record();
@@ -301,11 +304,11 @@ impl ConversationServiceV2 {
                     .map(conversation_is_system_notification)
             })
             .unwrap_or(false)
-            && runtime.main_conversation_id.as_deref().map(str::trim)
+            && main_conversation_id_readable
+            && main_conversation_id.as_deref().map(str::trim)
                 != Some(SYSTEM_NOTIFICATION_CONVERSATION_ID)
         {
-            runtime.main_conversation_id = Some(SYSTEM_NOTIFICATION_CONVERSATION_ID.to_string());
-            state_write_runtime_state_cached(state, &runtime)?;
+            state_service_set_main_conversation_id(state, Some(SYSTEM_NOTIFICATION_CONVERSATION_ID))?;
         }
         Ok(conversation_id)
     }
@@ -370,13 +373,9 @@ impl ConversationServiceV2 {
         } else {
             runtime_snapshot.config
         };
-        let runtime = state_read_runtime_state_cached(state)?;
-        let main_conversation_id = runtime
-            .main_conversation_id
-            .as_deref()
-            .map(str::trim)
-            .unwrap_or_default()
-            .to_string();
+        let main_conversation_id = state_service_get_main_conversation_id(state)?
+            .map(|id| id.trim().to_string())
+            .unwrap_or_default();
         let chat_index = state_read_chat_index_cached(state)?;
         let visible_ids = chat_index
             .conversations
@@ -405,8 +404,7 @@ impl ConversationServiceV2 {
             return Ok(None);
         }
         let mut seen_pins = std::collections::HashSet::<String>::new();
-        let pinned_conversation_ids = runtime
-            .pinned_conversation_ids
+        let pinned_conversation_ids = pinned_conversation_ids_downgraded(state)
             .iter()
             .map(|item| item.trim().to_string())
             .filter(|item| !item.is_empty())

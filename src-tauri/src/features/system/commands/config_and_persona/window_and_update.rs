@@ -318,7 +318,9 @@ fn set_github_update_method_inner(
         state_write_config_cached(state, &config)?;
         runtime_log_info(format!("[自动更新] 更新方式偏好已保存：method={normalized}"));
     }
-    let data = state_read_agents_runtime_snapshot(state)?;
+    let agents = state_read_agents_cached(state)?;
+    let mut data = AppData::default();
+    data.agents = agents;
     let runtime_config = runtime_config_with_private_organization(state, &config, &data)?;
     let _ = app.emit("easy-call:config-updated", &runtime_config);
     Ok(runtime_config)
@@ -347,7 +349,9 @@ fn set_skipped_github_update_version_inner(
         runtime_log_warn(format!("[自动更新] 已保存跳过版本：version={normalized}"));
     }
     sync_update_state_from_skip_version(app, &normalized);
-    let data = state_read_agents_runtime_snapshot(state)?;
+    let agents = state_read_agents_cached(state)?;
+    let mut data = AppData::default();
+    data.agents = agents;
     let runtime_config = runtime_config_with_private_organization(state, &config, &data)?;
     let _ = app.emit("easy-call:config-updated", &runtime_config);
     Ok(runtime_config)
@@ -383,7 +387,9 @@ fn set_ui_language_inner(
         state_write_config_cached(state, &config)?;
         runtime_log_info(format!("[配置] 界面语言已保存：ui_language={normalized}"));
     }
-    let data = state_read_agents_runtime_snapshot(state)?;
+    let agents = state_read_agents_cached(state)?;
+    let mut data = AppData::default();
+    data.agents = agents;
     let runtime_config = runtime_config_with_private_organization(state, &config, &data)?;
     let _ = app.emit("easy-call:config-updated", &runtime_config);
     Ok(runtime_config)
@@ -445,31 +451,21 @@ fn read_app_bootstrap_snapshot(state: &AppState) -> Result<AppBootstrapSnapshot,
         config.simple_setup_mode = true;
     }
     // 启动快照阶段修复会话总索引，避免旧版本误删归档入口后仍需人工恢复。
+    let _ = ensure_system_notification_conversation_shard(&state.data_path)?;
     let _ = state_read_chat_index_cached(state)?;
-    let mut data = state_read_agents_runtime_snapshot(state)?;
-    let assistant_agent_id =
-        assistant_department_agent_id(&config).unwrap_or_else(default_assistant_department_agent_id);
-    let runtime_changed = if data.assistant_department_agent_id != assistant_agent_id {
-        data.assistant_department_agent_id = assistant_agent_id;
-        true
-    } else {
-        false
-    };
-    if runtime_changed {
-        state_write_runtime_state_cached(state, &build_runtime_state_file(&data))?;
-    }
+    let agents = state_read_agents_cached(state)?;
     let runtime_snapshot =
-        build_runtime_organization_snapshot_from_parts(&state.data_path, &config, &data.agents)?;
-    let mut runtime_data = data.clone();
+        build_runtime_organization_snapshot_from_parts(&state.data_path, &config, &agents)?;
+    let mut runtime_data = AppData::default();
     runtime_data.agents = runtime_snapshot.agents.clone();
     let chat_settings = ChatSettings {
-        assistant_department_agent_id: data.assistant_department_agent_id.clone(),
+        assistant_department_agent_id: state_service_get_assistant_department_agent_id(state)?,
         user_alias: user_persona_name(&runtime_data),
-        response_style_id: data.response_style_id.clone(),
-        pdf_read_mode: data.pdf_read_mode.clone(),
-        background_voice_screenshot_keywords: data.background_voice_screenshot_keywords.clone(),
-        background_voice_screenshot_mode: data.background_voice_screenshot_mode.clone(),
-        instruction_presets: data.instruction_presets.clone(),
+        response_style_id: state_service_get_response_style_id(state)?,
+        pdf_read_mode: state_service_get_pdf_read_mode(state)?,
+        background_voice_screenshot_keywords: state_service_get_background_voice_screenshot_keywords(state)?,
+        background_voice_screenshot_mode: state_service_get_background_voice_screenshot_mode(state)?,
+        instruction_presets: state_service_get_instruction_presets(state)?,
     };
     Ok(AppBootstrapSnapshot {
         config: runtime_snapshot.config,
@@ -529,7 +525,9 @@ fn update_record_hotkey(
         if normalized != config.record_hotkey {
             config.record_hotkey = normalized.clone();
             state_write_config_cached(&state, &config)?;
-            let data = state_read_agents_runtime_snapshot(&state)?;
+            let agents = state_read_agents_cached(&state)?;
+    let mut data = AppData::default();
+    data.agents = agents;
             let runtime_config = runtime_config_with_private_organization(&state, &config, &data)?;
             let _ = app.emit("easy-call:config-updated", &runtime_config);
         }
@@ -548,7 +546,9 @@ fn update_record_hotkey(
     config.record_hotkey = normalized.clone();
     state_write_config_cached(&state, &config)?;
     set_record_hotkey_probe_hotkey(&normalized)?;
-    let data = state_read_agents_runtime_snapshot(&state)?;
+    let agents = state_read_agents_cached(&state)?;
+    let mut data = AppData::default();
+    data.agents = agents;
     let runtime_config = runtime_config_with_private_organization(&state, &config, &data)?;
     let _ = app.emit("easy-call:config-updated", &runtime_config);
     Ok(RecordHotkeyUpdateResult {
@@ -577,7 +577,9 @@ fn update_record_background_wake(
         "[录音热键] 完成，任务=后台唤醒切换，enabled={}",
         config.record_background_wake_enabled
     ));
-    let data = state_read_agents_runtime_snapshot(&state)?;
+    let agents = state_read_agents_cached(&state)?;
+    let mut data = AppData::default();
+    data.agents = agents;
     let runtime_config = runtime_config_with_private_organization(&state, &config, &data)?;
     let _ = app.emit("easy-call:config-updated", &runtime_config);
     Ok(RecordHotkeyUpdateResult {
@@ -672,7 +674,9 @@ fn save_config_inner(
     let _ = ensure_default_shell_workspace_in_config(&mut config, &state);
     set_record_hotkey_probe_background_wake_enabled(config.record_background_wake_enabled);
 
-    let mut data = state_read_agents_runtime_snapshot(&state)?;
+    let agents = state_read_agents_cached(&state)?;
+    let mut data = AppData::default();
+    data.agents = agents;
     let base_config = state_read_config_cached(&state)?;
     let removed_remote_im_channels = removed_remote_im_channels(&base_config, &config);
     let previous_runtime_config = runtime_config_with_private_organization(&state, &base_config, &data)?;
@@ -701,13 +705,6 @@ fn save_config_inner(
     } else {
         0
     };
-    if let Some(agent_id) = assistant_department_agent_id(&config) {
-        if data.assistant_department_agent_id != agent_id {
-            data.assistant_department_agent_id = agent_id;
-            state_write_runtime_state_cached(&state, &build_runtime_state_file(&data))
-                .map_err(|err| format!("配置已保存，但运行状态保存失败：{err}"))?;
-        }
-    }
     if base_config.hotkey != main_config.hotkey {
         if let Err(err) = register_hotkey_from_config(&app, &main_config) {
             runtime_log_error(format!(

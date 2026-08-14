@@ -63,10 +63,36 @@ struct MigrationBlobFile {
 #[serde(rename_all = "camelCase")]
 struct MigrationPayload {
     config: AppConfig,
-    runtime_data: AppData,
+    runtime_data: MigrationRuntimeData,
     memories: Vec<MemoryEntry>,
     oauth_files: Vec<MigrationBlobFile>,
     avatar_files: Vec<MigrationBlobFile>,
+}
+
+/// 迁移包内的运行态数据载体。V4 后 AppData 不再持有这些镜像字段，
+/// 迁移包协议保留旧形态以便新旧版本互导，导出侧从 state service 组装、导入侧写回 service。
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+struct MigrationRuntimeData {
+    agents: Vec<AgentProfile>,
+    #[serde(default)]
+    assistant_department_agent_id: String,
+    #[serde(default)]
+    response_style_id: String,
+    #[serde(default)]
+    pdf_read_mode: String,
+    #[serde(default)]
+    background_voice_screenshot_keywords: String,
+    #[serde(default)]
+    background_voice_screenshot_mode: String,
+    #[serde(default)]
+    instruction_presets: Vec<PromptCommandPreset>,
+    #[serde(default)]
+    pinned_conversation_ids: Vec<String>,
+    #[serde(default)]
+    data_migration_version: u32,
+    #[serde(default)]
+    message_store_migration_version: u32,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -401,7 +427,21 @@ fn collect_oauth_files_from_providers(config: &AppConfig) -> Result<Vec<Migratio
 
 fn build_export_payload(state: &AppState) -> Result<MigrationPayload, String> {
     let mut config = state_read_config_cached(state)?;
-    let mut runtime_data = state_read_agents_runtime_snapshot(state)?;
+    let mut runtime_data = MigrationRuntimeData::default();
+    runtime_data.agents = state_read_agents_cached(state)?;
+    runtime_data.assistant_department_agent_id =
+        state_service_get_assistant_department_agent_id(state)?;
+    runtime_data.response_style_id = state_service_get_response_style_id(state)?;
+    runtime_data.pdf_read_mode = state_service_get_pdf_read_mode(state)?;
+    runtime_data.background_voice_screenshot_keywords =
+        state_service_get_background_voice_screenshot_keywords(state)?;
+    runtime_data.background_voice_screenshot_mode =
+        state_service_get_background_voice_screenshot_mode(state)?;
+    runtime_data.instruction_presets = state_service_get_instruction_presets(state)?;
+    runtime_data.pinned_conversation_ids = state_service_get_pinned_conversation_ids(state)?;
+    runtime_data.data_migration_version = state_service_get_data_migration_version(state)?;
+    runtime_data.message_store_migration_version =
+        state_service_get_message_store_migration_version(state)?;
     let memories = memory_store_list_memories(&state.data_path)?;
 
     config.shell_workspaces = Vec::new();
@@ -411,13 +451,6 @@ fn build_export_payload(state: &AppState) -> Result<MigrationPayload, String> {
 
     let avatar_files = collect_avatar_files_from_agents(state, &mut runtime_data.agents)?;
     let oauth_files = collect_oauth_files_from_providers(&config)?;
-
-    runtime_data.main_conversation_id = None;
-    runtime_data.conversations.clear();
-    runtime_data.image_text_cache.clear();
-    runtime_data.pdf_text_cache.clear();
-    runtime_data.pdf_image_cache.clear();
-    runtime_data.remote_im_contacts.clear();
 
     Ok(MigrationPayload {
         config,
@@ -768,25 +801,13 @@ fn build_imported_config(
 }
 
 fn build_imported_runtime(
-    current: &AppData,
-    imported: &AppData,
+    imported: &MigrationRuntimeData,
     avatar_path_map: &std::collections::HashMap<String, String>,
-) -> AppData {
-    let mut final_data = current.clone();
-    final_data.agents = imported.agents.clone();
+) -> MigrationRuntimeData {
+    let mut final_data = imported.clone();
     for agent in &mut final_data.agents {
         agent.avatar_path = avatar_path_map.get(&agent.id).cloned();
     }
-    final_data.assistant_department_agent_id = imported.assistant_department_agent_id.clone();
-    final_data.user_alias = imported.user_alias.clone();
-    final_data.response_style_id = imported.response_style_id.clone();
-    final_data.pdf_read_mode = imported.pdf_read_mode.clone();
-    final_data.background_voice_screenshot_keywords =
-        imported.background_voice_screenshot_keywords.clone();
-    final_data.background_voice_screenshot_mode =
-        imported.background_voice_screenshot_mode.clone();
-    final_data.instruction_presets = imported.instruction_presets.clone();
-    final_data.pinned_conversation_ids = imported.pinned_conversation_ids.clone();
     final_data
 }
 
@@ -995,7 +1016,6 @@ fn apply_import_config_migration_package_inner(
 
     let backup_dir = backup_current_migration_targets(state)?;
     let current_config = state_read_config_cached(state)?;
-    let current_data = state_read_agents_runtime_snapshot(state)?;
     let (
         final_config,
         provider_added_count,
@@ -1005,12 +1025,36 @@ fn apply_import_config_migration_package_inner(
     ) = build_imported_config(&current_config, &payload.config);
     let avatar_path_map = write_avatar_files(state, &payload.avatar_files)?;
     write_oauth_files(&final_config, &payload.oauth_files)?;
-    let final_data = build_imported_runtime(&current_data, &payload.runtime_data, &avatar_path_map);
+    let final_data = build_imported_runtime(&payload.runtime_data, &avatar_path_map);
     let memory_stats = memory_store_import_memories(&state.data_path, &payload.memories)?;
 
     state_write_config_cached(state, &final_config)?;
     state_write_agents_cached(state, &final_data.agents)?;
-    state_write_runtime_state_cached(state, &build_runtime_state_file(&final_data))?;
+    state_service_set_assistant_department_agent_id(
+        state,
+        &final_data.assistant_department_agent_id,
+    )?;
+    state_service_set_response_style_id(state, &final_data.response_style_id)?;
+    state_service_set_pdf_read_mode(state, &final_data.pdf_read_mode)?;
+    state_service_set_background_voice_screenshot_keywords(
+        state,
+        &final_data.background_voice_screenshot_keywords,
+    )?;
+    state_service_set_background_voice_screenshot_mode(
+        state,
+        &final_data.background_voice_screenshot_mode,
+    )?;
+    state_service_set_instruction_presets(state, &final_data.instruction_presets)?;
+    state_service_set_pinned_conversation_ids(state, &final_data.pinned_conversation_ids)?;
+    if final_data.data_migration_version != 0 {
+        state_service_set_data_migration_version(state, final_data.data_migration_version)?;
+    }
+    if final_data.message_store_migration_version != 0 {
+        state_service_set_message_store_migration_version(
+            state,
+            final_data.message_store_migration_version,
+        )?;
+    }
 
     if let Err(err) = std::fs::remove_dir_all(&preview_dir) {
         runtime_log_warn(format!(

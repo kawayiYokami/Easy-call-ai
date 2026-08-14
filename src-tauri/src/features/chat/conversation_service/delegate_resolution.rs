@@ -133,8 +133,7 @@ impl ConversationServiceV2 {
             .lock()
             .map_err(|err| state_lock_error_with_panic(file!(), line!(), module_path!(), &err))?;
         let runtime_snapshot = load_runtime_organization_snapshot(state)?;
-        let assistant_agent_id = assistant_department_agent_id(&runtime_snapshot.config)
-            .ok_or_else(|| "未找到助理部门委任人".to_string())?;
+        let assistant_agent_id = state_service_get_assistant_department_agent_id(state)?;
         let department_id = runtime_department_for_agent(&runtime_snapshot, &assistant_agent_id)
             .map(|item| item.id.clone())
             .unwrap_or_else(|| ASSISTANT_DEPARTMENT_ID.to_string());

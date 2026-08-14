@@ -73,20 +73,6 @@ fn remote_im_bump_checkpoint_atomic_revision(checkpoint: &mut RemoteImContactChe
     checkpoint.atomic_revision = checkpoint.atomic_revision.saturating_add(1).max(1);
 }
 
-fn remote_im_reset_contact_checkpoint_atomic_in_list(
-    checkpoints: &mut Vec<RemoteImContactCheckpoint>,
-    contact_id: &str,
-) {
-    let checkpoint = remote_im_contact_checkpoint_mut_in_list(checkpoints, contact_id);
-    let atomic_revision = checkpoint.atomic_revision.saturating_add(1).max(1);
-    *checkpoint = RemoteImContactCheckpoint {
-        contact_id: contact_id.to_string(),
-        atomic_revision,
-        updated_at: Some(now_iso()),
-        ..RemoteImContactCheckpoint::default()
-    };
-}
-
 fn remote_im_group_energy_can_reply(energy: f64) -> bool {
     energy.is_finite() && energy > 0.0
 }
@@ -129,15 +115,12 @@ fn remote_im_group_reply_gate(
             reason: "联系人处于闭嘴状态".to_string(),
         });
     }
-    let runtime = state_read_runtime_state_cached(state)?;
-    let checkpoint = runtime
-        .remote_im_contact_checkpoints
-        .iter()
-        .find(|item| item.contact_id == contact.id);
+    let checkpoint = state_service_get_remote_im_contact_checkpoint(state, &contact.id)?;
     let pacing = effective_remote_im_group_reply_pacing(state, contact);
     let now = now_utc();
-    let energy = remote_im_group_energy_at(checkpoint, &pacing, now);
+    let energy = remote_im_group_energy_at(checkpoint.as_ref(), &pacing, now);
     if let Some(last_success_at) = checkpoint
+        .as_ref()
         .and_then(|item| item.last_success_reply_at.as_deref())
         .and_then(parse_iso)
     {
@@ -216,20 +199,24 @@ fn remote_im_apply_group_energy_for_messages(
         return Ok(());
     }
     let now = now_utc();
-    let before = state_mutate_runtime_state_cached(state, |runtime| {
-        let checkpoint = remote_im_contact_checkpoint_mut_in_list(
-            &mut runtime.remote_im_contact_checkpoints,
-            &contact.id,
-        );
-        let before = remote_im_group_energy_at(Some(checkpoint), &pacing, now);
-        checkpoint.energy = Some(
+    let mut checkpoint = state_service_get_remote_im_contact_checkpoint(state, &contact.id)?.unwrap_or(
+        RemoteImContactCheckpoint {
+            contact_id: contact.id.clone(),
+            ..RemoteImContactCheckpoint::default()
+        },
+    );
+    let before = {
+        let checkpoint_ref = &mut checkpoint;
+        let before = remote_im_group_energy_at(Some(checkpoint_ref), &pacing, now);
+        checkpoint_ref.energy = Some(
             (before + delta).clamp(-pacing.maximum_energy, pacing.maximum_energy),
         );
-        checkpoint.energy_updated_at = Some(now_iso());
-        remote_im_bump_checkpoint_atomic_revision(checkpoint);
-        checkpoint.updated_at = Some(now_iso());
-        Ok(before)
-    })?;
+        checkpoint_ref.energy_updated_at = Some(now_iso());
+        remote_im_bump_checkpoint_atomic_revision(checkpoint_ref);
+        checkpoint_ref.updated_at = Some(now_iso());
+        before
+    };
+    state_service_set_remote_im_contact_checkpoint(state, &checkpoint)?;
     runtime_log_debug(format!(
         "[群聊能量] 巡检范围词库结算：联系人={}，结算前={:.2}，变化={:.2}",
         remote_im_contact_log_label(contact), before, delta
@@ -298,36 +285,37 @@ fn remote_im_prepare_group_reply_delivery(
         "group-reply::{}::{}::{}",
         contact.id, generation, boundary_message_id
     );
-    state_mutate_runtime_state_cached(state, |runtime| {
-        let checkpoint = remote_im_contact_checkpoint_mut_in_list(
-            &mut runtime.remote_im_contact_checkpoints,
-            &contact.id,
-        );
-        if checkpoint
-            .group_reply_delivery
-            .as_ref()
-            .map(|marker| {
-                marker.outbound_key == outbound_key && marker.status != "preflight_failed"
-            })
-            .unwrap_or(false)
-        {
-            return Err(format!("群聊外发批次已有持久标记：{outbound_key}"));
-        }
-        let marker = RemoteImGroupReplyDeliveryMarker {
-            generation,
-            boundary_message_id,
-            outbound_key,
-            final_text: final_text.to_string(),
-            status: "dispatching".to_string(),
-            platform_message_id: None,
-            energy_applied: false,
-            updated_at: Some(now_iso()),
-        };
-        checkpoint.group_reply_delivery = Some(marker.clone());
-        remote_im_bump_checkpoint_atomic_revision(checkpoint);
-        checkpoint.updated_at = Some(now_iso());
-        Ok(marker)
-    })
+    let mut checkpoint = state_service_get_remote_im_contact_checkpoint(state, &contact.id)?.unwrap_or(
+        RemoteImContactCheckpoint {
+            contact_id: contact.id.clone(),
+            ..RemoteImContactCheckpoint::default()
+        },
+    );
+    if checkpoint
+        .group_reply_delivery
+        .as_ref()
+        .map(|marker| {
+            marker.outbound_key == outbound_key && marker.status != "preflight_failed"
+        })
+        .unwrap_or(false)
+    {
+        return Err(format!("群聊外发批次已有持久标记：{outbound_key}"));
+    }
+    let marker = RemoteImGroupReplyDeliveryMarker {
+        generation,
+        boundary_message_id,
+        outbound_key,
+        final_text: final_text.to_string(),
+        status: "dispatching".to_string(),
+        platform_message_id: None,
+        energy_applied: false,
+        updated_at: Some(now_iso()),
+    };
+    checkpoint.group_reply_delivery = Some(marker.clone());
+    remote_im_bump_checkpoint_atomic_revision(&mut checkpoint);
+    checkpoint.updated_at = Some(now_iso());
+    state_service_set_remote_im_contact_checkpoint(state, &checkpoint)?;
+    Ok(marker)
 }
 
 fn remote_im_cancel_prepared_group_reply_delivery(
@@ -336,23 +324,30 @@ fn remote_im_cancel_prepared_group_reply_delivery(
     marker: &RemoteImGroupReplyDeliveryMarker,
     reason: &str,
 ) -> Result<(), String> {
-    let changed = state_mutate_runtime_state_cached(state, |runtime| {
-        let checkpoint = remote_im_contact_checkpoint_mut_in_list(
-            &mut runtime.remote_im_contact_checkpoints,
-            contact_id,
-        );
+    let mut checkpoint = state_service_get_remote_im_contact_checkpoint(state, contact_id)?.unwrap_or(
+        RemoteImContactCheckpoint {
+            contact_id: contact_id.to_string(),
+            ..RemoteImContactCheckpoint::default()
+        },
+    );
+    let changed = {
+        let checkpoint = &mut checkpoint;
         let Some(current) = checkpoint.group_reply_delivery.as_mut() else {
-            return Ok(false);
+            return Ok(());
         };
         if current.outbound_key != marker.outbound_key || current.status != "dispatching" {
-            return Ok(false);
+            false
+        } else {
+            current.status = "preflight_failed".to_string();
+            current.updated_at = Some(now_iso());
+            remote_im_bump_checkpoint_atomic_revision(checkpoint);
+            checkpoint.updated_at = Some(now_iso());
+            true
         }
-        current.status = "preflight_failed".to_string();
-        current.updated_at = Some(now_iso());
-        remote_im_bump_checkpoint_atomic_revision(checkpoint);
-        checkpoint.updated_at = Some(now_iso());
-        Ok(true)
-    })?;
+    };
+    if changed {
+        state_service_set_remote_im_contact_checkpoint(state, &checkpoint)?;
+    }
     if !changed {
         return Ok(());
     }
@@ -373,26 +368,29 @@ fn remote_im_persist_group_reply_settlement(
         RemoteImGroupReplySettlementStatus::Delivered => "committed",
         RemoteImGroupReplySettlementStatus::Uncertain => "uncertain",
     };
-    let applied = state_mutate_runtime_state_cached(state, |runtime| {
-        let checkpoint = remote_im_contact_checkpoint_mut_in_list(
-            &mut runtime.remote_im_contact_checkpoints,
-            &contact.id,
-        );
+    let mut checkpoint = state_service_get_remote_im_contact_checkpoint(state, &contact.id)?.unwrap_or(
+        RemoteImContactCheckpoint {
+            contact_id: contact.id.clone(),
+            ..RemoteImContactCheckpoint::default()
+        },
+    );
+    let applied = {
+        let checkpoint = &mut checkpoint;
         if settlement.outbound_key.as_ref().is_some_and(|outbound_key| {
             checkpoint
                 .group_reply_delivery
                 .as_ref()
                 .is_some_and(|marker| marker.outbound_key != *outbound_key)
         }) {
-            return Ok(false);
-        }
-        let existing_marker = settlement
-            .outbound_key
-            .as_deref()
-            .zip(checkpoint.group_reply_delivery.as_ref())
-            .and_then(|(outbound_key, marker)| {
-                (marker.outbound_key == outbound_key).then(|| marker.clone())
-            });
+            false
+        } else {
+            let existing_marker = settlement
+                .outbound_key
+                .as_deref()
+                .zip(checkpoint.group_reply_delivery.as_ref())
+                .and_then(|(outbound_key, marker)| {
+                    (marker.outbound_key == outbound_key).then(|| marker.clone())
+                });
         let energy_already_applied = existing_marker
             .as_ref()
             .map(|marker| marker.energy_applied)
@@ -459,8 +457,12 @@ fn remote_im_persist_group_reply_settlement(
             });
         }
         remote_im_bump_checkpoint_atomic_revision(checkpoint);
-        Ok(true)
-    })?;
+        true
+        }
+    };
+    if applied {
+        state_service_set_remote_im_contact_checkpoint(state, &checkpoint)?;
+    }
     if !applied {
         runtime_log_warn(format!(
             "[群聊巡检] 跳过过期外发结算，避免覆盖较新的发送标记，contact_id={}，outbound_key={}",
@@ -477,10 +479,7 @@ fn remote_im_recover_group_reply_delivery_marker(
     state: &AppState,
     contact: &RemoteImContact,
 ) -> Result<(), String> {
-    let marker = state_read_runtime_state_cached(state)?
-        .remote_im_contact_checkpoints
-        .into_iter()
-        .find(|checkpoint| checkpoint.contact_id == contact.id)
+    let marker = state_service_get_remote_im_contact_checkpoint(state, &contact.id)?
         .and_then(|checkpoint| checkpoint.group_reply_delivery)
         .filter(|marker| marker.status == "dispatching");
     let Some(marker) = marker else {
@@ -541,10 +540,8 @@ fn remote_im_recover_group_reply_delivery_marker(
 fn remote_im_recover_all_group_reply_delivery_markers(
     state: &AppState,
 ) -> Result<(usize, usize), String> {
-    let runtime = state_read_runtime_state_cached(state)?;
-    let pending_contact_ids = runtime
-        .remote_im_contact_checkpoints
-        .iter()
+    let pending_contact_ids = state_service_list_remote_im_contact_checkpoints(state)?
+        .into_iter()
         .filter_map(|checkpoint| {
             checkpoint
                 .group_reply_delivery
@@ -555,11 +552,8 @@ fn remote_im_recover_all_group_reply_delivery_markers(
         .collect::<Vec<_>>();
     let mut recovered = 0usize;
     let mut failed = 0usize;
-    for contact_id in pending_contact_ids {
-        let Some(contact) = runtime
-            .remote_im_contacts
-            .iter()
-            .find(|contact| contact.id == contact_id)
+    for contact_id in &pending_contact_ids {
+        let Some(contact) = state_service_get_remote_im_contact(state, contact_id)?
         else {
             runtime_log_warn(format!(
                 "[群聊巡检] 启动恢复跳过孤立发送标记，contact_id={}，reason=联系人已不存在",
@@ -567,7 +561,7 @@ fn remote_im_recover_all_group_reply_delivery_markers(
             ));
             continue;
         };
-        match remote_im_recover_group_reply_delivery_marker(state, contact) {
+        match remote_im_recover_group_reply_delivery_marker(state, &contact) {
             Ok(()) => recovered = recovered.saturating_add(1),
             Err(err) => {
                 failed = failed.saturating_add(1);

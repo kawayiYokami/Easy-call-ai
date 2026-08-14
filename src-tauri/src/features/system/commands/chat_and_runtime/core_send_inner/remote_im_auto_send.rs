@@ -281,13 +281,6 @@ fn conversation_upsert_final_assistant_message(
     Ok(existing.clone())
 }
 
-fn remote_im_find_contact_by_conversation<'a>(
-    data: &'a AppData,
-    conversation_id: &str,
-) -> Option<&'a RemoteImContact> {
-    conversation_service_v2().find_remote_im_contact_by_conversation_in_data(data, conversation_id)
-}
-
 fn remote_im_auto_send_source_for_contact_conversation(
     state: &AppState,
     conversation_id: &str,
@@ -296,9 +289,8 @@ fn remote_im_auto_send_source_for_contact_conversation(
     if conversation_id.is_empty() {
         return Ok(None);
     }
-    let runtime = state_read_runtime_state_cached(state)?;
-    Ok(runtime
-        .remote_im_contacts
+    let contacts = state_service_list_remote_im_contacts(state, None)?;
+    Ok(contacts
         .iter()
         .find(|contact| {
             contact
@@ -612,18 +604,15 @@ async fn remote_im_auto_send_assistant_reply_to_source(
     if !channel.enabled {
         return Err("自动发送目标渠道未启用".to_string());
     }
-    let runtime = state_read_runtime_state_cached(state)?;
-    let contact = runtime
-        .remote_im_contacts
-        .iter()
-        .find(|item| {
-            item.channel_id == source.channel_id
-                && item.remote_contact_id == source.remote_contact_id
-        })
-        .ok_or_else(|| {
-            format!("未找到自动发送目标联系人：{}", remote_im_activation_source_log_label(source))
-        })?
-        .clone();
+    let contact = state_service_find_remote_im_contact_by_identity(
+        state,
+        &source.channel_id,
+        &source.remote_contact_type,
+        &source.remote_contact_id,
+    )?
+    .ok_or_else(|| {
+        format!("未找到自动发送目标联系人：{}", remote_im_activation_source_log_label(source))
+    })?;
     if !contact.allow_send {
         return Err(format!("联系人“{}”未开启发送", remote_im_contact_log_label(&contact)));
     }
@@ -896,11 +885,10 @@ fn remote_im_auto_send_log_labels(
             }
         })
         .unwrap_or_else(|| "当前渠道".to_string());
-    let contact_label = state_read_runtime_state_cached(state)
+    let contact_label = state_service_list_remote_im_contacts(state, None)
         .ok()
-        .and_then(|runtime| {
-            runtime
-                .remote_im_contacts
+        .and_then(|contacts| {
+            contacts
                 .iter()
                 .find(|contact| {
                     contact.channel_id == source.channel_id
@@ -919,16 +907,17 @@ fn remote_im_append_contact_log_for_activation_source(
     level: &str,
     message: String,
 ) {
-    let contact = state_read_runtime_state_cached(state).ok().and_then(|runtime| {
-        runtime
-            .remote_im_contacts
-            .into_iter()
-            .find(|contact| {
-                contact.channel_id == source.channel_id
-                    && contact.remote_contact_type == source.remote_contact_type
-                    && contact.remote_contact_id == source.remote_contact_id
-            })
-    });
+    let contact = state_service_list_remote_im_contacts(state, None)
+        .ok()
+        .and_then(|contacts| {
+            contacts
+                .into_iter()
+                .find(|contact| {
+                    contact.channel_id == source.channel_id
+                        && contact.remote_contact_type == source.remote_contact_type
+                        && contact.remote_contact_id == source.remote_contact_id
+                })
+        });
     if let Some(contact) = contact {
         remote_im_append_contact_log(&contact, level, message);
     } else {

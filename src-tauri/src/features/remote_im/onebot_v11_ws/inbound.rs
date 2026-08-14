@@ -211,7 +211,14 @@ async fn parse_and_enqueue_onebot_event(
     let result = remote_im_enqueue_message_internal(input, state)?;
     if !result.conversation_id.trim().is_empty() {
         let group_members = group_member_cache.into_values().collect::<Vec<_>>();
-        onebot_persist_group_member_cache(state, &result.contact_id, group_members)?;
+        if let Err(err) =
+            onebot_persist_group_member_cache(state, &result.contact_id, group_members)
+        {
+            runtime_log_warn(format!(
+                "[群聊入站] 群成员缓存更新失败，不影响消息入队，contact_id={}，error={}",
+                result.contact_id, err
+            ));
+        }
     }
     Ok(result)
 }

@@ -287,7 +287,7 @@ fn empty_message_store_migration_preflight_report() -> MessageStoreMigrationPref
 }
 
 fn message_store_migration_current_version_recorded(state: &AppState) -> Result<bool, String> {
-    Ok(state_read_runtime_state_cached(state)?.message_store_migration_version
+    Ok(state_service_get_message_store_migration_version(state)?
         >= DATA_MIGRATION_CURRENT_VERSION)
 }
 
@@ -429,15 +429,16 @@ fn run_message_store_migration_inner(
     if message_store_migration_current_version_recorded(state)? {
         return Ok(report);
     }
-    let mut runtime = state_read_runtime_state_cached(state)?;
-    if runtime.message_store_migration_version
+    if state_service_get_message_store_migration_version(state)?
         >= DATA_MIGRATION_VERSION_V2_ASSISTANT_WORKSPACE_FOR_EMPTY_SHELL_WORKSPACES
     {
         message_store::chat_metadata_store_run_v3_migration(&state.data_path)?;
         let config = state_read_config_cached(state)?;
         message_store::chat_metadata_store_run_usage_trail_migration(&state.data_path, &config)?;
-        runtime.message_store_migration_version = DATA_MIGRATION_VERSION_V3_CHAT_METADATA_SQLITE;
-        state_write_runtime_state_cached(state, &runtime)?;
+        state_service_set_message_store_migration_version(
+            state,
+            DATA_MIGRATION_VERSION_V3_CHAT_METADATA_SQLITE,
+        )?;
         return Ok(report);
     }
     let preflight = build_message_store_migration_preflight_report(state);
@@ -568,14 +569,17 @@ fn run_message_store_migration_inner(
         }
     }
     refresh_message_store_migration_caches(state)?;
-    runtime.message_store_migration_version =
-        DATA_MIGRATION_VERSION_V2_ASSISTANT_WORKSPACE_FOR_EMPTY_SHELL_WORKSPACES;
-    state_write_runtime_state_cached(state, &runtime)?;
+    state_service_set_message_store_migration_version(
+        state,
+        DATA_MIGRATION_VERSION_V2_ASSISTANT_WORKSPACE_FOR_EMPTY_SHELL_WORKSPACES,
+    )?;
     message_store::chat_metadata_store_run_v3_migration(&state.data_path)?;
     let config = state_read_config_cached(state)?;
     message_store::chat_metadata_store_run_usage_trail_migration(&state.data_path, &config)?;
-    runtime.message_store_migration_version = DATA_MIGRATION_VERSION_V3_CHAT_METADATA_SQLITE;
-    state_write_runtime_state_cached(state, &runtime)?;
+    state_service_set_message_store_migration_version(
+        state,
+        DATA_MIGRATION_VERSION_V3_CHAT_METADATA_SQLITE,
+    )?;
     Ok(report)
 }
 
@@ -733,12 +737,6 @@ mod message_store_migration_gate_tests {
         let legacy_path = app_layout_chat_conversation_path(&data_path, &conversation.id);
         write_json_file_atomic(&legacy_path, &conversation, "conversation file")
             .expect("write legacy conversation");
-        let mut runtime = RuntimeStateFile::default();
-        runtime.data_migration_version = DATA_MIGRATION_CURRENT_VERSION;
-        runtime.message_store_migration_version = 0;
-        write_runtime_state_shard(&data_path, &runtime).expect("write runtime shard");
-
-        let runtime = read_runtime_state_shard(&data_path).expect("read runtime shard");
         let state = AppState {
             app_handle: Arc::new(Mutex::new(None)),
             config_path: root.join("app_config.toml"),
@@ -753,8 +751,6 @@ mod message_store_migration_gate_tests {
             cached_config_mtime: Arc::new(Mutex::new(None)),
             cached_agents: Arc::new(Mutex::new(None)),
             cached_agents_mtime: Arc::new(Mutex::new(None)),
-            cached_runtime_state: Arc::new(Mutex::new(Some(runtime.clone()))),
-            cached_runtime_state_mtime: Arc::new(Mutex::new(None)),
             cached_chat_index: Arc::new(Mutex::new(None)),
             cached_conversation_metadata: Arc::new(Mutex::new(std::collections::HashMap::new())),
             cached_conversation_field_metadata_ids: Arc::new(Mutex::new(
@@ -808,10 +804,21 @@ mod message_store_migration_gate_tests {
             delegate_active_ids: Arc::new(Mutex::new(std::collections::HashSet::new())),
             backend_ready: Arc::new(std::sync::atomic::AtomicBool::new(false)),
         };
+        state_service_set_data_migration_version(&state, DATA_MIGRATION_CURRENT_VERSION)
+            .expect("write data migration version");
+        state_service_set_message_store_migration_version(&state, 0)
+            .expect("write message store migration version");
         let report = build_message_store_migration_preflight_report(&state);
 
-        assert_eq!(runtime.data_migration_version, DATA_MIGRATION_CURRENT_VERSION);
-        assert_eq!(runtime.message_store_migration_version, 0);
+        assert_eq!(
+            state_service_get_data_migration_version(&state).expect("read data migration version"),
+            DATA_MIGRATION_CURRENT_VERSION
+        );
+        assert_eq!(
+            state_service_get_message_store_migration_version(&state)
+                .expect("read message store migration version"),
+            0
+        );
         assert!(!message_store_migration_current_version_recorded(&state).expect("read gate"));
         assert_eq!(report.legacy_count, 1);
         assert_eq!(report.items[0].status, "legacyReadyToMigrate");

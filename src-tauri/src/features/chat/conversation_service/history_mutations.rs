@@ -6,7 +6,6 @@ impl ConversationServiceV2 {
     ) -> Result<DeleteUnarchivedConversationMutationResult, String> {
         struct DeleteConversationPreparation {
             app_config: AppConfig,
-            runtime: RuntimeStateFile,
             child_conversation_ids: Vec<String>,
             active_conversation_id: String,
             should_create_system_notification: bool,
@@ -24,13 +23,9 @@ impl ConversationServiceV2 {
             "delete_conversation",
             || {
                 let app_config = state_read_config_cached(state)?;
-                let runtime = state_read_runtime_state_cached(state)?;
-                let main_conversation_id = runtime
-                    .main_conversation_id
-                    .as_deref()
-                    .map(str::trim)
-                    .unwrap_or_default()
-                    .to_string();
+                let main_conversation_id = state_service_get_main_conversation_id(state)?
+                    .map(|value| value.trim().to_string())
+                    .unwrap_or_default();
                 if normalized_conversation_id == main_conversation_id {
                     return Err("系统通知会话暂不支持删除".to_string());
                 }
@@ -84,8 +79,7 @@ impl ConversationServiceV2 {
                     true
                 };
                 let should_set_main_to_system_notification = active_conversation_id.trim().is_empty()
-                    && runtime.main_conversation_id.as_deref().map(str::trim)
-                        != Some(SYSTEM_NOTIFICATION_CONVERSATION_ID);
+                    && main_conversation_id.trim() != SYSTEM_NOTIFICATION_CONVERSATION_ID;
                 let parent_conversation_id = conversation
                     .as_ref()
                     .and_then(|item| item.parent_conversation_id.clone())
@@ -93,7 +87,6 @@ impl ConversationServiceV2 {
 
                 Ok(DeleteConversationPreparation {
                     app_config,
-                    runtime,
                     child_conversation_ids,
                     active_conversation_id: if active_conversation_id.trim().is_empty() {
                         SYSTEM_NOTIFICATION_CONVERSATION_ID.to_string()
@@ -113,9 +106,10 @@ impl ConversationServiceV2 {
             state_schedule_conversation_persist(state, &system_notification)?;
         }
         if preparation.should_set_main_to_system_notification {
-            let mut next_runtime = preparation.runtime.clone();
-            next_runtime.main_conversation_id = Some(SYSTEM_NOTIFICATION_CONVERSATION_ID.to_string());
-            state_write_runtime_state_cached(state, &next_runtime)?;
+            state_service_set_main_conversation_id(
+                state,
+                Some(SYSTEM_NOTIFICATION_CONVERSATION_ID),
+            )?;
         }
         if let Ok(cleanup_conversation) =
             read_conversation_for_backup_cleanup(state, normalized_conversation_id)
@@ -408,7 +402,6 @@ impl ConversationServiceV2 {
             .map_err(|err| format!("Failed to lock state mutex at {}:{} {}: {err}", file!(), line!(), module_path!()))?;
         let runtime_snapshot = load_runtime_organization_snapshot(state)?;
         let app_config = runtime_snapshot.config.clone();
-        let runtime = state_read_runtime_state_cached(state)?;
         let agents = runtime_snapshot.agents.clone();
         let source_conversation_meta = self
             .get_conversation_meta(state, source_conversation_id)
@@ -435,7 +428,7 @@ impl ConversationServiceV2 {
             &source_conversation_meta.title,
             source_conversation_meta.latest_summary_title.as_deref(),
             first_selected_ordinal.max(1),
-            runtime.main_conversation_id.as_deref().map(str::trim)
+            main_conversation_id_downgraded(state).as_deref().map(str::trim)
                 == Some(source_conversation_meta.id.as_str()),
         );
         let latest_compaction_message = selection.latest_compaction_message;
@@ -571,12 +564,7 @@ impl ConversationServiceV2 {
             .ok()
             .filter(|conversation_meta| conversation_meta.is_remote_im_contact)
             .ok_or_else(|| "目标远程联系人会话不存在".to_string())?;
-        let runtime = state_read_runtime_state_cached(state)?;
-        let contact = runtime
-            .remote_im_contacts
-            .iter()
-            .find(|item| item.id.trim() == normalized_remote_contact_id)
-            .cloned()
+        let contact = state_service_get_remote_im_contact(state, normalized_remote_contact_id)?
             .ok_or_else(|| "目标远程联系人不存在".to_string())?;
         if contact.bound_conversation_id.as_deref().map(str::trim) != Some(target_conversation_id) {
             return Err("远程联系人与目标会话不匹配".to_string());

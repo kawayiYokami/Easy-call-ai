@@ -548,8 +548,14 @@ async fn summarize_archived_conversation_with_model_v2(
     let runtime_snapshot = load_runtime_organization_snapshot(state)?;
     let app_config = runtime_snapshot.config;
     let agents = runtime_snapshot.agents;
-    let runtime_state = state_read_runtime_state_cached(state)?;
-    let response_style_id = runtime_state.response_style_id.clone();
+    let response_style_id = {
+        let state = state.clone();
+        tokio::task::spawn_blocking(move || {
+            state_service_get_response_style_id(&state)
+        })
+        .await
+        .map_err(|err| SummaryContextModelError::NonRetryable(format!("读取响应风格 ID 失败：error={err}")))?
+    }?;
     let user_intro = agents
         .iter()
         .find(|agent| agent.id == USER_PERSONA_ID || agent.is_built_in_user)

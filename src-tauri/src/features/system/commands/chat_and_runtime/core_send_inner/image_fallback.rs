@@ -6,8 +6,17 @@ async fn resolve_image_description_with_vision_fallback(
     image: &BinaryPart,
 ) -> Result<Option<String>, String> {
     let hash = compute_image_hash_hex(image)?;
-    let cached = match state_read_runtime_state_cached(state) {
-        Ok(runtime) => find_runtime_image_text_cache(&runtime, &hash, &vision_api.id),
+    let cached = match {
+        let state = state.clone();
+        let hash = hash.clone();
+        let api_id = vision_api.id.clone();
+        tokio::task::spawn_blocking(move || {
+            state_service_find_image_text_cache(&state, &hash, &api_id, "image", "")
+        })
+        .await
+        .map_err(|err| format!("图片缓存读取任务失败：error={err}"))?
+    } {
+        Ok(cached) => cached,
         Err(err) => {
             runtime_log_warn(format!(
                 "[图片转文] 缓存读取失败，跳过缓存继续转换，conversation_id={}，error={}",
@@ -68,20 +77,21 @@ async fn resolve_image_description_with_vision_fallback(
         return Ok(None);
     }
 
-    match state_read_runtime_state_cached(state) {
-        Ok(mut runtime) => {
-            upsert_runtime_image_text_cache(&mut runtime, &hash, &vision_api.id, &trimmed);
-            if let Err(err) = state_write_runtime_state_cached(state, &runtime) {
-                runtime_log_warn(format!(
-                    "[图片转文] 缓存写入失败，保留本次描述继续，conversation_id={}，error={}",
-                    conversation_id, err
-                ));
-            }
-        }
-        Err(err) => runtime_log_warn(format!(
-            "[图片转文] 缓存更新前读取失败，保留本次描述继续，conversation_id={}，error={}",
+    if let Err(err) = {
+        let state = state.clone();
+        let hash = hash.clone();
+        let api_id = vision_api.id.clone();
+        let trimmed = trimmed.clone();
+        tokio::task::spawn_blocking(move || {
+            state_service_upsert_image_text_cache(&state, &hash, &api_id, "image", "", &trimmed)
+        })
+        .await
+        .map_err(|err| format!("图片缓存写入任务失败：error={err}"))?
+    } {
+        runtime_log_warn(format!(
+            "[图片转文] 缓存写入失败，保留本次描述继续，conversation_id={}，error={}",
             conversation_id, err
-        )),
+        ));
     }
 
     Ok(Some(trimmed))

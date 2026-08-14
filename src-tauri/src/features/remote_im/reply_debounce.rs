@@ -480,16 +480,15 @@ fn remote_im_group_reply_retry_after_dispatch_failure(
 ) {
     match remote_im_group_reply_contact_latest(state, contact_id) {
         Ok(contact) => {
-            let marker = state_read_runtime_state_cached(state).map(|runtime| {
-                runtime
-                    .remote_im_contact_checkpoints
-                    .into_iter()
-                    .find(|checkpoint| checkpoint.contact_id == contact_id)
-                    .and_then(|checkpoint| checkpoint.group_reply_delivery)
-                    .filter(|marker| {
-                        marker.generation == generation && marker.status == "dispatching"
-                    })
-            });
+            let marker = state_service_get_remote_im_contact_checkpoint(state, contact_id).map(
+                |checkpoint| {
+                    checkpoint
+                        .and_then(|checkpoint| checkpoint.group_reply_delivery)
+                        .filter(|marker| {
+                            marker.generation == generation && marker.status == "dispatching"
+                        })
+                },
+            );
             match marker {
                 Ok(Some(marker)) => {
                     runtime_log_warn(format!(
@@ -521,12 +520,18 @@ fn remote_im_group_reply_retry_after_dispatch_failure(
                     let reason = reason.to_string();
                     tauri::async_runtime::spawn(async move {
                         tokio::time::sleep(std::time::Duration::from_secs(5)).await;
-                        remote_im_group_reply_retry_after_dispatch_failure(
-                            &state,
-                            &contact_id,
-                            generation,
-                            &reason,
-                        );
+                        let state = state.clone();
+                        let contact_id = contact_id.clone();
+                        let reason = reason.clone();
+                        let _ = tokio::task::spawn_blocking(move || {
+                            remote_im_group_reply_retry_after_dispatch_failure(
+                                &state,
+                                &contact_id,
+                                generation,
+                                &reason,
+                            )
+                        })
+                        .await;
                     });
                 }
             }
@@ -575,10 +580,7 @@ fn remote_im_group_reply_contact_latest(
     state: &AppState,
     contact_id: &str,
 ) -> Result<RemoteImContact, String> {
-    state_read_runtime_state_cached(state)?
-        .remote_im_contacts
-        .into_iter()
-        .find(|contact| contact.id == contact_id)
+    state_service_get_remote_im_contact(state, contact_id)?
         .ok_or_else(|| format!("群聊联系人已不存在：{contact_id}"))
 }
 
@@ -846,7 +848,26 @@ async fn remote_im_group_reply_handle_timer(
         current.energy_settled = true;
         snapshot = current.clone();
     }
-    let gate = match remote_im_group_reply_gate(state, &contact, snapshot.focus) {
+    let gate = match {
+        let state_for_blocking = state.clone();
+        let contact_for_blocking = contact.clone();
+        match tokio::task::spawn_blocking(move || {
+            remote_im_group_reply_gate(&state_for_blocking, &contact_for_blocking, snapshot.focus)
+        })
+        .await
+        {
+            Ok(result) => result,
+            Err(err) => {
+                remote_im_group_reply_retry_generation(
+                    state,
+                    &contact.id,
+                    action.generation,
+                    &format!("能量门控任务失败：{err}"),
+                );
+                return;
+            }
+        }
+    } {
         Ok(gate) => gate,
         Err(err) => {
             remote_im_group_reply_retry_generation(
@@ -910,12 +931,17 @@ async fn remote_im_group_reply_handle_timer(
             tauri::async_runtime::spawn(async move {
                 tokio::time::sleep(std::time::Duration::from_secs(180)).await;
                 if remote_im_group_reply_generation_is_current(&state, &contact_id, generation) {
-                    remote_im_group_reply_retry_after_dispatch_failure(
-                        &state,
-                        &contact_id,
-                        generation,
-                        "远程应答等待发送回调超时",
-                    );
+                    let state = state.clone();
+                    let contact_id = contact_id.clone();
+                    let _ = tokio::task::spawn_blocking(move || {
+                        remote_im_group_reply_retry_after_dispatch_failure(
+                            &state,
+                            &contact_id,
+                            generation,
+                            "远程应答等待发送回调超时",
+                        )
+                    })
+                    .await;
                 }
             });
         }

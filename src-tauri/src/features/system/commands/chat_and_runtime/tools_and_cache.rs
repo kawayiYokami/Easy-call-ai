@@ -183,22 +183,16 @@ fn get_image_text_cache_stats(state: State<'_, AppState>) -> Result<ImageTextCac
 }
 
 fn get_image_text_cache_stats_inner(state: &AppState) -> Result<ImageTextCacheStats, String> {
-    let runtime = state_read_runtime_state_cached(&state)?;
-
-    let entries = runtime.image_text_cache.len();
-    let total_chars = runtime
-        .image_text_cache
+    let entries = state_service_list_image_text_cache(state)?;
+    let entry_count = entries.len();
+    let total_chars = entries
         .iter()
-        .map(|entry| entry.text.chars().count())
+        .map(|(text, _)| text.chars().count())
         .sum::<usize>();
-    let latest_updated_at = runtime
-        .image_text_cache
-        .iter()
-        .map(|entry| entry.updated_at.clone())
-        .max();
+    let latest_updated_at = entries.into_iter().map(|(_, updated_at)| updated_at).max();
 
     Ok(ImageTextCacheStats {
-        entries,
+        entries: entry_count,
         total_chars,
         latest_updated_at,
     })
@@ -210,9 +204,7 @@ fn clear_image_text_cache(state: State<'_, AppState>) -> Result<ImageTextCacheSt
 }
 
 fn clear_image_text_cache_inner(state: &AppState) -> Result<ImageTextCacheStats, String> {
-    let mut runtime = state_read_runtime_state_cached(&state)?;
-    runtime.image_text_cache.clear();
-    state_write_runtime_state_cached(&state, &runtime)?;
+    state_service_clear_image_text_cache(state)?;
 
     Ok(ImageTextCacheStats {
         entries: 0,

@@ -318,47 +318,19 @@ pub(crate) fn get_or_extract_pdf_structured(
     Ok(result)
 }
 
-/// 清理对话关联的PDF缓存（兼容旧缓存结构，文本/图片都清）
+/// 清理对话关联的PDF缓存（文本/图片都清）
 pub(crate) fn cleanup_pdf_cache_for_conversation(
     state: &AppState,
     conversation_id: &str,
 ) -> Result<(), String> {
     cleanup_pdf_session_memory_cache_for_conversation(conversation_id);
-    let mut runtime = state_read_runtime_state_cached(state)?;
-    let original_text_len = runtime.pdf_text_cache.len();
-    let original_image_len = runtime.pdf_image_cache.len();
-
-    runtime.pdf_text_cache.retain_mut(|entry| {
-        entry.conversation_ids.retain(|id| id != conversation_id);
-        if entry.conversation_ids.is_empty() {
-            runtime_log_info(format!("[PDF缓存清理] 删除文本缓存条目 file={}, hash={}", entry.file_name, entry.file_hash));
-            false
-        } else {
-            entry.updated_at = chrono::Utc::now().to_rfc3339();
-            true
-        }
-    });
-
-    runtime.pdf_image_cache.retain_mut(|entry| {
-        entry.conversation_ids.retain(|id| id != conversation_id);
-        if entry.conversation_ids.is_empty() {
-            runtime_log_info(format!("[PDF缓存清理] 删除图片缓存条目 file={}, hash={}", entry.file_name, entry.file_hash));
-            false
-        } else {
-            entry.updated_at = chrono::Utc::now().to_rfc3339();
-            true
-        }
-    });
-
-    let removed_text = original_text_len - runtime.pdf_text_cache.len();
-    let removed_image = original_image_len - runtime.pdf_image_cache.len();
+    let (removed_text, removed_image) =
+        state_service_remove_conversation_from_pdf_caches(state, conversation_id)?;
     if removed_text > 0 || removed_image > 0 {
         runtime_log_info(format!(
             "[PDF缓存清理] 完成 conversation_id={}, removed_text={}, removed_image={}",
             conversation_id, removed_text, removed_image
         ));
     }
-
-    state_write_runtime_state_cached(state, &runtime)?;
     Ok(())
 }

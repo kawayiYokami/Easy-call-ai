@@ -1,6 +1,7 @@
 #[cfg(test)]
 fn resolve_unarchived_conversation_index_with_fallback(
     data: &mut AppData,
+    state: &AppState,
     app_config: &AppConfig,
     effective_agent_id: &str,
     requested_conversation_id: Option<&str>,
@@ -25,7 +26,7 @@ fn resolve_unarchived_conversation_index_with_fallback(
         ));
     }
 
-    if let Some(existing_idx) = main_conversation_index(data, effective_agent_id) {
+    if let Some(existing_idx) = main_conversation_index(data, state, effective_agent_id)? {
         return Ok(existing_idx);
     }
 
@@ -37,6 +38,7 @@ fn resolve_unarchived_conversation_index_with_fallback(
         .ok_or_else(|| "No API config available".to_string())?;
     Ok(ensure_active_conversation_index(
         data,
+        state,
         &api_config.id,
         effective_agent_id,
     ))

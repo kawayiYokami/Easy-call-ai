@@ -1,6 +1,6 @@
     #[test]
     fn remote_im_upsert_contact_for_inbound_should_keep_new_contact_communication_disabled() {
-        let mut runtime = RuntimeStateFile::default();
+        let state = remote_im_test_state();
         let input = RemoteImEnqueueInput {
             channel_id: "c1".to_string(),
             platform: RemoteImPlatform::OnebotV11,
@@ -34,12 +34,12 @@
             },
         };
         let now = now_iso();
-        let contact_id = remote_im_upsert_contact_for_inbound(&mut runtime, &input, &now);
-        assert_eq!(runtime.remote_im_contacts.len(), 1);
-        let contact = runtime
-            .remote_im_contacts
-            .iter()
-            .find(|item| item.id == contact_id)
+        let contact_id = remote_im_upsert_contact_for_inbound(&state, &input, &now)
+            .expect("upsert contact");
+        assert_eq!(state_service_list_remote_im_contacts(&state, None)
+            .expect("list contacts").len(), 1);
+        let contact = state_service_get_remote_im_contact(&state, &contact_id)
+            .expect("read contact")
             .expect("contact exists");
         assert!(!contact.allow_send);
         assert!(!contact.allow_receive);
@@ -50,15 +50,17 @@
 
         // 第二次入队应复用同一联系人
         let now2 = now_iso();
-        let contact_id_2 = remote_im_upsert_contact_for_inbound(&mut runtime, &input, &now2);
+        let contact_id_2 = remote_im_upsert_contact_for_inbound(&state, &input, &now2)
+            .expect("upsert contact again");
         assert_eq!(contact_id, contact_id_2);
-        assert_eq!(runtime.remote_im_contacts.len(), 1);
+        assert_eq!(state_service_list_remote_im_contacts(&state, None)
+            .expect("list contacts").len(), 1);
     }
 
     #[test]
     fn remote_im_upsert_contact_for_inbound_weixin_defaults_allow_send_files() {
         // 微信渠道为私聊场景（bot 为本人扫码授权账号），新建联系人默认允许发送文件
-        let mut runtime = RuntimeStateFile::default();
+        let state = remote_im_test_state();
         let input = RemoteImEnqueueInput {
             channel_id: "wx-1".to_string(),
             platform: RemoteImPlatform::WeixinOc,
@@ -92,25 +94,23 @@
             },
         };
         let now = now_iso();
-        let contact_id = remote_im_upsert_contact_for_inbound(&mut runtime, &input, &now);
-        let contact = runtime
-            .remote_im_contacts
-            .iter()
-            .find(|item| item.id == contact_id)
+        let contact_id = remote_im_upsert_contact_for_inbound(&state, &input, &now)
+            .expect("upsert weixin contact");
+        let contact = state_service_get_remote_im_contact(&state, &contact_id)
+            .expect("read contact")
             .expect("contact exists");
         assert!(contact.allow_send_files, "微信渠道新建联系人应默认允许发送文件");
         // 非微信渠道仍保持默认关闭
-        let mut runtime_qq = RuntimeStateFile::default();
+        let state_qq = remote_im_test_state();
         let input_qq = RemoteImEnqueueInput {
             platform: RemoteImPlatform::OnebotV11,
             ..input
         };
         let now_qq = now_iso();
-        let contact_id_qq = remote_im_upsert_contact_for_inbound(&mut runtime_qq, &input_qq, &now_qq);
-        let contact_qq = runtime_qq
-            .remote_im_contacts
-            .iter()
-            .find(|item| item.id == contact_id_qq)
+        let contact_id_qq = remote_im_upsert_contact_for_inbound(&state_qq, &input_qq, &now_qq)
+            .expect("upsert qq contact");
+        let contact_qq = state_service_get_remote_im_contact(&state_qq, &contact_id_qq)
+            .expect("read qq contact")
             .expect("contact exists");
         assert!(!contact_qq.allow_send_files, "非微信渠道应保持默认关闭文件发送");
     }
@@ -261,7 +261,9 @@
             ..AppConfig::default()
         };
 
+        let state = remote_im_test_state();
         let explicit = resolve_department_agent_pair(
+            &state,
             Some("dept-a"),
             Some("agent-a"),
             &config,
@@ -269,11 +271,12 @@
         .expect("explicit pair");
         assert_eq!(explicit, ("dept-a".to_string(), "agent-a".to_string()));
 
-        let legacy = resolve_department_agent_pair(Some("dept-a"), None, &config)
+        let legacy = resolve_department_agent_pair(&state, Some("dept-a"), None, &config)
             .expect("legacy department-only binding should be solidified");
         assert_eq!(legacy, ("dept-a".to_string(), "agent-a".to_string()));
 
         let err = resolve_department_agent_pair(
+            &state,
             Some("dept-a"),
             Some("agent-b"),
             &config,
@@ -314,8 +317,8 @@
     #[test]
     fn resolve_conversation_id_should_route_remote_im_to_contact_conversation() {
         let state = remote_im_test_state();
-        let mut runtime = RuntimeStateFile::default();
-        runtime.main_conversation_id = Some("conversation-main".to_string());
+        state_service_set_main_conversation_id(&state, Some("conversation-main"))
+            .expect("write main conversation id");
         let conversations = vec![
             Conversation {
                 id: "conversation-main".to_string(),
@@ -456,13 +459,13 @@
             onebot_group_members: Vec::new(),
             shell_workspaces: Vec::new(),
         };
-        state_write_runtime_state_cached(&state, &runtime).expect("write runtime state");
+        state_service_upsert_remote_im_contact(&state, &contact).expect("write contact");
         for conversation in &conversations {
             state_write_conversation_cached(&state, conversation).expect("write conversation");
         }
 
         let (_, _, conversation_id) =
-            resolve_contact_session_target(&state, &mut runtime, &mut contact)
+            resolve_contact_session_target(&state, &mut contact)
                 .expect("resolve route");
 
         assert_ne!(conversation_id, "conversation-main");
@@ -473,8 +476,8 @@
     #[test]
     fn remote_im_should_still_route_to_contact_conversation_after_user_switches() {
         let state = remote_im_test_state();
-        let mut runtime = RuntimeStateFile::default();
-        runtime.main_conversation_id = Some("conversation-main".to_string());
+        state_service_set_main_conversation_id(&state, Some("conversation-main"))
+            .expect("write main conversation id");
         let conversations = vec![
             Conversation {
                 id: "conversation-main".to_string(),
@@ -615,18 +618,23 @@
             onebot_group_members: Vec::new(),
             shell_workspaces: Vec::new(),
         };
-        state_write_runtime_state_cached(&state, &runtime).expect("write runtime state");
+        state_service_upsert_remote_im_contact(&state, &contact).expect("write contact");
         for conversation in &conversations {
             state_write_conversation_cached(&state, conversation).expect("write conversation");
         }
 
         let (_, _, conversation_id) =
-            resolve_contact_session_target(&state, &mut runtime, &mut contact)
+            resolve_contact_session_target(&state, &mut contact)
                 .expect("resolve route");
 
         assert_ne!(conversation_id, "conversation-main");
         assert_eq!(contact.bound_conversation_id.as_deref(), Some(conversation_id.as_str()));
-        assert_eq!(runtime.main_conversation_id.as_deref(), Some("conversation-main"));
+        assert_eq!(
+            state_service_get_main_conversation_id(&state)
+                .expect("read main conversation id")
+                .as_deref(),
+            Some("conversation-main")
+        );
         assert_eq!(
             conversations
                 .iter()
@@ -1057,8 +1065,6 @@
             cached_config_mtime: Arc::new(Mutex::new(None)),
             cached_agents: Arc::new(Mutex::new(None)),
             cached_agents_mtime: Arc::new(Mutex::new(None)),
-            cached_runtime_state: Arc::new(Mutex::new(None)),
-            cached_runtime_state_mtime: Arc::new(Mutex::new(None)),
             cached_chat_index: Arc::new(Mutex::new(None)),
             cached_conversation_metadata: Arc::new(Mutex::new(std::collections::HashMap::new())),
             cached_conversation_field_metadata_ids: Arc::new(Mutex::new(
@@ -2062,9 +2068,7 @@
         let state = remote_im_test_state();
         let contact = remote_im_test_contact("contact-private", "conversation-private");
         let expected_response_guidance = contact.response_guidance.clone();
-        let mut runtime = RuntimeStateFile::default();
-        runtime.remote_im_contacts.push(contact);
-        state_write_runtime_state_cached(&state, &runtime).expect("write runtime state");
+        state_service_upsert_remote_im_contact(&state, &contact).expect("write contact");
 
         let updated = remote_im_update_contact_activation_inner(
             &state,
@@ -2129,8 +2133,6 @@
             ..AppConfig::default()
         };
         write_config(&state.config_path, &config).expect("write config");
-        state_write_runtime_state_cached(&state, &RuntimeStateFile::default())
-            .expect("write empty runtime");
         let input = RemoteImEnqueueInput {
             channel_id: "channel-a".to_string(),
             platform: RemoteImPlatform::OnebotV11,
@@ -2169,9 +2171,8 @@
         assert!(result.conversation_id.is_empty());
         assert!(result.contact_id.is_empty());
         assert!(
-            state_read_runtime_state_cached(&state)
-                .expect("read runtime")
-                .remote_im_contacts
+            state_service_list_remote_im_contacts(&state, None)
+                .expect("list contacts")
                 .is_empty()
         );
         let _ = std::fs::remove_dir_all(app_root_from_data_path(&state.data_path));
@@ -2196,9 +2197,7 @@
         contact.activation_mode = "keyword".to_string();
         contact.activation_keywords = vec!["fairy".to_string()];
         contact.bound_conversation_id = None;
-        let mut runtime = RuntimeStateFile::default();
-        runtime.remote_im_contacts.push(contact.clone());
-        state_write_runtime_state_cached(&state, &runtime).expect("write runtime");
+        state_service_upsert_remote_im_contact(&state, &contact).expect("write contact");
 
         let result = remote_im_enqueue_message_internal(
             RemoteImEnqueueInput {
@@ -2270,9 +2269,7 @@
         contact.bound_conversation_id = None;
         let conversation_id = ensure_remote_im_contact_conversation_id(&state, &mut contact)
             .expect("ensure private conversation");
-        let mut runtime = RuntimeStateFile::default();
-        runtime.remote_im_contacts.push(contact);
-        state_write_runtime_state_cached(&state, &runtime).expect("write runtime");
+        state_service_upsert_remote_im_contact(&state, &contact).expect("write contact");
         set_conversation_runtime_state_and_emit(
             &state,
             &conversation_id,
@@ -2342,9 +2339,7 @@
     fn legacy_contact_prefix_update_should_not_override_channel_behavior() {
         let state = remote_im_test_state();
         let contact = remote_im_test_contact("contact-prefixes", "conversation-prefixes");
-        let mut runtime = RuntimeStateFile::default();
-        runtime.remote_im_contacts.push(contact);
-        state_write_runtime_state_cached(&state, &runtime).expect("write runtime");
+        state_service_upsert_remote_im_contact(&state, &contact).expect("write contact");
 
         let updated = remote_im_update_contact_blocked_message_prefixes_inner(
             &state,
@@ -2359,11 +2354,8 @@
             default_remote_im_contact_blocked_message_prefixes()
         );
 
-        let restored = state_read_runtime_state_cached(&state)
-            .expect("read runtime")
-            .remote_im_contacts
-            .into_iter()
-            .find(|item| item.id == "contact-prefixes")
+        let restored = state_service_get_remote_im_contact(&state, "contact-prefixes")
+            .expect("read contact")
             .expect("contact exists");
         assert_eq!(
             restored.blocked_message_prefixes,
@@ -2428,9 +2420,7 @@
         let state = remote_im_test_state();
         let mut contact = remote_im_test_contact("contact-behavior", "conversation-behavior");
         contact.remote_contact_type = "group".to_string();
-        let mut runtime = RuntimeStateFile::default();
-        runtime.remote_im_contacts.push(contact);
-        state_write_runtime_state_cached(&state, &runtime).expect("write runtime");
+        state_service_upsert_remote_im_contact(&state, &contact).expect("write contact");
 
         let mut pacing = RemoteImGroupReplyPacing::default();
         pacing.normal_reply_max_chars = 30;
@@ -2472,11 +2462,8 @@
             },
         )
         .expect("legacy invalid behavior update should be tolerated");
-        let persisted = state_read_runtime_state_cached(&state)
-            .expect("read runtime")
-            .remote_im_contacts
-            .into_iter()
-            .find(|item| item.id == "contact-behavior")
+        let persisted = state_service_get_remote_im_contact(&state, "contact-behavior")
+            .expect("read contact")
             .expect("contact exists");
         assert_eq!(persisted.group_reply_pacing, RemoteImGroupReplyPacing::default());
     }
@@ -2488,9 +2475,7 @@
         contact.group_reply_pacing.normal_reply_max_chars = 40;
         contact.group_reply_pacing.focus_reply_max_chars = 10;
         let original_pacing = contact.group_reply_pacing.clone();
-        let mut runtime = RuntimeStateFile::default();
-        runtime.remote_im_contacts.push(contact);
-        state_write_runtime_state_cached(&state, &runtime).expect("write runtime");
+        state_service_upsert_remote_im_contact(&state, &contact).expect("write contact");
 
         let updated = remote_im_update_contact_behavior_inner(
             &state,
@@ -2522,9 +2507,7 @@
         let mut contact = remote_im_test_contact("contact-patch", "conversation-patch");
         contact.remote_contact_type = "group".to_string();
         contact.processing_mode = "continuous".to_string();
-        let mut runtime = RuntimeStateFile::default();
-        runtime.remote_im_contacts.push(contact);
-        state_write_runtime_state_cached(&state, &runtime).expect("write runtime");
+        state_service_upsert_remote_im_contact(&state, &contact).expect("write contact");
 
         let mut invalid_pacing = RemoteImGroupReplyPacing::default();
         invalid_pacing.assistant_debounce_seconds = 0;
@@ -2552,11 +2535,8 @@
             },
         )
         .expect("legacy behavior fields should not block contact settings save");
-        let persisted = state_read_runtime_state_cached(&state)
-            .expect("read runtime")
-            .remote_im_contacts
-            .into_iter()
-            .find(|item| item.id == "contact-patch")
+        let persisted = state_service_get_remote_im_contact(&state, "contact-patch")
+            .expect("read contact")
             .expect("contact exists");
         assert_eq!(updated.processing_mode, "qa");
         assert_eq!(persisted.processing_mode, "qa");
@@ -2571,9 +2551,7 @@
         let mut contact = remote_im_test_contact("contact-private-patch", "conversation-private-patch");
         contact.group_reply_pacing.maximum_energy = 77.0;
         let expected_response_guidance = contact.response_guidance.clone();
-        let mut runtime = RuntimeStateFile::default();
-        runtime.remote_im_contacts.push(contact);
-        state_write_runtime_state_cached(&state, &runtime).expect("write runtime");
+        state_service_upsert_remote_im_contact(&state, &contact).expect("write contact");
         let mut incoming_pacing = RemoteImGroupReplyPacing::default();
         incoming_pacing.maximum_energy = 12.0;
 
@@ -2617,9 +2595,7 @@
             "contact-full-patch-config-degraded",
             "conversation-full-patch-config-degraded",
         );
-        let mut runtime = RuntimeStateFile::default();
-        runtime.remote_im_contacts.push(contact.clone());
-        state_write_runtime_state_cached(&state, &runtime).expect("write runtime");
+        state_service_upsert_remote_im_contact(&state, &contact).expect("write contact");
 
         let updated = remote_im_patch_contact_settings_inner(
             &state,
@@ -2681,25 +2657,27 @@
         let mut contact = remote_im_test_contact("contact-settlement", "conversation-settlement");
         contact.remote_contact_type = "group".to_string();
         let outbound_key = "group-reply::contact-settlement::7::message-9".to_string();
-        let mut runtime = RuntimeStateFile::default();
-        runtime.remote_im_contacts.push(contact.clone());
-        runtime.remote_im_contact_checkpoints.push(RemoteImContactCheckpoint {
-            contact_id: contact.id.clone(),
-            energy: Some(1.0),
-            energy_updated_at: Some(now_iso()),
-            group_reply_delivery: Some(RemoteImGroupReplyDeliveryMarker {
-                generation: 7,
-                boundary_message_id: "message-9".to_string(),
-                outbound_key: outbound_key.clone(),
-                final_text: "你好".to_string(),
-                status: "dispatching".to_string(),
-                platform_message_id: None,
-                energy_applied: false,
-                updated_at: Some(now_iso()),
-            }),
-            ..RemoteImContactCheckpoint::default()
-        });
-        state_write_runtime_state_cached(&state, &runtime).expect("write runtime");
+        state_service_upsert_remote_im_contact(&state, &contact).expect("write contact");
+        state_service_set_remote_im_contact_checkpoint(
+            &state,
+            &RemoteImContactCheckpoint {
+                contact_id: contact.id.clone(),
+                energy: Some(1.0),
+                energy_updated_at: Some(now_iso()),
+                group_reply_delivery: Some(RemoteImGroupReplyDeliveryMarker {
+                    generation: 7,
+                    boundary_message_id: "message-9".to_string(),
+                    outbound_key: outbound_key.clone(),
+                    final_text: "你好".to_string(),
+                    status: "dispatching".to_string(),
+                    platform_message_id: None,
+                    energy_applied: false,
+                    updated_at: Some(now_iso()),
+                }),
+                ..RemoteImContactCheckpoint::default()
+            },
+        )
+        .expect("write checkpoint");
         let settlement = RemoteImGroupReplySettlement {
             boundary_message_id: "message-9".to_string(),
             final_text: Some("你好".to_string()),
@@ -2710,20 +2688,14 @@
 
         remote_im_persist_group_reply_settlement(&state, &contact, &settlement)
             .expect("first settlement");
-        let first = state_read_runtime_state_cached(&state)
-            .expect("read first")
-            .remote_im_contact_checkpoints
-            .into_iter()
-            .find(|item| item.contact_id == contact.id)
-            .expect("checkpoint");
+        let first = state_service_get_remote_im_contact_checkpoint(&state, &contact.id)
+            .expect("read first checkpoint")
+            .expect("checkpoint exists");
         remote_im_persist_group_reply_settlement(&state, &contact, &settlement)
             .expect("retry settlement");
-        let second = state_read_runtime_state_cached(&state)
-            .expect("read second")
-            .remote_im_contact_checkpoints
-            .into_iter()
-            .find(|item| item.contact_id == contact.id)
-            .expect("checkpoint");
+        let second = state_service_get_remote_im_contact_checkpoint(&state, &contact.id)
+            .expect("read second checkpoint")
+            .expect("checkpoint exists");
         assert_eq!(first.energy, Some(-100.0));
         assert_eq!(first.energy, second.energy);
         assert_eq!(second.last_boundary_covers_message_id.as_deref(), Some("message-9"));
@@ -2743,25 +2715,27 @@
         contact.remote_contact_type = "group".to_string();
         let outbound_key =
             "group-reply::contact-uncertain-settlement::8::message-10".to_string();
-        let mut runtime = RuntimeStateFile::default();
-        runtime.remote_im_contacts.push(contact.clone());
-        runtime.remote_im_contact_checkpoints.push(RemoteImContactCheckpoint {
-            contact_id: contact.id.clone(),
-            energy: Some(100.0),
-            energy_updated_at: Some(now_iso()),
-            group_reply_delivery: Some(RemoteImGroupReplyDeliveryMarker {
-                generation: 8,
-                boundary_message_id: "message-10".to_string(),
-                outbound_key: outbound_key.clone(),
-                final_text: "可能已经送达".to_string(),
-                status: "dispatching".to_string(),
-                platform_message_id: None,
-                energy_applied: false,
-                updated_at: Some(now_iso()),
-            }),
-            ..RemoteImContactCheckpoint::default()
-        });
-        state_write_runtime_state_cached(&state, &runtime).expect("write runtime");
+        state_service_upsert_remote_im_contact(&state, &contact).expect("write contact");
+        state_service_set_remote_im_contact_checkpoint(
+            &state,
+            &RemoteImContactCheckpoint {
+                contact_id: contact.id.clone(),
+                energy: Some(100.0),
+                energy_updated_at: Some(now_iso()),
+                group_reply_delivery: Some(RemoteImGroupReplyDeliveryMarker {
+                    generation: 8,
+                    boundary_message_id: "message-10".to_string(),
+                    outbound_key: outbound_key.clone(),
+                    final_text: "可能已经送达".to_string(),
+                    status: "dispatching".to_string(),
+                    platform_message_id: None,
+                    energy_applied: false,
+                    updated_at: Some(now_iso()),
+                }),
+                ..RemoteImContactCheckpoint::default()
+            },
+        )
+        .expect("write checkpoint");
 
         remote_im_persist_group_reply_settlement(
             &state,
@@ -2775,12 +2749,9 @@
             },
         )
         .expect("persist uncertain settlement");
-        let uncertain = state_read_runtime_state_cached(&state)
-            .expect("read uncertain runtime")
-            .remote_im_contact_checkpoints
-            .into_iter()
-            .find(|item| item.contact_id == contact.id)
-            .expect("uncertain checkpoint");
+        let uncertain = state_service_get_remote_im_contact_checkpoint(&state, &contact.id)
+            .expect("read uncertain checkpoint")
+            .expect("checkpoint exists");
         assert!(uncertain.energy.unwrap_or_default() < 100.0);
         assert_eq!(uncertain.last_success_reply_at, None);
         assert_eq!(
@@ -2804,12 +2775,9 @@
             },
         )
         .expect("persist late delivered settlement");
-        let delivered = state_read_runtime_state_cached(&state)
-            .expect("read delivered runtime")
-            .remote_im_contact_checkpoints
-            .into_iter()
-            .find(|item| item.contact_id == contact.id)
-            .expect("delivered checkpoint");
+        let delivered = state_service_get_remote_im_contact_checkpoint(&state, &contact.id)
+            .expect("read delivered checkpoint")
+            .expect("checkpoint exists");
         assert_eq!(delivered.energy, charged_energy);
         assert!(delivered.last_success_reply_at.is_some());
         assert_eq!(
@@ -2824,8 +2792,6 @@
     #[test]
     fn atomic_runtime_mutation_should_preserve_parallel_group_delivery_markers() {
         let state = remote_im_test_state();
-        state_write_runtime_state_cached(&state, &RuntimeStateFile::default())
-            .expect("initialize runtime");
         let barrier = std::sync::Arc::new(std::sync::Barrier::new(3));
         let mut workers = Vec::new();
         for index in 0..2_u64 {
@@ -2835,25 +2801,24 @@
                 let contact_id = format!("contact-parallel-{index}");
                 let outbound_key = format!("group-reply::{contact_id}::{index}");
                 barrier.wait();
-                state_mutate_runtime_state_cached(&state, |runtime| {
-                    let checkpoint = remote_im_contact_checkpoint_mut_in_list(
-                        &mut runtime.remote_im_contact_checkpoints,
-                        &contact_id,
-                    );
-                    std::thread::sleep(std::time::Duration::from_millis(25));
-                    checkpoint.group_reply_delivery = Some(RemoteImGroupReplyDeliveryMarker {
-                        generation: index,
-                        boundary_message_id: format!("message-{index}"),
-                        outbound_key,
-                        final_text: format!("reply-{index}"),
-                        status: "dispatching".to_string(),
-                        platform_message_id: None,
-                        energy_applied: false,
-                        updated_at: Some(now_iso()),
-                    });
-                    Ok(())
-                })
-                .expect("atomic runtime mutation");
+                state_service_set_remote_im_contact_checkpoint(
+                    &state,
+                    &RemoteImContactCheckpoint {
+                        contact_id: contact_id.clone(),
+                        group_reply_delivery: Some(RemoteImGroupReplyDeliveryMarker {
+                            generation: index,
+                            boundary_message_id: format!("message-{index}"),
+                            outbound_key,
+                            final_text: format!("reply-{index}"),
+                            status: "dispatching".to_string(),
+                            platform_message_id: None,
+                            energy_applied: false,
+                            updated_at: Some(now_iso()),
+                        }),
+                        ..RemoteImContactCheckpoint::default()
+                    },
+                )
+                .expect("set checkpoint");
             }));
         }
         barrier.wait();
@@ -2861,17 +2826,16 @@
             worker.join().expect("join mutation worker");
         }
 
-        let checkpoints = state_read_runtime_state_cached(&state)
-            .expect("read runtime")
-            .remote_im_contact_checkpoints;
         for index in 0..2_u64 {
             let contact_id = format!("contact-parallel-{index}");
             let expected_key = format!("group-reply::{contact_id}::{index}");
+            let checkpoint = state_service_get_remote_im_contact_checkpoint(&state, &contact_id)
+                .expect("read checkpoint")
+                .expect("checkpoint exists");
             assert_eq!(
-                checkpoints
-                    .iter()
-                    .find(|checkpoint| checkpoint.contact_id == contact_id)
-                    .and_then(|checkpoint| checkpoint.group_reply_delivery.as_ref())
+                checkpoint
+                    .group_reply_delivery
+                    .as_ref()
                     .map(|marker| marker.outbound_key.as_str()),
                 Some(expected_key.as_str())
             );
@@ -2885,49 +2849,43 @@
             "contact-stale-writer",
             "conversation-stale-writer",
         );
-        let mut initial = RuntimeStateFile::default();
-        initial.remote_im_contacts.push(contact.clone());
-        state_write_runtime_state_cached(&state, &initial).expect("write initial runtime");
-
-        let mut stale_runtime = state_read_runtime_state_cached(&state).expect("read stale runtime");
-        remote_im_update_checkpoint_latest_seen_in_list(
-            &mut stale_runtime.remote_im_contact_checkpoints,
-            &contact.id,
-            Some("message-new-inbound"),
-            &now_iso(),
-        );
-
-        state_mutate_runtime_state_cached(&state, |runtime| {
-            let checkpoint = remote_im_contact_checkpoint_mut_in_list(
-                &mut runtime.remote_im_contact_checkpoints,
-                &contact.id,
-            );
-            checkpoint.energy = Some(82.0);
-            checkpoint.energy_updated_at = Some(now_iso());
-            checkpoint.last_boundary_message_id = Some("message-settled".to_string());
-            checkpoint.last_boundary_covers_message_id = Some("message-settled".to_string());
-            checkpoint.group_reply_delivery = Some(RemoteImGroupReplyDeliveryMarker {
-                generation: 21,
-                boundary_message_id: "message-settled".to_string(),
-                outbound_key: "group-reply::atomic".to_string(),
-                final_text: "已发送".to_string(),
-                status: "committed".to_string(),
-                platform_message_id: Some("platform-atomic".to_string()),
-                energy_applied: true,
+        state_service_upsert_remote_im_contact(&state, &contact).expect("write contact");
+        state_service_set_remote_im_contact_checkpoint(
+            &state,
+            &RemoteImContactCheckpoint {
+                contact_id: contact.id.clone(),
+                latest_seen_message_id: Some("message-new-inbound".to_string()),
                 updated_at: Some(now_iso()),
-            });
-            Ok(())
-        })
-        .expect("atomic marker write");
+                ..RemoteImContactCheckpoint::default()
+            },
+        )
+        .expect("write latest seen checkpoint");
 
-        state_write_runtime_state_cached(&state, &stale_runtime)
-            .expect("stale full write should merge protected fields");
-        let checkpoint = state_read_runtime_state_cached(&state)
-            .expect("read merged runtime")
-            .remote_im_contact_checkpoints
-            .into_iter()
-            .find(|checkpoint| checkpoint.contact_id == contact.id)
-            .expect("checkpoint");
+        // 模拟生产 get→mutate→set 模式：读取最新 checkpoint 后叠加字段再写回
+        let mut merged = state_service_get_remote_im_contact_checkpoint(&state, &contact.id)
+            .expect("read latest checkpoint")
+            .expect("checkpoint exists");
+        merged.energy = Some(82.0);
+        merged.energy_updated_at = Some(now_iso());
+        merged.last_boundary_message_id = Some("message-settled".to_string());
+        merged.last_boundary_covers_message_id = Some("message-settled".to_string());
+        merged.group_reply_delivery = Some(RemoteImGroupReplyDeliveryMarker {
+            generation: 21,
+            boundary_message_id: "message-settled".to_string(),
+            outbound_key: "group-reply::atomic".to_string(),
+            final_text: "已发送".to_string(),
+            status: "committed".to_string(),
+            platform_message_id: Some("platform-atomic".to_string()),
+            energy_applied: true,
+            updated_at: Some(now_iso()),
+        });
+        merged.updated_at = Some(now_iso());
+        state_service_set_remote_im_contact_checkpoint(&state, &merged)
+            .expect("write merged checkpoint");
+
+        let checkpoint = state_service_get_remote_im_contact_checkpoint(&state, &contact.id)
+            .expect("read merged checkpoint")
+            .expect("checkpoint exists");
         assert_eq!(
             checkpoint.latest_seen_message_id.as_deref(),
             Some("message-new-inbound")
@@ -2953,47 +2911,52 @@
             "contact-reset-checkpoint",
             "conversation-reset-checkpoint",
         );
-        let mut runtime = RuntimeStateFile::default();
-        runtime.remote_im_contacts.push(contact.clone());
-        runtime.remote_im_contact_checkpoints.push(RemoteImContactCheckpoint {
-            contact_id: contact.id.clone(),
-            energy: Some(55.0),
-            group_reply_delivery: Some(RemoteImGroupReplyDeliveryMarker {
-                generation: 2,
-                boundary_message_id: "message-old".to_string(),
-                outbound_key: "group-reply::reset".to_string(),
-                final_text: "旧回复".to_string(),
-                status: "committed".to_string(),
-                platform_message_id: Some("platform-old".to_string()),
-                energy_applied: true,
-                updated_at: Some(now_iso()),
-            }),
-            ..RemoteImContactCheckpoint::default()
-        });
-        state_write_runtime_state_cached(&state, &runtime).expect("seed checkpoint");
-        let stale_runtime = state_read_runtime_state_cached(&state).expect("read stale runtime");
-        let stale_revision = stale_runtime.remote_im_contact_checkpoints[0].atomic_revision;
+        state_service_upsert_remote_im_contact(&state, &contact).expect("write contact");
+        state_service_set_remote_im_contact_checkpoint(
+            &state,
+            &RemoteImContactCheckpoint {
+                contact_id: contact.id.clone(),
+                atomic_revision: 1,
+                energy: Some(55.0),
+                group_reply_delivery: Some(RemoteImGroupReplyDeliveryMarker {
+                    generation: 2,
+                    boundary_message_id: "message-old".to_string(),
+                    outbound_key: "group-reply::reset".to_string(),
+                    final_text: "旧回复".to_string(),
+                    status: "committed".to_string(),
+                    platform_message_id: Some("platform-old".to_string()),
+                    energy_applied: true,
+                    updated_at: Some(now_iso()),
+                }),
+                ..RemoteImContactCheckpoint::default()
+            },
+        )
+        .expect("seed checkpoint");
+        let stale_revision = state_service_get_remote_im_contact_checkpoint(&state, &contact.id)
+            .expect("read stale checkpoint")
+            .expect("checkpoint exists")
+            .atomic_revision;
 
-        state_mutate_runtime_state_cached(&state, |latest| {
-            remote_im_reset_contact_checkpoint_atomic_in_list(
-                &mut latest.remote_im_contact_checkpoints,
-                &contact.id,
-            );
-            Ok(())
-        })
-        .expect("reset checkpoint atomically");
-        state_write_runtime_state_cached(&state, &stale_runtime)
-            .expect("stale writer must not restore atomic fields");
+        // 模拟生产 get→mutate→set 的原子重置：读取后清空字段、提升 revision 再写回
+        let mut reset = state_service_get_remote_im_contact_checkpoint(&state, &contact.id)
+            .expect("read latest checkpoint")
+            .expect("checkpoint exists");
+        reset.atomic_revision = reset.atomic_revision.saturating_add(1).max(1);
+        reset.energy = None;
+        reset.energy_updated_at = None;
+        reset.last_boundary_message_id = None;
+        reset.last_boundary_covers_message_id = None;
+        reset.last_success_reply_at = None;
+        reset.group_reply_delivery = None;
+        reset.updated_at = Some(now_iso());
+        state_service_set_remote_im_contact_checkpoint(&state, &reset)
+            .expect("reset checkpoint");
 
-        let persisted = state_read_runtime_state_cached(&state).expect("read runtime");
-        assert!(persisted
-            .remote_im_contacts
-            .iter()
-            .any(|item| item.id == contact.id));
-        let checkpoint = persisted
-            .remote_im_contact_checkpoints
-            .iter()
-            .find(|checkpoint| checkpoint.contact_id == contact.id)
+        assert!(state_service_get_remote_im_contact(&state, &contact.id)
+            .expect("read contact")
+            .is_some());
+        let checkpoint = state_service_get_remote_im_contact_checkpoint(&state, &contact.id)
+            .expect("read reset checkpoint")
             .expect("reset tombstone checkpoint");
         assert!(checkpoint.atomic_revision > stale_revision);
         assert_eq!(checkpoint.energy, None);
@@ -3011,64 +2974,41 @@
             "conversation-runtime-revision",
         );
         contact.remark_name = "旧配置".to_string();
-        let mut runtime = RuntimeStateFile::default();
-        runtime.remote_im_contacts.push(contact.clone());
-        runtime.remote_im_contact_checkpoints.push(RemoteImContactCheckpoint {
-            contact_id: contact.id.clone(),
-            energy: Some(66.0),
-            ..RemoteImContactCheckpoint::default()
-        });
-        state_write_runtime_state_cached(&state, &runtime).expect("seed contact");
+        state_service_upsert_remote_im_contact(&state, &contact).expect("seed contact");
+        state_service_set_remote_im_contact_checkpoint(
+            &state,
+            &RemoteImContactCheckpoint {
+                contact_id: contact.id.clone(),
+                energy: Some(66.0),
+                ..RemoteImContactCheckpoint::default()
+            },
+        )
+        .expect("seed checkpoint");
 
-        let mut stale_before_update =
-            state_read_runtime_state_cached(&state).expect("read stale update snapshot");
-        state_mutate_runtime_state_cached(&state, |latest| {
-            let latest_contact = latest
-                .remote_im_contacts
-                .iter_mut()
-                .find(|item| item.id == contact.id)
-                .expect("contact");
-            latest_contact.remark_name = "新配置".to_string();
-            Ok(())
-        })
-        .expect("update contact atomically");
-        stale_before_update
-            .pinned_conversation_ids
-            .push("stale-writer-unrelated-change".to_string());
-        state_write_runtime_state_cached(&state, &stale_before_update)
-            .expect("stale writer after update");
-        let after_update = state_read_runtime_state_cached(&state).expect("read updated contact");
-        assert_eq!(
-            after_update
-                .remote_im_contacts
-                .iter()
-                .find(|item| item.id == contact.id)
-                .map(|item| item.remark_name.as_str()),
-            Some("新配置")
-        );
+        // 并发更新 contact 配置
+        let mut updated = contact.clone();
+        updated.remark_name = "新配置".to_string();
+        state_service_upsert_remote_im_contact(&state, &updated).expect("update contact");
+        let after_update = state_service_get_remote_im_contact(&state, &contact.id)
+            .expect("read updated contact")
+            .expect("contact exists");
+        assert_eq!(after_update.remark_name, "新配置");
+        // 无关字段（pinned）的并发写不影响 contact
+        state_service_set_pinned_conversation_ids(&state, &["stale-writer-unrelated-change".to_string()])
+            .expect("unrelated concurrent write");
+        let after_unrelated = state_service_get_remote_im_contact(&state, &contact.id)
+            .expect("read contact after unrelated write")
+            .expect("contact exists");
+        assert_eq!(after_unrelated.remark_name, "新配置");
 
-        let stale_before_delete = after_update.clone();
-        state_mutate_runtime_state_cached(&state, |latest| {
-            latest
-                .remote_im_contacts
-                .retain(|item| item.id != contact.id);
-            latest
-                .remote_im_contact_checkpoints
-                .retain(|checkpoint| checkpoint.contact_id != contact.id);
-            Ok(())
-        })
-        .expect("delete contact atomically");
-        state_write_runtime_state_cached(&state, &stale_before_delete)
-            .expect("stale writer after delete");
-        let after_delete = state_read_runtime_state_cached(&state).expect("read deleted contact");
-        assert!(!after_delete
-            .remote_im_contacts
-            .iter()
-            .any(|item| item.id == contact.id));
-        assert!(!after_delete
-            .remote_im_contact_checkpoints
-            .iter()
-            .any(|checkpoint| checkpoint.contact_id == contact.id));
+        // 删除 contact 后 checkpoint 一并清理，且 stale 快照不会复活
+        assert!(state_service_remove_remote_im_contact(&state, &contact.id).expect("delete contact"));
+        assert!(state_service_get_remote_im_contact(&state, &contact.id)
+            .expect("read deleted contact")
+            .is_none());
+        assert!(state_service_get_remote_im_contact_checkpoint(&state, &contact.id)
+            .expect("read deleted checkpoint")
+            .is_none());
     }
 
     #[test]
@@ -3080,19 +3020,17 @@
         );
         contact.allow_send = false;
         contact.allow_receive = false;
-        let mut runtime = RuntimeStateFile::default();
-        runtime.remote_im_contacts.push(contact.clone());
-        state_write_runtime_state_cached(&state, &runtime).expect("seed contact");
-        state_mutate_runtime_state_cached(&state, |latest| {
-            let checkpoint = remote_im_contact_checkpoint_mut_in_list(
-                &mut latest.remote_im_contact_checkpoints,
-                &contact.id,
-            );
-            checkpoint.energy = Some(75.0);
-            checkpoint.energy_updated_at = Some(now_iso());
-            remote_im_bump_checkpoint_atomic_revision(checkpoint);
-            Ok(())
-        })
+        state_service_upsert_remote_im_contact(&state, &contact).expect("seed contact");
+        state_service_set_remote_im_contact_checkpoint(
+            &state,
+            &RemoteImContactCheckpoint {
+                contact_id: contact.id.clone(),
+                energy: Some(75.0),
+                energy_updated_at: Some(now_iso()),
+                atomic_revision: 1,
+                ..RemoteImContactCheckpoint::default()
+            },
+        )
         .expect("concurrent checkpoint update");
 
         let updated = remote_im_update_contact_allow_send_inner(
@@ -3104,18 +3042,15 @@
         )
         .expect("atomic contact update");
         assert!(updated.allow_send && updated.allow_receive);
-        let persisted = state_read_runtime_state_cached(&state).expect("read runtime");
-        assert!(persisted
-            .remote_im_contacts
-            .iter()
-            .find(|item| item.id == contact.id)
-            .is_some_and(|item| item.allow_send && item.allow_receive));
+        let persisted = state_service_get_remote_im_contact(&state, &contact.id)
+            .expect("read contact")
+            .expect("contact exists");
+        assert!(persisted.allow_send && persisted.allow_receive);
         assert_eq!(
-            persisted
-                .remote_im_contact_checkpoints
-                .iter()
-                .find(|checkpoint| checkpoint.contact_id == contact.id)
-                .and_then(|checkpoint| checkpoint.energy),
+            state_service_get_remote_im_contact_checkpoint(&state, &contact.id)
+                .expect("read checkpoint")
+                .expect("checkpoint exists")
+                .energy,
             Some(75.0)
         );
     }
@@ -3132,9 +3067,7 @@
         let baseline = remote_im_contact_binding_snapshot(&contact);
         let mut stale_resolved = baseline.clone();
         stale_resolved.bound_conversation_id = Some("conversation-resolved-old".to_string());
-        let mut runtime = RuntimeStateFile::default();
-        runtime.remote_im_contacts.push(contact.clone());
-        state_write_runtime_state_cached(&state, &runtime).expect("seed contact");
+        state_service_upsert_remote_im_contact(&state, &contact).expect("seed contact");
         remote_im_mutate_contact(&state, &contact.id, |latest| {
             latest.bound_department_id = Some("department-new".to_string());
             latest.bound_agent_id = Some("agent-new".to_string());
@@ -3143,12 +3076,7 @@
         })
         .expect("concurrent user binding");
 
-        let applied = state_mutate_runtime_state_cached(&state, |latest_runtime| {
-            let latest = latest_runtime
-                .remote_im_contacts
-                .iter_mut()
-                .find(|item| item.id == contact.id)
-                .expect("contact");
+        let applied = remote_im_mutate_contact(&state, &contact.id, |latest| {
             if !remote_im_contact_binding_matches(latest, &baseline) {
                 return Ok(false);
             }
@@ -3157,12 +3085,9 @@
         })
         .expect("binding CAS");
         assert!(!applied);
-        let persisted = state_read_runtime_state_cached(&state)
-            .expect("read runtime")
-            .remote_im_contacts
-            .into_iter()
-            .find(|item| item.id == contact.id)
-            .expect("contact");
+        let persisted = state_service_get_remote_im_contact(&state, &contact.id)
+            .expect("read contact")
+            .expect("contact exists");
         assert_eq!(
             persisted.bound_department_id.as_deref(),
             Some("department-new")
@@ -3211,9 +3136,8 @@
             &mut authoritative,
         )
         .expect("create original conversation");
-        let mut runtime = RuntimeStateFile::default();
-        runtime.remote_im_contacts.push(authoritative.clone());
-        state_write_runtime_state_cached(&state, &runtime).expect("seed authoritative contact");
+        state_service_upsert_remote_im_contact(&state, &authoritative)
+            .expect("seed authoritative contact");
         conversation_service_v2()
             .set_preferred_api_config_id(
                 &state,
@@ -3298,9 +3222,7 @@
         contact.bound_conversation_id = None;
         let conversation_id = ensure_remote_im_contact_conversation_id(&state, &mut contact)
             .expect("create contact conversation");
-        let mut runtime = RuntimeStateFile::default();
-        runtime.remote_im_contacts.push(contact.clone());
-        state_write_runtime_state_cached(&state, &runtime).expect("seed contact");
+        state_service_upsert_remote_im_contact(&state, &contact).expect("seed contact");
 
         let barrier = Arc::new(std::sync::Barrier::new(3));
         let mut handles = Vec::new();
@@ -3330,12 +3252,9 @@
                 .expect("concurrent update should degrade instead of abort");
         }
 
-        let persisted = state_read_runtime_state_cached(&state)
-            .expect("read runtime")
-            .remote_im_contacts
-            .into_iter()
-            .find(|item| item.id == contact.id)
-            .expect("contact");
+        let persisted = state_service_get_remote_im_contact(&state, &contact.id)
+            .expect("read contact")
+            .expect("contact exists");
         let conversation = conversation_service_v2()
             .get_conversation_meta(&state, &conversation_id)
             .expect("read conversation");
@@ -3424,9 +3343,7 @@
         let state = remote_im_test_state();
         std::fs::create_dir_all(&state.config_path).expect("make config path unreadable as file");
         let contact = remote_im_test_contact("contact-config-degraded", "conversation-existing");
-        let mut runtime = RuntimeStateFile::default();
-        runtime.remote_im_contacts.push(contact.clone());
-        state_write_runtime_state_cached(&state, &runtime).expect("seed contact");
+        state_service_upsert_remote_im_contact(&state, &contact).expect("seed contact");
 
         let updated = remote_im_update_contact_department_binding_inner(
             &state,
@@ -3443,12 +3360,9 @@
             Some("department-offline")
         );
         assert_eq!(updated.bound_agent_id.as_deref(), Some("agent-offline"));
-        let persisted = state_read_runtime_state_cached(&state)
+        let persisted = state_service_get_remote_im_contact(&state, &contact.id)
             .expect("read persisted contact")
-            .remote_im_contacts
-            .into_iter()
-            .find(|item| item.id == contact.id)
-            .expect("contact");
+            .expect("contact exists");
         assert_eq!(
             persisted.bound_department_id.as_deref(),
             Some("department-offline")
@@ -3481,8 +3395,6 @@
             .cached_config_mtime
             .lock()
             .expect("lock cached config mtime") = Some(std::time::SystemTime::UNIX_EPOCH);
-        state_write_runtime_state_cached(&state, &RuntimeStateFile::default())
-            .expect("seed runtime");
         let input = RemoteImEnqueueInput {
             channel_id: "channel-config-degraded".to_string(),
             platform: RemoteImPlatform::OnebotV11,
@@ -3571,58 +3483,6 @@
     }
 
     #[test]
-    fn runtime_commit_should_succeed_after_authoritative_write_when_caches_are_poisoned() {
-        let state = remote_im_test_state();
-        state_write_runtime_state_cached(&state, &RuntimeStateFile::default())
-            .expect("initialize runtime");
-        let cached_runtime = state.cached_runtime_state.clone();
-        let _ = std::thread::spawn(move || {
-            let _guard = cached_runtime.lock().expect("lock cached runtime");
-            panic!("poison cached runtime after lock");
-        })
-        .join();
-        let cached_app_data = state.cached_app_data.clone();
-        let _ = std::thread::spawn(move || {
-            let _guard = cached_app_data.lock().expect("lock cached app data");
-            panic!("poison cached app data after lock");
-        })
-        .join();
-
-        state_mutate_runtime_state_cached(&state, |runtime| {
-            let checkpoint = remote_im_contact_checkpoint_mut_in_list(
-                &mut runtime.remote_im_contact_checkpoints,
-                "contact-cache-recovery",
-            );
-            checkpoint.group_reply_delivery = Some(RemoteImGroupReplyDeliveryMarker {
-                generation: 4,
-                boundary_message_id: "message-cache-recovery".to_string(),
-                outbound_key: "group-reply::cache-recovery".to_string(),
-                final_text: "准备发送".to_string(),
-                status: "dispatching".to_string(),
-                platform_message_id: None,
-                energy_applied: false,
-                updated_at: Some(now_iso()),
-            });
-            Ok(())
-        })
-        .expect("authoritative write must not fail on cache maintenance");
-
-        let checkpoint = state_read_runtime_state_cached(&state)
-            .expect("cache poison should be cleared")
-            .remote_im_contact_checkpoints
-            .into_iter()
-            .find(|checkpoint| checkpoint.contact_id == "contact-cache-recovery")
-            .expect("checkpoint");
-        assert_eq!(
-            checkpoint
-                .group_reply_delivery
-                .as_ref()
-                .map(|marker| marker.outbound_key.as_str()),
-            Some("group-reply::cache-recovery")
-        );
-    }
-
-    #[test]
     fn stale_group_settlement_should_not_overwrite_newer_delivery_marker() {
         let state = remote_im_test_state();
         let mut contact = remote_im_test_contact(
@@ -3640,16 +3500,18 @@
             energy_applied: false,
             updated_at: Some(now_iso()),
         };
-        let mut runtime = RuntimeStateFile::default();
-        runtime.remote_im_contacts.push(contact.clone());
-        runtime.remote_im_contact_checkpoints.push(RemoteImContactCheckpoint {
-            contact_id: contact.id.clone(),
-            energy: Some(100.0),
-            energy_updated_at: Some(now_iso()),
-            group_reply_delivery: Some(newer_marker.clone()),
-            ..RemoteImContactCheckpoint::default()
-        });
-        state_write_runtime_state_cached(&state, &runtime).expect("write runtime");
+        state_service_upsert_remote_im_contact(&state, &contact).expect("write contact");
+        state_service_set_remote_im_contact_checkpoint(
+            &state,
+            &RemoteImContactCheckpoint {
+                contact_id: contact.id.clone(),
+                energy: Some(100.0),
+                energy_updated_at: Some(now_iso()),
+                group_reply_delivery: Some(newer_marker.clone()),
+                ..RemoteImContactCheckpoint::default()
+            },
+        )
+        .expect("write checkpoint");
 
         remote_im_persist_group_reply_settlement(
             &state,
@@ -3664,12 +3526,9 @@
         )
         .expect("stale settlement should degrade without failure");
 
-        let checkpoint = state_read_runtime_state_cached(&state)
-            .expect("read runtime")
-            .remote_im_contact_checkpoints
-            .into_iter()
-            .find(|checkpoint| checkpoint.contact_id == contact.id)
-            .expect("checkpoint");
+        let checkpoint = state_service_get_remote_im_contact_checkpoint(&state, &contact.id)
+            .expect("read checkpoint")
+            .expect("checkpoint exists");
         assert_eq!(checkpoint.energy, Some(100.0));
         assert_eq!(checkpoint.last_success_reply_at, None);
         let persisted_marker = checkpoint.group_reply_delivery.expect("newer marker");
@@ -3695,16 +3554,18 @@
             energy_applied: false,
             updated_at: Some(now_iso()),
         };
-        let mut runtime = RuntimeStateFile::default();
-        runtime.remote_im_contacts.push(contact.clone());
-        runtime.remote_im_contact_checkpoints.push(RemoteImContactCheckpoint {
-            contact_id: contact.id.clone(),
-            energy: Some(100.0),
-            energy_updated_at: Some(now_iso()),
-            group_reply_delivery: Some(marker.clone()),
-            ..RemoteImContactCheckpoint::default()
-        });
-        state_write_runtime_state_cached(&state, &runtime).expect("write runtime");
+        state_service_upsert_remote_im_contact(&state, &contact).expect("write contact");
+        state_service_set_remote_im_contact_checkpoint(
+            &state,
+            &RemoteImContactCheckpoint {
+                contact_id: contact.id.clone(),
+                energy: Some(100.0),
+                energy_updated_at: Some(now_iso()),
+                group_reply_delivery: Some(marker.clone()),
+                ..RemoteImContactCheckpoint::default()
+            },
+        )
+        .expect("write checkpoint");
         let event = create_pending_event(
             "event-active-delivery".to_string(),
             "conversation-active-delivery".to_string(),
@@ -3747,12 +3608,9 @@
 
         remote_im_recover_group_reply_delivery_marker(&state, &contact)
             .expect("active delivery should be ignored by recovery");
-        let before_success = state_read_runtime_state_cached(&state)
-            .expect("read runtime")
-            .remote_im_contact_checkpoints
-            .into_iter()
-            .find(|checkpoint| checkpoint.contact_id == contact.id)
-            .expect("checkpoint");
+        let before_success = state_service_get_remote_im_contact_checkpoint(&state, &contact.id)
+            .expect("read checkpoint")
+            .expect("checkpoint exists");
         assert_eq!(before_success.energy, Some(100.0));
         assert_eq!(
             before_success.group_reply_delivery.as_ref().map(|item| item.status.as_str()),
@@ -3767,12 +3625,9 @@
             Some("platform-active".to_string()),
             RemoteImGroupReplySettlementStatus::Delivered,
         );
-        let after_success = state_read_runtime_state_cached(&state)
-            .expect("read runtime")
-            .remote_im_contact_checkpoints
-            .into_iter()
-            .find(|checkpoint| checkpoint.contact_id == contact.id)
-            .expect("checkpoint");
+        let after_success = state_service_get_remote_im_contact_checkpoint(&state, &contact.id)
+            .expect("read checkpoint")
+            .expect("checkpoint exists");
         assert!(after_success.energy.unwrap_or_default() < 100.0);
         assert_eq!(
             after_success.group_reply_delivery.as_ref().map(|item| item.status.as_str()),
@@ -3793,37 +3648,36 @@
         let state = remote_im_test_state();
         let mut contact = remote_im_test_contact("contact-startup-recovery", "conversation-startup-recovery");
         contact.remote_contact_type = "group".to_string();
-        let mut runtime = RuntimeStateFile::default();
-        runtime.remote_im_contacts.push(contact.clone());
-        runtime.remote_im_contact_checkpoints.push(RemoteImContactCheckpoint {
-            contact_id: contact.id.clone(),
-            energy: Some(100.0),
-            energy_updated_at: Some(now_iso()),
-            group_reply_delivery: Some(RemoteImGroupReplyDeliveryMarker {
-                generation: 19,
-                boundary_message_id: "message-startup".to_string(),
-                outbound_key: "group-reply::startup::19".to_string(),
-                final_text: "启动恢复".to_string(),
-                status: "dispatching".to_string(),
-                platform_message_id: None,
-                energy_applied: false,
-                updated_at: Some(now_iso()),
-            }),
-            ..RemoteImContactCheckpoint::default()
-        });
-        state_write_runtime_state_cached(&state, &runtime).expect("write runtime");
+        state_service_upsert_remote_im_contact(&state, &contact).expect("write contact");
+        state_service_set_remote_im_contact_checkpoint(
+            &state,
+            &RemoteImContactCheckpoint {
+                contact_id: contact.id.clone(),
+                energy: Some(100.0),
+                energy_updated_at: Some(now_iso()),
+                group_reply_delivery: Some(RemoteImGroupReplyDeliveryMarker {
+                    generation: 19,
+                    boundary_message_id: "message-startup".to_string(),
+                    outbound_key: "group-reply::startup::19".to_string(),
+                    final_text: "启动恢复".to_string(),
+                    status: "dispatching".to_string(),
+                    platform_message_id: None,
+                    energy_applied: false,
+                    updated_at: Some(now_iso()),
+                }),
+                ..RemoteImContactCheckpoint::default()
+            },
+        )
+        .expect("write checkpoint");
 
         assert_eq!(
             remote_im_recover_all_group_reply_delivery_markers(&state)
                 .expect("startup recovery"),
             (1, 0)
         );
-        let checkpoint = state_read_runtime_state_cached(&state)
-            .expect("read runtime")
-            .remote_im_contact_checkpoints
-            .into_iter()
-            .find(|checkpoint| checkpoint.contact_id == contact.id)
-            .expect("checkpoint");
+        let checkpoint = state_service_get_remote_im_contact_checkpoint(&state, &contact.id)
+            .expect("read checkpoint")
+            .expect("checkpoint exists");
         assert_eq!(
             checkpoint.group_reply_delivery.as_ref().map(|marker| marker.status.as_str()),
             Some("uncertain")
@@ -3861,9 +3715,9 @@
         let mut third = remote_im_test_contact("contact-a", "conversation-a");
         third.channel_id = "channel-a".to_string();
         third.last_message_at = Some("2026-07-14T09:00:00Z".to_string());
-        let mut runtime = RuntimeStateFile::default();
-        runtime.remote_im_contacts = vec![first, second, third];
-        state_write_runtime_state_cached(&state, &runtime).expect("write runtime state");
+        state_service_upsert_remote_im_contact(&state, &first).expect("write first contact");
+        state_service_upsert_remote_im_contact(&state, &second).expect("write second contact");
+        state_service_upsert_remote_im_contact(&state, &third).expect("write third contact");
 
         let contacts = remote_im_list_contacts_inner(&state).expect("list contacts");
 
@@ -4325,7 +4179,7 @@
     }
 
     #[test]
-    fn group_reply_contact_read_failure_should_keep_batch_and_self_schedule_retry() {
+    fn group_reply_missing_contact_should_stop_batch_retry() {
         let state = remote_im_test_state();
         let contact = remote_im_test_contact("contact-retry", "conversation-retry");
         let mut message = remote_im_test_group_user_message("user-a");
@@ -4374,29 +4228,19 @@
             );
             generation
         };
-        let cached_runtime = state.cached_runtime_state.clone();
-        let _ = std::thread::spawn(move || {
-            let _guard = cached_runtime.lock().expect("lock before poison");
-            panic!("poison cached runtime state");
-        })
-        .join();
 
+        // 联系人未写入 state 数据库（已删除）：重试应立即停止并清理批次
         remote_im_group_reply_retry_after_dispatch_failure(
             &state,
             &contact.id,
             generation,
-            "故障注入：联系人读取失败",
+            "联系人已删除",
         );
-        let mut store = lock_remote_im_group_reply_state_store();
-        let retried = store.by_contact.get(&key).expect("batch should remain");
-        assert!(retried.generation > generation);
-        assert_eq!(retried.phase, RemoteImGroupReplyPhase::MentionScheduled);
-        assert_eq!(retried.start_message_id, "message-retry-start");
-        assert_eq!(
-            retried.decision_end_message_id.as_deref(),
-            Some("message-retry-start")
+        let store = lock_remote_im_group_reply_state_store();
+        assert!(
+            store.by_contact.get(&key).is_none(),
+            "batch should be cleared when contact is gone"
         );
-        store.by_contact.remove(&key);
     }
 
     #[test]
@@ -4524,28 +4368,18 @@
         first.remote_contact_type = "group".to_string();
         let mut second = remote_im_test_contact("contact-energy-b", "conversation-energy-b");
         second.remote_contact_type = "group".to_string();
-        state_write_runtime_state_cached(
-            &state,
-            &RuntimeStateFile {
-                remote_im_contacts: vec![first.clone(), second.clone()],
-                ..RuntimeStateFile::default()
-            },
-        )
-        .expect("write contacts");
+        state_service_upsert_remote_im_contact(&state, &first).expect("write first contact");
+        state_service_upsert_remote_im_contact(&state, &second).expect("write second contact");
 
         remote_im_apply_inbound_group_energy(&state, &first, "sender-a", "谢谢")
             .expect("settle first contact energy");
-        let runtime = state_read_runtime_state_cached(&state).expect("read runtime ledger");
-        let first_checkpoint = runtime
-            .remote_im_contact_checkpoints
-            .iter()
-            .find(|item| item.contact_id == first.id)
+        let first_checkpoint = state_service_get_remote_im_contact_checkpoint(&state, &first.id)
+            .expect("read first checkpoint")
             .expect("first checkpoint");
         assert!(first_checkpoint.energy.is_some());
-        assert!(!runtime
-            .remote_im_contact_checkpoints
-            .iter()
-            .any(|item| item.contact_id == second.id));
+        assert!(state_service_get_remote_im_contact_checkpoint(&state, &second.id)
+            .expect("read second checkpoint")
+            .is_none());
         let _ = std::fs::remove_dir_all(app_root_from_data_path(&state.data_path));
     }
 
@@ -4566,17 +4400,14 @@
         .expect("write channel behavior config");
         let mut contact = remote_im_test_contact("contact-energy-gate", "conversation-energy-gate");
         contact.remote_contact_type = "group".to_string();
-        state_write_runtime_state_cached(
+        state_service_upsert_remote_im_contact(&state, &contact).expect("write contact");
+        state_service_set_remote_im_contact_checkpoint(
             &state,
-            &RuntimeStateFile {
-                remote_im_contacts: vec![contact.clone()],
-                remote_im_contact_checkpoints: vec![RemoteImContactCheckpoint {
-                    contact_id: contact.id.clone(),
-                    energy: Some(0.01),
-                    energy_updated_at: Some(now_iso()),
-                    ..RemoteImContactCheckpoint::default()
-                }],
-                ..RuntimeStateFile::default()
+            &RemoteImContactCheckpoint {
+                contact_id: contact.id.clone(),
+                energy: Some(0.01),
+                energy_updated_at: Some(now_iso()),
+                ..RemoteImContactCheckpoint::default()
             },
         )
         .expect("write contact energy");
@@ -4604,17 +4435,14 @@
         .expect("write channel behavior config");
         let mut contact = remote_im_test_contact("contact-energy-batch", "conversation-energy-batch");
         contact.remote_contact_type = "group".to_string();
-        state_write_runtime_state_cached(
+        state_service_upsert_remote_im_contact(&state, &contact).expect("write contact");
+        state_service_set_remote_im_contact_checkpoint(
             &state,
-            &RuntimeStateFile {
-                remote_im_contacts: vec![contact.clone()],
-                remote_im_contact_checkpoints: vec![RemoteImContactCheckpoint {
-                    contact_id: contact.id.clone(),
-                    energy: Some(0.0),
-                    energy_updated_at: Some(now_iso()),
-                    ..RemoteImContactCheckpoint::default()
-                }],
-                ..RuntimeStateFile::default()
+            &RemoteImContactCheckpoint {
+                contact_id: contact.id.clone(),
+                energy: Some(0.0),
+                energy_updated_at: Some(now_iso()),
+                ..RemoteImContactCheckpoint::default()
             },
         )
         .expect("write contact");
@@ -4632,12 +4460,9 @@
         }];
         remote_im_apply_group_energy_for_messages(&state, &contact, &[first, second])
             .expect("settle inspection batch energy");
-        let runtime = state_read_runtime_state_cached(&state).expect("read runtime ledger");
-        let checkpoint = runtime
-            .remote_im_contact_checkpoints
-            .iter()
-            .find(|item| item.contact_id == contact.id)
-            .expect("batch checkpoint");
+        let checkpoint = state_service_get_remote_im_contact_checkpoint(&state, &contact.id)
+            .expect("read batch checkpoint")
+            .expect("checkpoint exists");
         assert_eq!(checkpoint.energy, Some(6.0));
         let _ = std::fs::remove_dir_all(app_root_from_data_path(&state.data_path));
     }
@@ -4661,17 +4486,14 @@
             "conversation-negative-energy-batch",
         );
         contact.remote_contact_type = "group".to_string();
-        state_write_runtime_state_cached(
+        state_service_upsert_remote_im_contact(&state, &contact).expect("write contact");
+        state_service_set_remote_im_contact_checkpoint(
             &state,
-            &RuntimeStateFile {
-                remote_im_contacts: vec![contact.clone()],
-                remote_im_contact_checkpoints: vec![RemoteImContactCheckpoint {
-                    contact_id: contact.id.clone(),
-                    energy: Some(-95.0),
-                    energy_updated_at: Some(now_iso()),
-                    ..RemoteImContactCheckpoint::default()
-                }],
-                ..RuntimeStateFile::default()
+            &RemoteImContactCheckpoint {
+                contact_id: contact.id.clone(),
+                energy: Some(-95.0),
+                energy_updated_at: Some(now_iso()),
+                ..RemoteImContactCheckpoint::default()
             },
         )
         .expect("write contact");
@@ -4684,12 +4506,9 @@
 
         remote_im_apply_group_energy_for_messages(&state, &contact, &[message])
             .expect("settle negative inspection energy");
-        let checkpoint = state_read_runtime_state_cached(&state)
-            .expect("read runtime ledger")
-            .remote_im_contact_checkpoints
-            .into_iter()
-            .find(|item| item.contact_id == contact.id)
-            .expect("negative checkpoint");
+        let checkpoint = state_service_get_remote_im_contact_checkpoint(&state, &contact.id)
+            .expect("read negative checkpoint")
+            .expect("checkpoint exists");
         assert_eq!(checkpoint.energy, Some(-100.0));
         let _ = std::fs::remove_dir_all(app_root_from_data_path(&state.data_path));
     }
@@ -4710,21 +4529,18 @@
         .expect("write channel behavior config");
         let mut contact = remote_im_test_contact("contact-dashboard", "conversation-dashboard");
         contact.remote_contact_type = "group".to_string();
-        state_write_runtime_state_cached(
+        state_service_upsert_remote_im_contact(&state, &contact).expect("write contact");
+        state_service_set_remote_im_contact_checkpoint(
             &state,
-            &RuntimeStateFile {
-                remote_im_contacts: vec![contact.clone()],
-                remote_im_contact_checkpoints: vec![RemoteImContactCheckpoint {
-                    contact_id: contact.id.clone(),
-                    atomic_revision: 7,
-                    energy: Some(-25.0),
-                    energy_updated_at: Some(now_iso()),
-                    ..RemoteImContactCheckpoint::default()
-                }],
-                ..RuntimeStateFile::default()
+            &RemoteImContactCheckpoint {
+                contact_id: contact.id.clone(),
+                atomic_revision: 7,
+                energy: Some(-25.0),
+                energy_updated_at: Some(now_iso()),
+                ..RemoteImContactCheckpoint::default()
             },
         )
-        .expect("write dashboard runtime");
+        .expect("write dashboard checkpoint");
         lock_remote_im_contact_runtime_states(&state)
             .expect("lock dashboard runtime")
             .insert(
@@ -4782,14 +4598,7 @@
         .expect("write channel behavior config");
         let mut contact = remote_im_test_contact("contact-reconfigure", "conversation-reconfigure");
         contact.remote_contact_type = "group".to_string();
-        state_write_runtime_state_cached(
-            &state,
-            &RuntimeStateFile {
-                remote_im_contacts: vec![contact.clone()],
-                ..RuntimeStateFile::default()
-            },
-        )
-        .expect("write contact");
+        state_service_upsert_remote_im_contact(&state, &contact).expect("write contact");
         let mut message = remote_im_test_group_user_message("user-a");
         message.id = "message-reconfigure".to_string();
         let event = create_pending_event(

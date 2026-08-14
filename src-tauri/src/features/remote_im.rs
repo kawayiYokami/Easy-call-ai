@@ -286,16 +286,17 @@ pub(crate) fn remote_im_channel_by_id<'a>(
 }
 
 fn remote_im_upsert_contact_for_inbound(
-    runtime: &mut RuntimeStateFile,
+    state: &AppState,
     input: &RemoteImEnqueueInput,
     now: &str,
-) -> String {
+) -> Result<String, String> {
     let default_allow_receive = false;
-    if let Some(contact) = runtime.remote_im_contacts.iter_mut().find(|item| {
-        item.channel_id == input.channel_id
-            && item.remote_contact_type == input.remote_contact_type.trim()
-            && item.remote_contact_id == input.remote_contact_id
-    }) {
+    if let Some(mut contact) = state_service_find_remote_im_contact_by_identity(
+        state,
+        &input.channel_id,
+        input.remote_contact_type.trim(),
+        &input.remote_contact_id,
+    )? {
         if let Some(name) = input
             .remote_contact_name
             .as_deref()
@@ -323,11 +324,12 @@ fn remote_im_upsert_contact_for_inbound(
             }
         }
         contact.last_message_at = Some(now.to_string());
-        return contact.id.clone();
+        state_service_upsert_remote_im_contact(state, &contact)?;
+        return Ok(contact.id.clone());
     }
 
     let contact_id = Uuid::new_v4().to_string();
-    runtime.remote_im_contacts.push(RemoteImContact {
+    let contact = RemoteImContact {
         id: contact_id.clone(),
         channel_id: input.channel_id.clone(),
         platform: input.platform.clone(),
@@ -383,8 +385,9 @@ fn remote_im_upsert_contact_for_inbound(
         },
         onebot_group_members: Vec::new(),
         shell_workspaces: Vec::new(),
-    });
-    contact_id
+    };
+    state_service_upsert_remote_im_contact(state, &contact)?;
+    Ok(contact_id)
 }
 
 fn normalize_contact_activation_mode(value: &str) -> String {
@@ -597,17 +600,6 @@ fn remote_im_contact_checkpoint_mut_in_list<'a>(
 fn remote_im_contact_by_source_in_runtime<'a>(
     contacts: &'a [RemoteImContact],
     source: &RemoteImMessageSource,
-) -> Option<&'a RemoteImContact> {
-    contacts.iter().find(|item| {
-        item.channel_id == source.channel_id
-            && item.remote_contact_type == source.remote_contact_type
-            && item.remote_contact_id == source.remote_contact_id
-    })
-}
-
-fn remote_im_contact_by_activation_source_in_runtime<'a>(
-    contacts: &'a [RemoteImContact],
-    source: &RemoteImActivationSource,
 ) -> Option<&'a RemoteImContact> {
     contacts.iter().find(|item| {
         item.channel_id == source.channel_id

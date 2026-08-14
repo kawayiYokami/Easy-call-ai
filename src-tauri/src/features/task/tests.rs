@@ -16,10 +16,8 @@
 
     fn write_task_test_snapshot(
         state: &AppState,
-        runtime: &mut RuntimeStateFile,
         conversations: &[Conversation],
     ) {
-        state_write_runtime_state_cached(state, runtime).expect("write runtime state");
         for conversation in conversations {
             state_write_conversation_cached(state, conversation).expect("write conversation");
         }
@@ -654,7 +652,6 @@
     #[test]
     fn task_dispatch_conversation_should_prefer_bound_and_not_fallback_missing() {
         let state = task_test_state("dispatch_prefer_bound");
-        let mut runtime = RuntimeStateFile::default();
         let api_id = "api-a";
         let agent_id = DEFAULT_AGENT_ID;
 
@@ -678,8 +675,7 @@
             None,
         );
         side.id = "side-conversation".to_string();
-        runtime.main_conversation_id = Some(main.id.clone());
-        write_task_test_snapshot(&state, &mut runtime, &[main.clone(), side.clone()]);
+        write_task_test_snapshot(&state, &[main.clone(), side.clone()]);
 
         let preferred = task_resolve_dispatch_conversation(
             &state,
@@ -714,7 +710,6 @@
     #[test]
     fn task_dispatch_conversation_should_not_resolve_missing_contact_conversation() {
         let state = task_test_state("dispatch_missing_contact");
-        let mut runtime = RuntimeStateFile::default();
         let api_id = "api-a";
         let agent_id = DEFAULT_AGENT_ID;
 
@@ -728,8 +723,7 @@
             None,
         );
         main.id = "main-conversation".to_string();
-        runtime.main_conversation_id = Some(main.id.clone());
-        runtime.remote_im_contacts.push(RemoteImContact {
+        state_service_upsert_remote_im_contact(&state, &RemoteImContact {
             id: "contact-a".to_string(),
             channel_id: "channel-a".to_string(),
             platform: RemoteImPlatform::OnebotV11,
@@ -763,8 +757,9 @@
             dingtalk_session_webhook_expired_time: None,
             onebot_group_members: Vec::new(),
             shell_workspaces: Vec::new(),
-        });
-        write_task_test_snapshot(&state, &mut runtime, &[main]);
+        })
+        .expect("upsert contact");
+        write_task_test_snapshot(&state, &[main]);
 
         let resolved = task_resolve_dispatch_conversation(
             &state,

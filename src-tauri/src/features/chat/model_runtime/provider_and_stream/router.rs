@@ -588,7 +588,7 @@ async fn call_model_dispatch(
             )
             .await
         }
-    } else if is_openai_style_request_format(selected_api.request_format) {
+    } else if selected_api.request_format.is_openai_style() {
         if prefer_non_stream {
             if selected_api.enable_tools {
                 runtime_log_info(format!(

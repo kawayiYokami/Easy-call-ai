@@ -412,7 +412,7 @@ fn ide_chat_avatar_data_url(state: &AppState, path: Option<&str>) -> String {
 }
 
 fn ide_chat_persona_payload(state: &AppState, active_agent_id: Option<&str>) -> Result<Value, String> {
-    let runtime = state_read_runtime_state_cached(state)?;
+    let assistant_department_agent_id = state_service_get_assistant_department_agent_id(state)?;
     let runtime_org = load_runtime_organization_snapshot(state)?;
     let agents = runtime_org.agents;
     let user_alias = agents
@@ -423,7 +423,7 @@ fn ide_chat_persona_payload(state: &AppState, active_agent_id: Option<&str>) -> 
     let active_agent_id = active_agent_id
         .map(str::trim)
         .filter(|value| !value.is_empty())
-        .unwrap_or_else(|| runtime.assistant_department_agent_id.trim());
+        .unwrap_or_else(|| assistant_department_agent_id.trim());
     let mut persona_name_map = serde_json::Map::new();
     let mut persona_avatar_url_map = serde_json::Map::new();
     let mut assistant_name = String::new();
@@ -620,7 +620,7 @@ fn ide_chat_create_conversation_options(state: &AppState) -> Result<Value, Strin
                 .collect::<Vec<_>>()
         })
         .collect::<Vec<_>>();
-    let default_agent_id = assistant_department_agent_id(&config).unwrap_or_else(default_assistant_department_agent_id);
+    let default_agent_id = state_service_get_assistant_department_agent_id(state)?;
     Ok(serde_json::json!({
         "departments": options,
         "defaultDepartmentId": ASSISTANT_DEPARTMENT_ID,
@@ -675,8 +675,6 @@ mod ide_context_tests {
             cached_config_mtime: Arc::new(Mutex::new(None)),
             cached_agents: Arc::new(Mutex::new(None)),
             cached_agents_mtime: Arc::new(Mutex::new(None)),
-            cached_runtime_state: Arc::new(Mutex::new(None)),
-            cached_runtime_state_mtime: Arc::new(Mutex::new(None)),
             cached_chat_index: Arc::new(Mutex::new(None)),
             cached_conversation_metadata: Arc::new(Mutex::new(std::collections::HashMap::new())),
             cached_conversation_field_metadata_ids: Arc::new(Mutex::new(
@@ -742,8 +740,6 @@ mod ide_context_tests {
         let state = ide_context_test_state();
         state_write_config_cached(&state, &AppConfig::default()).expect("write test config");
         state_write_agents_cached(&state, &[]).expect("write test agents");
-        state_write_runtime_state_cached(&state, &RuntimeStateFile::default())
-            .expect("write test runtime state");
 
         let exported = export_config_migration_package_for_web(
             ExportConfigMigrationPackageInput {

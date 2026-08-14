@@ -518,16 +518,15 @@ fn remote_conversation_identity_from_state(
     conversation: &Conversation,
 ) -> Option<RemoteConversationPromptIdentity> {
     let state = state?;
-    let runtime = state_read_runtime_state_cached(state).ok()?;
     let conversation_id = conversation.id.trim();
     let root_key = conversation
         .root_conversation_id
         .as_deref()
         .map(str::trim)
         .filter(|value| !value.is_empty());
-    runtime
-        .remote_im_contacts
-        .iter()
+    let contacts = state_service_list_remote_im_contacts(state, None).ok()?;
+    contacts
+        .into_iter()
         .find(|contact| {
             root_key
                 .map(|key| remote_im_contact_conversation_key(contact) == key)
@@ -539,7 +538,7 @@ fn remote_conversation_identity_from_state(
                     .filter(|value| !value.is_empty())
                     == Some(conversation_id)
         })
-        .map(remote_conversation_identity_from_contact)
+        .map(|contact| remote_conversation_identity_from_contact(&contact))
 }
 
 fn remote_conversation_settings_body(

@@ -530,24 +530,20 @@ fn remote_im_bound_contact_context_from_runtime(
         source
     };
     let config = state_read_config_cached(state)?;
-    let runtime = state_read_runtime_state_cached(state)?;
-    let contact = runtime
-        .remote_im_contacts
-        .iter()
-        .find(|contact| {
-            contact.channel_id == bound_source.channel_id
-                && contact.remote_contact_type == bound_source.remote_contact_type
-                && contact.remote_contact_id == bound_source.remote_contact_id
-        })
-        .cloned()
-        .ok_or_else(|| {
-            format!(
-                "未找到当前轮次绑定的联系人: channel_id={}, contact_type={}, contact_id={}",
-                bound_source.channel_id,
-                bound_source.remote_contact_type,
-                bound_source.remote_contact_id
-            )
-        })?;
+    let contact = state_service_find_remote_im_contact_by_identity(
+        state,
+        &bound_source.channel_id,
+        &bound_source.remote_contact_type,
+        &bound_source.remote_contact_id,
+    )?
+    .ok_or_else(|| {
+        format!(
+            "未找到当前轮次绑定的联系人: channel_id={}, contact_type={}, contact_id={}",
+            bound_source.channel_id,
+            bound_source.remote_contact_type,
+            bound_source.remote_contact_id
+        )
+    })?;
     let channel = remote_im_channel_by_id(&config, &contact.channel_id)
         .cloned()
         .ok_or_else(|| format!("远程 IM 渠道不存在: {}", contact.channel_id))?;
@@ -571,7 +567,15 @@ async fn builtin_contact_send_files(
     if file_paths.is_empty() {
         return Err("contact_send_files.file_paths 不能为空".to_string());
     }
-    let (channel, contact) = remote_im_bound_contact_context_from_runtime(state, session_id)?;
+    let (channel, contact) = {
+        let state = state.clone();
+        let session_id = session_id.to_string();
+        tokio::task::spawn_blocking(move || {
+            remote_im_bound_contact_context_from_runtime(&state, &session_id)
+        })
+        .await
+        .map_err(|err| format!("读取联系人上下文失败：error={err}"))?
+    }?;
     if !contact.allow_send {
         return Err("当前联系人不允许发送消息".to_string());
     }

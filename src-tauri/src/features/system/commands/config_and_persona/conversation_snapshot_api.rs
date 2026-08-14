@@ -1128,12 +1128,9 @@ fn list_unarchived_conversations_blocking(
     }
 
     runtime_log_info("[会话] 开始，任务=确保默认未归档会话，触发条件=未归档会话列表为空".to_string());
-    let config = state_read_config_cached(state)?;
     let create_input = CreateUnarchivedConversationInput {
         api_config_id: None,
-        agent_id: Some(
-            assistant_department_agent_id(&config).unwrap_or_else(default_assistant_department_agent_id),
-        ),
+        agent_id: Some(state_service_get_assistant_department_agent_id(state)?),
         department_id: Some(ASSISTANT_DEPARTMENT_ID.to_string()),
         title: None,
         copy_source_conversation_id: None,

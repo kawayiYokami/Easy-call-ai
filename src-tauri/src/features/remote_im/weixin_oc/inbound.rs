@@ -224,26 +224,28 @@ async fn run_single_weixin_oc_poll_cycle(
 }
 
 fn upsert_weixin_oc_contact(
-    runtime: &mut RuntimeStateFile,
+    state: &AppState,
     channel: &RemoteImChannelConfig,
     user_id: &str,
-) -> (String, bool) {
+) -> Result<(String, bool), String> {
     let normalized_user_id = user_id.trim();
     let display_name = weixin_oc_contact_display_name(channel, normalized_user_id);
-    if let Some(contact) = runtime.remote_im_contacts.iter_mut().find(|item| {
-        item.channel_id == channel.id
-            && item.remote_contact_type == "private"
-            && item.remote_contact_id == normalized_user_id
-    }) {
+    if let Some(mut contact) = state_service_find_remote_im_contact_by_identity(
+        state,
+        &channel.id,
+        "private",
+        normalized_user_id,
+    )? {
         let current_name = contact.remote_contact_name.trim();
         if current_name.is_empty() || current_name == normalized_user_id {
             contact.remote_contact_name = display_name;
+            state_service_upsert_remote_im_contact(state, &contact)?;
         }
-        return (contact.id.clone(), false);
+        return Ok((contact.id, false));
     }
 
     let contact_id = Uuid::new_v4().to_string();
-    runtime.remote_im_contacts.push(RemoteImContact {
+    let contact = RemoteImContact {
         id: contact_id.clone(),
         channel_id: channel.id.clone(),
         platform: RemoteImPlatform::WeixinOc,
@@ -278,8 +280,9 @@ fn upsert_weixin_oc_contact(
         dingtalk_session_webhook_expired_time: None,
         onebot_group_members: Vec::new(),
         shell_workspaces: Vec::new(),
-    });
-    (contact_id, true)
+    };
+    state_service_upsert_remote_im_contact(state, &contact)?;
+    Ok((contact_id, true))
 }
 
 #[cfg(test)]
@@ -397,13 +400,7 @@ fn sync_weixin_oc_contact_from_user_id(
     if normalized_user_id.is_empty() {
         return Err("当前登录状态没有返回联系人 user_id，暂时无法补录联系人".to_string());
     }
-    state_mutate_runtime_state_cached(state, |runtime| {
-        Ok(upsert_weixin_oc_contact(
-            runtime,
-            channel,
-            normalized_user_id,
-        ))
-    })
+    upsert_weixin_oc_contact(state, channel, normalized_user_id)
 }
 
 pub(crate) async fn weixin_oc_send_text_message(

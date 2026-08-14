@@ -357,7 +357,7 @@ fn create_unarchived_conversation_shared(
         .map_err(|err| format!("Failed to lock state mutex at {}:{} {}: {err}", file!(), line!(), module_path!()))?;
     let runtime_snapshot = load_runtime_organization_snapshot(state)?;
     let app_config = runtime_snapshot.config.clone();
-    let runtime = state_read_runtime_state_cached(state)?;
+    let assistant_department_agent_id = assistant_department_agent_id_downgraded(state);
     let agents = runtime_snapshot.agents.clone();
     let requested_department_id = input
         .department_id
@@ -420,7 +420,7 @@ fn create_unarchived_conversation_shared(
         build_unarchived_conversation_record_from_runtime(
             &state.data_path,
             &agents,
-            &runtime.assistant_department_agent_id,
+            &assistant_department_agent_id,
             read_latest_archive_summary_from_chat_index(state)?,
             &api_config_id,
             &agent_id,

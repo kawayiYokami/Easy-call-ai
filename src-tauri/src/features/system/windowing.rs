@@ -1,7 +1,6 @@
 use std::str::FromStr;
 
 const MAIN_TRAY_ID: &str = "easy-call-tray";
-const WINDOW_LAYOUTS_FILE_NAME: &str = "window_layouts.json";
 const FILE_READER_WINDOW_LABEL: &str = "file-reader";
 const NEAR_FULLSCREEN_RESTORE_RATIO: f64 = 0.92;
 const WINDOW_LAYOUT_SAVE_INTERVAL: std::time::Duration = std::time::Duration::from_secs(60);
@@ -192,26 +191,6 @@ struct PersistedWindowLayout {
     maximized: bool,
 }
 
-fn window_layouts_path(data_path: &PathBuf) -> PathBuf {
-    app_layout_state_dir(data_path).join(WINDOW_LAYOUTS_FILE_NAME)
-}
-
-fn read_window_layouts(data_path: &PathBuf) -> Result<PersistedWindowLayouts, String> {
-    let path = window_layouts_path(data_path);
-    if !path.exists() {
-        return Ok(PersistedWindowLayouts::default());
-    }
-    read_json_file::<PersistedWindowLayouts>(&path, "window layouts")
-}
-
-fn save_window_layouts(data_path: &PathBuf, layouts: &PersistedWindowLayouts) -> Result<(), String> {
-    write_json_file_atomic(
-        &window_layouts_path(data_path),
-        layouts,
-        "window layouts",
-    )
-}
-
 fn window_layout_store() -> Result<Arc<Mutex<WindowLayoutStore>>, String> {
     WINDOW_LAYOUT_STORE
         .get()
@@ -238,7 +217,7 @@ fn enqueue_window_layout_save(layouts: PersistedWindowLayouts) {
 }
 
 fn run_window_layout_save_worker(
-    data_path: PathBuf,
+    state: AppState,
     receiver: std::sync::mpsc::Receiver<PersistedWindowLayouts>,
 ) {
     let mut pending = match receiver.recv() {
@@ -251,7 +230,7 @@ fn run_window_layout_save_worker(
         match receiver.recv_timeout(wait) {
             Ok(layouts) => pending = layouts,
             Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
-                if let Err(err) = save_window_layouts(&data_path, &pending) {
+                if let Err(err) = state_service_save_window_layouts(&state, &pending) {
                     runtime_log_warn(format!(
                         "[窗口布局] 异步写盘失败，将在下一轮重试：error={err}"
                     ));
@@ -281,8 +260,7 @@ fn initialize_window_layout_store(app: &AppHandle) {
         return;
     }
     let state = app.state::<AppState>();
-    let data_path = state.data_path.clone();
-    let (layouts, repair_needed) = match read_window_layouts(&data_path) {
+    let (layouts, repair_needed) = match state_service_get_window_layouts(state.inner()) {
         Ok(layouts) => (layouts, false),
         Err(err) => {
             runtime_log_warn(format!(
@@ -305,9 +283,10 @@ fn initialize_window_layout_store(app: &AppHandle) {
     if repair_needed {
         enqueue_window_layout_save(initial_layouts);
     }
+    let worker_state = state.inner().clone();
     std::thread::Builder::new()
         .name("window-layout-save".to_string())
-        .spawn(move || run_window_layout_save_worker(data_path, receiver))
+        .spawn(move || run_window_layout_save_worker(worker_state, receiver))
         .ok();
 }
 

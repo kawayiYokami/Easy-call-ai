@@ -108,6 +108,7 @@ fn remote_im_resolve_contact_assistant_context(
         .filter(|value| !value.is_empty())
         .ok_or_else(|| format!("联系人未设置应答部门: {}", contact.id))?;
     let (department_id, agent_id) = resolve_department_agent_pair(
+        state,
         Some(requested_department_id),
         contact.bound_agent_id.as_deref(),
         &runtime_snapshot.config,
@@ -423,8 +424,13 @@ fn remote_im_resolve_secretary_contact(
         ));
         return Ok(None);
     }
-    let runtime = state_read_runtime_state_cached(state)?;
-    Ok(remote_im_contact_by_activation_source_in_runtime(&runtime.remote_im_contacts, source).cloned())
+    let contact = state_service_find_remote_im_contact_by_identity(
+        state,
+        &source.channel_id,
+        &source.remote_contact_type,
+        &source.remote_contact_id,
+    )?;
+    Ok(contact)
 }
 
 async fn run_remote_im_secretary_decision(

@@ -10,17 +10,25 @@ impl ConversationServiceV2 {
             .map(str::trim)
             .filter(|value| !value.is_empty())
             .map(ToOwned::to_owned);
+        let fallback_main_conversation_id = if requested_conversation_id.is_none() {
+            match state_service_get_main_conversation_id(state) {
+                Ok(value) => value.and_then(|value| {
+                    let trimmed = value.trim();
+                    (!trimmed.is_empty()).then(|| trimmed.to_string())
+                }),
+                Err(err) => {
+                    runtime_log_warn(format!(
+                        "[会话快照] 读取主会话 ID 失败，按无默认会话降级继续：error={err}"
+                    ));
+                    None
+                }
+            }
+        } else {
+            None
+        };
         if let Some(conversation_id) = requested_conversation_id
             .clone()
-            .or_else(|| {
-                state_read_runtime_state_cached(state)
-                    .ok()
-                    .and_then(|runtime| runtime.main_conversation_id)
-                    .and_then(|value| {
-                        let trimmed = value.trim();
-                        (!trimmed.is_empty()).then(|| trimmed.to_string())
-                    })
-            })
+            .or(fallback_main_conversation_id)
         {
             let store_paths = message_store::message_store_paths(&state.data_path, &conversation_id)?;
             let snapshot = if let Some(snapshot) =
@@ -84,7 +92,6 @@ impl ConversationServiceV2 {
         let _guard = lock_conversation_with_metrics(state, "get_chat_snapshot")?;
 
         let mut app_config = state_read_config_cached(state)?;
-        let runtime = state_read_runtime_state_cached(state)?;
         let agents = state_read_agents_cached(state)?;
         let runtime_snapshot = build_runtime_organization_snapshot_from_parts(
             &state.data_path,
@@ -92,6 +99,7 @@ impl ConversationServiceV2 {
             &agents,
         )?;
         let runtime_agents = runtime_snapshot.agents;
+        let assistant_department_agent_id = assistant_department_agent_id_downgraded(state);
         let requested_agent_id = input.agent_id.trim();
         let effective_agent_id = if !requested_agent_id.is_empty() {
             if runtime_agents
@@ -102,10 +110,11 @@ impl ConversationServiceV2 {
             } else {
                 return Err(format!("Selected agent '{requested_agent_id}' not found."));
             }
-        } else if runtime_agents.iter().any(|agent| {
-            agent.id == runtime.assistant_department_agent_id && !agent.is_built_in_user
-        }) {
-            runtime.assistant_department_agent_id.clone()
+        } else if runtime_agents
+            .iter()
+            .any(|agent| agent.id == assistant_department_agent_id && !agent.is_built_in_user)
+        {
+            assistant_department_agent_id.clone()
         } else {
             runtime_agents
                 .iter()

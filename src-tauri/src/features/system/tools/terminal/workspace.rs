@@ -662,15 +662,14 @@ fn resolve_contact_workspaces_for_conversation(
     state: &AppState,
     conversation: &Conversation,
 ) -> Vec<ShellWorkspaceConfig> {
-    let Ok(runtime) = state_read_runtime_state_cached(state) else {
-        return Vec::new();
-    };
     let conversation_id = conversation.id.trim();
     if conversation_id.is_empty() {
         return Vec::new();
     }
-    runtime
-        .remote_im_contacts
+    let Ok(contacts) = state_service_list_remote_im_contacts(state, None) else {
+        return Vec::new();
+    };
+    contacts
         .iter()
         .find(|contact| {
             contact
@@ -1153,8 +1152,6 @@ mod terminal_workspace_tests {
             cached_config_mtime: Arc::new(Mutex::new(None)),
             cached_agents: Arc::new(Mutex::new(None)),
             cached_agents_mtime: Arc::new(Mutex::new(None)),
-            cached_runtime_state: Arc::new(Mutex::new(None)),
-            cached_runtime_state_mtime: Arc::new(Mutex::new(None)),
             cached_chat_index: Arc::new(Mutex::new(None)),
             cached_conversation_metadata: Arc::new(Mutex::new(std::collections::HashMap::new())),
             cached_conversation_field_metadata_ids: Arc::new(Mutex::new(
@@ -1378,8 +1375,11 @@ mod terminal_workspace_tests {
         let archived = read_conversation_shard(&state.data_path, "conv-archived-workspace")
             .expect("read archived conversation");
         assert!(archived.shell_workspaces.is_empty());
-        let runtime = read_runtime_state_shard(&state.data_path).expect("read runtime");
-        assert_eq!(runtime.data_migration_version, DATA_MIGRATION_CURRENT_VERSION);
+        assert_eq!(
+            state_service_get_data_migration_version(&state)
+                .expect("read migration version"),
+            DATA_MIGRATION_CURRENT_VERSION
+        );
 
         let _ = std::fs::remove_dir_all(temp_root);
     }

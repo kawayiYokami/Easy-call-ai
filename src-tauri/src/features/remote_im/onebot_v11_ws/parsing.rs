@@ -1055,14 +1055,15 @@ fn onebot_group_member_cache_for_contact(
         return std::collections::HashMap::new();
     };
     let group_id = group_id.to_string();
-    let Ok(runtime) = state_read_runtime_state_cached(state) else {
+    let Ok(contact) = state_service_find_remote_im_contact_by_identity(
+        state,
+        channel_id,
+        "group",
+        &group_id,
+    ) else {
         return std::collections::HashMap::new();
     };
-    let Some(contact) = runtime.remote_im_contacts.iter().find(|item| {
-        item.channel_id == channel_id
-            && item.remote_contact_type == "group"
-            && item.remote_contact_id == group_id
-    }) else {
+    let Some(contact) = contact else {
         return std::collections::HashMap::new();
     };
     contact
@@ -1091,33 +1092,19 @@ fn onebot_persist_group_member_cache(
     if members.is_empty() {
         return Ok(());
     }
-    state_mutate_runtime_state_cached(state, |runtime| {
-        let Some(contact) = runtime
-            .remote_im_contacts
-            .iter_mut()
-            .find(|item| item.id == contact_id)
-        else {
-            return Ok(());
-        };
-        for member in members {
-            let user_id = member.user_id.trim();
-            if user_id.is_empty() {
-                continue;
-            }
-            if let Some(existing) = contact
-                .onebot_group_members
-                .iter_mut()
-                .find(|item| item.user_id.trim() == user_id)
-            {
-                if existing != &member {
-                    *existing = member;
-                }
-            } else {
-                contact.onebot_group_members.push(member);
-            }
-        }
-        Ok(())
-    })
+    // 联系人不存在时保持 Ok(())，读取失败则传播原始错误
+    match state_service_get_remote_im_contact(state, contact_id)? {
+        Some(_) => {}
+        None => return Ok(()),
+    };
+    let members = members
+        .into_iter()
+        .filter(|member| !member.user_id.trim().is_empty())
+        .collect::<Vec<_>>();
+    if members.is_empty() {
+        return Ok(());
+    }
+    state_service_upsert_remote_im_group_members(state, contact_id, &members)
 }
 
 fn onebot_format_mention_quote(qq: &str, display_name: Option<&str>) -> String {

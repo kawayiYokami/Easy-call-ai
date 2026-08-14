@@ -61,13 +61,14 @@ async fn archive_conversation_inner(
             Err(err) => return Err(log_manual_archive_failure(requested_conversation_id, err)),
         };
     let already_archived = conversation_is_archived(&source);
-    let runtime = state_read_runtime_state_cached(state)
-        .map_err(|err| log_manual_archive_failure(&source.id, err))?;
-    let main_conversation_id = runtime
-        .main_conversation_id
-        .as_deref()
-        .map(str::trim)
-        .unwrap_or_default();
+    let main_conversation_id = {
+        let state = state.clone();
+        tokio::task::spawn_blocking(move || state_service_get_main_conversation_id(&state))
+            .await
+            .map_err(|err| log_manual_archive_failure(&source.id, format!("读取主会话 ID 失败：error={err}")))?
+            .map_err(|err| log_manual_archive_failure(&source.id, err))?
+    }
+    .unwrap_or_default();
     if !already_archived && source.id.trim() == main_conversation_id {
         return Err(log_manual_archive_failure(
             &source.id,
@@ -186,13 +187,13 @@ pub(crate) async fn batch_archive_conversations_inner(
         conversation_ids.len()
     ));
 
-    let runtime = state_read_runtime_state_cached(state)?;
-    let main_conversation_id = runtime
-        .main_conversation_id
-        .as_deref()
-        .map(str::trim)
-        .unwrap_or_default()
-        .to_string();
+    let main_conversation_id = {
+        let state = state.clone();
+        tokio::task::spawn_blocking(move || state_service_get_main_conversation_id(&state))
+            .await
+            .map_err(|err| format!("读取主会话 ID 失败：error={err}"))??
+            .unwrap_or_default()
+    };
     let mut accepted = Vec::<BatchArchiveAcceptedConversation>::new();
     let mut skipped = Vec::<BatchArchiveSkippedConversation>::new();
     let mut latest_overview_payload = None::<UnarchivedConversationOverviewUpdatedPayload>;

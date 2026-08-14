@@ -278,15 +278,11 @@ fn remote_im_resolve_contact_log_query(
     if normalized_contact_id.is_empty() {
         return Err("contact_id 为必填项。".to_string());
     }
-    let runtime = state_read_runtime_state_cached(state)?;
-    let contact = runtime
-        .remote_im_contacts
-        .iter()
-        .find(|item| item.id == normalized_contact_id)
+    let contact = state_service_get_remote_im_contact(state, normalized_contact_id)?
         .ok_or_else(|| format!("未找到远程联系人：{normalized_contact_id}"))?;
     Ok((
         contact.channel_id.trim().to_string(),
-        remote_im_contact_log_marker(contact),
+        remote_im_contact_log_marker(&contact),
     ))
 }
 

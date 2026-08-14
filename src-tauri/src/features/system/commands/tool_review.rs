@@ -2356,77 +2356,10 @@ async fn submit_tool_review_code_internal(
 
 #[cfg(test)]
 mod tool_review_tests {
-    use super::{tool_review_build_context, tool_review_preview_for_item, tool_review_prune_legacy_batch_report_records, tool_review_segments_for_item, ChatMessage, Conversation, MessagePart, ToolReviewCollectedItem, ToolReviewReportRecord};
-    use crate::{app_root_from_data_path, ConversationCumulativeUsage, ASSISTANT_DEPARTMENT_ID, DEFAULT_AGENT_ID};
+    use super::{tool_review_build_context, tool_review_preview_for_item, tool_review_prune_legacy_batch_report_records, tool_review_segments_for_item, ToolReviewCollectedItem, ToolReviewReportRecord};
+    use crate::app_root_from_data_path;
     use std::{env, fs};
     use uuid::Uuid;
-
-    fn test_chat_message(id: &str, role: &str) -> ChatMessage {
-        ChatMessage {
-            id: id.to_string(),
-            role: role.to_string(),
-            created_at: "2026-05-05T00:00:00.000Z".to_string(),
-            speaker_agent_id: None,
-            parts: vec![MessagePart::Text {
-                text: format!("{role}-{id}"),
-                reasoning_content: None,
-            }],
-            extra_text_blocks: Vec::new(),
-            provider_meta: None,
-            tool_call: None,
-            mcp_call: None,
-        meme_annotations: None,
-        }
-    }
-
-    fn test_tool_review_report_message(id: &str) -> ChatMessage {
-        let mut message = test_chat_message(id, "assistant");
-        message.provider_meta = Some(serde_json::json!({
-            "messageKind": "tool_review_report",
-            "messageMeta": {
-                "kind": "tool_review_report"
-            }
-        }));
-        message
-    }
-
-    fn test_conversation(id: &str, messages: Vec<ChatMessage>) -> Conversation {
-        Conversation {
-            id: id.to_string(),
-            title: "test".to_string(),
-            agent_id: DEFAULT_AGENT_ID.to_string(),
-            department_id: ASSISTANT_DEPARTMENT_ID.to_string(),
-            bound_conversation_id: None,
-            parent_conversation_id: None,
-            child_conversation_ids: Vec::new(),
-            fork_message_cursor: None,
-            unread_count: 0,
-            conversation_kind: String::new(),
-            root_conversation_id: None,
-            delegate_id: None,
-            created_at: "2026-05-05T00:00:00.000Z".to_string(),
-            updated_at: "2026-05-05T00:00:00.000Z".to_string(),
-            last_user_at: None,
-            last_assistant_at: None,
-            status: String::new(),
-            summary: String::new(),
-            user_profile_snapshot: String::new(),
-            shell_workspace_path: None,
-            shell_workspaces: Vec::new(),
-            shell_autonomous_mode: false,
-            shell_work_mode: "directory".to_string(),
-            archived_at: None,
-            messages,
-            fast_request_turns: Vec::new(),
-            current_todos: Vec::new(),
-            memory_recall_table: Vec::new(),
-            plan_mode_enabled: false,
-            preferred_api_config_id: None,
-            auto_push_remote_contact_id: None,
-            active_goal: None,
-            cumulative_usage: ConversationCumulativeUsage::default(),
-        }
-    }
 
     #[test]
     fn tool_review_apply_patch_context_should_include_operation_content() {

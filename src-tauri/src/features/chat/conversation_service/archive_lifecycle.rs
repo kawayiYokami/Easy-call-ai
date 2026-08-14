@@ -372,7 +372,8 @@ impl ConversationServiceV2 {
             .conversation_lock
             .lock()
             .map_err(|err| format!("Failed to lock state mutex at {}:{} {}: {err}", file!(), line!(), module_path!()))?;
-        let mut runtime = state_read_runtime_state_cached(state)?;
+        let mut main_conversation_id = state_service_get_main_conversation_id(state)?;
+        let assistant_department_agent_id = state_service_get_assistant_department_agent_id(state)?;
         let agents = state_read_agents_cached(state)?;
         let source_conversation = read_conversation_for_backup_cleanup(state, &source.id)
             .map_err(|_| "活动对话已变化，请重试归档。".to_string())?;
@@ -410,11 +411,11 @@ impl ConversationServiceV2 {
             let system_notification = build_system_notification_conversation_record();
             state_schedule_conversation_persist(state, &system_notification)?;
         }
-        if runtime.main_conversation_id.as_deref().map(str::trim)
+        if main_conversation_id.as_deref().map(str::trim)
             != Some(SYSTEM_NOTIFICATION_CONVERSATION_ID)
         {
-            runtime.main_conversation_id = Some(SYSTEM_NOTIFICATION_CONVERSATION_ID.to_string());
-            state_write_runtime_state_cached(state, &runtime)?;
+            main_conversation_id = Some(SYSTEM_NOTIFICATION_CONVERSATION_ID.to_string());
+            state_service_set_main_conversation_id(state, main_conversation_id.as_deref())?;
         }
         let chat_index = state_read_chat_index_cached(state)?;
         let active_conversation_id = chat_index
@@ -433,7 +434,7 @@ impl ConversationServiceV2 {
             let replacement = build_archive_replacement_conversation(
                 state,
                 &agents,
-                &runtime.assistant_department_agent_id,
+                &assistant_department_agent_id,
                 selected_api,
                 &source_conversation,
             )?;
@@ -769,7 +770,7 @@ impl ConversationServiceV2 {
                     return Err("当前没有可归档的活动对话。".to_string());
                 }
 
-                let runtime = state_read_runtime_state_cached(state)?;
+                let assistant_department_agent_id = state_service_get_assistant_department_agent_id(state)?;
                 let runtime_snapshot = load_runtime_organization_snapshot(state)?;
                 let agents = runtime_snapshot.agents;
                 let chat_index = state_read_chat_index_cached(state)?;
@@ -802,7 +803,7 @@ impl ConversationServiceV2 {
                     let conversation = build_archive_replacement_conversation(
                         state,
                         &agents,
-                        &runtime.assistant_department_agent_id,
+                        &assistant_department_agent_id,
                         selected_api,
                         source,
                     )?;

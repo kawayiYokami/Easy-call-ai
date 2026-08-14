@@ -31,12 +31,10 @@ impl ConversationServiceV2 {
                     }
                 };
                 let mut conversation = self.build_conversation_record_from_meta_view(&conversation_meta);
-                let mut runtime = state_read_runtime_state_cached(state)?;
-                let remote_im_runtime_before = serde_json::to_vec(&(
-                    runtime.remote_im_contacts.clone(),
-                    runtime.remote_im_contact_checkpoints.clone(),
-                ))
-                .ok();
+                let remote_im_contacts = state_service_list_remote_im_contacts(state, None)?;
+                let mut remote_im_checkpoints = state_service_list_remote_im_contact_checkpoints(state)?;
+                let remote_im_runtime_before =
+                    serde_json::to_vec(&remote_im_checkpoints).ok();
 
                 let persisted_batch_messages = self.write_scheduler_persisted_message_batch_v2(
                     conversation_id,
@@ -52,8 +50,8 @@ impl ConversationServiceV2 {
                 let (event_activate_flags, _activated_contacts) =
                     self.handle_scheduler_remote_im_activations_v2(
                         state,
-                        &runtime.remote_im_contacts,
-                        &mut runtime.remote_im_contact_checkpoints,
+                        &remote_im_contacts,
+                        &mut remote_im_checkpoints,
                         &mut conversation,
                         events,
                         history_flush_time,
@@ -83,7 +81,7 @@ impl ConversationServiceV2 {
                     state,
                     &metadata_conversation,
                     &persisted_batch_messages,
-                    &runtime,
+                    &remote_im_checkpoints,
                     remote_im_runtime_before,
                 )?;
                 Ok(SchedulerHistoryFlushOutcome::Committed(
@@ -231,15 +229,11 @@ impl ConversationServiceV2 {
         state: &AppState,
         conversation_meta: &message_store::ConversationShardMeta,
         appended_messages: &[ChatMessage],
-        runtime: &RuntimeStateFile,
+        checkpoints: &[RemoteImContactCheckpoint],
         remote_im_runtime_before: Option<Vec<u8>>,
     ) -> Result<(), String> {
-        let remote_im_runtime_changed = remote_im_runtime_before
-            != serde_json::to_vec(&(
-                runtime.remote_im_contacts.clone(),
-                runtime.remote_im_contact_checkpoints.clone(),
-            ))
-            .ok();
+        let remote_im_runtime_changed =
+            remote_im_runtime_before != serde_json::to_vec(checkpoints).ok();
         let paths = message_store::message_store_paths(&state.data_path, conversation_meta.id())?;
         let mut ready_meta = message_store::read_ready_message_store_meta(&paths)?
             .ok_or_else(|| {
@@ -257,7 +251,30 @@ impl ConversationServiceV2 {
         )?;
         self.mark_conversation_metadata_cached_persisted(state, conversation_meta.id())?;
         if remote_im_runtime_changed {
-            state_write_runtime_state_cached(state, runtime)?;
+            // 只回写本批次实际变更的 checkpoint，避免用旧快照覆盖并发更新的其他联系人
+            let before_checkpoints: std::collections::HashMap<String, RemoteImContactCheckpoint> =
+                remote_im_runtime_before
+                    .as_deref()
+                    .and_then(|bytes| {
+                        serde_json::from_slice::<Vec<RemoteImContactCheckpoint>>(bytes).ok()
+                    })
+                    .map(|list| {
+                        list.into_iter()
+                            .map(|checkpoint| (checkpoint.contact_id.clone(), checkpoint))
+                            .collect()
+                    })
+                    .unwrap_or_default();
+            for checkpoint in checkpoints {
+                let unchanged = before_checkpoints
+                    .get(&checkpoint.contact_id)
+                    .map(|before| {
+                        serde_json::to_vec(before).ok() == serde_json::to_vec(checkpoint).ok()
+                    })
+                    .unwrap_or(false);
+                if !unchanged {
+                    state_service_set_remote_im_contact_checkpoint(state, checkpoint)?;
+                }
+            }
         }
         Ok(())
     }

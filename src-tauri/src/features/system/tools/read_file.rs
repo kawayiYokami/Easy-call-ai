@@ -493,68 +493,6 @@ fn build_pdf_image_read_result(
     })
 }
 
-fn read_file_media_cache_lookup(
-    runtime: &RuntimeStateFile,
-    hash: &str,
-    model_api_id: &str,
-    media_type: ReadMediaDetectedType,
-    description: &str,
-) -> Option<String> {
-    runtime
-        .image_text_cache
-        .iter()
-        .find(|entry| {
-            entry.hash == hash
-                && entry.model_api_id == model_api_id
-                && entry.media_type == media_type.as_str()
-                && entry.description == description
-        })
-        .map(|entry| entry.text.clone())
-}
-
-fn read_file_media_cache_upsert(
-    runtime: &mut RuntimeStateFile,
-    hash: &str,
-    model_api_id: &str,
-    media_type: ReadMediaDetectedType,
-    description: &str,
-    text: &str,
-) {
-    if let Some(entry) = runtime
-        .image_text_cache
-        .iter_mut()
-        .find(|entry| {
-            entry.hash == hash
-                && entry.model_api_id == model_api_id
-                && entry.media_type == media_type.as_str()
-                && entry.description == description
-        })
-    {
-        entry.text = text.to_string();
-        entry.updated_at = now_iso();
-        return;
-    }
-    runtime.image_text_cache.push(ImageTextCacheEntry {
-        hash: hash.to_string(),
-        model_api_id: model_api_id.to_string(),
-        media_type: media_type.as_str().to_string(),
-        description: description.to_string(),
-        text: text.to_string(),
-        updated_at: now_iso(),
-    });
-    if runtime.image_text_cache.len() <= MAX_IMAGE_TEXT_CACHE_ENTRIES {
-        return;
-    }
-    if let Some((oldest_idx, _)) = runtime
-        .image_text_cache
-        .iter()
-        .enumerate()
-        .min_by(|(_, a), (_, b)| a.updated_at.cmp(&b.updated_at))
-    {
-        runtime.image_text_cache.remove(oldest_idx);
-    }
-}
-
 fn build_read_media_prepared_prompt(
     media_type: ReadMediaDetectedType,
     mime: &str,
@@ -1332,10 +1270,9 @@ async fn builtin_read_media(
     let mut hasher = Sha256::new();
     hasher.update(&raw);
     let hash = bytes_to_lower_hex(hasher.finalize());
-    if let Some(cached) = {
-        let runtime = state_read_runtime_state_cached(state)?;
-        read_file_media_cache_lookup(&runtime, &hash, &selected_api.id, detected, &description)
-    } {
+    if let Some(cached) =
+        state_service_find_image_text_cache(state, &hash, &selected_api.id, detected.as_str(), &description)?
+    {
         return Ok(serde_json::json!({
             "ok": true,
             "mediaType": detected.as_str(),
@@ -1494,11 +1431,14 @@ async fn builtin_read_media(
     if text.is_empty() {
         return Err("多模态分析模型返回了空结果".to_string());
     }
-    {
-        let mut runtime = state_read_runtime_state_cached(state)?;
-        read_file_media_cache_upsert(&mut runtime, &hash, &selected_api.id, detected, &description, &text);
-        state_write_runtime_state_cached(state, &runtime)?;
-    }
+    state_service_upsert_image_text_cache(
+        state,
+        &hash,
+        &selected_api.id,
+        detected.as_str(),
+        &description,
+        &text,
+    )?;
     Ok(serde_json::json!({
         "ok": true,
         "mediaType": detected.as_str(),
@@ -1876,8 +1816,6 @@ fn test_read_file_state() -> AppState {
             cached_config_mtime: Arc::new(Mutex::new(None)),
             cached_agents: Arc::new(Mutex::new(None)),
             cached_agents_mtime: Arc::new(Mutex::new(None)),
-            cached_runtime_state: Arc::new(Mutex::new(None)),
-            cached_runtime_state_mtime: Arc::new(Mutex::new(None)),
             cached_chat_index: Arc::new(Mutex::new(None)),
             cached_conversation_metadata: Arc::new(Mutex::new(std::collections::HashMap::new())),
             cached_conversation_field_metadata_ids: Arc::new(Mutex::new(

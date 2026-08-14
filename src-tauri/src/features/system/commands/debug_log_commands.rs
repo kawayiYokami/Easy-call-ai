@@ -1548,18 +1548,27 @@ fn dump_memory_cache_stats_inner(state: &AppState) -> Result<MemoryCacheStats, S
         .lock()
         .map_err(|_| "Failed to lock cached app data".to_string())?;
     let cached_app_data_loaded = cached_app_data.is_some();
-    let cached_app_data_image_text_cache_entries = cached_app_data
-        .as_ref()
-        .map(|item| item.image_text_cache.len())
-        .unwrap_or(0);
-    let cached_app_data_pdf_text_cache_entries = cached_app_data
-        .as_ref()
-        .map(|item| item.pdf_text_cache.len())
-        .unwrap_or(0);
-    let cached_app_data_pdf_image_cache_entries = cached_app_data
-        .as_ref()
-        .map(|item| item.pdf_image_cache.len())
-        .unwrap_or(0);
+    let cached_app_data_image_text_cache_entries = match state_service_count_image_text_cache(state) {
+        Ok(count) => count,
+        Err(err) => {
+            runtime_log_warn(format!("[内存统计] image_text_cache 计数失败，按 0 展示：error={err}"));
+            0
+        }
+    };
+    let cached_app_data_pdf_text_cache_entries = match state_service_count_pdf_text_cache(state) {
+        Ok(count) => count,
+        Err(err) => {
+            runtime_log_warn(format!("[内存统计] pdf_text_cache 计数失败，按 0 展示：error={err}"));
+            0
+        }
+    };
+    let cached_app_data_pdf_image_cache_entries = match state_service_count_pdf_image_cache(state) {
+        Ok(count) => count,
+        Err(err) => {
+            runtime_log_warn(format!("[内存统计] pdf_image_cache 计数失败，按 0 展示：error={err}"));
+            0
+        }
+    };
     let cached_app_data_estimated_json_bytes = cached_app_data
         .as_ref()
         .map(estimate_json_bytes)

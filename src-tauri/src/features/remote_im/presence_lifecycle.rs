@@ -169,12 +169,7 @@ fn remote_im_departure_reflection_context(
     state: &AppState,
     contact_id: &str,
 ) -> Result<(RemoteImContact, Conversation, RemoteImConversationAssistantContext), String> {
-    let runtime = state_read_runtime_state_cached(state)?;
-    let contact = runtime
-        .remote_im_contacts
-        .iter()
-        .find(|contact| contact.id == contact_id)
-        .cloned()
+    let contact = state_service_get_remote_im_contact(state, contact_id)?
         .ok_or_else(|| format!("远程联系人不存在：{contact_id}"))?;
     if contact.remote_contact_type.trim() != "group" {
         return Err("仅群聊联系人需要离场反思".to_string());

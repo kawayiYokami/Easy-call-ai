@@ -592,16 +592,12 @@ fn remote_im_reschedule_presence_timeout_after_delegate(
     if remote_im_contact_is_away(state, contact_id)? {
         return Ok(());
     }
-    let runtime = state_read_runtime_state_cached(state)?;
-    let contact = runtime
-        .remote_im_contacts
-        .iter()
-        .find(|contact| contact.id == contact_id)
+    let contact = state_service_get_remote_im_contact(state, contact_id)?
         .ok_or_else(|| format!("远程联系人不存在：{contact_id}"))?;
     remote_im_schedule_presence_timeout(
         state,
         contact_id,
-        remote_im_channel_behavior_settings_for_contact(state, contact).patience_seconds,
+        remote_im_channel_behavior_settings_for_contact(state, &contact).patience_seconds,
     )
 }
 
@@ -909,12 +905,18 @@ fn spawn_remote_im_reply_delegate(
         }
         if terminal_status == DELEGATE_STATUS_FAILED {
             if let Some(policy) = dispatch_policy {
-                remote_im_group_reply_retry_after_dispatch_failure(
-                    &state_clone,
-                    &contact_id_for_task,
-                    policy.generation,
-                    terminal_reason,
-                );
+                let state = state_clone.clone();
+                let contact_id = contact_id_for_task.clone();
+                let reason = terminal_reason.to_string();
+                let _ = tokio::task::spawn_blocking(move || {
+                    remote_im_group_reply_retry_after_dispatch_failure(
+                        &state,
+                        &contact_id,
+                        policy.generation,
+                        &reason,
+                    )
+                })
+                .await;
             }
         }
     });

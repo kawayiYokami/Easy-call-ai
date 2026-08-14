@@ -123,13 +123,9 @@ impl ConversationServiceV2 {
         } else {
             runtime_snapshot.config
         };
-        let runtime = state_read_runtime_state_cached(state)?;
-        let main_conversation_id = runtime
-            .main_conversation_id
-            .as_deref()
-            .map(str::trim)
-            .unwrap_or_default()
-            .to_string();
+        let main_conversation_id = main_conversation_id_downgraded(state)
+            .map(|id| id.trim().to_string())
+            .unwrap_or_default();
         let chat_index = state_read_chat_index_cached(state)?;
         let visible_conversations = chat_index
             .conversations
@@ -157,8 +153,7 @@ impl ConversationServiceV2 {
             .filter(|conversation_id: &String| !conversation_id.is_empty())
             .collect::<std::collections::HashSet<_>>();
         let mut seen_pins = std::collections::HashSet::<String>::new();
-        let pinned_conversation_ids = runtime
-            .pinned_conversation_ids
+        let pinned_conversation_ids = pinned_conversation_ids_downgraded(state)
             .iter()
             .map(|item| item.trim().to_string())
             .filter(|item| !item.is_empty())

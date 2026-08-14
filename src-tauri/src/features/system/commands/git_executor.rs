@@ -389,14 +389,12 @@ pub fn git_executor() -> &'static GitExecutor {
 #[cfg(test)]
 mod git_executor_tests {
     use super::*;
-    use std::collections::HashMap;
     use std::future::Future;
     use std::pin::Pin;
     use std::sync::{Arc, Mutex};
     use std::time::Duration;
 
     use futures_util::FutureExt;
-    use tokio::sync::watch;
 
     /// 可控 fake runner：记录调用、可设延迟与失败。
     #[derive(Clone)]

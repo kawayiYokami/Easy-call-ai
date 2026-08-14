@@ -1,23 +1,5 @@
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct ImageTextCacheEntry {
-    hash: String,
-    #[serde(alias = "visionApiId")]
-    model_api_id: String,
-    #[serde(default = "default_media_cache_entry_type")]
-    media_type: String,
-    #[serde(default)]
-    description: String,
-    text: String,
-    updated_at: String,
-}
-
-fn default_media_cache_entry_type() -> String {
-    "image".to_string()
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
 pub struct PdfTextCacheEntry {
     pub file_hash: String,
     pub file_path: String,
@@ -98,47 +80,10 @@ struct AppData {
     version: u32,
     #[serde(default)]
     data_migration_version: u32,
-    #[serde(default, alias = "messageStoreMigrationVersion")]
-    message_store_migration_version: u32,
     agents: Vec<AgentProfile>,
-    #[serde(
-        default = "default_assistant_department_agent_id",
-        alias = "selectedAgentId",
-        alias = "selected_agent_id"
-    )]
-    assistant_department_agent_id: String,
     #[serde(default = "default_user_alias")]
     user_alias: String,
-    #[serde(default = "default_response_style_id")]
-    response_style_id: String,
-    #[serde(default = "default_pdf_read_mode")]
-    pdf_read_mode: String,
-    #[serde(default = "default_background_voice_screenshot_keywords")]
-    background_voice_screenshot_keywords: String,
-    #[serde(default = "default_background_voice_screenshot_mode")]
-    background_voice_screenshot_mode: String,
-    #[serde(default)]
-    instruction_presets: Vec<PromptCommandPreset>,
-    #[serde(
-        default,
-        rename = "systemNotificationConversationId",
-        alias = "mainConversationId",
-        alias = "main_conversation_id"
-    )]
-    main_conversation_id: Option<String>,
-    #[serde(default)]
-    pinned_conversation_ids: Vec<String>,
     conversations: Vec<Conversation>,
-    #[serde(default)]
-    image_text_cache: Vec<ImageTextCacheEntry>,
-    #[serde(default)]
-    pdf_text_cache: Vec<PdfTextCacheEntry>,
-    #[serde(default)]
-    pdf_image_cache: Vec<PdfImageCacheEntry>,
-    #[serde(default)]
-    remote_im_contacts: Vec<RemoteImContact>,
-    #[serde(default)]
-    remote_im_contact_checkpoints: Vec<RemoteImContactCheckpoint>,
 }
 
 impl Default for AppData {
@@ -146,28 +91,14 @@ impl Default for AppData {
         Self {
             version: APP_DATA_SCHEMA_VERSION,
             data_migration_version: 0,
-            message_store_migration_version: 0,
             agents: vec![
                 default_agent(),
                 default_deputy_agent(),
                 default_user_persona(),
                 default_system_persona(),
             ],
-            assistant_department_agent_id: default_assistant_department_agent_id(),
             user_alias: default_user_alias(),
-            response_style_id: default_response_style_id(),
-            pdf_read_mode: default_pdf_read_mode(),
-            background_voice_screenshot_keywords: default_background_voice_screenshot_keywords(),
-            background_voice_screenshot_mode: default_background_voice_screenshot_mode(),
-            instruction_presets: Vec::new(),
-            main_conversation_id: None,
-            pinned_conversation_ids: Vec::new(),
             conversations: Vec::new(),
-            image_text_cache: Vec::new(),
-            pdf_text_cache: Vec::new(),
-            pdf_image_cache: Vec::new(),
-            remote_im_contacts: Vec::new(),
-            remote_im_contact_checkpoints: Vec::new(),
         }
     }
 }
@@ -521,15 +452,6 @@ fn assistant_department(config: &AppConfig) -> Option<&DepartmentConfig> {
         .find(|item| item.id == ASSISTANT_DEPARTMENT_ID || item.is_built_in_assistant)
 }
 
-fn assistant_department_agent_id(config: &AppConfig) -> Option<String> {
-    assistant_department(config).and_then(|dept| {
-        dept.agent_ids
-            .iter()
-            .find(|id| !id.trim().is_empty())
-            .cloned()
-    })
-}
-
 fn department_by_id<'a>(
     config: &'a AppConfig,
     department_id: &str,
@@ -793,14 +715,6 @@ fn user_persona_name(data: &AppData) -> String {
         .map(|a| a.name.trim().to_string())
         .filter(|v| !v.is_empty())
         .unwrap_or_else(default_user_alias)
-}
-
-fn user_persona_intro(data: &AppData) -> String {
-    data.agents
-        .iter()
-        .find(|a| a.id == USER_PERSONA_ID || a.is_built_in_user)
-        .map(|a| a.system_prompt.trim().to_string())
-        .unwrap_or_default()
 }
 
 #[cfg(test)]

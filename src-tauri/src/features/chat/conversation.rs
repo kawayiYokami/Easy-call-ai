@@ -148,20 +148,93 @@ fn resolve_conversation_bound_agent<'a>(
     ))
 }
 
-fn main_conversation_index(data: &AppData, _agent_id: &str) -> Option<usize> {
-    let target_id = data
-        .main_conversation_id
-        .as_deref()
-        .map(str::trim)
-        .filter(|value| !value.is_empty())?;
-    data.conversations.iter().position(|conversation| {
+/// 读取主会话指针；失败时记 warn 并按「无指针」降级，不阻断会话选择 fallback 链。
+fn main_conversation_id_downgraded(state: &AppState) -> Option<String> {
+    match state_service_get_main_conversation_id(state) {
+        Ok(value) => value,
+        Err(err) => {
+            runtime_log_warn(format!(
+                "[会话选择] 读取主会话 ID 失败，按无主会话指针降级继续：error={err}"
+            ));
+            None
+        }
+    }
+}
+
+/// 读取默认助理人格 ID；失败时记 warn 并按「无默认人格」降级（空串），
+/// 由调用方 fallback 到第一个非 built-in agent，不阻断会话选择/快照路径。
+fn assistant_department_agent_id_downgraded(state: &AppState) -> String {
+    match state_service_get_assistant_department_agent_id(state) {
+        Ok(value) => value,
+        Err(err) => {
+            runtime_log_warn(format!(
+                "[会话选择] 读取默认人格 ID 失败，按无默认人格降级继续：error={err}"
+            ));
+            String::new()
+        }
+    }
+}
+
+/// 读取置顶会话 ID 列表；失败时记 warn 并按「无置顶」降级（空列表），
+/// 不阻断会话列表/摘要的展示路径。
+fn pinned_conversation_ids_downgraded(state: &AppState) -> Vec<String> {
+    match state_service_get_pinned_conversation_ids(state) {
+        Ok(value) => value,
+        Err(err) => {
+            runtime_log_warn(format!(
+                "[会话列表] 读取置顶会话列表失败，按无置顶降级继续：error={err}"
+            ));
+            Vec::new()
+        }
+    }
+}
+
+/// 修复主会话指针为系统通知会话：读取成功但缺失/为空/指向其他会话时补写；
+/// 读取失败时仅 warn 不写（避免把读取异常放大成错误状态写入）。返回是否发生修复。
+fn repair_main_conversation_marker_if_needed(state: &AppState) -> Result<bool, String> {
+    let fixed_id = SYSTEM_NOTIFICATION_CONVERSATION_ID;
+    match state_service_get_main_conversation_id(state) {
+        Ok(value) => {
+            let needs_fix = value
+                .as_deref()
+                .map(str::trim)
+                .filter(|trimmed| !trimmed.is_empty())
+                .map(|trimmed| trimmed != fixed_id)
+                .unwrap_or(true);
+            if needs_fix {
+                state_service_set_main_conversation_id(state, Some(fixed_id))?;
+                Ok(true)
+            } else {
+                Ok(false)
+            }
+        }
+        Err(err) => {
+            runtime_log_warn(format!(
+                "[会话选择] 读取主会话 ID 失败，跳过主会话指针修复：error={err}"
+            ));
+            Ok(false)
+        }
+    }
+}
+
+fn main_conversation_index(data: &AppData, state: &AppState, _agent_id: &str) -> Result<Option<usize>, String> {
+    let target_id = main_conversation_id_downgraded(state)
+        .filter(|value| !value.trim().is_empty());
+    let Some(target_id) = target_id else {
+        return Ok(None);
+    };
+    Ok(data.conversations.iter().position(|conversation| {
         conversation.id == target_id
             && conversation_is_unarchived(conversation)
             && conversation_visible_in_foreground_lists(conversation)
-    })
+    }))
 }
 
-fn normalize_main_conversation_marker(data: &mut AppData, _agent_id: &str) -> bool {
+fn normalize_main_conversation_marker(
+    data: &mut AppData,
+    state: &AppState,
+    _agent_id: &str,
+) -> Result<bool, String> {
     let fixed_id = SYSTEM_NOTIFICATION_CONVERSATION_ID;
     if let Some(idx) = data.conversations.iter().position(|conversation| {
         conversation.id.trim() == fixed_id
@@ -169,11 +242,10 @@ fn normalize_main_conversation_marker(data: &mut AppData, _agent_id: &str) -> bo
             && conversation_visible_in_foreground_lists(conversation)
     }) {
         let mut changed = normalize_system_notification_conversation(&mut data.conversations[idx]);
-        if data.main_conversation_id.as_deref().map(str::trim) != Some(fixed_id) {
-            data.main_conversation_id = Some(fixed_id.to_string());
+        if repair_main_conversation_marker_if_needed(state)? {
             changed = true;
         }
-        return changed;
+        return Ok(changed);
     }
     if let Some(idx) = data.conversations.iter().position(|conversation| {
         conversation_is_unarchived(conversation)
@@ -181,15 +253,14 @@ fn normalize_main_conversation_marker(data: &mut AppData, _agent_id: &str) -> bo
             && conversation_is_system_notification(conversation)
     }) {
         let mut changed = normalize_system_notification_conversation(&mut data.conversations[idx]);
-        if data.main_conversation_id.as_deref().map(str::trim) != Some(fixed_id) {
-            data.main_conversation_id = Some(fixed_id.to_string());
+        if repair_main_conversation_marker_if_needed(state)? {
             changed = true;
         }
-        return changed;
+        return Ok(changed);
     }
     data.conversations.push(build_system_notification_conversation_record());
-    data.main_conversation_id = Some(fixed_id.to_string());
-    true
+    state_service_set_main_conversation_id(state, Some(fixed_id))?;
+    Ok(true)
 }
 
 fn normalize_single_active_main_conversation(data: &mut AppData) -> bool {
@@ -1065,10 +1136,11 @@ fn build_system_notification_conversation_record() -> Conversation {
 #[cfg(test)]
 fn ensure_active_conversation_index(
     data: &mut AppData,
+    state: &AppState,
     api_config_id: &str,
     agent_id: &str,
 ) -> usize {
-    let _ = normalize_main_conversation_marker(data, agent_id);
+    let _ = normalize_main_conversation_marker(data, state, agent_id);
     let _ = normalize_single_active_main_conversation(data);
     if let Some(idx) = latest_active_conversation_index(data, api_config_id, agent_id) {
         return idx;
@@ -1093,14 +1165,15 @@ fn ensure_active_conversation_index(
         item.status = "active".to_string();
     }
     data.conversations.push(conversation);
-    if data
-        .main_conversation_id
+    if state_service_get_main_conversation_id(state)
+        .ok()
+        .flatten()
         .as_deref()
         .map(str::trim)
         .filter(|value| !value.is_empty())
         .is_none()
     {
-        data.main_conversation_id = Some(SYSTEM_NOTIFICATION_CONVERSATION_ID.to_string());
+        let _ = state_service_set_main_conversation_id(state, Some(SYSTEM_NOTIFICATION_CONVERSATION_ID));
     }
     data.conversations.len() - 1
 }
@@ -1108,12 +1181,13 @@ fn ensure_active_conversation_index(
 #[cfg(test)]
 fn ensure_main_conversation_index(
     data: &mut AppData,
+    state: &AppState,
     _api_config_id: &str,
     agent_id: &str,
-) -> usize {
-    let _ = normalize_main_conversation_marker(data, agent_id);
-    if let Some(idx) = main_conversation_index(data, agent_id) {
-        return idx;
+) -> Result<usize, String> {
+    let _ = normalize_main_conversation_marker(data, state, agent_id);
+    if let Some(idx) = main_conversation_index(data, state, agent_id)? {
+        return Ok(idx);
     }
     let conversation = build_system_notification_conversation_record();
     for item in &mut data.conversations {
@@ -1123,19 +1197,20 @@ fn ensure_main_conversation_index(
         item.status = "active".to_string();
     }
     data.conversations.push(conversation);
-    data.main_conversation_id = Some(SYSTEM_NOTIFICATION_CONVERSATION_ID.to_string());
-    data.conversations.len() - 1
+    let _ = state_service_set_main_conversation_id(state, Some(SYSTEM_NOTIFICATION_CONVERSATION_ID));
+    Ok(data.conversations.len() - 1)
 }
 
 fn ensure_active_foreground_conversation_index_atomic(
     data: &mut AppData,
+    state: &AppState,
     _data_path: &PathBuf,
     _api_config_id: &str,
     agent_id: &str,
-) -> usize {
-    let _ = normalize_main_conversation_marker(data, agent_id);
+) -> Result<usize, String> {
+    let _ = normalize_main_conversation_marker(data, state, agent_id)?;
     let _ = normalize_single_active_main_conversation(data);
-    if let Some(idx) = main_conversation_index(data, agent_id) {
+    if let Some(idx) = main_conversation_index(data, state, agent_id)? {
         for conversation in &mut data.conversations {
             if !conversation_visible_in_foreground_lists(conversation)
                 || conversation_is_archived(conversation)
@@ -1144,7 +1219,25 @@ fn ensure_active_foreground_conversation_index_atomic(
             }
             conversation.status = "active".to_string();
         }
-        return idx;
+        return Ok(idx);
+    }
+
+    // 主会话指针不可读或未命中时：normalize 已保证系统通知会话存在，直接复用其索引，
+    // 避免在指针读取失败时重复创建新的系统通知会话。
+    if let Some(idx) = data.conversations.iter().position(|conversation| {
+        conversation.id.trim() == SYSTEM_NOTIFICATION_CONVERSATION_ID
+            && conversation_is_unarchived(conversation)
+            && conversation_visible_in_foreground_lists(conversation)
+    }) {
+        for conversation in &mut data.conversations {
+            if !conversation_visible_in_foreground_lists(conversation)
+                || conversation_is_archived(conversation)
+            {
+                continue;
+            }
+            conversation.status = "active".to_string();
+        }
+        return Ok(idx);
     }
 
     let conversation = build_system_notification_conversation_record();
@@ -1155,25 +1248,20 @@ fn ensure_active_foreground_conversation_index_atomic(
         item.status = "active".to_string();
     }
     data.conversations.push(conversation);
-    if data
-        .main_conversation_id
-        .as_deref()
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .is_none()
-    {
-        data.main_conversation_id = Some(SYSTEM_NOTIFICATION_CONVERSATION_ID.to_string());
+    if repair_main_conversation_marker_if_needed(state)? {
+        // 主会话指针已补写为系统通知会话
     }
-    data.conversations.len() - 1
+    Ok(data.conversations.len() - 1)
 }
 
 fn active_foreground_conversation_index_read_only(
     data: &AppData,
+    state: &AppState,
     agent_id: &str,
-) -> Option<usize> {
-    main_conversation_index(data, agent_id)
+) -> Result<Option<usize>, String> {
+    Ok(main_conversation_index(data, state, agent_id)?
         .or_else(|| latest_active_conversation_index(data, "", agent_id))
-        .or_else(|| latest_main_conversation_index(data, agent_id))
+        .or_else(|| latest_main_conversation_index(data, agent_id)))
 }
 
 #[derive(Debug, Clone)]

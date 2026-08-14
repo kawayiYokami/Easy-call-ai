@@ -163,17 +163,28 @@ fn remote_im_finalize_round_completion(
     if activated_sources.is_empty() {
         return Ok(Vec::new());
     }
-    let runtime = state_read_runtime_state_cached(state)?;
+    // query-before-lock：先完成联系人查询与渠道行为配置读取，再获取运行态锁，
+    // 避免锁内执行同步 SQLite 读取（与 remote_im_finalize_async_send_result 保持一致）。
+    let mut resolved_contacts = Vec::<(RemoteImActivationSource, RemoteImContact, u64)>::new();
+    for source in activated_sources {
+        let Some(contact) = state_service_find_remote_im_contact_by_identity(
+            state,
+            &source.channel_id,
+            &source.remote_contact_type,
+            &source.remote_contact_id,
+        )?
+        else {
+            continue;
+        };
+        let patience_seconds =
+            remote_im_channel_behavior_settings_for_contact(state, &contact).patience_seconds;
+        resolved_contacts.push((source.clone(), contact, patience_seconds));
+    }
     let mut runtime_states = lock_remote_im_contact_runtime_states(state)?;
     let mut follow_up_sources = Vec::<RemoteImActivationSource>::new();
     let mut presence_timeouts = std::collections::HashMap::<String, u64>::new();
     let mut dashboard_contact_ids = std::collections::HashSet::<String>::new();
-    for source in activated_sources {
-        let Some(contact) =
-            remote_im_contact_by_activation_source_in_runtime(&runtime.remote_im_contacts, source)
-        else {
-            continue;
-        };
+    for (source, contact, patience_seconds) in resolved_contacts {
         let runtime = remote_im_contact_runtime_state_mut(&mut runtime_states, &contact.id);
         let previous_presence = runtime.presence_state;
         let previous_work = runtime.work_state;
@@ -194,11 +205,11 @@ fn remote_im_finalize_round_completion(
                 error
             ));
             remote_im_append_contact_log(
-                contact,
+                &contact,
                 "warn",
                 format!(
                     "[联系人状态] 轮次收尾失败: contact={}, decision={}, presence={} -> {}, work={} -> {}, pending={} -> {}, error={}",
-                    remote_im_contact_log_label(contact),
+                    remote_im_contact_log_label(&contact),
                     decision_label,
                     remote_im_presence_state_label(previous_presence),
                     remote_im_presence_state_label(runtime.presence_state),
@@ -215,7 +226,7 @@ fn remote_im_finalize_round_completion(
         match decision_label {
             "reply" | "send_files" | "send" | "reply_async" => {
                 let target_matched = reply_target
-                    .map(|target| remote_im_contact_matches_reply_target(source, target))
+                    .map(|target| remote_im_contact_matches_reply_target(&source, target))
                     .unwrap_or(activated_sources.len() == 1);
                 runtime.presence_state = RemoteImPresenceState::Present;
                 runtime.consecutive_no_reply_count = 0;
@@ -234,10 +245,7 @@ fn remote_im_finalize_round_completion(
                     let elapsed_seconds = parse_iso(last_success_at)
                         .map(|last| (now_utc() - last).whole_seconds().max(0) as u64)
                         .unwrap_or_default();
-                    if elapsed_seconds
-                        > remote_im_channel_behavior_settings_for_contact(state, contact)
-                            .patience_seconds
-                    {
+                    if elapsed_seconds > patience_seconds {
                         runtime.presence_state = RemoteImPresenceState::Away;
                     } else {
                         runtime.presence_state = RemoteImPresenceState::Present;
@@ -259,10 +267,7 @@ fn remote_im_finalize_round_completion(
         }
         if runtime.presence_state == RemoteImPresenceState::Present {
             runtime.last_presence_at = Some(finished_at.to_string());
-            presence_timeouts.insert(
-                contact.id.clone(),
-                remote_im_channel_behavior_settings_for_contact(state, contact).patience_seconds,
-            );
+            presence_timeouts.insert(contact.id.clone(), patience_seconds);
         }
         dashboard_contact_ids.insert(contact.id.clone());
         runtime_log_info(format!(
@@ -279,11 +284,11 @@ fn remote_im_finalize_round_completion(
             runtime.last_success_reply_at.as_deref().unwrap_or("")
         ));
         remote_im_append_contact_log(
-            contact,
+            &contact,
             "info",
             format!(
                 "[联系人状态] 轮次结束: contact={}, decision={}, presence={} -> {}, work={} -> {}, pending={} -> {}, no_reply_count={} -> {}, follow_up={}, last_success_reply_at={}",
-                remote_im_contact_log_label(contact),
+                remote_im_contact_log_label(&contact),
                 decision_label,
                 remote_im_presence_state_label(previous_presence),
                 remote_im_presence_state_label(runtime.presence_state),
@@ -315,9 +320,12 @@ fn remote_im_finalize_async_send_result(
     now: &str,
     error: Option<&str>,
 ) -> Result<(), String> {
-    let runtime = state_read_runtime_state_cached(state)?;
-    let Some(contact) =
-        remote_im_contact_by_activation_source_in_runtime(&runtime.remote_im_contacts, source)
+    let Some(contact) = state_service_find_remote_im_contact_by_identity(
+        state,
+        &source.channel_id,
+        &source.remote_contact_type,
+        &source.remote_contact_id,
+    )?
     else {
         return Ok(());
     };
@@ -363,7 +371,7 @@ fn remote_im_finalize_async_send_result(
     remote_im_schedule_presence_timeout(
         state,
         &contact.id,
-        remote_im_channel_behavior_settings_for_contact(state, contact).patience_seconds,
+        remote_im_channel_behavior_settings_for_contact(state, &contact).patience_seconds,
     )?;
     Ok(())
 }

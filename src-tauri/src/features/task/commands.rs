@@ -163,14 +163,10 @@ fn task_resolve_stored_department_agent_for_dispatch(
 
 fn task_default_department_agent_for_write(state: &AppState) -> Result<(String, String), String> {
     let runtime_snapshot = load_runtime_organization_snapshot(state)?;
-    let runtime = state_read_runtime_state_cached(state)?;
     let assistant_department_id = assistant_department(&runtime_snapshot.config)
         .map(|department| department.id.clone())
         .unwrap_or_else(|| ASSISTANT_DEPARTMENT_ID.to_string());
-    let runtime_agent_id = runtime
-        .assistant_department_agent_id
-        .trim()
-        .to_string();
+    let runtime_agent_id = state_service_get_assistant_department_agent_id(state)?;
     if !runtime_agent_id.is_empty() {
         if let Ok(pair) = task_resolve_department_agent_pair_for_write(
             state,

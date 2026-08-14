@@ -3764,8 +3764,6 @@ mod unarchived_conversations_tests {
     #[test]
     fn build_branch_conversation_record_should_copy_latest_compaction_and_selected_messages() {
         let mut data = AppData::default();
-        data.assistant_department_agent_id = "agent-a".to_string();
-        data.user_alias = "用户".to_string();
         data.agents.push(AgentProfile {
             id: "agent-a".to_string(),
             name: "助手".to_string(),
