@@ -377,8 +377,7 @@
                   </template>
                   <!-- 本地分支 -->
                   <template v-else-if="row.node.data.kind === 'branch'">
-                    <GitBranch v-if="row.node.data.branch.isCurrent" class="h-3.5 w-3.5 shrink-0" />
-                    <span v-else class="h-3.5 w-3.5 shrink-0"></span>
+                    <GitBranch class="h-3.5 w-3.5 shrink-0" :class="row.node.data.branch.isCurrent ? 'text-primary' : 'opacity-60'" />
                     <span class="min-w-0 flex-1 truncate text-xs">{{ row.node.data.branch.name }}</span>
                     <button v-if="!row.node.data.branch.isCurrent" type="button" class="btn btn-ghost btn-xs h-4 min-h-4 w-4 shrink-0 px-0 opacity-70 hover:opacity-100" :title="t('gitPanel.checkoutBranch')" :disabled="busy" @click.stop="runCheckoutBranch(row.node.data.branch.name)">
                       <ArrowRightLeft class="h-3 w-3" />

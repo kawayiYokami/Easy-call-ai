@@ -9,7 +9,7 @@
       <div
         class="flex h-7 items-center gap-1 rounded px-1.5"
         :class="[rowClass(row), row.node.rowClass]"
-        :style="row.node.interactive === false ? undefined : { paddingLeft: `${basePad + row.depth * indent}px` }"
+        :style="{ paddingLeft: `${basePad + row.depth * indent}px` }"
         :title="row.node.title"
         @click="onRowClick(row, $event)"
         @contextmenu="onRowContextMenu(row, $event)"
