@@ -426,7 +426,7 @@
         @contextmenu.prevent
       >
         <div class="border-b border-base-300 bg-base-200/50 px-3 py-2">
-          <div class="max-h-40 overflow-y-auto whitespace-pre-wrap break-words text-xs font-medium">{{ commitCard.entry.message }}</div>
+          <div class="git-panel-scroller max-h-40 overflow-y-auto whitespace-pre-wrap break-words text-xs font-medium">{{ commitCard.entry.message }}</div>
         </div>
         <div class="px-3 py-2 text-xs opacity-70">
           <div>{{ commitCard.entry.author }}</div>
@@ -1656,6 +1656,8 @@ onBeforeUnmount(() => {
 <style scoped>
 .git-panel-scroller {
   scrollbar-width: thin;
+  /* 抵消全局 overflow 容器的 both-edges gutter，避免左右留白 */
+  scrollbar-gutter: auto;
 }
 
 .git-panel-graph {
