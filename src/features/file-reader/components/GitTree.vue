@@ -5,9 +5,9 @@
       :key="row.key"
       class="group"
     >
-      <!-- 统一行容器：高度 / 悬停高亮 / 圆角 / 缩进 / 点击语义全在此，使用方只填内容 -->
+      <!-- 统一行容器：高度 / 字号 / 悬停高亮 / 圆角 / 缩进 / 点击语义全在此，使用方只填内容 -->
       <div
-        class="flex h-7 items-center gap-1 rounded px-1.5"
+        class="flex h-7 items-center gap-1 rounded px-1.5 text-xs"
         :class="[rowClass(row), row.node.rowClass]"
         :style="{ paddingLeft: `${basePad + row.depth * indent}px` }"
         :title="row.node.title"

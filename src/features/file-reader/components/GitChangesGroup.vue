@@ -24,7 +24,7 @@
         </button>
         <button
           type="button"
-          class="flex min-w-0 flex-1 items-center gap-1 truncate text-left text-xs font-medium opacity-70"
+          class="flex min-w-0 flex-1 items-center gap-1 truncate text-left font-medium opacity-70"
           @click.stop="toggle"
         >
           {{ title }}
@@ -58,7 +58,7 @@
         </button>
         <button
           type="button"
-          class="flex min-w-0 flex-1 items-center gap-1.5 rounded px-1 py-0.5 text-left text-xs font-medium"
+          class="flex min-w-0 flex-1 items-center gap-1.5 rounded px-1 py-0.5 text-left font-medium"
           :title="row.node.data.path"
           @click.stop="toggle"
         >
@@ -92,7 +92,7 @@
         <span v-if="mode === 'tree'" class="h-5 w-5 shrink-0"></span>
         <button
           type="button"
-          class="flex min-w-0 items-center gap-1.5 text-left text-xs"
+          class="flex min-w-0 items-center gap-1.5 text-left"
           :class="mode === 'tree' ? 'flex-1' : 'max-w-[60%]'"
           :title="row.node.data.path"
         >
