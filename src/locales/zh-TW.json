@@ -2646,7 +2646,7 @@
     "newBranchPlaceholder": "新分支名稱…",
     "localBranches": "本機分支",
     "remoteBranches": "遠端分支",
-    "remotes": "遠端",
+    "remotes": "遠端倉庫",
     "checkoutBranch": "切換",
     "checkoutConfirm": "確定切換到分支 {name}？",
     "checkoutBlocked": "無法切換到分支 {name}：以下檔案有未提交變更，且目標分支也修改了它們，直接切換會遺失改動。\n{paths}\n\n建議讓 AI 協助處理：例如先把這些變更提交或儲存起來，再切換分支。",
