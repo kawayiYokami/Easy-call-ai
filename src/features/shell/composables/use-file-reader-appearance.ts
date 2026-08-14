@@ -2,7 +2,7 @@ import { ref } from "vue";
 import { emitTransportEvent, onTransportNotification } from "../../../services/tauri-api";
 
 const FILE_READER_LINE_WRAP_STORAGE_KEY = "easy-call.file-reader.line-wrap.v1";
-export const FILE_READER_LINE_WRAP_DEFAULT = true;
+export const FILE_READER_LINE_WRAP_DEFAULT = false;
 
 type FileReaderAppearancePayload = {
   lineWrapEnabled?: unknown;
@@ -18,7 +18,8 @@ export function normalizeFileReaderLineWrap(value: unknown): boolean {
 
 function readStoredLineWrapEnabled(): boolean {
   if (typeof window === "undefined") return FILE_READER_LINE_WRAP_DEFAULT;
-  return window.localStorage.getItem(FILE_READER_LINE_WRAP_STORAGE_KEY) !== "0";
+  const stored = window.localStorage.getItem(FILE_READER_LINE_WRAP_STORAGE_KEY);
+  return stored === null ? FILE_READER_LINE_WRAP_DEFAULT : stored === "1";
 }
 
 function persistLineWrapEnabled(enabled: boolean) {

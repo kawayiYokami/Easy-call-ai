@@ -6,7 +6,7 @@ import {
 } from "./use-file-reader-appearance";
 
 describe("use-file-reader-appearance", () => {
-  it("代码预览换行默认开启", () => {
+  it("代码预览换行默认关闭", () => {
     const appearance = useFileReaderAppearance();
 
     expect(appearance.fileReaderLineWrapEnabled.value).toBe(FILE_READER_LINE_WRAP_DEFAULT);
@@ -22,9 +22,10 @@ describe("use-file-reader-appearance", () => {
     expect(appearance.fileReaderLineWrapEnabled.value).toBe(true);
   });
 
-  it("无效的外部同步值回退为默认开启", () => {
-    expect(normalizeFileReaderLineWrap(undefined)).toBe(true);
-    expect(normalizeFileReaderLineWrap("false")).toBe(true);
+  it("无效的外部同步值回退为默认关闭", () => {
+    expect(normalizeFileReaderLineWrap(undefined)).toBe(false);
+    expect(normalizeFileReaderLineWrap("false")).toBe(false);
     expect(normalizeFileReaderLineWrap(false)).toBe(false);
+    expect(normalizeFileReaderLineWrap(true)).toBe(true);
   });
 });

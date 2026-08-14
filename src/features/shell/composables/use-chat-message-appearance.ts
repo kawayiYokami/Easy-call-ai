@@ -13,8 +13,8 @@ type ChatMessageAppearancePayload = {
   chatTimeDisplayMode?: ChatTimeDisplayMode;
 };
 
-const assistantBubbleBackgroundEnabled = ref(readBooleanPreference(CHAT_BUBBLE_BACKGROUND_STORAGE_KEY));
-const segmentedMarkdownEnabled = ref(readBooleanPreference(CHAT_SEGMENTED_MARKDOWN_STORAGE_KEY));
+const assistantBubbleBackgroundEnabled = ref(readBooleanPreferenceDefault(CHAT_BUBBLE_BACKGROUND_STORAGE_KEY, true));
+const segmentedMarkdownEnabled = ref(readBooleanPreferenceDefault(CHAT_SEGMENTED_MARKDOWN_STORAGE_KEY, true));
 const chatTimeDisplayMode = ref<ChatTimeDisplayMode>(readChatTimeDisplayModePreference());
 let initialized = false;
 let eventUnlisten: (() => void) | null = null;
@@ -22,6 +22,13 @@ let eventUnlisten: (() => void) | null = null;
 function readBooleanPreference(storageKey: string): boolean {
   if (typeof window === "undefined") return false;
   return window.localStorage.getItem(storageKey) === "1";
+}
+
+/** 读布尔偏好：无存储记录时返回默认值（区别于显式存 "0"） */
+function readBooleanPreferenceDefault(storageKey: string, defaultValue: boolean): boolean {
+  if (typeof window === "undefined") return defaultValue;
+  const stored = window.localStorage.getItem(storageKey);
+  return stored === null ? defaultValue : stored === "1";
 }
 
 function persistBooleanPreference(storageKey: string, enabled: boolean) {
@@ -52,8 +59,8 @@ function applyPayload(payload: ChatMessageAppearancePayload | undefined) {
 }
 
 function restoreFromStorage() {
-  assistantBubbleBackgroundEnabled.value = readBooleanPreference(CHAT_BUBBLE_BACKGROUND_STORAGE_KEY);
-  segmentedMarkdownEnabled.value = readBooleanPreference(CHAT_SEGMENTED_MARKDOWN_STORAGE_KEY);
+  assistantBubbleBackgroundEnabled.value = readBooleanPreferenceDefault(CHAT_BUBBLE_BACKGROUND_STORAGE_KEY, true);
+  segmentedMarkdownEnabled.value = readBooleanPreferenceDefault(CHAT_SEGMENTED_MARKDOWN_STORAGE_KEY, true);
   chatTimeDisplayMode.value = readChatTimeDisplayModePreference();
 }
 
