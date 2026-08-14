@@ -416,9 +416,10 @@
         </div>
       </div>
 
-      <!-- commit 右键详情卡 -->
+      <!-- commit 右键预览卡 -->
       <div
         v-if="commitCard.entry"
+        ref="commitCardRef"
         class="fixed z-50 w-72 overflow-hidden rounded-lg border border-base-300 bg-base-100 shadow-xl"
         :style="{ left: `${commitCard.x}px`, top: `${commitCard.y}px` }"
         @click.stop
@@ -436,8 +437,24 @@
             <Copy class="h-3 w-3" />
             {{ commitCard.entry.shortHash }}
           </button>
-          <button type="button" class="btn btn-ghost btn-xs h-6 min-h-6" @click="copyCommitMessage">
+          <button type="button" class="btn btn-ghost btn-xs h-6 min-h-6 gap-1" @click="copyCommitMessage">
+            <Copy class="h-3 w-3" />
             {{ t('gitPanel.copyMessage') }}
+          </button>
+        </div>
+        <div class="flex flex-col gap-1 border-t border-base-300 px-2 py-2">
+          <button type="button" class="btn btn-ghost btn-xs h-6 min-h-6 justify-start gap-1.5 px-2" @click="createBranchFromCommit">
+            <GitBranch class="h-3 w-3" />
+            <span class="truncate">{{ t('gitPanel.createBranchFromCommit') }}</span>
+          </button>
+          <button
+            v-if="isLatestCommit"
+            type="button"
+            class="btn btn-ghost btn-xs h-6 min-h-6 justify-start gap-1.5 px-2"
+            @click="resetSoftCommit"
+          >
+            <Undo2 class="h-3 w-3" />
+            <span class="truncate">{{ t('gitPanel.resetSoftCommit') }}</span>
           </button>
         </div>
       </div>
@@ -466,6 +483,7 @@ import {
   Rows3,
   SquareTerminal,
   Trash2,
+  Undo2,
   Upload,
 } from "@lucide/vue";
 import { useI18n } from "vue-i18n";
@@ -482,6 +500,7 @@ import {
   gitPanelPull,
   gitPanelPush,
   gitPanelRemoteList,
+  gitPanelResetSoft,
   gitPanelStage,
   gitPanelStashCreate,
   gitPanelStashDrop,
@@ -819,6 +838,13 @@ watch([changesCollapsed, activeGitTab, historyCollapsed], () => ensureVisibleDat
   immediate: true,
 });
 
+// 收起下栏时提交视图卸载，关闭预览卡
+watch(historyCollapsed, (collapsed) => {
+  if (collapsed) {
+    closeCommitCard();
+  }
+});
+
 // 仓库列表：单次探查（向上探测 + 向下扫描 + 默认仓库推荐），后端一次返回；
 // force=true 强制重扫（绕过缓存）
 async function loadDiscover(force = false) {
@@ -1072,6 +1098,7 @@ function selectGitTab(key: string) {
   activeGitTab.value = key;
   persistGitTab();
   branchPickerOpen.value = false;
+  closeCommitCard();
 }
 
 // 分支下拉展开时才加载分支/远程数据（提交页底部的分支按钮也能用）
@@ -1289,19 +1316,34 @@ async function runCheckoutBranch(name: string) {
   }
 }
 
-// ==================== commit 右键卡 ====================
+// ==================== commit 右键预览卡 ====================
 const commitCard = ref<{ entry: GitPanelLogEntry | null; x: number; y: number }>({ entry: null, x: 0, y: 0 });
+const commitCardRef = ref<HTMLElement | null>(null);
 
 function openCommitCard(entry: GitPanelLogEntry, event: MouseEvent) {
   const cardWidth = 288; // w-72
   const x = Math.min(event.clientX, window.innerWidth - cardWidth - 8);
-  const y = Math.min(event.clientY, window.innerHeight - 200);
-  commitCard.value = { entry, x: Math.max(8, x), y: Math.max(8, y) };
+  commitCard.value = { entry, x: Math.max(8, x), y: Math.max(8, event.clientY) };
+  // 卡片渲染后按实际高度校正：底部超出视口则上移，避免溢出屏幕
+  void nextTick(() => {
+    const el = commitCardRef.value;
+    if (!el) return;
+    const maxY = window.innerHeight - el.offsetHeight - 8;
+    if (commitCard.value.y > maxY) {
+      commitCard.value = { ...commitCard.value, y: Math.max(8, maxY) };
+    }
+  });
 }
 
 function closeCommitCard() {
   commitCard.value = { entry: null, x: 0, y: 0 };
 }
+
+/** 当前预览卡是否是最新提交（soft 撤销仅对 HEAD 生效） */
+const isLatestCommit = computed(() => {
+  const entry = commitCard.value.entry;
+  return !!entry && logEntries.value[0]?.hash === entry.hash;
+});
 
 async function copyCommitHash() {
   const hash = commitCard.value.entry?.hash || "";
@@ -1322,6 +1364,49 @@ async function copyCommitMessage() {
     closeCommitCard();
   } catch {
     appendOutput("copy message", null, new Error("复制提交消息失败"));
+  }
+}
+
+/** 基于该提交新建分支：弹窗输入分支名后创建 */
+async function createBranchFromCommit() {
+  const entry = commitCard.value.entry;
+  closeCommitCard();
+  if (!entry || busy.value) return;
+  const name = window.prompt(t("gitPanel.createBranchPrompt"), "");
+  if (!name?.trim()) return;
+  busy.value = true;
+  try {
+    const result = await gitPanelBranchCreate(repoRoot.value, name.trim(), entry.hash);
+    appendOutput(`branch ${name} ${entry.shortHash}`, result);
+    if (result.exitCode === 0) showSuccessToast(t("gitPanel.branchCreated"));
+    await loadBranches(true);
+  } catch (error) {
+    appendOutput(`branch ${name}`, null, error);
+  } finally {
+    busy.value = false;
+  }
+}
+
+/** 撤销最近一次提交（soft，保留改动）：已推送时拒绝并提示 */
+async function resetSoftCommit() {
+  closeCommitCard();
+  if (busy.value) return;
+  busy.value = true;
+  try {
+    const result = await gitPanelResetSoft(repoRoot.value);
+    appendOutput("reset --soft HEAD~1", result);
+    if (result.exitCode === 0) {
+      showSuccessToast(t("gitPanel.resetSoftSuccess"));
+      await loadHistory(true);
+      await loadStatus(true);
+    }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    const pushed = message.includes("已经在远端");
+    if (pushed) showErrorToast(t("gitPanel.resetSoftPushed"));
+    else appendOutput("reset --soft HEAD~1", null, error);
+  } finally {
+    busy.value = false;
   }
 }
 
@@ -1377,7 +1462,7 @@ function onCommitRowClick(row: GitTreeFlatRow<CommitNode>) {
   }
 }
 
-/** 提交行右键：父行打开提交右键卡 */
+/** 提交行右键：父行打开提交右键预览卡 */
 function onCommitContextMenu(row: GitTreeFlatRow<CommitNode>, event: MouseEvent) {
   if (row.node.data.kind === "commit") {
     openCommitCard(row.node.data.entry, event);

@@ -1493,6 +1493,7 @@ fn main() {
             git_panel_branch_delete,
             git_panel_checkout,
             git_panel_checkout_check,
+            git_panel_reset_soft,
             git_panel_remote_list,
             git_panel_fetch,
             git_panel_pull,

@@ -154,4 +154,23 @@ export function installNativeSelectionGuard() {
   document.addEventListener("click", clearBeforeInteractiveAction, true);
   document.addEventListener("keydown", clearBeforeKeyboardAction, true);
   win[INSTALL_KEY] = true;
+  // 桌面应用右键菜单统一走应用自绘，屏蔽浏览器原生菜单
+  installNativeContextMenuGuard();
+}
+
+const CONTEXT_MENU_GUARD_KEY = "__easyCallNativeContextMenuGuardInstalled";
+
+/** 全局屏蔽浏览器原生右键菜单：桌面应用右键行为统一交给应用自绘菜单，避免原生菜单与自定义菜单叠加。 */
+export function installNativeContextMenuGuard() {
+  if (typeof window === "undefined" || typeof document === "undefined") return;
+  const win = window as GuardedWindow & { [CONTEXT_MENU_GUARD_KEY]?: boolean };
+  if (win[CONTEXT_MENU_GUARD_KEY]) return;
+  document.addEventListener(
+    "contextmenu",
+    (event) => {
+      event.preventDefault();
+    },
+    true,
+  );
+  win[CONTEXT_MENU_GUARD_KEY] = true;
 }

@@ -701,6 +701,35 @@ async fn git_panel_checkout(input: GitPanelCheckoutInput) -> Result<GitPanelRunO
     git_executor().run_write(&repo_root, &["checkout", &reference]).await
 }
 
+/// 撤销最近一次提交（soft）：HEAD 回退一位，改动保留在暂存区。
+/// 已推送校验：当前分支有 upstream 且 HEAD 已是 upstream 祖先（远端历史包含该提交）时拒绝执行，
+/// 否则软退回会导致本地与远端分叉、必须强推才能同步。
+#[tauri::command]
+async fn git_panel_reset_soft(input: GitPanelWorkspaceInput) -> Result<GitPanelRunOutput, String> {
+    let workspace_path = git_panel_validate_path(&input.workspace_path)?;
+    let repo_root = git_panel_resolve_root(&workspace_path).await?;
+
+    // 1. 当前分支是否有 upstream：rev-parse @{u} 失败即无 upstream（未推送过的分支直接允许）
+    let upstream = git_executor()
+        .run_read(&repo_root, &["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"])
+        .await
+        .ok()
+        .map(|text| text.trim().to_string())
+        .filter(|text| !text.is_empty());
+    if let Some(upstream) = upstream {
+        // 2. HEAD 是否已是 upstream 历史的一部分：is-ancestor 成功 = 已推送
+        let is_ancestor = git_executor()
+            .run_read(&repo_root, &["merge-base", "--is-ancestor", "HEAD", &upstream])
+            .await
+            .is_ok();
+        if is_ancestor {
+            return Err("已经在远端，无法软退回".to_string());
+        }
+    }
+
+    git_executor().run_write(&repo_root, &["reset", "--soft", "HEAD~1"]).await
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct GitPanelCheckoutCheckOutput {

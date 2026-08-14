@@ -2666,7 +2666,13 @@
     "repoBar": "倉庫",
     "currentRepo": "在此倉庫",
     "noRepos": "未發現其他倉庫",
-    "selectRepoHint": "從上方選擇要檢視的倉庫"
+    "selectRepoHint": "從上方選擇要檢視的倉庫",
+    "createBranchFromCommit": "基於此提交新建分支",
+    "createBranchPrompt": "輸入新分支名稱（基於此提交）",
+    "branchCreated": "已建立分支",
+    "resetSoftCommit": "撤銷最近一次提交",
+    "resetSoftSuccess": "已撤銷最近一次提交，變更保留在暫存區",
+    "resetSoftPushed": "已經在遠端，無法軟回退"
   },
   "simpleSetup": {
     "providerName": "簡單供應商",

@@ -296,7 +296,7 @@ function discardSelected(paths: string[]) {
 // ==================== 右键菜单 ====================
 const contextMenu = ref<{ visible: boolean; x: number; y: number }>({ visible: false, x: 0, y: 0 });
 
-/** GitTree 行右键转发：树状模式打开折叠菜单；列表模式不拦截，走浏览器默认菜单 */
+/** GitTree 行右键转发：树状模式打开折叠菜单；原生右键菜单已由全局 contextmenu guard 屏蔽 */
 function onTreeContextMenu(_row: GitTreeFlatRow<GitTreeItem>, event: MouseEvent) {
   if (props.mode !== "tree") return;
   event.preventDefault();

@@ -2982,6 +2982,12 @@ export async function gitPanelCheckoutCheck(workspacePath: string, reference: st
   });
 }
 
+export async function gitPanelResetSoft(workspacePath: string): Promise<GitPanelRunOutput> {
+  return invokeTauri<GitPanelRunOutput>("git_panel_reset_soft", {
+    input: { workspacePath: gitPanelRequiredWorkspace(workspacePath) },
+  });
+}
+
 export async function gitPanelRemoteList(workspacePath: string): Promise<GitPanelRemoteEntry[]> {
   return invokeTauri<GitPanelRemoteEntry[]>("git_panel_remote_list", gitPanelWorkspaceArgs(gitPanelRequiredWorkspace(workspacePath)));
 }
