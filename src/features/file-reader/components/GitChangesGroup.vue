@@ -62,7 +62,11 @@
           :title="row.node.data.path"
           @click.stop="toggle"
         >
-          <Folder class="h-4 w-4 shrink-0 opacity-70" />
+          <img
+            :src="resolveFileTreeIcon(row.node.data.path, true, expanded)"
+            alt=""
+            class="h-4 w-4 shrink-0 object-contain opacity-80"
+          />
           <span class="min-w-0 truncate">{{ row.node.data.name }}</span>
         </button>
         <span class="hidden shrink-0 items-center gap-0.5 group-hover:flex focus-within:flex">
@@ -90,6 +94,11 @@
       <!-- 文件行内容 -->
       <template v-else>
         <span v-if="mode === 'tree'" class="h-5 w-5 shrink-0"></span>
+        <img
+          :src="resolveFileTreeIcon(row.node.data.path, false)"
+          alt=""
+          class="h-4 w-4 shrink-0 object-contain opacity-80"
+        />
         <button
           type="button"
           class="flex min-w-0 items-center gap-1.5 text-left"
@@ -160,8 +169,9 @@
 
 <script setup lang="ts">
 import { computed, ref } from "vue";
-import { ChevronDown, ChevronRight, Folder, Minus, Plus, Undo2 } from "@lucide/vue";
+import { ChevronDown, ChevronRight, Minus, Plus, Undo2 } from "@lucide/vue";
 import type { GitPanelStatusEntry } from "../../../services/tauri-api";
+import { resolveFileTreeIcon } from "../file-tree-icons";
 import GitTree, { type GitTreeExpose, type GitTreeFlatRow, type GitTreeNode } from "./GitTree.vue";
 
 const props = withDefaults(defineProps<{
