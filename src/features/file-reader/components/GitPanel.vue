@@ -191,37 +191,29 @@
               <span class="max-w-28 truncate">{{ currentBranch || t('gitPanel.detachedHead') }}</span>
               <ChevronUp class="h-3 w-3 shrink-0 opacity-50" :class="{ 'rotate-180': !branchPickerOpen }" />
             </button>
-            <!-- 分支切换下拉（absolute 相对折叠条） -->
+            <!-- 分支切换下拉（absolute 相对折叠条）：分组头为树根 + 分支子节点 -->
             <div v-if="branchPickerOpen" class="absolute left-0 right-0 top-full z-20 max-h-64 overflow-y-auto border border-base-300 bg-base-100 p-1 shadow-lg">
               <div v-if="branchPickerLoading" class="px-2 py-2 text-xs opacity-50">{{ t('gitPanel.loading') }}</div>
-              <template v-else>
-                <div v-if="localBranches.length > 0" class="px-2 pb-0.5 pt-1 text-[11px] font-medium opacity-50">{{ t('gitPanel.localBranches') }}</div>
-                <button
-                  v-for="branch in localBranches"
-                  :key="branch.name"
-                  type="button"
-                  class="flex w-full items-center gap-1.5 rounded px-2 py-1 text-left text-xs hover:bg-base-300/40"
-                  :class="{ 'bg-primary/10 text-primary': branch.isCurrent }"
-                  :disabled="busy || branch.isCurrent"
-                  @click="runCheckoutBranch(branch.name)"
-                >
-                  <GitBranch class="h-3 w-3 shrink-0 opacity-60" />
-                  <span class="min-w-0 flex-1 truncate">{{ branch.name }}</span>
-                  <span v-if="branch.isCurrent" class="shrink-0 opacity-50">{{ t('gitPanel.current') }}</span>
-                </button>
-                <div v-if="remoteBranches.length > 0" class="px-2 pb-0.5 pt-2 text-[11px] font-medium opacity-50">{{ t('gitPanel.remoteBranches') }}</div>
-                <button
-                  v-for="branch in remoteBranches"
-                  :key="branch.name"
-                  type="button"
-                  class="flex w-full items-center gap-1.5 rounded px-2 py-1 text-left text-xs hover:bg-base-300/40"
-                  :disabled="busy"
-                  @click="runCheckoutBranch(branch.name)"
-                >
-                  <Cloud class="h-3 w-3 shrink-0 opacity-60" />
-                  <span class="min-w-0 flex-1 truncate">{{ branch.name }}</span>
-                </button>
-              </template>
+              <GitTree v-else :nodes="branchPickerTreeNodes" default-expanded @row-click="onBranchPickerRowClick">
+                <template #row="{ row, expanded }">
+                  <!-- 分组头（树根：本地分支/远程分支） -->
+                  <template v-if="row.node.data.kind === 'header'">
+                    <ChevronRight class="h-3 w-3 shrink-0 opacity-50" :class="{ 'rotate-90': expanded }" />
+                    <span class="font-medium opacity-60">{{ row.node.data.text }}</span>
+                  </template>
+                  <!-- 本地分支 -->
+                  <template v-else-if="row.node.data.kind === 'branch'">
+                    <GitBranch class="h-3.5 w-3.5 shrink-0" :class="row.node.data.branch.isCurrent ? 'text-primary' : 'opacity-60'" />
+                    <span class="min-w-0 flex-1 truncate">{{ row.node.data.branch.name }}</span>
+                    <span v-if="row.node.data.branch.isCurrent" class="shrink-0 opacity-50">{{ t('gitPanel.current') }}</span>
+                  </template>
+                  <!-- 远程分支 -->
+                  <template v-else-if="row.node.data.kind === 'remote-branch'">
+                    <Cloud class="h-3 w-3 shrink-0 opacity-60" />
+                    <span class="min-w-0 flex-1 truncate">{{ row.node.data.branch.name }}</span>
+                  </template>
+                </template>
+              </GitTree>
             </div>
             <button v-if="activeGitTab === 'commits'" class="btn btn-ghost btn-xs h-6 min-h-6 w-6 px-0" type="button" :title="t('gitPanel.refresh')" :disabled="busy" @click="refreshHistory">
               <RefreshCw class="h-3.5 w-3.5" :class="{ 'animate-spin': busy }" />
@@ -724,6 +716,42 @@ function onBranchRowClick(row: GitTreeFlatRow<BranchRow>) {
   const data = row.node.data;
   if (data.kind === "branch" || data.kind === "remote-branch") {
     selectBranch(data.branch.name);
+  }
+}
+
+/** 分支切换下拉树：分组头为树根，分支为子节点（点击分支直接切换） */
+const branchPickerTreeNodes = computed<GitTreeNode<BranchRow>[]>(() => {
+  const roots: GitTreeNode<BranchRow>[] = [];
+  if (localBranches.value.length > 0) {
+    roots.push({
+      key: "picker:local",
+      data: { kind: "header", key: "picker:local", text: t("gitPanel.localBranches"), grouped: false },
+      children: localBranches.value.map((branch) => ({
+        key: `picker:local:${branch.name}`,
+        data: { kind: "branch", key: `picker:local:${branch.name}`, branch },
+        rowClass: branch.isCurrent ? "bg-primary/10 text-primary" : undefined,
+      })),
+    });
+  }
+  if (remoteBranches.value.length > 0) {
+    roots.push({
+      key: "picker:remote",
+      data: { kind: "header", key: "picker:remote", text: t("gitPanel.remoteBranches"), grouped: true },
+      children: remoteBranches.value.map((branch) => ({
+        key: `picker:remote:${branch.name}`,
+        data: { kind: "remote-branch", key: `picker:remote:${branch.name}`, branch },
+      })),
+    });
+  }
+  return roots;
+});
+
+/** 分支切换下拉行点击：切换分支（当前分支忽略） */
+function onBranchPickerRowClick(row: GitTreeFlatRow<BranchRow>) {
+  const data = row.node.data;
+  if (data.kind === "branch" && data.branch.isCurrent) return;
+  if (data.kind === "branch" || data.kind === "remote-branch") {
+    void runCheckoutBranch(data.branch.name);
   }
 }
 const branchHasMore = computed(() => branchRows.value.length > branchVisibleCount.value);
