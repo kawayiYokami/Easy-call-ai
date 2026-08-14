@@ -16,7 +16,7 @@ export function useChatWindowLifecycleSetup(bindings: Record<string, any>) {
       },
       recordHotkeyMount: bindings.recordHotkey.mount,
       recordHotkeyUnmount: bindings.recordHotkey.unmount,
-      beforeRefreshData: bindings.ensureMessageStoreMigrationGate,
+      prepareInitialData: bindings.ensureMessageStoreMigrationGate,
       refreshAllViewData: bindings.refreshAllViewData,
       afterRefreshData: () => {
         bindings.startupDataReady.value = true;
@@ -32,20 +32,13 @@ export function useChatWindowLifecycleSetup(bindings: Record<string, any>) {
       stopRecording: bindings.stopRecording,
       cleanupSpeechRecording: bindings.cleanupSpeechRecording,
       cleanupChatMedia: bindings.cleanupChatMedia,
-      onStartupOverlayChange: (visible, message) => {
-        bindings.startupOverlayVisible.value = visible;
-        bindings.startupOverlayMessage.value = message || "正在启动应用...";
-      },
-      onStartupProgressChange: ({ title, detail, current, total }) => {
-        bindings.startupOverlayMessage.value = title || "正在启动应用...";
-        bindings.startupOverlayDetail.value = detail || "请稍候...";
-        bindings.startupOverlayProgressCurrent.value = Math.max(0, Number(current || 0));
-        bindings.startupOverlayProgressTotal.value = Math.max(1, Number(total || 1));
+      onBackendReadyChange: (ready) => {
+        bindings.startupOverlayVisible.value = !ready;
       },
       onStartupStepFailed: (label, error) => {
         bindings.setStatus(`启动步骤失败：${label}：${bindings.formatRequestFailed(error)}`);
       },
-      afterSafetyGateReady: () => {
+      afterInitialDataReady: () => {
         // 不阻塞启动遮罩：通知后端启动后台服务即可，预热在后台完成
         void invokeTauri<boolean>("remoteIm.services.start")
           .then((started) => {

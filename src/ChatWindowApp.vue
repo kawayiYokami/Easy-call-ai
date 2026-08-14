@@ -444,28 +444,7 @@
       @open-dir="openChatWorkspaceDir"
       @save="saveChatWorkspacePicker"
     />
-    <div
-      v-if="startupOverlayVisible"
-      class="fixed inset-0 z-9998 flex items-center justify-center bg-base-300/90 p-6 backdrop-blur"
-    >
-      <div class="min-w-72 max-w-sm rounded-box border border-base-content/10 bg-base-100 px-5 py-4 shadow-2xl">
-        <div class="flex items-center gap-3">
-          <span class="loading loading-spinner loading-md text-primary"></span>
-          <div class="min-w-0 flex-1">
-            <div class="font-medium">{{ startupOverlayMessage }}</div>
-            <div class="mt-1 text-xs opacity-70">{{ startupOverlayDetail }}</div>
-          </div>
-          <div class="shrink-0 text-xs opacity-50">
-            {{ Math.min(startupOverlayProgressCurrent, startupOverlayProgressTotal) }}/{{ startupOverlayProgressTotal }}
-          </div>
-        </div>
-        <progress
-          class="progress progress-primary mt-3 w-full"
-          :value="Math.min(startupOverlayProgressCurrent, startupOverlayProgressTotal)"
-          :max="Math.max(startupOverlayProgressTotal, 1)"
-        />
-      </div>
-    </div>
+    <StartupOverlay v-if="startupOverlayVisible" />
     <div
       v-if="messageStoreMigration.visible"
       class="fixed inset-0 z-9999 flex items-center justify-center bg-base-300/90 p-6 backdrop-blur"
@@ -514,6 +493,7 @@ import ChatWorkspacePickerDialog from "./features/chat/components/dialogs/ChatWo
 import AppWindowContent from "./features/shell/components/AppWindowContent.vue";
 import AppWindowHeader from "./features/shell/components/AppWindowHeader.vue";
 import ShellDialogsHost from "./features/shell/components/ShellDialogsHost.vue";
+import StartupOverlay from "./features/shell/components/StartupOverlay.vue";
 import { useChatWindowApp } from "./features/chat/composables/use-chat-window-app";
 import { onTransportRemoteChatCommand } from "./services/tauri-api";
 
@@ -536,6 +516,7 @@ export default defineComponent({
     AppWindowContent,
     AppWindowHeader,
     ShellDialogsHost,
+    StartupOverlay,
   },
   setup() {
     const app = useChatWindowApp();

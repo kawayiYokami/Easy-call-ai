@@ -19,21 +19,6 @@ export function useChatWindowLifecycleOrchestrator(bindings: Record<string, any>
     resetVisibleTurnCount: () => {},
     perfNow: bindings.perfNow,
     perfLog: bindings.perfLog,
-    onRefreshStepChange: (label, current, total) => {
-      const stepTextMap: Record<string, string> = {
-        loadBootstrapSnapshot: "正在恢复启动快照...",
-        loadConfig: "正在读取应用配置...",
-        loadPersonas: "正在加载角色与身份...",
-        loadChatSettings: "正在读取聊天设置...",
-        refreshConversationHistory: "正在加载当前会话消息...",
-        loadDelegateConversations: "正在加载待办与侧边会话...",
-        loadArchives: "正在加载归档数据...",
-      };
-      bindings.startupOverlayMessage.value = "加载数据中...";
-      bindings.startupOverlayDetail.value = stepTextMap[label] || `正在执行：${label}`;
-      bindings.startupOverlayProgressCurrent.value = 4 + current;
-      bindings.startupOverlayProgressTotal.value = 7;
-    },
     onRefreshStepSlow: (label, error) => {
       bindings.setStatus(`启动数据加载较慢：${label}：${formatI18nError(bindings.tr, "status.requestFailed", error)}`);
     },
@@ -174,10 +159,6 @@ export function useChatWindowLifecycleOrchestrator(bindings: Record<string, any>
     cleanupSpeechRecording: bindings.cleanupSpeechRecording,
     cleanupChatMedia: bindings.cleanupChatMedia,
     startupOverlayVisible: bindings.startupOverlayVisible,
-    startupOverlayMessage: bindings.startupOverlayMessage,
-    startupOverlayDetail: bindings.startupOverlayDetail,
-    startupOverlayProgressCurrent: bindings.startupOverlayProgressCurrent,
-    startupOverlayProgressTotal: bindings.startupOverlayProgressTotal,
     setStatus: bindings.setStatus,
     formatRequestFailed: (error: unknown) => formatI18nError(bindings.tr, "status.requestFailed", error),
     refreshGithubUpdateState: bindings.refreshGithubUpdateState,

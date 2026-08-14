@@ -107,11 +107,7 @@ export function useChatWindowState(options: UseChatWindowStateOptions) {
   const loading = ref(false);
   const saving = ref(false);
   const startupDataReady = ref(false);
-  const startupOverlayVisible = ref(false);
-  const startupOverlayMessage = ref("正在启动应用...");
-  const startupOverlayDetail = ref("正在建立启动连接...");
-  const startupOverlayProgressCurrent = ref(0);
-  const startupOverlayProgressTotal = ref(1);
+  const startupOverlayVisible = ref(true);
   const chatting = ref(false);
   const trimming = ref(false);
   const compactingConversation = ref(false);
@@ -184,10 +180,6 @@ export function useChatWindowState(options: UseChatWindowStateOptions) {
     saving,
     startupDataReady,
     startupOverlayVisible,
-    startupOverlayMessage,
-    startupOverlayDetail,
-    startupOverlayProgressCurrent,
-    startupOverlayProgressTotal,
     chatting,
     trimming,
     compactingConversation,

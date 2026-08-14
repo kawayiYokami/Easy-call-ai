@@ -154,6 +154,8 @@
       </div>
     </div>
 
+    <StartupOverlay v-if="startupOverlayVisible" />
+
     <Win10ResizeHandles :enabled="!maximized" />
   </div>
 </template>
@@ -167,6 +169,7 @@ import { normalizeLocale } from "./i18n";
 import AppWindowHeader from "./features/shell/components/AppWindowHeader.vue";
 import ArchivesView from "./features/archive/views/ArchivesView.vue";
 import ShellDialogsHost from "./features/shell/components/ShellDialogsHost.vue";
+import StartupOverlay from "./features/shell/components/StartupOverlay.vue";
 import Win10ResizeHandles from "./features/shell/components/Win10ResizeHandles.vue";
 import { useWindowShell } from "./features/shell/composables/use-window-shell";
 import { useAppTheme } from "./features/shell/composables/use-app-theme";
@@ -185,6 +188,7 @@ const tr = (key: string, params?: Record<string, unknown>) => t(key, params as n
 
 const viewMode = ref<"chat" | "archives" | "config">("archives");
 const status = ref("");
+const startupOverlayVisible = ref(true);
 const config = reactive<AppConfig>({
   hotkey: "Alt+·",
   uiLanguage: "zh-CN",
@@ -411,13 +415,16 @@ useAppLifecycle({
   onDrop: (event) => { event.preventDefault(); },
   recordHotkeyMount: () => undefined,
   recordHotkeyUnmount: () => undefined,
-  beforeRefreshData: ensureMessageStoreMigrationGate,
+  prepareInitialData: ensureMessageStoreMigrationGate,
   refreshAllViewData: refreshArchivesWindowData,
   viewMode,
   syncWindowControlsState,
   stopRecording: async () => undefined,
   cleanupSpeechRecording: () => undefined,
   cleanupChatMedia: async () => undefined,
+  onBackendReadyChange: (ready) => {
+    startupOverlayVisible.value = !ready;
+  },
 });
 
 watch(

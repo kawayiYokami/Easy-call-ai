@@ -420,16 +420,15 @@ async fn refresh_conversation_meta_after_migration(state: AppState) {
 async fn run_deferred_setup(app_handle: AppHandle) {
     let app_state = app_handle.state::<AppState>();
 
-    let emit_progress = |step: &str| {
-        let _ = app_handle.emit("easy-call:startup-progress", step);
+    let log_step = |step: &str| {
         runtime_log_info(format!("[启动-延迟] 开始: {step}"));
     };
 
-    emit_progress("注册快捷键");
+    log_step("注册快捷键");
     if let Err(err) = register_default_hotkey(&app_handle) {
         runtime_log_error(format!("[启动-延迟] 注册默认快捷键失败: {err}"));
     }
-    emit_progress("启动持久化服务");
+    log_step("启动持久化服务");
     if let Err(err) = start_app_data_persist_worker(app_state.inner()) {
         runtime_log_error(format!("[启动-延迟] 启动后台持久化服务失败: {err}"));
     }
@@ -474,7 +473,7 @@ async fn run_deferred_setup(app_handle: AppHandle) {
         if wayland_only {
             runtime_log_info("[启动-延迟] Wayland 会话不支持按键监听，跳过录音热键探针".to_string());
         } else {
-            emit_progress("启动录音热键探针");
+            log_step("启动录音热键探针");
             if let Err(err) = start_record_hotkey_probe(
                 app_handle.clone(),
                 app_state.config_path.clone(),
@@ -483,7 +482,7 @@ async fn run_deferred_setup(app_handle: AppHandle) {
             }
         }
     }
-    emit_progress("配置自检");
+    log_step("配置自检");
     match state_read_config_cached(app_state.inner()) {
         Ok(mut config) => {
             if run_startup_self_checks(&mut config) {
@@ -498,7 +497,7 @@ async fn run_deferred_setup(app_handle: AppHandle) {
             runtime_log_error(format!("[启动自检] 读取配置失败: {err}"));
         }
     }
-    emit_progress("初始化记忆存储");
+    log_step("初始化记忆存储");
     if let Err(err) = memory_store_open(&app_state.data_path) {
         runtime_log_error(format!("[启动-延迟] 初始化记忆存储失败: {err}"));
     }
@@ -538,11 +537,11 @@ async fn run_deferred_setup(app_handle: AppHandle) {
             }
         }
     });
-    emit_progress("初始化任务存储");
+    log_step("初始化任务存储");
     if let Err(err) = task_store_open(&app_state.data_path) {
         runtime_log_error(format!("[启动-延迟] 初始化任务存储失败: {err}"));
     }
-    emit_progress("初始化委托存储");
+    log_step("初始化委托存储");
     if let Err(err) = delegate_store_open(&app_state.data_path) {
         runtime_log_error(format!("[启动-延迟] 初始化委托存储失败：{err}"));
     } else {
@@ -571,7 +570,6 @@ async fn run_deferred_setup(app_handle: AppHandle) {
     if should_enable_devtools() {
         runtime_log_warn(format!("[启动-延迟] 检测到 devtools 开关已开启，但当前构建未启用 open_devtools API，跳过打开 devtools"));
     }
-    let _ = app_handle.emit("easy-call:startup-progress", "done");
     runtime_log_info(format!("[启动-延迟] 阶段 2 初始化完成"));
 }
 
@@ -1172,8 +1170,7 @@ fn main() {
                 .state::<AppState>()
                 .backend_ready
                 .store(true, std::sync::atomic::Ordering::Release);
-            let _ = app_handle.emit("easy-call:backend-ready", ());
-            runtime_log_info(format!("[启动] 后端就绪信号已发出（阶段 1 完成）"));
+            runtime_log_info(format!("[启动] 后端已就绪（阶段 1 完成）"));
 
             start_github_auto_update_worker(app_handle.clone());
 
