@@ -899,6 +899,11 @@ function switchRepo(path: string) {
   historyLoaded.value = false;
   stashesLoaded.value = false;
   branchesLoaded.value = false;
+  // 重置加载冷却时间戳：否则新仓库的首次加载会被 1 秒冷却拦截，面板下方无数据
+  lastStatusLoad.value = 0;
+  lastHistoryLoad.value = 0;
+  lastStashesLoad.value = 0;
+  lastBranchesLoad.value = 0;
   ensureVisibleData();
 }
 
