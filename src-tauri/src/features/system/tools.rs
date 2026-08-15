@@ -5,6 +5,7 @@ include!("tools/ui_automation.rs");
 include!("tools/operate_parser.rs");
 include!("tools/operate_actions.rs");
 include!("tools/operate_runner.rs");
+include!("tools/windows_tool.rs");
 include!("tools/screenshot_mcp.rs");
 include!("tools/macos_tcc.rs");
 include!("tools/terminal.rs");

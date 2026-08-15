@@ -122,6 +122,29 @@ fn runtime_tool_names_for_log(tool_assembly: &RuntimeToolAssembly) -> Option<Val
     ))
 }
 
+fn windows_provider_tool_definition() -> ProviderToolDefinition {
+    ProviderToolDefinition::new(
+        WINDOWS_TOOL_NAME,
+        "窗口管理工具。入参只有 script:string，一行一个动作。\n可用语法：\nlist windows\nactivate window id=<windowId>\n参数说明：id 支持十进制或 0x 前缀十六进制（与控件树返回的 windowId 一致）。\n规则：list windows 返回全部可见顶层窗口（含当前应用自身，标题/进程ID/位置/最小化/聚焦状态，windowId 是窗口句柄）；activate window 会把目标窗口还原并切换到前台（激活失败时 ok=false 并在 summary 说明），切换后可配合 operate 的 screenshot focused_window 截取该窗口。非 Windows 平台不支持，返回空列表或失败。",
+        serde_json::json!({
+            "type": "object",
+            "properties": {
+                "script": {
+                    "type": "string",
+                    "description": "窗口管理脚本文本，一行一个动作。"
+                },
+                "timeout_ms": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "default": 60000,
+                    "description": "本次窗口管理工具调用的超时时间，单位毫秒；未指定时默认 60000ms。"
+                }
+            },
+            "required": ["script"]
+        }),
+    )
+}
+
 fn operate_provider_tool_definition() -> ProviderToolDefinition {
     ProviderToolDefinition::new(
         OPERATE_TOOL_NAME,
@@ -263,6 +286,7 @@ fn build_global_tool_schema_cache(state: &AppState) -> Vec<CachedRuntimeToolSche
         }
         .provider_tool_definition(),
         operate_provider_tool_definition(),
+        windows_provider_tool_definition(),
         read_provider_tool_definition(),
         read_media_provider_tool_definition(),
         BuiltinTerminalExecTool {
@@ -1016,6 +1040,9 @@ fn build_builtin_runtime_tool_executor(
             model_supports_image: selected_api.enable_image,
             session_id: tool_session_id.to_string(),
         }),
+        "windows" => Box::new(BuiltinWindowsTool {
+            app_state: state.clone(),
+        }),
         "read" => Box::new(BuiltinReadFileTool {
             app_state: state.clone(),
             session_id: tool_session_id.to_string(),
@@ -1177,12 +1204,18 @@ fn notify_desktop_operation_started(state: &AppState, script: &str) {
 }
 
 const OPERATE_TOOL_NAME: &str = "operate";
+const WINDOWS_TOOL_NAME: &str = "windows";
 
 #[derive(Debug, Clone)]
 struct BuiltinOperateTool {
     app_state: AppState,
     model_supports_image: bool,
     session_id: String,
+}
+
+#[derive(Debug, Clone)]
+struct BuiltinWindowsTool {
+    app_state: AppState,
 }
 
 #[derive(Debug, Clone)]
@@ -1256,6 +1289,44 @@ impl RuntimeValueTool for BuiltinOperateTool {
             }
             result
         })
+    }
+}
+
+impl RuntimeToolMetadata for BuiltinWindowsTool {
+    fn provider_tool_definition(&self) -> ProviderToolDefinition {
+        windows_provider_tool_definition()
+    }
+}
+
+impl RuntimeValueTool for BuiltinWindowsTool {
+    const NAME: &'static str = WINDOWS_TOOL_NAME;
+    type Args = WindowsRequest;
+    type Error = ToolInvokeError;
+
+    fn timeout_override(_args_json: &str) -> Option<std::time::Duration> {
+        Some(std::time::Duration::from_secs(60))
+    }
+
+    fn call_typed(&self, args: Self::Args) -> RuntimeToolValueFuture<'_, Self::Error> {
+        let args_value = serde_json::to_value(&args).unwrap_or(Value::Null);
+        runtime_log_debug(format!(
+            "[工具调试] 内置工具执行开始 name=windows args={}",
+            debug_value_snippet(&args_value, 240)
+        ));
+        let result = run_windows_tool(args)
+            .map_err(|err| ToolInvokeError::from(err.message))
+            .and_then(|output| {
+                serde_json::to_value(output)
+                    .map_err(|err| ToolInvokeError::from(format!("Serialize windows output failed: {err}")))
+            });
+        match &result {
+            Ok(v) => runtime_log_debug(format!(
+                "[工具调试] 内置工具执行完成 name=windows result={}",
+                debug_value_snippet(v, 240)
+            )),
+            Err(err) => runtime_log_error(format!("[工具执行] 内置工具 windows 执行失败: 错误={err}")),
+        }
+        Box::pin(async move { result })
     }
 }
 
