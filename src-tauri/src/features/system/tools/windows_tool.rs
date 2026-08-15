@@ -93,7 +93,12 @@ fn parse_windows_script(script: &str) -> DesktopToolResult<Vec<WindowsAction>> {
                     return Err(windows_invalid(format!("第 {line_no} 行：activate 后必须是 window，当前为 `{}`", tokens.join(" "))));
                 }
                 let id_raw = tokens[2..].join(" ");
-                let id = parse_window_id(&id_raw)
+                // 兼容 `id=xxx` 与裸 `xxx` 两种写法（描述以 id= 形式给出）
+                let id_raw = id_raw
+                    .strip_prefix("id=")
+                    .or_else(|| id_raw.strip_prefix("ID="))
+                    .unwrap_or(&id_raw);
+                let id = parse_window_id(id_raw)
                     .ok_or_else(|| windows_invalid(format!("第 {line_no} 行：activate 缺少合法 id，当前为 `{id_raw}`")))?;
                 WindowsAction::ActivateWindow { line: line_no, window_id: id }
             }
@@ -301,6 +306,15 @@ mod windows_tool_tests {
         assert_eq!(actions.len(), 2);
         assert!(matches!(actions[0], WindowsAction::ListWindows { .. }));
         assert!(matches!(actions[1], WindowsAction::ActivateWindow { window_id: 0x1234, .. }));
+    }
+
+    #[test]
+    fn parse_script_should_accept_id_equals_form() {
+        // 描述以 id= 形式给出，也兼容裸 id
+        let actions = parse_windows_script("activate window id=7541586\nactivate window 7541586\n").unwrap();
+        assert_eq!(actions.len(), 2);
+        assert!(matches!(actions[0], WindowsAction::ActivateWindow { window_id: 7541586, .. }));
+        assert!(matches!(actions[1], WindowsAction::ActivateWindow { window_id: 7541586, .. }));
     }
 
     /// 真实桌面冒烟测试：枚举窗口 + 激活前台窗口验证。默认忽略，手动 `--ignored` 跑。
