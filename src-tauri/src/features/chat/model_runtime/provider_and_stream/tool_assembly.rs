@@ -230,6 +230,17 @@ fn operate_tool_timeout_override(args_json: &str) -> std::time::Duration {
     std::time::Duration::from_millis(timeout_ms)
 }
 
+const WINDOWS_TOOL_DEFAULT_TIMEOUT_MS: u64 = 60_000;
+
+fn windows_tool_timeout_override(args_json: &str) -> std::time::Duration {
+    let timeout_ms = parse_runtime_tool_args::<WindowsRequest>(args_json)
+        .ok()
+        .and_then(|args| args.timeout_ms)
+        .unwrap_or(WINDOWS_TOOL_DEFAULT_TIMEOUT_MS)
+        .max(1);
+    std::time::Duration::from_millis(timeout_ms)
+}
+
 fn read_media_tool_timeout_override(args_json: &str) -> std::time::Duration {
     let media_type = parse_runtime_tool_args::<ReadMediaToolArgs>(args_json)
         .ok()
@@ -1303,8 +1314,8 @@ impl RuntimeValueTool for BuiltinWindowsTool {
     type Args = WindowsRequest;
     type Error = ToolInvokeError;
 
-    fn timeout_override(_args_json: &str) -> Option<std::time::Duration> {
-        Some(std::time::Duration::from_secs(60))
+    fn timeout_override(args_json: &str) -> Option<std::time::Duration> {
+        Some(windows_tool_timeout_override(args_json))
     }
 
     fn call_typed(&self, args: Self::Args) -> RuntimeToolValueFuture<'_, Self::Error> {

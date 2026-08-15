@@ -46,7 +46,7 @@ enum WindowsStepKind {
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct WindowInfo {
-    window_id: u32,
+    window_id: usize,
     title: String,
     process_id: u32,
     x: i32,
@@ -60,7 +60,7 @@ struct WindowInfo {
 #[derive(Debug, Clone)]
 enum WindowsAction {
     ListWindows { line: usize },
-    ActivateWindow { line: usize, window_id: u32 },
+    ActivateWindow { line: usize, window_id: usize },
 }
 
 fn windows_invalid(message: impl Into<String>) -> DesktopToolError {
@@ -110,12 +110,12 @@ fn parse_windows_script(script: &str) -> DesktopToolResult<Vec<WindowsAction>> {
 }
 
 /// 解析窗口 id：支持十进制数字（windowId）或 0x 前缀十六进制。
-fn parse_window_id(raw: &str) -> Option<u32> {
+fn parse_window_id(raw: &str) -> Option<usize> {
     let raw = raw.trim();
     if let Some(hex) = raw.strip_prefix("0x").or_else(|| raw.strip_prefix("0X")) {
-        u32::from_str_radix(hex, 16).ok()
+        usize::from_str_radix(hex, 16).ok()
     } else {
-        raw.parse::<u32>().ok()
+        raw.parse::<usize>().ok()
     }
 }
 
@@ -184,16 +184,13 @@ fn list_all_windows() -> Vec<WindowInfo> {
             Ok(g) => g,
             Err(_) => return 1,
         };
-        // 只枚举顶层可见窗口；跳过工具窗口（WS_EX_TOOLWINDOW）和无标题的不可见窗口
+        // 只枚举顶层可见窗口；跳过工具窗口（WS_EX_TOOLWINDOW），保留无标题窗口（真实存在）
         if unsafe { IsWindow(hwnd) != 0 } && unsafe { IsWindowVisible(hwnd) != 0 } {
             let ex_style = unsafe { GetWindowLongPtrW(hwnd, GWL_EXSTYLE) } as u32;
             if ex_style & WS_EX_TOOLWINDOW != 0 {
                 return 1;
             }
             let title = read_window_title(hwnd);
-            if title.trim().is_empty() {
-                return 1;
-            }
             let mut pid = 0u32;
             unsafe {
                 GetWindowThreadProcessId(hwnd, &mut pid);
@@ -205,7 +202,7 @@ fn list_all_windows() -> Vec<WindowInfo> {
             let minimized = unsafe { IsIconic(hwnd) != 0 };
             let fg = unsafe { GetForegroundWindow() };
             guard.windows.push(WindowInfo {
-                window_id: hwnd as u32,
+                window_id: hwnd as usize,
                 title,
                 process_id: pid,
                 x: rect.left,
@@ -247,7 +244,7 @@ fn read_window_title(hwnd: windows_sys::Win32::Foundation::HWND) -> String {
 /// 激活窗口：还原最小化 → 绕前台锁 → SetForegroundWindow + BringWindowToTop → 轮询验证。
 /// 返回 (窗口标题, 是否激活成功)。
 #[cfg(target_os = "windows")]
-fn activate_window(window_id: u32) -> (String, bool) {
+fn activate_window(window_id: usize) -> (String, bool) {
     use windows_sys::Win32::UI::Input::KeyboardAndMouse::{keybd_event, KEYEVENTF_KEYUP, VK_MENU};
     use windows_sys::Win32::UI::WindowsAndMessaging::{
         BringWindowToTop, GetForegroundWindow, IsIconic, SetForegroundWindow, ShowWindow, SW_RESTORE,
@@ -283,7 +280,7 @@ fn activate_window(window_id: u32) -> (String, bool) {
 }
 
 #[cfg(not(target_os = "windows"))]
-fn activate_window(_window_id: u32) -> (String, bool) {
+fn activate_window(_window_id: usize) -> (String, bool) {
     (String::new(), false)
 }
 
