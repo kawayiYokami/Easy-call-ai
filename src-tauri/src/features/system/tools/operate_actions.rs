@@ -323,7 +323,8 @@ async fn execute_screenshot_action(
     quality: f32,
     screenshots_root: &std::path::Path,
     include_base64: bool,
-) -> DesktopToolResult<(ScreenshotResponse, String)> {
+    elements: bool,
+) -> DesktopToolResult<(ScreenshotResponse, String, Option<Vec<UiElementInfo>>)> {
     let save_path = save_path.or_else(|| Some(default_operate_screenshot_path(screenshots_root)));
     let request = ScreenshotRequest {
         mode: match mode {
@@ -352,12 +353,117 @@ async fn execute_screenshot_action(
         ScreenshotModeSpec::Region(_) => "region",
     }
     .to_string();
-    Ok((result, mode_name))
+
+    // elements=true：扫描可交互元素树（当前 Windows 实现；其他平台返回空并在 summary 提示）。
+    // UIA 遍历是同步阻塞调用（数百 ms），放到阻塞线程池执行，避免占用 Tokio 工作线程。
+    let tree = if elements {
+        let mode_for_scan = mode.clone();
+        Some(
+            tokio::task::spawn_blocking(move || collect_ui_tree_for_mode(&mode_for_scan))
+                .await
+                .unwrap_or_default(),
+        )
+    } else {
+        None
+    };
+
+    Ok((result, mode_name, tree))
+}
+
+/// 元素矩形与归一化 region 矩形是否有交集（region 为相对主屏 0~1 归一化）。
+fn element_intersects_region(e: &UiElementInfo, rx0: f64, ry0: f64, rx1: f64, ry1: f64) -> bool {
+    let (ex0, ey0) = (e.x, e.y);
+    let (ex1, ey1) = (e.x + e.width, e.y + e.height);
+    ex0 < rx1 && ex1 > rx0 && ey0 < ry1 && ey1 > ry0
+}
+
+/// 按截图模式扫描可交互元素树：focused_window 只扫聚焦窗口，desktop 扫全部可见窗口，
+/// region 只返回与截图区域相交窗口的元素（元素矩形与 region 有交集才保留）。
+fn collect_ui_tree_for_mode(mode: &ScreenshotModeSpec) -> Vec<UiElementInfo> {
+    let bounds = match primary_monitor_bounds() {
+        Ok(b) => b,
+        Err(_) => return Vec::new(),
+    };
+    let origin_x = bounds.x as f64;
+    let origin_y = bounds.y as f64;
+    let primary_width = bounds.width as f64;
+    let primary_height = bounds.height as f64;
+
+    let windows = match window_list() {
+        Ok(w) => w,
+        Err(_) => return Vec::new(),
+    };
+    // region 归一化矩形（相对主屏），用于窗口级与元素级过滤
+    let region_rect = match mode {
+        ScreenshotModeSpec::Region(region) => Some((
+            region.x,
+            region.y,
+            region.x + region.width,
+            region.y + region.height,
+        )),
+        _ => None,
+    };
+    let targets: Vec<(usize, String)> = match mode {
+        ScreenshotModeSpec::FocusedWindow => windows
+            .iter()
+            .filter(|w| w.is_focused().unwrap_or(false))
+            .map(|w| (w.id().unwrap_or(0) as usize, w.title().unwrap_or_default()))
+            .collect(),
+        ScreenshotModeSpec::Desktop => windows
+            .iter()
+            .map(|w| (w.id().unwrap_or(0) as usize, w.title().unwrap_or_default()))
+            .collect(),
+        ScreenshotModeSpec::Region(_) => windows
+            .iter()
+            // 窗口级过滤：窗口矩形与 region 有交集才扫，减少无用窗口的 UIA 遍历
+            .filter(|w| {
+                let Some((rx0, ry0, rx1, ry1)) = region_rect else { return false };
+                let (wx0, wy0) = ((w.x().unwrap_or(0) - bounds.x) as f64 / primary_width, (w.y().unwrap_or(0) - bounds.y) as f64 / primary_height);
+                let (wx1, wy1) = (
+                    (w.x().unwrap_or(0) + w.width().unwrap_or(0) as i32 - bounds.x) as f64 / primary_width,
+                    (w.y().unwrap_or(0) + w.height().unwrap_or(0) as i32 - bounds.y) as f64 / primary_height,
+                );
+                wx0 < rx1 && wx1 > rx0 && wy0 < ry1 && wy1 > ry0
+            })
+            .map(|w| (w.id().unwrap_or(0) as usize, w.title().unwrap_or_default()))
+            .collect(),
+    };
+    let mut elements = collect_ui_tree_for_windows(&targets, origin_x, origin_y, primary_width, primary_height);
+    if let Some((rx0, ry0, rx1, ry1)) = region_rect {
+        // 元素级过滤：元素矩形与 region 有交集才保留（region 截图区域之外的元素不返回）
+        elements.retain(|e| element_intersects_region(e, rx0, ry0, rx1, ry1));
+    }
+    elements
 }
 
 #[cfg(test)]
 mod operate_actions_tests {
     use super::*;
+
+    #[test]
+    fn region_tree_should_filter_out_of_region_elements() {
+        // region = @0.16,0.04,0.36,0.9（归一化矩形 x:0.16~0.52, y:0.04~0.94）
+        let region = ScreenshotModeSpec::Region(NormalizedRegion { x: 0.16, y: 0.04, width: 0.36, height: 0.9 });
+        let all = vec![
+            // region 内
+            UiElementInfo { window_id: 1, window_title: "in".into(), control_type: "Button".into(), name: "in".into(), x: 0.3, y: 0.5, width: 0.05, height: 0.05 },
+            // 完全在 region 外（任务栏 y=0.958 场景）
+            UiElementInfo { window_id: 2, window_title: "taskbar".into(), control_type: "Button".into(), name: "taskbar".into(), x: 0.3, y: 0.958, width: 0.05, height: 0.03 },
+            // x 越界（Chrome 场景，y 高达 4.x）
+            UiElementInfo { window_id: 3, window_title: "chrome".into(), control_type: "Button".into(), name: "chrome".into(), x: 0.3, y: 4.2, width: 0.05, height: 0.05 },
+            // 部分相交：矩形左边缘在 region 内，右边缘超出
+            UiElementInfo { window_id: 4, window_title: "partial".into(), control_type: "Edit".into(), name: "partial".into(), x: 0.4, y: 0.5, width: 0.3, height: 0.05 },
+            // 负坐标（PAI 窗口主屏外元素）
+            UiElementInfo { window_id: 5, window_title: "neg".into(), control_type: "Button".into(), name: "neg".into(), x: -0.2, y: 0.5, width: 0.05, height: 0.05 },
+        ];
+        let kept: Vec<&UiElementInfo> = all
+            .iter()
+            .filter(|e| element_intersects_region(e, 0.16, 0.04, 0.52, 0.94))
+            .collect();
+        let names: Vec<&str> = kept.iter().map(|e| e.name.as_str()).collect();
+        assert_eq!(names, vec!["in", "partial"]);
+        let _ = region;
+    }
 
     #[test]
     fn parse_key_should_keep_named_key_as_named() {

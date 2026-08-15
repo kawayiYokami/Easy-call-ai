@@ -303,11 +303,33 @@ fn resolve_window_by_id(windows: &[xcap::Window], window_id: u32) -> Option<xcap
         .cloned()
 }
 
-fn resolve_focused_window(windows: &[xcap::Window]) -> Option<xcap::Window> {
+fn resolve_focused_window(windows: &[xcap::Window]) -> DesktopToolResult<xcap::Window> {
+    // 前台窗口若属于 PAI 自身（xcap 枚举会过滤当前进程窗口，直接找不到），给出明确提示而非模糊的 not found。
+    // 这样模型知道要先切换到目标应用再重试。
+    #[cfg(target_os = "windows")]
+    unsafe {
+        let fg = windows_sys::Win32::UI::WindowsAndMessaging::GetForegroundWindow();
+        if !fg.is_null() {
+            let mut pid = 0u32;
+            windows_sys::Win32::UI::WindowsAndMessaging::GetWindowThreadProcessId(fg, &mut pid);
+            if pid == std::process::id() {
+                return Err(DesktopToolError {
+                    code: DesktopToolErrorCode::TargetNotFound,
+                    message: "当前前台窗口是 PAI 自身，请先切换到目标应用窗口后再重试 focused_window".to_string(),
+                    details: None,
+                });
+            }
+        }
+    }
     windows
         .iter()
         .find(|w| w.is_focused().unwrap_or(false))
         .cloned()
+        .ok_or_else(|| DesktopToolError {
+            code: DesktopToolErrorCode::TargetNotFound,
+            message: "focused window not found".to_string(),
+            details: None,
+        })
 }
 
 fn capture_window_once_xcap(window_id: Option<u32>) -> DesktopToolResult<(Vec<u8>, u32, u32, ScreenBounds, u64)> {
@@ -326,11 +348,7 @@ fn capture_window_once_xcap(window_id: Option<u32>) -> DesktopToolResult<(Vec<u8
             details: None,
         })?
     } else {
-        resolve_focused_window(&windows).ok_or_else(|| DesktopToolError {
-            code: DesktopToolErrorCode::TargetNotFound,
-            message: "focused window not found".to_string(),
-            details: None,
-        })?
+        resolve_focused_window(&windows)?
     };
 
     let x = window.x().unwrap_or(0);

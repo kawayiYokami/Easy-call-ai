@@ -62,6 +62,8 @@ struct LatestScreenshotInfo {
     height: u32,
     #[serde(skip_serializing_if = "Option::is_none")]
     saved_path: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    tree: Option<Vec<UiElementInfo>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -120,7 +122,7 @@ enum DesktopScriptAction {
     Key { line: usize, keys: Vec<String>, repeat: u32, delay: std::time::Duration, pre_delay: std::time::Duration, press: std::time::Duration },
     Text { line: usize, text: String, repeat: u32, delay: std::time::Duration, pre_delay: std::time::Duration },
     Wait { line: usize, duration: std::time::Duration },
-    Screenshot { line: usize, mode: ScreenshotModeSpec, save_path: Option<String>, quality: f32 },
+    Screenshot { line: usize, mode: ScreenshotModeSpec, save_path: Option<String>, quality: f32, elements: bool },
 }
 
 fn operate_invalid(message: impl Into<String>) -> DesktopToolError {
@@ -358,7 +360,7 @@ fn parse_screenshot_line(line_no: usize, tokens: &[String]) -> DesktopToolResult
             other => return Err(operate_line_error(line_no, "screenshot", format!("非法参数 `{other}`"))),
         }
     }
-    let params = parse_named_params(line_no, "screenshot", &named_tokens, &["region", "save", "quality"])?;
+    let params = parse_named_params(line_no, "screenshot", &named_tokens, &["region", "save", "quality", "elements"])?;
     if let Some(raw) = params.get("region") {
         if !matches!(mode, ScreenshotModeSpec::Desktop) {
             return Err(operate_line_error(line_no, "screenshot", "非法：focused_window 与 region 不能同时出现".to_string()));
@@ -373,7 +375,14 @@ fn parse_screenshot_line(line_no: usize, tokens: &[String]) -> DesktopToolResult
         }
         Ok(parsed)
     }).transpose()?.unwrap_or(75.0);
-    Ok(DesktopScriptAction::Screenshot { line: line_no, mode, save_path, quality })
+    let elements = params.get("elements").map(|v| {
+        match v.to_ascii_lowercase().as_str() {
+            "true" | "1" => Ok(true),
+            "false" | "0" => Ok(false),
+            _ => Err(operate_line_error(line_no, "screenshot", format!("elements 非法：必须是 true 或 false，当前为 `{v}`"))),
+        }
+    }).transpose()?.unwrap_or(false);
+    Ok(DesktopScriptAction::Screenshot { line: line_no, mode, save_path, quality, elements })
 }
 
 fn parse_script_line(line_no: usize, raw_line: &str) -> DesktopToolResult<Option<DesktopScriptAction>> {
