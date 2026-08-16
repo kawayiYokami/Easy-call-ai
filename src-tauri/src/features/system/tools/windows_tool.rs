@@ -7,6 +7,10 @@
 // 语法（一行一个动作，与 operate 同风格）：
 //   list windows
 //   activate window id=<windowId 或 0x 前缀十六进制>
+//
+// 平台实现见 platform/ 模块（windows: EnumWindows + UIA；linux: xcap + xcb + atspi；macos: 占位）。
+
+use crate::platform::WindowInfo;
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, rmcp::schemars::JsonSchema)]
 #[schemars(description = "窗口管理脚本请求。只接收一个 script 字段；script 必须是多行字符串，一行一个动作。")]
@@ -41,20 +45,6 @@ struct WindowsStepResult {
 enum WindowsStepKind {
     ListWindows,
     ActivateWindow,
-}
-
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct WindowInfo {
-    window_id: usize,
-    title: String,
-    process_id: u32,
-    x: i32,
-    y: i32,
-    width: i32,
-    height: i32,
-    minimized: bool,
-    focused: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -125,7 +115,7 @@ fn run_windows_tool(input: WindowsRequest) -> DesktopToolResult<WindowsResponse>
     for action in actions {
         match action {
             WindowsAction::ListWindows { line } => {
-                let windows = list_all_windows();
+                let windows = platform::list_all_windows();
                 let step = WindowsStepResult {
                     kind: WindowsStepKind::ListWindows,
                     summary: format!("windows listed, count={}", windows.len()),
@@ -139,7 +129,7 @@ fn run_windows_tool(input: WindowsRequest) -> DesktopToolResult<WindowsResponse>
                 steps.push(step);
             }
             WindowsAction::ActivateWindow { line, window_id } => {
-                let (title, activated) = activate_window(window_id);
+                let (title, activated) = platform::activate_window(window_id);
                 let step = WindowsStepResult {
                     kind: WindowsStepKind::ActivateWindow,
                     summary: format!("activate window id={window_id} title={title:?} activated={activated}"),
@@ -159,129 +149,6 @@ fn run_windows_tool(input: WindowsRequest) -> DesktopToolResult<WindowsResponse>
         executed_count: steps.len(),
         steps,
     })
-}
-
-/// 全量枚举顶层可见窗口（含当前进程窗口；xcap 的 window_list 会过滤当前进程窗口，这里不用它）。
-/// 返回按 z-order 排序（EnumWindows 顺序）的窗口信息列表。
-#[cfg(target_os = "windows")]
-fn list_all_windows() -> Vec<WindowInfo> {
-    use windows_sys::Win32::Foundation::{HWND, LPARAM, RECT};
-    use windows_sys::Win32::UI::WindowsAndMessaging::{
-        GetForegroundWindow, GetWindowLongPtrW, GetWindowRect, GetWindowThreadProcessId,
-        IsIconic, IsWindow, IsWindowVisible, EnumWindows, GWL_EXSTYLE, WS_EX_TOOLWINDOW,
-    };
-    use std::sync::Mutex;
-
-    struct EnumCtx {
-        windows: Vec<WindowInfo>,
-    }
-    let ctx = Mutex::new(EnumCtx { windows: Vec::new() });
-    let ctx_ptr = &ctx as *const Mutex<EnumCtx> as isize;
-
-    unsafe extern "system" fn enum_proc(hwnd: HWND, lparam: LPARAM) -> windows_sys::core::BOOL {
-        let ctx = unsafe { &*(lparam as *const Mutex<EnumCtx>) };
-        let mut guard = match ctx.lock() {
-            Ok(g) => g,
-            Err(_) => return 1,
-        };
-        // 只枚举顶层可见窗口；跳过工具窗口（WS_EX_TOOLWINDOW），保留无标题窗口（真实存在）
-        if unsafe { IsWindow(hwnd) != 0 } && unsafe { IsWindowVisible(hwnd) != 0 } {
-            let ex_style = unsafe { GetWindowLongPtrW(hwnd, GWL_EXSTYLE) } as u32;
-            if ex_style & WS_EX_TOOLWINDOW != 0 {
-                return 1;
-            }
-            let title = read_window_title(hwnd);
-            let mut pid = 0u32;
-            unsafe {
-                GetWindowThreadProcessId(hwnd, &mut pid);
-            }
-            let mut rect = RECT { left: 0, top: 0, right: 0, bottom: 0 };
-            unsafe {
-                GetWindowRect(hwnd, &mut rect);
-            }
-            let minimized = unsafe { IsIconic(hwnd) != 0 };
-            let fg = unsafe { GetForegroundWindow() };
-            guard.windows.push(WindowInfo {
-                window_id: hwnd as usize,
-                title,
-                process_id: pid,
-                x: rect.left,
-                y: rect.top,
-                width: rect.right - rect.left,
-                height: rect.bottom - rect.top,
-                minimized,
-                focused: fg == hwnd,
-            });
-        }
-        1
-    }
-
-    unsafe {
-        EnumWindows(Some(enum_proc), ctx_ptr as isize);
-    }
-    match ctx.into_inner() {
-        Ok(inner) => inner.windows,
-        Err(_) => Vec::new(),
-    }
-}
-
-#[cfg(not(target_os = "windows"))]
-fn list_all_windows() -> Vec<WindowInfo> {
-    Vec::new()
-}
-
-#[cfg(target_os = "windows")]
-fn read_window_title(hwnd: windows_sys::Win32::Foundation::HWND) -> String {
-    use windows_sys::Win32::UI::WindowsAndMessaging::GetWindowTextW;
-    let mut buf = [0u16; 512];
-    let len = unsafe { GetWindowTextW(hwnd, buf.as_mut_ptr(), buf.len() as i32) };
-    if len <= 0 {
-        return String::new();
-    }
-    String::from_utf16_lossy(&buf[..len as usize])
-}
-
-/// 激活窗口：还原最小化 → 绕前台锁 → SetForegroundWindow + BringWindowToTop → 轮询验证。
-/// 返回 (窗口标题, 是否激活成功)。
-#[cfg(target_os = "windows")]
-fn activate_window(window_id: usize) -> (String, bool) {
-    use windows_sys::Win32::UI::Input::KeyboardAndMouse::{keybd_event, KEYEVENTF_KEYUP, VK_MENU};
-    use windows_sys::Win32::UI::WindowsAndMessaging::{
-        BringWindowToTop, GetForegroundWindow, IsIconic, SetForegroundWindow, ShowWindow, SW_RESTORE,
-    };
-    let hwnd = window_id as *mut core::ffi::c_void;
-    if hwnd.is_null() {
-        return (String::new(), false);
-    }
-    let title = read_window_title(hwnd);
-    unsafe {
-        // 最小化则先还原
-        if IsIconic(hwnd) != 0 {
-            ShowWindow(hwnd, SW_RESTORE);
-            std::thread::sleep(std::time::Duration::from_millis(100));
-        }
-        // Alt 键技巧：模拟一次按键让系统认为有用户输入，解除前台锁定（等价于 AttachThreadInput 的绕锁效果）
-        keybd_event(VK_MENU as u8, 0, 0, 0);
-        keybd_event(VK_MENU as u8, 0, KEYEVENTF_KEYUP, 0);
-        let _ = SetForegroundWindow(hwnd);
-        let _ = BringWindowToTop(hwnd);
-        // 轮询验证（最多 1.5s）
-        let deadline = std::time::Instant::now() + std::time::Duration::from_millis(1500);
-        let mut activated = false;
-        while std::time::Instant::now() < deadline {
-            if GetForegroundWindow() == hwnd {
-                activated = true;
-                break;
-            }
-            std::thread::sleep(std::time::Duration::from_millis(50));
-        }
-        (title, activated)
-    }
-}
-
-#[cfg(not(target_os = "windows"))]
-fn activate_window(_window_id: usize) -> (String, bool) {
-    (String::new(), false)
 }
 
 #[cfg(test)]
@@ -312,25 +179,6 @@ mod windows_tool_tests {
         assert_eq!(actions.len(), 2);
         assert!(matches!(actions[0], WindowsAction::ActivateWindow { window_id: 7541586, .. }));
         assert!(matches!(actions[1], WindowsAction::ActivateWindow { window_id: 7541586, .. }));
-    }
-
-    /// 真实桌面冒烟测试：枚举窗口 + 激活前台窗口验证。默认忽略，手动 `--ignored` 跑。
-    #[test]
-    #[cfg(target_os = "windows")]
-    #[ignore = "需要真实 Windows 桌面"]
-    fn real_desktop_should_list_and_activate_windows() {
-        let windows = list_all_windows();
-        assert!(!windows.is_empty(), "桌面应有可见窗口");
-        eprintln!("[probe] total windows: {}", windows.len());
-        for w in windows.iter().take(8) {
-            eprintln!("[probe] id=0x{:x} title={:?} minimized={} focused={} rect=({},{},{},{})", w.window_id, w.title, w.minimized, w.focused, w.x, w.y, w.width, w.height);
-        }
-        // 激活当前前台窗口：应成功且标题一致
-        if let Some(fg) = windows.iter().find(|w| w.focused) {
-            let (title, activated) = activate_window(fg.window_id);
-            eprintln!("[probe] activate focused window 0x{:x}: title={:?} activated={}", fg.window_id, title, activated);
-            assert!(activated, "激活前台窗口应成功");
-        }
     }
 
     #[test]

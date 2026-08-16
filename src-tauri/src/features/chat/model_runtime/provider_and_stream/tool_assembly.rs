@@ -125,7 +125,7 @@ fn runtime_tool_names_for_log(tool_assembly: &RuntimeToolAssembly) -> Option<Val
 fn windows_provider_tool_definition() -> ProviderToolDefinition {
     ProviderToolDefinition::new(
         WINDOWS_TOOL_NAME,
-        "窗口管理工具。入参只有 script:string，一行一个动作。\n可用语法：\nlist windows\nactivate window id=<windowId>\n参数说明：id 支持十进制或 0x 前缀十六进制（与控件树返回的 windowId 一致）。\n规则：list windows 返回全部可见顶层窗口（含当前应用自身，标题/进程ID/位置/最小化/聚焦状态，windowId 是窗口句柄）；activate window 会把目标窗口还原并切换到前台（激活失败时 ok=false 并在 summary 说明），切换后可配合 operate 的 screenshot focused_window 截取该窗口。非 Windows 平台不支持，返回空列表或失败。",
+        "窗口管理工具。入参只有 script:string，一行一个动作。\n可用语法：\nlist windows\nactivate window id=<windowId>\n参数说明：id 支持十进制或 0x 前缀十六进制（与控件树返回的 windowId 一致）。\n规则：list windows 返回全部可见顶层窗口（含当前应用自身，标题/进程ID/位置/最小化/聚焦状态）；activate window 会把目标窗口还原并切换到前台（激活失败时 ok=false 并在 summary 说明），切换后可配合 operate 的 screenshot focused_window 截取该窗口。\n平台说明：Windows 全量枚举可见窗口（windowId 是窗口句柄）；Linux（X11）经 EWMH 枚举、xcb 激活，Wayland 下原生窗口不可见、激活不生效；macOS 暂不支持返回空。",
         serde_json::json!({
             "type": "object",
             "properties": {
@@ -148,7 +148,7 @@ fn windows_provider_tool_definition() -> ProviderToolDefinition {
 fn operate_provider_tool_definition() -> ProviderToolDefinition {
     ProviderToolDefinition::new(
         OPERATE_TOOL_NAME,
-        "统一桌面脚本工具。入参只有 script:string，一行一个动作。\n可用语法：\nmouse <button> click @x,y [repeat=n] [delay=s] [pre_delay=s] [press=s]\nmouse scroll_up [repeat=n] [delay=s] [pre_delay=s]\nmouse scroll_down [repeat=n] [delay=s] [pre_delay=s]\nkey <combo> [repeat=n] [delay=s] [pre_delay=s] [press=s]\ntext \"内容\" [repeat=n] [delay=s] [pre_delay=s]\nwait <seconds>\nscreenshot [focused_window] [region=@x,y,w,h] [elements=true] [save=\"绝对路径\"] [quality=1..100]\n参数说明：button=left|right|middle|back|forward；combo 用 + 连接按键，如 Control+L、Control+Shift+P、Enter；x/y/w/h 为 0~1 百分比坐标；repeat=1~100；delay/pre_delay/press=0~300 秒；save 必须是绝对路径；quality 默认 75。\n规则：screenshot 对模型只保留最新一张，旧画面视为已经离去。\n需要确认准确点击坐标时，用局部截图（region=@x,y,w,h 或 focused_window）配合 elements=true，latest_screenshot.tree 会返回该区域内的可交互控件列表（windowId/windowTitle/controlType/name/x/y/width/height，坐标为相对主屏的 0~1 归一化、与 mouse 的 @x,y 同坐标系；区域外控件已过滤，不会返回）；只查看画面、不需要点击时不要带 elements=true，避免多余的控件扫描开销。focused_window 只返回聚焦窗口的控件，region 只返回区域内的控件，desktop 返回全部可见窗口的控件（元素多，谨慎使用）。",
+        "统一桌面脚本工具。入参只有 script:string，一行一个动作。\n可用语法：\nmouse <button> click @x,y [repeat=n] [delay=s] [pre_delay=s] [press=s]\nmouse scroll_up [repeat=n] [delay=s] [pre_delay=s]\nmouse scroll_down [repeat=n] [delay=s] [pre_delay=s]\nkey <combo> [repeat=n] [delay=s] [pre_delay=s] [press=s]\ntext \"内容\" [repeat=n] [delay=s] [pre_delay=s]\nwait <seconds>\nscreenshot [focused_window] [region=@x,y,w,h] [elements=true] [save=\"绝对路径\"] [quality=1..100]\n参数说明：button=left|right|middle|back|forward；combo 用 + 连接按键，如 Control+L、Control+Shift+P、Enter；x/y/w/h 为 0~1 百分比坐标；repeat=1~100；delay/pre_delay/press=0~300 秒；save 必须是绝对路径；quality 默认 75。\n规则：screenshot 对模型只保留最新一张，旧画面视为已经离去。\n需要确认准确点击坐标时，用局部截图（region=@x,y,w,h 或 focused_window）配合 elements=true，latest_screenshot.tree 会返回该区域内的可交互控件列表（windowId/windowTitle/controlType/name/x/y/width/height，坐标为相对主屏的 0~1 归一化、与 mouse 的 @x,y 同坐标系；区域外控件已过滤，不会返回）；只查看画面、不需要点击时不要带 elements=true，避免多余的控件扫描开销。focused_window 只返回聚焦窗口的控件，region 只返回区域内的控件，desktop 返回全部可见窗口的控件（元素多，谨慎使用）。控件树平台说明：Windows 用系统 UI Automation；Linux（X11）用 AT-SPI2，Wayland 或未启用辅助功能时返回空；macOS 暂不支持。",
         serde_json::json!({
             "type": "object",
             "properties": {
@@ -1324,20 +1324,26 @@ impl RuntimeValueTool for BuiltinWindowsTool {
             "[工具调试] 内置工具执行开始 name=windows args={}",
             debug_value_snippet(&args_value, 240)
         ));
-        let result = run_windows_tool(args)
-            .map_err(|err| ToolInvokeError::from(err.message))
-            .and_then(|output| {
-                serde_json::to_value(output)
-                    .map_err(|err| ToolInvokeError::from(format!("Serialize windows output failed: {err}")))
-            });
-        match &result {
-            Ok(v) => runtime_log_debug(format!(
-                "[工具调试] 内置工具执行完成 name=windows result={}",
-                debug_value_snippet(v, 240)
-            )),
-            Err(err) => runtime_log_error(format!("[工具执行] 内置工具 windows 执行失败: 错误={err}")),
-        }
-        Box::pin(async move { result })
+        Box::pin(async move {
+            // windows 工具是同步阻塞调用（EnumWindows/UIA 遍历可能数百 ms），
+            // 放到阻塞线程池执行，避免占用 Tokio 工作线程（与 operate 控件树扫描一致）。
+            let result = tokio::task::spawn_blocking(move || run_windows_tool(args))
+                .await
+                .map_err(|err| ToolInvokeError::from(format!("windows 工具任务异常: {err}")))
+                .and_then(|inner| inner.map_err(|err| ToolInvokeError::from(err.message)))
+                .and_then(|output| {
+                    serde_json::to_value(output)
+                        .map_err(|err| ToolInvokeError::from(format!("Serialize windows output failed: {err}")))
+                });
+            match &result {
+                Ok(v) => runtime_log_debug(format!(
+                    "[工具调试] 内置工具执行完成 name=windows result={}",
+                    debug_value_snippet(v, 240)
+                )),
+                Err(err) => runtime_log_error(format!("[工具执行] 内置工具 windows 执行失败: 错误={err}")),
+            }
+            result
+        })
     }
 }
 

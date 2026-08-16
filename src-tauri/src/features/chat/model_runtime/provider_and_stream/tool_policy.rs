@@ -64,6 +64,10 @@ const BUILTIN_TOOL_POLICY_TABLE: &[BuiltinToolPolicy] = &[
         ..DEFAULT_BUILTIN_TOOL_POLICY
     },
     BuiltinToolPolicy {
+        id: "windows",
+        ..DEFAULT_BUILTIN_TOOL_POLICY
+    },
+    BuiltinToolPolicy {
         id: "read",
         ..DEFAULT_BUILTIN_TOOL_POLICY
     },

@@ -121,6 +121,8 @@ rdev = "0.5"
 [target.'cfg(target_os = "linux")'.dependencies]
 rdev = "0.5"
 users = "0.11"
+xcb = "1.7"
+atspi = { version = "0.30", features = ["zbus", "tokio"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 core-foundation = "0.10"

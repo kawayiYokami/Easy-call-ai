@@ -1,3 +1,5 @@
+#[path = "tools/platform/mod.rs"]
+mod platform;
 include!("tools/types.rs");
 include!("tools/image_normalizer_for_llm_request.rs");
 include!("tools/xcap_screenshot.rs");
