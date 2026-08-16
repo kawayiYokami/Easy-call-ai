@@ -297,7 +297,7 @@ async fn execute_key_action(enigo: &mut enigo::Enigo, keys: &[String], line: usi
 async fn execute_text_action(enigo: &mut enigo::Enigo, text: &str, repeat: u32, delay: std::time::Duration, pre_delay: std::time::Duration) -> DesktopToolResult<()> {
     sleep_duration(pre_delay).await;
     for idx in 0..repeat {
-        execute_text_once(enigo, text)?;
+        execute_text_once(enigo, text).await?;
         if idx + 1 < repeat {
             sleep_duration(delay).await;
         }
@@ -310,7 +310,7 @@ async fn execute_text_action(enigo: &mut enigo::Enigo, text: &str, repeat: u32, 
 /// composition 缓冲，与 Enter 交替时提交顺序错乱；剪贴板粘贴完全绕开
 /// 键盘事件与 IME。纯 ASCII 保持 enigo 注入（避免无谓的剪贴板覆盖）。
 #[cfg(target_os = "windows")]
-fn execute_text_once(enigo: &mut enigo::Enigo, text: &str) -> DesktopToolResult<()> {
+async fn execute_text_once(enigo: &mut enigo::Enigo, text: &str) -> DesktopToolResult<()> {
     if contains_non_ascii(text) {
         let previous = read_clipboard_unicode_text();
         write_clipboard_unicode_text(text)?;
@@ -325,6 +325,10 @@ fn execute_text_once(enigo: &mut enigo::Enigo, text: &str) -> DesktopToolResult<
                 .map_err(|err| map_input_err(err, "text paste failed"))?;
             Ok(())
         })();
+        // Ctrl+V 是异步注入：事件进入系统队列后目标窗口还需时间处理粘贴。
+        // 立即恢复剪贴板会抢跑，导致目标窗口粘贴到恢复后的旧值。
+        // 等待粘贴处理完成（约 150ms 足够记事本等标准控件完成 WM_PASTE）。
+        sleep_duration(std::time::Duration::from_millis(150)).await;
         restore_clipboard_unicode_text(previous);
         return paste_result;
     }
@@ -332,7 +336,7 @@ fn execute_text_once(enigo: &mut enigo::Enigo, text: &str) -> DesktopToolResult<
 }
 
 #[cfg(not(target_os = "windows"))]
-fn execute_text_once(enigo: &mut enigo::Enigo, text: &str) -> DesktopToolResult<()> {
+async fn execute_text_once(enigo: &mut enigo::Enigo, text: &str) -> DesktopToolResult<()> {
     enigo.text(text).map_err(|err| map_input_err(err, "text input failed"))
 }
 
