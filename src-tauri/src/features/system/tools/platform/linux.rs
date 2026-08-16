@@ -363,6 +363,7 @@ fn collect_elements<'a>(
                                 y: (ey as f64 - origin_y) / primary_height,
                                 width: ew as f64 / primary_width,
                                 height: eh as f64 / primary_height,
+                                focused: state.contains(atspi::State::Focused),
                             });
                         }
                     }

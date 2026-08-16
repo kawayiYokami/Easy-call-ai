@@ -167,7 +167,7 @@ pub struct IUIAutomationElement_Vtbl {
     pub CurrentName: unsafe extern "system" fn(*mut core::ffi::c_void, *mut *mut core::ffi::c_void) -> windows_core::HRESULT,
     _current_accelerator_key: usize,
     _current_access_key: usize,
-    _current_has_keyboard_focus: usize,
+    pub CurrentHasKeyboardFocus: unsafe extern "system" fn(*mut core::ffi::c_void, *mut windows_core::BOOL) -> windows_core::HRESULT,
     _current_is_keyboard_focusable: usize,
     pub CurrentIsEnabled: unsafe extern "system" fn(*mut core::ffi::c_void, *mut windows_core::BOOL) -> windows_core::HRESULT,
     _current_automation_id: usize,
@@ -210,6 +210,12 @@ impl IUIAutomationElement {
     pub unsafe fn CurrentIsEnabled(&self) -> windows_core::Result<bool> {
         let mut result__ = core::mem::zeroed();
         (windows_core::Interface::vtable(self).CurrentIsEnabled)(windows_core::Interface::as_raw(self), &mut result__)
+            .map(|| result__.0 != 0)
+    }
+
+    pub unsafe fn CurrentHasKeyboardFocus(&self) -> windows_core::Result<bool> {
+        let mut result__ = core::mem::zeroed();
+        (windows_core::Interface::vtable(self).CurrentHasKeyboardFocus)(windows_core::Interface::as_raw(self), &mut result__)
             .map(|| result__.0 != 0)
     }
 
@@ -419,6 +425,7 @@ fn scan_window(
                 y: (rect.top as f64 - primary_origin_y) / primary_height,
                 width: w / primary_width,
                 height: h / primary_height,
+                focused: elem.CurrentHasKeyboardFocus().unwrap_or(false),
             });
         }
     }

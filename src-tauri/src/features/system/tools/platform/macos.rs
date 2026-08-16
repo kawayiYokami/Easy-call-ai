@@ -75,6 +75,7 @@ const ATTR_POSITION: &str = "AXPosition";
 const ATTR_SIZE: &str = "AXSize";
 const ATTR_WINDOWS: &str = "AXWindows";
 const ATTR_CHILDREN: &str = "AXChildren";
+const ATTR_FOCUSED: &str = "AXFocused";
 const ACTION_RAISE: &str = "AXRaise";
 
 // ==================== AXUIElement 封装 ====================
@@ -467,6 +468,7 @@ fn scan_elements(
                             y: (p.y - origin_y) / primary_height,
                             width: s.width / primary_width,
                             height: s.height / primary_height,
+                            focused: node.attr_bool(ATTR_FOCUSED).unwrap_or(false),
                         });
                     }
                 }

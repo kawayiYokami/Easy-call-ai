@@ -44,6 +44,8 @@ pub struct UiElementInfo {
     pub y: f64,
     pub width: f64,
     pub height: f64,
+    /// 该元素当前是否持有键盘焦点（激活窗口后用于确认焦点是否落在目标控件）
+    pub focused: bool,
 }
 
 // ==================== 平台函数入口（按 cfg 分发） ====================
