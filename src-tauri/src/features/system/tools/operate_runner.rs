@@ -244,6 +244,50 @@ mod operate_tool_tests {
     }
 
     #[test]
+    fn parse_text_escape_newline_decodes_to_real_newline() {
+        match parse_single(r#"text "第一行\n第二行""#) {
+            DesktopScriptAction::Text { text, .. } => assert_eq!(text, "第一行\n第二行"),
+            _ => panic!("expected text action"),
+        }
+    }
+
+    #[test]
+    fn parse_text_multiline_inside_quotes_stays_single_action() {
+        let script = "text \"第一行\n第二行\"";
+        let actions = parse_script(&OperateRequest { script: script.to_string(), timeout_ms: None }).unwrap();
+        assert_eq!(actions.len(), 1);
+        match &actions[0] {
+            DesktopScriptAction::Text { text, .. } => assert_eq!(text, "第一行\n第二行"),
+            _ => panic!("expected text action"),
+        }
+    }
+
+    #[test]
+    fn parse_script_newline_outside_quotes_splits_actions() {
+        let script = "text \"第一行\"\ntext \"第二行\"\nscreenshot";
+        let actions = parse_script(&OperateRequest { script: script.to_string(), timeout_ms: None }).unwrap();
+        assert_eq!(actions.len(), 3);
+    }
+
+    #[test]
+    fn parse_script_multiline_line_numbers_are_accurate() {
+        let script = "text \"a\"\nkey Enter\nscreenshot";
+        let actions = parse_script(&OperateRequest { script: script.to_string(), timeout_ms: None }).unwrap();
+        match &actions[1] {
+            DesktopScriptAction::Key { line, .. } => assert_eq!(*line, 2),
+            other => panic!("expected key action at line 2, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parse_script_unclosed_quote_reports_line_number() {
+        let script = "text \"第一行\n第二行";
+        let err = parse_script(&OperateRequest { script: script.to_string(), timeout_ms: None }).unwrap_err();
+        assert!(err.message.contains("第 1 行"));
+        assert!(err.message.contains("双引号未闭合"));
+    }
+
+    #[test]
     fn screenshot_save_requires_absolute_path() {
         let err = parse_script(&OperateRequest { script: r#"screenshot save="tmp/shot.webp""#.to_string(), timeout_ms: None }).unwrap_err();
         assert!(err.message.contains("第 1 行 screenshot"));
