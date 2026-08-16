@@ -112,32 +112,34 @@
           class="min-w-0 flex-1 truncate text-[10px] opacity-40"
           :title="row.node.data.path"
         >{{ row.node.data.dir }}</span>
-        <span class="hidden shrink-0 items-center gap-0.5 group-hover:flex focus-within:flex">
-          <button
-            type="button"
-            class="btn btn-ghost btn-xs h-5 min-h-5 w-5 px-0 text-error/70"
-            :title="discardTitle"
-            :disabled="busy"
-            @click.stop="discardSelected([row.node.data.path])"
-          >
-            <Undo2 class="h-3 w-3" />
-          </button>
-          <button
-            type="button"
-            class="btn btn-ghost btn-xs h-5 min-h-5 w-5 px-0"
-            :title="actionTitle"
-            :disabled="busy"
-            @click.stop="runAction([row.node.data.path])"
-          >
-            <Plus v-if="actionKind === 'stage'" class="h-3 w-3" />
-            <Minus v-else class="h-3 w-3" />
-          </button>
+        <span class="ml-auto flex shrink-0 items-center gap-0.5">
+          <span class="hidden items-center gap-0.5 group-hover:flex focus-within:flex">
+            <button
+              type="button"
+              class="btn btn-ghost btn-xs h-5 min-h-5 w-5 px-0 text-error/70"
+              :title="discardTitle"
+              :disabled="busy"
+              @click.stop="discardSelected([row.node.data.path])"
+            >
+              <Undo2 class="h-3 w-3" />
+            </button>
+            <button
+              type="button"
+              class="btn btn-ghost btn-xs h-5 min-h-5 w-5 px-0"
+              :title="actionTitle"
+              :disabled="busy"
+              @click.stop="runAction([row.node.data.path])"
+            >
+              <Plus v-if="actionKind === 'stage'" class="h-3 w-3" />
+              <Minus v-else class="h-3 w-3" />
+            </button>
+          </span>
+          <span
+            class="shrink-0 font-mono text-[10px] font-bold"
+            :class="statusClass(row.node.data.entry)"
+            :title="statusTitle(row.node.data.entry)"
+          >{{ statusLabel(row.node.data.entry) }}</span>
         </span>
-        <span
-          class="ml-auto shrink-0 font-mono text-[10px] font-bold"
-          :class="statusClass(row.node.data.entry)"
-          :title="statusTitle(row.node.data.entry)"
-        >{{ statusLabel(row.node.data.entry) }}</span>
       </template>
     </template>
   </GitTree>
