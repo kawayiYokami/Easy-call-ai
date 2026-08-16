@@ -2,7 +2,7 @@
 //
 // 三平台统一数据契约与函数签名，按 cfg 分发到 windows / linux / macos 实现模块。
 // Windows 实现由原 windows_tool.rs + ui_automation.rs 平移而来（不重写）；
-// Linux 为 xcap 枚举 + xcb 激活 + atspi 控件树；macOS 暂为空占位（后续实现）。
+// Linux 为 xcap 枚举 + xcb 激活 + atspi 控件树；macOS 为 xcap 枚举 + AXUIElement 激活/控件树（手写 FFI，零新增依赖）。
 // 未支持平台（FreeBSD 等）走兜底空实现，与既有行为一致。
 
 #[cfg(target_os = "windows")]
