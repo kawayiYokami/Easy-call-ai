@@ -36,6 +36,8 @@ export type GitDiffTabSource = {
   path: string;
   staged: boolean;
   hash?: string;
+  /** 未跟踪文件（git ??）：无 git diff 内容，直接打开文件本体 */
+  untracked?: boolean;
 };
 
 export type FileTab = {

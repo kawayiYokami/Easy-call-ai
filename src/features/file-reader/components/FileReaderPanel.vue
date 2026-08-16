@@ -2235,6 +2235,11 @@ async function openGitDiffTab(source: GitDiffTabSource) {
   if (!localFileSystemAvailable) return;
   const workspacePath = normalizePath(source.workspacePath);
   if (!workspacePath) return;
+  // 未跟踪文件：git diff 无内容，直接打开文件本体
+  if (source.untracked) {
+    await openPath(`${workspacePath}/${source.path}`);
+    return;
+  }
   const tabPath = buildGitDiffTabKey(source);
   try {
     const result = source.hash

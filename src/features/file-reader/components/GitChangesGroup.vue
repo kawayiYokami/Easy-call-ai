@@ -200,7 +200,7 @@ const props = withDefaults(defineProps<{
 });
 
 const emit = defineEmits<{
-  (e: "openDiff", payload: { path: string; staged: boolean }): void;
+  (e: "openDiff", payload: { path: string; staged: boolean; untracked?: boolean }): void;
   (e: "action", paths: string[]): void;
   (e: "discard", paths: string[]): void;
 }>();
@@ -275,7 +275,11 @@ const selectedCount = computed(() => selectedKeys.value.length);
 
 function onSelect(key: string) {
   // 普通点击文件行：打开 diff（选中集已由 GitTree 维护）
-  emit("openDiff", { path: key, staged: props.actionKind === "unstage" });
+  // 未跟踪文件（??）git diff 不输出内容，标记 untracked 由上层直接打开文件
+  const entry = props.entries.find((item) => item.path === key);
+  const untracked =
+    !!entry && entry.stagedStatus.trim() === "?" && entry.unstagedStatus.trim() === "?";
+  emit("openDiff", { path: key, staged: props.actionKind === "unstage", untracked });
 }
 
 /** 批量操作：有选中集时作用于全部选中文件，否则作用于传入路径 */

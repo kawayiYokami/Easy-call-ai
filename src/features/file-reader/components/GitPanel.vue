@@ -534,7 +534,7 @@ const props = withDefaults(defineProps<{
 });
 
 const emit = defineEmits<{
-  (e: "openDiff", payload: { workspacePath: string; path: string; staged: boolean; hash?: string }): void;
+  (e: "openDiff", payload: { workspacePath: string; path: string; staged: boolean; hash?: string; untracked?: boolean }): void;
 }>();
 
 const { t } = useI18n();
@@ -1603,12 +1603,13 @@ function commitFileStatusClass(status: string) {
 // 最后点击打开的 diff 文件路径（用于树行高亮）
 const lastClickedDiffPath = ref("");
 
-function openDiff(payload: { path: string; staged: boolean }) {
+function openDiff(payload: { path: string; staged: boolean; untracked?: boolean }) {
   lastClickedDiffPath.value = payload.path;
   emit("openDiff", {
     workspacePath: repoRoot.value,
     path: payload.path,
     staged: payload.staged,
+    untracked: payload.untracked,
   });
 }
 
