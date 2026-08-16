@@ -1008,7 +1008,7 @@ fn default_desktop_operation_notice_enabled() -> bool {
 }
 
 fn default_desktop_operate_enabled() -> bool {
-    true
+    false
 }
 
 fn default_ui_language() -> String {
