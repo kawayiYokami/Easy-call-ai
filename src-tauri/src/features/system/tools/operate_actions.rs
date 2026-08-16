@@ -297,12 +297,144 @@ async fn execute_key_action(enigo: &mut enigo::Enigo, keys: &[String], line: usi
 async fn execute_text_action(enigo: &mut enigo::Enigo, text: &str, repeat: u32, delay: std::time::Duration, pre_delay: std::time::Duration) -> DesktopToolResult<()> {
     sleep_duration(pre_delay).await;
     for idx in 0..repeat {
-        enigo.text(text).map_err(|err| map_input_err(err, "text input failed"))?;
+        execute_text_once(enigo, text)?;
         if idx + 1 < repeat {
             sleep_duration(delay).await;
         }
     }
     Ok(())
+}
+
+/// 单次 text 注入。Windows 上含非 ASCII 字符时改走剪贴板粘贴：
+/// enigo 的 KEYEVENTF_UNICODE（VK_PACKET）注入会被中文 IME 拦截进
+/// composition 缓冲，与 Enter 交替时提交顺序错乱；剪贴板粘贴完全绕开
+/// 键盘事件与 IME。纯 ASCII 保持 enigo 注入（避免无谓的剪贴板覆盖）。
+#[cfg(target_os = "windows")]
+fn execute_text_once(enigo: &mut enigo::Enigo, text: &str) -> DesktopToolResult<()> {
+    if contains_non_ascii(text) {
+        let previous = read_clipboard_unicode_text();
+        write_clipboard_unicode_text(text)?;
+        let paste_result = (|| -> DesktopToolResult<()> {
+            enigo
+                .key(enigo::Key::Control, enigo::Direction::Press)
+                .map_err(|err| map_input_err(err, "text paste failed"))?;
+            // 'v' 走真实扫描码注入，确保系统识别 Ctrl+V 组合
+            send_char_key(enigo, 'v', enigo::Direction::Click, "text paste failed", true)?;
+            enigo
+                .key(enigo::Key::Control, enigo::Direction::Release)
+                .map_err(|err| map_input_err(err, "text paste failed"))?;
+            Ok(())
+        })();
+        restore_clipboard_unicode_text(previous);
+        return paste_result;
+    }
+    enigo.text(text).map_err(|err| map_input_err(err, "text input failed"))
+}
+
+#[cfg(not(target_os = "windows"))]
+fn execute_text_once(enigo: &mut enigo::Enigo, text: &str) -> DesktopToolResult<()> {
+    enigo.text(text).map_err(|err| map_input_err(err, "text input failed"))
+}
+
+/// 是否包含非 ASCII 字符：Windows 分支据此决定走剪贴板粘贴还是 enigo 注入。
+#[cfg(target_os = "windows")]
+fn contains_non_ascii(text: &str) -> bool {
+    text.chars().any(|c| !c.is_ascii())
+}
+
+/// 读取剪贴板文本（CF_UNICODETEXT）；无文本格式时返回 None。
+#[cfg(target_os = "windows")]
+fn read_clipboard_unicode_text() -> Option<String> {
+    use windows_sys::Win32::System::DataExchange::{
+        CloseClipboard, GetClipboardData, OpenClipboard,
+    };
+    use windows_sys::Win32::System::Memory::{GlobalLock, GlobalUnlock};
+    use windows_sys::Win32::System::Ole::CF_UNICODETEXT;
+    unsafe {
+        if OpenClipboard(std::ptr::null_mut()) == 0 {
+            return None;
+        }
+        let handle = GetClipboardData(CF_UNICODETEXT as u32);
+        if handle.is_null() {
+            CloseClipboard();
+            return None;
+        }
+        let ptr = GlobalLock(handle);
+        if ptr.is_null() {
+            CloseClipboard();
+            return None;
+        }
+        let mut len = 0usize;
+        while *ptr.cast::<u16>().add(len) != 0 {
+            len += 1;
+        }
+        let text = String::from_utf16_lossy(std::slice::from_raw_parts(ptr.cast::<u16>(), len));
+        GlobalUnlock(handle);
+        CloseClipboard();
+        Some(text)
+    }
+}
+
+/// 写入剪贴板文本（CF_UNICODETEXT，UTF-16 + 结尾 NUL）。
+#[cfg(target_os = "windows")]
+fn write_clipboard_unicode_text(text: &str) -> DesktopToolResult<()> {
+    use windows_sys::Win32::Foundation::GlobalFree;
+    use windows_sys::Win32::System::DataExchange::{
+        CloseClipboard, EmptyClipboard, OpenClipboard, SetClipboardData,
+    };
+    use windows_sys::Win32::System::Memory::{
+        GlobalAlloc, GlobalLock, GlobalUnlock, GMEM_MOVEABLE,
+    };
+    use windows_sys::Win32::System::Ole::CF_UNICODETEXT;
+    unsafe {
+        if OpenClipboard(std::ptr::null_mut()) == 0 {
+            return Err(DesktopToolError::internal_error("open clipboard failed"));
+        }
+        if EmptyClipboard() == 0 {
+            CloseClipboard();
+            return Err(DesktopToolError::internal_error("empty clipboard failed"));
+        }
+        let wide: Vec<u16> = text.encode_utf16().chain(std::iter::once(0)).collect();
+        let bytes = wide.len() * std::mem::size_of::<u16>();
+        let handle = GlobalAlloc(GMEM_MOVEABLE, bytes);
+        if handle.is_null() {
+            CloseClipboard();
+            return Err(DesktopToolError::internal_error("global alloc failed"));
+        }
+        let ptr = GlobalLock(handle);
+        if ptr.is_null() {
+            GlobalFree(handle);
+            CloseClipboard();
+            return Err(DesktopToolError::internal_error("global lock failed"));
+        }
+        std::ptr::copy_nonoverlapping(wide.as_ptr().cast::<u8>(), ptr.cast::<u8>(), bytes);
+        GlobalUnlock(handle);
+        if SetClipboardData(CF_UNICODETEXT as u32, handle).is_null() {
+            GlobalFree(handle);
+            CloseClipboard();
+            return Err(DesktopToolError::internal_error("set clipboard data failed"));
+        }
+        CloseClipboard();
+    }
+    Ok(())
+}
+
+/// 恢复剪贴板：有原文本则写回；无文本格式则清空（原非文本内容在
+/// 写入时已被 EmptyClipboard 清除，此为计划内声明的限制）。
+#[cfg(target_os = "windows")]
+fn restore_clipboard_unicode_text(previous: Option<String>) {
+    match previous {
+        Some(text) => {
+            let _ = write_clipboard_unicode_text(&text);
+        }
+        None => unsafe {
+            use windows_sys::Win32::System::DataExchange::{CloseClipboard, EmptyClipboard, OpenClipboard};
+            if OpenClipboard(std::ptr::null_mut()) != 0 {
+                EmptyClipboard();
+                CloseClipboard();
+            }
+        },
+    }
 }
 
 /// 生成 operate 截图默认保存路径：{screenshots_root}/operate_{毫秒时间戳}.webp
@@ -477,6 +609,16 @@ mod operate_actions_tests {
         assert_eq!(parse_key("L", 1).unwrap(), ParsedKey::Char('L'));
         assert_eq!(parse_key("a", 1).unwrap(), ParsedKey::Char('a'));
         assert_eq!(parse_key("0", 1).unwrap(), ParsedKey::Char('0'));
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn contains_non_ascii_should_detect_non_ascii_text() {
+        assert!(!contains_non_ascii("hello world 123"));
+        assert!(contains_non_ascii("派蒙和旅行者"));
+        assert!(contains_non_ascii("中文标点「」"));
+        assert!(contains_non_ascii("emoji \u{1F600}"));
+        assert!(!contains_non_ascii(""));
     }
 
     #[test]
