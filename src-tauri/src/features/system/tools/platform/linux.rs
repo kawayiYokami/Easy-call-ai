@@ -251,12 +251,12 @@ async fn scan_atspi(
 /// 把 AT-SPI 窗口对象映射到输入窗口列表。
 /// 优先用 `x11_window` 属性（GTK/ATK 等提供）匹配 xcap window id；缺失时用屏幕坐标兜底匹配。
 /// xcap 窗口列表由调用方枚举一次传入（坐标兜底复用，避免每个窗口重复全量枚举）。
-async fn match_window(
+async fn match_window<'a>(
     win: &atspi::proxy::accessible::AccessibleProxy<'_>,
-    windows: &[(usize, String)],
+    windows: &'a [(usize, String)],
     conn: &atspi::zbus::Connection,
     xcap_windows: Option<&[xcap::Window]>,
-) -> Option<(usize, &str)> {
+) -> Option<(usize, &'a str)> {
     if let Ok(attrs) = win.get_attributes().await {
         if let Some(raw) = attrs.get("x11_window") {
             if let Ok(id) = raw.parse::<u32>() {
@@ -300,7 +300,7 @@ async fn match_window(
 
 /// 从 AccessibleProxy 建 ComponentProxy（同一 destination/path 换接口）。
 async fn component_proxy<'c>(
-    proxy: &atspi::proxy::accessible::AccessibleProxy<'_>,
+    proxy: &'c atspi::proxy::accessible::AccessibleProxy<'_>,
     conn: &'c atspi::zbus::Connection,
 ) -> Option<atspi::proxy::component::ComponentProxy<'c>> {
     let inner = proxy.inner();
