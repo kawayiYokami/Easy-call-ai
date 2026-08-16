@@ -529,12 +529,19 @@ fn read_window_title(hwnd: windows_sys::Win32::Foundation::HWND) -> String {
     String::from_utf16_lossy(&buf[..len as usize])
 }
 
-/// 激活窗口：还原最小化 → 绕前台锁 → SetForegroundWindow + BringWindowToTop → 轮询验证。
+/// 激活窗口：还原最小化 → AttachThreadInput 绕前台锁 → SetForegroundWindow + BringWindowToTop → 轮询验证。
 /// 返回 (窗口标题, 是否激活成功)。
+///
+/// 前台锁说明：SetForegroundWindow 默认只允许前台进程/收到最后输入事件的进程成功调用，
+/// 后台进程直接调用会被系统静默拒绝。这里用 AttachThreadInput 把当前线程输入队列挂到
+/// 目标窗口线程，使本进程获得设置前台窗口的资格（标准 API，无 UI 副作用）。
+/// 不使用「模拟 Alt 键」的绕法：Alt 按下/释放会激活目标窗口菜单栏并显示 Key Tips，
+/// 导致键盘焦点落在菜单栏而非正文控件，后续按键注入全部失效。
 pub fn activate_window(window_id: usize) -> (String, bool) {
-    use windows_sys::Win32::UI::Input::KeyboardAndMouse::{keybd_event, KEYEVENTF_KEYUP, VK_MENU};
+    use windows_sys::Win32::System::Threading::{AttachThreadInput, GetCurrentThreadId};
     use windows_sys::Win32::UI::WindowsAndMessaging::{
-        BringWindowToTop, GetForegroundWindow, IsIconic, SetForegroundWindow, ShowWindow, SW_RESTORE,
+        BringWindowToTop, GetForegroundWindow, GetWindowThreadProcessId, IsIconic,
+        SetForegroundWindow, ShowWindow, SW_RESTORE,
     };
     let hwnd = window_id as *mut core::ffi::c_void;
     if hwnd.is_null() {
@@ -547,11 +554,18 @@ pub fn activate_window(window_id: usize) -> (String, bool) {
             ShowWindow(hwnd, SW_RESTORE);
             std::thread::sleep(std::time::Duration::from_millis(100));
         }
-        // Alt 键技巧：模拟一次按键让系统认为有用户输入，解除前台锁定（等价于 AttachThreadInput 的绕锁效果）
-        keybd_event(VK_MENU as u8, 0, 0, 0);
-        keybd_event(VK_MENU as u8, 0, KEYEVENTF_KEYUP, 0);
+        // 取目标窗口线程并挂接输入队列，绕前台锁（挂接失败不阻断，继续尝试激活）
+        let mut target_pid = 0u32;
+        let target_tid = GetWindowThreadProcessId(hwnd, &mut target_pid);
+        let current_tid = GetCurrentThreadId();
+        let attached = target_tid != 0
+            && target_tid != current_tid
+            && AttachThreadInput(current_tid, target_tid, 1) != 0;
         let _ = SetForegroundWindow(hwnd);
         let _ = BringWindowToTop(hwnd);
+        if attached {
+            AttachThreadInput(current_tid, target_tid, 0);
+        }
         // 轮询验证（最多 1.5s）
         let deadline = std::time::Instant::now() + std::time::Duration::from_millis(1500);
         let mut activated = false;
