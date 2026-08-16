@@ -1,7 +1,12 @@
 {
-  "generatedAt": "2026-08-14T13:51:43.069Z",
-  "latestVersion": "v0.62.0",
+  "generatedAt": "2026-08-16T15:15:04.670Z",
+  "latestVersion": "v0.65.0",
   "releases": [
+    {
+      "version": "v0.65.0",
+      "path": "docs/changelog/releases/v0.65.0.md",
+      "summary": "新增 `windows` 窗口管理工具：`list windows` 列出全部可见窗口（标题/进程/位置/最小化/聚焦状态），`activate window id=xxx` 还原并切换到前台，配合截图即可定位与操作目标窗口；Windows、Linux（X11）与 macOS 可用"
+    },
     {
       "version": "v0.62.0",
       "path": "docs/changelog/releases/v0.62.0.md",

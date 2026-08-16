@@ -5,6 +5,7 @@
 
 ## 最近版本
 
+- [v0.65.0](docs/changelog/releases/v0.65.0.md) - 新增 `windows` 窗口管理工具：`list windows` 列出全部可见窗口（标题/进程/位置/最小化/聚焦状态），`activate window id=xxx` 还原并切换到前台，配合截图即可定位与操作目标窗口；Windows、Linux（X11）与 macOS 可用
 - [v0.62.0](docs/changelog/releases/v0.62.0.md) - Git 面板提交行右键弹出预览卡：可复制提交哈希与提交消息，并支持基于该提交直接新建分支；最新一次提交还可一键撤销（soft，改动保留在暂存区），已推送的提交会提示无法撤销
 - [v0.61.0](docs/changelog/releases/v0.61.0.md) - 个人微信渠道支持群聊消息的接收与回复，群消息不再被当作私聊处理
 - [v0.60.1](docs/changelog/releases/v0.60.1.md) - 修复通过热键、托盘或其他入口唤出窗口时，应用可能停在“正在初始化界面”并失去响应的问题。
