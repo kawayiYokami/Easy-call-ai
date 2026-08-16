@@ -1051,9 +1051,7 @@ fn build_builtin_runtime_tool_executor(
             model_supports_image: selected_api.enable_image,
             session_id: tool_session_id.to_string(),
         }),
-        "windows" => Box::new(BuiltinWindowsTool {
-            app_state: state.clone(),
-        }),
+        "windows" => Box::new(BuiltinWindowsTool {}),
         "read" => Box::new(BuiltinReadFileTool {
             app_state: state.clone(),
             session_id: tool_session_id.to_string(),
@@ -1225,9 +1223,7 @@ struct BuiltinOperateTool {
 }
 
 #[derive(Debug, Clone)]
-struct BuiltinWindowsTool {
-    app_state: AppState,
-}
+struct BuiltinWindowsTool {}
 
 #[derive(Debug, Clone)]
 struct BuiltinReadFileTool {
