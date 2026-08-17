@@ -1,7 +1,12 @@
 {
-  "generatedAt": "2026-08-17T11:03:12.691Z",
-  "latestVersion": "v0.66.0",
+  "generatedAt": "2026-08-17T17:37:28.338Z",
+  "latestVersion": "v0.67.0",
   "releases": [
+    {
+      "version": "v0.67.0",
+      "path": "docs/changelog/releases/v0.67.0.md",
+      "summary": "会话菜单整理为二级分组（发起委托 / 会话分支 / 会话互动 / 消息外观），部分常用操作保留在顶层；新增「从当前会话创建分支」与「在侧边追问」两个快捷入口。"
+    },
     {
       "version": "v0.66.0",
       "path": "docs/changelog/releases/v0.66.0.md",
