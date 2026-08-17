@@ -1,7 +1,12 @@
 {
-  "generatedAt": "2026-08-16T15:15:04.670Z",
-  "latestVersion": "v0.65.0",
+  "generatedAt": "2026-08-17T11:03:12.691Z",
+  "latestVersion": "v0.66.0",
   "releases": [
+    {
+      "version": "v0.66.0",
+      "path": "docs/changelog/releases/v0.66.0.md",
+      "summary": "会话列表的文件夹分组恢复支持拖拽调整顺序，自定义顺序会在重启后保留"
+    },
     {
       "version": "v0.65.0",
       "path": "docs/changelog/releases/v0.65.0.md",
