@@ -68,7 +68,7 @@
               :key="section.key"
               :ref="(el) => setConversationSectionElement(section.key, el)"
               :title="section.title"
-              :count="section.totalItemCount"
+              :count="isRecentConversationSection(section.key) ? section.visibleCount : section.totalItemCount"
               :model-value="isConversationSectionCollapsed(section.key)"
               :draggable="isConversationSectionDraggable(section)"
               :drop-indicator="conversationSectionDragIndicator(section)"
@@ -318,7 +318,9 @@ import {
 import {
   applyConversationSectionOrder,
   buildConversationSections,
+  conversationCountSinceDayStart,
   RECENT_CONVERSATION_SECTION_KEY,
+  CURRENT_PROJECT_SECTION_KEY,
   workspaceNameFromPath,
   type ConversationSection,
   type ConversationSectionOrderState,
@@ -333,6 +335,7 @@ type DisplayConversationSection = ConversationSection & {
   visibleItems: ChatConversationOverviewItem[];
   /** full 会话 id → 聚合其后的简单条目（同人格旧会话，按更新时间倒序） */
   simpleFollowers: Record<string, ChatConversationOverviewItem[]>;
+  visibleCount: number;
   hiddenItemCount: number;
   totalItemCount: number;
 };
@@ -358,6 +361,7 @@ const props = defineProps<{
   activeTab: ConversationSidebarTab;
   chatModelOptions: ApiConfigItem[];
   toolReviewApiConfigId?: string;
+  currentWorkspaceRootPath?: string;
 }>();
 
 const emit = defineEmits<{
@@ -415,8 +419,10 @@ const conversationSections = computed<ConversationSection[]>(() =>
       pinned: t("chat.pinnedConversations"),
       other: t("chat.otherConversations"),
       defaultWorkspace: t("chat.defaultWorkspace"),
+      currentProject: t("chat.currentProject"),
     },
     locale: locale.value,
+    currentWorkspaceRootPath: props.currentWorkspaceRootPath,
   }),
 );
 
@@ -601,7 +607,9 @@ async function persistConversationSectionOrder(tab: "local" | "contact", ordered
 
 function isConversationSectionDraggable(section: ConversationSection): boolean {
   if (normalizedConversationSearchQuery.value) return false;
-  return section.key !== "pinned" && section.key !== RECENT_CONVERSATION_SECTION_KEY;
+  return section.key !== "pinned"
+    && section.key !== RECENT_CONVERSATION_SECTION_KEY
+    && section.key !== CURRENT_PROJECT_SECTION_KEY;
 }
 
 function handleConversationSectionDragStart(section: ConversationSection, event: DragEvent) {
@@ -693,7 +701,11 @@ function defaultVisibleConversationCount(section: ConversationSection): number {
   const items = Array.isArray(section.items) ? section.items : [];
   if (items.length <= CONVERSATION_SECTION_MIN_VISIBLE) return items.length;
   if (normalizedConversationSearchQuery.value) return items.length;
-  if (section.key === "pinned" || section.key === RECENT_CONVERSATION_SECTION_KEY) return items.length;
+  if (section.key === "pinned") return items.length;
+  if (section.key === RECENT_CONVERSATION_SECTION_KEY) {
+    // 基础展示量 = 至少 5 条 + 凌晨 4 点至今活跃过的会话，超出部分通过「加载更多」逐步展开。
+    return Math.max(CONVERSATION_SECTION_MIN_VISIBLE, conversationCountSinceDayStart(items));
+  }
   const thresholdMs = Date.now() - CONVERSATION_SECTION_UNUSED_DAYS * 24 * 60 * 60 * 1000;
   const recentCount = items.reduce((count, item) => (
     conversationLastUsedMs(item) >= thresholdMs ? count + 1 : count
@@ -708,10 +720,18 @@ function defaultVisibleConversationCount(section: ConversationSection): number {
   );
 }
 
+function conversationSectionLoadMoreKey(
+  sectionKey: string,
+  tab: ConversationSidebarTab = activeConversationTab.value,
+): string {
+  return `${tab}:${sectionKey}`;
+}
+
 function buildDisplayedConversationSection(section: ConversationSection): DisplayConversationSection {
+  const stateKey = conversationSectionLoadMoreKey(section.key);
   const items = Array.isArray(section.items) ? section.items : [];
   const baseVisibleCount = defaultVisibleConversationCount(section);
-  const extraVisibleCount = Math.max(0, Number(conversationSectionLoadMoreCounts.value[section.key] || 0));
+  const extraVisibleCount = Math.max(0, Number(conversationSectionLoadMoreCounts.value[stateKey] || 0));
   const visibleCount = Math.min(items.length, baseVisibleCount + extraVisibleCount);
   const { reorderedItems, simpleFollowers } = aggregateConversationItems(items.slice(0, visibleCount), {
     searchActive: !!normalizedConversationSearchQuery.value,
@@ -720,6 +740,7 @@ function buildDisplayedConversationSection(section: ConversationSection): Displa
     ...section,
     visibleItems: reorderedItems,
     simpleFollowers,
+    visibleCount: visibleCount,
     hiddenItemCount: Math.max(0, items.length - visibleCount),
     totalItemCount: items.length,
   };
@@ -728,15 +749,12 @@ function buildDisplayedConversationSection(section: ConversationSection): Displa
 function loadMoreConversationsInSection(sectionKey: string) {
   const key = String(sectionKey || "").trim();
   if (!key) return;
+  const stateKey = conversationSectionLoadMoreKey(key);
   conversationSectionLoadMoreCounts.value = {
     ...conversationSectionLoadMoreCounts.value,
-    [key]: Math.max(0, Number(conversationSectionLoadMoreCounts.value[key] || 0)) + CONVERSATION_SECTION_LOAD_MORE_STEP,
+    [stateKey]: Math.max(0, Number(conversationSectionLoadMoreCounts.value[stateKey] || 0)) + CONVERSATION_SECTION_LOAD_MORE_STEP,
   };
   scheduleConversationListScrollbarUpdate();
-}
-
-function sectionTabFromKey(sectionKey: string): ConversationSidebarTab {
-  return sectionKey.startsWith("channel:") ? "contact" : "local";
 }
 
 function clearConversationSectionResetTimer(tab: ConversationSidebarTab) {
@@ -748,9 +766,10 @@ function clearConversationSectionResetTimer(tab: ConversationSidebarTab) {
 
 function resetConversationSectionLoadMore(tab: ConversationSidebarTab) {
   if (tab === "task") return;
+  const prefix = `${tab}:`;
   conversationSectionLoadMoreCounts.value = Object.fromEntries(
     Object.entries(conversationSectionLoadMoreCounts.value)
-      .filter(([key, value]) => sectionTabFromKey(key) !== tab || !(Number(value) > 0)),
+      .filter(([stateKey, value]) => !stateKey.startsWith(prefix) || !(Number(value) > 0)),
   );
   scheduleConversationListScrollbarUpdate();
 }
@@ -776,14 +795,34 @@ watch(showSearch, async (visible) => {
 
 function isConversationSectionCollapsed(key: string): boolean {
   if (normalizedConversationSearchQuery.value) return false;
-  return collapsedConversationSectionKeys.value[key] ?? key !== RECENT_CONVERSATION_SECTION_KEY;
+  const collapsed = collapsedConversationSectionKeys.value[key];
+  if (collapsed !== undefined) return collapsed;
+  // 有「当前项目」分组时：默认展开当前项目、折叠最近会话；
+  // 没有（未绑定工作区）时最近会话保持默认展开，避免整列全折叠。
+  if (key === CURRENT_PROJECT_SECTION_KEY) return false;
+  const hasCurrentProjectSection = conversationSections.value.some(
+    (section) => section.key === CURRENT_PROJECT_SECTION_KEY,
+  );
+  if (key === RECENT_CONVERSATION_SECTION_KEY) return hasCurrentProjectSection;
+  return true;
 }
 
 function toggleConversationSection(key: string) {
+  const nextCollapsed = !isConversationSectionCollapsed(key);
   collapsedConversationSectionKeys.value = {
     ...collapsedConversationSectionKeys.value,
-    [key]: !isConversationSectionCollapsed(key),
+    [key]: nextCollapsed,
   };
+  if (nextCollapsed) {
+    const stateKey = conversationSectionLoadMoreKey(key);
+    if (Number(conversationSectionLoadMoreCounts.value[stateKey] || 0) > 0) {
+      // 折叠分组时清掉「加载更多」展开量，重新展开后回到默认可见数量。
+      conversationSectionLoadMoreCounts.value = {
+        ...conversationSectionLoadMoreCounts.value,
+        [stateKey]: 0,
+      };
+    }
+  }
   scheduleConversationListScrollbarUpdate();
 }
 
@@ -827,6 +866,11 @@ function collapseAllConversationSections() {
     next[section.key] = true;
     return next;
   }, { ...collapsedConversationSectionKeys.value } as Record<string, boolean>);
+  const tabPrefix = `${activeConversationTab.value}:`;
+  conversationSectionLoadMoreCounts.value = Object.fromEntries(
+    Object.entries(conversationSectionLoadMoreCounts.value)
+      .filter(([stateKey, value]) => !stateKey.startsWith(tabPrefix) || !(Number(value) > 0)),
+  );
   scheduleConversationListScrollbarUpdate();
 }
 

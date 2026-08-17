@@ -1478,6 +1478,7 @@
     "recentConversations": "Recent",
     "revealConversationSection": "Reveal group",
     "pinnedConversations": "Pinned",
+    "currentProject": "Current Project",
     "otherConversations": "Others",
     "localConversationTab": "Local",
     "contactConversationTab": "Remote",

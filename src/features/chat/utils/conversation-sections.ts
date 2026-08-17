@@ -20,6 +20,7 @@ export type ConversationSectionTitles = {
   pinned: string;
   other: string;
   defaultWorkspace: string;
+  currentProject: string;
 };
 
 export function buildConversationSections(
@@ -28,6 +29,7 @@ export function buildConversationSections(
     tab: ConversationSidebarTab;
     titles: ConversationSectionTitles;
     locale?: string | string[];
+    currentWorkspaceRootPath?: string;
   },
 ): ConversationSection[] {
   const { tab, titles, locale } = options;
@@ -39,7 +41,18 @@ export function buildConversationSections(
   });
   const pinned = visibleItems.filter((item) => !!item.isPinned || !!item.isSystemNotificationConversation);
   const others = visibleItems.filter((item) => !item.isPinned && !item.isSystemNotificationConversation);
-  const recentSection = buildRecentConversationSection(visibleItems, titles.recent);
+
+  // 「当前项目」分组：把属于当前工作区路径的会话单独列出，
+  // 并从最近会话与其他工作区分组中剔除，避免重复显示。
+  const currentWorkspacePath = String(options.currentWorkspaceRootPath || "").trim();
+  const normalizedCurrentWorkspacePath = normalizeWorkspaceSectionPath(currentWorkspacePath);
+  const isCurrentProjectItem = (item: ChatConversationOverviewItem) =>
+    !!normalizedCurrentWorkspacePath
+    && normalizeWorkspaceSectionPath(String(item.workspaceRootPath || "").trim()) === normalizedCurrentWorkspacePath;
+  const currentProjectItems = others.filter(isCurrentProjectItem);
+  const restOthers = others.filter((item) => !isCurrentProjectItem(item));
+
+  const recentSection = buildRecentConversationSection(restOthers, titles.recent);
   const sections: ConversationSection[] = [];
   if (pinned.length > 0) {
     sections.push({
@@ -48,13 +61,21 @@ export function buildConversationSections(
       items: pinned,
     });
   }
+  if (!!normalizedCurrentWorkspacePath) {
+    sections.push({
+      key: CURRENT_PROJECT_SECTION_KEY,
+      title: titles.currentProject,
+      workspaceRootPath: currentWorkspacePath,
+      items: currentProjectItems,
+    });
+  }
   if (recentSection) {
     sections.push(recentSection);
   }
   if (tab === "contact") {
     return [
       ...sections,
-      ...buildRemoteConversationSections(others, {
+      ...buildRemoteConversationSections(restOthers, {
         fallbackTitle: titles.other,
         locale,
       }),
@@ -62,7 +83,7 @@ export function buildConversationSections(
   }
   return [
     ...sections,
-    ...buildWorkspaceConversationSections(others, {
+    ...buildWorkspaceConversationSections(restOthers, {
       defaultWorkspaceTitle: titles.defaultWorkspace,
       locale,
     }),
@@ -70,8 +91,28 @@ export function buildConversationSections(
 }
 
 export const RECENT_CONVERSATION_SECTION_KEY = "recent";
-const RECENT_CONVERSATION_LIMIT = 5;
-const RECENT_TIME_EXTRA_WINDOW_MS = 60 * 60 * 1000;
+export const CURRENT_PROJECT_SECTION_KEY = "current-project";
+
+function buildRecentConversationSection(
+  items: ChatConversationOverviewItem[],
+  title: string,
+): ConversationSection | null {
+  const seenIds = new Set<string>();
+  const recentItems = [...items]
+    .sort((left, right) => conversationRecencyMs(right) - conversationRecencyMs(left))
+    .filter((item) => {
+      const id = String(item.conversationId || "").trim();
+      if (!id || seenIds.has(id)) return false;
+      seenIds.add(id);
+      return true;
+    });
+  if (recentItems.length === 0) return null;
+  return {
+    key: RECENT_CONVERSATION_SECTION_KEY,
+    title,
+    items: recentItems,
+  };
+}
 
 type BuildWorkspaceConversationSectionsOptions = {
   defaultWorkspaceTitle: string;
@@ -84,7 +125,14 @@ type BuildRemoteConversationSectionsOptions = {
 };
 
 function normalizeWorkspaceSectionPath(path: string): string {
-  return String(path || "").trim().replace(/\\/g, "/").replace(/\/+$/, "").toLocaleLowerCase();
+  let normalized = String(path || "").trim();
+  // 剥掉 Windows 扩展长度前缀（\\?\C:\...、\\?\UNC\server\share）与设备前缀（\\.\C:\...），
+  // 它们与普通路径指向同一位置，比较时必须等价对待。
+  normalized = normalized
+    .replace(/^\\\\\?\\unc\\/i, "//")
+    .replace(/^\\\\\?\\/i, "")
+    .replace(/^\\\\.\\/i, "");
+  return normalized.replace(/\\/g, "/").replace(/\/+$/, "").toLocaleLowerCase();
 }
 
 function compareWorkspaceSectionText(left: string, right: string, locale?: string | string[]): number {
@@ -101,13 +149,23 @@ function conversationRecencyMs(item: ChatConversationOverviewItem): number {
   return Number.isFinite(time) ? time : 0;
 }
 
-function shouldIncludeRecentTimeExtra(item: ChatConversationOverviewItem, nowMs: number): boolean {
-  const recencyMs = conversationRecencyMs(item);
-  return recencyMs > 0 && nowMs - recencyMs <= RECENT_TIME_EXTRA_WINDOW_MS;
-}
-
-function shouldIncludeRecentUnreadExtra(item: ChatConversationOverviewItem): boolean {
-  return Number(item.unreadCount || 0) > 0;
+/**
+ * 统计「最近一个凌晨 4 点至今」活跃过的会话数。
+ * items 需按最近活跃降序；计数从头部开始，遇到早于阈值的条目即停止。
+ */
+export function conversationCountSinceDayStart(items: ChatConversationOverviewItem[], nowMs: number = Date.now()): number {
+  const dayStart = new Date(nowMs);
+  dayStart.setHours(4, 0, 0, 0);
+  if (dayStart.getTime() > nowMs) {
+    dayStart.setDate(dayStart.getDate() - 1);
+  }
+  const dayStartMs = dayStart.getTime();
+  let count = 0;
+  for (const item of items) {
+    if (conversationRecencyMs(item) < dayStartMs) break;
+    count += 1;
+  }
+  return count;
 }
 
 export function workspaceNameFromPath(path: string): string {
@@ -125,7 +183,20 @@ export function applyConversationSectionOrder(
   const orderedSections: ConversationSection[] = [];
   const nextOrder: string[] = [];
 
+  // 固定分区（置顶 / 当前项目 / 最近）不参与用户排序，始终按固定顺序排在最前。
+  const FIXED_SECTION_KEYS = ["pinned", CURRENT_PROJECT_SECTION_KEY, RECENT_CONVERSATION_SECTION_KEY];
+  const fixedKeySet = new Set(FIXED_SECTION_KEYS);
+
+  for (const key of FIXED_SECTION_KEYS) {
+    const section = sectionByKey.get(key);
+    if (!section) continue;
+    orderedSections.push(section);
+    nextOrder.push(key);
+    sectionByKey.delete(key);
+  }
+
   for (const key of normalizedSavedOrder) {
+    if (fixedKeySet.has(key)) continue;
     const section = sectionByKey.get(key);
     if (!section) continue;
     orderedSections.push(section);
@@ -275,34 +346,4 @@ export function buildRemoteConversationSections(
         || compareWorkspaceSectionText(left.sortKey, right.sortKey, options.locale);
     })
     .map((entry) => entry.section);
-}
-
-export function buildRecentConversationSection(
-  items: ChatConversationOverviewItem[],
-  title: string,
-): ConversationSection | null {
-  const sortedItems = [...items]
-    .sort((left, right) => conversationRecencyMs(right) - conversationRecencyMs(left));
-  const recentItemsById = new Map<string, ChatConversationOverviewItem>();
-  const addItem = (item: ChatConversationOverviewItem) => {
-    const id = String(item.conversationId || "").trim();
-    if (id) {
-      recentItemsById.set(id, item);
-    }
-  };
-
-  sortedItems.slice(0, RECENT_CONVERSATION_LIMIT).forEach(addItem);
-  const nowMs = Date.now();
-  sortedItems
-    .filter((item) => shouldIncludeRecentTimeExtra(item, nowMs) || shouldIncludeRecentUnreadExtra(item))
-    .forEach(addItem);
-
-  const recentItems = Array.from(recentItemsById.values())
-    .sort((left, right) => conversationRecencyMs(right) - conversationRecencyMs(left));
-  if (recentItems.length === 0) return null;
-  return {
-    key: RECENT_CONVERSATION_SECTION_KEY,
-    title,
-    items: recentItems,
-  };
 }

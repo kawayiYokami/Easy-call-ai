@@ -18,6 +18,7 @@
         :active-tab="chatLeftPanelMode"
         :chat-model-options="chatModelOptions"
         :tool-review-api-config-id="toolReviewApiConfigId"
+        :current-workspace-root-path="currentWorkspaceRootPath"
         @update:active-tab="$emit('update:conversation-list-tab', $event)"
         @edit-task="openTaskEditDialog"
         @select="handleConversationListSelect"
@@ -1872,8 +1873,10 @@ const conversationDisplaySections = computed<ConversationSection[]>(() => {
       pinned: t("chat.pinnedConversations"),
       other: t("chat.otherConversations"),
       defaultWorkspace: t("chat.defaultWorkspace"),
+      currentProject: t("chat.currentProject"),
     },
     locale: locale.value,
+    currentWorkspaceRootPath: props.currentWorkspaceRootPath,
   });
   // Shift+滚轮跳过「最近会话」区：其中的会话在工作区/频道区会重复出现，
   // 滚动时同一会话滚两遍，顺序对不上列表直觉。

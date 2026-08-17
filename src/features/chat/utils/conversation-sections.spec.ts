@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildConversationSections, applyConversationSectionOrder, type ConversationSection, type ConversationSectionTitles } from "./conversation-sections";
+import { buildConversationSections, conversationCountSinceDayStart, applyConversationSectionOrder, type ConversationSection, type ConversationSectionTitles } from "./conversation-sections";
 import type { ChatConversationOverviewItem } from "../../../types/app";
 
 const titles: ConversationSectionTitles = {
@@ -7,6 +7,7 @@ const titles: ConversationSectionTitles = {
   pinned: "置顶",
   other: "其他",
   defaultWorkspace: "默认工作区",
+  currentProject: "当前项目",
 };
 
 function item(overrides: Partial<ChatConversationOverviewItem> & { conversationId: string }): ChatConversationOverviewItem {
@@ -67,6 +68,118 @@ describe("buildConversationSections", () => {
     const sections = buildConversationSections([], { tab: "local", titles, locale: "zh-CN" });
     expect(sections).toEqual([]);
   });
+
+  it("传入当前工作区时生成「当前项目」分组并剔除重复项", () => {
+    const items = [
+      item({ conversationId: "project-a", lastMessageAt: "2026-08-02T00:00:00Z", updatedAt: "2026-08-02T00:00:00Z", workspaceRootPath: "E:/work/proj" }),
+      item({ conversationId: "project-b", lastMessageAt: "2026-08-03T00:00:00Z", updatedAt: "2026-08-03T00:00:00Z", workspaceRootPath: "e:\\work\\proj\\" }),
+      item({ conversationId: "other-ws", lastMessageAt: "2026-08-01T00:00:00Z", updatedAt: "2026-08-01T00:00:00Z", workspaceRootPath: "E:/work/other" }),
+      item({ conversationId: "no-ws", lastMessageAt: "2026-08-01T00:00:00Z", updatedAt: "2026-08-01T00:00:00Z" }),
+    ];
+    const sections = buildConversationSections(items, {
+      tab: "local",
+      titles,
+      locale: "zh-CN",
+      currentWorkspaceRootPath: "E:/work/proj",
+    });
+
+    const currentProject = sections.find((section) => section.key === "current-project");
+    expect(currentProject?.title).toBe("当前项目");
+    expect(currentProject?.items.map((entry) => entry.conversationId)).toEqual(["project-a", "project-b"]);
+
+    const allOtherIds = new Set(
+      sections
+        .filter((section) => section.key !== "current-project")
+        .flatMap((section) => section.items.map((entry) => entry.conversationId)),
+    );
+    expect(allOtherIds).not.toContain("project-a");
+    expect(allOtherIds).not.toContain("project-b");
+    expect(allOtherIds).toContain("other-ws");
+    expect(allOtherIds).toContain("no-ws");
+  });
+
+  it("当前工作区带 Windows 扩展长度前缀时仍能匹配普通路径的会话", () => {
+    const items = [
+      item({ conversationId: "project-a", lastMessageAt: "2026-08-02T00:00:00Z", updatedAt: "2026-08-02T00:00:00Z", workspaceRootPath: "E:/work/proj" }),
+      item({ conversationId: "other-ws", lastMessageAt: "2026-08-01T00:00:00Z", updatedAt: "2026-08-01T00:00:00Z", workspaceRootPath: "E:/work/other" }),
+    ];
+    const sections = buildConversationSections(items, {
+      tab: "local",
+      titles,
+      locale: "zh-CN",
+      currentWorkspaceRootPath: "\\\\?\\E:\\work\\proj",
+    });
+    const currentProject = sections.find((section) => section.key === "current-project");
+    expect(currentProject?.items.map((entry) => entry.conversationId)).toEqual(["project-a"]);
+  });
+
+  it("当前工作区无匹配会话时仍生成空的「当前项目」分组", () => {
+    const items = [
+      item({ conversationId: "other-ws", lastMessageAt: "2026-08-01T00:00:00Z", updatedAt: "2026-08-01T00:00:00Z", workspaceRootPath: "E:/work/other" }),
+    ];
+    const sections = buildConversationSections(items, {
+      tab: "local",
+      titles,
+      locale: "zh-CN",
+      currentWorkspaceRootPath: "E:/work/proj",
+    });
+    const currentProject = sections.find((section) => section.key === "current-project");
+    expect(currentProject).toBeDefined();
+    expect(currentProject?.items).toEqual([]);
+    expect(ids(sections)).toContain("other-ws");
+  });
+
+  it("不传当前工作区时保持原有分组行为", () => {
+    const items = [
+      item({ conversationId: "ws", lastMessageAt: "2026-08-01T00:00:00Z", updatedAt: "2026-08-01T00:00:00Z", workspaceRootPath: "E:/work/proj" }),
+    ];
+    const sections = buildConversationSections(items, { tab: "local", titles, locale: "zh-CN" });
+    expect(sections.some((section) => section.key === "current-project")).toBe(false);
+    expect(sections.some((section) => section.key.startsWith("workspace:"))).toBe(true);
+  });
+
+  it("最近会话分组包含全部候选条目，可持续加载更多直到展开完毕", () => {
+    const items = Array.from({ length: 12 }, (_, index) =>
+      item({
+        conversationId: `recent-${index}`,
+        lastMessageAt: `2026-08-0${(index % 9) + 1}T0${(index % 9) + 1}:00:00Z`,
+        updatedAt: `2026-08-0${(index % 9) + 1}T0${(index % 9) + 1}:00:00Z`,
+      }),
+    );
+    const sections = buildConversationSections(items, { tab: "local", titles, locale: "zh-CN" });
+    const recentSection = sections.find((section) => section.key === "recent");
+    expect(recentSection?.items.length).toBe(12);
+  });
+});
+
+describe("conversationCountSinceDayStart", () => {
+  it("统计当天凌晨 4 点至今活跃的会话数，早于阈值的条目不计数", () => {
+    const now = new Date(2026, 7, 17, 17, 0, 0);
+    const items = [
+      item({ conversationId: "a", lastMessageAt: new Date(2026, 7, 17, 15, 0, 0).toISOString() }),
+      item({ conversationId: "b", lastMessageAt: new Date(2026, 7, 17, 5, 0, 0).toISOString() }),
+      item({ conversationId: "c", lastMessageAt: new Date(2026, 7, 17, 3, 0, 0).toISOString() }),
+    ];
+    expect(conversationCountSinceDayStart(items, now.getTime())).toBe(2);
+  });
+
+  it("当前时间在凌晨 4 点前时回退到昨天凌晨 4 点", () => {
+    const now = new Date(2026, 7, 17, 2, 0, 0);
+    const items = [
+      item({ conversationId: "a", lastMessageAt: new Date(2026, 7, 17, 1, 30, 0).toISOString() }),
+      item({ conversationId: "b", lastMessageAt: new Date(2026, 7, 16, 5, 0, 0).toISOString() }),
+      item({ conversationId: "c", lastMessageAt: new Date(2026, 7, 16, 3, 0, 0).toISOString() }),
+    ];
+    expect(conversationCountSinceDayStart(items, now.getTime())).toBe(2);
+  });
+
+  it("凌晨 4 点至今没有活跃会话时返回 0，由调用方以至少 5 条兜底", () => {
+    const now = new Date(2026, 7, 17, 17, 0, 0);
+    const items = [
+      item({ conversationId: "a", lastMessageAt: new Date(2026, 7, 16, 12, 0, 0).toISOString() }),
+    ];
+    expect(conversationCountSinceDayStart(items, now.getTime())).toBe(0);
+  });
 });
 
 describe("applyConversationSectionOrder", () => {
@@ -120,5 +233,33 @@ describe("applyConversationSectionOrder", () => {
     const result = applyConversationSectionOrder(sections, ["pinned", "workspace:a"]);
 
     expect(result.changed).toBe(false);
+  });
+
+  it("当前项目分组固定在置顶与最近之间，不因旧排序被挤到末尾", () => {
+    const sections = [
+      { key: "workspace:b", title: "B", items: [] },
+      { key: "recent", title: "最近", items: [] },
+      { key: "current-project", title: "当前项目", items: [] },
+      { key: "pinned", title: "置顶", items: [] },
+      { key: "workspace:a", title: "A", items: [] },
+    ] satisfies ConversationSection[];
+
+    const result = applyConversationSectionOrder(sections, ["pinned", "recent", "workspace:b", "workspace:a"]);
+
+    expect(result.sections.map((section) => section.key)).toEqual([
+      "pinned",
+      "current-project",
+      "recent",
+      "workspace:b",
+      "workspace:a",
+    ]);
+    expect(result.nextOrder).toEqual([
+      "pinned",
+      "current-project",
+      "recent",
+      "workspace:b",
+      "workspace:a",
+    ]);
+    expect(result.changed).toBe(true);
   });
 });
