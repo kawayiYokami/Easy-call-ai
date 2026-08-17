@@ -627,6 +627,7 @@ import {
 import { ArrowDownToLine, Check, ChevronsDown, ChevronsUp, CircleAlert, Copy, History, Inbox, ListTodo, Network, Trash2, Undo2, Wrench, X } from "@lucide/vue";
 import {
   copyTransportChatImageToClipboard,
+  getTransportHostContext,
   invokeTauri,
   onTransportNotification,
   openTransportExternalUrl,
@@ -1926,17 +1927,17 @@ function handleRebindConversationRecipient() {
   emit("rebindConversationRecipient", { conversationId, departmentId, agentId });
 }
 
-// 「当前项目」分组只允许在 VS Code 侧边栏显示，且必须对应 VS Code 真正打开的项目：
-// 1. 宿主必须是 VSCode 侧边栏（APP 与 Web 端不生成该分组）
-// 2. 会话工作区里必须存在 VS Code 写入的 vscode-sidebar-main-workspace 条目
-//    （rootPath 无 main 时回退系统工作区，不能冒充「当前项目」）
+// 「当前项目」分组只允许在 VS Code 侧边栏显示：
+// 宿主为 VS Code 时跟随扩展注入的 workspaceRoots（当前打开的项目），
+// 与会话工作区（currentWorkspaceRootPath）无关
 const currentProjectWorkspaceRoot = computed<string>(() => {
   if (!isVscodeHost()) return "";
-  const workspaces = Array.isArray(props.workspaces) ? props.workspaces : [];
-  const hasVscodeSidebarMain = workspaces.some(
-    (workspace) => workspace.id === "vscode-sidebar-main-workspace",
-  );
-  return hasVscodeSidebarMain ? props.currentWorkspaceRootPath : "";
+  try {
+    const hostRoot = getTransportHostContext().workspaceRoots[0];
+    return String(hostRoot?.path || "").trim();
+  } catch {
+    return "";
+  }
 });
 
 const conversationDisplaySections = computed<ConversationSection[]>(() => {
