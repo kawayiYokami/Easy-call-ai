@@ -47,6 +47,13 @@
             <ConversationTodoDropdown :todos="normalizedConversationTodos" :persona-name="personaName" />
           </div>
           <div
+            v-if="showInitialMeasureOverlay"
+            class="absolute inset-0 z-10 flex items-center justify-center bg-base-100/85"
+            aria-hidden="true"
+          >
+            <span class="loading loading-spinner loading-md text-primary" />
+          </div>
+          <div
             ref="scrollContainer"
             class="ecall-chat-scroll-container relative flex flex-1 min-h-0 flex-col overflow-x-hidden overflow-y-auto px-0 py-3"
             :class="chatting || frozen || conversationInteractionBusy ? 'pointer-events-auto' : ''"
@@ -1243,6 +1250,43 @@ const { chatRenderItems, messageMemoKey } = useChatVirtualList({
 
 const virtualRenderItems = computed<ChatRenderItem[]>(() => [...chatRenderItems.value]);
 const olderHistoryCorrectionAllowed = ref(false);
+
+// 初始测高覆盖层：会话切换后消息行按 1px 估计高度定位、未实测前会重叠，
+// 用半透明覆盖层遮住直到视口内全部行实测完成（measurementSettled）。
+// 超时兜底 1.5s 防信号异常导致永久遮挡；流式期间不显示（行高度持续变化）。
+const initialMeasureOverlayForceHidden = ref(false);
+let initialMeasureOverlayTimeout: ReturnType<typeof setTimeout> | undefined;
+watch(
+  () => String(props.activeConversationId || "").trim(),
+  () => {
+    initialMeasureOverlayForceHidden.value = false;
+    if (initialMeasureOverlayTimeout) {
+      clearTimeout(initialMeasureOverlayTimeout);
+      initialMeasureOverlayTimeout = undefined;
+    }
+    if (typeof window !== "undefined") {
+      initialMeasureOverlayTimeout = setTimeout(() => {
+        initialMeasureOverlayTimeout = undefined;
+        initialMeasureOverlayForceHidden.value = true;
+      }, 1500);
+    }
+  },
+  { immediate: true },
+);
+const showInitialMeasureOverlay = computed(() =>
+  !!String(props.activeConversationId || "").trim()
+  && virtualRenderItems.value.length > 0
+  && !props.chatting
+  && !measurementSettled.value
+  && !initialMeasureOverlayForceHidden.value,
+);
+onBeforeUnmount(() => {
+  if (initialMeasureOverlayTimeout) {
+    clearTimeout(initialMeasureOverlayTimeout);
+    initialMeasureOverlayTimeout = undefined;
+  }
+});
+
 const showNoMoreHistoryDivider = computed(() =>
   !!String(props.activeConversationId || "").trim()
   && props.messageBlocks.length > 0
@@ -1322,7 +1366,7 @@ const {
 
 const {
   virtualizer, virtualEntries, totalVirtualSize,
-  latestOwnTailContentHeight, latestOwnTailContentMeasured, scheduleVirtualMeasure, syncViewportMetrics,
+  latestOwnTailContentHeight, latestOwnTailContentMeasured, measurementSettled, scheduleVirtualMeasure, syncViewportMetrics,
   scrollVirtualizerToIndex, scrollVirtualizerToConversationBottomLightweight,
   resetVirtualizerAtConversationBottom,
   measureElementRef,

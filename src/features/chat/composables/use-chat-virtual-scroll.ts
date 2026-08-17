@@ -330,6 +330,52 @@ export function useChatVirtualScroll(options: UseChatVirtualScrollOptions) {
     }
   }
 
+  // ==================== measurement settled ====================
+
+  // 初始测高完成信号：视口内所有行都已进入 itemSizeCache（实测高度完成）
+  // 且 getTotalSize 连续两帧稳定。会话切换后行首帧按 estimateSize=1 定位会
+  // 全部重叠在顶部，覆盖层据此信号放行显示；信号满足后保持 true，直到再次
+  // 切换会话重置。
+  const measurementSettled = ref(false);
+  let settledStableTotal = -1;
+  let settledStableFrames = 0;
+  let settledRetryFrame = 0;
+
+  function viewportRowsAllMeasured(): boolean {
+    const rows = virtualizer.value.getVirtualItems();
+    if (rows.length <= 0) return false;
+    const cache = virtualizer.value.itemSizeCache;
+    return rows.every((row) => cache.has(row.key));
+  }
+
+  function evaluateMeasurementSettled() {
+    if (measurementSettled.value) return;
+    const total = Math.round(virtualizer.value.getTotalSize());
+    const allMeasured = viewportRowsAllMeasured();
+    if (allMeasured) {
+      if (total === settledStableTotal) {
+        settledStableFrames += 1;
+      } else {
+        settledStableTotal = total;
+        settledStableFrames = 0;
+      }
+      if (settledStableFrames >= 2) {
+        measurementSettled.value = true;
+        settledRetryFrame = 0;
+        return;
+      }
+    } else {
+      settledStableTotal = -1;
+      settledStableFrames = 0;
+    }
+    if (!settledRetryFrame && typeof window !== "undefined") {
+      settledRetryFrame = requestAnimationFrame(() => {
+        settledRetryFrame = 0;
+        evaluateMeasurementSettled();
+      });
+    }
+  }
+
   // ==================== measurement ====================
 
   // 测量完全走官方 virtualizer.measureElement（模板 ref 直接绑定）：
@@ -478,6 +524,20 @@ export function useChatVirtualScroll(options: UseChatVirtualScrollOptions) {
     () => String(activeConversationId.value || "").trim(),
     () => {
       beginConversationBottomInitialization();
+      // 会话切换后行需要重新测高，重置覆盖层放行信号并启动检测。
+      measurementSettled.value = false;
+      settledStableTotal = -1;
+      settledStableFrames = 0;
+      if (settledRetryFrame && typeof window !== "undefined") {
+        cancelAnimationFrame(settledRetryFrame);
+        settledRetryFrame = 0;
+      }
+      if (typeof window !== "undefined") {
+        settledRetryFrame = requestAnimationFrame(() => {
+          settledRetryFrame = 0;
+          evaluateMeasurementSettled();
+        });
+      }
     },
     { immediate: true, flush: "post" },
   );
@@ -516,6 +576,10 @@ export function useChatVirtualScroll(options: UseChatVirtualScrollOptions) {
       cancelAnimationFrame(pendingMeasureFrame);
       pendingMeasureFrame = 0;
     }
+    if (settledRetryFrame && typeof window !== "undefined") {
+      cancelAnimationFrame(settledRetryFrame);
+      settledRetryFrame = 0;
+    }
   });
 
   return {
@@ -525,6 +589,7 @@ export function useChatVirtualScroll(options: UseChatVirtualScrollOptions) {
     totalVirtualSize,
     latestOwnTailContentHeight,
     latestOwnTailContentMeasured,
+    measurementSettled,
     measureElementRef,
     virtualDebugVisible,
     virtualDebugState,
