@@ -1551,13 +1551,21 @@
     "createConversationDepartmentPersonaLockedHint": "Department/persona cannot be switched after the conversation starts",
     "conversationMenu": {
       "title": "Conversation Menu",
-      "startDelegate": "Start Delegate",
-      "branchConversation": "Select Messages to Create a Conversation Branch",
+      "startDelegate": "Custom Delegate",
+      "branchConversation": "Create Branch from Selected Messages",
       "autoPush": "Auto Push",
       "forwardConversation": "Forward Conversation",
       "shareConversation": "Share Conversation",
       "setWorkspace": "Set session working directory",
-      "openInBrowser": "Open in Browser"
+      "openInBrowser": "Open in Browser",
+      "groupDelegate": "Delegate",
+      "groupBranch": "Branch",
+      "groupInteraction": "Interaction",
+      "groupAppearance": "Message Appearance",
+      "branchFromCurrent": "Create Branch from Current Session",
+      "sideChatFollowUp": "Follow Up in Side Panel",
+      "autoPushToContact": "Auto Push to a Contact",
+      "forwardToContact": "Forward Selected Messages to a Contact"
     },
     "autoPush": {
       "title": "Auto Push",

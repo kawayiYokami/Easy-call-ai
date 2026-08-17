@@ -175,6 +175,7 @@
               :show-open-in-browser-button="showOpenInBrowserButton && !activeConversationIsSystemNotification"
               :open-in-browser-disabled="!activeConversationId || activeConversationIsSystemNotification"
               :show-code-review-menu-item="true"
+              :side-chat-enabled="sideChatPanelEnabled"
               :mention-entries="mentionEntries" :selected-mention-keys="selectedMentionKeys"
               :delegate-statuses="delegateStatuses"
               @lock-workspace="$emit('lockWorkspace')" @open-branch-selection="openBranchSelectionMenu"
@@ -185,6 +186,8 @@
               @open-conversation-in-browser="openActiveConversationInBrowser"
               @open-delegate-summary="openDelegateSummaryPanel"
               @open-code-review="openCodeReviewDialog"
+              @open-branch-from-current="openBranchFromCurrentMessage"
+              @open-side-chat="selectChatRightPanelMode('sideChat')"
               @mention-entry="(entry) => {
                 const agentId = String(entry?.agentId || '').trim();
                 const departmentId = String(entry?.departmentId || '').trim();
@@ -1059,6 +1062,20 @@ const openBranchSelectionMenu = () => openSelectionMenu({ allowWhenBusy: true })
 const openDelegateSelectionMenu = () => openSelectionMenu({ delegateOnly: true, allowWhenBusy: true });
 const openForwardSelectionMenu = () => openSelectionMenu({ allowWhenBusy: true });
 const openShareSelectionMenu = () => openSelectionMenu({ allowWhenBusy: true });
+
+/** 从当前会话最新一条用户消息直接创建分支（无需进入选择模式） */
+function openBranchFromCurrentMessage() {
+  if (props.chatting || props.frozen || conversationInteractionBusy.value) return;
+  const candidates = props.messageBlocks.filter(
+    (block) => !block.isExtraTextBlock
+      && String(block.role || "").trim().toLowerCase() === "user"
+      && !block.isStreaming,
+  );
+  const latest = candidates[candidates.length - 1];
+  const turnId = latest ? String(latest.sourceMessageId || latest.id || "").trim() : "";
+  if (!turnId) return;
+  emit("createConversationBranchFromTurn", { turnId });
+}
 
 function openTaskCreateDialog() {
   taskDialogMode.value = "create";

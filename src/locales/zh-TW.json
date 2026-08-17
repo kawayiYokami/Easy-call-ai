@@ -1673,13 +1673,21 @@
     "createConversationDepartmentPersonaLockedHint": "會話中途不可切換部門/人格",
     "conversationMenu": {
       "title": "會話選單",
-      "startDelegate": "發起委託",
-      "branchConversation": "選擇訊息建立會話分支",
+      "startDelegate": "自訂委託",
+      "branchConversation": "選擇訊息建立分支",
       "autoPush": "自動推送",
       "forwardConversation": "會話轉發",
-      "shareConversation": "分享會話",
+      "shareConversation": "會話分享",
       "setWorkspace": "設定會話工作目錄",
-      "openInBrowser": "在瀏覽器開啟"
+      "openInBrowser": "在瀏覽器開啟",
+      "groupDelegate": "發起委託",
+      "groupBranch": "會話分支",
+      "groupInteraction": "會話互動",
+      "groupAppearance": "訊息外觀",
+      "branchFromCurrent": "從目前會話建立分支",
+      "sideChatFollowUp": "在側邊追問",
+      "autoPushToContact": "建立自動推送到指定會話",
+      "forwardToContact": "選擇訊息轉發到指定會話"
     },
     "autoPush": {
       "title": "自動推送",
