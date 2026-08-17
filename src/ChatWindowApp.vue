@@ -445,6 +445,7 @@
       @save="saveChatWorkspacePicker"
     />
     <StartupOverlay v-if="startupOverlayVisible" />
+    <ConfigStatusToast :text="status" :tone="statusTone" />
     <div
       v-if="messageStoreMigration.visible"
       class="fixed inset-0 z-9999 flex items-center justify-center bg-base-300/90 p-6 backdrop-blur"
@@ -488,6 +489,7 @@
 
 <script lang="ts">
 import { defineComponent, onBeforeUnmount } from "vue";
+import ConfigStatusToast from "./features/config/components/ConfigStatusToast.vue";
 import Win10ResizeHandles from "./features/shell/components/Win10ResizeHandles.vue";
 import ChatWorkspacePickerDialog from "./features/chat/components/dialogs/ChatWorkspacePickerDialog.vue";
 import AppWindowContent from "./features/shell/components/AppWindowContent.vue";
@@ -517,6 +519,7 @@ export default defineComponent({
     AppWindowHeader,
     ShellDialogsHost,
     StartupOverlay,
+    ConfigStatusToast,
   },
   setup() {
     const app = useChatWindowApp();

@@ -220,7 +220,7 @@ export function useChatWindowApp() {
   } = useMessageStoreMigrationGate({
     formatRequestFailed: (error) => formatI18nError(tr, "status.requestFailed", error),
   });
-  const { perfNow, perfLog, setStatus, setStatusError, localeOptions, applyUiLanguage } = useAppCore({
+  const { perfNow, perfLog, setStatus, setStatusError, statusTone, localeOptions, applyUiLanguage } = useAppCore({
     t: tr,
     config,
     locale,
@@ -997,6 +997,7 @@ export function useChatWindowApp() {
     clipboardImages,
     queuedAttachmentNotices,
     status,
+    statusTone,
     terminalApprovalResolving,
     loading,
     saving,

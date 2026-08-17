@@ -256,6 +256,8 @@
 
     <StartupOverlay v-if="startupOverlayVisible" />
 
+    <ConfigStatusToast :text="status" :tone="statusTone" />
+
     <Win10ResizeHandles :enabled="!maximized" />
   </div>
 </template>
@@ -268,6 +270,7 @@ import AppWindowHeader from "./features/shell/components/AppWindowHeader.vue";
 import ShellDialogsHost from "./features/shell/components/ShellDialogsHost.vue";
 import StartupOverlay from "./features/shell/components/StartupOverlay.vue";
 import Win10ResizeHandles from "./features/shell/components/Win10ResizeHandles.vue";
+import ConfigStatusToast from "./features/config/components/ConfigStatusToast.vue";
 import MemoryDialog from "./features/memory/components/dialogs/MemoryDialog.vue";
 import PromptPreviewDialog from "./features/chat/components/dialogs/PromptPreviewDialog.vue";
 import { getTransportCapabilities, invokeTauri, openTransportWindow } from "./services/tauri-api";
@@ -439,6 +442,7 @@ const markdownIsDark = computed(() => isDarkAppTheme(currentTheme.value));
 const {
   setStatus,
   setStatusError,
+  statusTone,
   localeOptions,
   applyUiLanguage,
 } = useAppCore({

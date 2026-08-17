@@ -1,4 +1,4 @@
-import { computed, type Ref } from "vue";
+import { computed, ref, type Ref } from "vue";
 import { formatI18nError } from "../../../utils/error";
 import { normalizeLocale, type SupportedLocale } from "../../../i18n";
 import type { AppConfig } from "../../../types/app";
@@ -14,6 +14,8 @@ type UseAppCoreOptions = {
   perfDebug: boolean;
 };
 
+export type StatusTone = "default" | "error" | "success";
+
 export function useAppCore(options: UseAppCoreOptions) {
   function perfNow(): number {
     return typeof performance !== "undefined" ? performance.now() : Date.now();
@@ -25,12 +27,16 @@ export function useAppCore(options: UseAppCoreOptions) {
     console.log(`[性能] ${label}: ${cost}ms`);
   }
 
-  function setStatus(text: string) {
+  const statusTone = ref<StatusTone>("default");
+
+  function setStatus(text: string, tone: StatusTone = "default") {
     options.status.value = text;
+    statusTone.value = tone;
   }
 
   function setStatusError(key: string, error: unknown) {
     options.status.value = formatI18nError(options.t, key, error);
+    statusTone.value = "error";
   }
 
   const localeOptions = computed<Array<{ value: SupportedLocale; label: string }>>(() => [
@@ -55,6 +61,7 @@ export function useAppCore(options: UseAppCoreOptions) {
     perfLog,
     setStatus,
     setStatusError,
+    statusTone,
     localeOptions,
     applyUiLanguage,
   };
