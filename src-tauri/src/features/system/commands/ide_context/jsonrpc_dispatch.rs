@@ -337,6 +337,22 @@ async fn ide_chat_handle_jsonrpc_request(
         "prompt.preview" => ide_chat_get_prompt_preview_for_web_settings(state, request.params).await,
         "get_system_prompt_preview" => ide_chat_get_system_prompt_preview_for_web_settings(state, request.params).await,
         "prompt.systemPreview" => ide_chat_get_system_prompt_preview_for_web_settings(state, request.params).await,
+        "get_conversation_section_orders" => (|| -> Result<Value, String> {
+            ide_chat_serialize(get_conversation_section_orders_inner(state)?)
+        })(),
+        "conversation.sectionOrders.get" => (|| -> Result<Value, String> {
+            ide_chat_serialize(get_conversation_section_orders_inner(state)?)
+        })(),
+        "save_conversation_section_order" => (|| -> Result<Value, String> {
+            let input =
+                ide_chat_parse_param_field::<SaveConversationSectionOrderInput>(request.params, "input")?;
+            ide_chat_serialize(save_conversation_section_order_inner(input, state)?)
+        })(),
+        "conversation.sectionOrders.save" => (|| -> Result<Value, String> {
+            let input =
+                ide_chat_parse_param_field::<SaveConversationSectionOrderInput>(request.params, "input")?;
+            ide_chat_serialize(save_conversation_section_order_inner(input, state)?)
+        })(),
         "delegate.statuses" => ide_chat_delegate_statuses(state, request.params),
         "delegate.abort" => ide_chat_delegate_abort(state, request.params),
         "delegate.blockPage" => ide_chat_delegate_block_page(state, request.params),

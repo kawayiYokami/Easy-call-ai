@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildConversationSections, type ConversationSectionTitles } from "./conversation-sections";
+import { buildConversationSections, applyConversationSectionOrder, type ConversationSection, type ConversationSectionTitles } from "./conversation-sections";
 import type { ChatConversationOverviewItem } from "../../../types/app";
 
 const titles: ConversationSectionTitles = {
@@ -66,5 +66,59 @@ describe("buildConversationSections", () => {
   it("空列表不产生任何分区", () => {
     const sections = buildConversationSections([], { tab: "local", titles, locale: "zh-CN" });
     expect(sections).toEqual([]);
+  });
+});
+
+describe("applyConversationSectionOrder", () => {
+  it("应按已保存顺序排列并追加新分区到末尾", () => {
+    const sections = [
+      { key: "workspace:b", title: "B", items: [] },
+      { key: "workspace:c", title: "C", items: [] },
+      { key: "workspace:a", title: "A", items: [] },
+    ] satisfies ConversationSection[];
+
+    const result = applyConversationSectionOrder(sections, ["workspace:a", "workspace:b"]);
+
+    expect(result.sections.map((section) => section.key)).toEqual([
+      "workspace:a",
+      "workspace:b",
+      "workspace:c",
+    ]);
+    expect(result.nextOrder).toEqual([
+      "workspace:a",
+      "workspace:b",
+      "workspace:c",
+    ]);
+    expect(result.changed).toBe(true);
+  });
+
+  it("应忽略已保存顺序中不存在的 key 并保持剩余稳定顺序", () => {
+    const sections = [
+      { key: "workspace:b", title: "B", items: [] },
+      { key: "workspace:a", title: "A", items: [] },
+    ] satisfies ConversationSection[];
+
+    const result = applyConversationSectionOrder(sections, ["workspace:gone", "workspace:a", "workspace:b"]);
+
+    expect(result.sections.map((section) => section.key)).toEqual([
+      "workspace:a",
+      "workspace:b",
+    ]);
+    expect(result.nextOrder).toEqual([
+      "workspace:a",
+      "workspace:b",
+    ]);
+    expect(result.changed).toBe(true);
+  });
+
+  it("顺序未变化时 changed 为 false", () => {
+    const sections = [
+      { key: "pinned", title: "置顶", items: [] },
+      { key: "workspace:a", title: "A", items: [] },
+    ] satisfies ConversationSection[];
+
+    const result = applyConversationSectionOrder(sections, ["pinned", "workspace:a"]);
+
+    expect(result.changed).toBe(false);
   });
 });

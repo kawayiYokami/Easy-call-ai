@@ -70,10 +70,16 @@
               :title="section.title"
               :count="section.totalItemCount"
               :model-value="isConversationSectionCollapsed(section.key)"
+              :draggable="isConversationSectionDraggable(section)"
+              :drop-indicator="conversationSectionDragIndicator(section)"
               @update:model-value="toggleConversationSection(section.key)"
               @collapse-all="collapseAllConversationSections"
               @after-enter="scheduleConversationListScrollbarUpdate"
               @after-leave="scheduleConversationListScrollbarUpdate"
+              @dragstart="handleConversationSectionDragStart(section, $event)"
+              @dragover="handleConversationSectionDragOver(section, $event)"
+              @drop="handleConversationSectionDrop(section, $event)"
+              @dragend="handleConversationSectionDragEnd"
             >
             <template #actions>
               <button
@@ -310,10 +316,12 @@ import {
   conversationLastUsedMs,
 } from "../utils/conversation-aggregation";
 import {
+  applyConversationSectionOrder,
   buildConversationSections,
   RECENT_CONVERSATION_SECTION_KEY,
   workspaceNameFromPath,
   type ConversationSection,
+  type ConversationSectionOrderState,
 } from "../utils/conversation-sections";
 import { resolveConversationDisplayTitle } from "../utils/conversation-title";
 import { simpleConversationItemLevel } from "../utils/conversation-item-display";
@@ -376,6 +384,11 @@ const batchArchiveSelectedConversationIds = ref<Set<string>>(new Set());
 const batchArchiveSubmitting = ref(false);
 const conversationFloatingScrollRef = ref<InstanceType<typeof ChatConversationFloatingScroll> | null>(null);
 const collapsedConversationSectionKeys = ref<Record<string, boolean>>({});
+const conversationSectionOrders = ref<ConversationSectionOrderState>({ local: [], contact: [] });
+const draggingConversationSectionKey = ref("");
+const dragOverConversationSectionKey = ref("");
+const dragOverConversationSectionPlacement = ref<"before" | "after">("before");
+const savingConversationSectionOrder = ref(false);
 const conversationSectionLoadMoreCounts = ref<Record<string, number>>({});
 const conversationSectionResetTimers = new Map<ConversationSidebarTab, ReturnType<typeof setTimeout>>();
 const conversationTabTransitionName = ref("conversation-tab-slide-left");
@@ -406,6 +419,11 @@ const conversationSections = computed<ConversationSection[]>(() =>
     locale: locale.value,
   }),
 );
+
+const orderedConversationSections = computed<ConversationSection[]>(() => {
+  const tab = activeConversationTab.value === "contact" ? "contact" : "local";
+  return applyConversationSectionOrder(conversationSections.value, conversationSectionOrders.value[tab]).sections;
+});
 
 const normalizedConversationSearchQuery = computed(() =>
   String(conversationSearchQuery.value || "").trim().toLocaleLowerCase(),
@@ -504,8 +522,8 @@ watch(
 
 const filteredConversationSections = computed(() => {
   const query = normalizedConversationSearchQuery.value;
-  if (!query) return conversationSections.value;
-  return conversationSections.value
+  if (!query) return orderedConversationSections.value;
+  return orderedConversationSections.value
     .map((section) => ({
       ...section,
       items: section.items.filter((item) => conversationMatchesSearch(item, query)),
@@ -537,11 +555,139 @@ watch(
   },
 );
 
+onMounted(() => {
+  void loadConversationSectionOrders();
+});
+
 onBeforeUnmount(() => {
   clearConversationSectionResetTimer("local");
   clearConversationSectionResetTimer("contact");
   clearConversationSectionResetTimer("task");
 });
+
+async function loadConversationSectionOrders() {
+  try {
+    const result = await invokeTauri<ConversationSectionOrderState>("conversation.sectionOrders.get");
+    conversationSectionOrders.value = {
+      local: Array.isArray(result?.local) ? result.local.map((item) => String(item || "").trim()).filter(Boolean) : [],
+      contact: Array.isArray(result?.contact) ? result.contact.map((item) => String(item || "").trim()).filter(Boolean) : [],
+    };
+  } catch (error) {
+    console.warn("[会话分组排序] 读取失败", { error });
+  }
+}
+
+async function persistConversationSectionOrder(tab: "local" | "contact", orderedKeys: string[]) {
+  savingConversationSectionOrder.value = true;
+  try {
+    const result = await invokeTauri<{ orderedKeys?: string[] }>("conversation.sectionOrders.save", {
+      input: {
+        tab,
+        orderedKeys,
+      },
+    });
+    conversationSectionOrders.value = {
+      ...conversationSectionOrders.value,
+      [tab]: Array.isArray(result?.orderedKeys)
+        ? result.orderedKeys.map((item) => String(item || "").trim()).filter(Boolean)
+        : orderedKeys,
+    };
+  } catch (error) {
+    console.warn("[会话分组排序] 保存失败", { tab, error });
+  } finally {
+    savingConversationSectionOrder.value = false;
+  }
+}
+
+function isConversationSectionDraggable(section: ConversationSection): boolean {
+  if (normalizedConversationSearchQuery.value) return false;
+  return section.key !== "pinned" && section.key !== RECENT_CONVERSATION_SECTION_KEY;
+}
+
+function handleConversationSectionDragStart(section: ConversationSection, event: DragEvent) {
+  handleConversationSectionDragEnd();
+  if (!isConversationSectionDraggable(section)) {
+    event.preventDefault();
+    event.stopPropagation();
+    return;
+  }
+  draggingConversationSectionKey.value = section.key;
+  if (event.dataTransfer) {
+    event.dataTransfer.effectAllowed = "move";
+    event.dataTransfer.setData("text/plain", section.key);
+    const currentTarget = event.currentTarget;
+    if (currentTarget instanceof HTMLElement) {
+      event.dataTransfer.setDragImage(currentTarget, 16, 16);
+    }
+  }
+}
+
+function handleConversationSectionDragOver(section: ConversationSection, event: DragEvent) {
+  if (!draggingConversationSectionKey.value || !isConversationSectionDraggable(section)) return;
+  event.preventDefault();
+  const currentTarget = event.currentTarget;
+  if (currentTarget instanceof HTMLElement) {
+    const rect = currentTarget.getBoundingClientRect();
+    const offsetY = event.clientY - rect.top;
+    dragOverConversationSectionPlacement.value = offsetY >= rect.height / 2 ? "after" : "before";
+    dragOverConversationSectionKey.value = section.key;
+  }
+  if (event.dataTransfer) {
+    event.dataTransfer.dropEffect = "move";
+  }
+}
+
+function handleConversationSectionDragEnd() {
+  draggingConversationSectionKey.value = "";
+  dragOverConversationSectionKey.value = "";
+  dragOverConversationSectionPlacement.value = "before";
+}
+
+function handleConversationSectionDrop(section: ConversationSection, event: DragEvent) {
+  const draggingKey = String(draggingConversationSectionKey.value || "").trim();
+  if (!draggingKey || draggingKey === section.key || !isConversationSectionDraggable(section)) {
+    handleConversationSectionDragEnd();
+    return;
+  }
+  event.preventDefault();
+  const tab = activeConversationTab.value === "contact" ? "contact" : "local";
+  const draggableKeys = orderedConversationSections.value
+    .filter((item) => isConversationSectionDraggable(item))
+    .map((item) => item.key);
+  const fromIndex = draggableKeys.indexOf(draggingKey);
+  const rawToIndex = draggableKeys.indexOf(section.key);
+  const dropPlacement = dragOverConversationSectionKey.value === section.key
+    ? dragOverConversationSectionPlacement.value
+    : "before";
+  const toIndex = dropPlacement === "after" ? rawToIndex + 1 : rawToIndex;
+  if (fromIndex < 0 || toIndex < 0) {
+    handleConversationSectionDragEnd();
+    return;
+  }
+  const nextDraggableKeys = [...draggableKeys];
+  const [moved] = nextDraggableKeys.splice(fromIndex, 1);
+  const adjustedToIndex = fromIndex < toIndex ? toIndex - 1 : toIndex;
+  nextDraggableKeys.splice(adjustedToIndex, 0, moved);
+  const fixedPrefix = orderedConversationSections.value
+    .filter((item) => !isConversationSectionDraggable(item))
+    .map((item) => item.key);
+  const nextOrder = [...fixedPrefix, ...nextDraggableKeys];
+  handleConversationSectionDragEnd();
+  const currentSavedOrder = conversationSectionOrders.value[tab] || [];
+  const orderUnchanged = nextOrder.length === currentSavedOrder.length
+    && nextOrder.every((key, index) => key === currentSavedOrder[index]);
+  if (orderUnchanged) return;
+  conversationSectionOrders.value = {
+    ...conversationSectionOrders.value,
+    [tab]: nextOrder,
+  };
+  void persistConversationSectionOrder(tab, nextOrder);
+}
+
+function conversationSectionDragIndicator(section: ConversationSection): "before" | "after" | null {
+  if (dragOverConversationSectionKey.value !== section.key) return null;
+  return dragOverConversationSectionPlacement.value;
+}
 
 function defaultVisibleConversationCount(section: ConversationSection): number {
   const items = Array.isArray(section.items) ? section.items : [];

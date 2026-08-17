@@ -81,6 +81,30 @@ fn state_service_set_pinned_conversation_ids(
     state_service_set_kv_json(state, "pinned_conversation_ids", &ids.to_vec())
 }
 
+// ---------- conversation_section_orders ----------
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ConversationSectionOrders {
+    #[serde(default)]
+    local: Vec<String>,
+    #[serde(default)]
+    contact: Vec<String>,
+}
+
+fn state_service_get_conversation_section_orders(
+    state: &AppState,
+) -> Result<ConversationSectionOrders, String> {
+    state_service_get_kv_json::<ConversationSectionOrders>(state, "conversation_section_orders")
+}
+
+fn state_service_set_conversation_section_orders(
+    state: &AppState,
+    orders: &ConversationSectionOrders,
+) -> Result<(), String> {
+    state_service_set_kv_json(state, "conversation_section_orders", orders)
+}
+
 // ---------- main_conversation_id ----------
 
 fn state_service_get_main_conversation_id(state: &AppState) -> Result<Option<String>, String> {

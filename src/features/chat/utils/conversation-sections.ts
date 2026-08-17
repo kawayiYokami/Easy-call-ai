@@ -8,6 +8,11 @@ export type ConversationSection = {
   workspaceRootPath?: string;
 };
 
+export type ConversationSectionOrderState = {
+  local: string[];
+  contact: string[];
+};
+
 export type ConversationSidebarTab = "local" | "contact" | "task";
 
 export type ConversationSectionTitles = {
@@ -107,6 +112,42 @@ function shouldIncludeRecentUnreadExtra(item: ChatConversationOverviewItem): boo
 
 export function workspaceNameFromPath(path: string): string {
   return defaultWorkspaceNameFromPath(path);
+}
+
+export function applyConversationSectionOrder(
+  sections: ConversationSection[],
+  savedOrder: string[],
+): { sections: ConversationSection[]; nextOrder: string[]; changed: boolean } {
+  const normalizedSavedOrder = Array.isArray(savedOrder)
+    ? savedOrder.map((item) => String(item || "").trim()).filter(Boolean)
+    : [];
+  const sectionByKey = new Map(sections.map((section) => [section.key, section] as const));
+  const orderedSections: ConversationSection[] = [];
+  const nextOrder: string[] = [];
+
+  for (const key of normalizedSavedOrder) {
+    const section = sectionByKey.get(key);
+    if (!section) continue;
+    orderedSections.push(section);
+    nextOrder.push(key);
+    sectionByKey.delete(key);
+  }
+
+  for (const section of sections) {
+    if (!sectionByKey.has(section.key)) continue;
+    orderedSections.push(section);
+    nextOrder.push(section.key);
+    sectionByKey.delete(section.key);
+  }
+
+  const changed = nextOrder.length !== normalizedSavedOrder.length
+    || nextOrder.some((key, index) => key !== normalizedSavedOrder[index]);
+
+  return {
+    sections: orderedSections,
+    nextOrder,
+    changed,
+  };
 }
 
 function resolveWorkspaceSectionTitle(

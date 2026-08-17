@@ -814,6 +814,38 @@ struct ToggleUnarchivedConversationPinOutput {
     is_pinned: bool,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct SaveConversationSectionOrderInput {
+    tab: String,
+    ordered_keys: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct SaveConversationSectionOrderOutput {
+    tab: String,
+    ordered_keys: Vec<String>,
+}
+
+fn normalize_conversation_section_order_keys(keys: &[String]) -> Vec<String> {
+    let mut seen = std::collections::HashSet::<String>::new();
+    keys.iter()
+        .map(|item| item.trim())
+        .filter(|item| !item.is_empty())
+        .filter(|item| seen.insert((*item).to_string()))
+        .map(ToOwned::to_owned)
+        .collect()
+}
+
+fn normalize_conversation_section_order_tab(tab: &str) -> Result<&'static str, String> {
+    match tab.trim() {
+        "local" => Ok("local"),
+        "contact" => Ok("contact"),
+        _ => Err("tab 只支持 local 或 contact".to_string()),
+    }
+}
+
 fn trimmed_option(raw: Option<&str>) -> Option<String> {
     raw.map(str::trim)
         .filter(|value| !value.is_empty())
@@ -1780,6 +1812,51 @@ fn toggle_unarchived_conversation_pin_inner(
     Ok(ToggleUnarchivedConversationPinOutput {
         conversation_id: result.conversation_id,
         is_pinned: result.is_pinned,
+    })
+}
+
+#[tauri::command]
+fn get_conversation_section_orders(
+    state: State<'_, AppState>,
+) -> Result<ConversationSectionOrders, String> {
+    get_conversation_section_orders_inner(state.inner())
+}
+
+fn get_conversation_section_orders_inner(
+    state: &AppState,
+) -> Result<ConversationSectionOrders, String> {
+    state_service_get_conversation_section_orders(state)
+}
+
+#[tauri::command]
+fn save_conversation_section_order(
+    input: SaveConversationSectionOrderInput,
+    state: State<'_, AppState>,
+) -> Result<SaveConversationSectionOrderOutput, String> {
+    save_conversation_section_order_inner(input, state.inner())
+}
+
+fn save_conversation_section_order_inner(
+    input: SaveConversationSectionOrderInput,
+    state: &AppState,
+) -> Result<SaveConversationSectionOrderOutput, String> {
+    let tab = normalize_conversation_section_order_tab(&input.tab)?;
+    let ordered_keys = normalize_conversation_section_order_keys(&input.ordered_keys);
+    let mut orders = state_service_get_conversation_section_orders(state)?;
+    match tab {
+        "local" => orders.local = ordered_keys.clone(),
+        "contact" => orders.contact = ordered_keys.clone(),
+        _ => {}
+    }
+    state_service_set_conversation_section_orders(state, &orders)?;
+    runtime_log_info(format!(
+        "[会话分组排序] 完成，任务=保存会话分组顺序，tab={}，group_count={}",
+        tab,
+        ordered_keys.len()
+    ));
+    Ok(SaveConversationSectionOrderOutput {
+        tab: tab.to_string(),
+        ordered_keys,
     })
 }
 
