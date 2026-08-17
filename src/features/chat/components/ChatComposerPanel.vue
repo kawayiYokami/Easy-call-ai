@@ -157,7 +157,7 @@
         </div>
       </div>
       <div v-if="mobileViewport" class="flex flex-col gap-1.5">
-        <div class="flex items-center gap-1.5">
+        <div class="flex items-start gap-1.5">
           <button
             v-if="isMobileCompact"
             type="button"
@@ -1395,11 +1395,8 @@ function togglePlanMode() {
 function resizeChatInput() {
   const el = chatInputRef.value;
   if (!el) return;
-  if (isMobileCompact.value) {
-    el.style.height = "";
-    el.style.overflowY = "auto";
-    return;
-  }
+  // 移动紧凑态同样随内容增高（主流聊天应用行为）；软键盘收起时由
+  // watch(isMobileCompact) 清空高度缩回单行。
   const minHeight = mobileViewport.value ? 24 : 48;
   const maxHeight = 160;
   el.style.height = "auto";
