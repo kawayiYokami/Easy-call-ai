@@ -103,7 +103,7 @@ const autoDarkTheme = ref<string>(GENERATED_THEME_DARK_ID);
 const systemPrefersDark = ref(false);
 let systemThemeListenerRegistered = false;
 
-function isVscodeHost(): boolean {
+export function isVscodeHost(): boolean {
   if (typeof document === "undefined") return false;
   return document.documentElement.getAttribute("data-host") === "vscode";
 }

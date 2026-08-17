@@ -18,7 +18,7 @@
         :active-tab="chatLeftPanelMode"
         :chat-model-options="chatModelOptions"
         :tool-review-api-config-id="toolReviewApiConfigId"
-        :current-workspace-root-path="currentWorkspaceRootPath"
+        :current-workspace-root-path="currentProjectWorkspaceRoot"
         @update:active-tab="$emit('update:conversation-list-tab', $event)"
         @edit-task="openTaskEditDialog"
         @select="handleConversationListSelect"
@@ -609,7 +609,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, toRef, watch, type Ref } from "vue";
 import { useI18n } from "vue-i18n";
-import { isDarkAppTheme } from "../../shell/composables/use-app-theme";
+import { isDarkAppTheme, isVscodeHost } from "../../shell/composables/use-app-theme";
 import {
   useChatComposerAppearance,
   visibleChatComposerContextGroups,
@@ -1865,6 +1865,19 @@ function handleRebindConversationRecipient() {
   emit("rebindConversationRecipient", { conversationId, departmentId, agentId });
 }
 
+// 「当前项目」分组只允许在 VS Code 侧边栏显示，且必须对应 VS Code 真正打开的项目：
+// 1. 宿主必须是 VSCode 侧边栏（APP 与 Web 端不生成该分组）
+// 2. 会话工作区里必须存在 VS Code 写入的 vscode-sidebar-main-workspace 条目
+//    （rootPath 无 main 时回退系统工作区，不能冒充「当前项目」）
+const currentProjectWorkspaceRoot = computed<string>(() => {
+  if (!isVscodeHost()) return "";
+  const workspaces = Array.isArray(props.workspaces) ? props.workspaces : [];
+  const hasVscodeSidebarMain = workspaces.some(
+    (workspace) => workspace.id === "vscode-sidebar-main-workspace",
+  );
+  return hasVscodeSidebarMain ? props.currentWorkspaceRootPath : "";
+});
+
 const conversationDisplaySections = computed<ConversationSection[]>(() => {
   const sections = buildConversationSections(props.conversationItems || props.unarchivedConversationItems || [], {
     tab: props.chatLeftPanelMode,
@@ -1876,7 +1889,7 @@ const conversationDisplaySections = computed<ConversationSection[]>(() => {
       currentProject: t("chat.currentProject"),
     },
     locale: locale.value,
-    currentWorkspaceRootPath: props.currentWorkspaceRootPath,
+    currentWorkspaceRootPath: currentProjectWorkspaceRoot.value,
   });
   // Shift+滚轮跳过「最近会话」区：其中的会话在工作区/频道区会重复出现，
   // 滚动时同一会话滚两遍，顺序对不上列表直觉。
