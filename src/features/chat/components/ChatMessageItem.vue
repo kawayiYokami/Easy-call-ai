@@ -214,29 +214,43 @@
                 class="ecall-assistant-segment-list"
                 :class="{ 'ecall-assistant-segment-list-plain': !assistantBubbleBackgroundEnabled }"
               >
-                <div
-                  v-for="(segment, segmentIndex) in assistantMarkdownSegments"
-                  :key="segment.key"
-                  :class="[
-                    'ecall-assistant-segment',
-                    segment.kind === 'text' ? 'ecall-assistant-segment-text' : 'ecall-assistant-segment-rich',
-                    segment.kind === 'text' && assistantBubbleBackgroundEnabled
-                      ? 'ecall-assistant-segment-surface'
-                      : 'ecall-assistant-segment-plain',
-                  ]"
+                <template
+                  v-for="(piece, pieceIndex) in assistantMarkdownPieces"
+                  :key="piece.key"
                 >
-                  <AppMarkdownRenderer
-                    class="ecall-markdown-content max-w-none"
-                    :blocks="segment.blocks"
-                    :is-dark="markdownIsDark"
-                    :streaming="!!block.isStreaming && segmentIndex === assistantMarkdownSegments.length - 1"
-                    :local-image-base-path="currentWorkspaceRootPath"
-                    :toolcall-preview-map="toolcallPreviewMap"
-                    @math-context-menu="openMathContextMenu"
-                    @open-image-preview="emit('openImagePreview', $event)"
-                    @click="emit('assistantLinkClick', $event)"
-                  />
-                </div>
+                  <div
+                    v-if="pieceIndex > 0 && !assistantBubbleBackgroundEnabled"
+                    class="divider divider-start my-1 mx-[0.82rem]"
+                  >
+                    <span class="flex items-center gap-1">
+                      <CircleCheckBig class="h-3 w-3 opacity-60" />
+                      <span class="opacity-60">{{ pieceIndex }}</span>
+                    </span>
+                  </div>
+                  <div
+                    v-for="(segment, segmentIndex) in piece.segments"
+                    :key="segment.key"
+                    :class="[
+                      'ecall-assistant-segment',
+                      segment.kind === 'text' ? 'ecall-assistant-segment-text' : 'ecall-assistant-segment-rich',
+                      segment.kind === 'text' && assistantBubbleBackgroundEnabled
+                        ? 'ecall-assistant-segment-surface'
+                        : 'ecall-assistant-segment-plain',
+                    ]"
+                  >
+                    <AppMarkdownRenderer
+                      class="ecall-markdown-content max-w-none"
+                      :blocks="segment.blocks"
+                      :is-dark="markdownIsDark"
+                      :streaming="!!block.isStreaming && pieceIndex === assistantMarkdownPieces.length - 1 && segmentIndex === piece.segments.length - 1"
+                      :local-image-base-path="currentWorkspaceRootPath"
+                      :toolcall-preview-map="toolcallPreviewMap"
+                      @math-context-menu="openMathContextMenu"
+                      @open-image-preview="emit('openImagePreview', $event)"
+                      @click="emit('assistantLinkClick', $event)"
+                    />
+                  </div>
+                </template>
               </div>
               <AppMarkdownRenderer
                 v-else
@@ -510,7 +524,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch, watchEffect, watchPostEffect } from "vue";
 import { useI18n } from "vue-i18n";
-import { Braces, ChevronDown, Copy, FileText, ImageIcon, ListCheck, Split, Undo2 } from "@lucide/vue";
+import { Braces, ChevronDown, CircleCheckBig, Copy, FileText, ImageIcon, ListCheck, Split, Undo2 } from "@lucide/vue";
 import { invokeTauri, openTransportWorkspaceFile, readTransportChatImage } from "../../../services/tauri-api";
 import type { ChatActivityItem, ChatMessageBlock } from "../../../types/app";
 import {
@@ -616,25 +630,25 @@ const assistantRenderedText = computed(() =>
   assistantRawRenderedText.value.split(TOOL_TEXT_BREAK_PLACEHOLDER).join("\n\n"),
 );
 const segmentedMarkdownActive = computed(() => segmentedMarkdownEnabled.value);
-const assistantMarkdownSegments = computed<MarkdownSegment[]>(() => {
+const assistantMarkdownPieces = computed<Array<{ key: string; segments: MarkdownSegment[] }>>(() => {
   if (plainMarkdownDebugEnabled || !segmentedMarkdownActive.value) return [];
   const text = assistantRawRenderedText.value;
   if (!text) return [];
   const pieces = text.split(TOOL_TEXT_BREAK_PLACEHOLDER);
-  const segments: MarkdownSegment[] = [];
+  const result: Array<{ key: string; segments: MarkdownSegment[] }> = [];
   pieces.forEach((piece, pieceIndex) => {
     if (!piece.trim()) return;
     const blocks = parseMarkdownBlocks(piece, !!props.block.isStreaming);
-    const grouped = groupMarkdownSegments(blocks);
-    for (const segment of grouped) {
-      segments.push({ ...segment, key: `seg-${pieceIndex}-${segment.key}` });
-    }
+    result.push({
+      key: `piece-${pieceIndex}`,
+      segments: groupMarkdownSegments(blocks),
+    });
   });
-  return segments;
+  return result;
 });
 const assistantUsesSegmentedMarkdown = computed(() => {
   if (plainMarkdownDebugEnabled || !segmentedMarkdownActive.value) return false;
-  return assistantMarkdownSegments.value.length > 0;
+  return assistantMarkdownPieces.value.length > 0;
 });
 const teleportTheme = computed(() => {
   const documentTheme = typeof document === "undefined" ? "" : document.documentElement.getAttribute("data-theme");
@@ -2039,14 +2053,9 @@ function openAttachmentPath(path: string) {
   gap: 0.5rem;
 }
 
-/* 无背景模式：段之间用分割线区分，替代卡片背景 */
+/* 无背景模式：分段之间用 daisyUI divider 分隔（见模板） */
 .ecall-assistant-segment-list-plain {
   gap: 0;
-}
-
-.ecall-assistant-segment-list-plain > .ecall-assistant-segment + .ecall-assistant-segment {
-  border-top: 1px solid var(--color-base-300);
-  padding-top: 0.5rem;
 }
 
 /* 无背景模式：计划卡跟在正文段后，顶部用分割线区分 */
