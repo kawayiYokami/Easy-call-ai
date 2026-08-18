@@ -335,6 +335,26 @@ function injectToolInlineMarkersIntoMergedText(text: string, events: NormalizedT
     if (index < 0) continue;
     output = `${output.slice(0, index)}${marked}${output.slice(index + raw.length)}`;
   }
+  // 事件驱动就地插占位符：工具调用事件（含纯标记事件）的标记串之后紧接正文内容时，
+  // 在边界插入 TOOL_TEXT_BREAK_PLACEHOLDER，与 joinAssistantHistoryTexts 的
+  // 「前段含工具标记 && 后段有正文」规则对齐。已有占位符或后接另一标记时不插。
+  for (const event of events) {
+    if (event.toolCalls.length === 0) continue;
+    const markerText = toolCallInlineSuffix(event).trim();
+    if (!markerText) continue;
+    // 用 lastIndexOf 定位「该事件追加/自带于最晚位置」的标记串：
+    // 事件文本本身可能已含同名 [toolcall:id]，indexOf 会命中文本中更早的自带标记，
+    // 导致把「事件文本内容」误判为工具后新正文边界。
+    const markerIndex = output.lastIndexOf(markerText);
+    if (markerIndex < 0) continue;
+    const markerEnd = markerIndex + markerText.length;
+    const after = output.slice(markerEnd);
+    const nextBody = after.search(/\S/);
+    if (nextBody < 0) continue;
+    const rest = after.slice(nextBody);
+    if (rest.startsWith(TOOL_TEXT_BREAK_PLACEHOLDER) || rest.startsWith("[toolcall:")) continue;
+    output = `${output.slice(0, markerEnd)}${TOOL_TEXT_BREAK_PLACEHOLDER}${after.slice(nextBody)}`;
+  }
   return output;
 }
 
