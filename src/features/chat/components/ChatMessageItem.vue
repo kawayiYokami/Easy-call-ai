@@ -254,7 +254,7 @@
               </div>
               <AppMarkdownRenderer
                 v-else
-                class="ecall-markdown-content max-w-none"
+                class="ecall-markdown-content max-w-none px-[0.82rem]"
                 :text="assistantRenderedText"
                 :is-dark="markdownIsDark"
                 :streaming="!!block.isStreaming"
