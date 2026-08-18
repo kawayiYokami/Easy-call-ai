@@ -55,9 +55,9 @@ function persistChatTimeDisplayMode(mode: ChatTimeDisplayMode) {
 }
 
 function readMarkdownLayoutPreference(): ChatMarkdownLayout {
-  if (typeof window === "undefined") return "compact";
+  if (typeof window === "undefined") return "comfortable";
   const stored = window.localStorage.getItem(CHAT_MARKDOWN_LAYOUT_STORAGE_KEY);
-  return stored === "comfortable" || stored === "relaxed" ? stored : "compact";
+  return stored === "compact" || stored === "comfortable" || stored === "relaxed" ? stored : "comfortable";
 }
 
 function persistMarkdownLayout(layout: ChatMarkdownLayout) {
