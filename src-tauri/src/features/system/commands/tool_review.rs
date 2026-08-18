@@ -1360,7 +1360,31 @@ async fn tool_review_exec_git_readonly(
     timeout_ms: u64,
 ) -> Result<String, String> {
     let session_id = format!("tool-review-code::{}", conversation_id.trim());
-    let execution = sandbox_execute_command(state, &session_id, command, cwd, timeout_ms, false).await?;
+    // 前置解析合成会话的根目录：确认该会话能解析出有效主工作区，且 cwd 位于其中。
+    // 合成会话解析失败时底层会回退默认根，可能误拦截或误放行；这里显式校验并给出可诊断错误。
+    // root 解析、cwd 归一化都是同步 canonicalize，统一放 spawn_blocking 避免阻塞 async 线程；
+    // 归一化后的 canonical 路径传给执行层，校验与执行之间不再存在 symlink 替换窗口。
+    let state_for_blocking = state.clone();
+    let session_id_for_blocking = session_id.clone();
+    let cwd_for_blocking = cwd.to_path_buf();
+    let normalized_cwd = tokio::task::spawn_blocking(move || {
+        let root = terminal_session_root_canonical(&state_for_blocking, &session_id_for_blocking)
+            .map_err(|err| format!("解析 tool-review 会话根目录失败：{err}"))?;
+        let normalized = normalize_target_for_access_check(&cwd_for_blocking);
+        if !exec_path_is_within(&root, &normalized) {
+            return Err(format!(
+                "tool-review 工作区不在会话根目录内：cwd={} root={}",
+                cwd_for_blocking.to_string_lossy(),
+                root.to_string_lossy()
+            ));
+        }
+        Ok(normalized)
+    })
+    .await
+    .map_err(|err| format!("tool-review 工作区校验任务执行失败：{err}"))??;
+    let execution =
+        run_command_in_workspace(state, &session_id, command, &normalized_cwd, timeout_ms, false)
+            .await?;
     let stdout = terminal_decode_output_bytes(&execution.stdout);
     let stderr = terminal_decode_output_bytes(&execution.stderr);
     if !execution.ok {

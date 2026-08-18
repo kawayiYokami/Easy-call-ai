@@ -79,7 +79,7 @@ include!("features/remote_im_adapters.rs");
 include!("features/system/windowing.rs");
 include!("features/system/record_hotkey_probe.rs");
 include!("features/system/windows_job.rs");
-include!("features/system/sandbox.rs");
+include!("features/system/execution.rs");
 include!("features/system/local_port_service.rs");
 include!("features/system/tools.rs");
 include!("features/system/updater.rs");
