@@ -364,6 +364,7 @@ export type AppConfig = {
   hotkey: string;
   uiLanguage: "zh-CN" | "en-US" | "zh-TW";
   uiFont: string;
+  codeFont: string;
   uiSizeScale?: number;
   webAccessPort?: number;
   webAccessEnabled?: boolean;

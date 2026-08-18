@@ -281,6 +281,7 @@ export function useConfigPersistence(options: UseConfigPersistenceOptions) {
     options.config.hotkey = cfg.hotkey;
     options.config.uiLanguage = options.normalizeLocale(cfg.uiLanguage);
     options.config.uiFont = String((cfg as { uiFont?: unknown }).uiFont ?? "");
+    options.config.codeFont = String((cfg as { codeFont?: unknown }).codeFont ?? "");
     options.config.uiSizeScale = normalizeUiSizeScale((cfg as { uiSizeScale?: unknown }).uiSizeScale);
     applyUiSizeScale(options.config.uiSizeScale);
     options.config.webAccessPort = normalizeWebAccessPort((cfg as { webAccessPort?: unknown }).webAccessPort);
@@ -521,6 +522,7 @@ export function useConfigPersistence(options: UseConfigPersistenceOptions) {
       options.config.hotkey = saved.hotkey;
       options.config.uiLanguage = options.normalizeLocale(saved.uiLanguage);
       options.config.uiFont = String((saved as { uiFont?: unknown }).uiFont ?? "");
+      options.config.codeFont = String((saved as { codeFont?: unknown }).codeFont ?? "");
       options.config.uiSizeScale = normalizeUiSizeScale((saved as { uiSizeScale?: unknown }).uiSizeScale);
       applyUiSizeScale(options.config.uiSizeScale);
       options.config.webAccessPort = normalizeWebAccessPort((saved as { webAccessPort?: unknown }).webAccessPort);

@@ -2925,6 +2925,7 @@ fn departments_only_config(departments: &[DepartmentConfig]) -> AppConfig {
         hotkey: String::new(),
         ui_language: String::new(),
         ui_font: String::new(),
+        code_font: default_code_font(),
         ui_size_scale: default_ui_size_scale(),
         web_access_port: default_web_access_port(),
         web_access_enabled: default_web_access_enabled(),

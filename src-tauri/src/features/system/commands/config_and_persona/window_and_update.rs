@@ -484,14 +484,62 @@ fn is_backend_ready(state: State<'_, AppState>) -> bool {
     state.backend_ready.load(std::sync::atomic::Ordering::Acquire)
 }
 
-#[tauri::command]
-fn list_system_fonts() -> Result<Vec<String>, String> {
-    let mut families = font_kit::source::SystemSource::new()
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct SystemFontInfo {
+    family: String,
+    monospace: bool,
+}
+
+/// 系统字体列表进程内缓存：字体安装状态几乎不变，避免每次打开设置页都重新枚举+加载字形。
+static SYSTEM_FONTS_CACHE: std::sync::OnceLock<std::sync::Mutex<Option<Vec<SystemFontInfo>>>> =
+    std::sync::OnceLock::new();
+
+/// 枚举并分类系统字体（耗时操作：数百字体族逐一加载字形判断等宽）。
+fn enumerate_system_fonts() -> Result<Vec<SystemFontInfo>, String> {
+    let source = font_kit::source::SystemSource::new();
+    let mut families = source
         .all_families()
         .map_err(|err| format!("列出系统字体失败：{err}"))?;
     families.sort_by_key(|name| name.to_ascii_lowercase());
     families.dedup_by(|a, b| a.eq_ignore_ascii_case(b));
-    Ok(families)
+    let mut result = Vec::with_capacity(families.len());
+    for family in families {
+        // 取该族第一个字形判断等宽属性；加载失败时保守视为非等宽，避免漏列字体
+        let handle = source
+            .select_family_by_name(&family)
+            .ok()
+            .and_then(|fh| fh.fonts().first().cloned());
+        let monospace = handle
+            .as_ref()
+            .and_then(|handle| handle.load().ok())
+            .map(|font| font.is_monospace())
+            .unwrap_or(false);
+        result.push(SystemFontInfo {
+            family,
+            monospace,
+        });
+    }
+    Ok(result)
+}
+
+#[tauri::command]
+async fn list_system_fonts() -> Result<Vec<SystemFontInfo>, String> {
+    // 命中缓存直接返回，避免重复枚举；miss 时把重活丢到阻塞线程池，不占 IPC 线程。
+    let cache = SYSTEM_FONTS_CACHE.get_or_init(|| std::sync::Mutex::new(None));
+    if let Ok(guard) = cache.lock() {
+        if let Some(cached) = guard.as_ref() {
+            return Ok(cached.clone());
+        }
+    }
+    let result = tauri::async_runtime::spawn_blocking(enumerate_system_fonts)
+        .await
+        .map_err(|err| format!("枚举系统字体任务失败：{err}"))?
+        .map_err(|err| err.to_string())?;
+    if let Ok(mut guard) = cache.lock() {
+        *guard = Some(result.clone());
+    }
+    Ok(result)
 }
 
 fn validate_record_hotkey_available(config: &AppConfig) -> Result<String, String> {

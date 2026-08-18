@@ -222,6 +222,8 @@
           <AppearanceTab
             v-else-if="props.configTab === 'appearance'"
             :ui-language="uiLanguage"
+            :ui-font="uiFont"
+            :code-font="codeFont"
             :locale-options="localeOptions"
             :current-theme="currentTheme"
             :theme-mode="themeMode"
@@ -233,6 +235,8 @@
             :generated-dark-tokens="generatedDarkTokens"
             :ui-size-scale="uiSizeScale"
             @update:ui-language="$emit('update:uiLanguage', $event)"
+            @update:ui-font="$emit('update:uiFont', $event)"
+            @update:code-font="$emit('update:codeFont', $event)"
             @update:ui-size-scale="$emit('update:uiSizeScale', $event)"
             @set-theme="$emit('setTheme', $event)"
             @set-theme-mode="$emit('setThemeMode', $event)"
@@ -471,6 +475,8 @@ const props = defineProps<{
   configTab: ConfigTab;
   simpleSetupMode?: boolean;
   uiLanguage: "zh-CN" | "en-US" | "zh-TW";
+  uiFont?: string;
+  codeFont?: string;
   localeOptions: Array<{ value: "zh-CN" | "en-US" | "zh-TW"; label: string }>;
   currentTheme: string;
   themeMode: ThemeModeKind;
@@ -533,6 +539,8 @@ const props = defineProps<{
 const emit = defineEmits<{
   (e: "update:configTab", value: ConfigTab): void;
   (e: "update:uiLanguage", value: string): void;
+  (e: "update:uiFont", value: string): void;
+  (e: "update:codeFont", value: string): void;
   (e: "update:uiSizeScale", value: number): void;
   (e: "update:githubUpdateMethod", value: AppConfig["githubUpdateMethod"]): void;
   (e: "update:personaEditorId", value: string): void;

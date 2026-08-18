@@ -10,6 +10,7 @@ function createConfig(): AppConfig {
     hotkey: "Alt+·",
     uiLanguage: "zh-CN",
     uiFont: "auto",
+    codeFont: "auto",
     uiSizeScale: 100,
     webAccessPort: 8429,
     webAccessEnabled: true,

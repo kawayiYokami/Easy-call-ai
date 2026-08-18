@@ -72,9 +72,10 @@ export function useChatWindowWatchersGlue(bindings: Record<string, any>) {
   );
 
   watch(
-    () => ({ uiFont: bindings.config.uiFont, uiLanguage: bindings.config.uiLanguage }),
-    ({ uiFont, uiLanguage }) => {
+    () => ({ uiFont: bindings.config.uiFont, codeFont: bindings.config.codeFont, uiLanguage: bindings.config.uiLanguage }),
+    ({ uiFont, codeFont, uiLanguage }) => {
       bindings.applyUiFont(uiFont, uiLanguage);
+      bindings.applyCodeFont(codeFont);
     },
     { immediate: true },
   );

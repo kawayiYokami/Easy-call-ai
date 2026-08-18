@@ -1175,8 +1175,9 @@ fn normalize_app_config(config: &mut AppConfig) {
         "zh-CN" | "en-US" | "zh-TW" => lang.to_string(),
         _ => default_ui_language(),
     };
-    // Font compatibility is disabled in UI; ignore persisted custom font values.
-    config.ui_font = default_ui_font();
+    // 字体选择：ui_font(auto=系统字体栈) 与 code_font(auto=内置等宽字体) 持久化保存，缺失时取默认。
+    config.ui_font = normalize_ui_font(&config.ui_font);
+    config.code_font = normalize_ui_font(&config.code_font);
     config.ui_size_scale = normalize_ui_size_scale(config.ui_size_scale);
     config.web_access_port = normalize_web_access_port(config.web_access_port);
     config.web_access_password = normalize_web_access_password(&config.web_access_password);

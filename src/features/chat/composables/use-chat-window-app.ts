@@ -6,7 +6,7 @@ import { useAppTheme } from "../../shell/composables/use-app-theme";
 import { normalizeUiSizeScale, useUiSizeAppearance } from "../../shell/composables/use-ui-size-appearance";
 import { useGithubUpdateMethod } from "../../shell/composables/use-github-update-method";
 import { usePipelineStatus } from "../../shell/composables/use-pipeline-status";
-import { applyUiFont, normalizeUiFont } from "../../shell/composables/use-ui-font";
+import { applyCodeFont, applyUiFont, normalizeUiFont } from "../../shell/composables/use-ui-font";
 import { useMessageStoreMigrationGate } from "../../shell/composables/use-message-store-migration-gate";
 import { useWindowActions } from "../../shell/composables/use-window-actions";
 import { useWindowShell } from "../../shell/composables/use-window-shell";
@@ -852,6 +852,7 @@ export function useChatWindowApp() {
     normalizeUiSizeScale,
     updateGithubUpdateMethod,
     applyUiFont,
+    applyCodeFont,
     chatWindowEventUnlisteners,
     currentChatConversationId,
     currentChatPreferredApiConfigId,

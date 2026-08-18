@@ -535,6 +535,11 @@ export function isDesktopTauriHost(): boolean {
   return isTauriRuntimeAvailable();
 }
 
+/** 系统字体枚举仅桌面宿主可查；Web/VS Code 无此能力，业务层直接读语义能力控制显隐。 */
+export function canUseTransportSystemFonts(): boolean {
+  return isTauriRuntimeAvailable();
+}
+
 function nativeTransportConnectionState(): TransportConnectionState {
   return {
     configured: true,

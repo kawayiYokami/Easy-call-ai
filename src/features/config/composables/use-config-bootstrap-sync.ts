@@ -85,6 +85,7 @@ export function applyConfigBootstrapUpdate(bindings: {
   if (!payload || typeof payload !== "object") return;
   if ("hotkey" in payload) bindings.config.hotkey = String(payload.hotkey ?? "").trim();
   if ("uiFont" in payload) bindings.config.uiFont = String(payload.uiFont ?? "");
+  if ("codeFont" in payload) bindings.config.codeFont = String(payload.codeFont ?? "");
   if ("uiSizeScale" in payload) {
     bindings.config.uiSizeScale = bindings.normalizeUiSizeScale(payload.uiSizeScale);
     applyUiSizeScale(bindings.config.uiSizeScale);

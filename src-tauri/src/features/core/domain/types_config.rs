@@ -1019,6 +1019,10 @@ fn default_ui_font() -> String {
     "auto".to_string()
 }
 
+fn default_code_font() -> String {
+    "auto".to_string()
+}
+
 fn default_ui_size_scale() -> u16 {
     100
 }
@@ -1073,6 +1077,15 @@ fn default_skipped_github_update_version() -> String {
 
 fn normalize_skipped_github_update_version(value: &str) -> String {
     value.trim().to_string()
+}
+
+/** 字体配置归一化：空值回落 auto，超长截断；auto 或合法字体名原样保留。 */
+fn normalize_ui_font(value: &str) -> String {
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        return default_ui_font();
+    }
+    trimmed.chars().take(128).collect::<String>()
 }
 
 fn normalize_ui_size_scale(value: u16) -> u16 {
@@ -1251,6 +1264,8 @@ struct AppConfig {
     ui_language: String,
     #[serde(default = "default_ui_font")]
     ui_font: String,
+    #[serde(default = "default_code_font")]
+    code_font: String,
     #[serde(
         default = "default_ui_size_scale",
         alias = "uiSizePreset",
@@ -1330,6 +1345,7 @@ impl Default for AppConfig {
             hotkey: "Alt+·".to_string(),
             ui_language: default_ui_language(),
             ui_font: default_ui_font(),
+            code_font: default_code_font(),
             ui_size_scale: default_ui_size_scale(),
             web_access_port: default_web_access_port(),
             web_access_enabled: default_web_access_enabled(),

@@ -51,6 +51,8 @@
         :config-tab="configTab"
         :simple-setup-mode="!!config.simpleSetupMode"
         :ui-language="config.uiLanguage"
+        :ui-font="config.uiFont"
+        :code-font="config.codeFont"
         :locale-options="localeOptions"
         :current-theme="currentTheme"
         :theme-mode="themeMode"
@@ -121,6 +123,8 @@
         @patch-conversation-api-settings="patchConversationApiSettings"
         @patch-chat-settings="patchChatSettings"
         @update:ui-size-scale="config.uiSizeScale = setUiSizeScale($event)"
+        @update:ui-font="setUiFont($event)"
+        @update:code-font="setCodeFont($event)"
         @update:github-update-method="updateGithubUpdateMethod"
         @set-theme="setTheme"
         @set-theme-mode="setThemeMode"
@@ -286,7 +290,7 @@ import { useConfigPersistence } from "./features/config/composables/use-config-p
 import { useConfigEditors } from "./features/config/composables/use-config-editors";
 import { useAppWatchers } from "./features/shell/composables/use-app-watchers";
 import { searchConfigTabs, type ConfigSearchTab } from "./features/config/search/config-search";
-import { applyUiFont, normalizeUiFont } from "./features/shell/composables/use-ui-font";
+import { applyCodeFont, applyUiFont, normalizeUiFont } from "./features/shell/composables/use-ui-font";
 import { normalizeUiSizeScale, useUiSizeAppearance } from "./features/shell/composables/use-ui-size-appearance";
 import { useGithubUpdateMethod } from "./features/shell/composables/use-github-update-method";
 import { useGithubUpdateView } from "./features/shell/composables/use-github-update-view";
@@ -343,6 +347,7 @@ const config = reactive<AppConfig>({
   hotkey: "Alt+·",
   uiLanguage: "zh-CN",
   uiFont: "auto",
+  codeFont: "auto",
   uiSizeScale: 100,
   webAccessPort: 8429,
   webAccessEnabled: true,
@@ -792,6 +797,18 @@ function setSimpleSetupMode(value: boolean) {
   void saveConfig();
 }
 
+function setUiFont(value: string) {
+  const next = normalizeUiFont(value);
+  if (config.uiFont === next) return;
+  config.uiFont = next;
+}
+
+function setCodeFont(value: string) {
+  const next = normalizeUiFont(value);
+  if (config.codeFont === next) return;
+  config.codeFont = next;
+}
+
 function startChat() {
   void openTransportWindow("chat");
 }
@@ -927,10 +944,12 @@ useAppWatchers({
 });
 
 watch(
-  () => ({ uiFont: config.uiFont, uiLanguage: config.uiLanguage, uiSizeScale: config.uiSizeScale }),
-  ({ uiFont, uiLanguage, uiSizeScale }) => {
+  () => ({ uiFont: config.uiFont, codeFont: config.codeFont, uiLanguage: config.uiLanguage, uiSizeScale: config.uiSizeScale }),
+  ({ uiFont, codeFont, uiLanguage, uiSizeScale }) => {
     applyUiFont(uiFont, uiLanguage);
+    applyCodeFont(codeFont);
     config.uiFont = normalizeUiFont(uiFont);
+    config.codeFont = normalizeUiFont(codeFont);
     config.uiSizeScale = setUiSizeScale(uiSizeScale);
   },
   { immediate: true },

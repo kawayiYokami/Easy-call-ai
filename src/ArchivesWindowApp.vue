@@ -176,7 +176,7 @@ import { useAppTheme } from "./features/shell/composables/use-app-theme";
 import { useAppBootstrap } from "./features/shell/composables/use-app-bootstrap";
 import { useAppLifecycle } from "./features/shell/composables/use-app-lifecycle";
 import { useAppCore } from "./features/shell/composables/use-app-core";
-import { applyUiFont, normalizeUiFont } from "./features/shell/composables/use-ui-font";
+import { applyCodeFont, applyUiFont, normalizeUiFont } from "./features/shell/composables/use-ui-font";
 import { applyUiSizeScale, normalizeUiSizeScale } from "./features/shell/composables/use-ui-size-appearance";
 import { useArchivesView } from "./features/chat/composables/use-archives-view";
 import { useArchiveImport } from "./features/chat/composables/use-archive-import";
@@ -193,6 +193,7 @@ const config = reactive<AppConfig>({
   hotkey: "Alt+·",
   uiLanguage: "zh-CN",
   uiFont: "auto",
+  codeFont: "auto",
   uiSizeScale: 100,
   githubUpdateMethod: "auto",
   skippedGithubUpdateVersion: "",
@@ -367,6 +368,7 @@ async function refreshArchivesWindowData() {
     const snapshot = await invokeTauri<AppBootstrapSnapshot>("load_app_bootstrap_snapshot");
     config.uiLanguage = normalizeLocale(snapshot.config.uiLanguage);
     config.uiFont = String(snapshot.config.uiFont || "");
+    config.codeFont = String(snapshot.config.codeFont || "");
     config.uiSizeScale = normalizeUiSizeScale(snapshot.config.uiSizeScale);
     personas.value = Array.isArray(snapshot.agents) ? snapshot.agents : [];
     userAlias.value = String(snapshot.chatSettings?.userAlias || "").trim() || t("archives.roleUser");
@@ -393,6 +395,9 @@ const appBootstrap = useAppBootstrap({
     if (!payload || typeof payload !== "object") return;
     if ("uiFont" in payload) {
       config.uiFont = String(payload.uiFont ?? "");
+    }
+    if ("codeFont" in payload) {
+      config.codeFont = String(payload.codeFont ?? "");
     }
     if ("uiSizeScale" in payload) {
       config.uiSizeScale = normalizeUiSizeScale(payload.uiSizeScale);
@@ -428,10 +433,12 @@ useAppLifecycle({
 });
 
 watch(
-  () => ({ uiFont: config.uiFont, uiLanguage: config.uiLanguage, uiSizeScale: config.uiSizeScale }),
-  ({ uiFont, uiLanguage, uiSizeScale }) => {
+  () => ({ uiFont: config.uiFont, codeFont: config.codeFont, uiLanguage: config.uiLanguage, uiSizeScale: config.uiSizeScale }),
+  ({ uiFont, codeFont, uiLanguage, uiSizeScale }) => {
     applyUiFont(uiFont, uiLanguage);
+    applyCodeFont(codeFont);
     config.uiFont = normalizeUiFont(uiFont);
+    config.codeFont = normalizeUiFont(codeFont);
     config.uiSizeScale = applyUiSizeScale(uiSizeScale);
   },
   { immediate: true },

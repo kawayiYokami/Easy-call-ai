@@ -26,6 +26,32 @@
       </div>
     </template>
 
+    <template v-if="fontsAvailable" #row-ui-font>
+      <div class="flex min-w-0 flex-wrap items-center justify-between gap-3">
+        <span class="text-sm">{{ t("appearance.uiFont") }}</span>
+        <FontFamilySelect
+          :model-value="props.uiFont || 'auto'"
+          :options="uiFontOptions"
+          :auto-label="t('appearance.fontAuto')"
+          :disabled="fontsLoading"
+          @update:model-value="$emit('update:uiFont', $event)"
+        />
+      </div>
+    </template>
+
+    <template v-if="fontsAvailable" #row-code-font>
+      <div class="flex min-w-0 flex-wrap items-center justify-between gap-3">
+        <span class="text-sm">{{ t("appearance.codeFont") }}</span>
+        <FontFamilySelect
+          :model-value="props.codeFont || 'auto'"
+          :options="codeFontOptions"
+          :auto-label="t('appearance.fontAutoCode')"
+          :disabled="fontsLoading"
+          @update:model-value="$emit('update:codeFont', $event)"
+        />
+      </div>
+    </template>
+
     <template #row-chat-bubble-background>
       <label class="flex min-w-0 cursor-pointer items-center justify-between gap-4">
         <span class="text-sm">{{ t("appearance.chatBubbleBackground") }}</span>
@@ -205,10 +231,12 @@
 </template>
 
 <script setup lang="ts">
-import { computed, nextTick, ref, watch } from "vue";
+import { computed, nextTick, onMounted, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
+import { canUseTransportSystemFonts, invokeTauri } from "../../../../services/tauri-api";
 import SegmentedControl from "../../components/SegmentedControl.vue";
 import ConfigTemplate from "../../components/ConfigTemplate.vue";
+import FontFamilySelect from "../../components/FontFamilySelect.vue";
 import type { ConfigTemplateGroup } from "../../components/config-template";
 import ThemePreviewGrid from "../../components/ThemePreviewGrid.vue";
 import AutoThemeGrid from "../../components/AutoThemeGrid.vue";
@@ -231,6 +259,8 @@ import { useFileReaderAppearance } from "../../../shell/composables/use-file-rea
 
 const props = defineProps<{
   uiLanguage: "zh-CN" | "en-US" | "zh-TW";
+  uiFont?: string;
+  codeFont?: string;
   localeOptions: Array<{ value: "zh-CN" | "en-US" | "zh-TW"; label: string }>;
   currentTheme: string;
   themeMode: ThemeModeKind;
@@ -245,6 +275,8 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   (e: "update:uiLanguage", value: string): void;
+  (e: "update:uiFont", value: string): void;
+  (e: "update:codeFont", value: string): void;
   (e: "update:uiSizeScale", value: number): void;
   (e: "setTheme", value: string): void;
   (e: "setThemeMode", value: ThemeModeKind): void;
@@ -263,6 +295,12 @@ const templateGroups = computed<ConfigTemplateGroup[]>(() => [
     rows: [
       { key: "language", items: [] },
       { key: "markdown-font-scale", items: [] },
+      ...(fontsAvailable.value
+        ? [
+            { key: "ui-font", items: [] },
+            { key: "code-font", items: [] },
+          ]
+        : []),
     ],
   },
   {
@@ -339,6 +377,55 @@ const {
   fileReaderLineWrapEnabled,
   setFileReaderLineWrapEnabled,
 } = useFileReaderAppearance();
+
+const fontsAvailable = computed(() => canUseTransportSystemFonts());
+const systemFonts = ref<string[]>([]);
+const monospaceFonts = ref<Set<string>>(new Set());
+const fontsLoading = ref(false);
+
+const uiFontOptions = computed(() => {
+  const current = String(props.uiFont || "").trim();
+  const set = new Set<string>();
+  if (current && current !== "auto" && !monospaceFonts.value.has(current)) set.add(current);
+  for (const name of systemFonts.value) {
+    if (!monospaceFonts.value.has(name)) set.add(name);
+  }
+  return [...set];
+});
+
+const codeFontOptions = computed(() => {
+  const current = String(props.codeFont || "").trim();
+  const set = new Set<string>();
+  if (current && current !== "auto" && monospaceFonts.value.has(current)) set.add(current);
+  for (const name of systemFonts.value) {
+    if (monospaceFonts.value.has(name)) set.add(name);
+  }
+  return [...set];
+});
+
+onMounted(async () => {
+  if (!fontsAvailable.value) return;
+  fontsLoading.value = true;
+  try {
+    const fonts = await invokeTauri<{ family: string; monospace: boolean }[]>("list_system_fonts");
+    if (Array.isArray(fonts)) {
+      const families: string[] = [];
+      const mono = new Set<string>();
+      for (const item of fonts) {
+        if (!item || typeof item.family !== "string" || !item.family.trim()) continue;
+        families.push(item.family.trim());
+        if (item.monospace) mono.add(item.family.trim());
+      }
+      systemFonts.value = families;
+      monospaceFonts.value = mono;
+    }
+  } catch (error) {
+    console.warn("[APPEARANCE] list_system_fonts failed:", error);
+    systemFonts.value = [];
+  } finally {
+    fontsLoading.value = false;
+  }
+});
 
 function isGeneratedTheme(theme: string) {
   return theme === GENERATED_THEME_LIGHT_ID || theme === GENERATED_THEME_DARK_ID;
