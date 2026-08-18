@@ -1455,6 +1455,7 @@
     "personaRemoved": "Removed",
     "departmentNoAvailableAgent": "Department has no available agent",
     "todoProgress": "{done} / {total} done",
+    "todoCollapse": "Collapse todo list",
     "todoIntentionWithPersona": "{name} plans to {todo}",
     "todoIntention": "Plans to {todo}",
     "loadMore": "Load more...",

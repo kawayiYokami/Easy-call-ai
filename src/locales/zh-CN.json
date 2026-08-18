@@ -1455,6 +1455,7 @@
     "personaRemoved": "已移除",
     "departmentNoAvailableAgent": "部门无可用负责人",
     "todoProgress": "已完成 {done} / 共 {total}",
+    "todoCollapse": "收起待办列表",
     "todoIntentionWithPersona": "{name} 打算{todo}",
     "todoIntention": "打算{todo}",
     "loadMore": "加载更多...",
