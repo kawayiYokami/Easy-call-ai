@@ -128,10 +128,12 @@ users = "0.11"
 xcb = "1.7"
 atspi = { version = "0.30", features = ["zbus", "tokio"] }
 
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
 [target.'cfg(target_os = "macos")'.dependencies]
 core-foundation = "0.10"
 core-graphics = "0.25"
-libc = "0.2"
 objc2-app-kit = "0.3.2"
 objc2-core-foundation = "0.3.2"
 users = "0.11"
