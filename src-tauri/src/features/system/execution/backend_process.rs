@@ -1,7 +1,4 @@
 #[cfg(not(target_os = "windows"))]
-const READER_CLEANUP_TIMEOUT_MS: u64 = 2_000;
-
-#[cfg(not(target_os = "windows"))]
 async fn exec_run_with_process_backend(
     shell: &TerminalShellProfile,
     request: &ExecutionRequest,
@@ -14,7 +11,6 @@ async fn exec_run_with_process_backend(
     // 避免后台派生进程脱离清理（与 Windows Job Object 整树清理对齐）。
     #[cfg(unix)]
     {
-        use std::os::unix::process::CommandExt as _;
         command_builder.process_group(0);
     }
     command_builder.current_dir(&request.cwd);
@@ -85,7 +81,6 @@ async fn exec_run_with_process_backend(
     };
 
     // 耗时包含两个 reader 的收尾等待：命令"完成"以输出收齐为准
-    let duration_ms = started.elapsed().as_millis().min(u64::MAX as u128) as u64;
     let stdout = match join_reader_task(stdout_task, "stdout").await {
         Ok(buf) => buf,
         Err(err) => return Err(err),
@@ -94,6 +89,7 @@ async fn exec_run_with_process_backend(
         Ok(buf) => buf,
         Err(err) => return Err(err),
     };
+    let duration_ms = started.elapsed().as_millis().min(u64::MAX as u128) as u64;
     #[cfg(unix)]
     process_group_guard.disarm();
     let exit_code = status.code().unwrap_or(-1);

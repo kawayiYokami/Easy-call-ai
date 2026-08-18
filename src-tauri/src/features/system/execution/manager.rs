@@ -35,7 +35,8 @@ impl ExecutionManager {
         // request is explicitly exempt. The exempt path is for trusted callers
         // that already resolved cwd through their own workspace checks.
         if !request.cwd_policy_exempt {
-            assert_cwd_allowed(state, &request.session_id, &request.cwd)?;
+            assert_cwd_allowed(state.clone(), request.session_id.clone(), request.cwd.clone())
+                .await?;
         }
         let runtime_shell = terminal_shell_for_state(state);
         match self.backend {

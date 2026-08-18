@@ -1,13 +1,14 @@
 #[cfg(target_os = "windows")]
+/// 把 canonicalize 产物（`\\?\C:\...` / `\\?\UNC\...`）还原成进程可直接使用的普通路径。
+/// 复用 policy 层的 UTF-16 归一化，避免 to_string_lossy 引入 U+FFFD 替换。
 fn exec_windows_process_compatible_path(path: &std::path::Path) -> std::path::PathBuf {
-    let raw = path.as_os_str().to_string_lossy();
-    if let Some(rest) = raw.strip_prefix(r"\\?\UNC\") {
-        return std::path::PathBuf::from(format!(r"\\{rest}"));
+    use std::os::windows::ffi::OsStringExt as _;
+
+    let wide = normalize_extended_prefix_wide(path);
+    if wide.len() == 0 {
+        return path.to_path_buf();
     }
-    if let Some(rest) = raw.strip_prefix(r"\\?\") {
-        return std::path::PathBuf::from(rest);
-    }
-    path.to_path_buf()
+    std::path::PathBuf::from(std::ffi::OsString::from_wide(&wide))
 }
 
 #[cfg(target_os = "windows")]
@@ -105,11 +106,22 @@ fn join_windows_reader(
     }
 }
 
+/// 装配 Windows 后端：挂起创建子进程 → 入 job → 恢复主线程 → 起 reader 线程。
+/// 进程入 job 前不执行任何代码，从根上消除「先派生后代再入 job」的竞态。
 #[cfg(target_os = "windows")]
-fn exec_run_with_windows_job_backend_blocking(
+struct SpawnedWindowsJob {
+    child: std::process::Child,
+    job: WindowsJobGuard,
+    stdout_reader: std::thread::JoinHandle<Result<Vec<u8>, std::io::Error>>,
+    stderr_reader: std::thread::JoinHandle<Result<Vec<u8>, std::io::Error>>,
+    started: std::time::Instant,
+}
+
+#[cfg(target_os = "windows")]
+fn exec_windows_spawn_and_assign_job(
     shell: &TerminalShellProfile,
     request: &ExecutionRequest,
-) -> Result<ExecutionResult, String> {
+) -> Result<SpawnedWindowsJob, String> {
     use std::io::Read as _;
     use std::os::windows::io::AsRawHandle as _;
     use std::os::windows::process::CommandExt as _;
@@ -169,49 +181,73 @@ fn exec_run_with_windows_job_backend_blocking(
         stderr_pipe.read_to_end(&mut buf).map(|_| buf)
     });
 
-    let timeout_ms = request.timeout_ms.max(1);
-    let started = std::time::Instant::now();
-    loop {
-        if let Some(_status) = child
+    Ok(SpawnedWindowsJob {
+        child,
+        job,
+        stdout_reader,
+        stderr_reader,
+        started: std::time::Instant::now(),
+    })
+}
+
+/// 超时清理：drop job → kill 子进程 → 限时等待退出 → 有界回收 reader。
+/// kill 后管道写端关闭，reader 线程应读到 EOF 结束；仍有后代持有句柄
+/// 时线程不结束，用有界等待兜底并显式收集错误，避免自身永久挂起。
+#[cfg(target_os = "windows")]
+fn exec_windows_kill_and_collect_readers(
+    spawned: SpawnedWindowsJob,
+    timeout_ms: u64,
+) -> Result<(), String> {
+    let SpawnedWindowsJob {
+        mut child,
+        job,
+        stdout_reader,
+        stderr_reader,
+        ..
+    } = spawned;
+    drop(job);
+    let _ = child.kill();
+    let cleanup_started = std::time::Instant::now();
+    while cleanup_started.elapsed().as_millis() < READER_CLEANUP_TIMEOUT_MS as u128 {
+        if child
             .try_wait()
-            .map_err(|err| format!("terminal_exec try_wait failed: {err}"))?
+            .map_err(|err| format!("terminal_exec cleanup try_wait failed: {err}"))?
+            .is_some()
         {
             break;
         }
-        if started.elapsed().as_millis() >= timeout_ms as u128 {
-            drop(job);
-            let _ = child.kill();
-            let cleanup_started = std::time::Instant::now();
-            while cleanup_started.elapsed().as_millis() < 2_000 {
-                if child
-                    .try_wait()
-                    .map_err(|err| format!("terminal_exec cleanup try_wait failed: {err}"))?
-                    .is_some()
-                {
-                    break;
-                }
-                std::thread::sleep(std::time::Duration::from_millis(15));
-            }
-            // kill 后管道写端关闭，reader 线程应读到 EOF 结束；仍有后代持有句柄
-            // 时线程不结束，用有界等待兜底并显式收集错误
-            let deadline =
-                std::time::Instant::now() + std::time::Duration::from_millis(2_000);
-            let mut read_errors = Vec::<String>::new();
-            if let Err(err) = join_windows_reader(stdout_reader, "stdout", deadline) {
-                read_errors.push(err);
-            }
-            if let Err(err) = join_windows_reader(stderr_reader, "stderr", deadline) {
-                read_errors.push(err);
-            }
-            let mut message = format!("terminal_exec timed out after {}ms", timeout_ms);
-            if !read_errors.is_empty() {
-                message.push_str(&format!("（{}）", read_errors.join("; ")));
-            }
-            return Err(message);
-        }
         std::thread::sleep(std::time::Duration::from_millis(15));
     }
+    let deadline =
+        std::time::Instant::now() + std::time::Duration::from_millis(READER_CLEANUP_TIMEOUT_MS);
+    let mut read_errors = Vec::<String>::new();
+    if let Err(err) = join_windows_reader(stdout_reader, "stdout", deadline) {
+        read_errors.push(err);
+    }
+    if let Err(err) = join_windows_reader(stderr_reader, "stderr", deadline) {
+        read_errors.push(err);
+    }
+    let mut message = format!("terminal_exec timed out after {}ms", timeout_ms);
+    if !read_errors.is_empty() {
+        message.push_str(&format!("（{}）", read_errors.join("; ")));
+    }
+    Err(message)
+}
 
+/// 正常收尾：wait 子进程 → 关闭 job → 有界回收 reader → 构造结果。
+/// 耗时包含两个 reader 的收尾等待：命令"完成"以输出收齐为准。
+#[cfg(target_os = "windows")]
+fn exec_windows_finish_normal_exit(
+    spawned: SpawnedWindowsJob,
+    shell: &TerminalShellProfile,
+) -> Result<ExecutionResult, String> {
+    let SpawnedWindowsJob {
+        mut child,
+        job,
+        stdout_reader,
+        stderr_reader,
+        started,
+    } = spawned;
     let status = child
         .wait()
         .map_err(|err| format!("terminal_exec wait failed: {err}"))?;
@@ -220,7 +256,7 @@ fn exec_run_with_windows_job_backend_blocking(
     drop(job);
     // 正常路径同样有界回收：保证在调用方视角 read 已完成，出错时给出明确错误
     let deadline =
-        std::time::Instant::now() + std::time::Duration::from_millis(2_000);
+        std::time::Instant::now() + std::time::Duration::from_millis(READER_CLEANUP_TIMEOUT_MS);
     let stdout = join_windows_reader(stdout_reader, "stdout", deadline)?;
     let stderr = join_windows_reader(stderr_reader, "stderr", deadline)?;
     let duration_ms = started.elapsed().as_millis().min(u64::MAX as u128) as u64;
@@ -234,6 +270,32 @@ fn exec_run_with_windows_job_backend_blocking(
         shell_kind: shell.kind.clone(),
         shell_path: shell.path.clone(),
     })
+}
+
+#[cfg(target_os = "windows")]
+fn exec_run_with_windows_job_backend_blocking(
+    shell: &TerminalShellProfile,
+    request: &ExecutionRequest,
+) -> Result<ExecutionResult, String> {
+    let mut spawned = exec_windows_spawn_and_assign_job(shell, request)?;
+    let timeout_ms = request.timeout_ms.max(1);
+    loop {
+        if let Some(_status) = spawned
+            .child
+            .try_wait()
+            .map_err(|err| format!("terminal_exec try_wait failed: {err}"))?
+        {
+            break;
+        }
+        if spawned.started.elapsed().as_millis() >= timeout_ms as u128 {
+            return Err(match exec_windows_kill_and_collect_readers(spawned, timeout_ms) {
+                Ok(()) => format!("terminal_exec timed out after {}ms", timeout_ms),
+                Err(err) => err,
+            });
+        }
+        std::thread::sleep(std::time::Duration::from_millis(15));
+    }
+    exec_windows_finish_normal_exit(spawned, shell)
 }
 
 #[cfg(target_os = "windows")]

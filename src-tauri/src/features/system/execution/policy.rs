@@ -27,7 +27,7 @@ fn path_part_eq(a: &std::ffi::OsStr, b: &std::ffi::OsStr) -> bool {
         use std::os::windows::ffi::OsStrExt as _;
         use windows_sys::Win32::Globalization::{CompareStringOrdinal, CSTR_EQUAL};
 
-        const CSTR_IGNORE_CASE: i32 = 0x1;
+        const IGNORE_CASE_TRUE: i32 = 0x1;
         let a_wide = a.encode_wide().collect::<Vec<u16>>();
         let b_wide = b.encode_wide().collect::<Vec<u16>>();
         let result = unsafe {
@@ -36,7 +36,7 @@ fn path_part_eq(a: &std::ffi::OsStr, b: &std::ffi::OsStr) -> bool {
                 a_wide.len() as i32,
                 b_wide.as_ptr(),
                 b_wide.len() as i32,
-                CSTR_IGNORE_CASE,
+                IGNORE_CASE_TRUE,
             )
         };
         result == CSTR_EQUAL
@@ -162,18 +162,25 @@ fn path_allowed(
     Ok(false)
 }
 
-fn assert_cwd_allowed(
-    state: &AppState,
-    session_id: &str,
-    cwd: &std::path::Path,
+/// 校验 cwd 位于会话根目录内。收到拒绝时提示先调用 shell_switch_workspace。
+/// canonicalize 是同步阻塞 I/O，统一放到 spawn_blocking 中执行，
+/// 避免在 async 后端路径上阻塞 runtime 工作线程。
+async fn assert_cwd_allowed(
+    state: AppState,
+    session_id: String,
+    cwd: std::path::PathBuf,
 ) -> Result<(), String> {
-    if path_allowed(state, session_id, cwd)? {
-        return Ok(());
-    }
-    Err(format!(
-        "Working directory is outside current shell root: {}. Call shell_switch_workspace first.",
-        cwd.to_string_lossy()
-    ))
+    tokio::task::spawn_blocking(move || {
+        if path_allowed(&state, &session_id, &cwd)? {
+            return Ok(());
+        }
+        Err(format!(
+            "Working directory is outside current shell root: {}. Call shell_switch_workspace first.",
+            cwd.to_string_lossy()
+        ))
+    })
+    .await
+    .map_err(|err| format!("cwd 校验任务执行失败：{err}"))?
 }
 
 #[cfg(test)]

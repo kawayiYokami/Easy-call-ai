@@ -195,124 +195,10 @@ async fn ide_chat_handle_jsonrpc_request(
             .and_then(ide_chat_serialize),
         "check_git_workspace_root" => ide_chat_workspace_git_root_check(request.params).await,
         // git 面板：Web 与 channel 双接口，与 tauri 命令共用同一套 git_panel 内部实现。
-        "git_panel_repos" => async {
-            let refresh = request.params.get("refresh").and_then(Value::as_bool).unwrap_or(false);
-            let input = ide_chat_parse_param_field::<GitPanelWorkspaceInput>(request.params, "input")?;
-            ide_chat_serialize(git_panel_repos_inner(input, refresh, state).await?)
-        }.await,
-        "git_panel_detect" => async {
-            let input = ide_chat_parse_param_field::<GitPanelWorkspaceInput>(request.params, "input")?;
-            ide_chat_serialize(git_panel_detect(input).await?)
-        }.await,
-        "git_panel_discover" => async {
-            let refresh = request.params.get("refresh").and_then(Value::as_bool).unwrap_or(false);
-            let input = ide_chat_parse_param_field::<GitPanelWorkspaceInput>(request.params, "input")?;
-            ide_chat_serialize(git_panel_discover_inner(input, refresh, state).await?)
-        }.await,
-        "git_panel_status" => async {
-            let input = ide_chat_parse_param_field::<GitPanelWorkspaceInput>(request.params, "input")?;
-            ide_chat_serialize(git_panel_status(input).await?)
-        }.await,
-        "git_panel_diff" => async {
-            let input = ide_chat_parse_param_field::<GitPanelDiffInput>(request.params, "input")?;
-            ide_chat_serialize(git_panel_diff(input).await?)
-        }.await,
-        "git_panel_stage" => async {
-            let input = ide_chat_parse_param_field::<GitPanelPathsInput>(request.params, "input")?;
-            ide_chat_serialize(git_panel_stage(input).await?)
-        }.await,
-        "git_panel_unstage" => async {
-            let input = ide_chat_parse_param_field::<GitPanelPathsInput>(request.params, "input")?;
-            ide_chat_serialize(git_panel_unstage(input).await?)
-        }.await,
-        "git_panel_commit" => async {
-            let input = ide_chat_parse_param_field::<GitPanelCommitInput>(request.params, "input")?;
-            ide_chat_serialize(git_panel_commit(input).await?)
-        }.await,
-        "git_panel_commit_files" => async {
-            let input = ide_chat_parse_param_field::<GitPanelCommitFilesInput>(request.params, "input")?;
-            ide_chat_serialize(git_panel_commit_files(input).await?)
-        }.await,
-        "git_panel_discard" => async {
-            let input = ide_chat_parse_param_field::<GitPanelPathsInput>(request.params, "input")?;
-            ide_chat_serialize(git_panel_discard(input).await?)
-        }.await,
-        "git_panel_stash_list" => async {
-            let input = ide_chat_parse_param_field::<GitPanelWorkspaceInput>(request.params, "input")?;
-            ide_chat_serialize(git_panel_stash_list(input).await?)
-        }.await,
-        "git_panel_stash_files" => async {
-            let input = ide_chat_parse_param_field::<GitPanelStashRefInput>(request.params, "input")?;
-            ide_chat_serialize(git_panel_stash_files(input).await?)
-        }.await,
-        "git_panel_stash_create" => async {
-            let input = ide_chat_parse_param_field::<GitPanelStashInput>(request.params, "input")?;
-            ide_chat_serialize(git_panel_stash_create(input).await?)
-        }.await,
-        "git_panel_stash_apply" => async {
-            let input = ide_chat_parse_param_field::<GitPanelStashRefInput>(request.params, "input")?;
-            ide_chat_serialize(git_panel_stash_apply(input).await?)
-        }.await,
-        "git_panel_stash_pop" => async {
-            let input = ide_chat_parse_param_field::<GitPanelStashRefInput>(request.params, "input")?;
-            ide_chat_serialize(git_panel_stash_pop(input).await?)
-        }.await,
-        "git_panel_stash_drop" => async {
-            let input = ide_chat_parse_param_field::<GitPanelStashRefInput>(request.params, "input")?;
-            ide_chat_serialize(git_panel_stash_drop(input).await?)
-        }.await,
-        "git_panel_branch_list" => async {
-            let input = ide_chat_parse_param_field::<GitPanelWorkspaceInput>(request.params, "input")?;
-            ide_chat_serialize(git_panel_branch_list(input).await?)
-        }.await,
-        "git_panel_branch_create" => async {
-            let input = ide_chat_parse_param_field::<GitPanelBranchInput>(request.params, "input")?;
-            ide_chat_serialize(git_panel_branch_create(input).await?)
-        }.await,
-        "git_panel_branch_delete" => async {
-            let input = ide_chat_parse_param_field::<GitPanelBranchInput>(request.params, "input")?;
-            ide_chat_serialize(git_panel_branch_delete(input).await?)
-        }.await,
-        "git_panel_checkout" => async {
-            let input = ide_chat_parse_param_field::<GitPanelCheckoutInput>(request.params, "input")?;
-            ide_chat_serialize(git_panel_checkout(input).await?)
-        }.await,
-        "git_panel_checkout_check" => async {
-            let input = ide_chat_parse_param_field::<GitPanelCheckoutInput>(request.params, "input")?;
-            ide_chat_serialize(git_panel_checkout_check(input).await?)
-        }.await,
-        "git_panel_remote_list" => async {
-            let input = ide_chat_parse_param_field::<GitPanelWorkspaceInput>(request.params, "input")?;
-            ide_chat_serialize(git_panel_remote_list(input).await?)
-        }.await,
-        "git_panel_fetch" => async {
-            let input = ide_chat_parse_param_field::<GitPanelWorkspaceInput>(request.params, "input")?;
-            ide_chat_serialize(git_panel_fetch(input).await?)
-        }.await,
-        "git_panel_pull" => async {
-            let input = ide_chat_parse_param_field::<GitPanelWorkspaceInput>(request.params, "input")?;
-            ide_chat_serialize(git_panel_pull(input).await?)
-        }.await,
-        "git_panel_push" => async {
-            let input = ide_chat_parse_param_field::<GitPanelWorkspaceInput>(request.params, "input")?;
-            ide_chat_serialize(git_panel_push(input).await?)
-        }.await,
-        "git_panel_sync" => async {
-            let input = ide_chat_parse_param_field::<GitPanelWorkspaceInput>(request.params, "input")?;
-            ide_chat_serialize(git_panel_sync(input).await?)
-        }.await,
-        "git_panel_log" => async {
-            let input = ide_chat_parse_param_field::<GitPanelLogInput>(request.params, "input")?;
-            ide_chat_serialize(git_panel_log(input).await?)
-        }.await,
-        "git_panel_show" => async {
-            let input = ide_chat_parse_param_field::<GitPanelShowInput>(request.params, "input")?;
-            ide_chat_serialize(git_panel_show(input).await?)
-        }.await,
-        "git_panel_reset_soft" => async {
-            let input = ide_chat_parse_param_field::<GitPanelWorkspaceInput>(request.params, "input")?;
-            ide_chat_serialize(git_panel_reset_soft(input).await?)
-        }.await,
+        // 路由全部收敛到 git_panel_dispatch，避免超长函数内堆积 30+ 个内联分支。
+        git_panel_method if git_panel_method.starts_with("git_panel_") => {
+            git_panel_dispatch(request.clone(), state).await
+        }
         "fileReader.directory.list" => ide_chat_file_reader_directory_list(request.params).await,
         "fileReader.readFile" => ide_chat_file_reader_read(request.params).await,
         "fileReader.readFileBlock" => ide_chat_file_reader_read_block(request.params).await,
@@ -731,6 +617,132 @@ async fn ide_chat_handle_jsonrpc_request(
     }
 }
 
+/// git 面板路由分发：与 tauri 命令共用同一套 git_panel 内部实现。
+/// 主分发函数只保留一个前缀守卫分支，具体分支收敛到这里，避免超长函数。
+async fn git_panel_dispatch(request: IdeChatJsonRpcRequest, state: &AppState) -> Result<Value, String> {
+    match request.method.as_str() {
+        "git_panel_repos" => {
+            let refresh = request.params.get("refresh").and_then(Value::as_bool).unwrap_or(false);
+            let input = ide_chat_parse_param_field::<GitPanelWorkspaceInput>(request.params, "input")?;
+            ide_chat_serialize(git_panel_repos_inner(input, refresh, state).await?)
+        }
+        "git_panel_detect" => {
+            let input = ide_chat_parse_param_field::<GitPanelWorkspaceInput>(request.params, "input")?;
+            ide_chat_serialize(git_panel_detect(input).await?)
+        }
+        "git_panel_discover" => {
+            let refresh = request.params.get("refresh").and_then(Value::as_bool).unwrap_or(false);
+            let input = ide_chat_parse_param_field::<GitPanelWorkspaceInput>(request.params, "input")?;
+            ide_chat_serialize(git_panel_discover_inner(input, refresh, state).await?)
+        }
+        "git_panel_status" => {
+            let input = ide_chat_parse_param_field::<GitPanelWorkspaceInput>(request.params, "input")?;
+            ide_chat_serialize(git_panel_status(input).await?)
+        }
+        "git_panel_diff" => {
+            let input = ide_chat_parse_param_field::<GitPanelDiffInput>(request.params, "input")?;
+            ide_chat_serialize(git_panel_diff(input).await?)
+        }
+        "git_panel_stage" => {
+            let input = ide_chat_parse_param_field::<GitPanelPathsInput>(request.params, "input")?;
+            ide_chat_serialize(git_panel_stage(input).await?)
+        }
+        "git_panel_unstage" => {
+            let input = ide_chat_parse_param_field::<GitPanelPathsInput>(request.params, "input")?;
+            ide_chat_serialize(git_panel_unstage(input).await?)
+        }
+        "git_panel_commit" => {
+            let input = ide_chat_parse_param_field::<GitPanelCommitInput>(request.params, "input")?;
+            ide_chat_serialize(git_panel_commit(input).await?)
+        }
+        "git_panel_commit_files" => {
+            let input = ide_chat_parse_param_field::<GitPanelCommitFilesInput>(request.params, "input")?;
+            ide_chat_serialize(git_panel_commit_files(input).await?)
+        }
+        "git_panel_discard" => {
+            let input = ide_chat_parse_param_field::<GitPanelPathsInput>(request.params, "input")?;
+            ide_chat_serialize(git_panel_discard(input).await?)
+        }
+        "git_panel_stash_list" => {
+            let input = ide_chat_parse_param_field::<GitPanelWorkspaceInput>(request.params, "input")?;
+            ide_chat_serialize(git_panel_stash_list(input).await?)
+        }
+        "git_panel_stash_files" => {
+            let input = ide_chat_parse_param_field::<GitPanelStashRefInput>(request.params, "input")?;
+            ide_chat_serialize(git_panel_stash_files(input).await?)
+        }
+        "git_panel_stash_create" => {
+            let input = ide_chat_parse_param_field::<GitPanelStashInput>(request.params, "input")?;
+            ide_chat_serialize(git_panel_stash_create(input).await?)
+        }
+        "git_panel_stash_apply" => {
+            let input = ide_chat_parse_param_field::<GitPanelStashRefInput>(request.params, "input")?;
+            ide_chat_serialize(git_panel_stash_apply(input).await?)
+        }
+        "git_panel_stash_pop" => {
+            let input = ide_chat_parse_param_field::<GitPanelStashRefInput>(request.params, "input")?;
+            ide_chat_serialize(git_panel_stash_pop(input).await?)
+        }
+        "git_panel_stash_drop" => {
+            let input = ide_chat_parse_param_field::<GitPanelStashRefInput>(request.params, "input")?;
+            ide_chat_serialize(git_panel_stash_drop(input).await?)
+        }
+        "git_panel_branch_list" => {
+            let input = ide_chat_parse_param_field::<GitPanelWorkspaceInput>(request.params, "input")?;
+            ide_chat_serialize(git_panel_branch_list(input).await?)
+        }
+        "git_panel_branch_create" => {
+            let input = ide_chat_parse_param_field::<GitPanelBranchInput>(request.params, "input")?;
+            ide_chat_serialize(git_panel_branch_create(input).await?)
+        }
+        "git_panel_branch_delete" => {
+            let input = ide_chat_parse_param_field::<GitPanelBranchInput>(request.params, "input")?;
+            ide_chat_serialize(git_panel_branch_delete(input).await?)
+        }
+        "git_panel_checkout" => {
+            let input = ide_chat_parse_param_field::<GitPanelCheckoutInput>(request.params, "input")?;
+            ide_chat_serialize(git_panel_checkout(input).await?)
+        }
+        "git_panel_checkout_check" => {
+            let input = ide_chat_parse_param_field::<GitPanelCheckoutInput>(request.params, "input")?;
+            ide_chat_serialize(git_panel_checkout_check(input).await?)
+        }
+        "git_panel_remote_list" => {
+            let input = ide_chat_parse_param_field::<GitPanelWorkspaceInput>(request.params, "input")?;
+            ide_chat_serialize(git_panel_remote_list(input).await?)
+        }
+        "git_panel_fetch" => {
+            let input = ide_chat_parse_param_field::<GitPanelWorkspaceInput>(request.params, "input")?;
+            ide_chat_serialize(git_panel_fetch(input).await?)
+        }
+        "git_panel_pull" => {
+            let input = ide_chat_parse_param_field::<GitPanelWorkspaceInput>(request.params, "input")?;
+            ide_chat_serialize(git_panel_pull(input).await?)
+        }
+        "git_panel_push" => {
+            let input = ide_chat_parse_param_field::<GitPanelWorkspaceInput>(request.params, "input")?;
+            ide_chat_serialize(git_panel_push(input).await?)
+        }
+        "git_panel_sync" => {
+            let input = ide_chat_parse_param_field::<GitPanelWorkspaceInput>(request.params, "input")?;
+            ide_chat_serialize(git_panel_sync(input).await?)
+        }
+        "git_panel_log" => {
+            let input = ide_chat_parse_param_field::<GitPanelLogInput>(request.params, "input")?;
+            ide_chat_serialize(git_panel_log(input).await?)
+        }
+        "git_panel_show" => {
+            let input = ide_chat_parse_param_field::<GitPanelShowInput>(request.params, "input")?;
+            ide_chat_serialize(git_panel_show(input).await?)
+        }
+        "git_panel_reset_soft" => {
+            let input = ide_chat_parse_param_field::<GitPanelWorkspaceInput>(request.params, "input")?;
+            ide_chat_serialize(git_panel_reset_soft(input).await?)
+        }
+        _ => Err(format!("未知的 git 面板方法：{}", request.method)),
+    }
+}
+
 #[cfg(test)]
 mod web_native_capability_tests {
     use super::*;
@@ -894,6 +906,7 @@ mod web_native_capability_tests {
             "fileReader.readFileBlock",
             "read_local_chat_image_thumbnail",
             "read_local_chat_image_original",
+            "git_panel_reset_soft",
             "conversation.plan.readFile",
             "conversation.rewindPreview",
             "conversation.archive",
