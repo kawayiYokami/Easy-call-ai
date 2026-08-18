@@ -1360,7 +1360,18 @@ async fn tool_review_exec_git_readonly(
     timeout_ms: u64,
 ) -> Result<String, String> {
     let session_id = format!("tool-review-code::{}", conversation_id.trim());
-    let execution = sandbox_execute_command(state, &session_id, command, cwd, timeout_ms, false).await?;
+    // 前置解析合成会话的根目录：确认该会话能解析出有效主工作区，且 cwd 位于其中。
+    // 合成会话解析失败时底层会回退默认根，可能误拦截或误放行；这里显式校验并给出可诊断错误。
+    let root = terminal_session_root_canonical(state, &session_id)
+        .map_err(|err| format!("解析 tool-review 会话根目录失败：{err}"))?;
+    if !exec_path_is_within(&root, cwd) {
+        return Err(format!(
+            "tool-review 工作区不在会话根目录内：cwd={} root={}",
+            cwd.to_string_lossy(),
+            root.to_string_lossy()
+        ));
+    }
+    let execution = run_command_in_workspace(state, &session_id, command, cwd, timeout_ms, false).await?;
     let stdout = terminal_decode_output_bytes(&execution.stdout);
     let stderr = terminal_decode_output_bytes(&execution.stderr);
     if !execution.ok {

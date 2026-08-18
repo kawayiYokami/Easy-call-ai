@@ -309,6 +309,10 @@ async fn ide_chat_handle_jsonrpc_request(
             let input = ide_chat_parse_param_field::<GitPanelShowInput>(request.params, "input")?;
             ide_chat_serialize(git_panel_show(input).await?)
         }.await,
+        "git_panel_reset_soft" => async {
+            let input = ide_chat_parse_param_field::<GitPanelWorkspaceInput>(request.params, "input")?;
+            ide_chat_serialize(git_panel_reset_soft(input).await?)
+        }.await,
         "fileReader.directory.list" => ide_chat_file_reader_directory_list(request.params).await,
         "fileReader.readFile" => ide_chat_file_reader_read(request.params).await,
         "fileReader.readFileBlock" => ide_chat_file_reader_read_block(request.params).await,

@@ -1,14 +1,14 @@
 #[derive(Debug, Clone)]
-struct SandboxRequest {
+struct ExecutionRequest {
     session_id: String,
     command: String,
     cwd: std::path::PathBuf,
     timeout_ms: u64,
-    cwd_pre_validated: bool,
+    cwd_policy_exempt: bool,
 }
 
 #[derive(Debug, Clone)]
-struct SandboxExecutionResult {
+struct ExecutionResult {
     ok: bool,
     exit_code: i32,
     stdout: Vec<u8>,
