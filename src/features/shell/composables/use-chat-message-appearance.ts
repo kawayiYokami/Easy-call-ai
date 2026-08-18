@@ -4,18 +4,26 @@ import { emitTransportEvent, onTransportNotification } from "../../../services/t
 const CHAT_BUBBLE_BACKGROUND_STORAGE_KEY = "easy-call.chat.bubble-background.v1";
 const CHAT_SEGMENTED_MARKDOWN_STORAGE_KEY = "easy-call.chat.segmented-markdown.v1";
 const CHAT_TIME_DISPLAY_MODE_STORAGE_KEY = "easy-call.chat.time-display-mode.v1";
+const CHAT_MARKDOWN_LAYOUT_STORAGE_KEY = "easy-call.chat.markdown-layout.v1";
 
 type ChatTimeDisplayMode = "relative" | "absolute";
+
+/** 对话 Markdown 布局档位：紧凑（极简）/ 适中（知乎）/ 宽松（Tailwind Prose） */
+export type ChatMarkdownLayout = "compact" | "comfortable" | "relaxed";
+
+const CHAT_MARKDOWN_LAYOUT_CLASSES: ChatMarkdownLayout[] = ["compact", "comfortable", "relaxed"];
 
 type ChatMessageAppearancePayload = {
   assistantBubbleBackgroundEnabled?: boolean;
   segmentedMarkdownEnabled?: boolean;
   chatTimeDisplayMode?: ChatTimeDisplayMode;
+  markdownLayout?: ChatMarkdownLayout;
 };
 
 const assistantBubbleBackgroundEnabled = ref(readBooleanPreferenceDefault(CHAT_BUBBLE_BACKGROUND_STORAGE_KEY, true));
 const segmentedMarkdownEnabled = ref(readBooleanPreferenceDefault(CHAT_SEGMENTED_MARKDOWN_STORAGE_KEY, true));
 const chatTimeDisplayMode = ref<ChatTimeDisplayMode>(readChatTimeDisplayModePreference());
+const markdownLayout = ref<ChatMarkdownLayout>(readMarkdownLayoutPreference());
 let initialized = false;
 let eventUnlisten: (() => void) | null = null;
 
@@ -46,6 +54,26 @@ function persistChatTimeDisplayMode(mode: ChatTimeDisplayMode) {
   window.localStorage.setItem(CHAT_TIME_DISPLAY_MODE_STORAGE_KEY, mode);
 }
 
+function readMarkdownLayoutPreference(): ChatMarkdownLayout {
+  if (typeof window === "undefined") return "compact";
+  const stored = window.localStorage.getItem(CHAT_MARKDOWN_LAYOUT_STORAGE_KEY);
+  return stored === "comfortable" || stored === "relaxed" ? stored : "compact";
+}
+
+function persistMarkdownLayout(layout: ChatMarkdownLayout) {
+  if (typeof window === "undefined") return;
+  window.localStorage.setItem(CHAT_MARKDOWN_LAYOUT_STORAGE_KEY, layout);
+}
+
+/** 布局档位通过根元素 class 生效，CSS 覆盖规则以 `html.ecall-md-layout-*` 为前缀 */
+function applyMarkdownLayoutClass(layout: ChatMarkdownLayout) {
+  if (typeof document === "undefined") return;
+  const root = document.documentElement;
+  for (const candidate of CHAT_MARKDOWN_LAYOUT_CLASSES) {
+    root.classList.toggle(`ecall-md-layout-${candidate}`, candidate === layout);
+  }
+}
+
 function applyPayload(payload: ChatMessageAppearancePayload | undefined) {
   if (typeof payload?.assistantBubbleBackgroundEnabled === "boolean") {
     assistantBubbleBackgroundEnabled.value = payload.assistantBubbleBackgroundEnabled;
@@ -56,12 +84,18 @@ function applyPayload(payload: ChatMessageAppearancePayload | undefined) {
   if (payload?.chatTimeDisplayMode === "absolute" || payload?.chatTimeDisplayMode === "relative") {
     chatTimeDisplayMode.value = payload.chatTimeDisplayMode;
   }
+  if (payload?.markdownLayout === "compact" || payload?.markdownLayout === "comfortable" || payload?.markdownLayout === "relaxed") {
+    markdownLayout.value = payload.markdownLayout;
+    applyMarkdownLayoutClass(payload.markdownLayout);
+  }
 }
 
 function restoreFromStorage() {
   assistantBubbleBackgroundEnabled.value = readBooleanPreferenceDefault(CHAT_BUBBLE_BACKGROUND_STORAGE_KEY, true);
   segmentedMarkdownEnabled.value = readBooleanPreferenceDefault(CHAT_SEGMENTED_MARKDOWN_STORAGE_KEY, true);
   chatTimeDisplayMode.value = readChatTimeDisplayModePreference();
+  markdownLayout.value = readMarkdownLayoutPreference();
+  applyMarkdownLayoutClass(markdownLayout.value);
 }
 
 function handleStorageEvent(event: StorageEvent) {
@@ -69,6 +103,7 @@ function handleStorageEvent(event: StorageEvent) {
     event.key !== CHAT_BUBBLE_BACKGROUND_STORAGE_KEY
     && event.key !== CHAT_SEGMENTED_MARKDOWN_STORAGE_KEY
     && event.key !== CHAT_TIME_DISPLAY_MODE_STORAGE_KEY
+    && event.key !== CHAT_MARKDOWN_LAYOUT_STORAGE_KEY
   ) return;
   restoreFromStorage();
 }
@@ -90,6 +125,7 @@ function emitAppearanceChanged() {
     assistantBubbleBackgroundEnabled: assistantBubbleBackgroundEnabled.value,
     segmentedMarkdownEnabled: segmentedMarkdownEnabled.value,
     chatTimeDisplayMode: chatTimeDisplayMode.value,
+    markdownLayout: markdownLayout.value,
   } satisfies ChatMessageAppearancePayload).catch((error) => {
     console.warn("[聊天外观] 同步消息外观变化失败", error);
   });
@@ -116,12 +152,21 @@ export function useChatMessageAppearance() {
     emitAppearanceChanged();
   }
 
+  function setChatMarkdownLayout(layout: ChatMarkdownLayout) {
+    markdownLayout.value = layout;
+    persistMarkdownLayout(layout);
+    applyMarkdownLayoutClass(layout);
+    emitAppearanceChanged();
+  }
+
   return {
     assistantBubbleBackgroundEnabled,
     segmentedMarkdownEnabled,
     chatTimeDisplayMode,
+    markdownLayout,
     setAssistantBubbleBackgroundEnabled,
     setSegmentedMarkdownEnabled,
     setChatTimeDisplayMode,
+    setChatMarkdownLayout,
   };
 }

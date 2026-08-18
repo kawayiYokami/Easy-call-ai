@@ -7,8 +7,11 @@
     <div class="flex min-w-0 flex-1 items-center gap-1.5">
       <div
         v-if="!hideMenuButton"
+        ref="menuDropdownRef"
         class="dropdown dropdown-start"
         :class="menuPlacement === 'top' ? 'dropdown-top' : 'dropdown-bottom'"
+        @mouseleave="handleMenuMouseLeave"
+        @focusout="handleMenuFocusOut"
       >
         <button
           ref="menuButtonRef"
@@ -24,15 +27,14 @@
           tabindex="0"
           class="dropdown-content menu z-50 w-64 rounded-box border border-base-300 bg-base-100 p-2 text-sm shadow-xl"
           :class="menuPlacement === 'top' ? 'mb-3' : 'mt-3'"
-          @mouseleave="activeSubmenu = null"
         >
-          <li v-if="showTaskCreateMenuItem">
+          <li v-if="showTaskCreateMenuItem" @mouseenter="activeSubmenu = null">
             <button type="button" class="flex min-h-9 items-center justify-start gap-3 px-3 py-1.5 text-left" @click="emit('openTaskCreate')">
               <ListTodo class="h-4 w-4 shrink-0" />
               <span class="leading-5">{{ t("chat.newTask") }}</span>
             </button>
           </li>
-          <li v-if="showShareMenuItem">
+          <li v-if="showShareMenuItem" @mouseenter="activeSubmenu = null">
             <button type="button" class="flex min-h-9 items-center justify-start gap-3 px-3 py-1.5 text-left" @click="emit('openShareSelection')">
               <Share2 class="h-4 w-4 shrink-0" />
               <span class="leading-5">{{ t("chat.conversationMenu.shareConversation") }}</span>
@@ -53,7 +55,8 @@
             </button>
             <ul
               v-if="activeSubmenu === 'delegate'"
-              class="menu absolute left-full top-0 z-50 ml-1 w-52 rounded-box border border-base-300 bg-base-100 p-2 shadow-xl"
+              ref="delegateSubmenuEl"
+              class="menu absolute bottom-0 left-full ml-1 z-50 min-w-52 w-max rounded-box border border-base-300 bg-base-100 p-2 shadow-xl"
             >
               <li v-if="showCodeReviewMenuItem">
                 <button type="button" class="flex min-h-9 items-center justify-start gap-3 px-3 py-1.5 text-left" @click="emit('openCodeReview')">
@@ -84,7 +87,8 @@
             </button>
             <ul
               v-if="activeSubmenu === 'branch'"
-              class="menu absolute left-full top-0 z-50 ml-1 w-60 rounded-box border border-base-300 bg-base-100 p-2 shadow-xl"
+              ref="branchSubmenuEl"
+              class="menu absolute bottom-0 left-full ml-1 z-50 min-w-60 w-max rounded-box border border-base-300 bg-base-100 p-2 shadow-xl"
             >
               <li v-if="showBranchMenuItem">
                 <button type="button" class="flex min-h-9 items-center justify-start gap-3 px-3 py-1.5 text-left" @click="emit('openBranchFromCurrent')">
@@ -121,7 +125,8 @@
             </button>
             <ul
               v-if="activeSubmenu === 'interaction'"
-              class="menu absolute left-full top-0 z-50 ml-1 w-60 rounded-box border border-base-300 bg-base-100 p-2 shadow-xl"
+              ref="interactionSubmenuEl"
+              class="menu absolute bottom-0 left-full ml-1 z-50 min-w-60 w-max rounded-box border border-base-300 bg-base-100 p-2 shadow-xl"
             >
               <li v-if="showAutoPushMenuItem">
                 <button type="button" class="flex min-h-9 items-center justify-start gap-3 px-3 py-1.5 text-left" @click="emit('openAutoPush')">
@@ -152,7 +157,8 @@
             </button>
             <ul
               v-if="activeSubmenu === 'appearance'"
-              class="menu absolute left-full top-0 z-50 ml-1 w-60 rounded-box border border-base-300 bg-base-100 p-2 shadow-xl"
+              ref="appearanceSubmenuEl"
+              class="menu absolute bottom-0 left-full ml-1 z-50 min-w-72 w-max rounded-box border border-base-300 bg-base-100 p-2 shadow-xl"
             >
               <li class="menu-title px-2 py-1 text-xs uppercase tracking-wide opacity-60">{{ t("appearance.chatBubble") }}</li>
               <li>
@@ -187,6 +193,19 @@
                     @change="setChatTimeDisplayMode(($event.target as HTMLInputElement).checked ? 'absolute' : 'relative')"
                   />
                 </label>
+              </li>
+              <li>
+                <div class="flex items-center justify-between gap-3 px-2 py-1.5">
+                  <span class="whitespace-nowrap text-sm">{{ t("appearance.chatBubbleMarkdownLayout") }}</span>
+                  <SegmentedControl
+                    :model-value="markdownLayout"
+                    :options="markdownLayoutOptions"
+                    size="sm"
+                    :full-width="false"
+                    class="shrink-0"
+                    @change="setChatMarkdownLayout"
+                  />
+                </div>
               </li>
               <li class="menu-title px-2 py-1 text-xs uppercase tracking-wide opacity-60">{{ t("appearance.fileReader") }}</li>
               <li>
@@ -384,15 +403,16 @@
 </template>
 
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, onMounted, ref, useAttrs } from "vue";
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, useAttrs, type Ref } from "vue";
 import { useI18n } from "vue-i18n";
 import { BellRing, ChevronRight, ClipboardCheck, ClipboardList, GitBranch, GitBranchPlus, Grip, ListTodo, MessageSquareMore, Package, Palette, Send, Share2, Split, Users } from "@lucide/vue";
 import type { ChatMentionEntry, ConversationDelegateStatusSummary } from "../../../types/app";
 import FloatingScrollbar from "../../shell/components/FloatingScrollbar.vue";
 import { SIDE_FILE_TAGS_AVAILABLE, useChatComposerAppearance } from "../../shell/composables/use-chat-composer-appearance";
-import { useChatMessageAppearance } from "../../shell/composables/use-chat-message-appearance";
+import { useChatMessageAppearance, type ChatMarkdownLayout } from "../../shell/composables/use-chat-message-appearance";
 import { useFileReaderAppearance } from "../../shell/composables/use-file-reader-appearance";
 import SessionControlPanel from "./SessionControlPanel.vue";
+import SegmentedControl from "../../config/components/SegmentedControl.vue";
 
 defineOptions({
   inheritAttrs: false,
@@ -463,10 +483,17 @@ const {
   assistantBubbleBackgroundEnabled,
   segmentedMarkdownEnabled,
   chatTimeDisplayMode,
+  markdownLayout,
   setAssistantBubbleBackgroundEnabled,
   setSegmentedMarkdownEnabled,
   setChatTimeDisplayMode,
+  setChatMarkdownLayout,
 } = useChatMessageAppearance();
+const markdownLayoutOptions = computed<Array<{ value: ChatMarkdownLayout; label: string }>>(() => [
+  { value: "compact", label: t("appearance.markdownLayoutCompact") },
+  { value: "comfortable", label: t("appearance.markdownLayoutComfortable") },
+  { value: "relaxed", label: t("appearance.markdownLayoutRelaxed") },
+]);
 const {
   fileReaderLineWrapEnabled,
   setFileReaderLineWrapEnabled,
@@ -488,6 +515,66 @@ function openSubmenu(key: SubmenuKey) {
 function toggleSubmenu(key: SubmenuKey) {
   activeSubmenu.value = activeSubmenu.value === key ? null : key;
 }
+const delegateSubmenuEl = ref<HTMLElement | null>(null);
+const branchSubmenuEl = ref<HTMLElement | null>(null);
+const interactionSubmenuEl = ref<HTMLElement | null>(null);
+const appearanceSubmenuEl = ref<HTMLElement | null>(null);
+const submenuEls: Record<SubmenuKey, Ref<HTMLElement | null>> = {
+  delegate: delegateSubmenuEl,
+  branch: branchSubmenuEl,
+  interaction: interactionSubmenuEl,
+  appearance: appearanceSubmenuEl,
+};
+
+/** 鼠标真正离开整套菜单（一级菜单 + 已打开的二级菜单）时才关闭子菜单 */
+function handleMenuMouseLeave(event: MouseEvent) {
+  const nextTarget = event.relatedTarget;
+  if (nextTarget instanceof Node) {
+    const container = event.currentTarget as HTMLElement;
+    if (container.contains(nextTarget)) return;
+    // 二级菜单是 dropdown 容器内的绝对定位后代，需单独判断
+    for (const key of Object.keys(submenuEls) as SubmenuKey[]) {
+      const el = submenuEls[key].value;
+      if (el?.contains(nextTarget)) return;
+    }
+  }
+  activeSubmenu.value = null;
+}
+
+const menuDropdownRef = ref<HTMLElement | null>(null);
+
+/** 目标是否在整套菜单树内（一级菜单容器 + 各二级菜单容器） */
+function isInsideMenuTree(target: Node | null): boolean {
+  if (!target) return false;
+  if (menuDropdownRef.value?.contains(target)) return true;
+  for (const key of Object.keys(submenuEls) as SubmenuKey[]) {
+    const el = submenuEls[key].value;
+    if (el?.contains(target)) return true;
+  }
+  return false;
+}
+
+/** 焦点离开菜单树（含一级菜单整体被关闭）时清理二级菜单，避免残留 */
+function handleMenuFocusOut(event: FocusEvent) {
+  const nextTarget = event.relatedTarget;
+  if (nextTarget instanceof Node && isInsideMenuTree(nextTarget)) return;
+  activeSubmenu.value = null;
+}
+
+/** 点击菜单树外部时清理二级菜单（主菜单被 daisyui 关闭的兜底） */
+function handleGlobalPointerDown(event: PointerEvent) {
+  if (!(event.target instanceof Node)) return;
+  if (!isInsideMenuTree(event.target)) {
+    activeSubmenu.value = null;
+  }
+}
+
+/* 二级菜单定位：纯 CSS 底部对齐。
+   每个二级菜单 ul 相对锚点 li（relative）定位：
+   - 底边对齐锚点底边（bottom-0），向上展开
+   - 右侧展开（left-full），配合 min-w-* 自适应宽度
+   不再使用任何 JS 坐标计算。 */
+
 const hasDelegateMenuItems = computed(
   () => props.showCodeReviewMenuItem || props.showDelegateMenuItem,
 );
@@ -759,6 +846,7 @@ onMounted(() => {
   window.addEventListener("resize", handleAvatarPopupViewportChange);
   window.addEventListener("scroll", handleAvatarPopupViewportChange, true);
   window.addEventListener("click", handleAvatarClickOutside, true);
+  window.addEventListener("pointerdown", handleGlobalPointerDown, true);
   window.addEventListener("keydown", handleFileTagsContextMenuKeydown);
 });
 
@@ -770,6 +858,7 @@ onBeforeUnmount(() => {
   window.removeEventListener("resize", handleAvatarPopupViewportChange);
   window.removeEventListener("scroll", handleAvatarPopupViewportChange, true);
   window.removeEventListener("click", handleAvatarClickOutside, true);
+  window.removeEventListener("pointerdown", handleGlobalPointerDown, true);
   window.removeEventListener("keydown", handleFileTagsContextMenuKeydown);
 });
 </script>

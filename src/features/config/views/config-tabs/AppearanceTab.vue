@@ -59,6 +59,19 @@
         />
       </label>
     </template>
+    <template #row-chat-bubble-markdown-layout>
+      <div class="flex min-w-0 flex-wrap items-center justify-between gap-3">
+        <span class="text-sm">{{ t("appearance.chatBubbleMarkdownLayout") }}</span>
+        <SegmentedControl
+          :model-value="markdownLayout"
+          :options="markdownLayoutOptions"
+          size="sm"
+          :full-width="false"
+          class="max-w-full shrink-0"
+          @change="setChatMarkdownLayout"
+        />
+      </div>
+    </template>
 
     <template #row-input-side-file-tags>
       <label class="flex min-w-0 cursor-pointer items-center justify-between gap-4">
@@ -212,7 +225,7 @@ import {
 import {
   useMarkdownAppearance,
 } from "../../../shell/composables/use-markdown-appearance";
-import { useChatMessageAppearance } from "../../../shell/composables/use-chat-message-appearance";
+import { useChatMessageAppearance, type ChatMarkdownLayout } from "../../../shell/composables/use-chat-message-appearance";
 import { SIDE_FILE_TAGS_AVAILABLE, useChatComposerAppearance } from "../../../shell/composables/use-chat-composer-appearance";
 import { useFileReaderAppearance } from "../../../shell/composables/use-file-reader-appearance";
 
@@ -259,6 +272,7 @@ const templateGroups = computed<ConfigTemplateGroup[]>(() => [
       { key: "chat-bubble-background", items: [] },
       { key: "chat-bubble-markdown", items: [] },
       { key: "chat-bubble-time", items: [] },
+      { key: "chat-bubble-markdown-layout", items: [] },
     ],
   },
   {
@@ -294,6 +308,11 @@ const markdownFontScaleOptions = computed(() => [
   { value: 0, label: t("appearance.markdownFontScaleLight") },
   { value: 1, label: t("appearance.markdownFontScaleHeavy") },
 ]);
+const markdownLayoutOptions = computed<Array<{ value: ChatMarkdownLayout; label: string }>>(() => [
+  { value: "compact", label: t("appearance.markdownLayoutCompact") },
+  { value: "comfortable", label: t("appearance.markdownLayoutComfortable") },
+  { value: "relaxed", label: t("appearance.markdownLayoutRelaxed") },
+]);
 const lightThemes = computed(() => APP_THEMES.filter((theme) => !DARK_APP_THEMES.has(theme)));
 const darkThemes = computed(() => APP_THEMES.filter((theme) => DARK_APP_THEMES.has(theme)));
 const {
@@ -304,9 +323,11 @@ const {
   assistantBubbleBackgroundEnabled,
   segmentedMarkdownEnabled,
   chatTimeDisplayMode,
+  markdownLayout,
   setAssistantBubbleBackgroundEnabled,
   setSegmentedMarkdownEnabled,
   setChatTimeDisplayMode,
+  setChatMarkdownLayout,
 } = useChatMessageAppearance();
 const {
   sideFileTagsEnabled,
