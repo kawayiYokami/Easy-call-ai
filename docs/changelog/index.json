@@ -1,7 +1,12 @@
 {
-  "generatedAt": "2026-08-17T17:37:28.338Z",
-  "latestVersion": "v0.67.0",
+  "generatedAt": "2026-08-18T11:24:19.051Z",
+  "latestVersion": "v0.68.0",
   "releases": [
+    {
+      "version": "v0.68.0",
+      "path": "docs/changelog/releases/v0.68.0.md",
+      "summary": "macOS 与 Linux 桌面端现在可以直接使用终端命令工具（Shell 工具）：受信命令在工作区内执行，不再受文件沙箱限制，行为与 Windows 一致。"
+    },
     {
       "version": "v0.67.0",
       "path": "docs/changelog/releases/v0.67.0.md",

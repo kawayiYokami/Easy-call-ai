@@ -5,6 +5,7 @@
 
 ## 最近版本
 
+- [v0.68.0](docs/changelog/releases/v0.68.0.md) - macOS 与 Linux 桌面端现在可以直接使用终端命令工具（Shell 工具）：受信命令在工作区内执行，不再受文件沙箱限制，行为与 Windows 一致。
 - [v0.67.0](docs/changelog/releases/v0.67.0.md) - 会话菜单整理为二级分组（发起委托 / 会话分支 / 会话互动 / 消息外观），部分常用操作保留在顶层；新增「从当前会话创建分支」与「在侧边追问」两个快捷入口。
 - [v0.66.0](docs/changelog/releases/v0.66.0.md) - 会话列表的文件夹分组恢复支持拖拽调整顺序，自定义顺序会在重启后保留
 - [v0.65.0](docs/changelog/releases/v0.65.0.md) - 新增 `windows` 窗口管理工具：`list windows` 列出全部可见窗口（标题/进程/位置/最小化/聚焦状态），`activate window id=xxx` 还原并切换到前台，配合截图即可定位与操作目标窗口；Windows、Linux（X11）与 macOS 可用
