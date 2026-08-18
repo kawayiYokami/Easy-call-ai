@@ -540,6 +540,11 @@ export function canUseTransportSystemFonts(): boolean {
   return isTauriRuntimeAvailable();
 }
 
+/** genai 内置 chat 适配器清单仅桌面宿主可查；Web/VS Code 无此能力，业务层直接读语义能力控制显隐。 */
+export function canUseTransportGenaiChatAdapters(): boolean {
+  return isTauriRuntimeAvailable();
+}
+
 function nativeTransportConnectionState(): TransportConnectionState {
   return {
     configured: true,

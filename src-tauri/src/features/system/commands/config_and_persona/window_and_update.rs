@@ -817,3 +817,61 @@ fn save_config_inner(
     stop_removed_remote_im_channel_runtimes(state.clone(), removed_remote_im_channels);
     Ok(runtime_config)
 }
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct GenaiChatAdapterInfo {
+    id: String,
+    label: String,
+    /// 后端 RequestFormat 路由是否已支持该适配器；不支持的只作候选展示，不能直接保存使用。
+    supported: bool,
+}
+
+/// 暴露 genai 内置的 chat 适配器清单（来源：AdapterKind::all()），
+/// 供前端生成文本供应商协议候选，避免手工维护静态列表产生漂移。
+#[tauri::command]
+fn list_genai_chat_adapters() -> Vec<GenaiChatAdapterInfo> {
+    genai::adapter::AdapterKind::all()
+        .iter()
+        .map(|kind| GenaiChatAdapterInfo {
+            id: kind.as_lower_str().to_string(),
+            label: kind.as_str().to_string(),
+            supported: request_format_from_genai_adapter(*kind).is_some(),
+        })
+        .collect()
+}
+
+/// 项目 RequestFormat 中有对应 chat 变体时返回 Some；无对应路由视为暂不支持。
+fn request_format_from_genai_adapter(kind: genai::adapter::AdapterKind) -> Option<RequestFormat> {
+    use RequestFormat::*;
+    Some(match kind {
+        genai::adapter::AdapterKind::OpenAI => OpenAI,
+        genai::adapter::AdapterKind::OpenAIResp => OpenAIResponses,
+        genai::adapter::AdapterKind::DeepSeek => DeepSeek,
+        genai::adapter::AdapterKind::Gemini => Gemini,
+        genai::adapter::AdapterKind::Anthropic => Anthropic,
+        genai::adapter::AdapterKind::Fireworks => Fireworks,
+        genai::adapter::AdapterKind::Together => Together,
+        genai::adapter::AdapterKind::Groq => Groq,
+        genai::adapter::AdapterKind::Kimi | genai::adapter::AdapterKind::Moonshot => Moonshot,
+        genai::adapter::AdapterKind::Mimo => Mimo,
+        genai::adapter::AdapterKind::MiniMax => MiniMax,
+        genai::adapter::AdapterKind::Nebius => Nebius,
+        genai::adapter::AdapterKind::Xai => Xai,
+        genai::adapter::AdapterKind::Zai => Zai,
+        genai::adapter::AdapterKind::BigModel => BigModel,
+        genai::adapter::AdapterKind::Aliyun => Aliyun,
+        genai::adapter::AdapterKind::Baidu => Baidu,
+        genai::adapter::AdapterKind::Cohere => Cohere,
+        genai::adapter::AdapterKind::Ollama => Ollama,
+        genai::adapter::AdapterKind::OllamaCloud => OllamaCloud,
+        genai::adapter::AdapterKind::Vertex => Vertex,
+        genai::adapter::AdapterKind::GithubCopilot => GithubCopilot,
+        genai::adapter::AdapterKind::OpenCodeGo => OpenCodeGo,
+        genai::adapter::AdapterKind::BedrockApi => BedrockApi,
+        // 以下为 genai 新内置但项目 RequestFormat 尚无对应路由的适配器：
+        // Aihubmix / QwenCloud / Omlx / OpenRouter / AtlasCloud / MiniMax(已有) /
+        // BedrockSigv4(feature-gated) —— 均返回 None，仅候选展示。
+        _ => return None,
+    })
+}

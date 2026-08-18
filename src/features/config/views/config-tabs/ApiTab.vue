@@ -257,7 +257,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onUnmounted, ref, watch } from "vue";
+import { computed, onMounted, onUnmounted, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 import { ExternalLink, Plus, RefreshCw, WandSparkles } from "@lucide/vue";
 import type { ApiModelConfigItem, ApiProviderConfigItem, ApiRequestFormat, AppConfig, CodexAuthMode, CodexAuthStatus } from "../../../../types/app";
@@ -266,7 +266,7 @@ import ApiModelCard from "../../components/ApiModelCard.vue";
 import ConfigTemplate from "../../components/ConfigTemplate.vue";
 import ProviderToolbar, { type ProviderToolbarOption } from "../../components/ProviderToolbar.vue";
 import SettingsStickyLayout from "../../components/SettingsStickyLayout.vue";
-import { invokeTauri, openTransportExternalUrl } from "../../../../services/tauri-api";
+import { canUseTransportGenaiChatAdapters, invokeTauri, openTransportExternalUrl } from "../../../../services/tauri-api";
 import CodexProviderPanel from "./CodexProviderPanel.vue";
 import ImageGenerationTab from "./ImageGenerationTab.vue";
 import { normalizeApiRequestFormat } from "../../utils/api-request-format";
@@ -411,35 +411,72 @@ const capabilityTabs = computed<Array<{ id: ApiTopTab; label: string }>>(() => [
   { id: "rerank", label: t("config.api.capabilityRerank") },
   { id: "imageGeneration", label: t("config.tabs.imageGeneration") },
 ]);
-const protocolOptionsByCapability: Record<ApiCapability, ProtocolOption[]> = {
-  text: [
-    { value: "auto", label: "Auto" },
-    { value: "openai", label: "OpenAI Compatible" },
-    { value: "deepseek", label: "DeepSeek" },
-    { value: "openai_responses", label: "OpenAI Responses" },
-    { value: "codex", label: "OpenAI Codex" },
-    { value: "gemini", label: "Google Gemini" },
-    { value: "anthropic", label: "Anthropic" },
-    { value: "fireworks", label: "Fireworks" },
-    { value: "together", label: "Together AI" },
-    { value: "groq", label: "Groq" },
-    { value: "mimo", label: "Mimo" },
-    { value: "minimax", label: "MiniMax" },
-    { value: "moonshot", label: "Moonshot/Kimi" },
-    { value: "nebius", label: "Nebius" },
-    { value: "xai", label: "xAI" },
-    { value: "zai", label: "Zai" },
-    { value: "bigmodel", label: "BigModel" },
-    { value: "aliyun", label: "Aliyun" },
-    { value: "baidu", label: "Baidu" },
-    { value: "cohere", label: "Cohere" },
-    { value: "ollama", label: "Ollama" },
-    { value: "ollama_cloud", label: "Ollama Cloud" },
-    { value: "vertex", label: "Google Vertex AI" },
-    { value: "github_copilot", label: "GitHub Copilot" },
-    { value: "opencode_go", label: "OpenCode Go" },
-    { value: "bedrock_api", label: "AWS Bedrock API" },
-  ],
+// 本地补充项：genai 无对应 adapter，但项目自身支持（auto=自动探测、codex=本地协议）。
+const LOCAL_TEXT_PROTOCOL_OPTIONS: ProtocolOption[] = [
+  { value: "auto", label: "Auto" },
+  { value: "openai", label: "OpenAI Compatible" },
+  { value: "codex", label: "OpenAI Codex" },
+];
+
+// genai 清单 id → 前端协议值 映射；未命中（后端 supported=false）的适配器不进入候选。
+const GENAI_ADAPTER_TO_PROTOCOL: Record<string, ApiRequestFormat> = {
+  openai: "openai",
+  openai_resp: "openai_responses",
+  deepseek: "deepseek",
+  gemini: "gemini",
+  anthropic: "anthropic",
+  fireworks: "fireworks",
+  together: "together",
+  groq: "groq",
+  kimi: "moonshot",
+  moonshot: "moonshot",
+  mimo: "mimo",
+  minimax: "minimax",
+  nebius: "nebius",
+  xai: "xai",
+  zai: "zai",
+  bigmodel: "bigmodel",
+  aliyun: "aliyun",
+  baidu: "baidu",
+  cohere: "cohere",
+  ollama: "ollama",
+  ollama_cloud: "ollama_cloud",
+  vertex: "vertex",
+  github_copilot: "github_copilot",
+  opencode_go: "opencode_go",
+  bedrock_api: "bedrock_api",
+};
+
+const GENAI_ADAPTER_LABELS: Record<string, string> = {
+  openai: "OpenAI Compatible",
+  openai_resp: "OpenAI Responses",
+  deepseek: "DeepSeek",
+  gemini: "Google Gemini",
+  anthropic: "Anthropic",
+  fireworks: "Fireworks",
+  together: "Together AI",
+  groq: "Groq",
+  kimi: "Moonshot/Kimi",
+  moonshot: "Moonshot/Kimi",
+  mimo: "Mimo",
+  minimax: "MiniMax",
+  nebius: "Nebius",
+  xai: "xAI",
+  zai: "Zai",
+  bigmodel: "BigModel",
+  aliyun: "Aliyun",
+  baidu: "Baidu",
+  cohere: "Cohere",
+  ollama: "Ollama",
+  ollama_cloud: "Ollama Cloud",
+  vertex: "Google Vertex AI",
+  github_copilot: "GitHub Copilot",
+  opencode_go: "OpenCode Go",
+  bedrock_api: "AWS Bedrock API",
+};
+
+const localProtocolOptionsByCapability: Record<ApiCapability, ProtocolOption[]> = {
+  text: LOCAL_TEXT_PROTOCOL_OPTIONS,
   voice: [
     { value: "openai_stt", label: "OpenAI STT" },
     { value: "mimo_asr", label: "MiMo ASR" },
@@ -453,6 +490,27 @@ const protocolOptionsByCapability: Record<ApiCapability, ProtocolOption[]> = {
     { value: "openai_rerank", label: "OpenAI Rerank" },
   ],
 };
+
+// genai 内置 chat 适配器清单（后端权威源）；未加载时为 null，text 候选仅显示本地项。
+const genaiChatAdapters = ref<Array<{ id: string; label: string; supported: boolean }> | null>(null);
+
+function protocolOptionsByCapability(): Record<ApiCapability, ProtocolOption[]> {
+  const adapters = genaiChatAdapters.value;
+  if (!adapters) return localProtocolOptionsByCapability;
+  const seen = new Set(localProtocolOptionsByCapability.text.map((option) => option.value));
+  const textFromGenai: ProtocolOption[] = [];
+  for (const adapter of adapters) {
+    if (!adapter.supported) continue;
+    const protocol = GENAI_ADAPTER_TO_PROTOCOL[adapter.id];
+    if (!protocol || seen.has(protocol)) continue;
+    seen.add(protocol);
+    textFromGenai.push({ value: protocol, label: GENAI_ADAPTER_LABELS[adapter.id] || adapter.label });
+  }
+  return {
+    ...localProtocolOptionsByCapability,
+    text: [...localProtocolOptionsByCapability.text, ...textFromGenai],
+  };
+}
 const capabilityDefaultProtocol: Record<ApiCapability, ApiRequestFormat> = {
   text: "auto",
   voice: "mimo_asr",
@@ -664,7 +722,7 @@ const providerToolbarOptions = computed<ProviderToolbarOption[]>(() => scopedPro
   label: `${provider.name || provider.id}（${provider.requestFormat}）`,
 })));
 const protocolOptions = computed(() =>
-  protocolOptionsByCapability[selectedCapability.value].map((option) =>
+  protocolOptionsByCapability()[selectedCapability.value].map((option) =>
     option.value === "auto"
       ? { ...option, label: t("config.api.protocolAuto") }
       : option,
@@ -2032,6 +2090,19 @@ watch(
   },
   { immediate: true },
 );
+
+onMounted(() => {
+  if (!canUseTransportGenaiChatAdapters()) return;
+  void invokeTauri<Array<{ id: string; label: string; supported: boolean }>>("list_genai_chat_adapters")
+    .then((adapters) => {
+      if (Array.isArray(adapters) && adapters.length > 0) {
+        genaiChatAdapters.value = adapters;
+      }
+    })
+    .catch((error) => {
+      console.warn("[API] list_genai_chat_adapters failed:", error);
+    });
+});
 
 onUnmounted(() => {
   stopCodexAuthPolling();

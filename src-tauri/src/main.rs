@@ -1218,6 +1218,7 @@ fn main() {
             load_app_bootstrap_snapshot,
             is_backend_ready,
             list_system_fonts,
+            list_genai_chat_adapters,
             update_record_hotkey,
             update_record_background_wake,
             save_config,
