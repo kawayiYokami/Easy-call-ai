@@ -1452,6 +1452,7 @@
     "personaModelNotConfigured": "未設定模型",
     "personaRemoved": "已移除",
     "departmentNoAvailableAgent": "部門無可用負責人",
+    "todoProgress": "已完成 {done} / 共 {total}",
     "todoIntentionWithPersona": "{name} 打算{todo}",
     "todoIntention": "打算{todo}",
     "loadMore": "載入更多...",

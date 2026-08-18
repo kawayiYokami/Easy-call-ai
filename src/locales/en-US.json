@@ -1454,6 +1454,7 @@
     "personaModelNotConfigured": "Model not configured",
     "personaRemoved": "Removed",
     "departmentNoAvailableAgent": "Department has no available agent",
+    "todoProgress": "{done} / {total} done",
     "todoIntentionWithPersona": "{name} plans to {todo}",
     "todoIntention": "Plans to {todo}",
     "loadMore": "Load more...",
