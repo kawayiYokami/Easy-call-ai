@@ -244,10 +244,22 @@ async function loadTerminalShellCandidates() {
   }
 }
 
-function onTerminalShellKindChange(event: Event) {
+// 终端 shell 类型没有独立保存按钮，改动后立即持久化，避免重启后配置丢失。
+async function onTerminalShellKindChange(event: Event) {
   const target = event.target as HTMLSelectElement | null;
   const next = String(target?.value || "auto").trim() || "auto";
+  const previous = String(props.config.terminalShellKind || "auto").trim() || "auto";
   props.config.terminalShellKind = next;
+  try {
+    const saved = await Promise.resolve(props.saveConfigAction());
+    if (!saved) {
+      props.config.terminalShellKind = previous;
+      console.warn("terminal shell kind save rejected");
+    }
+  } catch {
+    props.config.terminalShellKind = previous;
+    console.warn("terminal shell kind save failed");
+  }
 }
 
 // 桌面操作开关没有独立保存按钮，改动后立即持久化，避免重启后配置丢失。
@@ -355,8 +367,22 @@ function onExpertSelect(value: string) {
   });
 }
 
-function onImageGenerationSelectChange(event: Event) {
-  props.config.imageGenerationModelId = ((event.target as HTMLSelectElement).value || undefined);
+// 图片生成模型没有独立保存按钮，改动后立即持久化，避免重启后配置丢失。
+async function onImageGenerationSelectChange(event: Event) {
+  const target = event.target as HTMLSelectElement | null;
+  const next = (target?.value || undefined) as string | undefined;
+  const previous = props.config.imageGenerationModelId;
+  props.config.imageGenerationModelId = next;
+  try {
+    const saved = await Promise.resolve(props.saveConfigAction());
+    if (!saved) {
+      props.config.imageGenerationModelId = previous;
+      console.warn("image generation model save rejected");
+    }
+  } catch {
+    props.config.imageGenerationModelId = previous;
+    console.warn("image generation model save failed");
+  }
 }
 
 function onResponseStyleChange(value: string) {
