@@ -132,7 +132,7 @@
           :checked="!!props.config.desktopOperateEnabled"
           type="checkbox"
           class="toggle toggle-sm toggle-primary shrink-0"
-          @change="props.config.desktopOperateEnabled = ($event.target as HTMLInputElement).checked"
+          @change="onDesktopOperateChange"
         />
       </div>
     </template>
@@ -207,6 +207,7 @@ const props = defineProps<{
   instructionPresets: PromptCommandPreset[];
   toolStatuses: ToolLoadStatus[];
   savingConfig: boolean;
+  saveConfigAction: () => Promise<boolean> | boolean;
 }>();
 
 const { t } = useI18n();
@@ -247,6 +248,24 @@ function onTerminalShellKindChange(event: Event) {
   const target = event.target as HTMLSelectElement | null;
   const next = String(target?.value || "auto").trim() || "auto";
   props.config.terminalShellKind = next;
+}
+
+// 桌面操作开关没有独立保存按钮，改动后立即持久化，避免重启后配置丢失。
+async function onDesktopOperateChange(event: Event) {
+  const target = event.target as HTMLInputElement | null;
+  const next = target?.checked ?? false;
+  props.config.desktopOperateEnabled = next;
+  try {
+    const saved = await Promise.resolve(props.saveConfigAction());
+    if (!saved) {
+      // 保存被拒绝时回滚开关状态，避免界面与实际配置不一致
+      props.config.desktopOperateEnabled = !next;
+      console.warn("desktop operate toggle save rejected");
+    }
+  } catch {
+    props.config.desktopOperateEnabled = !next;
+    console.warn("desktop operate toggle save failed");
+  }
 }
 
 function toolStatusById(id: string): ToolLoadStatus | undefined {

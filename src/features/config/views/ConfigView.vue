@@ -163,6 +163,7 @@
             :instruction-presets="instructionPresets"
             :tool-statuses="toolStatuses"
             :saving-config="savingConfig"
+            :save-config-action="saveConfigAction"
             @update:response-style-id="$emit('update:responseStyleId', $event)"
             @update:pdf-read-mode="$emit('update:pdfReadMode', $event)"
             @update:instruction-presets="$emit('update:instructionPresets', $event)"
