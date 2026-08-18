@@ -899,7 +899,7 @@ async fn invoke_quick_model_reply_with_prepared_prompt(
             request_api_key.clone(),
         );
         let request = build_provider_genai_request(&prepared)?;
-        let options = build_provider_genai_chat_options(&resolved_api, true, false);
+        let options = build_provider_genai_chat_options(&resolved_api, adapter_kind, true, false);
         let (client, model_spec) = build_provider_genai_client_and_model_spec_from_target(
             &resolved_api,
             &model_name,
