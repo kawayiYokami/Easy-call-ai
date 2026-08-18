@@ -34,7 +34,7 @@ tokio-tungstenite = { version = "0.29.0", features = ["rustls-tls-webpki-roots"]
 axum = { version = "0.8", features = ["ws"] }
 dingtalk-stream = "0.1.5"
 reqwest = { version = "0.13.4", default-features = false, features = ["json", "stream", "multipart", "query", "form", "rustls"] }
-genai = { git = "https://github.com/jeremychone/rust-genai.git", rev = "cf3396e3ac9c6bf74be5a9ed4c2400ff920f29e7" }
+genai = { git = "https://github.com/jeremychone/rust-genai.git", rev = "bd84fbb10321536d2543e790d912befb835901b6" }
 base64 = "0.22"
 aes = "0.9.1"
 md5 = "0.8"
