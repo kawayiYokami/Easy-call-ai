@@ -62,11 +62,36 @@ function pushParagraph(blocks: MarkdownBlock[], lines: string[], keyPrefix: stri
   return block;
 }
 
+function splitTableCells(line: string): string[] {
+  // 按未被转义的竖线 | 分割，\| 保留（用于数学范数/绝对值等）
+  const cells: string[] = [];
+  let current = "";
+  let i = 0;
+  while (i < line.length) {
+    const ch = line[i];
+    if (ch === "\\" && line[i + 1] === "|") {
+      current += "\\|";
+      i += 2;
+      continue;
+    }
+    if (ch === "|") {
+      cells.push(current);
+      current = "";
+      i += 1;
+      continue;
+    }
+    current += ch;
+    i += 1;
+  }
+  cells.push(current);
+  return cells;
+}
+
 function parseTableRow(line: string | undefined): string[] | null {
   const raw = String(line || "").trim();
   if (!raw.includes("|")) return null;
   const trimmed = raw.replace(/^\|/, "").replace(/\|$/, "");
-  const cells = trimmed.split("|").map((cell) => cell.trim());
+  const cells = splitTableCells(trimmed).map((cell) => cell.trim());
   if (cells.length < 2) return null;
   return cells;
 }

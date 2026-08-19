@@ -401,4 +401,24 @@ describe("parseMarkdownBlocks", () => {
       },
     ]);
   });
+
+  it("keeps table cells with escaped pipes (math norm) intact", () => {
+    const blocks = stripKeys(parseMarkdownBlocks([
+      "| 性质 | 意义 | 直觉 |",
+      "| :--- | :--- | :--- |",
+      "| **非负性** | $\\|x\\| \\ge 0$ | 长度不能为负 |",
+      "| **正定性** | $\\|x\\| = 0 \\Leftrightarrow x = 0$ | 只有零向量 |",
+    ].join("\n")));
+
+    expect(blocks).toEqual([
+      {
+        type: "table",
+        headers: ["性质", "意义", "直觉"],
+        rows: [
+          ["**非负性**", "$\\|x\\| \\ge 0$", "长度不能为负"],
+          ["**正定性**", "$\\|x\\| = 0 \\Leftrightarrow x = 0$", "只有零向量"],
+        ],
+      },
+    ]);
+  });
 });
