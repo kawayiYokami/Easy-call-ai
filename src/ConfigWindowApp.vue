@@ -801,12 +801,14 @@ function setUiFont(value: string) {
   const next = normalizeUiFont(value);
   if (config.uiFont === next) return;
   config.uiFont = next;
+  void saveConfig();
 }
 
 function setCodeFont(value: string) {
   const next = normalizeUiFont(value);
   if (config.codeFont === next) return;
   config.codeFont = next;
+  void saveConfig();
 }
 
 function startChat() {
