@@ -150,27 +150,24 @@
       </div>
     </section>
 
-    <section>
-      <h3 class="text-sm font-semibold">{{ t("config.api.codexModels") }}</h3>
-      <div class="card bg-base-100 border border-base-300">
-      <div class="card-body gap-3 p-4">
-        <div class="flex items-center justify-end gap-2">
-            <button class="btn btn-sm bg-base-200" type="button" :class="{ loading: refreshingModels }" :disabled="refreshingModels" @click="$emit('refreshModels')">
-              <span>{{ t("config.api.refreshModels") }}</span>
-            </button>
-            <button class="btn btn-sm bg-base-200" type="button" @click="addModelCard">
-              <span>{{ t("config.api.addModel") }}</span>
-            </button>
-          </div>
+    <ConfigCard :title="t('config.api.codexModels')">
+      <template #actions>
+        <button class="btn btn-sm" type="button" :class="{ loading: refreshingModels }" :disabled="refreshingModels" @click="$emit('refreshModels')">
+          <span>{{ t("config.api.refreshModels") }}</span>
+        </button>
+        <button class="btn btn-sm" type="button" @click="addModelCard">
+          <span>{{ t("config.api.addModel") }}</span>
+        </button>
+      </template>
 
-        <div class="text-xs text-error">{{ modelRefreshError || " " }}</div>
+      <div class="text-xs text-error py-3">{{ modelRefreshError || " " }}</div>
 
-        <div class="grid gap-3">
-          <div v-for="modelCard in provider.models" :key="modelCard.id" class="card border border-base-300 bg-base-200/50">
-            <div class="card-body gap-3 p-4">
+      <div class="divide-y divide-base-200/60">
+          <div v-for="modelCard in provider.models" :key="modelCard.id" class="py-3">
+            <div class="grid gap-3">
               <div class="flex items-start justify-between gap-2">
                 <button class="min-w-0 flex-1 text-left" type="button" @click="$emit('selectModel', modelCard.id)">
-                  <div class="card-title text-base mb-1">{{ `${provider.name || provider.id}/${modelCard.model || t("config.api.unnamedModel")}` }}</div>
+                  <div class="text-base font-semibold">{{ `${provider.name || provider.id}/${modelCard.model || t("config.api.unnamedModel")}` }}</div>
                 </button>
                 <button class="btn btn-sm btn-square btn-ghost" type="button" :class="provider.models.length <= 1 ? 'text-base-content/30' : 'text-error'" :disabled="provider.models.length <= 1" @click="removeModelCard(modelCard.id)">
                   <Trash2 class="h-3.5 w-3.5" />
@@ -199,9 +196,7 @@
             </div>
           </div>
         </div>
-      </div>
-      </div>
-    </section>
+    </ConfigCard>
   </div>
 </template>
 
@@ -209,6 +204,7 @@
 import { computed, onUnmounted, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 import { Eye, EyeOff, Trash2 } from "@lucide/vue";
+import ConfigCard from "../../components/ConfigCard.vue";
 import ConfigTemplate from "../../components/ConfigTemplate.vue";
 import type { ConfigTemplateGroup } from "../../components/config-template";
 import type {

@@ -1,17 +1,16 @@
 <template>
   <div class="grid gap-3">
-    <div class="flex items-center justify-between gap-3">
-      <h3 class="text-sm font-semibold">{{ t('config.tools.shellWorkspace') }}</h3>
-      <div class="flex flex-wrap items-center justify-end gap-2">
-        <button v-if="localFileSystemAvailable" class="btn btn-sm bg-base-100" type="button" @click="openShellWorkspaceDir">
+    <ConfigCard :title="t('config.tools.shellWorkspace')">
+      <template #actions>
+        <button v-if="localFileSystemAvailable" class="btn btn-sm" type="button" @click="openShellWorkspaceDir">
           <FolderOpen class="h-4 w-4" />
           {{ t('config.tools.openDir') }}
         </button>
-        <button class="btn btn-sm bg-base-100" type="button" :disabled="shellWorkspacePathResetting" @click="resetShellWorkspacePath">
+        <button class="btn btn-sm" type="button" :disabled="shellWorkspacePathResetting" @click="resetShellWorkspacePath">
           <RotateCcw class="h-4 w-4" />
           {{ t('config.tools.resetWorkspacePath') }}
         </button>
-        <button class="btn btn-sm bg-base-100" type="button" :disabled="shellWorkspaceInitializing" @click="initializeShellWorkspace">
+        <button class="btn btn-sm" type="button" :disabled="shellWorkspaceInitializing" @click="initializeShellWorkspace">
           <FolderPlus class="h-4 w-4" />
           {{ t('config.tools.initializeWorkspace') }}
         </button>
@@ -19,11 +18,9 @@
           <Save class="h-4 w-4" />
           {{ t('config.tools.save') }}
         </button>
-      </div>
-    </div>
+      </template>
 
-    <div class="card bg-base-100 border border-base-300">
-      <div class="grid gap-3 p-4">
+      <div class="grid gap-3 py-3">
         <div v-for="(ws, index) in config.shellWorkspaces" :key="`ws-${index}-${ws.name}`">
           <div class="mb-3">
             <input v-model.trim="ws.name" class="input input-bordered input-sm w-full" :placeholder="t('config.tools.workspaceName')" />
@@ -34,22 +31,18 @@
           </div>
         </div>
       </div>
-      <div class="px-4 pb-4 text-xs opacity-70">
+      <div class="pb-3 text-xs opacity-70">
         {{ t('config.tools.workspaceHint') }}
       </div>
-      <div v-if="shellWorkspaceStatus" class="px-4 pb-4 text-xs" :class="shellWorkspaceStatusError ? 'text-error' : 'opacity-70'">
+      <div v-if="shellWorkspaceStatus" class="pb-3 text-xs" :class="shellWorkspaceStatusError ? 'text-error' : 'opacity-70'">
         {{ shellWorkspaceStatus }}
       </div>
-    </div>
+    </ConfigCard>
 
-    <div>
-      <div class="mb-3">
-        <h3 class="text-sm font-semibold">{{ t("config.tools.systemCatalogTitle") }}</h3>
-        <div class="mt-1 text-sm opacity-60">{{ t("config.tools.systemCatalogReadonly") }}</div>
-      </div>
+    <ConfigCard :title="t('config.tools.systemCatalogTitle')">
+      <div class="pt-3 text-sm opacity-60">{{ t("config.tools.systemCatalogReadonly") }}</div>
 
-      <div class="border border-base-300 rounded-box bg-base-100 overflow-hidden">
-        <div v-if="toolDefinitions.length" class="divide-y divide-base-300/60">
+      <div v-if="toolDefinitions.length" class="divide-y divide-base-300/60">
         <div
           v-for="item in toolDefinitions"
           :key="item.function.name"
@@ -78,8 +71,7 @@
         </div>
       </div>
       <div v-else class="text-sm opacity-50 text-center py-4">{{ t("config.mcpToolList.empty") }}</div>
-      </div>
-    </div>
+    </ConfigCard>
 
     <dialog ref="initializeWorkspaceDialog" class="modal">
       <div class="modal-box max-w-md p-4">
@@ -105,6 +97,7 @@
 import { onMounted, ref } from "vue";
 import { useI18n } from "vue-i18n";
 import { FolderOpen, FolderPlus, RotateCcw, Save } from "@lucide/vue";
+import ConfigCard from "../../components/ConfigCard.vue";
 import type {
   AppConfig,
   FrontendToolDefinition,

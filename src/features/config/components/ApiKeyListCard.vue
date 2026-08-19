@@ -1,8 +1,7 @@
 <template>
-  <div class="card border border-base-300 bg-base-100">
-    <div class="card-body gap-3 p-4">
-      <div class="grid gap-2">
-        <div v-for="(apiKey, index) in props.modelValue" :key="`api-key-${index}`" class="flex items-center gap-2">
+  <ConfigCard :title="title">
+    <div class="grid gap-2 py-3">
+      <div v-for="(apiKey, index) in props.modelValue" :key="`api-key-${index}`" class="flex items-center gap-2">
           <div v-if="statusForKey(apiKey)" class="dropdown dropdown-start">
             <div tabindex="0" role="button" class="cursor-pointer">
               <span v-if="statusForKey(apiKey)?.status === 'success'" class="status status-success"></span>
@@ -62,14 +61,14 @@
           <span>{{ t("config.api.addApiKey") }}</span>
         </button>
       </div>
-    </div>
-  </div>
+  </ConfigCard>
 </template>
 
 <script setup lang="ts">
 import { ref } from "vue";
 import { ArrowUpToLine, Eye, EyeOff, Plus, Trash2 } from "@lucide/vue";
 import { useI18n } from "vue-i18n";
+import ConfigCard from "./ConfigCard.vue";
 
 export type ApiKeyConnectionStatus = {
   status: "success" | "failed";
@@ -78,6 +77,7 @@ export type ApiKeyConnectionStatus = {
 };
 
 const props = withDefaults(defineProps<{
+  title: string;
   modelValue: string[];
   connectionTestKeyStatus?: Record<string, ApiKeyConnectionStatus>;
 }>(), {

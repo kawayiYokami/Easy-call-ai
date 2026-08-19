@@ -1,6 +1,6 @@
 <template>
-  <div class="card border border-base-300 bg-base-200/50 transition">
-    <div class="card-body gap-0 p-4">
+  <div :class="embedded ? 'transition' : 'card border border-base-300 bg-base-200/50 transition'">
+    <div :class="embedded ? 'py-3' : 'card-body gap-0 p-4'">
       <!-- ========== 头部：标题 + 摘要徽章 + 折叠/删除（同一行） ========== -->
       <div
         class="flex items-center gap-2"
@@ -29,7 +29,7 @@
                 :title="t('config.api.editDisplayName')"
                 @click.stop="startEditTitle"
               >
-                <span class="card-title text-base mb-0 truncate">{{ displayTitle }}</span>
+                <span :class="embedded ? 'text-base font-semibold truncate' : 'card-title text-base mb-0 truncate'">{{ displayTitle }}</span>
                 <Pencil class="h-3.5 w-3.5 shrink-0 opacity-50" />
               </button>
               <span v-if="hint" class="min-w-0 truncate text-xs font-normal opacity-60">{{ hint }}</span>
@@ -409,6 +409,7 @@ const props = withDefaults(defineProps<{
   contextWindowMax?: number;
   defaultOpen?: boolean;
   capability?: ModelCapabilityInfo | null;
+  embedded?: boolean;
 }>(), {
   title: "",
   hint: "",
@@ -429,6 +430,7 @@ const props = withDefaults(defineProps<{
   contextWindowMax: 2_000_000,
   defaultOpen: true,
   capability: null,
+  embedded: false,
 });
 
 const emit = defineEmits<{

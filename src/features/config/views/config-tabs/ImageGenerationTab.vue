@@ -2,32 +2,27 @@
   <div class="grid gap-3">
     <div v-if="selectedProvider" class="grid gap-3">
       <ConfigTemplate v-model="providerTemplateValues" :groups="providerTemplateGroups" />
-      <section v-if="selectedProvider.providerType !== 'codex'">
-        <h3 class="text-sm font-semibold">{{ t("config.imageGeneration.apiKeys") }}</h3>
-        <ApiKeyListCard
-          :key="selectedProvider.id"
-          :model-value="selectedProvider.apiKeys"
-          @update:model-value="updateSelectedApiKeys"
-        />
-      </section>
+      <ApiKeyListCard
+        v-if="selectedProvider.providerType !== 'codex'"
+        :title="t('config.imageGeneration.apiKeys')"
+        :key="selectedProvider.id"
+        :model-value="selectedProvider.apiKeys"
+        @update:model-value="updateSelectedApiKeys"
+      />
       <div v-else class="rounded-box border border-info/30 bg-info/5 px-3 py-2 text-xs text-base-content/70">
         {{ t("config.imageGeneration.codexCredentialHint") }}
       </div>
 
-      <section>
-        <h3 class="text-sm font-semibold">{{ t("config.api.modelCards") }}</h3>
-        <div class="card border border-base-300 bg-base-100">
-          <div class="card-body gap-3 p-4">
-          <div class="flex items-start justify-between gap-3">
-            <div />
-            <button class="btn btn-sm btn-ghost" type="button" :title="t('config.imageGeneration.addModel')" @click="addModel">
-              <Plus class="h-4 w-4" />
-              <span>{{ t("config.imageGeneration.addModel") }}</span>
-            </button>
-          </div>
+      <ConfigCard :title="t('config.api.modelCards')">
+        <template #actions>
+          <button class="btn btn-sm" type="button" :title="t('config.imageGeneration.addModel')" @click="addModel">
+            <Plus class="h-4 w-4" />
+            <span>{{ t("config.imageGeneration.addModel") }}</span>
+          </button>
+        </template>
 
-          <div v-if="selectedProvider.models.length" class="grid gap-3">
-            <article v-for="model in selectedProvider.models" :key="model.id" class="rounded-box border border-base-300 bg-base-200/30 p-3">
+          <div v-if="selectedProvider.models.length" class="divide-y divide-base-200/60">
+            <article v-for="model in selectedProvider.models" :key="model.id" class="py-3">
               <div class="flex items-center justify-between gap-3">
                 <div class="min-w-0 flex-1 truncate text-base font-semibold">{{ model.model || model.id }}</div>
                 <button class="btn btn-square btn-ghost btn-sm text-error" type="button" :title="t('common.delete')" @click="removeModel(model.id)">
@@ -51,18 +46,13 @@
               <div class="mt-2 text-xs text-base-content/60">{{ t("config.api.matchedProtocol", { protocol: providerTypeLabel(selectedProvider.providerType) }) }}</div>
             </article>
           </div>
-          <div v-else class="rounded-box border border-dashed border-base-300 p-4 text-center text-xs text-base-content/55">
+          <div v-else class="rounded-box border border-dashed border-base-300 py-4 text-center text-xs text-base-content/55">
             {{ t("config.imageGeneration.emptyModels") }}
           </div>
+      </ConfigCard>
 
-          </div>
-        </div>
-      </section>
-
-      <section v-if="selectedProvider.providerType === 'comfyui'">
-        <h3 class="text-sm font-semibold">{{ t("config.imageGeneration.comfyTitle") }}</h3>
-        <div class="card border border-base-300 bg-base-100">
-          <div class="card-body gap-4 p-4">
+      <ConfigCard v-if="selectedProvider.providerType === 'comfyui'" :title="t('config.imageGeneration.comfyTitle')">
+        <div class="grid gap-4 py-3">
           <label class="grid gap-1">
             <span class="text-sm font-medium">{{ t("config.imageGeneration.workflowJson") }}</span>
             <textarea v-model="selectedProvider.comfyuiWorkflowJson" class="textarea textarea-bordered min-h-64 font-mono text-[11px] leading-relaxed" :class="{ 'textarea-error': workflowJsonError }" :placeholder="t('config.imageGeneration.workflowPlaceholder')" />
@@ -87,13 +77,10 @@
            <span class="text-xs text-base-content/50">{{ t("config.imageGeneration.outputNodeIdsHint") }}</span>
           </label>
         </div>
-        </div>
-      </section>
+      </ConfigCard>
 
-      <section>
-        <h3 class="text-sm font-semibold">{{ t("config.imageGeneration.testTitle") }}</h3>
-        <div class="card border border-base-300 bg-base-100">
-        <div class="card-body gap-4 p-4">
+      <ConfigCard :title="t('config.imageGeneration.testTitle')">
+        <div class="grid gap-4 py-3">
           <div v-if="imageDirty" class="alert alert-warning py-2 text-xs">
             <span>{{ t("config.imageGeneration.testSaveFirst") }}</span>
           </div>
@@ -153,8 +140,7 @@
             </div>
           </template>
         </div>
-        </div>
-      </section>
+      </ConfigCard>
     </div>
 
     <div v-else class="card border border-dashed border-base-300 bg-base-100">
@@ -182,6 +168,7 @@ import {
   invokeTauri,
   readTransportChatImage,
 } from "../../../../services/tauri-api";
+import ConfigCard from "../../components/ConfigCard.vue";
 import ConfigTemplate from "../../components/ConfigTemplate.vue";
 import ApiKeyListCard from "../../components/ApiKeyListCard.vue";
 import type { ConfigTemplateGroup } from "../../components/config-template";

@@ -16,23 +16,20 @@
     </div>
 
     <template v-else-if="overview">
-      <section class="rounded-box border border-base-300 bg-base-100 shadow-sm">
-        <div class="stats stats-vertical w-full md:stats-horizontal">
+      <ConfigCard>
+        <div class="stats stats-vertical w-full md:stats-horizontal py-3">
           <div v-for="item in summaryStats" :key="item.label" class="stat">
             <div class="stat-title text-xs">{{ item.label }}</div>
             <div class="stat-value text-2xl">{{ item.value }}</div>
             <div v-if="item.desc" class="stat-desc">{{ item.desc }}</div>
           </div>
         </div>
-      </section>
+      </ConfigCard>
 
       <div class="grid gap-4 xl:grid-cols-2">
-        <section>
-          <h3 class="mb-3 text-sm font-semibold">{{ t("config.usage.modelTitle") }}</h3>
-          <div class="card border border-base-300 bg-base-100 shadow-sm">
-          <div class="card-body p-4">
-            <div class="mt-2 overflow-x-auto">
-              <table class="table table-sm">
+        <ConfigCard :title="t('config.usage.modelTitle')">
+          <div class="overflow-x-auto py-3">
+            <table class="table table-sm">
                 <thead>
                   <tr>
                     <th><button class="btn btn-ghost btn-xs px-1 font-semibold" @click="toggleProviderModelSort('providerLabel')">{{ columnLabel("model") }}{{ sortIndicator(providerModelSort, 'providerLabel') }}</button></th>
@@ -53,16 +50,11 @@
                 </tbody>
               </table>
             </div>
-          </div>
-          </div>
-        </section>
+        </ConfigCard>
 
-        <section>
-          <h3 class="mb-1 text-sm font-semibold">{{ t("config.usage.agentTitle") }}</h3>
-          <div class="card border border-base-300 bg-base-100 shadow-sm">
-          <div class="card-body p-4">
-            <div class="mt-2 overflow-x-auto">
-              <table class="table table-sm">
+        <ConfigCard :title="t('config.usage.agentTitle')">
+          <div class="overflow-x-auto py-3">
+            <table class="table table-sm">
                 <thead>
                   <tr>
                     <th><button class="btn btn-ghost btn-xs px-1 font-semibold" @click="toggleAgentSort('label')">{{ columnLabel("agent") }}{{ sortIndicator(agentSort, 'label') }}</button></th>
@@ -83,16 +75,11 @@
                 </tbody>
               </table>
             </div>
-          </div>
-          </div>
-        </section>
+        </ConfigCard>
 
-        <section>
-          <h3 class="mb-1 text-sm font-semibold">{{ t("config.usage.kindTitle") }}</h3>
-          <div class="card border border-base-300 bg-base-100 shadow-sm">
-          <div class="card-body p-4">
-            <div class="mt-2 overflow-x-auto">
-              <table class="table table-sm">
+        <ConfigCard :title="t('config.usage.kindTitle')">
+          <div class="overflow-x-auto py-3">
+            <table class="table table-sm">
                 <thead>
                   <tr>
                     <th><button class="btn btn-ghost btn-xs px-1 font-semibold" @click="toggleKindSort('label')">{{ columnLabel("kind") }}{{ sortIndicator(kindSort, 'label') }}</button></th>
@@ -113,15 +100,11 @@
                 </tbody>
               </table>
             </div>
-          </div>
-          </div>
-        </section>
+        </ConfigCard>
       </div>
 
-      <section>
-        <h3 class="mb-3 text-sm font-semibold">{{ t("config.usage.conversationTitle") }}</h3>
-        <div class="card border border-base-300 bg-base-100 shadow-sm">
-        <div class="card-body p-4">
+      <ConfigCard :title="t('config.usage.conversationTitle')">
+        <div class="py-3">
           <div class="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
             <div>
             </div>
@@ -212,8 +195,7 @@
             </div>
           </div>
         </div>
-        </div>
-      </section>
+      </ConfigCard>
     </template>
 
     <div v-else class="rounded-box border border-base-300 bg-base-100 p-4 text-sm opacity-70">
@@ -230,6 +212,7 @@
 import { computed, onBeforeUnmount, onMounted, ref, watchEffect } from "vue";
 import { useI18n } from "vue-i18n";
 import { RefreshCw } from "@lucide/vue";
+import ConfigCard from "../../components/ConfigCard.vue";
 import { invokeTauri } from "../../../../services/tauri-api";
 import type {
   PersonaProfile,

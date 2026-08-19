@@ -19,17 +19,13 @@
       </button>
     </div>
 
-    <section>
-      <div class="mb-1 flex items-start justify-between gap-3">
-        <div>
-          <h3 class="text-sm font-semibold">{{ t("config.storage.usageTitle") }}</h3>
-        </div>
+    <ConfigCard :title="t('config.storage.usageTitle')">
+      <template #actions>
         <div v-if="storageOverview" class="text-xs opacity-60 break-all md:max-w-sm md:text-right">
           {{ t("config.storage.rootPath", { path: storageOverview.rootPath }) }}
         </div>
-      </div>
-      <div class="card bg-base-100 border border-base-300 shadow-sm">
-      <div class="card-body gap-4">
+      </template>
+      <div class="grid gap-4 py-3">
 
         <div v-if="storageOverview" class="grid gap-4 rounded-box bg-base-200/70 p-3 lg:grid-cols-[auto,1fr]">
           <div class="flex items-center gap-4">
@@ -119,8 +115,7 @@
           <span>{{ storageMessage }}</span>
         </div>
       </div>
-      </div>
-    </section>
+    </ConfigCard>
 
     <div class="flex items-center gap-3">
       <div class="flex items-center justify-center rounded-box bg-info/15 p-2 text-info">
@@ -132,10 +127,8 @@
     </div>
 
     <div class="grid grid-cols-1 gap-5">
-      <section>
-        <h3 class="mb-3 text-sm font-semibold">{{ t("config.migration.exportTitle") }}</h3>
-        <div class="card bg-base-100 border border-base-300 shadow-sm">
-        <div class="card-body flex flex-col gap-5">
+      <ConfigCard :title="t('config.migration.exportTitle')">
+        <div class="flex flex-col gap-5 py-3">
           <div class="flex items-start gap-4">
             <div class="flex items-center justify-center rounded-box bg-info/15 p-3 text-info">
               <Download class="h-6 w-6" />
@@ -177,13 +170,10 @@
             <span>{{ exportMessage }}</span>
           </div>
         </div>
-      </div>
-      </section>
+      </ConfigCard>
 
-      <section>
-        <h3 class="mb-3 text-sm font-semibold">{{ t("config.migration.importTitle") }}</h3>
-        <div class="card bg-base-100 border border-base-300 shadow-sm">
-        <div class="card-body flex flex-col gap-5">
+      <ConfigCard :title="t('config.migration.importTitle')">
+        <div class="flex flex-col gap-5 py-3">
           <div class="flex items-start gap-4">
             <div class="flex items-center justify-center rounded-box bg-success/15 p-3 text-success">
               <Upload class="h-6 w-6" />
@@ -262,8 +252,7 @@
             <span>{{ importMessage }}</span>
           </div>
         </div>
-        </div>
-      </section>
+      </ConfigCard>
     </div>
   </div>
 </template>
@@ -272,6 +261,7 @@
 import { computed, onBeforeUnmount, onMounted, ref } from "vue";
 import { useI18n } from "vue-i18n";
 import { Download, Eye, EyeOff, FolderOpen, HardDrive, RefreshCw, Trash2, Upload } from "@lucide/vue";
+import ConfigCard from "../../components/ConfigCard.vue";
 import {
   applyTransportConfigMigrationPackage,
   exportTransportConfigMigrationPackage,

@@ -1,33 +1,26 @@
 <template>
   <div class="grid gap-3">
-    <section>
-      <div class="flex items-center justify-between gap-3">
-        <h3 class="text-sm font-semibold">{{ t("about.version") }}</h3>
-      </div>
-      <div class="card bg-base-100 border border-base-300">
-      <div class="card-body p-4">
-        <div class="mb-3 flex items-start justify-between gap-3">
-          <p class="text-sm">{{ `P-ai v${appVersion}` }}</p>
-          <div class="flex shrink-0 items-center gap-2">
-            <button
-              class="btn btn-sm btn-primary text-primary-content"
-              @click="openRepository"
-            >{{ t("about.repository") }}</button>
-            <button
-              class="btn btn-sm btn-secondary text-secondary-content"
-              :disabled="checkingUpdate"
-              @click="handleCheckUpdate"
-            >{{ checkingUpdate ? t("common.loading") : t("about.checkUpdate") }}</button>
-          </div>
-        </div>
-        <div class="mb-3 space-y-2">
+    <ConfigCard :title="t('about.version')">
+      <template #actions>
+        <button
+          class="btn btn-sm btn-primary text-primary-content"
+          @click="openRepository"
+        >{{ t("about.repository") }}</button>
+        <button
+          class="btn btn-sm btn-secondary text-secondary-content"
+          :disabled="checkingUpdate"
+          @click="handleCheckUpdate"
+        >{{ checkingUpdate ? t("common.loading") : t("about.checkUpdate") }}</button>
+      </template>
+      <div class="py-3">
+        <div class="mb-3 flex items-center justify-between gap-2">
           <div class="text-xs font-medium text-base-content/70">{{ t("about.updateMethod") }}</div>
           <div class="tabs tabs-box bg-base-200 p-1">
             <button
               v-for="option in updateMethodOptions"
               :key="option.value"
               type="button"
-              class="tab flex-1 rounded-btn"
+              class="tab rounded-btn"
               :class="normalizedGithubUpdateMethod === option.value ? 'tab-active' : ''"
               @click="setGithubUpdateMethod(option.value)"
             >
@@ -35,13 +28,12 @@
             </button>
           </div>
         </div>
+        <p class="text-sm">{{ `P-ai v${appVersion}` }}</p>
       </div>
-    </div>
-    </section>
+    </ConfigCard>
 
-    <section>
-      <div class="flex items-center justify-between gap-3">
-        <h3 class="text-sm font-semibold">{{ t("about.changelog") }}</h3>
+    <ConfigCard :title="t('about.changelog')">
+      <template #actions>
         <button
           class="btn btn-sm btn-ghost"
           :disabled="changelogLoading"
@@ -50,9 +42,8 @@
           <span v-if="changelogLoading" class="loading loading-spinner loading-xs"></span>
           {{ t("common.refresh") }}
         </button>
-      </div>
-      <div class="card bg-base-100 border border-base-300">
-        <div class="card-body p-4">
+      </template>
+      <div class="py-3">
           <div class="config-changelog-markdown max-h-[60vh] overflow-auto">
             <div v-if="changelogLoading && !changelogMarkdown" class="flex min-h-0 items-center justify-center py-8 text-sm text-base-content/70">
               <span class="loading loading-spinner loading-sm mr-2"></span>
@@ -72,9 +63,8 @@
               {{ t("about.changelogEmpty") }}
             </div>
           </div>
-        </div>
       </div>
-    </section>
+    </ConfigCard>
   </div>
 
   <dialog class="modal" :class="{ 'modal-open': updateDialogOpen }">
@@ -97,6 +87,7 @@
 import { computed, onMounted, ref } from "vue";
 import { useI18n } from "vue-i18n";
 import { invokeTauri, openTransportExternalUrl } from "../../../../services/tauri-api";
+import ConfigCard from "../../components/ConfigCard.vue";
 import { AppMarkdownRenderer } from "../../../chat/markdown";
 import { isDarkAppTheme } from "../../../shell/composables/use-app-theme";
 import type { GithubUpdateMethod } from "../../../../types/app";

@@ -114,15 +114,14 @@
       </ConfigTemplate>
 
 
-      <section v-if="!selectedProviderIsCodex">
-        <h3 class="text-sm font-semibold">{{ t("config.imageGeneration.apiKeys") }}</h3>
-        <ApiKeyListCard
-          :key="selectedProvider.id"
-          :model-value="selectedProvider.apiKeys"
-          :connection-test-key-status="connectionTestKeyStatus"
-          @update:model-value="updateSelectedApiKeys"
-        />
-      </section>
+      <ApiKeyListCard
+        v-if="!selectedProviderIsCodex"
+        :title="t('config.imageGeneration.apiKeys')"
+        :key="selectedProvider.id"
+        :model-value="selectedProvider.apiKeys"
+        :connection-test-key-status="connectionTestKeyStatus"
+        @update:model-value="updateSelectedApiKeys"
+      />
 
       <CodexProviderPanel
         v-else
@@ -135,62 +134,54 @@
         @select-model="selectModelCard"
       />
 
-      <section v-if="!selectedProviderIsCodex">
-        <h3 class="mb-1 text-sm font-semibold">{{ t("config.api.connectionTest") }}</h3>
-        <div class="card border border-base-300 bg-base-100">
-          <div class="card-body gap-3 p-4">
-            <div class="flex items-center gap-2">
-              <select v-model="connectionTestModelId" class="select select-bordered select-sm flex-1">
-                <option v-for="m in draftViewModels" :key="m.id" :value="m.id">
-                  {{ modelDisplayLabel(selectedProvider, m) }}
-                </option>
-              </select>
-              <button class="btn btn-sm" type="button"
-                :class="connectionTestFirstKeyRunning ? 'loading' : 'bg-base-200'"
-                :disabled="connectionTestFirstKeyRunning || connectionTestAllKeysRunning"
-                @click="runConnectionTestFirstKey">
-                <span v-if="connectionTestFirstKeyRunning" class="loading loading-spinner loading-xs"></span>
-                {{ t("config.api.testFirstKey") }}
-              </button>
-              <button class="btn btn-sm" type="button"
-                :class="connectionTestAllKeysRunning ? 'loading' : 'bg-base-200'"
-                :disabled="connectionTestFirstKeyRunning || connectionTestAllKeysRunning"
-                @click="runConnectionTestAllKeys">
-                <span v-if="connectionTestAllKeysRunning" class="loading loading-spinner loading-xs"></span>
-                {{ t("config.api.testAllKeys") }}
-              </button>
-            </div>
-          </div>
+      <ConfigCard v-if="!selectedProviderIsCodex" :title="t('config.api.connectionTest')">
+        <div class="flex items-center gap-2 py-3">
+          <select v-model="connectionTestModelId" class="select select-bordered select-sm flex-1">
+            <option v-for="m in draftViewModels" :key="m.id" :value="m.id">
+              {{ modelDisplayLabel(selectedProvider, m) }}
+            </option>
+          </select>
+          <button class="btn btn-sm" type="button"
+            :class="connectionTestFirstKeyRunning ? 'loading' : 'bg-base-200'"
+            :disabled="connectionTestFirstKeyRunning || connectionTestAllKeysRunning"
+            @click="runConnectionTestFirstKey">
+            <span v-if="connectionTestFirstKeyRunning" class="loading loading-spinner loading-xs"></span>
+            {{ t("config.api.testFirstKey") }}
+          </button>
+          <button class="btn btn-sm" type="button"
+            :class="connectionTestAllKeysRunning ? 'loading' : 'bg-base-200'"
+            :disabled="connectionTestFirstKeyRunning || connectionTestAllKeysRunning"
+            @click="runConnectionTestAllKeys">
+            <span v-if="connectionTestAllKeysRunning" class="loading loading-spinner loading-xs"></span>
+            {{ t("config.api.testAllKeys") }}
+          </button>
         </div>
-      </section>
+      </ConfigCard>
 
-      <section v-if="!selectedProviderIsCodex">
-        <h3 class="mb-3 text-sm font-semibold">{{ t("config.api.modelCards") }}</h3>
-        <div class="card border border-base-300 bg-base-100">
-          <div class="card-body gap-3 p-4">
-            <div class="flex items-center justify-between gap-2">
-              <span
-                class="text-xs min-w-0 truncate"
-                :class="props.modelRefreshError
-                  ? 'text-error'
-                  : props.modelRefreshOk
-                    ? 'text-success'
-                    : 'text-base-content/55'"
-              >{{ modelRefreshStatusText }}</span>
-              <div class="flex items-center gap-2 shrink-0">
-                <button class="btn btn-sm bg-base-200" type="button" :class="{ loading: props.refreshingModels }"
-                  :disabled="props.refreshingModels" @click="$emit('refreshModels')">
-                  <RefreshCw class="h-3.5 w-3.5" />
-                  <span>{{ t("config.api.refreshModels") }}</span>
-                </button>
-                <button class="btn btn-sm bg-base-200" type="button" @click="addModelCard">
-                  <Plus class="h-3.5 w-3.5" />
-                  <span>{{ t("config.api.addModel") }}</span>
-                </button>
-              </div>
-            </div>
+      <ConfigCard v-if="!selectedProviderIsCodex" :title="t('config.api.modelCards')">
+        <template #actions>
+          <button class="btn btn-sm" type="button" :class="{ loading: props.refreshingModels }"
+            :disabled="props.refreshingModels" @click="$emit('refreshModels')">
+            <RefreshCw class="h-3.5 w-3.5" />
+            <span>{{ t("config.api.refreshModels") }}</span>
+          </button>
+          <button class="btn btn-sm" type="button" @click="addModelCard">
+            <Plus class="h-3.5 w-3.5" />
+            <span>{{ t("config.api.addModel") }}</span>
+          </button>
+        </template>
+        <div class="flex items-center justify-between gap-2 py-3">
+          <span
+            class="text-xs min-w-0 truncate"
+            :class="props.modelRefreshError
+              ? 'text-error'
+              : props.modelRefreshOk
+                ? 'text-success'
+                : 'text-base-content/55'"
+          >{{ modelRefreshStatusText }}</span>
+        </div>
 
-                        <div class="grid gap-3">
+        <div class="divide-y divide-base-200/60">
               <ApiModelCard
                 v-for="group in draftModelGroups"
                 :key="group.primary.id"
@@ -212,6 +203,7 @@
                 :documentation-url="modelDocumentationUrl(group)"
                 :connection-result="modelConnectionResult[group.primary.id] ?? null"
                 :context-window-max="contextWindowMax(group)"
+                embedded
                 @select="selectModelCard(group.primary.id)"
                 @remove="removeModelGroup(group)"
                 @sync-metadata="handleModelCardSyncMetadata(group)"
@@ -220,10 +212,8 @@
                 @reasoning-change="(payload: { value: string; checked: boolean }) => setGroupReasoningEffort(group, payload.value, payload.checked)"
                 @open-documentation="openModelDocumentation(group)"
               />
-            </div>
-          </div>
         </div>
-      </section>
+      </ConfigCard>
     </div>
 
     <div v-else-if="activeTopTab === 'imageGeneration'" class="grid gap-3">
@@ -263,6 +253,7 @@ import { ExternalLink, Plus, RefreshCw, WandSparkles } from "@lucide/vue";
 import type { ApiModelConfigItem, ApiProviderConfigItem, ApiRequestFormat, AppConfig, CodexAuthMode, CodexAuthStatus } from "../../../../types/app";
 import ApiKeyListCard, { type ApiKeyConnectionStatus } from "../../components/ApiKeyListCard.vue";
 import ApiModelCard from "../../components/ApiModelCard.vue";
+import ConfigCard from "../../components/ConfigCard.vue";
 import ConfigTemplate from "../../components/ConfigTemplate.vue";
 import ProviderToolbar, { type ProviderToolbarOption } from "../../components/ProviderToolbar.vue";
 import SettingsStickyLayout from "../../components/SettingsStickyLayout.vue";

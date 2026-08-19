@@ -1,19 +1,22 @@
 <template>
   <div class="grid gap-7">
-    <section v-for="(group, groupIndex) in groups" :key="group.key ?? `${group.title}-${groupIndex}`">
-      <div class="mb-1 flex items-center justify-between gap-3">
-        <h3 class="text-sm font-semibold">{{ group.title }}</h3>
+    <ConfigCard
+      v-for="(group, groupIndex) in groups"
+      :key="group.key ?? `${group.title}-${groupIndex}`"
+      :title="group.title"
+    >
+      <template #actions>
         <slot
           v-if="group.key && $slots[`group-actions-${group.key}`]"
           :name="`group-actions-${group.key}`"
           :group="group"
         />
-      </div>
-      <div class="divide-y-[2px] divide-base-200 overflow-hidden rounded-box bg-base-100">
+      </template>
+      <div class="divide-y divide-base-200/60">
         <div
           v-for="(row, rowIndex) in group.rows"
           :key="`${group.key ?? group.title}-${row.key ?? rowIndex}`"
-          class="grid gap-4 p-3"
+          class="grid gap-4 py-3"
           :class="row.items.length > 1 ? 'sm:grid-cols-2' : 'grid-cols-1'"
         >
           <template v-if="row.key && $slots[`row-${row.key}`]">
@@ -108,12 +111,13 @@
           </template>
         </div>
       </div>
-    </section>
+    </ConfigCard>
   </div>
 </template>
 
 <script setup lang="ts">
 import type { ConfigTemplateGroup } from "./config-template";
+import ConfigCard from "./ConfigCard.vue";
 
 const props = defineProps<{
   modelValue: Record<string, unknown>;
