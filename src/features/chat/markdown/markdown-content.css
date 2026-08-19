@@ -252,7 +252,6 @@
   color: inherit !important;
   background: var(--color-base-300) !important;
   border-bottom: 1px solid color-mix(in srgb, var(--color-base-content) 16%, transparent) !important;
-  border-right: 1px solid color-mix(in srgb, var(--color-base-content) 14%, transparent) !important;
   padding: 0.38rem 0.52rem;
   text-align: left;
 }
@@ -265,7 +264,6 @@
   color: inherit !important;
   background: color-mix(in srgb, var(--color-base-300) 34%, transparent) !important;
   border-bottom: 1px solid color-mix(in srgb, var(--color-base-content) 10%, transparent) !important;
-  border-right: 1px solid color-mix(in srgb, var(--color-base-content) 14%, transparent) !important;
   padding: 0.36rem 0.52rem;
   vertical-align: top;
 }
@@ -299,6 +297,19 @@ html.ecall-md-layout-compact .ecall-md-chat .ecall-md-heading {
 
 html.ecall-md-layout-compact .ecall-md-chat h1.ecall-md-heading {
   margin-top: 1rem;
+  font-size: 1.3em;
+}
+
+html.ecall-md-layout-compact .ecall-md-chat h2.ecall-md-heading {
+  font-size: 1.15em;
+}
+
+html.ecall-md-layout-compact .ecall-md-chat h3.ecall-md-heading {
+  font-size: 1.05em;
+}
+
+html.ecall-md-layout-compact .ecall-md-chat h4.ecall-md-heading {
+  font-size: 1em;
 }
 
 html.ecall-md-layout-compact .ecall-md-chat .ecall-md-paragraph {
@@ -359,6 +370,19 @@ html.ecall-md-layout-comfortable .ecall-md-chat .ecall-md-heading {
 
 html.ecall-md-layout-comfortable .ecall-md-chat h1.ecall-md-heading {
   margin-top: 1.2rem;
+  font-size: 1.6em;
+}
+
+html.ecall-md-layout-comfortable .ecall-md-chat h2.ecall-md-heading {
+  font-size: 1.35em;
+}
+
+html.ecall-md-layout-comfortable .ecall-md-chat h3.ecall-md-heading {
+  font-size: 1.15em;
+}
+
+html.ecall-md-layout-comfortable .ecall-md-chat h4.ecall-md-heading {
+  font-size: 1.05em;
 }
 
 html.ecall-md-layout-comfortable .ecall-md-chat .ecall-md-paragraph {

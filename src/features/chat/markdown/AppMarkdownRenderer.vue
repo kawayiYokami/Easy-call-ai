@@ -1344,7 +1344,6 @@ ul.ecall-md-list {
 .ecall-md-table th,
 .ecall-md-table td {
   border: 0;
-  border-right: 1px solid color-mix(in srgb, currentColor 20%, transparent);
   border-bottom: 1px solid color-mix(in srgb, currentColor 20%, transparent);
   padding: 0.32rem 0.48rem;
   text-align: left;
