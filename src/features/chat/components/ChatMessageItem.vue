@@ -2053,9 +2053,9 @@ function openAttachmentPath(path: string) {
   gap: 0.5rem;
 }
 
-/* 无背景模式：分段之间用 daisyUI divider 分隔（见模板） */
+/* 无背景模式：分段之间用 daisyUI divider 分隔（见模板），保留 0.5rem 基础间距避免段间贴死 */
 .ecall-assistant-segment-list-plain {
-  gap: 0;
+  gap: 0.5rem;
 }
 
 /* 无背景模式：计划卡跟在正文段后，顶部用分割线区分 */
