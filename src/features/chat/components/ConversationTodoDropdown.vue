@@ -7,7 +7,6 @@
     <div
       class="todo-shell todo-mica group pointer-events-auto"
       :class="{ 'todo-shell-expanded': expanded }"
-      :aria-expanded="expanded"
       :aria-label="t('config.task.fields.todo')"
       @click.stop
       @mousedown.stop
@@ -16,6 +15,7 @@
       <button
         type="button"
         class="todo-header"
+        :aria-expanded="expanded"
         @click="toggleExpanded"
       >
         <span class="shrink-0" :class="activeTodoStatus === 'in_progress' ? 'todo-dot-active' : 'todo-dot-idle'"></span>
@@ -30,6 +30,7 @@
       </button>
       <div class="todo-body">
         <button
+          v-if="expanded"
           type="button"
           class="todo-collapse-btn opacity-0 transition-opacity duration-200 group-hover:opacity-60 hover:opacity-100"
           :aria-label="t('chat.todoCollapse')"
