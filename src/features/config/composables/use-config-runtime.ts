@@ -12,7 +12,7 @@ type TrFn = (key: string, params?: Record<string, unknown>) => string;
 
 type UseConfigRuntimeOptions = {
   t: TrFn;
-  setStatus: (text: string) => void;
+  setStatus: (text: string, tone?: "default" | "error" | "success") => void;
   setStatusError: (key: string, error: unknown) => void;
   personas: Ref<PersonaProfile[]>;
   assistantDepartmentAgentId: Ref<string>;
@@ -184,11 +184,11 @@ export function useConfigRuntime(options: UseConfigRuntimeOptions) {
       }
       const normalizedModels = models.map((m) => m.trim()).filter(Boolean);
       provider.cachedModelOptions = normalizedModels;
-      options.setStatus(options.t("status.modelListRefreshed", { count: normalizedModels.length }));
+      options.setStatus(options.t("status.modelListRefreshed", { count: normalizedModels.length }), "success");
     } catch (e) {
       const err = String(e);
       options.modelRefreshError.value = err;
-      options.setStatus(options.t("status.refreshModelsFailed", { err }));
+      options.setStatus(options.t("status.refreshModelsFailed", { err }), "error");
     } finally {
       options.refreshingModels.value = false;
     }

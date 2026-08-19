@@ -160,8 +160,6 @@
         </button>
       </template>
 
-      <div class="text-xs text-error py-3">{{ modelRefreshError || " " }}</div>
-
       <div class="divide-y divide-base-200/60">
           <div v-for="modelCard in provider.models" :key="modelCard.id" class="py-3">
             <div class="grid gap-3">

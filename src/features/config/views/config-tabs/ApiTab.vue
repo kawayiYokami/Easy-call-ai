@@ -170,16 +170,6 @@
             <span>{{ t("config.api.addModel") }}</span>
           </button>
         </template>
-        <div class="flex items-center justify-between gap-2 py-3">
-          <span
-            class="text-xs min-w-0 truncate"
-            :class="props.modelRefreshError
-              ? 'text-error'
-              : props.modelRefreshOk
-                ? 'text-success'
-                : 'text-base-content/55'"
-          >{{ modelRefreshStatusText }}</span>
-        </div>
 
         <div class="divide-y divide-base-200/60">
               <ApiModelCard
@@ -836,14 +826,6 @@ const providerModelOptions = computed(() => {
   if (!provider) return [];
   const cached = Array.isArray(provider.cachedModelOptions) ? provider.cachedModelOptions : [];
   return Array.from(new Set([...props.modelOptions, ...cached].map((item) => String(item || "").trim()).filter(Boolean)));
-});
-
-const modelRefreshStatusText = computed(() => {
-  if (props.modelRefreshError) return props.modelRefreshError;
-  if (props.modelRefreshOk) return t("status.modelListRefreshed", { count: providerModelOptions.value.length });
-  const initialCount = providerModelOptions.value.length;
-  if (initialCount > 0) return t("config.api.modelCount", { count: initialCount });
-  return t("config.api.noModels");
 });
 
 const savedProviderMap = computed(() => {
