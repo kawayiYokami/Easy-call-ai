@@ -336,7 +336,6 @@ html.ecall-md-layout-compact .ecall-md-chat .ecall-md-quote {
 
 html.ecall-md-layout-compact .ecall-md-chat .ecall-md-code-block {
   margin: 0.5rem 0;
-  border-radius: 0;
 }
 
 html.ecall-md-layout-compact .ecall-md-chat .ecall-md-code-title {
@@ -344,7 +343,6 @@ html.ecall-md-layout-compact .ecall-md-chat .ecall-md-code-title {
 }
 
 html.ecall-md-layout-compact .ecall-md-chat .ecall-md-inline-code {
-  border-radius: 0;
   padding: 0.08em 0.3em;
 }
 
@@ -409,11 +407,9 @@ html.ecall-md-layout-comfortable .ecall-md-chat .ecall-md-quote {
 
 html.ecall-md-layout-comfortable .ecall-md-chat .ecall-md-code-block {
   margin: 0.7rem 0;
-  border-radius: 4px;
 }
 
 html.ecall-md-layout-comfortable .ecall-md-chat .ecall-md-inline-code {
-  border-radius: 4px;
   padding: 0.1em 0.35em;
 }
 
@@ -478,7 +474,6 @@ html.ecall-md-layout-relaxed .ecall-md-chat .ecall-md-quote {
 
 html.ecall-md-layout-relaxed .ecall-md-chat .ecall-md-code-block {
   margin: 1.6em 0;
-  border-radius: 0.375rem;
 }
 
 html.ecall-md-layout-relaxed .ecall-md-chat .ecall-md-code-title {
@@ -486,7 +481,6 @@ html.ecall-md-layout-relaxed .ecall-md-chat .ecall-md-code-title {
 }
 
 html.ecall-md-layout-relaxed .ecall-md-chat .ecall-md-inline-code {
-  border-radius: 0.25rem;
   padding: 0.15em 0.4em;
 }
 
