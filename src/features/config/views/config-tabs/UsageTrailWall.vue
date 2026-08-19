@@ -1,13 +1,30 @@
 <template>
-  <section class="card bg-base-100 card-border border-base-300 from-base-content/5 bg-linear-to-bl to-50% card-sm overflow-hidden">
-    <div class="card-body gap-5">
-      <!-- 标题 -->
-      <div class="border-base-300/60 border-b pb-3">
-        <h2 class="text-lg font-bold">
-          {{ t("config.welcome.trail.title") }}
-        </h2>
+  <div class="grid gap-3">
+    <!-- ============ 成就卡 ============ -->
+    <ConfigCard>
+      <div class="stats stats-vertical w-full py-3 sm:stats-horizontal">
+        <div class="stat">
+          <div class="stat-title text-xs">{{ t("config.welcome.trail.achTotal") }}</div>
+          <div class="stat-value text-2xl">{{ formatTokens(achievementTotalTokens) }}</div>
+        </div>
+        <div class="stat">
+          <div class="stat-title text-xs">{{ t("config.welcome.trail.achPeak") }}</div>
+          <div class="stat-value text-2xl">{{ formatTokens(achievementPeak.tokens) }}</div>
+          <div v-if="achievementPeak.date" class="stat-desc">{{ achievementPeak.date }}</div>
+        </div>
+        <div class="stat">
+          <div class="stat-title text-xs">{{ t("config.welcome.trail.achCurrentStreak") }}</div>
+          <div class="stat-value text-2xl">{{ achievementCurrentStreak }}<span class="text-sm opacity-60"> {{ t("config.welcome.trail.dayUnit") }}</span></div>
+        </div>
+        <div class="stat">
+          <div class="stat-title text-xs">{{ t("config.welcome.trail.achBestStreak") }}</div>
+          <div class="stat-value text-2xl">{{ achievementBestStreak }}<span class="text-sm opacity-60"> {{ t("config.welcome.trail.dayUnit") }}</span></div>
+        </div>
       </div>
+    </ConfigCard>
 
+    <!-- ============ 今日卡 ============ -->
+    <ConfigCard>
       <!-- 加载态 -->
       <div v-if="loading && !todayData && !historyData" class="flex items-center justify-center gap-2 py-6 text-sm opacity-70">
         <span class="loading loading-spinner loading-sm"></span>
@@ -21,7 +38,7 @@
 
       <template v-else>
         <!-- ============ 今天 ============ -->
-        <div v-if="todayData" class="space-y-2.5">
+        <div v-if="todayData" class="space-y-2.5 py-3">
           <div class="flex items-center gap-2">
             <span class="badge badge-primary badge-sm">{{ t("config.welcome.trail.viewToday") }}</span>
             <span class="text-sm opacity-70">
@@ -72,14 +89,15 @@
             </div>
           </div>
         </div>
+      </template>
+    </ConfigCard>
 
-        <!-- ============ 历史 ============ -->
-        <div v-if="historyData" class="border-base-300/60 space-y-2.5 border-t pt-3">
+    <!-- ============ 历史卡 ============ -->
+    <ConfigCard>
+      <template v-if="historyData">
+        <div class="space-y-2.5 py-3">
           <div class="flex flex-wrap items-center justify-between gap-2">
-            <div class="flex items-center gap-2">
-              <span class="badge badge-primary badge-sm">{{ t("config.welcome.trail.viewHistory") }}</span>
-              <span class="text-sm opacity-70">{{ t("config.welcome.trail.yearTotal", { year: historyData.year }) }}</span>
-            </div>
+            <div class="text-sm opacity-70">{{ t("config.welcome.trail.yearTotal", { year: historyData.year }) }}</div>
             <div v-if="historyData.years.length > 1" class="join join-horizontal">
               <button
                 v-for="year in historyData.years"
@@ -93,7 +111,6 @@
               </button>
             </div>
           </div>
-
           <div class="flex flex-wrap items-end justify-between gap-3">
             <div>
               <div class="text-3xl font-bold tabular-nums">{{ formatTokens(historyData.totals.totalTokens) }}</div>
@@ -130,14 +147,14 @@
                 ></div>
               </div>
             </div>
-            <!-- Less/More 色阶图例 -->
+            <!-- Less/More 色阶图例：多色块模拟连续渐变，与格子同渲染逻辑 -->
             <div class="mt-1 flex w-full items-center justify-end gap-1 text-[9px] opacity-50">
               <span>{{ t("config.welcome.trail.legendLess") }}</span>
               <div class="flex gap-px">
                 <div
-                  v-for="pct in legendLevels"
+                  v-for="pct in [25, 40, 55, 70, 85, 100]"
                   :key="pct"
-                  class="size-2 rounded-field"
+                  class="h-2 w-3 rounded-field"
                   :style="legendStyle(pct)"
                 ></div>
               </div>
@@ -155,22 +172,9 @@
             </span>
           </div>
         </div>
-
-        <!-- 历史累计（迁移前旧账本） -->
-        <div
-          v-if="(todayData?.epochTotals || historyData?.epochTotals) && (todayData?.epochTotals?.totalTokens || 0) > 0"
-          class="flex items-center gap-1.5 border-base-300/60 border-t pt-2 text-xs opacity-60"
-        >
-          <span class="tooltip" :data-tip="t('config.welcome.trail.epochHint')">
-            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="size-3.5">
-              <path stroke-linecap="round" stroke-linejoin="round" d="M9.879 7.519c1.171-1.025 3.071-1.025 4.242 0 1.172 1.025 1.172 2.687 0 3.712-.203.179-.43.326-.67.442-.745.361-1.45.999-1.45 1.827v.75M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Zm-9 5.25h.008v.008H12v-.008Z" />
-            </svg>
-          </span>
-          <span>{{ t("config.welcome.trail.epochTitle") }}：{{ formatTokens(todayData?.epochTotals?.totalTokens || historyData?.epochTotals?.totalTokens || 0) }}</span>
-        </div>
       </template>
-    </div>
-  </section>
+    </ConfigCard>
+  </div>
 
   <!-- 历史格子 tooltip：Teleport 到 body，避免被卡片 overflow 裁剪 -->
   <Teleport to="body">
@@ -191,6 +195,7 @@ import { useI18n } from "vue-i18n";
 import { invokeTauri } from "../../../../services/tauri-api";
 import { toErrorMessage } from "../../../../utils/error";
 import { apiConfigDisplayName } from "../../utils/api-config-display";
+import ConfigCard from "../../components/ConfigCard.vue";
 import ChartView from "./ChartView.vue";
 
 type TrailView = "today" | "history";
@@ -444,14 +449,31 @@ const weekdayLabels = computed(() => {
   return weekdays.map((day) => (day === "一" || day === "三" || day === "五" ? day : ""));
 });
 
-const legendLevels = [0, 15, 30, 60, 85];
+// 平滑色阶：锚点固定 (1, 25%) → (10M, 50%) → (100M, 75%) → (1B, 100%)
+// 0 无数据为灰底；有数据从 25% 起，token 取对数后在锚点间线性插值缓升
+const CALENDAR_ANCHORS: Array<{ log: number; pct: number }> = [
+  { log: 0, pct: 25 },      // 1 token
+  { log: 7, pct: 50 },      // 10M
+  { log: 8, pct: 75 },      // 100M
+  { log: 9, pct: 100 },     // 1B
+];
 
-function legendStyle(pct: number): Record<string, string> {
-  if (pct === 0) {
-    return { backgroundColor: "var(--color-base-200)" };
+function calendarPct(tokens: number): number | null {
+  if (tokens <= 0) return null;
+  const log = Math.log10(tokens);
+  if (log <= 0) return 25;
+  if (log >= 9) return 100;
+  for (let i = 1; i < CALENDAR_ANCHORS.length; i += 1) {
+    const lo = CALENDAR_ANCHORS[i - 1];
+    const hi = CALENDAR_ANCHORS[i];
+    if (log <= hi.log) {
+      const ratio = (log - lo.log) / (hi.log - lo.log);
+      return lo.pct + (hi.pct - lo.pct) * ratio;
+    }
   }
-  return { backgroundColor: `color-mix(in oklab, var(--color-primary) ${pct}%, var(--color-base-100))` };
+  return 100;
 }
+
 function cnMonth(datePrefix: string): string {
   const months = tm("config.welcome.trail.months") as unknown as string[];
   return months[Number(datePrefix.slice(5))] || "";
@@ -520,6 +542,8 @@ async function loadTrail() {
     if (!trailUnmounted) {
       todayData.value = today;
       historyData.value = history;
+      // 拉齐所有年份的历史日历，供成就卡计算（累计/峰值/连续日）
+      void loadAllYears(today.years);
     }
   } catch (error) {
     if (!trailUnmounted) {
@@ -531,6 +555,112 @@ async function loadTrail() {
     }
   }
 }
+
+// 全量历史年份数据缓存（成就卡数据源）
+const allYearsData = ref<UsageTrailWallView[]>([]);
+
+async function loadAllYears(years: string[]) {
+  if (years.length === 0) return;
+  try {
+    const views = await Promise.all(
+      years.map((year) =>
+        invokeTauri<UsageTrailWallView>("get_usage_trail", {
+          input: { view: "history" as TrailView, year },
+        }),
+      ),
+    );
+    if (!trailUnmounted) {
+      allYearsData.value = views;
+    }
+  } catch {
+    // 成就数据降级：至少保留已加载的默认年份
+  }
+}
+
+function todayDateString(): string {
+  const now = new Date();
+  const month = String(now.getMonth() + 1).padStart(2, "0");
+  const day = String(now.getDate()).padStart(2, "0");
+  return `${now.getFullYear()}-${month}-${day}`;
+}
+
+function shiftDate(date: string, offset: number): string {
+  const parsed = new Date(`${date}T00:00:00`);
+  parsed.setDate(parsed.getDate() + offset);
+  const month = String(parsed.getMonth() + 1).padStart(2, "0");
+  const day = String(parsed.getDate()).padStart(2, "0");
+  return `${parsed.getFullYear()}-${month}-${day}`;
+}
+
+// ============ 成就卡 ============
+
+// 全量日序列：所有年份日历合并（同日期取最大值，今天取 today 视图实时值）
+const allDayTotals = computed<Map<string, number>>(() => {
+  const map = new Map<string, number>();
+  for (const view of allYearsData.value) {
+    for (const day of view.calendar || []) {
+      map.set(day.date, Math.max(map.get(day.date) ?? 0, day.totalTokens));
+    }
+  }
+  return map;
+});
+
+// 累计 token：迁移前旧账本（epoch）+ 所有年份总量
+const achievementTotalTokens = computed(() => {
+  const epoch = todayData.value?.epochTotals?.totalTokens || 0;
+  let sum = epoch;
+  for (const view of allYearsData.value) {
+    sum += view.totals.totalTokens;
+  }
+  return sum;
+});
+
+// 单日峰值：全量日历中最大的单日 token（含日期）
+const achievementPeak = computed(() => {
+  let peakTokens = 0;
+  let peakDate = "";
+  for (const [date, tokens] of allDayTotals.value) {
+    if (tokens > peakTokens) {
+      peakTokens = tokens;
+      peakDate = date;
+    }
+  }
+  return { tokens: peakTokens, date: peakDate || "" };
+});
+
+// 当前连续日：以今天为锚，今天 0 不算断（从昨天起算），往前数连续有 token 的天数
+const achievementCurrentStreak = computed(() => {
+  const map = allDayTotals.value;
+  const today = todayDateString();
+  let cursor = map.get(today) && (map.get(today) ?? 0) > 0 ? today : shiftDate(today, -1);
+  let streak = 0;
+  while (cursor) {
+    const tokens = map.get(cursor) ?? 0;
+    if (tokens <= 0) break;
+    streak += 1;
+    cursor = shiftDate(cursor, -1);
+  }
+  return streak;
+});
+
+// 最高连续日：全量历史中最长的连续有 token 天数
+const achievementBestStreak = computed(() => {
+  const dates = [...allDayTotals.value.keys()].sort();
+  let best = 0;
+  let current = 0;
+  let prev: string | null = null;
+  for (const date of dates) {
+    const tokens = allDayTotals.value.get(date) ?? 0;
+    if (tokens > 0) {
+      current = prev && shiftDate(prev, 1) === date ? current + 1 : 1;
+      best = Math.max(best, current);
+    } else {
+      current = 0;
+    }
+    prev = date;
+  }
+  return best;
+});
 
 async function switchYear(year: string) {
   if (!historyData.value || historyData.value.year === year) return;
@@ -559,17 +689,16 @@ function formatTokens(value: number): string {
 }
 
 function calendarCellStyle(day: UsageTrailWallDay): Record<string, string> {
-  // 绝对分档：空 → 10M → 100M → 1B，1B/天 为最深色
-  // 用 color-mix 与背景色混合（而非透明叠加），深浅主题下都保持干净的实色阶梯
-  const tokens = day.totalTokens;
-  let pct = 0;
-  if (tokens >= 1_000_000_000) pct = 85;
-  else if (tokens >= 100_000_000) pct = 60;
-  else if (tokens >= 10_000_000) pct = 30;
-  else if (tokens > 0) pct = 15;
-  if (pct === 0) {
+  // 平滑对数色阶：0 无数据为灰底，>0 起从 25% 连续缓升，1B 达 100% 纯主题色
+  const pct = calendarPct(day.totalTokens);
+  if (pct === null) {
     return { backgroundColor: "var(--color-base-200)" };
   }
+  return { backgroundColor: `color-mix(in oklab, var(--color-primary) ${pct}%, var(--color-base-100))` };
+}
+
+function legendStyle(pct: number): Record<string, string> {
+  // 图例色块与格子同公式渲染，避免 CSS 渐变偏色
   return { backgroundColor: `color-mix(in oklab, var(--color-primary) ${pct}%, var(--color-base-100))` };
 }
 

@@ -424,7 +424,13 @@
           "十一月",
           "十二月"
         ],
-        "chartPolar": "極區圖"
+        "chartPolar": "極區圖",
+        "achievements": "成就",
+        "achTotal": "累计 Token",
+        "achPeak": "峰值 Token（单日）",
+        "achCurrentStreak": "当前连续日",
+        "achBestStreak": "最高连续日",
+        "dayUnit": "天"
       },
       "runtimeDeps": {
         "title": "執行階段依賴"

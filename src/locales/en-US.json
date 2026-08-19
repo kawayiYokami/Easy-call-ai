@@ -426,7 +426,13 @@
           "Nov",
           "Dec"
         ],
-        "chartPolar": "Polar"
+        "chartPolar": "Polar",
+        "achievements": "Achievements",
+        "achTotal": "Total Tokens",
+        "achPeak": "Peak Tokens (Day)",
+        "achCurrentStreak": "Current Streak",
+        "achBestStreak": "Best Streak",
+        "dayUnit": "days"
       },
       "runtimeDeps": {
         "title": "Runtime Dependencies"
