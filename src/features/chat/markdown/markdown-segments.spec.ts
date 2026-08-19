@@ -16,7 +16,7 @@ describe("groupMarkdownSegments", () => {
       { kind: "text", key: "text-p1", blocks: blocks.slice(0, 2) },
       { kind: "rich", key: "rich-c1", blocks: [blocks[2]] },
       { kind: "rich", key: "rich-t1", blocks: [blocks[3]] },
-      { kind: "rich", key: "rich-q1", blocks: [blocks[4]] },
+      { kind: "text", key: "text-q1", blocks: [blocks[4]] },
     ]);
   });
 });

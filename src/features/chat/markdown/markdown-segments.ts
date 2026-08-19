@@ -7,7 +7,7 @@ export type MarkdownSegment = {
 };
 
 function isRichBlock(block: MarkdownBlock): boolean {
-  return block.type === "code" || block.type === "table" || block.type === "quote";
+  return block.type === "code" || block.type === "table";
 }
 
 export function groupMarkdownSegments(blocks: MarkdownBlock[]): MarkdownSegment[] {
