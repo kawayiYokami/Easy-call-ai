@@ -68,6 +68,8 @@ fn ide_chat_web_native_only_method(method: &str) -> bool {
             | "set_chat_window_side_expanded"
             | "show_quick_setup_window"
             | "complete_quick_setup_and_open_chat"
+            | "list_system_fonts"
+            | "list_genai_chat_adapters"
     )
 }
 
