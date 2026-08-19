@@ -1,7 +1,12 @@
 {
-  "generatedAt": "2026-08-18T11:24:19.051Z",
-  "latestVersion": "v0.68.0",
+  "generatedAt": "2026-08-19T12:58:46.055Z",
+  "latestVersion": "v0.70.0",
   "releases": [
+    {
+      "version": "v0.70.0",
+      "path": "docs/changelog/releases/v0.70.0.md",
+      "summary": "欢迎页的足迹墙分成三张卡：成就卡展示累计 Token、单日峰值、当前连续日和最高连续日，今日卡保留 24 小时用量图表，历史卡保留年历热力图；热力色阶改为固定锚点的平滑渐变，不同年份、不同用户之间颜色深浅可直接对比。"
+    },
     {
       "version": "v0.68.0",
       "path": "docs/changelog/releases/v0.68.0.md",
