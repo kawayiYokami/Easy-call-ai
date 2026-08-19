@@ -396,7 +396,9 @@ const uiFontOptions = computed(() => {
 const codeFontOptions = computed(() => {
   const current = String(props.codeFont || "").trim();
   const set = new Set<string>();
-  if (current && current !== "auto" && monospaceFonts.value.has(current)) set.add(current);
+  // 无条件保留用户已保存的代码字体为候选项：即使系统字体枚举失败、或后端未将其标记为 monospace，
+  // 下拉列表也必须能对应上当前选中的代码字体
+  if (current && current !== "auto") set.add(current);
   for (const name of systemFonts.value) {
     if (monospaceFonts.value.has(name)) set.add(name);
   }
