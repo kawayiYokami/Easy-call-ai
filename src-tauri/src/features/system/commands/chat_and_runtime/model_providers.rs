@@ -490,6 +490,7 @@ fn parse_documentation_url(model_obj: &serde_json::Map<String, Value>) -> Option
 
 fn parse_reasoning_effort_options(model_obj: &serde_json::Map<String, Value>) -> Vec<String> {
     let mut values = Vec::<String>::new();
+    let mut has_toggle = false;
     let Some(items) = model_obj.get("reasoning_options").and_then(Value::as_array) else {
         return values;
     };
@@ -503,6 +504,11 @@ fn parse_reasoning_effort_options(model_obj: &serde_json::Map<String, Value>) ->
             .unwrap_or_default()
             .trim()
             .to_ascii_lowercase();
+        // toggle 表示思考可开关（如 DeepSeek 的 non-thinking mode），映射为可关闭档位 none。
+        if option_type == "toggle" {
+            has_toggle = true;
+            continue;
+        }
         if option_type != "effort" {
             continue;
         }
@@ -523,6 +529,10 @@ fn parse_reasoning_effort_options(model_obj: &serde_json::Map<String, Value>) ->
             }
             values.push(normalized);
         }
+    }
+    // 思考可开关的模型在无 none 档位时补充 none，让前端可以显式关闭思考。
+    if has_toggle && !values.iter().any(|item| item == "none") {
+        values.insert(0, "none".to_string());
     }
     values
 }
@@ -1300,5 +1310,44 @@ mod model_metadata_selection_tests {
             normalize_model_metadata_base_url("https://api.example.com/V1"),
             normalize_model_metadata_base_url("https://api.example.com/v1"),
         );
+    }
+
+    #[test]
+    fn parse_reasoning_effort_options_should_add_none_when_toggle_present() {
+        // DeepSeek 声明：toggle(可关闭思考) + effort(low/high/max)
+        let obj = serde_json::json!({
+            "reasoning_options": [
+                { "type": "toggle" },
+                { "type": "effort", "values": ["low", "high", "max"] }
+            ]
+        });
+        let map = obj.as_object().unwrap().clone();
+        let options = parse_reasoning_effort_options(&map);
+        assert_eq!(options, vec!["none", "low", "high", "max"]);
+    }
+
+    #[test]
+    fn parse_reasoning_effort_options_should_not_duplicate_none() {
+        let obj = serde_json::json!({
+            "reasoning_options": [
+                { "type": "toggle" },
+                { "type": "effort", "values": ["none", "high"] }
+            ]
+        });
+        let map = obj.as_object().unwrap().clone();
+        let options = parse_reasoning_effort_options(&map);
+        assert_eq!(options, vec!["none", "high"]);
+    }
+
+    #[test]
+    fn parse_reasoning_effort_options_without_toggle_should_keep_effort_values() {
+        let obj = serde_json::json!({
+            "reasoning_options": [
+                { "type": "effort", "values": ["low", "high"] }
+            ]
+        });
+        let map = obj.as_object().unwrap().clone();
+        let options = parse_reasoning_effort_options(&map);
+        assert_eq!(options, vec!["low", "high"]);
     }
 }
