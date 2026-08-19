@@ -611,4 +611,37 @@ describe("useConversationViewRuntime", () => {
     expect(runtime.allMessages.value.map((item: any) => item.id)).toEqual(["user-1"]);
     scope.stop();
   });
+
+  it("撤回广播的两个边界 ID 都不在本地时，重新同步权威快照而非静默保留旧切片", async () => {
+    invokeTauriMock
+      .mockResolvedValueOnce({
+        conversationId: "conversation-a",
+        messages: [message("user-2", "q2", "user"), message("assistant-2", "a2")],
+        runtimeState: "idle",
+        shouldBindStream: false,
+      })
+      .mockResolvedValueOnce({
+        conversationId: "conversation-a",
+        messages: [message("user-1", "q1", "user")],
+        runtimeState: "idle",
+        shouldBindStream: false,
+      });
+
+    const { runtime, scope } = await createRuntime("conversation-a");
+    await vi.waitFor(() => expect(runtime.allMessages.value).toHaveLength(2));
+    // 本地只加载了尾部切片 [user-2, assistant-2]，撤回点更早（user-1），两个边界 ID 都不在切片内
+    rewindCompletedHandlers.forEach((handler) => handler({
+      conversationId: "conversation-a",
+      targetMessageId: "user-1",
+      remainingLastMessageId: "missing-keep",
+      removedCount: 2,
+      remainingCount: 1,
+    }));
+    // 不再静默保留本地旧切片，而是发起权威同步并最终以服务端快照为准
+    await vi.waitFor(() => expect(runtime.allMessages.value.map((item: any) => item.id)).toEqual(["user-1"]));
+    expect(
+      invokeTauriMock.mock.calls.filter(([command]) => command === "conversation.foregroundLightSnapshot"),
+    ).toHaveLength(2);
+    scope.stop();
+  });
 });

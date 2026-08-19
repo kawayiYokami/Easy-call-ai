@@ -639,7 +639,16 @@ export function useConversationViewRuntime(options: ConversationViewRuntimeOptio
         const targetIndex = messages.findIndex((message) => String(message.id || "").trim() === targetMessageId);
         if (targetIndex >= 0) cutIndex = targetIndex;
       }
-      if (cutIndex < 0 || cutIndex >= messages.length) return;
+      // 两个边界 ID 都不在当前已加载切片内时，本地无法安全裁剪（撤回点可能在切片更早处），回源同步权威快照而非静默保留
+      if (cutIndex < 0) {
+        void synchronizeConversation(conversationId, {
+          clearRuntime: true,
+          preserveExistingHistory: false,
+        });
+        return;
+      }
+      // 边界已找到但落在切片尾部或之后，本地没有可裁的冗余消息
+      if (cutIndex >= messages.length) return;
       allMessages.value = messages.slice(0, cutIndex);
       console.info("[会话撤回] 收到撤回广播，已裁剪侧聊消息", {
         conversationId,

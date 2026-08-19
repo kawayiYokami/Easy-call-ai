@@ -258,7 +258,13 @@ export function useChatRuntimeSetup(bindings: Record<string, any>) {
         const targetIndex = messages.findIndex((message: any) => String(message?.id || "").trim() === targetMessageId);
         if (targetIndex >= 0) cutIndex = targetIndex;
       }
-      if (cutIndex < 0 || cutIndex >= messages.length) return;
+      // 两个边界 ID 都不在当前已加载切片内时，本地无法安全裁剪（撤回点可能在切片更早处），回源重载权威快照而非静默保留
+      if (cutIndex < 0) {
+        void bindings.reloadForegroundConversationMessages("chat_rewind_completed_boundary_miss");
+        return;
+      }
+      // 边界已找到但落在切片尾部或之后，本地没有可裁的冗余消息
+      if (cutIndex >= messages.length) return;
       bindings.allMessages.value = messages.slice(0, cutIndex);
       bindings.cacheConversationMessages(conversationId, bindings.allMessages.value);
       console.info("[会话撤回] 收到撤回广播，已裁剪本地消息", {
