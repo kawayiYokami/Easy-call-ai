@@ -2,6 +2,8 @@ import { effectScope, nextTick, ref } from "vue";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const invokeTauriMock = vi.hoisted(() => vi.fn());
+const onTransportNotificationMock = vi.hoisted(() => vi.fn());
+const rewindCompletedHandlers = vi.hoisted(() => new Set<Function>());
 const useChatFlowOptionsHolder = vi.hoisted(() => ({ value: null as any }));
 const flowMock = vi.hoisted(() => ({
   bindingId: "side-view-test",
@@ -30,6 +32,10 @@ vi.mock("../../../services/tauri-api", () => ({
   bindTransportConversationStream: vi.fn(async () => {}),
   unbindTransportConversationStream: vi.fn(async () => {}),
   probeTransportConversationStream: vi.fn(async () => true),
+  onTransportNotification: (method: string, handler: unknown) => {
+    if (method === "chat.rewindCompleted") rewindCompletedHandlers.add(handler as Function);
+    return () => {};
+  },
 }));
 
 vi.mock("./use-chat-flow", () => ({
@@ -81,6 +87,8 @@ async function createRuntime(conversationId = "conversation-a", subscriptionSlot
 describe("useConversationViewRuntime", () => {
   beforeEach(() => {
     invokeTauriMock.mockReset();
+    rewindCompletedHandlers.clear();
+    onTransportNotificationMock.mockReset();
     flowMock.frontendRoundPhase.value = "idle";
     flowMock.unbindActiveConversationStream.mockReset().mockResolvedValue(undefined);
     flowMock.bindActiveConversationStream.mockReset().mockResolvedValue(undefined);
@@ -531,5 +539,76 @@ describe("useConversationViewRuntime", () => {
     });
     scope.stop();
     await vi.waitFor(() => expect(subscriptionSlot.release).toHaveBeenCalled());
+  });
+
+  it("收到撤回广播且会话匹配时裁剪目标消息之后的消息", async () => {
+    invokeTauriMock.mockResolvedValueOnce({
+      conversationId: "conversation-a",
+      messages: [
+        message("user-1", "q1", "user"),
+        message("assistant-1", "a1"),
+        message("user-2", "q2", "user"),
+        message("assistant-2", "a2"),
+      ],
+      runtimeState: "idle",
+      shouldBindStream: false,
+    });
+
+    const { runtime, scope } = await createRuntime("conversation-a");
+    await vi.waitFor(() => expect(runtime.allMessages.value).toHaveLength(4));
+    rewindCompletedHandlers.forEach((handler) => handler({
+      conversationId: "conversation-a",
+      targetMessageId: "user-2",
+      remainingLastMessageId: "assistant-1",
+      removedCount: 2,
+      remainingCount: 2,
+    }));
+    await nextTick();
+    expect(runtime.allMessages.value.map((item: any) => item.id)).toEqual(["user-1", "assistant-1"]);
+    scope.stop();
+  });
+
+  it("撤回广播的会话不匹配时不裁剪本地消息", async () => {
+    invokeTauriMock.mockResolvedValueOnce({
+      conversationId: "conversation-a",
+      messages: [message("user-1", "q1", "user"), message("assistant-1", "a1")],
+      runtimeState: "idle",
+      shouldBindStream: false,
+    });
+
+    const { runtime, scope } = await createRuntime("conversation-a");
+    await vi.waitFor(() => expect(runtime.allMessages.value).toHaveLength(2));
+    rewindCompletedHandlers.forEach((handler) => handler({
+      conversationId: "conversation-other",
+      targetMessageId: "user-1",
+      remainingLastMessageId: "",
+      removedCount: 1,
+      remainingCount: 1,
+    }));
+    await nextTick();
+    expect(runtime.allMessages.value).toHaveLength(2);
+    scope.stop();
+  });
+
+  it("保留消息 ID 不在本地时按撤回目标消息裁剪", async () => {
+    invokeTauriMock.mockResolvedValueOnce({
+      conversationId: "conversation-a",
+      messages: [message("user-1", "q1", "user"), message("assistant-1", "a1")],
+      runtimeState: "idle",
+      shouldBindStream: false,
+    });
+
+    const { runtime, scope } = await createRuntime("conversation-a");
+    await vi.waitFor(() => expect(runtime.allMessages.value).toHaveLength(2));
+    rewindCompletedHandlers.forEach((handler) => handler({
+      conversationId: "conversation-a",
+      targetMessageId: "assistant-1",
+      remainingLastMessageId: "missing-id",
+      removedCount: 1,
+      remainingCount: 1,
+    }));
+    await nextTick();
+    expect(runtime.allMessages.value.map((item: any) => item.id)).toEqual(["user-1"]);
+    scope.stop();
   });
 });

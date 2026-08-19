@@ -7,6 +7,7 @@ import {
   unbindTransportConversationStream,
 } from "../../../services/tauri-api";
 import { registerChatFlowRuntime } from "./chat-flow-runtime-registry";
+import type { ChatRewindCompletedPayload } from "../../../types/app";
 import { useChatFlow } from "./use-chat-flow";
 import { useChatForegroundRuntime } from "./use-chat-foreground-runtime";
 import { useChatRewindActions } from "./use-chat-rewind-actions";
@@ -238,12 +239,43 @@ export function useChatRuntimeSetup(bindings: Record<string, any>) {
     ...bindings,
     getChatFlow: () => chatFlow,
   });
+  const stopRewindCompletedEvent = onTransportNotification<ChatRewindCompletedPayload>(
+    "chat.rewindCompleted",
+    (payload) => {
+      const conversationId = String(payload?.conversationId || "").trim();
+      const currentConversationId = String(bindings.currentChatConversationId.value || "").trim();
+      if (!conversationId || conversationId !== currentConversationId) return;
+      const messages = Array.isArray(bindings.allMessages.value) ? [...bindings.allMessages.value] : [];
+      if (messages.length === 0) return;
+      const remainingLastMessageId = String(payload?.remainingLastMessageId || "").trim();
+      const targetMessageId = String(payload?.targetMessageId || "").trim();
+      let cutIndex = -1;
+      if (remainingLastMessageId) {
+        const keepIndex = messages.findIndex((message: any) => String(message?.id || "").trim() === remainingLastMessageId);
+        if (keepIndex >= 0) cutIndex = keepIndex + 1;
+      }
+      if (cutIndex < 0 && targetMessageId) {
+        const targetIndex = messages.findIndex((message: any) => String(message?.id || "").trim() === targetMessageId);
+        if (targetIndex >= 0) cutIndex = targetIndex;
+      }
+      if (cutIndex < 0 || cutIndex >= messages.length) return;
+      bindings.allMessages.value = messages.slice(0, cutIndex);
+      bindings.cacheConversationMessages(conversationId, bindings.allMessages.value);
+      console.info("[会话撤回] 收到撤回广播，已裁剪本地消息", {
+        conversationId,
+        targetMessageId,
+        remainingLastMessageId,
+        cutIndex,
+      });
+    },
+  );
   const unregisterChatFlowRuntime = registerChatFlowRuntime({
     bindingId: chatFlow.bindingId,
     getConversationId: () => String(bindings.currentChatConversationId.value || "").trim(),
     flow: chatFlow,
   });
   onScopeDispose(() => {
+    stopRewindCompletedEvent();
     unregisterChatFlowRuntime();
     void chatFlow.unbindActiveConversationStream?.().catch(() => {});
   });

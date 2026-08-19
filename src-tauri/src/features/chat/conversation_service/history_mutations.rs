@@ -270,6 +270,14 @@ impl ConversationServiceV2 {
                     rewind_state.keep_count,
                 )?;
                 self.mark_conversation_metadata_cached_persisted(state, &conversation_id)?;
+                emit_rewind_completed_event(
+                    state,
+                    &conversation_id,
+                    message_id,
+                    rewind_state.remaining_last_message_id.clone(),
+                    rewind_state.removed_messages.len(),
+                    rewind_state.keep_count,
+                );
                 Ok(RewindConversationMutationResult {
                     conversation_id,
                     removed_count: rewind_state.removed_messages.len(),
@@ -616,4 +624,41 @@ impl ConversationServiceV2 {
         })
     }
 
+}
+
+// ========== 会话撤回广播 ==========
+
+fn emit_rewind_completed_event(
+    state: &AppState,
+    conversation_id: &str,
+    target_message_id: &str,
+    remaining_last_message_id: Option<String>,
+    removed_count: usize,
+    remaining_count: usize,
+) {
+    let payload = serde_json::json!({
+        "conversationId": conversation_id,
+        "targetMessageId": target_message_id,
+        "remainingLastMessageId": remaining_last_message_id,
+        "removedCount": removed_count,
+        "remainingCount": remaining_count,
+    });
+    ide_chat_broadcast_notification("chat.rewindCompleted", payload.clone());
+    let app_handle = match state.app_handle.lock() {
+        Ok(guard) => guard.as_ref().cloned(),
+        Err(_) => None,
+    };
+    let Some(app_handle) = app_handle else {
+        runtime_log_warn(format!(
+            "[会话撤回] 广播 rewind_completed 跳过: app_handle unavailable, conversation_id={}",
+            conversation_id
+        ));
+        return;
+    };
+    if let Err(err) = app_handle.emit(CHAT_REWIND_COMPLETED_EVENT, payload) {
+        runtime_log_error(format!(
+            "[会话撤回] 广播 rewind_completed 失败: conversation_id={}, error={}",
+            conversation_id, err
+        ));
+    }
 }

@@ -7,7 +7,7 @@ import {
   probeTransportConversationStream,
   unbindTransportConversationStream,
 } from "../../../services/tauri-api";
-import type { AssistantStreamBlock, ChatMentionTarget, ChatMessage, ChatTodoItem } from "../../../types/app";
+import type { AssistantStreamBlock, ChatMentionTarget, ChatMessage, ChatRewindCompletedPayload, ChatTodoItem } from "../../../types/app";
 import { ensureConversationMessageIds } from "../utils/message-id";
 import { registerChatFlowRuntime } from "./chat-flow-runtime-registry";
 import type { ExclusiveChatViewSubscriptionSlot } from "./exclusive-chat-view-subscription-slot";
@@ -620,8 +620,38 @@ export function useConversationViewRuntime(options: ConversationViewRuntimeOptio
       });
     },
   });
+  const stopRewindCompletedEvent = onTransportNotification<ChatRewindCompletedPayload>(
+    "chat.rewindCompleted",
+    (payload) => {
+      const conversationId = String(payload?.conversationId || "").trim();
+      const currentId = currentConversationId();
+      if (!conversationId || conversationId !== currentId) return;
+      const messages = [...allMessages.value];
+      if (messages.length === 0) return;
+      const remainingLastMessageId = String(payload?.remainingLastMessageId || "").trim();
+      const targetMessageId = String(payload?.targetMessageId || "").trim();
+      let cutIndex = -1;
+      if (remainingLastMessageId) {
+        const keepIndex = messages.findIndex((message) => String(message.id || "").trim() === remainingLastMessageId);
+        if (keepIndex >= 0) cutIndex = keepIndex + 1;
+      }
+      if (cutIndex < 0 && targetMessageId) {
+        const targetIndex = messages.findIndex((message) => String(message.id || "").trim() === targetMessageId);
+        if (targetIndex >= 0) cutIndex = targetIndex;
+      }
+      if (cutIndex < 0 || cutIndex >= messages.length) return;
+      allMessages.value = messages.slice(0, cutIndex);
+      console.info("[会话撤回] 收到撤回广播，已裁剪侧聊消息", {
+        conversationId,
+        targetMessageId,
+        remainingLastMessageId,
+        cutIndex,
+      });
+    },
+  );
 
   onScopeDispose(() => {
+    stopRewindCompletedEvent();
     disposed = true;
     foregroundRecoveryRunner.cancel();
     ++foregroundSyncSequence;

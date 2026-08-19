@@ -1132,6 +1132,17 @@ export type AgentWorkSignalPayload = {
   delegateId: string;
 };
 
+/** 会话撤回完成事件：后端截断会话后广播给所有已打开该会话的端。 */
+export type ChatRewindCompletedPayload = {
+  conversationId: string;
+  /** 被撤回的目标消息 ID（该消息及其之后均已被后端删除）。 */
+  targetMessageId: string;
+  /** 截断后保留的最后一条消息 ID；为空表示后端未能给出（正常不会发生）。 */
+  remainingLastMessageId?: string;
+  removedCount: number;
+  remainingCount: number;
+};
+
 export type ResponseStyleOption = {
   id: string;
   name: string;

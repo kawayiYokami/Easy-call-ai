@@ -207,6 +207,7 @@ const CHAT_ROUND_COMPLETED_EVENT: &str = "easy-call:round-completed";
 const CHAT_ROUND_FAILED_EVENT: &str = "easy-call:round-failed";
 const CHAT_ASSISTANT_DELTA_EVENT: &str = "easy-call:assistant-delta";
 const CHAT_STREAM_REBIND_REQUIRED_EVENT: &str = "easy-call:stream-rebind-required";
+const CHAT_REWIND_COMPLETED_EVENT: &str = "easy-call:chat-rewind-completed";
 const CHAT_CONVERSATION_MESSAGE_APPENDED_EVENT: &str = "easy-call:conversation-message-appended";
 const CHAT_CONVERSATION_OVERVIEW_UPDATED_EVENT: &str = "easy-call:conversation-overview-updated";
 const CHAT_CONCURRENCY_LIMIT: usize = 8;

@@ -1830,6 +1830,7 @@ const TRANSPORT_NOTIFICATION_EVENT_ALIASES: Record<string, string | string[]> = 
   "chat.assistantDelta": "easy-call:assistant-delta",
   "chat.streamRebindRequired": "easy-call:stream-rebind-required",
   "conversation.messageAppended": "easy-call:conversation-message-appended",
+  "chat.rewindCompleted": "easy-call:chat-rewind-completed",
   "conversation.overviewUpdated": "easy-call:conversation-overview-updated",
   "conversation.overviewItemUpdated": "easy-call:conversation-overview-item-updated",
   "conversation.todosUpdated": "easy-call:conversation-todos-updated",
