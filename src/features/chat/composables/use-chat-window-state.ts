@@ -7,7 +7,6 @@ import type {
   PersonaProfile,
   PromptCommandPreset,
   ToolLoadStatus,
-  AssistantStreamBlock,
 } from "../../../types/app";
 import type { ContextUsageUpdatePayload } from "./use-chat-flow-events";
 
@@ -93,11 +92,7 @@ export function useChatWindowState(options: UseChatWindowStateOptions) {
   const conversationMessageCache = ref<Record<string, ChatMessage[]>>({});
   const latestUserText = ref("");
   const latestUserImages = ref<Array<{ mime: string; bytesBase64: string }>>([]);
-  const latestAssistantText = ref("");
   const latestOwnMessageAlignRequest = ref(0);
-  const toolStatusText = ref("");
-  const toolStatusState = ref<"running" | "done" | "failed" | "">("");
-  const streamBlocks = ref<AssistantStreamBlock[]>([]);
   const latestContextUsagePreview = ref<ContextUsageUpdatePayload | null>(null);
   const clipboardImages = ref<Array<{ mime: string; bytesBase64: string; savedPath?: string }>>([]);
   const queuedAttachmentNotices = ref<Array<{ id: string; fileName: string; path: string; mime: string }>>([]);
@@ -165,11 +160,7 @@ export function useChatWindowState(options: UseChatWindowStateOptions) {
     conversationMessageCache,
     latestUserText,
     latestUserImages,
-    latestAssistantText,
     latestOwnMessageAlignRequest,
-    toolStatusText,
-    toolStatusState,
-    streamBlocks,
     latestContextUsagePreview,
     clipboardImages,
     queuedAttachmentNotices,

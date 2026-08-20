@@ -18,8 +18,6 @@ function createRuntime(round: RoundState, activeActivationId = "activation-new")
   const clearConversationStreamCache = vi.fn();
   const setActiveActivationId = vi.fn();
   const runtime = useChatFlowStreamingEvents({
-    toolStatusText: ref(""),
-    toolStatusState: ref<"running" | "done" | "failed" | "">(""),
     contextUsagePreview,
     reasoningStartedAtMs: ref(0),
     getRound: () => round,

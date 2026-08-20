@@ -1,4 +1,3 @@
-import type { Ref } from "vue";
 import type { AssistantStreamBlock } from "../../../types/app";
 import {
   applyAssistantToolEventToStreamBlocks,
@@ -6,7 +5,6 @@ import {
   appendReasoningDeltaToStreamBlocks,
   appendTextDeltaToStreamBlocks,
   normalizeAssistantStreamBlocks,
-  normalizeLegacyToolBreakToPlaceholder,
 } from "../../../utils/chat-message-semantics";
 import {
   readDeltaMessage,
@@ -59,10 +57,12 @@ export type ConversationRuntimeStreamCacheSnapshot = {
 
 type UseChatFlowStreamCacheOptions = {
   getConversationId?: () => string;
-  latestAssistantText: Ref<string>;
-  toolStatusText: Ref<string>;
-  toolStatusState: Ref<"running" | "done" | "failed" | "">;
-  streamBlocks?: Ref<AssistantStreamBlock[]>;
+  getCurrentDisplayState?: () => {
+    assistantText: string;
+    toolStatusText: string;
+    toolStatusState: "running" | "done" | "failed" | "";
+    streamBlocks: AssistantStreamBlock[];
+  } | null;
   getActiveActivationId: () => string;
   getFrontendDispatchStartedAtMs: () => number;
   getFrontendDispatchElapsedMs: () => number;
@@ -166,8 +166,9 @@ export function useChatFlowStreamCache(options: UseChatFlowStreamCacheOptions) {
     const cid = normalizeConversationId(conversationId || (options.getConversationId ? options.getConversationId() : ""));
     if (!cid) return;
     const activeActivationId = options.getActiveActivationId();
+    const display = options.getCurrentDisplayState ? options.getCurrentDisplayState() : null;
     writeConversationStreamCache(cid, (current) => ({
-      assistantText: String(options.latestAssistantText.value || ""),
+      assistantText: String(display?.assistantText || current.assistantText || ""),
       activationId: activeActivationId,
       requestId: activeActivationId,
       departmentId: current.departmentId,
@@ -177,10 +178,10 @@ export function useChatFlowStreamCache(options: UseChatFlowStreamCacheOptions) {
       updatedAt: current.updatedAt,
       frontendDispatchStartedAtMs: options.getFrontendDispatchStartedAtMs(),
       frontendDispatchElapsedMs: options.currentFrontendDispatchElapsedMs(),
-      toolStatusText: String(options.toolStatusText.value || ""),
-      toolStatusState: options.toolStatusState.value,
-      streamBlocks: Array.isArray(options.streamBlocks?.value)
-        ? normalizeAssistantStreamBlocks(options.streamBlocks.value)
+      toolStatusText: String(display?.toolStatusText || current.toolStatusText || ""),
+      toolStatusState: display ? display.toolStatusState : current.toolStatusState,
+      streamBlocks: display
+        ? normalizeAssistantStreamBlocks(display.streamBlocks)
         : normalizeAssistantStreamBlocks(current.streamBlocks),
       persistedAssistantMessageId: current.persistedAssistantMessageId,
     }));
@@ -196,29 +197,10 @@ export function useChatFlowStreamCache(options: UseChatFlowStreamCacheOptions) {
     if (!input?.ignoreActivationId && activeActivationId && cache.activationId && cache.activationId !== activeActivationId) {
       return false;
     }
-    if (cache.assistantText || !options.latestAssistantText.value) {
-      options.latestAssistantText.value = cache.assistantText;
-    }
     if (cache.speakerAgentId) {
       options.setActiveRoundAgentId?.(cache.speakerAgentId);
     }
     options.restoreFrontendDispatchTimerFromCache(cache);
-    if (cache.toolStatusText || !options.toolStatusText.value) {
-      options.toolStatusText.value = cache.toolStatusText;
-    }
-    if (cache.toolStatusState || !options.toolStatusState.value) {
-      options.toolStatusState.value = cache.toolStatusState;
-    }
-    if (options.streamBlocks && !input?.skipStreamBlocks) {
-      if (cache.streamBlocks.length > 0 || options.streamBlocks.value.length === 0) {
-        options.streamBlocks.value = normalizeAssistantStreamBlocks(
-          cache.streamBlocks.map((block) => ({
-            ...block,
-            text: normalizeLegacyToolBreakToPlaceholder(block.text || ""),
-          })),
-        );
-      }
-    }
     return true;
   }
 

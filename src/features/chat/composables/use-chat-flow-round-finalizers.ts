@@ -1,4 +1,5 @@
 import type { ChatMessage } from "../../../types/app";
+import { assistantContentBlocksFromMessage } from "../../../utils/chat-message-semantics";
 import { assistantMessageHasCanonicalVisibleContent } from "./chat-message-state-machine";
 import { DRAFT_USER_ID_PREFIX, summarizeToolCallsText as formatToolCallsText } from "./use-chat-flow-drafts";
 
@@ -51,7 +52,6 @@ export function useChatFlowRoundFinalizers(bindings: Record<string, any>) {
     bindings.setActiveActivationId("");
     bindings.setActiveRoundAgentId?.("");
     bindings.clearChatErrorText();
-    if (bindings.streamBlocks) bindings.streamBlocks.value = [];
     bindings.setRound({ phase: "idle" });
     bindings.chatting.value = false;
     bindings.reasoningStartedAtMs.value = 0;
@@ -116,11 +116,17 @@ export function useChatFlowRoundFinalizers(bindings: Record<string, any>) {
     bindings.setDeferredRoundCompletion(null);
 
     bindings.clearChatErrorText();
-    if (String(bindings.toolStatusState.value || "") === "running") {
-      bindings.toolStatusState.value = "done";
-      bindings.toolStatusText.value = formatToolCallsText(
-        bindings.streamBlocks?.value || [],
-      ) || bindings.t("status.toolCallDone");
+    const messageBeforeStatus = Array.isArray(bindings.allMessages?.value)
+      ? bindings.allMessages.value.find((message: ChatMessage) => message.id === messageId)
+      : undefined;
+    const messageBeforeStatusMeta = (messageBeforeStatus?.providerMeta || {}) as Record<string, unknown>;
+    if (String(messageBeforeStatusMeta._toolStatusState || "") === "running") {
+      bindings.updateMessageText(messageId, undefined, undefined, {
+        toolStatusText: formatToolCallsText(
+          assistantContentBlocksFromMessage(messageBeforeStatus),
+        ) || bindings.t("status.toolCallDone"),
+        toolStatusState: "done",
+      });
     }
 
     const existingMessage = Array.isArray(bindings.allMessages?.value)
@@ -174,7 +180,6 @@ export function useChatFlowRoundFinalizers(bindings: Record<string, any>) {
     bindings.clearFrontendDispatchTimer();
     bindings.setActiveActivationId("");
     bindings.setActiveRoundAgentId?.("");
-    if (bindings.streamBlocks) bindings.streamBlocks.value = [];
     bindings.setRound({ phase: "idle" });
     bindings.chatting.value = false;
     bindings.reasoningStartedAtMs.value = 0;
@@ -255,14 +260,20 @@ export function useChatFlowRoundFinalizers(bindings: Record<string, any>) {
     bindings.clearFrontendDispatchTimer();
     bindings.setActiveActivationId("");
     bindings.setActiveRoundAgentId?.("");
-    bindings.latestAssistantText.value = "";
-    if (bindings.streamBlocks) bindings.streamBlocks.value = [];
     bindings.setChatErrorText(bindings.formatRequestFailed(error));
-    if (!bindings.toolStatusText.value) {
-      bindings.toolStatusState.value = "failed";
-      bindings.toolStatusText.value = formatToolCallsText(
-        bindings.streamBlocks?.value || [],
-      ) || bindings.t("status.toolCallFailed");
+    const failedMessage = Array.isArray(bindings.allMessages?.value)
+      ? bindings.allMessages.value.find((message: ChatMessage) => message.id === round.messageId)
+      : undefined;
+    const failedMeta = (failedMessage?.providerMeta || {}) as Record<string, unknown>;
+    if (!String(failedMeta._toolStatusText || "").trim()) {
+      bindings.updateMessageText(round.messageId, undefined, undefined, {
+        toolStatusText: formatToolCallsText(
+          assistantContentBlocksFromMessage(failedMessage),
+        ) || bindings.t("status.toolCallFailed"),
+        toolStatusState: "failed",
+      });
+    } else {
+      bindings.updateMessageText(round.messageId);
     }
     // failed 只清理空气泡；一旦已经有可见内容，就由共享状态机保留并结束流式态。
     failMessage(round.messageId, error, identity);

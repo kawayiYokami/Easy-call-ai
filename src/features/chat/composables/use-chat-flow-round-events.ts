@@ -8,10 +8,7 @@ import type { PendingTerminalEvent, RoundState } from "./use-chat-flow-types";
 
 type UseChatFlowRoundEventsOptions = {
   chatting: Ref<boolean>;
-  latestAssistantText: Ref<string>;
-  toolStatusText: Ref<string>;
-  toolStatusState: Ref<"running" | "done" | "failed" | "">;
-  streamBlocks?: Ref<AssistantStreamBlock[]>;
+  allMessages: Ref<ChatMessage[]>;
   reasoningStartedAtMs: Ref<number>;
   getRound: () => RoundState;
   setRound: (next: RoundState, frontendPhase?: "idle" | "queued" | "waiting" | "streaming") => void;
@@ -34,10 +31,14 @@ type UseChatFlowRoundEventsOptions = {
   sendStartedAtMsByGen: Map<number, number>;
   hasStreamingAssistantMessageInMessages: () => boolean;
   applyConversationStreamCacheToDisplay: (conversationId?: string | null) => boolean;
-  loadStreamBlocksFromMessage: (messageId: string) => void;
   updateQueuedAssistantMessageStatus: (messageId: string, statusText: string) => void;
   insertStreamingAssistantMessage: (messageId: string, gen?: number, initialText?: string) => string;
-  updateMessageText: (messageId: string) => void;
+  updateMessageText: (
+    messageId: string,
+    rawBlocks?: AssistantStreamBlock[],
+    updateOptions?: { preserveActivityProjection?: boolean },
+    runtimeStatus?: { toolStatusText?: string; toolStatusState?: string },
+  ) => void;
   finalizeMessage: (
     messageId: string,
     finalMessage?: ChatMessage,
@@ -163,12 +164,17 @@ export function useChatFlowRoundEvents(options: UseChatFlowRoundEventsOptions) {
     options.clearFrontendDispatchTimer();
     options.setActiveActivationId("");
     options.setChatErrorText(options.formatRequestFailed(error));
-    if (!options.toolStatusText.value) {
-      options.toolStatusState.value = "failed";
-      options.toolStatusText.value = options.optionsT("status.toolCallFailed");
+    const failedMessage = options.allMessages.value.find((message) => message.id === round.messageId);
+    const failedMeta = (failedMessage?.providerMeta || {}) as Record<string, unknown>;
+    if (!String(failedMeta._toolStatusText || "").trim()) {
+      options.updateMessageText(round.messageId, undefined, undefined, {
+        toolStatusText: options.optionsT("status.toolCallFailed"),
+        toolStatusState: "failed",
+      });
+    } else {
+      options.updateMessageText(round.messageId);
     }
     // streaming failed: 保留已经显示出来的内容，只结束流式态，不再重载。
-    options.updateMessageText(round.messageId);
     options.failMessage(round.messageId, error, identity);
     options.setRound({ phase: "idle" });
     options.chatting.value = false;

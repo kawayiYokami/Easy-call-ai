@@ -48,7 +48,6 @@ type UseChatFlowExternalEventsOptions = {
   onAssistantMessageCompleted?: (input: { conversationId: string; assistantMessage: any }) => Promise<void> | void;
   setChatErrorText: (text: string, conversationId?: string | null) => void;
   formatRequestFailed: (error: unknown) => string;
-  latestAssistantText: { value: string };
   chatting: { value: boolean };
   reasoningStartedAtMs: { value: number };
   applyAssistantEventToConversationStreamCache: (conversationId: string, parsed: any) => boolean;
@@ -249,7 +248,6 @@ export function useChatFlowExternalEvents(options: UseChatFlowExternalEventsOpti
     const round = options.getRound();
     if (round.phase !== "streaming" && round.phase !== "queued") {
       options.setRound({ phase: "idle" });
-      options.latestAssistantText.value = "";
       options.chatting.value = false;
       options.reasoningStartedAtMs.value = 0;
       options.clearConversationStreamCache(payloadConversationId || currentConversationId);

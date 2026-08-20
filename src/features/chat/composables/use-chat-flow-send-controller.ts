@@ -1,5 +1,5 @@
 import type { Ref } from "vue";
-import type { AssistantStreamBlock, ChatIngressPart, ChatMentionTarget, ChatMessage } from "../../../types/app";
+import type { ChatIngressPart, ChatMentionTarget, ChatMessage } from "../../../types/app";
 import type { TransportChannel } from "../../../services/tauri-api";
 import type { PreparedChatSendInput } from "./use-chat-flow-send-input";
 import type { RoundState, SendChatOverrides } from "./use-chat-flow-types";
@@ -53,9 +53,6 @@ type UseChatFlowSendControllerOptions = {
   chatting: Ref<boolean>;
   submitPending?: Ref<boolean>;
   isConversationBusy?: () => boolean;
-  toolStatusText: Ref<string>;
-  toolStatusState: Ref<"running" | "done" | "failed" | "">;
-  streamBlocks?: Ref<AssistantStreamBlock[]>;
   getConversationId?: () => string;
   getSession: () => { apiConfigId: string; agentId: string; departmentId?: string } | null;
   /** Web 端专用：发起对话前幂等补绑定，确保后端已注册本客户端的会话订阅。桌面端不注入，避免与 sendChat 原生 Channel 双写。 */
@@ -148,9 +145,6 @@ export function useChatFlowSendController(options: UseChatFlowSendControllerOpti
     if (!hasForegroundRoundInFlight) {
       options.clearConversationStreamCache(sendConversationId);
       options.setActiveActivationId("");
-      options.toolStatusText.value = "";
-      options.toolStatusState.value = "";
-      if (options.streamBlocks) options.streamBlocks.value = [];
       options.clearChatErrorText(sendConversationId);
     }
 

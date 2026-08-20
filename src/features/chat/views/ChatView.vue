@@ -690,10 +690,8 @@ const props = defineProps<{
   personaNameMap: Record<string, string>; personaAvatarUrlMap: Record<string, string>;
   mentionEntries: ChatMentionEntry[]; selectedMentions: ChatMentionTarget[];
   latestUserText: string; latestUserImages: Array<{ mime: string; bytesBase64: string }>;
-  latestAssistantText: string;
   frontendRoundPhase: "idle" | "queued" | "waiting" | "streaming";
   submitPending?: boolean;
-  toolStatusText: string; toolStatusState: "running" | "done" | "failed" | "";
   chatErrorText: string; clipboardImages: Array<{ mime: string; bytesBase64: string; previewDataUrl?: string }>;
   queuedAttachmentNotices: Array<{ id: string; fileName: string; path: string; mime: string; pending?: boolean }>;
   chatInput: string; instructionPresets: PromptCommandPreset[];

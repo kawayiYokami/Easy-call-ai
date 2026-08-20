@@ -6,17 +6,9 @@ import { useChatFlowDrafts } from "./use-chat-flow-drafts";
 
 function createRuntime() {
   const allMessages = shallowRef<ChatMessage[]>([]);
-  const latestAssistantText = ref("");
-  const streamBlocks = ref<AssistantStreamBlock[]>([]);
-  const toolStatusText = ref("");
-  const toolStatusState = ref<"running" | "done" | "failed" | "">("");
   const runtime = useChatFlowDrafts({
     allMessages,
     latestUserText: ref(""),
-    latestAssistantText,
-    toolStatusText,
-    toolStatusState,
-    streamBlocks,
     getConversationId: () => "conversation-1",
     getActiveRoundAgentId: () => "agent-1",
     getSendStartedAtMs: () => 0,
@@ -24,12 +16,12 @@ function createRuntime() {
     getFrontendDispatchStartedAtMs: () => 0,
     currentFrontendDispatchElapsedMs: () => 0,
   });
-  return { allMessages, latestAssistantText, runtime };
+  return { allMessages, runtime };
 }
 
 describe("useChatFlowDrafts shared message projection", () => {
   it("routes APP deltas and completion through the shared state machine", () => {
-    const { allMessages, latestAssistantText, runtime } = createRuntime();
+    const { allMessages, runtime } = createRuntime();
     runtime.insertStreamingAssistantMessage("assistant-1", 1);
     const stableRenderId = allMessages.value[0].providerMeta?._stableRenderId;
 
@@ -51,7 +43,6 @@ describe("useChatFlowDrafts shared message projection", () => {
       action: "present",
       path: ".pai/plan/example.md",
     });
-    expect(latestAssistantText.value).toBe("流式正文");
   });
 
   it("keeps visible failed content but removes an empty failed bubble", () => {
@@ -73,7 +64,7 @@ describe("useChatFlowDrafts shared message projection", () => {
   it("stopping settles a thinking and tool projection without losing its content blocks", () => {
     const { allMessages, runtime } = createRuntime();
     runtime.insertStreamingAssistantMessage("assistant-tool-blocks", 1);
-    runtime.updateMessageText("assistant-tool-blocks", undefined, undefined, "", [{
+    runtime.updateMessageText("assistant-tool-blocks", [{
       reasoning: "先读取配置。",
       tools: [{
         toolCallId: "call-1",

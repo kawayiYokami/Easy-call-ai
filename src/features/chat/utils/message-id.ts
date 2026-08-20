@@ -6,9 +6,6 @@ const SYNTHETIC_MESSAGE_ID_PREFIX = "__synthetic_message__:";
 function sanitizeProviderMeta(providerMeta: ChatMessage["providerMeta"] | undefined): Record<string, unknown> {
   const nextMeta = providerMetaWithoutStableRenderId(providerMeta);
   delete nextMeta._streaming;
-  delete nextMeta._streamSegments;
-  delete nextMeta._streamTail;
-  delete nextMeta._streamAnimatedDelta;
   return nextMeta;
 }
 

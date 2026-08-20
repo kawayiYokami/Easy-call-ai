@@ -1,8 +1,8 @@
 import type { ChatMessage } from "../../../types/app";
-import { normalizeAssistantStreamBlocks, streamBlocksToToolCalls } from "../../../utils/chat-message-semantics";
+import { normalizeAssistantStreamBlocks } from "../../../utils/chat-message-semantics";
 import { streamCacheHasVisibleProgress } from "./use-chat-flow-stream-cache";
 import { applyStreamingHistoryOverlay } from "./use-chat-flow-stream-overlay";
-import { formalizeMessages, normalizeConversationId, positiveRoundedNumber, readMessagePlainText } from "./use-chat-flow-utils";
+import { formalizeMessages, normalizeConversationId, positiveRoundedNumber } from "./use-chat-flow-utils";
 import type { ResumeForegroundRuntimeRoundInput } from "./use-chat-flow-types";
 import type { RoundStartedPayload } from "./use-chat-flow-events";
 
@@ -71,12 +71,6 @@ export function useChatFlowForegroundRounds(bindings: Record<string, any>) {
   function applyQueuedStreamingStateIfNeeded(messageId: string) {
     const queuedStreamingState = bindings.getQueuedStreamingState();
     if (!queuedStreamingState) return;
-    bindings.latestAssistantText.value = queuedStreamingState.assistantText;
-    bindings.toolStatusText.value = queuedStreamingState.toolStatusText;
-    bindings.toolStatusState.value = queuedStreamingState.toolStatusState;
-    if (bindings.streamBlocks) {
-      bindings.streamBlocks.value = queuedStreamingState.streamBlocks || [];
-    }
     if (queuedStreamingState.frontendDispatchStartedAtMs || queuedStreamingState.frontendDispatchElapsedMs) {
       const round = bindings.getRound();
       bindings.startFrontendDispatchTimer(
@@ -86,7 +80,10 @@ export function useChatFlowForegroundRounds(bindings: Record<string, any>) {
       );
     }
     bindings.setQueuedStreamingState(null);
-    bindings.updateMessageText(messageId);
+    bindings.updateMessageText(messageId, queuedStreamingState.streamBlocks || [], undefined, {
+      toolStatusText: queuedStreamingState.toolStatusText,
+      toolStatusState: queuedStreamingState.toolStatusState,
+    });
   }
 
   function beginAssistantActivationFromEvent(payload: RoundStartedPayload): number {
@@ -226,14 +223,19 @@ export function useChatFlowForegroundRounds(bindings: Record<string, any>) {
       const targetMessageId = round.messageId;
       const existingMessage = findStreamingAssistantMessageById(targetMessageId);
       if (!existingMessage) {
-        if (bindings.streamBlocks) bindings.streamBlocks.value = [];
         const restoredFromCache = !!(targetMessageId
           && streamCacheMatchesMessageId(cache, targetMessageId)
           && bindings.applyConversationStreamCacheToDisplay(conversationId));
         const messageId = bindings.insertStreamingAssistantMessage(targetMessageId, round.gen);
-        if (!restoredFromCache) bindings.latestAssistantText.value = "";
         bindings.updateMessageText(messageId);
         bindings.setRound({ phase: "streaming", gen: round.gen, messageId });
+      } else if (streamCacheMatchesMessageId(cache, targetMessageId)) {
+        // 消息已存在且缓存快照匹配：应用缓存最新内容（正文/推理/工具块），
+        // 不传 runtimeStatus，保留消息上已有的 toolStatus 真值。
+        bindings.updateMessageText(targetMessageId, normalizeAssistantStreamBlocks(cache?.streamBlocks));
+      } else {
+        // 缓存与目标消息不匹配：仅同步一次消息自身已有内容，避免串用其他消息快照。
+        bindings.updateMessageText(targetMessageId);
       }
       return round.gen;
     }
@@ -242,7 +244,6 @@ export function useChatFlowForegroundRounds(bindings: Record<string, any>) {
       : String(cache?.persistedAssistantMessageId || "").trim();
     if (!targetMessageId) return 0;
     const gen = bindings.nextGeneration();
-    if (bindings.streamBlocks) bindings.streamBlocks.value = [];
     const existingMessage = findStreamingAssistantMessageById(targetMessageId);
     const existingMessageId = messageIdOf(existingMessage);
     const existingMessageMeta = ((existingMessage?.providerMeta || {}) as Record<string, unknown>);
@@ -253,14 +254,8 @@ export function useChatFlowForegroundRounds(bindings: Record<string, any>) {
     applyStreamingOverlayForConversation(conversationId, targetMessageId);
     const existingMessageStartedAtMs = existingMessageId ? positiveRoundedNumber(existingMessageMeta._frontendDispatchStartedAtMs) : 0;
     const existingMessageElapsedMs = existingMessageId ? positiveRoundedNumber(existingMessageMeta._frontendDispatchElapsedMs) : 0;
-    if (!restoredFromCache) {
-      bindings.latestAssistantText.value = readMessagePlainText(existingMessage || undefined);
-    }
     bindings.setActiveHistoryMessageCount(formalizeMessages(bindings.allMessages.value).length);
     const messageId = existingMessageId || bindings.insertStreamingAssistantMessage(targetMessageId, gen);
-    if (existingMessageId) {
-      bindings.loadStreamBlocksFromMessage(messageId);
-    }
     if (existingMessageId || restoredFromCache) {
       bindings.updateMessageText(messageId);
     }
@@ -321,9 +316,18 @@ export function useChatFlowForegroundRounds(bindings: Record<string, any>) {
     const nextRound = bindings.getRound();
     if (nextRound.phase === "streaming") {
       const blocks = snapshotBlocks.length > 0 ? snapshotBlocks : normalizeAssistantStreamBlocks(cache?.streamBlocks || []);
-      if (bindings.streamBlocks) bindings.streamBlocks.value = blocks;
-      bindings.syncStreamBlocksToMessage(nextRound.messageId, blocks);
-      bindings.updateMessageText(nextRound.messageId, undefined, undefined, "", blocks);
+      // toolStatus 优先用已解析缓存（cache 可能已被后续事件更新），且只在有真值时携带，
+      // 避免空值覆盖消息上已有的调度阶段状态。
+      const toolStatusText = String(cache?.toolStatusText || "").trim();
+      const toolStatusState = String(cache?.toolStatusState || "").trim();
+      bindings.syncStreamBlocksToMessage(
+        nextRound.messageId,
+        blocks,
+        toolStatusText || toolStatusState
+          ? { toolStatusText, toolStatusState }
+          : undefined,
+      );
+      bindings.updateMessageText(nextRound.messageId, blocks);
     }
     return gen;
   }
@@ -347,7 +351,6 @@ export function useChatFlowForegroundRounds(bindings: Record<string, any>) {
       return 0;
     }
     const conversationId = bindings.getConversationId ? bindings.getConversationId() : "";
-    if (bindings.streamBlocks) bindings.streamBlocks.value = [];
     const cache = conversationId ? bindings.readConversationStreamCache(conversationId) : null;
     const targetMessageId = round.messageId;
     const existingMessage = findStreamingAssistantMessageById(targetMessageId);
@@ -360,14 +363,8 @@ export function useChatFlowForegroundRounds(bindings: Record<string, any>) {
     applyStreamingOverlayForConversation(conversationId, targetMessageId);
     const existingMessageStartedAtMs = existingMessageId ? positiveRoundedNumber(existingMessageMeta._frontendDispatchStartedAtMs) : 0;
     const existingMessageElapsedMs = existingMessageId ? positiveRoundedNumber(existingMessageMeta._frontendDispatchElapsedMs) : 0;
-    if (!restoredFromCache) {
-      bindings.latestAssistantText.value = readMessagePlainText(existingMessage || undefined);
-    }
     bindings.setActiveHistoryMessageCount(formalizeMessages(bindings.allMessages.value).length);
     const messageId = existingMessageId || bindings.insertStreamingAssistantMessage(targetMessageId, gen);
-    if (existingMessageId) {
-      bindings.loadStreamBlocksFromMessage(messageId);
-    }
     if (existingMessageId || restoredFromCache) {
       bindings.updateMessageText(messageId);
     }

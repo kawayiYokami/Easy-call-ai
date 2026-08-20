@@ -36,7 +36,6 @@ type ChatWindowPaneExpansionBindings = {
 export type ChatUiStateBindings = {
   viewMode: Ref<"chat" | "archives" | "config">;
   currentChatConversationId: Ref<string>;
-  toolStatusState: Ref<"running" | "done" | "failed" | "">;
   clearConversationStatus: (conversationId: string, status?: ConversationPipelineStatus) => void;
   searchConfigTabs: typeof searchConfigTabs;
   resolveConfigLocale: () => Parameters<typeof searchConfigTabs>[1];
@@ -145,9 +144,6 @@ export function useChatUiStateOrchestrator(bindings: ChatUiStateBindings) {
     const conversationId = String(bindings.currentChatConversationId.value || "").trim();
     setConversationChatErrorText(conversationId, "");
     bindings.clearConversationStatus(conversationId, "error");
-    if (bindings.toolStatusState.value === "failed") {
-      bindings.toolStatusState.value = "";
-    }
   }
 
   function handleChatInputUpdate(value: string) {

@@ -21,7 +21,6 @@ import type {
   ChatMessageState,
   ChatMessageStreamSnapshot,
 } from "./chat-message-state-types";
-import { consumeClosedMarkdownBlocks } from "./use-chat-flow-text";
 import { messageHasVisibleContent } from "./use-chat-flow-utils";
 
 export type {
@@ -36,9 +35,6 @@ export type {
 
 const TRANSIENT_STREAM_META_KEYS = [
   "_streaming",
-  "_streamSegments",
-  "_streamTail",
-  "_streamAnimatedDelta",
   "_preStreamingStatusText",
   "_toolStatusText",
   "_toolStatusState",
@@ -373,9 +369,6 @@ function createStreamingMessage(input: {
     providerMeta: {
       ...existingMeta,
       _streaming: true,
-      _streamSegments: Array.isArray(existingMeta._streamSegments) ? existingMeta._streamSegments : [],
-      _streamTail: normalized(existingMeta._streamTail),
-      _streamAnimatedDelta: normalized(existingMeta._streamAnimatedDelta),
       _preStreamingStatusText: hasCanonicalContent ? "" : normalized(input.statusText),
       _toolStatusText: normalized(existingMeta._toolStatusText),
       _toolStatusState: normalizeToolStatus(existingMeta._toolStatusState),
@@ -497,15 +490,10 @@ function reduceStreamSnapshot(
   }
   if (blocks.length === 0 && existingBlocks.length > 0) blocks = existingBlocks;
   const meta = (existing.providerMeta || {}) as Record<string, unknown>;
-  const streamSegments = Array.isArray(snapshot.streamSegments)
-    ? snapshot.streamSegments.map((item) => String(item ?? "")).filter(Boolean)
-    : (Array.isArray(meta._streamSegments) ? meta._streamSegments : []);
-  const streamTail = Object.prototype.hasOwnProperty.call(snapshot, "streamTail")
-    ? String(snapshot.streamTail || "")
-    : String(meta._streamTail || "");
-  const streamAnimatedDelta = Object.prototype.hasOwnProperty.call(snapshot, "streamAnimatedDelta")
-    ? String(snapshot.streamAnimatedDelta || "")
-    : String(meta._streamAnimatedDelta || "");
+  // 内容真相统一收敛在 contentBlocks；_streamSegments/_streamTail/_streamAnimatedDelta
+  // 是它的可派生投影，不再写入。分段由渲染层全量重算（乐观渲染 chunks=[全量文本]）。
+  // _toolStatusText/_toolStatusState/_preStreamingStatusText 承载调度阶段提示
+  // （准备调度/等待回应等），来自后端 streamCache，不是 contentBlocks 的拷贝。
   const toolStatusText = typeof snapshot.toolStatusText === "string"
     ? String(snapshot.toolStatusText || "")
     : String(meta._toolStatusText || "");
@@ -524,9 +512,6 @@ function reduceStreamSnapshot(
     providerMeta: {
       ...meta,
       _streaming: true,
-      _streamSegments: streamSegments,
-      _streamTail: streamTail,
-      _streamAnimatedDelta: streamAnimatedDelta,
       _preStreamingStatusText: preStreamingStatusText,
       _toolStatusText: toolStatusText,
       _toolStatusState: toolStatusState,
@@ -597,11 +582,6 @@ function reduceAssistantDelta(
   const delta = String(deltaEvent.delta || "");
   const meta = (existing.providerMeta || {}) as Record<string, unknown>;
   let blocks = assistantContentBlocksFromMessage(existing);
-  let segments = Array.isArray(meta._streamSegments)
-    ? (meta._streamSegments as unknown[]).map((item) => String(item ?? "")).filter(Boolean)
-    : [];
-  let tail = String(meta._streamTail || "");
-  let animatedDelta = "";
   let toolStatusText = normalized(meta._toolStatusText);
   let toolStatusState = normalizeToolStatus(meta._toolStatusState);
 
@@ -616,10 +596,6 @@ function reduceAssistantDelta(
     if (delta) blocks = appendReasoningDeltaToStreamBlocks(blocks, delta);
   } else if (delta) {
     blocks = appendTextDeltaToStreamBlocks(blocks, delta);
-    const parsed = consumeClosedMarkdownBlocks(`${tail}${delta}`);
-    if (parsed.chunks.length > 0) segments = [...segments, ...parsed.chunks];
-    tail = parsed.tail;
-    animatedDelta = delta;
   }
 
   const hasVisibleContent = blocks.length > 0 || !!assistantTextFromStreamBlocks(blocks).trim();
@@ -629,9 +605,6 @@ function reduceAssistantDelta(
     providerMeta: {
       ...meta,
       _streaming: true,
-      _streamSegments: segments,
-      _streamTail: tail,
-      _streamAnimatedDelta: animatedDelta,
       _preStreamingStatusText: hasVisibleContent ? "" : normalized(meta._preStreamingStatusText),
       _toolStatusText: toolStatusText,
       _toolStatusState: toolStatusState,

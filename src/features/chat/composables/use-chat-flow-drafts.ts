@@ -45,11 +45,6 @@ function assistantMessageHasVisibleProgress(message?: ChatMessage | null): boole
   if (!message) return false;
   if (readMessagePlainText(message).trim()) return true;
   if (messageHasActivityEvents(message)) return true;
-  const meta = (message.providerMeta || {}) as Record<string, unknown>;
-  if (String(meta._streamTail || "").trim()) return true;
-  if (Array.isArray(meta._streamSegments) && meta._streamSegments.some((item) => String(item || "").trim())) {
-    return true;
-  }
   const streamBlocks = assistantContentBlocksFromMessage(message);
   return streamBlocks.length > 0 || !!assistantTextFromStreamBlocks(streamBlocks).trim();
 }
@@ -57,10 +52,6 @@ function assistantMessageHasVisibleProgress(message?: ChatMessage | null): boole
 type UseChatFlowDraftsOptions = {
   allMessages: Ref<ChatMessage[]>;
   latestUserText: Ref<string>;
-  latestAssistantText: Ref<string>;
-  toolStatusText: Ref<string>;
-  toolStatusState: Ref<"running" | "done" | "failed" | "">;
-  streamBlocks?: Ref<AssistantStreamBlock[]>;
   getActiveRoundAgentId?: () => string;
   getConversationId?: () => string;
   getSendStartedAtMs: (gen: number) => number;
@@ -103,30 +94,10 @@ export function useChatFlowDrafts(options: UseChatFlowDraftsOptions) {
     return messageState;
   }
 
-  function synchronizeDisplayRefs(messageId: string) {
-    const message = options.allMessages.value.find((item) => item.id === messageId);
-    if (!message) return;
-    const blocks = assistantContentBlocksFromMessage(message);
-    if (options.streamBlocks) options.streamBlocks.value = blocks;
-    options.latestAssistantText.value = stripToolcallMarkers(
-      assistantTextFromStreamBlocks(blocks) || readMessagePlainText(message),
-    );
-    const meta = (message.providerMeta || {}) as Record<string, unknown>;
-    options.toolStatusText.value = String(meta._toolStatusText || "");
-    const toolStatusState = String(meta._toolStatusState || "").trim();
-    options.toolStatusState.value = toolStatusState === "running" || toolStatusState === "done" || toolStatusState === "failed"
-      ? toolStatusState
-      : "";
-  }
-
   function dispatchMessageEvent(event: ChatMessageEvent): ChatMessageState {
     synchronizeMachineInput();
     messageState = reduceChatMessageState(messageState, event);
     options.allMessages.value = messageState.messages;
-    const messageId = messageState.round.assistantMessageId
-      || ("assistantMessageId" in event ? String(event.assistantMessageId || "").trim() : "")
-      || ("assistantMessage" in event ? String(event.assistantMessage?.id || "").trim() : "");
-    if (messageId) synchronizeDisplayRefs(messageId);
     return messageState;
   }
 
@@ -181,19 +152,6 @@ export function useChatFlowDrafts(options: UseChatFlowDraftsOptions) {
     if (!messageId) return [];
     const draft = options.allMessages.value.find((item) => item.id === messageId);
     return assistantContentBlocksFromMessage(draft);
-  }
-
-  function loadStreamBlocksFromMessage(messageId: string) {
-    if (!options.streamBlocks) return;
-    if (!messageId) {
-      options.streamBlocks.value = [];
-      return;
-    }
-    const draft = options.allMessages.value.find((item) => item.id === messageId);
-    const blocks = assistantContentBlocksFromMessage(draft);
-    if (blocks.length > 0 || options.streamBlocks.value.length === 0) {
-      options.streamBlocks.value = blocks;
-    }
   }
 
   function hasStreamingAssistantMessageInMessages(): boolean {
@@ -284,9 +242,9 @@ export function useChatFlowDrafts(options: UseChatFlowDraftsOptions) {
         speakerAgentId: resolveAssistantMessageSpeakerAgentId(
           options.allMessages.value.find((message) => message.id === normalizedMessageId),
         ),
-        streamBlocks: options.streamBlocks?.value || [],
-        toolStatusText: options.toolStatusText.value,
-        toolStatusState: options.toolStatusState.value,
+        streamBlocks: [],
+        toolStatusText: undefined,
+        toolStatusState: undefined,
         preStreamingStatusText: String(initialText || ""),
         frontendDispatchStartedAtMs: options.getFrontendDispatchStartedAtMs(),
         frontendDispatchElapsedMs: options.currentFrontendDispatchElapsedMs(),
@@ -317,8 +275,8 @@ export function useChatFlowDrafts(options: UseChatFlowDraftsOptions) {
         persistedAssistantMessageId: messageId,
         speakerAgentId: resolveAssistantMessageSpeakerAgentId(existingMessage),
         streamBlocks: assistantContentBlocksFromMessage(existingMessage),
-        toolStatusText: options.toolStatusText.value,
-        toolStatusState: options.toolStatusState.value,
+        toolStatusText: undefined,
+        toolStatusState: undefined,
         preStreamingStatusText: String(statusText || ""),
         frontendDispatchStartedAtMs: options.getFrontendDispatchStartedAtMs(),
         frontendDispatchElapsedMs: options.currentFrontendDispatchElapsedMs(),
@@ -326,27 +284,24 @@ export function useChatFlowDrafts(options: UseChatFlowDraftsOptions) {
     });
   }
 
-  function readMessageStreamSegments(messageId: string): string[] {
-    if (!messageId) return [];
-    const message = options.allMessages.value.find((item) => item.id === messageId);
-    const meta = (message?.providerMeta || {}) as Record<string, unknown>;
-    if (!Array.isArray(meta._streamSegments)) return [];
-    return (meta._streamSegments as unknown[])
-      .map((item) => String(item ?? ""))
-      .filter((item) => item.length > 0);
-  }
-
-  function readMessageStreamTail(messageId: string): string {
-    if (!messageId) return "";
-    const message = options.allMessages.value.find((item) => item.id === messageId);
-    const meta = (message?.providerMeta || {}) as Record<string, unknown>;
-    return String(meta._streamTail ?? "");
-  }
-
-  function syncStreamBlocksToMessage(messageId: string, rawBlocks?: AssistantStreamBlock[]) {
+  function syncStreamBlocksToMessage(
+    messageId: string,
+    rawBlocks?: AssistantStreamBlock[],
+    runtimeStatus?: { toolStatusText?: string; toolStatusState?: string },
+  ) {
     if (!messageId) return;
     const blocks = normalizeAssistantStreamBlocks(rawBlocks);
     ensureProjectionRound(messageId, "", "streaming");
+    const existingMessage = options.allMessages.value.find((item) => item.id === messageId);
+    const existingMeta = (existingMessage?.providerMeta || {}) as Record<string, unknown>;
+    // toolStatus 只在快照显式携带时覆盖（恢复路径）；普通流式 dispatch 不传，
+    // 状态机保留消息上已有的调度阶段提示，避免空值覆盖真值。
+    const toolStatusText = runtimeStatus?.toolStatusText !== undefined
+      ? String(runtimeStatus.toolStatusText || "")
+      : undefined;
+    const toolStatusState = runtimeStatus?.toolStatusState !== undefined
+      ? String(runtimeStatus.toolStatusState || "").trim()
+      : undefined;
     dispatchMessageEvent({
       type: "assistant_stream_snapshot",
       conversationId: machineConversationId(),
@@ -354,8 +309,8 @@ export function useChatFlowDrafts(options: UseChatFlowDraftsOptions) {
       snapshot: {
         persistedAssistantMessageId: messageId,
         streamBlocks: blocks,
-        toolStatusText: options.toolStatusText.value,
-        toolStatusState: options.toolStatusState.value,
+        toolStatusText,
+        toolStatusState,
         frontendDispatchStartedAtMs: options.getFrontendDispatchStartedAtMs(),
         frontendDispatchElapsedMs: options.currentFrontendDispatchElapsedMs(),
       },
@@ -364,57 +319,45 @@ export function useChatFlowDrafts(options: UseChatFlowDraftsOptions) {
 
   function updateMessageText(
     messageId: string,
-    streamSegments?: string[],
-    streamTail?: string,
-    streamAnimatedDelta = "",
     rawBlocks?: AssistantStreamBlock[],
     updateOptions?: UpdateMessageTextOptions,
+    runtimeStatus?: { toolStatusText?: string; toolStatusState?: string },
   ) {
     if (!messageId) return;
     const existingMessage = options.allMessages.value.find((item) => item.id === messageId);
     const agentId = resolveAssistantMessageSpeakerAgentId(existingMessage);
-    const existingMessageText = readMessagePlainText(existingMessage);
-    const nextAssistantText = String(options.latestAssistantText.value || "");
-    const shouldPreserveExistingMessageText =
-      !!existingMessage
-      && !nextAssistantText
-      && !!existingMessageText
-      && (
-        !!String(options.toolStatusText.value || "").trim()
-        || (options.streamBlocks?.value.length || 0) > 0
-      );
-    if (shouldPreserveExistingMessageText) {
-      options.latestAssistantText.value = existingMessageText;
-    }
-    const nextStreamSegments = streamSegments || readMessageStreamSegments(messageId);
-    const nextStreamTail = streamTail ?? readMessageStreamTail(messageId);
-    const hasVisibleStreamContent =
-      !!String(options.latestAssistantText.value || "").trim()
-      || nextStreamSegments.some((item) => !!String(item || "").trim())
-      || !!String(nextStreamTail || "").trim()
-      || (options.streamBlocks?.value.length || 0) > 0;
-    const preStreamingStatusText = hasVisibleStreamContent
-      ? ""
-      : String(options.toolStatusText.value || "").trim();
     const streamBlocks = rawBlocks === undefined
       ? getMessageStreamBlocks(messageId)
       : normalizeAssistantStreamBlocks(rawBlocks);
-    ensureProjectionRound(messageId, preStreamingStatusText, "streaming");
+    const hasVisibleStreamContent =
+      streamBlocks.length > 0
+      || !!assistantTextFromStreamBlocks(streamBlocks).trim();
+    const existingMeta = (existingMessage?.providerMeta || {}) as Record<string, unknown>;
+    // 调度阶段提示保留消息上已有值（不主动清空）；有可见内容时由状态机归零。
+    const preStreamingStatusText = hasVisibleStreamContent
+      ? undefined
+      : String(existingMeta._toolStatusText || existingMeta._preStreamingStatusText || "").trim() || undefined;
+    // toolStatus 只在调用方显式携带时覆盖（失败/完成/恢复路径）；普通流式不传，
+    // 状态机保留消息上已有的调度阶段提示，避免空值覆盖真值。
+    const toolStatusText = runtimeStatus?.toolStatusText !== undefined
+      ? String(runtimeStatus.toolStatusText || "")
+      : undefined;
+    const toolStatusState = runtimeStatus?.toolStatusState !== undefined
+      ? String(runtimeStatus.toolStatusState || "").trim()
+      : undefined;
+    ensureProjectionRound(messageId, preStreamingStatusText || "", "streaming");
     dispatchMessageEvent({
       type: "assistant_stream_snapshot",
       conversationId: machineConversationId(),
       assistantMessageId: messageId,
       snapshot: {
         persistedAssistantMessageId: messageId,
-        assistantText: options.latestAssistantText.value,
+        assistantText: assistantTextFromStreamBlocks(streamBlocks),
         speakerAgentId: agentId,
         streamBlocks,
-        streamSegments: nextStreamSegments,
-        streamTail: nextStreamTail,
-        streamAnimatedDelta: String(streamAnimatedDelta || ""),
         preStreamingStatusText,
-        toolStatusText: options.toolStatusText.value,
-        toolStatusState: options.toolStatusState.value,
+        toolStatusText,
+        toolStatusState,
         frontendDispatchStartedAtMs: options.getFrontendDispatchStartedAtMs(),
         frontendDispatchElapsedMs: options.currentFrontendDispatchElapsedMs(),
       },
@@ -537,7 +480,6 @@ export function useChatFlowDrafts(options: UseChatFlowDraftsOptions) {
     hasStreamingAssistantMessageInMessages,
     insertStreamingAssistantMessage,
     insertUserDraft,
-    loadStreamBlocksFromMessage,
     removeMessage,
     settleStreamingAssistantMessages,
     syncStreamBlocksToMessage,

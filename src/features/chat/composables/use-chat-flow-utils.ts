@@ -65,10 +65,6 @@ export function messageHasVisibleContent(message?: ChatMessage | null): boolean 
   if (Array.isArray(message.toolCall) && message.toolCall.length > 0) return true;
   if (Array.isArray(message.activityItems) && message.activityItems.length > 0) return true;
   const meta = (message.providerMeta || {}) as Record<string, unknown>;
-  if (String(meta._streamTail || "").trim()) return true;
-  if (Array.isArray(meta._streamSegments) && meta._streamSegments.some((item) => String(item || "").trim())) {
-    return true;
-  }
   if (Array.isArray(message.contentBlocks) && message.contentBlocks.length > 0) return true;
   if (String(meta._preStreamingStatusText || "").trim()) return true;
   if (String(meta._toolStatusText || "").trim()) return true;

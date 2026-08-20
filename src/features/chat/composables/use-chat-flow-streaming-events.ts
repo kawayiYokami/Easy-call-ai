@@ -13,8 +13,6 @@ import type { ConversationRuntimeStreamCacheSnapshot } from "./use-chat-flow-str
 import type { PendingTerminalEvent, RoundState } from "./use-chat-flow-types";
 
 type UseChatFlowStreamingEventsOptions = {
-  toolStatusText: Ref<string>;
-  toolStatusState: Ref<"running" | "done" | "failed" | "">;
   contextUsagePreview?: Ref<ContextUsageUpdatePayload | null>;
   reasoningStartedAtMs: Ref<number>;
   getRound: () => RoundState;
@@ -158,12 +156,8 @@ export function useChatFlowStreamingEvents(options: UseChatFlowStreamingEventsOp
     }
     if (parsed.kind === "tool_status") {
       // 工具/重试状态本身就是促使 waiting -> streaming 的可见进度。
-      // 必须先写入显示状态，再创建流式投影；否则投影初始化会用空状态
-      // 覆盖刚收到的状态，原生 Channel 与 Web 虚拟 Channel 都会丢首个状态。
-      options.toolStatusText.value = parsed.message || "";
-      options.toolStatusState.value =
-        parsed.toolStatus === "running" || parsed.toolStatus === "done" || parsed.toolStatus === "failed"
-          ? parsed.toolStatus : "";
+      // 状态写入消息由 applyAssistantEventToMessage 完成（状态机 tool_status 分支
+      // 写 _toolStatusText/_toolStatusState），投影初始化会保留消息已有值，无需 refs。
     }
     if (round.phase === "queued" && round.gen === currentGen && assistantEventHasVisibleProgress(parsed)) {
       options.promoteQueuedRoundToStreaming(currentGen);

@@ -1,8 +1,4 @@
 import type { Ref } from "vue";
-import type { AssistantStreamBlock } from "../../../types/app";
-import {
-  summarizeToolCallsText,
-} from "./use-chat-flow-drafts";
 import type { RoundState } from "./use-chat-flow-types";
 
 type SendSession = { apiConfigId: string; agentId: string; departmentId?: string; conversationId?: string };
@@ -10,10 +6,6 @@ type SendSession = { apiConfigId: string; agentId: string; departmentId?: string
 type UseChatFlowSendRecoveryOptions = {
   chatting: Ref<boolean>;
   submitPending?: Ref<boolean>;
-  latestAssistantText: Ref<string>;
-  toolStatusText: Ref<string>;
-  toolStatusState: Ref<"running" | "done" | "failed" | "">;
-  streamBlocks?: Ref<AssistantStreamBlock[]>;
   reasoningStartedAtMs: Ref<number>;
   getRound: () => RoundState;
   setRound: (next: RoundState) => void;
@@ -31,7 +23,6 @@ type UseChatFlowSendRecoveryOptions = {
   deleteSendStartedAtMs: (gen: number) => void;
   failQueuedRoundWithoutMessage: (gen: number, error: unknown) => Promise<void>;
   onReloadMessages: () => Promise<void>;
-  t: (key: string, params?: Record<string, unknown>) => string;
 };
 
 export function useChatFlowSendRecovery(options: UseChatFlowSendRecoveryOptions) {
@@ -81,14 +72,7 @@ export function useChatFlowSendRecovery(options: UseChatFlowSendRecoveryOptions)
       return;
     }
 
-    options.latestAssistantText.value = "";
     options.setChatErrorText(options.formatRequestFailed(error), sendConversationId);
-    if (!options.toolStatusText.value) {
-      options.toolStatusState.value = "failed";
-      options.toolStatusText.value =
-        summarizeToolCallsText(options.streamBlocks?.value || [])
-        || options.t("status.toolCallFailed");
-    }
 
     const cur = options.getSession();
     if (!cur || cur.apiConfigId !== sendSession.apiConfigId || cur.agentId !== sendSession.agentId) {

@@ -1,4 +1,5 @@
 import { decideForegroundRecovery } from "./foreground-recovery-decision";
+import type { AssistantStreamBlock } from "../../../types/app";
 
 /**
  * 焦点恢复的唯一状态机。
@@ -11,6 +12,12 @@ export type ForegroundStreamIdentity = {
   requestId?: string;
   updatedAt?: string;
   persistedAssistantMessageId?: string;
+  /** 以下字段与后端 ConversationStreamRuntimeCacheSnapshot 对齐（诊断与恢复使用）。 */
+  assistantText?: string;
+  toolStatusText?: string;
+  toolStatusState?: string;
+  streamBlocks?: AssistantStreamBlock[];
+  hasVisibleProgress?: boolean;
 };
 
 export type ForegroundRuntimeSnapshot = {

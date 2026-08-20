@@ -1,14 +1,10 @@
 import type { Ref } from "vue";
-import type { AssistantStreamBlock, ChatMessage } from "../../../types/app";
+import type { ChatMessage } from "../../../types/app";
 import type { RoundState } from "./use-chat-flow-types";
 
 type UseChatFlowForegroundResetOptions = {
   latestUserText: Ref<string>;
   latestUserImages: Ref<Array<{ mime: string; bytesBase64: string }>>;
-  latestAssistantText: Ref<string>;
-  toolStatusText: Ref<string>;
-  toolStatusState: Ref<"running" | "done" | "failed" | "">;
-  streamBlocks?: Ref<AssistantStreamBlock[]>;
   chatting: Ref<boolean>;
   submitPending?: Ref<boolean>;
   getConversationId?: () => string;
@@ -36,10 +32,6 @@ export function useChatFlowForegroundReset(options: UseChatFlowForegroundResetOp
     options.resetQueuedStreamingState();
     options.latestUserText.value = "";
     options.latestUserImages.value = [];
-    options.latestAssistantText.value = "";
-    options.toolStatusText.value = "";
-    options.toolStatusState.value = "";
-    if (options.streamBlocks) options.streamBlocks.value = [];
   }
 
   function clearForegroundRoundState() {

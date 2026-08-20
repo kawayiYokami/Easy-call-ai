@@ -15,9 +15,6 @@ type ConversationMessageUtilsOptions = {
 
 const TRANSIENT_PROVIDER_META_KEYS = [
   "_streaming",
-  "_streamSegments",
-  "_streamTail",
-  "_streamAnimatedDelta",
   "_preStreamingStatusText",
   "_frontendDispatchStartedAtMs",
   "_frontendDispatchElapsedMs",

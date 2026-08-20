@@ -81,10 +81,6 @@ export function useConversationViewRuntime(options: ConversationViewRuntimeOptio
   const queuedAttachmentNotices = ref<Array<{ id: string; fileName: string; path: string; mime: string }>>([]);
   const latestUserText = ref("");
   const latestUserImages = ref<Array<{ mime: string; bytesBase64: string }>>([]);
-  const latestAssistantText = ref("");
-  const toolStatusText = ref("");
-  const toolStatusState = ref<"running" | "done" | "failed" | "">("");
-  const streamBlocks = ref<AssistantStreamBlock[]>([]);
   const chatErrorText = ref("");
   const chatting = ref(false);
   const trimming = ref(false);
@@ -315,10 +311,6 @@ export function useConversationViewRuntime(options: ConversationViewRuntimeOptio
     queuedAttachmentNotices,
     latestUserText,
     latestUserImages,
-    latestAssistantText,
-    toolStatusText,
-    toolStatusState,
-    streamBlocks,
     subscribeExternalEvents: (method, handler) => onTransportNotification(method, (payload) => {
       if (method === "chat.roundStarted") runtimeState.value = "assistant_streaming";
       void Promise.resolve().then(() => handler(payload)).finally(() => {
@@ -685,10 +677,6 @@ export function useConversationViewRuntime(options: ConversationViewRuntimeOptio
     queuedAttachmentNotices,
     latestUserText,
     latestUserImages,
-    latestAssistantText,
-    toolStatusText,
-    toolStatusState,
-    streamBlocks,
     chatErrorText,
     chatting,
     submitPending,

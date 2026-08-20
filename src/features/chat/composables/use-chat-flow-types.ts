@@ -21,10 +21,6 @@ export type UseChatFlowOptions = {
   queuedAttachmentNotices?: Ref<Array<{ id: string; fileName: string; path: string; mime: string; pending?: boolean }>>;
   latestUserText: Ref<string>;
   latestUserImages: Ref<Array<{ mime: string; bytesBase64: string }>>;
-  latestAssistantText: Ref<string>;
-  toolStatusText: Ref<string>;
-  toolStatusState: Ref<"running" | "done" | "failed" | "">;
-  streamBlocks?: Ref<AssistantStreamBlock[]>;
   contextUsagePreview?: Ref<ContextUsageUpdatePayload | null>;
   chatErrorText: Ref<string>;
   setConversationChatError?: (conversationId: string, text: string) => void;

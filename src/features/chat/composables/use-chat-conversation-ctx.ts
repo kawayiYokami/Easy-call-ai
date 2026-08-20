@@ -20,12 +20,11 @@ export function useChatConversationCtx(
     terminalApprovalResolving?: boolean;
     supervisionActive: boolean;
     supervisionTitle: string;
-    toolStatusState: "running" | "done" | "failed" | "";
-    toolStatusText: string;
     chatErrorText: string;
     selectedMentions: ChatMentionTarget[];
     messageBlocks: Array<{
       isExtraTextBlock?: boolean;
+      isStreaming?: boolean;
       planCard?: { action?: string };
       sourceMessageId?: string;
       id?: string;
@@ -105,8 +104,24 @@ export function useChatConversationCtx(
     return detail ? `${base}\n${detail}` : base;
   });
 
+  // 工具状态不再由全局 refs 传入，从流式消息块 providerMeta 派生
+  // （状态机写入的 _toolStatusText/_toolStatusState）。
+  const streamingToolStatus = computed(() => {
+    for (let idx = props.messageBlocks.length - 1; idx >= 0; idx -= 1) {
+      const block = props.messageBlocks[idx];
+      if (!block.isStreaming) continue;
+      const providerMeta = (block.providerMeta || {}) as Record<string, unknown>;
+      const state = String(providerMeta._toolStatusState || "").trim();
+      const text = String(providerMeta._toolStatusText || "").trim();
+      if (state === "running" || state === "done" || state === "failed") {
+        return { state, text };
+      }
+    }
+    return { state: "", text: "" };
+  });
+
   const activeRunningToolCall = computed(() => {
-    if (props.toolStatusState !== "running") return null;
+    if (streamingToolStatus.value.state !== "running") return null;
     const calls = props.messageBlocks.flatMap((block) => [
       ...(Array.isArray(block.toolCalls) ? block.toolCalls : []),
       ...(Array.isArray(block.activityItems)
@@ -130,10 +145,8 @@ export function useChatConversationCtx(
     if (runtimeState === "organizing_context" || runtimeState === "compacting") return true;
     const runningTool = activeRunningToolCall.value;
     if (runningTool && isOrganizeContextToolCall(runningTool)) return true;
-    const statusState = String(props.toolStatusState || "").trim();
-    if (statusState !== "running") return false;
-    const actualText = String(props.toolStatusText || "").trim();
-    return isOrganizeContextStatusText(actualText);
+    if (streamingToolStatus.value.state !== "running") return false;
+    return isOrganizeContextStatusText(streamingToolStatus.value.text);
   });
 
   const chatStatusBanner = computed<ChatStatusBanner | null>(() => {

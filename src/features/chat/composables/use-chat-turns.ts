@@ -126,9 +126,6 @@ export function useChatMessageBlocks(options: UseChatMessageBlocksOptions) {
       String(meta.messageKind || ""),
       String(meta.hiddenPromptText || "").length,
       String(meta._streaming ? "1" : "0"),
-      String(meta._streamTail || "").length,
-      String(meta._streamAnimatedDelta || "").length,
-      Array.isArray(meta._streamSegments) ? (meta._streamSegments as unknown[]).length : 0,
       String(meta._toolStatusText || "").length,
       String(meta._toolStatusState || ""),
       // 耗时数字（dispatchElapsedMs/_frontendDispatchElapsedMs）不进签名：
@@ -301,13 +298,11 @@ export function useChatMessageBlocks(options: UseChatMessageBlocksOptions) {
 
     const meta = (message.providerMeta || {}) as Record<string, unknown>;
     const projection = projectMessageForDisplay(message, options.taskTriggerLabels);
-    const streamSegments = Array.isArray(meta._streamSegments)
-      ? (meta._streamSegments as unknown[])
-        .map((item) => String(item ?? ""))
-        .filter((item) => item.length > 0)
-      : [];
-    const streamTail = String(meta._streamTail ?? "");
-    const streamAnimatedDelta = String(meta._streamAnimatedDelta ?? "");
+    // 分段键已收敛：_streamSegments/_streamTail/_streamAnimatedDelta 不再写入，
+    // 分段由渲染层从 contentBlocks 全量重算（乐观渲染 chunks=[全量文本]）。
+    const streamSegments: string[] = [];
+    const streamTail = "";
+    const streamAnimatedDelta = "";
     const streamBlocks = assistantContentBlocksFromMessage(message);
     const streamingDisplayText = assistantTextFromStreamBlocks(streamBlocks);
     const streamBlockToolCalls = streamBlocksToToolCalls(streamBlocks);

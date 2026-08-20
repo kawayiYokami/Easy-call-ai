@@ -1,6 +1,6 @@
 import { onBeforeUnmount, ref } from "vue";
 import type { AssistantStreamBlock, ChatMessage } from "../../../types/app";
-import { normalizeAssistantStreamBlocks } from "../../../utils/chat-message-semantics";
+import { normalizeAssistantStreamBlocks, assistantContentBlocksFromMessage, assistantTextFromStreamBlocks } from "../../../utils/chat-message-semantics";
 import { chatStreamNeedsFrontendBind } from "../../../services/tauri-api";
 import { useChatFlowChannelBinding } from "./use-chat-flow-channel-binding";
 import {
@@ -122,7 +122,6 @@ export function useChatFlow(options: UseChatFlowOptions) {
     hasStreamingAssistantMessageInMessages,
     insertStreamingAssistantMessage,
     insertUserDraft,
-    loadStreamBlocksFromMessage,
     removeMessage,
     settleStreamingAssistantMessages,
     syncStreamBlocksToMessage,
@@ -131,9 +130,6 @@ export function useChatFlow(options: UseChatFlowOptions) {
   } = useChatFlowDrafts({
     allMessages: options.allMessages,
     latestUserText: options.latestUserText,
-    latestAssistantText: options.latestAssistantText,
-    toolStatusText: options.toolStatusText,
-    toolStatusState: options.toolStatusState,
     getActiveRoundAgentId: () => activeRoundAgentId,
     getConversationId: options.getConversationId,
     getSendStartedAtMs: (gen) => sendStartedAtMsByGen.get(gen) || 0,
@@ -151,10 +147,24 @@ export function useChatFlow(options: UseChatFlowOptions) {
     writeConversationStreamCacheSnapshot,
   } = useChatFlowStreamCache({
     getConversationId: options.getConversationId,
-    latestAssistantText: options.latestAssistantText,
-    toolStatusText: options.toolStatusText,
-    toolStatusState: options.toolStatusState,
-    streamBlocks: options.streamBlocks,
+    getCurrentDisplayState: () => {
+      const currentRound = round;
+      if (currentRound.phase !== "queued" && currentRound.phase !== "streaming") return null;
+      if (!currentRound.messageId) return null;
+      const message = options.allMessages.value.find((item) => item.id === currentRound.messageId);
+      const blocks = assistantContentBlocksFromMessage(message);
+      const meta = (message?.providerMeta || {}) as Record<string, unknown>;
+      const rawStatus = String(meta._toolStatusState || "").trim();
+      const toolStatusState = rawStatus === "running" || rawStatus === "done" || rawStatus === "failed"
+        ? rawStatus
+        : "";
+      return {
+        assistantText: assistantTextFromStreamBlocks(blocks),
+        toolStatusText: String(meta._toolStatusText || meta._preStreamingStatusText || ""),
+        toolStatusState,
+        streamBlocks: blocks,
+      };
+    },
     getActiveActivationId: () => activeActivationId,
     getFrontendDispatchStartedAtMs: frontendDispatch.getStartedAtMs,
     getFrontendDispatchElapsedMs: frontendDispatch.getElapsedMs,
@@ -175,10 +185,6 @@ export function useChatFlow(options: UseChatFlowOptions) {
     setDeferredRoundCompletion: (value: DeferredRoundCompletion | null) => {
       deferredRoundCompletion = value;
     },
-    latestAssistantText: options.latestAssistantText,
-    toolStatusText: options.toolStatusText,
-    toolStatusState: options.toolStatusState,
-    streamBlocks: options.streamBlocks,
     chatting: options.chatting,
     reasoningStartedAtMs,
     t: options.t,
@@ -212,8 +218,6 @@ export function useChatFlow(options: UseChatFlowOptions) {
     submitPending,
   });
   const streamingEvents = useChatFlowStreamingEvents({
-    toolStatusText: options.toolStatusText,
-    toolStatusState: options.toolStatusState,
     contextUsagePreview: options.contextUsagePreview,
     reasoningStartedAtMs,
     getRound: () => round,
@@ -299,10 +303,6 @@ export function useChatFlow(options: UseChatFlowOptions) {
     },
     getConversationId: options.getConversationId,
     allMessages: options.allMessages,
-    latestAssistantText: options.latestAssistantText,
-    toolStatusText: options.toolStatusText,
-    toolStatusState: options.toolStatusState,
-    streamBlocks: options.streamBlocks,
     chatting: options.chatting,
     t: options.t,
     sendStartedAtMsByGen,
@@ -316,7 +316,6 @@ export function useChatFlow(options: UseChatFlowOptions) {
     syncStreamBlocksToMessage,
     updateMessageText,
     applyConversationStreamCacheToDisplay,
-    loadStreamBlocksFromMessage,
     readConversationStreamCache,
     writeConversationStreamCacheSnapshot,
     applyPendingTerminalEvent,
@@ -348,7 +347,6 @@ export function useChatFlow(options: UseChatFlowOptions) {
     onAssistantMessageCompleted: options.onAssistantMessageCompleted,
     setChatErrorText,
     formatRequestFailed: options.formatRequestFailed,
-    latestAssistantText: options.latestAssistantText,
     chatting: options.chatting,
     reasoningStartedAtMs,
     applyAssistantEventToConversationStreamCache,
@@ -384,9 +382,6 @@ export function useChatFlow(options: UseChatFlowOptions) {
   }
   const stopController = useChatFlowStop({
     chatting: options.chatting,
-    latestAssistantText: options.latestAssistantText,
-    toolStatusText: options.toolStatusText,
-    toolStatusState: options.toolStatusState,
     allMessages: options.allMessages,
     getSession: options.getSession,
     getConversationId: options.getConversationId,
@@ -430,10 +425,6 @@ export function useChatFlow(options: UseChatFlowOptions) {
   const sendRecovery = useChatFlowSendRecovery({
     chatting: options.chatting,
     submitPending,
-    latestAssistantText: options.latestAssistantText,
-    toolStatusText: options.toolStatusText,
-    toolStatusState: options.toolStatusState,
-    streamBlocks: options.streamBlocks,
     reasoningStartedAtMs,
     getRound: () => round,
     setRound,
@@ -457,14 +448,10 @@ export function useChatFlow(options: UseChatFlowOptions) {
       activeRoundAgentId = String(value || "").trim();
     },
     onReloadMessages: options.onReloadMessages,
-    t: options.t,
   });
   const roundEvents = useChatFlowRoundEvents({
     chatting: options.chatting,
-    latestAssistantText: options.latestAssistantText,
-    toolStatusText: options.toolStatusText,
-    toolStatusState: options.toolStatusState,
-    streamBlocks: options.streamBlocks,
+    allMessages: options.allMessages,
     reasoningStartedAtMs,
     getRound: () => round,
     setRound,
@@ -487,7 +474,6 @@ export function useChatFlow(options: UseChatFlowOptions) {
     sendStartedAtMsByGen,
     hasStreamingAssistantMessageInMessages,
     applyConversationStreamCacheToDisplay,
-    loadStreamBlocksFromMessage,
     updateQueuedAssistantMessageStatus,
     insertStreamingAssistantMessage,
     updateMessageText,
@@ -509,9 +495,6 @@ export function useChatFlow(options: UseChatFlowOptions) {
     chatting: options.chatting,
     submitPending,
     isConversationBusy: options.isConversationBusy,
-    toolStatusText: options.toolStatusText,
-    toolStatusState: options.toolStatusState,
-    streamBlocks: options.streamBlocks,
     getConversationId: options.getConversationId,
     getSession: options.getSession,
     createSendChatDeltaChannel: channelBinding.createSendChatDeltaChannel,
@@ -557,10 +540,6 @@ export function useChatFlow(options: UseChatFlowOptions) {
   const foregroundReset = useChatFlowForegroundReset({
     latestUserText: options.latestUserText,
     latestUserImages: options.latestUserImages,
-    latestAssistantText: options.latestAssistantText,
-    toolStatusText: options.toolStatusText,
-    toolStatusState: options.toolStatusState,
-    streamBlocks: options.streamBlocks,
     chatting: options.chatting,
     submitPending,
     getConversationId: options.getConversationId,
