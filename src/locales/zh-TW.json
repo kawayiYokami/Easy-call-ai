@@ -2516,16 +2516,28 @@
       "placeholder": "預留功能，暫未實作。"
     },
     "trim": {
-      "title": "處理目前會話",
-      "loading": "正在判斷目前會話是否可壓縮或歸檔...",
-      "compactTitle": "壓縮",
-      "compactSummary": "整理較早歷史，繼續目前會話。",
+      "title": "處理此會話",
+      "loading": "正在判斷此會話是否可整理或歸檔...",
+      "compactTitle": "整理此會話",
+      "compactSummary": "整理較早歷史，繼續此會話。",
       "compactHint": "上下文占用偏高時使用。",
-      "archiveTitle": "歸檔",
+      "archiveTitle": "歸檔此會話",
       "archiveSummary": "保留正文對話，執行記憶反思。",
       "archiveHint": "會話結束後沉澱為歷史。",
-      "messageCount": "目前會話訊息數：{count}",
-      "contextUsage": "目前上下文占用：{percent}%"
+      "deleteTitle": "刪除此會話",
+      "messageCount": "此會話訊息數：{count}",
+      "contextUsage": "目前上下文占用：{percent}%",
+      "breakdownTitle": "詞元構成",
+      "breakdownSystem": "系統提示詞",
+      "breakdownTools": "工具 schema",
+      "breakdownMessage": "正文",
+      "breakdownTotal": "合計",
+      "breakdownUsed": "已占用",
+      "breakdownAvailable": "剩餘可用",
+      "breakdownReserved": "保留（整理閾值預留）",
+      "breakdownContextWindow": "目前模型最大上下文",
+      "fixedCost": "固定成本",
+      "compressionEstimate": "整理後預計占用 ~{percent}%，可釋放 {tokens} 詞元（系統提示詞與工具 schema 不釋放）"
     }
   },
   "about": {

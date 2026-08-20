@@ -1,6 +1,74 @@
 const INTERNAL_MAX_TOOL_LOOP_ROUNDS: usize = 10000;
 const REPEATED_TOOL_CALL_BLOCK_THRESHOLD: usize = 3;
 
+/// 统计请求构成的三类字符数（系统提示词 / 工具 schema / 正文消息），
+/// 供前端词元账单按字符比例分配真实 usage 展示。
+/// system/tools 属于固定成本：压缩不释放。
+fn genai_request_context_chars(
+    system_prompt: Option<&str>,
+    tools: &[genai::chat::Tool],
+    messages: &[genai::chat::ChatMessage],
+) -> (usize, usize, usize) {
+    let system_chars = system_prompt
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(|value| value.chars().count())
+        .unwrap_or(0);
+    let tools_chars = if tools.is_empty() {
+        0
+    } else {
+        serde_json::to_string(tools)
+            .map(|value| value.chars().count())
+            .unwrap_or(0)
+    };
+    let message_chars = messages
+        .iter()
+        .flat_map(|message| message.content.parts())
+        .map(|part| match part {
+            genai::chat::ContentPart::Text(text) => text.chars().count(),
+            genai::chat::ContentPart::ToolCall(tool_call) => tool_call
+                .fn_arguments
+                .to_string()
+                .chars()
+                .count(),
+            genai::chat::ContentPart::ToolResponse(tool_response) => {
+                tool_response.content.chars().count()
+            }
+            _ => 0,
+        })
+        .sum();
+    (system_chars, tools_chars, message_chars)
+}
+
+/// 按字符比例把真实 prompt_tokens 分配到三类，供前端词元账单展示。
+fn genai_request_context_breakdown_patch(
+    system_chars: usize,
+    tools_chars: usize,
+    message_chars: usize,
+    prompt_tokens: u64,
+) -> Option<Value> {
+    let total_chars = system_chars + tools_chars + message_chars;
+    if total_chars == 0 || prompt_tokens == 0 {
+        return None;
+    }
+    let split = |chars: usize| -> u64 {
+        if chars == 0 {
+            return 0;
+        }
+        (u128::from(chars as u64) * u128::from(prompt_tokens) / u128::from(total_chars as u64)) as u64
+    };
+    let system_tokens = split(system_chars);
+    let tools_tokens = split(tools_chars);
+    let message_tokens = split(message_chars);
+    Some(serde_json::json!({
+        "contextBreakdown": {
+            "systemTokens": system_tokens,
+            "toolsTokens": tools_tokens,
+            "messageTokens": message_tokens,
+        }
+    }))
+}
+
 struct GenaiToolLoopRoundOutput {
     turn_text: String,
     turn_reasoning: String,
@@ -373,11 +441,13 @@ async fn run_genai_tool_loop(
         Vec::<tauri::async_runtime::JoinHandle<Result<(), String>>>::new();
     let mut trusted_input_tokens: Option<u64> = None;
     let mut latest_usage = None::<Value>;
+    let mut final_assistant_provider_meta_override = None::<Value>;
     let (system_prompt, mut messages) = build_genai_message_state(&prepared)?;
+    let context_chars =
+        genai_request_context_chars(system_prompt.as_deref(), &genai_tools, &messages);
 
     let mut auto_compaction_applied = false;
     let mut tool_repeat_guard = ToolRepeatGuard::default();
-    let mut final_assistant_provider_meta_override = None::<Value>;
     for round_index in 0..INTERNAL_MAX_TOOL_LOOP_ROUNDS {
         let round_started_at = std::time::Instant::now();
         let mut emit_text_boundary_before_next_chunk = !full_assistant_text.trim().is_empty();
@@ -569,6 +639,17 @@ async fn run_genai_tool_loop(
             &mut final_assistant_provider_meta_override,
             round_assistant_provider_meta,
         );
+        if let Some(prompt_tokens) = trusted_input_tokens {
+            merge_assistant_provider_meta_patch(
+                &mut final_assistant_provider_meta_override,
+                genai_request_context_breakdown_patch(
+                    context_chars.0,
+                    context_chars.1,
+                    context_chars.2,
+                    prompt_tokens,
+                ),
+            );
+        }
         push_tool_loop_round_log(
             tool_abort_state,
             chat_session_key,
@@ -1019,11 +1100,13 @@ async fn run_genai_tool_loop_non_stream(
         Vec::<tauri::async_runtime::JoinHandle<Result<(), String>>>::new();
     let mut trusted_input_tokens: Option<u64> = None;
     let mut latest_usage = None::<Value>;
+    let mut final_assistant_provider_meta_override = None::<Value>;
     let (system_prompt, mut messages) = build_genai_message_state(&prepared)?;
+    let context_chars =
+        genai_request_context_chars(system_prompt.as_deref(), &genai_tools, &messages);
 
     let mut auto_compaction_applied = false;
     let mut tool_repeat_guard = ToolRepeatGuard::default();
-    let mut final_assistant_provider_meta_override = None::<Value>;
     for round_index in 0..INTERNAL_MAX_TOOL_LOOP_ROUNDS {
         let round_started_at = std::time::Instant::now();
         if round_index > 0 && !auto_compaction_applied {
@@ -1115,6 +1198,17 @@ async fn run_genai_tool_loop_non_stream(
             &mut final_assistant_provider_meta_override,
             round_assistant_provider_meta,
         );
+        if let Some(prompt_tokens) = trusted_input_tokens {
+            merge_assistant_provider_meta_patch(
+                &mut final_assistant_provider_meta_override,
+                genai_request_context_breakdown_patch(
+                    context_chars.0,
+                    context_chars.1,
+                    context_chars.2,
+                    prompt_tokens,
+                ),
+            );
+        }
         push_tool_loop_round_log(
             tool_abort_state,
             chat_session_key,

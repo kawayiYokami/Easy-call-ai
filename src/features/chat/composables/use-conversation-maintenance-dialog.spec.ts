@@ -60,4 +60,82 @@ describe("useConversationMaintenanceDialog", () => {
     expect(trimCompactNow).toHaveBeenCalledTimes(1);
     expect(flow.trimActionDialogOpen.value).toBe(false);
   });
+
+  it("从最后一条 assistant 消息的 providerMeta 读取 system/tools 词元，正文用消息估算", async () => {
+    const messages = [
+      {
+        id: "message-0",
+        role: "user",
+        parts: [{ type: "text", text: "你好" }],
+        providerMeta: undefined,
+      },
+      {
+        id: "message-1",
+        role: "assistant",
+        parts: [{ type: "text", text: "你好，有什么可以帮你" }],
+        providerMeta: {
+          contextBreakdown: { systemTokens: 1200, toolsTokens: 3400 },
+        },
+      },
+    ];
+    invokeTauriMock.mockResolvedValue({ selectedBlockId: 1, messages });
+    const flow = useConversationMaintenanceDialog({
+      t: (key) => key,
+      currentConversationId: ref("conversation-b"),
+      conversationSummaries: ref([{
+        conversationId: "conversation-b",
+        messageCount: 2,
+        bodyMessageCount: 2,
+        hasAssistantReply: true,
+        runtimeState: "idle",
+      }]),
+      chatUsagePercent: ref(50),
+      trimCompactNow: vi.fn(async () => {}),
+      trimNow: vi.fn(async () => {}),
+      deleteConversation: vi.fn(async () => {}),
+      setStatus: vi.fn(),
+      setStatusError: vi.fn(),
+    });
+
+    await flow.openTrimActionDialog();
+
+    expect(flow.trimCompactionPreview.value?.tokenBreakdown).toEqual(expect.objectContaining({
+      systemTokens: 1200,
+      toolsTokens: 3400,
+    }));
+    expect(flow.trimCompactionPreview.value?.tokenBreakdown?.messageTokens).toBeGreaterThan(0);
+  });
+
+  it("providerMeta 缺失时 tokenBreakdown 只含正文估算，system/tools 为 undefined", async () => {
+    const messages = Array.from({ length: 3 }, (_, index) => ({
+      id: `message-${index}`,
+      role: index % 2 === 0 ? "user" : "assistant",
+      parts: [{ type: "text", text: `text-${index}` }],
+      providerMeta: undefined,
+    }));
+    invokeTauriMock.mockResolvedValue({ selectedBlockId: 1, messages });
+    const flow = useConversationMaintenanceDialog({
+      t: (key) => key,
+      currentConversationId: ref("conversation-c"),
+      conversationSummaries: ref([{
+        conversationId: "conversation-c",
+        messageCount: 3,
+        bodyMessageCount: 3,
+        hasAssistantReply: true,
+        runtimeState: "idle",
+      }]),
+      chatUsagePercent: ref(30),
+      trimCompactNow: vi.fn(async () => {}),
+      trimNow: vi.fn(async () => {}),
+      deleteConversation: vi.fn(async () => {}),
+      setStatus: vi.fn(),
+      setStatusError: vi.fn(),
+    });
+
+    await flow.openTrimActionDialog();
+
+    expect(flow.trimCompactionPreview.value?.tokenBreakdown?.systemTokens).toBeUndefined();
+    expect(flow.trimCompactionPreview.value?.tokenBreakdown?.toolsTokens).toBeUndefined();
+    expect(flow.trimCompactionPreview.value?.tokenBreakdown?.messageTokens).toBeGreaterThan(0);
+  });
 });

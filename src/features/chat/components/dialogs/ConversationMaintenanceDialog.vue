@@ -1,11 +1,13 @@
 <script setup lang="ts">
+import { computed } from "vue";
 import { useI18n } from "vue-i18n";
+import ChartView from "../../../config/views/config-tabs/ChartView.vue";
 import type {
   TrimCompactionPreviewResult,
   TrimPreviewResult,
 } from "../../composables/use-conversation-maintenance-dialog";
 
-defineProps<{
+const props = defineProps<{
   open: boolean;
   loading: boolean;
   running: boolean;
@@ -21,51 +23,233 @@ const emit = defineEmits<{
 }>();
 
 const { t } = useI18n();
+
+function formatTokens(value: number | undefined): string {
+  if (value === undefined || !Number.isFinite(value)) return "—";
+  const rounded = Math.round(value);
+  if (rounded >= 1000) {
+    const k = rounded / 1000;
+    const text = Number.isInteger(k) ? String(k) : k.toFixed(1).replace(/\.0$/, "");
+    return `~${text}K`;
+  }
+  return `~${rounded.toLocaleString("en-US")}`;
+}
+
+function percentOfWindow(tokens: number | undefined): number {
+  const windowTokens = contextWindowTokens.value;
+  if (windowTokens <= 0) return 0;
+  return Math.min(100, Math.max(0, Math.round((Math.max(0, Number(tokens) || 0) / windowTokens) * 100)));
+}
+
+type BreakdownEntry = {
+  key: "system" | "tools" | "message" | "reserved" | "available";
+  label: string;
+  tokens: number | undefined;
+  color: string;
+  fixed: boolean;
+};
+
+/** 压缩阈值：超过 82% 触发压缩，18% 为预留给压缩的保留区。 */
+const COMPACTION_THRESHOLD_RATIO = 0.82;
+
+const breakdownEntries = computed<BreakdownEntry[]>(() => {
+  const breakdown = props.compactionPreview?.tokenBreakdown;
+  const entries: BreakdownEntry[] = [
+    {
+      key: "system",
+      label: t("dialogs.trim.breakdownSystem"),
+      tokens: breakdown?.systemTokens,
+      color: "var(--color-primary)",
+      fixed: true,
+    },
+    {
+      key: "tools",
+      label: t("dialogs.trim.breakdownTools"),
+      tokens: breakdown?.toolsTokens,
+      color: "var(--color-secondary)",
+      fixed: true,
+    },
+    {
+      key: "message",
+      label: t("dialogs.trim.breakdownMessage"),
+      tokens: breakdown?.messageTokens,
+      color: "var(--color-accent)",
+      fixed: false,
+    },
+  ];
+  const windowTokens = Math.max(0, Number(breakdown?.contextWindowTokens) || 0);
+  if (windowTokens <= 0) return entries;
+  const usedTokens = entries.reduce((sum, entry) => sum + Math.max(0, Number(entry.tokens) || 0), 0);
+  const reservedTokens = Math.round(windowTokens * (1 - COMPACTION_THRESHOLD_RATIO));
+  entries.push({
+    key: "reserved",
+    label: t("dialogs.trim.breakdownReserved"),
+    tokens: reservedTokens,
+    color: "var(--color-warning)",
+    fixed: true,
+  });
+  // 剩余可用 = 总 - 已用 - 保留
+  entries.push({
+    key: "available",
+    label: t("dialogs.trim.breakdownAvailable"),
+    tokens: Math.max(0, windowTokens - usedTokens - reservedTokens),
+    color: "var(--color-base-300)",
+    fixed: false,
+  });
+  return entries;
+});
+
+/** 已占用词元合计（不含保留区与剩余可用）。 */
+const breakdownUsedTotal = computed(() =>
+  breakdownEntries.value
+    .filter((entry) => entry.key === "system" || entry.key === "tools" || entry.key === "message")
+    .reduce((sum, entry) => sum + Math.max(0, Number(entry.tokens) || 0), 0),
+);
+
+/** 饼图整体：上下文窗口总量（含保留区与剩余可用）。 */
+const breakdownTotal = computed(() =>
+  breakdownEntries.value.reduce((sum, entry) => sum + Math.max(0, Number(entry.tokens) || 0), 0),
+);
+
+/** Chart.js doughnut 配置：按 token 占比绘制上下文窗口构成。 */
+const pieChartConfig = computed(() => ({
+  type: "doughnut",
+  data: {
+    labels: breakdownEntries.value.map((entry) => entry.label),
+    datasets: [
+      {
+        data: breakdownEntries.value.map((entry) => Math.max(0, Number(entry.tokens) || 0)),
+        backgroundColor: breakdownEntries.value.map((entry) => entry.color),
+        borderWidth: 0,
+        hoverOffset: 2,
+      },
+    ],
+  },
+  options: {
+    responsive: true,
+    maintainAspectRatio: false,
+    cutout: "55%",
+    plugins: {
+      legend: { display: false },
+      tooltip: {
+        callbacks: {
+          label: (context: { parsed?: { x?: number; y?: number }; label?: string; raw?: unknown }) => {
+            const tokens = Math.max(0, Number(context.raw) || 0);
+            const percent = contextWindowTokens.value > 0
+              ? Math.round((tokens / contextWindowTokens.value) * 100)
+              : 0;
+            return ` ${context.label}：${formatTokens(tokens)}（${percent}%）`;
+          },
+        },
+      },
+    },
+  },
+}));
+
+const hasAnyBreakdown = computed(() => breakdownTotal.value > 0);
+
+const contextWindowTokens = computed(() =>
+  Math.max(0, Number(props.compactionPreview?.tokenBreakdown?.contextWindowTokens) || 0),
+);
+
+const compressionEstimate = computed(() => {
+  const breakdown = props.compactionPreview?.tokenBreakdown;
+  const systemTokens = Math.max(0, Number(breakdown?.systemTokens) || 0);
+  const toolsTokens = Math.max(0, Number(breakdown?.toolsTokens) || 0);
+  const messageTokens = Math.max(0, Number(breakdown?.messageTokens) || 0);
+  const usedTotal = systemTokens + toolsTokens + messageTokens;
+  if (usedTotal <= 0) return null;
+  // 压缩只释放正文；系统提示词与工具 schema 是固定成本。
+  const released = messageTokens;
+  const windowTokens = Math.max(0, Number(breakdown?.contextWindowTokens) || 0);
+  // 压缩后占用占比 = 固定成本 / 上下文窗口（保留区不算已用，不参与释放）。
+  const afterRatio =
+    windowTokens > 0 ? (systemTokens + toolsTokens) / windowTokens : usedTotal > 0 ? 1 : 0;
+  return { released, afterRatio };
+});
+
+/** 压缩后预计占用占比（%）——固定成本占上下文窗口的比例。 */
+const compressionEstimatePercent = computed(() => {
+  const estimate = compressionEstimate.value;
+  if (!estimate) return null;
+  return Math.min(100, Math.max(0, Math.round(estimate.afterRatio * 100)));
+});
 </script>
 
 <template>
   <dialog class="modal" :class="{ 'modal-open': open }">
-    <div class="modal-box w-[80vw] max-w-[80vw]">
-      <div class="flex items-center justify-between gap-4">
+    <div class="modal-box w-[min(80vw,48rem)] max-w-[48rem]">
+      <div class="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
         <h3 class="font-semibold text-base">{{ t("dialogs.trim.title") }}</h3>
-        <div class="flex shrink-0 items-center gap-3 text-xs opacity-60">
+        <div class="flex flex-wrap items-center gap-x-3 gap-y-0.5 text-xs opacity-60">
           <span>{{ t("dialogs.trim.messageCount", { count: preview?.messageCount ?? 0 }) }}</span>
           <span>{{ t("dialogs.trim.contextUsage", { percent: compactionPreview?.contextUsagePercent ?? 0 }) }}</span>
         </div>
       </div>
-      <div v-if="loading" class="mt-3 text-sm opacity-70">{{ t("dialogs.trim.loading") }}</div>
-      <template v-else>
-        <div class="mt-3 rounded-box border border-base-300 bg-base-200/40 px-3 py-3 text-sm">
-          <div class="font-medium">{{ t("dialogs.trim.compactTitle") }}</div>
-          <div class="mt-1 opacity-80">{{ t("dialogs.trim.compactSummary") }}</div>
-          <div class="mt-2 text-xs opacity-70">{{ t("dialogs.trim.compactHint") }}</div>
+
+      <div v-if="loading" class="mt-4 text-sm opacity-70">{{ t("dialogs.trim.loading") }}</div>
+
+      <!-- 词元账单：饼图 + 明细 + 压缩预期，直接平铺 -->
+      <div v-else-if="hasAnyBreakdown" class="mt-4 flex flex-col items-center gap-4 sm:flex-row sm:items-center sm:gap-6">
+        <div class="h-48 w-48 shrink-0">
+          <ChartView :config="pieChartConfig" />
+        </div>
+        <div class="w-full min-w-0 flex-1 space-y-1.5 text-sm">
           <div
-            v-if="compactionPreview?.compactionDisabledReason"
-            class="mt-3 rounded border border-warning/30 bg-warning/10 px-3 py-2 text-sm text-warning"
+            v-for="entry in breakdownEntries"
+            :key="entry.key"
+            class="flex items-center justify-between gap-3"
           >
-            {{ compactionPreview.compactionDisabledReason }}
+            <span class="flex min-w-0 items-center gap-2">
+              <span class="h-2.5 w-2.5 shrink-0 rounded-full" :style="{ backgroundColor: entry.color }" />
+              <span class="truncate">{{ entry.label }}</span>
+              <span
+                v-if="entry.fixed"
+                class="shrink-0 rounded-full bg-base-300/60 px-1.5 py-0.5 text-[10px] text-base-content/60"
+              >{{ t("dialogs.trim.fixedCost") }}</span>
+            </span>
+            <span class="shrink-0 tabular-nums text-base-content/80">
+              {{ formatTokens(entry.tokens) }}<template v-if="contextWindowTokens > 0 && entry.tokens">（{{ percentOfWindow(entry.tokens) }}%）</template>
+            </span>
+          </div>
+          <div class="flex items-center justify-between gap-3 border-t border-base-300/60 pt-1.5 text-xs text-base-content/60">
+            <span>{{ t("dialogs.trim.breakdownUsed") }}</span>
+            <span class="tabular-nums">{{ formatTokens(breakdownUsedTotal) }}</span>
+          </div>
+          <div
+            v-if="contextWindowTokens > 0"
+            class="flex items-center justify-between gap-3 text-xs text-base-content/60"
+          >
+            <span>{{ t("dialogs.trim.breakdownContextWindow") }}</span>
+            <span class="tabular-nums">{{ formatTokens(contextWindowTokens) }}</span>
           </div>
         </div>
-        <div class="mt-3 rounded-box border border-base-300 bg-base-200/40 px-3 py-3 text-sm">
-          <div class="font-medium">{{ t("dialogs.trim.archiveTitle") }}</div>
-          <div class="mt-1 opacity-80">{{ t("dialogs.trim.archiveSummary") }}</div>
-          <div class="mt-2 text-xs opacity-70">{{ t("dialogs.trim.archiveHint") }}</div>
-          <div
-            v-if="preview?.archiveDisabledReason"
-            class="mt-3 rounded border border-warning/30 bg-warning/10 px-3 py-2 text-sm text-warning"
-          >
-            {{ preview.archiveDisabledReason }}
-          </div>
-        </div>
-      </template>
-      <div class="mt-4 flex items-center justify-between gap-4">
+      </div>
+
+      <div
+        v-if="compressionEstimate"
+        class="mt-3 rounded bg-primary/10 px-3 py-2 text-xs text-primary"
+      >
+        {{ t("dialogs.trim.compressionEstimate", {
+          percent: compressionEstimatePercent ?? 0,
+          tokens: formatTokens(compressionEstimate.released),
+        }) }}
+      </div>
+      <div
+        v-else-if="!loading && compactionPreview?.compactionDisabledReason"
+        class="mt-3 rounded bg-warning/10 px-3 py-2 text-sm text-warning"
+      >
+        {{ compactionPreview.compactionDisabledReason }}
+      </div>
+
+      <div class="mt-5 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
         <div class="flex items-center gap-2">
           <button
             class="btn btn-sm btn-error"
             :disabled="loading || !preview?.canDropConversation || running"
             @click="emit('confirmDelete')"
           >
-            {{ t("common.delete") }}
+            {{ t("dialogs.trim.deleteTitle") }}
           </button>
           <button
             class="btn btn-sm btn-secondary"

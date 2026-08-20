@@ -1,6 +1,7 @@
 import { ref, type Ref } from "vue";
 import { invokeTauri } from "../../../services/tauri-api";
 import type { ChatMessage } from "../../../types/app";
+import { estimateConversationTokens } from "../../../utils/chat-message";
 
 export type ConversationMaintenanceSummary = {
   conversationId: string;
@@ -32,6 +33,13 @@ export type TrimCompactionPreviewResult = {
   isEmpty: boolean;
   contextUsagePercent: number;
   compactionDisabledReason?: string | null;
+  /** 词元账单：系统提示词 / 工具 schema / 正文（按真实 usage 比例分配，均可能缺失）。 */
+  tokenBreakdown?: {
+    systemTokens?: number;
+    toolsTokens?: number;
+    messageTokens?: number;
+    contextWindowTokens?: number;
+  };
 };
 
 type ConversationBlockPageOutput = {
@@ -85,6 +93,48 @@ export function useConversationMaintenanceDialog(options: UseConversationMainten
     return messages.some((message) => String(message.role || "").trim().toLowerCase() === "assistant");
   }
 
+  function readTokenBreakdown(messages: ChatMessage[]): TrimCompactionPreviewResult["tokenBreakdown"] {
+    const meta = (() => {
+      for (let index = messages.length - 1; index >= 0; index -= 1) {
+        const message = messages[index];
+        if (String(message.role || "").trim().toLowerCase() !== "assistant") continue;
+        const providerMeta = (message.providerMeta || {}) as Record<string, unknown>;
+        const breakdown = providerMeta.contextBreakdown;
+        if (breakdown && typeof breakdown === "object") {
+          return breakdown as Record<string, unknown>;
+        }
+      }
+      return undefined;
+    })();
+    const readTokens = (value: unknown): number | undefined => {
+      const next = Math.round(Number(value) || 0);
+      return next > 0 ? next : undefined;
+    };
+    const backendMessageTokens = readTokens(meta?.messageTokens);
+    const breakdown: NonNullable<TrimCompactionPreviewResult["tokenBreakdown"]> = {
+      systemTokens: readTokens(meta?.systemTokens),
+      toolsTokens: readTokens(meta?.toolsTokens),
+      messageTokens:
+        backendMessageTokens ?? Math.max(0, Math.ceil(estimateConversationTokens(messages))),
+    };
+    // 上下文窗口大小取自最后一条 assistant 消息的 providerMeta（后端落库）。
+    const contextWindowTokens = readTokens(
+      (() => {
+        for (let index = messages.length - 1; index >= 0; index -= 1) {
+          const message = messages[index];
+          if (String(message.role || "").trim().toLowerCase() !== "assistant") continue;
+          const providerMeta = (message.providerMeta || {}) as Record<string, unknown>;
+          if (providerMeta.contextWindowTokens != null) return providerMeta.contextWindowTokens;
+        }
+        return undefined;
+      })(),
+    );
+    if (contextWindowTokens != null) {
+      breakdown.contextWindowTokens = contextWindowTokens;
+    }
+    return breakdown;
+  }
+
   function buildTrimCompactionPreview(
     conversationId: string,
     lastBlockMessages: ChatMessage[],
@@ -116,6 +166,7 @@ export function useConversationMaintenanceDialog(options: UseConversationMainten
       isEmpty,
       contextUsagePercent,
       compactionDisabledReason,
+      tokenBreakdown: readTokenBreakdown(lastBlockMessages),
     };
   }
 

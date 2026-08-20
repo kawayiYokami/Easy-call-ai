@@ -2520,16 +2520,28 @@
       "placeholder": "Reserved feature, not implemented yet."
     },
     "trim": {
-      "title": "Process Current Conversation",
-      "loading": "Checking whether the current conversation can be compacted or archived...",
-      "compactTitle": "Compact",
-      "compactSummary": "Organize older history and keep chatting.",
+      "title": "Process This Conversation",
+      "loading": "Checking whether this conversation can be tidied or archived...",
+      "compactTitle": "Tidy This Conversation",
+      "compactSummary": "Organize older history and keep this conversation going.",
       "compactHint": "Use when context usage is high.",
-      "archiveTitle": "Archive",
+      "archiveTitle": "Archive This Conversation",
       "archiveSummary": "Keep the conversation body and run memory reflection.",
       "archiveHint": "Use when the conversation is finished.",
-      "messageCount": "Current message count: {count}",
-      "contextUsage": "Current context usage: {percent}%"
+      "deleteTitle": "Delete This Conversation",
+      "messageCount": "Message count: {count}",
+      "contextUsage": "Current context usage: {percent}%",
+      "breakdownTitle": "Token breakdown",
+      "breakdownSystem": "System prompt",
+      "breakdownTools": "Tool schema",
+      "breakdownMessage": "Messages",
+      "breakdownTotal": "Total",
+      "breakdownUsed": "Used",
+      "breakdownAvailable": "Available",
+      "breakdownReserved": "Reserved (tidying threshold)",
+      "breakdownContextWindow": "Model context window",
+      "fixedCost": "Fixed cost",
+      "compressionEstimate": "After tidying ~{percent}% context usage, {tokens} tokens released (system prompt and tool schema are retained)"
     }
   },
   "about": {

@@ -2478,7 +2478,8 @@ async fn send_chat_message_inner(
                 "effectivePromptTokens": effective_prompt_tokens,
                 "effectivePromptSource": effective_prompt_source,
                 "contextUsagePercent": context_usage_percent,
-                "contextUsageRatio": context_usage_ratio
+                "contextUsageRatio": context_usage_ratio,
+                "contextWindowTokens": active_selected_api.context_window_tokens
             });
             if let Some(decision) = remote_im_reply_decision.as_ref() {
                 if let Some(obj) = meta.as_object_mut() {
