@@ -240,9 +240,20 @@
                 <template #row="{ row, expanded, toggle }">
                   <!-- 父行：提交（整行点击展开懒加载 diff 文件列表） -->
                   <template v-if="row.node.data.kind === 'commit'">
-                    <ChevronRight class="mt-0.5 h-3 w-3 shrink-0 opacity-50" :class="{ 'rotate-90': expanded }" />
-                    <span class="min-w-0 flex-1 truncate">{{ row.node.data.entry.message }}</span>
-                    <span class="shrink-0 opacity-50">{{ row.node.data.entry.author }}</span>
+                    <!-- 时间线列：VS Code 泳道图（SVG 由算法生成，全部为内部计算值） -->
+                    <span class="contents" v-html="row.node.data.graphSvg" />
+                    <span class="min-w-0 flex-1 truncate" :title="`${row.node.data.entry.message} · ${row.node.data.entry.author}`">
+                      {{ row.node.data.entry.message }}
+                      <span class="text-[10px] opacity-50"> {{ row.node.data.entry.author }}</span>
+                    </span>
+                    <!-- 分支终点标签：颜色与图中该 ref 的线色一致 -->
+                    <span
+                      v-for="ref in row.node.data.refs"
+                      :key="ref.name"
+                      class="max-w-24 shrink-0 truncate rounded px-1 text-[10px] font-medium"
+                      :style="{ color: graphColor(ref.colorIndex), backgroundColor: graphColor(ref.colorIndex) + '1A' }"
+                      :title="ref.name"
+                    >{{ ref.name }}</span>
                     <button
                       type="button"
                       class="btn btn-ghost btn-xs h-5 min-h-5 w-5 shrink-0 px-0"
@@ -254,6 +265,7 @@
                   </template>
                   <!-- 子节点：查看全部更改 -->
                   <template v-else-if="row.node.data.kind === 'all'">
+                    <CommitGraphLine :x="row.node.data.lineX" :color="row.node.data.lineColor" :width="row.node.data.graphWidth" />
                     <button
                       type="button"
                       class="flex shrink-0 cursor-pointer items-center gap-1 font-medium text-primary"
@@ -266,14 +278,17 @@
                   </template>
                   <!-- 子节点：加载中 -->
                   <template v-else-if="row.node.data.kind === 'loading'">
+                    <CommitGraphLine :x="row.node.data.lineX" :color="row.node.data.lineColor" :width="row.node.data.graphWidth" />
                     <span class="opacity-50">{{ t('gitPanel.loading') }}</span>
                   </template>
                   <!-- 子节点：无文件 -->
                   <template v-else-if="row.node.data.kind === 'empty'">
+                    <CommitGraphLine :x="row.node.data.lineX" :color="row.node.data.lineColor" :width="row.node.data.graphWidth" />
                     <span class="opacity-50">{{ t('gitPanel.noCommitFiles') }}</span>
                   </template>
                   <!-- 子节点：diff 文件（整行点击打开 diff） -->
                   <template v-else>
+                    <CommitGraphLine :x="row.node.data.lineX" :color="row.node.data.lineColor" :width="row.node.data.graphWidth" />
                     <span class="shrink-0 font-mono text-[10px] font-bold" :class="commitFileStatusClass(row.node.data.file.status)">{{ commitFileStatusLabel(row.node.data.file.status) }}</span>
                     <span class="min-w-0 truncate">{{ row.node.data.file.path }}</span>
                   </template>
@@ -296,10 +311,13 @@
                   class="input input-sm input-bordered min-w-0 flex-1 bg-base-100 text-xs"
                   type="text"
                   :placeholder="t('gitPanel.stashMessagePlaceholder')"
-                  @keydown.enter="runStashCreate"
+                  @keydown.enter="runStashCreate(false)"
                 />
-                <button type="button" class="btn btn-sm" :disabled="busy || !stashMessage.trim()" @click="runStashCreate">
-                  <Plus class="h-3.5 w-3.5" />
+                <button type="button" class="btn btn-sm shrink-0" :disabled="busy || !stashMessage.trim()" @click="runStashCreate(false)">
+                  {{ t('gitPanel.stashChanges') }}
+                </button>
+                <button type="button" class="btn btn-sm shrink-0" :disabled="busy || !stashMessage.trim()" @click="runStashCreate(true)">
+                  {{ t('gitPanel.stashStaged') }}
                 </button>
               </div>
             </div>
@@ -318,11 +336,13 @@
                     <ChevronRight class="h-3 w-3 shrink-0 opacity-50" :class="{ 'rotate-90': expanded }" />
                     <span class="shrink-0 font-mono opacity-60">{{ row.node.data.index }}</span>
                     <span class="min-w-0 flex-1 truncate opacity-80">{{ row.node.data.stash.message }}</span>
-                    <button class="btn btn-ghost btn-xs h-4 min-h-4 px-1" type="button" :title="t('gitPanel.stashPop')" :disabled="busy" @click.stop="runStashPop(row.node.data.stash.reference)">
-                      <Upload class="h-3 w-3" />
-                    </button>
-                    <button class="btn btn-ghost btn-xs h-4 min-h-4 px-1" type="button" :title="t('gitPanel.stashDrop')" :disabled="busy" @click.stop="runStashDrop(row.node.data.stash.reference)">
-                      <Trash2 class="h-3 w-3" />
+                    <button
+                      type="button"
+                      class="btn btn-ghost btn-xs h-5 min-h-5 w-5 shrink-0 px-0"
+                      :title="t('gitPanel.moreActions')"
+                      @click.stop="openStashMenu(row.node.data.stash, $event)"
+                    >
+                      <MoreHorizontal class="h-3.5 w-3.5" />
                     </button>
                   </template>
                   <!-- 子节点：加载中 -->
@@ -460,6 +480,33 @@
           </button>
         </div>
       </div>
+
+      <!-- stash 操作菜单卡（行尾更多按钮打开） -->
+      <div
+        v-if="stashMenu.entry"
+        ref="stashMenuRef"
+        class="fixed z-50 w-56 overflow-hidden rounded-lg border border-base-300 bg-base-100 shadow-xl"
+        :style="{ left: `${stashMenu.x}px`, top: `${stashMenu.y}px` }"
+        @click.stop
+        @contextmenu.prevent
+      >
+        <div class="flex flex-col gap-1 border-b border-base-300 px-2 py-2">
+          <button type="button" class="btn btn-ghost btn-xs h-6 min-h-6 justify-start gap-1.5 px-2" :disabled="busy" @click="stashApplyFromMenu">
+            <Upload class="h-3 w-3" />
+            <span class="truncate">{{ t('gitPanel.stashApply') }}</span>
+          </button>
+          <button type="button" class="btn btn-ghost btn-xs h-6 min-h-6 justify-start gap-1.5 px-2" :disabled="busy" @click="stashPopFromMenu">
+            <Upload class="h-3 w-3" />
+            <span class="truncate">{{ t('gitPanel.stashPop') }}</span>
+          </button>
+        </div>
+        <div class="flex flex-col gap-1 px-2 py-2">
+          <button type="button" class="btn btn-ghost btn-xs h-6 min-h-6 justify-start gap-1.5 px-2 text-error" :disabled="busy" @click="stashDropFromMenu">
+            <Trash2 class="h-3 w-3" />
+            <span class="truncate">{{ t('gitPanel.stashDrop') }}</span>
+          </button>
+        </div>
+      </div>
     </template>
   </div>
 </template>
@@ -506,6 +553,7 @@ import {
   gitPanelResetSoft,
   gitPanelStage,
   gitPanelStashCreate,
+  gitPanelStashApply,
   gitPanelStashDrop,
   gitPanelStashFiles,
   gitPanelStashList,
@@ -523,9 +571,17 @@ import {
   type GitPanelStatusEntry,
 } from "../../../services/tauri-api";
 import GitChangesGroup from "./GitChangesGroup.vue";
+import CommitGraphLine from "./CommitGraphLine.vue";
 import GitResizeHandle from "./GitResizeHandle.vue";
 import GitSectionBar from "./GitSectionBar.vue";
 import GitTree, { type GitTreeFlatRow, type GitTreeNode } from "./GitTree.vue";
+import {
+  computeCommitGraph,
+  graphColor,
+  laneLine,
+  renderGraphRowSVG,
+  type CommitGraphRef,
+} from "../git-commit-graph";
 
 const props = withDefaults(defineProps<{
   workspacePath: string;
@@ -1192,15 +1248,17 @@ async function runGitAction(
   try {
     const result = await action();
     if (processingTimer) window.clearTimeout(processingTimer);
-    if (result.exitCode !== 0) {
+    const succeeded = result.exitCode === 0;
+    if (!succeeded) {
       appendOutput(command, result);
-      return false;
     }
-    if (successText) showSuccessToast(successText);
+    // 无论成败都刷新状态：stash apply/pop 冲突时退出码非零，
+    // 但工作树已写入冲突标记，必须让用户能在面板中看到冲突状态
+    if (succeeded && successText) showSuccessToast(successText);
     await loadStatus(true);
     await loadBranches(true);
     await loadStashes(true);
-    return true;
+    return succeeded;
   } catch (error) {
     if (processingTimer) window.clearTimeout(processingTimer);
     appendOutput(command, null, error);
@@ -1247,15 +1305,23 @@ async function runCommit() {
 }
 
 // ==================== 储藏操作 ====================
-async function runStashCreate() {
+async function runStashCreate(staged = false) {
   const message = stashMessage.value.trim();
   if (!message || busy.value) return;
-  const ok = await runGitAction("stash push", () => gitPanelStashCreate(repoRoot.value, message), "已创建储藏");
+  const ok = await runGitAction(
+    staged ? "stash push --staged" : "stash push",
+    () => gitPanelStashCreate(repoRoot.value, message, staged),
+    "已创建储藏",
+  );
   if (ok) stashMessage.value = "";
 }
 
 async function runStashPop(stashRef: string) {
   void runGitAction(`stash pop ${stashRef}`, () => gitPanelStashPop(repoRoot.value, stashRef), "已恢复储藏");
+}
+
+async function runStashApply(stashRef: string) {
+  void runGitAction(`stash apply ${stashRef}`, () => gitPanelStashApply(repoRoot.value, stashRef), "已应用储藏");
 }
 
 async function runStashDrop(stashRef: string) {
@@ -1371,6 +1437,74 @@ function handleCommitCardKeydown(event: KeyboardEvent) {
   closeCommitCard();
 }
 
+// ==================== stash 操作菜单 ====================
+const stashMenu = ref<{ entry: GitPanelStashEntry | null; x: number; y: number }>({ entry: null, x: 0, y: 0 });
+const stashMenuRef = ref<HTMLElement | null>(null);
+
+function openStashMenu(stash: GitPanelStashEntry, event: MouseEvent) {
+  const anchor = (event.currentTarget as HTMLElement | null)?.getBoundingClientRect();
+  const cardWidth = 224; // w-56
+  const gap = 4;
+  // 默认锚定按钮下方；拿不到锚点时回退到鼠标位置
+  let x = anchor ? anchor.left : event.clientX;
+  let y = anchor ? anchor.bottom + gap : event.clientY;
+  // 卡片右侧溢出视口时左移
+  x = Math.min(x, window.innerWidth - cardWidth - 8);
+  stashMenu.value = { entry: stash, x: Math.max(8, x), y: Math.max(8, y) };
+  window.addEventListener("pointerdown", handleGlobalPointerDownForStashMenu, true);
+  window.addEventListener("keydown", handleStashMenuKeydown);
+  // 卡片渲染后按实际高度校正：底部超出视口则上移，避免溢出屏幕
+  void nextTick(() => {
+    const el = stashMenuRef.value;
+    if (!el) return;
+    const maxY = window.innerHeight - el.offsetHeight - 8;
+    if (stashMenu.value.y > maxY) {
+      stashMenu.value = { ...stashMenu.value, y: Math.max(8, maxY) };
+    }
+  });
+}
+
+function closeStashMenu() {
+  stashMenu.value = { entry: null, x: 0, y: 0 };
+  window.removeEventListener("pointerdown", handleGlobalPointerDownForStashMenu, true);
+  window.removeEventListener("keydown", handleStashMenuKeydown);
+}
+
+/** 点击菜单外部任意位置关闭 */
+function handleGlobalPointerDownForStashMenu(event: PointerEvent) {
+  if (!stashMenu.value.entry) return;
+  const target = event.target as Node;
+  if (stashMenuRef.value?.contains(target)) return;
+  closeStashMenu();
+}
+
+/** Escape 关闭 */
+function handleStashMenuKeydown(event: KeyboardEvent) {
+  if (event.key !== "Escape") return;
+  closeStashMenu();
+}
+
+function stashApplyFromMenu() {
+  const stash = stashMenu.value.entry;
+  closeStashMenu();
+  if (!stash || busy.value) return;
+  void runStashApply(stash.reference);
+}
+
+function stashPopFromMenu() {
+  const stash = stashMenu.value.entry;
+  closeStashMenu();
+  if (!stash || busy.value) return;
+  void runStashPop(stash.reference);
+}
+
+function stashDropFromMenu() {
+  const stash = stashMenu.value.entry;
+  closeStashMenu();
+  if (!stash || busy.value) return;
+  void runStashDrop(stash.reference);
+}
+
 /** 当前预览卡是否是最新提交（soft 撤销仅对 HEAD 生效） */
 const isLatestCommit = computed(() => {
   const entry = commitCard.value.entry;
@@ -1444,44 +1578,54 @@ async function resetSoftCommit() {
 
 // ==================== commit 展开（GitTree 懒加载） ====================
 type CommitNode =
-  | { kind: "commit"; entry: GitPanelLogEntry }
-  | { kind: "all"; hash: string }
-  | { kind: "loading"; hash: string }
-  | { kind: "empty"; hash: string }
-  | { kind: "file"; hash: string; file: GitPanelCommitFileEntry };
+  | { kind: "commit"; entry: GitPanelLogEntry; graphSvg: string; refs: CommitGraphRef[] }
+  | { kind: "all"; hash: string; lineX: number; lineColor: string; graphWidth: number }
+  | { kind: "loading"; hash: string; lineX: number; lineColor: string; graphWidth: number }
+  | { kind: "empty"; hash: string; lineX: number; lineColor: string; graphWidth: number }
+  | { kind: "file"; hash: string; file: GitPanelCommitFileEntry; lineX: number; lineColor: string; graphWidth: number };
 
 /** 提交 tab 树：父节点=提交（懒加载 diff 文件子节点） */
-const commitTreeNodes = computed<GitTreeNode<CommitNode>[]>(() =>
-  logEntries.value.map((entry) => {
+const commitTreeNodes = computed<GitTreeNode<CommitNode>[]>(() => {
+  const graph = computeCommitGraph(logEntries.value);
+  return logEntries.value.map((entry, i) => {
+    const row = graph.rows[i];
+    const graphWidth = graph.widthByRow[i];
+    // 子节点延续竖线：位置与颜色取自父提交行的节点泳道
+    const line = laneLine(row.circleIndex, row.circleColorIndex);
     const node: GitTreeNode<CommitNode> = {
       key: entry.hash,
-      data: { kind: "commit", entry },
+      data: {
+        kind: "commit",
+        entry,
+        graphSvg: renderGraphRowSVG(row),
+        refs: row.refs,
+      },
       expandable: true,
       title: `${entry.hash}\n${entry.author} ${entry.date}`,
     };
-    const children = commitChildren(entry.hash);
+    const children = commitChildren(entry.hash, line.x, line.color, graphWidth);
     if (children) node.children = children;
     return node;
-  }),
-);
+  });
+});
 
-function commitChildren(hash: string): GitTreeNode<CommitNode>[] | undefined {
+function commitChildren(hash: string, lineX: number, lineColor: string, graphWidth: number): GitTreeNode<CommitNode>[] | undefined {
   if (commitFilesLoading.value[hash]) {
     return [
-      { key: `${hash}:all`, data: { kind: "all", hash } },
-      { key: `${hash}:loading`, data: { kind: "loading", hash }, interactive: false },
+      { key: `${hash}:all`, data: { kind: "all", hash, lineX, lineColor, graphWidth } },
+      { key: `${hash}:loading`, data: { kind: "loading", hash, lineX, lineColor, graphWidth }, interactive: false },
     ];
   }
   const files = commitFilesMap.value[hash];
   if (!files) return undefined;
   const children: GitTreeNode<CommitNode>[] = [
-    { key: `${hash}:all`, data: { kind: "all", hash } },
+    { key: `${hash}:all`, data: { kind: "all", hash, lineX, lineColor, graphWidth } },
   ];
   if (files.length === 0) {
-    children.push({ key: `${hash}:empty`, data: { kind: "empty", hash }, interactive: false });
+    children.push({ key: `${hash}:empty`, data: { kind: "empty", hash, lineX, lineColor, graphWidth }, interactive: false });
   } else {
     for (const file of files) {
-      children.push({ key: `${hash}:${file.path}`, data: { kind: "file", hash, file } });
+      children.push({ key: `${hash}:${file.path}`, data: { kind: "file", hash, file, lineX, lineColor, graphWidth } });
     }
   }
   return children;
@@ -1676,6 +1820,10 @@ onBeforeUnmount(() => {
   branchesObserver = undefined;
   stashObserver?.disconnect();
   stashObserver = undefined;
+  window.removeEventListener("pointerdown", handleGlobalPointerDownForCommitCard, true);
+  window.removeEventListener("keydown", handleCommitCardKeydown);
+  window.removeEventListener("pointerdown", handleGlobalPointerDownForStashMenu, true);
+  window.removeEventListener("keydown", handleStashMenuKeydown);
 });
 </script>
 

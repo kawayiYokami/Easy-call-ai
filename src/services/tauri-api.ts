@@ -2813,6 +2813,8 @@ export type GitPanelLogEntry = {
   author: string;
   date: string;
   message: string;
+  parents: string[];
+  refs: string;
 };
 
 export type GitPanelLogOutput = {
@@ -2935,9 +2937,9 @@ export async function gitPanelStashFiles(workspacePath: string, stashRef: string
   });
 }
 
-export async function gitPanelStashCreate(workspacePath: string, message = ""): Promise<GitPanelRunOutput> {
+export async function gitPanelStashCreate(workspacePath: string, message = "", staged = false): Promise<GitPanelRunOutput> {
   return invokeTauri<GitPanelRunOutput>("git_panel_stash_create", {
-    input: { workspacePath: gitPanelRequiredWorkspace(workspacePath), message: String(message || "").trim() },
+    input: { workspacePath: gitPanelRequiredWorkspace(workspacePath), message: String(message || "").trim(), staged },
   });
 }
 

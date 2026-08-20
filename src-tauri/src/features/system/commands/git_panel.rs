@@ -31,6 +31,7 @@ struct GitPanelCommitInput {
 struct GitPanelStashInput {
     workspace_path: String,
     message: String,
+    staged: bool,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -161,6 +162,8 @@ struct GitPanelLogEntry {
     author: String,
     date: String,
     message: String,
+    parents: Vec<String>,
+    refs: String,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -567,6 +570,9 @@ async fn git_panel_stash_create(input: GitPanelStashInput) -> Result<GitPanelRun
     let repo_root = git_panel_resolve_root(&workspace_path).await?;
     let message = input.message.trim().to_string();
     let mut args: Vec<&str> = vec!["stash", "push"];
+    if input.staged {
+        args.push("--staged");
+    }
     if !message.is_empty() {
         args.push("-m");
         args.push(&message);
@@ -860,7 +866,7 @@ async fn git_panel_log(input: GitPanelLogInput) -> Result<GitPanelLogOutput, Str
         "log".to_string(),
         "-n".to_string(),
         limit.to_string(),
-        "--format=%H%x1f%h%x1f%an%x1f%aI%x1f%B%x1e".to_string(),
+        "--format=%H%x1f%h%x1f%an%x1f%aI%x1f%P%x1f%D%x1f%B%x1e".to_string(),
     ];
     if skip > 0 {
         args.push("--skip".to_string());
@@ -875,11 +881,19 @@ async fn git_panel_log(input: GitPanelLogInput) -> Result<GitPanelLogOutput, Str
             if trimmed.is_empty() {
                 return None;
             }
-            let mut parts = trimmed.splitn(5, '\u{1f}');
+            let mut parts = trimmed.splitn(7, '\u{1f}');
             let hash = parts.next().unwrap_or("").to_string();
             let short_hash = parts.next().unwrap_or("").to_string();
             let author = parts.next().unwrap_or("").to_string();
             let date = parts.next().unwrap_or("").to_string();
+            let parents = parts
+                .next()
+                .unwrap_or("")
+                .split_whitespace()
+                .filter(|p| !p.is_empty())
+                .map(|p| p.to_string())
+                .collect();
+            let refs = parts.next().unwrap_or("").to_string();
             let message = parts.next().unwrap_or("").trim().to_string();
             if hash.is_empty() {
                 return None;
@@ -890,6 +904,8 @@ async fn git_panel_log(input: GitPanelLogInput) -> Result<GitPanelLogOutput, Str
                 author,
                 date,
                 message,
+                parents,
+                refs,
             })
         })
         .collect();

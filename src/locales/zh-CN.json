@@ -2682,6 +2682,7 @@
     "stashMessagePlaceholder": "存储说明…",
     "noStashes": "还没有存储",
     "stashPop": "应用并删除存储",
+    "stashApply": "应用",
     "stashDrop": "删除存储",
     "stashDropConfirm": "确定删除存储 {reference}？此操作不可撤销。",
     "newBranchPlaceholder": "新分支名…",
@@ -2714,7 +2715,9 @@
     "resetSoftCommit": "撤销最近一次提交",
     "resetSoftSuccess": "已撤销最近一次提交，改动保留在暂存区",
     "resetSoftPushed": "已经在远端，无法软退回",
-    "moreActions": "更多操作"
+    "moreActions": "更多操作",
+    "stashChanges": "存储更改",
+    "stashStaged": "存储暂存"
   },
   "simpleSetup": {
     "providerName": "简单供应商",

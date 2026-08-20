@@ -2682,6 +2682,7 @@
     "stashMessagePlaceholder": "Stash message…",
     "noStashes": "No stashes yet",
     "stashPop": "Apply and drop stash",
+    "stashApply": "Apply",
     "stashDrop": "Drop stash",
     "stashDropConfirm": "Drop stash {reference}? This action cannot be undone.",
     "newBranchPlaceholder": "New branch name…",
@@ -2714,7 +2715,9 @@
     "resetSoftCommit": "Undo last commit",
     "resetSoftSuccess": "Undid last commit, changes kept in staging",
     "resetSoftPushed": "Already on remote, cannot soft reset",
-    "moreActions": "More actions"
+    "moreActions": "More actions",
+    "stashChanges": "Stash changes",
+    "stashStaged": "Stash staged"
   },
   "simpleSetup": {
     "providerName": "Simple Provider",
