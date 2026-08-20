@@ -1649,7 +1649,6 @@ mod archive_pipeline_tests {
             last_user_at: Some("2026-04-18T10:02:00Z".to_string()),
             last_assistant_at: Some("2026-04-18T10:03:00Z".to_string()),
             status: "active".to_string(),
-            summary: String::new(),
             user_profile_snapshot: String::new(),
             shell_workspace_path: None,
             shell_workspaces: Vec::new(),

@@ -2234,7 +2234,6 @@
     "organizingContextDisabled": "背景歸檔進行中，暫時不能切換。",
     "delegateConversations": "委託會話",
     "archivedMessages": "歸檔消息",
-    "summary": "归档摘要",
     "prevBlock": "上一塊",
     "nextBlock": "下一塊",
     "blockSummary": "第 {id} 塊 · {count} 條消息",

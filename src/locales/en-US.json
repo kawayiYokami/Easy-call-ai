@@ -2238,7 +2238,6 @@
     "organizingContextDisabled": "Background archive in progress; switching is temporarily disabled.",
     "delegateConversations": "Delegate Threads",
     "archivedMessages": "Archived Messages",
-    "summary": "Archive Summary",
     "prevBlock": "Previous Block",
     "nextBlock": "Next Block",
     "blockSummary": "Block {id} · {count} messages",

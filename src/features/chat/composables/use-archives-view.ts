@@ -90,7 +90,6 @@ export function useArchivesView(options: UseArchivesViewOptions) {
   const archives = ref<ArchiveSummary[]>([]);
   const archiveBlocks = ref<ConversationBlockSummary[]>([]);
   const archiveMessages = ref<ChatMessage[]>([]);
-  const archiveSummaryText = ref("");
   const selectedArchiveId = ref("");
   const selectedArchiveBlockId = ref<number | null>(null);
   const archiveHasPrevBlock = ref(false);
@@ -312,7 +311,6 @@ export function useArchivesView(options: UseArchivesViewOptions) {
         selectedArchiveBlockId.value = null;
         archiveBlocks.value = [];
         archiveMessages.value = [];
-        archiveSummaryText.value = "";
         archiveHasPrevBlock.value = false;
         archiveHasNextBlock.value = false;
         return;
@@ -453,16 +451,13 @@ export function useArchivesView(options: UseArchivesViewOptions) {
     const previousBlockId = selectedArchiveBlockId.value;
     const previousBlocks = archiveBlocks.value;
     const previousMessages = archiveMessages.value;
-    const previousSummary = archiveSummaryText.value;
     const previousHasPrev = archiveHasPrevBlock.value;
     const previousHasNext = archiveHasNextBlock.value;
     try {
-      const summary = await invokeTauri<string>("archives.summary", { archiveId });
       const page = await invokeTauri<ArchiveBlockPage>("archives.blockPage", {
         input: { archiveId },
       });
       selectedArchiveId.value = archiveId;
-      archiveSummaryText.value = String(summary || "").trim();
       archiveBlocks.value = Array.isArray(page?.blocks) ? page.blocks : [];
       selectedArchiveBlockId.value = Number.isFinite(page?.selectedBlockId) ? page.selectedBlockId : null;
       archiveMessages.value = Array.isArray(page?.messages) ? page.messages : [];
@@ -472,7 +467,6 @@ export function useArchivesView(options: UseArchivesViewOptions) {
       selectedArchiveId.value = previousId;
       selectedArchiveBlockId.value = previousBlockId;
       archiveBlocks.value = previousBlocks;
-      archiveSummaryText.value = previousSummary;
       archiveMessages.value = previousMessages;
       archiveHasPrevBlock.value = previousHasPrev;
       archiveHasNextBlock.value = previousHasNext;
@@ -517,7 +511,6 @@ export function useArchivesView(options: UseArchivesViewOptions) {
         selectedArchiveId.value = "";
         selectedArchiveBlockId.value = null;
         archiveBlocks.value = [];
-        archiveSummaryText.value = "";
         archiveMessages.value = [];
         archiveHasPrevBlock.value = false;
         archiveHasNextBlock.value = false;
@@ -536,7 +529,6 @@ export function useArchivesView(options: UseArchivesViewOptions) {
       selectedArchiveId.value = "";
       selectedArchiveBlockId.value = null;
       archiveBlocks.value = [];
-      archiveSummaryText.value = "";
       archiveMessages.value = [];
       archiveHasPrevBlock.value = false;
       archiveHasNextBlock.value = false;
@@ -694,7 +686,6 @@ export function useArchivesView(options: UseArchivesViewOptions) {
     archives,
     archiveBlocks,
     archiveMessages,
-    archiveSummaryText,
     selectedArchiveId,
     selectedArchiveBlockId,
     archiveHasPrevBlock,

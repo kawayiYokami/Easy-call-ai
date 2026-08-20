@@ -71,7 +71,7 @@ fn build_jsonl_snapshot_conversation_blocks_for_conversation(
     conversation: &Conversation,
 ) -> Result<JsonlSnapshotConversationBlocks, String> {
     build_jsonl_snapshot_conversation_blocks_from_refs(
-        !conversation.summary.trim().is_empty(),
+        conversation.status.trim() == "archived",
         &split_conversation_messages_into_blocks(conversation),
     )
 }
@@ -148,13 +148,10 @@ fn split_messages_into_conversation_blocks(
 
 fn should_slim_conversation_block(
     archived_conversation: bool,
-    block_idx: usize,
-    block_count: usize,
+    _block_idx: usize,
+    _block_count: usize,
 ) -> bool {
-    if archived_conversation {
-        return true;
-    }
-    block_idx < block_count.saturating_sub(2)
+    archived_conversation
 }
 
 fn raw_blocks_to_conversation_block_refs(
@@ -539,7 +536,7 @@ mod jsonl_snapshot_conversation_block_tests {
     }
 
     #[test]
-    fn conversation_blocks_should_start_at_summary_seed_and_slim_old_blocks() {
+    fn conversation_blocks_should_split_at_compaction_seed_and_slim_only_when_archived() {
         let mut first = text_message("m1", "assistant", "first");
         first.extra_text_blocks.push("memory widget".to_string());
         first.tool_call = Some(vec![serde_json::json!({"name": "tool"})]);
@@ -550,11 +547,24 @@ mod jsonl_snapshot_conversation_block_tests {
         messages.push(summary_seed_message("s3"));
         messages.push(text_message("m4", "user", "latest"));
 
-        let blocks = build_jsonl_snapshot_conversation_blocks(&messages).expect("build blocks");
+        let mut conversation = test_conversation_for_blocks(messages);
+        let blocks = build_jsonl_snapshot_conversation_blocks_for_conversation(&conversation)
+            .expect("build active blocks");
 
         assert_eq!(blocks.blocks.len(), 4);
         assert_eq!(blocks.blocks[0].block_file, "blocks/000000.jsonl");
         assert_eq!(blocks.index.items[1].block_id, Some(1));
+        // 活跃会话不瘦身：块 0 保留 extraTextBlocks 与 toolCall
+        assert!(blocks.blocks[0].content.contains("memory widget"));
+        assert!(blocks.blocks[0].content.contains("\"toolCall\""));
+        assert!(blocks.blocks[2].content.contains("summary_context_seed"));
+        assert!(blocks.blocks[3].content.contains("latest"));
+
+        // 归档会话全瘦身：extraTextBlocks 清空、toolCall 置 null
+        conversation.status = "archived".to_string();
+        let blocks = build_jsonl_snapshot_conversation_blocks_for_conversation(&conversation)
+            .expect("build archived blocks");
+        assert_eq!(blocks.blocks.len(), 4);
         assert!(blocks.blocks[0].content.contains("\"extraTextBlocks\":[]"));
         assert!(blocks.blocks[0].content.contains("\"toolCall\":null"));
         assert!(blocks.blocks[2].content.contains("summary_context_seed"));
@@ -644,7 +654,6 @@ mod jsonl_snapshot_conversation_block_tests {
             last_user_at: None,
             last_assistant_at: None,
             status: "active".to_string(),
-            summary: String::new(),
             user_profile_snapshot: String::new(),
             shell_workspace_path: None,
             shell_workspaces: Vec::new(),

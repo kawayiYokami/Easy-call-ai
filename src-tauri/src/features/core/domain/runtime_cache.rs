@@ -137,8 +137,6 @@ struct ChatIndexStorageMeta {
     updated_at: String,
     status: String,
     #[serde(default)]
-    summary: String,
-    #[serde(default)]
     archived_at: Option<String>,
 }
 
@@ -149,7 +147,6 @@ fn build_chat_index_item_from_storage_meta(
         id: meta.id.clone(),
         updated_at: meta.updated_at.clone(),
         status: meta.status.clone(),
-        summary: meta.summary.clone(),
         archived_at: meta.archived_at.clone(),
     }
 }
@@ -1024,7 +1021,6 @@ fn preserve_field_level_conversation_metadata(
     target.last_user_at = source.last_user_at.clone();
     target.last_assistant_at = source.last_assistant_at.clone();
     target.status = source.status.clone();
-    target.summary = source.summary.clone();
     target.archived_at = source.archived_at.clone();
     target.current_todos = source.current_todos.clone();
     target.user_profile_snapshot = source.user_profile_snapshot.clone();

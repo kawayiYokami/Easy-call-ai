@@ -2279,7 +2279,6 @@ mod storage_usage_tests {
             last_user_at: Some("2026-06-08T00:00:00Z".to_string()),
             last_assistant_at: Some("2026-06-08T00:00:01Z".to_string()),
             status: String::new(),
-            summary: String::new(),
             user_profile_snapshot: String::new(),
             shell_workspace_path: None,
             shell_workspaces: Vec::new(),

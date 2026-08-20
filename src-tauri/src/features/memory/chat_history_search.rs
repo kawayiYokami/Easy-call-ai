@@ -138,8 +138,6 @@ fn chat_history_index_signature(
         hasher.update(item.status.as_bytes());
         hasher.update(b"\x1d");
         hasher.update(item.archived_at.as_deref().unwrap_or("").as_bytes());
-        hasher.update(b"\x1d");
-        hasher.update(item.summary.as_bytes());
         hasher.update(b"\x1e");
     }
     bytes_to_lower_hex(hasher.finalize())
@@ -526,7 +524,6 @@ fn chat_history_collect_slices_for_state(
             last_user_at: None,
             last_assistant_at: None,
             status: conversation_meta.status.clone(),
-            summary: conversation_meta.summary.clone(),
             user_profile_snapshot: String::new(),
             shell_workspace_path: conversation_meta.shell_workspace_path.clone(),
             shell_workspaces: conversation_meta.shell_workspaces.clone(),

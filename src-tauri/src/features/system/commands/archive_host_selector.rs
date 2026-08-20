@@ -125,7 +125,6 @@ mod archive_host_selection_tests {
             last_user_at: None,
             last_assistant_at: None,
             status: "active".to_string(),
-            summary: String::new(),
             user_profile_snapshot: String::new(),
             shell_workspace_path: None,
             shell_workspaces: Vec::new(),

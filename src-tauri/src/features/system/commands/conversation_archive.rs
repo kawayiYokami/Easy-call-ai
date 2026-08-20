@@ -659,7 +659,6 @@ async fn run_archive_pipeline_inner(
             .map(str::trim)
             .filter(|value| !value.is_empty())
             .is_none()
-        && archived_conversation.summary.trim().is_empty()
     {
         return Err("归档后维护失败：会话尚未标记为已归档。".to_string());
     }

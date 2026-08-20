@@ -1799,7 +1799,6 @@ mod terminal_exec_tests {
             last_user_at: None,
             last_assistant_at: None,
             status: "active".to_string(),
-            summary: String::new(),
             user_profile_snapshot: String::new(),
             shell_workspace_path: locked_root.map(terminal_path_for_user),
             shell_workspaces: vec![

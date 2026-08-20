@@ -1738,7 +1738,6 @@ model = "gpt-4.1"
 
         conversation_a.updated_at = "2026-04-15T12:34:56Z".to_string();
         conversation_a.status = "archived".to_string();
-        conversation_a.summary = "updated summary".to_string();
         conversation_a.archived_at = Some("2026-04-15T12:34:56Z".to_string());
 
         upsert_chat_index_conversation(&mut index, &conversation_a);
@@ -1751,7 +1750,6 @@ model = "gpt-4.1"
             .expect("find updated chat index item");
         assert_eq!(updated.updated_at, "2026-04-15T12:34:56Z");
         assert_eq!(updated.status, "archived");
-        assert_eq!(updated.summary, "updated summary");
         assert_eq!(
             updated.archived_at.as_deref(),
             Some("2026-04-15T12:34:56Z")
@@ -1839,7 +1837,6 @@ model = "gpt-4.1"
             last_user_at: None,
             last_assistant_at: None,
             status: "active".to_string(),
-            summary: String::new(),
             user_profile_snapshot: String::new(),
             shell_workspace_path: None,
             shell_workspaces: Vec::new(),

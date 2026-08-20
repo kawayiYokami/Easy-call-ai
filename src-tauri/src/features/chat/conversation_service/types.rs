@@ -74,7 +74,6 @@ struct ToggleUnarchivedConversationPinMutationResult {
 
 struct PromptPrepareConversationResolution {
     conversation_before: Conversation,
-    last_archive_summary: Option<String>,
     is_remote_im_contact_conversation: bool,
     remote_im_contact_processing_mode: String,
     response_style_id: String,

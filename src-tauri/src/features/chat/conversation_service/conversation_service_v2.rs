@@ -87,7 +87,6 @@ struct ConversationMetaView {
     title: String,
     latest_summary_title: Option<String>,
     status: String,
-    summary: String,
     conversation_kind: String,
     visible_in_foreground_lists: bool,
     is_remote_im_contact: bool,
@@ -273,7 +272,6 @@ impl ConversationMetaView {
             title: meta.title().to_string(),
             latest_summary_title: meta.latest_summary_title().map(ToOwned::to_owned),
             status: meta.status().to_string(),
-            summary: meta.summary().to_string(),
             conversation_kind: meta.conversation_kind().to_string(),
             visible_in_foreground_lists: conversation_service_v2()
                 .conversation_meta_visible_in_foreground_lists(meta),
@@ -598,7 +596,6 @@ struct ConversationExternalMetadataPatch {
     shell_autonomous_mode: Option<bool>,
     shell_work_mode: Option<String>,
     lifecycle_status: Option<String>,
-    lifecycle_summary: Option<String>,
     lifecycle_archived_at: Option<Option<String>>,
     lifecycle_updated_at: Option<String>,
     routing_department_id: Option<String>,
@@ -1092,9 +1089,6 @@ impl ConversationServiceV2 {
                         if let Some(value) = patch.lifecycle_status {
                             conversation.status = value;
                         }
-                        if let Some(value) = patch.lifecycle_summary {
-                            conversation.summary = value;
-                        }
                         if let Some(value) = patch.lifecycle_archived_at {
                             conversation.archived_at = value;
                         }
@@ -1289,7 +1283,6 @@ impl ConversationServiceV2 {
         conversation.last_user_at = conversation_meta.last_user_at.clone();
         conversation.last_assistant_at = conversation_meta.last_assistant_at.clone();
         conversation.status = conversation_meta.status.clone();
-        conversation.summary = conversation_meta.summary.clone();
         conversation.user_profile_snapshot = conversation_meta.user_profile_snapshot.clone();
         conversation.shell_workspace_path = conversation_meta.shell_workspace_path.clone();
         conversation.shell_workspaces = conversation_meta.shell_workspaces.clone();
@@ -1898,7 +1891,6 @@ impl ConversationServiceV2 {
         state: &AppState,
         conversation_id: &str,
         status: Option<&str>,
-        summary: Option<&str>,
         archived_at: Option<Option<String>>,
         updated_at: Option<String>,
     ) -> Result<Conversation, String> {
@@ -1908,7 +1900,6 @@ impl ConversationServiceV2 {
             "conversation_v2_test_set_lifecycle_metadata",
             ConversationExternalMetadataPatch {
                 lifecycle_status: status.map(|value| value.trim().to_string()),
-                lifecycle_summary: summary.map(ToOwned::to_owned),
                 lifecycle_archived_at: archived_at,
                 lifecycle_updated_at: updated_at,
                 ..Default::default()

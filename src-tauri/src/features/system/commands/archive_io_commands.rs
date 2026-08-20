@@ -80,7 +80,7 @@ fn parse_archives_for_import(raw: &str) -> Result<Vec<ConversationArchive>, Stri
         let out = batch
             .conversations
             .into_iter()
-            .filter(|c| !c.summary.trim().is_empty())
+            .filter(|c| c.status.trim() == "archived")
             .map(|c| conversation_to_archive(&c))
             .collect::<Vec<_>>();
         if !out.is_empty() {
@@ -287,11 +287,6 @@ fn build_archive_markdown(archive: &ConversationArchive) -> String {
     blocks.push("# 对话归档".to_string());
     blocks.push(format!("- 标题: {}", archive.source_conversation.title));
     blocks.push(format!("- 归档时间: {}", archive.archived_at));
-    if !archive.source_conversation.summary.trim().is_empty() {
-        blocks.push(String::new());
-        blocks.push("## 摘要".to_string());
-        blocks.push(archive.source_conversation.summary.trim().to_string());
-    }
     blocks.push(String::new());
     blocks.push("## 消息时间线".to_string());
     for message in &archive.source_conversation.messages {

@@ -42,7 +42,6 @@
         :archive-has-prev-block="archiveHasPrevBlock"
         :archive-has-next-block="archiveHasNextBlock"
         :archive-messages="archiveMessages"
-        :archive-summary-text="archiveSummaryText"
         :unarchived-conversations="unarchivedConversations"
         :unarchived-blocks="unarchivedBlocks"
         :selected-unarchived-conversation-id="selectedUnarchivedConversationId"
@@ -266,7 +265,6 @@ const {
   archives,
   archiveBlocks,
   archiveMessages,
-  archiveSummaryText,
   selectedArchiveId,
   selectedArchiveBlockId,
   archiveHasPrevBlock,

@@ -402,16 +402,6 @@ async fn ide_chat_archive_block_page_command(state: &AppState, params: Value) ->
     .map_err(|err| format!("读取归档块分页任务异常：{err}"))?
 }
 
-async fn ide_chat_archive_summary_command(state: &AppState, params: Value) -> Result<Value, String> {
-    let archive_id = ide_chat_parse_param_field::<String>(params, "archiveId")?;
-    let app_state = state.clone();
-    tokio::task::spawn_blocking(move || {
-        ide_chat_serialize(get_archive_summary_inner(&app_state, &archive_id)?)
-    })
-    .await
-    .map_err(|err| format!("读取归档摘要任务异常：{err}"))?
-}
-
 fn ide_chat_delete_archive_command(state: &AppState, params: Value) -> Result<Value, String> {
     let archive_id = ide_chat_parse_param_field::<String>(params, "archiveId")?;
     delete_archive_inner(state, &archive_id)?;

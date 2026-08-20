@@ -23,8 +23,6 @@ struct ChatIndexConversationItem {
     updated_at: String,
     status: String,
     #[serde(default)]
-    summary: String,
-    #[serde(default)]
     archived_at: Option<String>,
 }
 
@@ -120,7 +118,6 @@ fn build_chat_index_item(conversation: &Conversation) -> ChatIndexConversationIt
         id: conversation.id.clone(),
         updated_at: conversation.updated_at.clone(),
         status: conversation.status.clone(),
-        summary: conversation.summary.clone(),
         archived_at: conversation.archived_at.clone(),
     }
 }

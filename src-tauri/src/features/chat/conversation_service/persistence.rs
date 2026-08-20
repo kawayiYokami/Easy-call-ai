@@ -12,7 +12,6 @@ fn resolve_unarchived_conversation_index_with_fallback(
     {
         if let Some(idx) = data.conversations.iter().position(|item| {
             item.id == conversation_id
-                && item.summary.trim().is_empty()
                 && conversation_visible_in_foreground_lists(item)
         }) {
             return Ok(idx);

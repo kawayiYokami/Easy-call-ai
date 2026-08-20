@@ -200,30 +200,6 @@ impl ConversationServiceV2 {
         })
     }
 
-    fn get_archive_summary(
-        &self,
-        state: &AppState,
-        archive_id: &str,
-    ) -> Result<String, String> {
-        let normalized_archive_id = archive_id.trim();
-        if normalized_archive_id.is_empty() {
-            return Err("archiveId is required".to_string());
-        }
-        let guard = lock_conversation_with_metrics(state, "get_archive_summary")?;
-        let summary = self
-            .get_conversation_meta(state, normalized_archive_id)
-            .map_err(|_| "Archive not found".to_string())
-            .and_then(|conversation_meta| {
-                if conversation_meta.status.trim() != "archived" {
-                    Err("Archive not found".to_string())
-                } else {
-                    Ok(conversation_meta.summary)
-                }
-            })?;
-        drop(guard);
-        Ok(summary)
-    }
-
     fn delete_archive(
         &self,
         state: &AppState,
@@ -820,7 +796,6 @@ impl ConversationServiceV2 {
                         &source.id,
                         |conversation| {
                             conversation.status = "archived".to_string();
-                            conversation.summary.clear();
                             conversation.fast_request_turns.clear();
                             conversation.archived_at = Some(now.clone());
                             conversation.updated_at = now.clone();

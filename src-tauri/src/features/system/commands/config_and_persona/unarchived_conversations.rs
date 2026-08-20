@@ -952,7 +952,6 @@ fn clone_foreground_conversation_for_copy(
     conversation.root_conversation_id = None;
     conversation.delegate_id = None;
     conversation.status = "active".to_string();
-    conversation.summary = String::new();
     conversation.archived_at = None;
     conversation.created_at = now.clone();
     conversation.updated_at = now.clone();
@@ -3521,7 +3520,6 @@ mod unarchived_conversations_tests {
             last_user_at: None,
             last_assistant_at: Some("2026-04-18T10:01:00Z".to_string()),
             status: "active".to_string(),
-            summary: String::new(),
             user_profile_snapshot: String::new(),
             shell_workspace_path: None,
             shell_workspaces: Vec::new(),

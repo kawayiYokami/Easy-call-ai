@@ -356,7 +356,6 @@
       :archive-has-prev-block="archiveHasPrevBlock"
       :archive-has-next-block="archiveHasNextBlock"
       :archive-messages="archiveMessages"
-      :archive-summary-text="archiveSummaryText"
       :unarchived-conversations="unarchivedConversations"
       :unarchived-blocks="unarchivedBlocks"
       :selected-unarchived-conversation-id="selectedUnarchivedConversationId"
@@ -688,7 +687,6 @@ const props = defineProps<{
   archiveHasPrevBlock?: boolean;
   archiveHasNextBlock?: boolean;
   archiveMessages: ChatMessage[];
-  archiveSummaryText: string;
   unarchivedConversations: UnarchivedConversationSummary[];
   unarchivedBlocks: import("../../../types/app").ConversationBlockSummary[];
   selectedUnarchivedConversationId: string;

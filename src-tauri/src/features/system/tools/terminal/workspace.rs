@@ -1339,7 +1339,6 @@ mod terminal_workspace_tests {
         write_conversation_shard(&state.data_path, &custom_conversation)
             .expect("write custom conversation");
         let mut archived_conversation = build_workspace_test_conversation("conv-archived-workspace");
-        archived_conversation.summary = "已归档".to_string();
         archived_conversation.status = "archived".to_string();
         archived_conversation.archived_at = Some(now_iso());
         write_conversation_shard(&state.data_path, &archived_conversation)
@@ -1577,7 +1576,6 @@ mod terminal_workspace_tests {
             last_user_at: None,
             last_assistant_at: None,
             status: "active".to_string(),
-            summary: String::new(),
             user_profile_snapshot: String::new(),
             shell_workspace_path: Some(custom_workspace_path.to_string_lossy().to_string()),
             shell_workspaces: vec![ShellWorkspaceConfig {
@@ -1659,7 +1657,6 @@ mod terminal_workspace_tests {
             last_user_at: None,
             last_assistant_at: None,
             status: "active".to_string(),
-            summary: String::new(),
             user_profile_snapshot: String::new(),
             shell_workspace_path: Some(stale_locked_path.to_string_lossy().to_string()),
             shell_workspaces: vec![ShellWorkspaceConfig {

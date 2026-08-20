@@ -524,7 +524,6 @@ fn ide_chat_conversation_from_meta_view(conversation_meta: &ConversationMetaView
         last_user_at: None,
         last_assistant_at: None,
         status: conversation_meta.status.clone(),
-        summary: conversation_meta.summary.clone(),
         user_profile_snapshot: String::new(),
         shell_workspace_path: conversation_meta.shell_workspace_path.clone(),
         shell_workspaces: conversation_meta.shell_workspaces.clone(),

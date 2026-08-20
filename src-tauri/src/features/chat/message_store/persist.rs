@@ -214,7 +214,7 @@ fn write_jsonl_snapshot_directory_shard_incremental(
     for (idx, block_refs) in source_blocks.iter().enumerate() {
         if rewrite_block_indices.contains(&idx) {
             let should_slim =
-                should_slim_conversation_block(!conversation.summary.trim().is_empty(), idx, new_block_count);
+                should_slim_conversation_block(conversation.status.trim() == "archived", idx, new_block_count);
             let block = build_jsonl_snapshot_conversation_block(block_refs, should_slim)?;
             let block_path = paths.shard_dir.join(&block.block_file);
             write_jsonl_snapshot_atomic(&block_path, &block.content)?;
@@ -399,7 +399,7 @@ pub(super) fn write_jsonl_snapshot_truncated_directory_shard(
         let is_last_kept_block = idx + 1 == new_block_count;
         if is_last_kept_block {
             let should_slim = should_slim_conversation_block(
-                !normalized_conversation.summary.trim().is_empty(),
+                normalized_conversation.status.trim() == "archived",
                 idx,
                 new_block_count,
             );
@@ -730,7 +730,7 @@ pub(super) fn write_jsonl_snapshot_appended_messages_shard(
         let merged_block = build_jsonl_snapshot_conversation_block(
             &merged_block_refs,
             should_slim_conversation_block(
-                !final_meta.summary.trim().is_empty(),
+                final_meta.status.trim() == "archived",
                 last_block_id as usize,
                 total_block_count,
             ),
@@ -773,7 +773,7 @@ pub(super) fn write_jsonl_snapshot_appended_messages_shard(
         let block = build_jsonl_snapshot_conversation_block(
             &block_refs,
             should_slim_conversation_block(
-                !final_meta.summary.trim().is_empty(),
+                final_meta.status.trim() == "archived",
                 block_id as usize,
                 total_block_count,
             ),
@@ -934,7 +934,7 @@ fn write_jsonl_snapshot_truncated_messages_shard_with_persist_meta(
             let rebuilt_block = build_jsonl_snapshot_conversation_block(
                 &block_refs,
                 should_slim_conversation_block(
-                    !meta.summary.trim().is_empty(),
+                    meta.status.trim() == "archived",
                     last_block_id as usize,
                     expected_block_files.len(),
                 ),
@@ -1165,7 +1165,6 @@ mod message_store_persist_tests {
             last_user_at: None,
             last_assistant_at: None,
             status: String::new(),
-            summary: String::new(),
             user_profile_snapshot: String::new(),
             shell_workspace_path: None,
             shell_workspaces: Vec::new(),

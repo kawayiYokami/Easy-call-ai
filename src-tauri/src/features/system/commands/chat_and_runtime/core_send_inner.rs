@@ -699,7 +699,6 @@ async fn send_chat_message_inner(
         response_style_id: String,
         user_name: String,
         user_intro: String,
-        last_archive_summary: Option<String>,
         storage_conversation_before: Conversation,
         prompt_conversation_before: Conversation,
         is_remote_im_contact_conversation: bool,
@@ -739,7 +738,6 @@ async fn send_chat_message_inner(
             last_user_at: None,
             last_assistant_at: None,
             status: String::new(),
-            summary: String::new(),
             user_profile_snapshot: String::new(),
             shell_workspace_path: None,
             shell_workspaces: Vec::new(),
@@ -786,7 +784,6 @@ async fn send_chat_message_inner(
             response_style_id: resolved.response_style_id,
             user_name: resolved.user_name,
             user_intro: resolved.user_intro,
-            last_archive_summary: resolved.last_archive_summary,
             storage_conversation_before: resolved.conversation_before.clone(),
             prompt_conversation_before: trim_conversation_for_prompt_request(
                 &resolved.conversation_before,
@@ -804,51 +801,8 @@ async fn send_chat_message_inner(
         effective_agent_id: &str,
     | -> Result<Option<ConversationPrepareSnapshot>, String> {
         if runtime_conversation_id_for_prepare.as_deref() == Some(requested_conversation_id) {
-            let chat_index = state_read_chat_index_cached(state)?;
             let mut data = AppData::default();
             data.agents = runtime_agents.to_vec();
-            if let Some(summary_item) = chat_index
-                .conversations
-                .iter()
-                .rev()
-                .find(|item| !item.summary.trim().is_empty())
-            {
-                data.conversations.push(Conversation {
-                    id: summary_item.id.clone(),
-                    title: String::new(),
-                    agent_id: String::new(),
-                    department_id: String::new(),
-                    bound_conversation_id: None,
-                    parent_conversation_id: None,
-                    child_conversation_ids: Vec::new(),
-                    fork_message_cursor: None,
-                    unread_count: 0,
-                    conversation_kind: String::new(),
-                    root_conversation_id: None,
-                    delegate_id: None,
-                    created_at: summary_item.updated_at.clone(),
-                    updated_at: summary_item.updated_at.clone(),
-                    last_user_at: None,
-                    last_assistant_at: None,
-                    status: summary_item.status.clone(),
-                    summary: summary_item.summary.clone(),
-                    user_profile_snapshot: String::new(),
-                    shell_workspace_path: None,
-                    shell_workspaces: Vec::new(),
-                    shell_autonomous_mode: false,
-                    shell_work_mode: default_shell_work_mode(),
-                    archived_at: summary_item.archived_at.clone(),
-                    messages: Vec::new(),
-                    fast_request_turns: Vec::new(),
-                    current_todos: Vec::new(),
-                    memory_recall_table: Vec::new(),
-                    plan_mode_enabled: false,
-                    preferred_api_config_id: None,
-                    auto_push_remote_contact_id: None,
-                    cumulative_usage: ConversationCumulativeUsage::default(),
-                    active_goal: None,
-                });
-            }
             return build_prepare_snapshot_read_only(
                 &data,
                 runtime_agents,
@@ -877,52 +831,9 @@ async fn send_chat_message_inner(
                 requested_conversation.shell_work_mode = normalize_shell_work_mode_text(&parent.shell_work_mode);
             }
         }
-        let chat_index = state_read_chat_index_cached(state)?;
         let mut data = AppData::default();
         data.agents = runtime_agents.to_vec();
         data.conversations.push(requested_conversation);
-        if let Some(summary_item) = chat_index
-            .conversations
-            .iter()
-            .rev()
-            .find(|item| !item.summary.trim().is_empty())
-        {
-            data.conversations.push(Conversation {
-                id: summary_item.id.clone(),
-                title: String::new(),
-                agent_id: String::new(),
-                department_id: String::new(),
-                bound_conversation_id: None,
-                parent_conversation_id: None,
-                child_conversation_ids: Vec::new(),
-                fork_message_cursor: None,
-                unread_count: 0,
-                conversation_kind: String::new(),
-                root_conversation_id: None,
-                delegate_id: None,
-                created_at: summary_item.updated_at.clone(),
-                updated_at: summary_item.updated_at.clone(),
-                last_user_at: None,
-                last_assistant_at: None,
-                status: summary_item.status.clone(),
-                summary: summary_item.summary.clone(),
-                user_profile_snapshot: String::new(),
-                shell_workspace_path: None,
-                shell_workspaces: Vec::new(),
-                    shell_autonomous_mode: false,
-                    shell_work_mode: default_shell_work_mode(),
-                archived_at: summary_item.archived_at.clone(),
-                messages: Vec::new(),
-                fast_request_turns: Vec::new(),
-                current_todos: Vec::new(),
-                memory_recall_table: Vec::new(),
-                plan_mode_enabled: false,
-                preferred_api_config_id: None,
-                auto_push_remote_contact_id: None,
-                cumulative_usage: ConversationCumulativeUsage::default(),
-                active_goal: None,
-            });
-        }
         build_prepare_snapshot_read_only(&data, runtime_agents, selected_api, effective_agent_id)
     };
     let build_prepare_snapshot_for_main_conversation_read_only = |
@@ -1716,7 +1627,7 @@ async fn send_chat_message_inner(
             &snapshot.response_style_id,
             &app_config.ui_language,
             Some(&state.data_path),
-            snapshot.last_archive_summary.as_deref(),
+            None,
             None,
             chat_overrides.clone(),
             Some(&state),
@@ -1772,7 +1683,6 @@ async fn send_chat_message_inner(
                 user_intro: snapshot.user_intro.clone(),
                 response_style_id: snapshot.response_style_id.clone(),
                 ui_language: app_config.ui_language.clone(),
-                last_archive_summary: snapshot.last_archive_summary.clone(),
                 chat_overrides: chat_overrides.clone(),
                 trusted_prompt_usage: std::sync::Arc::new(std::sync::Mutex::new(None)),
                 compaction_preserved_messages: std::sync::Arc::new(std::sync::Mutex::new(None)),
@@ -3172,7 +3082,6 @@ mod core_send_inner_tests {
             last_user_at: None,
             last_assistant_at: None,
             status: String::new(),
-            summary: String::new(),
             user_profile_snapshot: String::new(),
             shell_workspace_path: None,
             shell_workspaces: Vec::new(),
@@ -3881,7 +3790,6 @@ mod core_send_inner_tests {
             last_user_at: None,
             last_assistant_at: None,
             status: String::new(),
-            summary: String::new(),
             user_profile_snapshot: String::new(),
             shell_workspace_path: None,
             shell_workspaces: Vec::new(),

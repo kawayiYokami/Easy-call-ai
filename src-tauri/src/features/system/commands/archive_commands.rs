@@ -139,16 +139,6 @@ async fn get_prompt_preview_inner(
         .find(|a| a.id == USER_PERSONA_ID || a.is_built_in_user)
         .map(|a| a.system_prompt.trim().to_string())
         .unwrap_or_default();
-    let last_archive_summary = state_read_chat_index_cached(state)?
-        .conversations
-        .iter()
-        .rev()
-        .filter_map(|item| conversation_service_v2().get_conversation_meta(state, item.id.as_str()).ok())
-        .find(|conversation_meta| {
-            conversation_meta.conversation_kind.trim() != CONVERSATION_KIND_DELEGATE
-                && !conversation_meta.summary.trim().is_empty()
-        })
-        .map(|conversation_meta| conversation_meta.summary.to_string());
     let mut prepared = match preview_mode {
         PromptPreviewMode::Chat => build_prepared_prompt_for_mode(
             if conversation_is_delegate(&conversation) {
@@ -165,7 +155,7 @@ async fn get_prompt_preview_inner(
             &response_style_id,
             &app_config.ui_language,
             Some(&state.data_path),
-            last_archive_summary.as_deref(),
+            None,
             None,
             Some(ChatPromptOverrides {
                 executor_department_id: Some(conversation.department_id.trim().to_string()),
@@ -431,18 +421,6 @@ fn get_archive_block_page_inner(
         has_prev_block: page.has_prev_block,
         has_next_block: page.has_next_block,
     })
-}
-
-#[tauri::command]
-async fn get_archive_summary(archive_id: String, state: State<'_, AppState>) -> Result<String, String> {
-    let app_state = state.inner().clone();
-    tokio::task::spawn_blocking(move || get_archive_summary_inner(&app_state, &archive_id))
-        .await
-        .map_err(|err| format!("读取归档摘要任务异常：{err}"))?
-}
-
-fn get_archive_summary_inner(state: &AppState, archive_id: &str) -> Result<String, String> {
-    conversation_service_v2().get_archive_summary(state, archive_id)
 }
 
 #[tauri::command]

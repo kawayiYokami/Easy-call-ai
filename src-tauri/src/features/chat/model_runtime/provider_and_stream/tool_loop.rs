@@ -238,7 +238,6 @@ struct ToolLoopAutoCompactionContext {
     user_intro: String,
     response_style_id: String,
     ui_language: String,
-    last_archive_summary: Option<String>,
     chat_overrides: Option<ChatPromptOverrides>,
     trusted_prompt_usage: std::sync::Arc<std::sync::Mutex<Option<TrustedPromptUsage>>>,
     /// 写入前闸门命中压缩时，把压缩保留消息交回外层调度。
@@ -380,7 +379,7 @@ fn build_tool_loop_prepared_for_continuation(
         &context.response_style_id,
         &context.ui_language,
         Some(&state.data_path),
-        context.last_archive_summary.as_deref(),
+        None,
         None,
         context.chat_overrides.clone(),
         Some(state),

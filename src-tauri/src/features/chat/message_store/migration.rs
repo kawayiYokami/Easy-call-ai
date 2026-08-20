@@ -285,7 +285,6 @@ mod message_store_tests {
             last_user_at: None,
             last_assistant_at: None,
             status: String::new(),
-            summary: String::new(),
             user_profile_snapshot: String::new(),
             shell_workspace_path: None,
             shell_workspaces: Vec::new(),

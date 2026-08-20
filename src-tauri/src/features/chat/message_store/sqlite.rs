@@ -846,7 +846,6 @@ pub(super) fn chat_metadata_store_list_chat_index(
             id: meta.id().to_string(),
             updated_at: meta.updated_at().to_string(),
             status: meta.status().to_string(),
-            summary: meta.summary().to_string(),
             archived_at: meta.archived_at().map(ToOwned::to_owned),
         });
     }
@@ -1204,7 +1203,7 @@ fn chat_metadata_store_append_messages(
                 block_file: format!("{MESSAGE_STORE_BLOCKS_DIR_NAME}/{block_id:06}.jsonl"),
                 messages: merged.iter().collect(),
             };
-            let block = build_jsonl_snapshot_conversation_block(&refs, should_slim_conversation_block(!meta.summary.trim().is_empty(), block_id as usize, total_block_count))?;
+            let block = build_jsonl_snapshot_conversation_block(&refs, should_slim_conversation_block(meta.status.trim() == "archived", block_id as usize, total_block_count))?;
             for item in &block.index_items { rows.push((next_sequence, item.clone())); next_sequence += 1; }
             changed_blocks.push(block);
         }
@@ -1216,7 +1215,7 @@ fn chat_metadata_store_append_messages(
                 block_file: format!("{MESSAGE_STORE_BLOCKS_DIR_NAME}/{block_id:06}.jsonl"),
                 messages: group.iter().collect(),
             };
-            let block = build_jsonl_snapshot_conversation_block(&refs, should_slim_conversation_block(!meta.summary.trim().is_empty(), block_id as usize, total_block_count))?;
+            let block = build_jsonl_snapshot_conversation_block(&refs, should_slim_conversation_block(meta.status.trim() == "archived", block_id as usize, total_block_count))?;
             for item in &block.index_items { rows.push((next_sequence, item.clone())); next_sequence += 1; }
             changed_blocks.push(block);
         }
@@ -1341,7 +1340,7 @@ fn chat_metadata_store_splice_messages(
             let total_rebuilt_block_count = prefix_block_count + raw_blocks.len();
             let should_slim = should_slim_spliced_block(
                 force_slim_closed_remote_blocks,
-                !meta.summary.trim().is_empty(),
+                meta.status.trim() == "archived",
                 absolute_block_index,
                 total_rebuilt_block_count,
             );
@@ -1421,7 +1420,6 @@ fn remote_wake_splice_should_preserve_trigger_in_new_block_and_slim_old_block() 
         last_user_at: None,
         last_assistant_at: None,
         status: "active".to_string(),
-        summary: String::new(),
         user_profile_snapshot: String::new(),
         shell_workspace_path: None,
         shell_workspaces: Vec::new(),
@@ -1522,7 +1520,7 @@ fn chat_metadata_store_append_messages_unlocked(
         let mut merged = tail_messages;
         merged.extend(plan.groups.first().cloned().unwrap_or_default());
         let refs = ConversationBlockMessageRefs { block_id, block_file: format!("{MESSAGE_STORE_BLOCKS_DIR_NAME}/{block_id:06}.jsonl"), messages: merged.iter().collect() };
-        let block = build_jsonl_snapshot_conversation_block(&refs, should_slim_conversation_block(!meta.summary.trim().is_empty(), block_id as usize, total_block_count))?;
+        let block = build_jsonl_snapshot_conversation_block(&refs, should_slim_conversation_block(meta.status.trim() == "archived", block_id as usize, total_block_count))?;
         for item in &block.index_items { rows.push((next_sequence, item.clone())); next_sequence += 1; }
         changed_blocks.push(block);
     }
@@ -1530,7 +1528,7 @@ fn chat_metadata_store_append_messages_unlocked(
     for (index, group) in plan.groups.iter().enumerate().skip(usize::from(plan.continue_last_block)) {
         let block_id = first_new_block_id + (index - usize::from(plan.continue_last_block)) as u32;
         let refs = ConversationBlockMessageRefs { block_id, block_file: format!("{MESSAGE_STORE_BLOCKS_DIR_NAME}/{block_id:06}.jsonl"), messages: group.iter().collect() };
-        let block = build_jsonl_snapshot_conversation_block(&refs, should_slim_conversation_block(!meta.summary.trim().is_empty(), block_id as usize, total_block_count))?;
+        let block = build_jsonl_snapshot_conversation_block(&refs, should_slim_conversation_block(meta.status.trim() == "archived", block_id as usize, total_block_count))?;
         for item in &block.index_items { rows.push((next_sequence, item.clone())); next_sequence += 1; }
         changed_blocks.push(block);
     }
@@ -1563,7 +1561,7 @@ fn chat_metadata_store_replace_message(
         };
         let rebuilt = build_jsonl_snapshot_conversation_block(
             &refs,
-            should_slim_conversation_block(!meta.summary.trim().is_empty(), block_id as usize, block_count),
+            should_slim_conversation_block(meta.status.trim() == "archived", block_id as usize, block_count),
         )?;
         let rows = rebuilt.index_items.iter().enumerate()
             .map(|(index, item)| (block_rows[index].sequence, item.clone()))
@@ -1616,7 +1614,7 @@ fn chat_metadata_store_replace_messages(
             };
             let rebuilt = build_jsonl_snapshot_conversation_block(
                 &refs,
-                should_slim_conversation_block(!meta.summary.trim().is_empty(), block_id as usize, block_count),
+                should_slim_conversation_block(meta.status.trim() == "archived", block_id as usize, block_count),
             )?;
             for (index, item) in rebuilt.index_items.iter().enumerate() {
                 rows.push((block_rows[index].sequence, item.clone()));
@@ -1662,7 +1660,7 @@ fn chat_metadata_store_truncate_messages(
         };
         let rebuilt = build_jsonl_snapshot_conversation_block(
             &refs,
-            should_slim_conversation_block(!meta.summary.trim().is_empty(), block_id as usize, block_count.saturating_sub(retired.len())),
+            should_slim_conversation_block(meta.status.trim() == "archived", block_id as usize, block_count.saturating_sub(retired.len())),
         )?;
         let rows = rebuilt.index_items.iter().enumerate()
             .map(|(index, item)| (kept_rows[index].sequence, item.clone()))
@@ -2360,7 +2358,7 @@ fn v3_chat_metadata_migration_should_import_v2_metadata_and_remove_v2_files() {
     let root = std::env::temp_dir().join(format!("eca-chat-v3-import-{}", Uuid::new_v4()));
     let data_path = root.join("app_data.json");
     let mut conversation = Conversation {
-        id: "conv-v3-import".to_string(), title: "SQLite 会话".to_string(), agent_id: DEFAULT_AGENT_ID.to_string(), department_id: String::new(), bound_conversation_id: None, parent_conversation_id: None, child_conversation_ids: Vec::new(), fork_message_cursor: None, unread_count: 0, conversation_kind: CONVERSATION_KIND_CHAT.to_string(), root_conversation_id: None, delegate_id: None, created_at: now_iso(), updated_at: now_iso(), last_user_at: None, last_assistant_at: None, status: "active".to_string(), summary: String::new(), user_profile_snapshot: String::new(), shell_workspace_path: None, shell_workspaces: Vec::new(), shell_autonomous_mode: false, shell_work_mode: default_shell_work_mode(), archived_at: None, messages: Vec::new(), fast_request_turns: Vec::new(), current_todos: Vec::new(), memory_recall_table: Vec::new(), plan_mode_enabled: false, preferred_api_config_id: None, auto_push_remote_contact_id: None, active_goal: None, cumulative_usage: ConversationCumulativeUsage::default(),
+        id: "conv-v3-import".to_string(), title: "SQLite 会话".to_string(), agent_id: DEFAULT_AGENT_ID.to_string(), department_id: String::new(), bound_conversation_id: None, parent_conversation_id: None, child_conversation_ids: Vec::new(), fork_message_cursor: None, unread_count: 0, conversation_kind: CONVERSATION_KIND_CHAT.to_string(), root_conversation_id: None, delegate_id: None, created_at: now_iso(), updated_at: now_iso(), last_user_at: None, last_assistant_at: None, status: "active".to_string(), user_profile_snapshot: String::new(), shell_workspace_path: None, shell_workspaces: Vec::new(), shell_autonomous_mode: false, shell_work_mode: default_shell_work_mode(), archived_at: None, messages: Vec::new(), fast_request_turns: Vec::new(), current_todos: Vec::new(), memory_recall_table: Vec::new(), plan_mode_enabled: false, preferred_api_config_id: None, auto_push_remote_contact_id: None, active_goal: None, cumulative_usage: ConversationCumulativeUsage::default(),
     };
     conversation.messages.push(ChatMessage {
         id: "migrate-message".to_string(),
@@ -2557,7 +2555,7 @@ fn v3_chat_metadata_migration_should_recover_building_from_blocks_and_drop_bad_l
         meme_annotations: None,
     };
     let conversation = Conversation {
-        id: "conv-v3-recover-building".to_string(), title: "恢复 building".to_string(), agent_id: DEFAULT_AGENT_ID.to_string(), department_id: String::new(), bound_conversation_id: None, parent_conversation_id: None, child_conversation_ids: Vec::new(), fork_message_cursor: None, unread_count: 0, conversation_kind: CONVERSATION_KIND_CHAT.to_string(), root_conversation_id: None, delegate_id: None, created_at: now_iso(), updated_at: now_iso(), last_user_at: None, last_assistant_at: None, status: "active".to_string(), summary: String::new(), user_profile_snapshot: String::new(), shell_workspace_path: None, shell_workspaces: Vec::new(), shell_autonomous_mode: false, shell_work_mode: default_shell_work_mode(), archived_at: None, messages: vec![message("m1"), message("m2")], fast_request_turns: Vec::new(), current_todos: Vec::new(), memory_recall_table: Vec::new(), plan_mode_enabled: false, preferred_api_config_id: None, auto_push_remote_contact_id: None, active_goal: None, cumulative_usage: ConversationCumulativeUsage::default(),
+        id: "conv-v3-recover-building".to_string(), title: "恢复 building".to_string(), agent_id: DEFAULT_AGENT_ID.to_string(), department_id: String::new(), bound_conversation_id: None, parent_conversation_id: None, child_conversation_ids: Vec::new(), fork_message_cursor: None, unread_count: 0, conversation_kind: CONVERSATION_KIND_CHAT.to_string(), root_conversation_id: None, delegate_id: None, created_at: now_iso(), updated_at: now_iso(), last_user_at: None, last_assistant_at: None, status: "active".to_string(), user_profile_snapshot: String::new(), shell_workspace_path: None, shell_workspaces: Vec::new(), shell_autonomous_mode: false, shell_work_mode: default_shell_work_mode(), archived_at: None, messages: vec![message("m1"), message("m2")], fast_request_turns: Vec::new(), current_todos: Vec::new(), memory_recall_table: Vec::new(), plan_mode_enabled: false, preferred_api_config_id: None, auto_push_remote_contact_id: None, active_goal: None, cumulative_usage: ConversationCumulativeUsage::default(),
     };
     let paths = message_store_paths(&data_path, &conversation.id).expect("paths");
     write_jsonl_snapshot_directory_shard(&paths, &conversation).expect("write v2 fixture");
@@ -2592,7 +2590,7 @@ fn v3_chat_metadata_block_reader_should_stop_at_block_boundary() {
         "message_meta": { "kind": "context_compaction" }
     }));
     let conversation = Conversation {
-        id: "conv-v3-block-reader".to_string(), title: "SQLite block reader".to_string(), agent_id: DEFAULT_AGENT_ID.to_string(), department_id: String::new(), bound_conversation_id: None, parent_conversation_id: None, child_conversation_ids: Vec::new(), fork_message_cursor: None, unread_count: 0, conversation_kind: CONVERSATION_KIND_CHAT.to_string(), root_conversation_id: None, delegate_id: None, created_at: now_iso(), updated_at: now_iso(), last_user_at: None, last_assistant_at: None, status: "active".to_string(), summary: String::new(), user_profile_snapshot: String::new(), shell_workspace_path: None, shell_workspaces: Vec::new(), shell_autonomous_mode: false, shell_work_mode: default_shell_work_mode(), archived_at: None,
+        id: "conv-v3-block-reader".to_string(), title: "SQLite block reader".to_string(), agent_id: DEFAULT_AGENT_ID.to_string(), department_id: String::new(), bound_conversation_id: None, parent_conversation_id: None, child_conversation_ids: Vec::new(), fork_message_cursor: None, unread_count: 0, conversation_kind: CONVERSATION_KIND_CHAT.to_string(), root_conversation_id: None, delegate_id: None, created_at: now_iso(), updated_at: now_iso(), last_user_at: None, last_assistant_at: None, status: "active".to_string(), user_profile_snapshot: String::new(), shell_workspace_path: None, shell_workspaces: Vec::new(), shell_autonomous_mode: false, shell_work_mode: default_shell_work_mode(), archived_at: None,
         messages: vec![message("old", "user"), compaction, message("current-1", "user"), message("current-2", "assistant")],
         fast_request_turns: Vec::new(), current_todos: Vec::new(), memory_recall_table: Vec::new(), plan_mode_enabled: false, preferred_api_config_id: None, auto_push_remote_contact_id: None, active_goal: None, cumulative_usage: ConversationCumulativeUsage::default(),
     };
@@ -2630,7 +2628,7 @@ fn v3_chat_metadata_mutations_should_publish_only_sql_locator_and_blocks() {
     let root = std::env::temp_dir().join(format!("eca-chat-v3-mutations-{}", Uuid::new_v4()));
     let data_path = root.join("app_data.json");
     let mut conversation = Conversation {
-        id: "conv-v3-mutations".to_string(), title: "SQLite mutation".to_string(), agent_id: DEFAULT_AGENT_ID.to_string(), department_id: String::new(), bound_conversation_id: None, parent_conversation_id: None, child_conversation_ids: Vec::new(), fork_message_cursor: None, unread_count: 0, conversation_kind: CONVERSATION_KIND_CHAT.to_string(), root_conversation_id: None, delegate_id: None, created_at: now_iso(), updated_at: now_iso(), last_user_at: None, last_assistant_at: None, status: "active".to_string(), summary: String::new(), user_profile_snapshot: String::new(), shell_workspace_path: None, shell_workspaces: Vec::new(), shell_autonomous_mode: false, shell_work_mode: default_shell_work_mode(), archived_at: None, messages: Vec::new(), fast_request_turns: Vec::new(), current_todos: Vec::new(), memory_recall_table: Vec::new(), plan_mode_enabled: false, preferred_api_config_id: None, auto_push_remote_contact_id: None, active_goal: None, cumulative_usage: ConversationCumulativeUsage::default(),
+        id: "conv-v3-mutations".to_string(), title: "SQLite mutation".to_string(), agent_id: DEFAULT_AGENT_ID.to_string(), department_id: String::new(), bound_conversation_id: None, parent_conversation_id: None, child_conversation_ids: Vec::new(), fork_message_cursor: None, unread_count: 0, conversation_kind: CONVERSATION_KIND_CHAT.to_string(), root_conversation_id: None, delegate_id: None, created_at: now_iso(), updated_at: now_iso(), last_user_at: None, last_assistant_at: None, status: "active".to_string(), user_profile_snapshot: String::new(), shell_workspace_path: None, shell_workspaces: Vec::new(), shell_autonomous_mode: false, shell_work_mode: default_shell_work_mode(), archived_at: None, messages: Vec::new(), fast_request_turns: Vec::new(), current_todos: Vec::new(), memory_recall_table: Vec::new(), plan_mode_enabled: false, preferred_api_config_id: None, auto_push_remote_contact_id: None, active_goal: None, cumulative_usage: ConversationCumulativeUsage::default(),
     };
     let message = |id: &str, role: &str| ChatMessage {
         id: id.to_string(), role: role.to_string(), created_at: now_iso(), speaker_agent_id: None,
@@ -2829,7 +2827,6 @@ fn v3_chat_metadata_snapshot_should_wait_for_same_conversation_writer() {
         last_user_at: None,
         last_assistant_at: None,
         status: "active".to_string(),
-        summary: String::new(),
         user_profile_snapshot: String::new(),
         shell_workspace_path: None,
         shell_workspaces: Vec::new(),

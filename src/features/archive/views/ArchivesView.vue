@@ -140,13 +140,6 @@
       <div class="flex min-w-0 flex-1 flex-col">
         <div ref="messageScrollerRef" class="flex-1 min-h-0 overflow-auto space-y-2">
           <div
-            v-if="viewMode === 'archive' && archiveSummaryText"
-            class="border border-primary/20 rounded p-3 bg-primary/5"
-          >
-            <div class="text-sm opacity-70 mb-1">{{ t("archives.summary") }}</div>
-            <div class="whitespace-pre-wrap wrap-break-word text-sm">{{ archiveSummaryText }}</div>
-          </div>
-          <div
             v-if="(viewMode === 'archive' && archiveBlocks.length > 0) || (viewMode === 'current' && unarchivedBlocks.length > 0) || (viewMode === 'delegate' && delegateBlocks.length > 0) || (viewMode === 'remoteIm' && remoteImContactBlocks.length > 0)"
             class="sticky top-0 z-10 flex items-center justify-between gap-2 rounded border border-base-300 bg-base-200/95 px-3 py-2 backdrop-blur"
           >
@@ -293,7 +286,6 @@ const props = defineProps<{
   archiveHasPrevBlock?: boolean;
   archiveHasNextBlock?: boolean;
   archiveMessages: ChatMessage[];
-  archiveSummaryText: string;
   unarchivedConversations: UnarchivedConversationSummary[];
   unarchivedBlocks: ConversationBlockSummary[];
   selectedUnarchivedConversationId: string;

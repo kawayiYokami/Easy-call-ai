@@ -497,8 +497,6 @@ struct Conversation {
     last_assistant_at: Option<String>,
     status: String,
     #[serde(default)]
-    summary: String,
-    #[serde(default)]
     user_profile_snapshot: String,
     #[serde(default)]
     shell_workspace_path: Option<String>,

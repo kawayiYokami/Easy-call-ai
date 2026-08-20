@@ -1330,7 +1330,6 @@ fn main() {
             memory_restore_db,
             get_archive_messages,
             get_archive_block_page,
-            get_archive_summary,
             delete_archive,
             unarchive_archive,
             export_archive_to_file,

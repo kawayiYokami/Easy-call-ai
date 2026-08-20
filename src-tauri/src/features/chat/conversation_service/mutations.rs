@@ -289,20 +289,6 @@ fn apply_stop_chat_partial_message_by_id(
     Ok(conversation.id.clone())
 }
 
-fn read_latest_archive_summary_from_chat_index(state: &AppState) -> Result<Option<String>, String> {
-    let chat_index = state_read_chat_index_cached(state)?;
-    Ok(chat_index
-        .conversations
-        .iter()
-        .rev()
-        .filter_map(|item| conversation_service_v2().get_conversation_meta(state, item.id.as_str()).ok())
-        .find(|conversation_meta| {
-            !conversation_meta.is_delegate
-                && !conversation_meta.summary.trim().is_empty()
-        })
-        .map(|conversation_meta| conversation_meta.summary.to_string()))
-}
-
 fn validate_isolated_worktree_root(path: &str) -> Result<(), String> {
     let raw_path = path.trim();
     if raw_path.is_empty() {
@@ -405,7 +391,7 @@ fn create_unarchived_conversation_shared(
         let source_conversation = conversation_service_v2()
             .try_get_conversation_snapshot(state, source_conversation_id)?
             .filter(|conversation| {
-                conversation.summary.trim().is_empty()
+                conversation.status.trim() != "archived"
                     && conversation_visible_in_foreground_lists(conversation)
                     && conversation_is_local_normal_chat(conversation)
             })
@@ -421,7 +407,6 @@ fn create_unarchived_conversation_shared(
             &state.data_path,
             &agents,
             &assistant_department_agent_id,
-            read_latest_archive_summary_from_chat_index(state)?,
             &api_config_id,
             &agent_id,
             &department.id,
@@ -502,7 +487,6 @@ fn build_unarchived_conversation_record_from_runtime(
     data_path: &PathBuf,
     agents: &[AgentProfile],
     assistant_department_agent_id: &str,
-    _last_archive_summary: Option<String>,
     api_config_id: &str,
     agent_id: &str,
     department_id: &str,
@@ -853,7 +837,6 @@ fn read_conversation_for_backup_cleanup(
         last_user_at: None,
         last_assistant_at: None,
         status: conversation_meta.status,
-        summary: conversation_meta.summary,
         user_profile_snapshot: conversation_meta.user_profile_snapshot,
         shell_workspace_path: conversation_meta.shell_workspace_path,
         shell_workspaces: conversation_meta.shell_workspaces,

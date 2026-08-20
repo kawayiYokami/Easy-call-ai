@@ -753,7 +753,6 @@ mod summary_context_title_tests {
             last_user_at: None,
             last_assistant_at: None,
             status: "active".to_string(),
-            summary: String::new(),
             user_profile_snapshot: String::new(),
             shell_workspace_path: None,
             shell_workspaces: Vec::new(),
@@ -1097,7 +1096,6 @@ fn build_conversation_record(
         last_user_at: None,
         last_assistant_at: None,
         status: "active".to_string(),
-        summary: String::new(),
         user_profile_snapshot: String::new(),
         shell_workspace_path: None,
         shell_workspaces: Vec::new(),
@@ -1485,7 +1483,6 @@ fn archive_conversation_now(
     data: &mut AppData,
     conversation_id: &str,
     reason: &str,
-    summary: &str,
 ) -> Option<String> {
     let idx = data
         .conversations
@@ -1495,16 +1492,14 @@ fn archive_conversation_now(
     let previous_status = conv.status.clone();
     let now = now_iso();
     conv.status = "archived".to_string();
-    conv.summary = summary.to_string();
     conv.archived_at = Some(now.clone());
     conv.updated_at = now;
     let archive_id = conv.id.clone();
     runtime_log_info(format!(
-        "[会话] 已归档: conversation_id={}, previous_status={}, reason=\"{}\", summary=\"{}\"",
+        "[会话] 已归档: conversation_id={}, previous_status={}, reason=\"{}\"",
         conv.id,
         previous_status,
-        reason,
-        summary
+        reason
     ));
     clear_screenshot_artifact_cache();
     Some(archive_id)
@@ -3692,7 +3687,6 @@ fn build_prompt_with_mode(
         last_user_at: conversation.last_user_at.clone(),
         last_assistant_at: conversation.last_assistant_at.clone(),
         status: conversation.status.clone(),
-        summary: conversation.summary.clone(),
         user_profile_snapshot: conversation.user_profile_snapshot.clone(),
         shell_workspace_path: conversation.shell_workspace_path.clone(),
         shell_workspaces: conversation.shell_workspaces.clone(),

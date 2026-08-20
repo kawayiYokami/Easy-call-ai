@@ -3961,7 +3961,6 @@
             last_user_at: None,
             last_assistant_at: None,
             status: status.to_string(),
-            summary: String::new(),
             user_profile_snapshot: String::new(),
             shell_workspace_path: None,
             shell_workspaces: Vec::new(),
@@ -4127,7 +4126,6 @@
             .expect("healed chat index item");
         assert_eq!(item.updated_at, conversation.updated_at);
         assert_eq!(item.status, conversation.status);
-        assert_eq!(item.summary, conversation.summary);
         assert_eq!(item.archived_at, conversation.archived_at);
         assert!(!app_layout_chat_index_path(&state.data_path).exists());
     }
@@ -4137,7 +4135,6 @@
         let state = test_chat_runtime_state();
         let now = now_iso();
         let mut conversation = test_chat_conversation("conversation-hidden-heal", "active", &now);
-        conversation.summary = "测试摘要".to_string();
         conversation.archived_at = Some(now.clone());
         conversation.status = "archived".to_string();
 
@@ -4149,7 +4146,6 @@
             .iter()
             .find(|item| item.id == conversation.id)
             .expect("archived chat index item");
-        assert_eq!(item.summary, conversation.summary);
         assert_eq!(item.archived_at, conversation.archived_at);
         assert_eq!(item.status, conversation.status);
     }
@@ -4159,7 +4155,6 @@
         let state = test_chat_runtime_state();
         let now = now_iso();
         let mut conversation = test_chat_conversation("conversation-archived-recover", "active", &now);
-        conversation.summary = "恢复用归档摘要".to_string();
         conversation.archived_at = Some(now.clone());
         conversation.status = "archived".to_string();
 
@@ -4171,7 +4166,6 @@
             .iter()
             .find(|item| item.id == conversation.id)
             .expect("recovered archived item");
-        assert_eq!(item.summary, conversation.summary);
         assert_eq!(item.archived_at, conversation.archived_at);
         assert_eq!(item.status, conversation.status);
     }
@@ -4215,7 +4209,6 @@
         let state = test_chat_runtime_state();
         let now = now_iso();
         let mut conversation = test_chat_conversation("conversation-bootstrap-recover", "active", &now);
-        conversation.summary = "启动恢复归档摘要".to_string();
         conversation.archived_at = Some(now.clone());
         conversation.status = "archived".to_string();
 
@@ -4243,7 +4236,6 @@
         let now = now_iso();
         let mut conversation = test_chat_conversation("conversation-memory-upsert", "active", &now);
         state_schedule_conversation_persist(&state, &conversation).expect("schedule persist");
-        conversation.summary = "updated summary".to_string();
         conversation.status = "archived".to_string();
         conversation.archived_at = Some(now.clone());
         state_schedule_conversation_persist(&state, &conversation).expect("schedule updated persist");
@@ -4254,7 +4246,6 @@
             .iter()
             .find(|item| item.id == conversation.id)
             .expect("chat index item");
-        assert_eq!(item.summary, conversation.summary);
         assert_eq!(item.status, conversation.status);
         assert_eq!(item.archived_at, conversation.archived_at);
         assert!(!app_layout_chat_index_path(&state.data_path).exists());
@@ -4578,7 +4569,6 @@
                 &state,
                 &conversation.id,
                 Some("archived"),
-                Some(""),
                 Some(Some(now.clone())),
                 Some(now.clone()),
             )
@@ -4782,7 +4772,6 @@
         let now = now_iso();
         let mut conversation = test_chat_conversation("conversation-direct-upsert", "active", &now);
         write_conversation_shard(&state.data_path, &conversation).expect("write conversation");
-        conversation.summary = "direct summary".to_string();
         conversation.status = "archived".to_string();
         conversation.archived_at = Some(now.clone());
         state_mark_conversation_direct_persisted(&state, &conversation)
@@ -4791,7 +4780,6 @@
         let chat_index = state_read_chat_index_cached(&state).expect("read memory chat index");
         assert_eq!(chat_index.conversations.len(), 1);
         assert_eq!(chat_index.conversations[0].id, conversation.id);
-        assert_eq!(chat_index.conversations[0].summary, conversation.summary);
         assert!(!app_layout_chat_index_path(&state.data_path).exists());
     }
 
@@ -5134,7 +5122,6 @@
             "not-a-valid-rfc3339-time",
         );
         conversation.title = String::new();
-        conversation.summary = String::new();
         conversation.department_id = ASSISTANT_DEPARTMENT_ID.to_string();
         conversation.agent_id = DEFAULT_AGENT_ID.to_string();
         state_schedule_conversation_persist(&state, &conversation).expect("persist conversation");
@@ -5444,7 +5431,6 @@
             &state.data_path,
             &agents,
             &assistant_department_agent_id,
-            None,
             "api-1",
             DEFAULT_AGENT_ID,
             ASSISTANT_DEPARTMENT_ID,
@@ -8471,14 +8457,13 @@
     }
 
     #[test]
-    fn normalize_single_active_main_conversation_should_keep_summary_only_foreground_chat_active() {
+    fn normalize_single_active_main_conversation_should_keep_inactive_main_foreground_chat_active() {
         let now = now_iso();
         let later = (now_utc() + time::Duration::minutes(1))
             .format(&Rfc3339)
             .expect("format later");
         let mut data = AppData::default();
-        let mut main = test_chat_conversation("conversation-main", "inactive", &now);
-        main.summary = "只是内容摘要".to_string();
+        let main = test_chat_conversation("conversation-main", "inactive", &now);
         data.conversations = vec![main, test_chat_conversation("conversation-sub", "active", &later)];
 
         let changed = normalize_single_active_main_conversation(&mut data);
@@ -8489,10 +8474,9 @@
     }
 
     #[test]
-    fn conversation_is_archived_should_ignore_summary_without_archive_fields() {
+    fn conversation_is_archived_should_require_archive_fields() {
         let now = now_iso();
-        let mut conversation = test_chat_conversation("conversation-summary-only", "active", &now);
-        conversation.summary = "只是内容摘要".to_string();
+        let conversation = test_chat_conversation("conversation-summary-only", "active", &now);
 
         assert!(!conversation_is_archived(&conversation));
 
@@ -9386,7 +9370,6 @@
             last_user_at: None,
             last_assistant_at: None,
             status: "active".to_string(),
-            summary: String::new(),
             user_profile_snapshot: String::new(),
             shell_workspace_path: Some(root_workspace_path.to_string_lossy().to_string()),
             shell_workspaces: vec![ShellWorkspaceConfig {
@@ -11344,7 +11327,7 @@
     }
 
     #[test]
-    fn conversation_meta_is_unarchived_meta_view_should_ignore_summary_only_conversation() {
+    fn conversation_meta_is_unarchived_meta_view_should_follow_archived_at() {
         let state = test_chat_runtime_state();
         let now = now_utc_rfc3339();
         let mut data = AppData::default();
@@ -11366,7 +11349,6 @@
             last_user_at: None,
             last_assistant_at: None,
             status: "active".to_string(),
-            summary: "只是内容摘要".to_string(),
             user_profile_snapshot: String::new(),
             shell_workspace_path: None,
             shell_workspaces: Vec::new(),
@@ -11424,7 +11406,6 @@
             last_user_at: None,
             last_assistant_at: None,
             status: "active".to_string(),
-            summary: String::new(),
             user_profile_snapshot: String::new(),
             shell_workspace_path: None,
             shell_workspaces: Vec::new(),
@@ -11495,7 +11476,6 @@
             last_user_at: None,
             last_assistant_at: None,
             status: "active".to_string(),
-            summary: String::new(),
             user_profile_snapshot: String::new(),
             shell_workspace_path: None,
             shell_workspaces: Vec::new(),
@@ -11630,7 +11610,6 @@
             .format(&Rfc3339)
             .expect("format later");
         let mut source = test_chat_conversation("conversation-main", "active", &now);
-        source.summary = "archived summary".to_string();
         source.status = "archived".to_string();
         source.archived_at = Some(now.clone());
         state_service_set_main_conversation_id(&state, Some("conversation-main"))
@@ -11661,7 +11640,6 @@
         );
         assert!(conversation_is_system_notification(&system_notification));
         assert_eq!(promoted.status, "inactive");
-        assert_eq!(promoted.summary, "");
     }
 
     #[test]
@@ -11675,7 +11653,6 @@
 
         let now = now_iso();
         let mut source = test_chat_conversation("conversation-main", "active", &now);
-        source.summary = "archived summary".to_string();
         source.status = "archived".to_string();
         source.archived_at = Some(now.clone());
         state_service_set_main_conversation_id(&state, Some("conversation-main"))
@@ -11704,7 +11681,6 @@
         );
         assert!(conversation_is_system_notification(&system_notification));
         assert_eq!(replacement.status, "active");
-        assert!(replacement.summary.is_empty());
     }
 
     #[test]
@@ -11722,7 +11698,7 @@
         state_service_set_main_conversation_id(&state, Some("conversation-main"))
             .expect("write main conversation id");
 
-        archive_conversation_now(&mut data, "conversation-main", "test", "archived summary")
+        archive_conversation_now(&mut data, "conversation-main", "test")
             .expect("archive current main");
         let idx = ensure_main_conversation_index(&mut data, &state, "", DEFAULT_AGENT_ID).expect("ensure main conversation index");
 
@@ -11748,7 +11724,7 @@
         state_service_set_main_conversation_id(&state, Some("conversation-main"))
             .expect("write main conversation id");
 
-        archive_conversation_now(&mut data, "conversation-main", "test", "archived summary")
+        archive_conversation_now(&mut data, "conversation-main", "test")
             .expect("archive last main");
         let idx = ensure_main_conversation_index(&mut data, &state, "api-default", DEFAULT_AGENT_ID).expect("ensure main conversation index");
 
@@ -11760,7 +11736,6 @@
             Some(SYSTEM_NOTIFICATION_CONVERSATION_ID)
         );
         assert_eq!(data.conversations[idx].status, "active");
-        assert!(data.conversations[idx].summary.is_empty());
     }
 
     #[test]
@@ -12457,7 +12432,7 @@
             .join("commands")
             .join("archive_commands.rs");
         let archive_content = std::fs::read_to_string(&archive_file).expect("read archive commands");
-        for name in ["get_archive_messages", "get_archive_block_page", "get_archive_summary"] {
+        for name in ["get_archive_messages", "get_archive_block_page"] {
             let start = archive_content
                 .find(&format!("async fn {name}("))
                 .unwrap_or_else(|| panic!("{name} 应为 async fn"));

@@ -2238,7 +2238,6 @@
     "organizingContextDisabled": "后台归档中，暂时不能切换",
     "delegateConversations": "委托会话",
     "archivedMessages": "归档消息",
-    "summary": "归档摘要",
     "prevBlock": "上一块",
     "nextBlock": "下一块",
     "blockSummary": "第 {id} 块 · {count} 条消息",

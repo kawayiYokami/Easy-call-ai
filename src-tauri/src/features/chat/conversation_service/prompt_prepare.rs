@@ -116,7 +116,6 @@ impl ConversationServiceV2 {
                 is_remote_im_contact_conversation,
                 &remote_im_contact_processing_mode,
             ),
-            last_archive_summary: None,
             is_remote_im_contact_conversation,
             remote_im_contact_processing_mode,
             response_style_id: state_service_get_response_style_id(state)?,

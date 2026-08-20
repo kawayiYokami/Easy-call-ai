@@ -173,7 +173,6 @@ fn delegate_parent_shell_workspace(
             last_assistant_at: None,
             status: conversation_meta.status,
             archived_at: conversation_meta.archived_at,
-            summary: conversation_meta.summary,
             user_profile_snapshot: String::new(),
             preferred_api_config_id: conversation_meta.preferred_api_config_id,
             auto_push_remote_contact_id: None,
