@@ -392,6 +392,7 @@ fn build_tool_loop_prepared_for_continuation(
 }
 
 include!("tool_loop/remote_im_tools.rs");
+include!("tool_loop/tool_arg_clean.rs");
 include!("tool_loop/tool_result_handling.rs");
 include!("tool_loop/runtime_execution.rs");
 include!("tool_loop/compaction.rs");
@@ -674,6 +675,7 @@ async fn run_genai_tool_loop(
         }
 
         let turn_tool_calls = reorder_turn_tool_calls_for_contact_tail(turn_tool_calls);
+        let turn_tool_calls = clean_turn_tool_calls(turn_tool_calls);
 
         if turn_tool_calls.is_empty() {
             if !turn_text.is_empty() {
@@ -1231,6 +1233,7 @@ async fn run_genai_tool_loop_non_stream(
             );
         }
         let turn_tool_calls = reorder_turn_tool_calls_for_contact_tail(raw_turn_tool_calls);
+        let turn_tool_calls = clean_turn_tool_calls(turn_tool_calls);
         if !turn_reasoning.is_empty() {
             full_activity_reasoning_text.push_str(&turn_reasoning);
         }
