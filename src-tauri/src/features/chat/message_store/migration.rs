@@ -360,21 +360,6 @@ mod message_store_tests {
     }
 
     #[test]
-    fn message_store_manifest_should_distinguish_supported_readiness_from_reserved_ready_store() {
-        let conversation = test_conversation(vec![test_message("m1", "user")]);
-        let mut manifest = MessageStoreManifest::jsonl_snapshot_building(&conversation);
-        manifest.message_store_kind = MessageStoreKind::JsonlEventLog;
-        manifest.migration_state = MessageStoreMigrationState::Ready;
-
-        assert!(manifest.is_ready_directory_store());
-        assert!(!manifest.should_read_jsonl());
-        assert!(manifest
-            .stale_jsonl_reason()
-            .expect("unsupported ready reason")
-            .contains("暂不支持读取"));
-    }
-
-    #[test]
     fn message_store_paths_should_extend_existing_chat_conversation_layout() {
         let data_path = PathBuf::from("E:/app/data/app_data.json");
         let paths = message_store_paths(&data_path, "conversation-a").expect("paths");
@@ -601,30 +586,6 @@ mod message_store_tests {
             .expect_err("future manifest should fail");
 
         assert!(err.contains("manifest 版本不支持"));
-        assert!(!paths.messages_file.exists());
-        let _ = fs::remove_dir_all(root);
-    }
-
-    #[test]
-    fn message_store_resume_should_not_overwrite_reserved_ready_store() {
-        let root = std::env::temp_dir().join(format!(
-            "easy-call-message-store-resume-reserved-ready-{}",
-            Uuid::new_v4()
-        ));
-        let data_path = root.join("app_data.json");
-        let paths = message_store_paths(&data_path, "conversation-a").expect("paths");
-        let conversation = test_conversation(vec![test_message("m1", "user")]);
-        let mut manifest = MessageStoreManifest::jsonl_snapshot_building(&conversation);
-        manifest.message_store_kind = MessageStoreKind::JsonlEventLog;
-        manifest.migration_state = MessageStoreMigrationState::Ready;
-        write_message_store_manifest_atomic(&paths.manifest_file, &manifest)
-            .expect("write reserved ready manifest");
-
-        let outcome = resume_jsonl_snapshot_migration(&paths, &conversation)
-            .expect("resume reserved ready store");
-
-        assert!(!outcome.wrote_files);
-        assert_eq!(outcome.manifest.message_store_kind, MessageStoreKind::JsonlEventLog);
         assert!(!paths.messages_file.exists());
         let _ = fs::remove_dir_all(root);
     }

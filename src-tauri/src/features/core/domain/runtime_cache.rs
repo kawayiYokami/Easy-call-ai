@@ -861,14 +861,6 @@ fn state_update_conversation_meta_cached_unlocked<T>(
     Ok((conversation_meta, result, seq))
 }
 
-fn has_pending_app_data_persist(state: &AppState) -> bool {
-    state
-        .app_data_persist_pending
-        .lock()
-        .map(|pending| pending.is_some())
-        .unwrap_or(true)
-}
-
 fn has_pending_conversation_persist(state: &AppState) -> bool {
     let has_pending_slot = state
         .conversation_persist_pending
@@ -889,7 +881,7 @@ fn has_pending_conversation_persist(state: &AppState) -> bool {
 }
 
 fn refresh_cached_app_data_dirty(state: &AppState) {
-    let dirty = has_pending_app_data_persist(state) || has_pending_conversation_persist(state);
+    let dirty = has_pending_conversation_persist(state);
     state
         .cached_app_data_dirty
         .store(dirty, std::sync::atomic::Ordering::Release);
@@ -1037,10 +1029,6 @@ fn state_write_conversation_cached(
     state: &AppState,
     conversation: &Conversation,
 ) -> Result<(), String> {
-    let seq = state
-        .app_data_persist_latest_seq
-        .fetch_add(1, std::sync::atomic::Ordering::AcqRel)
-        + 1;
     let mutation_gate = conversation_mutation_gate(&state.data_path, &conversation.id)?;
     let _guard = mutation_gate.lock().map_err(|err| {
         named_lock_error(
@@ -1070,15 +1058,6 @@ fn state_write_conversation_cached(
     }
     sync_cached_app_data_conversation(state, conversation)?;
     state_upsert_chat_index_conversation_cached(state, conversation)?;
-    if let Ok(mut pending) = state.app_data_persist_pending.lock() {
-        if pending
-            .as_ref()
-            .map(|item| item.seq <= seq)
-            .unwrap_or(false)
-        {
-            *pending = None;
-        }
-    }
     refresh_cached_app_data_dirty(state);
     Ok(())
 }
@@ -1088,10 +1067,6 @@ fn state_delete_conversation_cached(
     state: &AppState,
     conversation_id: &str,
 ) -> Result<(), String> {
-    let seq = state
-        .app_data_persist_latest_seq
-        .fetch_add(1, std::sync::atomic::Ordering::AcqRel)
-        + 1;
     let mutation_gate = conversation_mutation_gate(&state.data_path, conversation_id)?;
     let _guard = mutation_gate.lock().map_err(|err| {
         named_lock_error(
@@ -1120,15 +1095,6 @@ fn state_delete_conversation_cached(
     }
     sync_cached_app_data_conversation_deleted(state, conversation_id)?;
     state_remove_chat_index_conversation_cached(state, conversation_id)?;
-    if let Ok(mut pending) = state.app_data_persist_pending.lock() {
-        if pending
-            .as_ref()
-            .map(|item| item.seq <= seq)
-            .unwrap_or(false)
-        {
-            *pending = None;
-        }
-    }
     refresh_cached_app_data_dirty(state);
     Ok(())
 }
@@ -1165,10 +1131,6 @@ fn state_read_agents_cached(state: &AppState) -> Result<Vec<AgentProfile>, Strin
 }
 
 fn state_write_agents_cached(state: &AppState, agents: &[AgentProfile]) -> Result<(), String> {
-    let seq = state
-        .app_data_persist_latest_seq
-        .fetch_add(1, std::sync::atomic::Ordering::AcqRel)
-        + 1;
     let _write_guard = state
         .app_data_persist_write_lock
         .lock()
@@ -1184,15 +1146,6 @@ fn state_write_agents_cached(state: &AppState, agents: &[AgentProfile]) -> Resul
         .lock()
         .map_err(|_| "Failed to lock cached agents mtime".to_string())? = disk_mtime;
     sync_cached_app_data_agents(state, agents)?;
-    if let Ok(mut pending) = state.app_data_persist_pending.lock() {
-        if pending
-            .as_ref()
-            .map(|item| item.seq <= seq)
-            .unwrap_or(false)
-        {
-            *pending = None;
-        }
-    }
     refresh_cached_app_data_dirty(state);
     Ok(())
 }
@@ -1296,7 +1249,7 @@ fn ensure_app_data_cache_ready_inner(
         .min(u128::from(u64::MAX)) as u64;
 
     let disk_read_started = std::time::Instant::now();
-    let mut data = read_app_data(&state.data_path)?;
+    let mut data = read_layout_app_data(&state.data_path)?;
     for conversation in data.conversations.iter_mut() {
         normalize_conversation_runtime_volatile_fields(conversation);
     }
@@ -1375,16 +1328,22 @@ fn ensure_app_data_cache_ready_inner(
 #[cfg(test)]
 #[allow(dead_code)]
 fn state_write_app_data_cached(state: &AppState, data: &AppData) -> Result<(), String> {
-    let seq = state
-        .app_data_persist_latest_seq
-        .fetch_add(1, std::sync::atomic::Ordering::AcqRel)
-        + 1;
     let _write_guard = state
         .app_data_persist_write_lock
         .lock()
         .map_err(|_| "Failed to lock app data persist write lock".to_string())?;
-    #[allow(deprecated)]
-    write_app_data(&state.data_path, data)?;
+    write_agents_shard(&state.data_path, &data.agents)?;
+    if data.data_migration_version > 0 {
+        state_db_upsert_kv(
+            &state.data_path,
+            "data_migration_version",
+            &data.data_migration_version.to_string(),
+        )?;
+    }
+    for conv in &data.conversations {
+        write_conversation_shard(&state.data_path, conv)?;
+    }
+    ensure_system_notification_conversation_shard(&state.data_path)?;
     let disk_signature = app_data_cache_signature(&state.data_path);
     let mut cached_data = data.clone();
     sanitize_runtime_cached_app_data(&mut cached_data);
@@ -1397,54 +1356,8 @@ fn state_write_app_data_cached(state: &AppState, data: &AppData) -> Result<(), S
         .lock()
         .map_err(|_| "Failed to lock cached app data signature".to_string())? =
         Some(disk_signature);
-    if let Ok(mut pending) = state.app_data_persist_pending.lock() {
-        if pending
-            .as_ref()
-            .map(|item| item.seq <= seq)
-            .unwrap_or(false)
-        {
-            *pending = None;
-        }
-    }
-    let has_newer_pending = state
-        .app_data_persist_latest_seq
-        .load(std::sync::atomic::Ordering::Acquire)
-        > seq;
-    state
-        .cached_app_data_dirty
-        .store(has_newer_pending, std::sync::atomic::Ordering::Release);
-    Ok(())
-}
-
-#[cfg(test)]
-#[allow(dead_code)]
-fn state_schedule_app_data_persist(state: &AppState, data: &AppData) -> Result<u64, String> {
-    let seq = state
-        .app_data_persist_latest_seq
-        .fetch_add(1, std::sync::atomic::Ordering::AcqRel)
-        + 1;
-    let mut cached_data = data.clone();
-    sanitize_runtime_cached_app_data(&mut cached_data);
-    *state
-        .cached_app_data
-        .lock()
-        .map_err(|_| "Failed to lock cached app data".to_string())? = Some(cached_data);
-    state
-        .cached_app_data_dirty
-        .store(true, std::sync::atomic::Ordering::Release);
-    {
-        let mut pending = state
-            .app_data_persist_pending
-            .lock()
-            .map_err(|_| "Failed to lock pending app data persist".to_string())?;
-        *pending = Some(PendingAppDataPersist {
-            seq,
-            data: data.clone(),
-        });
-    }
     refresh_cached_app_data_dirty(state);
-    state.app_data_persist_notify.notify_one();
-    Ok(seq)
+    Ok(())
 }
 
 fn state_schedule_conversation_persist(
@@ -1609,7 +1522,7 @@ fn state_schedule_conversation_delete(
 fn flush_pending_persists_blocking(state: &AppState) -> Result<bool, String> {
     // 只用 app-data gate 原子地取走队列；本地 chat 的文件 I/O 必须再按会话 gate 协调，
     // 不能因为退出 flush 把不同会话串行化。
-    let (pending_conversations, pending_app_data) = {
+    let pending_conversations = {
         let _write_guard = state.app_data_persist_write_lock.lock().map_err(|err| {
             named_lock_error(
                 "app_data_persist_write_lock",
@@ -1619,17 +1532,11 @@ fn flush_pending_persists_blocking(state: &AppState) -> Result<bool, String> {
                 &err,
             )
         })?;
-        let pending_conversations = state
+        state
             .conversation_persist_pending
             .lock()
             .map_err(|_| "Failed to lock pending conversation persist".to_string())?
-            .take();
-        let pending_app_data = state
-            .app_data_persist_pending
-            .lock()
-            .map_err(|_| "Failed to lock pending app data persist".to_string())?
-            .take();
-        (pending_conversations, pending_app_data)
+            .take()
     };
     let mut wrote_anything = false;
 
@@ -1748,124 +1655,8 @@ fn flush_pending_persists_blocking(state: &AppState) -> Result<bool, String> {
         }
     }
 
-    if let Some(pending) = pending_app_data {
-        let _write_guard = state.app_data_persist_write_lock.lock().map_err(|err| {
-            named_lock_error(
-                "app_data_persist_write_lock",
-                file!(),
-                line!(),
-                module_path!(),
-                &err,
-            )
-        })?;
-        #[allow(deprecated)]
-        write_app_data(&state.data_path, &pending.data)?;
-        wrote_anything = true;
-        if let Ok(mut cached) = state.cached_app_data.lock() {
-            let mut runtime_cached = pending.data;
-            sanitize_runtime_cached_app_data(&mut runtime_cached);
-            *cached = Some(runtime_cached);
-        }
-    }
-
     refresh_cached_app_data_dirty(state);
     Ok(wrote_anything)
-}
-
-fn start_app_data_persist_worker(state: &AppState) -> Result<(), String> {
-    let started = state.app_data_persist_started.compare_exchange(
-        false,
-        true,
-        std::sync::atomic::Ordering::AcqRel,
-        std::sync::atomic::Ordering::Acquire,
-    );
-    if started.is_err() {
-        return Ok(());
-    }
-    let state_clone = state.clone();
-    tauri::async_runtime::spawn(async move {
-        loop {
-            state_clone.app_data_persist_notify.notified().await;
-            tokio::time::sleep(std::time::Duration::from_millis(120)).await;
-            loop {
-                let Some(pending) = ({
-                    let mut slot = match state_clone.app_data_persist_pending.lock() {
-                        Ok(slot) => slot,
-                        Err(_) => {
-                            runtime_log_error(
-                                "[后台持久化] 失败，任务=读取待写入队列，error=lock poisoned"
-                                    .to_string(),
-                            );
-                            break;
-                        }
-                    };
-                    slot.take()
-                }) else {
-                    break;
-                };
-
-                let latest_seq = state_clone
-                    .app_data_persist_latest_seq
-                    .load(std::sync::atomic::Ordering::Acquire);
-                if pending.seq < latest_seq {
-                    continue;
-                }
-                let data_path = state_clone.data_path.clone();
-                let data_to_write = pending.data.clone();
-                let write_lock = state_clone.app_data_persist_write_lock.clone();
-                let write_result = tokio::task::spawn_blocking(move || {
-                    let _write_guard = write_lock.lock().map_err(|err| {
-                        named_lock_error(
-                            "app_data_persist_write_lock",
-                            file!(),
-                            line!(),
-                            module_path!(),
-                            &err,
-                        )
-                    })?;
-                    #[allow(deprecated)]
-                    write_app_data(&data_path, &data_to_write)?;
-                    Ok::<(), String>(())
-                })
-                .await;
-                match write_result {
-                    Ok(Ok(())) => {
-                        if let Ok(mut cached) = state_clone.cached_app_data.lock() {
-                            let mut runtime_cached = pending.data.clone();
-                            sanitize_runtime_cached_app_data(&mut runtime_cached);
-                            *cached = Some(runtime_cached);
-                        }
-                        if let Ok(mut cached_signature) =
-                            state_clone.cached_app_data_signature.lock()
-                        {
-                            *cached_signature =
-                                Some(app_data_cache_signature(&state_clone.data_path));
-                        }
-                        let still_latest = state_clone
-                            .app_data_persist_latest_seq
-                            .load(std::sync::atomic::Ordering::Acquire)
-                            == pending.seq;
-                        if still_latest {
-                            refresh_cached_app_data_dirty(&state_clone);
-                        }
-                    }
-                    Ok(Err(err)) => {
-                        runtime_log_error(format!(
-                            "[后台持久化] 失败，任务=写入应用数据，seq={}，error={}",
-                            pending.seq, err
-                        ));
-                    }
-                    Err(err) => {
-                        runtime_log_error(format!(
-                            "[后台持久化] 失败，任务=阻塞写入任务，seq={}，error={}",
-                            pending.seq, err
-                        ));
-                    }
-                }
-            }
-        }
-    });
-    Ok(())
 }
 
 fn start_conversation_persist_worker(state: &AppState) -> Result<(), String> {

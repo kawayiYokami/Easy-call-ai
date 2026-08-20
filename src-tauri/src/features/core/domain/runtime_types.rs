@@ -84,12 +84,6 @@ struct PreparedPrompt {
 }
 
 #[derive(Debug, Clone)]
-struct PendingAppDataPersist {
-    seq: u64,
-    data: AppData,
-}
-
-#[derive(Debug, Clone)]
 struct PendingConversationPersist {
     seq: u64,
     conversations: std::collections::HashMap<String, Conversation>,

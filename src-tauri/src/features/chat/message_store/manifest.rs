@@ -5,7 +5,6 @@ const MESSAGE_STORE_MANIFEST_VERSION: u32 = 1;
 enum MessageStoreKind {
     ConversationJson,
     JsonlSnapshot,
-    JsonlEventLog,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -111,7 +110,7 @@ impl MessageStoreManifest {
         matches!(
             (self.message_store_kind, self.migration_state),
             (
-                MessageStoreKind::JsonlSnapshot | MessageStoreKind::JsonlEventLog,
+                MessageStoreKind::JsonlSnapshot,
                 MessageStoreMigrationState::Ready
             )
         )
@@ -131,7 +130,6 @@ impl MessageStoreManifest {
         match self.message_store_kind {
             MessageStoreKind::ConversationJson => "conversationJson",
             MessageStoreKind::JsonlSnapshot => "jsonlSnapshot",
-            MessageStoreKind::JsonlEventLog => "jsonlEventLog",
         }
     }
 

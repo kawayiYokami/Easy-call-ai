@@ -1541,47 +1541,6 @@ model = "gpt-4.1"
     }
 
     #[test]
-    fn write_app_data_should_only_flush_changed_shards() {
-        let root = std::env::temp_dir().join(format!("eca-app-data-layout-{}", Uuid::new_v4()));
-        std::fs::create_dir_all(root.join("config")).expect("create temp config dir");
-        let data_path = root.join("config").join("app_data.json");
-
-        let mut data = AppData::default();
-        data.conversations = vec![
-            build_test_conversation("conv-a", "Conversation A"),
-            build_test_conversation("conv-b", "Conversation B"),
-        ];
-
-        let first = write_app_data_with_stats(&data_path, &data).expect("write first layout");
-        assert!(first.agents_written);
-        assert_eq!(first.conversation_writes, 3);
-        assert_eq!(first.conversation_deletes, 0);
-        assert!(!app_layout_chat_index_path(&data_path).exists());
-        let system_notification = read_conversation_shard(
-            &data_path,
-            SYSTEM_NOTIFICATION_CONVERSATION_ID,
-        )
-        .expect("system notification conversation should be materialized");
-        assert_eq!(
-            system_notification.conversation_kind,
-            CONVERSATION_KIND_SYSTEM_NOTIFICATION
-        );
-
-        let second = write_app_data_with_stats(&data_path, &data).expect("write same layout");
-        assert!(!second.agents_written);
-        assert_eq!(second.conversation_writes, 0);
-        assert_eq!(second.conversation_deletes, 0);
-
-        let mut runtime_only = data.clone();
-        runtime_only.agents[0].name = "agent-runtime-only".to_string();
-        let runtime_stats =
-            write_app_data_with_stats(&data_path, &runtime_only).expect("write runtime-only diff");
-        assert!(runtime_stats.agents_written);
-        assert_eq!(runtime_stats.conversation_writes, 0);
-        assert_eq!(runtime_stats.conversation_deletes, 0);
-    }
-
-    #[test]
     fn write_agents_shard_should_not_touch_conversations() {
         let root = std::env::temp_dir().join(format!("eca-app-data-shards-{}", Uuid::new_v4()));
         std::fs::create_dir_all(root.join("config")).expect("create temp config dir");
@@ -1589,7 +1548,7 @@ model = "gpt-4.1"
 
         let mut data = AppData::default();
         data.conversations = vec![build_test_conversation("conv-a", "Conversation A")];
-        write_app_data_with_stats(&data_path, &data).expect("seed layout");
+        seed_app_data_shards(&data_path, &data).expect("seed layout");
 
         let agents_path = app_layout_agents_path(&data_path);
         let conversation_paths =
@@ -1623,33 +1582,6 @@ model = "gpt-4.1"
     }
 
     #[test]
-    fn write_app_data_should_not_downgrade_data_migration_version() {
-        let root = std::env::temp_dir().join(format!("eca-app-data-migration-version-{}", Uuid::new_v4()));
-        std::fs::create_dir_all(root.join("config")).expect("create temp config dir");
-        let data_path = root.join("config").join("app_data.json");
-        let data = AppData::default();
-        write_app_data_with_stats(&data_path, &data).expect("seed layout");
-
-        let state = AppState {
-            data_path: data_path.clone(),
-            ..config_test_state()
-        };
-        state_service_set_data_migration_version(
-            &state,
-            DATA_MIGRATION_VERSION_V2_ASSISTANT_WORKSPACE_FOR_EMPTY_SHELL_WORKSPACES,
-        )
-        .expect("write baseline migration version");
-
-        let _stats = write_app_data_with_stats(&data_path, &data).expect("write app data again");
-
-        assert_eq!(
-            state_service_get_data_migration_version(&state)
-                .expect("read restored migration version"),
-            DATA_MIGRATION_VERSION_V2_ASSISTANT_WORKSPACE_FOR_EMPTY_SHELL_WORKSPACES
-        );
-    }
-
-    #[test]
     fn runtime_volatile_normalization_should_not_require_rewriting_after_migration_version_recorded() {
         let root = std::env::temp_dir().join(format!("eca-read-baseline-migration-{}", Uuid::new_v4()));
         std::fs::create_dir_all(root.join("config")).expect("create temp config dir");
@@ -1658,12 +1590,12 @@ model = "gpt-4.1"
         data.data_migration_version =
             DATA_MIGRATION_VERSION_V2_ASSISTANT_WORKSPACE_FOR_EMPTY_SHELL_WORKSPACES;
         data.conversations = vec![build_test_conversation("conv-baseline", "Baseline")];
-        write_app_data_with_stats(&data_path, &data).expect("seed layout");
+        seed_app_data_shards(&data_path, &data).expect("seed layout");
         let paths = message_store::message_store_paths(&data_path, "conv-baseline")
             .expect("conversation paths");
         let before = message_store::message_store_shard_write_signature(&paths);
 
-        let restored = read_app_data(&data_path).expect("read app data");
+        let restored = read_layout_app_data(&data_path).expect("read app data");
         let after = message_store::message_store_shard_write_signature(&paths);
 
         assert_eq!(
@@ -1695,7 +1627,7 @@ model = "gpt-4.1"
             build_test_conversation("conv-a", "Conversation A"),
             build_test_conversation("conv-b", "Conversation B"),
         ];
-        write_app_data_with_stats(&data_path, &data).expect("seed layout");
+        seed_app_data_shards(&data_path, &data).expect("seed layout");
 
         let legacy_conversation_a_path = app_layout_chat_conversation_path(&data_path, "conv-a");
         let legacy_conversation_b_path = app_layout_chat_conversation_path(&data_path, "conv-b");
@@ -1896,10 +1828,6 @@ model = "gpt-4.1"
             cached_app_data: Arc::new(Mutex::new(None)),
             cached_app_data_signature: Arc::new(Mutex::new(None)),
             cached_app_data_dirty: Arc::new(std::sync::atomic::AtomicBool::new(false)),
-            app_data_persist_pending: Arc::new(Mutex::new(None)),
-            app_data_persist_notify: Arc::new(tokio::sync::Notify::new()),
-            app_data_persist_started: Arc::new(std::sync::atomic::AtomicBool::new(false)),
-            app_data_persist_latest_seq: Arc::new(std::sync::atomic::AtomicU64::new(0)),
             conversation_persist_pending: Arc::new(Mutex::new(None)),
             conversation_persist_notify: Arc::new(tokio::sync::Notify::new()),
             conversation_persist_started: Arc::new(std::sync::atomic::AtomicBool::new(false)),

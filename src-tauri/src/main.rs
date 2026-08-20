@@ -429,9 +429,6 @@ async fn run_deferred_setup(app_handle: AppHandle) {
         runtime_log_error(format!("[启动-延迟] 注册默认快捷键失败: {err}"));
     }
     log_step("启动持久化服务");
-    if let Err(err) = start_app_data_persist_worker(app_state.inner()) {
-        runtime_log_error(format!("[启动-延迟] 启动后台持久化服务失败: {err}"));
-    }
     if let Err(err) = start_conversation_persist_worker(app_state.inner()) {
         runtime_log_error(format!("[启动-延迟] 启动会话后台持久化服务失败: {err}"));
     }

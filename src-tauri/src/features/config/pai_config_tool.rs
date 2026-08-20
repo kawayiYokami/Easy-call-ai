@@ -1142,17 +1142,6 @@ fn load_main_agents(ctx: &CliContext) -> Result<Vec<AgentProfile>, String> {
     if shard.exists() {
         return Ok(read_json_file::<AgentsFile>(&shard)?.agents);
     }
-    if ctx.data_path.exists() {
-        let raw = fs::read_to_string(&ctx.data_path)
-            .map_err(|err| format!("读取 app_data 失败 ({}): {err}", ctx.data_path.display()))?;
-        let value = serde_json::from_str::<JsonValue>(&raw)
-            .map_err(|err| format!("解析 app_data 失败 ({}): {err}", ctx.data_path.display()))?;
-        let agents = value
-            .get("agents")
-            .cloned()
-            .unwrap_or_else(|| JsonValue::Array(Vec::new()));
-        return serde_json::from_value(agents).map_err(|err| format!("解析 agents 失败: {err}"));
-    }
     Ok(Vec::new())
 }
 

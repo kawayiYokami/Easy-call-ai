@@ -559,7 +559,6 @@ fn storage_usage_target_path(state: &AppState, item_id: &str) -> Option<PathBuf>
         "delegateConversationStores"
         | "legacyDelegateConversations"
         | "delegateConversationOther" => delegate_conversation_store_dir(&state.data_path),
-        "legacyAppData" => app_root.clone(),
         "memory" => app_root.join("memory"),
         "task" => app_root.join("task"),
         "media" => app_root.join("media"),
@@ -614,7 +613,6 @@ fn storage_root_other_stats(state: &AppState) -> Result<StorageSizeStats, String
                 | "llm-workspace"
                 | "tool-review-reports"
                 | "temp"
-                | LEGACY_APP_DATA_SPLIT_DIR_NAME
         ) && name != config_file_name
             && name != data_file_name
     })
@@ -744,17 +742,6 @@ fn build_storage_usage_overview(state: &AppState) -> Result<StorageUsageOverview
                 &state.data_path,
                 StorageLegacyConversationScope::Delegate,
             )?,
-            None,
-            0,
-            0,
-        ),
-        storage_usage_item(
-            "legacyAppData",
-            storage_usage_target_path(state, "legacyAppData").unwrap_or_else(|| app_root.clone()),
-            storage_stats_for_paths(vec![
-                state.data_path.clone(),
-                legacy_app_data_split_dir(&state.data_path),
-            ])?,
             None,
             0,
             0,
@@ -2156,10 +2143,6 @@ mod storage_usage_tests {
             cached_app_data: Arc::new(Mutex::new(None)),
             cached_app_data_signature: Arc::new(Mutex::new(None)),
             cached_app_data_dirty: Arc::new(std::sync::atomic::AtomicBool::new(false)),
-            app_data_persist_pending: Arc::new(Mutex::new(None)),
-            app_data_persist_notify: Arc::new(tokio::sync::Notify::new()),
-            app_data_persist_started: Arc::new(std::sync::atomic::AtomicBool::new(false)),
-            app_data_persist_latest_seq: Arc::new(std::sync::atomic::AtomicU64::new(0)),
             conversation_persist_pending: Arc::new(Mutex::new(None)),
             conversation_persist_notify: Arc::new(tokio::sync::Notify::new()),
             conversation_persist_started: Arc::new(std::sync::atomic::AtomicBool::new(false)),

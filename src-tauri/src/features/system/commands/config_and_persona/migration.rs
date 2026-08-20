@@ -341,10 +341,6 @@ fn backup_current_migration_targets(state: &AppState) -> Result<PathBuf, String>
             .join("runtime_state.json"),
     )?;
     copy_file_if_exists(
-        &app_layout_chat_index_path(&state.data_path),
-        &backup_dir.join("layout").join("chat").join("chat_index.json"),
-    )?;
-    copy_file_if_exists(
         &memory_store_db_path(&state.data_path),
         &backup_dir.join("memory").join("memory.db"),
     )?;

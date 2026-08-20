@@ -1,5 +1,3 @@
-const LEGACY_APP_DATA_SPLIT_DIR_NAME: &str = "app_data";
-
 const LAYOUT_DIR_CONFIG: &str = "config";
 const LAYOUT_DIR_STATE: &str = "state";
 const LAYOUT_DIR_CHAT: &str = "chat";
@@ -7,7 +5,6 @@ const LAYOUT_DIR_CHAT_CONVERSATIONS: &str = "conversations";
 const LAYOUT_DIR_BACKUPS: &str = "backups";
 const LAYOUT_FILE_AGENTS: &str = "agents.json";
 const LAYOUT_FILE_RUNTIME: &str = "runtime_state.json";
-const LAYOUT_FILE_CHAT_INDEX: &str = "index.json";
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
@@ -31,13 +28,6 @@ struct ChatIndexConversationItem {
 struct ChatIndexFile {
     #[serde(default)]
     conversations: Vec<ChatIndexConversationItem>,
-}
-
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
-struct AppDataWriteStats {
-    agents_written: bool,
-    conversation_writes: usize,
-    conversation_deletes: usize,
 }
 
 fn app_layout_config_dir(path: &PathBuf) -> PathBuf {
@@ -66,10 +56,6 @@ fn app_layout_agents_path(path: &PathBuf) -> PathBuf {
 
 fn app_layout_runtime_state_path(path: &PathBuf) -> PathBuf {
     app_layout_state_dir(path).join(LAYOUT_FILE_RUNTIME)
-}
-
-fn app_layout_chat_index_path(path: &PathBuf) -> PathBuf {
-    app_layout_chat_dir(path).join(LAYOUT_FILE_CHAT_INDEX)
 }
 
 fn app_layout_chat_conversation_path(path: &PathBuf, conversation_id: &str) -> PathBuf {
@@ -365,14 +351,6 @@ fn app_layout_exists(path: &PathBuf) -> bool {
     app_layout_agents_path(path).exists()
         || app_layout_runtime_state_path(path).exists()
         || app_layout_chat_conversations_dir(path).exists()
-}
-
-fn legacy_app_data_split_dir(path: &PathBuf) -> PathBuf {
-    let parent = path
-        .parent()
-        .map(ToOwned::to_owned)
-        .unwrap_or_else(|| PathBuf::from("."));
-    parent.join(LEGACY_APP_DATA_SPLIT_DIR_NAME)
 }
 
 fn read_json_file<T>(path: &PathBuf, label: &str) -> Result<T, String>
@@ -897,117 +875,26 @@ fn sync_assistant_workspace_label_for_unarchived_conversations(
     Ok(changed)
 }
 
-#[cfg(test)]
-fn read_app_data(path: &PathBuf) -> Result<AppData, String> {
-    let mut parsed = read_layout_app_data(path)?;
-    parsed.version = APP_DATA_SCHEMA_VERSION;
-    Ok(parsed)
-}
-
 fn normalize_conversation_runtime_volatile_fields(conversation: &mut Conversation) {
     let _ = fill_missing_conversation_message_speaker_agent_ids(conversation);
     let _ = cleanup_legacy_summary_context_messages(conversation);
 }
 
-// AppData 聚合写入需要保留，作为兼容/迁移/全量导入导出入口。
-// 但业务热路径禁止直接依赖它，应该优先走分片写入：
-// agents / conversation:<id>
-fn write_app_data_with_stats(path: &PathBuf, data: &AppData) -> Result<AppDataWriteStats, String> {
-    let agents = build_agents_file(&data.agents);
-
-    fs::create_dir_all(app_layout_config_dir(path))
-        .map_err(|err| format!("Create config layout dir failed: {err}"))?;
-    fs::create_dir_all(app_layout_chat_dir(path))
-        .map_err(|err| format!("Create chat layout dir failed: {err}"))?;
-    fs::create_dir_all(app_layout_chat_conversations_dir(path))
-        .map_err(|err| format!("Create chat conversations dir failed: {err}"))?;
-    fs::create_dir_all(app_layout_backups_dir(path))
-        .map_err(|err| format!("Create backups dir failed: {err}"))?;
-
-    let mut stats = AppDataWriteStats::default();
-
-    stats.agents_written = write_json_file_atomic_if_changed(
-        &app_layout_agents_path(path),
-        &agents,
-        "agents file",
-    )?;
+/// 测试专用：从聚合 AppData 结构 seed 分片布局（agents.json + conversation shards + 系统通知会话）。
+/// 替代已删除的兼容层全量写入器，供测试构造使用。
+#[cfg(test)]
+fn seed_app_data_shards(path: &PathBuf, data: &AppData) -> Result<(), String> {
+    write_agents_shard(path, &data.agents)?;
     if data.data_migration_version > 0 {
-        state_db_upsert_kv(path, "data_migration_version", &data.data_migration_version.to_string())?;
+        state_db_upsert_kv(
+            path,
+            "data_migration_version",
+            &data.data_migration_version.to_string(),
+        )?;
     }
-    let mut expected_ids = std::collections::HashSet::<String>::new();
-    let mut system_notification_in_input = false;
     for conv in &data.conversations {
-        let mut conversation = conv.clone();
-        if conversation.id.trim() == SYSTEM_NOTIFICATION_CONVERSATION_ID {
-            system_notification_in_input = true;
-            let _ = normalize_system_notification_conversation(&mut conversation);
-        }
-        expected_ids.insert(conversation.id.clone());
-        if write_conversation_shard(path, &conversation)? {
-            stats.conversation_writes += 1;
-        }
+        write_conversation_shard(path, conv)?;
     }
-    expected_ids.insert(SYSTEM_NOTIFICATION_CONVERSATION_ID.to_string());
-    if !system_notification_in_input && ensure_system_notification_conversation_shard(path)? {
-        stats.conversation_writes += 1;
-    }
-    if let Ok(entries) = fs::read_dir(app_layout_chat_conversations_dir(path)) {
-        for entry in entries.flatten() {
-            let p = entry.path();
-            let shard_id = if p.extension().and_then(|v| v.to_str()) == Some("json") {
-                p.file_stem()
-                    .and_then(|v| v.to_str())
-                    .unwrap_or_default()
-                    .to_string()
-            } else if p.is_dir() {
-                p.file_name()
-                    .and_then(|v| v.to_str())
-                    .unwrap_or_default()
-                    .to_string()
-            } else {
-                continue;
-            };
-            if !expected_ids.contains(&shard_id) {
-                match delete_conversation_shard(path, &shard_id) {
-                    Ok(true) => {
-                        stats.conversation_deletes += 1;
-                    }
-                    Ok(false) => {}
-                    Err(err) => runtime_log_warn(format!(
-                        "[应用数据写入] 状态=失败，任务=清理孤立会话分片，conversation_id={}，path={}，error={}",
-                        shard_id,
-                        p.display(),
-                        err
-                    )),
-                }
-            }
-        }
-    }
-    Ok(stats)
-}
-
-/// Compatibility-only full AppData writer.
-///
-/// New production code must not add new call sites to this function. Prefer shard APIs:
-/// `write_agents_shard`, `write_runtime_state_shard`, `write_conversation_shard`,
-/// and their cached state wrappers.
-///
-/// Migration timeline:
-/// - New code: forbidden immediately.
-/// - Existing compatibility / migration / import-export flows: temporarily allowed.
-/// - After compatibility-only callers are fully isolated, reevaluate final removal.
-#[deprecated(
-    note = "兼容层专用的全量 AppData 写入器；新代码禁止调用，请改用 agents/runtime_state/chat_index/conversation 分片写入 API。"
-)]
-fn write_app_data(path: &PathBuf, data: &AppData) -> Result<(), String> {
-    let started = std::time::Instant::now();
-    let stats = write_app_data_with_stats(path, data)?;
-    runtime_log_debug(format!(
-        "[应用数据写入] 任务=应用数据写入，状态=完成，触发=兼容层全量写入，agents_written={}，conversation_writes={}，conversation_deletes={}，duration_ms={}",
-        stats.agents_written,
-        stats.conversation_writes,
-        stats.conversation_deletes,
-        started.elapsed().as_millis()
-    ));
+    ensure_system_notification_conversation_shard(path)?;
     Ok(())
 }

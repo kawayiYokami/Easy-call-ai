@@ -3817,10 +3817,6 @@
             cached_app_data: Arc::new(Mutex::new(None)),
             cached_app_data_signature: Arc::new(Mutex::new(None)),
             cached_app_data_dirty: Arc::new(std::sync::atomic::AtomicBool::new(false)),
-            app_data_persist_pending: Arc::new(Mutex::new(None)),
-            app_data_persist_notify: Arc::new(tokio::sync::Notify::new()),
-            app_data_persist_started: Arc::new(std::sync::atomic::AtomicBool::new(false)),
-            app_data_persist_latest_seq: Arc::new(std::sync::atomic::AtomicU64::new(0)),
             conversation_persist_pending: Arc::new(Mutex::new(None)),
             conversation_persist_notify: Arc::new(tokio::sync::Notify::new()),
             conversation_persist_started: Arc::new(std::sync::atomic::AtomicBool::new(false)),
@@ -4127,7 +4123,7 @@
         assert_eq!(item.updated_at, conversation.updated_at);
         assert_eq!(item.status, conversation.status);
         assert_eq!(item.archived_at, conversation.archived_at);
-        assert!(!app_layout_chat_index_path(&state.data_path).exists());
+        assert!(!app_layout_chat_dir(&state.data_path).join("index.json").exists());
     }
 
     #[test]
@@ -4227,7 +4223,7 @@
             .conversations
             .iter()
             .any(|item| item.id == SYSTEM_NOTIFICATION_CONVERSATION_ID));
-        assert!(!app_layout_chat_index_path(&state.data_path).exists());
+        assert!(!app_layout_chat_dir(&state.data_path).join("index.json").exists());
     }
 
     #[test]
@@ -4248,7 +4244,7 @@
             .expect("chat index item");
         assert_eq!(item.status, conversation.status);
         assert_eq!(item.archived_at, conversation.archived_at);
-        assert!(!app_layout_chat_index_path(&state.data_path).exists());
+        assert!(!app_layout_chat_dir(&state.data_path).join("index.json").exists());
     }
 
     #[test]
@@ -4780,7 +4776,7 @@
         let chat_index = state_read_chat_index_cached(&state).expect("read memory chat index");
         assert_eq!(chat_index.conversations.len(), 1);
         assert_eq!(chat_index.conversations[0].id, conversation.id);
-        assert!(!app_layout_chat_index_path(&state.data_path).exists());
+        assert!(!app_layout_chat_dir(&state.data_path).join("index.json").exists());
     }
 
     #[test]
@@ -6530,7 +6526,7 @@
 
         let chat_index = state_read_chat_index_cached(&state).expect("read memory chat index");
         assert!(chat_index.conversations.is_empty());
-        assert!(!app_layout_chat_index_path(&state.data_path).exists());
+        assert!(!app_layout_chat_dir(&state.data_path).join("index.json").exists());
     }
 
     #[test]

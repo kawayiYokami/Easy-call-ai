@@ -423,15 +423,6 @@ fn message_store_backend_for_conversation<'a>(
                 ),
             ));
         }
-        if matches!(
-            (item.message_store_kind, item.migration_state),
-            (MessageStoreKind::JsonlEventLog, MessageStoreMigrationState::Ready)
-        ) {
-            return Err(format!(
-                "消息存储暂不支持读取 JSONL 事件日志，conversation_id={}",
-                conversation.id
-            ));
-        }
     }
     if let Some(reason) = manifest.and_then(|item| item.stale_jsonl_reason()) {
         runtime_log_warn(format!(
@@ -462,18 +453,6 @@ pub(super) fn read_ready_message_store_directory_conversation(
     ) {
         return read_message_store_directory_conversation_with_manifest(paths, manifest).map(Some);
     }
-    if matches!(
-        (manifest.message_store_kind, manifest.migration_state),
-        (
-            MessageStoreKind::JsonlEventLog,
-            MessageStoreMigrationState::Ready
-        )
-    ) {
-        return Err(format!(
-            "目录型会话暂不支持读取 JSONL 事件日志，path={}",
-            paths.manifest_file.display()
-        ));
-    }
     Ok(None)
 }
 
@@ -496,18 +475,6 @@ pub(super) fn read_ready_message_store_meta(
         let meta = read_conversation_shard_meta(&paths.meta_file)?;
         validate_conversation_shard_meta_id(paths, &meta)?;
         return Ok(Some(meta));
-    }
-    if matches!(
-        (manifest.message_store_kind, manifest.migration_state),
-        (
-            MessageStoreKind::JsonlEventLog,
-            MessageStoreMigrationState::Ready
-        )
-    ) {
-        return Err(format!(
-            "目录型会话暂不支持读取 JSONL 事件日志元数据，path={}",
-            paths.manifest_file.display()
-        ));
     }
     Ok(None)
 }
@@ -1671,18 +1638,6 @@ fn ready_jsonl_snapshot_store(
             paths.messages_file.clone(),
             paths.index_file.clone(),
         )));
-    }
-    if matches!(
-        (manifest.message_store_kind, manifest.migration_state),
-        (
-            MessageStoreKind::JsonlEventLog,
-            MessageStoreMigrationState::Ready
-        )
-    ) {
-        return Err(format!(
-            "目录型会话暂不支持读取 JSONL 事件日志，path={}",
-            paths.manifest_file.display()
-        ));
     }
     Ok(None)
 }
@@ -3737,33 +3692,6 @@ mod message_store_reader_tests {
 
         assert!(error.contains("与 blocks 不一致"));
         assert_eq!(stored_manifest.messages_jsonl_bytes(), manifest.messages_jsonl_bytes());
-        let _ = fs::remove_dir_all(root);
-    }
-
-    #[test]
-    fn message_store_status_should_not_mark_event_log_ready_as_supported() {
-        let root = std::env::temp_dir().join(format!(
-            "easy-call-message-store-event-log-status-{}",
-            Uuid::new_v4()
-        ));
-        let data_path = root.join("app_data.json");
-        let paths = message_store_paths(&data_path, "conversation-reader").expect("paths");
-        let conversation = test_conversation(vec![test_message("jsonl1", "assistant")]);
-        let mut manifest = MessageStoreManifest::jsonl_snapshot_building(&conversation);
-        manifest.message_store_kind = MessageStoreKind::JsonlEventLog;
-        manifest.migration_state = MessageStoreMigrationState::Ready;
-        write_message_store_manifest_atomic(&paths.manifest_file, &manifest)
-            .expect("write event log manifest");
-
-        let ready_status = read_ready_message_store_status(&paths).expect("read ready status");
-        let manifest_status = read_message_store_manifest_status(&paths)
-            .expect("read manifest status")
-            .expect("manifest status should exist");
-
-        assert!(ready_status.is_none());
-        assert_eq!(manifest_status.message_store_kind, "jsonlEventLog");
-        assert_eq!(manifest_status.migration_state, "ready");
-        assert!(!manifest_status.ready_jsonl);
         let _ = fs::remove_dir_all(root);
     }
 
