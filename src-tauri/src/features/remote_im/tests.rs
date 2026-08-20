@@ -4418,6 +4418,7 @@
         let mut behavior = RemoteImChannelBehaviorSettings::default();
         behavior.group_reply_pacing.positive_energy_phrases = vec!["谢谢".to_string()];
         behavior.group_reply_pacing.positive_energy_delta = 6.0;
+        behavior.group_reply_pacing.energy_recovery_per_second = 0.0;
         state_write_config_cached(
             &state,
             &AppConfig {
