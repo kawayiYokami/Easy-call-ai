@@ -241,7 +241,6 @@
                 :nodes="commitTreeNodes"
                 @expand="onCommitExpand"
                 @row-click="onCommitRowClick"
-                @contextmenu="onCommitContextMenu"
               >
                 <template #row="{ row, expanded, toggle }">
                   <!-- 父行：提交（整行点击展开懒加载 diff 文件列表） -->
@@ -249,6 +248,14 @@
                     <ChevronRight class="mt-0.5 h-3 w-3 shrink-0 opacity-50" :class="{ 'rotate-90': expanded }" />
                     <span class="min-w-0 flex-1 truncate">{{ row.node.data.entry.message }}</span>
                     <span class="shrink-0 opacity-50">{{ row.node.data.entry.author }}</span>
+                    <button
+                      type="button"
+                      class="btn btn-ghost btn-xs h-5 min-h-5 w-5 shrink-0 px-0"
+                      :title="t('gitPanel.moreActions')"
+                      @click.stop="openCommitMenu(row.node.data.entry, $event)"
+                    >
+                      <MoreHorizontal class="h-3.5 w-3.5" />
+                    </button>
                   </template>
                   <!-- 子节点：查看全部更改 -->
                   <template v-else-if="row.node.data.kind === 'all'">
@@ -416,7 +423,7 @@
         </div>
       </div>
 
-      <!-- commit 右键预览卡 -->
+      <!-- commit 操作菜单卡（行尾更多按钮打开） -->
       <div
         v-if="commitCard.entry"
         ref="commitCardRef"
@@ -478,6 +485,7 @@ import {
   GitCommitHorizontal,
   History,
   ListTree,
+  MoreHorizontal,
   Plus,
   RefreshCw,
   Rows3,
@@ -1325,10 +1333,18 @@ async function runCheckoutBranch(name: string) {
 const commitCard = ref<{ entry: GitPanelLogEntry | null; x: number; y: number }>({ entry: null, x: 0, y: 0 });
 const commitCardRef = ref<HTMLElement | null>(null);
 
-function openCommitCard(entry: GitPanelLogEntry, event: MouseEvent) {
+function openCommitMenu(entry: GitPanelLogEntry, event: MouseEvent) {
+  const anchor = (event.currentTarget as HTMLElement | null)?.getBoundingClientRect();
   const cardWidth = 288; // w-72
-  const x = Math.min(event.clientX, window.innerWidth - cardWidth - 8);
-  commitCard.value = { entry, x: Math.max(8, x), y: Math.max(8, event.clientY) };
+  const gap = 4;
+  // 默认锚定按钮下方；拿不到锚点时回退到鼠标位置
+  let x = anchor ? anchor.left : event.clientX;
+  let y = anchor ? anchor.bottom + gap : event.clientY;
+  // 卡片右侧溢出视口时左移
+  x = Math.min(x, window.innerWidth - cardWidth - 8);
+  commitCard.value = { entry, x: Math.max(8, x), y: Math.max(8, y) };
+  window.addEventListener("pointerdown", handleGlobalPointerDownForCommitCard, true);
+  window.addEventListener("keydown", handleCommitCardKeydown);
   // 卡片渲染后按实际高度校正：底部超出视口则上移，避免溢出屏幕
   void nextTick(() => {
     const el = commitCardRef.value;
@@ -1342,6 +1358,22 @@ function openCommitCard(entry: GitPanelLogEntry, event: MouseEvent) {
 
 function closeCommitCard() {
   commitCard.value = { entry: null, x: 0, y: 0 };
+  window.removeEventListener("pointerdown", handleGlobalPointerDownForCommitCard, true);
+  window.removeEventListener("keydown", handleCommitCardKeydown);
+}
+
+/** 点击卡片外部任意位置关闭 */
+function handleGlobalPointerDownForCommitCard(event: PointerEvent) {
+  if (!commitCard.value.entry) return;
+  const target = event.target as Node;
+  if (commitCardRef.value?.contains(target)) return;
+  closeCommitCard();
+}
+
+/** Escape 关闭 */
+function handleCommitCardKeydown(event: KeyboardEvent) {
+  if (event.key !== "Escape") return;
+  closeCommitCard();
 }
 
 /** 当前预览卡是否是最新提交（soft 撤销仅对 HEAD 生效） */
@@ -1464,13 +1496,6 @@ function commitChildren(hash: string): GitTreeNode<CommitNode>[] | undefined {
 function onCommitRowClick(row: GitTreeFlatRow<CommitNode>) {
   if (row.node.data.kind === "file") {
     openCommitFileDiff(row.node.data.hash, row.node.data.file);
-  }
-}
-
-/** 提交行右键：父行打开提交右键预览卡 */
-function onCommitContextMenu(row: GitTreeFlatRow<CommitNode>, event: MouseEvent) {
-  if (row.node.data.kind === "commit") {
-    openCommitCard(row.node.data.entry, event);
   }
 }
 

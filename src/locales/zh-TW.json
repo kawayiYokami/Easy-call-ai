@@ -2709,7 +2709,8 @@
     "branchCreated": "已建立分支",
     "resetSoftCommit": "撤銷最近一次提交",
     "resetSoftSuccess": "已撤銷最近一次提交，變更保留在暫存區",
-    "resetSoftPushed": "已經在遠端，無法軟回退"
+    "resetSoftPushed": "已經在遠端，無法軟回退",
+    "moreActions": "更多操作"
   },
   "simpleSetup": {
     "providerName": "簡單供應商",

@@ -2713,7 +2713,8 @@
     "branchCreated": "Branch created",
     "resetSoftCommit": "Undo last commit",
     "resetSoftSuccess": "Undid last commit, changes kept in staging",
-    "resetSoftPushed": "Already on remote, cannot soft reset"
+    "resetSoftPushed": "Already on remote, cannot soft reset",
+    "moreActions": "More actions"
   },
   "simpleSetup": {
     "providerName": "Simple Provider",

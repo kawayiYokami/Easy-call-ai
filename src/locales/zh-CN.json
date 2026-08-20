@@ -2713,7 +2713,8 @@
     "branchCreated": "已创建分支",
     "resetSoftCommit": "撤销最近一次提交",
     "resetSoftSuccess": "已撤销最近一次提交，改动保留在暂存区",
-    "resetSoftPushed": "已经在远端，无法软退回"
+    "resetSoftPushed": "已经在远端，无法软退回",
+    "moreActions": "更多操作"
   },
   "simpleSetup": {
     "providerName": "简单供应商",
