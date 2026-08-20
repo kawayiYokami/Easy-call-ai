@@ -1,7 +1,12 @@
 {
-  "generatedAt": "2026-08-19T12:58:46.055Z",
-  "latestVersion": "v0.70.0",
+  "generatedAt": "2026-08-20T18:57:24.159Z",
+  "latestVersion": "v0.71.0",
   "releases": [
+    {
+      "version": "v0.71.0",
+      "path": "docs/changelog/releases/v0.71.0.md",
+      "summary": "会话维护面板新增词元账单：展示上下文构成饼图、各分类词元数与占比、当前模型最大上下文、压缩预留区与剩余可用空间。"
+    },
     {
       "version": "v0.70.0",
       "path": "docs/changelog/releases/v0.70.0.md",
