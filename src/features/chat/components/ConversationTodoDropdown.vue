@@ -5,7 +5,7 @@
     class="pointer-events-none flex justify-center pb-1"
   >
     <div
-      class="todo-shell todo-mica group pointer-events-auto"
+      class="todo-shell bg-base-100/70 shadow backdrop-blur-md group pointer-events-auto"
       :class="{ 'todo-shell-expanded': expanded }"
       :aria-label="t('config.task.fields.todo')"
       @click.stop
@@ -14,7 +14,7 @@
     >
       <button
         type="button"
-        class="todo-header"
+        class="todo-header hover:bg-base-content/10"
         :aria-expanded="expanded"
         @click="toggleExpanded"
       >
@@ -155,17 +155,6 @@ function todoTextClass(status: NormalizedTodo["status"]): string {
 </script>
 
 <style scoped>
-/* 云母质感：半透明主体色 + 背景模糊，磨砂玻璃观感 */
-.todo-mica {
-  background: color-mix(in oklab, var(--color-base-100) 62%, transparent);
-  backdrop-filter: blur(20px) saturate(150%);
-  -webkit-backdrop-filter: blur(20px) saturate(150%);
-  border: 1px solid color-mix(in oklab, var(--color-base-content) 14%, transparent);
-  box-shadow:
-    0 12px 32px -16px rgb(0 0 0 / 0.35),
-    inset 0 1px 0 color-mix(in oklab, white 6%, transparent);
-}
-
 /* 折叠态：一行小条（固定行高），贴底圆角 */
 .todo-shell {
   width: 100%;
@@ -184,9 +173,6 @@ function todoTextClass(status: NormalizedTodo["status"]): string {
 .todo-shell-expanded {
   grid-template-rows: 0rem 1fr;
   border-radius: var(--radius-box, 1rem);
-  box-shadow:
-    0 24px 48px -20px rgb(0 0 0 / 0.45),
-    inset 0 1px 0 color-mix(in oklab, white 8%, transparent);
 }
 
 .todo-header {
@@ -202,10 +188,6 @@ function todoTextClass(status: NormalizedTodo["status"]): string {
   transition: background-color 180ms ease;
 }
 
-.todo-header:hover {
-  background: color-mix(in oklab, var(--color-base-content) 6%, transparent);
-}
-
 .todo-collapse-btn {
   position: absolute;
   top: 0.3rem;
@@ -219,10 +201,6 @@ function todoTextClass(status: NormalizedTodo["status"]): string {
   color: var(--color-base-content);
   border-radius: 9999px;
   transition: background-color 180ms ease;
-}
-
-.todo-collapse-btn:hover {
-  background: color-mix(in oklab, var(--color-base-content) 8%, transparent);
 }
 
 .todo-body {
