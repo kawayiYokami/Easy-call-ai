@@ -18,12 +18,12 @@
     >
       <div
         v-if="dropIndicator === 'before'"
-        class="pointer-events-none absolute left-2 right-2 top-0 h-[3px] -translate-y-1/2 rounded-full bg-neutral shadow-[0_0_0_1px_color-mix(in_srgb,hsl(var(--n))_28%,transparent)]"
+        class="pointer-events-none absolute left-2 right-2 top-0 h-[3px] -translate-y-1/2 rounded-full bg-neutral shadow-[0_0_0_1px_color-mix(in_oklab,var(--color-neutral)_28%,transparent)]"
         aria-hidden="true"
       ></div>
       <div
         v-if="dropIndicator === 'after'"
-        class="pointer-events-none absolute left-2 right-2 bottom-0 translate-y-1/2 rounded-full bg-neutral h-[3px] shadow-[0_0_0_1px_color-mix(in_srgb,hsl(var(--n))_28%,transparent)]"
+        class="pointer-events-none absolute left-2 right-2 bottom-0 translate-y-1/2 rounded-full bg-neutral h-[3px] shadow-[0_0_0_1px_color-mix(in_oklab,var(--color-neutral)_28%,transparent)]"
         aria-hidden="true"
       ></div>
       <ChevronRight

@@ -1637,10 +1637,7 @@ ul.ecall-md-list {
   top: 0.35rem;
   right: 0.35rem;
   z-index: 1;
-  color: color-mix(in srgb, var(--color-base-content) 54%, transparent);
-  background: color-mix(in srgb, var(--color-base-100) 68%, transparent);
   opacity: 0.58;
-  backdrop-filter: blur(6px);
 }
 
 .ecall-md-mermaid-shell:hover .ecall-md-mermaid-copy,
