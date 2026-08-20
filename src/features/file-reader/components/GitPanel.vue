@@ -172,13 +172,8 @@
         :class="{ 'flex-1': !historyCollapsed && (historyHeight === null || changesCollapsed) }"
         :style="!historyCollapsed && !changesCollapsed && historyHeight !== null ? { height: `${historyHeight}px` } : undefined"
       >
-        <!-- 下栏折叠条：折叠按钮 + 标题 + 分支名 + 刷新/同步/拉/推 -->
+        <!-- 下栏折叠条：折叠按钮 + 分支名 + 刷新/同步/拉/推 -->
         <GitSectionBar v-model="historyCollapsed">
-          <template #default>
-            <span class="text-xs font-medium opacity-70">
-              {{ activeGitTab === 'commits' ? t('gitPanel.commitHistory') : activeGitTab === 'stashes' ? t('gitPanel.stashesTab') : t('gitPanel.branchesTab') }}
-            </span>
-          </template>
           <template #actions>
             <button
               v-if="activeGitTab === 'commits'"
@@ -188,7 +183,7 @@
               @click="toggleBranchPicker"
             >
               <GitBranch class="h-3.5 w-3.5 shrink-0 opacity-70" />
-              <span class="max-w-28 truncate">{{ currentBranch || t('gitPanel.detachedHead') }}</span>
+              <span class="min-w-0 max-w-28 truncate">{{ currentBranch || t('gitPanel.detachedHead') }}</span>
               <ChevronUp class="h-3 w-3 shrink-0 opacity-50" :class="{ 'rotate-180': !branchPickerOpen }" />
             </button>
             <!-- 分支切换下拉（absolute 相对折叠条）：分组头为树根 + 分支子节点 -->
@@ -215,16 +210,16 @@
                 </template>
               </GitTree>
             </div>
-            <button v-if="activeGitTab === 'commits'" class="btn btn-ghost btn-xs h-6 min-h-6 w-6 px-0" type="button" :title="t('gitPanel.refresh')" :disabled="busy" @click="refreshHistory">
+            <button v-if="activeGitTab === 'commits'" class="btn btn-ghost btn-xs h-6 min-h-6 w-6 shrink-0 px-0" type="button" :title="t('gitPanel.refresh')" :disabled="busy" @click="refreshHistory">
               <RefreshCw class="h-3.5 w-3.5" :class="{ 'animate-spin': busy }" />
             </button>
-            <button v-if="activeGitTab === 'commits'" class="btn btn-ghost btn-xs h-6 min-h-6 w-6 px-0" type="button" :title="t('gitPanel.sync')" :disabled="busy" @click="runSync">
+            <button v-if="activeGitTab === 'commits'" class="btn btn-ghost btn-xs h-6 min-h-6 w-6 shrink-0 px-0" type="button" :title="t('gitPanel.sync')" :disabled="busy" @click="runSync">
               <CloudSync class="h-3.5 w-3.5" :class="{ 'animate-spin': busy }" />
             </button>
-            <button v-if="activeGitTab === 'commits'" class="btn btn-ghost btn-xs h-6 min-h-6 w-6 px-0" type="button" :title="t('gitPanel.pull')" :disabled="busy" @click="runPull">
+            <button v-if="activeGitTab === 'commits'" class="btn btn-ghost btn-xs h-6 min-h-6 w-6 shrink-0 px-0" type="button" :title="t('gitPanel.pull')" :disabled="busy" @click="runPull">
               <ArrowDownToLine class="h-3.5 w-3.5" />
             </button>
-            <button v-if="activeGitTab === 'commits'" class="btn btn-ghost btn-xs h-6 min-h-6 w-6 px-0" type="button" :title="t('gitPanel.push')" :disabled="busy" @click="runPush">
+            <button v-if="activeGitTab === 'commits'" class="btn btn-ghost btn-xs h-6 min-h-6 w-6 shrink-0 px-0" type="button" :title="t('gitPanel.push')" :disabled="busy" @click="runPush">
               <ArrowUpFromLine class="h-3.5 w-3.5" />
             </button>
           </template>

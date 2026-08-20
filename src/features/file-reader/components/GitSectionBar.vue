@@ -15,7 +15,7 @@
     <slot />
     <span class="flex-1"></span>
     <template v-if="!modelValue">
-      <div class="flex items-center gap-1" @click.stop>
+      <div class="flex min-w-0 flex-wrap items-center gap-1" @click.stop>
         <slot name="actions" />
       </div>
     </template>
