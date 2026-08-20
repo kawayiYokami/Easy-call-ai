@@ -6,10 +6,9 @@
     @pointerup="handleCardPointerUp"
     @pointerleave="handleCardPointerLeave"
   >
-    <!-- 完整项：头像 + 两行 + 菜单按钮 -->
+    <!-- 会话项统一模板：level 决定差异（full 头像 / sim+mini 指示灯，full+sim 两行 / mini 一行） -->
     <div
-      v-if="level === 'full'"
-      class="block rounded-lg px-2 text-left transition-colors hover:bg-base-100/70"
+      class="flex items-center gap-2 rounded-lg px-2 py-1 text-left transition-colors hover:bg-base-100/70"
       :class="[
         isActiveConversation ? 'bg-base-300 hover:bg-base-300' : 'bg-transparent',
         isConversationVisuallyOccupied ? 'opacity-60' : '',
@@ -17,12 +16,13 @@
       ]"
       :role="isActiveConversation ? undefined : 'button'"
       :tabindex="isActiveConversation ? undefined : 0"
-      :title="conversationItemTitle"
+      :title="level === 'full' ? conversationItemTitle : undefined"
       @click="handleConversationCardClick"
       @keydown.enter.prevent="handleConversationCardClick"
       @keydown.space.prevent="handleConversationCardClick"
     >
-      <div class="flex items-center gap-2 py-1">
+      <!-- 左侧：full 显示头像（含状态点/来源徽章），sim/mini 显示竖线指示灯 -->
+      <template v-if="level === 'full'">
         <div class="shrink-0">
           <div class="indicator">
             <span
@@ -48,16 +48,24 @@
                 role="button"
                 tabindex="0"
                 @click.stop="emit('revealSection')"
-                @keydown.enter.prevent="emit('revealSection')"
-                @keydown.space.prevent="emit('revealSection')"
+                @keydown.enter.stop.prevent="emit('revealSection')"
+                @keydown.space.stop.prevent="emit('revealSection')"
               >
                 {{ sourceBadgeLabel }}
               </span>
             </div>
           </div>
         </div>
+      </template>
+      <span v-else class="relative w-10 shrink-0 self-stretch" aria-hidden="true">
+        <span
+          class="absolute right-0 top-1 bottom-1 w-1 rounded-full transition-colors"
+          :class="simpleIndicatorClass"
+        ></span>
+      </span>
 
-        <div class="flex-1 min-w-0">
+      <!-- 右侧：第一行标题 + 时间，第二行摘要 + 状态区（full/sim 有，mini 无） -->
+      <div class="min-w-0 flex-1">
           <div class="flex items-start justify-between gap-1.5">
             <div class="flex min-w-0 items-center gap-1.5">
               <input
@@ -91,7 +99,7 @@
             </div>
           </div>
 
-          <div class="mt-1 flex items-center justify-between gap-2 text-xs">
+          <div v-if="level !== 'mini'" class="mt-1 flex items-center justify-between gap-2 text-xs">
             <span class="min-w-0 truncate opacity-60">
               {{ latestPreviewLine }}
             </span>
@@ -108,53 +116,6 @@
             </div>
           </div>
         </div>
-      </div>
-    </div>
-
-    <!-- 简单项：色条 + 一行/两行（normal 摘要常显，mini 折叠 hover 展开） -->
-    <div
-      v-else
-      class="group mx-1 flex w-[calc(100%-0.5rem)] cursor-pointer items-center rounded-lg py-1 pl-2 pr-2 text-left text-sm transition-colors hover:bg-base-100/70"
-      :class="isActiveConversation ? 'bg-base-300/60' : 'bg-transparent'"
-      :role="isActiveConversation ? undefined : 'button'"
-      :tabindex="isActiveConversation ? undefined : 0"
-      @click="handleConversationCardClick"
-      @keydown.enter.prevent="handleConversationCardClick"
-      @keydown.space.prevent="handleConversationCardClick"
-    >
-      <span class="relative w-10 shrink-0 self-stretch" aria-hidden="true">
-        <span
-          class="absolute right-0 top-1 bottom-1 w-1 rounded-full transition-colors"
-          :class="simpleIndicatorClass"
-        ></span>
-      </span>
-      <span class="min-w-0 flex-1 pl-2">
-        <span class="flex min-w-0 items-center justify-between gap-2">
-          <input
-            v-if="editing"
-            :ref="setRenameInputRef"
-            v-model="editingTitleDraft"
-            type="text"
-            class="input input-bordered input-sm h-8 min-h-0 w-full max-w-full text-sm font-medium"
-            @click.stop
-            @mousedown.stop
-            @keydown.enter.prevent="commitTitleEdit"
-            @keydown.esc.prevent="cancelTitleEdit"
-            @blur="commitTitleEdit"
-          />
-          <span
-            v-else-if="canRename"
-            class="min-w-0 cursor-pointer truncate rounded px-0.5 font-medium hover:bg-base-300/70"
-            @click.stop="startTitleEdit"
-          >{{ displayTitle }}</span>
-          <span v-else class="min-w-0 truncate font-medium">{{ displayTitle }}</span>
-          <span class="shrink-0 tabular-nums text-xs text-base-content/45">{{ formatTime(item.updatedAt) }}</span>
-        </span>
-        <span
-          class="block truncate text-xs transition-all duration-200"
-          :class="summaryClass"
-        >{{ latestPreviewLine }}</span>
-      </span>
     </div>
 
     <FloatingConversationMenu
@@ -236,7 +197,6 @@ import {
   conversationRuntimeBusy,
   conversationSimpleIndicatorClass,
   conversationStatusIndicatorTone,
-  conversationSummaryClass,
   conversationUnreadBadge,
   type ConversationItemLevel,
 } from "../utils/conversation-item-display";
@@ -457,8 +417,6 @@ const sourceBadgeLabel = computed(() => {
 const simpleIndicatorClass = computed(() =>
   conversationSimpleIndicatorClass(props.item, unreadBadge.value, normalizedPreviewMessages.value),
 );
-
-const summaryClass = computed(() => conversationSummaryClass(props.level));
 
 // ==================== 操作 ====================
 

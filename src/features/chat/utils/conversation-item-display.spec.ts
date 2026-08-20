@@ -5,7 +5,6 @@ import {
   conversationRuntimeBusy,
   conversationSimpleIndicatorClass,
   conversationStatusIndicatorTone,
-  conversationSummaryClass,
   conversationUnreadBadge,
   hasUnreadOrRecentActivity,
   simpleConversationItemLevel,
@@ -145,19 +144,5 @@ describe("conversationSimpleIndicatorClass", () => {
       preview({ role: "assistant" }),
     ];
     expect(conversationSimpleIndicatorClass(item({}), "", previews)).toBe("bg-success");
-  });
-});
-
-describe("conversationSummaryClass", () => {
-  it("sim 摘要常显两行", () => {
-    expect(conversationSummaryClass("sim")).toBe("max-h-8 opacity-60");
-  });
-
-  it("mini 折叠一行、hover 展开", () => {
-    expect(conversationSummaryClass("mini")).toBe("max-h-0 opacity-0 group-hover:max-h-8 group-hover:opacity-60");
-  });
-
-  it("full 无摘要行（不参与简单项摘要逻辑）", () => {
-    expect(conversationSummaryClass("full")).toBe("max-h-0 opacity-0 group-hover:max-h-8 group-hover:opacity-60");
   });
 });

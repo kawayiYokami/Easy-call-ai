@@ -88,9 +88,3 @@ export function conversationSimpleIndicatorClass(
   }
   return "bg-success";
 }
-
-/** 摘要行显隐：sim 常显两行；mini 折叠一行、hover 展开 */
-export function conversationSummaryClass(level: ConversationItemLevel): string {
-  if (level === "sim") return "max-h-8 opacity-60";
-  return "max-h-0 opacity-0 group-hover:max-h-8 group-hover:opacity-60";
-}
