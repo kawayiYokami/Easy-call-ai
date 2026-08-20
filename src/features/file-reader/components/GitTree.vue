@@ -210,6 +210,8 @@ function onRowClick(row: GitTreeFlatRow<T>, event: MouseEvent) {
 
 function onRowContextMenu(row: GitTreeFlatRow<T>, event: MouseEvent) {
   if (row.node.interactive === false) return;
+  // 统一阻止原生浏览器菜单，避免与使用方自定义菜单同时出现
+  event.preventDefault();
   emit("contextmenu", row, event);
 }
 
