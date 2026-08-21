@@ -1,7 +1,12 @@
 {
-  "generatedAt": "2026-08-20T18:57:24.159Z",
-  "latestVersion": "v0.71.0",
+  "generatedAt": "2026-08-21T23:56:18.431Z",
+  "latestVersion": "v0.72.0",
   "releases": [
+    {
+      "version": "v0.72.0",
+      "path": "docs/changelog/releases/v0.72.0.md",
+      "summary": "模型选择下拉改为两层：上层选模型、底部滑动条直接调节思考等级；每个模型会记住上次使用的思考等级，切换时自动恢复；模型按钮上的思考等级始终可见，模型名过长也不会被截断"
+    },
     {
       "version": "v0.71.0",
       "path": "docs/changelog/releases/v0.71.0.md",
