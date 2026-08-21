@@ -1162,10 +1162,6 @@ fn chat_metadata_store_append_messages(
             Some(block_id) => chat_metadata_store_read_locators_for_block(paths, block_id)?,
             None => Vec::new(),
         };
-        let tail_messages = read_jsonl_snapshot_messages_by_index_items(
-            &paths.messages_file,
-            &tail_rows.iter().map(|row| row.item.clone()).collect::<Vec<_>>(),
-        )?;
         let mut known_ids = std::collections::HashSet::<String>::new();
         for message in messages {
             let id = message.id.trim();
@@ -1174,9 +1170,49 @@ fn chat_metadata_store_append_messages(
             }
         }
         let entries = messages.iter().map(|message| (meta, message)).collect::<Vec<_>>();
-        let plan = plan_appended_message_blocks(tail_messages.last(), &entries);
+        // 只读尾行消息用于块规划，避免全读尾块（物理追加场景不需要旧行内容）
+        let tail_last_message = match tail_rows.last() {
+            Some(row) => read_jsonl_snapshot_messages_by_index_items(
+                &paths.messages_file,
+                std::slice::from_ref(&row.item),
+            )?
+            .into_iter()
+            .next(),
+            None => None,
+        };
+        let plan = plan_appended_message_blocks(tail_last_message.as_ref(), &entries);
         let existing_block_count = if last_block_id.is_some() { chat_metadata_store_read_block_count(paths)? } else { 0 };
         let total_block_count = existing_block_count + plan.groups.len() - usize::from(plan.continue_last_block && last_block_id.is_some());
+        // 物理追加快速路径：延续尾块 + 单组新消息 + 非 slim（活跃会话普通追加）
+        if plan.continue_last_block && plan.groups.len() == 1 {
+            let block_id = last_block_id.ok_or_else(|| "追加 SQLite 消息失败：缺少尾 block".to_string())?;
+            let should_slim = should_slim_conversation_block(
+                meta.status.trim() == "archived",
+                block_id as usize,
+                total_block_count,
+            );
+            if !should_slim {
+                let tail_row = tail_rows
+                    .last()
+                    .cloned()
+                    .ok_or_else(|| "追加 SQLite 消息失败：尾 block 缺少消息".to_string())?;
+                // 物理追加只插入新行 locator（不重插旧行），sequence 从尾行之后顺延
+                let first_sequence = tail_rows.last().map(|row| row.sequence + 1).unwrap_or(count as i64);
+                return chat_metadata_store_append_physical(
+                    paths,
+                    &shard_meta,
+                    block_id,
+                    &tail_row,
+                    &plan.groups[0],
+                    tail_rows.len(),
+                    first_sequence,
+                );
+            }
+        }
+        let tail_messages = read_jsonl_snapshot_messages_by_index_items(
+            &paths.messages_file,
+            &tail_rows.iter().map(|row| row.item.clone()).collect::<Vec<_>>(),
+        )?;
         let mut changed_blocks = Vec::<JsonlSnapshotConversationBlock>::new();
         let mut rows = Vec::<(i64, MessageStoreIndexItem)>::new();
         let mut next_sequence = if plan.continue_last_block {
@@ -1241,6 +1277,192 @@ fn chat_metadata_store_append_messages(
         }
         chat_metadata_store_publish_blocks(paths, &shard_meta, &changed_blocks, &[], &rows)
     })
+}
+
+/// 物理追加：新消息直接写尾块文件尾，成功后更新 SQLite。
+///
+/// 适用场景：延续尾块 + 单组新消息 + 非 slim（活跃会话普通追加：用户消息、远程联系人消息）。
+/// 与替换（全量重建）分开：追加不读旧数据、不重建，只在文件尾追加明文行；offset 从尾行末尾顺延。
+/// 崩溃一致性：先写文件、后提交 SQLite；文件尾残留的孤儿字节（上次追加写成功但 SQLite 未提交）
+/// 在下次追加前截断。不登记 storage_operations（追加是幂等自愈的，recover 机制不感知）。
+fn chat_metadata_store_append_physical(
+    paths: &MessageStorePaths,
+    meta: &ConversationShardMeta,
+    block_id: u32,
+    tail_row: &ChatMetadataLocator,
+    new_messages: &[ChatMessage],
+    existing_block_message_count: usize,
+    first_sequence: i64,
+) -> Result<MessageStoreDirectorySnapshotWrite, String> {
+    let publication_gate = chat_metadata_store_publication_gate(paths);
+    let _publication_guard = publication_gate.write().unwrap_or_else(|poison| poison.into_inner());
+
+    // 1. 序列化新消息为明文行，offset 从尾行末尾顺延
+    let mut new_bytes = Vec::<u8>::new();
+    let mut items = Vec::<MessageStoreIndexItem>::with_capacity(new_messages.len());
+    let mut offset = tail_row.item.offset + tail_row.item.byte_len;
+    for message in new_messages {
+        let encoded = encode_jsonl_snapshot_message(message)?;
+        let byte_len = encoded.as_bytes().len() as u64;
+        let item = message_store_index_item_for_message_in_block(
+            message,
+            Some(block_id),
+            offset,
+            byte_len,
+        );
+        if item.compaction_kind.is_none() && message_store_compaction_kind(message).is_some() {
+            return Err(format!(
+                "追加 SQLite 消息失败：追加消息带压缩边界但未开新块，message_id={}",
+                message.id
+            ));
+        }
+        new_bytes.extend_from_slice(encoded.as_bytes());
+        items.push(item);
+        offset = offset.checked_add(byte_len).ok_or_else(|| {
+            format!(
+                "追加 SQLite 消息失败：block offset 溢出，conversation_id={}，block_id={}",
+                paths.conversation_id, block_id
+            )
+        })?;
+    }
+
+    // 2. 文件：孤儿尾部清理 + 物理追加
+    let block_file = format!("{MESSAGE_STORE_BLOCKS_DIR_NAME}/{block_id:06}.jsonl");
+    let block_path = paths.shard_dir.join(&block_file);
+    let expected_len = tail_row.item.offset + tail_row.item.byte_len;
+    let file_len = fs::metadata(&block_path)
+        .map_err(|err| {
+            format!(
+                "追加 SQLite 消息失败：读取块文件元数据失败，path={}，error={err}",
+                block_path.display()
+            )
+        })?
+        .len();
+    if file_len < expected_len {
+        return Err(format!(
+            "追加 SQLite 消息失败：块文件长度小于索引期望，path={}，file_len={}，expected={}，conversation_id={}",
+            block_path.display(),
+            file_len,
+            expected_len,
+            paths.conversation_id
+        ));
+    }
+    if file_len > expected_len {
+        runtime_log_warn(format!(
+            "[消息存储] 追加前清理孤儿尾部字节，conversation_id={}，block_id={}，path={}，file_len={}，expected={}",
+            paths.conversation_id,
+            block_id,
+            block_path.display(),
+            file_len,
+            expected_len
+        ));
+        fs::OpenOptions::new()
+            .write(true)
+            .open(&block_path)
+            .map_err(|err| {
+                format!(
+                    "追加 SQLite 消息失败：打开块文件失败（清理孤儿），path={}，error={err}",
+                    block_path.display()
+                )
+            })?
+            .set_len(expected_len)
+            .map_err(|err| {
+                format!(
+                    "追加 SQLite 消息失败：截断块文件失败（清理孤儿），path={}，error={err}",
+                    block_path.display()
+                )
+            })?;
+    }
+    {
+        use std::io::Write as _;
+        let mut file = fs::OpenOptions::new()
+            .append(true)
+            .open(&block_path)
+            .map_err(|err| {
+                format!(
+                    "追加 SQLite 消息失败：打开块文件失败（追加），path={}，error={err}",
+                    block_path.display()
+                )
+            })?;
+        file.write_all(&new_bytes).map_err(|err| {
+            format!(
+                "追加 SQLite 消息失败：追加写入块文件失败，path={}，error={err}",
+                block_path.display()
+            )
+        })?;
+    }
+
+    // 3. SQLite 事务：更新块元数据、插入 locator、递增 revision
+    let mut conn = chat_metadata_store_open(&paths.data_path)?;
+    let before_revision = conn
+        .query_row(
+            "SELECT storage_revision FROM conversation_metadata WHERE conversation_id=?1",
+            [&paths.conversation_id],
+            |row| row.get::<_, i64>(0),
+        )
+        .optional()
+        .map_err(|err| format!("读取 SQLite storage revision 失败: {err}"))?
+        .ok_or_else(|| format!("SQLite 会话不存在，conversation_id={}", paths.conversation_id))?;
+    let transaction = conn
+        .transaction_with_behavior(TransactionBehavior::Immediate)
+        .map_err(|err| format!("开启 SQLite 追加事务失败: {err}"))?;
+    let new_message_count = existing_block_message_count + new_messages.len();
+    let new_byte_len = expected_len + new_bytes.len() as u64;
+    let updated_block = transaction
+        .execute(
+            "UPDATE conversation_blocks SET byte_len=?1, message_count=?2 WHERE conversation_id=?3 AND block_id=?4",
+            rusqlite::params![new_byte_len as i64, new_message_count as i64, paths.conversation_id, block_id as i64],
+        )
+        .map_err(|err| format!("更新 SQLite block 失败: {err}"))?;
+    if updated_block != 1 {
+        return Err(format!(
+            "追加 SQLite 消息失败：block 不存在，conversation_id={}，block_id={}",
+            paths.conversation_id, block_id
+        ));
+    }
+    let meta_json = serde_json::to_string(meta).map_err(|err| format!("序列化 SQLite metadata 失败: {err}"))?;
+    let updated = transaction
+        .execute(
+            "UPDATE conversation_metadata SET metadata_json=?1, storage_revision=?2, updated_at=?3
+             WHERE conversation_id=?4 AND storage_revision=?5",
+            rusqlite::params![
+                meta_json,
+                before_revision + 1,
+                meta.updated_at(),
+                paths.conversation_id,
+                before_revision
+            ],
+        )
+        .map_err(|err| format!("发布 SQLite metadata 失败: {err}"))?;
+    if updated != 1 {
+        return Err(format!(
+            "追加 SQLite 消息失败：metadata revision 冲突，conversation_id={}",
+            paths.conversation_id
+        ));
+    }
+    let mut sequence = first_sequence;
+    for item in &items {
+        transaction
+            .execute(
+                "INSERT INTO message_locator(conversation_id, sequence, message_id, block_id, byte_offset, byte_len, compaction_kind, role, created_at)
+                 VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+                rusqlite::params![
+                    paths.conversation_id,
+                    sequence,
+                    item.message_id,
+                    block_id as i64,
+                    item.offset as i64,
+                    item.byte_len as i64,
+                    item.compaction_kind,
+                    item.role,
+                    item.created_at
+                ],
+            )
+            .map_err(|err| format!("写入 SQLite locator 失败: {err}"))?;
+        sequence += 1;
+    }
+    transaction.commit().map_err(|err| format!("提交 SQLite 追加事务失败: {err}"))?;
+    chat_metadata_store_write_result(&conn, paths)
 }
 
 fn chat_metadata_store_read_block_count(paths: &MessageStorePaths) -> Result<usize, String> {
@@ -2672,6 +2894,125 @@ fn v3_chat_metadata_block_reader_should_stop_at_block_boundary() {
     )
     .expect("count current SQLite block messages");
     assert_eq!(block_message_count, 3);
+    let _ = fs::remove_dir_all(root);
+}
+
+
+#[cfg(test)]
+#[test]
+fn v3_chat_metadata_physical_append_should_append_bytes_without_rebuilding() {
+    let root = std::env::temp_dir().join(format!("eca-chat-v3-physical-append-{}", Uuid::new_v4()));
+    let data_path = root.join("app_data.json");
+    let message = |id: &str, role: &str| ChatMessage {
+        id: id.to_string(), role: role.to_string(), created_at: now_iso(), speaker_agent_id: None,
+        parts: vec![MessagePart::Text { text: id.to_string(), reasoning_content: None }], extra_text_blocks: Vec::new(), provider_meta: None, tool_call: None, mcp_call: None, meme_annotations: None,
+    };
+    let mut conversation = Conversation {
+        id: "conv-v3-physical-append".to_string(), title: "physical append".to_string(), agent_id: DEFAULT_AGENT_ID.to_string(), department_id: String::new(), bound_conversation_id: None, parent_conversation_id: None, child_conversation_ids: Vec::new(), fork_message_cursor: None, unread_count: 0, conversation_kind: CONVERSATION_KIND_CHAT.to_string(), root_conversation_id: None, delegate_id: None, created_at: now_iso(), updated_at: now_iso(), last_user_at: None, last_assistant_at: None, status: "active".to_string(), user_profile_snapshot: String::new(), shell_workspace_path: None, shell_workspaces: Vec::new(), shell_autonomous_mode: false, shell_work_mode: default_shell_work_mode(), archived_at: None, messages: Vec::new(), fast_request_turns: Vec::new(), current_todos: Vec::new(), memory_recall_table: Vec::new(), plan_mode_enabled: false, preferred_api_config_id: None, auto_push_remote_contact_id: None, active_goal: None, cumulative_usage: ConversationCumulativeUsage::default(),
+    };
+    conversation.messages.push(message("m1", "user"));
+    let paths = message_store_paths(&data_path, &conversation.id).expect("paths");
+    write_jsonl_snapshot_directory_shard(&paths, &conversation).expect("write v2 fixture");
+    chat_metadata_store_run_v3_migration(&data_path).expect("migrate v3");
+
+    let block_path = paths.shard_dir.join(format!("{MESSAGE_STORE_BLOCKS_DIR_NAME}/000000.jsonl"));
+    let before_bytes = fs::read(&block_path).expect("read block before append");
+
+    let mut after_append = conversation.clone();
+    after_append.messages.push(message("m2", "assistant"));
+    chat_metadata_store_append_messages(
+        &paths,
+        &ConversationPersistMeta::from_conversation(&after_append),
+        &after_append.messages[1..],
+    )
+    .expect("physical append");
+
+    // 1. 块文件 = 旧字节原样 + 新行（物理追加，未重建前缀）
+    let after_bytes = fs::read(&block_path).expect("read block after append");
+    assert!(after_bytes.starts_with(&before_bytes), "物理追加应原样保留旧字节");
+    assert!(after_bytes.len() > before_bytes.len());
+
+    // 2. 读取一致
+    let read_messages = chat_metadata_store_read_conversation(&paths)
+        .expect("read conversation")
+        .expect("conversation exists");
+    assert_eq!(read_messages.messages.len(), 2);
+    assert_eq!(read_messages.messages[1].id, "m2");
+
+    // 3. locator 顺延：m2 offset = m1 末尾，sequence 连续
+    let m1 = chat_metadata_store_read_locator_by_id(&paths, "m1").expect("read m1 locator").expect("m1 exists");
+    let m2 = chat_metadata_store_read_locator_by_id(&paths, "m2").expect("read m2 locator").expect("m2 exists");
+    assert_eq!(m2.item.offset, m1.item.offset + m1.item.byte_len);
+    assert_eq!(m2.sequence, m1.sequence + 1);
+    assert_eq!(after_bytes.len() as u64, m2.item.offset + m2.item.byte_len);
+
+    // 4. 再追加一条：仍然物理追加、sequence 继续顺延
+    let mut after_append2 = after_append.clone();
+    after_append2.messages.push(message("m3", "user"));
+    chat_metadata_store_append_messages(
+        &paths,
+        &ConversationPersistMeta::from_conversation(&after_append2),
+        &after_append2.messages[2..],
+    )
+    .expect("second physical append");
+    let m3 = chat_metadata_store_read_locator_by_id(&paths, "m3").expect("read m3 locator").expect("m3 exists");
+    assert_eq!(m3.sequence, m2.sequence + 1);
+    assert_eq!(
+        chat_metadata_store_read_conversation(&paths).expect("read conversation").expect("conversation").messages.len(),
+        3
+    );
+    let _ = fs::remove_dir_all(root);
+}
+
+#[cfg(test)]
+#[test]
+fn v3_chat_metadata_physical_append_should_truncate_orphan_tail_bytes() {
+    let root = std::env::temp_dir().join(format!("eca-chat-v3-orphan-tail-{}", Uuid::new_v4()));
+    let data_path = root.join("app_data.json");
+    let message = |id: &str, role: &str| ChatMessage {
+        id: id.to_string(), role: role.to_string(), created_at: now_iso(), speaker_agent_id: None,
+        parts: vec![MessagePart::Text { text: id.to_string(), reasoning_content: None }], extra_text_blocks: Vec::new(), provider_meta: None, tool_call: None, mcp_call: None, meme_annotations: None,
+    };
+    let mut conversation = Conversation {
+        id: "conv-v3-orphan-tail".to_string(), title: "orphan tail".to_string(), agent_id: DEFAULT_AGENT_ID.to_string(), department_id: String::new(), bound_conversation_id: None, parent_conversation_id: None, child_conversation_ids: Vec::new(), fork_message_cursor: None, unread_count: 0, conversation_kind: CONVERSATION_KIND_CHAT.to_string(), root_conversation_id: None, delegate_id: None, created_at: now_iso(), updated_at: now_iso(), last_user_at: None, last_assistant_at: None, status: "active".to_string(), user_profile_snapshot: String::new(), shell_workspace_path: None, shell_workspaces: Vec::new(), shell_autonomous_mode: false, shell_work_mode: default_shell_work_mode(), archived_at: None, messages: Vec::new(), fast_request_turns: Vec::new(), current_todos: Vec::new(), memory_recall_table: Vec::new(), plan_mode_enabled: false, preferred_api_config_id: None, auto_push_remote_contact_id: None, active_goal: None, cumulative_usage: ConversationCumulativeUsage::default(),
+    };
+    conversation.messages.push(message("m1", "user"));
+    let paths = message_store_paths(&data_path, &conversation.id).expect("paths");
+    write_jsonl_snapshot_directory_shard(&paths, &conversation).expect("write v2 fixture");
+    chat_metadata_store_run_v3_migration(&data_path).expect("migrate v3");
+
+    // 模拟上次追加崩溃残留：块文件尾有未登记 locator 的孤儿字节
+    let block_path = paths.shard_dir.join(format!("{MESSAGE_STORE_BLOCKS_DIR_NAME}/000000.jsonl"));
+    {
+        use std::io::Write as _;
+        let mut file = fs::OpenOptions::new().append(true).open(&block_path).expect("open block for orphan");
+        file.write_all(b"{\"orphan\":true}\n").expect("append orphan bytes");
+    }
+
+    // 追加 m2：应截断孤儿后再物理追加
+    let mut after_append = conversation.clone();
+    after_append.messages.push(message("m2", "assistant"));
+    chat_metadata_store_append_messages(
+        &paths,
+        &ConversationPersistMeta::from_conversation(&after_append),
+        &after_append.messages[1..],
+    )
+    .expect("append after orphan");
+
+    let after_bytes = fs::read(&block_path).expect("read block after orphan cleanup");
+    let content = String::from_utf8(after_bytes.clone()).expect("block utf8");
+    assert!(!content.contains("orphan"), "孤儿字节应被截断");
+
+    // 文件尾 = 最后登记行末尾（m2 offset+len），无残留
+    let m2 = chat_metadata_store_read_locator_by_id(&paths, "m2").expect("read m2 locator").expect("m2 exists");
+    assert_eq!(after_bytes.len() as u64, m2.item.offset + m2.item.byte_len);
+
+    // 读取一致
+    let read_messages = chat_metadata_store_read_conversation(&paths)
+        .expect("read conversation")
+        .expect("conversation exists");
+    assert_eq!(read_messages.messages.len(), 2);
+    assert_eq!(read_messages.messages[1].id, "m2");
     let _ = fs::remove_dir_all(root);
 }
 
