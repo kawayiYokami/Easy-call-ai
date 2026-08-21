@@ -89,6 +89,7 @@
     @stop-chat="runtime.stop"
     @clear-chat-error="clearChatError"
     @load-older-history="runtime.loadOlderHistory"
+    @update:conversation-preferred-api-config-id="handleConversationPreferredApiConfigIdChange"
     @recall-turn="runtime.handleRecallTurn"
     @regenerate-turn="runtime.handleRegenerateTurn"
     @create-conversation-branch-from-turn="props.createConversationBranchFromTurn"
@@ -101,10 +102,12 @@
 
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, toRef } from "vue";
-import type { ApiConfigItem, PromptCommandPreset, ShellWorkspace } from "../../../types/app";
+import type { ApiConfigItem, AppConfig, PromptCommandPreset, ShellWorkspace } from "../../../types/app";
 import ChatView from "./ChatView.vue";
 import { useChatMessageBlocks } from "../composables/use-chat-turns";
 import { useConversationViewRuntime } from "../composables/use-conversation-view-runtime";
+import { useConversationPreferredModel } from "../composables/use-conversation-preferred-model";
+import { isTextRequestFormat } from "../../config/quick-setup/usable-text-llm";
 import { isViewLayerBusy } from "../composables/chat-view-busy";
 import { getActiveChatComposerScope, clearChatComposerFocus } from "../composables/chat-composer-focus";
 import { collectPastedFiles, ingestPastedImages } from "../composables/chat-paste-ingest";
@@ -131,6 +134,7 @@ const props = defineProps<{
   workspaces: ShellWorkspace[];
   workspaceAccess: "read_only" | "approval" | "full_access";
   currentTheme: string;
+  config: AppConfig;
   terminalApprovals?: TerminalApprovalConversationItem[];
   terminalApprovalResolving?: boolean;
   approveTerminalApproval?: (requestId: string) => void;
@@ -162,6 +166,19 @@ const runtime = useConversationViewRuntime({
 const activeApiConfig = computed(() =>
   props.chatModelOptions.find((item) => item.id === runtime.preferredApiConfigId.value) || null,
 );
+const { updateConversationPreferredApiConfigId } = useConversationPreferredModel({
+  config: props.config,
+  currentChatConversationId: conversationId,
+  currentChatPreferredApiConfigId: runtime.preferredApiConfigId,
+  isTextRequestFormat,
+  setStatus: () => {},
+  setStatusError: (key: string, error: unknown) => {
+    console.error("[追问会话模型] 保存失败", { key, error });
+  },
+});
+function handleConversationPreferredApiConfigIdChange(value: string) {
+  updateConversationPreferredApiConfigId(value);
+}
 const messageBlocks = useChatMessageBlocks({
   allMessages: runtime.allMessages,
   activeChatApiConfig: activeApiConfig,

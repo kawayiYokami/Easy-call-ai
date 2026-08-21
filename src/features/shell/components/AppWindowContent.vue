@@ -318,6 +318,7 @@
               :persona-avatar-url-map="chatPersonaAvatarUrlMap"
               :chat-model-options="textCapableApiConfigs"
               :instruction-presets="instructionPresets"
+              :config="config"
               :workspace-name="currentChatWorkspaceDisplayName"
               :workspace-root-path="currentChatWorkspaceRootPath"
               :workspaces="currentChatWorkspaces"
