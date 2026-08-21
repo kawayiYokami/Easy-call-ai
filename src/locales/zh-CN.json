@@ -1630,7 +1630,7 @@
     "conversationSearchPlaceholder": "搜索会话标题或最近两条消息",
     "conversationSearchEmpty": "没有匹配的会话",
     "userAvatarAlt": "我",
-    "pinConversation": "置顶会话",
+    "pinConversation": "移动到置顶分组",
     "unpinConversation": "取消置顶",
     "batchArchive": {
       "title": "批量归档",

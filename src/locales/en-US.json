@@ -1503,7 +1503,7 @@
     "conversationSearchPlaceholder": "Search title or last two messages",
     "conversationSearchEmpty": "No matching conversations",
     "userAvatarAlt": "Me",
-    "pinConversation": "Pin conversation",
+    "pinConversation": "Move to pinned group",
     "unpinConversation": "Unpin conversation",
     "batchArchive": {
       "title": "Batch Archive",
