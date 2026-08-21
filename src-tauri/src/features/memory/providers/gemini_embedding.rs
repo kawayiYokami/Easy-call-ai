@@ -49,7 +49,7 @@ impl MemoryEmbeddingProvider for GeminiEmbeddingProvider {
 
         memory_run_async(async move {
             let client = reqwest::Client::builder()
-                .timeout(std::time::Duration::from_secs(60))
+                .timeout(std::time::Duration::from_secs(5))
                 .build()
                 .map_err(|err| format!("Build Gemini embedding HTTP client failed: {err}"))?;
             let resp = client
