@@ -130,27 +130,6 @@ fn sync_cached_app_data_signature(state: &AppState) -> Result<(), String> {
     Ok(())
 }
 
-#[derive(Debug, Clone, serde::Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct ChatIndexStorageMeta {
-    id: String,
-    updated_at: String,
-    status: String,
-    #[serde(default)]
-    archived_at: Option<String>,
-}
-
-fn build_chat_index_item_from_storage_meta(
-    meta: &ChatIndexStorageMeta,
-) -> ChatIndexConversationItem {
-    ChatIndexConversationItem {
-        id: meta.id.clone(),
-        updated_at: meta.updated_at.clone(),
-        status: meta.status.clone(),
-        archived_at: meta.archived_at.clone(),
-    }
-}
-
 fn sort_chat_index_items(items: &mut Vec<ChatIndexConversationItem>) {
     items.sort_by(|a, b| {
         a.updated_at
@@ -162,58 +141,7 @@ fn sort_chat_index_items(items: &mut Vec<ChatIndexConversationItem>) {
 fn collect_chat_index_items_from_storage(
     data_path: &PathBuf,
 ) -> Result<Vec<ChatIndexConversationItem>, String> {
-    if let Some(items) = message_store::chat_metadata_store_list_chat_index(data_path)? {
-        return Ok(items);
-    }
-    let conv_dir = app_layout_chat_conversations_dir(data_path);
-    if !conv_dir.exists() {
-        return Ok(Vec::new());
-    }
-    let mut items =
-        std::collections::HashMap::<String, ChatIndexConversationItem>::new();
-    let entries = fs::read_dir(&conv_dir)
-        .map_err(|err| format!("读取会话目录失败，path={}，error={err}", conv_dir.display()))?;
-    for entry in entries {
-        let entry = match entry {
-            Ok(item) => item,
-            Err(_) => continue,
-        };
-        let path = entry.path();
-        if path.is_dir() {
-            let meta_path = path.join("meta.json");
-            if !meta_path.exists() {
-                continue;
-            }
-            let meta = match read_json_file::<ChatIndexStorageMeta>(&meta_path, "conversation meta") {
-                Ok(value) => value,
-                Err(_) => continue,
-            };
-            let item = build_chat_index_item_from_storage_meta(&meta);
-            items.insert(item.id.clone(), item);
-            continue;
-        }
-        if path.extension().and_then(|value| value.to_str()) != Some("json") {
-            continue;
-        }
-        let conversation_id = path
-            .file_stem()
-            .and_then(|value| value.to_str())
-            .unwrap_or_default()
-            .trim()
-            .to_string();
-        if conversation_id.is_empty() {
-            continue;
-        }
-        let conversation = match read_conversation_shard(data_path, &conversation_id) {
-            Ok(value) => value,
-            Err(_) => continue,
-        };
-        items.insert(
-            conversation.id.clone(),
-            build_chat_index_item(&conversation),
-        );
-    }
-    Ok(items.into_values().collect())
+    Ok(message_store::chat_metadata_store_list_chat_index(data_path)?.unwrap_or_default())
 }
 
 fn sync_cached_app_data_agents(state: &AppState, agents: &[AgentProfile]) -> Result<(), String> {
@@ -336,7 +264,7 @@ fn repair_conversation_metadata_message_derived_fields_if_needed(
         return Ok(meta.clone());
     }
     let store_paths = message_store::message_store_paths(&state.data_path, conversation_id)?;
-    let ready_meta = match message_store::read_ready_message_store_meta(&store_paths) {
+    let ready_meta = match message_store::chat_store_read_meta(&store_paths) {
         Ok(Some(ready_meta)) => ready_meta,
         Ok(None) => return Ok(meta.clone()),
         Err(err) => {

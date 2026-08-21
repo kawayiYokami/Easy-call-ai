@@ -321,11 +321,11 @@ fn storage_legacy_file_ready_to_cleanup(
     match scope {
         StorageLegacyConversationScope::Normal => {
             let paths = message_store::message_store_paths(data_path, conversation_id)?;
-            message_store::read_ready_message_store_status(&paths).map(|status| status.is_some())
+            message_store::chat_store_read_status(&paths).map(|status| status.is_some())
         }
         StorageLegacyConversationScope::Delegate => {
             let paths = delegate_conversation_message_store_paths(data_path, conversation_id)?;
-            delegate_conversation_store_read_ready_meta(&paths, conversation_id)
+            delegate_conversation_store_read_meta(&paths, conversation_id)
                 .map(|meta| meta.is_some())
         }
     }
@@ -494,12 +494,10 @@ fn storage_abnormal_conversation_scan(
             continue;
         }
         let store_paths = message_store::message_store_paths(&state.data_path, &conversation_id)?;
-        let manifest_status = message_store::read_message_store_manifest_status(&store_paths)?;
-        let is_abnormal = manifest_status
-            .as_ref()
-            .map(|status| status.migration_state.trim() != "ready" || !status.ready_jsonl)
-            .unwrap_or(true);
-        if !is_abnormal {
+        // 这里只判断普通会话 CURRENT（V3 SQLite）是否存在；不读取 V1/V2
+        // manifest，也不尝试根据旧格式状态做运行期兼容或修复。没有 CURRENT
+        // 时仅把目录作为清理候选，不解释其旧格式内容。
+        if message_store::chat_store_read_status(&store_paths)?.is_some() {
             continue;
         }
         let stats = storage_stats_for_paths(vec![shard_dir.clone()])?;
@@ -1149,7 +1147,6 @@ fn usage_trail_record_conversation_delta(
 fn build_usage_overview(state: &AppState) -> Result<UsageOverview, String> {
     let config = state_read_config_cached(state)?;
     let agents = state_read_agents_cached(state)?;
-    message_store::chat_metadata_store_run_usage_trail_migration(&state.data_path, &config)?;
     let rows = message_store::chat_metadata_store_usage_trail_query(&state.data_path, None)?;
     let mut api_config_name_map = std::collections::HashMap::<String, String>::new();
     for item in &config.api_configs {
@@ -1812,7 +1809,6 @@ fn build_usage_trail_wall(
     query: &UsageTrailWallQuery,
 ) -> Result<UsageTrailWallView, String> {
     let config = state_read_config_cached(state)?;
-    message_store::chat_metadata_store_run_usage_trail_migration(&state.data_path, &config)?;
     let view = query.view.trim().to_string();
     let now_local = to_local_datetime(now_utc());
     let rows = message_store::chat_metadata_store_usage_trail_query(&state.data_path, None)?;
@@ -2321,7 +2317,7 @@ mod storage_usage_tests {
         let legacy_only = storage_usage_test_conversation("legacy-only", "");
         let ready_paths =
             message_store::message_store_paths(&data_path, &ready.id).expect("ready paths");
-        message_store::write_jsonl_snapshot_directory_shard_if_changed(&ready_paths, &ready)
+        message_store::chat_store_write_snapshot(&ready_paths, &ready)
             .expect("write ready message store");
         write_json_file_atomic(
             &app_layout_chat_conversation_path(&data_path, &ready.id),
@@ -2403,7 +2399,7 @@ mod storage_usage_tests {
     }
 
     #[test]
-    fn storage_abnormal_conversation_scan_should_skip_recoverable_building_shards() {
+    fn storage_abnormal_conversation_scan_should_ignore_legacy_manifest_state() {
         let root = std::env::temp_dir().join(format!(
             "easy-call-storage-abnormal-conversations-{}",
             Uuid::new_v4()
@@ -2420,11 +2416,15 @@ mod storage_usage_tests {
             message_store::message_store_paths(&data_path, &stale.id).expect("stale paths");
         let active_paths =
             message_store::message_store_paths(&data_path, &active.id).expect("active paths");
-        message_store::write_jsonl_snapshot_directory_shard_if_changed(&stale_paths, &stale)
+        message_store::migration_v1_to_v2_conversation(&stale_paths, &stale, false)
             .expect("write stale shard");
-        message_store::write_jsonl_snapshot_directory_shard_if_changed(&active_paths, &active)
+        message_store::migration_v1_to_v2_conversation(&active_paths, &active, false)
             .expect("write active shard");
-        message_store::write_jsonl_snapshot_building_manifest(&stale_paths, &stale)
+        let building_manifest = message_store::MessageStoreManifest::jsonl_snapshot_building(&stale);
+        let stale_manifest_path = app_layout_chat_conversations_dir(&data_path)
+            .join(&stale.id)
+            .join(message_store::MESSAGE_STORE_MANIFEST_FILE_NAME);
+        message_store::write_message_store_manifest_atomic(&stale_manifest_path, &building_manifest)
             .expect("downgrade stale manifest to building");
 
         let state = storage_usage_test_state();
@@ -2442,10 +2442,13 @@ mod storage_usage_tests {
             storage_abnormal_conversation_scan(&state).expect("scan abnormal conversations");
 
         assert_eq!(scan.candidates.len(), 0);
-        let stale_status = message_store::read_message_store_manifest_status(&stale_paths)
-            .expect("read stale manifest")
-            .expect("stale manifest");
-        assert!(stale_status.ready_jsonl);
+        let raw_manifest = fs::read_to_string(
+            app_layout_chat_conversations_dir(&data_path)
+                .join(&stale.id)
+                .join(message_store::MESSAGE_STORE_MANIFEST_FILE_NAME),
+        )
+            .expect("legacy manifest remains untouched");
+        assert!(raw_manifest.contains("building"));
         let _ = fs::remove_dir_all(root);
     }
 

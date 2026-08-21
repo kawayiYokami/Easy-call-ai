@@ -58,7 +58,6 @@ impl ConversationServiceV2Error {
 enum ConversationOverwriteSource {
     Import,
     ExportSync,
-    MigrationRecovery,
 }
 
 impl ConversationOverwriteSource {
@@ -66,7 +65,6 @@ impl ConversationOverwriteSource {
         match self {
             Self::Import => "import",
             Self::ExportSync => "export_sync",
-            Self::MigrationRecovery => "migration_recovery",
         }
     }
 }
@@ -614,6 +612,35 @@ fn conversation_service() -> &'static ConversationServiceV2 {
     conversation_service_v2()
 }
 
+fn publish_pending_new_conversation_v3_if_needed(
+    state: &AppState,
+    conversation_id: &str,
+    paths: &message_store::MessageStorePaths,
+) -> Result<(), String> {
+    if message_store::chat_store_read_status(paths)?.is_some() {
+        return Ok(());
+    }
+    let conversation = {
+        let pending = state
+            .conversation_persist_pending
+            .lock()
+            .map_err(|_| "读取待持久化新会话失败".to_string())?;
+        pending
+            .as_ref()
+            .and_then(|slot| slot.conversations.get(conversation_id).cloned())
+    };
+    let Some(conversation) = conversation else {
+        return Ok(());
+    };
+    // 这里只发布当前进程刚创建、尚在 pending 队列中的新会话，不读取 V1/V2
+    // 文件。新建接口本身仍只入 pending；若紧随创建发生首条写入，则沿用原有
+    // ensure 流程的同步发布与全局 flush 时序，保证消息只追加到 V3 current store。
+    message_store::chat_store_write_snapshot(paths, &conversation)?;
+    state_mark_conversation_metadata_direct_persisted(state, conversation_id)?;
+    flush_pending_persists_blocking(state)?;
+    Ok(())
+}
+
 impl ConversationServiceV2 {
     fn ensure_appendable_ready_message_store(
         &self,
@@ -626,12 +653,17 @@ impl ConversationServiceV2 {
         }
         let store_paths =
             message_store::message_store_paths(&state.data_path, normalized_conversation_id)?;
-        ensure_ready_message_store_from_legacy_conversation(
+        publish_pending_new_conversation_v3_if_needed(
             state,
             normalized_conversation_id,
             &store_paths,
         )?;
-        message_store::read_ready_message_store_meta(&store_paths)?
+        require_chat_store_conversation(
+            state,
+            normalized_conversation_id,
+            &store_paths,
+        )?;
+        message_store::chat_store_read_meta(&store_paths)?
             .ok_or_else(|| {
                 format!(
                     "会话消息仓库不可追加：缺少 ready 消息元数据，conversation_id={normalized_conversation_id}"
@@ -761,12 +793,8 @@ impl ConversationServiceV2 {
             snapshot.messages.len()
         ));
         let store_paths = message_store::message_store_paths(&state.data_path, &snapshot.id)?;
-        if message_store::message_store_is_v3_ready(&store_paths)? {
-            message_store::write_jsonl_snapshot_directory_shard(&store_paths, snapshot)?;
-            state_mark_conversation_metadata_direct_persisted(state, &snapshot.id)?;
-        } else {
-            state_schedule_conversation_persist(state, snapshot)?;
-        }
+        message_store::chat_store_write_snapshot(&store_paths, snapshot)?;
+        state_mark_conversation_metadata_direct_persisted(state, &snapshot.id)?;
         runtime_log_info(format!(
             "[会话V2] 完成，任务=特批覆写会话，conversation_id={}，source={}，job_id={}，operator={}，message_count={}",
             snapshot.id,
@@ -810,7 +838,7 @@ impl ConversationServiceV2 {
         let normalized_limit = limit.clamp(1, 50);
         let store_paths = message_store::message_store_paths(&state.data_path, conversation_id)?;
         let mut messages = if let Some(page) =
-            message_store::read_ready_message_store_recent_messages_page_cached(
+            message_store::chat_store_read_recent_messages_page_cached(
                 &store_paths,
                 normalized_limit,
             )?
@@ -843,13 +871,13 @@ impl ConversationServiceV2 {
         }
         let store_paths =
             message_store::message_store_paths(&state.data_path, normalized_conversation_id)?;
-        ensure_ready_message_store_from_legacy_conversation(
+        require_chat_store_conversation(
             state,
             normalized_conversation_id,
             &store_paths,
         )?;
         let mut message =
-            message_store::read_ready_message_store_message_by_id(&store_paths, normalized_message_id)?
+            message_store::chat_store_read_message_by_id(&store_paths, normalized_message_id)?
                 .ok_or_else(|| format!("Message not found: {normalized_message_id}"))?;
         materialize_chat_message_parts_from_media_refs(
             std::slice::from_mut(&mut message),
@@ -938,7 +966,7 @@ impl ConversationServiceV2 {
             updated_message.id.trim(),
         )?;
         let paths = message_store::message_store_paths(&state.data_path, conversation_id)?;
-        let mut ready_meta = message_store::read_ready_message_store_meta(&paths)?
+        let mut ready_meta = message_store::chat_store_read_meta(&paths)?
             .ok_or_else(|| {
                 ConversationServiceV2Error::new(
                     ConversationServiceV2ErrorCode::StorageCorrupted,
@@ -965,7 +993,7 @@ impl ConversationServiceV2 {
                     std::slice::from_ref(&previous_message),
                     std::slice::from_ref(updated_message),
                     || {
-                        message_store::recompute_latest_summary_title_after_replace(
+                        message_store::chat_store_recompute_latest_summary_title_after_replace(
                             &paths,
                             std::slice::from_ref(updated_message),
                         )
@@ -976,7 +1004,7 @@ impl ConversationServiceV2 {
         )?;
         ready_meta.apply_metadata_fields_from_meta(&updated_meta);
         ready_meta.preserve_message_derived_fields_from(&updated_meta);
-        message_store::write_jsonl_snapshot_replaced_message_shard(
+        message_store::chat_store_replace_message(
             &paths,
             &ready_meta.to_persist_meta(),
             updated_message,
@@ -1132,12 +1160,12 @@ impl ConversationServiceV2 {
     ) -> Result<ConversationMetaView, String> {
         let meta = match state_read_conversation_metadata_cached(state, conversation_id) {
             Ok(meta) => meta,
-            // 仅当轻量 metadata 不可读时回退：待落盘/迁移中的会话可能仍有完整缓存快照，
-            // 此时若直接判定不存在会中断通知与入站业务；正常路径仍禁止整读消息正文。
+            // 仅使用本次运行中已经进入 pending/current runtime cache 的完整快照兜住
+            // 尚未落盘的状态；这里不会读取或解释 V1/V2 文件。
             Err(meta_err) => match state_read_conversation_cached(state, conversation_id) {
                 Ok(conversation) => {
                     runtime_log_warn(format!(
-                        "[会话元数据] 轻量读取失败，使用会话缓存快照降级恢复，conversation_id={}，error={}",
+                        "[会话元数据] V3 轻量读取失败，使用当前运行时缓存继续，conversation_id={}，error={}",
                         conversation_id.trim(), meta_err
                     ));
                     message_store::ConversationShardMeta::from_conversation(&conversation)
@@ -1399,7 +1427,7 @@ impl ConversationServiceV2 {
             .ensure_appendable_ready_message_store(state, normalized_conversation_id)?;
         ready_meta.apply_metadata_fields_from_meta(&updated_meta);
         ready_meta.apply_appended_messages(std::slice::from_ref(message));
-        message_store::write_jsonl_snapshot_appended_messages_shard_from_meta(
+        message_store::chat_store_append_messages_from_meta(
             &store_paths,
             &ready_meta,
             std::slice::from_ref(message),
@@ -1479,7 +1507,7 @@ impl ConversationServiceV2 {
                     .ensure_appendable_ready_message_store(state, normalized_conversation_id)?;
                 ready_meta.apply_metadata_fields_from_meta(&updated_meta);
                 ready_meta.apply_appended_messages(messages);
-                message_store::write_jsonl_snapshot_appended_messages_shard_from_meta(
+                message_store::chat_store_append_messages_from_meta(
                     &store_paths,
                     &ready_meta,
                     messages,
@@ -1569,7 +1597,7 @@ impl ConversationServiceV2 {
             let mut ready_meta = self.ensure_appendable_ready_message_store(state, conversation_id)?;
             ready_meta.apply_metadata_fields_from_meta(&updated_meta);
             ready_meta.apply_appended_messages(std::slice::from_ref(&input.message));
-            message_store::write_jsonl_snapshot_appended_messages_shard_from_meta(
+            message_store::chat_store_append_messages_from_meta(
                 &store_paths,
                 &ready_meta,
                 std::slice::from_ref(&input.message),
@@ -1637,7 +1665,7 @@ impl ConversationServiceV2 {
             let mut ready_meta = self.ensure_appendable_ready_message_store(state, conversation_id)?;
             ready_meta.apply_metadata_fields_from_meta(&updated_meta);
             ready_meta.apply_appended_messages(std::slice::from_ref(message));
-            message_store::write_jsonl_snapshot_appended_messages_shard_from_meta(
+            message_store::chat_store_append_messages_from_meta(
                 &store_paths,
                 &ready_meta,
                 std::slice::from_ref(message),
@@ -1797,26 +1825,6 @@ impl ConversationServiceV2 {
             &ConversationOverwriteAudit {
                 job_id: job_id.trim().to_string(),
                 source: ConversationOverwriteSource::ExportSync,
-                operator: operator.trim().to_string(),
-                reason: reason.trim().to_string(),
-            },
-            snapshot,
-        )
-    }
-
-    fn recover_conversation_snapshot(
-        &self,
-        state: &AppState,
-        job_id: &str,
-        operator: &str,
-        reason: &str,
-        snapshot: &Conversation,
-    ) -> Result<(), String> {
-        self.apply_privileged_snapshot_overwrite(
-            state,
-            &ConversationOverwriteAudit {
-                job_id: job_id.trim().to_string(),
-                source: ConversationOverwriteSource::MigrationRecovery,
                 operator: operator.trim().to_string(),
                 reason: reason.trim().to_string(),
             },

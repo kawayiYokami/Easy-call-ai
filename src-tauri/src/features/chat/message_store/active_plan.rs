@@ -16,95 +16,13 @@ struct ActivePlanRecord {
     completion_text: Option<String>,
 }
 
-fn encode_active_plan_record(record: &ActivePlanRecord) -> Result<String, String> {
-    serde_json::to_string(record)
-        .map(|value| format!("{value}\n"))
-        .map_err(|err| format!("序列化执行中计划失败: {err}"))
-}
-
-fn read_active_plan_records(path: &PathBuf) -> Result<Vec<ActivePlanRecord>, String> {
-    if !path.exists() {
-        return Ok(Vec::new());
-    }
-    let raw = fs::read_to_string(path).map_err(|err| {
-        format!(
-            "读取执行中计划文件失败，path={}，error={err}",
-            path.display()
-        )
-    })?;
-    let mut records = Vec::<ActivePlanRecord>::new();
-    for (index, line) in raw.lines().enumerate() {
-        let trimmed = line.trim();
-        if trimmed.is_empty() {
-            continue;
-        }
-        let record = serde_json::from_str::<ActivePlanRecord>(trimmed).map_err(|err| {
-            format!(
-                "解析执行中计划失败，path={}，line={}，error={err}",
-                path.display(),
-                index + 1
-            )
-        })?;
-        if record.path.trim().is_empty() {
-            continue;
-        }
-        records.push(record);
-    }
-    Ok(records)
-}
-
-fn write_active_plan_records(path: &PathBuf, records: &[ActivePlanRecord]) -> Result<(), String> {
-    let mut content = String::new();
-    for record in records {
-        content.push_str(&encode_active_plan_record(record)?);
-    }
-    write_message_store_text_atomic(path, "jsonl.tmp", &content, "执行中计划")
-}
-
-fn append_active_plan_record(path: &PathBuf, record: &ActivePlanRecord) -> Result<(), String> {
-    if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent).map_err(|err| {
-            format!(
-                "创建执行中计划目录失败，path={}，error={err}",
-                parent.display()
-            )
-        })?;
-    }
-    let line = encode_active_plan_record(record)?;
-    let mut file = fs::OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(path)
-        .map_err(|err| {
-            format!(
-                "打开执行中计划文件失败，path={}，error={err}",
-                path.display()
-            )
-        })?;
-    use std::io::Write as _;
-    file.write_all(line.as_bytes()).map_err(|err| {
-        format!(
-            "追加执行中计划失败，path={}，error={err}",
-            path.display()
-        )
-    })
-}
-
 fn active_plan_records_in_progress(
     data_path: &PathBuf,
     conversation_id: &str,
 ) -> Result<Vec<ActivePlanRecord>, String> {
-    let paths = message_store_paths(data_path, conversation_id)?;
-    if paths.is_v3_ready()? {
-        return Ok(chat_metadata_store_read_active_plans(data_path, conversation_id)?
-            .unwrap_or_default()
-            .into_iter()
-            .filter(|record| record.status.trim() == ACTIVE_PLAN_STATUS_IN_PROGRESS)
-            .collect());
-    }
-    Ok(read_active_plan_records(&paths.active_plans_file)?
+    Ok(chat_metadata_store_read_active_plans(data_path, conversation_id)?
+        .unwrap_or_default()
         .into_iter()
-        .rev()
         .filter(|record| record.status.trim() == ACTIVE_PLAN_STATUS_IN_PROGRESS)
         .collect())
 }
@@ -135,13 +53,7 @@ pub(super) fn active_plan_append_in_progress(
         data_path,
         conversation_id,
         "active_plan_append_in_progress",
-        || {
-            if paths.is_v3_ready()? {
-                return chat_metadata_store_append_active_plan(&paths, &record);
-            }
-            append_active_plan_record(&paths.active_plans_file, &record)?;
-            Ok(())
-        },
+        || chat_metadata_store_append_active_plan(&paths, &record),
     )
 }
 
@@ -161,56 +73,13 @@ pub(super) fn active_plan_complete_by_path(
         conversation_id,
         "active_plan_complete_by_path",
         || {
-            if paths.is_v3_ready()? {
-                return chat_metadata_store_complete_active_plan_by_path(
-                    &paths,
-                    normalized_path,
-                    completion_text,
-                );
-            }
-            let mut records = read_active_plan_records(&paths.active_plans_file)?;
-            let Some(index) = records
-                .iter()
-                .rposition(|record| {
-                    record.status.trim() == ACTIVE_PLAN_STATUS_IN_PROGRESS
-                        && record.path.trim().eq_ignore_ascii_case(normalized_path)
-                })
-            else {
-                return Ok(false);
-            };
-            records[index].status = ACTIVE_PLAN_STATUS_COMPLETED.to_string();
-            records[index].completed_at = Some(now_iso());
-            records[index].completion_text = completion_text
-                .map(str::trim)
-                .filter(|value| !value.is_empty())
-                .map(ToOwned::to_owned);
-            write_active_plan_records(&paths.active_plans_file, &records)?;
-            Ok(true)
+            chat_metadata_store_complete_active_plan_by_path(
+                &paths,
+                normalized_path,
+                completion_text,
+            )
         },
     )
-}
-
-#[cfg(test)]
-#[test]
-fn read_active_plan_records_should_skip_legacy_record_without_path() {
-    let root = std::env::temp_dir().join(format!("eca-active-plan-{}", Uuid::new_v4()));
-    fs::create_dir_all(&root).expect("create temp dir");
-    let file = root.join("active_plans.jsonl");
-    fs::write(
-        &file,
-        concat!(
-            "{\"planId\":\"legacy\",\"sourceMessageId\":\"msg-1\",\"status\":\"in_progress\",\"createdAt\":\"2026-01-01T00:00:00Z\"}\n",
-            "{\"planId\":\"valid\",\"sourceMessageId\":\"msg-2\",\"status\":\"in_progress\",\"path\":\"C:/plan.md\",\"createdAt\":\"2026-01-01T00:00:00Z\"}\n"
-        ),
-    )
-    .expect("write active plans");
-
-    let records = read_active_plan_records(&file).expect("read active plans");
-    assert_eq!(records.len(), 1);
-    assert_eq!(records[0].plan_id, "valid");
-    assert_eq!(records[0].path, "C:/plan.md");
-
-    let _ = fs::remove_dir_all(root);
 }
 
 #[cfg(test)]
@@ -218,21 +87,64 @@ fn read_active_plan_records_should_skip_legacy_record_without_path() {
 fn active_plan_records_in_progress_should_return_newest_first() {
     let root = std::env::temp_dir().join(format!("eca-active-plan-order-{}", Uuid::new_v4()));
     let conversation_id = "conv-active-plan-order";
-    let paths = message_store_paths(&root, conversation_id).expect("message store paths");
-    fs::create_dir_all(paths.active_plans_file.parent().expect("active plans dir"))
-        .expect("create active plans dir");
-    fs::write(
-        &paths.active_plans_file,
-        concat!(
-            "{\"planId\":\"old\",\"sourceMessageId\":\"msg-1\",\"status\":\"in_progress\",\"path\":\"C:/old.md\",\"createdAt\":\"2026-01-01T00:00:00Z\"}\n",
-            "{\"planId\":\"done\",\"sourceMessageId\":\"msg-2\",\"status\":\"completed\",\"path\":\"C:/done.md\",\"createdAt\":\"2026-01-01T00:00:01Z\"}\n",
-            "{\"planId\":\"new\",\"sourceMessageId\":\"msg-3\",\"status\":\"in_progress\",\"path\":\"C:/new.md\",\"createdAt\":\"2026-01-01T00:00:02Z\"}\n"
-        ),
-    )
-    .expect("write active plans");
+    let data_path = root.join("app_data.json");
+    let paths = message_store_paths(&data_path, conversation_id).expect("message store paths");
+    let conversation = Conversation {
+        id: conversation_id.to_string(),
+        title: "active plan order".to_string(),
+        agent_id: DEFAULT_AGENT_ID.to_string(),
+        department_id: String::new(),
+        bound_conversation_id: None,
+        parent_conversation_id: None,
+        child_conversation_ids: Vec::new(),
+        fork_message_cursor: None,
+        unread_count: 0,
+        conversation_kind: CONVERSATION_KIND_CHAT.to_string(),
+        root_conversation_id: None,
+        delegate_id: None,
+        created_at: "2026-01-01T00:00:00Z".to_string(),
+        updated_at: "2026-01-01T00:00:00Z".to_string(),
+        last_user_at: None,
+        last_assistant_at: None,
+        status: "active".to_string(),
+        user_profile_snapshot: String::new(),
+        shell_workspace_path: None,
+        shell_workspaces: Vec::new(),
+        shell_autonomous_mode: false,
+        shell_work_mode: default_shell_work_mode(),
+        archived_at: None,
+        messages: Vec::new(),
+        fast_request_turns: Vec::new(),
+        current_todos: Vec::new(),
+        memory_recall_table: Vec::new(),
+        plan_mode_enabled: false,
+        preferred_api_config_id: None,
+        auto_push_remote_contact_id: None,
+        active_goal: None,
+        cumulative_usage: ConversationCumulativeUsage::default(),
+    };
+    chat_store_write_snapshot(&paths, &conversation).expect("write ready snapshot");
+    let append_record = |plan_id: &str, status: &str, path: &str, created_at: &str| {
+        chat_metadata_store_append_active_plan(
+            &paths,
+            &ActivePlanRecord {
+                plan_id: plan_id.to_string(),
+                source_message_id: "msg-1".to_string(),
+                status: status.to_string(),
+                path: path.to_string(),
+                created_at: created_at.to_string(),
+                completed_at: None,
+                completion_text: None,
+            },
+        )
+        .expect("append active plan record")
+    };
+    append_record("old", "in_progress", "C:/old.md", "2026-01-01T00:00:00Z");
+    append_record("done", "completed", "C:/done.md", "2026-01-01T00:00:01Z");
+    append_record("new", "in_progress", "C:/new.md", "2026-01-01T00:00:02Z");
 
     let records =
-        active_plan_records_in_progress(&root, conversation_id).expect("read active plans");
+        active_plan_records_in_progress(&data_path, conversation_id).expect("read active plans");
     assert_eq!(records.len(), 2);
     assert_eq!(records[0].plan_id, "new");
     assert_eq!(records[1].plan_id, "old");

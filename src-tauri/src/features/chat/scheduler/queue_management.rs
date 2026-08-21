@@ -75,7 +75,7 @@ fn chat_pending_event_duplicates_existing_message(
     };
     let paths = message_store::message_store_paths(&state.data_path, &conversation_meta.id)?;
     let Some(page) =
-        message_store::read_ready_message_store_recent_messages_page_cached(&paths, 32)?
+        message_store::chat_store_read_recent_messages_page_cached(&paths, 32)?
     else {
         return Ok(false);
     };

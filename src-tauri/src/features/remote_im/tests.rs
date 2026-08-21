@@ -2258,6 +2258,7 @@
         contact.bound_conversation_id = None;
         let conversation_id = ensure_remote_im_contact_conversation_id(&state, &mut contact)
             .expect("ensure private conversation");
+        flush_pending_persists_blocking(&state).expect("flush private conversation");
         state_service_upsert_remote_im_contact(&state, &contact).expect("write contact");
         set_conversation_runtime_state_and_emit(
             &state,

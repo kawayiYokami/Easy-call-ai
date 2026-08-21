@@ -361,6 +361,11 @@ async fn remote_im_restart_channel(
 async fn frontend_ready_start_remote_im_services(app: AppHandle) -> Result<bool, String> {
     static BACKGROUND_SERVICES_START_REQUESTED: std::sync::atomic::AtomicBool =
         std::sync::atomic::AtomicBool::new(false);
+    let startup_state = app.state::<AppState>().inner().clone();
+    require_message_store_migration_completed_for_runtime(
+        &startup_state,
+        "启动远程 IM 与后台服务",
+    )?;
     if BACKGROUND_SERVICES_START_REQUESTED
         .compare_exchange(
             false,
@@ -374,7 +379,6 @@ async fn frontend_ready_start_remote_im_services(app: AppHandle) -> Result<bool,
         return Ok(false);
     }
 
-    let startup_state = app.state::<AppState>().inner().clone();
     refresh_conversation_meta_after_migration(startup_state.clone()).await;
     runtime_log_info(format!("[启动] 迁移门闩已完成，开始异步启动后台服务"));
     tauri::async_runtime::spawn(async move {

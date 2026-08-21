@@ -43,7 +43,7 @@ fn resolve_unarchived_conversation_index_with_fallback(
     ))
 }
 
-fn ensure_ready_message_store_from_legacy_conversation(
+fn require_chat_store_conversation(
     state: &AppState,
     conversation_id: &str,
     store_paths: &message_store::MessageStorePaths,
@@ -52,65 +52,30 @@ fn ensure_ready_message_store_from_legacy_conversation(
     if normalized_conversation_id.is_empty() {
         return Err("conversationId is required.".to_string());
     }
-    // 快路径：无锁检查就绪状态。已就绪直接返回，不抢写锁，避免主线程与落库排队。
-    // 注意：read_ready_message_store_status 并非纯文件读——v3 路径走 SQLite 查询，
-    // v2 路径含快照完整性校验，可能触发 blocks 重建比对。校验失败会得到 Err，
-    // 不命中本分支，回落写锁恢复路径（锁内二次检查，防止竞态重复恢复）。
-    if matches!(
-        message_store::read_ready_message_store_status(store_paths),
-        Ok(Some(_))
-    ) {
+    let initial_status = message_store::chat_store_read_status(store_paths);
+    if matches!(initial_status, Ok(Some(_))) {
         return Ok(());
     }
-    let recovery = with_conversation_mutation(
+    if let Err(err) = &initial_status {
+        runtime_log_warn(format!(
+            "[消息存储] V3 状态首次读取失败，将在会话锁内重试，conversation_id={}，error={}",
+            normalized_conversation_id, err
+        ));
+    }
+    with_conversation_mutation(
         state,
         normalized_conversation_id,
-        "ensure_ready_message_store_from_legacy_conversation",
-        || {
-            match message_store::read_ready_message_store_status(store_paths) {
-                Ok(Some(_)) => return Ok(false),
-                Ok(None) => {}
-                Err(err) => runtime_log_warn(format!(
-                    "[消息存储] ready 状态读取失败，尝试从会话缓存快照自愈，conversation_id={}，error={}",
-                    normalized_conversation_id, err
-                )),
-            }
-            let conversation = read_legacy_conversation_snapshot_for_ready_store_recovery(
-                state,
-                normalized_conversation_id,
-            )?;
-            let recovery_job_id = format!("runtime-ready-store-recover-{normalized_conversation_id}");
-            let recovery_reason = format!(
-                "运行时补建 ready message store，conversation_id={normalized_conversation_id}"
-            );
-            conversation_service_v2().apply_privileged_snapshot_overwrite_inner(
-                state,
-                &ConversationOverwriteAudit {
-                    job_id: recovery_job_id,
-                    source: ConversationOverwriteSource::MigrationRecovery,
-                    operator: "runtime_ready_store_recover".to_string(),
-                    reason: recovery_reason,
-                },
-                &conversation,
-            )?;
-            Ok(true)
+        "require_chat_store_conversation",
+        || match message_store::chat_store_read_status(store_paths) {
+            Ok(Some(_)) => Ok(()),
+            Ok(None) => Err(format!(
+                "V3 会话消息仓库不存在，禁止在生产运行时从旧数据恢复，conversation_id={normalized_conversation_id}"
+            )),
+            Err(err) => Err(format!(
+                "读取 V3 会话消息仓库状态失败，conversation_id={normalized_conversation_id}，error={err}"
+            )),
         },
-    )?;
-    if !recovery {
-        return Ok(());
-    }
-    flush_pending_persists_blocking(state)?;
-    Ok(())
-}
-
-// 这里是普通业务路径之外的唯一旧快照白名单读取口：
-// 当 ready message store 尚未建立时，只能先读取历史 conversation 分片快照，
-// 再立即通过 V2 特权恢复入口补建 store。其他业务代码禁止复用这条路径。
-fn read_legacy_conversation_snapshot_for_ready_store_recovery(
-    state: &AppState,
-    conversation_id: &str,
-) -> Result<Conversation, String> {
-    state_read_conversation_cached(state, conversation_id)
+    )
 }
 
 fn build_foreground_conversation_snapshot_from_conversation(
@@ -143,9 +108,9 @@ fn build_foreground_conversation_snapshot_from_meta_view(
 ) -> Result<ForegroundConversationSnapshotCore, String> {
     let conversation_id = conversation_meta.id.to_string();
     let paths = message_store::message_store_paths(&state.data_path, &conversation_id)?;
-    ensure_ready_message_store_from_legacy_conversation(state, &conversation_id, &paths)?;
+    require_chat_store_conversation(state, &conversation_id, &paths)?;
     let (messages, has_more_history) = if let Some(page) =
-        message_store::read_ready_message_store_recent_messages_page_cached(&paths, recent_limit)?
+        message_store::chat_store_read_recent_messages_page_cached(&paths, recent_limit)?
     {
         if let Err(err) = conversation_service_v2().retain_message_store_block_cache_whitelist(state) {
             runtime_log_warn(format!(
@@ -155,7 +120,7 @@ fn build_foreground_conversation_snapshot_from_meta_view(
         }
         (page.messages, page.has_more)
     } else {
-        let messages = message_store::read_ready_message_store_all_messages(&paths)?.unwrap_or_default();
+        let messages = message_store::chat_store_read_all_messages(&paths)?.unwrap_or_default();
         let total_messages = messages.len();
         let start = total_messages.saturating_sub(recent_limit);
         (messages[start..].to_vec(), start > 0)
@@ -184,7 +149,7 @@ fn build_foreground_snapshot_recent_messages(
 ) -> Result<(Vec<ChatMessage>, bool), String> {
     let paths = message_store::message_store_paths(&state.data_path, &conversation.id)?;
     if let Some(page) =
-        message_store::read_ready_message_store_recent_messages_page_cached(&paths, recent_limit)?
+        message_store::chat_store_read_recent_messages_page_cached(&paths, recent_limit)?
     {
         if let Err(err) = conversation_service_v2().retain_message_store_block_cache_whitelist(state) {
             runtime_log_warn(format!(

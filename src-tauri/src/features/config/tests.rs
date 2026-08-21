@@ -1637,27 +1637,24 @@ model = "gpt-4.1"
             message_store::message_store_paths(&data_path, "conv-a").expect("conversation a paths");
         let conversation_b_paths =
             message_store::message_store_paths(&data_path, "conv-b").expect("conversation b paths");
-        assert!(message_store::should_write_jsonl_snapshot_directory_shard(&conversation_a_paths)
-            .expect("conversation a manifest ready"));
-        assert!(message_store::should_write_jsonl_snapshot_directory_shard(&conversation_b_paths)
-            .expect("conversation b manifest ready"));
-        let conversation_a_before =
-            message_store::message_store_shard_write_signature(&conversation_a_paths);
-        let conversation_b_before =
-            message_store::message_store_shard_write_signature(&conversation_b_paths);
-
+        assert!(message_store::chat_store_read_status(&conversation_a_paths)
+            .expect("conversation a sqlite status")
+            .is_some());
+        assert!(message_store::chat_store_read_status(&conversation_b_paths)
+            .expect("conversation b sqlite status")
+            .is_some());
         let mut conversation_a = read_conversation_shard(&data_path, "conv-a").expect("read conversation a");
         conversation_a.title = "Conversation A Updated".to_string();
         assert!(write_conversation_shard(&data_path, &conversation_a).expect("write conversation a"));
 
-        assert_ne!(
-            message_store::message_store_shard_write_signature(&conversation_a_paths),
-            conversation_a_before
-        );
-        assert_eq!(
-            message_store::message_store_shard_write_signature(&conversation_b_paths),
-            conversation_b_before
-        );
+        let conversation_a_meta = message_store::chat_store_read_meta(&conversation_a_paths)
+            .expect("read conversation a meta")
+            .expect("conversation a meta exists");
+        assert_eq!(conversation_a_meta.title(), "Conversation A Updated");
+        let conversation_b_meta = message_store::chat_store_read_meta(&conversation_b_paths)
+            .expect("read conversation b meta")
+            .expect("conversation b meta exists");
+        assert_eq!(conversation_b_meta.title(), "Conversation B");
         assert!(!legacy_conversation_a_path.exists());
         assert!(!legacy_conversation_b_path.exists());
     }

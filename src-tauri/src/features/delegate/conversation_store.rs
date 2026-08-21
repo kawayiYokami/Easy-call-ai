@@ -116,11 +116,11 @@ fn validate_delegate_conversation_meta(
     Ok(())
 }
 
-fn delegate_conversation_store_read_ready_meta(
+fn delegate_conversation_store_read_meta(
     paths: &message_store::MessageStorePaths,
     conversation_id: &str,
 ) -> Result<Option<message_store::ConversationShardMeta>, String> {
-    let Some(meta) = message_store::read_ready_message_store_meta(paths)? else {
+    let Some(meta) = message_store::delegate_directory_store_read_meta(paths)? else {
         return Ok(None);
     };
     validate_delegate_conversation_meta(&meta, conversation_id)?;
@@ -133,7 +133,7 @@ fn delegate_conversation_store_read(
 ) -> Result<Option<Conversation>, String> {
     let conversation_id = conversation_id.trim();
     let paths = delegate_conversation_message_store_paths(data_path, conversation_id)?;
-    match message_store::read_ready_message_store_directory_conversation(&paths) {
+    match message_store::delegate_directory_store_read_conversation(&paths) {
         Ok(Some(conversation)) => {
             validate_delegate_conversation_record(&conversation, conversation_id)?;
             Ok(Some(conversation))
@@ -162,7 +162,7 @@ fn delegate_conversation_store_write(
         )
     })?;
     let paths = delegate_conversation_message_store_paths(data_path, &conversation.id)?;
-    message_store::write_jsonl_snapshot_directory_shard_if_changed(&paths, conversation)?;
+    message_store::delegate_directory_store_write_if_changed(&paths, conversation)?;
     delegate_snapshot_store_sync_from_conversation(data_path, conversation)?;
     Ok(())
 }
@@ -172,7 +172,7 @@ fn delegate_conversation_store_delete(
     conversation_id: &str,
 ) -> Result<bool, String> {
     let paths = delegate_conversation_message_store_paths(data_path, conversation_id)?;
-    let deleted = message_store::delete_message_store_shard_artifacts(&paths)?;
+    let deleted = message_store::delegate_directory_store_delete(&paths)?;
     let deleted_snapshot = delegate_snapshot_cache_delete(data_path, conversation_id)?;
     Ok(deleted || deleted_snapshot)
 }
@@ -226,10 +226,10 @@ fn delegate_conversation_store_read_block_page(
 ) -> Result<Option<message_store::MessageStoreBlockPage>, String> {
     let conversation_id = conversation_id.trim();
     let paths = delegate_conversation_message_store_paths(data_path, conversation_id)?;
-    if delegate_conversation_store_read_ready_meta(&paths, conversation_id)?.is_none() {
+    if delegate_conversation_store_read_meta(&paths, conversation_id)?.is_none() {
         return Ok(None);
     }
-    message_store::read_ready_message_store_block_page(&paths, requested_block_id)
+    message_store::delegate_directory_store_read_block_page(&paths, requested_block_id)
 }
 
 #[cfg(test)]

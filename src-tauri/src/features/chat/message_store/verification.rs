@@ -4,7 +4,6 @@ struct MessageStoreVerificationReport {
     last_message_id: String,
     compaction_count: usize,
     index: MessageStoreIndexFile,
-    last_valid_offset: u64,
 }
 
 fn verify_jsonl_snapshot_content(
@@ -59,7 +58,6 @@ fn verify_jsonl_snapshot_content(
         last_message_id,
         compaction_count,
         index: MessageStoreIndexFile::new(MESSAGE_STORE_MANIFEST_VERSION, items),
-        last_valid_offset: offset,
     })
 }
 
@@ -71,47 +69,6 @@ fn verify_jsonl_snapshot_file(
     let content = fs::read_to_string(path)
         .map_err(|err| format!("读取 JSONL 快照失败，path={}，error={err}", path.display()))?;
     verify_jsonl_snapshot_content(&content, expected_message_count, expected_last_message_id)
-}
-
-fn repair_jsonl_snapshot_file(
-    path: &PathBuf,
-    seen_message_ids: &mut std::collections::HashSet<String>,
-) -> Result<(MessageStoreVerificationReport, usize, usize), String> {
-    let content = fs::read_to_string(path)
-        .map_err(|err| format!("读取 JSONL 快照失败，path={}，error={err}", path.display()))?;
-    let mut repaired = String::new();
-    let mut discarded = 0usize;
-    let mut duplicate = 0usize;
-    for raw_line in content.split_inclusive('\n') {
-        let line = raw_line.trim_end_matches(['\r', '\n']);
-        if line.trim().is_empty() {
-            continue;
-        }
-        match decode_jsonl_snapshot_message(line) {
-            Ok(message) => {
-                let message_id = message.id.trim().to_string();
-                if message_id.is_empty() {
-                    discarded += 1;
-                } else if seen_message_ids.insert(message_id) {
-                    repaired.push_str(&encode_jsonl_snapshot_message(&message)?);
-                } else {
-                    duplicate += 1;
-                }
-            }
-            Err(_) => discarded += 1,
-        }
-    }
-    if !content.is_empty() && !content.ends_with('\n') {
-        let tail = content.rsplit_once('\n').map(|(_, tail)| tail).unwrap_or(&content);
-        if !tail.trim().is_empty() && decode_jsonl_snapshot_message(tail).is_err() {
-            discarded = discarded.max(1);
-        }
-    }
-    if repaired != content {
-        write_message_store_text_atomic(path, "repair.tmp", &repaired, "JSONL block 修复")?;
-    }
-    let report = verify_jsonl_snapshot_content(&repaired, usize::MAX, "")?;
-    Ok((report, discarded, duplicate))
 }
 
 fn rebuild_jsonl_snapshot_index_from_file(path: &PathBuf) -> Result<MessageStoreIndexFile, String> {

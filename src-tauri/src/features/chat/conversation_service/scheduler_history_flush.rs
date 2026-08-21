@@ -235,7 +235,7 @@ impl ConversationServiceV2 {
         let remote_im_runtime_changed =
             remote_im_runtime_before != serde_json::to_vec(checkpoints).ok();
         let paths = message_store::message_store_paths(&state.data_path, conversation_meta.id())?;
-        let mut ready_meta = message_store::read_ready_message_store_meta(&paths)?
+        let mut ready_meta = message_store::chat_store_read_meta(&paths)?
             .ok_or_else(|| {
                 format!(
                     "历史回灌落盘失败：缺少 ready 消息元数据，conversation_id={}",
@@ -244,7 +244,7 @@ impl ConversationServiceV2 {
             })?;
         ready_meta.apply_metadata_fields_from_meta(conversation_meta);
         ready_meta.apply_appended_messages(appended_messages);
-        message_store::write_jsonl_snapshot_appended_messages_shard_from_meta(
+        message_store::chat_store_append_messages_from_meta(
             &paths,
             &ready_meta,
             appended_messages,

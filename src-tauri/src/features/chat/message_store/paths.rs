@@ -24,20 +24,6 @@ pub(super) struct MessageStorePaths {
     blobs_dir: PathBuf,
 }
 
-impl MessageStorePaths {
-    fn is_local_chat_conversation(&self) -> bool {
-        self.shard_dir.parent() == Some(app_layout_chat_conversations_dir(&self.data_path).as_path())
-    }
-
-    fn is_v3_ready(&self) -> Result<bool, String> {
-        Ok(self.is_local_chat_conversation() && chat_metadata_store_is_ready(&self.data_path)?)
-    }
-}
-
-pub(super) fn message_store_is_v3_ready(paths: &MessageStorePaths) -> Result<bool, String> {
-    paths.is_v3_ready()
-}
-
 pub(super) fn message_store_paths(
     data_path: &PathBuf,
     conversation_id: &str,
@@ -141,34 +127,10 @@ fn path_modified_time(path: &PathBuf) -> Option<std::time::SystemTime> {
     fs::metadata(path).and_then(|metadata| metadata.modified()).ok()
 }
 
-fn directory_children_modified_time(path: &PathBuf) -> Option<std::time::SystemTime> {
-    let Ok(entries) = fs::read_dir(path) else {
-        return None;
-    };
-    entries
-        .filter_map(Result::ok)
-        .filter_map(|entry| entry.metadata().ok())
-        .filter_map(|metadata| metadata.modified().ok())
-        .max()
-}
-
 pub(super) fn message_store_shard_modified_time(
     paths: &MessageStorePaths,
 ) -> Option<std::time::SystemTime> {
-    if paths.is_v3_ready().unwrap_or(false) {
-        return path_modified_time(&chat_metadata_store_db_path(&paths.data_path));
-    }
-    [
-        &paths.legacy_conversation_file,
-        &paths.manifest_file,
-        &paths.meta_file,
-        &paths.index_file,
-        &paths.blocks_dir,
-    ]
-    .into_iter()
-    .filter_map(path_modified_time)
-    .chain(std::iter::once(directory_children_modified_time(&paths.blocks_dir)).flatten())
-    .max()
+    path_modified_time(&chat_metadata_store_db_path(&paths.data_path))
 }
 
 pub(super) fn write_message_store_text_atomic(

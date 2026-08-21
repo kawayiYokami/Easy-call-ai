@@ -38,11 +38,3 @@ fn build_archive_replacement_conversation(
     conversation.messages.push(summary_message);
     Ok(conversation)
 }
-
-fn ensure_archive_ready_message_store_from_legacy(
-    state: &AppState,
-    archive_id: &str,
-    store_paths: &message_store::MessageStorePaths,
-) -> Result<(), String> {
-    ensure_ready_message_store_from_legacy_conversation(state, archive_id, store_paths)
-}

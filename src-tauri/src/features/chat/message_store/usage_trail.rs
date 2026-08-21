@@ -254,9 +254,6 @@ pub(super) fn chat_metadata_store_run_usage_trail_migration(
     if chat_metadata_store_migration_is_completed(data_path, USAGE_TRAIL_MIGRATION_KEY)? {
         return Ok(());
     }
-    if !chat_metadata_store_is_ready(data_path)? {
-        return Ok(());
-    }
     let mut conn = chat_metadata_store_open(data_path)?;
     let tx = conn
         .transaction()

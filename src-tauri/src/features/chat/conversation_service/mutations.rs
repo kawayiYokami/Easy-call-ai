@@ -118,7 +118,7 @@ fn resolve_stop_chat_target(
             return None;
         }
         let paths = message_store::message_store_paths(&state.data_path, &conversation_id).ok()?;
-        let last_message = message_store::read_ready_message_store_recent_messages_page_cached(
+        let last_message = message_store::chat_store_read_recent_messages_page_cached(
             &paths,
             1,
         )
@@ -654,12 +654,12 @@ fn read_branch_selection_or_pending_conversation(
     selected_message_ids: &[String],
 ) -> Result<message_store::MessageStoreBranchSelection, String> {
     let store_paths = message_store::message_store_paths(&state.data_path, conversation_id)?;
-    ensure_ready_message_store_from_legacy_conversation(state, conversation_id, &store_paths)?;
-    message_store::read_ready_message_store_branch_selection(&store_paths, selected_message_ids)?
+    require_chat_store_conversation(state, conversation_id, &store_paths)?;
+    message_store::chat_store_read_branch_selection(&store_paths, selected_message_ids)?
         .ok_or_else(|| "源会话消息尚未就绪".to_string())
 }
 
-struct ReadyStoreRewindState {
+struct ChatStoreRewindState {
     keep_count: usize,
     removed_messages: Vec<ChatMessage>,
     recalled_user_message: ChatMessage,
@@ -675,13 +675,13 @@ struct ReadyStoreRewindState {
     remaining_preview_messages: Vec<message_store::ConversationShardPreviewMessage>,
 }
 
-fn read_ready_store_rewind_state_meta_view(
+fn read_chat_store_rewind_state_meta_view(
     _state: &AppState,
     store_paths: &message_store::MessageStorePaths,
     conversation_meta: &ConversationMetaView,
     message_id: &str,
-) -> Result<ReadyStoreRewindState, String> {
-    let rewind_slice = message_store::read_ready_message_store_rewind_slice(store_paths, message_id)?
+) -> Result<ChatStoreRewindState, String> {
+    let rewind_slice = message_store::chat_store_read_rewind_slice(store_paths, message_id)?
         .ok_or_else(|| "Target message not found in active conversation.".to_string())?;
     let mut remaining_last_message_id = None::<String>;
     let mut remaining_last_message_at = None::<String>;
@@ -697,7 +697,7 @@ fn read_ready_store_rewind_state_meta_view(
     let mut before_anchor = message_id.trim().to_string();
 
     while !before_anchor.trim().is_empty() {
-        let Some(page) = message_store::read_ready_message_store_messages_before(
+        let Some(page) = message_store::chat_store_read_messages_before(
             store_paths,
             &before_anchor,
             100,
@@ -793,7 +793,7 @@ fn read_ready_store_rewind_state_meta_view(
     let remaining_todos =
         remaining_todos.unwrap_or_else(|| conversation_meta.current_todos.clone());
 
-    Ok(ReadyStoreRewindState {
+    Ok(ChatStoreRewindState {
         keep_count: rewind_slice.keep_count,
         removed_messages: rewind_slice.removed_messages,
         recalled_user_message: rewind_slice.recalled_user_message,
@@ -816,8 +816,8 @@ fn read_conversation_for_backup_cleanup(
 ) -> Result<Conversation, String> {
     let conversation_meta = conversation_service_v2().get_conversation_meta(state, conversation_id)?;
     let store_paths = message_store::message_store_paths(&state.data_path, conversation_id)?;
-    ensure_ready_message_store_from_legacy_conversation(state, conversation_id, &store_paths)?;
-    let messages = message_store::read_ready_message_store_all_messages(&store_paths)?
+    require_chat_store_conversation(state, conversation_id, &store_paths)?;
+    let messages = message_store::chat_store_read_all_messages(&store_paths)?
         .unwrap_or_default();
     Ok(Conversation {
         id: conversation_meta.id,

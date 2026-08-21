@@ -217,9 +217,9 @@ impl ConversationServiceV2 {
                     return Err("当前会话正在运行或整理上下文，完成后再撤回。".to_string());
                 }
                 let store_paths = message_store::message_store_paths(&state.data_path, &conversation_id)?;
-                ensure_ready_message_store_from_legacy_conversation(state, &conversation_id, &store_paths)?;
+                require_chat_store_conversation(state, &conversation_id, &store_paths)?;
                 let rewind_state =
-                    read_ready_store_rewind_state_meta_view(state, &store_paths, &conversation_meta, message_id)?;
+                    read_chat_store_rewind_state_meta_view(state, &store_paths, &conversation_meta, message_id)?;
                 if is_context_compaction_message(
                     &rewind_state.recalled_user_message,
                     rewind_state.recalled_user_message.role.trim(),
@@ -264,7 +264,7 @@ impl ConversationServiceV2 {
                     self.build_conversation_snapshot_from_meta(&updated_meta, Vec::new());
                 state_upsert_chat_index_conversation_cached(state, &metadata_conversation)?;
                 let current_todo = conversation_current_todo_text_from_items(&rewind_state.remaining_todos);
-                message_store::write_jsonl_snapshot_truncated_messages_shard_from_meta(
+                message_store::chat_store_truncate_messages_from_meta(
                     &store_paths,
                     &updated_meta,
                     rewind_state.keep_count,
@@ -297,7 +297,7 @@ impl ConversationServiceV2 {
     ) -> Result<bool, String> {
         let mut before_message_id = message_id.trim().to_string();
         while !before_message_id.is_empty() {
-            let Some(page) = message_store::read_ready_message_store_messages_before(
+            let Some(page) = message_store::chat_store_read_messages_before(
                 store_paths,
                 &before_message_id,
                 4,
@@ -361,9 +361,9 @@ impl ConversationServiceV2 {
         }
         drop(guard);
         let store_paths = message_store::message_store_paths(&state.data_path, &conversation_id)?;
-        ensure_ready_message_store_from_legacy_conversation(state, &conversation_id, &store_paths)?;
+        require_chat_store_conversation(state, &conversation_id, &store_paths)?;
         let rewind_state =
-            read_ready_store_rewind_state_meta_view(state, &store_paths, &conversation_meta, message_id)?;
+            read_chat_store_rewind_state_meta_view(state, &store_paths, &conversation_meta, message_id)?;
         let backup_record_ids = collect_backup_record_ids_from_messages(&rewind_state.removed_messages);
         let existing_backup_count = backup_record_ids
             .iter()

@@ -1339,6 +1339,11 @@ mod terminal_workspace_tests {
         archived_conversation.archived_at = Some(now_iso());
         write_conversation_shard(&state.data_path, &archived_conversation)
             .expect("write archived conversation");
+        state_service_set_message_store_migration_version(
+            &state,
+            DATA_MIGRATION_CURRENT_VERSION,
+        )
+        .expect("mark message store migration complete");
 
         let changed =
             run_app_data_migrations_with_state(&state, &config).expect("run migrations");

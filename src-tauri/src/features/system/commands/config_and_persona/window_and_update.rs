@@ -417,6 +417,7 @@ fn get_department_default_draft_inner(
 }
 
 fn load_config_inner(state: &AppState) -> Result<AppConfig, String> {
+    require_message_store_migration_completed_for_runtime(state, "加载应用配置")?;
     let mut result = state_read_config_cached(&state)?;
     normalize_app_config(&mut result);
     let workspace_changed = ensure_default_shell_workspace_in_config(&mut result, &state);
@@ -437,6 +438,7 @@ fn load_config_inner(state: &AppState) -> Result<AppConfig, String> {
 }
 
 fn read_app_bootstrap_snapshot(state: &AppState) -> Result<AppBootstrapSnapshot, String> {
+    require_message_store_migration_completed_for_runtime(state, "加载应用启动快照")?;
     let mut config = state_read_config_cached(state)?;
     normalize_app_config(&mut config);
     let workspace_changed = ensure_default_shell_workspace_in_config(&mut config, state);

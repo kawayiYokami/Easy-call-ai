@@ -403,8 +403,8 @@ impl ConversationServiceV2 {
                 return Err(format!("Unarchived conversation not found: {conversation_id}"));
             }
             let paths = message_store::message_store_paths(&state.data_path, conversation_id)?;
-            ensure_ready_message_store_from_legacy_conversation(state, conversation_id, &paths)?;
-            let mut ready_meta = message_store::read_ready_message_store_meta(&paths)?
+            require_chat_store_conversation(state, conversation_id, &paths)?;
+            let mut ready_meta = message_store::chat_store_read_meta(&paths)?
                 .ok_or_else(|| {
                     format!(
                         "批量更新消息 providerMeta 失败：缺少 ready 消息元数据，conversation_id={conversation_id}"
@@ -414,7 +414,7 @@ impl ConversationServiceV2 {
             let mut previous_messages = Vec::with_capacity(patch_by_id.len());
             let mut updated_messages = Vec::with_capacity(patch_by_id.len());
             for (message_id, provider_meta) in &patch_by_id {
-                let mut message = message_store::read_ready_message_store_message_by_id(&paths, message_id)?
+                let mut message = message_store::chat_store_read_message_by_id(&paths, message_id)?
                     .ok_or_else(|| {
                         format!(
                             "批量更新消息 providerMeta 失败：消息不存在，conversation_id={}，message_id={}",
@@ -426,12 +426,12 @@ impl ConversationServiceV2 {
                 updated_messages.push(message);
             }
             ready_meta.apply_replaced_messages(&previous_messages, &updated_messages, || {
-                message_store::recompute_latest_summary_title_after_replace(
+                message_store::chat_store_recompute_latest_summary_title_after_replace(
                     &paths,
                     &updated_messages,
                 )
             })?;
-            message_store::write_jsonl_snapshot_replaced_messages_shard(
+            message_store::chat_store_replace_messages(
                 &paths,
                 &ready_meta.to_persist_meta(),
                 &updated_messages,

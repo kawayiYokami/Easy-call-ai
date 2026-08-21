@@ -417,43 +417,6 @@ mod jsonl_snapshot_conversation_block_tests {
     }
 
     #[test]
-    fn repair_jsonl_snapshot_file_should_not_discard_legacy_media_lines() {
-        let root = std::env::temp_dir().join(format!("eca-legacy-jsonl-{}", Uuid::new_v4()));
-        std::fs::create_dir_all(&root).expect("create temp dir");
-        let path = root.join("000000.jsonl");
-        let content = format!(
-            "{}\n{}\n",
-            legacy_media_message_json(
-                "legacy-image",
-                "image",
-                "image/png",
-                "@download:conversation-a/image.png",
-            ),
-            legacy_media_message_json(
-                "legacy-audio",
-                "audio",
-                "audio/webm",
-                "@media:audio.webm",
-            )
-        );
-        std::fs::write(&path, content).expect("write legacy jsonl");
-
-        let (report, discarded, duplicate) = repair_jsonl_snapshot_file(
-            &path,
-            &mut std::collections::HashSet::new(),
-        )
-        .expect("repair legacy jsonl");
-
-        assert_eq!(discarded, 0);
-        assert_eq!(duplicate, 0);
-        assert_eq!(report.message_count, 2);
-        let repaired = std::fs::read_to_string(&path).expect("read repaired jsonl");
-        assert!(repaired.contains("legacy-image"));
-        assert!(repaired.contains("legacy-audio"));
-        let _ = std::fs::remove_dir_all(root);
-    }
-
-    #[test]
     fn canonical_attachment_json_should_not_contain_legacy_binary_fields() {
         let mut message = text_message("canonical-attachment", "user", "look");
         message.parts.push(MessagePart::Attachment {

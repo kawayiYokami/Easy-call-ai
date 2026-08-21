@@ -298,9 +298,9 @@ impl ConversationServiceV2 {
         for (contact, conversation_id) in resolved_pairs {
             let store_paths = message_store::message_store_paths(&state.data_path, &conversation_id)?;
             let channel = remote_im_channel_by_id(&config, &contact.channel_id);
-            let summary = if let Some(meta) = message_store::read_ready_message_store_meta(&store_paths)? {
-                let manifest_status = message_store::read_message_store_manifest_status(&store_paths)?
-                    .ok_or_else(|| format!("联系人会话缺少消息存储 manifest：{conversation_id}"))?;
+            let summary = if let Some(meta) = message_store::chat_store_read_meta(&store_paths)? {
+                let current_store_status = message_store::chat_store_read_status(&store_paths)?
+                    .ok_or_else(|| format!("联系人会话缺少消息存储状态：{conversation_id}"))?;
                 let preview_messages = self
                     .read_remote_im_contact_preview_messages(state, &conversation_id, 2)
                     .unwrap_or_default();
@@ -314,7 +314,7 @@ impl ConversationServiceV2 {
                         .map(ToOwned::to_owned)
                         .or_else(|| meta.last_user_at().map(ToOwned::to_owned))
                         .or_else(|| Some(meta.updated_at().to_string())),
-                    message_count: manifest_status.source_message_count,
+                    message_count: current_store_status.message_count,
                     channel_id: contact.channel_id.clone(),
                     channel_name: channel
                         .as_ref()
@@ -407,7 +407,7 @@ impl ConversationServiceV2 {
         drop(guard);
         let store_paths = message_store::message_store_paths(&state.data_path, &conversation_id)?;
         let mut messages = if let Some(page) =
-            message_store::read_ready_message_store_recent_messages_page_cached(
+            message_store::chat_store_read_recent_messages_page_cached(
                 &store_paths,
                 DEFAULT_FOREGROUND_SNAPSHOT_RECENT_LIMIT,
             )?
@@ -475,7 +475,7 @@ impl ConversationServiceV2 {
 
         let store_paths = message_store::message_store_paths(&state.data_path, &conversation_id)?;
         if let Some(page) =
-            message_store::read_ready_message_store_block_page(&store_paths, requested_block_id)?
+            message_store::chat_store_read_block_page(&store_paths, requested_block_id)?
         {
             let _ = self.retain_message_store_block_cache_whitelist(state);
             let mut messages = page.messages;
@@ -682,31 +682,26 @@ impl ConversationServiceV2 {
                 let result = updater(&mut conversation)?;
                 let store_paths =
                     message_store::message_store_paths(&state.data_path, normalized_conversation_id)?;
-                let is_v3_ready = message_store::message_store_is_v3_ready(&store_paths)?;
-                let changed_messages = if is_v3_ready {
-                    if conversation.messages.len() != original_messages.len()
-                        || conversation
-                            .messages
-                            .iter()
-                            .zip(original_messages.iter())
-                            .any(|(updated, original)| updated.id != original.id)
-                    {
-                        return Err(format!(
-                            "v3 不支持通过 update_unarchived_conversation_by_id 改变消息结构，conversation_id={normalized_conversation_id}"
-                        ));
-                    }
-                    conversation
+                if conversation.messages.len() != original_messages.len()
+                    || conversation
                         .messages
                         .iter()
                         .zip(original_messages.iter())
-                        .filter_map(|(updated, original)| {
-                            (serde_json::to_value(updated).ok() != serde_json::to_value(original).ok())
-                                .then(|| updated.clone())
-                        })
-                        .collect::<Vec<_>>()
-                } else {
-                    Vec::new()
-                };
+                        .any(|(updated, original)| updated.id != original.id)
+                {
+                    return Err(format!(
+                        "v3 不支持通过 update_unarchived_conversation_by_id 改变消息结构，conversation_id={normalized_conversation_id}"
+                    ));
+                }
+                let changed_messages = conversation
+                    .messages
+                    .iter()
+                    .zip(original_messages.iter())
+                    .filter_map(|(updated, original)| {
+                        (serde_json::to_value(updated).ok() != serde_json::to_value(original).ok())
+                            .then(|| updated.clone())
+                    })
+                    .collect::<Vec<_>>();
                 let (updated_meta_conversation, (), _) = state_update_conversation_metadata_cached_unlocked(
                     state,
                     normalized_conversation_id,
@@ -715,10 +710,6 @@ impl ConversationServiceV2 {
                         Ok(())
                     },
                 )?;
-                if !is_v3_ready {
-                    state_schedule_conversation_persist(state, &conversation)?;
-                    return Ok(result);
-                }
                 if !changed_messages.is_empty() {
                     let mut ready_meta = self.ensure_appendable_ready_message_store(state, normalized_conversation_id)?;
                     ready_meta.apply_metadata_fields_from_conversation(&updated_meta_conversation);
@@ -734,7 +725,7 @@ impl ConversationServiceV2 {
                     ready_meta.apply_replaced_messages(&previous_messages, &changed_messages, || {
                         Ok(conversation_latest_summary_title(&conversation))
                     })?;
-                    message_store::write_jsonl_snapshot_replaced_messages_shard(
+                    message_store::chat_store_replace_messages(
                         &store_paths,
                         &ready_meta.to_persist_meta(),
                         &changed_messages,
@@ -1029,7 +1020,7 @@ impl ConversationServiceV2 {
         for conversation_id in conversation_ids {
             let paths = message_store::message_store_paths(&state.data_path, &conversation_id)?;
             if let Some(block_paths) =
-                message_store::read_ready_message_store_latest_block_paths(&paths, 2)?
+                message_store::chat_store_read_latest_block_paths(&paths, 2)?
             {
                 allowed_paths.extend(block_paths);
             }
@@ -1046,7 +1037,7 @@ impl ConversationServiceV2 {
     ) -> Result<Vec<ConversationPreviewMessage>, String> {
         let normalized_limit = limit.max(1);
         let store_paths = message_store::message_store_paths(&state.data_path, conversation_id)?;
-        if let Some(page) = message_store::read_ready_message_store_recent_messages_page_cached(
+        if let Some(page) = message_store::chat_store_read_recent_messages_page_cached(
             &store_paths,
             normalized_limit,
         )? {

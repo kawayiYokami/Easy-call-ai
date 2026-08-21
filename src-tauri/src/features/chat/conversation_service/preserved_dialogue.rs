@@ -223,7 +223,7 @@ impl ConversationServiceV2 {
             return Ok(String::new());
         }
         let store_paths = message_store::message_store_paths(&state.data_path, conversation_id)?;
-        ensure_ready_message_store_from_legacy_conversation(state, conversation_id, &store_paths)?;
+        require_chat_store_conversation(state, conversation_id, &store_paths)?;
         let mut selected_block_id = requested_block_id;
         let mut before_message_id = end_message_id
             .map(str::trim)
@@ -234,7 +234,7 @@ impl ConversationServiceV2 {
         let mut reached_summary = false;
 
         loop {
-            let Some(page) = message_store::read_ready_message_store_block_messages_before(
+            let Some(page) = message_store::chat_store_read_block_messages_before(
                 &store_paths,
                 selected_block_id,
                 before_message_id.as_deref(),

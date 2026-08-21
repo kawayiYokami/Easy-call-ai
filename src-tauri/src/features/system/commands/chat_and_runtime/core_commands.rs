@@ -631,7 +631,7 @@ fn read_user_mention_context_snapshot(
 ) -> Result<String, String> {
     let paths = message_store::message_store_paths(&state.data_path, &conversation_meta.id)?;
     if let Some(page) =
-        message_store::read_ready_message_store_recent_messages_page_cached(&paths, 12)?
+        message_store::chat_store_read_recent_messages_page_cached(&paths, 12)?
     {
         return Ok(build_user_mention_context_snapshot_from_messages(
             &page.messages,

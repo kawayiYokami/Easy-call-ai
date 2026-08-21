@@ -604,7 +604,7 @@ fn read_remote_im_group_reply_range_to_latest(
 ) -> Result<(Vec<ChatMessage>, String, bool), String> {
     const RANGE_PAGE_SIZE: usize = 100;
     let paths = message_store::message_store_paths(&state.data_path, conversation_id)?;
-    ensure_ready_message_store_from_legacy_conversation(state, conversation_id, &paths)?;
+    require_chat_store_conversation(state, conversation_id, &paths)?;
     let mutation_gate = conversation_mutation_gate(&state.data_path, conversation_id)?;
     let _guard = mutation_gate.lock().map_err(|err| {
         named_lock_error(
@@ -615,12 +615,12 @@ fn read_remote_im_group_reply_range_to_latest(
             &err,
         )
     })?;
-    let start = message_store::read_ready_message_store_message_by_id(&paths, start_message_id)?
+    let start = message_store::chat_store_read_message_by_id(&paths, start_message_id)?
         .ok_or_else(|| format!("群聊巡检起点消息不存在：{start_message_id}"))?;
     let mut range = vec![start];
     let mut after_message_id = start_message_id.to_string();
     loop {
-        let Some(page) = message_store::read_ready_message_store_messages_after(
+        let Some(page) = message_store::chat_store_read_messages_after(
             &paths,
             &after_message_id,
             RANGE_PAGE_SIZE,
@@ -661,10 +661,10 @@ fn remote_im_group_reply_next_unsettled_start_message_id(
 ) -> Result<Option<String>, String> {
     const PAGE_SIZE: usize = 100;
     let paths = message_store::message_store_paths(&state.data_path, conversation_id)?;
-    ensure_ready_message_store_from_legacy_conversation(state, conversation_id, &paths)?;
+    require_chat_store_conversation(state, conversation_id, &paths)?;
     let mut after_message_id = boundary_message_id.to_string();
     loop {
-        let Some(page) = message_store::read_ready_message_store_messages_after(
+        let Some(page) = message_store::chat_store_read_messages_after(
             &paths,
             &after_message_id,
             PAGE_SIZE,

@@ -21,7 +21,7 @@ impl ConversationServiceV2 {
             |archive_id| {
                 let store_paths =
                     message_store::message_store_paths(&state.data_path, archive_id).ok()?;
-                message_store::read_ready_message_store_index_summary(&store_paths)
+                message_store::chat_store_read_index_summary(&store_paths)
                     .ok()
                     .flatten()
                     .and_then(|summary| summary.first_user_text_preview)
@@ -123,18 +123,14 @@ impl ConversationServiceV2 {
         let store_paths =
             message_store::message_store_paths(&state.data_path, normalized_archive_id)?;
         if let Some(mut messages) =
-            message_store::read_ready_message_store_all_messages(&store_paths)?
+            message_store::chat_store_read_all_messages(&store_paths)?
         {
             materialize_chat_message_parts_from_media_refs(&mut messages, &state.data_path);
             return Ok(messages);
         }
-        let guard = lock_conversation_with_metrics(state, "get_archive_messages")?;
-        ensure_archive_ready_message_store_from_legacy(state, normalized_archive_id, &store_paths)?;
-        drop(guard);
-        let mut messages = message_store::read_ready_message_store_all_messages(&store_paths)?
-            .ok_or_else(|| format!("归档消息仓库不可读，archive_id={normalized_archive_id}"))?;
-        materialize_chat_message_parts_from_media_refs(&mut messages, &state.data_path);
-        Ok(messages)
+        Err(format!(
+            "归档消息仓库不可读，archive_id={normalized_archive_id}；请先完成消息存储迁移"
+        ))
     }
 
     fn get_archive_block_page(
@@ -148,7 +144,7 @@ impl ConversationServiceV2 {
             return Err("archiveId is required".to_string());
         }
         let store_paths = message_store::message_store_paths(&state.data_path, normalized_archive_id)?;
-        if let Some(page) = message_store::read_ready_message_store_block_page(&store_paths, block_id)? {
+        if let Some(page) = message_store::chat_store_read_block_page(&store_paths, block_id)? {
             let mut messages = page.messages;
             materialize_chat_message_parts_from_media_refs(&mut messages, &state.data_path);
             return Ok(ConversationBlockPageResult {
@@ -172,32 +168,9 @@ impl ConversationServiceV2 {
             });
         }
 
-        let guard = lock_conversation_with_metrics(state, "get_archive_block_page")?;
-        ensure_archive_ready_message_store_from_legacy(state, normalized_archive_id, &store_paths)?;
-        drop(guard);
-        let page = message_store::read_ready_message_store_block_page(&store_paths, block_id)?
-            .ok_or_else(|| format!("归档块分页不可读，archive_id={normalized_archive_id}"))?;
-        let mut messages = page.messages;
-        materialize_chat_message_parts_from_media_refs(&mut messages, &state.data_path);
-        Ok(ConversationBlockPageResult {
-            blocks: page
-                .blocks
-                .into_iter()
-                .map(|item| ConversationBlockSummaryResult {
-                    block_id: item.block_id,
-                    message_count: item.message_count,
-                    first_message_id: item.first_message_id,
-                    last_message_id: item.last_message_id,
-                    first_created_at: item.first_created_at,
-                    last_created_at: item.last_created_at,
-                    is_latest: item.is_latest,
-                })
-                .collect(),
-            selected_block_id: page.selected_block_id,
-            messages,
-            has_prev_block: page.has_prev_block,
-            has_next_block: page.has_next_block,
-        })
+        Err(format!(
+            "归档块分页不可读，archive_id={normalized_archive_id}；请先完成消息存储迁移"
+        ))
     }
 
     fn delete_archive(
@@ -446,19 +419,19 @@ impl ConversationServiceV2 {
             ));
         }
         let store_paths = message_store::message_store_paths(&state.data_path, conversation_id)?;
-        ensure_ready_message_store_from_legacy_conversation(state, conversation_id, &store_paths)?;
-        let trigger = message_store::read_ready_message_store_message_by_id(
+        require_chat_store_conversation(state, conversation_id, &store_paths)?;
+        let trigger = message_store::chat_store_read_message_by_id(
             &store_paths,
             trigger_message_id,
         )?
         .ok_or_else(|| format!("远程唤醒压缩失败：触发消息不存在，message_id={trigger_message_id}"))?;
-        let trigger_index = message_store::read_ready_message_store_message_sequence(
+        let trigger_index = message_store::chat_store_read_message_sequence(
             &store_paths,
             trigger_message_id,
         )?
         .ok_or_else(|| format!("远程唤醒压缩失败：触发消息缺少序号，message_id={trigger_message_id}"))?;
         if include_history {
-            match message_store::read_ready_message_store_block_message_count(
+            match message_store::chat_store_read_block_message_count(
                 &store_paths,
                 trigger_message_id,
             ) {
@@ -526,7 +499,7 @@ impl ConversationServiceV2 {
             std::slice::from_ref(&trigger),
             &[summary.clone(), trigger.clone()],
         );
-        message_store::write_jsonl_snapshot_spliced_messages_shard(
+        message_store::chat_store_splice_messages(
             &store_paths,
             &persist_meta,
             trigger_index,
@@ -534,7 +507,7 @@ impl ConversationServiceV2 {
             &[summary.clone(), trigger.clone()],
         )?;
         state_mark_conversation_metadata_direct_persisted(state, conversation_id)?;
-        let next_messages = message_store::read_ready_message_store_messages_after(
+        let next_messages = message_store::chat_store_read_messages_after(
             &store_paths,
             &summary.id,
             1,
@@ -567,8 +540,8 @@ impl ConversationServiceV2 {
             return Err("活动对话已变化，请重试上下文整理。".to_string());
         }
         let store_paths = message_store::message_store_paths(&state.data_path, &source.id)?;
-        ensure_ready_message_store_from_legacy_conversation(state, &source.id, &store_paths)?;
-        let previous_latest_block_id = message_store::read_ready_message_store_block_page(
+        require_chat_store_conversation(state, &source.id, &store_paths)?;
+        let previous_latest_block_id = message_store::chat_store_read_block_page(
             &store_paths,
             None,
         )?
@@ -594,7 +567,7 @@ impl ConversationServiceV2 {
             self.build_conversation_snapshot_from_meta(&conversation_meta, Vec::new());
         state_upsert_chat_index_conversation_cached(state, &metadata_conversation)?;
         let active_conversation_id = Some(metadata_conversation.id.clone());
-        let mut ready_meta = message_store::read_ready_message_store_meta(&store_paths)?
+        let mut ready_meta = message_store::chat_store_read_meta(&store_paths)?
             .ok_or_else(|| {
                 format!(
                     "写入上下文整理消息失败：缺少 ready 消息元数据，conversation_id={}",
@@ -603,7 +576,7 @@ impl ConversationServiceV2 {
             })?;
         ready_meta.apply_metadata_fields_from_meta(&conversation_meta);
         ready_meta.apply_appended_messages(std::slice::from_ref(compression_message));
-        message_store::write_jsonl_snapshot_appended_messages_shard_from_meta(
+        message_store::chat_store_append_messages_from_meta(
             &store_paths,
             &ready_meta,
             std::slice::from_ref(compression_message),
@@ -618,7 +591,7 @@ impl ConversationServiceV2 {
         ))
             })?;
 
-        let persisted = message_store::read_ready_message_store_message_by_id(
+        let persisted = message_store::chat_store_read_message_by_id(
             &store_paths,
             &compression_message_id,
         )?
@@ -628,7 +601,7 @@ impl ConversationServiceV2 {
                 "上下文整理消息写入校验失败：已执行整理但未找到落盘消息，请重试。".to_string(),
             );
         }
-        let latest_block = message_store::read_ready_message_store_block_page(&store_paths, None)?
+        let latest_block = message_store::chat_store_read_block_page(&store_paths, None)?
             .ok_or_else(|| {
                 format!(
                     "上下文整理消息写入校验失败：缺少最新块，conversation_id={}",

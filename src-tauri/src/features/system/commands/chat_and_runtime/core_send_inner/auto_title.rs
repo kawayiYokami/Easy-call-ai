@@ -19,8 +19,8 @@ fn conversation_has_visible_title_from_store(
         return Ok(false);
     }
     let store_paths = message_store::message_store_paths(&state.data_path, conversation_id)?;
-    ensure_ready_message_store_from_legacy_conversation(state, conversation_id, &store_paths)?;
-    Ok(message_store::read_ready_message_store_latest_compaction_message(&store_paths)?
+    require_chat_store_conversation(state, conversation_id, &store_paths)?;
+    Ok(message_store::chat_store_read_latest_compaction_message(&store_paths)?
         .as_ref()
         .is_some_and(summary_context_message_title_blocks_auto_title))
 }
@@ -231,4 +231,3 @@ fn spawn_conversation_auto_title_generation(
         auto_title_generation_clear_inflight(&conversation_id);
     });
 }
-

@@ -1083,6 +1083,7 @@ mod ide_context_tests {
                 },
             )
             .expect("create conversation");
+        flush_pending_persists_blocking(&state).expect("flush created conversation");
 
         let result = ide_chat_send_message(
             &state,
@@ -1151,6 +1152,7 @@ mod ide_context_tests {
         )
         .await
         .expect("create conversation");
+        flush_pending_persists_blocking(&state).expect("flush created conversation");
         let conversation_id = created
             .get("conversationId")
             .and_then(Value::as_str)

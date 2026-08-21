@@ -54,13 +54,13 @@ impl ConversationServiceV2 {
             self.get_conversation_meta(state, normalized_conversation_id)?;
         let store_paths =
             message_store::message_store_paths(&state.data_path, normalized_conversation_id)?;
-        ensure_ready_message_store_from_legacy_conversation(
+        require_chat_store_conversation(
             state,
             normalized_conversation_id,
             &store_paths,
         )?;
         let messages =
-            message_store::read_ready_message_store_all_messages(&store_paths)?.unwrap_or_default();
+            message_store::chat_store_read_all_messages(&store_paths)?.unwrap_or_default();
         let mut conversation = self.build_conversation_record_from_meta_view(&conversation_meta);
         conversation.messages = messages;
         Ok(conversation)
@@ -84,7 +84,7 @@ impl ConversationServiceV2 {
         let source = self.read_persisted_conversation(state, conversation_id)?;
         let store_paths = message_store::message_store_paths(&state.data_path, conversation_id)?;
         let mut block_messages = if let Some(page) =
-            message_store::read_ready_message_store_block_page(&store_paths, None)?
+            message_store::chat_store_read_block_page(&store_paths, None)?
         {
             page.messages
         } else {

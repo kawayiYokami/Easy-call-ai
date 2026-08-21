@@ -3931,6 +3931,7 @@
         });
         state_schedule_conversation_persist(&state, &conversation)
             .expect("persist remote group conversation");
+        flush_pending_persists_blocking(&state).expect("flush remote group conversation");
 
         assert!(!maybe_enqueue_goal_continue_after_idle(&state, &conversation.id)
             .expect("group goal continuation should fail soft"));
@@ -4209,6 +4210,11 @@
         conversation.status = "archived".to_string();
 
         write_conversation_shard(&state.data_path, &conversation).expect("write archived conversation");
+        state_service_set_message_store_migration_version(
+            &state,
+            DATA_MIGRATION_CURRENT_VERSION,
+        )
+        .expect("mark message store migration complete");
 
         let _snapshot = read_app_bootstrap_snapshot(&state).expect("read bootstrap snapshot");
 
@@ -4502,19 +4508,17 @@
         conversation.last_assistant_at = Some(now.clone());
         write_conversation_shard(&state.data_path, &conversation).expect("write conversation");
 
-        let meta_path = app_layout_chat_conversations_dir(&state.data_path)
-            .join(&conversation.id)
-            .join("meta.json");
-        let mut ready_meta: serde_json::Value = serde_json::from_str(
-            &std::fs::read_to_string(&meta_path).expect("read ready meta raw"),
-        )
-        .expect("parse ready meta raw");
-        ready_meta["previewMessages"] = serde_json::Value::Array(Vec::new());
-        std::fs::write(
-            &meta_path,
-            serde_json::to_vec_pretty(&ready_meta).expect("serialize ready meta raw"),
-        )
-        .expect("write empty preview meta");
+        let store_paths = message_store::message_store_paths(&state.data_path, &conversation.id)
+            .expect("message store paths");
+        let ready_meta = message_store::chat_store_read_meta(&store_paths)
+            .expect("read ready meta")
+            .expect("ready meta exists");
+        let mut ready_meta_json = serde_json::to_value(&ready_meta).expect("serialize ready meta");
+        ready_meta_json["previewMessages"] = serde_json::Value::Array(Vec::new());
+        let cleared_meta: message_store::ConversationPersistMeta =
+            serde_json::from_value(ready_meta_json).expect("deserialize cleared meta");
+        message_store::chat_store_write_meta(&store_paths, &cleared_meta)
+            .expect("write cleared meta");
 
         let summaries = conversation_service_v2()
             .list_unarchived_conversation_summaries(&state)
@@ -4796,7 +4800,7 @@
         let store_paths =
             message_store::message_store_paths(&state.data_path, &conversation.id)
                 .expect("message store paths");
-        message_store::write_jsonl_snapshot_directory_shard(&store_paths, &conversation)
+        message_store::chat_store_write_snapshot(&store_paths, &conversation)
             .expect("write message store");
         state_mark_conversation_direct_persisted(&state, &conversation)
             .expect("mark direct persisted");
@@ -4840,7 +4844,7 @@
         let store_paths =
             message_store::message_store_paths(&state.data_path, &conversation.id)
                 .expect("message store paths");
-        message_store::write_jsonl_snapshot_directory_shard(&store_paths, &conversation)
+        message_store::chat_store_write_snapshot(&store_paths, &conversation)
             .expect("write message store");
         state_mark_conversation_direct_persisted(&state, &conversation)
             .expect("mark direct persisted");
@@ -4850,7 +4854,7 @@
             .append_message_to_unarchived_conversation(&state, &conversation.id, &appended)
             .expect("append message");
 
-        let meta = message_store::read_ready_message_store_meta(&store_paths)
+        let meta = message_store::chat_store_read_meta(&store_paths)
             .expect("read store meta")
             .expect("store meta exists");
         assert_eq!(meta.message_count(), 3);
@@ -4858,7 +4862,7 @@
         assert_eq!(meta.last_message_id(), Some(appended.id.as_str()));
         assert!(meta.has_assistant_reply());
 
-        let stored_messages = message_store::read_ready_message_store_all_messages(&store_paths)
+        let stored_messages = message_store::chat_store_read_all_messages(&store_paths)
             .expect("read stored messages")
             .expect("stored messages exist");
         assert_eq!(stored_messages.len(), 3);
@@ -4888,7 +4892,7 @@
         let store_paths =
             message_store::message_store_paths(&state.data_path, &conversation.id)
                 .expect("message store paths");
-        message_store::write_jsonl_snapshot_directory_shard(&store_paths, &conversation)
+        message_store::chat_store_write_snapshot(&store_paths, &conversation)
             .expect("write message store");
         state_mark_conversation_direct_persisted(&state, &conversation)
             .expect("mark direct persisted");
@@ -4920,7 +4924,7 @@
             .append_message_to_unarchived_conversation(&state, &conversation.id, &appended)
             .expect("append message after broken cached meta");
 
-        let stored_messages = message_store::read_ready_message_store_all_messages(&store_paths)
+        let stored_messages = message_store::chat_store_read_all_messages(&store_paths)
             .expect("read stored messages")
             .expect("stored messages exist");
         assert_eq!(stored_messages.len(), 3);
@@ -4937,7 +4941,7 @@
             _ => panic!("expected appended text message"),
         }
 
-        let ready_meta = message_store::read_ready_message_store_meta(&store_paths)
+        let ready_meta = message_store::chat_store_read_meta(&store_paths)
             .expect("read ready meta")
             .expect("ready meta exists");
         assert_eq!(ready_meta.message_count(), 3);
@@ -4967,7 +4971,7 @@
         let store_paths =
             message_store::message_store_paths(&state.data_path, &conversation.id)
                 .expect("message store paths");
-        message_store::write_jsonl_snapshot_directory_shard(&store_paths, &conversation)
+        message_store::chat_store_write_snapshot(&store_paths, &conversation)
             .expect("write message store");
         state_mark_conversation_direct_persisted(&state, &conversation)
             .expect("mark direct persisted");
@@ -4989,7 +4993,7 @@
 
         flush_pending_persists_blocking(&state).expect("flush metadata persist");
 
-        let meta = message_store::read_ready_message_store_meta(&store_paths)
+        let meta = message_store::chat_store_read_meta(&store_paths)
             .expect("read ready store meta")
             .expect("ready store meta exists");
         assert_eq!(meta.message_count(), 2);
@@ -5183,7 +5187,7 @@
         let store_paths =
             message_store::message_store_paths(&state.data_path, &conversation.id)
                 .expect("message store paths");
-        message_store::write_jsonl_snapshot_directory_shard(&store_paths, &conversation)
+        message_store::chat_store_write_snapshot(&store_paths, &conversation)
             .expect("write message store");
         state_mark_conversation_direct_persisted(&state, &conversation)
             .expect("mark direct persisted");
@@ -5256,6 +5260,98 @@
         assert_eq!(
             created_conversation.shell_workspaces[0].access,
             SHELL_WORKSPACE_ACCESS_FULL_ACCESS
+        );
+        let store_paths = message_store::message_store_paths(
+            &state.data_path,
+            &created.conversation_id,
+        )
+        .expect("created conversation store paths");
+        let immediate_message = test_text_message("user", "创建后立即发送", &now_iso());
+        conversation_service_v2()
+            .append_message_to_unarchived_conversation(
+                &state,
+                &created.conversation_id,
+                &immediate_message,
+            )
+            .expect("new conversation should accept an immediate first message");
+        assert!(message_store::chat_store_read_message_by_id(
+            &store_paths,
+            &immediate_message.id,
+        )
+        .expect("read immediate first message")
+        .is_some());
+        assert!(!state
+            .cached_conversation_dirty_ids
+            .lock()
+            .expect("read dirty ids after immediate append")
+            .contains(&created.conversation_id));
+        if let Some(pending) = state
+            .conversation_persist_pending
+            .lock()
+            .expect("read pending persists after immediate append")
+            .as_ref()
+        {
+            assert!(!pending.conversations.contains_key(&created.conversation_id));
+            assert!(!pending
+                .metadata_conversation_ids
+                .contains(&created.conversation_id));
+        }
+
+        let legacy_collision_id = "conversation-v2-create-with-legacy-artifact";
+        let mut legacy_collision =
+            test_chat_conversation(legacy_collision_id, "active", &now_iso());
+        legacy_collision.title = "生产新建忽略旧 artifact".to_string();
+        let legacy_path =
+            app_layout_chat_conversation_path(&state.data_path, legacy_collision_id);
+        let collision_paths = message_store::message_store_paths(
+            &state.data_path,
+            legacy_collision_id,
+        )
+        .expect("collision store paths");
+        let collision_shard_dir =
+            app_layout_chat_conversations_dir(&state.data_path).join(legacy_collision_id);
+        let collision_manifest = collision_shard_dir
+            .join(message_store::MESSAGE_STORE_MANIFEST_FILE_NAME);
+        let collision_legacy_block = collision_shard_dir
+            .join(message_store::MESSAGE_STORE_BLOCKS_DIR_NAME)
+            .join("000000.jsonl");
+        fs::create_dir_all(&collision_shard_dir).expect("create V2 artifact directory");
+        fs::create_dir_all(
+            collision_legacy_block
+                .parent()
+                .expect("legacy block parent"),
+        )
+        .expect("create V2 block directory");
+        fs::write(&legacy_path, "{broken legacy source")
+            .expect("write V1 artifact");
+        fs::write(&collision_manifest, "{broken V2 manifest")
+            .expect("write V2 artifact");
+        fs::write(&collision_legacy_block, "legacy V2 block")
+            .expect("write V2 block artifact");
+        let legacy_before = fs::read(&legacy_path).expect("read V1 artifact before create");
+        let manifest_before = fs::read(&collision_manifest).expect("read V2 artifact before create");
+        let block_before =
+            fs::read(&collision_legacy_block).expect("read V2 block before create");
+
+        state_schedule_conversation_persist(&state, &legacy_collision)
+            .expect("schedule new V3 conversation over ignored old artifacts");
+        flush_pending_persists_blocking(&state)
+            .expect("publish scheduled V3 conversation");
+
+        assert!(message_store::chat_store_read_status(&collision_paths)
+            .expect("read collision V3 status")
+            .is_some());
+        assert_eq!(
+            fs::read(&legacy_path).expect("V1 artifact remains after create"),
+            legacy_before
+        );
+        assert_eq!(
+            fs::read(&collision_manifest).expect("V2 artifact remains after create"),
+            manifest_before
+        );
+        assert_eq!(
+            fs::read(&collision_legacy_block).expect("V2 block remains after create"),
+            block_before
         );
 
         let deleted = conversation_service_v2()
@@ -5514,44 +5610,6 @@
     }
 
     #[test]
-    fn conversation_service_v2_should_allow_recovery_snapshot_via_privileged_method() {
-        let state = test_chat_runtime_state();
-        let now = now_iso();
-        let mut conversation =
-            test_chat_conversation("conversation-v2-recovery-overwrite", "active", &now);
-        conversation.title = "恢复后的会话".to_string();
-        conversation.current_todos = vec![ConversationTodoItem {
-            content: "恢复待办".to_string(),
-            status: "pending".to_string(),
-        }];
-        conversation.messages.push(test_text_message("user", "恢复消息1", &now));
-
-        conversation_service_v2()
-            .recover_conversation_snapshot(
-                &state,
-                "recovery-job-test",
-                "test_recovery",
-                "测试迁移恢复",
-                &conversation,
-            )
-            .expect("privileged recovery overwrite should succeed");
-
-        let cached = state_read_conversation_cached(&state, &conversation.id)
-            .expect("conversation should be cached after recovery overwrite");
-        assert_eq!(cached.title, "恢复后的会话");
-        assert_eq!(cached.current_todos.len(), 1);
-        assert_eq!(cached.messages.len(), 1);
-
-        flush_pending_persists_blocking(&state).expect("flush recovery conversation");
-        let persisted = conversation_service_v2()
-            .read_persisted_conversation(&state, &conversation.id)
-            .expect("read persisted recovery conversation");
-        assert_eq!(persisted.title, "恢复后的会话");
-        assert_eq!(persisted.current_todos.len(), 1);
-        assert_eq!(persisted.messages.len(), 1);
-    }
-
-    #[test]
     fn conversation_service_v2_should_reject_privileged_overwrite_without_audit_fields() {
         let state = test_chat_runtime_state();
         let now = now_iso();
@@ -5567,11 +5625,6 @@
             .sync_replace_conversation_snapshot(&state, "job", "", "reason", &conversation)
             .expect_err("missing operator should be rejected");
         assert!(err.contains("operator"));
-
-        let err = conversation_service_v2()
-            .recover_conversation_snapshot(&state, "job", "operator", "", &conversation)
-            .expect_err("missing reason should be rejected");
-        assert!(err.contains("reason"));
     }
 
     fn test_v2_single_tool_group_result(call_id: &str, tool_name: &str) -> (Value, Value) {
@@ -5609,7 +5662,7 @@
         let store_paths =
             message_store::message_store_paths(&state.data_path, &conversation.id)
                 .expect("message store paths");
-        message_store::write_jsonl_snapshot_directory_shard(&store_paths, &conversation)
+        message_store::chat_store_write_snapshot(&store_paths, &conversation)
             .expect("write message store");
         state_mark_conversation_direct_persisted(&state, &conversation)
             .expect("mark direct persisted");
@@ -5646,7 +5699,7 @@
         let store_paths =
             message_store::message_store_paths(&state.data_path, &conversation.id)
                 .expect("message store paths");
-        message_store::write_jsonl_snapshot_directory_shard(&store_paths, &conversation)
+        message_store::chat_store_write_snapshot(&store_paths, &conversation)
             .expect("write message store");
         state_mark_conversation_direct_persisted(&state, &conversation)
             .expect("mark direct persisted");
@@ -5697,7 +5750,7 @@
         let store_paths =
             message_store::message_store_paths(&state.data_path, &conversation.id)
                 .expect("message store paths");
-        message_store::write_jsonl_snapshot_directory_shard(&store_paths, &conversation)
+        message_store::chat_store_write_snapshot(&store_paths, &conversation)
             .expect("write message store");
         state_mark_conversation_direct_persisted(&state, &conversation)
             .expect("mark direct persisted");
@@ -5842,7 +5895,7 @@
         let store_paths =
             message_store::message_store_paths(&state.data_path, &conversation.id)
                 .expect("message store paths");
-        message_store::write_jsonl_snapshot_directory_shard(&store_paths, &conversation)
+        message_store::chat_store_write_snapshot(&store_paths, &conversation)
             .expect("write message store");
         state_mark_conversation_direct_persisted(&state, &conversation)
             .expect("mark direct persisted");
@@ -6274,7 +6327,7 @@
         let store_paths =
             message_store::message_store_paths(&state.data_path, &conversation.id)
                 .expect("message store paths");
-        let meta_before = message_store::read_ready_message_store_meta(&store_paths)
+        let meta_before = message_store::chat_store_read_meta(&store_paths)
             .expect("read ready meta before final text")
             .expect("ready meta exists before final text");
         assert_eq!(meta_before.preview_messages().len(), 1);
@@ -6297,7 +6350,7 @@
             )
             .expect("append final text");
 
-        let meta_after = message_store::read_ready_message_store_meta(&store_paths)
+        let meta_after = message_store::chat_store_read_meta(&store_paths)
             .expect("read ready meta after final text")
             .expect("ready meta exists after final text");
         assert_eq!(meta_after.preview_messages().len(), 2);
@@ -6484,7 +6537,7 @@
         let store_paths =
             message_store::message_store_paths(&state.data_path, &conversation.id)
                 .expect("message store paths");
-        message_store::write_jsonl_snapshot_directory_shard(&store_paths, &conversation)
+        message_store::chat_store_write_snapshot(&store_paths, &conversation)
             .expect("write message store");
         state_mark_conversation_direct_persisted(&state, &conversation)
             .expect("mark direct persisted");
@@ -6656,7 +6709,7 @@
 
         let paths = message_store::message_store_paths(&state.data_path, &conversation.id)
             .expect("message store paths");
-        let stored = message_store::read_ready_message_store_message_by_id(
+        let stored = message_store::chat_store_read_message_by_id(
             &paths,
             "tool-review-message",
         )
@@ -6702,14 +6755,14 @@
         let paths = message_store::message_store_paths(&state.data_path, &conversation.id)
             .expect("message store paths");
         let stored =
-            message_store::read_ready_message_store_message_by_id(&paths, "summary-message")
+            message_store::chat_store_read_message_by_id(&paths, "summary-message")
                 .expect("read stored summary message")
                 .expect("summary message exists");
         assert_eq!(
             stored.provider_meta.as_ref().expect("provider meta")["message_meta"]["title"],
             serde_json::Value::String("新标题".to_string())
         );
-        let persisted = message_store::read_ready_message_store_meta(&paths)
+        let persisted = message_store::chat_store_read_meta(&paths)
             .expect("read persisted meta")
             .expect("persisted meta exists");
         assert_eq!(persisted.latest_summary_title().as_deref(), Some("新标题"));
@@ -6802,7 +6855,7 @@
 
         let paths = message_store::message_store_paths(&state.data_path, &conversation.id)
             .expect("message store paths");
-        let persisted = message_store::read_ready_message_store_meta(&paths)
+        let persisted = message_store::chat_store_read_meta(&paths)
             .expect("read persisted meta")
             .expect("persisted meta exists");
         assert_eq!(
@@ -6856,7 +6909,7 @@
 
         let paths = message_store::message_store_paths(&state.data_path, &conversation.id)
             .expect("message store paths");
-        let persisted = message_store::read_ready_message_store_meta(&paths)
+        let persisted = message_store::chat_store_read_meta(&paths)
             .expect("read persisted meta")
             .expect("persisted meta exists");
         assert_eq!(
@@ -6889,7 +6942,7 @@
 
         let paths = message_store::message_store_paths(&state.data_path, &conversation.id)
             .expect("message store paths");
-        let before = message_store::read_ready_message_store_meta(&paths)
+        let before = message_store::chat_store_read_meta(&paths)
             .expect("read persisted meta before")
             .expect("persisted meta exists before");
 
@@ -6908,7 +6961,7 @@
             })
             .expect("replace plain message");
 
-        let after = message_store::read_ready_message_store_meta(&paths)
+        let after = message_store::chat_store_read_meta(&paths)
             .expect("read persisted meta after")
             .expect("persisted meta exists after");
         assert_eq!(
@@ -7090,7 +7143,7 @@
     }
 
     #[test]
-    fn read_archive_block_page_should_migrate_legacy_archive_before_paging() {
+    fn read_archive_block_page_should_reject_legacy_archive_without_v3_store() {
         let state = test_chat_runtime_state();
         let now = now_iso();
         let mut conversation =
@@ -7115,25 +7168,23 @@
         let paths = message_store::message_store_paths(&state.data_path, &conversation.id)
             .expect("message store paths");
         assert!(
-            message_store::read_ready_message_store_status(&paths)
+            message_store::chat_store_read_status(&paths)
                 .expect("read ready status before archive page")
                 .is_none()
         );
 
-        let page = conversation_service_v2()
+        let err = match conversation_service_v2()
             .read_archive_block_page(&state, &conversation.id, None)
-            .expect("read archive block page");
+        {
+            Ok(_) => panic!("legacy archive must not be migrated by production paging"),
+            Err(err) => err,
+        };
 
-        assert_eq!(page.blocks.len(), 1);
-        assert_eq!(page.selected_block_id, 0);
-        assert_eq!(page.messages.len(), 3);
-        assert_eq!(render_message_content_for_model(&page.messages[0]), "第一条");
-        assert_eq!(render_message_content_for_model(&page.messages[2]), "第三条");
-
-        let ready_status = message_store::read_ready_message_store_status(&paths)
-            .expect("read ready status after archive page")
-            .expect("archive page should migrate legacy archive");
-        assert_eq!(ready_status.source_message_count, 3);
+        assert!(err.contains("请先完成消息存储迁移"));
+        assert!(message_store::chat_store_read_status(&paths)
+            .expect("read status after rejected archive page")
+            .is_none());
+        assert!(legacy_path.exists());
     }
 
     #[test]
@@ -7293,6 +7344,7 @@
         target_remote.id = "target-remote-session".to_string();
         target_remote.updated_at = now.clone();
         state_schedule_conversation_persist(&state, &target_remote).expect("persist remote target");
+        flush_pending_persists_blocking(&state).expect("flush seeded sessions");
 
         state_service_upsert_remote_im_contact(&state, &contact).expect("write contact");
 
@@ -7398,12 +7450,8 @@
             state_read_conversation_cached(&state, &remote_target_id).expect("read remote target");
         let store_paths = message_store::message_store_paths(&state.data_path, &remote_target_id)
             .expect("message store paths");
-        message_store::write_jsonl_snapshot_directory_shard(&store_paths, &target)
+        message_store::chat_store_write_snapshot(&store_paths, &target)
             .expect("write message store");
-        let meta_path = app_layout_chat_conversations_dir(&state.data_path)
-            .join(&remote_target_id)
-            .join("meta.json");
-        std::fs::remove_file(&meta_path).expect("remove message store meta");
 
         conversation_service_v2()
             .enqueue_auto_push_remote_contact_message(
@@ -7617,6 +7665,7 @@
         conversation.last_user_at = Some(now.clone());
         state_schedule_conversation_persist(&state, &conversation)
             .expect("persist conversation");
+        flush_pending_persists_blocking(&state).expect("flush contact conversation");
 
         let messages = conversation_service_v2()
             .read_unarchived_messages(&state, "conversation-contact-old")
@@ -7677,7 +7726,7 @@
         let store_paths =
             message_store::message_store_paths(&state.data_path, &conversation.id)
                 .expect("message store paths");
-        message_store::write_jsonl_snapshot_directory_shard(&store_paths, &conversation)
+        message_store::chat_store_write_snapshot(&store_paths, &conversation)
             .expect("write message store");
         conversation.messages = Vec::new();
         state_schedule_conversation_persist(&state, &conversation)
@@ -7711,7 +7760,7 @@
                 .map(|message| message.id.as_str()),
             Some("user-2")
         );
-        let stored = message_store::read_ready_message_store_all_messages(&store_paths)
+        let stored = message_store::chat_store_read_all_messages(&store_paths)
             .expect("read truncated message store")
             .expect("message store exists");
         assert_eq!(
@@ -7758,7 +7807,7 @@
         let store_paths =
             message_store::message_store_paths(&state.data_path, &conversation.id)
                 .expect("message store paths");
-        message_store::write_jsonl_snapshot_directory_shard(&store_paths, &conversation)
+        message_store::chat_store_write_snapshot(&store_paths, &conversation)
             .expect("write message store");
         state_mark_conversation_direct_persisted(&state, &conversation)
             .expect("mark direct persisted");
@@ -7813,7 +7862,7 @@
 
         assert_eq!(result.removed_count, 2);
         assert_eq!(result.remaining_count, 2);
-        let ready_meta = message_store::read_ready_message_store_meta(&store_paths)
+        let ready_meta = message_store::chat_store_read_meta(&store_paths)
             .expect("read ready meta after rewind")
             .expect("ready meta exists after rewind");
         assert_eq!(ready_meta.message_count(), 2);
@@ -7858,7 +7907,7 @@
         let store_paths =
             message_store::message_store_paths(&state.data_path, &conversation.id)
                 .expect("message store paths");
-        message_store::write_jsonl_snapshot_directory_shard(&store_paths, &conversation)
+        message_store::chat_store_write_snapshot(&store_paths, &conversation)
             .expect("write message store");
         let input = RewindConversationInput {
             session: SessionSelector {
@@ -7904,7 +7953,7 @@
         let store_paths =
             message_store::message_store_paths(&state.data_path, "conversation-rewind-streaming")
                 .expect("message store paths");
-        let stored = message_store::read_ready_message_store_all_messages(&store_paths)
+        let stored = message_store::chat_store_read_all_messages(&store_paths)
             .expect("read message store")
             .expect("message store exists");
         assert_eq!(stored.len(), 4);
@@ -7935,7 +7984,7 @@
         let store_paths =
             message_store::message_store_paths(&state.data_path, "conversation-rewind-organizing")
                 .expect("message store paths");
-        let stored = message_store::read_ready_message_store_all_messages(&store_paths)
+        let stored = message_store::chat_store_read_all_messages(&store_paths)
             .expect("read message store")
             .expect("message store exists");
         assert_eq!(stored.len(), 4);
@@ -12616,33 +12665,6 @@
         assert!(
             !todos_section.contains("conversation_mutation_gate("),
             "update_conversation_todos 必须走 with_conversation_mutation，禁止重新裸用 conversation_mutation_gate"
-        );
-    }
-
-    #[test]
-    fn persistence_ready_store_recovery_should_use_unified_conversation_mutation_entry() {
-        let file = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("src")
-            .join("features")
-            .join("chat")
-            .join("conversation_service")
-            .join("persistence.rs");
-        let content = std::fs::read_to_string(&file).expect("read persistence");
-        let recovery_start = content
-            .find("fn ensure_ready_message_store_from_legacy_conversation")
-            .expect("ensure_ready_message_store_from_legacy_conversation exists");
-        let recovery_end = content
-            .find("fn read_legacy_conversation_snapshot_for_ready_store_recovery")
-            .expect("read legacy recovery helper exists");
-        let recovery_section = &content[recovery_start..recovery_end];
-
-        assert!(
-            recovery_section.contains("with_conversation_mutation"),
-            "ensure_ready_message_store_from_legacy_conversation 应保留统一会话 mutation 入口"
-        );
-        assert!(
-            !recovery_section.contains("conversation_mutation_gate("),
-            "ensure_ready_message_store_from_legacy_conversation 必须走 with_conversation_mutation，禁止重新裸用 conversation_mutation_gate"
         );
     }
 

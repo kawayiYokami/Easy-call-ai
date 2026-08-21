@@ -544,10 +544,10 @@ fn read_remote_im_debounce_secretary_messages(
     const HISTORY_READ_LIMIT: usize = 50;
     const RANGE_PAGE_SIZE: usize = 100;
     let paths = message_store::message_store_paths(&state.data_path, conversation_id)?;
-    ensure_ready_message_store_from_legacy_conversation(state, conversation_id, &paths)?;
-    let start = message_store::read_ready_message_store_message_by_id(&paths, start_message_id)?
+    require_chat_store_conversation(state, conversation_id, &paths)?;
+    let start = message_store::chat_store_read_message_by_id(&paths, start_message_id)?
         .ok_or_else(|| format!("防抖起点消息不存在：{start_message_id}"))?;
-    let history = message_store::read_ready_message_store_messages_before(
+    let history = message_store::chat_store_read_messages_before(
         &paths,
         start_message_id,
         HISTORY_READ_LIMIT,
@@ -560,7 +560,7 @@ fn read_remote_im_debounce_secretary_messages(
     }
     let mut after_message_id = start_message_id.to_string();
     loop {
-        let page = message_store::read_ready_message_store_messages_after(
+        let page = message_store::chat_store_read_messages_after(
             &paths,
             &after_message_id,
             RANGE_PAGE_SIZE,

@@ -439,7 +439,7 @@ fn chat_history_segments_from_message_store(
         return Ok((Vec::new(), 0));
     };
     let paths = message_store::message_store_paths(data_path, &conversation.id)?;
-    let Some(page) = message_store::read_ready_message_store_block_page(&paths, None)? else {
+    let Some(page) = message_store::chat_store_read_block_page(&paths, None)? else {
         return Ok((chat_history_segments_from_snapshot(conversation), 0));
     };
     if page.blocks.is_empty() {
@@ -454,7 +454,7 @@ fn chat_history_segments_from_message_store(
             continue;
         }
         let Some(block_page) =
-            message_store::read_ready_message_store_block_page(&paths, Some(block.block_id))?
+            message_store::chat_store_read_block_page(&paths, Some(block.block_id))?
         else {
             continue;
         };

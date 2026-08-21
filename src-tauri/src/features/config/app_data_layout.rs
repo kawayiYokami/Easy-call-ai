@@ -69,11 +69,8 @@ fn build_agents_file(agents: &[AgentProfile]) -> AgentsFile {
 }
 
 fn system_notification_conversation_shard_has_artifacts(path: &PathBuf) -> Result<bool, String> {
-    if app_layout_chat_conversation_path(path, SYSTEM_NOTIFICATION_CONVERSATION_ID).exists() {
-        return Ok(true);
-    }
     let store_paths = message_store::message_store_paths(path, SYSTEM_NOTIFICATION_CONVERSATION_ID)?;
-    Ok(message_store::message_store_shard_modified_time(&store_paths).is_some())
+    message_store::chat_store_read_status(&store_paths).map(|status| status.is_some())
 }
 
 fn ensure_system_notification_conversation_shard(path: &PathBuf) -> Result<bool, String> {
@@ -184,7 +181,7 @@ fn read_conversation_meta_shard(
         return Err("Conversation id is empty".to_string());
     }
     let store_paths = message_store::message_store_paths(path, conversation_id)?;
-    match message_store::read_ready_message_store_meta(&store_paths) {
+    match message_store::chat_store_read_meta(&store_paths) {
         Ok(Some(meta))
             if meta.schema_version() >= message_store::CONVERSATION_META_SCHEMA_VERSION =>
         {
@@ -196,22 +193,6 @@ fn read_conversation_meta_shard(
             return Ok(meta);
         }
         Ok(Some(_)) | Ok(None) | Err(_) => {}
-    }
-    if message_store::message_store_is_v3_ready(&store_paths)? {
-        return Err(format!("Conversation '{conversation_id}' not found."));
-    }
-    if message_store::read_message_store_manifest_status(&store_paths)?.is_some() {
-        let conversation = read_conversation_shard_raw(path, conversation_id)?;
-        let rebuilt = message_store::ConversationShardMeta::from_conversation(&conversation);
-        write_conversation_meta_shard_from_meta(path, &rebuilt)?;
-        return Ok(rebuilt);
-    }
-    let conversation_path = app_layout_chat_conversation_path(path, conversation_id);
-    if conversation_path.exists() {
-        let conversation = read_json_file::<Conversation>(&conversation_path, "conversation file")?;
-        let rebuilt = message_store::ConversationShardMeta::from_conversation(&conversation);
-        write_conversation_meta_shard_from_meta(path, &rebuilt)?;
-        return Ok(rebuilt);
     }
     Err(format!("Conversation '{conversation_id}' not found."))
 }
@@ -225,19 +206,13 @@ fn refresh_conversation_meta_shard_if_needed(
         return Ok(false);
     }
     let store_paths = message_store::message_store_paths(path, conversation_id)?;
-    if let Ok(Some(meta)) = message_store::read_ready_message_store_meta(&store_paths) {
+    if let Ok(Some(meta)) = message_store::chat_store_read_meta(&store_paths) {
         if meta.schema_version() >= message_store::CONVERSATION_META_SCHEMA_VERSION {
             return Ok(false);
         }
     }
-    if message_store::message_store_is_v3_ready(&store_paths)? {
+    if message_store::chat_store_read_status(&store_paths)?.is_none() {
         return Ok(false);
-    }
-    if message_store::read_message_store_manifest_status(&store_paths)?.is_none() {
-        let conversation_path = app_layout_chat_conversation_path(path, conversation_id);
-        if !conversation_path.exists() && (app_layout_exists(path) || !path.exists()) {
-            return Ok(false);
-        }
     }
     let _ = read_conversation_meta_shard(path, conversation_id)?;
     Ok(true)
@@ -250,49 +225,8 @@ fn read_conversation_shard_raw(path: &PathBuf, conversation_id: &str) -> Result<
     }
     let store_paths = message_store::message_store_paths(path, conversation_id)?;
     if let Some(conversation) =
-        message_store::read_ready_message_store_directory_conversation(&store_paths)?
+        message_store::chat_store_read_conversation(&store_paths)?
     {
-        if conversation
-            .cumulative_usage
-            .needs_legacy_total_tokens_backfill()
-        {
-            let mut repaired = conversation;
-            repaired.cumulative_usage = repaired.cumulative_usage.clone().normalized_legacy_totals();
-            let _ = write_conversation_shard(path, &repaired)?;
-            return Ok(repaired);
-        }
-        return Ok(conversation);
-    }
-    if message_store::message_store_is_v3_ready(&store_paths)? {
-        return Err(format!("Conversation '{conversation_id}' not found."));
-    }
-    let recovered_manifest =
-        message_store::recover_ready_jsonl_snapshot_manifest_from_directory(&store_paths)?;
-    if recovered_manifest.is_some() {
-        if let Some(conversation) =
-            message_store::read_ready_message_store_directory_conversation(&store_paths)?
-        {
-            if conversation
-                .cumulative_usage
-                .needs_legacy_total_tokens_backfill()
-            {
-                let mut repaired = conversation;
-                repaired.cumulative_usage = repaired.cumulative_usage.clone().normalized_legacy_totals();
-                let _ = write_conversation_shard(path, &repaired)?;
-                return Ok(repaired);
-            }
-            return Ok(conversation);
-        }
-    }
-    if let Some(status) = message_store::read_message_store_manifest_status(&store_paths)? {
-        return Err(format!(
-            "会话消息仓库未处于可读取状态，conversation_id={}，kind={}，state={}",
-            conversation_id, status.message_store_kind, status.migration_state
-        ));
-    }
-    let conversation_path = app_layout_chat_conversation_path(path, conversation_id);
-    if conversation_path.exists() {
-        let conversation = read_json_file::<Conversation>(&conversation_path, "conversation file")?;
         if conversation
             .cumulative_usage
             .needs_legacy_total_tokens_backfill()
@@ -311,9 +245,7 @@ fn write_conversation_shard(path: &PathBuf, conversation: &Conversation) -> Resu
     fs::create_dir_all(app_layout_chat_conversations_dir(path))
         .map_err(|err| format!("Create chat conversations dir failed: {err}"))?;
     let store_paths = message_store::message_store_paths(path, &conversation.id)?;
-    if message_store::message_store_is_v3_ready(&store_paths)?
-        && message_store::read_ready_message_store_meta(&store_paths)?.is_some()
-    {
+    if message_store::chat_store_read_meta(&store_paths)?.is_some() {
         // v3 的正文只能由 append/replace/truncate/splice 原子接口发布。
         // 后台 metadata 刷新不得整读或重建 locator 与 JSONL block。
         write_conversation_meta_shard_from_meta(
@@ -322,7 +254,8 @@ fn write_conversation_shard(path: &PathBuf, conversation: &Conversation) -> Resu
         )?;
         return Ok(true);
     }
-    message_store::write_jsonl_snapshot_directory_shard_if_changed(&store_paths, conversation)
+    message_store::chat_store_write_snapshot(&store_paths, conversation)?;
+    Ok(true)
 }
 
 fn write_conversation_meta_shard_from_meta(
@@ -331,11 +264,11 @@ fn write_conversation_meta_shard_from_meta(
 ) -> Result<(), String> {
     let paths = message_store::message_store_paths(path, meta.id())?;
     let mut meta_to_persist = meta.clone();
-    if let Some(ready_meta) = message_store::read_ready_message_store_meta(&paths)? {
+    if let Some(ready_meta) = message_store::chat_store_read_meta(&paths)? {
         meta_to_persist.preserve_message_derived_fields_from(&ready_meta);
     }
     let persist_meta = meta_to_persist.to_persist_meta();
-    message_store::write_conversation_directory_meta_shard(&paths, &persist_meta)
+    message_store::chat_store_write_meta(&paths, &persist_meta)
 }
 
 fn delete_conversation_shard(path: &PathBuf, conversation_id: &str) -> Result<bool, String> {
@@ -345,12 +278,6 @@ fn delete_conversation_shard(path: &PathBuf, conversation_id: &str) -> Result<bo
     }
     let store_paths = message_store::message_store_paths(path, conversation_id)?;
     message_store::delete_message_store_shard_artifacts(&store_paths)
-}
-
-fn app_layout_exists(path: &PathBuf) -> bool {
-    app_layout_agents_path(path).exists()
-        || app_layout_runtime_state_path(path).exists()
-        || app_layout_chat_conversations_dir(path).exists()
 }
 
 fn read_json_file<T>(path: &PathBuf, label: &str) -> Result<T, String>
@@ -371,89 +298,22 @@ fn file_metadata_signature(path: &PathBuf) -> (u64, Option<std::time::SystemTime
     }
 }
 
-fn update_conversation_cache_signature_for_file(
-    conversations: &mut ConversationDirCacheSignature,
-    file_path: &PathBuf,
-    file_name: String,
-) {
-    let Ok(metadata) = fs::metadata(file_path) else {
-        return;
-    };
-    if !metadata.is_file() {
-        return;
-    }
-    conversations.file_count += 1;
-    conversations.total_size = conversations.total_size.saturating_add(metadata.len());
-    let modified = metadata.modified().ok();
-    let should_replace_latest = match (
-        conversations.latest_modified,
-        modified,
-        conversations.latest_file_name.as_str(),
-    ) {
-        (None, Some(_), _) => true,
-        (None, None, current_name) => file_name.as_str() > current_name,
-        (Some(current), Some(next), current_name) => {
-            next > current || (next == current && file_name.as_str() > current_name)
-        }
-        (Some(_), None, _) => false,
-    };
-    if should_replace_latest {
-        conversations.latest_modified = modified;
-        conversations.latest_file_name = file_name;
-    }
-}
-
 fn app_data_cache_signature(path: &PathBuf) -> AppDataCacheSignature {
     let agents_path = app_layout_agents_path(path);
     let runtime_path = app_layout_runtime_state_path(path);
     let (agents_len, agents_modified) = file_metadata_signature(&agents_path);
     let (runtime_len, runtime_modified) = file_metadata_signature(&runtime_path);
-
-    let mut conversations = ConversationDirCacheSignature::default();
-    let conversations_dir = app_layout_chat_conversations_dir(path);
-    if let Ok(entries) = fs::read_dir(conversations_dir) {
-        for entry in entries.flatten() {
-            let entry_path = entry.path();
-            let file_name = entry.file_name().to_string_lossy().to_string();
-            if entry_path.extension().and_then(|value| value.to_str()) == Some("json") {
-                update_conversation_cache_signature_for_file(
-                    &mut conversations,
-                    &entry_path,
-                    file_name,
-                );
-                continue;
-            }
-            if !entry_path.is_dir() {
-                continue;
-            }
-            for shard_file_name in [
-                message_store::MESSAGE_STORE_MANIFEST_FILE_NAME,
-                message_store::MESSAGE_STORE_META_FILE_NAME,
-                message_store::MESSAGE_STORE_INDEX_FILE_NAME,
-            ] {
-                update_conversation_cache_signature_for_file(
-                    &mut conversations,
-                    &entry_path.join(shard_file_name),
-                    format!("{file_name}/{shard_file_name}"),
-                );
-            }
-            let blocks_dir = entry_path.join(message_store::MESSAGE_STORE_BLOCKS_DIR_NAME);
-            if let Ok(block_entries) = fs::read_dir(blocks_dir) {
-                for block_entry in block_entries.flatten() {
-                    let block_path = block_entry.path();
-                    if !block_path.is_file() {
-                        continue;
-                    }
-                    let block_file_name = block_entry.file_name().to_string_lossy().to_string();
-                    update_conversation_cache_signature_for_file(
-                        &mut conversations,
-                        &block_path,
-                        format!("{file_name}/{}/{}", message_store::MESSAGE_STORE_BLOCKS_DIR_NAME, block_file_name),
-                    );
-                }
-            }
-        }
-    }
+    // 普通运行时缓存只随 V3 current 数据库变化；不能用 V1 JSON 或 V2
+    // manifest/meta/index/blocks 的文件状态驱动缓存，从而间接恢复旧格式。
+    let chat_metadata_path = message_store::chat_metadata_store_db_path(path);
+    let (chat_metadata_len, chat_metadata_modified) =
+        file_metadata_signature(&chat_metadata_path);
+    let conversations = ConversationDirCacheSignature {
+        file_count: u64::from(chat_metadata_modified.is_some()),
+        total_size: chat_metadata_len,
+        latest_file_name: "chat_metadata.sqlite".to_string(),
+        latest_modified: chat_metadata_modified,
+    };
 
     AppDataCacheSignature {
         agents_len,
@@ -533,42 +393,12 @@ fn read_layout_app_data(path: &PathBuf) -> Result<AppData, String> {
             .and_then(|value| value.trim().parse::<u32>().ok())
             .unwrap_or(0);
 
-    let mut conversations = Vec::<Conversation>::new();
-    let conv_dir = app_layout_chat_conversations_dir(path);
-    if conv_dir.exists() {
-        if let Ok(entries) = fs::read_dir(&conv_dir) {
-            let mut seen_ids = std::collections::HashSet::<String>::new();
-            for entry in entries.flatten() {
-                let p = entry.path();
-                let conversation_id = if p.extension().and_then(|v| v.to_str()) == Some("json") {
-                    p.file_stem()
-                        .and_then(|v| v.to_str())
-                        .unwrap_or_default()
-                        .to_string()
-                } else if p.is_dir() {
-                    p.file_name()
-                        .and_then(|v| v.to_str())
-                        .unwrap_or_default()
-                        .to_string()
-                } else {
-                    continue;
-                };
-                if conversation_id.trim().is_empty() || !seen_ids.insert(conversation_id.clone()) {
-                    continue;
-                }
-                if let Ok(conv) = read_conversation_shard_raw(path, &conversation_id) {
-                    conversations.push(conv);
-                }
-            }
-        }
-    }
-
     Ok(AppData {
         version: APP_DATA_SCHEMA_VERSION,
         data_migration_version,
         agents,
         user_alias: default_user_alias(),
-        conversations,
+        conversations: Vec::new(),
     })
 }
 
@@ -744,6 +574,7 @@ fn run_app_data_migrations_with_state(
     state: &AppState,
     config: &AppConfig,
 ) -> Result<bool, String> {
+    require_message_store_migration_completed_for_runtime(state, "执行应用数据迁移")?;
     let mut migration_version = state_service_get_data_migration_version(state)?;
     if migration_version >= DATA_MIGRATION_CURRENT_VERSION {
         return Ok(false);

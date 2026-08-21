@@ -582,8 +582,8 @@ fn create_side_chat_conversation_blocking(
     }
 
     let store_paths = message_store::message_store_paths(&state.data_path, parent_id)?;
-    ensure_ready_message_store_from_legacy_conversation(state, parent_id, &store_paths)?;
-    let latest_block = message_store::read_ready_message_store_block_page(&store_paths, None)?
+    require_chat_store_conversation(state, parent_id, &store_paths)?;
+    let latest_block = message_store::chat_store_read_block_page(&store_paths, None)?
         .ok_or_else(|| "父会话消息尚未就绪".to_string())?;
     let copied_messages = latest_block
         .messages
