@@ -119,7 +119,7 @@
     </div>
 
     <div v-if="showModelSelector" class="min-w-0 pt-2">
-      <ApiConfigTreeSelect
+      <ApiConfigPicker
         :model-value="selectedApiConfigId"
         :api-configs="textApiConfigs"
         :disabled="disabled"
@@ -135,7 +135,7 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue"
 import { useI18n } from "vue-i18n";
 import type { ApiConfigItem, DepartmentConfig, PersonaProfile } from "../../../types/app";
 import ChatConversationFloatingScroll from "../../chat/components/ChatConversationFloatingScroll.vue";
-import ApiConfigTreeSelect from "../../config/components/ApiConfigTreeSelect.vue";
+import ApiConfigPicker from "../../config/components/ApiConfigPicker.vue";
 import {
   buildDepartmentPersonaOptions,
   departmentPersonaOptionId,

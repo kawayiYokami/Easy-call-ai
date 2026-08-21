@@ -6,7 +6,7 @@
           <div class="text-sm">{{ t("config.chatSettings.visionApi") }}</div>
           <div class="mt-1 text-xs text-base-content/60">{{ t("config.chatSettings.visionApiHint") }}</div>
         </div>
-        <ApiConfigTreeSelect
+        <ApiConfigPicker
           :model-value="config.visionApiConfigId ?? ''"
           :api-configs="imageCapableApiConfigs"
           :placeholder="t('config.chatSettings.noVision')"
@@ -21,7 +21,7 @@
           <div class="text-sm">{{ t("config.chatSettings.toolReviewApi") }}</div>
           <div class="mt-1 text-xs text-base-content/60">{{ t("config.chatSettings.toolReviewApiHint") }}</div>
         </div>
-        <ApiConfigTreeSelect
+        <ApiConfigPicker
           :model-value="config.toolReviewApiConfigId ?? ''"
           :api-configs="textCapableApiConfigs"
           @update:model-value="onToolReviewSelect"
@@ -35,7 +35,7 @@
           <div class="text-sm">{{ t("config.chatSettings.expertChatModelTitle") }}</div>
           <div class="mt-1 text-xs text-base-content/60">{{ t("config.chatSettings.expertChatModelHint") }}</div>
         </div>
-        <ApiConfigTreeSelect
+        <ApiConfigPicker
           :model-value="config.assistantDepartmentApiConfigId || ''"
           :api-configs="textCapableApiConfigs"
           @update:model-value="onExpertSelect"
@@ -177,7 +177,7 @@ import { Plus, Trash2 } from "@lucide/vue";
 import SegmentedControl from "../../components/SegmentedControl.vue";
 import ConfigTemplate from "../../components/ConfigTemplate.vue";
 import type { ConfigTemplateGroup } from "../../components/config-template";
-import ApiConfigTreeSelect from "../../components/ApiConfigTreeSelect.vue";
+import ApiConfigPicker from "../../components/ApiConfigPicker.vue";
 import type { AppConfig, ApiConfigItem, ChatSettingsPatch, ConversationApiSettingsPatch, PromptCommandPreset, ResponseStyleOption, ToolLoadStatus } from "../../../../types/app";
 import { invokeTauri, openTransportExternalUrl } from "../../../../services/tauri-api";
 import { deriveImageGenerationModelOptions } from "../../utils/image-generation-config";

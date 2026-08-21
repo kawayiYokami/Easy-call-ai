@@ -75,7 +75,8 @@ function modelPublicConfiguration(item: ApiConfigItem): Record<string, unknown> 
   return stableValue(configuration) as Record<string, unknown>;
 }
 
-function modelGroupKey(item: ApiConfigItem): string {
+/** 与 buildApiConfigSelectionTree 的模型分组粒度一致，供等级记忆按同一粒度取 key。 */
+export function apiConfigModelGroupKey(item: ApiConfigItem): string {
   return JSON.stringify({
     model: String(item.model || "").trim(),
     configuration: modelPublicConfiguration(item),
@@ -114,7 +115,7 @@ export function buildApiConfigSelectionTree(
       provider = { id: providerId, name: providerName, models: [] };
       providerMap.set(providerId, provider);
     }
-    const key = modelGroupKey(item);
+    const key = apiConfigModelGroupKey(item);
     let group = provider.models.find((candidate) => candidate.key === key);
     if (!group) {
       group = {

@@ -306,19 +306,13 @@
             >
               <Mic class="h-3.5 w-3.5" />
             </button>
-            <div v-if="normalizedChatModelOptions.length > 0" ref="modelDropdownRef" class="relative min-w-0">
-              <button
-                ref="modelDropdownTriggerRef"
-                type="button"
-                class="btn btn-sm h-8 min-h-8 w-auto min-w-28 max-w-56 justify-between border-0 shadow-none bg-base-100 text-base-content hover:bg-base-200 max-md:min-w-0"
-                :disabled="normalizedChatModelOptions.length === 0"
-                :title="selectedModelTitle"
-                @click="modelDropdownOpen = !modelDropdownOpen"
-              >
-                <span class="truncate">{{ selectedModelName }}</span>
-                <ChevronDown class="h-3 w-3 shrink-0 opacity-50 rotate-180" :class="{ 'rotate-0': modelDropdownOpen }" />
-              </button>
-            </div>
+            <ChatModelPicker
+              variant="chip"
+              :model-value="activeModelDisplayId"
+              :api-configs="chatModelOptions"
+              :theme="teleportTheme"
+              @update:model-value="selectConversationPreferredModel"
+            />
           </div>
           <div class="flex items-center gap-2">
             <button
@@ -430,19 +424,13 @@
           >
             <Mic class="h-3.5 w-3.5" />
           </button>
-          <div v-if="normalizedChatModelOptions.length > 0" ref="modelDropdownRef" class="relative min-w-0">
-            <button
-              ref="modelDropdownTriggerRef"
-              type="button"
-              class="btn btn-sm h-8 min-h-8 w-auto min-w-28 max-w-56 justify-between border-0 shadow-none bg-base-100 text-base-content hover:bg-base-200 max-md:min-w-0"
-              :disabled="normalizedChatModelOptions.length === 0"
-              :title="selectedModelTitle"
-              @click="modelDropdownOpen = !modelDropdownOpen"
-            >
-              <span class="truncate">{{ selectedModelName }}</span>
-              <ChevronDown class="h-3 w-3 shrink-0 opacity-50 rotate-180" :class="{ 'rotate-0': modelDropdownOpen }" />
-            </button>
-          </div>
+          <ChatModelPicker
+            variant="chip"
+            :model-value="activeModelDisplayId"
+            :api-configs="chatModelOptions"
+            :theme="teleportTheme"
+            @update:model-value="selectConversationPreferredModel"
+          />
         </div>
         <div class="flex items-center gap-2">
           <button
@@ -581,45 +569,21 @@
     </template>
     </template>
   </div>
-  <Teleport to="body">
-    <div
-      v-if="modelDropdownOpen"
-      ref="modelDropdownPanelRef"
-      class="fixed z-1200 overflow-hidden rounded-box border border-base-300 bg-base-100 text-base-content shadow-xl"
-      :data-theme="teleportTheme"
-      :style="modelDropdownStyle"
-    >
-      <div
-        ref="modelDropdownScrollRef"
-        class="ecall-model-dropdown-scroll overflow-y-auto overflow-x-hidden"
-        :style="modelDropdownScrollStyle"
-      >
-        <ApiConfigSelectionMenu
-          :tree="chatModelTree"
-          :selected-id="activeModelOptionId"
-          @select="selectConversationPreferredModel"
-        />
-      </div>
-      <FloatingScrollbar ref="modelDropdownScrollbarRef" :target="modelDropdownScrollRef" />
-    </div>
-  </Teleport>
 </template>
 
 <script setup lang="ts">
 import { Teleport, computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
-import { ArrowUp, CalendarPlus, Check, ChevronDown, CircleChevronDown, CircleChevronUp, ClipboardList, FileText, History, Menu, Mic, Minus, Paperclip, Plus, Settings, Square, Target, X } from "@lucide/vue";
+import { ArrowUp, CalendarPlus, Check, CircleChevronDown, CircleChevronUp, ClipboardList, FileText, History, Menu, Mic, Minus, Paperclip, Plus, Settings, Square, Target, X } from "@lucide/vue";
 import type { ApiConfigItem, ChatConversationOverviewItem, ChatMentionEntry, ChatMentionTarget, ConversationForwardTarget, IdeContextReferenceItem, IdeContextWorkspaceGroup, PromptCommandPreset, RemoteImContactConversationOption } from "../../../types/app";
 import ChatQueuePreview from "./ChatQueuePreview.vue";
 import ChatSelectionActionPanel from "./ChatSelectionActionPanel.vue";
+import ChatModelPicker from "../../config/components/ApiConfigPicker.vue";
 import FloatingScrollbar from "../../shell/components/FloatingScrollbar.vue";
 import { useChatQueue } from "../composables/use-chat-queue";
 import { chatInputEnterConfirmsComposition } from "../composables/chat-composer-ime";
 import { clearChatComposerFocus, registerChatComposerFocus } from "../composables/chat-composer-focus";
 import type { DepartmentPersonaOption } from "../../shared/department-persona-options";
-import ApiConfigSelectionMenu from "../../config/components/ApiConfigSelectionMenu.vue";
-import { formatApiConfigOptionLabel } from "../../config/utils/api-config-display";
-import { buildApiConfigSelectionTree } from "../../config/utils/api-config-selection-tree";
 import { ideContextReferenceDisplayParts } from "../utils/ide-context-reference-display";
 import { mergeComposerIdeContextGroups } from "../utils/ide-context-reference-groups";
 import { isMobileTouchViewport } from "../utils/chat-input-focus";
@@ -932,16 +896,6 @@ const normalizedInstructionPresets = computed(() =>
     }))
     .filter((item) => !!item.id && !!item.prompt),
 );
-const normalizedChatModelOptions = computed(() =>
-  (Array.isArray(props.chatModelOptions) ? props.chatModelOptions : [])
-    .map((item) => ({
-      id: String(item?.id || "").trim(),
-      name: formatApiConfigOptionLabel(item, t, { providerMaxCharacters: 2 }),
-      title: formatApiConfigOptionLabel(item, t),
-    }))
-    .filter((item) => !!item.id && !!item.name),
-);
-const chatModelTree = computed(() => buildApiConfigSelectionTree(props.chatModelOptions, t));
 const localModelOptionId = ref("");
 
 function modelOptionIdFromProps(): string {
@@ -967,17 +921,9 @@ watch(
   },
 );
 
-const activeModelOptionId = computed(() => localModelOptionId.value);
-const selectedModelName = computed(() => {
-  const displayId = localModelOptionId.value || props.conversationCallPrimaryApiConfigId;
-  const found = normalizedChatModelOptions.value.find((item) => item.id === displayId);
-  return found?.name || displayId;
-});
-const selectedModelTitle = computed(() => {
-  const displayId = localModelOptionId.value || props.conversationCallPrimaryApiConfigId;
-  const found = normalizedChatModelOptions.value.find((item) => item.id === displayId);
-  return found?.title || displayId;
-});
+// 传给 ChatModelPicker 的当前模型 id：本地选择为空时回退会话主模型
+const activeModelDisplayId = computed(() =>
+  localModelOptionId.value || String(props.conversationCallPrimaryApiConfigId || "").trim());
 const showIdeWorkspaceGroupLabel = computed(() => false);
 const attachedIdeContextReferenceIds = computed(() => new Set((props.attachedIdeContextReferences || []).map((item) => item.id)));
 const mergedIdeContextGroups = computed<IdeContextWorkspaceGroup[]>(() => mergeComposerIdeContextGroups(
@@ -1281,109 +1227,10 @@ function updateMentionState() {
   mentionFocusIndex.value = firstMentionable >= 0 ? firstMentionable : 0;
 }
 
-const modelDropdownOpen = ref(false);
-const modelDropdownRef = ref<HTMLElement | null>(null);
-const modelDropdownTriggerRef = ref<HTMLButtonElement | null>(null);
-const modelDropdownPanelRef = ref<HTMLElement | null>(null);
-const modelDropdownScrollRef = ref<HTMLElement | null>(null);
-const modelDropdownScrollbarRef = ref<InstanceType<typeof FloatingScrollbar> | null>(null);
-const modelDropdownStyle = ref<Record<string, string>>({
-  left: "0px",
-  top: "0px",
-  width: "20rem",
-  maxHeight: "80vh",
-});
-const modelDropdownScrollStyle = ref<Record<string, string>>({
-  maxHeight: "80vh",
-});
-
-function handleModelDropdownClickOutside(event: MouseEvent) {
-  const target = event.target as Node | null;
-  if (!target) return;
-  if (modelDropdownRef.value?.contains(target)) return;
-  if (modelDropdownPanelRef.value?.contains(target)) return;
-  modelDropdownOpen.value = false;
-}
-
-async function refreshModelDropdownPosition() {
-  if (!modelDropdownOpen.value) return;
-  const trigger = modelDropdownTriggerRef.value || modelDropdownRef.value;
-  if (!trigger) return;
-  await nextTick();
-  const margin = 8;
-  const gap = 8;
-  const triggerRect = trigger.getBoundingClientRect();
-  const viewportWidth = window.innerWidth || document.documentElement.clientWidth || 0;
-  const viewportHeight = window.innerHeight || document.documentElement.clientHeight || 0;
-  const preferredWidth = Math.max(Math.round(triggerRect.width), 320);
-  const maxAllowedWidth = Math.max(220, viewportWidth - margin * 2);
-  const width = Math.min(preferredWidth, maxAllowedWidth);
-  const spaceAbove = Math.max(0, triggerRect.top - margin - gap);
-  const spaceBelow = Math.max(0, viewportHeight - triggerRect.bottom - margin - gap);
-  // 优先下方；下方更挤时才向上开
-  const openUpward = spaceAbove > spaceBelow;
-  const availableHeight = openUpward ? spaceAbove : spaceBelow;
-  // 最外层和滚动层共用同一高度上限；可用空间不够时不强行抬到 120
-  const maxHeight = Math.max(
-    0,
-    Math.min(Math.floor(viewportHeight * 0.8), Math.floor(availableHeight)),
-  );
-  const left = Math.min(
-    Math.max(margin, triggerRect.left),
-    Math.max(margin, viewportWidth - width - margin),
-  );
-  const maxHeightPx = `${Math.round(maxHeight)}px`;
-
-  modelDropdownScrollStyle.value = {
-    maxHeight: maxHeightPx,
-  };
-
-  if (openUpward) {
-    // 用 bottom 锚定触发器上方，避免 top 计算误差把面板顶出屏幕
-    const bottom = Math.max(margin, viewportHeight - triggerRect.top + gap);
-    modelDropdownStyle.value = {
-      left: `${Math.round(left)}px`,
-      right: "auto",
-      top: "auto",
-      bottom: `${Math.round(bottom)}px`,
-      width: `${Math.round(width)}px`,
-      maxWidth: `calc(100vw - ${margin * 2}px)`,
-      maxHeight: maxHeightPx,
-      height: "auto",
-    };
-  } else {
-    const top = triggerRect.bottom + gap;
-    modelDropdownStyle.value = {
-      left: `${Math.round(left)}px`,
-      right: "auto",
-      top: `${Math.round(top)}px`,
-      bottom: "auto",
-      width: `${Math.round(width)}px`,
-      maxWidth: `calc(100vw - ${margin * 2}px)`,
-      maxHeight: maxHeightPx,
-      height: "auto",
-    };
-  }
-  await nextTick();
-  modelDropdownScrollbarRef.value?.updateThumb();
-}
-
-watch(modelDropdownOpen, (open) => {
-  if (open) {
-    nextTick(() => {
-      void refreshModelDropdownPosition();
-      document.addEventListener("click", handleModelDropdownClickOutside);
-    });
-  } else {
-    document.removeEventListener("click", handleModelDropdownClickOutside);
-  }
-});
-
 function selectConversationPreferredModel(id: string) {
   const nextId = String(id || "").trim();
-  if (!nextId || nextId === localModelOptionId.value) return;
+  if (!nextId || nextId === activeModelDisplayId.value) return;
   localModelOptionId.value = nextId;
-  modelDropdownOpen.value = false;
   emit("update:conversationPreferredApiConfigId", nextId);
 }
 
@@ -1699,8 +1546,6 @@ onMounted(() => {
   window.addEventListener("keydown", handleWindowKeydown);
   window.addEventListener("resize", refreshMentionPanelPosition);
   window.addEventListener("scroll", refreshMentionPanelPosition, true);
-  window.addEventListener("resize", refreshModelDropdownPosition);
-  window.addEventListener("scroll", refreshModelDropdownPosition, true);
   window.addEventListener("resize", syncMobileViewport);
   window.visualViewport?.addEventListener("resize", handleVisualViewportResize);
   nextTick(() => {
@@ -1713,11 +1558,8 @@ onBeforeUnmount(() => {
   window.removeEventListener("keydown", handleWindowKeydown);
   window.removeEventListener("resize", refreshMentionPanelPosition);
   window.removeEventListener("scroll", refreshMentionPanelPosition, true);
-  window.removeEventListener("resize", refreshModelDropdownPosition);
-  window.removeEventListener("scroll", refreshModelDropdownPosition, true);
   window.removeEventListener("resize", syncMobileViewport);
   window.visualViewport?.removeEventListener("resize", handleVisualViewportResize);
-  document.removeEventListener("click", handleModelDropdownClickOutside);
   if (resizeInputRaf.value) {
     cancelAnimationFrame(resizeInputRaf.value);
     resizeInputRaf.value = 0;
@@ -1786,15 +1628,6 @@ watch(
 }
 .chat-input-no-focus {
   scrollbar-width: none;
-}
-.ecall-model-dropdown-scroll {
-  scrollbar-gutter: auto;
-  scrollbar-width: none;
-  -ms-overflow-style: none;
-}
-.ecall-model-dropdown-scroll::-webkit-scrollbar {
-  width: 0;
-  height: 0;
 }
 .ecall-chat-composer-input-shell {
   appearance: none;

@@ -754,7 +754,7 @@
       "expert": "专家模型",
       "quick": "快速模型"
     },
-    "chatSettings": {
+        "chatSettings": {
       "defaultModelsTitle": "模型分工",
       "defaultModelsHint": "这里设置各类默认模型，其他地方没设置时优先使用这里。",
       "execTerminalTitle": "执行终端",

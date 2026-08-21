@@ -135,7 +135,7 @@
                   :key="`${selectedDepartment.id}-api-${idx}`"
                   class="flex items-center gap-2"
                 >
-                  <ApiConfigTreeSelect
+                  <ApiConfigPicker
                     class="flex-1"
                     :model-value="apiId"
                     :api-configs="availableDepartmentApiConfigsForIndex(idx)"
@@ -438,7 +438,7 @@ import { validateDepartmentConfig } from "../../utils/department-validation";
 import { normalizeDepartmentChildIds } from "../../utils/department-graph";
 import { MODEL_ROLE_EXPERT_API_CONFIG_ID, MODEL_ROLE_QUICK_API_CONFIG_ID } from "../../utils/model-role-options";
 import SettingsStickyLayout from "../../components/SettingsStickyLayout.vue";
-import ApiConfigTreeSelect from "../../components/ApiConfigTreeSelect.vue";
+import ApiConfigPicker from "../../components/ApiConfigPicker.vue";
 
 const props = defineProps<{
   config: AppConfig;

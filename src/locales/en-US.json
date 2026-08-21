@@ -754,7 +754,7 @@
       "expert": "Expert Model",
       "quick": "Fast Model"
     },
-    "chatSettings": {
+        "chatSettings": {
       "defaultModelsTitle": "Model Roles",
       "defaultModelsHint": "Set the default model for each role here when nothing more specific is configured.",
       "execTerminalTitle": "Execute Terminal",
