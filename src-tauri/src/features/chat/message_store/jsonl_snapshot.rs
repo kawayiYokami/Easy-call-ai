@@ -238,6 +238,63 @@ fn build_jsonl_snapshot_conversation_block(
     })
 }
 
+/// 尾部重建：复用目标行之前的原始文件字节，只重新序列化目标行及之后。
+///
+/// 适用场景：追加（新行在文件尾，前面全部复用）与追加替换（工具事件追加，目标行在块尾）。
+/// 前置条件：`prefix_bytes` 必须是块文件 `[0, 目标行 offset)` 的原始字节（含换行符），
+/// `prefix_items` 对应这些行的 locator（offset/byte_len 不变）；`tail_messages` 是目标行及
+/// 之后的消息（目标行已替换）。
+///
+/// 注意：本函数不支持 slim（slim 会裁剪所有行，前缀字节无法复用）。调用方必须在
+/// `should_slim_conversation_block` 为 true 时走整块重建（`build_jsonl_snapshot_conversation_block`）。
+fn build_jsonl_snapshot_conversation_block_tail(
+    block: &ConversationBlockMessageRefs<'_>,
+    prefix_bytes: &[u8],
+    prefix_items: &[MessageStoreIndexItem],
+    tail_messages: &[ChatMessage],
+) -> Result<JsonlSnapshotConversationBlock, String> {
+    let mut content_bytes = Vec::with_capacity(prefix_bytes.len() + 4096);
+    content_bytes.extend_from_slice(prefix_bytes);
+    let mut offset = prefix_bytes.len() as u64;
+    let mut block_items = Vec::<MessageStoreIndexItem>::with_capacity(prefix_items.len() + tail_messages.len());
+    block_items.extend_from_slice(prefix_items);
+
+    for message in tail_messages {
+        let stored_message = (*message).clone();
+        let encoded = encode_jsonl_snapshot_message(&stored_message)?;
+        let byte_len = encoded.as_bytes().len() as u64;
+        let item = message_store_index_item_for_message_in_block(
+            &stored_message,
+            Some(block.block_id),
+            offset,
+            byte_len,
+        );
+        if item.compaction_kind.is_none() && message_store_compaction_kind(message).is_some() {
+            return Err(format!(
+                "构建会话块失败：瘦身后丢失压缩边界，message_id={}",
+                message.id
+            ));
+        }
+        content_bytes.extend_from_slice(encoded.as_bytes());
+        offset = offset.checked_add(byte_len).ok_or_else(|| {
+            format!(
+                "构建会话块失败：block offset 溢出，block_file={}，message_id={}",
+                block.block_file, message.id
+            )
+        })?;
+        block_items.push(item);
+    }
+
+    let content = String::from_utf8(content_bytes)
+        .map_err(|err| format!("构建会话块失败：块内容不是合法 UTF-8，block_file={}，error={err}", block.block_file))?;
+    Ok(JsonlSnapshotConversationBlock {
+        block_id: block.block_id,
+        block_file: block.block_file.clone(),
+        content,
+        index_items: block_items,
+    })
+}
+
 fn slim_older_conversation_block_message(message: &ChatMessage) -> ChatMessage {
     let mut next = message.clone();
     next.parts = message
@@ -596,6 +653,109 @@ mod jsonl_snapshot_conversation_block_tests {
         let mut message = text_message(id, role, text);
         message.created_at = created_at.to_string();
         message
+    }
+
+    #[test]
+    fn tail_rebuild_should_equal_full_rebuild_for_replace_last_message() {
+        let block_id = 0u32;
+        let block_file = format!("blocks/{block_id:06}.jsonl");
+        let original = vec![
+            text_message("m1", "user", "first"),
+            text_message("m2", "assistant", "second"),
+            text_message("m3", "user", "third"),
+            text_message("m4", "assistant", "fourth"),
+        ];
+        let full_refs = ConversationBlockMessageRefs {
+            block_id,
+            block_file: block_file.clone(),
+            messages: original.iter().collect(),
+        };
+        let full_block = build_jsonl_snapshot_conversation_block(&full_refs, false)
+            .expect("full rebuild");
+
+        // 追加替换：目标行在块尾，前缀字节原样复用，只重建最后一行
+        let mut replaced = original.clone();
+        replaced[3] = text_message("m4", "assistant", "fourth-updated");
+        let target_offset = full_block.index_items[3].offset as usize;
+        let prefix_bytes = &full_block.content.as_bytes()[0..target_offset];
+        let prefix_items = full_block.index_items[..3].to_vec();
+        let tail_refs = ConversationBlockMessageRefs {
+            block_id,
+            block_file: block_file.clone(),
+            messages: replaced[3..].iter().collect(),
+        };
+        let tail_block = build_jsonl_snapshot_conversation_block_tail(
+            &tail_refs,
+            prefix_bytes,
+            &prefix_items,
+            &replaced[3..],
+        )
+        .expect("tail rebuild");
+
+        let expected_refs = ConversationBlockMessageRefs {
+            block_id,
+            block_file,
+            messages: replaced.iter().collect(),
+        };
+        let expected_block = build_jsonl_snapshot_conversation_block(&expected_refs, false)
+            .expect("expected full rebuild");
+
+        assert_eq!(tail_block.content, expected_block.content);
+        assert_eq!(tail_block.index_items, expected_block.index_items);
+        // 前缀字节确实是原样复用，没有重新序列化
+        assert!(tail_block.content.starts_with(&full_block.content[..target_offset]));
+        // 前缀行的 offset/byte_len 保持不变
+        assert_eq!(&tail_block.index_items[..3], &full_block.index_items[..3]);
+    }
+
+    #[test]
+    fn tail_rebuild_should_equal_full_rebuild_for_append_at_end() {
+        let block_id = 0u32;
+        let block_file = format!("blocks/{block_id:06}.jsonl");
+        let existing = vec![
+            text_message("m1", "user", "first"),
+            text_message("m2", "assistant", "second"),
+            text_message("m3", "user", "third"),
+        ];
+        let full_refs = ConversationBlockMessageRefs {
+            block_id,
+            block_file: block_file.clone(),
+            messages: existing.iter().collect(),
+        };
+        let full_block = build_jsonl_snapshot_conversation_block(&full_refs, false)
+            .expect("full rebuild");
+
+        // 普通追加：新行在文件尾，整个原文件字节都是前缀
+        let appended = vec![text_message("m4", "assistant", "fourth")];
+        let prefix_items = full_block.index_items.clone();
+        let tail_refs = ConversationBlockMessageRefs {
+            block_id,
+            block_file: block_file.clone(),
+            messages: appended.iter().collect(),
+        };
+        let tail_block = build_jsonl_snapshot_conversation_block_tail(
+            &tail_refs,
+            full_block.content.as_bytes(),
+            &prefix_items,
+            &appended,
+        )
+        .expect("tail append rebuild");
+
+        let mut expected = existing.clone();
+        expected.extend(appended.clone());
+        let expected_refs = ConversationBlockMessageRefs {
+            block_id,
+            block_file,
+            messages: expected.iter().collect(),
+        };
+        let expected_block = build_jsonl_snapshot_conversation_block(&expected_refs, false)
+            .expect("expected full rebuild");
+
+        assert_eq!(tail_block.content, expected_block.content);
+        assert_eq!(tail_block.index_items, expected_block.index_items);
+        // 新消息 offset 从原文件字节长度开始
+        let appended_offset = tail_block.index_items[3].offset as usize;
+        assert_eq!(appended_offset, full_block.content.len());
     }
 
     fn test_conversation_for_blocks(messages: Vec<ChatMessage>) -> Conversation {

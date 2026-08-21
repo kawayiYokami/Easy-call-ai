@@ -1186,12 +1186,39 @@ fn chat_metadata_store_append_messages(
             let block_id = last_block_id.ok_or_else(|| "追加 SQLite 消息失败：缺少尾 block".to_string())?;
             let mut merged = tail_messages;
             merged.extend(plan.groups.first().cloned().unwrap_or_default());
+            let block_file = format!("{MESSAGE_STORE_BLOCKS_DIR_NAME}/{block_id:06}.jsonl");
             let refs = ConversationBlockMessageRefs {
                 block_id,
-                block_file: format!("{MESSAGE_STORE_BLOCKS_DIR_NAME}/{block_id:06}.jsonl"),
+                block_file,
                 messages: merged.iter().collect(),
             };
-            let block = build_jsonl_snapshot_conversation_block(&refs, should_slim_conversation_block(meta.status.trim() == "archived", block_id as usize, total_block_count))?;
+            let should_slim = should_slim_conversation_block(
+                meta.status.trim() == "archived",
+                block_id as usize,
+                total_block_count,
+            );
+            let block = if should_slim {
+                build_jsonl_snapshot_conversation_block(&refs, true)?
+            } else {
+                // 尾部重建：尾块原始字节原样复用，只序列化新追加的消息
+                let block_path = paths.shard_dir.join(&refs.block_file);
+                let raw = std::fs::read(&block_path).map_err(|err| {
+                    format!("追加 SQLite 消息失败：读取块文件失败，path={}，error={err}", block_path.display())
+                })?;
+                let prefix_items = tail_rows.iter().map(|row| row.item.clone()).collect::<Vec<_>>();
+                let new_messages = plan.groups.first().cloned().unwrap_or_default();
+                let tail_refs = ConversationBlockMessageRefs {
+                    block_id,
+                    block_file: refs.block_file.clone(),
+                    messages: new_messages.iter().collect(),
+                };
+                build_jsonl_snapshot_conversation_block_tail(
+                    &tail_refs,
+                    &raw,
+                    &prefix_items,
+                    &new_messages,
+                )?
+            };
             for item in &block.index_items { rows.push((next_sequence, item.clone())); next_sequence += 1; }
             changed_blocks.push(block);
         }
@@ -1549,6 +1576,63 @@ fn chat_metadata_store_replace_message(
             .ok_or_else(|| format!("替换 SQLite 消息失败：消息不存在，conversation_id={}，message_id={}", paths.conversation_id, message.id))?;
         let block_id = locator.item.block_id.ok_or_else(|| "替换 SQLite 消息失败：locator 缺少 block id".to_string())?;
         let block_rows = chat_metadata_store_read_locators_for_block(paths, block_id)?;
+        let block_count = chat_metadata_store_read_block_count(paths)?;
+        let should_slim = should_slim_conversation_block(
+            meta.status.trim() == "archived",
+            block_id as usize,
+            block_count,
+        );
+        if !should_slim {
+            // 尾部重建：目标行之前的字节原样复用，只重新序列化目标行及之后
+            let position = block_rows.iter().position(|row| row.item.message_id.trim() == message.id.trim())
+                .ok_or_else(|| format!("替换 SQLite 消息失败：block 中找不到消息，conversation_id={}，message_id={}", paths.conversation_id, message.id))?;
+            let block_file = format!("{MESSAGE_STORE_BLOCKS_DIR_NAME}/{block_id:06}.jsonl");
+            let block_path = paths.shard_dir.join(&block_file);
+            let raw = std::fs::read(&block_path).map_err(|err| {
+                format!("替换 SQLite 消息失败：读取块文件失败，path={}，error={err}", block_path.display())
+            })?;
+            let target_offset = usize::try_from(block_rows[position].item.offset).map_err(|_| {
+                format!(
+                    "替换 SQLite 消息失败：消息偏移超出 usize 范围，conversation_id={}，message_id={}，offset={}",
+                    paths.conversation_id,
+                    message.id.trim(),
+                    block_rows[position].item.offset
+                )
+            })?;
+            if target_offset > raw.len() {
+                return Err(format!(
+                    "替换 SQLite 消息失败：消息偏移超出块文件长度，conversation_id={}，message_id={}，offset={}，block_len={}，path={}",
+                    paths.conversation_id,
+                    message.id.trim(),
+                    target_offset,
+                    raw.len(),
+                    block_path.display()
+                ));
+            }
+            let prefix_bytes = &raw[0..target_offset];
+            let prefix_items = block_rows[..position].iter().map(|row| row.item.clone()).collect::<Vec<_>>();
+            let tail_items = block_rows[position..].iter().map(|row| row.item.clone()).collect::<Vec<_>>();
+            let mut tail_messages = read_jsonl_snapshot_messages_by_index_items(
+                &paths.messages_file,
+                &tail_items,
+            )?;
+            tail_messages[0] = message.clone();
+            let refs = ConversationBlockMessageRefs {
+                block_id,
+                block_file,
+                messages: tail_messages.iter().collect(),
+            };
+            let rebuilt = build_jsonl_snapshot_conversation_block_tail(
+                &refs,
+                prefix_bytes,
+                &prefix_items,
+                &tail_messages,
+            )?;
+            let rows = rebuilt.index_items.iter().enumerate()
+                .map(|(index, item)| (block_rows[index].sequence, item.clone()))
+                .collect::<Vec<_>>();
+            return chat_metadata_store_publish_blocks(paths, &shard_meta, &[rebuilt], &[], &rows);
+        }
         let mut messages = read_jsonl_snapshot_messages_by_index_items(
             &paths.messages_file,
             &block_rows.iter().map(|row| row.item.clone()).collect::<Vec<_>>(),
@@ -1556,7 +1640,6 @@ fn chat_metadata_store_replace_message(
         let position = messages.iter().position(|item| item.id.trim() == message.id.trim())
             .ok_or_else(|| format!("替换 SQLite 消息失败：block 中找不到消息，conversation_id={}，message_id={}", paths.conversation_id, message.id))?;
         messages[position] = message.clone();
-        let block_count = chat_metadata_store_read_block_count(paths)?;
         let refs = ConversationBlockMessageRefs {
             block_id,
             block_file: format!("{MESSAGE_STORE_BLOCKS_DIR_NAME}/{block_id:06}.jsonl"),
