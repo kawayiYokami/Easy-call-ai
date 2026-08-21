@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
+  appendTextDeltaToStreamBlocks,
+  applyAssistantToolEventToStreamBlocks,
+  assistantTextFromStreamBlocks,
   projectMessageForDisplay,
+  streamBlocksToActivityItems,
+  streamBlocksToActivitySummaryItems,
   TOOL_TEXT_BREAK_PLACEHOLDER,
 } from "./chat-message-semantics";
 import type { ChatMessage, ToolCallMessage } from "../types/app";
@@ -138,5 +143,114 @@ describe("projectMessageForDisplay 分段占位符一致性", () => {
     const segments = projection.text.split(MARK);
     expect(segments.length).toBe(2);
     expect(segments[0]).toContain(`[toolcall:${CALL_A}]`);
+  });
+});
+describe("streamBlocksToActivityItems 按事件切块后的块粒度出条目", () => {
+  const blocks = [
+    {
+      reasoning: "思考1",
+      text: `正文1 [toolcall:${CALL_A}]`,
+      tools: [
+        { toolCallId: CALL_A, name: "toolA", argsText: "{}", status: "done" },
+      ],
+    },
+    {
+      reasoning: "",
+      text: `正文2 [toolcall:${CALL_B}]`,
+      tools: [
+        { toolCallId: CALL_B, name: "toolB", argsText: "{}", status: "done" },
+      ],
+    },
+  ];
+
+  it("展开明细：每块一个 content item，工具紧随其后，块间天然交错", () => {
+    const items = streamBlocksToActivityItems(blocks);
+    const kinds = items.map((item) => item.kind);
+    expect(kinds).toEqual(["reasoning", "content", "tool", "content", "tool"]);
+    const contents = items.filter((item) => item.kind === "content");
+    // 每段保留各自的工具标记，渲染侧 activityItemText 再剥离
+    expect(contents.map((item) => item.text)).toEqual([
+      `正文1 [toolcall:${CALL_A}]`,
+      `正文2 [toolcall:${CALL_B}]`,
+    ]);
+    const tools = items.filter((item) => item.kind === "tool");
+    expect(tools.map((item) => item.name)).toEqual(["toolA", "toolB"]);
+  });
+
+  it("折叠 summary：与展开明细相同的交错顺序", () => {
+    const items = streamBlocksToActivitySummaryItems(blocks);
+    const kinds = items.map((item) => item.kind);
+    expect(kinds).toEqual(["reasoning", "content", "tool", "content", "tool"]);
+    const tools = items.filter((item) => item.kind === "tool");
+    expect(tools.map((item) => item.name)).toEqual(["toolA", "toolB"]);
+  });
+
+  it("单正文块（无工具）仍只生成一个 content item（现状回归）", () => {
+    const items = streamBlocksToActivityItems([{ reasoning: "", text: "纯正文", tools: [] }]);
+    expect(items.filter((item) => item.kind === "content")).toHaveLength(1);
+  });
+
+  it("纯工具块（无正文）工具保留在块尾", () => {
+    const items = streamBlocksToActivityItems([
+      { reasoning: "", text: "", tools: [{ toolCallId: CALL_A, name: "toolA", argsText: "{}", status: "done" }] },
+    ]);
+    expect(items.map((item) => item.kind)).toEqual(["tool"]);
+    const tools = items.filter((item) => item.kind === "tool");
+    expect(tools[0].name).toBe("toolA");
+  });
+});
+
+describe("appendTextDeltaToStreamBlocks 工具标记后切新块", () => {
+  it("pendingTextBreak 时正文 delta 开新块，不再拼占位符进原块", () => {
+    const blocks = appendTextDeltaToStreamBlocks([], "正文1。");
+    const withTool = applyAssistantToolEventToStreamBlocks(blocks, JSON.stringify({
+      role: "assistant",
+      content: null,
+      tool_calls: [{
+        id: CALL_A,
+        type: "function",
+        function: { name: "toolA", arguments: "{}" },
+      }],
+    }));
+    const next = appendTextDeltaToStreamBlocks(withTool, "正文2。");
+
+    expect(next).toEqual([
+      {
+        reasoning: "",
+        reasoningCharCount: 0,
+        text: `正文1。 [toolcall:${CALL_A}]`,
+        tools: [{
+          toolCallId: CALL_A,
+          name: "toolA",
+          argsText: "{}",
+          resultText: undefined,
+          status: "doing",
+        }],
+        pendingTextBreak: true,
+      },
+      {
+        reasoning: "",
+        reasoningCharCount: 0,
+        text: "正文2。",
+        tools: [],
+        pendingTextBreak: false,
+      },
+    ]);
+  });
+
+  it("切块后气泡渲染文本仍注入占位符（joinAssistantHistoryTexts）", () => {
+    const blocks = appendTextDeltaToStreamBlocks([], "正文1。");
+    const withTool = applyAssistantToolEventToStreamBlocks(blocks, JSON.stringify({
+      role: "assistant",
+      content: null,
+      tool_calls: [{
+        id: CALL_A,
+        type: "function",
+        function: { name: "toolA", arguments: "{}" },
+      }],
+    }));
+    const next = appendTextDeltaToStreamBlocks(withTool, "正文2。");
+    const text = assistantTextFromStreamBlocks(next);
+    expect(text).toBe(`正文1。 [toolcall:${CALL_A}]${MARK}正文2。`);
   });
 });

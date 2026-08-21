@@ -866,25 +866,34 @@ describe("chat-message semantics", () => {
     expect(displayText(assistantTextFromStreamBlocks(blocks))).toBe(
       "先说明要并发读取。 [toolcall:tool-a] [toolcall:tool-b]\n\n下面继续正文。",
     );
-    expect(blocks).toEqual([{
-      reasoning: "",
-      reasoningCharCount: 0,
-      text: `先说明要并发读取。 [toolcall:tool-a] [toolcall:tool-b]${TOOL_TEXT_BREAK_PLACEHOLDER}下面继续正文。`,
-      tools: [{
-        toolCallId: "tool-a",
-        name: "read",
-        argsText: "{\"path\":\"a.ts\"}",
-        resultText: "A 完成",
-        status: "done",
-      }, {
-        toolCallId: "tool-b",
-        name: "read",
-        argsText: "{\"path\":\"b.ts\"}",
-        resultText: "B 完成",
-        status: "done",
-      }],
-      pendingTextBreak: false,
-    }]);
+    expect(blocks).toEqual([
+      {
+        reasoning: "",
+        reasoningCharCount: 0,
+        text: "先说明要并发读取。 [toolcall:tool-a] [toolcall:tool-b]",
+        tools: [{
+          toolCallId: "tool-a",
+          name: "read",
+          argsText: "{\"path\":\"a.ts\"}",
+          resultText: "A 完成",
+          status: "done",
+        }, {
+          toolCallId: "tool-b",
+          name: "read",
+          argsText: "{\"path\":\"b.ts\"}",
+          resultText: "B 完成",
+          status: "done",
+        }],
+        pendingTextBreak: true,
+      },
+      {
+        reasoning: "",
+        reasoningCharCount: 0,
+        text: "下面继续正文。",
+        tools: [],
+        pendingTextBreak: false,
+      },
+    ]);
   });
 
   it("shows a tool marker even when the tool finishes before any visible text", () => {
@@ -910,19 +919,28 @@ describe("chat-message semantics", () => {
     expect(displayText(assistantTextFromStreamBlocks(blocks))).toBe(
       "[toolcall:tool-first]\n\n后面才开始正文。",
     );
-    expect(blocks).toEqual([{
-      reasoning: "",
-      reasoningCharCount: 0,
-      text: `[toolcall:tool-first]${TOOL_TEXT_BREAK_PLACEHOLDER}后面才开始正文。`,
-      tools: [{
-        toolCallId: "tool-first",
-        name: "read",
-        argsText: "{\"path\":\"a.ts\"}",
-        resultText: "A 完成",
-        status: "done",
-      }],
-      pendingTextBreak: false,
-    }]);
+    expect(blocks).toEqual([
+      {
+        reasoning: "",
+        reasoningCharCount: 0,
+        text: "[toolcall:tool-first]",
+        tools: [{
+          toolCallId: "tool-first",
+          name: "read",
+          argsText: "{\"path\":\"a.ts\"}",
+          resultText: "A 完成",
+          status: "done",
+        }],
+        pendingTextBreak: true,
+      },
+      {
+        reasoning: "",
+        reasoningCharCount: 0,
+        text: "后面才开始正文。",
+        tools: [],
+        pendingTextBreak: false,
+      },
+    ]);
   });
 
   it("keeps marker-only tool rounds in completed display text when final text exists", () => {

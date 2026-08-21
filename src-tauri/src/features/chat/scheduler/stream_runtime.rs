@@ -310,10 +310,16 @@ fn append_stream_text_block(cache: &mut ConversationStreamRuntimeCache, delta: &
     if delta.is_empty() {
         return;
     }
-    let block = stream_cache_current_block_mut(cache);
-    if block.pending_text_break && !block.text.trim().is_empty() {
-        block.text.push_str("\n\n");
+    // 工具标记后的新正文：切新块，与前端 appendTextDeltaToStreamBlocks 一致。
+    // 块间边界由前端拼接层按「前段含工具标记」注入占位符。
+    let should_break = cache
+        .stream_blocks
+        .last()
+        .is_some_and(|block| block.pending_text_break && !block.text.trim().is_empty());
+    if should_break {
+        cache.stream_blocks.push(AssistantStreamBlock::default());
     }
+    let block = stream_cache_current_block_mut(cache);
     block.text.push_str(delta);
     block.pending_text_break = false;
 }
@@ -754,12 +760,14 @@ mod scheduler_stream_block_tests {
         );
         append_stream_text_block(&mut cache, "下面继续正文。");
 
-        assert_eq!(cache.stream_blocks.len(), 1);
+        assert_eq!(cache.stream_blocks.len(), 2);
         assert_eq!(
             cache.stream_blocks[0].text,
-            "先说明要并发读取。 [toolcall:call-a] [toolcall:call-b]\n\n下面继续正文。"
+            "先说明要并发读取。 [toolcall:call-a] [toolcall:call-b]"
         );
-        assert!(!cache.stream_blocks[0].pending_text_break);
+        assert!(cache.stream_blocks[0].pending_text_break);
+        assert_eq!(cache.stream_blocks[1].text, "下面继续正文。");
+        assert!(!cache.stream_blocks[1].pending_text_break);
     }
 
     #[test]
@@ -792,12 +800,11 @@ mod scheduler_stream_block_tests {
         );
         append_stream_text_block(&mut cache, "后面才开始正文。");
 
-        assert_eq!(cache.stream_blocks.len(), 1);
-        assert_eq!(
-            cache.stream_blocks[0].text,
-            "[toolcall:call-first]\n\n后面才开始正文。"
-        );
-        assert!(!cache.stream_blocks[0].pending_text_break);
+        assert_eq!(cache.stream_blocks.len(), 2);
+        assert_eq!(cache.stream_blocks[0].text, "[toolcall:call-first]");
+        assert!(cache.stream_blocks[0].pending_text_break);
+        assert_eq!(cache.stream_blocks[1].text, "后面才开始正文。");
+        assert!(!cache.stream_blocks[1].pending_text_break);
     }
 
     #[test]

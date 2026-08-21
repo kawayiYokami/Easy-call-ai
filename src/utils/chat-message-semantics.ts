@@ -21,8 +21,9 @@ type ToolHistoryView = "display" | "prompt";
 
 /**
  * 「工具后新正文」分段占位符。
- * 流式累积时（appendTextDeltaToStreamBlocks）遇到 pendingTextBreak 用该占位符代替换行写入文本，
- * 渲染层按分段开关决定：开启时按占位符切段，关闭时还原为换行。
+ * 流式累积按事件切块（appendTextDeltaToStreamBlocks 在 pendingTextBreak 时开新块），
+ * 块间边界由 joinAssistantHistoryTexts 按「前段含工具标记」注入本占位符；
+ * 正式/历史消息投影同样注入。渲染层按分段开关决定：开启时按占位符切段，关闭时还原为换行。
  */
 export const TOOL_TEXT_BREAK_PLACEHOLDER = "\uE000TOOLBREAK\uE000";
 
@@ -740,8 +741,7 @@ function mergedAssistantDisplayText(message: ChatMessage, fallbackText: string):
 
 export function streamBlocksToActivityItems(rawBlocks: unknown, running = false): ChatActivityItem[] {
   const items: ChatActivityItem[] = [];
-  const blocks = normalizeAssistantStreamBlocks(rawBlocks);
-  for (const [blockIndex, block] of blocks.entries()) {
+  for (const [blockIndex, block] of normalizeAssistantStreamBlocks(rawBlocks).entries()) {
     const reasoning = String(block.reasoning || "");
     if (reasoning.trim()) {
       items.push({
@@ -943,11 +943,13 @@ export function appendTextDeltaToStreamBlocks(rawBlocks: unknown, delta: string)
   if (!text) return blocks;
   const block = ensureAssistantStreamBlock(blocks);
   if (block.pendingTextBreak && String(block.text || "").trim()) {
-    block.text = `${String(block.text || "")}${TOOL_TEXT_BREAK_PLACEHOLDER}${text}`;
-  } else {
-    block.text = `${String(block.text || "")}${text}`;
+    // 工具标记后的新正文：切新块，与正式投影的「每事件一块」结构一致。
+    // 块间边界由 joinAssistantHistoryTexts 按「前段含工具标记」注入占位符。
+    blocks.push({ reasoning: "", reasoningCharCount: 0, text: "", tools: [], pendingTextBreak: false });
   }
-  block.pendingTextBreak = false;
+  const target = ensureAssistantStreamBlock(blocks);
+  target.text = `${String(target.text || "")}${text}`;
+  target.pendingTextBreak = false;
   return blocks;
 }
 
