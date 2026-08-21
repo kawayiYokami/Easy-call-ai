@@ -64,7 +64,7 @@ impl MemoryRerankProvider for VllmRerankProvider {
             let resp = req
                 .send()
                 .await
-                .map_err(|err| format!("vLLM rerank request failed ({url}): {err}"))?;
+                .map_err(|err| format!("vLLM rerank request failed ({url}): {err:?}"))?;
             if !resp.status().is_success() {
                 let status = resp.status();
                 let body = resp.text().await.unwrap_or_default();

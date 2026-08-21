@@ -58,7 +58,7 @@ impl MemoryEmbeddingProvider for OpenAIEmbeddingProvider {
                 .json(&payload)
                 .send()
                 .await
-                .map_err(|err| format!("OpenAI embedding request failed ({url}): {err}"))?;
+                .map_err(|err| format!("OpenAI embedding request failed ({url}): {err:?}"))?;
             if !resp.status().is_success() {
                 let status = resp.status();
                 let body = resp.text().await.unwrap_or_default();
