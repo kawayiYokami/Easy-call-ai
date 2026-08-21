@@ -659,29 +659,43 @@ impl ConversationServiceV2 {
         })
     }
 
-    fn update_unarchived_conversation_by_id<T>(
+    async fn update_unarchived_conversation_by_id<T>(
         &self,
         state: &AppState,
         conversation_id: &str,
-        updater: impl FnOnce(&mut Conversation) -> Result<T, String>,
-    ) -> Result<T, String> {
+        updater: impl FnOnce(&mut Conversation) -> Result<T, String> + Send + 'static,
+    ) -> Result<T, String>
+    where
+        T: Send + 'static,
+    {
         let normalized_conversation_id = conversation_id.trim();
         if normalized_conversation_id.is_empty() {
             return Err("conversationId is required.".to_string());
         }
-        with_conversation_mutation(
-            state,
-            normalized_conversation_id,
-            "update_unarchived_conversation_by_id",
-            || {
+        let service = conversation_service_v2();
+        let state_for_mutation = state.clone();
+        let conversation_id_for_mutation = normalized_conversation_id.to_string();
+        with_conversation_mutation_async(
+            state.clone(),
+            conversation_id_for_mutation.clone(),
+            "update_unarchived_conversation_by_id".to_string(),
+            move || {
                 // 工具审查按 call_id 定位，而现有 locator 未索引 tool_call_id；这是该入口必须读取
                 // 全量正文的唯一原因。v3 发布仍限制为变更消息的 block 级替换，禁止回退整会话快照。
-                let mut conversation = self.read_persisted_conversation(state, normalized_conversation_id)?;
-                self.ensure_unarchived_conversation(&conversation, normalized_conversation_id)?;
+                let mut conversation = service.read_persisted_conversation(
+                    &state_for_mutation,
+                    &conversation_id_for_mutation,
+                )?;
+                service.ensure_unarchived_conversation(
+                    &conversation,
+                    &conversation_id_for_mutation,
+                )?;
                 let original_messages = conversation.messages.clone();
                 let result = updater(&mut conversation)?;
-                let store_paths =
-                    message_store::message_store_paths(&state.data_path, normalized_conversation_id)?;
+                let store_paths = message_store::message_store_paths(
+                    &state_for_mutation.data_path,
+                    &conversation_id_for_mutation,
+                )?;
                 if conversation.messages.len() != original_messages.len()
                     || conversation
                         .messages
@@ -690,7 +704,7 @@ impl ConversationServiceV2 {
                         .any(|(updated, original)| updated.id != original.id)
                 {
                     return Err(format!(
-                        "v3 不支持通过 update_unarchived_conversation_by_id 改变消息结构，conversation_id={normalized_conversation_id}"
+                        "v3 不支持通过 update_unarchived_conversation_by_id 改变消息结构，conversation_id={conversation_id_for_mutation}"
                     ));
                 }
                 let changed_messages = conversation
@@ -702,17 +716,22 @@ impl ConversationServiceV2 {
                             .then(|| updated.clone())
                     })
                     .collect::<Vec<_>>();
-                let (updated_meta_conversation, (), _) = state_update_conversation_metadata_cached_unlocked(
-                    state,
-                    normalized_conversation_id,
-                    |cached| {
-                        preserve_field_level_conversation_metadata(cached, &conversation);
-                        Ok(())
-                    },
-                )?;
+                let (updated_meta_conversation, (), _) =
+                    state_update_conversation_metadata_cached_unlocked(
+                        &state_for_mutation,
+                        &conversation_id_for_mutation,
+                        |cached| {
+                            preserve_field_level_conversation_metadata(cached, &conversation);
+                            Ok(())
+                        },
+                    )?;
                 if !changed_messages.is_empty() {
-                    let mut ready_meta = self.ensure_appendable_ready_message_store(state, normalized_conversation_id)?;
-                    ready_meta.apply_metadata_fields_from_conversation(&updated_meta_conversation);
+                    let mut ready_meta = service.ensure_appendable_ready_message_store(
+                        &state_for_mutation,
+                        &conversation_id_for_mutation,
+                    )?;
+                    ready_meta
+                        .apply_metadata_fields_from_conversation(&updated_meta_conversation);
                     let previous_messages = changed_messages
                         .iter()
                         .filter_map(|updated| {
@@ -730,16 +749,20 @@ impl ConversationServiceV2 {
                         &ready_meta.to_persist_meta(),
                         &changed_messages,
                     )?;
-                    self.mark_conversation_metadata_cached_persisted(state, normalized_conversation_id)?;
+                    service.mark_conversation_metadata_cached_persisted(
+                        &state_for_mutation,
+                        &conversation_id_for_mutation,
+                    )?;
                     state_override_conversation_metadata_cached(
-                        state,
-                        normalized_conversation_id,
+                        &state_for_mutation,
+                        &conversation_id_for_mutation,
                         &ready_meta,
                     )?;
                 }
                 Ok(result)
             },
         )
+        .await
     }
 
     fn append_fast_request_turn_if_unarchived_exists(
@@ -1167,7 +1190,7 @@ impl ConversationServiceV2 {
             return Err("目标会话不存在".to_string());
         }
 
-        self.append_message(state, normalized_target_session_id, message)?;
+        self.append_message(state, normalized_target_session_id, message).await?;
         emit_conversation_message_appended_event(state, normalized_target_session_id, message);
         Ok(())
     }

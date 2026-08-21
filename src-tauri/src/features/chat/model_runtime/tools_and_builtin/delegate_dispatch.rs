@@ -301,7 +301,9 @@ fn spawn_delegate_task(
                         "targetAgentId": delegate_for_publish.target_agent_id,
                     }),
                     delegate_for_publish.notify_assistant_when_done,
-                ) {
+                )
+                .await
+                {
                     runtime_log_error(format!(
                         "[委托线程] 投递委托完成消息失败: delegate_id={}, target_agent_id={}, root_conversation_id={}, error={}",
                         delegate_for_publish.delegate_id,
@@ -329,7 +331,9 @@ fn spawn_delegate_task(
                         "error": err,
                     }),
                     delegate_for_publish.notify_assistant_when_done,
-                ) {
+                )
+                .await
+                {
                     runtime_log_error(format!(
                         "[委托线程] 投递委托失败消息失败: delegate_id={}, target_agent_id={}, root_conversation_id={}, error={}",
                         delegate_for_publish.delegate_id,

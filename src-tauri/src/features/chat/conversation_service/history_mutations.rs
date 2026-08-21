@@ -468,7 +468,7 @@ impl ConversationServiceV2 {
         })
     }
 
-    fn forward_conversation_selection(
+    async fn forward_conversation_selection(
         &self,
         state: &AppState,
         source_conversation_id: &str,
@@ -521,11 +521,9 @@ impl ConversationServiceV2 {
             .iter()
             .map(clone_chat_message_for_copied_conversation)
             .collect::<Vec<_>>();
-        conversation_service_v2().append_messages(
-            state,
-            target_conversation_id,
-            &copied_messages,
-        )?;
+        conversation_service_v2()
+            .append_messages(state, target_conversation_id, &copied_messages)
+            .await?;
         let overview_payload = UnarchivedConversationOverviewUpdatedPayload {
             preferred_conversation_id: Some(target_conversation_id.to_string()),
             unarchived_conversations: self.collect_unarchived_conversation_summaries_cached(

@@ -298,6 +298,26 @@ where
     with_conversation_mutation_for_data_path(&state.data_path, conversation_id, task_name, f)
 }
 
+/// 异步版会话写入门：将「获取会话锁 + 执行同步 mutation 闭包」整体放入阻塞线程池，
+/// 避免 sqlite/文件 I/O 阻塞 async runtime worker；同一 conversation_id 的写入顺序
+/// 仍由会话锁在线程池内串行保证。join 错误会传播为可读错误。
+async fn with_conversation_mutation_async<T, F>(
+    state: AppState,
+    conversation_id: String,
+    task_name: String,
+    f: F,
+) -> Result<T, String>
+where
+    F: FnOnce() -> Result<T, String> + Send + 'static,
+    T: Send + 'static,
+{
+    tokio::task::spawn_blocking(move || {
+        with_conversation_mutation(&state, &conversation_id, &task_name, f)
+    })
+    .await
+    .map_err(|err| format!("会话写入门任务失败：{err}"))?
+}
+
 fn conversation_mutation_gate(
     data_path: &std::path::PathBuf,
     conversation_id: &str,

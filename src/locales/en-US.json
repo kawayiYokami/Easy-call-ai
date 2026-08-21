@@ -1439,7 +1439,13 @@
     "simpleSetupModeSimple": "Simple",
     "simpleSetupModeAdvanced": "Advanced",
     "simpleSetupModeSwitchToAdvanced": "Switch to Advanced",
-    "simpleSetupModeSwitchToSimple": "Switch to Simple"
+    "simpleSetupModeSwitchToSimple": "Switch to Simple",
+    "messageStoreMigration": {
+      "title": "Message Store Migration",
+      "cancelStart": "Cancel Startup",
+      "discardAndContinue": "Discard Abnormal Conversations and Continue Migration",
+      "unknownError": "Unknown Error"
+    }
   },
   "responseStyle": {
     "none": "No Preference",

@@ -115,7 +115,7 @@ fn delegate_build_trigger_provider_meta(
     })
 }
 
-fn delegate_enqueue_result_message(
+async fn delegate_enqueue_result_message(
     app_state: &AppState,
     root_conversation_id: &str,
     speaker_agent_id: &str,
@@ -162,6 +162,7 @@ fn delegate_enqueue_result_message(
             agent_id,
         }),
     )
+    .await
 }
 
 const AGENT_WORK_EVENT_START: &str = "easy-call:agent-work-start";

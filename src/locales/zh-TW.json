@@ -1437,7 +1437,13 @@
     "simpleSetupModeSimple": "簡單",
     "simpleSetupModeAdvanced": "進階",
     "simpleSetupModeSwitchToAdvanced": "切換到進階",
-    "simpleSetupModeSwitchToSimple": "切換到簡單"
+    "simpleSetupModeSwitchToSimple": "切換到簡單",
+    "messageStoreMigration": {
+      "title": "會話訊息倉庫遷移",
+      "cancelStart": "取消啟動",
+      "discardAndContinue": "拋棄異常會話並繼續遷移",
+      "unknownError": "未知錯誤"
+    }
   },
   "responseStyle": {
     "none": "無要求",

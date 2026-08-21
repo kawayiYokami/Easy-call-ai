@@ -1381,11 +1381,11 @@ fn remote_im_clear_contact_conversation_inner(
 }
 
 #[tauri::command]
-fn remote_im_enqueue_message(
+async fn remote_im_enqueue_message(
     input: RemoteImEnqueueInput,
     state: State<'_, AppState>,
 ) -> Result<RemoteImEnqueueResult, String> {
-    remote_im_enqueue_message_internal(input, state.inner())
+    remote_im_enqueue_message_internal(input, state.inner()).await
 }
 
 fn remote_im_stale_cached_config_best_effort(state: &AppState) -> Option<AppConfig> {
@@ -1403,7 +1403,7 @@ fn remote_im_stale_cached_config_best_effort(state: &AppState) -> Option<AppConf
 }
 
 /// 内部入队函数，供事件消费循环调用
-pub(crate) fn remote_im_enqueue_message_internal(
+pub(crate) async fn remote_im_enqueue_message_internal(
     input: RemoteImEnqueueInput,
     state: &AppState,
 ) -> Result<RemoteImEnqueueResult, String> {
@@ -1685,11 +1685,9 @@ pub(crate) fn remote_im_enqueue_message_internal(
                 contact_id, conversation_id, persisted_message.id, err
             ));
         }
-        let persisted_message = conversation_service_v2().append_remote_im_user_message(
-            state,
-            &conversation_id,
-            &persisted_message,
-        )?;
+        let persisted_message = conversation_service_v2()
+            .append_remote_im_user_message(state, &conversation_id, &persisted_message)
+            .await?;
         if let Err(err) = (|| -> Result<(), String> {
             let mut checkpoint = state_service_get_remote_im_contact_checkpoint(
                 state,

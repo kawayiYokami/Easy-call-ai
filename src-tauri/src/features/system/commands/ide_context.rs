@@ -1170,6 +1170,7 @@ mod ide_context_tests {
                 "agentId": DEFAULT_AGENT_ID,
             }),
         )
+        .await
         .expect("rebind conversation");
         assert_eq!(
             rebound.get("conversationId").and_then(Value::as_str),

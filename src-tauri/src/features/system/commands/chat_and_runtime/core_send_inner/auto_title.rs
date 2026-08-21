@@ -25,6 +25,17 @@ fn conversation_has_visible_title_from_store(
         .is_some_and(summary_context_message_title_blocks_auto_title))
 }
 
+async fn conversation_has_visible_title_from_store_async(
+    state: AppState,
+    conversation_id: String,
+) -> Result<bool, String> {
+    tokio::task::spawn_blocking(move || {
+        conversation_has_visible_title_from_store(&state, &conversation_id)
+    })
+    .await
+    .map_err(|err| format!("会话标题存储检查任务失败：{err}"))?
+}
+
 fn auto_title_generation_inflight(
 ) -> &'static std::sync::Mutex<std::collections::HashSet<String>> {
     static INFLIGHT: std::sync::OnceLock<
@@ -177,19 +188,28 @@ fn spawn_conversation_auto_title_generation(
             return;
         }
         let result = async {
-            if conversation_has_visible_title_from_store(&state, &conversation_id)? {
+            if conversation_has_visible_title_from_store_async(
+                state.clone(),
+                conversation_id.clone(),
+            )
+            .await?
+            {
                 return Ok::<(), String>(());
             }
             match run_auto_conversation_title_generation(&state, &conversation_id, &user_message).await {
                 Ok(title) => {
-                    if conversation_has_visible_title_from_store(&state, &conversation_id)? {
+                    if conversation_has_visible_title_from_store_async(
+                        state.clone(),
+                        conversation_id.clone(),
+                    )
+                    .await?
+                    {
                         return Ok(());
                     }
-                    match conversation_service_v2().update_latest_summary_title(
-                        &state,
-                        &conversation_id,
-                        &title,
-                    ) {
+                    match conversation_service_v2()
+                        .update_latest_summary_title(&state, &conversation_id, &title)
+                        .await
+                    {
                         Ok(changed) => {
                             if changed {
                                 if let Err(err) =

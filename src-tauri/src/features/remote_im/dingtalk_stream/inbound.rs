@@ -246,7 +246,7 @@ async fn parse_and_enqueue_dingtalk_callback(
             provider_meta: Some(provider_meta),
         },
     };
-    remote_im_enqueue_message_internal(input, state)
+    remote_im_enqueue_message_internal(input, state).await
 }
 
 async fn run_single_dingtalk_stream_session(

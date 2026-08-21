@@ -1346,15 +1346,28 @@ impl ConversationServiceV2 {
         )
     }
 
-    fn append_message(
+    async fn append_message(
         &self,
         state: &AppState,
         conversation_id: &str,
         message: &ChatMessage,
     ) -> Result<(), String> {
-        with_conversation_mutation(state, conversation_id, "append_message", || {
-            self.append_message_locked(state, conversation_id, message)
-        })?;
+        let state_for_mutation = state.clone();
+        let conversation_id_for_mutation = conversation_id.to_string();
+        let message_for_mutation = message.clone();
+        with_conversation_mutation_async(
+            state.clone(),
+            conversation_id_for_mutation.clone(),
+            "append_message".to_string(),
+            move || {
+                conversation_service_v2().append_message_locked(
+                    &state_for_mutation,
+                    &conversation_id_for_mutation,
+                    &message_for_mutation,
+                )
+            },
+        )
+        .await?;
         if let Err(err) = emit_unarchived_conversation_overview_item_updated_from_state(
             state,
             conversation_id,
@@ -1436,7 +1449,7 @@ impl ConversationServiceV2 {
         Ok(())
     }
 
-    fn append_messages(
+    async fn append_messages(
         &self,
         state: &AppState,
         conversation_id: &str,
@@ -1449,22 +1462,28 @@ impl ConversationServiceV2 {
         if messages.is_empty() {
             return Ok(());
         }
-        with_conversation_mutation(
-            state,
-            normalized_conversation_id,
-            "append_messages",
-            || {
-                let conversation_meta =
-                    self.get_conversation_meta(state, normalized_conversation_id)?;
-                if !self.conversation_meta_is_unarchived_meta_view(&conversation_meta) {
+        let service = conversation_service_v2();
+        let state_for_mutation = state.clone();
+        let conversation_id_for_mutation = normalized_conversation_id.to_string();
+        let messages_for_mutation = messages.to_vec();
+        with_conversation_mutation_async(
+            state.clone(),
+            conversation_id_for_mutation.clone(),
+            "append_messages".to_string(),
+            move || {
+                let conversation_meta = service
+                    .get_conversation_meta(&state_for_mutation, &conversation_id_for_mutation)?;
+                if !service.conversation_meta_is_unarchived_meta_view(&conversation_meta) {
                     return Err(format!(
                         "Unarchived conversation not found: {}",
-                        normalized_conversation_id
+                        conversation_id_for_mutation
                     ));
                 }
-                let store_paths =
-                    message_store::message_store_paths(&state.data_path, normalized_conversation_id)?;
-                let last_message = messages
+                let store_paths = message_store::message_store_paths(
+                    &state_for_mutation.data_path,
+                    &conversation_id_for_mutation,
+                )?;
+                let last_message = messages_for_mutation
                     .last()
                     .ok_or_else(|| "messages is empty".to_string())?;
                 let updated_at = last_message.created_at.clone();
@@ -1478,44 +1497,52 @@ impl ConversationServiceV2 {
                 } else {
                     conversation_meta.last_assistant_at.clone()
                 };
-                let unread_count = if self.conversation_has_active_chat_view(state, normalized_conversation_id)
-                    || conversation_meta.conversation_kind.trim() == CONVERSATION_KIND_REMOTE_IM_CONTACT
+                let unread_count = if service.conversation_has_active_chat_view(
+                    &state_for_mutation,
+                    &conversation_id_for_mutation,
+                ) || conversation_meta.conversation_kind.trim() == CONVERSATION_KIND_REMOTE_IM_CONTACT
                 {
                     0
                 } else {
-                    conversation_meta.unread_count.saturating_add(messages.len())
+                    conversation_meta.unread_count.saturating_add(messages_for_mutation.len())
                 };
                 let (updated_meta, (), _) = state_update_conversation_meta_cached_unlocked(
-                    state,
-                    normalized_conversation_id,
+                    &state_for_mutation,
+                    &conversation_id_for_mutation,
                     |cached| {
                         let mut metadata_conversation =
-                            self.build_conversation_snapshot_from_meta(cached, Vec::new());
+                            service.build_conversation_snapshot_from_meta(cached, Vec::new());
                         metadata_conversation.unread_count = unread_count;
                         metadata_conversation.updated_at = updated_at.clone();
                         metadata_conversation.last_user_at = last_user_at.clone();
                         metadata_conversation.last_assistant_at = last_assistant_at.clone();
                         cached.apply_metadata_fields_from_conversation(&metadata_conversation);
-                        cached.apply_appended_messages(messages);
+                        cached.apply_appended_messages(&messages_for_mutation);
                         Ok(())
                     },
                 )?;
                 let metadata_conversation =
-                    self.build_conversation_snapshot_from_meta(&updated_meta, Vec::new());
-                state_upsert_chat_index_conversation_cached(state, &metadata_conversation)?;
-                let mut ready_meta = self
-                    .ensure_appendable_ready_message_store(state, normalized_conversation_id)?;
+                    service.build_conversation_snapshot_from_meta(&updated_meta, Vec::new());
+                state_upsert_chat_index_conversation_cached(&state_for_mutation, &metadata_conversation)?;
+                let mut ready_meta = service.ensure_appendable_ready_message_store(
+                    &state_for_mutation,
+                    &conversation_id_for_mutation,
+                )?;
                 ready_meta.apply_metadata_fields_from_meta(&updated_meta);
-                ready_meta.apply_appended_messages(messages);
+                ready_meta.apply_appended_messages(&messages_for_mutation);
                 message_store::chat_store_append_messages_from_meta(
                     &store_paths,
                     &ready_meta,
-                    messages,
+                    &messages_for_mutation,
                 )?;
-                self.mark_conversation_metadata_cached_persisted(state, normalized_conversation_id)?;
+                service.mark_conversation_metadata_cached_persisted(
+                    &state_for_mutation,
+                    &conversation_id_for_mutation,
+                )?;
                 Ok(())
             },
-        )?;
+        )
+        .await?;
         if let Err(err) = emit_unarchived_conversation_overview_item_updated_from_state(
             state,
             normalized_conversation_id,
@@ -1539,7 +1566,7 @@ impl ConversationServiceV2 {
         Ok(build_session_notification_message(&body))
     }
 
-    fn append_user_message(
+    async fn append_user_message(
         &self,
         state: &AppState,
         input: &UserMessageAppendInput,
@@ -1552,59 +1579,88 @@ impl ConversationServiceV2 {
             return Err("append_user_message 只允许 user message".to_string());
         }
         let memory_recall_ids = dedup_memory_recall_ids_v2(&input.memory_recall_ids);
-        with_conversation_mutation(state, conversation_id, "append_user_message", || {
-            let conversation_meta = self.get_conversation_meta(state, conversation_id)?;
-            if !self.conversation_meta_is_unarchived_meta_view(&conversation_meta) {
-                return Err(format!("Unarchived conversation not found: {conversation_id}"));
-            }
-            let store_paths = message_store::message_store_paths(&state.data_path, conversation_id)?;
-            let updated_at = input.message.created_at.clone();
-            let unread_count = if self.conversation_has_active_chat_view(state, conversation_id)
-                || conversation_meta.conversation_kind.trim() == CONVERSATION_KIND_REMOTE_IM_CONTACT
-            {
-                0
-            } else {
-                conversation_meta.unread_count.saturating_add(1)
-            };
-            let (updated_meta, (), _) = state_update_conversation_meta_cached_unlocked(
-                state,
-                conversation_id,
-                |cached| {
-                    let mut metadata_conversation =
-                        self.build_conversation_snapshot_from_meta(cached, Vec::new());
-                    metadata_conversation.unread_count = unread_count;
-                    metadata_conversation.updated_at = updated_at.clone();
-                    metadata_conversation.last_user_at = Some(updated_at.clone());
-                    if !memory_recall_ids.is_empty() {
-                        for memory_id in &memory_recall_ids {
-                            if !metadata_conversation
-                                .memory_recall_table
-                                .iter()
-                                .any(|item| item == memory_id)
-                            {
-                                metadata_conversation.memory_recall_table.push(memory_id.clone());
+        let service = conversation_service_v2();
+        let state_for_mutation = state.clone();
+        let conversation_id_for_mutation = conversation_id.to_string();
+        let input_for_mutation = input.clone();
+        with_conversation_mutation_async(
+            state.clone(),
+            conversation_id_for_mutation.clone(),
+            "append_user_message".to_string(),
+            move || {
+                let conversation_meta =
+                    service.get_conversation_meta(&state_for_mutation, &conversation_id_for_mutation)?;
+                if !service.conversation_meta_is_unarchived_meta_view(&conversation_meta) {
+                    return Err(format!(
+                        "Unarchived conversation not found: {conversation_id_for_mutation}"
+                    ));
+                }
+                let store_paths =
+                    message_store::message_store_paths(&state_for_mutation.data_path, &conversation_id_for_mutation)?;
+                let updated_at = input_for_mutation.message.created_at.clone();
+                let unread_count = if service
+                    .conversation_has_active_chat_view(&state_for_mutation, &conversation_id_for_mutation)
+                    || conversation_meta
+                        .conversation_kind
+                        .trim()
+                        == CONVERSATION_KIND_REMOTE_IM_CONTACT
+                {
+                    0
+                } else {
+                    conversation_meta.unread_count.saturating_add(1)
+                };
+                let (updated_meta, (), _) = state_update_conversation_meta_cached_unlocked(
+                    &state_for_mutation,
+                    &conversation_id_for_mutation,
+                    |cached| {
+                        let mut metadata_conversation =
+                            service.build_conversation_snapshot_from_meta(cached, Vec::new());
+                        metadata_conversation.unread_count = unread_count;
+                        metadata_conversation.updated_at = updated_at.clone();
+                        metadata_conversation.last_user_at = Some(updated_at.clone());
+                        if !memory_recall_ids.is_empty() {
+                            for memory_id in &memory_recall_ids {
+                                if !metadata_conversation
+                                    .memory_recall_table
+                                    .iter()
+                                    .any(|item| item == memory_id)
+                                {
+                                    metadata_conversation.memory_recall_table.push(memory_id.clone());
+                                }
                             }
                         }
-                    }
-                    cached.apply_metadata_fields_from_conversation(&metadata_conversation);
-                    cached.apply_appended_messages(std::slice::from_ref(&input.message));
-                    Ok(())
-                },
-            )?;
-            let metadata_conversation =
-                self.build_conversation_snapshot_from_meta(&updated_meta, Vec::new());
-            state_upsert_chat_index_conversation_cached(state, &metadata_conversation)?;
-            let mut ready_meta = self.ensure_appendable_ready_message_store(state, conversation_id)?;
-            ready_meta.apply_metadata_fields_from_meta(&updated_meta);
-            ready_meta.apply_appended_messages(std::slice::from_ref(&input.message));
-            message_store::chat_store_append_messages_from_meta(
-                &store_paths,
-                &ready_meta,
-                std::slice::from_ref(&input.message),
-            )?;
-            self.mark_conversation_metadata_cached_persisted(state, conversation_id)?;
-            Ok(())
-        })?;
+                        cached.apply_metadata_fields_from_conversation(&metadata_conversation);
+                        cached.apply_appended_messages(std::slice::from_ref(
+                            &input_for_mutation.message,
+                        ));
+                        Ok(())
+                    },
+                )?;
+                let metadata_conversation =
+                    service.build_conversation_snapshot_from_meta(&updated_meta, Vec::new());
+                state_upsert_chat_index_conversation_cached(
+                    &state_for_mutation,
+                    &metadata_conversation,
+                )?;
+                let mut ready_meta =
+                    service.ensure_appendable_ready_message_store(&state_for_mutation, &conversation_id_for_mutation)?;
+                ready_meta.apply_metadata_fields_from_meta(&updated_meta);
+                ready_meta.apply_appended_messages(std::slice::from_ref(
+                    &input_for_mutation.message,
+                ));
+                message_store::chat_store_append_messages_from_meta(
+                    &store_paths,
+                    &ready_meta,
+                    std::slice::from_ref(&input_for_mutation.message),
+                )?;
+                service.mark_conversation_metadata_cached_persisted(
+                    &state_for_mutation,
+                    &conversation_id_for_mutation,
+                )?;
+                Ok(())
+            },
+        )
+        .await?;
         if let Err(err) = emit_unarchived_conversation_overview_item_updated_from_state(
             state,
             conversation_id,
@@ -1618,7 +1674,7 @@ impl ConversationServiceV2 {
     }
 
     /// 远程入站专用追加：只负责把远程消息正式写入会话历史。
-    fn append_remote_im_user_message(
+    async fn append_remote_im_user_message(
         &self,
         state: &AppState,
         conversation_id: &str,
@@ -1631,48 +1687,80 @@ impl ConversationServiceV2 {
         if message.role.trim() != "user" {
             return Err("远程入站追加只允许 user message".to_string());
         }
-        with_conversation_mutation(state, conversation_id, "append_remote_im_user_message", || {
-            let conversation_meta = self.get_conversation_meta(state, conversation_id)?;
-            if !self.conversation_meta_is_unarchived_meta_view(&conversation_meta) {
-                return Err(format!("远程入站目标会话不存在：{conversation_id}"));
-            }
-            let store_paths = message_store::message_store_paths(&state.data_path, conversation_id)?;
-            let updated_at = message.created_at.clone();
-            let unread_count = if self.conversation_has_active_chat_view(state, conversation_id)
-                || conversation_meta.conversation_kind.trim() == CONVERSATION_KIND_REMOTE_IM_CONTACT
-            {
-                0
-            } else {
-                conversation_meta.unread_count.saturating_add(1)
-            };
-            let (updated_meta, (), _) = state_update_conversation_meta_cached_unlocked(
-                state,
-                conversation_id,
-                |cached| {
-                    let mut metadata_conversation =
-                        self.build_conversation_snapshot_from_meta(cached, Vec::new());
-                    metadata_conversation.unread_count = unread_count;
-                    metadata_conversation.updated_at = updated_at.clone();
-                    metadata_conversation.last_user_at = Some(updated_at.clone());
-                    cached.apply_metadata_fields_from_conversation(&metadata_conversation);
-                    cached.apply_appended_messages(std::slice::from_ref(message));
-                    Ok(())
-                },
-            )?;
-            let metadata_conversation =
-                self.build_conversation_snapshot_from_meta(&updated_meta, Vec::new());
-            state_upsert_chat_index_conversation_cached(state, &metadata_conversation)?;
-            let mut ready_meta = self.ensure_appendable_ready_message_store(state, conversation_id)?;
-            ready_meta.apply_metadata_fields_from_meta(&updated_meta);
-            ready_meta.apply_appended_messages(std::slice::from_ref(message));
-            message_store::chat_store_append_messages_from_meta(
-                &store_paths,
-                &ready_meta,
-                std::slice::from_ref(message),
-            )?;
-            self.mark_conversation_metadata_cached_persisted(state, conversation_id)?;
-            Ok(())
-        })?;
+        let service = conversation_service_v2();
+        let state_for_mutation = state.clone();
+        let conversation_id_for_mutation = conversation_id.to_string();
+        let message_for_mutation = message.clone();
+        with_conversation_mutation_async(
+            state.clone(),
+            conversation_id_for_mutation.clone(),
+            "append_remote_im_user_message".to_string(),
+            move || {
+                let conversation_meta =
+                    service.get_conversation_meta(&state_for_mutation, &conversation_id_for_mutation)?;
+                if !service.conversation_meta_is_unarchived_meta_view(&conversation_meta) {
+                    return Err(format!(
+                        "远程入站目标会话不存在：{conversation_id_for_mutation}"
+                    ));
+                }
+                let store_paths = message_store::message_store_paths(
+                    &state_for_mutation.data_path,
+                    &conversation_id_for_mutation,
+                )?;
+                let updated_at = message_for_mutation.created_at.clone();
+                let unread_count = if service.conversation_has_active_chat_view(
+                    &state_for_mutation,
+                    &conversation_id_for_mutation,
+                ) || conversation_meta
+                    .conversation_kind
+                    .trim()
+                    == CONVERSATION_KIND_REMOTE_IM_CONTACT
+                {
+                    0
+                } else {
+                    conversation_meta.unread_count.saturating_add(1)
+                };
+                let (updated_meta, (), _) = state_update_conversation_meta_cached_unlocked(
+                    &state_for_mutation,
+                    &conversation_id_for_mutation,
+                    |cached| {
+                        let mut metadata_conversation =
+                            service.build_conversation_snapshot_from_meta(cached, Vec::new());
+                        metadata_conversation.unread_count = unread_count;
+                        metadata_conversation.updated_at = updated_at.clone();
+                        metadata_conversation.last_user_at = Some(updated_at.clone());
+                        cached.apply_metadata_fields_from_conversation(&metadata_conversation);
+                        cached.apply_appended_messages(std::slice::from_ref(
+                            &message_for_mutation,
+                        ));
+                        Ok(())
+                    },
+                )?;
+                let metadata_conversation =
+                    service.build_conversation_snapshot_from_meta(&updated_meta, Vec::new());
+                state_upsert_chat_index_conversation_cached(
+                    &state_for_mutation,
+                    &metadata_conversation,
+                )?;
+                let mut ready_meta = service.ensure_appendable_ready_message_store(
+                    &state_for_mutation,
+                    &conversation_id_for_mutation,
+                )?;
+                ready_meta.apply_metadata_fields_from_meta(&updated_meta);
+                ready_meta.apply_appended_messages(std::slice::from_ref(&message_for_mutation));
+                message_store::chat_store_append_messages_from_meta(
+                    &store_paths,
+                    &ready_meta,
+                    std::slice::from_ref(&message_for_mutation),
+                )?;
+                service.mark_conversation_metadata_cached_persisted(
+                    &state_for_mutation,
+                    &conversation_id_for_mutation,
+                )?;
+                Ok(())
+            },
+        )
+        .await?;
         if let Err(err) = emit_unarchived_conversation_overview_item_updated_from_state(
             state,
             conversation_id,
@@ -1926,13 +2014,13 @@ impl ConversationServiceV2 {
     }
 
     #[cfg(test)]
-    fn append_message_to_unarchived_conversation(
+    async fn append_message_to_unarchived_conversation(
         &self,
         state: &AppState,
         conversation_id: &str,
         message: &ChatMessage,
     ) -> Result<(), String> {
-        self.append_message(state, conversation_id, message)
+        self.append_message(state, conversation_id, message).await
     }
 
     #[cfg(test)]

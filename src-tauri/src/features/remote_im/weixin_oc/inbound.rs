@@ -144,7 +144,8 @@ async fn handle_weixin_oc_inbound_message(
             },
         },
         state,
-    )?;
+    )
+    .await?;
     Ok(())
 }
 

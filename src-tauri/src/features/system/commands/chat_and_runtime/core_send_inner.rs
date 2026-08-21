@@ -1496,14 +1496,16 @@ async fn send_chat_message_inner(
                 for memory_id in &recall_payload.raw_ids {
                     updated_conversation.memory_recall_table.push(memory_id.clone());
                 }
-                conversation_service_v2().append_user_message(
-                    &state,
-                    &UserMessageAppendInput {
-                        conversation_id: snapshot.storage_conversation_before.id.clone(),
-                        message: user_message,
-                        memory_recall_ids: recall_payload.raw_ids.clone(),
-                    },
-                )?;
+                tokio::task::block_in_place(|| {
+                    tauri::async_runtime::block_on(conversation_service_v2().append_user_message(
+                        &state,
+                        &UserMessageAppendInput {
+                            conversation_id: snapshot.storage_conversation_before.id.clone(),
+                            message: user_message.clone(),
+                            memory_recall_ids: recall_payload.raw_ids.clone(),
+                        },
+                    ))
+                })?;
                 log_run_stage("prepare_context.user_message_committed");
                 log_run_stage("prepare_context.state_persist_scheduled");
                 updated_conversation

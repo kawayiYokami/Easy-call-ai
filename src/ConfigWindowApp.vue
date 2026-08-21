@@ -263,7 +263,7 @@
       class="fixed inset-0 z-9999 flex items-center justify-center bg-base-300/90 p-6 backdrop-blur"
     >
       <div class="w-full max-w-2xl rounded-box border border-base-content/10 bg-base-100 p-6 shadow-2xl">
-        <div class="text-xl font-semibold">会话消息仓库迁移</div>
+        <div class="text-xl font-semibold">{{ t("config.messageStoreMigration.title") }}</div>
         <div class="mt-2 text-sm opacity-70">{{ messageStoreMigration.message }}</div>
         <progress
           v-if="messageStoreMigration.mode === 'migrating'"
@@ -285,13 +285,15 @@
           >
             <div class="font-medium">{{ item.title || item.conversationId }}</div>
             <div class="mt-1 text-xs opacity-60">{{ item.conversationId }}</div>
-            <div class="mt-2 text-error">{{ item.reason || "未知错误" }}</div>
+            <div class="mt-2 text-error">{{ item.reason || t("config.messageStoreMigration.unknownError") }}</div>
           </div>
         </div>
         <div v-if="messageStoreMigration.mode === 'blocked'" class="mt-5 flex justify-end gap-3">
-          <button class="btn btn-ghost" @click="cancelMessageStoreMigration">取消启动</button>
+          <button class="btn btn-ghost" @click="cancelMessageStoreMigration">
+            {{ t("config.messageStoreMigration.cancelStart") }}
+          </button>
           <button class="btn btn-error" @click="continueMessageStoreMigrationWithDiscard">
-            抛弃异常会话并继续迁移
+            {{ t("config.messageStoreMigration.discardAndContinue") }}
           </button>
         </div>
       </div>

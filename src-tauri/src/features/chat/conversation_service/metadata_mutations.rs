@@ -34,34 +34,39 @@ impl ConversationServiceV2 {
         Ok(normalized_title.to_string())
     }
 
-    fn update_latest_summary_title(
+    async fn update_latest_summary_title(
         &self,
         state: &AppState,
         conversation_id: &str,
         next_title: &str,
     ) -> Result<bool, String> {
-        self.update_unarchived_conversation_by_id(state, conversation_id, |conversation| {
+        let next_title_for_mutation = next_title.to_string();
+        self.update_unarchived_conversation_by_id(state, conversation_id, move |conversation| {
             Ok(conversation_update_latest_summary_title(
                 conversation,
-                Some(next_title),
+                Some(next_title_for_mutation.as_str()),
             ))
         })
+        .await
     }
 
-    fn update_latest_summary_title_with_source(
+    async fn update_latest_summary_title_with_source(
         &self,
         state: &AppState,
         conversation_id: &str,
         next_title: &str,
         title_source: &str,
     ) -> Result<bool, String> {
-        self.update_unarchived_conversation_by_id(state, conversation_id, |conversation| {
+        let next_title_for_mutation = next_title.to_string();
+        let title_source_for_mutation = title_source.to_string();
+        self.update_unarchived_conversation_by_id(state, conversation_id, move |conversation| {
             Ok(conversation_update_latest_summary_title_with_source(
                 conversation,
-                Some(next_title),
-                Some(title_source),
+                Some(next_title_for_mutation.as_str()),
+                Some(title_source_for_mutation.as_str()),
             ))
         })
+        .await
     }
 
     fn toggle_conversation_pin(

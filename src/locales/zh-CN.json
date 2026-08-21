@@ -1439,7 +1439,13 @@
     "simpleSetupModeSimple": "简单",
     "simpleSetupModeAdvanced": "高级",
     "simpleSetupModeSwitchToAdvanced": "切换到高级",
-    "simpleSetupModeSwitchToSimple": "切换到简单"
+    "simpleSetupModeSwitchToSimple": "切换到简单",
+    "messageStoreMigration": {
+      "title": "会话消息仓库迁移",
+      "cancelStart": "取消启动",
+      "discardAndContinue": "抛弃异常会话并继续迁移",
+      "unknownError": "未知错误"
+    }
   },
   "responseStyle": {
     "none": "无要求",

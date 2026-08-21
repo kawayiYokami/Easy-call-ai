@@ -1484,6 +1484,7 @@ async fn create_conversation_branch_from_message_internal(
             &branch_summary_title,
             SUMMARY_CONTEXT_TITLE_SOURCE_BRANCH,
         )
+        .await
         .unwrap_or(false)
     {
         let _ = emit_unarchived_conversation_overview_item_updated_from_state(
@@ -1548,14 +1549,14 @@ async fn branch_unarchived_conversation_from_selection_internal(
 }
 
 #[tauri::command]
-fn forward_unarchived_conversation_selection(
+async fn forward_unarchived_conversation_selection(
     input: ForwardUnarchivedConversationSelectionInput,
     state: State<'_, AppState>,
 ) -> Result<ForwardUnarchivedConversationSelectionOutput, String> {
-    forward_unarchived_conversation_selection_inner(input, state.inner())
+    forward_unarchived_conversation_selection_inner(input, state.inner()).await
 }
 
-fn forward_unarchived_conversation_selection_inner(
+async fn forward_unarchived_conversation_selection_inner(
     input: ForwardUnarchivedConversationSelectionInput,
     state: &AppState,
 ) -> Result<ForwardUnarchivedConversationSelectionOutput, String> {
@@ -1581,12 +1582,14 @@ fn forward_unarchived_conversation_selection_inner(
         return Err("selectedMessageIds 不能为空".to_string());
     }
 
-    let result = conversation_service_v2().forward_conversation_selection(
-        state,
-        source_conversation_id,
-        target_conversation_id,
-        &normalized_selected_message_ids,
-    )?;
+    let result = conversation_service_v2()
+        .forward_conversation_selection(
+            state,
+            source_conversation_id,
+            target_conversation_id,
+            &normalized_selected_message_ids,
+        )
+        .await?;
     emit_unarchived_conversation_overview_updated_payload(state, &result.overview_payload);
     runtime_log_info(format!(
         "[转发到会话] 完成，任务=转发已选消息到目标会话，source_conversation_id={}，target_conversation_id={}，message_count={}",
@@ -1697,7 +1700,7 @@ fn rename_unarchived_conversation_inner(
     })
 }
 
-fn rebind_unarchived_conversation_recipient_inner(
+async fn rebind_unarchived_conversation_recipient_inner(
     input: RebindUnarchivedConversationRecipientInput,
     state: &AppState,
 ) -> Result<RebindUnarchivedConversationRecipientOutput, String> {
@@ -1734,27 +1737,32 @@ fn rebind_unarchived_conversation_recipient_inner(
         return Err("目标接收人不能是用户或系统人格".to_string());
     }
 
-    let preferred_api_config_id = conversation_service_v2().update_unarchived_conversation_by_id(
-        state,
-        conversation_id,
-        |conversation| {
-            if conversation_is_system_notification(conversation) {
-                return Err("系统通知会话不能手动修改接收人".to_string());
-            }
-            if conversation.conversation_kind.trim() == CONVERSATION_KIND_REMOTE_IM_CONTACT {
-                return Err("远程联系人会话不能手动修改接收人".to_string());
-            }
-            conversation.department_id = department_id.to_string();
-            conversation.agent_id = agent_id.to_string();
-            conversation.updated_at = now_iso();
-            conversation.preferred_api_config_id = conversation_preferred_model_repair_candidate(
-                &runtime_org.config,
-                department_id,
-                conversation.preferred_api_config_id.as_deref(),
-            );
-            Ok(conversation.preferred_api_config_id.clone())
-        },
-    )?;
+    let department_id_for_mutation = department_id.to_string();
+    let agent_id_for_mutation = agent_id.to_string();
+    let runtime_org_config_for_mutation = runtime_org.config.clone();
+    let preferred_api_config_id = conversation_service_v2()
+        .update_unarchived_conversation_by_id(
+            state,
+            conversation_id,
+            move |conversation| {
+                if conversation_is_system_notification(conversation) {
+                    return Err("系统通知会话不能手动修改接收人".to_string());
+                }
+                if conversation.conversation_kind.trim() == CONVERSATION_KIND_REMOTE_IM_CONTACT {
+                    return Err("远程联系人会话不能手动修改接收人".to_string());
+                }
+                conversation.department_id = department_id_for_mutation.clone();
+                conversation.agent_id = agent_id_for_mutation.clone();
+                conversation.updated_at = now_iso();
+                conversation.preferred_api_config_id = conversation_preferred_model_repair_candidate(
+                    &runtime_org_config_for_mutation,
+                    &department_id_for_mutation,
+                    conversation.preferred_api_config_id.as_deref(),
+                );
+                Ok(conversation.preferred_api_config_id.clone())
+            },
+        )
+        .await?;
     emit_unarchived_conversation_overview_item_updated_from_state(state, conversation_id)?;
     runtime_log_info(format!(
         "[会话] 完成，任务=修复会话接收人，conversation_id={}，department_id={}，agent_id={}，preferred_api_config_id={}",
@@ -1772,11 +1780,11 @@ fn rebind_unarchived_conversation_recipient_inner(
 }
 
 #[tauri::command]
-fn rebind_unarchived_conversation_recipient(
+async fn rebind_unarchived_conversation_recipient(
     input: RebindUnarchivedConversationRecipientInput,
     state: State<'_, AppState>,
 ) -> Result<RebindUnarchivedConversationRecipientOutput, String> {
-    rebind_unarchived_conversation_recipient_inner(input, state.inner())
+    rebind_unarchived_conversation_recipient_inner(input, state.inner()).await
 }
 
 #[tauri::command]

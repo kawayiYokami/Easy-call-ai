@@ -2101,8 +2101,8 @@
         );
     }
 
-    #[test]
-    fn remote_im_enqueue_should_discard_default_blocked_prefix_without_creating_contact() {
+    #[tokio::test]
+    async fn remote_im_enqueue_should_discard_default_blocked_prefix_without_creating_contact() {
         let state = remote_im_test_state();
         let channel = RemoteImChannelConfig {
             id: "channel-a".to_string(),
@@ -2155,7 +2155,9 @@
             },
         };
 
-        let result = remote_im_enqueue_message_internal(input, &state).expect("enqueue result");
+        let result = remote_im_enqueue_message_internal(input, &state)
+            .await
+            .expect("enqueue result");
         assert!(result.event_id.is_empty());
         assert!(result.conversation_id.is_empty());
         assert!(result.contact_id.is_empty());
@@ -2167,8 +2169,8 @@
         let _ = std::fs::remove_dir_all(app_root_from_data_path(&state.data_path));
     }
 
-    #[test]
-    fn remote_im_group_inbound_should_enter_contact_state_machine_after_persisting() {
+    #[tokio::test]
+    async fn remote_im_group_inbound_should_enter_contact_state_machine_after_persisting() {
         let state = remote_im_test_state();
         let config = AppConfig {
             remote_im_channels: vec![remote_im_test_channel(
@@ -2223,6 +2225,7 @@
             },
             &state,
         )
+        .await
         .expect("enqueue group mention");
 
         assert!(result.activate_assistant);
@@ -2237,8 +2240,8 @@
         let _ = std::fs::remove_dir_all(app_root_from_data_path(&state.data_path));
     }
 
-    #[test]
-    fn remote_im_private_inbound_should_enqueue_guided_message_without_keyword() {
+    #[tokio::test]
+    async fn remote_im_private_inbound_should_enqueue_guided_message_without_keyword() {
         let state = remote_im_test_state();
         let config = AppConfig {
             remote_im_channels: vec![remote_im_test_channel(
@@ -2302,6 +2305,7 @@
             },
             &state,
         )
+        .await
         .expect("enqueue private message");
 
         assert!(result.activate_assistant);
@@ -3328,8 +3332,8 @@
         let _ = std::fs::remove_dir_all(app_root_from_data_path(&state.data_path));
     }
 
-    #[test]
-    fn department_binding_should_persist_when_organization_snapshot_is_unreadable() {
+    #[tokio::test]
+    async fn department_binding_should_persist_when_organization_snapshot_is_unreadable() {
         let state = remote_im_test_state();
         std::fs::create_dir_all(&state.config_path).expect("make config path unreadable as file");
         let contact = remote_im_test_contact("contact-config-degraded", "conversation-existing");
@@ -3361,8 +3365,8 @@
         let _ = std::fs::remove_dir_all(app_root_from_data_path(&state.data_path));
     }
 
-    #[test]
-    fn inbound_should_use_safe_fallback_when_config_is_unreadable() {
+    #[tokio::test]
+    async fn inbound_should_use_safe_fallback_when_config_is_unreadable() {
         let state = remote_im_test_state();
         let mut config = AppConfig::default();
         config.remote_im_channels.push(RemoteImChannelConfig {
@@ -3419,6 +3423,7 @@
         };
 
         let result = remote_im_enqueue_message_internal(input, &state)
+            .await
             .expect("config read failure should degrade instead of aborting");
 
         assert!(!result.contact_id.is_empty());
@@ -3426,8 +3431,8 @@
         let _ = std::fs::remove_dir_all(app_root_from_data_path(&state.data_path));
     }
 
-    #[test]
-    fn inbound_should_fail_closed_without_trusted_channel_snapshot() {
+    #[tokio::test]
+    async fn inbound_should_fail_closed_without_trusted_channel_snapshot() {
         let state = remote_im_test_state();
         std::fs::create_dir_all(&state.config_path).expect("make config path unreadable as file");
         let input = RemoteImEnqueueInput {
@@ -3464,6 +3469,7 @@
         };
 
         let result = remote_im_enqueue_message_internal(input, &state)
+            .await
             .expect("permission snapshot failure should skip without aborting caller");
 
         assert!(result.event_id.is_empty());

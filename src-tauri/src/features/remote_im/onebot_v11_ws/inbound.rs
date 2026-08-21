@@ -208,7 +208,7 @@ async fn parse_and_enqueue_onebot_event(
         text,
         ordered_parts,
     );
-    let result = remote_im_enqueue_message_internal(input, state)?;
+    let result = remote_im_enqueue_message_internal(input, state).await?;
     if !result.conversation_id.trim().is_empty() {
         let group_members = group_member_cache.into_values().collect::<Vec<_>>();
         if let Err(err) =

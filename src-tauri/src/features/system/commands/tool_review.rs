@@ -1320,15 +1320,22 @@ async fn tool_review_run_for_call_internal(
         }
     };
 
-    conversation_service_v2().update_unarchived_conversation_by_id(
-        state,
-        conversation_id,
-        |conversation| {
-            tool_review_write_call_review(conversation, call_id, &review_value)?;
-            let refreshed = tool_review_find_item(conversation, call_id)?;
-            Ok(tool_review_item_detail_from_collected(&refreshed))
-        },
-    )
+    let call_id_for_mutation = call_id.to_string();
+    conversation_service_v2()
+        .update_unarchived_conversation_by_id(
+            state,
+            conversation_id,
+            move |conversation| {
+                tool_review_write_call_review(
+                    conversation,
+                    &call_id_for_mutation,
+                    &review_value,
+                )?;
+                let refreshed = tool_review_find_item(conversation, &call_id_for_mutation)?;
+                Ok(tool_review_item_detail_from_collected(&refreshed))
+            },
+        )
+        .await
 }
 
 fn tool_review_parse_scope(raw: &str) -> Result<&'static str, String> {
@@ -1944,7 +1951,7 @@ struct ToolReviewSetUserDecisionInput {
 }
 
 #[tauri::command]
-fn set_tool_review_item_user_decision(
+async fn set_tool_review_item_user_decision(
     input: ToolReviewSetUserDecisionInput,
     state: State<'_, AppState>,
 ) -> Result<ToolReviewItemDetail, String> {
@@ -1964,15 +1971,17 @@ fn set_tool_review_item_user_decision(
         },
         "userOpinion": opinion,
     });
-    conversation_service_v2().update_unarchived_conversation_by_id(
-        state.inner(),
-        &conversation_id,
-        |conversation| {
-            tool_review_write_call_review(conversation, &call_id, &user_decision_review)?;
-            let refreshed = tool_review_find_item(conversation, &call_id)?;
-            Ok(tool_review_item_detail_from_collected(&refreshed))
-        },
-    )
+    conversation_service_v2()
+        .update_unarchived_conversation_by_id(
+            state.inner(),
+            &conversation_id,
+            move |conversation| {
+                tool_review_write_call_review(conversation, &call_id, &user_decision_review)?;
+                let refreshed = tool_review_find_item(conversation, &call_id)?;
+                Ok(tool_review_item_detail_from_collected(&refreshed))
+            },
+        )
+        .await
 }
 
 async fn tool_review_run_missing_reviews_for_batch(

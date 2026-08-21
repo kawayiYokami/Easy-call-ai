@@ -4825,8 +4825,8 @@
         }
     }
 
-    #[test]
-    fn append_message_to_unarchived_conversation_should_preserve_existing_shard_meta() {
+    #[tokio::test]
+    async fn append_message_to_unarchived_conversation_should_preserve_existing_shard_meta() {
         let state = test_chat_runtime_state();
         let now = now_iso();
         let mut conversation = test_chat_conversation("conversation-append-meta", "active", &now);
@@ -4852,6 +4852,7 @@
         let appended = test_text_message("assistant", "第三条", &now);
         conversation_service_v2()
             .append_message_to_unarchived_conversation(&state, &conversation.id, &appended)
+            .await
             .expect("append message");
 
         let meta = message_store::chat_store_read_meta(&store_paths)
@@ -4872,8 +4873,8 @@
         }
     }
 
-    #[test]
-    fn append_message_should_not_overwrite_history_when_cached_meta_message_count_is_zero() {
+    #[tokio::test]
+    async fn append_message_should_not_overwrite_history_when_cached_meta_message_count_is_zero() {
         let state = test_chat_runtime_state();
         let now = now_iso();
         let mut conversation =
@@ -4922,6 +4923,7 @@
         let appended = test_text_message("assistant", "第三条新消息", &now);
         conversation_service_v2()
             .append_message_to_unarchived_conversation(&state, &conversation.id, &appended)
+            .await
             .expect("append message after broken cached meta");
 
         let stored_messages = message_store::chat_store_read_all_messages(&store_paths)
@@ -5217,8 +5219,8 @@
         assert_eq!(after.last_message_id.as_deref(), Some("msg-3"));
     }
 
-    #[test]
-    fn conversation_service_v2_should_create_and_delete_conversation() {
+    #[tokio::test]
+    async fn conversation_service_v2_should_create_and_delete_conversation() {
         let state = test_chat_runtime_state();
         let git_init = std::process::Command::new("git")
             .args(["init", "--quiet"])
@@ -5273,6 +5275,7 @@
                 &created.conversation_id,
                 &immediate_message,
             )
+            .await
             .expect("new conversation should accept an immediate first message");
         assert!(message_store::chat_store_read_message_by_id(
             &store_paths,
@@ -6291,8 +6294,8 @@
         assert_eq!(turns[0].response_text, "压缩结果");
     }
 
-    #[test]
-    fn conversation_service_v2_should_refresh_preview_after_appending_final_text() {
+    #[tokio::test]
+    async fn conversation_service_v2_should_refresh_preview_after_appending_final_text() {
         let state = test_chat_runtime_state();
         let now = now_iso();
         let conversation =
@@ -6308,6 +6311,7 @@
                     memory_recall_ids: Vec::new(),
                 },
             )
+            .await
             .expect("append user message");
 
         conversation_service_v2()
@@ -6682,8 +6686,8 @@
             .contains(&conversation.id));
     }
 
-    #[test]
-    fn update_unarchived_conversation_by_id_should_publish_v3_message_replacements() {
+    #[tokio::test]
+    async fn update_unarchived_conversation_by_id_should_publish_v3_message_replacements() {
         let state = test_chat_runtime_state();
         let now = now_iso();
         let mut conversation =
@@ -6705,6 +6709,7 @@
                     serde_json::Value::String("已审查结果".to_string());
                 Ok(())
             })
+            .await
             .expect("update v3 message");
 
         let paths = message_store::message_store_paths(&state.data_path, &conversation.id)
@@ -6721,8 +6726,8 @@
         );
     }
 
-    #[test]
-    fn update_latest_summary_title_should_keep_summary_title_consistent_in_v3() {
+    #[tokio::test]
+    async fn update_latest_summary_title_should_keep_summary_title_consistent_in_v3() {
         let state = test_chat_runtime_state();
         let now = now_iso();
         let mut conversation = test_chat_conversation(
@@ -6749,6 +6754,7 @@
 
         let changed = conversation_service_v2()
             .update_latest_summary_title(&state, &conversation.id, "新标题")
+            .await
             .expect("update summary title");
         assert!(changed);
 
@@ -6780,8 +6786,8 @@
         assert_eq!(meta_view.latest_summary_title.as_deref(), Some("新标题"));
     }
 
-    #[test]
-    fn full_refresh_should_read_updated_summary_title() {
+    #[tokio::test]
+    async fn full_refresh_should_read_updated_summary_title() {
         let state = test_chat_runtime_state();
         let now = now_iso();
         let mut conversation = test_chat_conversation(
@@ -6801,6 +6807,7 @@
 
         conversation_service_v2()
             .update_latest_summary_title(&state, &conversation.id, "刷新后标题")
+            .await
             .expect("update summary title");
 
         let summaries = conversation_service_v2()
@@ -6814,8 +6821,8 @@
         assert_eq!(target.summary_title.as_deref(), Some("刷新后标题"));
     }
 
-    #[test]
-    fn replacing_non_latest_summary_message_should_not_override_latest_summary_title() {
+    #[tokio::test]
+    async fn replacing_non_latest_summary_message_should_not_override_latest_summary_title() {
         let state = test_chat_runtime_state();
         let now = now_iso();
         let mut conversation = test_chat_conversation(
@@ -6851,6 +6858,7 @@
                 }));
                 Ok(())
             })
+            .await
             .expect("replace older summary");
 
         let paths = message_store::message_store_paths(&state.data_path, &conversation.id)
@@ -6918,8 +6926,8 @@
         );
     }
 
-    #[test]
-    fn replacing_plain_message_should_keep_summary_title_and_derived_fields() {
+    #[tokio::test]
+    async fn replacing_plain_message_should_keep_summary_title_and_derived_fields() {
         let state = test_chat_runtime_state();
         let now = now_iso();
         let mut conversation = test_chat_conversation(
@@ -6959,6 +6967,7 @@
                 }];
                 Ok(())
             })
+            .await
             .expect("replace plain message");
 
         let after = message_store::chat_store_read_meta(&paths)
@@ -7608,8 +7617,8 @@
         assert_eq!(updated_conversation.agent_id, DEFAULT_AGENT_ID);
     }
 
-    #[test]
-    fn remote_im_contact_conversation_should_be_readable_and_writable_as_unarchived() {
+    #[tokio::test]
+    async fn remote_im_contact_conversation_should_be_readable_and_writable_as_unarchived() {
         let state = test_chat_runtime_state();
         write_config(&state.config_path, &AppConfig::default()).expect("write config");
         let now = now_iso();
@@ -7685,6 +7694,7 @@
                     Ok(())
                 },
             )
+            .await
             .expect("update remote im contact conversation as unarchived");
         let updated = state_read_conversation_cached(&state, "conversation-contact-old")
             .expect("read updated conversation");
