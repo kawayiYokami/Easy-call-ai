@@ -177,7 +177,7 @@
                 :key="group.primary.id"
                 :card="group.primary"
                 :model-options="providerModelOptions"
-                :default-open="draftModelGroups.length <= 2"
+                :default-open="defaultOpenModelIds.has(group.primary.id)"
                 :capability="reasoningCapability(group) ?? null"
                 :show-delete="true"
                 :delete-disabled="draftModelGroups.length <= 1"
@@ -371,6 +371,10 @@ const pendingDeleteProviderId = ref("");
 const pendingDeleteProviderName = ref("");
 const imageGenerationTabRef = ref<ImageGenerationTabPublicInstance | null>(null);
 const modelCapabilityById = ref<Record<string, ModelCapabilityLimits>>({});
+// 已按能力元数据自动勾选过全部档位的模型组：避免用户手动收窄后被重复自动勾选
+const autoFilledReasoningEffortGroupIds = new Set<string>();
+// 默认展开的模型卡：仅新增模型加入，进入页面/切换供应商时保持折叠
+const defaultOpenModelIds = new Set<string>();
 const resolvedAdapterByModelId = ref<Record<string, string>>({});
 const adapterResolveRequestSeq = ref(0);
 const codexAuthBusy = ref(false);
@@ -631,6 +635,8 @@ const draftViewModels = computed<ApiModelConfigItem[]>(() =>
 
 function rebuildDraftGroups() {
   const provider = selectedProvider.value;
+  // 重建草稿（进入页面/切换供应商）时回到默认折叠，仅本次新增的卡片例外
+  defaultOpenModelIds.clear();
   draftModelGroups.value = buildDraftGroups(provider);
 }
 
@@ -1509,6 +1515,7 @@ function addModelCard() {
   if (provider.requestFormat === "codex") {
     model.model = "gpt-5.5";
   }
+  defaultOpenModelIds.add(model.id);
   const group: DraftModelGroup = {
     key: modelGroupKey(model),
     primary: model,
@@ -1650,6 +1657,17 @@ async function syncModelMetadata(group: DraftModelGroup) {
       const nextEfforts = group.reasoningEfforts.filter((effort) => supported.has(effort));
       if (nextEfforts.length !== group.reasoningEfforts.length) {
         group.reasoningEfforts = nextEfforts.length > 0 ? nextEfforts : ["default"];
+      }
+      // 首次匹配到模型（尚未配置任何档位）时，自动勾上全部可用等级
+      if (
+        supported.size > 0
+        && group.reasoningEfforts.every((effort) => effort === "default")
+        && !autoFilledReasoningEffortGroupIds.has(group.primary.id)
+      ) {
+        autoFilledReasoningEffortGroupIds.add(group.primary.id);
+        for (const effort of sortReasoningEffortValues(supported)) {
+          setGroupReasoningEffort(group, effort, true);
+        }
       }
     }
   } catch (error) {
