@@ -1264,6 +1264,7 @@ async fn send_chat_message_inner(
 
     let mut preloaded_prepare_snapshot = preloaded_prepare_snapshot;
     'dispatch: loop {
+    let mut pending_user_message_append: Option<UserMessageAppendInput> = None;
 
     let mut prepare_request_context = |persist_user_message: bool| -> Result<_, String> {
         log_run_stage("prepare_context.begin");
@@ -1496,16 +1497,11 @@ async fn send_chat_message_inner(
                 for memory_id in &recall_payload.raw_ids {
                     updated_conversation.memory_recall_table.push(memory_id.clone());
                 }
-                tokio::task::block_in_place(|| {
-                    tauri::async_runtime::block_on(conversation_service_v2().append_user_message(
-                        &state,
-                        &UserMessageAppendInput {
-                            conversation_id: snapshot.storage_conversation_before.id.clone(),
-                            message: user_message.clone(),
-                            memory_recall_ids: recall_payload.raw_ids.clone(),
-                        },
-                    ))
-                })?;
+                pending_user_message_append = Some(UserMessageAppendInput {
+                    conversation_id: snapshot.storage_conversation_before.id.clone(),
+                    message: user_message.clone(),
+                    memory_recall_ids: recall_payload.raw_ids.clone(),
+                });
                 log_run_stage("prepare_context.user_message_committed");
                 log_run_stage("prepare_context.state_persist_scheduled");
                 updated_conversation
@@ -1728,6 +1724,11 @@ async fn send_chat_message_inner(
         ))
     };
     let mut prepared_context = prepare_request_context(persist_user_message_on_next_prepare)?;
+    if let Some(append_input) = pending_user_message_append.take() {
+        conversation_service_v2()
+            .append_user_message(&state, &append_input)
+            .await?;
+    }
     let ignore_trailing_user_message_for_idle_compaction =
         persist_user_message_on_next_prepare && !trigger_only;
     let prompt_media_changed = apply_prompt_image_fallbacks_to_prepared(
