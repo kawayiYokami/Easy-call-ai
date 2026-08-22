@@ -216,17 +216,48 @@ pub(super) fn split_message_into_group_lines(message: &ChatMessage) -> Result<Ve
             event,
         )?);
     }
-    lines.push(encode_group_assistant_line(
-        &message.id,
-        &message.role,
-        &message.created_at,
-        &message.speaker_agent_id,
-        &message.parts,
-        &message.extra_text_blocks,
-        &message.provider_meta,
-        &message.meme_annotations,
-        &message.mcp_call,
-    )?);
+    // 正文全空（占位空壳）时不写正文行：开放组只有工具行，
+    // 正文行等 final text 到达再追加一次。否则正文行会闭合组，
+    // 后续工具事件被切分到新组（或追加到正文行后被 assemble 短路无视）。
+    // 判据不能只看 parts.is_empty()：占位空壳是 parts=[Text{text:""}]，
+    // 要看是否有需要正文行承载的实质内容（非空文本/附加块/meta/表情/工具结果元数据）。
+    let has_assistant_body_content = message.parts.iter().any(|part| match part {
+        MessagePart::Text {
+            text,
+            reasoning_content,
+        } => {
+            !text.trim().is_empty()
+                || reasoning_content
+                    .as_deref()
+                    .map(|value| !value.trim().is_empty())
+                    .unwrap_or(false)
+        }
+        _ => true,
+    }) || !message.extra_text_blocks.is_empty()
+        || message.provider_meta.is_some()
+        || message
+            .meme_annotations
+            .as_ref()
+            .map(|items| !items.is_empty())
+            .unwrap_or(false)
+        || message
+            .mcp_call
+            .as_ref()
+            .map(|items| !items.is_empty())
+            .unwrap_or(false);
+    if has_assistant_body_content {
+        lines.push(encode_group_assistant_line(
+            &message.id,
+            &message.role,
+            &message.created_at,
+            &message.speaker_agent_id,
+            &message.parts,
+            &message.extra_text_blocks,
+            &message.provider_meta,
+            &message.meme_annotations,
+            &message.mcp_call,
+        )?);
+    }
     Ok(lines)
 }
 

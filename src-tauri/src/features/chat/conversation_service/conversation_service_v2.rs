@@ -162,7 +162,6 @@ struct AssistantMessageToolAppendInput {
     assistant_message_id: String,
     assistant_tool_event: Value,
     tool_result_event: Value,
-    provider_meta_patch: Option<Value>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -469,6 +468,64 @@ fn merge_provider_meta_patch_v2(target: &mut Option<Value>, patch: Option<Value>
         for (key, value) in patch_obj {
             current_obj.insert(key.clone(), value.clone());
         }
+    }
+    *target = Some(current);
+}
+
+/// 用量聚合：meta 尚无真实用量时，取最后一个自带真实用量的工具调用事件派生展示字段。
+/// 工具轮的用量随工具调用事件落盘（出生点挂载），此处只兜底、不覆盖最终 call 写入的真实用量。
+fn merge_last_tool_call_usage_into_provider_meta(
+    target: &mut Option<Value>,
+    tool_call: &Option<Vec<Value>>,
+) {
+    if target
+        .as_ref()
+        .and_then(|meta| meta.get("providerPromptTokens"))
+        .and_then(Value::as_u64)
+        .is_some_and(|value| value > 0)
+    {
+        return;
+    }
+    let Some(events) = tool_call.as_deref() else {
+        return;
+    };
+    let Some(usage) = events.iter().rev().find_map(|event| {
+        let usage = event.get("usage")?;
+        let prompt_tokens = usage.get("promptTokens")?.as_u64().filter(|v| *v > 0)?;
+        let context_window = usage
+            .get("contextWindowTokens")
+            .and_then(Value::as_u64)
+            .filter(|v| *v > 0)
+            .unwrap_or(1);
+        Some((prompt_tokens, context_window))
+    }) else {
+        return;
+    };
+    let (prompt_tokens, context_window) = usage;
+    let usage_ratio = prompt_tokens as f64 / context_window as f64;
+    let usage_percent = usage_ratio.mul_add(100.0, 0.0).round().clamp(0.0, 100.0) as u32;
+    let mut current = target.take().unwrap_or_else(|| serde_json::json!({}));
+    if !current.is_object() {
+        current = serde_json::json!({
+            "_raw_provider_meta": current,
+        });
+    }
+    if let Some(current_obj) = current.as_object_mut() {
+        current_obj.insert("providerPromptTokens".to_string(), serde_json::json!(prompt_tokens));
+        current_obj.insert("effectivePromptTokens".to_string(), serde_json::json!(prompt_tokens));
+        current_obj.insert(
+            "effectivePromptSource".to_string(),
+            serde_json::json!("provider_tool_round"),
+        );
+        current_obj.insert("contextUsageRatio".to_string(), serde_json::json!(usage_ratio));
+        current_obj.insert(
+            "contextUsagePercent".to_string(),
+            serde_json::json!(usage_percent),
+        );
+        current_obj.insert(
+            "contextWindowTokens".to_string(),
+            serde_json::json!(context_window),
+        );
     }
     *target = Some(current);
 }

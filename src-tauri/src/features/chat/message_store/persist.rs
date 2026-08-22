@@ -587,8 +587,9 @@ pub(super) fn chat_store_replace_message(
 ///
 /// 适用场景与新增行判定：
 /// - 工具事件（D14 工具累积）：updated 比 previous 多出若干工具事件（元素，不配对）
-///   → 每个新元素追加一行工具行；若 provider_meta 同时变化（工具事件带
-///   provider_meta patch），正文行尚未写，provider_meta 无处承载 → 回退 replace（D14 场景①）。
+///   → 每个新元素追加一行工具行；若 provider_meta 同时变化，正文行尚未写、
+///   provider_meta 无处承载 → 回退 replace（D14 场景①）。运行时已保证工具追加不带
+///   meta 变化（用量统一在 final text 落盘写入），本守卫仅防御其它来源的 meta 变化。
 /// - 正文累积（final text / meme / provider_meta 回填）：工具行数不变、正文内容变化
 ///   → 追加正文行；若工具行也变了（罕见），回退 replace。
 ///
@@ -651,6 +652,12 @@ pub(super) fn chat_store_append_line_to_group(
     if tool_diff > 0 {
         // 工具事件增量：只允许纯工具行追加；provider_meta 变化（带 patch）回退 replace
         if provider_meta_changed {
+            return chat_store_replace_message(paths, meta, updated_message);
+        }
+        // previous 无工具行：目标组是单行 message 组（或纯正文组），物理追加工具行会
+        // 落到 message 行后面，assemble 遇 kind=message 行短路无视后续行 → 回退整块重写
+        // 为工具行形态（split 对正文全空的开放组不写正文行，重写后组是纯工具行）。
+        if previous_tools.is_empty() {
             return chat_store_replace_message(paths, meta, updated_message);
         }
         let mut new_lines = Vec::<String>::with_capacity(tool_diff as usize);

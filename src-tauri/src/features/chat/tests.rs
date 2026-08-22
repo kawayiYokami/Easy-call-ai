@@ -3624,6 +3624,93 @@
     }
 
     #[test]
+    fn latest_real_prompt_usage_should_read_last_valid_usage_from_tool_events() {
+        let now = now_iso();
+        let mut conversation = test_chat_conversation("conversation-main", "active", &now);
+        conversation.messages.push(ChatMessage {
+            id: "assistant-1".to_string(),
+            role: "assistant".to_string(),
+            created_at: now.clone(),
+            speaker_agent_id: Some(DEFAULT_AGENT_ID.to_string()),
+            parts: vec![MessagePart::Text {
+                text: "最新一组消息".to_string(),
+                reasoning_content: None,
+            }],
+            extra_text_blocks: Vec::new(),
+            provider_meta: None,
+            tool_call: Some(vec![
+                serde_json::json!({
+                    "role": "assistant",
+                    "tool_calls": [],
+                    "usage": {"promptTokens": 1200, "contextWindowTokens": 10000},
+                }),
+                serde_json::json!({"role": "tool", "tool_call_id": "a"}),
+                serde_json::json!({
+                    "role": "assistant",
+                    "tool_calls": [],
+                    "usage": {"promptTokens": 3200, "contextWindowTokens": 10000},
+                }),
+            ]),
+            mcp_call: None,
+        meme_annotations: None,
+        });
+        let mut api = ApiConfig::default();
+        api.context_window_tokens = 10000;
+
+        let usage = conversation_prompt_service()
+            .latest_real_prompt_usage(&conversation, &api)
+            .expect("tool event usage");
+
+        assert_eq!(usage.source, "assistant_tool_event_prompt_tokens");
+        assert_eq!(usage.effective_prompt_tokens, 3200, "倒序取最后一个带真实用量的事件");
+        assert!((usage.usage_ratio - 0.32).abs() < f64::EPSILON);
+        assert!(usage.estimated_prompt_tokens.is_none());
+    }
+
+    #[test]
+    fn latest_real_prompt_usage_should_not_fall_back_to_older_messages_when_latest_group_has_no_usage() {
+        let now = now_iso();
+        let mut conversation = test_chat_conversation("conversation-main", "active", &now);
+        conversation.messages.push(ChatMessage {
+            id: "assistant-older-with-usage".to_string(),
+            role: "assistant".to_string(),
+            created_at: now.clone(),
+            speaker_agent_id: Some(DEFAULT_AGENT_ID.to_string()),
+            parts: vec![MessagePart::Text {
+                text: "更早的一条带真实用量消息".to_string(),
+                reasoning_content: None,
+            }],
+            extra_text_blocks: Vec::new(),
+            provider_meta: Some(serde_json::json!({
+                "providerPromptTokens": 999,
+                "contextUsagePercent": 50
+            })),
+            tool_call: None,
+            mcp_call: None,
+        meme_annotations: None,
+        });
+        conversation.messages.push(ChatMessage {
+            id: "assistant-latest-no-usage".to_string(),
+            role: "assistant".to_string(),
+            created_at: now.clone(),
+            speaker_agent_id: Some(DEFAULT_AGENT_ID.to_string()),
+            parts: vec![MessagePart::Text {
+                text: "最新一组整组没有真实用量".to_string(),
+                reasoning_content: None,
+            }],
+            extra_text_blocks: Vec::new(),
+            provider_meta: None,
+            tool_call: None,
+            mcp_call: None,
+        meme_annotations: None,
+        });
+
+        let usage =
+            conversation_prompt_service().latest_real_prompt_usage(&conversation, &ApiConfig::default());
+        assert!(usage.is_none(), "最新一组没有用量时不往前翻更早的消息");
+    }
+
+    #[test]
     fn runtime_trusted_prompt_usage_should_be_reused_during_dispatch() {
         let now = now_iso();
         let mut conversation = test_chat_conversation("conversation-main", "active", &now);
@@ -5680,7 +5767,6 @@
                     assistant_message_id: "assistant-final".to_string(),
                     assistant_tool_event,
                     tool_result_event,
-                    provider_meta_patch: None,
                 },
             )
             .expect_err("final text should close tool append");
@@ -5717,7 +5803,6 @@
                     assistant_message_id: "assistant-open".to_string(),
                     assistant_tool_event,
                     tool_result_event,
-                    provider_meta_patch: None,
                 },
             )
             .expect("tool append should succeed");
@@ -5730,10 +5815,10 @@
             .read_message_by_id(&state, &conversation.id, "assistant-open")
             .expect("read updated assistant message");
         assert_eq!(stored.tool_call.as_ref().map(Vec::len), Some(2));
-        match &stored.parts[0] {
-            MessagePart::Text { text, .. } => assert!(text.is_empty()),
-            _ => panic!("expected text part"),
-        }
+        assert!(
+            stored.parts.is_empty(),
+            "开放组（未提交 final text）落盘为纯工具行组，读回是未闭合组语义：无正文 part"
+        );
     }
 
     #[test]
@@ -5770,7 +5855,6 @@
                     assistant_message_id: "assistant-tool-rounds".to_string(),
                     assistant_tool_event: first_assistant_event,
                     tool_result_event: first_tool_result,
-                    provider_meta_patch: None,
                 },
             )
             .expect("persist first completed tool round");
@@ -5949,6 +6033,63 @@
     }
 
     #[test]
+    fn merge_last_tool_call_usage_should_derive_meta_from_tool_call_events() {
+        let tool_call = Some(vec![
+            serde_json::json!({
+                "role": "assistant",
+                "tool_calls": [],
+                "usage": {"promptTokens": 1000, "contextWindowTokens": 10000},
+            }),
+            serde_json::json!({"role": "tool", "tool_call_id": "a"}),
+            serde_json::json!({
+                "role": "assistant",
+                "tool_calls": [],
+                "usage": {"promptTokens": 2500, "contextWindowTokens": 10000},
+            }),
+        ]);
+        let mut meta = Some(serde_json::json!({"dispatchElapsedMs": 12}));
+        merge_last_tool_call_usage_into_provider_meta(&mut meta, &tool_call);
+        let merged = meta.expect("meta present");
+        assert_eq!(merged["providerPromptTokens"].as_u64(), Some(2500), "取最后一个带用量的事件");
+        assert_eq!(merged["effectivePromptTokens"].as_u64(), Some(2500));
+        assert_eq!(
+            merged["effectivePromptSource"].as_str(),
+            Some("provider_tool_round")
+        );
+        assert_eq!(merged["contextUsagePercent"].as_u64(), Some(25));
+        assert_eq!(merged["contextWindowTokens"].as_u64(), Some(10000));
+
+        // 已有真实用量（最终 call 写入）时不覆盖
+        let mut meta = Some(serde_json::json!({"providerPromptTokens": 999}));
+        merge_last_tool_call_usage_into_provider_meta(&mut meta, &tool_call);
+        assert_eq!(
+            meta.unwrap()["providerPromptTokens"].as_u64(),
+            Some(999),
+            "不覆盖已有真实用量"
+        );
+
+        // 旧数据/外部补丁写入 0 或 null 时不算有效用量，仍应从工具事件恢复
+        for stale_meta in [
+            serde_json::json!({"providerPromptTokens": 0}),
+            serde_json::json!({"providerPromptTokens": null}),
+            serde_json::json!({"providerPromptTokens": "not-a-number"}),
+        ] {
+            let mut meta = Some(stale_meta);
+            merge_last_tool_call_usage_into_provider_meta(&mut meta, &tool_call);
+            let merged = meta.expect("meta present");
+            assert_eq!(
+                merged["providerPromptTokens"].as_u64(),
+                Some(2500),
+                "0/null/非数字视为无有效用量，从工具事件恢复"
+            );
+            assert_eq!(
+                merged["effectivePromptSource"].as_str(),
+                Some("provider_tool_round")
+            );
+        }
+    }
+
+    #[test]
     fn conversation_service_v2_should_bootstrap_then_append_tool_and_final_text() {
         let state = test_chat_runtime_state();
         let now = now_iso();
@@ -5983,7 +6124,6 @@
                     assistant_message_id: "assistant-bootstrap".to_string(),
                     assistant_tool_event,
                     tool_result_event,
-                    provider_meta_patch: None,
                 },
             )
             .expect("tool append after bootstrap should succeed");
@@ -6434,7 +6574,6 @@
                     assistant_message_id: "assistant-empty-final".to_string(),
                     assistant_tool_event,
                     tool_result_event,
-                    provider_meta_patch: None,
                 },
             )
             .expect_err("empty final commit should close further tool append");

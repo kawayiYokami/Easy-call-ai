@@ -296,10 +296,9 @@ fn persist_completed_tool_group_result(
         has_backup_record_id,
         backup_record_id.as_deref().unwrap_or("(none)")
     ));
-    let provider_meta_patch =
-        tool_result_provider_meta_patch(trusted_input_tokens, selected_api.context_window_tokens);
-
     // 只认当前调度上下文中的 assistant_message_id，禁止回读会话级缓存或补生成。
+    // 注意：这里刻意不改 provider_meta——token 用量已在 core_send_inner 的 final text
+    // 落盘时统一写入，工具追加时改 meta 会让 D14 组内追加全部回退整块重写。
     let assistant_message_id = context
         .assistant_message_id
         .as_deref()
@@ -320,7 +319,6 @@ fn persist_completed_tool_group_result(
                 assistant_message_id: assistant_message_id.clone(),
                 assistant_tool_event: assistant_tool_call_event.clone(),
                 tool_result_event: tool_result_event.clone(),
-                provider_meta_patch,
             },
         )
         .map(|result| (result.assistant_message_id, result.tool_event_count));
@@ -393,24 +391,4 @@ async fn await_pending_tool_group_result_persists(
             .map_err(|err| format!("工具结果落盘失败：{err}"))?;
     }
     Ok(())
-}
-
-fn tool_result_provider_meta_patch(
-    trusted_input_tokens: Option<u64>,
-    context_window_tokens: u32,
-) -> Option<Value> {
-    let effective_prompt_tokens = trusted_input_tokens.filter(|value| *value > 0)?;
-    let context_window = f64::from(context_window_tokens.max(1));
-    let context_usage_ratio = effective_prompt_tokens as f64 / context_window;
-    let context_usage_percent = context_usage_ratio
-        .mul_add(100.0, 0.0)
-        .round()
-        .clamp(0.0, 100.0) as u32;
-    Some(serde_json::json!({
-        "providerPromptTokens": effective_prompt_tokens,
-        "effectivePromptTokens": effective_prompt_tokens,
-        "effectivePromptSource": "provider_tool_round",
-        "contextUsageRatio": context_usage_ratio,
-        "contextUsagePercent": context_usage_percent
-    }))
 }

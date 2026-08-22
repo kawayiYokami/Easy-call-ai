@@ -25,6 +25,8 @@ fn assistant_tool_group_history_event_value(
     turn_text: &str,
     tool_calls: &[genai::chat::ToolCall],
     turn_reasoning: &str,
+    trusted_input_tokens: Option<u64>,
+    context_window_tokens: u32,
 ) -> Value {
     let tool_call_values = tool_loop_round_tool_calls_json(tool_calls);
     let content = turn_text
@@ -43,6 +45,18 @@ fn assistant_tool_group_history_event_value(
             object.insert(
                 "reasoning_content".to_string(),
                 Value::String(reasoning.to_string()),
+            );
+        }
+        // 本轮 LLM 响应的真实用量随工具调用事件落盘（与 metadata 先例同层），
+        // 聚合侧直接取事件用量，不再另行在 provider_meta 补写。
+        // context_window 归一化到 >=1，与 meta 写入口径一致，避免聚合侧把 0 当 1 造成不一致。
+        if let Some(prompt_tokens) = trusted_input_tokens.filter(|value| *value > 0) {
+            object.insert(
+                "usage".to_string(),
+                serde_json::json!({
+                    "promptTokens": prompt_tokens,
+                    "contextWindowTokens": context_window_tokens.max(1),
+                }),
             );
         }
     }

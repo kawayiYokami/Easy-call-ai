@@ -147,6 +147,33 @@ fn prompt_usage_resolution_from_provider_meta(
     })
 }
 
+/// 从最新一组消息的工具事件倒序取最后一个带真实用量的调用事件。
+/// 与 meta 同口径：只有来源是 API 的调用事件才带 usage，非 API 事件（工具结果等）不写。
+fn prompt_usage_resolution_from_tool_events(
+    tool_call: &Option<Vec<Value>>,
+    selected_api: &ApiConfig,
+) -> Option<PromptUsageResolution> {
+    let (prompt_tokens, event_window) = tool_call.as_deref()?.iter().rev().find_map(|event| {
+        let usage = event.get("usage")?;
+        let prompt_tokens = usage
+            .get("promptTokens")
+            .and_then(Value::as_u64)
+            .filter(|value| *value > 0)?;
+        let event_window = usage
+            .get("contextWindowTokens")
+            .and_then(Value::as_u64)
+            .filter(|value| *value > 0)
+            .unwrap_or(u64::from(selected_api.context_window_tokens.max(1)));
+        Some((prompt_tokens, event_window))
+    })?;
+    Some(PromptUsageResolution {
+        effective_prompt_tokens: prompt_tokens,
+        usage_ratio: prompt_tokens as f64 / (event_window as f64).max(1.0),
+        estimated_prompt_tokens: None,
+        source: "assistant_tool_event_prompt_tokens",
+    })
+}
+
 fn abstract_message_projection_cache(
 ) -> &'static Mutex<std::collections::HashMap<String, AbstractMessageProjectionCacheEntry>> {
     static CACHE: OnceLock<
@@ -419,14 +446,15 @@ impl ConversationPromptService {
             if message.role.trim() != "assistant" {
                 continue;
             }
-            let Some(provider_meta) = message.provider_meta.as_ref() else {
-                continue;
-            };
-            if let Some(usage) =
-                prompt_usage_resolution_from_provider_meta(provider_meta, selected_api)
-            {
-                return Some(usage);
-            }
+            // 只取最新一组消息：meta 优先，其次工具事件倒序取最后有效；
+            // 组内没有真实用量 → None，不往前翻更早的消息（缺值时走本地估算）。
+            let from_meta = message
+                .provider_meta
+                .as_ref()
+                .and_then(|meta| prompt_usage_resolution_from_provider_meta(meta, selected_api));
+            let from_events =
+                prompt_usage_resolution_from_tool_events(&message.tool_call, selected_api);
+            return from_meta.or(from_events);
         }
         None
     }
