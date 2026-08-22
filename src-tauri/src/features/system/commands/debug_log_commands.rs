@@ -340,6 +340,75 @@ fn install_backend_file_panic_hook() {
     }));
 }
 
+fn is_ascii_hex_digit(byte: u8) -> bool {
+    byte.is_ascii_hexdigit()
+}
+
+/// 把日志消息里的标准 UUID（8-4-4-4-12）截断为前 8 位短 id，降低日志噪音。
+/// 非 UUID 文本原样保留；只匹配完整 36 字符 UUID 形态，避免误伤
+/// `department-xxx`、`persona-xxx`、`api-provider-xxx::api-model-xxx` 等带前缀 id。
+fn shorten_uuids_in_log(message: &str) -> String {
+    let bytes = message.as_bytes();
+    let mut out = String::with_capacity(message.len());
+    let mut i = 0;
+    while i < bytes.len() {
+        if let Some(36) = uuid_full_len_at(bytes, i) {
+            out.push_str(&message[i..i + 8]);
+            i += 36;
+        } else {
+            let ch_len = utf8_char_len(bytes[i]);
+            out.push_str(&message[i..i + ch_len]);
+            i += ch_len;
+        }
+    }
+    out
+}
+
+/// 从 start 开始是否是一个完整 UUID（8-4-4-4-12，36 字符）。
+/// 前置字符为字母数字或连字符时视为长 id 的一部分，不匹配。
+fn uuid_full_len_at(bytes: &[u8], start: usize) -> Option<usize> {
+    if start + 36 > bytes.len() {
+        return None;
+    }
+    if start > 0 {
+        let prev = bytes[start - 1];
+        if prev.is_ascii_alphanumeric() || prev == b'-' {
+            return None;
+        }
+    }
+    let segments = [8usize, 4, 4, 4, 12];
+    let mut pos = start;
+    for (index, segment) in segments.iter().enumerate() {
+        for _ in 0..*segment {
+            if !is_ascii_hex_digit(bytes[pos]) {
+                return None;
+            }
+            pos += 1;
+        }
+        if index < segments.len() - 1 {
+            if bytes[pos] != b'-' {
+                return None;
+            }
+            pos += 1;
+        }
+    }
+    Some(36)
+}
+
+fn utf8_char_len(first: u8) -> usize {
+    if first < 0x80 {
+        1
+    } else if first >> 5 == 0b110 {
+        2
+    } else if first >> 4 == 0b1110 {
+        3
+    } else if first >> 3 == 0b11110 {
+        4
+    } else {
+        1
+    }
+}
+
 fn normalize_runtime_log(level: &str, message: String) -> (String, String) {
     let mut current_level = level.to_string();
     let mut text = message.trim().to_string();
@@ -369,6 +438,7 @@ fn normalize_runtime_log(level: &str, message: String) -> (String, String) {
 }
 
 fn runtime_log_push(level: &str, message: String) {
+    let message = shorten_uuids_in_log(&message);
     let _ = std::io::Write::write_all(&mut std::io::stderr(), format!("{message}\n").as_bytes());
     let (normalized_level, normalized_message) = normalize_runtime_log(level, message);
     append_backend_log_line(&normalized_level, &normalized_message);
@@ -1856,4 +1926,37 @@ fn dump_memory_cache_stats_inner(state: &AppState) -> Result<MemoryCacheStats, S
         top_delegate_runtime_threads,
         notes,
     })
+}
+
+#[cfg(test)]
+mod debug_log_tests {
+    use super::*;
+
+    #[test]
+    fn shorten_uuids_in_log_keeps_only_first_8_chars() {
+        let message = "conversation_id=8fdd1d0e-4423-4fd5-8a23-61f22364d606，message_id=01234567-89ab-cdef-0123-456789abcdef";
+        let shortened = shorten_uuids_in_log(message);
+        assert_eq!(shortened, "conversation_id=8fdd1d0e，message_id=01234567");
+    }
+
+    #[test]
+    fn shorten_uuids_in_log_keeps_non_uuid_ids_untouched() {
+        let message = "department_id=department-1776001910939，agent_id=persona-1781792413924，api=api-provider-1784421152299::api-model-1786365798704";
+        let shortened = shorten_uuids_in_log(message);
+        assert_eq!(shortened, message);
+    }
+
+    #[test]
+    fn shorten_uuids_in_log_keeps_plain_text_and_cjk() {
+        let message = "开始，任务=新建未归档会话，耗时=24ms";
+        assert_eq!(shorten_uuids_in_log(message), message);
+    }
+
+    #[test]
+    fn shorten_uuids_in_log_keeps_uuid_without_separator_context() {
+        // 连字符前是字母数字（如长 id 尾部）不应误截
+        let message = "abc8fdd1d0e-4423-4fd5-8a23-61f22364d606";
+        let shortened = shorten_uuids_in_log(message);
+        assert_eq!(shortened, message);
+    }
 }

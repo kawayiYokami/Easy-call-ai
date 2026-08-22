@@ -2373,12 +2373,12 @@ fn list_conversation_delegate_statuses_inner(
     if root_conversation_id.is_empty() {
         return Err("conversationId 不能为空".to_string());
     }
-    runtime_log_info(format!(
+    runtime_log_debug(format!(
         "[委托状态] 开始，任务=list_conversation_delegate_statuses，stage=active_threads，root_conversation_id={}",
         root_conversation_id
     ));
     let active_threads = delegate_runtime_thread_list(state)?;
-    runtime_log_info(format!(
+    runtime_log_debug(format!(
         "[委托状态] 完成，任务=list_conversation_delegate_statuses，stage=active_threads，root_conversation_id={}，thread_count={}",
         root_conversation_id,
         active_threads.len()
@@ -2402,7 +2402,7 @@ fn list_conversation_delegate_statuses_inner(
             true,
         )?);
     }
-    runtime_log_info(format!(
+    runtime_log_debug(format!(
         "[委托状态] 开始，任务=list_conversation_delegate_statuses，stage=recent_threads，root_conversation_id={}",
         root_conversation_id
     ));
@@ -2419,12 +2419,12 @@ fn list_conversation_delegate_statuses_inner(
             active_ids.contains(&thread.delegate_id),
         )?);
     }
-    runtime_log_info(format!(
+    runtime_log_debug(format!(
         "[委托状态] 完成，任务=list_conversation_delegate_statuses，stage=recent_threads，root_conversation_id={}，summary_count={}",
         root_conversation_id,
         summaries.len()
     ));
-    runtime_log_info(format!(
+    runtime_log_debug(format!(
         "[委托状态] 开始，任务=list_conversation_delegate_statuses，stage=persisted_snapshots，root_conversation_id={}",
         root_conversation_id
     ));
@@ -2437,7 +2437,7 @@ fn list_conversation_delegate_statuses_inner(
             &snapshot,
         )?);
     }
-    runtime_log_info(format!(
+    runtime_log_debug(format!(
         "[委托状态] 完成，任务=list_conversation_delegate_statuses，stage=persisted_snapshots，root_conversation_id={}，summary_count={}",
         root_conversation_id,
         summaries.len()
@@ -2447,7 +2447,7 @@ fn list_conversation_delegate_statuses_inner(
             .cmp(&a.updated_at)
             .then_with(|| b.started_at.cmp(&a.started_at))
     });
-    runtime_log_info(format!(
+    runtime_log_debug(format!(
         "[委托状态] 完成，任务=list_conversation_delegate_statuses，stage=return，root_conversation_id={}，summary_count={}",
         root_conversation_id,
         summaries.len()
