@@ -648,10 +648,16 @@ pub(super) fn chat_store_append_line_to_group(
         // 工具减少：形态变化，回退整块重建
         return chat_store_replace_message(paths, meta, updated_message);
     }
-    let provider_meta_changed = previous_message.provider_meta != updated_message.provider_meta;
+    // 正文字段（含 provider_meta patch）任何变化都意味着正文行需要重写；
+    // 工具增量分支只允许「纯工具行追加」，正文变化一律回退 replace。
+    let body_content_changed = previous_message.parts != updated_message.parts
+        || previous_message.extra_text_blocks != updated_message.extra_text_blocks
+        || previous_message.provider_meta != updated_message.provider_meta
+        || previous_message.meme_annotations != updated_message.meme_annotations
+        || previous_message.mcp_call != updated_message.mcp_call;
     if tool_diff > 0 {
-        // 工具事件增量：只允许纯工具行追加；provider_meta 变化（带 patch）回退 replace
-        if provider_meta_changed {
+        // 工具事件增量：只允许纯工具行追加；任何正文字段变化都回退 replace
+        if body_content_changed {
             return chat_store_replace_message(paths, meta, updated_message);
         }
         // previous 无工具行：目标组是单行 message 组（或纯正文组），物理追加工具行会
@@ -680,12 +686,7 @@ pub(super) fn chat_store_append_line_to_group(
     }
 
     // 工具行数不变：正文累积（final text / meme / provider_meta 回填）
-    let body_changed = previous_message.parts != updated_message.parts
-        || previous_message.extra_text_blocks != updated_message.extra_text_blocks
-        || previous_message.provider_meta != updated_message.provider_meta
-        || previous_message.meme_annotations != updated_message.meme_annotations
-        || previous_message.mcp_call != updated_message.mcp_call;
-    if !body_changed {
+    if !body_content_changed {
         return Err(format!(
             "组内追加子行失败：前后消息无差异，message_id={}",
             updated_message.id.trim()
