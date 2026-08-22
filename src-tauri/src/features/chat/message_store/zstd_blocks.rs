@@ -76,13 +76,12 @@ pub(super) fn zstd_validate_tail_for_append(
         ));
     };
     let frames_end = (last_offset + last_len) as usize;
-    if frames_end < data.len() {
-        // torn 帧 / 垃圾尾：截断到最后一个完整帧末尾
-        return Ok(frames_end);
-    }
+    // torn 帧 / 垃圾尾：先把有效区间限制到最后一个完整帧末尾，
+    // 再对完整帧区间做明文对账，避免「孤儿完整帧 + 半截 torn 帧」并存时留下孤儿
+    let structural_keep = frames_end;
     // 所有帧结构完整；对账明文长度（逐帧 content size 累计，不解压）
     let mut plain_len = 0usize;
-    let mut truncate_at = data.len();
+    let mut truncate_at = structural_keep;
     let mut reached_expected = false;
     for (offset, len) in &frames {
         let frame = &data[*offset as usize..(*offset + *len) as usize];
@@ -101,7 +100,7 @@ pub(super) fn zstd_validate_tail_for_append(
         }
     }
     if plain_len == expected_plain_len {
-        Ok(data.len())
+        Ok(structural_keep)
     } else if plain_len > expected_plain_len {
         Ok(truncate_at)
     } else {
