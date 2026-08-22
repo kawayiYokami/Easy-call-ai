@@ -1518,6 +1518,7 @@ const TAURI_COMMAND_ALIASES: Record<string, string> = {
   "messageStore.migration.check": "check_message_store_migration",
   "messageStore.migration.run": "run_message_store_migration",
   "messageStore.migration.status": "get_message_store_migration_runtime_status",
+  "messageStore.migration.confirm": "confirm_message_store_migration_summary",
   "configMigration.export": "export_config_migration_package",
   "configMigration.preview": "preview_import_config_migration_package",
   "configMigration.apply": "apply_import_config_migration_package",

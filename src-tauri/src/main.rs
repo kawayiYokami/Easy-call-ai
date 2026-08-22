@@ -1223,6 +1223,7 @@ fn main() {
             check_message_store_migration,
             run_message_store_migration,
             get_message_store_migration_runtime_status,
+            confirm_message_store_migration_summary,
             get_storage_usage_overview,
             refresh_storage_usage_overview,
             get_usage_overview,

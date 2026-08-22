@@ -121,6 +121,16 @@ fn get_message_store_migration_runtime_status() -> MessageStoreMigrationRuntimeS
     message_store_migration_runtime_snapshot()
 }
 
+/// 用户确认迁移完成看板后，把运行时状态恢复为 idle，
+/// 避免每次前端刷新轮询都再次弹出 completed 确认面板。
+#[tauri::command]
+fn confirm_message_store_migration_summary() -> MessageStoreMigrationRuntimeStatus {
+    message_store_migration_runtime_update(|status| {
+        *status = MessageStoreMigrationRuntimeStatus::default();
+    });
+    message_store_migration_runtime_snapshot()
+}
+
 fn message_store_migration_lock() -> &'static std::sync::Mutex<()> {
     static LOCK: std::sync::OnceLock<std::sync::Mutex<()>> = std::sync::OnceLock::new();
     LOCK.get_or_init(|| std::sync::Mutex::new(()))

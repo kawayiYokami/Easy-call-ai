@@ -133,8 +133,14 @@ export function useMessageStoreMigrationGate(bindings: MessageStoreMigrationGate
     }
   }
 
-  function confirmMessageStoreMigrationSummary() {
+  async function confirmMessageStoreMigrationSummary() {
     if (messageStoreMigration.mode !== "completed") return;
+    try {
+      // 后端恢复 idle，避免下次刷新窗口轮询再次弹出 completed 确认面板
+      await invokeTauri("messageStore.migration.confirm", {});
+    } catch {
+      // 确认失败不阻塞本地关闭；下次轮询仍会看到 completed 时再次提示
+    }
     messageStoreMigration.visible = false;
     pollingActive = false;
   }
