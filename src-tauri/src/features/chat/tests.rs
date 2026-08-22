@@ -6257,16 +6257,10 @@
             Some("tool")
         );
         assert!(stored_before_final.extra_text_blocks.is_empty());
-        match &stored_before_final.parts[0] {
-            MessagePart::Text {
-                text,
-                reasoning_content,
-            } => {
-                assert!(text.is_empty());
-                assert_eq!(reasoning_content.as_deref(), None);
-            }
-            _ => panic!("expected text part"),
-        }
+        assert!(
+            stored_before_final.parts.is_empty(),
+            "开放组（未提交 final text）落盘为纯工具行组，读回是未闭合组语义：无正文 part"
+        );
 
         let final_append = conversation_service_v2()
             .append_final_text_to_assistant_message(

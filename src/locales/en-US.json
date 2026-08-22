@@ -1440,11 +1440,12 @@
     "simpleSetupModeAdvanced": "Advanced",
     "simpleSetupModeSwitchToAdvanced": "Switch to Advanced",
     "simpleSetupModeSwitchToSimple": "Switch to Simple",
-    "messageStoreMigration": {
+        "messageStoreMigration": {
       "title": "Message Store Migration",
-      "cancelStart": "Cancel Startup",
-      "discardAndContinue": "Discard Abnormal Conversations and Continue Migration",
-      "unknownError": "Unknown Error"
+      "confirm": "Confirm",
+      "retry": "Retry",
+      "migratedCount": "Migrated conversations",
+      "discardedCount": "Discarded conversations"
     }
   },
   "responseStyle": {

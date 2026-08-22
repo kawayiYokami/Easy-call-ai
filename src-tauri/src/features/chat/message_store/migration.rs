@@ -658,10 +658,22 @@ fn migration_collect_v2_conversation_paths(
 
 /// 独立的 V2→V3 批量迁移入口。
 /// 单会话转换错误只记录并跳过；只有 SQLite/根目录等系统级错误由底层返回 Err。
-pub(super) fn migration_v2_to_v3(data_path: &PathBuf) -> Result<(), String> {
+/// progress 为可选逐会话进度回调：参数依次为（当前序号（从 1 起）、总数、会话 ID、会话标题、阶段名），
+/// 在准备处理每个会话前调用一次。
+pub(super) fn migration_v2_to_v3(
+    data_path: &PathBuf,
+    progress: Option<&dyn Fn(usize, usize, &str, &str, &str)>,
+) -> Result<(), String> {
     let paths = migration_collect_v2_conversation_paths(data_path)?;
+    let total = paths.len();
     let mut skipped_count = 0usize;
-    for paths in &paths {
+    for (index, paths) in paths.iter().enumerate() {
+        if let Some(callback) = progress {
+            let title = migration_read_v2_meta(paths)
+                .map(|meta| meta.title().to_string())
+                .unwrap_or_default();
+            callback(index + 1, total, &paths.conversation_id, &title, "v2_to_v3");
+        }
         let migration_key = format!(
             "{}:conversation:{}",
             MIGRATION_V3_COMPLETED_KEY, paths.conversation_id
@@ -1031,8 +1043,8 @@ mod message_store_tests {
             })
             .collect::<Vec<_>>();
 
-        migration_v2_to_v3(&data_path).expect("first v2 to v3 migration");
-        migration_v2_to_v3(&data_path).expect("second v2 to v3 migration");
+        migration_v2_to_v3(&data_path, None).expect("first v2 to v3 migration");
+        migration_v2_to_v3(&data_path, None).expect("second v2 to v3 migration");
 
         for (path, content_before, modified_before) in source_snapshots {
             assert_eq!(
@@ -1082,7 +1094,7 @@ mod message_store_tests {
         current.title = "V3 当前标题".to_string();
         chat_store_write_snapshot(&paths, &current).expect("seed existing V3 current");
 
-        migration_v2_to_v3(&data_path).expect("run migration with existing V3 current");
+        migration_v2_to_v3(&data_path, None).expect("run migration with existing V3 current");
 
         let stored = chat_metadata_store_read_conversation(&paths)
             .expect("read current conversation")
@@ -1114,7 +1126,7 @@ mod message_store_tests {
         migration_v1_to_v2_conversation(&bad_paths, &bad, false).expect("seed bad v2");
         fs::write(&bad_paths.index_file, "{broken index").expect("corrupt bad index");
 
-        migration_v2_to_v3(&data_path).expect("migrate with bad conversation");
+        migration_v2_to_v3(&data_path, None).expect("migrate with bad conversation");
 
         assert!(chat_metadata_store_contains_conversation(&data_path, &good.id)
             .expect("good contains"));
@@ -1126,7 +1138,7 @@ mod message_store_tests {
 
         migration_v1_to_v2_conversation(&bad_paths, &bad, false)
             .expect("repair bad V2 source");
-        migration_v2_to_v3(&data_path).expect("explicitly retry repaired V2 source");
+        migration_v2_to_v3(&data_path, None).expect("explicitly retry repaired V2 source");
         assert!(chat_metadata_store_contains_conversation(&data_path, &bad.id)
             .expect("repaired conversation contains"));
         assert!(migration_v3_is_completed(&data_path, MIGRATION_V3_COMPLETED_KEY)
@@ -1148,7 +1160,7 @@ mod message_store_tests {
         write_message_store_manifest_atomic(&paths.manifest_file, &building)
             .expect("downgrade manifest to building");
 
-        migration_v2_to_v3(&data_path).expect("migrate complete building source");
+        migration_v2_to_v3(&data_path, None).expect("migrate complete building source");
 
         assert!(chat_metadata_store_contains_conversation(&data_path, &conversation.id)
             .expect("V3 contains migrated building source"));
@@ -1170,7 +1182,7 @@ mod message_store_tests {
         fs::remove_file(&paths.index_file).expect("remove index fixture");
         fs::create_dir(&paths.index_file).expect("replace index with unreadable directory");
 
-        let err = migration_v2_to_v3(&data_path)
+        let err = migration_v2_to_v3(&data_path, None)
             .expect_err("system-level V2 read failure should stop migration");
 
         assert!(err.contains("迁移读取 V2 index 失败"));

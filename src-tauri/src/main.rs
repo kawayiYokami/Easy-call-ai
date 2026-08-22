@@ -1167,6 +1167,19 @@ fn main() {
                     let _ = window.set_focus();
                 }
             }
+            // 消息存储迁移：版本不足时先标记等待（前端轮询可见），再后台自动开跑
+            let migration_state = app_handle.state::<AppState>().inner().clone();
+            match prepare_message_store_migration_runtime(&migration_state) {
+                Ok(true) => {
+                    runtime_log_info(format!("[启动] 检测到消息存储待迁移，后台自动开始"));
+                    spawn_message_store_migration_task(migration_state);
+                }
+                Ok(false) => {}
+                Err(err) => {
+                    runtime_log_error(format!("[启动] 消息存储迁移版本预判失败：{err}"));
+                    message_store_migration_runtime_mark_failed(err);
+                }
+            }
             app_handle
                 .state::<AppState>()
                 .backend_ready
@@ -1209,6 +1222,7 @@ fn main() {
             generate_image,
             check_message_store_migration,
             run_message_store_migration,
+            get_message_store_migration_runtime_status,
             get_storage_usage_overview,
             refresh_storage_usage_overview,
             get_usage_overview,

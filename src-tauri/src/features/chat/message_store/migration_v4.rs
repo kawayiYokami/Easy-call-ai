@@ -21,14 +21,56 @@ fn migration_v4_collect_conversation_ids(data_path: &PathBuf) -> Result<Vec<Stri
         .map_err(|err| format!("V4 迁移解析会话列表失败: {err}"))
 }
 
+/// 读取 V3 全部会话标题（conversation_metadata.metadata_json.title），用于进度回调展示。
+fn migration_v4_collect_conversation_titles(
+    data_path: &PathBuf,
+) -> Result<std::collections::HashMap<String, String>, String> {
+    let conn = migration_open_v3_database(data_path)?;
+    let mut statement = conn
+        .prepare("SELECT conversation_id, metadata_json FROM conversation_metadata")
+        .map_err(|err| format!("V4 迁移准备读取会话标题失败: {err}"))?;
+    let rows = statement
+        .query_map([], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+        })
+        .map_err(|err| format!("V4 迁移读取会话标题失败: {err}"))?;
+    let mut titles = std::collections::HashMap::<String, String>::new();
+    for row in rows {
+        let (conversation_id, metadata_json) =
+            row.map_err(|err| format!("V4 迁移解析会话标题失败: {err}"))?;
+        let title = serde_json::from_str::<serde_json::Value>(&metadata_json)
+            .ok()
+            .and_then(|value| {
+                value
+                    .get("title")
+                    .and_then(|title| title.as_str())
+                    .map(str::to_string)
+            })
+            .unwrap_or_default();
+        titles.insert(conversation_id, title);
+    }
+    Ok(titles)
+}
+
 /// V3→V4 整体入口：逐会话迁移，单会话失败记录并跳过，系统级错误返回 Err。
-pub(super) fn migration_v3_to_v4(data_path: &PathBuf) -> Result<(), String> {
+/// progress 为可选逐会话进度回调：参数依次为（当前序号（从 1 起）、总数、会话 ID、会话标题、阶段名），
+/// 在准备处理每个会话前调用一次。
+pub(super) fn migration_v3_to_v4(
+    data_path: &PathBuf,
+    progress: Option<&dyn Fn(usize, usize, &str, &str, &str)>,
+) -> Result<(), String> {
     if migration_v3_is_completed(data_path, MIGRATION_V4_COMPLETED_KEY)? {
         return Ok(());
     }
     let conversation_ids = migration_v4_collect_conversation_ids(data_path)?;
+    let titles = migration_v4_collect_conversation_titles(data_path)?;
+    let total = conversation_ids.len();
     let mut skipped_count = 0usize;
-    for conversation_id in conversation_ids {
+    for (index, conversation_id) in conversation_ids.iter().enumerate() {
+        if let Some(callback) = progress {
+            let title = titles.get(conversation_id).map(String::as_str).unwrap_or("");
+            callback(index + 1, total, conversation_id, title, "v3_to_v4");
+        }
         let migration_key = format!(
             "{}:conversation:{}",
             MIGRATION_V4_COMPLETED_KEY, conversation_id
@@ -36,7 +78,7 @@ pub(super) fn migration_v3_to_v4(data_path: &PathBuf) -> Result<(), String> {
         if migration_v3_is_completed(data_path, &migration_key)? {
             continue;
         }
-        match migration_v3_to_v4_conversation(data_path, &conversation_id) {
+        match migration_v3_to_v4_conversation(data_path, conversation_id) {
             Ok(()) => migration_v3_mark_completed(data_path, &migration_key)?,
             Err(err) => {
                 skipped_count += 1;
@@ -430,8 +472,8 @@ mod migration_v4_tests {
             text_message("m3", "assistant", "plain answer"),
         ]);
         migration_v1_to_v2_conversation(&paths, &conversation, false).expect("seed v2");
-        migration_v2_to_v3(&data_path).expect("v2 to v3");
-        migration_v3_to_v4(&data_path).expect("v3 to v4");
+        migration_v2_to_v3(&data_path, None).expect("v2 to v3");
+        migration_v3_to_v4(&data_path, None).expect("v3 to v4");
 
         let stored = read_v4_conversation_messages(&data_path, "conversation-a")
             .expect("read v4 messages");
@@ -468,8 +510,8 @@ mod migration_v4_tests {
             text_message("m2", "user", "follow up"),
         ]);
         migration_v1_to_v2_conversation(&paths, &conversation, false).expect("seed v2");
-        migration_v2_to_v3(&data_path).expect("v2 to v3");
-        migration_v3_to_v4(&data_path).expect("v3 to v4");
+        migration_v2_to_v3(&data_path, None).expect("v2 to v3");
+        migration_v3_to_v4(&data_path, None).expect("v3 to v4");
 
         let conn = migration_open_v3_database(&data_path).expect("open db");
         let locators = migration_v4_read_locators(&conn, "conversation-a").expect("locators");
@@ -494,12 +536,12 @@ mod migration_v4_tests {
         let paths = message_store_paths(&data_path, "conversation-a").expect("paths");
         let conversation = test_conversation(vec![text_message("m1", "user", "hello")]);
         migration_v1_to_v2_conversation(&paths, &conversation, false).expect("seed v2");
-        migration_v2_to_v3(&data_path).expect("v2 to v3");
-        migration_v3_to_v4(&data_path).expect("first v3 to v4");
+        migration_v2_to_v3(&data_path, None).expect("v2 to v3");
+        migration_v3_to_v4(&data_path, None).expect("first v3 to v4");
 
         let block_before =
             fs::read(paths.blocks_dir.join("000000.jsonl.zstd")).expect("v4 block");
-        migration_v3_to_v4(&data_path).expect("second v3 to v4");
+        migration_v3_to_v4(&data_path, None).expect("second v3 to v4");
         let block_after =
             fs::read(paths.blocks_dir.join("000000.jsonl.zstd")).expect("v4 block after");
         assert_eq!(block_before, block_after, "重跑不重写块");

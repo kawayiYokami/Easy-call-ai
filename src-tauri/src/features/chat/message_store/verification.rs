@@ -168,7 +168,6 @@ pub(super) fn parse_jsonl_snapshot_group_blocks_v4(
                 || (kind == GROUP_LINE_KIND_TOOL && line_id != group_id));
         if starts_new_group {
             close_group(&mut group_lines, &mut group_byte_len, group_start_offset, &mut groups)?;
-            group_closed = false;
             group_id.clear();
         }
         if group_lines.is_empty() {

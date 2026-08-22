@@ -122,7 +122,7 @@
         <div class="text-xl font-semibold">会话消息仓库迁移</div>
         <div class="mt-2 text-sm opacity-70">{{ messageStoreMigration.message }}</div>
         <progress
-          v-if="messageStoreMigration.mode === 'migrating'"
+          v-if="messageStoreMigration.mode === 'migrating' || messageStoreMigration.mode === 'waiting'"
           class="progress progress-primary mt-5 w-full"
           :value="messageStoreMigration.current"
           :max="Math.max(messageStoreMigration.total, 1)"
@@ -130,25 +130,14 @@
         <div v-if="messageStoreMigration.mode === 'migrating'" class="mt-2 text-xs opacity-60">
           {{ messageStoreMigration.current }} / {{ messageStoreMigration.total }}
         </div>
-        <div
-          v-if="messageStoreMigration.blockedItems.length > 0"
-          class="mt-5 max-h-64 space-y-2 overflow-auto rounded-box bg-base-200 p-3"
-        >
-          <div
-            v-for="item in messageStoreMigration.blockedItems"
-            :key="item.conversationId"
-            class="rounded-box bg-base-100 p-3 text-sm"
-          >
-            <div class="font-medium">{{ item.title || item.conversationId }}</div>
-            <div class="mt-1 text-xs opacity-60">{{ item.conversationId }}</div>
-            <div class="mt-2 text-error">{{ item.reason || "未知错误" }}</div>
-          </div>
+        <div v-if="messageStoreMigration.mode === 'completed'" class="mt-2 text-xs opacity-60">
+          迁移 {{ messageStoreMigration.migratedCount }} 个会话 · 废弃 {{ messageStoreMigration.discardedCount }} 个
         </div>
-        <div v-if="messageStoreMigration.mode === 'blocked'" class="mt-5 flex justify-end gap-3">
-          <button class="btn btn-ghost" @click="cancelMessageStoreMigration">取消启动</button>
-          <button class="btn btn-error" @click="continueMessageStoreMigrationWithDiscard">
-            抛弃异常会话并继续迁移
-          </button>
+        <div v-if="messageStoreMigration.mode === 'completed'" class="mt-5 flex justify-end">
+          <button class="btn btn-primary" @click="confirmMessageStoreMigrationSummary">确认</button>
+        </div>
+        <div v-if="messageStoreMigration.mode === 'error'" class="mt-5 flex justify-end">
+          <button class="btn btn-primary" @click="retryMessageStoreMigration">重试</button>
         </div>
       </div>
     </div>
@@ -238,8 +227,8 @@ const {
 const {
   messageStoreMigration,
   ensureMessageStoreMigrationGate,
-  cancelMessageStoreMigration,
-  continueMessageStoreMigrationWithDiscard,
+  confirmMessageStoreMigrationSummary,
+  retryMessageStoreMigration,
 } = useMessageStoreMigrationGate({
   formatRequestFailed: (error) => formatI18nError(tr, "status.requestFailed", error),
 });

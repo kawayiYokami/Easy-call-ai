@@ -211,8 +211,8 @@ export function useChatWindowApp() {
   const {
     messageStoreMigration,
     ensureMessageStoreMigrationGate,
-    cancelMessageStoreMigration,
-    continueMessageStoreMigrationWithDiscard,
+    confirmMessageStoreMigrationSummary,
+    retryMessageStoreMigration,
   } = useMessageStoreMigrationGate({
     formatRequestFailed: (error) => formatI18nError(tr, "status.requestFailed", error),
   });
@@ -1063,8 +1063,8 @@ export function useChatWindowApp() {
     handleRegenerateTurn,
     setMemoryDialogRef,
     setPromptPreviewDialogRef,
-    cancelMessageStoreMigration,
-    continueMessageStoreMigrationWithDiscard,
+    confirmMessageStoreMigrationSummary,
+    retryMessageStoreMigration,
     notifySidebarCodeReview,
   };
 }

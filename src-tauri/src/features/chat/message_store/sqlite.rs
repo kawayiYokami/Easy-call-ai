@@ -1883,7 +1883,7 @@ fn remote_wake_splice_should_preserve_trigger_in_new_block_and_slim_old_block() 
     let paths = message_store_paths(&data_path, &conversation.id).expect("paths");
     write_jsonl_snapshot_directory_shard(&paths, &conversation).expect("write fixture");
     chat_metadata_store_run_v3_migration(&data_path).expect("migrate v3");
-    migration_v3_to_v4(&data_path).expect("migrate v4");
+    migration_v3_to_v4(&data_path, None).expect("migrate v4");
     let mut summary = message("wake-summary", "user", "远程唤醒上下文");
     summary.provider_meta = Some(serde_json::json!({
         "message_meta": { "kind": "context_compaction" }
@@ -2178,7 +2178,7 @@ fn chat_metadata_store_import_v2_conversation(paths: &MessageStorePaths) -> Resu
 
 #[cfg(test)]
 pub(super) fn chat_metadata_store_run_v3_migration(data_path: &PathBuf) -> Result<(), String> {
-    migration_v2_to_v3(data_path)
+    migration_v2_to_v3(data_path, None)
 }
 
 fn chat_metadata_store_compaction_segment(
@@ -3118,7 +3118,7 @@ fn v3_chat_metadata_physical_append_should_append_bytes_without_rebuilding() {
     let paths = message_store_paths(&data_path, &conversation.id).expect("paths");
     write_jsonl_snapshot_directory_shard(&paths, &conversation).expect("write v2 fixture");
     chat_metadata_store_run_v3_migration(&data_path).expect("migrate v3");
-    migration_v3_to_v4(&data_path).expect("migrate v4");
+    migration_v3_to_v4(&data_path, None).expect("migrate v4");
 
     let block_path = paths.shard_dir.join(format!("{MESSAGE_STORE_BLOCKS_DIR_NAME}/000000.jsonl.zstd"));
     let before_bytes = fs::read(&block_path).expect("read block before append");
@@ -3190,7 +3190,7 @@ fn v3_chat_metadata_physical_append_should_truncate_orphan_tail_bytes() {
     let paths = message_store_paths(&data_path, &conversation.id).expect("paths");
     write_jsonl_snapshot_directory_shard(&paths, &conversation).expect("write v2 fixture");
     chat_metadata_store_run_v3_migration(&data_path).expect("migrate v3");
-    migration_v3_to_v4(&data_path).expect("migrate v4");
+    migration_v3_to_v4(&data_path, None).expect("migrate v4");
 
     // 模拟上次追加崩溃残留：块文件尾有未登记 locator 的孤儿字节（torn 帧）
     let block_path = paths.shard_dir.join(format!("{MESSAGE_STORE_BLOCKS_DIR_NAME}/000000.jsonl.zstd"));
@@ -3245,7 +3245,7 @@ fn v3_chat_metadata_mutations_should_publish_only_sql_locator_and_blocks() {
     let paths = message_store_paths(&data_path, &conversation.id).expect("paths");
     write_jsonl_snapshot_directory_shard(&paths, &conversation).expect("write v2 fixture");
     chat_metadata_store_run_v3_migration(&data_path).expect("migrate v3");
-    migration_v3_to_v4(&data_path).expect("migrate v4");
+    migration_v3_to_v4(&data_path, None).expect("migrate v4");
 
     active_plan_append_in_progress(
         &data_path,
