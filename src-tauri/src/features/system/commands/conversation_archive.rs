@@ -92,10 +92,10 @@ async fn archive_conversation_inner(
     flush_pending_persists_blocking(state).map_err(|err| {
         log_manual_archive_failure(&source.id, format!("归档状态写入失败：{}", err))
     })?;
-    emit_unarchived_conversation_overview_updated_payload(
-        state,
-        &archive_result.overview_payload,
-    );
+    // 归档语义：注册 watermark 删除（列表不再包含已归档会话），不再全量广播。
+    if !archive_result.already_archived {
+        overview_register_missing_item(&source.id);
+    }
     let active_conversation_id = archive_result.active_conversation_id.clone();
 
     if !archive_result.already_archived {
@@ -196,7 +196,6 @@ pub(crate) async fn batch_archive_conversations_inner(
     };
     let mut accepted = Vec::<BatchArchiveAcceptedConversation>::new();
     let mut skipped = Vec::<BatchArchiveSkippedConversation>::new();
-    let mut latest_overview_payload = None::<UnarchivedConversationOverviewUpdatedPayload>;
     let mut latest_active_conversation_id = None::<String>;
 
     for conversation_id in conversation_ids {
@@ -210,7 +209,6 @@ pub(crate) async fn batch_archive_conversations_inner(
                     Ok(archive_result) => {
                         latest_active_conversation_id =
                             Some(archive_result.active_conversation_id.clone());
-                        latest_overview_payload = Some(archive_result.overview_payload);
                         if !archive_result.already_archived {
                             accepted.push(BatchArchiveAcceptedConversation {
                                 conversation_id: source.id,
@@ -240,8 +238,9 @@ pub(crate) async fn batch_archive_conversations_inner(
         flush_pending_persists_blocking(state)
             .map_err(|err| format!("批量归档状态写入失败：{}", err))?;
     }
-    if let Some(payload) = latest_overview_payload.as_ref() {
-        emit_unarchived_conversation_overview_updated_payload(state, payload);
+    // 批量归档：逐会话注册 watermark 删除语义，不再全量广播列表。
+    for accepted_conversation_id in accepted.iter().map(|item| item.conversation_id.as_str()) {
+        overview_register_missing_item(accepted_conversation_id);
     }
 
     let accepted_conversation_ids = accepted

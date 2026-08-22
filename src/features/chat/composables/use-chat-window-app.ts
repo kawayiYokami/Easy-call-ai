@@ -740,7 +740,8 @@ export function useChatWindowApp() {
       if (parentId) activeSideConversationByParent.set(parentId, conversationId);
       chatUiState.updateChatRightPanelMode("sideChat");
       toolReviewPanelOpenVisible.value = true;
-      await refreshChatUnarchivedConversations().catch((error) => {
+      // 追问创建不重建主列表：父会话单项事件已推送，这里仅差量兜底。
+      await syncUnarchivedConversationOverviewChangedSinceWatermark("side_chat_created").catch((error) => {
         setStatusError("status.requestFailed", error);
       });
     }
@@ -763,7 +764,8 @@ export function useChatWindowApp() {
       });
       const conversationId = String(result?.conversationId || "").trim();
       if (!conversationId) return;
-      await refreshChatUnarchivedConversations().catch((error) => {
+      // 分支创建已由后端单项事件插入，这里仅差量兜底。
+      await syncUnarchivedConversationOverviewChangedSinceWatermark("side_chat_branch_created").catch((error) => {
         setStatusError("status.requestFailed", error);
       });
       selectSideChatConversation(conversationId);
@@ -812,7 +814,8 @@ export function useChatWindowApp() {
           setStatusError("status.requestFailed", error);
         });
       }
-      await refreshChatUnarchivedConversations().catch((error) => {
+      // 删除追问：后端已注册 watermark 删除语义，前端差量同步收敛。
+      await syncUnarchivedConversationOverviewChangedSinceWatermark("side_chat_closed").catch((error) => {
         setStatusError("status.requestFailed", error);
       });
     } finally {

@@ -419,7 +419,7 @@ impl ConversationServiceV2 {
             ));
         }
         let store_paths = message_store::message_store_paths(&state.data_path, conversation_id)?;
-        require_chat_store_conversation(state, conversation_id, &store_paths)?;
+        ensure_chat_store_conversation_readable(state, conversation_id, &store_paths)?;
         let trigger = message_store::chat_store_read_message_by_id(
             &store_paths,
             trigger_message_id,
@@ -540,7 +540,7 @@ impl ConversationServiceV2 {
             return Err("活动对话已变化，请重试上下文整理。".to_string());
         }
         let store_paths = message_store::message_store_paths(&state.data_path, &source.id)?;
-        require_chat_store_conversation(state, &source.id, &store_paths)?;
+        ensure_chat_store_conversation_readable(state, &source.id, &store_paths)?;
         let previous_latest_block_id = message_store::chat_store_read_block_page(
             &store_paths,
             None,
@@ -783,17 +783,10 @@ impl ConversationServiceV2 {
                 } else {
                     None
                 };
-                let app_config = runtime_snapshot.config;
-                let unarchived_conversations =
-                    self.collect_unarchived_conversation_summaries_cached(state, &app_config)?;
-                let overview_payload = UnarchivedConversationOverviewUpdatedPayload {
-                    preferred_conversation_id: Some(active_conversation_id.clone()),
-                    unarchived_conversations,
-                };
+                // 归档不重建全量概览：命令层注册 watermark 删除语义，前端差量同步收敛。
                 Ok((
                     InstantArchiveConversationMutationResult {
                         active_conversation_id,
-                        overview_payload,
                         already_archived,
                     },
                     archive_log,

@@ -54,7 +54,7 @@ impl ConversationServiceV2 {
             self.get_conversation_meta(state, normalized_conversation_id)?;
         let store_paths =
             message_store::message_store_paths(&state.data_path, normalized_conversation_id)?;
-        require_chat_store_conversation(
+        ensure_chat_store_conversation_readable(
             state,
             normalized_conversation_id,
             &store_paths,

@@ -43,7 +43,7 @@ fn resolve_unarchived_conversation_index_with_fallback(
     ))
 }
 
-fn require_chat_store_conversation(
+fn ensure_chat_store_conversation_readable(
     state: &AppState,
     conversation_id: &str,
     store_paths: &message_store::MessageStorePaths,
@@ -52,27 +52,33 @@ fn require_chat_store_conversation(
     if normalized_conversation_id.is_empty() {
         return Err("conversationId is required.".to_string());
     }
+    // 新建会话可能仍在 pending 队列尚未落盘：先同步发布到 V4 存储，保证读侧就绪。
+    publish_pending_new_conversation_if_needed(
+        state,
+        normalized_conversation_id,
+        store_paths,
+    )?;
     let initial_status = message_store::chat_store_read_status(store_paths);
     if matches!(initial_status, Ok(Some(_))) {
         return Ok(());
     }
     if let Err(err) = &initial_status {
         runtime_log_warn(format!(
-            "[消息存储] V3 状态首次读取失败，将在会话锁内重试，conversation_id={}，error={}",
+            "[消息存储] 仓库状态首次读取失败，将在会话锁内重试，conversation_id={}，error={}",
             normalized_conversation_id, err
         ));
     }
     with_conversation_mutation(
         state,
         normalized_conversation_id,
-        "require_chat_store_conversation",
+        "ensure_chat_store_conversation_readable",
         || match message_store::chat_store_read_status(store_paths) {
             Ok(Some(_)) => Ok(()),
-            Ok(None) => Err(format!(
-                "V3 会话消息仓库不存在，禁止在生产运行时从旧数据恢复，conversation_id={normalized_conversation_id}"
-            )),
+            // 会话尚未落盘（persist 排队中或已删除）按空仓库处理：V4 读取接口对
+            // 空仓库返回空数据，读写方各自按“无消息”语义收敛，不再拒绝。
+            Ok(None) => Ok(()),
             Err(err) => Err(format!(
-                "读取 V3 会话消息仓库状态失败，conversation_id={normalized_conversation_id}，error={err}"
+                "读取会话消息仓库状态失败，conversation_id={normalized_conversation_id}，error={err}"
             )),
         },
     )
@@ -108,7 +114,7 @@ fn build_foreground_conversation_snapshot_from_meta_view(
 ) -> Result<ForegroundConversationSnapshotCore, String> {
     let conversation_id = conversation_meta.id.to_string();
     let paths = message_store::message_store_paths(&state.data_path, &conversation_id)?;
-    require_chat_store_conversation(state, &conversation_id, &paths)?;
+    ensure_chat_store_conversation_readable(state, &conversation_id, &paths)?;
     let (messages, has_more_history) = if let Some(page) =
         message_store::chat_store_read_recent_messages_page_cached(&paths, recent_limit)?
     {

@@ -186,8 +186,8 @@ impl ConversationServiceV2 {
                 DEFAULT_FOREGROUND_SNAPSHOT_RECENT_LIMIT,
             )?
         };
-        let unarchived_conversations =
-            self.collect_unarchived_conversation_summaries_cached(state, &app_config)?;
+        // 切换会话不改变任何列表数据：不再全量重建未归档会话概览。
+        let unarchived_conversations = Vec::new();
         let mut materialized_snapshot = snapshot;
         materialize_chat_message_parts_from_media_refs(
             &mut materialized_snapshot.messages,

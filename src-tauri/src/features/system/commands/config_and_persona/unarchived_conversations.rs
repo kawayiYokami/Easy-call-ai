@@ -582,7 +582,7 @@ fn create_side_chat_conversation_blocking(
     }
 
     let store_paths = message_store::message_store_paths(&state.data_path, parent_id)?;
-    require_chat_store_conversation(state, parent_id, &store_paths)?;
+    ensure_chat_store_conversation_readable(state, parent_id, &store_paths)?;
     let latest_block = message_store::chat_store_read_block_page(&store_paths, None)?
         .ok_or_else(|| "父会话消息尚未就绪".to_string())?;
     let copied_messages = latest_block
@@ -1164,12 +1164,15 @@ async fn create_unarchived_conversation_inner(
     state: &AppState,
 ) -> Result<CreateUnarchivedConversationOutput, String> {
     let app_state = state.clone();
-    let (output, overview_payload) = tokio::task::spawn_blocking(move || {
+    let (output, _overview_payload) = tokio::task::spawn_blocking(move || {
         create_unarchived_conversation_blocking(input, &app_state)
     })
     .await
     .map_err(|err| format!("新建未归档会话任务异常：{err}"))??;
-    emit_unarchived_conversation_overview_updated_payload(state, &overview_payload);
+    let _ = emit_unarchived_conversation_overview_item_updated_from_state(
+        state,
+        &output.conversation_id,
+    );
     Ok(output)
 }
 
@@ -1356,10 +1359,14 @@ fn import_conversation_share_from_file(
     let overview_payload = UnarchivedConversationOverviewUpdatedPayload {
         preferred_conversation_id: Some(conversation_id.clone()),
         unarchived_conversations: conversation_service_v2()
-            .list_unarchived_conversation_summaries(state.inner())?
-            .summaries,
+            .read_unarchived_conversation_summary(state.inner(), &conversation_id)?
+            .map(|conversation| vec![conversation])
+            .unwrap_or_default(),
     };
-    emit_unarchived_conversation_overview_updated_payload(state.inner(), &overview_payload);
+    let _ = emit_unarchived_conversation_overview_item_updated_from_state(
+        state.inner(),
+        &conversation_id,
+    );
     runtime_log_info(format!(
         "[会话分享] 完成，任务=导入会话，conversation_id={}，department_id={}，agent_id={}，message_count={}",
         conversation.id,
@@ -1476,7 +1483,10 @@ async fn create_conversation_branch_from_message_internal(
             );
         }
     }
-    emit_unarchived_conversation_overview_updated_payload(state, &create_result.overview_payload);
+    let _ = emit_unarchived_conversation_overview_item_updated_from_state(
+        state,
+        &conversation_id,
+    );
     if conversation_service_v2()
         .update_latest_summary_title_with_source(
             state,
@@ -1532,7 +1542,10 @@ async fn branch_unarchived_conversation_from_selection_internal(
         source_conversation_id,
         &normalized_selected_message_ids,
     )?;
-    emit_unarchived_conversation_overview_updated_payload(state, &result.overview_payload);
+    let _ = emit_unarchived_conversation_overview_item_updated_from_state(
+        state,
+        &result.conversation_id,
+    );
     runtime_log_info(format!(
         "[会话分支] 完成，任务=按已选消息创建会话分支，source_conversation_id={}，conversation_id={}，selected_count={}，has_compaction_seed={}",
         source_conversation_id,
@@ -1590,7 +1603,10 @@ async fn forward_unarchived_conversation_selection_inner(
             &normalized_selected_message_ids,
         )
         .await?;
-    emit_unarchived_conversation_overview_updated_payload(state, &result.overview_payload);
+    let _ = emit_unarchived_conversation_overview_item_updated_from_state(
+        state,
+        &result.target_conversation_id,
+    );
     runtime_log_info(format!(
         "[转发到会话] 完成，任务=转发已选消息到目标会话，source_conversation_id={}，target_conversation_id={}，message_count={}",
         source_conversation_id,
@@ -1649,7 +1665,10 @@ fn forward_selection_to_remote_im_contact_inner(
         remote_contact_id,
         &normalized_selected_message_ids,
     )?;
-    emit_unarchived_conversation_overview_updated_payload(state, &result.overview_payload);
+    let _ = emit_unarchived_conversation_overview_item_updated_from_state(
+        state,
+        &result.target_conversation_id,
+    );
     runtime_log_info(format!(
         "[转发到远程联系人] 完成，任务=转发已选消息到远程联系人会话，source_conversation_id={}，target_conversation_id={}，remote_contact_id={}，message_count={}",
         source_conversation_id,
@@ -2813,19 +2832,20 @@ async fn delete_unarchived_conversation_inner(
     state: &AppState,
 ) -> Result<DeleteUnarchivedConversationOutput, String> {
     let app_state = state.clone();
-    let (output, overview_payload) = tokio::task::spawn_blocking(move || {
+    let output = tokio::task::spawn_blocking(move || {
         delete_unarchived_conversation_blocking(input, &app_state)
     })
     .await
     .map_err(|err| format!("删除未归档会话任务异常：{err}"))??;
-    emit_unarchived_conversation_overview_updated_payload(state, &overview_payload);
+    // 删除语义：注册 watermark 删除，前端差量同步收敛；不再全量广播列表。
+    overview_register_missing_item(&output.deleted_conversation_id);
     Ok(output)
 }
 
 fn delete_unarchived_conversation_blocking(
     input: DeleteUnarchivedConversationInput,
     state: &AppState,
-) -> Result<(DeleteUnarchivedConversationOutput, UnarchivedConversationOverviewUpdatedPayload), String> {
+) -> Result<DeleteUnarchivedConversationOutput, String> {
     let conversation_id = input.conversation_id.trim();
     if conversation_id.is_empty() {
         return Err("conversationId is required.".to_string());
@@ -2890,15 +2910,11 @@ fn delete_unarchived_conversation_blocking(
             ));
         }
     }
-    let overview_payload = result.overview_payload;
-    Ok((
-        DeleteUnarchivedConversationOutput {
-            deleted_conversation_id: result.deleted_conversation_id,
-            active_conversation_id: result.active_conversation_id,
-            unarchived_conversations: overview_payload.unarchived_conversations.clone(),
-        },
-        overview_payload,
-    ))
+    Ok(DeleteUnarchivedConversationOutput {
+        deleted_conversation_id: result.deleted_conversation_id,
+        active_conversation_id: result.active_conversation_id,
+        unarchived_conversations: Vec::new(),
+    })
 }
 
 #[tauri::command]

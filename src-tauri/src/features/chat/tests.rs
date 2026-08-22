@@ -4585,6 +4585,113 @@
     }
 
     #[test]
+    fn changed_since_should_read_changed_ids_directly_and_report_missing_as_deleted() {
+        let state = test_chat_runtime_state();
+        let now = now_iso();
+        let conversation = test_chat_conversation("conversation-changed-since-a", "active", &now);
+        write_conversation_shard(&state.data_path, &conversation).expect("write conversation");
+        state_mark_conversation_direct_persisted(&state, &conversation).expect("mark persisted");
+
+        // 首调：无 since → 全量基线，包含已落盘的会话。
+        let first = list_unarchived_conversations_changed_since_blocking(
+            &state,
+            &ListUnarchivedConversationsChangedSinceInput { since: None },
+        )
+        .expect("first sync");
+        assert!(
+            first
+                .changed
+                .iter()
+                .any(|item| item.conversation_id == conversation.id),
+            "首次差量应返回全量基线并包含已落盘会话"
+        );
+        assert!(first.deleted_ids.is_empty());
+        assert!(!first.server_time.is_empty());
+
+        // 基线之后注册单项 watermark → 差量按 id 直读返回该会话。
+        let changed_at = overview_register_item_watermark(&conversation.id);
+        assert!(!changed_at.is_empty());
+        let second = list_unarchived_conversations_changed_since_blocking(
+            &state,
+            &ListUnarchivedConversationsChangedSinceInput {
+                since: Some(first.server_time.clone()),
+            },
+        )
+        .expect("second sync");
+        assert!(
+            second
+                .changed
+                .iter()
+                .any(|item| item.conversation_id == conversation.id),
+            "差量应包含 watermark 注册过的会话且不再全量枚举"
+        );
+        assert!(
+            second
+                .deleted_ids
+                .iter()
+                .all(|id| id != &conversation.id)
+        );
+
+        // watermark 声称变了但直读不到（未落盘的幽灵 id）→ 追加 deleted_ids 兜底。
+        let ghost_id = "conversation-changed-since-ghost";
+        let _ = overview_register_item_watermark(ghost_id);
+        let third = list_unarchived_conversations_changed_since_blocking(
+            &state,
+            &ListUnarchivedConversationsChangedSinceInput {
+                since: Some(second.server_time.clone()),
+            },
+        )
+        .expect("third sync");
+        assert!(
+            third.deleted_ids.iter().any(|id| id == ghost_id),
+            "直读不到的变更 id 应进入 deleted_ids 兜底"
+        );
+        assert!(
+            !third
+                .changed
+                .iter()
+                .any(|item| item.conversation_id == ghost_id)
+        );
+
+        // 注册删除语义后 → deleted_ids 收敛包含该会话。
+        overview_register_missing_item(&conversation.id);
+        let fourth = list_unarchived_conversations_changed_since_blocking(
+            &state,
+            &ListUnarchivedConversationsChangedSinceInput {
+                since: Some(third.server_time.clone()),
+            },
+        )
+        .expect("fourth sync");
+        assert!(
+            fourth.deleted_ids.iter().any(|id| id == &conversation.id),
+            "注册 missing 后差量应返回 deleted_ids"
+        );
+    }
+
+    #[test]
+    fn foreground_snapshot_should_read_new_conversation_before_persist_worker_lands() {
+        let state = test_chat_runtime_state();
+        let now = now_iso();
+        let mut conversation =
+            test_chat_conversation("conversation-foreground-before-persist", "active", &now);
+        conversation
+            .messages
+            .push(test_text_message("assistant", "新建会话首条消息", &now));
+        conversation.updated_at = now.clone();
+        conversation.last_assistant_at = Some(now.clone());
+        state_schedule_conversation_persist(&state, &conversation).expect("schedule persist");
+
+        let meta = conversation_service_v2()
+            .get_conversation_meta(&state, &conversation.id)
+            .expect("read meta from memory cache");
+        let snapshot = build_foreground_conversation_snapshot_from_meta_view(&state, &meta, 4)
+            .expect("新建会话尚未落盘时快照应可读，而不是报仓库不存在");
+        assert_eq!(snapshot.conversation_id, conversation.id);
+        assert_eq!(snapshot.messages.len(), 1);
+        assert_eq!(snapshot.messages[0].id, conversation.messages[0].id);
+    }
+
+    #[test]
     fn list_unarchived_conversation_summaries_should_fallback_to_recent_message_when_preview_missing() {
         let state = test_chat_runtime_state();
         let now = now_iso();

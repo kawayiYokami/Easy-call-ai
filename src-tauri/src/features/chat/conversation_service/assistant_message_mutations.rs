@@ -407,7 +407,7 @@ impl ConversationServiceV2 {
                 return Err(format!("Unarchived conversation not found: {conversation_id}"));
             }
             let paths = message_store::message_store_paths(&state.data_path, conversation_id)?;
-            require_chat_store_conversation(state, conversation_id, &paths)?;
+            ensure_chat_store_conversation_readable(state, conversation_id, &paths)?;
             let mut ready_meta = message_store::chat_store_read_meta(&paths)?
                 .ok_or_else(|| {
                     format!(

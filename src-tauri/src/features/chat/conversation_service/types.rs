@@ -22,20 +22,17 @@ struct BranchUnarchivedConversationMutationResult {
     title: String,
     selected_count: usize,
     has_compaction_seed: bool,
-    overview_payload: UnarchivedConversationOverviewUpdatedPayload,
 }
 
 struct ForwardUnarchivedConversationMutationResult {
     target_conversation_id: String,
     forwarded_count: usize,
-    overview_payload: UnarchivedConversationOverviewUpdatedPayload,
 }
 
 struct ForwardSelectionToRemoteImContactMutationResult {
     target_conversation_id: String,
     remote_contact_id: String,
     forwarded_count: usize,
-    overview_payload: UnarchivedConversationOverviewUpdatedPayload,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -63,7 +60,6 @@ struct InformSessionMutationResult {
 struct DeleteUnarchivedConversationMutationResult {
     deleted_conversation_id: String,
     active_conversation_id: String,
-    overview_payload: UnarchivedConversationOverviewUpdatedPayload,
 }
 
 struct ToggleUnarchivedConversationPinMutationResult {
@@ -171,6 +167,5 @@ struct ListUnarchivedConversationsMutationResult {
 
 struct InstantArchiveConversationMutationResult {
     active_conversation_id: String,
-    overview_payload: UnarchivedConversationOverviewUpdatedPayload,
     already_archived: bool,
 }

@@ -11,6 +11,8 @@ export function useChatConversationDialogGlue(bindings: Record<string, any>) {
       applyConversationList: (items) => {
         bindings.unarchivedConversations.value = items;
       },
+      readConversationList: () => bindings.unarchivedConversations.value,
+      syncConversationList: () => bindings.syncUnarchivedConversationOverviewChangedSinceWatermark?.("conversation_deleted"),
       conversationIds: () => bindings.unarchivedConversations.value
         .map((item: any) => String(item?.conversationId || "").trim()),
       clearCurrentConversation: bindings.clearForegroundConversation,

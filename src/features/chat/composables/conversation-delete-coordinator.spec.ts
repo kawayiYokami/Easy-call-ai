@@ -44,4 +44,39 @@ describe("coordinateConversationDelete", () => {
     expect(clear).not.toHaveBeenCalled();
     expect(open).not.toHaveBeenCalled();
   });
+
+  it("后端不再返回全量列表时，本地过滤被删项并做差量同步", async () => {
+    const calls: string[] = [];
+    let list = [
+      { conversationId: "conversation-a" },
+      { conversationId: "conversation-b" },
+      { conversationId: "conversation-c" },
+    ];
+    await coordinateConversationDelete({
+      conversationId: "conversation-b",
+      currentConversationId: () => "conversation-a",
+      deleteConversation: async () => {
+        calls.push("delete");
+        return { unarchivedConversations: [] };
+      },
+      applyConversationList: (items) => {
+        calls.push("apply-list");
+        list = items;
+      },
+      readConversationList: () => list,
+      syncConversationList: async () => {
+        calls.push("sync");
+      },
+      conversationIds: () => list.map((item) => item.conversationId),
+      clearCurrentConversation: () => {
+        calls.push("clear");
+      },
+      openConversation: async () => {
+        calls.push("open");
+      },
+    });
+
+    expect(calls).toEqual(["delete", "apply-list", "sync"]);
+    expect(list.map((item) => item.conversationId)).toEqual(["conversation-a", "conversation-c"]);
+  });
 });

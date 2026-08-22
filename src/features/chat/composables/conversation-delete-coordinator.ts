@@ -9,7 +9,9 @@ type CoordinateConversationDeleteOptions<TConversation, TResult extends Conversa
   currentConversationId: () => string;
   deleteConversation: (conversationId: string) => Promise<TResult>;
   applyConversationList?: (items: TConversation[]) => void;
+  readConversationList?: () => TConversation[];
   refreshConversationList?: () => Promise<void>;
+  syncConversationList?: () => Promise<void>;
   conversationIds: () => string[];
   clearCurrentConversation: (reason: string) => void;
   openConversation: (conversationId: string) => Promise<void>;
@@ -30,8 +32,21 @@ export async function coordinateConversationDelete<
   const deletingCurrent = String(options.currentConversationId() || "").trim() === conversationId;
   const result = await options.deleteConversation(conversationId);
 
-  if (Array.isArray(result.unarchivedConversations)) {
+  if (Array.isArray(result.unarchivedConversations) && result.unarchivedConversations.length > 0) {
     options.applyConversationList?.(result.unarchivedConversations);
+  } else if (options.applyConversationList && options.readConversationList) {
+    // 后端删除后不再返回全量列表：本地过滤被删项，再差量同步收敛。
+    options.applyConversationList(
+      options.readConversationList().filter(
+        (item) => String((item as any)?.conversationId || "").trim() !== conversationId,
+      ),
+    );
+    if (options.syncConversationList) {
+      await options.syncConversationList();
+    } else {
+      // 差量接口不可用时回退全量刷新，避免停留在本地过滤后的陈旧状态。
+      await options.refreshConversationList?.();
+    }
   } else {
     await options.refreshConversationList?.();
   }

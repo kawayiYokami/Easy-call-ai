@@ -681,7 +681,7 @@ impl ConversationServiceV2 {
             "update_unarchived_conversation_by_id".to_string(),
             move || {
                 // 工具审查按 call_id 定位，而现有 locator 未索引 tool_call_id；这是该入口必须读取
-                // 全量正文的唯一原因。v3 发布仍限制为变更消息的 block 级替换，禁止回退整会话快照。
+                // 全量正文的唯一原因。当前发布仍限制为变更消息的 block 级替换，禁止回退整会话快照。
                 let mut conversation = service.read_persisted_conversation(
                     &state_for_mutation,
                     &conversation_id_for_mutation,
@@ -704,7 +704,7 @@ impl ConversationServiceV2 {
                         .any(|(updated, original)| updated.id != original.id)
                 {
                     return Err(format!(
-                        "v3 不支持通过 update_unarchived_conversation_by_id 改变消息结构，conversation_id={conversation_id_for_mutation}"
+                        "当前消息存储不支持通过 update_unarchived_conversation_by_id 改变消息结构，conversation_id={conversation_id_for_mutation}"
                     ));
                 }
                 let changed_messages = conversation

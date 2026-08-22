@@ -469,7 +469,9 @@ fn create_unarchived_conversation_shared(
     let overview_payload = UnarchivedConversationOverviewUpdatedPayload {
         preferred_conversation_id: Some(conversation_id.clone()),
         unarchived_conversations: conversation_service_v2()
-            .collect_unarchived_conversation_summaries_cached(state, &app_config)?,
+            .read_unarchived_conversation_summary(state, &conversation_id)?
+            .map(|conversation| vec![conversation])
+            .unwrap_or_default(),
     };
     runtime_log_debug(format!(
         "[会话] 完成，任务=新建未归档会话，阶段=构建概览，conversation_id={}，overview_count={}，duration_ms={}",
@@ -654,7 +656,7 @@ fn read_branch_selection_or_pending_conversation(
     selected_message_ids: &[String],
 ) -> Result<message_store::MessageStoreBranchSelection, String> {
     let store_paths = message_store::message_store_paths(&state.data_path, conversation_id)?;
-    require_chat_store_conversation(state, conversation_id, &store_paths)?;
+    ensure_chat_store_conversation_readable(state, conversation_id, &store_paths)?;
     message_store::chat_store_read_branch_selection(&store_paths, selected_message_ids)?
         .ok_or_else(|| "源会话消息尚未就绪".to_string())
 }
@@ -816,7 +818,7 @@ fn read_conversation_for_backup_cleanup(
 ) -> Result<Conversation, String> {
     let conversation_meta = conversation_service_v2().get_conversation_meta(state, conversation_id)?;
     let store_paths = message_store::message_store_paths(&state.data_path, conversation_id)?;
-    require_chat_store_conversation(state, conversation_id, &store_paths)?;
+    ensure_chat_store_conversation_readable(state, conversation_id, &store_paths)?;
     let messages = message_store::chat_store_read_all_messages(&store_paths)?
         .unwrap_or_default();
     Ok(Conversation {

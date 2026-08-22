@@ -554,7 +554,7 @@ fn read_remote_im_debounce_secretary_messages(
     const HISTORY_READ_LIMIT: usize = 50;
     const RANGE_PAGE_SIZE: usize = 100;
     let paths = message_store::message_store_paths(&state.data_path, conversation_id)?;
-    require_chat_store_conversation(state, conversation_id, &paths)?;
+    ensure_chat_store_conversation_readable(state, conversation_id, &paths)?;
     let start = message_store::chat_store_read_message_by_id(&paths, start_message_id)?
         .ok_or_else(|| format!("防抖起点消息不存在：{start_message_id}"))?;
     let history = message_store::chat_store_read_messages_before(

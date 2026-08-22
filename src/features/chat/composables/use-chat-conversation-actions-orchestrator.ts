@@ -51,8 +51,12 @@ export function useChatConversationActionsOrchestrator(bindings: Record<string, 
         });
       const conversationId = String(result?.conversationId || "").trim();
       if (!conversationId) return "";
-      if (Array.isArray(result.unarchivedConversations)) {
-        bindings.unarchivedConversations.value = result.unarchivedConversations;
+      const createdItem = Array.isArray(result.unarchivedConversations)
+        ? result.unarchivedConversations[0]
+        : null;
+      if (createdItem?.conversationId) {
+        // 后端现在只返回新会话单条，插入式更新列表，不再整表覆盖。
+        bindings.applyConversationOverviewItemUpdated?.({ conversation: createdItem });
       } else {
         await bindings.refreshUnarchivedConversationOverview();
       }
@@ -109,7 +113,10 @@ export function useChatConversationActionsOrchestrator(bindings: Record<string, 
       });
       const conversationId = String(result?.conversationId || "").trim();
       if (!conversationId) return;
-      await bindings.refreshUnarchivedConversationOverview();
+      // 分支创建已由后端单项事件插入，这里仅做差量兜底，不再全量拉取。
+      if (typeof bindings.syncUnarchivedConversationOverviewChangedSinceWatermark === "function") {
+        await bindings.syncUnarchivedConversationOverviewChangedSinceWatermark("branch_from_selection");
+      }
       const warning = String(result?.warning || "").trim();
       await bindings.switchUnarchivedConversation(conversationId);
       if (warning) {
@@ -147,7 +154,10 @@ export function useChatConversationActionsOrchestrator(bindings: Record<string, 
       });
       const conversationId = String(result?.conversationId || "").trim();
       if (!conversationId) return;
-      await bindings.refreshUnarchivedConversationOverview();
+      // 分支创建已由后端单项事件插入，这里仅做差量兜底，不再全量拉取。
+      if (typeof bindings.syncUnarchivedConversationOverviewChangedSinceWatermark === "function") {
+        await bindings.syncUnarchivedConversationOverviewChangedSinceWatermark("branch_from_message");
+      }
       await bindings.switchUnarchivedConversation(conversationId);
       bindings.setStatus(bindings.tr("status.conversationBranchCreated", { title: String(result?.title || "").trim() || conversationId }));
     } catch (error) {

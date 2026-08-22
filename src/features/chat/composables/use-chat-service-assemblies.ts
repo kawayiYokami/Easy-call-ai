@@ -99,6 +99,7 @@ export function useChatServiceAssemblies(bindings: Record<string, any>) {
     suppressNextCompactionReload: bindings.suppressNextCompactionReload,
     allMessages: bindings.allMessages,
     refreshUnarchivedConversations: bindings.refreshChatUnarchivedConversations,
+    syncUnarchivedConversations: bindings.syncUnarchivedConversationOverviewChangedSinceWatermark,
     perfNow: bindings.perfNow,
     perfLog: bindings.perfLog,
     perfDebug: bindings.PERF_DEBUG,

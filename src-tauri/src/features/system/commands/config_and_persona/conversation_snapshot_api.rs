@@ -1089,23 +1089,29 @@ fn list_unarchived_conversations_changed_since_blocking(
     }
 
     let (changed_ids, mut deleted_ids, server_time) = overview_watermark_changes_since(since);
-    let changed_id_set = changed_ids
-        .iter()
-        .map(|id| id.trim().to_string())
-        .filter(|id| !id.is_empty())
-        .collect::<std::collections::HashSet<_>>();
-    let all = list_unarchived_conversations_blocking(state)?;
-    let changed = all
-        .into_iter()
-        .filter(|item| changed_id_set.contains(item.conversation_id.trim()))
-        .collect::<Vec<_>>();
-    let changed_result_ids = changed
-        .iter()
-        .map(|item| item.conversation_id.trim().to_string())
-        .collect::<std::collections::HashSet<_>>();
-    for id in changed_id_set {
-        if !changed_result_ids.contains(&id) && !deleted_ids.iter().any(|deleted_id| deleted_id == &id) {
-            deleted_ids.push(id);
+    // 差量查询不再全量枚举全部会话：按 changed_ids 直读单条 summary（O(k)，k=实际变更数）。
+    // 直读不到说明该会话已消失（可能未走 register_missing_item 的路径），追加进 deleted_ids 兜底。
+    let mut changed = Vec::new();
+    for conversation_id in changed_ids {
+        let conversation_id = conversation_id.trim();
+        if conversation_id.is_empty() {
+            continue;
+        }
+        match conversation_service_v2().read_unarchived_conversation_summary(state, conversation_id) {
+            Ok(Some(summary)) => changed.push(summary),
+            Ok(None) => {
+                if !deleted_ids.iter().any(|deleted_id| deleted_id == conversation_id) {
+                    deleted_ids.push(conversation_id.to_string());
+                }
+            }
+            Err(err) => {
+                // 读取失败不等于删除：保留 watermark 中的该 id，下次差量查询自然重试；
+                // 误判为删除会污染前端列表，把仍存在的会话从客户端移除。
+                runtime_log_warn(format!(
+                    "[会话概览] 跳过，任务=按 id 直读差量概览，conversation_id={}，error={}",
+                    conversation_id, err
+                ));
+            }
         }
     }
     deleted_ids.sort();
@@ -1139,7 +1145,10 @@ fn list_unarchived_conversations_blocking(
         shell_autonomous_mode: None,
     };
     let result = conversation_service_v2().create_conversation(state, &create_input)?;
-    emit_unarchived_conversation_overview_updated_payload(state, &result.overview_payload);
+    let _ = emit_unarchived_conversation_overview_item_updated_from_state(
+        state,
+        &result.conversation_id,
+    );
     runtime_log_debug(format!(
         "[会话] 完成，任务=确保默认未归档会话，conversation_id={}，overview_count={}",
         result.conversation_id,

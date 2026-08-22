@@ -223,7 +223,7 @@ impl ConversationServiceV2 {
             return Ok(String::new());
         }
         let store_paths = message_store::message_store_paths(&state.data_path, conversation_id)?;
-        require_chat_store_conversation(state, conversation_id, &store_paths)?;
+        ensure_chat_store_conversation_readable(state, conversation_id, &store_paths)?;
         let mut selected_block_id = requested_block_id;
         let mut before_message_id = end_message_id
             .map(str::trim)

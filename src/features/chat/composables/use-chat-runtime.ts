@@ -28,6 +28,7 @@ type UseChatRuntimeOptions = {
   suppressNextCompactionReload?: Ref<boolean>;
   allMessages: ShallowRef<ChatMessage[]>;
   refreshUnarchivedConversations?: () => Promise<void>;
+  syncUnarchivedConversations?: (reason: string) => Promise<void>;
   perfNow: () => number;
   perfLog: (label: string, startedAt: number) => void;
   perfDebug: boolean;
@@ -120,7 +121,12 @@ export function useChatRuntime(options: UseChatRuntimeOptions) {
         options.setStatus(options.t(action.doneKey, { count: 0 }));
         options.setChatError("");
       }
-      if (options.refreshUnarchivedConversations) {
+      if (options.syncUnarchivedConversations) {
+        // 归档/压缩后差量同步收敛，避免全量拉取列表。
+        await options.syncUnarchivedConversations(
+          action.command === "conversation.archive" ? "conversation_archived" : "conversation_compacted",
+        );
+      } else if (options.refreshUnarchivedConversations) {
         await options.refreshUnarchivedConversations();
       }
       if (action.lockForeground && !targetIsForeground) {

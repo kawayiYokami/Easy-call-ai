@@ -19,7 +19,7 @@ fn conversation_has_visible_title_from_store(
         return Ok(false);
     }
     let store_paths = message_store::message_store_paths(&state.data_path, conversation_id)?;
-    require_chat_store_conversation(state, conversation_id, &store_paths)?;
+    ensure_chat_store_conversation_readable(state, conversation_id, &store_paths)?;
     Ok(message_store::chat_store_read_latest_compaction_message(&store_paths)?
         .as_ref()
         .is_some_and(summary_context_message_title_blocks_auto_title))

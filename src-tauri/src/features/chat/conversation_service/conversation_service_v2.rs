@@ -666,7 +666,7 @@ fn conversation_service() -> &'static ConversationServiceV2 {
     conversation_service_v2()
 }
 
-fn publish_pending_new_conversation_v3_if_needed(
+fn publish_pending_new_conversation_if_needed(
     state: &AppState,
     conversation_id: &str,
     paths: &message_store::MessageStorePaths,
@@ -686,9 +686,9 @@ fn publish_pending_new_conversation_v3_if_needed(
     let Some(conversation) = conversation else {
         return Ok(());
     };
-    // 这里只发布当前进程刚创建、尚在 pending 队列中的新会话，不读取 V1/V2
-    // 文件。新建接口本身仍只入 pending；若紧随创建发生首条写入，则沿用原有
-    // ensure 流程的同步发布与全局 flush 时序，保证消息只追加到 V3 current store。
+    // 这里只发布当前进程刚创建、尚在 pending 队列中的新会话。新建接口本身
+    // 仍只入 pending；若紧随创建发生首条写入/首读，则同步发布到 V4 current
+    // store 并 flush，保证消息只追加到当前生产存储。
     message_store::chat_store_write_snapshot(paths, &conversation)?;
     state_mark_conversation_metadata_direct_persisted(state, conversation_id)?;
     flush_pending_persists_blocking(state)?;
@@ -707,12 +707,12 @@ impl ConversationServiceV2 {
         }
         let store_paths =
             message_store::message_store_paths(&state.data_path, normalized_conversation_id)?;
-        publish_pending_new_conversation_v3_if_needed(
+        publish_pending_new_conversation_if_needed(
             state,
             normalized_conversation_id,
             &store_paths,
         )?;
-        require_chat_store_conversation(
+        ensure_chat_store_conversation_readable(
             state,
             normalized_conversation_id,
             &store_paths,
@@ -925,7 +925,7 @@ impl ConversationServiceV2 {
         }
         let store_paths =
             message_store::message_store_paths(&state.data_path, normalized_conversation_id)?;
-        require_chat_store_conversation(
+        ensure_chat_store_conversation_readable(
             state,
             normalized_conversation_id,
             &store_paths,
@@ -1260,7 +1260,7 @@ impl ConversationServiceV2 {
             Err(meta_err) => match state_read_conversation_cached(state, conversation_id) {
                 Ok(conversation) => {
                     runtime_log_warn(format!(
-                        "[会话元数据] V3 轻量读取失败，使用当前运行时缓存继续，conversation_id={}，error={}",
+                        "[会话元数据] 消息仓库轻量读取失败，使用当前运行时缓存继续，conversation_id={}，error={}",
                         conversation_id.trim(), meta_err
                     ));
                     message_store::ConversationShardMeta::from_conversation(&conversation)

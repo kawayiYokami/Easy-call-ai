@@ -562,6 +562,9 @@ export function useArchivesView(options: UseArchivesViewOptions) {
         input: { conversationId },
       });
       options.setStatus(options.t("status.unarchivedConversationDeleted"));
+      // 后端删除后不再返回全量列表：本地过滤被删项，避免残留陈旧项。
+      unarchivedConversations.value = unarchivedConversations.value
+        .filter((item) => String(item.conversationId || "").trim() !== conversationId);
       const nextConversationId = String(result?.activeConversationId || "").trim();
       if (selectedUnarchivedConversationId.value === conversationId) {
         selectedUnarchivedConversationId.value = nextConversationId;
