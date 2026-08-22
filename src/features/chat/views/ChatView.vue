@@ -48,7 +48,7 @@
           </div>
           <div
             v-if="showInitialMeasureOverlay"
-            class="absolute inset-0 z-10 flex items-center justify-center bg-base-100/85"
+            class="absolute inset-0 z-10 flex items-center justify-center bg-base-200"
             aria-hidden="true"
           >
             <span class="loading loading-spinner loading-md text-primary" />
