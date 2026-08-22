@@ -2,11 +2,17 @@
 //
 // V4 存储模型（定案 D12，见 .pai/plan/storage/20260822_消息按组多行存储重构计划.md）：
 // 一次 AI 调度（一条 ChatMessage）= 一组多行：
-// - 工具行：每完成一轮工具执行追加一行 {"kind":"tool", 公共字段, "call":{...},"result":{...}}
+// - 工具行：tool_call 数组的一个元素一行 {"kind":"tool", 公共字段, "event":{...}}，
+//   按序拆行/按序拼接，不做 call/result 配对假设
 // - 正文行：最终正文到达后追加一行 {"kind":"assistant", 公共字段, parts/extraTextBlocks/providerMeta/memeAnnotations}
 // - 普通消息（无工具）：单行 {"kind":"message","message":{完整消息}}
 // 公共字段（id/role/createdAt/speakerAgentId）冗余在组内每一行——正文行最后才写，
 // 未闭合组只有工具行，必须能独立还原消息骨架。
+//
+// 工具行不配对的原因（真实数据扫描，见 .pai/report/20260822_V4消息组zstd重构风险评估报告.md）：
+// tool_call 元素流并非严格 call/result 交替——并行调用是 1 个 call 元素（内含 N 个
+// tool_calls）后跟 N 个 result 元素，还存在截图元素等第三方形态；按元素逐行原样搬运
+// 对任何形态成立，且严格保留顺序。
 
 use serde::{Deserialize, Serialize};
 
@@ -23,8 +29,7 @@ struct GroupToolLine {
     created_at: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     speaker_agent_id: Option<String>,
-    call: Value,
-    result: Value,
+    event: Value,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -48,14 +53,13 @@ struct GroupAssistantLine {
     mcp_call: Option<Vec<Value>>,
 }
 
-/// 编码一行工具行（工具调用 + 工具回答，即 tool_call 数组交替的两个 Value）
+/// 编码一行工具事件行（tool_call 数组中的一个元素原样一行）
 pub(super) fn encode_group_tool_line(
     id: &str,
     role: &str,
     created_at: &str,
     speaker_agent_id: &Option<String>,
-    call: &Value,
-    result: &Value,
+    event: &Value,
 ) -> Result<String, String> {
     let line = GroupToolLine {
         kind: GROUP_LINE_KIND_TOOL.to_string(),
@@ -63,8 +67,7 @@ pub(super) fn encode_group_tool_line(
         role: role.to_string(),
         created_at: created_at.to_string(),
         speaker_agent_id: speaker_agent_id.clone(),
-        call: call.clone(),
-        result: result.clone(),
+        event: event.clone(),
     };
     serde_json::to_string(&line)
         .map(|value| format!("{value}\n"))
@@ -107,7 +110,7 @@ pub(super) fn encode_group_message_line(message: &ChatMessage) -> Result<String,
 
 /// 组装：组内多行 → 聚合 ChatMessage。
 /// - 公共字段（id/role/createdAt/speakerAgentId）取第一行（各行冗余一致）
-/// - 工具行 → tool_call 数组（call、result 交替 push，与旧格式一致）
+/// - 工具行 → tool_call 数组（每行一个元素按序 push，不配对）
 /// - 正文行 → parts/extraTextBlocks/providerMeta/memeAnnotations/mcpCall
 /// - 未闭合组（只有工具行、无正文行）→ parts 等默认值，仅工具调用有效
 pub(super) fn assemble_group_message(lines: &[String]) -> Result<ChatMessage, String> {
@@ -144,8 +147,7 @@ pub(super) fn assemble_group_message(lines: &[String]) -> Result<ChatMessage, St
                         tool_line.speaker_agent_id,
                     ));
                 }
-                tool_call.push(tool_line.call);
-                tool_call.push(tool_line.result);
+                tool_call.push(tool_line.event);
             }
             GROUP_LINE_KIND_ASSISTANT => {
                 let assistant_line: GroupAssistantLine = serde_json::from_value(parsed)
@@ -197,29 +199,21 @@ pub(super) fn assemble_group_message(lines: &[String]) -> Result<ChatMessage, St
 }
 
 /// 把一条完整消息拆成多行组（迁移/整块重建用）：
-/// - 有工具：N 个工具行（tool_call 两两拆分）+ 1 个正文行
+/// - 有工具：每个 tool_call 元素一行（原样按序拆行，不假设 call/result 配对）+ 1 个正文行
 /// - 无工具：1 行普通消息（完整结构）
 pub(super) fn split_message_into_group_lines(message: &ChatMessage) -> Result<Vec<String>, String> {
     let tool_events = message.tool_call.as_deref().unwrap_or_default();
     if tool_events.is_empty() {
         return Ok(vec![encode_group_message_line(message)?]);
     }
-    if tool_events.len() % 2 != 0 {
-        return Err(format!(
-            "拆分 V4 工具行失败：tool_call 数量不是偶数（应为调用/回答交替），message_id={}，count={}",
-            message.id,
-            tool_events.len()
-        ));
-    }
-    let mut lines = Vec::with_capacity(tool_events.len() / 2 + 1);
-    for pair in tool_events.chunks(2) {
+    let mut lines = Vec::with_capacity(tool_events.len() + 1);
+    for event in tool_events {
         lines.push(encode_group_tool_line(
             &message.id,
             &message.role,
             &message.created_at,
             &message.speaker_agent_id,
-            &pair[0],
-            &pair[1],
+            event,
         )?);
     }
     lines.push(encode_group_assistant_line(
@@ -276,7 +270,7 @@ mod group_lines_tests {
             tool_event("flight", "result-2"),
         ]);
         let lines = split_message_into_group_lines(&message).expect("split");
-        assert_eq!(lines.len(), 3, "2 个工具行 + 1 个正文行");
+        assert_eq!(lines.len(), 5, "4 个工具事件行 + 1 个正文行");
 
         let assembled = assemble_group_message(&lines).expect("assemble");
         assert_eq!(assembled.id, message.id);
@@ -303,7 +297,6 @@ mod group_lines_tests {
                 "2026-08-22T00:00:00Z",
                 &Some("agent-a".to_string()),
                 &tool_event("weather", "call-1"),
-                &tool_event("weather", "result-1"),
             )
             .expect("tool line"),
         ];
@@ -312,7 +305,7 @@ mod group_lines_tests {
         assert_eq!(assembled.role, "assistant");
         assert_eq!(assembled.speaker_agent_id.as_deref(), Some("agent-a"));
         assert!(assembled.parts.is_empty(), "未闭合组无正文");
-        assert_eq!(assembled.tool_call.as_ref().expect("tool_call").len(), 2);
+        assert_eq!(assembled.tool_call.as_ref().expect("tool_call").len(), 1);
     }
 
     #[test]
@@ -326,10 +319,34 @@ mod group_lines_tests {
     }
 
     #[test]
-    fn assemble_should_reject_odd_tool_event_count() {
-        let mut message = text_message("m3", "assistant", "");
-        message.tool_call = Some(vec![tool_event("weather", "call-1")]);
-        let err = split_message_into_group_lines(&message).expect_err("odd count should fail");
-        assert!(err.contains("不是偶数"), "err={err}");
+    fn split_and_assemble_should_preserve_unpaired_tool_event_stream() {
+        // 真实数据形态（见风险评估报告扫描结论）：1 个 call（内含并行调用）跟多个
+        // result，另有截图元素等第三方形态，奇偶不限，逐行原样搬运、顺序严格保留。
+        let call = serde_json::json!({
+            "role": "assistant",
+            "tool_calls": [{"id": "call-1"}, {"id": "call-2"}],
+        });
+        let result_one =
+            serde_json::json!({"role": "tool", "tool_call_id": "call-1", "content": "ok"});
+        let result_two =
+            serde_json::json!({"role": "tool", "tool_call_id": "call-2", "content": "ok"});
+        let screenshot = serde_json::json!({
+            "role": "assistant",
+            "content": "截图",
+            "screenshotArtifactId": "art-1",
+            "screenshotWidth": 800,
+            "screenshotHeight": 600,
+            "screenshotArtifactMaxRetained": 3,
+        });
+        let mut message = text_message("m3", "assistant", "final answer");
+        message.tool_call = Some(vec![call, result_one, result_two, screenshot]);
+        let lines = split_message_into_group_lines(&message).expect("split");
+        assert_eq!(lines.len(), 5, "4 个工具事件行 + 1 个正文行");
+        let assembled = assemble_group_message(&lines).expect("assemble");
+        assert_eq!(
+            assembled.tool_call.as_ref().expect("tool_call"),
+            message.tool_call.as_ref().expect("tool_call"),
+            "元素流顺序与内容逐字保留"
+        );
     }
 }

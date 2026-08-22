@@ -258,9 +258,19 @@ mod v4_group_parse_tests {
             "2026-08-22T00:00:00Z",
             &None,
             &serde_json::json!({"role": "assistant", "tool_calls": [{"id": format!("call-{id}")}]}),
-            &serde_json::json!({"role": "tool", "tool_call_id": format!("call-{id}")}),
         )
         .expect("tool line")
+    }
+
+    fn tool_result_line(id: &str) -> String {
+        encode_group_tool_line(
+            id,
+            "assistant",
+            "2026-08-22T00:00:00Z",
+            &None,
+            &serde_json::json!({"role": "tool", "tool_call_id": format!("call-{id}")}),
+        )
+        .expect("tool result line")
     }
 
     fn assistant_line(id: &str) -> String {
@@ -302,8 +312,14 @@ mod v4_group_parse_tests {
 
     #[test]
     fn v4_group_parse_should_split_tool_group_then_plain_message() {
-        // [tool(A), assistant(A), message(B)] → 2 组，A 的工具/正文不丢失
-        let content = format!("{}{}{}", tool_line("A"), assistant_line("A"), message_line("B"));
+        // [tool(A), tool_result(A), assistant(A), message(B)] → 2 组，A 的工具/正文不丢失
+        let content = format!(
+            "{}{}{}{}",
+            tool_line("A"),
+            tool_result_line("A"),
+            assistant_line("A"),
+            message_line("B")
+        );
         let groups = parse_jsonl_snapshot_group_blocks_v4(&content).expect("parse");
         assert_eq!(groups.len(), 2, "tool+assistant 组与普通消息组应分开");
         let a = assemble_group_message(&groups[0].lines).expect("assemble A");
@@ -316,8 +332,8 @@ mod v4_group_parse_tests {
 
     #[test]
     fn v4_group_parse_should_close_unclosed_tool_group_before_plain_message() {
-        // [tool(A), message(B)]（未闭合组后接普通消息）→ 2 组
-        let content = format!("{}{}", tool_line("A"), message_line("B"));
+        // [tool(A), tool_result(A), message(B)]（未闭合组后接普通消息）→ 2 组
+        let content = format!("{}{}{}", tool_line("A"), tool_result_line("A"), message_line("B"));
         let groups = parse_jsonl_snapshot_group_blocks_v4(&content).expect("parse");
         assert_eq!(groups.len(), 2, "未闭合工具组应闭合后再开普通消息组");
         let a = assemble_group_message(&groups[0].lines).expect("assemble A");
@@ -329,12 +345,14 @@ mod v4_group_parse_tests {
 
     #[test]
     fn v4_group_parse_should_split_two_tool_groups() {
-        // [tool(A), assistant(A), tool(B), assistant(B)] → 2 组
+        // [tool(A), tool_result(A), assistant(A), tool(B), tool_result(B), assistant(B)] → 2 组
         let content = format!(
-            "{}{}{}{}",
+            "{}{}{}{}{}{}",
             tool_line("A"),
+            tool_result_line("A"),
             assistant_line("A"),
             tool_line("B"),
+            tool_result_line("B"),
             assistant_line("B")
         );
         let groups = parse_jsonl_snapshot_group_blocks_v4(&content).expect("parse");

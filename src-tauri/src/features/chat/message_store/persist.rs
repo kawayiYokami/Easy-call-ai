@@ -586,9 +586,9 @@ pub(super) fn chat_store_replace_message(
 /// 对比 previous_message 与 updated_message 的差异，追加增量子行到目标组。
 ///
 /// 适用场景与新增行判定：
-/// - 工具事件（D14 工具累积）：updated 比 previous 多出若干工具事件对 → 追加工具行；
-///   若 provider_meta 同时变化（工具事件带 provider_meta patch），正文行尚未写，
-///   provider_meta 无处承载 → 回退 replace（D14 场景①）。
+/// - 工具事件（D14 工具累积）：updated 比 previous 多出若干工具事件（元素，不配对）
+///   → 每个新元素追加一行工具行；若 provider_meta 同时变化（工具事件带
+///   provider_meta patch），正文行尚未写，provider_meta 无处承载 → 回退 replace（D14 场景①）。
 /// - 正文累积（final text / meme / provider_meta 回填）：工具行数不变、正文内容变化
 ///   → 追加正文行；若工具行也变了（罕见），回退 replace。
 ///
@@ -653,28 +653,15 @@ pub(super) fn chat_store_append_line_to_group(
         if provider_meta_changed {
             return chat_store_replace_message(paths, meta, updated_message);
         }
-        if tool_diff % 2 != 0 {
-            return Err(format!(
-                "组内追加子行失败：工具事件数量不是偶数（应为调用/回答交替），message_id={}，diff={}",
-                updated_message.id.trim(),
-                tool_diff
-            ));
-        }
-        let new_tool_count = tool_diff / 2;
-        let mut new_lines = Vec::<String>::with_capacity(new_tool_count as usize);
-        let mut index = previous_tools.len();
-        for _ in 0..new_tool_count {
-            let call = &updated_tools[index];
-            let result = &updated_tools[index + 1];
+        let mut new_lines = Vec::<String>::with_capacity(tool_diff as usize);
+        for event in &updated_tools[previous_tools.len()..] {
             new_lines.push(encode_group_tool_line(
                 &updated_message.id,
                 &updated_message.role,
                 &updated_message.created_at,
                 &updated_message.speaker_agent_id,
-                call,
-                result,
+                event,
             )?);
-            index += 2;
         }
         return chat_metadata_store_append_line_to_group_physical(
             paths,
