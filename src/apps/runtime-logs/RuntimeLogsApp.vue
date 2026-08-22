@@ -21,10 +21,6 @@
         </label>
         <button class="btn btn-ghost btn-xs" title="复制" :disabled="filteredLogs.length === 0" @click="copyLogs">复制</button>
         <button class="btn btn-ghost btn-xs" title="清空" :disabled="logs.length === 0" @click="clearLogs">清空</button>
-        <label class="flex items-center gap-1 cursor-pointer">
-          <input v-model="autoScroll" type="checkbox" class="checkbox checkbox-xs" />
-          <span class="opacity-60">自动滚动</span>
-        </label>
       </div>
       <button class="btn btn-ghost btn-xs" title="最小化" @click="minimizeWindow">
         <span class="text-sm">─</span>
@@ -34,30 +30,40 @@
       </button>
     </header>
 
-    <pre
+    <div
       ref="logContainer"
-      class="flex-1 overflow-auto border-t border-base-300 bg-base-100 p-3 font-mono text-xs leading-5 whitespace-pre-wrap break-words"
+      class="flex-1 overflow-auto border-t border-base-300 bg-base-100 text-xs leading-5 [font-family:var(--app-code-font-family)]"
+      @scroll.passive="handleScroll"
     >
-      <code v-if="filteredLogs.length === 0" class="opacity-50">{{ loading ? "正在加载..." : "暂无日志" }}</code>
-      <template v-else>
+      <div v-if="filteredLogs.length === 0" class="p-3 opacity-50">{{ loading ? "正在加载..." : "暂无日志" }}</div>
+      <div
+        v-else
+        ref="logSpacer"
+        class="relative min-w-full"
+        :style="{ height: `${totalSize}px` }"
+      >
         <div
-          v-for="item in filteredLogs"
-          :key="item.id"
-          class="runtime-log-line"
-          :class="levelClass(item.level)"
-        >{{ formatLine(item) }}</div>
-      </template>
-    </pre>
+          v-for="row in virtualRows"
+          :key="String(row.key)"
+          class="absolute left-0 right-0 overflow-hidden pr-3 pl-3 text-ellipsis whitespace-pre"
+          :class="levelClass(rowEntry(row.index)?.level ?? '')"
+          :style="{ transform: `translateY(${row.start}px)`, height: `${row.size}px` }"
+          :title="rowTitle(row.index)"
+        >{{ formatLine(rowEntry(row.index) as RuntimeLogEntry) }}</div>
+      </div>
+    </div>
 
     <footer class="flex h-6 shrink-0 items-center gap-2 border-t border-base-300 bg-base-200 px-3 text-xs opacity-60">
       <span>显示 {{ filteredLogs.length }} / {{ logs.length }}</span>
       <span v-if="errorText" class="text-error">{{ errorText }}</span>
+      <span class="ml-auto">滚动到底部自动跟随</span>
     </footer>
   </div>
 </template>
 
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
+import { useVirtualizer } from "@tanstack/vue-virtual";
 import {
   hideCurrentTransportWindow,
   invokeTauri,
@@ -76,6 +82,8 @@ type RuntimeLogEntry = {
 };
 
 const POLL_INTERVAL_MS = 100;
+const ROW_HEIGHT = 20;
+const BOTTOM_FOLLOW_THRESHOLD_PX = 40;
 const levelOptions = ["info", "warn", "error", "debug", "trace"] as const;
 
 const logs = ref<RuntimeLogEntry[]>([]);
@@ -83,12 +91,12 @@ const loading = ref(false);
 const errorText = ref("");
 const selectedLevel = ref<"all" | string>("info");
 const selectedModule = ref("all");
-const autoScroll = ref(true);
 const logContainer = ref<HTMLElement | null>(null);
 
 let pollTimer: ReturnType<typeof setInterval> | null = null;
 let lastCreatedAt = "";
 let unlistenTheme: (() => void) | null = null;
+let stickToBottom = true;
 
 const { applyTheme, restoreThemeFromStorage } = useAppTheme();
 
@@ -109,11 +117,44 @@ const filteredLogs = computed(() =>
   }),
 );
 
+const virtualizer = useVirtualizer(
+  computed(() => ({
+    count: filteredLogs.value.length,
+    getScrollElement: () => logContainer.value,
+    getItemKey: (index: number) => filteredLogs.value[index]?.id ?? `log-${index}`,
+    estimateSize: () => ROW_HEIGHT,
+    overscan: 30,
+  })),
+);
+
+const virtualRows = computed(() => virtualizer.value.getVirtualItems());
+const totalSize = computed(() => virtualizer.value.getTotalSize());
+
+function rowEntry(index: number): RuntimeLogEntry | undefined {
+  return filteredLogs.value[index];
+}
+
+function rowTitle(index: number): string {
+  return rowEntry(index)?.message ?? "";
+}
+
+function handleScroll() {
+  const el = logContainer.value;
+  if (!el) return;
+  const distanceToBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
+  stickToBottom = distanceToBottom <= BOTTOM_FOLLOW_THRESHOLD_PX;
+}
+
+function scrollToBottom() {
+  const el = logContainer.value;
+  if (!el) return;
+  el.scrollTop = el.scrollHeight;
+}
+
 watch(filteredLogs, () => {
-  if (autoScroll.value) {
+  if (stickToBottom) {
     nextTick(() => {
-      const el = logContainer.value;
-      if (el) el.scrollTop = el.scrollHeight;
+      scrollToBottom();
     });
   }
 });
@@ -150,6 +191,8 @@ async function loadInitial() {
     if (items.length > 0) {
       lastCreatedAt = items[items.length - 1].createdAt;
     }
+    await nextTick();
+    scrollToBottom();
   } catch (err) {
     errorText.value = String(err);
   } finally {
@@ -250,10 +293,3 @@ function formatTime(value: string): string {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
 }
 </script>
-
-<style scoped>
-.runtime-log-line {
-  white-space: pre-wrap;
-  word-break: break-word;
-}
-</style>
