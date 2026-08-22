@@ -76,6 +76,48 @@ fn build_jsonl_snapshot_conversation_blocks_for_conversation(
     )
 }
 
+/// V4 整会话构建（生产 sqlite 写快照用）：消息拆多行组 + 组级 locator + `.jsonl.zstd` 块文件。
+/// V1→V2 / V2→V3 迁移保持明文单行（`build_jsonl_snapshot_conversation_blocks_for_conversation`），
+/// 生产写快照切这里；`total_bytes` 仍按明文组字节数计（manifest total_bytes 在 v3 后不参与运行期校验）。
+fn build_jsonl_snapshot_conversation_blocks_for_conversation_v4(
+    conversation: &Conversation,
+) -> Result<JsonlSnapshotConversationBlocks, String> {
+    let source_blocks = split_conversation_messages_into_blocks(conversation);
+    let archived_conversation = conversation.status.trim() == "archived";
+    let message_count = source_blocks
+        .iter()
+        .map(|block| block.messages.len())
+        .sum::<usize>();
+    let mut blocks = Vec::<JsonlSnapshotConversationBlock>::with_capacity(source_blocks.len());
+    let mut all_items = Vec::<MessageStoreIndexItem>::with_capacity(message_count);
+    let mut total_bytes = 0_u64;
+    let mut last_message_id = String::new();
+
+    for (block_idx, block_messages) in source_blocks.iter().enumerate() {
+        let should_slim =
+            should_slim_conversation_block(archived_conversation, block_idx, source_blocks.len());
+        let block = build_jsonl_snapshot_conversation_block_v4(block_messages, should_slim)?;
+        last_message_id = block
+            .index_items
+            .last()
+            .map(|item| item.message_id.clone())
+            .unwrap_or(last_message_id);
+        total_bytes = total_bytes
+            .checked_add(block.content.as_bytes().len() as u64)
+            .ok_or_else(|| format!("构建会话块失败：总字节数溢出，block_file={}", block.block_file))?;
+        all_items.extend(block.index_items.iter().cloned());
+        blocks.push(block);
+    }
+
+    Ok(JsonlSnapshotConversationBlocks {
+        blocks,
+        index: MessageStoreIndexFile::new(MESSAGE_STORE_MANIFEST_VERSION, all_items),
+        message_count,
+        last_message_id,
+        total_bytes,
+    })
+}
+
 fn build_jsonl_snapshot_conversation_blocks_from_refs(
     archived_conversation: bool,
     source_blocks: &[ConversationBlockMessageRefs<'_>],
@@ -290,6 +332,134 @@ fn build_jsonl_snapshot_conversation_block_tail(
     Ok(JsonlSnapshotConversationBlock {
         block_id: block.block_id,
         block_file: block.block_file.clone(),
+        content,
+        index_items: block_items,
+    })
+}
+
+// ==================== V4 多行组构建（生产路径） ====================
+//
+// V4 块 = zstd 压缩的多行组明文（D12/D15）：
+// - 每条消息 = 一组多行（工具行/正文行/普通消息单行），明文坐标 = 组级
+//   （byte_offset 指向组首行、byte_len 覆盖整组多行）
+// - 块文件后缀 `.jsonl.zstd`；写入 = 整块单帧压缩
+// - V1→V2 / V2→V3 迁移保持明文单行格式，不调用这里
+
+/// V4 块文件名：统一带 `.jsonl.zstd` 后缀（构建与写入共用，避免后缀漂移）
+fn jsonl_snapshot_block_file_v4(block_id: u32) -> String {
+    format!("{MESSAGE_STORE_BLOCKS_DIR_NAME}/{block_id:06}.jsonl.zstd")
+}
+
+/// V4 整块重建（replace/归档/compaction）：消息拆多行组 → 明文拼接 → 组级 locator
+fn build_jsonl_snapshot_conversation_block_v4(
+    block: &ConversationBlockMessageRefs<'_>,
+    should_slim: bool,
+) -> Result<JsonlSnapshotConversationBlock, String> {
+    let mut content = String::new();
+    let mut offset = 0_u64;
+    let mut block_items = Vec::<MessageStoreIndexItem>::with_capacity(block.messages.len());
+
+    for message in &block.messages {
+        let stored_message = if should_slim {
+            slim_older_conversation_block_message(message)
+        } else {
+            (*message).clone()
+        };
+        let lines = split_message_into_group_lines(&stored_message)?;
+        let group_len = lines.iter().map(|line| line.as_bytes().len() as u64).sum::<u64>();
+        let item = message_store_index_item_for_message_in_block(
+            &stored_message,
+            Some(block.block_id),
+            offset,
+            group_len,
+        );
+        if item.compaction_kind.is_none() && message_store_compaction_kind(message).is_some() {
+            return Err(format!(
+                "构建会话块失败：瘦身后丢失压缩边界，message_id={}",
+                message.id
+            ));
+        }
+        for line in &lines {
+            content.push_str(&line);
+        }
+        offset = offset.checked_add(group_len).ok_or_else(|| {
+            format!(
+                "构建会话块失败：block offset 溢出，block_file={}，message_id={}",
+                block.block_file, message.id
+            )
+        })?;
+        block_items.push(item);
+    }
+
+    Ok(JsonlSnapshotConversationBlock {
+        block_id: block.block_id,
+        block_file: jsonl_snapshot_block_file_v4(block.block_id),
+        content,
+        index_items: block_items,
+    })
+}
+
+/// V4 整块压缩写入（原子）：明文多行组 → 单帧 zstd → 原子替换；返回压缩字节数
+fn write_jsonl_snapshot_block_v4_atomic(path: &PathBuf, plain_content: &str) -> Result<usize, String> {
+    let compressed = zstd_compress_block(plain_content.as_bytes())?;
+    write_message_store_bytes_atomic(path, "jsonl.zstd.tmp", &compressed, "V4 压缩块")?;
+    Ok(compressed.len())
+}
+
+/// V4 尾部重建：复用目标行之前的明文前缀字节，只把新追加的消息拆成组行拼接。
+///
+/// 适用场景：延续尾块 + 多组新消息（物理追加快速路径之外的尾块重建）。
+/// 前置条件：`prefix_bytes` 是块文件解压后的明文 `[0, 目标行 offset)` 原始字节（含换行符），
+/// `prefix_items` 对应这些组的 locator（offset/byte_len 不变，组级）；`tail_messages` 是
+/// 要追加的消息（拆成多行组）。
+///
+/// 注意：不支持 slim（slim 会裁剪所有行，前缀字节无法复用）。调用方必须在
+/// `should_slim_conversation_block` 为 true 时走整块重建（`build_jsonl_snapshot_conversation_block_v4`）。
+fn build_jsonl_snapshot_conversation_block_tail_v4(
+    block: &ConversationBlockMessageRefs<'_>,
+    prefix_bytes: &[u8],
+    prefix_items: &[MessageStoreIndexItem],
+    tail_messages: &[ChatMessage],
+) -> Result<JsonlSnapshotConversationBlock, String> {
+    let mut content_bytes = Vec::with_capacity(prefix_bytes.len() + 4096);
+    content_bytes.extend_from_slice(prefix_bytes);
+    let mut offset = prefix_bytes.len() as u64;
+    let mut block_items = Vec::<MessageStoreIndexItem>::with_capacity(prefix_items.len() + tail_messages.len());
+    block_items.extend_from_slice(prefix_items);
+
+    for message in tail_messages {
+        let stored_message = (*message).clone();
+        let lines = split_message_into_group_lines(&stored_message)?;
+        let group_len = lines.iter().map(|line| line.as_bytes().len() as u64).sum::<u64>();
+        let item = message_store_index_item_for_message_in_block(
+            &stored_message,
+            Some(block.block_id),
+            offset,
+            group_len,
+        );
+        if item.compaction_kind.is_none() && message_store_compaction_kind(message).is_some() {
+            return Err(format!(
+                "构建会话块失败：瘦身后丢失压缩边界，message_id={}",
+                message.id
+            ));
+        }
+        for line in &lines {
+            content_bytes.extend_from_slice(line.as_bytes());
+        }
+        offset = offset.checked_add(group_len).ok_or_else(|| {
+            format!(
+                "构建会话块失败：block offset 溢出，block_file={}，message_id={}",
+                block.block_file, message.id
+            )
+        })?;
+        block_items.push(item);
+    }
+
+    let content = String::from_utf8(content_bytes)
+        .map_err(|err| format!("构建会话块失败：块内容不是合法 UTF-8，block_file={}，error={err}", block.block_file))?;
+    Ok(JsonlSnapshotConversationBlock {
+        block_id: block.block_id,
+        block_file: jsonl_snapshot_block_file_v4(block.block_id),
         content,
         index_items: block_items,
     })

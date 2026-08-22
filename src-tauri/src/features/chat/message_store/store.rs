@@ -928,7 +928,8 @@ fn rebuild_message_store_snapshot_from_blocks(
             }
             let name = entry.file_name().to_string_lossy().to_string();
             let block_id = name
-                .strip_suffix(".jsonl")
+                .strip_suffix(".jsonl.zstd")
+                .or_else(|| name.strip_suffix(".jsonl"))
                 .and_then(|value| value.parse::<u32>().ok())?;
             Some((block_id, path))
         })
@@ -940,7 +941,15 @@ fn rebuild_message_store_snapshot_from_blocks(
     let mut last_message_id = String::new();
 
     for (block_id, block_path) in block_entries {
-        let report = verify_jsonl_snapshot_file(&block_path, usize::MAX, "")?;
+        let report = if block_path
+            .file_name()
+            .map(|name| name.to_string_lossy().ends_with(".jsonl.zstd"))
+            .unwrap_or(false)
+        {
+            verify_jsonl_snapshot_file_v4(&block_path, usize::MAX, "")?
+        } else {
+            verify_jsonl_snapshot_file(&block_path, usize::MAX, "")?
+        };
         if report.message_count == 0 {
             return Err(format!(
                 "校验会话块失败，conversation_id={}，block_id={}，path={}，error=空 block 文件不允许作为 ready 快照真相",
@@ -1431,58 +1440,109 @@ fn read_jsonl_snapshot_messages_by_index_items(
 ) -> Result<Vec<ChatMessage>, String> {
     let mut messages = Vec::with_capacity(items.len());
     let mut current_file_path = PathBuf::new();
-    let mut current_file: Option<fs::File> = None;
+    let mut current_plain: Option<String> = None;
+    let mut current_is_v4 = false;
     for item in items {
         let item_path = jsonl_snapshot_index_item_path(path, item.block_id)?;
         if current_file_path != item_path {
-            current_file = Some(fs::File::open(&item_path).map_err(|err| {
-                format!(
-                    "打开 JSONL 消息文件失败，path={}，message_id={}，error={err}",
-                    item_path.display(),
-                    item.message_id
-                )
-            })?);
+            current_is_v4 = item_path
+                .file_name()
+                .map(|name| name.to_string_lossy().ends_with(".jsonl.zstd"))
+                .unwrap_or(false);
+            current_plain = Some(if current_is_v4 {
+                read_jsonl_snapshot_block_plain_v4(&item_path)?
+            } else {
+                fs::read_to_string(&item_path).map_err(|err| {
+                    format!("读取 JSONL 消息文件失败，path={}，error={err}", item_path.display())
+                })?
+            });
             current_file_path = item_path;
         }
-        let Some(file) = current_file.as_mut() else {
-            return Err(format!("打开 JSONL 消息文件失败，message_id={}", item.message_id));
+        let Some(plain) = current_plain.as_ref() else {
+            return Err(format!("读取 JSONL 块失败，message_id={}", item.message_id));
         };
-        std::io::Seek::seek(file, std::io::SeekFrom::Start(item.offset)).map_err(|err| {
-            format!(
-                "定位 JSONL 消息失败，path={}，message_id={}，offset={}，error={err}",
-                current_file_path.display(),
-                item.message_id,
-                item.offset
-            )
-        })?;
-        let mut buffer = vec![0_u8; item.byte_len as usize];
-        std::io::Read::read_exact(file, &mut buffer).map_err(|err| {
-            format!(
-                "读取 JSONL 消息失败，path={}，message_id={}，offset={}，byte_len={}，error={err}",
-                current_file_path.display(),
-                item.message_id,
-                item.offset,
-                item.byte_len
-            )
-        })?;
-        let raw = String::from_utf8(buffer)
-            .map_err(|err| format!("JSONL 消息不是 UTF-8，message_id={}，error={err}", item.message_id))?;
-        let line = raw.trim_end_matches(['\r', '\n']);
-        let message = decode_jsonl_snapshot_message(line)
-            .map_err(|err| format!("解析 JSONL 消息失败，message_id={}，error={err}", item.message_id))?;
-        if message.id.trim() != item.message_id.trim() {
-            return Err(format!(
-                "JSONL 索引与消息不一致，path={}，expected_message_id={}，actual_message_id={}，offset={}，byte_len={}",
-                current_file_path.display(),
-                item.message_id,
-                message.id,
-                item.offset,
-                item.byte_len
-            ));
-        }
+        let message = if current_is_v4 {
+            assemble_jsonl_snapshot_group_v4(plain, &current_file_path, item)?
+        } else {
+            let start = item.offset as usize;
+            let end = start
+                .checked_add(item.byte_len as usize)
+                .ok_or_else(|| format!("明文行坐标溢出，path={}，message_id={}", current_file_path.display(), item.message_id))?;
+            let raw = plain.get(start..end).ok_or_else(|| {
+                format!(
+                    "明文行坐标越界，path={}，message_id={}，offset={}，byte_len={}，plain_len={}",
+                    current_file_path.display(),
+                    item.message_id,
+                    item.offset,
+                    item.byte_len,
+                    plain.len()
+                )
+            })?;
+            let line = raw.trim_end_matches(['\r', '\n']);
+            let message = decode_jsonl_snapshot_message(line)
+                .map_err(|err| format!("解析 JSONL 消息失败，message_id={}，error={err}", item.message_id))?;
+            if message.id.trim() != item.message_id.trim() {
+                return Err(format!(
+                    "JSONL 索引与消息不一致，path={}，expected_message_id={}，actual_message_id={}，offset={}，byte_len={}",
+                    current_file_path.display(),
+                    item.message_id,
+                    message.id,
+                    item.offset,
+                    item.byte_len
+                ));
+            }
+            message
+        };
         messages.push(message);
     }
     Ok(messages)
+}
+
+/// 读取 V4 压缩块并解压为明文
+fn read_jsonl_snapshot_block_plain_v4(path: &PathBuf) -> Result<String, String> {
+    let compressed = fs::read(path)
+        .map_err(|err| format!("读取 V4 压缩块失败，path={}，error={err}", path.display()))?;
+    let plain = zstd_decompress_block(&compressed)?;
+    String::from_utf8(plain).map_err(|err| format!("V4 压缩块解压后不是 UTF-8，path={}，error={err}", path.display()))
+}
+
+/// 从 V4 块明文按组级 locator 切片并组装消息
+fn assemble_jsonl_snapshot_group_v4(
+    plain: &str,
+    path: &PathBuf,
+    item: &MessageStoreIndexItem,
+) -> Result<ChatMessage, String> {
+    let start = item.offset as usize;
+    let end = start
+        .checked_add(item.byte_len as usize)
+        .ok_or_else(|| format!("V4 组坐标溢出，path={}，message_id={}", path.display(), item.message_id))?;
+    let group_raw = plain.get(start..end).ok_or_else(|| {
+        format!(
+            "V4 组坐标越界，path={}，message_id={}，offset={}，byte_len={}，plain_len={}",
+            path.display(),
+            item.message_id,
+            item.offset,
+            item.byte_len,
+            plain.len()
+        )
+    })?;
+    let lines = group_raw
+        .split_inclusive('\n')
+        .map(str::to_string)
+        .collect::<Vec<String>>();
+    let message = assemble_group_message(&lines)
+        .map_err(|err| format!("组装 V4 消息失败，path={}，message_id={}，error={err}", path.display(), item.message_id))?;
+    if message.id.trim() != item.message_id.trim() {
+        return Err(format!(
+            "V4 索引与消息不一致，path={}，expected_message_id={}，actual_message_id={}，offset={}，byte_len={}",
+            path.display(),
+            item.message_id,
+            message.id,
+            item.offset,
+            item.byte_len
+        ));
+    }
+    Ok(message)
 }
 
 fn read_jsonl_snapshot_messages_by_index_items_cached(
@@ -1491,9 +1551,9 @@ fn read_jsonl_snapshot_messages_by_index_items_cached(
 ) -> Result<Vec<ChatMessage>, String> {
     let mut messages = Vec::with_capacity(items.len());
     let mut current_file_path = PathBuf::new();
-    let mut current_file: Option<fs::File> = None;
     let mut current_modified_at: Option<std::time::SystemTime> = None;
     let mut current_len = 0_u64;
+    let mut current_is_v4 = false;
     let mut current_messages_by_id = std::collections::HashMap::<String, ChatMessage>::new();
     let mut current_cache_dirty = false;
 
@@ -1528,7 +1588,10 @@ fn read_jsonl_snapshot_messages_by_index_items_cached(
                 current_cache_dirty,
             );
             current_cache_dirty = false;
-            current_file = None;
+            current_is_v4 = item_path
+                .file_name()
+                .map(|name| name.to_string_lossy().ends_with(".jsonl.zstd"))
+                .unwrap_or(false);
             current_messages_by_id.clear();
 
             let metadata = fs::metadata(&item_path).map_err(|err| {
@@ -1556,54 +1619,52 @@ fn read_jsonl_snapshot_messages_by_index_items_cached(
             continue;
         }
 
-        if current_file.is_none() {
-            current_file = Some(fs::File::open(&current_file_path).map_err(|err| {
+        // 缓存命中且含当前消息已在上方 continue；走到这里说明缓存缺消息（stale 或未命中），
+        // 整块解析填充块内全部消息（V4 解压按组；明文按行）
+        if current_is_v4 {
+            let plain = read_jsonl_snapshot_block_plain_v4(&current_file_path)?;
+            let groups = parse_jsonl_snapshot_group_blocks_v4(&plain)?;
+            for group in groups {
+                let message = assemble_group_message(&group.lines).map_err(|err| {
+                    format!(
+                        "组装 V4 消息失败，path={}，offset={}，error={err}",
+                        current_file_path.display(),
+                        group.offset
+                    )
+                })?;
+                current_messages_by_id.insert(message.id.clone(), message);
+            }
+        } else {
+            let raw = fs::read_to_string(&current_file_path).map_err(|err| {
                 format!(
-                    "打开 JSONL 消息文件失败，path={}，message_id={}，error={err}",
-                    current_file_path.display(),
-                    item.message_id
+                    "读取 JSONL 消息文件失败，path={}，error={err}",
+                    current_file_path.display()
                 )
-            })?);
+            })?;
+            for line in raw.lines() {
+                if line.trim().is_empty() {
+                    continue;
+                }
+                let message = decode_jsonl_snapshot_message(line).map_err(|err| {
+                    format!(
+                        "解析 JSONL 消息失败，path={}，error={err}",
+                        current_file_path.display()
+                    )
+                })?;
+                current_messages_by_id.insert(message.id.clone(), message);
+            }
         }
-        let Some(file) = current_file.as_mut() else {
-            return Err(format!("打开 JSONL 消息文件失败，message_id={}", item.message_id));
-        };
-        std::io::Seek::seek(file, std::io::SeekFrom::Start(item.offset)).map_err(|err| {
-            format!(
-                "定位 JSONL 消息失败，path={}，message_id={}，offset={}，error={err}",
-                current_file_path.display(),
-                item.message_id,
-                item.offset
-            )
-        })?;
-        let mut buffer = vec![0_u8; item.byte_len as usize];
-        std::io::Read::read_exact(file, &mut buffer).map_err(|err| {
-            format!(
-                "读取 JSONL 消息失败，path={}，message_id={}，offset={}，byte_len={}，error={err}",
-                current_file_path.display(),
-                item.message_id,
-                item.offset,
-                item.byte_len
-            )
-        })?;
-        let raw = String::from_utf8(buffer)
-            .map_err(|err| format!("JSONL 消息不是 UTF-8，message_id={}，error={err}", item.message_id))?;
-        let line = raw.trim_end_matches(['\r', '\n']);
-        let message = decode_jsonl_snapshot_message(line)
-            .map_err(|err| format!("解析 JSONL 消息失败，message_id={}，error={err}", item.message_id))?;
-        if message.id.trim() != item.message_id.trim() {
-            return Err(format!(
-                "JSONL 索引与消息不一致，path={}，expected_message_id={}，actual_message_id={}，offset={}，byte_len={}",
-                current_file_path.display(),
-                item.message_id,
-                message.id,
-                item.offset,
-                item.byte_len
-            ));
-        }
-        current_messages_by_id.insert(message.id.clone(), message.clone());
         current_cache_dirty = true;
-        messages.push(message);
+
+        let Some(message) = current_messages_by_id.get(item.message_id.trim()) else {
+            return Err(format!(
+                "V4 索引与块内容不一致，path={}，message_id={}，块内消息数={}",
+                current_file_path.display(),
+                item.message_id,
+                current_messages_by_id.len()
+            ));
+        };
+        messages.push(message.clone());
     }
 
     flush_current_cache(
@@ -1677,9 +1738,14 @@ fn jsonl_snapshot_index_item_path(base_messages_file: &PathBuf, block_id: Option
             base_messages_file.display()
         ));
     };
-    Ok(shard_dir
-        .join(MESSAGE_STORE_BLOCKS_DIR_NAME)
-        .join(format!("{block_id:06}.jsonl")))
+    // 生产 sqlite 会话块为 V4 压缩（.jsonl.zstd）；delegate 目录快照保持明文（.jsonl）。
+    // 探测式路径：V4 块优先，不存在时回退明文块，保证两种存储都能解析。
+    let blocks_dir = shard_dir.join(MESSAGE_STORE_BLOCKS_DIR_NAME);
+    let v4_path = blocks_dir.join(format!("{block_id:06}.jsonl.zstd"));
+    if v4_path.exists() {
+        return Ok(v4_path);
+    }
+    Ok(blocks_dir.join(format!("{block_id:06}.jsonl")))
 }
 
 fn message_store_message_has_image(message: &ChatMessage) -> bool {
@@ -2887,9 +2953,9 @@ mod message_store_reader_tests {
             test_message("jsonl2", "user"),
         ]);
         chat_store_write_snapshot(&paths, &conversation).expect("write ready snapshot");
-        let block_path = paths.blocks_dir.join("000000.jsonl");
+        let block_path = paths.blocks_dir.join("000000.jsonl.zstd");
         if block_path.exists() {
-            fs::write(&block_path, "{broken jsonl").expect("break block jsonl");
+            fs::write(&block_path, "{broken jsonl").expect("break block zstd");
         }
 
         let meta = chat_store_read_meta(&paths)
@@ -2962,14 +3028,14 @@ mod message_store_reader_tests {
         let paths = message_store_paths(&data_path, "conversation-reader").expect("paths");
         let conversation = test_conversation(vec![test_message("m1", "user")]);
         chat_store_write_snapshot(&paths, &conversation).expect("write ready snapshot");
-        let block_path = paths.blocks_dir.join("000000.jsonl");
-        let original = fs::read_to_string(&block_path).expect("read block");
-        fs::write(&block_path, "x".repeat(original.len())).expect("corrupt block");
+        let block_path = paths.blocks_dir.join("000000.jsonl.zstd");
+        let original = fs::read(&block_path).expect("read block");
+        fs::write(&block_path, vec![0xFF_u8; original.len()]).expect("corrupt block");
 
         let error = chat_store_read_recent_messages(&paths, 1)
             .expect_err("broken block content must not self-heal during read");
 
-        assert!(error.contains("校验会话块失败") || error.contains("JSONL"));
+        assert!(error.contains("校验会话块失败") || error.contains("zstd") || error.contains("解压") || error.contains("JSONL"));
         assert!(block_path.exists());
         let _ = fs::remove_dir_all(root);
     }
@@ -3044,11 +3110,11 @@ mod message_store_reader_tests {
             fs::read(&unmanaged_block).expect("read unmanaged legacy block after append"),
             unmanaged_content
         );
-        assert!(paths.blocks_dir.join("000002.jsonl").exists());
+        assert!(paths.blocks_dir.join("000002.jsonl.zstd").exists());
         assert_eq!(
             chat_store_read_message_by_id(&paths, &appended.id)
-                .expect("read appended V3 message")
-                .expect("appended V3 message exists")
+                .expect("read appended V4 message")
+                .expect("appended V4 message exists")
                 .id,
             appended.id
         );
@@ -3086,11 +3152,11 @@ mod message_store_reader_tests {
             fs::read(&unmanaged_block).expect("read unmanaged legacy block after splice"),
             unmanaged_content
         );
-        assert!(paths.blocks_dir.join("000002.jsonl").exists());
+        assert!(paths.blocks_dir.join("000002.jsonl.zstd").exists());
         assert_eq!(
             chat_store_read_message_by_id(&paths, &boundary.id)
-                .expect("read spliced V3 message")
-                .expect("spliced V3 message exists")
+                .expect("read spliced V4 message")
+                .expect("spliced V4 message exists")
                 .id,
             boundary.id
         );
@@ -3112,20 +3178,20 @@ mod message_store_reader_tests {
 
         let first = test_message("m1", "user");
         let mut conversation = test_conversation(vec![first.clone()]);
-        chat_store_write_snapshot(&paths, &conversation).expect("write initial V3 current");
-        assert!(paths.blocks_dir.join("000001.jsonl").exists());
+        chat_store_write_snapshot(&paths, &conversation).expect("write initial V4 current");
+        assert!(paths.blocks_dir.join("000001.jsonl.zstd").exists());
 
         let boundary = test_compaction_message("m2", "context_compaction");
         conversation.messages = vec![first, boundary.clone()];
         chat_store_write_snapshot(&paths, &conversation)
-            .expect("overwrite V3 snapshot without overwriting unmanaged block");
+            .expect("overwrite V4 snapshot without overwriting unmanaged block");
 
         assert_eq!(
             fs::read(&unmanaged_block).expect("read unmanaged legacy block after snapshot"),
             unmanaged_content
         );
-        assert!(paths.blocks_dir.join("000001.jsonl").exists());
-        assert!(paths.blocks_dir.join("000002.jsonl").exists());
+        assert!(paths.blocks_dir.join("000001.jsonl.zstd").exists());
+        assert!(paths.blocks_dir.join("000002.jsonl.zstd").exists());
         assert_eq!(
             chat_store_read_message_by_id(&paths, &boundary.id)
                 .expect("read snapshot V3 message")

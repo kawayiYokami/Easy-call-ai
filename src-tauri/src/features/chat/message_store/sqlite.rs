@@ -1007,6 +1007,50 @@ fn chat_metadata_store_write_result(
     })
 }
 
+fn chat_metadata_store_reconcile_block_tail(
+    paths: &MessageStorePaths,
+    block_id: u32,
+    expected_plain_len: u64,
+    label: &str,
+) -> Result<u64, String> {
+    let block_file = format!("{MESSAGE_STORE_BLOCKS_DIR_NAME}/{block_id:06}.jsonl.zstd");
+    let block_path = paths.shard_dir.join(&block_file);
+    let raw = std::fs::read(&block_path).map_err(|err| {
+        format!(
+            "{label}：读取块文件失败，path={}，error={err}",
+            block_path.display()
+        )
+    })?;
+    let keep_len = zstd_validate_tail_for_append(&raw, expected_plain_len as usize)?;
+    if keep_len < raw.len() {
+        runtime_log_warn(format!(
+            "[消息存储] 追加前清理孤儿/损坏尾部，conversation_id={}，block_id={}，path={}，file_len={}，keep_len={}",
+            paths.conversation_id,
+            block_id,
+            block_path.display(),
+            raw.len(),
+            keep_len
+        ));
+        fs::OpenOptions::new()
+            .write(true)
+            .open(&block_path)
+            .map_err(|err| {
+                format!(
+                    "{label}：打开块文件失败（清理孤儿），path={}，error={err}",
+                    block_path.display()
+                )
+            })?
+            .set_len(keep_len as u64)
+            .map_err(|err| {
+                format!(
+                    "{label}：截断块文件失败（清理孤儿），path={}，error={err}",
+                    block_path.display()
+                )
+            })?;
+    }
+    Ok(keep_len as u64)
+}
+
 fn chat_metadata_store_publish_blocks(
     paths: &MessageStorePaths,
     meta: &ConversationShardMeta,
@@ -1029,7 +1073,7 @@ fn chat_metadata_store_publish_blocks(
         replaced_files.sort();
         replaced_files.dedup();
         let retired_files = retired_block_ids.iter()
-            .map(|block_id| format!("{MESSAGE_STORE_BLOCKS_DIR_NAME}/{block_id:06}.jsonl"))
+            .map(|block_id| format!("{MESSAGE_STORE_BLOCKS_DIR_NAME}/{block_id:06}.jsonl.zstd"))
             .filter(|file| !replaced_files.contains(file))
             .collect::<Vec<_>>();
         let mut expected_block_files = conn
@@ -1077,13 +1121,18 @@ fn chat_metadata_store_publish_blocks(
         }
         for block in changed_blocks {
             let staged = operation_root.join("new").join(&block.block_file);
-            write_jsonl_snapshot_atomic(&staged, &block.content)?;
+            write_jsonl_snapshot_block_v4_atomic(&staged, &block.content)?;
         }
         for block in changed_blocks {
             let staged = operation_root.join("new").join(&block.block_file);
-            let content = fs::read_to_string(&staged)
+            let compressed = fs::read(&staged)
                 .map_err(|err| format!("读取 SQLite staged block 失败，path={}，error={err}", staged.display()))?;
-            write_jsonl_snapshot_atomic(&paths.shard_dir.join(&block.block_file), &content)?;
+            write_message_store_bytes_atomic(
+                &paths.shard_dir.join(&block.block_file),
+                "jsonl.zstd.tmp",
+                &compressed,
+                "V4 压缩块",
+            )?;
         }
 
         let transaction = conn.transaction_with_behavior(TransactionBehavior::Immediate)
@@ -1112,10 +1161,14 @@ fn chat_metadata_store_publish_blocks(
             ).map_err(|err| format!("清理 SQLite 受影响 block 失败: {err}"))?;
         }
         for block in changed_blocks {
+            let staged = operation_root.join("new").join(&block.block_file);
+            let compressed_len = fs::metadata(&staged)
+                .map_err(|err| format!("读取 SQLite staged block 元数据失败，path={}，error={err}", staged.display()))?
+                .len();
             transaction.execute(
                 "INSERT INTO conversation_blocks(conversation_id, block_id, block_file, byte_len, message_count)
                  VALUES(?1, ?2, ?3, ?4, ?5)",
-                rusqlite::params![paths.conversation_id, block.block_id as i64, block.block_file, block.content.len() as i64, block.index_items.len() as i64],
+                rusqlite::params![paths.conversation_id, block.block_id as i64, block.block_file, compressed_len as i64, block.index_items.len() as i64],
             ).map_err(|err| format!("写入 SQLite block 失败: {err}"))?;
         }
         for (sequence, item) in locator_rows {
@@ -1170,6 +1223,17 @@ fn chat_metadata_store_append_messages(
             }
         }
         let entries = messages.iter().map(|message| (meta, message)).collect::<Vec<_>>();
+        // 追加前先对账尾块（torn/孤儿截断），否则整块解压读取会失败
+        if let Some(tail_row) = tail_rows.last() {
+            if let Some(block_id) = last_block_id {
+                chat_metadata_store_reconcile_block_tail(
+                    paths,
+                    block_id,
+                    tail_row.item.offset + tail_row.item.byte_len,
+                    "追加 SQLite 消息失败",
+                )?;
+            }
+        }
         // 只读尾行消息用于块规划，避免全读尾块（物理追加场景不需要旧行内容）
         let tail_last_message = match tail_rows.last() {
             Some(row) => read_jsonl_snapshot_messages_by_index_items(
@@ -1222,7 +1286,7 @@ fn chat_metadata_store_append_messages(
             let block_id = last_block_id.ok_or_else(|| "追加 SQLite 消息失败：缺少尾 block".to_string())?;
             let mut merged = tail_messages;
             merged.extend(plan.groups.first().cloned().unwrap_or_default());
-            let block_file = format!("{MESSAGE_STORE_BLOCKS_DIR_NAME}/{block_id:06}.jsonl");
+            let block_file = format!("{MESSAGE_STORE_BLOCKS_DIR_NAME}/{block_id:06}.jsonl.zstd");
             let refs = ConversationBlockMessageRefs {
                 block_id,
                 block_file,
@@ -1234,23 +1298,23 @@ fn chat_metadata_store_append_messages(
                 total_block_count,
             );
             let block = if should_slim {
-                build_jsonl_snapshot_conversation_block(&refs, true)?
+                build_jsonl_snapshot_conversation_block_v4(&refs, true)?
             } else {
-                // 尾部重建：尾块原始字节原样复用，只序列化新追加的消息
+                // V4 尾部重建：解压整块 → 复用目标行之前的明文前缀，只重序列化新追加的消息
                 let block_path = paths.shard_dir.join(&refs.block_file);
-                let raw = std::fs::read(&block_path).map_err(|err| {
-                    format!("追加 SQLite 消息失败：读取块文件失败，path={}，error={err}", block_path.display())
-                })?;
+                let plain = read_jsonl_snapshot_block_plain_v4(&block_path)?;
                 let prefix_items = tail_rows.iter().map(|row| row.item.clone()).collect::<Vec<_>>();
+                let prefix_end = prefix_items.last().map(|item| item.offset as usize + item.byte_len as usize).unwrap_or(0);
+                let prefix_bytes = &plain.as_bytes()[..prefix_end.min(plain.len())];
                 let new_messages = plan.groups.first().cloned().unwrap_or_default();
                 let tail_refs = ConversationBlockMessageRefs {
                     block_id,
                     block_file: refs.block_file.clone(),
                     messages: new_messages.iter().collect(),
                 };
-                build_jsonl_snapshot_conversation_block_tail(
+                build_jsonl_snapshot_conversation_block_tail_v4(
                     &tail_refs,
-                    &raw,
+                    prefix_bytes,
                     &prefix_items,
                     &new_messages,
                 )?
@@ -1268,10 +1332,10 @@ fn chat_metadata_store_append_messages(
             let block_id = new_block_ids[index - first_new_group_index];
             let refs = ConversationBlockMessageRefs {
                 block_id,
-                block_file: format!("{MESSAGE_STORE_BLOCKS_DIR_NAME}/{block_id:06}.jsonl"),
+                block_file: format!("{MESSAGE_STORE_BLOCKS_DIR_NAME}/{block_id:06}.jsonl.zstd"),
                 messages: group.iter().collect(),
             };
-            let block = build_jsonl_snapshot_conversation_block(&refs, should_slim_conversation_block(meta.status.trim() == "archived", block_id as usize, total_block_count))?;
+            let block = build_jsonl_snapshot_conversation_block_v4(&refs, should_slim_conversation_block(meta.status.trim() == "archived", block_id as usize, total_block_count))?;
             for item in &block.index_items { rows.push((next_sequence, item.clone())); next_sequence += 1; }
             changed_blocks.push(block);
         }
@@ -1297,18 +1361,18 @@ fn chat_metadata_store_append_physical(
     let publication_gate = chat_metadata_store_publication_gate(paths);
     let _publication_guard = publication_gate.write().unwrap_or_else(|poison| poison.into_inner());
 
-    // 1. 序列化新消息为明文行，offset 从尾行末尾顺延
-    let mut new_bytes = Vec::<u8>::new();
+    // 1. 序列化新消息为多行组明文，offset 从尾行末尾顺延（组级坐标）
+    let mut new_plain = String::new();
     let mut items = Vec::<MessageStoreIndexItem>::with_capacity(new_messages.len());
     let mut offset = tail_row.item.offset + tail_row.item.byte_len;
     for message in new_messages {
-        let encoded = encode_jsonl_snapshot_message(message)?;
-        let byte_len = encoded.as_bytes().len() as u64;
+        let lines = split_message_into_group_lines(message)?;
+        let group_len = lines.iter().map(|line| line.as_bytes().len() as u64).sum::<u64>();
         let item = message_store_index_item_for_message_in_block(
             message,
             Some(block_id),
             offset,
-            byte_len,
+            group_len,
         );
         if item.compaction_kind.is_none() && message_store_compaction_kind(message).is_some() {
             return Err(format!(
@@ -1316,9 +1380,11 @@ fn chat_metadata_store_append_physical(
                 message.id
             ));
         }
-        new_bytes.extend_from_slice(encoded.as_bytes());
+        for line in &lines {
+            new_plain.push_str(line);
+        }
         items.push(item);
-        offset = offset.checked_add(byte_len).ok_or_else(|| {
+        offset = offset.checked_add(group_len).ok_or_else(|| {
             format!(
                 "追加 SQLite 消息失败：block offset 溢出，conversation_id={}，block_id={}",
                 paths.conversation_id, block_id
@@ -1326,53 +1392,17 @@ fn chat_metadata_store_append_physical(
         })?;
     }
 
-    // 2. 文件：孤儿尾部清理 + 物理追加
-    let block_file = format!("{MESSAGE_STORE_BLOCKS_DIR_NAME}/{block_id:06}.jsonl");
+    // 2. 文件：追加前扫帧对账（torn/孤儿截断）+ 新组压帧 append
+    let block_file = format!("{MESSAGE_STORE_BLOCKS_DIR_NAME}/{block_id:06}.jsonl.zstd");
     let block_path = paths.shard_dir.join(&block_file);
-    let expected_len = tail_row.item.offset + tail_row.item.byte_len;
-    let file_len = fs::metadata(&block_path)
-        .map_err(|err| {
-            format!(
-                "追加 SQLite 消息失败：读取块文件元数据失败，path={}，error={err}",
-                block_path.display()
-            )
-        })?
-        .len();
-    if file_len < expected_len {
-        return Err(format!(
-            "追加 SQLite 消息失败：块文件长度小于索引期望，path={}，file_len={}，expected={}，conversation_id={}",
-            block_path.display(),
-            file_len,
-            expected_len,
-            paths.conversation_id
-        ));
-    }
-    if file_len > expected_len {
-        runtime_log_warn(format!(
-            "[消息存储] 追加前清理孤儿尾部字节，conversation_id={}，block_id={}，path={}，file_len={}，expected={}",
-            paths.conversation_id,
-            block_id,
-            block_path.display(),
-            file_len,
-            expected_len
-        ));
-        fs::OpenOptions::new()
-            .write(true)
-            .open(&block_path)
-            .map_err(|err| {
-                format!(
-                    "追加 SQLite 消息失败：打开块文件失败（清理孤儿），path={}，error={err}",
-                    block_path.display()
-                )
-            })?
-            .set_len(expected_len)
-            .map_err(|err| {
-                format!(
-                    "追加 SQLite 消息失败：截断块文件失败（清理孤儿），path={}，error={err}",
-                    block_path.display()
-                )
-            })?;
-    }
+    let expected_plain_len = tail_row.item.offset + tail_row.item.byte_len;
+    let keep_len = chat_metadata_store_reconcile_block_tail(
+        paths,
+        block_id,
+        expected_plain_len,
+        "追加 SQLite 消息失败",
+    )?;
+    let new_frame = zstd_compress_frame(new_plain.as_bytes())?;
     {
         use std::io::Write as _;
         let mut file = fs::OpenOptions::new()
@@ -1384,7 +1414,7 @@ fn chat_metadata_store_append_physical(
                     block_path.display()
                 )
             })?;
-        file.write_all(&new_bytes).map_err(|err| {
+        file.write_all(&new_frame).map_err(|err| {
             format!(
                 "追加 SQLite 消息失败：追加写入块文件失败，path={}，error={err}",
                 block_path.display()
@@ -1392,7 +1422,7 @@ fn chat_metadata_store_append_physical(
         })?;
     }
 
-    // 3. SQLite 事务：更新块元数据、插入 locator、递增 revision
+    // 3. SQLite 事务：更新块元数据（byte_len=压缩文件长度）、插入组级 locator、递增 revision
     let mut conn = chat_metadata_store_open(&paths.data_path)?;
     let before_revision = conn
         .query_row(
@@ -1407,7 +1437,7 @@ fn chat_metadata_store_append_physical(
         .transaction_with_behavior(TransactionBehavior::Immediate)
         .map_err(|err| format!("开启 SQLite 追加事务失败: {err}"))?;
     let new_message_count = existing_block_message_count + new_messages.len();
-    let new_byte_len = expected_len + new_bytes.len() as u64;
+    let new_byte_len = keep_len as u64 + new_frame.len() as u64;
     let updated_block = transaction
         .execute(
             "UPDATE conversation_blocks SET byte_len=?1, message_count=?2 WHERE conversation_id=?3 AND block_id=?4",
@@ -1462,6 +1492,165 @@ fn chat_metadata_store_append_physical(
         sequence += 1;
     }
     transaction.commit().map_err(|err| format!("提交 SQLite 追加事务失败: {err}"))?;
+    chat_metadata_store_write_result(&conn, paths)
+}
+
+/// 组内追加子行（D14：工具事件/正文累积不再走 replace）：
+/// 目标组必须是块尾组（帧追加的物理约束）。追加前扫帧对账（torn/孤儿截断），
+/// 新行明文压 zstd 帧 append 到文件尾；locator 只更新目标组的 byte_len
+/// （offset 不变、message_count 不变、sequence 不变）；块 byte_len 更新为压缩文件长度。
+///
+/// 前置条件：`target_row` 是块内最后一个 locator（调用方保证），`new_lines` 是
+/// 目标组新增的子行明文（工具行或正文行，含换行符）。调用方还需保证目标组形态
+/// 与新增行匹配（工具事件追加工具行、正文累积追加正文行）。
+fn chat_metadata_store_append_line_to_group_physical(
+    paths: &MessageStorePaths,
+    meta: &ConversationShardMeta,
+    block_id: u32,
+    target_row: &ChatMetadataLocator,
+    new_lines: &[String],
+) -> Result<MessageStoreDirectorySnapshotWrite, String> {
+    let publication_gate = chat_metadata_store_publication_gate(paths);
+    let _publication_guard = publication_gate.write().unwrap_or_else(|poison| poison.into_inner());
+
+    // 1. 序列化新增子行为明文，校验目标组在块尾（组尾 = 块明文尾）
+    let mut new_plain = String::new();
+    for line in new_lines {
+        new_plain.push_str(line);
+    }
+    if new_plain.is_empty() {
+        return Err(format!(
+            "组内追加子行失败：新增行为空，conversation_id={}，block_id={}，message_id={}",
+            paths.conversation_id, block_id, target_row.item.message_id
+        ));
+    }
+
+    // 2. 文件：追加前扫帧对账（torn/孤儿截断）+ 新行压帧 append
+    let block_file = format!("{MESSAGE_STORE_BLOCKS_DIR_NAME}/{block_id:06}.jsonl.zstd");
+    let block_path = paths.shard_dir.join(&block_file);
+    let expected_plain_len = target_row.item.offset + target_row.item.byte_len;
+    let raw = std::fs::read(&block_path).map_err(|err| {
+        format!(
+            "组内追加子行失败：读取块文件失败，path={}，error={err}",
+            block_path.display()
+        )
+    })?;
+    let keep_len = zstd_validate_tail_for_append(&raw, expected_plain_len as usize)?;
+    if keep_len < raw.len() {
+        runtime_log_warn(format!(
+            "[消息存储] 组内追加前清理孤儿/损坏尾部，conversation_id={}，block_id={}，path={}，file_len={}，keep_len={}",
+            paths.conversation_id,
+            block_id,
+            block_path.display(),
+            raw.len(),
+            keep_len
+        ));
+        fs::OpenOptions::new()
+            .write(true)
+            .open(&block_path)
+            .map_err(|err| {
+                format!(
+                    "组内追加子行失败：打开块文件失败（清理孤儿），path={}，error={err}",
+                    block_path.display()
+                )
+            })?
+            .set_len(keep_len as u64)
+            .map_err(|err| {
+                format!(
+                    "组内追加子行失败：截断块文件失败（清理孤儿），path={}，error={err}",
+                    block_path.display()
+                )
+            })?;
+    }
+    let new_frame = zstd_compress_frame(new_plain.as_bytes())?;
+    {
+        use std::io::Write as _;
+        let mut file = fs::OpenOptions::new()
+            .append(true)
+            .open(&block_path)
+            .map_err(|err| {
+                format!(
+                    "组内追加子行失败：打开块文件失败（追加），path={}，error={err}",
+                    block_path.display()
+                )
+            })?;
+        file.write_all(&new_frame).map_err(|err| {
+            format!(
+                "组内追加子行失败：追加写入块文件失败，path={}，error={err}",
+                block_path.display()
+            )
+        })?;
+    }
+
+    // 3. SQLite 事务：更新目标组 locator byte_len（offset 不变）+ 块 byte_len + revision
+    let mut conn = chat_metadata_store_open(&paths.data_path)?;
+    let before_revision = conn
+        .query_row(
+            "SELECT storage_revision FROM conversation_metadata WHERE conversation_id=?1",
+            [&paths.conversation_id],
+            |row| row.get::<_, i64>(0),
+        )
+        .optional()
+        .map_err(|err| format!("读取 SQLite storage revision 失败: {err}"))?
+        .ok_or_else(|| format!("SQLite 会话不存在，conversation_id={}", paths.conversation_id))?;
+    let transaction = conn
+        .transaction_with_behavior(TransactionBehavior::Immediate)
+        .map_err(|err| format!("开启 SQLite 组内追加事务失败: {err}"))?;
+    let new_locator_byte_len = target_row.item.byte_len + new_plain.as_bytes().len() as u64;
+    let updated_locator = transaction
+        .execute(
+            "UPDATE message_locator SET byte_len=?1 WHERE conversation_id=?2 AND sequence=?3",
+            rusqlite::params![
+                new_locator_byte_len as i64,
+                paths.conversation_id,
+                target_row.sequence
+            ],
+        )
+        .map_err(|err| format!("更新 SQLite locator byte_len 失败: {err}"))?;
+    if updated_locator != 1 {
+        return Err(format!(
+            "组内追加子行失败：locator 不存在，conversation_id={}，sequence={}",
+            paths.conversation_id, target_row.sequence
+        ));
+    }
+    let new_block_byte_len = keep_len as u64 + new_frame.len() as u64;
+    let updated_block = transaction
+        .execute(
+            "UPDATE conversation_blocks SET byte_len=?1 WHERE conversation_id=?2 AND block_id=?3",
+            rusqlite::params![
+                new_block_byte_len as i64,
+                paths.conversation_id,
+                block_id as i64
+            ],
+        )
+        .map_err(|err| format!("更新 SQLite block byte_len 失败: {err}"))?;
+    if updated_block != 1 {
+        return Err(format!(
+            "组内追加子行失败：block 不存在，conversation_id={}，block_id={}",
+            paths.conversation_id, block_id
+        ));
+    }
+    let meta_json = serde_json::to_string(meta).map_err(|err| format!("序列化 SQLite metadata 失败: {err}"))?;
+    let updated = transaction
+        .execute(
+            "UPDATE conversation_metadata SET metadata_json=?1, storage_revision=?2, updated_at=?3
+             WHERE conversation_id=?4 AND storage_revision=?5",
+            rusqlite::params![
+                meta_json,
+                before_revision + 1,
+                meta.updated_at(),
+                paths.conversation_id,
+                before_revision
+            ],
+        )
+        .map_err(|err| format!("发布 SQLite metadata 失败: {err}"))?;
+    if updated != 1 {
+        return Err(format!(
+            "组内追加子行失败：metadata revision 冲突，conversation_id={}",
+            paths.conversation_id
+        ));
+    }
+    transaction.commit().map_err(|err| format!("提交 SQLite 组内追加事务失败: {err}"))?;
     chat_metadata_store_write_result(&conn, paths)
 }
 
@@ -1580,7 +1769,7 @@ fn chat_metadata_store_splice_messages(
             let block_id = rebuilt_block_ids[offset];
             let refs = ConversationBlockMessageRefs {
                 block_id,
-                block_file: format!("{MESSAGE_STORE_BLOCKS_DIR_NAME}/{block_id:06}.jsonl"),
+                block_file: format!("{MESSAGE_STORE_BLOCKS_DIR_NAME}/{block_id:06}.jsonl.zstd"),
                 messages: source.messages.clone(),
             };
             let absolute_block_index = prefix_block_count + offset;
@@ -1591,7 +1780,7 @@ fn chat_metadata_store_splice_messages(
                 absolute_block_index,
                 total_rebuilt_block_count,
             );
-            let block = build_jsonl_snapshot_conversation_block(
+            let block = build_jsonl_snapshot_conversation_block_v4(
                 &refs,
                 should_slim,
             )?;
@@ -1641,7 +1830,10 @@ fn remote_wake_splice_should_preserve_trigger_in_new_block_and_slim_old_block() 
         }],
         extra_text_blocks: vec!["工具细节".to_string()],
         provider_meta: Some(serde_json::json!({"large": true})),
-        tool_call: Some(vec![serde_json::json!({"name": "tool"})]),
+        tool_call: Some(vec![
+            serde_json::json!({"type": "tool_call", "name": "tool"}),
+            serde_json::json!({"type": "tool_result", "name": "tool"}),
+        ]),
         mcp_call: None,
         meme_annotations: None,
     };
@@ -1691,6 +1883,7 @@ fn remote_wake_splice_should_preserve_trigger_in_new_block_and_slim_old_block() 
     let paths = message_store_paths(&data_path, &conversation.id).expect("paths");
     write_jsonl_snapshot_directory_shard(&paths, &conversation).expect("write fixture");
     chat_metadata_store_run_v3_migration(&data_path).expect("migrate v3");
+    migration_v3_to_v4(&data_path).expect("migrate v4");
     let mut summary = message("wake-summary", "user", "远程唤醒上下文");
     summary.provider_meta = Some(serde_json::json!({
         "message_meta": { "kind": "context_compaction" }
@@ -1766,8 +1959,8 @@ fn chat_metadata_store_append_messages_unlocked(
         let block_id = last_block_id.ok_or_else(|| "追加 SQLite 消息失败：缺少尾 block".to_string())?;
         let mut merged = tail_messages;
         merged.extend(plan.groups.first().cloned().unwrap_or_default());
-        let refs = ConversationBlockMessageRefs { block_id, block_file: format!("{MESSAGE_STORE_BLOCKS_DIR_NAME}/{block_id:06}.jsonl"), messages: merged.iter().collect() };
-        let block = build_jsonl_snapshot_conversation_block(&refs, should_slim_conversation_block(meta.status.trim() == "archived", block_id as usize, total_block_count))?;
+        let refs = ConversationBlockMessageRefs { block_id, block_file: format!("{MESSAGE_STORE_BLOCKS_DIR_NAME}/{block_id:06}.jsonl.zstd"), messages: merged.iter().collect() };
+        let block = build_jsonl_snapshot_conversation_block_v4(&refs, should_slim_conversation_block(meta.status.trim() == "archived", block_id as usize, total_block_count))?;
         for item in &block.index_items { rows.push((next_sequence, item.clone())); next_sequence += 1; }
         changed_blocks.push(block);
     }
@@ -1779,8 +1972,8 @@ fn chat_metadata_store_append_messages_unlocked(
     )?;
     for (index, group) in plan.groups.iter().enumerate().skip(first_new_group_index) {
         let block_id = new_block_ids[index - first_new_group_index];
-        let refs = ConversationBlockMessageRefs { block_id, block_file: format!("{MESSAGE_STORE_BLOCKS_DIR_NAME}/{block_id:06}.jsonl"), messages: group.iter().collect() };
-        let block = build_jsonl_snapshot_conversation_block(&refs, should_slim_conversation_block(meta.status.trim() == "archived", block_id as usize, total_block_count))?;
+        let refs = ConversationBlockMessageRefs { block_id, block_file: format!("{MESSAGE_STORE_BLOCKS_DIR_NAME}/{block_id:06}.jsonl.zstd"), messages: group.iter().collect() };
+        let block = build_jsonl_snapshot_conversation_block_v4(&refs, should_slim_conversation_block(meta.status.trim() == "archived", block_id as usize, total_block_count))?;
         for item in &block.index_items { rows.push((next_sequence, item.clone())); next_sequence += 1; }
         changed_blocks.push(block);
     }
@@ -1805,14 +1998,12 @@ fn chat_metadata_store_replace_message(
             block_count,
         );
         if !should_slim {
-            // 尾部重建：目标行之前的字节原样复用，只重新序列化目标行及之后
+            // 尾部重建：解压整块 → 目标行之前的明文前缀原样复用，只重新序列化目标行及之后
             let position = block_rows.iter().position(|row| row.item.message_id.trim() == message.id.trim())
                 .ok_or_else(|| format!("替换 SQLite 消息失败：block 中找不到消息，conversation_id={}，message_id={}", paths.conversation_id, message.id))?;
-            let block_file = format!("{MESSAGE_STORE_BLOCKS_DIR_NAME}/{block_id:06}.jsonl");
+            let block_file = format!("{MESSAGE_STORE_BLOCKS_DIR_NAME}/{block_id:06}.jsonl.zstd");
             let block_path = paths.shard_dir.join(&block_file);
-            let raw = std::fs::read(&block_path).map_err(|err| {
-                format!("替换 SQLite 消息失败：读取块文件失败，path={}，error={err}", block_path.display())
-            })?;
+            let plain = read_jsonl_snapshot_block_plain_v4(&block_path)?;
             let target_offset = usize::try_from(block_rows[position].item.offset).map_err(|_| {
                 format!(
                     "替换 SQLite 消息失败：消息偏移超出 usize 范围，conversation_id={}，message_id={}，offset={}",
@@ -1821,17 +2012,17 @@ fn chat_metadata_store_replace_message(
                     block_rows[position].item.offset
                 )
             })?;
-            if target_offset > raw.len() {
+            if target_offset > plain.len() {
                 return Err(format!(
-                    "替换 SQLite 消息失败：消息偏移超出块文件长度，conversation_id={}，message_id={}，offset={}，block_len={}，path={}",
+                    "替换 SQLite 消息失败：消息偏移超出块明文长度，conversation_id={}，message_id={}，offset={}，plain_len={}，path={}",
                     paths.conversation_id,
                     message.id.trim(),
                     target_offset,
-                    raw.len(),
+                    plain.len(),
                     block_path.display()
                 ));
             }
-            let prefix_bytes = &raw[0..target_offset];
+            let prefix_bytes = &plain.as_bytes()[0..target_offset];
             let prefix_items = block_rows[..position].iter().map(|row| row.item.clone()).collect::<Vec<_>>();
             let tail_items = block_rows[position..].iter().map(|row| row.item.clone()).collect::<Vec<_>>();
             let mut tail_messages = read_jsonl_snapshot_messages_by_index_items(
@@ -1844,7 +2035,7 @@ fn chat_metadata_store_replace_message(
                 block_file,
                 messages: tail_messages.iter().collect(),
             };
-            let rebuilt = build_jsonl_snapshot_conversation_block_tail(
+            let rebuilt = build_jsonl_snapshot_conversation_block_tail_v4(
                 &refs,
                 prefix_bytes,
                 &prefix_items,
@@ -1864,10 +2055,10 @@ fn chat_metadata_store_replace_message(
         messages[position] = message.clone();
         let refs = ConversationBlockMessageRefs {
             block_id,
-            block_file: format!("{MESSAGE_STORE_BLOCKS_DIR_NAME}/{block_id:06}.jsonl"),
+            block_file: format!("{MESSAGE_STORE_BLOCKS_DIR_NAME}/{block_id:06}.jsonl.zstd"),
             messages: messages.iter().collect(),
         };
-        let rebuilt = build_jsonl_snapshot_conversation_block(
+        let rebuilt = build_jsonl_snapshot_conversation_block_v4(
             &refs,
             should_slim_conversation_block(meta.status.trim() == "archived", block_id as usize, block_count),
         )?;
@@ -1917,10 +2108,10 @@ fn chat_metadata_store_replace_messages(
             }
             let refs = ConversationBlockMessageRefs {
                 block_id,
-                block_file: format!("{MESSAGE_STORE_BLOCKS_DIR_NAME}/{block_id:06}.jsonl"),
+                block_file: format!("{MESSAGE_STORE_BLOCKS_DIR_NAME}/{block_id:06}.jsonl.zstd"),
                 messages: block_messages.iter().collect(),
             };
-            let rebuilt = build_jsonl_snapshot_conversation_block(
+            let rebuilt = build_jsonl_snapshot_conversation_block_v4(
                 &refs,
                 should_slim_conversation_block(meta.status.trim() == "archived", block_id as usize, block_count),
             )?;
@@ -1963,10 +2154,10 @@ fn chat_metadata_store_truncate_messages(
         let block_count = chat_metadata_store_read_block_count(paths)?;
         let refs = ConversationBlockMessageRefs {
             block_id,
-            block_file: format!("{MESSAGE_STORE_BLOCKS_DIR_NAME}/{block_id:06}.jsonl"),
+            block_file: format!("{MESSAGE_STORE_BLOCKS_DIR_NAME}/{block_id:06}.jsonl.zstd"),
             messages: kept_messages.iter().collect(),
         };
-        let rebuilt = build_jsonl_snapshot_conversation_block(
+        let rebuilt = build_jsonl_snapshot_conversation_block_v4(
             &refs,
             should_slim_conversation_block(meta.status.trim() == "archived", block_id as usize, block_count.saturating_sub(retired.len())),
         )?;
@@ -2299,8 +2490,12 @@ fn chat_metadata_store_next_available_block_id(
     };
     while paths
         .blocks_dir
-        .join(format!("{candidate:06}.jsonl"))
+        .join(format!("{candidate:06}.jsonl.zstd"))
         .exists()
+        || paths
+            .blocks_dir
+            .join(format!("{candidate:06}.jsonl"))
+            .exists()
     {
         candidate = candidate.checked_add(1).ok_or_else(|| {
             format!(
@@ -2359,7 +2554,7 @@ fn chat_metadata_store_remap_snapshot_blocks(
     }
     for (block, block_id) in blocks.blocks.iter_mut().zip(block_ids.iter().copied()) {
         block.block_id = block_id;
-        block.block_file = format!("{MESSAGE_STORE_BLOCKS_DIR_NAME}/{block_id:06}.jsonl");
+        block.block_file = format!("{MESSAGE_STORE_BLOCKS_DIR_NAME}/{block_id:06}.jsonl.zstd");
         for item in &mut block.index_items {
             item.block_id = Some(block_id);
         }
@@ -2390,7 +2585,7 @@ fn chat_metadata_store_write_snapshot_unlocked(
     let existing_current_block_files =
         chat_metadata_store_current_block_files(&conn, &paths.conversation_id)?;
     let existing_current_block_ids = chat_metadata_store_read_all_block_ids(paths)?;
-    let mut blocks = build_jsonl_snapshot_conversation_blocks_for_conversation(conversation)?;
+    let mut blocks = build_jsonl_snapshot_conversation_blocks_for_conversation_v4(conversation)?;
     // V1/V2 与 V3 历史上共用 blocks 目录。优先复用 SQLite current
     // 已管理的 block ID；新增 block 从上一个 current ID 向后查找，
     // 只跳过磁盘实际已占用的文件，避免覆盖未被 current 管理的旧 artifact。
@@ -2410,7 +2605,7 @@ fn chat_metadata_store_write_snapshot_unlocked(
     chat_metadata_copy_blocks(&paths.blocks_dir, &old_blocks_dir)?;
     let expected_files = blocks.blocks.iter().map(|block| block.block_file.clone()).collect::<std::collections::HashSet<_>>();
     for block in &blocks.blocks {
-        write_jsonl_snapshot_atomic(&new_blocks_dir.join(&block.block_file), &block.content)?;
+        write_jsonl_snapshot_block_v4_atomic(&new_blocks_dir.join(&block.block_file), &block.content)?;
     }
     let retired_files = existing_current_block_files
         .difference(&expected_files)
@@ -2438,9 +2633,14 @@ fn chat_metadata_store_write_snapshot_unlocked(
         rusqlite::params![operation_id, paths.conversation_id, before_revision, before_revision + 1, detail_json, now_iso()],
     ).map_err(|err| format!("登记 v3 存储操作失败: {err}"))?;
     for block in &blocks.blocks {
-        let staged = fs::read_to_string(new_blocks_dir.join(&block.block_file))
+        let staged = fs::read(new_blocks_dir.join(&block.block_file))
             .map_err(|err| format!("读取 v3 staged block 失败，block={}，error={err}", block.block_file))?;
-        write_jsonl_snapshot_atomic(&paths.shard_dir.join(&block.block_file), &staged)?;
+        write_message_store_bytes_atomic(
+            &paths.shard_dir.join(&block.block_file),
+            "jsonl.zstd.tmp",
+            &staged,
+            "V4 压缩块",
+        )?;
     }
     let transaction = conn.transaction_with_behavior(TransactionBehavior::Immediate)
         .map_err(|err| format!("开启 v3 发布事务失败: {err}"))?;
@@ -2453,9 +2653,13 @@ fn chat_metadata_store_write_snapshot_unlocked(
     transaction.execute("DELETE FROM conversation_blocks WHERE conversation_id=?1", [&paths.conversation_id]).map_err(|err| format!("清理 v3 旧 block 失败: {err}"))?;
     transaction.execute("DELETE FROM message_locator WHERE conversation_id=?1", [&paths.conversation_id]).map_err(|err| format!("清理 v3 旧 locator 失败: {err}"))?;
     for block in &blocks.blocks {
+        let staged = new_blocks_dir.join(&block.block_file);
+        let compressed_len = fs::metadata(&staged)
+            .map_err(|err| format!("读取 v3 staged block 元数据失败，block={}，error={err}", block.block_file))?
+            .len();
         transaction.execute(
             "INSERT INTO conversation_blocks(conversation_id, block_id, block_file, byte_len, message_count) VALUES(?1, ?2, ?3, ?4, ?5)",
-            rusqlite::params![paths.conversation_id, block.block_id as i64, block.block_file, block.content.len() as i64, block.index_items.len() as i64],
+            rusqlite::params![paths.conversation_id, block.block_id as i64, block.block_file, compressed_len as i64, block.index_items.len() as i64],
         ).map_err(|err| format!("发布 v3 block 失败: {err}"))?;
     }
     for (sequence, item) in blocks.index.items.iter().enumerate() {
@@ -2914,9 +3118,11 @@ fn v3_chat_metadata_physical_append_should_append_bytes_without_rebuilding() {
     let paths = message_store_paths(&data_path, &conversation.id).expect("paths");
     write_jsonl_snapshot_directory_shard(&paths, &conversation).expect("write v2 fixture");
     chat_metadata_store_run_v3_migration(&data_path).expect("migrate v3");
+    migration_v3_to_v4(&data_path).expect("migrate v4");
 
-    let block_path = paths.shard_dir.join(format!("{MESSAGE_STORE_BLOCKS_DIR_NAME}/000000.jsonl"));
+    let block_path = paths.shard_dir.join(format!("{MESSAGE_STORE_BLOCKS_DIR_NAME}/000000.jsonl.zstd"));
     let before_bytes = fs::read(&block_path).expect("read block before append");
+    let before_plain = zstd_decompress_block(&before_bytes).expect("decompress before append");
 
     let mut after_append = conversation.clone();
     after_append.messages.push(message("m2", "assistant"));
@@ -2927,9 +3133,13 @@ fn v3_chat_metadata_physical_append_should_append_bytes_without_rebuilding() {
     )
     .expect("physical append");
 
-    // 1. 块文件 = 旧字节原样 + 新行（物理追加，未重建前缀）
+    // 1. 块文件 = 旧压缩帧原样 + 新帧（帧追加，未重建前缀）
     let after_bytes = fs::read(&block_path).expect("read block after append");
-    assert!(after_bytes.starts_with(&before_bytes), "物理追加应原样保留旧字节");
+    let after_plain = zstd_decompress_block(&after_bytes).expect("decompress after append");
+    assert!(
+        String::from_utf8_lossy(&after_plain).starts_with(&*String::from_utf8_lossy(&before_plain)),
+        "帧追加应原样保留旧明文前缀"
+    );
     assert!(after_bytes.len() > before_bytes.len());
 
     // 2. 读取一致
@@ -2939,12 +3149,12 @@ fn v3_chat_metadata_physical_append_should_append_bytes_without_rebuilding() {
     assert_eq!(read_messages.messages.len(), 2);
     assert_eq!(read_messages.messages[1].id, "m2");
 
-    // 3. locator 顺延：m2 offset = m1 末尾，sequence 连续
+    // 3. locator 顺延：m2 offset = m1 末尾（明文坐标），sequence 连续
     let m1 = chat_metadata_store_read_locator_by_id(&paths, "m1").expect("read m1 locator").expect("m1 exists");
     let m2 = chat_metadata_store_read_locator_by_id(&paths, "m2").expect("read m2 locator").expect("m2 exists");
     assert_eq!(m2.item.offset, m1.item.offset + m1.item.byte_len);
     assert_eq!(m2.sequence, m1.sequence + 1);
-    assert_eq!(after_bytes.len() as u64, m2.item.offset + m2.item.byte_len);
+    assert_eq!(after_plain.len() as u64, m2.item.offset + m2.item.byte_len);
 
     // 4. 再追加一条：仍然物理追加、sequence 继续顺延
     let mut after_append2 = after_append.clone();
@@ -2980,13 +3190,14 @@ fn v3_chat_metadata_physical_append_should_truncate_orphan_tail_bytes() {
     let paths = message_store_paths(&data_path, &conversation.id).expect("paths");
     write_jsonl_snapshot_directory_shard(&paths, &conversation).expect("write v2 fixture");
     chat_metadata_store_run_v3_migration(&data_path).expect("migrate v3");
+    migration_v3_to_v4(&data_path).expect("migrate v4");
 
-    // 模拟上次追加崩溃残留：块文件尾有未登记 locator 的孤儿字节
-    let block_path = paths.shard_dir.join(format!("{MESSAGE_STORE_BLOCKS_DIR_NAME}/000000.jsonl"));
+    // 模拟上次追加崩溃残留：块文件尾有未登记 locator 的孤儿字节（torn 帧）
+    let block_path = paths.shard_dir.join(format!("{MESSAGE_STORE_BLOCKS_DIR_NAME}/000000.jsonl.zstd"));
     {
         use std::io::Write as _;
         let mut file = fs::OpenOptions::new().append(true).open(&block_path).expect("open block for orphan");
-        file.write_all(b"{\"orphan\":true}\n").expect("append orphan bytes");
+        file.write_all(b"\x28\xb5\x2f\xfd orphan-garbage").expect("append orphan bytes");
     }
 
     // 追加 m2：应截断孤儿后再物理追加
@@ -3000,12 +3211,13 @@ fn v3_chat_metadata_physical_append_should_truncate_orphan_tail_bytes() {
     .expect("append after orphan");
 
     let after_bytes = fs::read(&block_path).expect("read block after orphan cleanup");
-    let content = String::from_utf8(after_bytes.clone()).expect("block utf8");
+    let after_plain = zstd_decompress_block(&after_bytes).expect("decompress after orphan cleanup");
+    let content = String::from_utf8(after_plain.clone()).expect("block utf8");
     assert!(!content.contains("orphan"), "孤儿字节应被截断");
 
-    // 文件尾 = 最后登记行末尾（m2 offset+len），无残留
+    // 文件尾 = 最后登记组末尾（m2 offset+len，明文坐标），无残留
     let m2 = chat_metadata_store_read_locator_by_id(&paths, "m2").expect("read m2 locator").expect("m2 exists");
-    assert_eq!(after_bytes.len() as u64, m2.item.offset + m2.item.byte_len);
+    assert_eq!(after_plain.len() as u64, m2.item.offset + m2.item.byte_len);
 
     // 读取一致
     let read_messages = chat_metadata_store_read_conversation(&paths)
@@ -3033,6 +3245,7 @@ fn v3_chat_metadata_mutations_should_publish_only_sql_locator_and_blocks() {
     let paths = message_store_paths(&data_path, &conversation.id).expect("paths");
     write_jsonl_snapshot_directory_shard(&paths, &conversation).expect("write v2 fixture");
     chat_metadata_store_run_v3_migration(&data_path).expect("migrate v3");
+    migration_v3_to_v4(&data_path).expect("migrate v4");
 
     active_plan_append_in_progress(
         &data_path,

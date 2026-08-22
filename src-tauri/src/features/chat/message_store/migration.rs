@@ -449,8 +449,11 @@ fn migration_rebuild_v2_snapshot(
     let mut total_bytes = 0_u64;
     let mut last_message_id = String::new();
     for block_id in block_ids {
-        let block_path = jsonl_snapshot_index_item_path(&paths.messages_file, Some(block_id))
-            .map_err(MigrationV2ToV3Failure::ConversationSkipped)?;
+        // V2→V3 迁移读 V2 明文块（.jsonl），不随生产切 .jsonl.zstd
+        let block_path = paths
+            .shard_dir
+            .join(MESSAGE_STORE_BLOCKS_DIR_NAME)
+            .join(format!("{block_id:06}.jsonl"));
         let raw = fs::read_to_string(&block_path).map_err(|err| {
             migration_v2_io_failure("迁移读取 V2 block 失败", &block_path, err)
         })?;
@@ -571,8 +574,11 @@ fn migration_v2_to_v3_conversation(
         [&paths.conversation_id],
     ).map_err(|err| MigrationV2ToV3Failure::SystemFailure(format!("清理 V3 locator 失败: {err}")))?;
     for block_id in index.items.iter().filter_map(|item| item.block_id).collect::<std::collections::BTreeSet<_>>() {
-        let block_path = jsonl_snapshot_index_item_path(&paths.messages_file, Some(block_id))
-            .map_err(MigrationV2ToV3Failure::ConversationSkipped)?;
+        // V2→V3 迁移读 V2 明文块（.jsonl），不随生产切 .jsonl.zstd
+        let block_path = paths
+            .shard_dir
+            .join(MESSAGE_STORE_BLOCKS_DIR_NAME)
+            .join(format!("{block_id:06}.jsonl"));
         let byte_len = fs::metadata(&block_path).map_err(|err| {
             migration_v2_io_failure("读取 V2 block 长度失败", &block_path, err)
         })?.len();

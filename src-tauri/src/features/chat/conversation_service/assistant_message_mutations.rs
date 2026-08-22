@@ -93,7 +93,7 @@ impl ConversationServiceV2 {
                     input.provider_meta_patch.clone(),
                 );
                 let tool_event_count = target_message.tool_call.as_ref().map(Vec::len).unwrap_or(0);
-                self.persist_replaced_ready_message_locked(state, conversation_id, &target_message)?;
+                self.persist_appended_ready_message_locked(state, conversation_id, &target_message)?;
                 Ok(AssistantMessageToolAppendResult {
                     conversation_id: conversation_id.to_string(),
                     assistant_message_id: assistant_message_id.to_string(),
@@ -186,7 +186,7 @@ impl ConversationServiceV2 {
                 target_message.meme_annotations = input.meme_annotations.clone();
                 mark_stream_final_committed_v2(&mut target_message.provider_meta);
 
-                self.persist_replaced_ready_message_locked(state, conversation_id, &target_message)?;
+                self.persist_appended_ready_message_locked(state, conversation_id, &target_message)?;
                 Ok(target_message)
             },
         )?;

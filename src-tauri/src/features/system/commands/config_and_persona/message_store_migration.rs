@@ -540,9 +540,10 @@ fn run_message_store_v2_to_v3_stage_if_ready(
     message_store::migration_v2_to_v3(&state.data_path)?;
     let config = state_read_config_cached(state)?;
     message_store::chat_metadata_store_run_usage_trail_migration(&state.data_path, &config)?;
+    message_store::migration_v3_to_v4(&state.data_path)?;
     state_service_set_message_store_migration_version(
         state,
-        DATA_MIGRATION_VERSION_V3_CHAT_METADATA_SQLITE,
+        DATA_MIGRATION_CURRENT_VERSION,
     )?;
     Ok(true)
 }

@@ -60,7 +60,7 @@ struct SaveAgentsInput {
     agents: Vec<AgentProfile>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", tag = "type")]
 enum MessagePart {
     Text {
@@ -91,7 +91,7 @@ enum MessagePart {
     },
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct MemeAnnotation {
     meme: String,

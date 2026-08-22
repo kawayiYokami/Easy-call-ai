@@ -53,6 +53,12 @@ impl ConversationServiceV2Error {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum PersistReadyMessageMode {
+    Replace,
+    AppendLineToGroup,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 enum ConversationOverwriteSource {
@@ -960,6 +966,35 @@ impl ConversationServiceV2 {
         conversation_id: &str,
         updated_message: &ChatMessage,
     ) -> Result<(), String> {
+        self.persist_ready_message_locked_inner(
+            state,
+            conversation_id,
+            updated_message,
+            PersistReadyMessageMode::Replace,
+        )
+    }
+
+    fn persist_appended_ready_message_locked(
+        &self,
+        state: &AppState,
+        conversation_id: &str,
+        updated_message: &ChatMessage,
+    ) -> Result<(), String> {
+        self.persist_ready_message_locked_inner(
+            state,
+            conversation_id,
+            updated_message,
+            PersistReadyMessageMode::AppendLineToGroup,
+        )
+    }
+
+    fn persist_ready_message_locked_inner(
+        &self,
+        state: &AppState,
+        conversation_id: &str,
+        updated_message: &ChatMessage,
+        mode: PersistReadyMessageMode,
+    ) -> Result<(), String> {
         let previous_message = self.get_raw_message_by_id(
             state,
             conversation_id,
@@ -1004,11 +1039,23 @@ impl ConversationServiceV2 {
         )?;
         ready_meta.apply_metadata_fields_from_meta(&updated_meta);
         ready_meta.preserve_message_derived_fields_from(&updated_meta);
-        message_store::chat_store_replace_message(
-            &paths,
-            &ready_meta.to_persist_meta(),
-            updated_message,
-        )?;
+        match mode {
+            PersistReadyMessageMode::Replace => {
+                message_store::chat_store_replace_message(
+                    &paths,
+                    &ready_meta.to_persist_meta(),
+                    updated_message,
+                )?;
+            }
+            PersistReadyMessageMode::AppendLineToGroup => {
+                message_store::chat_store_append_line_to_group(
+                    &paths,
+                    &ready_meta.to_persist_meta(),
+                    &previous_message,
+                    updated_message,
+                )?;
+            }
+        }
         self.mark_conversation_metadata_cached_persisted(state, conversation_id)?;
         Ok(())
     }
