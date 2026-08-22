@@ -139,12 +139,20 @@ pub(super) fn assemble_group_message(lines: &[String]) -> Result<ChatMessage, St
             GROUP_LINE_KIND_TOOL => {
                 let tool_line: GroupToolLine = serde_json::from_value(parsed)
                     .map_err(|err| format!("解析工具行失败: {err}"))?;
-                if common.is_none() {
+                if let Some((id, _, _, _)) = &common {
+                    if *id != tool_line.id {
+                        return Err(format!(
+                            "V4 组内工具行 id 不一致，group_id={}，line_id={}",
+                            id,
+                            tool_line.id.trim()
+                        ));
+                    }
+                } else {
                     common = Some((
-                        tool_line.id,
-                        tool_line.role,
-                        tool_line.created_at,
-                        tool_line.speaker_agent_id,
+                        tool_line.id.clone(),
+                        tool_line.role.clone(),
+                        tool_line.created_at.clone(),
+                        tool_line.speaker_agent_id.clone(),
                     ));
                 }
                 tool_call.push(tool_line.event);
@@ -152,12 +160,21 @@ pub(super) fn assemble_group_message(lines: &[String]) -> Result<ChatMessage, St
             GROUP_LINE_KIND_ASSISTANT => {
                 let assistant_line: GroupAssistantLine = serde_json::from_value(parsed)
                     .map_err(|err| format!("解析正文行失败: {err}"))?;
-                if common.is_none() {
+                if let Some((id, _, _, _)) = &common {
+                    // 组内后续正文行必须与组首 id 一致，错位行不得静默并入
+                    if *id != assistant_line.id {
+                        return Err(format!(
+                            "V4 组内正文行 id 不一致，group_id={}，line_id={}",
+                            id,
+                            assistant_line.id.trim()
+                        ));
+                    }
+                } else {
                     common = Some((
-                        assistant_line.id,
-                        assistant_line.role,
-                        assistant_line.created_at,
-                        assistant_line.speaker_agent_id,
+                        assistant_line.id.clone(),
+                        assistant_line.role.clone(),
+                        assistant_line.created_at.clone(),
+                        assistant_line.speaker_agent_id.clone(),
                     ));
                 }
                 parts = assistant_line.parts;
@@ -168,6 +185,15 @@ pub(super) fn assemble_group_message(lines: &[String]) -> Result<ChatMessage, St
             }
             GROUP_LINE_KIND_MESSAGE => {
                 let message = decode_jsonl_snapshot_message(trimmed)?;
+                // message 行必须是组内唯一有效行；组内已出现正文/工具行说明
+                // 「message 行 + 其他行」混排（帧落盘但事务未提交的崩溃形态），
+                // 静默返回会丢弃后续行，这里显式报错让上层走整块校验。
+                if !tool_call.is_empty() || common.is_some() {
+                    return Err(format!(
+                        "V4 组内出现普通消息行与其它行混排，message_id={}",
+                        message.id.trim()
+                    ));
+                }
                 return Ok(message);
             }
             other => {

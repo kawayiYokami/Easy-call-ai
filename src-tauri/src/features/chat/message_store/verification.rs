@@ -117,7 +117,6 @@ pub(super) fn parse_jsonl_snapshot_group_blocks_v4(
     let mut group_lines = Vec::<String>::new();
     let mut group_byte_len = 0_u64;
     let mut group_id = String::new();
-    let mut group_closed = false;
 
     let close_group = |group_lines: &mut Vec<String>,
                        group_byte_len: &mut u64,
@@ -161,11 +160,10 @@ pub(super) fn parse_jsonl_snapshot_group_blocks_v4(
             .and_then(|value| value.as_str())
             .unwrap_or("")
             .to_string();
-        // 新组开始的三种情形：普通消息行、上一行是正文行（组已终结）、tool 行 id 变化
-        let starts_new_group = !is_group_start
-            && (kind == GROUP_LINE_KIND_MESSAGE
-                || group_closed
-                || (kind == GROUP_LINE_KIND_TOOL && line_id != group_id));
+        // 新组开始：普通消息行（单行组），或行 id 与当前组 id 不一致（正文/工具行按 id 归组；
+        // 同 id 的连续正文行属于同一消息的追加正文，必须留在同一组内）
+        let starts_new_group =
+            !is_group_start && (kind == GROUP_LINE_KIND_MESSAGE || line_id != group_id);
         if starts_new_group {
             close_group(&mut group_lines, &mut group_byte_len, group_start_offset, &mut groups)?;
             group_id.clear();
@@ -179,12 +177,10 @@ pub(super) fn parse_jsonl_snapshot_group_blocks_v4(
             group_byte_len += byte_len;
             close_group(&mut group_lines, &mut group_byte_len, group_start_offset, &mut groups)?;
             group_id.clear();
-            group_closed = false;
         } else {
             group_lines.push(line.to_string());
             group_byte_len += byte_len;
             group_id = line_id;
-            group_closed = kind == GROUP_LINE_KIND_ASSISTANT;
         }
         offset += byte_len;
     }
