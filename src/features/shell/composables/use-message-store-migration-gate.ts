@@ -22,20 +22,23 @@ type MessageStoreMigrationRuntimeStatus = {
 
 export type MessageStoreMigrationGateBindings = {
   formatRequestFailed: (error: unknown) => string;
+  t: (key: string, params?: Record<string, unknown>) => string;
 };
 
 const MIGRATION_STATUS_POLL_INTERVAL_MS = 500;
 
-const MIGRATION_STAGE_LABELS: Record<string, string> = {
-  v1_to_v2: "第 1 阶段",
-  v2_to_v3: "第 2 阶段",
-  v3_to_v4: "第 3 阶段",
-  usage_trail: "用量数据",
+const MIGRATION_STAGE_LABEL_KEYS: Record<string, string> = {
+  v1_to_v2: "config.messageStoreMigration.stage1",
+  v2_to_v3: "config.messageStoreMigration.stage2",
+  v3_to_v4: "config.messageStoreMigration.stage3",
+  usage_trail: "config.messageStoreMigration.stageUsageTrail",
 };
 
-function stageLabel(stage?: string | null): string {
+function stageLabel(t: (key: string, params?: Record<string, unknown>) => string, stage?: string | null): string {
   const key = String(stage || "").trim();
-  return MIGRATION_STAGE_LABELS[key] || key || "迁移";
+  const labelKey = MIGRATION_STAGE_LABEL_KEYS[key];
+  if (labelKey) return t(labelKey);
+  return key || t("config.messageStoreMigration.stageFallback");
 }
 
 function delay(ms: number): Promise<void> {
@@ -76,21 +79,27 @@ export function useMessageStoreMigrationGate(bindings: MessageStoreMigrationGate
         break;
       case "waitingStart":
         messageStoreMigration.mode = "waiting";
-        messageStoreMigration.message = "正在准备迁移会话消息仓库...";
+        messageStoreMigration.message = bindings.t("config.messageStoreMigration.waiting");
         break;
       case "running":
         messageStoreMigration.mode = "migrating";
-        messageStoreMigration.message = `正在迁移（${stageLabel(status.stage)}）：${title || "会话"}`;
+        messageStoreMigration.message = bindings.t(
+          "config.messageStoreMigration.runningWithTitle",
+          {
+            stage: stageLabel(bindings.t, status.stage),
+            title: title || bindings.t("config.messageStoreMigration.conversationFallback"),
+          },
+        );
         break;
       case "completed":
         messageStoreMigration.mode = "completed";
         messageStoreMigration.message =
-          String(status.detail || "").trim() || "会话消息仓库迁移完成";
+          String(status.detail || "").trim() || bindings.t("config.messageStoreMigration.completed");
         break;
       case "failed":
         messageStoreMigration.mode = "error";
         messageStoreMigration.message =
-          String(status.detail || "").trim() || "会话消息仓库迁移失败";
+          String(status.detail || "").trim() || bindings.t("config.messageStoreMigration.failed");
         break;
     }
     messageStoreMigration.visible = messageStoreMigration.mode !== "idle";
@@ -134,7 +143,7 @@ export function useMessageStoreMigrationGate(bindings: MessageStoreMigrationGate
     try {
       await invokeTauri("messageStore.migration.run", {});
       messageStoreMigration.mode = "waiting";
-      messageStoreMigration.message = "正在准备迁移会话消息仓库...";
+      messageStoreMigration.message = bindings.t("config.messageStoreMigration.waiting");
     } catch (error) {
       messageStoreMigration.mode = "error";
       messageStoreMigration.message = bindings.formatRequestFailed(error);

@@ -215,6 +215,7 @@ export function useChatWindowApp() {
     retryMessageStoreMigration,
   } = useMessageStoreMigrationGate({
     formatRequestFailed: (error) => formatI18nError(tr, "status.requestFailed", error),
+    t: tr,
   });
   const { perfNow, perfLog, setStatus, setStatusError, statusTone, localeOptions, applyUiLanguage } = useAppCore({
     t: tr,

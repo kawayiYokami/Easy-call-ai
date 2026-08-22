@@ -504,6 +504,7 @@ const {
   retryMessageStoreMigration,
 } = useMessageStoreMigrationGate({
   formatRequestFailed: (error) => formatI18nError(tr, "status.requestFailed", error),
+  t: tr,
 });
 const {
   hotkeyTestRecording,

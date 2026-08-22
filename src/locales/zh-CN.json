@@ -1445,7 +1445,17 @@
       "confirm": "确认",
       "retry": "重试",
       "migratedCount": "迁移会话",
-      "discardedCount": "废弃会话"
+      "discardedCount": "废弃会话",
+      "stage1": "第 1 阶段",
+      "stage2": "第 2 阶段",
+      "stage3": "第 3 阶段",
+      "stageUsageTrail": "用量数据",
+      "stageFallback": "迁移",
+      "waiting": "正在准备迁移会话消息仓库...",
+      "runningWithTitle": "正在迁移（{stage}）：{title}",
+      "conversationFallback": "会话",
+      "completed": "会话消息仓库迁移完成",
+      "failed": "会话消息仓库迁移失败"
     }
   },
   "responseStyle": {
