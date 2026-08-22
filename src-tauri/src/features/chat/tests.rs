@@ -6087,6 +6087,23 @@
                 Some("provider_tool_round")
             );
         }
+
+        // 事件缺 contextWindowTokens：占用率无法正确计算，应跳过而不是退化为 prompt_tokens
+        let tool_call_missing_window = Some(vec![serde_json::json!({
+            "role": "assistant",
+            "tool_calls": [],
+            "usage": {"promptTokens": 1200},
+        })]);
+        let mut meta = Some(serde_json::json!({}));
+        merge_last_tool_call_usage_into_provider_meta(&mut meta, &tool_call_missing_window);
+        assert!(
+            meta.as_ref().and_then(|m| m.get("contextUsageRatio")).is_none(),
+            "缺 contextWindowTokens 时不写入 contextUsageRatio"
+        );
+        assert!(
+            meta.as_ref().and_then(|m| m.get("providerPromptTokens")).is_none(),
+            "缺 contextWindowTokens 时不写入 providerPromptTokens"
+        );
     }
 
     #[test]

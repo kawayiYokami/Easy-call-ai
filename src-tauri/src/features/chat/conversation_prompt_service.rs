@@ -149,23 +149,29 @@ fn prompt_usage_resolution_from_provider_meta(
 
 /// 从最新一组消息的工具事件倒序取最后一个带真实用量的调用事件。
 /// 与 meta 同口径：只有来源是 API 的调用事件才带 usage，非 API 事件（工具结果等）不写。
-fn prompt_usage_resolution_from_tool_events(
-    tool_call: &Option<Vec<Value>>,
-    selected_api: &ApiConfig,
-) -> Option<PromptUsageResolution> {
-    let (prompt_tokens, event_window) = tool_call.as_deref()?.iter().rev().find_map(|event| {
+/// 返回 (prompt_tokens, context_window)；context_window 缺失时由调用方决定回退策略
+/// （落盘侧跳过以保护占用率口径，展示侧用 API 配置窗口兜底）。
+fn resolve_tool_call_usage(tool_call: &[Value]) -> Option<(u64, Option<u64>)> {
+    tool_call.iter().rev().find_map(|event| {
         let usage = event.get("usage")?;
         let prompt_tokens = usage
             .get("promptTokens")
             .and_then(Value::as_u64)
             .filter(|value| *value > 0)?;
-        let event_window = usage
+        let context_window = usage
             .get("contextWindowTokens")
             .and_then(Value::as_u64)
-            .filter(|value| *value > 0)
-            .unwrap_or(u64::from(selected_api.context_window_tokens.max(1)));
-        Some((prompt_tokens, event_window))
-    })?;
+            .filter(|value| *value > 0);
+        Some((prompt_tokens, context_window))
+    })
+}
+
+fn prompt_usage_resolution_from_tool_events(
+    tool_call: &Option<Vec<Value>>,
+    selected_api: &ApiConfig,
+) -> Option<PromptUsageResolution> {
+    let (prompt_tokens, event_window) = resolve_tool_call_usage(tool_call.as_deref()?)?;
+    let event_window = event_window.unwrap_or(u64::from(selected_api.context_window_tokens.max(1)));
     Some(PromptUsageResolution {
         effective_prompt_tokens: prompt_tokens,
         usage_ratio: prompt_tokens as f64 / (event_window as f64).max(1.0),

@@ -489,21 +489,12 @@ fn merge_last_tool_call_usage_into_provider_meta(
     let Some(events) = tool_call.as_deref() else {
         return;
     };
-    let Some(usage) = events.iter().rev().find_map(|event| {
-        let usage = event.get("usage")?;
-        let prompt_tokens = usage.get("promptTokens")?.as_u64().filter(|v| *v > 0)?;
-        let context_window = usage
-            .get("contextWindowTokens")
-            .and_then(Value::as_u64)
-            .filter(|v| *v > 0)
-            .unwrap_or(1);
-        Some((prompt_tokens, context_window))
-    }) else {
+    let Some((prompt_tokens, Some(context_window))) = resolve_tool_call_usage(events) else {
+        // 事件缺 contextWindowTokens：占用率无法正确计算，跳过（不派生出错误的占用率）
         return;
     };
-    let (prompt_tokens, context_window) = usage;
     let usage_ratio = prompt_tokens as f64 / context_window as f64;
-    let usage_percent = usage_ratio.mul_add(100.0, 0.0).round().clamp(0.0, 100.0) as u32;
+    let usage_percent = (usage_ratio * 100.0).round().clamp(0.0, 100.0) as u32;
     let mut current = target.take().unwrap_or_else(|| serde_json::json!({}));
     if !current.is_object() {
         current = serde_json::json!({
