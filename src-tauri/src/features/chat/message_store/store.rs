@@ -2954,9 +2954,8 @@ mod message_store_reader_tests {
         ]);
         chat_store_write_snapshot(&paths, &conversation).expect("write ready snapshot");
         let block_path = paths.blocks_dir.join("000000.jsonl.zstd");
-        if block_path.exists() {
-            fs::write(&block_path, "{broken jsonl").expect("break block zstd");
-        }
+        assert!(block_path.exists(), "写入快照后应生成 000000.jsonl.zstd");
+        fs::write(&block_path, "{broken jsonl").expect("break block zstd");
 
         let meta = chat_store_read_meta(&paths)
             .expect("read ready meta")
@@ -3035,7 +3034,10 @@ mod message_store_reader_tests {
         let error = chat_store_read_recent_messages(&paths, 1)
             .expect_err("broken block content must not self-heal during read");
 
-        assert!(error.contains("校验会话块失败") || error.contains("zstd") || error.contains("解压") || error.contains("JSONL"));
+        assert!(
+            error.contains("zstd 整块解压失败"),
+            "全 0xFF 块应触发 zstd 解压失败，实际错误：{error}"
+        );
         assert!(block_path.exists());
         let _ = fs::remove_dir_all(root);
     }

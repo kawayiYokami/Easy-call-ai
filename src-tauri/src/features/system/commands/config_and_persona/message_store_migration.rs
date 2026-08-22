@@ -60,8 +60,10 @@ fn message_store_migration_runtime_snapshot() -> MessageStoreMigrationRuntimeSta
 fn message_store_migration_runtime_update(
     patch: impl FnOnce(&mut MessageStoreMigrationRuntimeStatus),
 ) {
-    if let Ok(mut status) = message_store_migration_runtime().lock() {
-        patch(&mut status);
+    match message_store_migration_runtime().lock() {
+        Ok(mut status) => patch(&mut status),
+        // 与 snapshot 一致：锁中毒后仍恢复状态继续写入，避免前端永久停留在 running
+        Err(poison) => patch(&mut poison.into_inner()),
     }
 }
 

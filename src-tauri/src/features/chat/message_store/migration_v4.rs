@@ -434,7 +434,13 @@ mod migration_v4_tests {
             let end = start + locator.byte_len as usize;
             let slice = plain
                 .get(start..end)
-                .ok_or_else(|| format!("测试 locator 越界"))?;
+                .ok_or_else(|| {
+                    format!(
+                        "测试 locator 越界，block_id={}，start={start}，end={end}，plain_len={}",
+                        locator.block_id,
+                        plain.len()
+                    )
+                })?;
             let text = std::str::from_utf8(slice)
                 .map_err(|err| format!("测试 V4 明文 UTF-8 失败: {err}"))?;
             let lines = text
