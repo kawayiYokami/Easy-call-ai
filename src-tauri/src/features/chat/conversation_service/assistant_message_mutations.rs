@@ -88,12 +88,10 @@ impl ConversationServiceV2 {
                     }
                     events.push(input.tool_result_event.clone());
                 }
-                merge_provider_meta_patch_v2(
-                    &mut target_message.provider_meta,
-                    input.provider_meta_patch.clone(),
-                );
+                // 此处不改 provider_meta：用量等 meta 由 final text 落盘统一写入，
+                // 工具追加时改 meta 会让 D14 组内追加回退整块重写。
                 let tool_event_count = target_message.tool_call.as_ref().map(Vec::len).unwrap_or(0);
-                self.persist_replaced_ready_message_locked(state, conversation_id, &target_message)?;
+                self.persist_appended_ready_message_locked(state, conversation_id, &target_message)?;
                 Ok(AssistantMessageToolAppendResult {
                     conversation_id: conversation_id.to_string(),
                     assistant_message_id: assistant_message_id.to_string(),
@@ -163,6 +161,12 @@ impl ConversationServiceV2 {
                     &mut target_message.provider_meta,
                     input.provider_meta_patch.clone(),
                 );
+                // 用量聚合：meta 尚无真实用量时，直接取最后一个自带用量的工具调用事件
+                // （工具轮真实用量随事件落盘，此处只兜底，不覆盖外部写入的最终 call 用量）
+                merge_last_tool_call_usage_into_provider_meta(
+                    &mut target_message.provider_meta,
+                    &target_message.tool_call,
+                );
                 runtime_log_debug(format!(
                     "[表情替换] FinalAppend开始，conversation_id={}，assistant_message_id={}，existing_annotation_count={}，incoming_annotation_count={}，incoming_tokens=[{}]",
                     conversation_id,
@@ -186,7 +190,7 @@ impl ConversationServiceV2 {
                 target_message.meme_annotations = input.meme_annotations.clone();
                 mark_stream_final_committed_v2(&mut target_message.provider_meta);
 
-                self.persist_replaced_ready_message_locked(state, conversation_id, &target_message)?;
+                self.persist_appended_ready_message_locked(state, conversation_id, &target_message)?;
                 Ok(target_message)
             },
         )?;

@@ -1440,11 +1440,22 @@
     "simpleSetupModeAdvanced": "Advanced",
     "simpleSetupModeSwitchToAdvanced": "Switch to Advanced",
     "simpleSetupModeSwitchToSimple": "Switch to Simple",
-    "messageStoreMigration": {
+        "messageStoreMigration": {
       "title": "Message Store Migration",
-      "cancelStart": "Cancel Startup",
-      "discardAndContinue": "Discard Abnormal Conversations and Continue Migration",
-      "unknownError": "Unknown Error"
+      "confirm": "Confirm",
+      "retry": "Retry",
+      "migratedCount": "Migrated conversations",
+      "discardedCount": "Discarded conversations",
+      "stage1": "Stage 1",
+      "stage2": "Stage 2",
+      "stage3": "Stage 3",
+      "stageUsageTrail": "Usage data",
+      "stageFallback": "Migration",
+      "waiting": "Preparing to migrate conversation message store...",
+      "runningWithTitle": "Migrating ({stage}): {title}",
+      "conversationFallback": "conversation",
+      "completed": "Message store migration completed",
+      "failed": "Message store migration failed"
     }
   },
   "responseStyle": {

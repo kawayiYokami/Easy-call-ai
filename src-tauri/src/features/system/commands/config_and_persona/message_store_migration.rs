@@ -1,4 +1,125 @@
-const MESSAGE_STORE_MIGRATION_PROGRESS_EVENT: &str = "easy-call:message-store-migration-progress";
+// ==================== 迁移运行时状态（前端轮询的唯一事实来源） ====================
+//
+// 设计定案：后端启动时版本不足即自动后台迁移；状态收口在这份内存快照，
+// 前端只轮询 status 渲染看板，不依赖事件推送，也不阻塞在迁移 invoke 上。
+
+const MESSAGE_STORE_MIGRATION_STATUS_IDLE: &str = "idle";
+const MESSAGE_STORE_MIGRATION_STATUS_WAITING_START: &str = "waitingStart";
+const MESSAGE_STORE_MIGRATION_STATUS_RUNNING: &str = "running";
+const MESSAGE_STORE_MIGRATION_STATUS_COMPLETED: &str = "completed";
+const MESSAGE_STORE_MIGRATION_STATUS_FAILED: &str = "failed";
+
+#[derive(Debug, Clone, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+struct MessageStoreMigrationRuntimeStatus {
+    status: String,
+    stage: Option<String>,
+    current: usize,
+    total: usize,
+    migrated_count: usize,
+    discarded_count: usize,
+    conversation_title: String,
+    conversation_id: Option<String>,
+    detail: Option<String>,
+    started_at: Option<String>,
+    finished_at: Option<String>,
+}
+
+impl Default for MessageStoreMigrationRuntimeStatus {
+    fn default() -> Self {
+        Self {
+            status: MESSAGE_STORE_MIGRATION_STATUS_IDLE.to_string(),
+            stage: None,
+            current: 0,
+            total: 0,
+            migrated_count: 0,
+            discarded_count: 0,
+            conversation_title: String::new(),
+            conversation_id: None,
+            detail: None,
+            started_at: None,
+            finished_at: None,
+        }
+    }
+}
+
+fn message_store_migration_runtime(
+) -> &'static std::sync::Mutex<MessageStoreMigrationRuntimeStatus> {
+    static RUNTIME: std::sync::OnceLock<std::sync::Mutex<MessageStoreMigrationRuntimeStatus>> =
+        std::sync::OnceLock::new();
+    RUNTIME.get_or_init(|| std::sync::Mutex::new(MessageStoreMigrationRuntimeStatus::default()))
+}
+
+fn message_store_migration_runtime_snapshot() -> MessageStoreMigrationRuntimeStatus {
+    match message_store_migration_runtime().lock() {
+        Ok(status) => status.clone(),
+        Err(poison) => poison.into_inner().clone(),
+    }
+}
+
+fn message_store_migration_runtime_update(
+    patch: impl FnOnce(&mut MessageStoreMigrationRuntimeStatus),
+) {
+    match message_store_migration_runtime().lock() {
+        Ok(mut status) => patch(&mut status),
+        // 与 snapshot 一致：锁中毒后仍恢复状态继续写入，避免前端永久停留在 running
+        Err(poison) => patch(&mut poison.into_inner()),
+    }
+}
+
+/// 启动预判：版本已是当前值则保持 idle；否则标记等待开始，由调用方决定是否派发迁移任务。
+fn prepare_message_store_migration_runtime(state: &AppState) -> Result<bool, String> {
+    if message_store_migration_current_version_recorded(state)? {
+        return Ok(false);
+    }
+    message_store_migration_runtime_update(|status| {
+        *status = MessageStoreMigrationRuntimeStatus {
+            status: MESSAGE_STORE_MIGRATION_STATUS_WAITING_START.to_string(),
+            ..Default::default()
+        };
+    });
+    Ok(true)
+}
+
+fn message_store_migration_runtime_mark_completed(summary: String) {
+    message_store_migration_runtime_update(|status| {
+        status.status = MESSAGE_STORE_MIGRATION_STATUS_COMPLETED.to_string();
+        status.stage = None;
+        status.detail = Some(summary);
+        status.conversation_id = None;
+        status.finished_at = Some(now_iso());
+    });
+}
+
+fn message_store_migration_runtime_mark_failed(reason: String) {
+    message_store_migration_runtime_update(|status| {
+        status.status = MESSAGE_STORE_MIGRATION_STATUS_FAILED.to_string();
+        status.stage = None;
+        status.detail = Some(reason);
+        status.conversation_id = None;
+        status.finished_at = Some(now_iso());
+    });
+}
+
+/// 阶段进度回调（契约与迁移模块一致：current/total/conversation_id/title/stage）
+fn message_store_migration_runtime_stage_progress(
+) -> impl Fn(usize, usize, &str, &str, &str) {
+    |current: usize, total: usize, conversation_id: &str, title: &str, stage: &str| {
+        message_store_migration_runtime_update(|status| {
+            status.status = MESSAGE_STORE_MIGRATION_STATUS_RUNNING.to_string();
+            status.stage = Some(stage.to_string());
+            status.current = current;
+            status.total = total;
+            status.conversation_id = Some(conversation_id.to_string());
+            status.conversation_title = title.to_string();
+        });
+    }
+}
+
+#[tauri::command]
+fn get_message_store_migration_runtime_status() -> MessageStoreMigrationRuntimeStatus {
+    message_store_migration_runtime_snapshot()
+}
 
 fn message_store_migration_lock() -> &'static std::sync::Mutex<()> {
     static LOCK: std::sync::OnceLock<std::sync::Mutex<()>> = std::sync::OnceLock::new();
@@ -41,38 +162,6 @@ struct MessageStoreMigrationPreflightItem {
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct RunMessageStoreMigrationInput {}
-
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-struct MessageStoreMigrationRunReport {
-    migrated_count: usize,
-    skipped_ready_count: usize,
-    discarded_count: usize,
-    failed_count: usize,
-}
-
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-struct MessageStoreMigrationProgressPayload {
-    current: usize,
-    total: usize,
-    conversation_id: String,
-    title: String,
-    status: String,
-    detail: Option<String>,
-}
-
-fn emit_message_store_migration_progress(
-    app: &AppHandle,
-    payload: MessageStoreMigrationProgressPayload,
-) {
-    if let Err(err) = app.emit(MESSAGE_STORE_MIGRATION_PROGRESS_EVENT, payload) {
-        runtime_log_error(format!(
-            "[消息存储迁移] 进度事件发送失败：event={}，error={:?}",
-            MESSAGE_STORE_MIGRATION_PROGRESS_EVENT, err
-        ));
-    }
-}
 
 fn message_store_migration_candidate_ids(data_path: &PathBuf) -> Result<Vec<String>, String> {
     let conversations_dir = app_layout_chat_conversations_dir(data_path);
@@ -461,30 +550,17 @@ fn build_message_store_migration_preflight_report(
 }
 
 fn record_discarded_message_store_migration_item(
-    app: &AppHandle,
-    report: &mut MessageStoreMigrationRunReport,
-    current: usize,
-    total: usize,
     item: &MessageStoreMigrationPreflightItem,
     reason: impl Into<String>,
 ) {
     let reason = reason.into();
-    report.discarded_count += 1;
+    message_store_migration_runtime_update(|status| {
+        status.discarded_count += 1;
+    });
     runtime_log_warn(format!(
         "[消息存储迁移] 放弃，任务=V1到V2会话迁移，conversation_id={}，title={}，reason={}",
         item.conversation_id, item.title, reason
     ));
-    emit_message_store_migration_progress(
-        app,
-        MessageStoreMigrationProgressPayload {
-            current,
-            total,
-            conversation_id: item.conversation_id.clone(),
-            title: item.title.clone(),
-            status: "discarded".to_string(),
-            detail: Some(reason),
-        },
-    );
 }
 
 #[tauri::command]
@@ -533,64 +609,90 @@ fn refresh_message_store_migration_caches(state: &AppState) -> Result<(), String
 fn run_message_store_v2_to_v3_stage_if_ready(
     state: &AppState,
     migration_version: u32,
+    progress: Option<&dyn Fn(usize, usize, &str, &str, &str)>,
 ) -> Result<bool, String> {
     if migration_version < DATA_MIGRATION_VERSION_V2_ASSISTANT_WORKSPACE_FOR_EMPTY_SHELL_WORKSPACES {
         return Ok(false);
     }
-    message_store::migration_v2_to_v3(&state.data_path)?;
+    message_store::migration_v2_to_v3(&state.data_path, progress)?;
     let config = state_read_config_cached(state)?;
     message_store::chat_metadata_store_run_usage_trail_migration(&state.data_path, &config)?;
+    message_store::migration_v3_to_v4(&state.data_path, progress)?;
     state_service_set_message_store_migration_version(
         state,
-        DATA_MIGRATION_VERSION_V3_CHAT_METADATA_SQLITE,
+        DATA_MIGRATION_CURRENT_VERSION,
     )?;
     Ok(true)
 }
 
 #[tauri::command]
 fn run_message_store_migration(
-    app: AppHandle,
     state: State<'_, AppState>,
     input: RunMessageStoreMigrationInput,
-) -> Result<MessageStoreMigrationRunReport, String> {
-    run_message_store_migration_inner(&app, &state, input)
+) -> Result<MessageStoreMigrationRuntimeStatus, String> {
+    spawn_message_store_migration_task(state.inner().clone());
+    let _ = input;
+    Ok(message_store_migration_runtime_snapshot())
 }
 
-fn run_message_store_migration_inner(
-    app: &AppHandle,
-    state: &AppState,
-    _input: RunMessageStoreMigrationInput,
-) -> Result<MessageStoreMigrationRunReport, String> {
-    let _migration_guard = lock_message_store_migration();
-    let mut report = MessageStoreMigrationRunReport {
-        migrated_count: 0,
-        skipped_ready_count: 0,
-        discarded_count: 0,
-        failed_count: 0,
+/// 派发后台迁移任务：单次持锁内完成「检查状态、声明任务所有权、写入 running」。
+/// 仅 running 状态抑制重复派发；waitingStart 是启动预判留下的等待标记，由这里接管开跑。
+fn spawn_message_store_migration_task(state: AppState) {
+    let claim_running = |status: &mut MessageStoreMigrationRuntimeStatus| {
+        if status.status == MESSAGE_STORE_MIGRATION_STATUS_RUNNING {
+            false
+        } else {
+            *status = MessageStoreMigrationRuntimeStatus {
+                status: MESSAGE_STORE_MIGRATION_STATUS_RUNNING.to_string(),
+                started_at: Some(now_iso()),
+                ..Default::default()
+            };
+            true
+        }
     };
-    let migration_version = state_service_get_message_store_migration_version(state)?;
-    // 启动预检在版本完成后不会再扫描旧文件；但用户直接调用迁移命令本身就是
-    // 显式维护动作，因此仍允许重试此前被逐会话跳过、后来已修复的 V2 源。
-    if run_message_store_v2_to_v3_stage_if_ready(state, migration_version)? {
-        return Ok(report);
+    let claimed = match message_store_migration_runtime().lock() {
+        Ok(mut status) => claim_running(&mut status),
+        Err(poison) => claim_running(&mut poison.into_inner()),
+    };
+    if !claimed {
+        runtime_log_info(format!("[消息存储迁移] 迁移已在进行中，忽略重复触发"));
+        return;
     }
-    let preflight = build_message_store_migration_preflight_report(state)?;
+    tauri::async_runtime::spawn(async move {
+        let task_state = state.clone();
+        let result = tokio::task::spawn_blocking(move || run_message_store_migration_task(task_state)).await;
+        match result {
+            Ok(Ok(())) => {}
+            Ok(Err(err)) => message_store_migration_runtime_mark_failed(err),
+            Err(err) => {
+                message_store_migration_runtime_mark_failed(format!("迁移任务异常终止：{err}"))
+            }
+        }
+    });
+}
+
+fn run_message_store_migration_task(state: AppState) -> Result<(), String> {
+    let _migration_guard = lock_message_store_migration();
+    let migration_version = state_service_get_message_store_migration_version(&state)?;
+    // 启动预检在版本完成后不会再扫描旧文件；但显式触发迁移本身就是
+    // 维护动作，因此仍允许重试此前被逐会话跳过、后来已修复的 V2 源。
+    let stage_progress = message_store_migration_runtime_stage_progress();
+    if run_message_store_v2_to_v3_stage_if_ready(&state, migration_version, Some(&stage_progress))? {
+        let snapshot = message_store_migration_runtime_snapshot();
+        message_store_migration_runtime_mark_completed(format!(
+            "共处理 {} 个会话，迁移 {}，废弃 {}",
+            snapshot.total.max(snapshot.current),
+            snapshot.migrated_count,
+            snapshot.discarded_count
+        ));
+        return Ok(());
+    }
+    let preflight = build_message_store_migration_preflight_report(&state)?;
     if let Some(blocked) = preflight.items.iter().find(|item| item.status == "blocked") {
         let reason = blocked
             .reason
             .clone()
             .unwrap_or_else(|| "迁移预检遇到系统故障".to_string());
-        emit_message_store_migration_progress(
-            &app,
-            MessageStoreMigrationProgressPayload {
-                current: 0,
-                total: preflight.items.len(),
-                conversation_id: blocked.conversation_id.clone(),
-                title: blocked.title.clone(),
-                status: "failed".to_string(),
-                detail: Some(reason.clone()),
-            },
-        );
         return Err(reason);
     }
     let discarded = preflight
@@ -599,14 +701,12 @@ fn run_message_store_migration_inner(
         .filter(|item| item.status == "discarded")
         .cloned()
         .collect::<Vec<_>>();
-    for (idx, item) in discarded.iter().enumerate() {
+    for item in &discarded {
         record_discarded_message_store_migration_item(
-            &app,
-            &mut report,
-            idx + 1,
-            preflight.items.len(),
             item,
-            item.reason.clone().unwrap_or_else(|| "V1 会话不可迁移".to_string()),
+            item.reason
+                .clone()
+                .unwrap_or_else(|| "V1 会话不可迁移".to_string()),
         );
     }
 
@@ -617,19 +717,14 @@ fn run_message_store_migration_inner(
         .collect::<Vec<_>>();
     let total = runnable_items.len();
     for (idx, item) in runnable_items.iter().enumerate() {
-        emit_message_store_migration_progress(
-            &app,
-            MessageStoreMigrationProgressPayload {
-                current: idx + 1,
-                total,
-                conversation_id: item.conversation_id.clone(),
-                title: item.title.clone(),
-                status: "migrating".to_string(),
-                detail: None,
-            },
-        );
+        message_store_migration_runtime_update(|status| {
+            status.stage = Some("v1_to_v2".to_string());
+            status.current = idx + 1;
+            status.total = total;
+            status.conversation_id = Some(item.conversation_id.clone());
+            status.conversation_title = item.title.clone();
+        });
         if item.status == "ready" {
-            report.skipped_ready_count += 1;
             continue;
         }
         let conversation = match message_store::migration_read_v1_conversation(
@@ -637,97 +732,50 @@ fn run_message_store_migration_inner(
         ) {
             Ok(conversation) => conversation,
             Err(message_store::MigrationV1ToV2Failure::ConversationSkipped(err)) => {
-                record_discarded_message_store_migration_item(
-                    &app,
-                    &mut report,
-                    idx + 1,
-                    total,
-                    item,
-                    err,
-                );
+                record_discarded_message_store_migration_item(item, err);
                 continue;
             }
-            Err(message_store::MigrationV1ToV2Failure::SystemFailure(err)) => {
-                emit_message_store_migration_progress(
-                    &app,
-                    MessageStoreMigrationProgressPayload {
-                        current: idx + 1,
-                        total,
-                        conversation_id: item.conversation_id.clone(),
-                        title: item.title.clone(),
-                        status: "failed".to_string(),
-                        detail: Some(err.clone()),
-                    },
-                );
-                return Err(err);
-            }
+            Err(message_store::MigrationV1ToV2Failure::SystemFailure(err)) => return Err(err),
         };
         let paths = match message_store::message_store_paths(&state.data_path, &item.conversation_id) {
             Ok(paths) => paths,
             Err(err) => {
-                record_discarded_message_store_migration_item(
-                    &app,
-                    &mut report,
-                    idx + 1,
-                    total,
-                    item,
-                    err,
-                );
+                record_discarded_message_store_migration_item(item, err);
                 continue;
             }
         };
         match message_store::migration_v1_to_v2_conversation_classified(&paths, &conversation, false) {
             Ok(_) => {
-                report.migrated_count += 1;
-                emit_message_store_migration_progress(
-                    &app,
-                    MessageStoreMigrationProgressPayload {
-                        current: idx + 1,
-                        total,
-                        conversation_id: item.conversation_id.clone(),
-                        title: item.title.clone(),
-                        status: "completed".to_string(),
-                        detail: None,
-                    },
-                );
+                message_store_migration_runtime_update(|status| {
+                    status.migrated_count += 1;
+                });
             }
             Err(message_store::MigrationV1ToV2Failure::ConversationSkipped(err)) => {
-                record_discarded_message_store_migration_item(
-                    &app,
-                    &mut report,
-                    idx + 1,
-                    total,
-                    item,
-                    err,
-                );
+                record_discarded_message_store_migration_item(item, err);
                 continue;
             }
-            Err(message_store::MigrationV1ToV2Failure::SystemFailure(err)) => {
-                emit_message_store_migration_progress(
-                    &app,
-                    MessageStoreMigrationProgressPayload {
-                        current: idx + 1,
-                        total,
-                        conversation_id: item.conversation_id.clone(),
-                        title: item.title.clone(),
-                        status: "failed".to_string(),
-                        detail: Some(err.clone()),
-                    },
-                );
-                return Err(err);
-            }
+            Err(message_store::MigrationV1ToV2Failure::SystemFailure(err)) => return Err(err),
         }
     }
-    refresh_message_store_migration_caches(state)?;
+    refresh_message_store_migration_caches(&state)?;
     state_service_set_message_store_migration_version(
-        state,
+        &state,
         DATA_MIGRATION_VERSION_V2_ASSISTANT_WORKSPACE_FOR_EMPTY_SHELL_WORKSPACES,
     )?;
+    let stage_progress = message_store_migration_runtime_stage_progress();
     run_message_store_v2_to_v3_stage_if_ready(
-        state,
+        &state,
         DATA_MIGRATION_VERSION_V2_ASSISTANT_WORKSPACE_FOR_EMPTY_SHELL_WORKSPACES,
+        Some(&stage_progress),
     )?;
-    Ok(report)
+    let snapshot = message_store_migration_runtime_snapshot();
+    message_store_migration_runtime_mark_completed(format!(
+        "共处理 {} 个会话，迁移 {}，废弃 {}",
+        snapshot.total.max(total),
+        snapshot.migrated_count,
+        snapshot.discarded_count
+    ));
+    Ok(())
 }
 
 #[cfg(test)]
@@ -1084,6 +1132,7 @@ mod message_store_migration_gate_tests {
         assert!(run_message_store_v2_to_v3_stage_if_ready(
             &state,
             DATA_MIGRATION_CURRENT_VERSION,
+            None,
         )
         .expect("explicit migration should run"));
         assert!(message_store::chat_store_read_status(&paths)
@@ -1098,6 +1147,7 @@ mod message_store_migration_gate_tests {
         assert!(run_message_store_v2_to_v3_stage_if_ready(
             &state,
             DATA_MIGRATION_CURRENT_VERSION,
+            None,
         )
         .expect("retry repaired V2 source"));
         let status = message_store::chat_store_read_status(&paths)

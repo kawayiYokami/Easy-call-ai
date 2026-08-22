@@ -1,40 +1,49 @@
 import { onBeforeUnmount, reactive } from "vue";
-import { invokeTauri, onTransportNotification } from "../../../services/tauri-api";
+import { invokeTauri } from "../../../services/tauri-api";
 
-export type MessageStoreMigrationGateMode = "idle" | "checking" | "migrating" | "blocked" | "error";
+export type MessageStoreMigrationGateMode =
+  | "idle"
+  | "waiting"
+  | "migrating"
+  | "completed"
+  | "error";
 
-type MessageStoreMigrationPreflightItem = {
-  conversationId: string;
-  title: string;
-  status: string;
-  messageCount: number;
-  reason?: string | null;
-};
-
-type MessageStoreMigrationPreflightReport = {
-  migrationRequired?: boolean;
-  totalConversations: number;
-  readyCount: number;
-  legacyCount: number;
-  busyCount?: number;
-  discardedCount?: number;
-  blockedCount?: number;
-  canAutoMigrate: boolean;
-  items: MessageStoreMigrationPreflightItem[];
-};
-
-type MessageStoreMigrationProgressPayload = {
+type MessageStoreMigrationRuntimeStatus = {
+  status: "idle" | "waitingStart" | "running" | "completed" | "failed";
+  stage?: string | null;
   current: number;
   total: number;
-  conversationId: string;
-  title: string;
-  status: string;
+  migratedCount: number;
+  discardedCount: number;
+  conversationId?: string | null;
+  conversationTitle?: string | null;
   detail?: string | null;
 };
 
 export type MessageStoreMigrationGateBindings = {
   formatRequestFailed: (error: unknown) => string;
+  t: (key: string, params?: Record<string, unknown>) => string;
 };
+
+const MIGRATION_STATUS_POLL_INTERVAL_MS = 500;
+
+const MIGRATION_STAGE_LABEL_KEYS: Record<string, string> = {
+  v1_to_v2: "config.messageStoreMigration.stage1",
+  v2_to_v3: "config.messageStoreMigration.stage2",
+  v3_to_v4: "config.messageStoreMigration.stage3",
+  usage_trail: "config.messageStoreMigration.stageUsageTrail",
+};
+
+function stageLabel(t: (key: string, params?: Record<string, unknown>) => string, stage?: string | null): string {
+  const key = String(stage || "").trim();
+  const labelKey = MIGRATION_STAGE_LABEL_KEYS[key];
+  // 已知阶段走对应翻译；未知/空阶段统一走本地化回退，不暴露内部 stage key
+  return labelKey ? t(labelKey) : t("config.messageStoreMigration.stageFallback");
+}
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
 
 export function useMessageStoreMigrationGate(bindings: MessageStoreMigrationGateBindings) {
   const messageStoreMigration = reactive<{
@@ -43,80 +52,98 @@ export function useMessageStoreMigrationGate(bindings: MessageStoreMigrationGate
     message: string;
     current: number;
     total: number;
-    blockedItems: MessageStoreMigrationPreflightItem[];
+    migratedCount: number;
+    discardedCount: number;
   }>({
     visible: false,
     mode: "idle",
     message: "",
     current: 0,
     total: 0,
-    blockedItems: [],
+    migratedCount: 0,
+    discardedCount: 0,
   });
 
-  let messageStoreMigrationProgressUnlisten: (() => void) | null = null;
+  let pollingActive = true;
 
-  function resetMessageStoreMigrationGate() {
-    messageStoreMigration.visible = false;
-    messageStoreMigration.mode = "idle";
-    messageStoreMigration.message = "";
-    messageStoreMigration.current = 0;
-    messageStoreMigration.total = 0;
-    messageStoreMigration.blockedItems = [];
+  function applyRuntimeStatus(status: MessageStoreMigrationRuntimeStatus) {
+    messageStoreMigration.current = Number(status.current || 0);
+    messageStoreMigration.total = Number(status.total || 0);
+    messageStoreMigration.migratedCount = Number(status.migratedCount || 0);
+    messageStoreMigration.discardedCount = Number(status.discardedCount || 0);
+    const title = String(status.conversationTitle || status.conversationId || "").trim();
+    switch (status.status) {
+      case "idle":
+        messageStoreMigration.mode = "idle";
+        messageStoreMigration.message = "";
+        break;
+      case "waitingStart":
+        messageStoreMigration.mode = "waiting";
+        messageStoreMigration.message = bindings.t("config.messageStoreMigration.waiting");
+        break;
+      case "running":
+        messageStoreMigration.mode = "migrating";
+        messageStoreMigration.message = bindings.t(
+          "config.messageStoreMigration.runningWithTitle",
+          {
+            stage: stageLabel(bindings.t, status.stage),
+            title: title || bindings.t("config.messageStoreMigration.conversationFallback"),
+          },
+        );
+        break;
+      case "completed":
+        messageStoreMigration.mode = "completed";
+        messageStoreMigration.message =
+          String(status.detail || "").trim() || bindings.t("config.messageStoreMigration.completed");
+        break;
+      case "failed":
+        messageStoreMigration.mode = "error";
+        messageStoreMigration.message =
+          String(status.detail || "").trim() || bindings.t("config.messageStoreMigration.failed");
+        break;
+    }
+    messageStoreMigration.visible = messageStoreMigration.mode !== "idle";
   }
 
-  async function ensureMessageStoreMigrationProgressListener() {
-    if (messageStoreMigrationProgressUnlisten) return;
-    messageStoreMigrationProgressUnlisten = onTransportNotification<MessageStoreMigrationProgressPayload>(
-      "messageStore.migrationProgress",
-      (payload) => {
-        messageStoreMigration.visible = true;
-        messageStoreMigration.mode = payload.status === "failed" ? "error" : "migrating";
-        messageStoreMigration.current = Number(payload.current || 0);
-        messageStoreMigration.total = Number(payload.total || 0);
-        const title = String(payload.title || payload.conversationId || "").trim();
-        const detail = String(payload.detail || "").trim();
-        messageStoreMigration.message = detail || `正在迁移：${title || "会话"}`;
-      },
+  async function pollRuntimeStatus(): Promise<string> {
+    const status = await invokeTauri<MessageStoreMigrationRuntimeStatus>(
+      "messageStore.migration.status",
     );
-  }
-
-  async function runMessageStoreMigrationFromGate() {
-    await ensureMessageStoreMigrationProgressListener();
-    messageStoreMigration.visible = true;
-    messageStoreMigration.mode = "migrating";
-    messageStoreMigration.message = "正在迁移会话消息仓库...";
-    await invokeTauri("messageStore.migration.run", {});
-    resetMessageStoreMigrationGate();
+    applyRuntimeStatus(status);
+    return String(status.status || "idle");
   }
 
   async function ensureMessageStoreMigrationGate() {
-    await ensureMessageStoreMigrationProgressListener();
-    const report = await invokeTauri<MessageStoreMigrationPreflightReport>(
-      "messageStore.migration.check",
-    );
-    if (report.migrationRequired) {
-      messageStoreMigration.visible = true;
-      messageStoreMigration.mode = "checking";
-      messageStoreMigration.message = "正在迁移会话消息仓库...";
-      await runMessageStoreMigrationFromGate();
-      return;
-    }
-    if (report.legacyCount > 0) {
-      messageStoreMigration.visible = true;
-      messageStoreMigration.mode = "checking";
-      messageStoreMigration.message = `发现 ${report.legacyCount} 个旧会话，正在迁移...`;
-      await runMessageStoreMigrationFromGate();
-      return;
+    while (pollingActive) {
+      let state = "idle";
+      try {
+        state = await pollRuntimeStatus();
+      } catch (error) {
+        messageStoreMigration.visible = true;
+        messageStoreMigration.mode = "error";
+        messageStoreMigration.message = bindings.formatRequestFailed(error);
+        state = "transient-error";
+      }
+      // idle：无需迁移直接放行；completed：应用在面板背后继续加载
+      if (state === "idle" || state === "completed") {
+        return;
+      }
+      // failed 保持轮询：用户点重试后状态回到 running，循环自然接续
+      await delay(MIGRATION_STATUS_POLL_INTERVAL_MS);
     }
   }
 
-  function cancelMessageStoreMigration() {
-    resetMessageStoreMigrationGate();
+  function confirmMessageStoreMigrationSummary() {
+    if (messageStoreMigration.mode !== "completed") return;
+    messageStoreMigration.visible = false;
+    pollingActive = false;
   }
 
-  async function continueMessageStoreMigrationWithDiscard() {
+  async function retryMessageStoreMigration() {
     try {
-      await runMessageStoreMigrationFromGate();
+      await invokeTauri("messageStore.migration.run", {});
+      messageStoreMigration.mode = "waiting";
+      messageStoreMigration.message = bindings.t("config.messageStoreMigration.waiting");
     } catch (error) {
       messageStoreMigration.mode = "error";
       messageStoreMigration.message = bindings.formatRequestFailed(error);
@@ -124,16 +151,13 @@ export function useMessageStoreMigrationGate(bindings: MessageStoreMigrationGate
   }
 
   onBeforeUnmount(() => {
-    if (messageStoreMigrationProgressUnlisten) {
-      messageStoreMigrationProgressUnlisten();
-      messageStoreMigrationProgressUnlisten = null;
-    }
+    pollingActive = false;
   });
 
   return {
     messageStoreMigration,
     ensureMessageStoreMigrationGate,
-    cancelMessageStoreMigration,
-    continueMessageStoreMigrationWithDiscard,
+    confirmMessageStoreMigrationSummary,
+    retryMessageStoreMigration,
   };
 }

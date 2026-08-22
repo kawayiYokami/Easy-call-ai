@@ -145,10 +145,11 @@ fn jsonl_snapshot_directory_incremental_fallback_reason(
         return Some("旧索引没有可复用 block 基线".to_string());
     }
     for block_id in old_block_ids {
-        let block_path = match jsonl_snapshot_index_item_path(&paths.messages_file, Some(block_id)) {
-            Ok(path) => path,
-            Err(err) => return Some(format!("解析旧 block 路径失败：{err}")),
-        };
+        // delegate 目录快照保持明文 .jsonl（不随生产切 .jsonl.zstd）
+        let block_path = paths
+            .shard_dir
+            .join(MESSAGE_STORE_BLOCKS_DIR_NAME)
+            .join(format!("{block_id:06}.jsonl"));
         if !block_path.exists() {
             return Some(format!("旧 block 文件缺失：{}", block_path.display()));
         }
@@ -579,6 +580,140 @@ pub(super) fn chat_store_replace_message(
         ));
     }
     chat_metadata_store_replace_message(paths, meta, message)
+}
+
+/// 组内追加子行（D14：工具事件/正文累积不再走 replace）：
+/// 对比 previous_message 与 updated_message 的差异，追加增量子行到目标组。
+///
+/// 适用场景与新增行判定：
+/// - 工具事件（D14 工具累积）：updated 比 previous 多出若干工具事件（元素，不配对）
+///   → 每个新元素追加一行工具行；若 provider_meta 同时变化，正文行尚未写、
+///   provider_meta 无处承载 → 回退 replace（D14 场景①）。运行时已保证工具追加不带
+///   meta 变化（用量统一在 final text 落盘写入），本守卫仅防御其它来源的 meta 变化。
+/// - 正文累积（final text / meme / provider_meta 回填）：工具行数不变、正文内容变化
+///   → 追加正文行；若工具行也变了（罕见），回退 replace。
+///
+/// 物理约束：目标组必须是块内最后一个 locator（帧追加只能到文件尾）。不满足时回退
+/// 整块重建（replace），由调用方决定是否替换语义。
+pub(super) fn chat_store_append_line_to_group(
+    paths: &MessageStorePaths,
+    meta: &ConversationPersistMeta,
+    previous_message: &ChatMessage,
+    updated_message: &ChatMessage,
+) -> Result<MessageStoreDirectorySnapshotWrite, String> {
+    if meta.conversation_id() != paths.conversation_id {
+        return Err(format!(
+            "组内追加子行失败：meta 会话 ID 不一致，expected={}，actual={}",
+            paths.conversation_id,
+            meta.conversation_id()
+        ));
+    }
+    if previous_message.id.trim() != updated_message.id.trim() {
+        return Err(format!(
+            "组内追加子行失败：前后消息 ID 不一致，previous={}，updated={}",
+            previous_message.id.trim(),
+            updated_message.id.trim()
+        ));
+    }
+    let locator = chat_metadata_store_read_locator_by_id(paths, updated_message.id.trim())?
+        .ok_or_else(|| {
+            format!(
+                "组内追加子行失败：消息不存在，conversation_id={}，message_id={}",
+                paths.conversation_id,
+                updated_message.id.trim()
+            )
+        })?;
+    let block_id = locator.item.block_id.ok_or_else(|| {
+        format!(
+            "组内追加子行失败：locator 缺少 block id，message_id={}",
+            updated_message.id.trim()
+        )
+    })?;
+    // 目标组必须是块内最后一个 locator（帧追加只能到文件尾）
+    let block_rows = chat_metadata_store_read_locators_for_block(paths, block_id)?;
+    let is_block_tail = block_rows
+        .last()
+        .map(|row| row.sequence == locator.sequence)
+        .unwrap_or(false);
+    if !is_block_tail {
+        // 目标组不在块尾：物理帧追加无法表达，回退整块重建（replace 语义由调用方决定）
+        return chat_store_replace_message(paths, meta, updated_message);
+    }
+
+    // 判定增量：工具事件（工具行增加） vs 正文累积（正文行变化）
+    let previous_tools = previous_message.tool_call.as_deref().unwrap_or_default();
+    let updated_tools = updated_message.tool_call.as_deref().unwrap_or_default();
+    let tool_diff = updated_tools.len() as i64 - previous_tools.len() as i64;
+    if tool_diff < 0 {
+        // 工具减少：形态变化，回退整块重建
+        return chat_store_replace_message(paths, meta, updated_message);
+    }
+    // 正文字段（含 provider_meta patch）任何变化都意味着正文行需要重写；
+    // 工具增量分支只允许「纯工具行追加」，正文变化一律回退 replace。
+    let body_content_changed = previous_message.parts != updated_message.parts
+        || previous_message.extra_text_blocks != updated_message.extra_text_blocks
+        || previous_message.provider_meta != updated_message.provider_meta
+        || previous_message.meme_annotations != updated_message.meme_annotations
+        || previous_message.mcp_call != updated_message.mcp_call;
+    if tool_diff > 0 {
+        // 工具事件增量：只允许纯工具行追加；任何正文字段变化都回退 replace
+        if body_content_changed {
+            return chat_store_replace_message(paths, meta, updated_message);
+        }
+        // previous 无工具行：目标组是单行 message 组（或纯正文组），物理追加工具行会
+        // 落到 message 行后面，assemble 遇 kind=message 行短路无视后续行 → 回退整块重写
+        // 为工具行形态（split 对正文全空的开放组不写正文行，重写后组是纯工具行）。
+        if previous_tools.is_empty() {
+            return chat_store_replace_message(paths, meta, updated_message);
+        }
+        let mut new_lines = Vec::<String>::with_capacity(tool_diff as usize);
+        for event in &updated_tools[previous_tools.len()..] {
+            new_lines.push(encode_group_tool_line(
+                &updated_message.id,
+                &updated_message.role,
+                &updated_message.created_at,
+                &updated_message.speaker_agent_id,
+                event,
+            )?);
+        }
+        return chat_metadata_store_append_line_to_group_physical(
+            paths,
+            &ConversationShardMeta::from_persist_meta(meta),
+            block_id,
+            &locator,
+            &new_lines,
+        );
+    }
+
+    // 工具行数不变：正文累积（final text / meme / provider_meta 回填）
+    if !body_content_changed {
+        return Err(format!(
+            "组内追加子行失败：前后消息无差异，message_id={}",
+            updated_message.id.trim()
+        ));
+    }
+    // 目标组必须已有正文行语义：普通消息（无工具）是单行组，追加正文 = 整行替换
+    if previous_tools.is_empty() {
+        return chat_store_replace_message(paths, meta, updated_message);
+    }
+    let new_lines = vec![encode_group_assistant_line(
+        &updated_message.id,
+        &updated_message.role,
+        &updated_message.created_at,
+        &updated_message.speaker_agent_id,
+        &updated_message.parts,
+        &updated_message.extra_text_blocks,
+        &updated_message.provider_meta,
+        &updated_message.meme_annotations,
+        &updated_message.mcp_call,
+    )?];
+    chat_metadata_store_append_line_to_group_physical(
+        paths,
+        &ConversationShardMeta::from_persist_meta(meta),
+        block_id,
+        &locator,
+        &new_lines,
+    )
 }
 
 pub(super) fn chat_store_replace_messages(
@@ -1120,6 +1255,198 @@ mod message_store_persist_tests {
         );
         assert_eq!(healed_manifest.source_message_count, 2);
         assert_eq!(healed_manifest.last_message_id, "m2");
+        let _ = fs::remove_dir_all(root);
+    }
+
+    fn test_tool_message(
+        id: &str,
+        tool_pairs: Vec<(Value, Value)>,
+        text: &str,
+    ) -> ChatMessage {
+        let mut message = ChatMessage {
+            id: id.to_string(),
+            role: "assistant".to_string(),
+            created_at: "2026-04-24T00:00:00Z".to_string(),
+            speaker_agent_id: None,
+            parts: vec![MessagePart::Text {
+                text: text.to_string(),
+                reasoning_content: None,
+            }],
+            extra_text_blocks: Vec::new(),
+            provider_meta: None,
+            tool_call: Some(tool_pairs.into_iter().flat_map(|(call, result)| vec![call, result]).collect()),
+            mcp_call: None,
+            meme_annotations: None,
+        };
+        if text.is_empty() {
+            message.parts.clear();
+        }
+        message
+    }
+
+    fn tool_call_event(id: &str) -> Value {
+        serde_json::json!({
+            "role": "assistant",
+            "content": Value::Null,
+            "tool_calls": [{
+                "id": id,
+                "type": "function",
+                "function": { "name": "search", "arguments": "{}" }
+            }]
+        })
+    }
+
+    fn tool_result_event(id: &str) -> Value {
+        serde_json::json!({
+            "role": "tool",
+            "tool_call_id": id,
+            "content": "{\"ok\":true}"
+        })
+    }
+
+    #[test]
+    fn message_store_append_line_to_group_should_accumulate_tool_events_without_rebuild() {
+        let root = std::env::temp_dir().join(format!(
+            "easy-call-message-store-append-line-tool-{}",
+            Uuid::new_v4()
+        ));
+        let data_path = root.join("app_data.json");
+        let paths = message_store_paths(&data_path, "conversation-persist").expect("paths");
+        let conversation = test_conversation(vec![test_message("m1")]);
+        chat_store_write_snapshot(&paths, &conversation).expect("write ready snapshot");
+
+        // 追加一条带 1 对工具的 assistant 消息（未闭合组：只有工具行，无正文）
+        let tool_message = test_tool_message(
+            "a1",
+            vec![(tool_call_event("call-1"), tool_result_event("call-1"))],
+            "",
+        );
+        let mut updated = conversation.clone();
+        updated.messages.push(tool_message.clone());
+        let meta = ConversationPersistMeta::from_conversation(&updated);
+        chat_store_append_message(&paths, &meta, &tool_message)
+            .expect("append tool message");
+
+        // 工具事件累积：追加第 2 对工具，走组内追加子行
+        let mut with_second_tool = tool_message.clone();
+        with_second_tool.tool_call = Some(vec![
+            tool_call_event("call-1"),
+            tool_result_event("call-1"),
+            tool_call_event("call-2"),
+            tool_result_event("call-2"),
+        ]);
+        let mut updated2 = updated.clone();
+        updated2.messages.pop();
+        updated2.messages.push(with_second_tool.clone());
+        let meta2 = ConversationPersistMeta::from_conversation(&updated2);
+        chat_store_append_line_to_group(&paths, &meta2, &tool_message, &with_second_tool)
+            .expect("append tool line to group");
+
+        let loaded = chat_store_read_conversation(&paths)
+            .expect("read ready snapshot")
+            .expect("ready snapshot exists");
+        let a1 = loaded.messages.iter().find(|message| message.id == "a1").expect("a1 exists");
+        assert_eq!(a1.tool_call.as_ref().expect("tool_call").len(), 4);
+        assert!(a1.parts.is_empty(), "未闭合组无正文");
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn message_store_append_line_to_group_should_append_final_text_to_tool_group() {
+        let root = std::env::temp_dir().join(format!(
+            "easy-call-message-store-append-line-text-{}",
+            Uuid::new_v4()
+        ));
+        let data_path = root.join("app_data.json");
+        let paths = message_store_paths(&data_path, "conversation-persist").expect("paths");
+        let conversation = test_conversation(vec![test_message("m1")]);
+        chat_store_write_snapshot(&paths, &conversation).expect("write ready snapshot");
+
+        let tool_message = test_tool_message(
+            "a1",
+            vec![(tool_call_event("call-1"), tool_result_event("call-1"))],
+            "",
+        );
+        let mut updated = conversation.clone();
+        updated.messages.push(tool_message.clone());
+        let meta = ConversationPersistMeta::from_conversation(&updated);
+        chat_store_append_message(&paths, &meta, &tool_message)
+            .expect("append tool message");
+
+        // 正文累积：final text 写回，追加正文行承载 provider_meta
+        let mut with_final = tool_message.clone();
+        with_final.parts = vec![MessagePart::Text {
+            text: "final answer".to_string(),
+            reasoning_content: Some("reason".to_string()),
+        }];
+        with_final.provider_meta = Some(serde_json::json!({ "model": "gpt-4" }));
+        let mut updated2 = updated.clone();
+        updated2.messages.pop();
+        updated2.messages.push(with_final.clone());
+        let meta2 = ConversationPersistMeta::from_conversation(&updated2);
+        chat_store_append_line_to_group(&paths, &meta2, &tool_message, &with_final)
+            .expect("append final text line to group");
+
+        let loaded = chat_store_read_conversation(&paths)
+            .expect("read ready snapshot")
+            .expect("ready snapshot exists");
+        let a1 = loaded.messages.iter().find(|message| message.id == "a1").expect("a1 exists");
+        assert_eq!(a1.tool_call.as_ref().expect("tool_call").len(), 2);
+        assert_eq!(
+            a1.parts.iter().find_map(|part| match part {
+                MessagePart::Text { text, .. } => Some(text.as_str()),
+                _ => None,
+            }),
+            Some("final answer")
+        );
+        assert_eq!(a1.provider_meta, Some(serde_json::json!({ "model": "gpt-4" })));
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn message_store_append_line_to_group_should_fallback_replace_when_meta_patch() {
+        let root = std::env::temp_dir().join(format!(
+            "easy-call-message-store-append-line-meta-{}",
+            Uuid::new_v4()
+        ));
+        let data_path = root.join("app_data.json");
+        let paths = message_store_paths(&data_path, "conversation-persist").expect("paths");
+        let conversation = test_conversation(vec![test_message("m1")]);
+        chat_store_write_snapshot(&paths, &conversation).expect("write ready snapshot");
+
+        let tool_message = test_tool_message(
+            "a1",
+            vec![(tool_call_event("call-1"), tool_result_event("call-1"))],
+            "",
+        );
+        let mut updated = conversation.clone();
+        updated.messages.push(tool_message.clone());
+        let meta = ConversationPersistMeta::from_conversation(&updated);
+        chat_store_append_message(&paths, &meta, &tool_message)
+            .expect("append tool message");
+
+        // 工具事件 + provider_meta patch：正文行未写，provider_meta 无处承载 → 回退 replace
+        let mut with_meta_patch = tool_message.clone();
+        with_meta_patch.tool_call = Some(vec![
+            tool_call_event("call-1"),
+            tool_result_event("call-1"),
+            tool_call_event("call-2"),
+            tool_result_event("call-2"),
+        ]);
+        with_meta_patch.provider_meta = Some(serde_json::json!({ "model": "gpt-4" }));
+        let mut updated2 = updated.clone();
+        updated2.messages.pop();
+        updated2.messages.push(with_meta_patch.clone());
+        let meta2 = ConversationPersistMeta::from_conversation(&updated2);
+        chat_store_append_line_to_group(&paths, &meta2, &tool_message, &with_meta_patch)
+            .expect("fallback replace on provider_meta patch");
+
+        let loaded = chat_store_read_conversation(&paths)
+            .expect("read ready snapshot")
+            .expect("ready snapshot exists");
+        let a1 = loaded.messages.iter().find(|message| message.id == "a1").expect("a1 exists");
+        assert_eq!(a1.tool_call.as_ref().expect("tool_call").len(), 4);
+        assert_eq!(a1.provider_meta, Some(serde_json::json!({ "model": "gpt-4" })));
         let _ = fs::remove_dir_all(root);
     }
 }

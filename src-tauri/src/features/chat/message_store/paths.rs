@@ -157,6 +157,31 @@ pub(super) fn write_message_store_text_atomic(
     replace_message_store_file_atomic(&tmp_path, path, label)
 }
 
+/// 字节原子写（V4 压缩块用）：写临时文件后原子替换，与文本版同一套替换语义
+pub(super) fn write_message_store_bytes_atomic(
+    path: &PathBuf,
+    tmp_extension: &str,
+    content: &[u8],
+    label: &str,
+) -> Result<(), String> {
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent).map_err(|err| {
+            format!(
+                "创建{label}目录失败，path={}，error={err}",
+                parent.display()
+            )
+        })?;
+    }
+    let tmp_path = path.with_extension(format!("{tmp_extension}.{}", Uuid::new_v4()));
+    fs::write(&tmp_path, content).map_err(|err| {
+        format!(
+            "写入{label}临时文件失败，path={}，error={err}",
+            tmp_path.display()
+        )
+    })?;
+    replace_message_store_file_atomic(&tmp_path, path, label)
+}
+
 pub(super) fn replace_message_store_file_atomic(
     tmp_path: &PathBuf,
     path: &PathBuf,

@@ -2385,15 +2385,33 @@ async fn send_chat_message_inner(
             }))
         } else {
             let mut meta = serde_json::json!({
-                "dispatchElapsedMs": dispatch_elapsed_ms,
-                "providerPromptTokens": trusted_input_tokens,
-                "estimatedPromptTokens": estimated_prompt_tokens,
-                "effectivePromptTokens": effective_prompt_tokens,
-                "effectivePromptSource": effective_prompt_source,
-                "contextUsagePercent": context_usage_percent,
-                "contextUsageRatio": context_usage_ratio,
-                "contextWindowTokens": active_selected_api.context_window_tokens
+                "dispatchElapsedMs": dispatch_elapsed_ms
             });
+            // 持久化只写本次 call 的真实用量；流式估算不落盘。
+            // 工具轮的真实用量随工具调用事件本身携带，此处缺真实值时由聚合侧从事件兜底。
+            if let Some(prompt_tokens) = trusted_input_tokens.filter(|value| *value > 0) {
+                let context_window = active_selected_api.context_window_tokens.max(1);
+                let usage_ratio = prompt_tokens as f64 / f64::from(context_window);
+                let usage_percent =
+                    usage_ratio.mul_add(100.0, 0.0).round().clamp(0.0, 100.0) as u32;
+                if let Some(object) = meta.as_object_mut() {
+                    object.insert("providerPromptTokens".to_string(), serde_json::json!(prompt_tokens));
+                    object.insert("effectivePromptTokens".to_string(), serde_json::json!(prompt_tokens));
+                    object.insert(
+                        "effectivePromptSource".to_string(),
+                        serde_json::json!("provider"),
+                    );
+                    object.insert("contextUsageRatio".to_string(), serde_json::json!(usage_ratio));
+                    object.insert(
+                        "contextUsagePercent".to_string(),
+                        serde_json::json!(usage_percent),
+                    );
+                    object.insert(
+                        "contextWindowTokens".to_string(),
+                        serde_json::json!(context_window),
+                    );
+                }
+            }
             if let Some(decision) = remote_im_reply_decision.as_ref() {
                 if let Some(obj) = meta.as_object_mut() {
                     obj.insert(

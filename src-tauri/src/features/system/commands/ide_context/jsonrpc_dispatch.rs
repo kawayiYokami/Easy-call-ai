@@ -294,9 +294,14 @@ async fn ide_chat_handle_jsonrpc_request(
         "app.bootstrapSnapshot" => ide_chat_load_app_bootstrap_snapshot_for_web_settings(state),
         "messageStore.migration.check" => check_message_store_migration_inner(state)
             .and_then(ide_chat_serialize),
+        "messageStore.migration.status" => {
+            ide_chat_serialize(get_message_store_migration_runtime_status())
+        }
         "messageStore.migration.run" => ide_chat_parse_workspace_params::<RunMessageStoreMigrationInput>(request.params)
-            .and_then(|input| run_message_store_migration_inner(app, state, input))
-            .and_then(ide_chat_serialize),
+            .and_then(|_| {
+                spawn_message_store_migration_task(state.clone());
+                ide_chat_serialize(message_store_migration_runtime_snapshot())
+            }),
         "save_config" => ide_chat_save_config_for_web_settings(state, app, ide_context_runtime, request.params),
         "load_agents" => ide_chat_load_agents_for_web_settings(state),
         "convert_private_agent_to_main" => {

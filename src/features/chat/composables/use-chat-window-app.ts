@@ -211,10 +211,11 @@ export function useChatWindowApp() {
   const {
     messageStoreMigration,
     ensureMessageStoreMigrationGate,
-    cancelMessageStoreMigration,
-    continueMessageStoreMigrationWithDiscard,
+    confirmMessageStoreMigrationSummary,
+    retryMessageStoreMigration,
   } = useMessageStoreMigrationGate({
     formatRequestFailed: (error) => formatI18nError(tr, "status.requestFailed", error),
+    t: tr,
   });
   const { perfNow, perfLog, setStatus, setStatusError, statusTone, localeOptions, applyUiLanguage } = useAppCore({
     t: tr,
@@ -1063,8 +1064,8 @@ export function useChatWindowApp() {
     handleRegenerateTurn,
     setMemoryDialogRef,
     setPromptPreviewDialogRef,
-    cancelMessageStoreMigration,
-    continueMessageStoreMigrationWithDiscard,
+    confirmMessageStoreMigrationSummary,
+    retryMessageStoreMigration,
     notifySidebarCodeReview,
   };
 }

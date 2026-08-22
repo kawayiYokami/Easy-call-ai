@@ -1438,11 +1438,22 @@
     "simpleSetupModeAdvanced": "進階",
     "simpleSetupModeSwitchToAdvanced": "切換到進階",
     "simpleSetupModeSwitchToSimple": "切換到簡單",
-    "messageStoreMigration": {
+        "messageStoreMigration": {
       "title": "會話訊息倉庫遷移",
-      "cancelStart": "取消啟動",
-      "discardAndContinue": "拋棄異常會話並繼續遷移",
-      "unknownError": "未知錯誤"
+      "confirm": "確認",
+      "retry": "重試",
+      "migratedCount": "遷移會話",
+      "discardedCount": "廢棄會話",
+      "stage1": "第 1 階段",
+      "stage2": "第 2 階段",
+      "stage3": "第 3 階段",
+      "stageUsageTrail": "用量資料",
+      "stageFallback": "遷移",
+      "waiting": "正在準備遷移會話訊息倉庫...",
+      "runningWithTitle": "正在遷移（{stage}）：{title}",
+      "conversationFallback": "會話",
+      "completed": "會話訊息倉庫遷移完成",
+      "failed": "會話訊息倉庫遷移失敗"
     }
   },
   "responseStyle": {

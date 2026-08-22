@@ -53,6 +53,12 @@ impl ConversationServiceV2Error {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum PersistReadyMessageMode {
+    Replace,
+    AppendLineToGroup,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 enum ConversationOverwriteSource {
@@ -156,7 +162,6 @@ struct AssistantMessageToolAppendInput {
     assistant_message_id: String,
     assistant_tool_event: Value,
     tool_result_event: Value,
-    provider_meta_patch: Option<Value>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -463,6 +468,55 @@ fn merge_provider_meta_patch_v2(target: &mut Option<Value>, patch: Option<Value>
         for (key, value) in patch_obj {
             current_obj.insert(key.clone(), value.clone());
         }
+    }
+    *target = Some(current);
+}
+
+/// 用量聚合：meta 尚无真实用量时，取最后一个自带真实用量的工具调用事件派生展示字段。
+/// 工具轮的用量随工具调用事件落盘（出生点挂载），此处只兜底、不覆盖最终 call 写入的真实用量。
+fn merge_last_tool_call_usage_into_provider_meta(
+    target: &mut Option<Value>,
+    tool_call: &Option<Vec<Value>>,
+) {
+    if target
+        .as_ref()
+        .and_then(|meta| meta.get("providerPromptTokens"))
+        .and_then(Value::as_u64)
+        .is_some_and(|value| value > 0)
+    {
+        return;
+    }
+    let Some(events) = tool_call.as_deref() else {
+        return;
+    };
+    let Some((prompt_tokens, Some(context_window))) = resolve_tool_call_usage(events) else {
+        // 事件缺 contextWindowTokens：占用率无法正确计算，跳过（不派生出错误的占用率）
+        return;
+    };
+    let usage_ratio = prompt_tokens as f64 / context_window as f64;
+    let usage_percent = (usage_ratio * 100.0).round().clamp(0.0, 100.0) as u32;
+    let mut current = target.take().unwrap_or_else(|| serde_json::json!({}));
+    if !current.is_object() {
+        current = serde_json::json!({
+            "_raw_provider_meta": current,
+        });
+    }
+    if let Some(current_obj) = current.as_object_mut() {
+        current_obj.insert("providerPromptTokens".to_string(), serde_json::json!(prompt_tokens));
+        current_obj.insert("effectivePromptTokens".to_string(), serde_json::json!(prompt_tokens));
+        current_obj.insert(
+            "effectivePromptSource".to_string(),
+            serde_json::json!("provider_tool_round"),
+        );
+        current_obj.insert("contextUsageRatio".to_string(), serde_json::json!(usage_ratio));
+        current_obj.insert(
+            "contextUsagePercent".to_string(),
+            serde_json::json!(usage_percent),
+        );
+        current_obj.insert(
+            "contextWindowTokens".to_string(),
+            serde_json::json!(context_window),
+        );
     }
     *target = Some(current);
 }
@@ -960,6 +1014,35 @@ impl ConversationServiceV2 {
         conversation_id: &str,
         updated_message: &ChatMessage,
     ) -> Result<(), String> {
+        self.persist_ready_message_locked_inner(
+            state,
+            conversation_id,
+            updated_message,
+            PersistReadyMessageMode::Replace,
+        )
+    }
+
+    fn persist_appended_ready_message_locked(
+        &self,
+        state: &AppState,
+        conversation_id: &str,
+        updated_message: &ChatMessage,
+    ) -> Result<(), String> {
+        self.persist_ready_message_locked_inner(
+            state,
+            conversation_id,
+            updated_message,
+            PersistReadyMessageMode::AppendLineToGroup,
+        )
+    }
+
+    fn persist_ready_message_locked_inner(
+        &self,
+        state: &AppState,
+        conversation_id: &str,
+        updated_message: &ChatMessage,
+        mode: PersistReadyMessageMode,
+    ) -> Result<(), String> {
         let previous_message = self.get_raw_message_by_id(
             state,
             conversation_id,
@@ -1004,11 +1087,23 @@ impl ConversationServiceV2 {
         )?;
         ready_meta.apply_metadata_fields_from_meta(&updated_meta);
         ready_meta.preserve_message_derived_fields_from(&updated_meta);
-        message_store::chat_store_replace_message(
-            &paths,
-            &ready_meta.to_persist_meta(),
-            updated_message,
-        )?;
+        match mode {
+            PersistReadyMessageMode::Replace => {
+                message_store::chat_store_replace_message(
+                    &paths,
+                    &ready_meta.to_persist_meta(),
+                    updated_message,
+                )?;
+            }
+            PersistReadyMessageMode::AppendLineToGroup => {
+                message_store::chat_store_append_line_to_group(
+                    &paths,
+                    &ready_meta.to_persist_meta(),
+                    &previous_message,
+                    updated_message,
+                )?;
+            }
+        }
         self.mark_conversation_metadata_cached_persisted(state, conversation_id)?;
         Ok(())
     }

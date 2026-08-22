@@ -701,8 +701,13 @@ async fn run_genai_tool_loop(
         messages.push(assistant_message);
         let mut deferred_outcome = None::<DeferredToolLoopOutcome>;
         let mut guided_close_requested = false;
-        let assistant_tool_group_history_event =
-            assistant_tool_group_history_event_value(&turn_text, &turn_tool_calls, &turn_reasoning);
+        let assistant_tool_group_history_event = assistant_tool_group_history_event_value(
+            &turn_text,
+            &turn_tool_calls,
+            &turn_reasoning,
+            round_trusted_input_tokens,
+            selected_api.context_window_tokens,
+        );
         let assistant_tool_group_stream_event =
             assistant_tool_group_stream_event_value(&turn_text, &turn_tool_calls);
         if !reasoning_delta_emitted && !turn_reasoning.trim().is_empty() {
@@ -1272,8 +1277,13 @@ async fn run_genai_tool_loop_non_stream(
         messages.push(assistant_message);
         let mut deferred_outcome = None::<DeferredToolLoopOutcome>;
         let mut guided_close_requested = false;
-        let assistant_tool_group_history_event =
-            assistant_tool_group_history_event_value(&turn_text, &turn_tool_calls, &turn_reasoning);
+        let assistant_tool_group_history_event = assistant_tool_group_history_event_value(
+            &turn_text,
+            &turn_tool_calls,
+            &turn_reasoning,
+            round_trusted_input_tokens,
+            selected_api.context_window_tokens,
+        );
         let assistant_tool_group_stream_event =
             assistant_tool_group_stream_event_value(&turn_text, &turn_tool_calls);
         if !reasoning_delta_emitted && !turn_reasoning.trim().is_empty() {
@@ -2029,6 +2039,8 @@ mod tool_loop_tests {
             "三个并发 shell 跑完后我再汇总。",
             &tool_calls,
             "先同时读取两个文件",
+            None,
+            0,
         );
 
         assert_eq!(event["role"].as_str(), Some("assistant"));
@@ -2040,6 +2052,49 @@ mod tool_loop_tests {
         assert_eq!(event["tool_calls"].as_array().map(Vec::len), Some(2));
         assert_eq!(event["tool_calls"][0]["id"].as_str(), Some("call-a"));
         assert_eq!(event["tool_calls"][1]["id"].as_str(), Some("call-b"));
+        assert!(event.get("usage").is_none(), "无真实用量时不挂 usage");
+    }
+
+    #[test]
+    fn assistant_tool_group_history_event_value_should_carry_real_usage() {
+        let tool_calls = vec![genai::chat::ToolCall {
+            call_id: "call-a".to_string(),
+            fn_name: "read".to_string(),
+            fn_arguments: serde_json::json!({"path": "a.rs"}),
+            thought_signatures: None,
+        }];
+        let event = assistant_tool_group_history_event_value(
+            "",
+            &tool_calls,
+            "",
+            Some(4200),
+            128000,
+        );
+        assert_eq!(event["usage"]["promptTokens"].as_u64(), Some(4200));
+        assert_eq!(event["usage"]["contextWindowTokens"].as_u64(), Some(128000));
+    }
+
+    #[test]
+    fn assistant_tool_group_history_event_value_should_normalize_zero_context_window() {
+        let tool_calls = vec![genai::chat::ToolCall {
+            call_id: "call-a".to_string(),
+            fn_name: "read".to_string(),
+            fn_arguments: serde_json::json!({"path": "a.rs"}),
+            thought_signatures: None,
+        }];
+        let event = assistant_tool_group_history_event_value(
+            "",
+            &tool_calls,
+            "",
+            Some(4200),
+            0,
+        );
+        assert_eq!(event["usage"]["promptTokens"].as_u64(), Some(4200));
+        assert_eq!(
+            event["usage"]["contextWindowTokens"].as_u64(),
+            Some(1),
+            "context_window=0 时归一化为 1，与 meta 写入口径一致"
+        );
     }
 
     #[test]

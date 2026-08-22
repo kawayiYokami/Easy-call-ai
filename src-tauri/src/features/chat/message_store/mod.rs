@@ -11,9 +11,12 @@ mod message_store {
     include!("active_plan.rs");
     include!("sqlite.rs");
     include!("jsonl_snapshot.rs");
+    include!("zstd_blocks.rs");
+    include!("group_lines.rs");
     include!("verification.rs");
     include!("store.rs");
     include!("persist.rs");
     include!("migration.rs");
+    include!("migration_v4.rs");
     include!("usage_trail.rs");
 }

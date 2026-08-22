@@ -266,34 +266,30 @@
         <div class="text-xl font-semibold">{{ t("config.messageStoreMigration.title") }}</div>
         <div class="mt-2 text-sm opacity-70">{{ messageStoreMigration.message }}</div>
         <progress
-          v-if="messageStoreMigration.mode === 'migrating'"
+          v-if="messageStoreMigration.mode === 'migrating' || messageStoreMigration.mode === 'waiting'"
           class="progress progress-primary mt-5 w-full"
           :value="messageStoreMigration.current"
           :max="Math.max(messageStoreMigration.total, 1)"
         />
-        <div v-if="messageStoreMigration.mode === 'migrating'" class="mt-2 text-xs opacity-60">
+        <div
+          v-if="messageStoreMigration.mode === 'migrating'"
+          class="mt-2 text-xs opacity-60"
+        >
           {{ messageStoreMigration.current }} / {{ messageStoreMigration.total }}
         </div>
-        <div
-          v-if="messageStoreMigration.blockedItems.length > 0"
-          class="mt-5 max-h-64 space-y-2 overflow-auto rounded-box bg-base-200 p-3"
-        >
-          <div
-            v-for="item in messageStoreMigration.blockedItems"
-            :key="item.conversationId"
-            class="rounded-box bg-base-100 p-3 text-sm"
-          >
-            <div class="font-medium">{{ item.title || item.conversationId }}</div>
-            <div class="mt-1 text-xs opacity-60">{{ item.conversationId }}</div>
-            <div class="mt-2 text-error">{{ item.reason || t("config.messageStoreMigration.unknownError") }}</div>
-          </div>
+        <div v-if="messageStoreMigration.mode === 'completed'" class="mt-2 text-xs opacity-60">
+          {{ t("config.messageStoreMigration.migratedCount") }}: {{ messageStoreMigration.migratedCount }}
+          ·
+          {{ t("config.messageStoreMigration.discardedCount") }}: {{ messageStoreMigration.discardedCount }}
         </div>
-        <div v-if="messageStoreMigration.mode === 'blocked'" class="mt-5 flex justify-end gap-3">
-          <button class="btn btn-ghost" @click="cancelMessageStoreMigration">
-            {{ t("config.messageStoreMigration.cancelStart") }}
+        <div v-if="messageStoreMigration.mode === 'completed'" class="mt-5 flex justify-end">
+          <button class="btn btn-primary" @click="confirmMessageStoreMigrationSummary">
+            {{ t("config.messageStoreMigration.confirm") }}
           </button>
-          <button class="btn btn-error" @click="continueMessageStoreMigrationWithDiscard">
-            {{ t("config.messageStoreMigration.discardAndContinue") }}
+        </div>
+        <div v-if="messageStoreMigration.mode === 'error'" class="mt-5 flex justify-end">
+          <button class="btn btn-primary" @click="retryMessageStoreMigration">
+            {{ t("config.messageStoreMigration.retry") }}
           </button>
         </div>
       </div>
@@ -504,10 +500,11 @@ const {
 const {
   messageStoreMigration,
   ensureMessageStoreMigrationGate,
-  cancelMessageStoreMigration,
-  continueMessageStoreMigrationWithDiscard,
+  confirmMessageStoreMigrationSummary,
+  retryMessageStoreMigration,
 } = useMessageStoreMigrationGate({
   formatRequestFailed: (error) => formatI18nError(tr, "status.requestFailed", error),
+  t: tr,
 });
 const {
   hotkeyTestRecording,
