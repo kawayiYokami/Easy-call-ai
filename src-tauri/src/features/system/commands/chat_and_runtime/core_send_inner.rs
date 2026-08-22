@@ -2144,7 +2144,7 @@ async fn send_chat_message_inner(
                         }
                         ModelReplyContentState::ReasoningOnly => {
                             runtime_log_warn(format!(
-                                "[聊天] 模型返回思考但缺少最终回答，不重试: conversation_id={}，api_config_id={}，model={}，attempt={}，activity_reasoning_len={}",
+                                "[聊天] 模型返回思考但缺少最终回答，按空回重试: conversation_id={}，api_config_id={}，model={}，attempt={}，activity_reasoning_len={}",
                                 conversation_id,
                                 candidate_selected_api.id,
                                 candidate_selected_api.model,
@@ -2155,7 +2155,7 @@ async fn send_chat_message_inner(
                                 "模型只返回了思维链但没有最终回答".to_string(),
                                 "模型只返回了思维链但没有最终回答，已停止重试；请稍后重试或切换模型。"
                                     .to_string(),
-                                false,
+                                true,
                             )
                         }
                         ModelReplyContentState::Empty => {
