@@ -632,10 +632,15 @@ pub(crate) async fn reload_workspace(
 }
 
 pub(crate) fn log_workspace_load_result(prefix: &str, result: &RefreshMcpAndSkillsResult) {
-    runtime_log_error(format!(
+    let line = format!(
         "{} 状态=完成，成功加载={}，加载失败={}，需修复={}",
         prefix, result.total_loaded, result.total_failed, result.needs_repair
-    ));
+    );
+    if result.total_failed > 0 || result.needs_repair {
+        runtime_log_warn(line);
+    } else {
+        runtime_log_info(line);
+    }
     if !result.loaded_summary.trim().is_empty() {
         for line in result.loaded_summary.lines() {
             runtime_log_info(format!("{} {}", prefix, line));

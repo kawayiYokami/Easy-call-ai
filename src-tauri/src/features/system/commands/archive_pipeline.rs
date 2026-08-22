@@ -1537,7 +1537,7 @@ async fn summarize_compaction_with_fallback(
 
     match resolve_compaction_quick_model(state, &selected_api.id) {
         Ok(Some((quick_selected_api, quick_resolved_api))) => {
-            runtime_log_error(format!(
+            runtime_log_warn(format!(
                 "[SummaryContext] 会话模型压缩失败，切换快速模型: trace_id={}, conversation_id={}, conversation_api_id={}, quick_api_id={}, reason={}",
                 trace_id,
                 source.id,

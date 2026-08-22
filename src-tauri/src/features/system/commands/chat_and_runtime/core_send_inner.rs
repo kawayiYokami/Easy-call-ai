@@ -1033,7 +1033,7 @@ async fn send_chat_message_inner(
             .as_millis()
             .min(u128::from(u64::MAX)) as u64;
         prepare_detail_parts.push(format!("候选模型构建={}ms(count={})", candidate_models_ms, candidate_api_ids.len()));
-        runtime_log_warn(format!(
+        runtime_log_info(format!(
             "[会话模型] 调度，任务=构建候选模型，会话ID={}，单次指定模型={}，会话首选模型={}，会话首选已应用={}，部门失败自动切换={}，候选队列={}",
             requested_conversation_id_for_prepare
                 .as_deref()
