@@ -37,8 +37,8 @@ const MIGRATION_STAGE_LABEL_KEYS: Record<string, string> = {
 function stageLabel(t: (key: string, params?: Record<string, unknown>) => string, stage?: string | null): string {
   const key = String(stage || "").trim();
   const labelKey = MIGRATION_STAGE_LABEL_KEYS[key];
-  if (labelKey) return t(labelKey);
-  return key || t("config.messageStoreMigration.stageFallback");
+  // 已知阶段走对应翻译；未知/空阶段统一走本地化回退，不暴露内部 stage key
+  return labelKey ? t(labelKey) : t("config.messageStoreMigration.stageFallback");
 }
 
 function delay(ms: number): Promise<void> {
