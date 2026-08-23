@@ -71,7 +71,7 @@ export function useChatConversationActionsOrchestrator(bindings: Record<string, 
     }
   }
 
-  async function createSideChatConversation(parentConversationId?: string) {
+  async function createSideChatConversation(parentConversationId?: string, withContext = true) {
     const parentId = String(parentConversationId || bindings.currentChatConversationId.value || "").trim();
     if (!parentId) return "";
     try {
@@ -81,7 +81,7 @@ export function useChatConversationActionsOrchestrator(bindings: Record<string, 
         conversationKind: string;
         title: string;
       }>("conversation.createSide", {
-        input: { parentConversationId: parentId },
+        input: { parentConversationId: parentId, withContext },
       });
       return String(result?.conversationId || "").trim();
     } catch (error) {

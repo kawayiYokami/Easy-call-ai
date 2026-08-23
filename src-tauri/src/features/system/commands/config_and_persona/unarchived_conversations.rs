@@ -540,6 +540,9 @@ struct CreateUnarchivedConversationOutput {
 #[serde(rename_all = "camelCase")]
 struct CreateSideChatConversationInput {
     parent_conversation_id: String,
+    /// false 时新建空上文追问（不复制父会话消息），默认 true 保持现有行为
+    #[serde(default)]
+    with_context: Option<bool>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -581,15 +584,20 @@ fn create_side_chat_conversation_blocking(
         return Err("只能从普通会话创建追问会话".to_string());
     }
 
-    let store_paths = message_store::message_store_paths(&state.data_path, parent_id)?;
-    ensure_chat_store_conversation_readable(state, parent_id, &store_paths)?;
-    let latest_block = message_store::chat_store_read_block_page(&store_paths, None)?
-        .ok_or_else(|| "父会话消息尚未就绪".to_string())?;
-    let copied_messages = latest_block
-        .messages
-        .iter()
-        .map(clone_chat_message_for_copied_conversation)
-        .collect::<Vec<_>>();
+    let with_context = input.with_context.unwrap_or(true);
+    let copied_messages = if with_context {
+        let store_paths = message_store::message_store_paths(&state.data_path, parent_id)?;
+        ensure_chat_store_conversation_readable(state, parent_id, &store_paths)?;
+        let latest_block = message_store::chat_store_read_block_page(&store_paths, None)?
+            .ok_or_else(|| "父会话消息尚未就绪".to_string())?;
+        latest_block
+            .messages
+            .iter()
+            .map(clone_chat_message_for_copied_conversation)
+            .collect::<Vec<_>>()
+    } else {
+        Vec::new()
+    };
     let title = parent
         .latest_summary_title
         .clone()
@@ -639,10 +647,11 @@ fn create_side_chat_conversation_blocking(
     })?;
     let _ = emit_unarchived_conversation_overview_item_updated_from_state(state, parent_id);
     runtime_log_info(format!(
-        "[追问会话] 完成，任务=创建真实会话，parent_conversation_id={}，conversation_id={}，message_count={}",
+        "[追问会话] 完成，任务=创建真实会话，parent_conversation_id={}，conversation_id={}，message_count={}，with_context={}",
         parent_id,
         side_chat_id,
-        side_chat.messages.len()
+        side_chat.messages.len(),
+        with_context
     ));
     Ok(CreateSideChatConversationOutput {
         conversation_id: side_chat_id,

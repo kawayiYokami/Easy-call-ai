@@ -691,6 +691,8 @@ export function useChatWindowApp() {
   chatFlow = runtimeOrchestrator.chatFlow;
   const sideConversationId = ref("");
   const closingSideConversationIds = ref<string[]>([]);
+  // 新建页锁定：点 + 后停留在追问新建页，不自动选中任一追问，直到用户选择或创建
+  const sideChatNewPageRequested = ref(false);
   // 只记住每个父会话当前选中的标签；真实标签集合始终以后端父摘要为准。
   const activeSideConversationByParent = new Map<string, string>();
   const sideConversations = computed<ChildConversationSummary[]>(() => {
@@ -711,6 +713,8 @@ export function useChatWindowApp() {
       const parentId = String(parentConversationId || "").trim();
       const parentChanged = parentId !== observedSideConversationParentId;
       observedSideConversationParentId = parentId;
+      // 用户显式停留在新建页时，不随父会话变化自动选中追问
+      if (sideChatNewPageRequested.value) return;
       if (!parentId) {
         sideConversationId.value = "";
         return;
@@ -728,13 +732,21 @@ export function useChatWindowApp() {
   const selectSideChatConversation = (conversationId: string) => {
     const normalizedId = String(conversationId || "").trim();
     if (!sideConversations.value.some((item) => String(item.conversationId || "").trim() === normalizedId)) return;
+    sideChatNewPageRequested.value = false;
     sideConversationId.value = normalizedId;
     const parentId = String(currentChatConversationId.value || "").trim();
     if (parentId) activeSideConversationByParent.set(parentId, normalizedId);
   };
-  const createSideChatConversation = async () => {
-    const conversationId = await conversationOrchestrator.createSideChatConversation();
+  // 打开追问新建页（Chrome 新标签页式）：不创建会话，停留在选择页直到用户点击
+  const openSideChatNewPage = () => {
+    sideChatNewPageRequested.value = true;
+    sideConversationId.value = "";
+    chatUiState.updateChatRightPanelMode("sideChat");
+  };
+  const createSideChatConversation = async (withContext = true) => {
+    const conversationId = await conversationOrchestrator.createSideChatConversation(undefined, withContext);
     if (conversationId) {
+      sideChatNewPageRequested.value = false;
       sideConversationId.value = conversationId;
       const parentId = String(currentChatConversationId.value || "").trim();
       if (parentId) activeSideConversationByParent.set(parentId, conversationId);
@@ -1050,6 +1062,7 @@ export function useChatWindowApp() {
     sideConversations,
     sideConversationId,
     selectSideChatConversation,
+    openSideChatNewPage,
     createSideChatConversation,
     createSideConversationBranchFromTurn,
     closeSideChatConversations,

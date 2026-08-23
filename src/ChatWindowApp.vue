@@ -70,6 +70,7 @@
       :side-conversations="sideConversations"
       :side-conversation-id="sideConversationId"
       :create-side-chat-conversation="createSideChatConversation"
+      :open-side-chat-new-page="openSideChatNewPage"
       :select-side-chat-conversation="selectSideChatConversation"
       :create-side-conversation-branch-from-turn="createSideConversationBranchFromTurn"
       :close-side-chat-conversations="closeSideChatConversations"

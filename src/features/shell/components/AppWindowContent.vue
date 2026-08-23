@@ -295,7 +295,7 @@
                   type="button"
                   class="btn btn-ghost btn-sm btn-circle"
                   :title="t('chat.sideChat.create')"
-                  @click="createSideChatConversation?.()"
+                  @click="openSideChatNewPage?.()"
                 >
                   <Plus class="size-4" />
                 </button>
@@ -333,6 +333,27 @@
               :request-recall-mode="requestRecallMode"
               :create-conversation-branch-from-turn="(payload) => createSideConversationBranchFromTurn?.({ ...payload, sourceConversationId: sideConversationId })"
             />
+            <div v-else class="relative flex min-h-0 flex-1 flex-col items-center justify-center gap-5 overflow-hidden px-6">
+              <div class="pointer-events-none absolute inset-0" aria-hidden="true">
+                <div class="absolute -top-16 left-1/2 h-72 w-72 -translate-x-1/2 rounded-full bg-primary/15 blur-3xl"></div>
+                <div class="absolute bottom-8 left-1/5 h-80 w-80 rounded-full bg-secondary/15 blur-3xl"></div>
+                <div class="absolute -bottom-24 right-1/6 h-72 w-72 rounded-full bg-accent/10 blur-3xl"></div>
+              </div>
+              <button
+                type="button"
+                class="btn btn-lg z-10 h-16 w-full max-w-80 rounded-2xl text-base shadow-lg"
+                @click="createSideChatConversation?.(true)"
+              >
+                {{ t('chat.sideChat.newPageInContext', { persona: selectedPersonaName }) }}
+              </button>
+              <button
+                type="button"
+                class="btn btn-lg z-10 h-16 w-full max-w-80 rounded-2xl text-base shadow-lg"
+                @click="createSideChatConversation?.(false)"
+              >
+                {{ t('chat.sideChat.newPageBlank', { persona: selectedPersonaName }) }}
+              </button>
+            </div>
           </div>
         </template>
       </ChatView>
@@ -652,7 +673,8 @@ const props = defineProps<{
   currentChatConversationId: string;
   sideConversations?: ChildConversationSummary[];
   sideConversationId?: string;
-  createSideChatConversation?: () => Promise<string> | string;
+  createSideChatConversation?: (withContext?: boolean) => Promise<string> | string;
+  openSideChatNewPage?: () => void;
   selectSideChatConversation?: (conversationId: string) => void;
   createSideConversationBranchFromTurn?: (payload: { turnId: string; sourceConversationId?: string }) => Promise<void> | void;
   closeSideChatConversations?: (conversationIds: string[]) => Promise<void> | void;
