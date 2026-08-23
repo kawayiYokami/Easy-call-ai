@@ -2129,6 +2129,7 @@
     "requestInsufficientBalance": "账号额度或余额不足",
     "requestServiceMaintenance": "模型服务维护中或临时不可用",
     "requestFailed": "请求失败: {err}",
+    "conversationCreateFailed": "新建会话失败: {err}",
     "pasteImageReadFailed": "附件添加失败: {err}",
     "trimArchiveRunning": "正在归档此会话…",
     "trimArchivePartial": "归档已部分完成：{reason}",

@@ -22,8 +22,6 @@ fn ide_chat_web_native_only_method(method: &str) -> bool {
             | "export_archive_to_file"
             | "archives.export"
             | "conversation.importShare"
-            | "conversation.openDraft"
-            | "conversation.updateDraft"
             | "export_memories_to_path"
             | "export_agent_private_memories"
             | "write_base64_file_to_path"
@@ -165,6 +163,25 @@ async fn ide_chat_handle_jsonrpc_request(
                 }
                 Ok(result)
             }),
+        "conversation.openDraft" => ide_chat_open_draft_conversation(state, request.params)
+            .await
+            .and_then(|result| {
+                if let Some(conversation_id) = result
+                    .get("conversationId")
+                    .and_then(Value::as_str)
+                    .map(str::trim)
+                    .filter(|value| !value.is_empty())
+                {
+                    ide_chat_register_sidebar_conversation(
+                        state,
+                        conversation_id,
+                        &sidebar_label,
+                        opened_conversation_id,
+                    )?;
+                }
+                Ok(result)
+            }),
+        "conversation.updateDraft" => ide_chat_update_draft_conversation(state, request.params).await,
         "conversation.createSide" => ide_chat_create_side_chat_conversation(state, request.params).await,
         "conversation.createOptions" => ide_chat_create_conversation_options(state),
         "workspace.permission" => ide_chat_workspace_permission(state, request.params),
@@ -304,6 +321,7 @@ async fn ide_chat_handle_jsonrpc_request(
                 spawn_message_store_migration_task(state.clone());
                 ide_chat_serialize(message_store_migration_runtime_snapshot())
             }),
+        "messageStore.migration.confirm" => ide_chat_serialize(confirm_message_store_migration_summary()),
         "save_config" => ide_chat_save_config_for_web_settings(state, app, ide_context_runtime, request.params),
         "load_agents" => ide_chat_load_agents_for_web_settings(state),
         "convert_private_agent_to_main" => {

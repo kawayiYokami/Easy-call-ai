@@ -2125,6 +2125,7 @@
     "requestInsufficientBalance": "帳號額度或餘額不足",
     "requestServiceMaintenance": "模型服務維護中或暫時不可用",
     "requestFailed": "請求失敗: {err}",
+    "conversationCreateFailed": "新建會話失敗: {err}",
     "pasteImageReadFailed": "附件新增失敗: {err}",
     "trimArchiveRunning": "正在歸檔當前會話…",
     "trimArchivePartial": "歸檔已部分完成：{reason}",

@@ -677,6 +677,17 @@ async fn ide_chat_create_conversation(state: &AppState, params: Value) -> Result
     ide_chat_serialize(create_unarchived_conversation_inner(input, state).await?)
 }
 
+async fn ide_chat_open_draft_conversation(state: &AppState, params: Value) -> Result<Value, String> {
+    let input = ide_chat_parse_param_field::<Option<OpenDraftConversationInput>>(params, "input")?;
+    ide_chat_serialize(open_draft_conversation_inner(input, state).await?)
+}
+
+async fn ide_chat_update_draft_conversation(state: &AppState, params: Value) -> Result<Value, String> {
+    let input = ide_chat_parse_param_field::<UpdateDraftConversationInput>(params, "input")?;
+    update_draft_conversation_inner(input, state).await?;
+    Ok(serde_json::json!({ "ok": true }))
+}
+
 async fn ide_chat_create_side_chat_conversation(
     state: &AppState,
     params: Value,

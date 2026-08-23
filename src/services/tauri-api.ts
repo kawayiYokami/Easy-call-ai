@@ -909,14 +909,14 @@ export function listTransportGenaiChatAdapters<T>(): Promise<T> {
   return invokeRequiredNativeTransport<T>("genai 内置聊天适配器清单", "list_genai_chat_adapters");
 }
 
-/** 打开（或创建）会话草稿仅桌面宿主可用，Web/VS Code 无此能力。 */
+/** 打开（或创建）会话草稿：Web/VS Code 经 WS 桥由后端 dispatcher 提供。 */
 export function openTransportConversationDraft<T>(input: Record<string, unknown>): Promise<T> {
-  return invokeRequiredNativeTransport<T>("会话草稿打开", "conversation.openDraft", { input });
+  return invokeTauri<T>("conversation.openDraft", { input });
 }
 
-/** 改写会话草稿字段仅桌面宿主可用，Web/VS Code 无此能力。 */
+/** 改写会话草稿字段：Web/VS Code 经 WS 桥由后端 dispatcher 提供。 */
 export function updateTransportConversationDraft<T>(input: Record<string, unknown>): Promise<T> {
-  return invokeRequiredNativeTransport<T>("会话草稿更新", "conversation.updateDraft", { input });
+  return invokeTauri<T>("conversation.updateDraft", { input });
 }
 
 export async function openTransportFileReaderDirectoryTarget(
@@ -1394,8 +1394,6 @@ const WEB_BRIDGE_NATIVE_ONLY_COMMANDS = new Set([
   "export_archive_to_file",
   "archives.export",
   "conversation.importShare",
-  "conversation.openDraft",
-  "conversation.updateDraft",
   "export_memories_to_path",
   "export_agent_private_memories",
   "write_base64_file_to_path",

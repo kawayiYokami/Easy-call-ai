@@ -28,6 +28,14 @@ export function useChatWindowEvents(bindings: Record<string, any>) {
   }
 
   onMounted(() => {
+    // 能力自检：报错现场出现过 bindings 缺方法，挂载时打一次关键方法类型，便于定位产物/组装问题
+    console.info("[窗口事件] bindings 能力自检", {
+      mergeMessagesIntoTimeline: typeof bindings.mergeMessagesIntoTimeline,
+      cacheConversationMessages: typeof bindings.cacheConversationMessages,
+      formalizeConversationMessages: typeof bindings.formalizeConversationMessages,
+      getChatFlow: typeof bindings.getChatFlow,
+      hasUnlisteners: typeof bindings.unlisteners,
+    });
     subscribe<any>("chatHistoryFlushed", "chat.historyFlushed", (payload) => {
       const conversationId = bindings.readConversationIdFromPayload(payload);
       if (!conversationId || flowsForConversation(conversationId).length > 0) return;
@@ -53,6 +61,14 @@ export function useChatWindowEvents(bindings: Record<string, any>) {
           const cachedMessages = bindings.formalizeConversationMessages(
             bindings.conversationMessageCache.value[conversationId] || [],
           );
+          if (typeof bindings.mergeMessagesIntoTimeline !== "function") {
+            console.warn("[窗口事件] bindings 缺少 mergeMessagesIntoTimeline，回退为直接拼接", {
+              conversationId,
+              bindingsKeys: Object.keys(bindings).filter((key) => /merge|message/i.test(key)),
+            });
+            bindings.cacheConversationMessages(conversationId, [...cachedMessages, assistantMessage]);
+            return;
+          }
           bindings.cacheConversationMessages(
             conversationId,
             bindings.mergeMessagesIntoTimeline(cachedMessages, [assistantMessage]),

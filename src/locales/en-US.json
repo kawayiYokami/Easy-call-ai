@@ -2129,6 +2129,7 @@
     "requestInsufficientBalance": "The account quota or balance is insufficient",
     "requestServiceMaintenance": "The model service is under maintenance or temporarily unavailable",
     "requestFailed": "Request failed: {err}",
+    "conversationCreateFailed": "Failed to create conversation: {err}",
     "pasteImageReadFailed": "Failed to add attachment: {err}",
     "trimArchiveRunning": "Archiving current conversation...",
     "trimArchivePartial": "Archive partially completed: {reason}",
