@@ -287,6 +287,8 @@ export function useChatWindowConversationOrchestrator(bindings: Record<string, a
     switchRemoteImContactConversation: chatRemoteConversation.switchRemoteImContactConversation,
     switchChatConversation: chatRemoteConversation.switchChatConversation,
     createUnarchivedConversation: chatConversationActions.createUnarchivedConversation,
+    openDraftConversation: chatConversationActions.openDraftConversation,
+    updateDraftConversation: chatConversationActions.updateDraftConversation,
     createSideChatConversation: chatConversationActions.createSideChatConversation,
     branchConversationFromSelection: chatConversationActions.branchConversationFromSelection,
     forwardConversationFromSelection: chatConversationActions.forwardConversationFromSelection,

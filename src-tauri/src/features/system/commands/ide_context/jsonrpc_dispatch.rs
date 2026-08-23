@@ -22,6 +22,8 @@ fn ide_chat_web_native_only_method(method: &str) -> bool {
             | "export_archive_to_file"
             | "archives.export"
             | "conversation.importShare"
+            | "conversation.openDraft"
+            | "conversation.updateDraft"
             | "export_memories_to_path"
             | "export_agent_private_memories"
             | "write_base64_file_to_path"

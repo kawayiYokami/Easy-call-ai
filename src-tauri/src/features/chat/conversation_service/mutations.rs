@@ -332,11 +332,54 @@ fn validate_isolated_worktree_root(path: &str) -> Result<(), String> {
     Ok(())
 }
 
+/// 查找当前唯一未归档的会话草稿；不存在返回 None。
+fn find_existing_draft_conversation_id(state: &AppState) -> Result<Option<String>, String> {
+    let chat_index = state_read_chat_index_cached(state)?;
+    for item in chat_index.conversations.iter().rev() {
+        let conversation_meta = match conversation_service_v2().get_conversation_meta(state, &item.id)
+        {
+            Ok(value) => value,
+            Err(_) => continue,
+        };
+        if !conversation_meta.is_draft {
+            continue;
+        }
+        if conversation_meta.conversation_kind.trim() != CONVERSATION_KIND_CHAT {
+            continue;
+        }
+        if !conversation_service_v2().conversation_meta_is_unarchived_meta_view(&conversation_meta)
+        {
+            continue;
+        }
+        return Ok(Some(conversation_meta.id));
+    }
+    Ok(None)
+}
+
+/// 转正后的备用草稿：继承刚转正会话的部门/人格/模型/workspace 设置。
+fn create_next_draft_conversation_inherited(
+    state: &AppState,
+    promoted: &Conversation,
+) -> Result<String, String> {
+    let input = CreateUnarchivedConversationInput {
+        api_config_id: promoted.preferred_api_config_id.clone(),
+        agent_id: Some(promoted.agent_id.clone()),
+        department_id: Some(promoted.department_id.clone()),
+        title: None,
+        copy_source_conversation_id: None,
+        shell_workspaces: Some(promoted.shell_workspaces.clone()),
+        shell_work_mode: Some(promoted.shell_work_mode.clone()),
+        shell_autonomous_mode: Some(promoted.shell_autonomous_mode),
+        is_draft: Some(true),
+    };
+    let result = conversation_service_v2().create_conversation(state, &input)?;
+    Ok(result.conversation_id)
+}
+
 fn create_unarchived_conversation_shared(
     state: &AppState,
     input: &CreateUnarchivedConversationInput,
-) -> Result<CreateUnarchivedConversationMutationResult, String> {
-    let started_at = std::time::Instant::now();
+) -> Result<CreateUnarchivedConversationMutationResult, String> {    let started_at = std::time::Instant::now();
     let guard = state
         .conversation_lock
         .lock()
@@ -345,14 +388,27 @@ fn create_unarchived_conversation_shared(
     let app_config = runtime_snapshot.config.clone();
     let assistant_department_agent_id = assistant_department_agent_id_downgraded(state);
     let agents = runtime_snapshot.agents.clone();
+    let is_draft = input.is_draft.unwrap_or(false);
     let requested_department_id = input
         .department_id
         .as_deref()
         .map(str::trim)
         .filter(|value| !value.is_empty());
-    let department_id = requested_department_id
-        .ok_or_else(|| "新建会话必须选择部门。".to_string())?;
-    let department = runtime_department_by_id(&runtime_snapshot, department_id)
+    let department_id = match requested_department_id {
+        Some(value) => value.to_string(),
+        None if is_draft => runtime_snapshot
+            .config
+            .departments
+            .iter()
+            .find(|department| {
+                department.id.trim() == ASSISTANT_DEPARTMENT_ID || department.is_built_in_assistant
+            })
+            .map(|department| department.id.trim().to_string())
+            .filter(|value| !value.is_empty())
+            .ok_or_else(|| "会话草稿缺少默认部门，无法创建。".to_string())?,
+        None => return Err("新建会话必须选择部门。".to_string()),
+    };
+    let department = runtime_department_by_id(&runtime_snapshot, &department_id)
         .ok_or_else(|| format!("Department '{department_id}' not found."))?;
     let api_config_id = input
         .api_config_id
@@ -361,13 +417,43 @@ fn create_unarchived_conversation_shared(
         .filter(|value| !value.is_empty())
         .map(ToOwned::to_owned)
         .unwrap_or_else(|| department_primary_api_config_id(department));
-    let agent_id = input
+    let requested_agent_id = input
         .agent_id
         .as_deref()
         .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .ok_or_else(|| format!("新建会话必须选择人格，department_id={}", department.id))?
-        .to_string();
+        .filter(|value| !value.is_empty());
+    let agent_id = match requested_agent_id {
+        Some(value) => value.to_string(),
+        None if is_draft => {
+            let preferred = assistant_department_agent_id.trim();
+            if !preferred.is_empty()
+                && department
+                    .agent_ids
+                    .iter()
+                    .any(|id| id.trim() == preferred)
+                && agents
+                    .iter()
+                    .any(|agent| agent.id == preferred && !agent.is_built_in_user)
+            {
+                preferred.to_string()
+            } else {
+                first_available_department_agent(department, &agents)
+                    .map(|agent| agent.id.clone())
+                    .ok_or_else(|| {
+                        format!(
+                            "会话草稿部门没有可用人格，无法创建: department_id={}",
+                            department.id
+                        )
+                    })?
+            }
+        }
+        None => {
+            return Err(format!(
+                "新建会话必须选择人格，department_id={}",
+                department.id
+            ))
+        }
+    };
     if !department.agent_ids.iter().any(|id| id.trim() == agent_id) {
         return Err(format!(
             "新建会话的人格不属于所选部门: department_id={}，agent_id={}",
@@ -452,6 +538,10 @@ fn create_unarchived_conversation_shared(
     }
     if let Some(shell_autonomous_mode) = input.shell_autonomous_mode {
         conversation.shell_autonomous_mode = shell_autonomous_mode;
+    }
+    if is_draft {
+        conversation.is_draft = true;
+        conversation.title = String::new();
     }
     let conversation_id = conversation.id.clone();
     drop(guard);
@@ -851,6 +941,7 @@ fn read_conversation_for_backup_cleanup(
         memory_recall_table: Vec::new(),
         plan_mode_enabled: conversation_meta.plan_mode_enabled,
         preferred_api_config_id: conversation_meta.preferred_api_config_id,
+        is_draft: conversation_meta.is_draft,
         auto_push_remote_contact_id: conversation_meta.auto_push_remote_contact_id,
         cumulative_usage: conversation_meta.cumulative_usage,
         active_goal: conversation_meta.active_goal,

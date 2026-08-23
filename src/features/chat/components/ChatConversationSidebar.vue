@@ -423,6 +423,7 @@ const conversationSections = computed<ConversationSection[]>(() =>
     },
     locale: locale.value,
     currentWorkspaceRootPath: props.currentWorkspaceRootPath,
+    activeConversationId: props.activeConversationId,
   }),
 );
 
@@ -902,21 +903,9 @@ function handleConversationTabTransitionSettled() {
   scheduleConversationListScrollbarUpdate();
 }
 
-function createConversationInSection(section: ConversationSection) {
-  const path = String(section.workspaceRootPath || "").trim();
-  if (!path) return;
-  window.dispatchEvent(new CustomEvent("easy-call:open-create-conversation-dialog", {
-    detail: {
-      workspace: {
-        id: `conversation-workspace-${path}`,
-        name: section.title,
-        path,
-        level: "main",
-        access: "approval",
-        builtIn: false,
-      },
-    },
-  }));
+function createConversationInSection(_section: ConversationSection) {
+  // 新建入口统一打开会话草稿；草稿设置由转正前的草稿字段继承，不再按分组预填 workspace
+  window.dispatchEvent(new CustomEvent("easy-call:open-draft-conversation"));
 }
 
 function normalizedPreviewMessages(item: ChatConversationOverviewItem): ConversationPreviewMessage[] {

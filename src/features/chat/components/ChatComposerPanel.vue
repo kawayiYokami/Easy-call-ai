@@ -715,19 +715,10 @@ const teleportTheme = computed(() => {
 
 function openCreateConversationDialog() {
   if (typeof window === "undefined") {
-    const options = props.createConversationDepartmentOptions.filter(
-      (option) => !option.personaMissing && !!String(option.agentId || "").trim(),
-    );
-    const defaultOption = options.find((option) =>
-      String(option.departmentId || "").trim() === String(props.defaultCreateConversationDepartmentId || "").trim()
-    ) || options[0];
-    emit("createConversation", {
-      departmentId: String(defaultOption?.departmentId || props.defaultCreateConversationDepartmentId || "").trim(),
-      agentId: String(defaultOption?.agentId || "").trim() || undefined,
-    });
+    emit("createConversation");
     return;
   }
-  window.dispatchEvent(new CustomEvent("easy-call:open-create-conversation-dialog"));
+  window.dispatchEvent(new CustomEvent("easy-call:open-draft-conversation"));
 }
 
 const menuOpen = ref(false);

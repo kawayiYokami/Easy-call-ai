@@ -338,6 +338,7 @@
             auto_push_remote_contact_id: None,
             active_goal: None,
             cumulative_usage: ConversationCumulativeUsage::default(),
+            is_draft: false,
         });
         state_write_app_data_cached(&state, &data).expect("write app data");
 
@@ -604,6 +605,7 @@
             auto_push_remote_contact_id: None,
             active_goal: None,
             cumulative_usage: ConversationCumulativeUsage::default(),
+            is_draft: false,
         };
 
         let preserved = collect_block_preserved_dialogue(

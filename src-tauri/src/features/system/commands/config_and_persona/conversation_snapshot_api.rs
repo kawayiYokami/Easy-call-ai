@@ -69,9 +69,10 @@ struct UnarchivedConversationSummary {
     is_system_notification_conversation: bool,
     #[serde(default)]
     is_pinned: bool,
+    #[serde(default)]
+    is_draft: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pin_index: Option<usize>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    pin_index: Option<usize>,    #[serde(skip_serializing_if = "Option::is_none")]
     runtime_state: Option<MainSessionState>,
     #[serde(skip_serializing_if = "Option::is_none")]
     current_todo: Option<String>,
@@ -631,6 +632,7 @@ fn build_unarchived_conversation_summary_from_meta_view(
         is_active: conversation_meta.status.trim() == "active",
         is_system_notification_conversation,
         is_pinned: is_system_notification_conversation || pin_index.is_some(),
+        is_draft: conversation_meta.is_draft,
         pin_index,
         runtime_state: unarchived_conversation_runtime_state(state, &conversation_meta.id),
         current_todo: conversation_current_todo_text_from_items(&conversation_meta.current_todos),
@@ -1143,6 +1145,7 @@ fn list_unarchived_conversations_blocking(
         shell_workspaces: None,
         shell_work_mode: None,
         shell_autonomous_mode: None,
+        is_draft: None,
     };
     let result = conversation_service_v2().create_conversation(state, &create_input)?;
     let _ = emit_unarchived_conversation_overview_item_updated_from_state(
@@ -1671,6 +1674,7 @@ mod conversation_snapshot_api_tests {
                 completed_at: None,
             },
             preview_messages: Vec::new(),
+            is_draft: false,
         }
     }
 

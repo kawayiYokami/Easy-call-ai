@@ -16,15 +16,10 @@
       :active-conversation-id="currentChatConversationId"
       :current-department-id="currentForegroundDepartmentId"
       :conversation-items="chatConversationItems"
-      :current-chat-workspaces="chatWorkspaceChoices"
-      :config-shell-workspaces="config.shellWorkspaces || []"
       :user-alias="userAlias"
       :user-avatar-url="userAvatarUrl"
       :persona-name-map="chatPersonaNameMap"
       :persona-avatar-url-map="chatPersonaAvatarUrlMap"
-      :api-configs="textCapableApiConfigs"
-      :create-conversation-department-options="createConversationDepartmentOptions"
-      :default-create-conversation-department-id="defaultCreateConversationDepartmentId"
       :trim-tip="t('chat.trimTip')"
       :maximized="maximized"
       :window-ready="windowReady"
@@ -52,7 +47,7 @@
       @toggle-pin-conversation="toggleConversationPin"
       @archive-conversation="archiveConversationFromList"
       @delete-conversation="deleteUnarchivedConversationFromArchives"
-      @create-conversation="createUnarchivedConversation"
+      @create-conversation="openDraftConversation"
       @trim-conversation="openTrimActionDialog"
       @start-drag="startDrag"
       @close-window="handleCloseWindow"
@@ -331,7 +326,8 @@
       :on-archive-conversation="archiveConversationFromList"
       :on-delete-conversation="deleteUnarchivedConversationFromArchives"
       :on-rebind-conversation-recipient="rebindConversationRecipient"
-      :on-create-conversation="createUnarchivedConversation"
+      :on-update-draft-conversation="updateDraftConversation"
+      :on-create-conversation="openDraftConversation"
       :on-branch-conversation-from-selection="branchConversationFromSelection"
       :on-forward-conversation-from-selection="forwardConversationFromSelection"
       :on-user-async-delegate-from-selection="userAsyncDelegateFromSelection"
@@ -524,7 +520,7 @@ export default defineComponent({
         if (method === "toggle-conversation-list") {
           void app.toggleSideConversationList();
         } else if (method === "create-conversation") {
-          void app.createUnarchivedConversation();
+          void app.openDraftConversation();
         }
       });
       onBeforeUnmount(stopRemoteCommands);

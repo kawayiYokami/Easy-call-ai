@@ -122,6 +122,7 @@ fn active_plan_records_in_progress_should_return_newest_first() {
         auto_push_remote_contact_id: None,
         active_goal: None,
         cumulative_usage: ConversationCumulativeUsage::default(),
+        is_draft: false,
     };
     chat_store_write_snapshot(&paths, &conversation).expect("write ready snapshot");
     let append_record = |plan_id: &str, status: &str, path: &str, created_at: &str| {

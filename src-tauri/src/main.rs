@@ -1277,6 +1277,8 @@ fn main() {
             set_conversation_preferred_model,
             set_conversation_auto_push_remote_contact,
             create_unarchived_conversation,
+            open_draft_conversation,
+            update_draft_conversation,
             create_side_chat_conversation,
             create_conversation_branch_from_message,
             export_conversation_share_json,

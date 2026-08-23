@@ -4060,6 +4060,7 @@
             auto_push_remote_contact_id: None,
             active_goal: None,
             cumulative_usage: ConversationCumulativeUsage::default(),
+            is_draft: false,
         }
     }
 
@@ -5434,6 +5435,7 @@
                     shell_workspaces: None,
                     shell_work_mode: Some("isolated_worktree".to_string()),
                     shell_autonomous_mode: None,
+                    is_draft: Some(false),
                 },
             )
             .expect("create conversation through v2");
@@ -5495,9 +5497,7 @@
         }
 
         let legacy_collision_id = "conversation-v2-create-with-legacy-artifact";
-        let mut legacy_collision =
-            test_chat_conversation(legacy_collision_id, "active", &now_iso());
-        legacy_collision.title = "生产新建忽略旧 artifact".to_string();
+        let mut legacy_collision = test_chat_conversation(legacy_collision_id, "active", &now_iso());        legacy_collision.title = "生产新建忽略旧 artifact".to_string();
         let legacy_path =
             app_layout_chat_conversation_path(&state.data_path, legacy_collision_id);
         let collision_paths = message_store::message_store_paths(
@@ -5558,6 +5558,108 @@
     }
 
     #[test]
+    fn conversation_service_v2_should_create_draft_with_fallback_defaults_and_find_it() {
+        let state = test_chat_runtime_state();
+        let git_init = std::process::Command::new("git")
+            .args(["init", "--quiet"])
+            .current_dir(&state.llm_workspace_path)
+            .output()
+            .expect("initialize git workspace");
+        assert!(git_init.status.success(), "git init should succeed");
+
+        let created = conversation_service_v2()
+            .create_conversation(
+                &state,
+                &CreateUnarchivedConversationInput {
+                    api_config_id: None,
+                    agent_id: None,
+                    department_id: None,
+                    title: None,
+                    copy_source_conversation_id: None,
+                    shell_workspaces: None,
+                    shell_work_mode: None,
+                    shell_autonomous_mode: None,
+                    is_draft: Some(true),
+                },
+            )
+            .expect("create draft with fallback defaults");
+
+        let draft = state_read_conversation_cached(&state, &created.conversation_id)
+            .expect("draft conversation should exist");
+        assert!(draft.is_draft, "draft flag should be set on creation");
+        assert!(draft.title.is_empty(), "draft title should stay empty");
+        assert!(!draft.department_id.is_empty(), "draft department should fall back to default");
+        assert!(!draft.agent_id.is_empty(), "draft agent should fall back to default");
+
+        let meta = conversation_service_v2()
+            .get_conversation_meta(&state, &created.conversation_id)
+            .expect("read draft meta view");
+        assert!(meta.is_draft, "is_draft must survive the shard meta roundtrip");
+
+        let found =
+            find_existing_draft_conversation_id(&state).expect("find existing draft");
+        assert_eq!(
+            found.as_deref(),
+            Some(created.conversation_id.as_str()),
+            "singleton query should locate the only unarchived draft"
+        );
+    }
+
+    #[test]
+    fn conversation_service_v2_should_keep_normal_create_non_draft() {
+        let state = test_chat_runtime_state();
+        let git_init = std::process::Command::new("git")
+            .args(["init", "--quiet"])
+            .current_dir(&state.llm_workspace_path)
+            .output()
+            .expect("initialize git workspace");
+        assert!(git_init.status.success(), "git init should succeed");
+
+        let created = conversation_service_v2()
+            .create_conversation(
+                &state,
+                &CreateUnarchivedConversationInput {
+                    api_config_id: None,
+                    agent_id: Some(DEFAULT_AGENT_ID.to_string()),
+                    department_id: Some(ASSISTANT_DEPARTMENT_ID.to_string()),
+                    title: None,
+                    copy_source_conversation_id: None,
+                    shell_workspaces: None,
+                    shell_work_mode: None,
+                    shell_autonomous_mode: None,
+                    is_draft: None,
+                },
+            )
+            .expect("create normal conversation");
+
+        let conversation = state_read_conversation_cached(&state, &created.conversation_id)
+            .expect("conversation should exist");
+        assert!(!conversation.is_draft, "normal create must not set draft flag");
+        let found =
+            find_existing_draft_conversation_id(&state).expect("find draft after normal create");
+        assert!(found.is_none(), "normal conversation must not be treated as draft");
+    }
+
+    #[test]
+    fn conversation_service_v2_should_reject_draft_agent_outside_department() {
+        let state = test_chat_runtime_state();
+        let git_init = std::process::Command::new("git")
+            .args(["init", "--quiet"])
+            .current_dir(&state.llm_workspace_path)
+            .output()
+            .expect("initialize git workspace");
+        assert!(git_init.status.success(), "git init should succeed");
+
+        // 人格校验复用草稿更新路径的部门归属校验：不存在的部门必须拒绝
+        let result = validate_draft_agent_for_department(
+            &state,
+            "department-not-exists",
+            DEFAULT_AGENT_ID,
+        );
+        assert!(result.is_err(), "unknown department must be rejected");
+    }
+
+    #[test]
     fn conversation_service_v2_should_create_independent_worktree_conversation() {
         let state = test_chat_runtime_state();
         let git_init = std::process::Command::new("git")
@@ -5579,6 +5681,7 @@
                     shell_workspaces: None,
                     shell_work_mode: Some(SHELL_WORK_MODE_INDEPENDENT_WORKTREE.to_string()),
                     shell_autonomous_mode: None,
+                    is_draft: Some(false),
                 },
             )
             .expect("create independent worktree conversation");
@@ -5619,6 +5722,7 @@
                 }]),
                 shell_work_mode: Some(SHELL_WORK_MODE_ISOLATED_WORKTREE.to_string()),
                 shell_autonomous_mode: None,
+                is_draft: Some(false),
             },
         );
 
@@ -5656,6 +5760,7 @@
                 }]),
                 shell_work_mode: Some(SHELL_WORK_MODE_INDEPENDENT_WORKTREE.to_string()),
                 shell_autonomous_mode: None,
+                is_draft: Some(false),
             },
         );
 
@@ -9704,6 +9809,7 @@
             auto_push_remote_contact_id: None,
             active_goal: None,
             cumulative_usage: ConversationCumulativeUsage::default(),
+            is_draft: false,
         });
         state_write_app_data_cached(&state, &data).expect("write app data");
 
@@ -11676,6 +11782,7 @@
             auto_push_remote_contact_id: None,
             active_goal: None,
             cumulative_usage: ConversationCumulativeUsage::default(),
+            is_draft: false,
         };
         let conversation_id = conversation.id.clone();
         data.conversations.push(conversation.clone());
@@ -11733,6 +11840,7 @@
             auto_push_remote_contact_id: None,
             active_goal: None,
             cumulative_usage: ConversationCumulativeUsage::default(),
+            is_draft: false,
         });
         state_write_app_data_cached(&state, &data).expect("write app data");
 
@@ -11806,6 +11914,7 @@
             auto_push_remote_contact_id: None,
             active_goal: None,
             cumulative_usage: ConversationCumulativeUsage::default(),
+            is_draft: false,
         });
         state_write_app_data_cached(&state, &data).expect("write app data");
 

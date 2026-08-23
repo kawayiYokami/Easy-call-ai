@@ -175,6 +175,7 @@ fn delegate_parent_shell_workspace(
             archived_at: conversation_meta.archived_at,
             user_profile_snapshot: String::new(),
             preferred_api_config_id: conversation_meta.preferred_api_config_id,
+            is_draft: false,
             auto_push_remote_contact_id: None,
             shell_workspace_path: conversation_meta.shell_workspace_path,
             shell_workspaces: conversation_meta.shell_workspaces,

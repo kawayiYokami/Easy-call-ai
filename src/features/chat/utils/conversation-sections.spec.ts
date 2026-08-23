@@ -54,6 +54,36 @@ describe("buildConversationSections", () => {
     expect(ids(sections)).toContain("remote");
   });
 
+  it("会话草稿非 active 时从所有分组消失", () => {
+    const items = [
+      item({ conversationId: "normal", lastMessageAt: "2026-08-01T00:00:00Z", updatedAt: "2026-08-01T00:00:00Z" }),
+      item({ conversationId: "draft-hidden", isDraft: true, lastMessageAt: "2026-08-02T00:00:00Z", updatedAt: "2026-08-02T00:00:00Z" }),
+      item({ conversationId: "draft-pinned", isDraft: true, isPinned: true, lastMessageAt: "2026-08-03T00:00:00Z", updatedAt: "2026-08-03T00:00:00Z" }),
+    ];
+    const sections = buildConversationSections(items, { tab: "local", titles, locale: "zh-CN" });
+    expect(ids(sections)).not.toContain("draft-hidden");
+    expect(ids(sections)).not.toContain("draft-pinned");
+  });
+
+  it("会话草稿 active 时只进入最近分组，不进置顶/当前项目/工作区分组", () => {
+    const items = [
+      item({ conversationId: "normal", lastMessageAt: "2026-07-01T00:00:00Z", updatedAt: "2026-07-01T00:00:00Z" }),
+      item({ conversationId: "draft-active", isDraft: true, lastMessageAt: "2026-08-05T00:00:00Z", updatedAt: "2026-08-05T00:00:00Z", workspaceRootPath: "E:/work/proj" }),
+      item({ conversationId: "ws", lastMessageAt: "2026-08-04T00:00:00Z", updatedAt: "2026-08-04T00:00:00Z", workspaceRootPath: "E:/work/proj" }),
+    ];
+    const sections = buildConversationSections(items, {
+      tab: "local",
+      titles,
+      locale: "zh-CN",
+      currentWorkspaceRootPath: "E:/work/proj",
+      activeConversationId: "draft-active",
+    });
+    const recentIds = sections.find((section) => section.key === "recent")?.items.map((entry) => entry.conversationId) || [];
+    expect(recentIds).toContain("draft-active");
+    expect(sections.find((section) => section.key === "current-project")?.items.map((entry) => entry.conversationId)).toEqual(["ws"]);
+    expect(ids(sections).filter((id) => id === "draft-active")).toHaveLength(1);
+  });
+
   it("非 contact 标签下排除远程联系人会话", () => {
     const items = [
       item({ conversationId: "local", lastMessageAt: "2026-08-01T00:00:00Z", updatedAt: "2026-08-01T00:00:00Z" }),

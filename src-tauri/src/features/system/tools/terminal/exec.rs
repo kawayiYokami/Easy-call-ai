@@ -1827,6 +1827,7 @@ mod terminal_exec_tests {
             auto_push_remote_contact_id: None,
             active_goal: None,
             cumulative_usage: ConversationCumulativeUsage::default(),
+            is_draft: false,
         });
         state_write_app_data_cached(state, &data)
             .map_err(|err| format!("write app data failed: {err}"))?;

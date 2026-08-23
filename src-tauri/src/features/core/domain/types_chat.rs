@@ -520,6 +520,8 @@ struct Conversation {
     #[serde(default)]
     preferred_api_config_id: Option<String>,
     #[serde(default)]
+    is_draft: bool,
+    #[serde(default)]
     auto_push_remote_contact_id: Option<String>,
     #[serde(default, alias = "usageSummary")]
     cumulative_usage: ConversationCumulativeUsage,

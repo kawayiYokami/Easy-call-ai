@@ -71,8 +71,42 @@ export function useChatConversationActionsOrchestrator(bindings: Record<string, 
     }
   }
 
-  async function createSideChatConversation(parentConversationId?: string, withContext = true) {
-    const parentId = String(parentConversationId || bindings.currentChatConversationId.value || "").trim();
+  // 新建会话 = 打开（或创建）会话草稿：设置直接落在草稿字段上，
+  // 发出第一句话时后端自动转正并创建下一个备用草稿。
+  async function openDraftConversation() {
+    try {
+      const result = await invokeTauri<{ conversationId: string; created: boolean }>("conversation.openDraft");
+      const conversationId = String(result?.conversationId || "").trim();
+      if (!conversationId) return "";
+      await bindings.switchUnarchivedConversation(conversationId);
+      return conversationId;
+    } catch (error) {
+      bindings.setStatus(bindings.tr("status.conversationCreateFailed", { err: bindings.formatRequestFailed(error) }));
+      return "";
+    }
+  }
+
+  // 在草稿历史区切换部门/人格/模型：直接改写草稿会话字段
+  async function updateDraftConversation(patch: { departmentId?: string; agentId?: string; preferredApiConfigId?: string | null }) {
+    const conversationId = String(bindings.currentChatConversationId.value || "").trim();
+    if (!conversationId) return false;
+    try {
+      const input: Record<string, unknown> = { conversationId };
+      if (patch.departmentId !== undefined) input.departmentId = patch.departmentId;
+      if (patch.agentId !== undefined) input.agentId = patch.agentId;
+      if (patch.preferredApiConfigId !== undefined) {
+        // undefined 不修改；null 清空回部门默认；字符串为指定模型
+        input.preferredApiConfigId = patch.preferredApiConfigId;
+      }
+      await invokeTauri("conversation.updateDraft", { input });
+      return true;
+    } catch (error) {
+      bindings.setStatusError("status.requestFailed", error);
+      return false;
+    }
+  }
+
+  async function createSideChatConversation(parentConversationId?: string, withContext = true) {    const parentId = String(parentConversationId || bindings.currentChatConversationId.value || "").trim();
     if (!parentId) return "";
     try {
       const result = await invokeTauri<{
@@ -349,6 +383,8 @@ export function useChatConversationActionsOrchestrator(bindings: Record<string, 
 
   return {
     createUnarchivedConversation,
+    openDraftConversation,
+    updateDraftConversation,
     createSideChatConversation,
     branchConversationFromSelection,
     createConversationBranchFromMessage,

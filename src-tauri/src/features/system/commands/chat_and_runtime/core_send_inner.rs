@@ -750,6 +750,7 @@ async fn send_chat_message_inner(
             memory_recall_table: Vec::new(),
             plan_mode_enabled: false,
             preferred_api_config_id: None,
+            is_draft: false,
             auto_push_remote_contact_id: None,
             cumulative_usage: ConversationCumulativeUsage::default(),
             active_goal: None,
@@ -1441,6 +1442,24 @@ async fn send_chat_message_inner(
             }
             log_run_stage("prepare_context.memory_recall_done");
             let now = now_iso();
+            // 会话草稿转正：草稿发出第一句话即清除标记转为普通会话，并立即创建下一个备用草稿。
+            // 备用草稿创建失败不阻断消息发送，下次打开草稿入口时按单例查询兜底重建。
+            if !snapshot.is_runtime_conversation && snapshot.storage_conversation_before.is_draft {
+                snapshot.storage_conversation_before.is_draft = false;
+                match create_next_draft_conversation_inherited(
+                    &state,
+                    &snapshot.storage_conversation_before,
+                ) {
+                    Ok(new_draft_id) => runtime_log_info(format!(
+                        "[会话草稿] 完成，任务=首条消息转正，conversation_id={}，new_draft_conversation_id={}",
+                        snapshot.storage_conversation_before.id, new_draft_id
+                    )),
+                    Err(err) => runtime_log_warn(format!(
+                        "[会话草稿] 创建备用草稿失败，等待下次打开时重建，conversation_id={}，error={err}",
+                        snapshot.storage_conversation_before.id
+                    )),
+                }
+            }
             let user_message_id = Uuid::new_v4().to_string();
             let git_ghost_snapshot_record = if snapshot.is_runtime_conversation {
                 None
@@ -3118,6 +3137,7 @@ mod core_send_inner_tests {
             auto_push_remote_contact_id: None,
             active_goal: None,
             cumulative_usage: ConversationCumulativeUsage::default(),
+            is_draft: false,
         }
     }
 
@@ -3858,6 +3878,7 @@ mod core_send_inner_tests {
             auto_push_remote_contact_id: None,
             active_goal: None,
             cumulative_usage: ConversationCumulativeUsage::default(),
+            is_draft: false,
         };
         let final_message = build_assistant_message_from_request_sequence(
             "assistant-existing".to_string(),

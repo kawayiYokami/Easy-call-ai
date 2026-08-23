@@ -353,6 +353,7 @@
             auto_push_remote_contact_id: None,
             active_goal: None,
                 cumulative_usage: ConversationCumulativeUsage::default(),
+                is_draft: false,
             },
             Conversation {
                 id: "conversation-sub".to_string(),
@@ -387,6 +388,7 @@
             auto_push_remote_contact_id: None,
             active_goal: None,
                 cumulative_usage: ConversationCumulativeUsage::default(),
+                is_draft: false,
             },
         ];
         let input = RemoteImEnqueueInput {
@@ -510,6 +512,7 @@
             auto_push_remote_contact_id: None,
             active_goal: None,
                 cumulative_usage: ConversationCumulativeUsage::default(),
+                is_draft: false,
             },
             Conversation {
                 id: "conversation-sub".to_string(),
@@ -544,6 +547,7 @@
             auto_push_remote_contact_id: None,
             active_goal: None,
                 cumulative_usage: ConversationCumulativeUsage::default(),
+                is_draft: false,
             },
         ];
         let input = RemoteImEnqueueInput {
@@ -698,6 +702,7 @@
             auto_push_remote_contact_id: None,
             active_goal: None,
             cumulative_usage: ConversationCumulativeUsage::default(),
+            is_draft: false,
         };
 
         assert!(conversation.messages.iter().any(|message| {
@@ -765,6 +770,7 @@
             auto_push_remote_contact_id: None,
             active_goal: None,
             cumulative_usage: ConversationCumulativeUsage::default(),
+            is_draft: false,
         };
 
         assert!(!conversation.messages.iter().any(|message| {
@@ -1964,6 +1970,7 @@
             auto_push_remote_contact_id: None,
             active_goal: None,
             cumulative_usage: ConversationCumulativeUsage::default(),
+            is_draft: false,
         };
         let assistant = RemoteImConversationAssistantContext {
             department_id: "department-a".to_string(),

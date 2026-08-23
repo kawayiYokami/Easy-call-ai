@@ -64,6 +64,22 @@
           >
           <div class="ecall-chat-history-flow flex min-w-0 shrink-0 flex-col">
             <div
+              v-if="activeConversationIsDraft"
+              class="mx-auto w-full max-w-225 shrink-0 px-4 pb-1 pt-6"
+            >
+              <DepartmentPersonaSelect
+                v-model:department-id="draftSelectedDepartmentId"
+                v-model:agent-id="draftSelectedAgentId"
+                v-model:api-config-id="draftSelectedApiConfigId"
+                :options="props.createConversationDepartmentOptions"
+                :persona-avatar-url-map="props.personaAvatarUrlMap"
+                show-model
+                :auto-select-first="false"
+                @change="handleDraftPersonaChange($event)"
+                @update:api-config-id="handleDraftModelChange($event)"
+              />
+            </div>
+            <div
               v-if="showNoMoreHistoryDivider"
               class="mx-auto flex w-full max-w-225 items-center gap-3 px-4 pb-2 pt-1 text-xs text-base-content/45"
             >
@@ -770,6 +786,7 @@ const emit = defineEmits<{
   (e: "exportConversation", conversationId: string): void;
   (e: "deleteConversation", conversationId: string): void;
   (e: "rebindConversationRecipient", payload: { conversationId: string; departmentId: string; agentId: string }): void;
+  (e: "updateDraftConversation", payload: { conversationId: string; departmentId?: string; agentId?: string; preferredApiConfigId?: string | null }): void;
   (e: "createConversation", input?: { title?: string; departmentId?: string; agentId?: string; copyCurrent?: boolean; importPath?: string; shellWorkspaces?: ShellWorkspace[]; shellWorkMode?: ShellWorkMode; shellAutonomousMode?: boolean }): void;
   (e: "loadOlderHistory"): void; (e: "reachedBottom"): void;
   (e: "jumpToConversationBottom"): void;
@@ -913,6 +930,42 @@ const activeConversationIsSystemNotification = computed(() =>
 const activeConversationIsRemoteContact = computed(() =>
   activeConversationSummary.value?.kind === 'remote_im_contact',
 );
+
+// ==================== 会话草稿：历史区人格选择卡 ====================
+
+const activeConversationIsDraft = computed(() => !!activeConversationSummary.value?.isDraft);
+const draftSelectedDepartmentId = ref("");
+const draftSelectedAgentId = ref("");
+const draftSelectedApiConfigId = ref("");
+
+watch(
+  [activeConversationIsDraft, () => props.activeConversationId],
+  ([isDraft]) => {
+    if (!isDraft) return;
+    draftSelectedDepartmentId.value = String(activeConversationSummary.value?.departmentId || "").trim();
+    draftSelectedAgentId.value = String(activeConversationSummary.value?.agentId || "").trim();
+    draftSelectedApiConfigId.value = String(props.preferredChatModelId || "").trim();
+  },
+  { immediate: true },
+);
+
+function handleDraftPersonaChange(payload: { departmentId: string; agentId: string }) {
+  draftSelectedDepartmentId.value = payload.departmentId;
+  draftSelectedAgentId.value = payload.agentId;
+  emit("updateDraftConversation", {
+    conversationId: String(props.activeConversationId || "").trim(),
+    departmentId: payload.departmentId,
+    agentId: payload.agentId,
+  });
+}
+
+function handleDraftModelChange(apiConfigId: string) {
+  draftSelectedApiConfigId.value = String(apiConfigId || "").trim();
+  emit("updateDraftConversation", {
+    conversationId: String(props.activeConversationId || "").trim(),
+    preferredApiConfigId: draftSelectedApiConfigId.value || null,
+  });
+}
 const remoteImContactDashboardContactId = computed(() =>
   activeConversationIsRemoteContact.value
     ? String(activeConversationSummary.value?.remoteContactId || "").trim()
@@ -1949,6 +2002,7 @@ const conversationDisplaySections = computed<ConversationSection[]>(() => {
     },
     locale: locale.value,
     currentWorkspaceRootPath: currentProjectWorkspaceRoot.value,
+    activeConversationId: props.activeConversationId,
   });
   // Shift+滚轮跳过「最近会话」区：其中的会话在工作区/频道区会重复出现，
   // 滚动时同一会话滚两遍，顺序对不上列表直觉。

@@ -261,6 +261,7 @@
         @export-conversation="exportConversationShare"
         @delete-conversation="onDeleteConversation"
         @rebind-conversation-recipient="onRebindConversationRecipient"
+        @update-draft-conversation="onUpdateDraftConversation"
         @create-conversation="onCreateConversation"
         @approve-terminal-approval="approveTerminalApproval"
         @deny-terminal-approval="denyTerminalApproval"
@@ -846,6 +847,7 @@ const props = defineProps<{
   onArchiveConversation: (conversationId: string) => void;
   onDeleteConversation: (conversationId: string) => void;
   onRebindConversationRecipient: (payload: { conversationId: string; departmentId: string; agentId: string }) => void;
+  onUpdateDraftConversation: (payload: { conversationId: string; departmentId?: string; agentId?: string; preferredApiConfigId?: string | null }) => void;
   onCreateConversation: (input?: { title?: string; departmentId?: string; agentId?: string; copyCurrent?: boolean; importPath?: string; shellWorkspaces?: ShellWorkspace[]; shellAutonomousMode?: boolean }) => void;
   onBranchConversationFromSelection: (payload: { count: number; messageIds: string[] }) => void;
   onForwardConversationFromSelection: (payload: { count: number; messageIds: string[]; target: { kind: "local_unarchived" | "remote_im_contact"; conversationId: string; remoteContactId?: string } }) => void;

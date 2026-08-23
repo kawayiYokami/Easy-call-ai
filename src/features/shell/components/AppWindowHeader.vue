@@ -62,7 +62,7 @@
         <button
           class="btn btn-ghost btn-sm h-8 min-h-8 px-2"
           :title="t('chat.newConversation')"
-          @click.stop="handleCreateConversation"
+          @click.stop="$emit('create-conversation')"
         >
           <SquarePen class="h-4 w-4" />
         </button>
@@ -294,207 +294,20 @@
       </button>
     </div>
   </div>
-
-  <dialog v-if="viewMode === 'chat'" class="modal !items-start pt-[8vh]" :class="{ 'modal-open': createConversationDialogOpen }">
-    <div class="modal-box mx-auto max-w-lg overflow-visible">
-      <div class="flex items-center justify-between gap-3">
-        <h3 class="text-base font-semibold">{{ t("chat.newConversation") }}</h3>
-        <button
-          v-if="localPathPickerAvailable"
-          type="button"
-          class="btn btn-ghost btn-sm btn-square"
-          :disabled="importConversationLoading"
-          :title="t('chat.importConversationExternal')"
-          @click="importConversationFromExternal"
-        >
-          <span v-if="importConversationLoading" class="loading loading-spinner loading-xs"></span>
-          <Download v-else class="h-4 w-4" />
-        </button>
-      </div>
-      <div class="mt-3 flex flex-col gap-2.5">
-        <div ref="createConversationTopicRootRef" class="relative flex flex-col gap-2">
-          <input
-            ref="createConversationInputRef"
-            v-model="createConversationTitle"
-            type="text"
-            class="input input-bordered w-full"
-            :placeholder="t('chat.newConversationTopicPlaceholder')"
-            @focus="handleCreateConversationTopicFocus"
-            @pointerdown="createConversationTopicSuggestionsOpen = true"
-            @input="createConversationTopicSuggestionsOpen = true"
-            @keydown="handleCreateConversationDialogKeydown"
-          />
-          <div
-            v-if="showCreateConversationTopicSuggestions"
-            class="absolute left-0 right-0 top-full z-50 mt-1 rounded-box border border-base-300 bg-base-100 p-2 shadow-xl"
-          >
-            <div class="flex max-h-24 flex-wrap gap-1.5 overflow-y-auto">
-            <button
-              v-for="topic in filteredRecentConversationTopics"
-              :key="topic"
-              type="button"
-              class="btn btn-ghost btn-xs h-7 min-h-7 rounded-full px-3 text-xs font-medium text-base-content/75 hover:bg-base-200 hover:text-base-content"
-              @click="applyRecentConversationTopic(topic)"
-            >
-              {{ topic }}
-            </button>
-            </div>
-          </div>
-        </div>
-        <DepartmentPersonaSelect
-          v-model:department-id="createConversationDepartmentId"
-          v-model:agent-id="createConversationAgentId"
-          :options="createConversationDepartmentOptions"
-          :persona-avatar-url-map="personaAvatarUrlMap"
-          :show-model="false"
-          auto-select-first
-        />
-        <div class="text-xs text-base-content/60">{{ t("chat.createConversationDepartmentPersonaLockedHint") }}</div>
-        <div class="grid grid-cols-[minmax(0,1fr)_5rem] gap-2">
-          <div class="join min-w-0">
-            <select
-              v-model="createConversationWorkspacePath"
-              class="select select-bordered join-item min-w-0 flex-1"
-              @change="handleCreateConversationWorkspaceChange"
-            >
-              <option
-                v-for="workspace in selectableCreateConversationWorkspaces"
-                :key="workspace.id"
-                :value="workspace.path"
-              >
-                {{ workspace.name }}
-              </option>
-              <option
-                v-if="createConversationCustomWorkspace && !selectableCreateConversationWorkspaces.some((item) => item.path === createConversationCustomWorkspace?.path)"
-                :value="createConversationCustomWorkspace.path"
-              >
-                {{ createConversationCustomWorkspace.name }}
-              </option>
-            </select>
-            <button
-              type="button"
-              class="btn btn-square join-item"
-              :title="t('common.browse')"
-              @click="pickCreateConversationWorkspace"
-            >
-              <FolderOpen class="h-4 w-4" />
-            </button>
-          </div>
-          <select
-            v-if="!createConversationMaxPermission"
-            v-model="createConversationWorkspaceAccess"
-            class="select select-bordered min-w-0"
-            :disabled="!createConversationWorkspacePath"
-            @change="handleCreateConversationWorkspaceAccessChange"
-          >
-            <option value="approval">{{ workspaceAccessLabel("approval") }}</option>
-            <option value="full_access">{{ workspaceAccessLabel("full_access") }}</option>
-            <option value="read_only">{{ workspaceAccessLabel("read_only") }}</option>
-          </select>
-        </div>
-        <select
-          v-model="createConversationWorkMode"
-          class="select select-bordered w-full"
-          :disabled="!createConversationWorkspacePath"
-        >
-          <option value="directory">{{ t("chat.workspaceWorkModeDirectory") }}</option>
-          <option value="independent_worktree" :disabled="(createConversationWorkspaceAccess === 'read_only' && !createConversationMaxPermission) || !createConversationWorktreeAvailable">{{ t("chat.workspaceWorkModeIndependent") }}</option>
-          <option value="isolated_worktree" :disabled="(createConversationWorkspaceAccess === 'read_only' && !createConversationMaxPermission) || !createConversationWorktreeAvailable">{{ t("chat.workspaceWorkModeIsolated") }}</option>
-        </select>
-        <div
-          v-if="createConversationWorkspacePath && createConversationWorkspaceAccess !== 'read_only' && createConversationWorktreeCheckMessage"
-          class="text-xs text-base-content/60"
-        >
-          {{ createConversationWorktreeCheckMessage }}
-        </div>
-      </div>
-      <div class="modal-action mt-4 items-center justify-between gap-3">
-        <label
-          class="flex max-w-64 shrink-0 cursor-pointer items-center gap-2 rounded-full bg-base-200 px-3 py-2 text-xs font-medium leading-tight"
-          :title="t('chat.workspacePickerAutonomousHint')"
-        >
-          <span class="whitespace-normal">{{ t("chat.createConversationMaxPermission") }}</span>
-          <input
-            v-model="createConversationMaxPermission"
-            type="checkbox"
-            class="checkbox checkbox-primary checkbox-sm"
-          />
-        </label>
-        <div class="flex shrink-0 items-center justify-end gap-2">
-          <button class="btn btn-sm" @click="closeCreateConversationDialog">{{ t("common.cancel") }}</button>
-          <button
-            class="btn btn-sm btn-primary"
-            :disabled="!createConversationWorkspacePath"
-            @click="confirmCreateConversation"
-          >{{ t("common.confirm") }}</button>
-        </div>
-      </div>
-    </div>
-    <form method="dialog" class="modal-backdrop">
-      <button @click.prevent="closeCreateConversationDialog">close</button>
-    </form>
-  </dialog>
-
-  <WorkspaceDirectoryPickerDialog
-    v-if="viewMode === 'chat'"
-    :open="createConversationWorkspacePickerOpen"
-    :saving="false"
-    :loading="createConversationWorkspaceDirectoryLoading"
-    :error-text="createConversationWorkspaceDirectoryError"
-    :browser-path="createConversationWorkspaceBrowserPath"
-    :manual-path="createConversationWorkspaceManualPath"
-    :access="createConversationWorkspaceAccess"
-    :autonomous-mode="createConversationMaxPermission"
-    :directories="createConversationWorkspaceDirectoryItems"
-    @close="closeCreateConversationWorkspacePicker"
-    @browse="loadCreateConversationWorkspaceDirectory"
-    @save="confirmCreateConversationWorkspacePicker"
-    @update:manual-path="createConversationWorkspaceManualPath = $event"
-    @update:access="handleCreateConversationWorkspacePickerAccessChange"
-    @update:autonomous-mode="createConversationMaxPermission = $event"
-  />
 </template>
 
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
+import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
-import { getTransportCapabilities, invokeTauri, openTransportFileDialog } from "../../../services/tauri-api";
-import { Bolt, Columns3Cog, Download, FoldVertical, FolderOpen, History, Minus, PanelLeft, PanelLeftClose, PanelRight, PanelRightClose, Search, Settings, Square, SquarePen, X } from "@lucide/vue";
-import type { ApiConfigItem, ChatConversationOverviewItem, ShellWorkspace, ShellWorkspaceAccess, ShellWorkMode } from "../../../types/app";
-import { defaultWorkspaceNameFromPath } from "../../../utils/shell-workspaces";
-import { buildWorkspaceConversationSections } from "../../chat/utils/conversation-sections";
+import { getTransportCapabilities } from "../../../services/tauri-api";
+import { Bolt, Columns3Cog, FoldVertical, History, Minus, PanelLeft, PanelLeftClose, PanelRight, PanelRightClose, Search, Settings, Square, SquarePen, X } from "@lucide/vue";
+import type { ChatConversationOverviewItem } from "../../../types/app";
 import { resolveConversationDisplayTitle } from "../../chat/utils/conversation-title";
 import type { ConfigSearchResult, ConfigSearchTab } from "../../config/search/config-search";
-import DepartmentPersonaSelect from "../../shared/components/DepartmentPersonaSelect.vue";
-import WorkspaceDirectoryPickerDialog from "../../shared/components/WorkspaceDirectoryPickerDialog.vue";
-import type { DepartmentPersonaOption } from "../../shared/department-persona-options";
 import { usePipelineStatus } from "../composables/use-pipeline-status";
 
 const RING_RADIUS = 14;
 const RING_CIRCUMFERENCE = 2 * Math.PI * RING_RADIUS;
-
-type ConversationDepartmentOption = DepartmentPersonaOption;
-
-type CreateConversationInput = {
-  title?: string;
-  departmentId?: string;
-  agentId?: string;
-  copyCurrent?: boolean;
-  importPath?: string;
-  shellWorkspaces?: ShellWorkspace[];
-  shellWorkMode?: ShellWorkMode;
-  shellAutonomousMode?: boolean;
-};
-
-type WorkspaceDirectoryListResult = {
-  path?: string;
-  name?: string;
-  entries?: Array<{ path?: string; name?: string; isDirectory?: boolean }>;
-  directories?: Array<{ path?: string; name?: string }>;
-};
-
-const RECENT_CONVERSATION_TOPICS_STORAGE_KEY = "easy_call.recent_conversation_topics.v1";
-const RECENT_CONVERSATION_TOPICS_LIMIT = 7;
 
 const props = withDefaults(defineProps<{
   viewMode: "chat" | "archives" | "config";
@@ -510,15 +323,10 @@ const props = withDefaults(defineProps<{
   activeConversationId: string;
   currentDepartmentId?: string;
   conversationItems: ChatConversationOverviewItem[];
-  currentChatWorkspaces?: ShellWorkspace[];
-  configShellWorkspaces?: ShellWorkspace[];
   userAlias: string;
   userAvatarUrl: string;
   personaNameMap: Record<string, string>;
   personaAvatarUrlMap: Record<string, string>;
-  apiConfigs?: ApiConfigItem[];
-  createConversationDepartmentOptions: ConversationDepartmentOption[];
-  defaultCreateConversationDepartmentId: string;
   trimTip: string;
   maximized: boolean;
   windowReady: boolean;
@@ -559,7 +367,7 @@ const emit = defineEmits<{
   (e: "toggle-pin-conversation", conversationId: string): void;
   (e: "archive-conversation", conversationId: string): void;
   (e: "delete-conversation", conversationId: string): void;
-  (e: "create-conversation", input?: CreateConversationInput): void;
+  (e: "create-conversation"): void;
   (e: "trimConversation"): void;
   (e: "startDrag"): void;
   (e: "close-window"): void;
@@ -692,14 +500,6 @@ const currentConversationTitle = computed(() => {
 });
 
 const currentConversationDepartmentName = computed(() => {
-  const departmentId = String(props.currentDepartmentId || "").trim();
-  if (departmentId) {
-    const department = props.createConversationDepartmentOptions.find(
-      (item) => String(item.departmentId || item.id || "").trim() === departmentId,
-    );
-    const departmentName = String(department?.name || "").trim();
-    if (departmentName) return departmentName;
-  }
   const activeId = String(props.activeConversationId || "").trim();
   if (!activeId) return "";
   const item = props.conversationItems.find((i) => i.conversationId === activeId);
@@ -727,377 +527,13 @@ watch(
 );
 const configSearchPopoverRef = ref<HTMLElement | null>(null);
 const configSearchInputRef = ref<HTMLInputElement | null>(null);
-const createConversationInputRef = ref<HTMLInputElement | null>(null);
-const createConversationTopicRootRef = ref<HTMLElement | null>(null);
-const recentConversationTopics = ref<string[]>([]);
-const createConversationDialogOpen = ref(false);
-const createConversationTitle = ref("");
-const createConversationDepartmentId = ref("");
-const createConversationAgentId = ref("");
-const createConversationTopicSuggestionsOpen = ref(false);
-const suppressNextCreateConversationTopicFocus = ref(false);
-const createConversationWorkspacePath = ref("");
-const createConversationWorkspaceAccess = ref<ShellWorkspaceAccess>("approval");
-const createConversationWorkMode = ref<ShellWorkMode>("directory");
-const createConversationWorktreeAvailable = ref(false);
-const createConversationWorktreeCheckMessage = ref("");
-let createConversationWorktreeCheckSeq = 0;
-const createConversationCustomWorkspace = ref<ShellWorkspace | null>(null);
-const createConversationMaxPermission = ref(false);
-const createConversationWorkspacePickerOpen = ref(false);
-const createConversationWorkspaceManualPath = ref("");
-const createConversationWorkspaceBrowserPath = ref("");
-const createConversationWorkspaceDirectoryLoading = ref(false);
-const createConversationWorkspaceDirectoryError = ref("");
-const createConversationWorkspaceDirectoryItems = ref<Array<{ path: string; name: string }>>([]);
-const importConversationLoading = ref(false);
 const configSearchOpen = ref(false);
-
-const currentWorkspaceAccessByPath = computed(() => {
-  const map = new Map<string, ShellWorkspaceAccess>();
-  for (const workspace of Array.isArray(props.currentChatWorkspaces) ? props.currentChatWorkspaces : []) {
-    const path = String(workspace?.path || "").trim();
-    const key = normalizeWorkspacePathKey(path);
-    if (!path || map.has(key)) continue;
-    map.set(key, normalizeWorkspaceAccess(workspace?.access));
-  }
-  return map;
-});
-
-const selectableCreateConversationWorkspaces = computed<ShellWorkspace[]>(() => {
-  const deduped = new Map<string, ShellWorkspace>();
-  for (const workspace of Array.isArray(props.currentChatWorkspaces) ? props.currentChatWorkspaces : []) {
-    const path = String(workspace?.path || "").trim();
-    const key = normalizeWorkspacePathKey(path);
-    if (!path || deduped.has(key)) continue;
-    deduped.set(key, {
-      id: String(workspace?.id || "").trim() || `conversation-workspace-${path}`,
-      name: String(workspace?.name || "").trim() || defaultWorkspaceNameFromPath(path) || path,
-      path,
-      level: "main",
-      access: normalizeWorkspaceAccess(workspace?.access),
-      builtIn: false,
-    });
-  }
-  for (const workspace of Array.isArray(props.configShellWorkspaces) ? props.configShellWorkspaces : []) {
-    const path = String(workspace?.path || "").trim();
-    const key = normalizeWorkspacePathKey(path);
-    if (!path || deduped.has(key)) continue;
-    deduped.set(key, {
-      id: String(workspace?.id || "").trim() || `config-workspace-${path}`,
-      name: String(workspace?.name || "").trim() || defaultWorkspaceNameFromPath(path) || path,
-      path,
-      level: "main",
-      access: normalizeWorkspaceAccess(workspace?.access),
-      builtIn: false,
-    });
-  }
-  const localConversationItems = props.conversationItems.filter((item) =>
-    item.kind !== "remote_im_contact" && !item.isPinned && !item.isSystemNotificationConversation,
-  );
-  for (const section of buildWorkspaceConversationSections(localConversationItems, {
-    defaultWorkspaceTitle: t("chat.defaultWorkspace"),
-    locale: locale.value,
-  })) {
-    const path = String(section.workspaceRootPath || "").trim();
-    if (!path) continue;
-    const key = normalizeWorkspacePathKey(path);
-    if (deduped.has(key)) continue;
-    deduped.set(key, {
-      id: `conversation-workspace-${path}`,
-      name: String(section.title || "").trim() || defaultWorkspaceNameFromPath(path) || path,
-      path,
-      level: "main",
-      access: currentWorkspaceAccessByPath.value.get(normalizeWorkspacePathKey(path)) || "approval",
-      builtIn: false,
-    });
-  }
-  return Array.from(deduped.values());
-});
-
-const filteredRecentConversationTopics = computed(() => {
-  const query = String(createConversationTitle.value || "").trim().toLocaleLowerCase();
-  if (!query) return recentConversationTopics.value;
-  const matched = recentConversationTopics.value.filter((topic) => topic.toLocaleLowerCase().includes(query));
-  return matched.length > 0 ? matched : recentConversationTopics.value;
-});
-
-const showCreateConversationTopicSuggestions = computed(() =>
-  createConversationTopicSuggestionsOpen.value
-  && filteredRecentConversationTopics.value.length > 0,
-);
-async function openNativeDialog(options: { directory?: boolean; multiple?: boolean; filters?: Array<{ name: string; extensions: string[] }> }) {
-  return openTransportFileDialog(options);
-}
-
-function normalizeWorkspacePathKey(path: string): string {
-  return String(path || "").trim().toLowerCase();
-}
-
-function normalizeWorkspaceAccess(value: unknown): ShellWorkspaceAccess {
-  const access = String(value || "").trim();
-  if (access === "full_access" || access === "read_only" || access === "approval") {
-    return access;
-  }
-  return "approval";
-}
-
-function resetCreateConversationWorkspace() {
-  createConversationWorkspacePath.value = "";
-  createConversationWorkspaceAccess.value = "approval";
-  createConversationWorkMode.value = "directory";
-  createConversationWorktreeAvailable.value = false;
-  createConversationWorktreeCheckMessage.value = "";
-  createConversationCustomWorkspace.value = null;
-  createConversationMaxPermission.value = false;
-  closeCreateConversationWorkspacePicker();
-}
-
-function ensureCreateConversationWorkspaceSelected() {
-  const currentPath = String(createConversationWorkspacePath.value || "").trim();
-  if (currentPath) return;
-  const preferredWorkspace = selectableCreateConversationWorkspaces.value[0];
-  if (!preferredWorkspace?.path) return;
-  createConversationWorkspacePath.value = preferredWorkspace.path;
-  createConversationWorkspaceAccess.value = normalizeWorkspaceAccess(preferredWorkspace.access);
-}
-
-function workspaceAccessLabel(access: ShellWorkspaceAccess): string {
-  if (access === "full_access") return t("config.tools.workspaceAccessFullAccess");
-  if (access === "read_only") return t("config.tools.workspaceAccessReadOnly");
-  return t("config.tools.workspaceAccessApproval");
-}
-
-function selectedCreateConversationWorkspace(): ShellWorkspace | undefined {
-  const path = String(createConversationWorkspacePath.value || "").trim();
-  if (!path) return undefined;
-  const source = selectableCreateConversationWorkspaces.value.find((item) => item.path === path)
-    || (createConversationCustomWorkspace.value?.path === path ? createConversationCustomWorkspace.value : null);
-  const name = String(source?.name || "").trim() || defaultWorkspaceNameFromPath(path) || path;
-  return {
-    id: String(source?.id || "").trim() || `conversation-workspace-${Date.now().toString(36)}`,
-    name,
-    path,
-    level: "main",
-    access: normalizeWorkspaceAccess(createConversationWorkspaceAccess.value),
-    builtIn: false,
-  };
-}
-
-function createConversationWorkspacePayload(): ShellWorkspace[] | undefined {
-  ensureCreateConversationWorkspaceSelected();
-  const workspace = selectedCreateConversationWorkspace();
-  return workspace ? [workspace] : undefined;
-}
-
-function handleCreateConversationWorkspaceChange() {
-  const path = String(createConversationWorkspacePath.value || "").trim();
-  if (!path) {
-    ensureCreateConversationWorkspaceSelected();
-    return;
-  }
-  const source = selectableCreateConversationWorkspaces.value.find((item) => item.path === path)
-    || (createConversationCustomWorkspace.value?.path === path ? createConversationCustomWorkspace.value : null);
-  createConversationWorkspaceAccess.value = normalizeWorkspaceAccess(source?.access);
-  handleCreateConversationWorkspaceAccessChange();
-  void checkCreateConversationWorkspaceGitRoot(path);
-}
-
-function handleCreateConversationWorkspaceAccessChange() {
-  if (createConversationWorkspaceAccess.value === "read_only") {
-    createConversationWorkMode.value = "directory";
-  }
-}
-
-async function checkCreateConversationWorkspaceGitRoot(path: string) {
-  const normalizedPath = String(path || "").trim();
-  const currentSeq = ++createConversationWorktreeCheckSeq;
-  if (!normalizedPath) {
-    createConversationWorktreeAvailable.value = false;
-    createConversationWorktreeCheckMessage.value = "";
-    return;
-  }
-  createConversationWorktreeCheckMessage.value = t("chat.workspaceWorktreeChecking");
-  try {
-    const result = await invokeTauri<{ isGitRoot?: boolean; checked?: boolean; error?: string }>("workspace.gitRootCheck", {
-      workspacePath: normalizedPath,
-    });
-    if (currentSeq !== createConversationWorktreeCheckSeq) return;
-    createConversationWorktreeAvailable.value = Boolean(result.isGitRoot);
-    createConversationWorktreeCheckMessage.value = result.error
-      ? String(result.error)
-      : (result.checked && !result.isGitRoot
-        ? t("chat.workspaceWorktreeUnavailable")
-        : "");
-    if (!createConversationWorktreeAvailable.value) {
-      createConversationWorkMode.value = "directory";
-    }
-  } catch (error) {
-    if (currentSeq !== createConversationWorktreeCheckSeq) return;
-    createConversationWorktreeAvailable.value = false;
-    createConversationWorktreeCheckMessage.value = error instanceof Error ? error.message : String(error);
-    createConversationWorkMode.value = "directory";
-  }
-}
-
-function handleCreateConversationWorkspacePickerAccessChange(value: string) {
-  createConversationWorkspaceAccess.value = normalizeWorkspaceAccess(value);
-  handleCreateConversationWorkspaceAccessChange();
-}
-
-async function pickCreateConversationWorkspace() {
-  if (!localPathPickerAvailable) {
-    openCreateConversationWorkspacePicker();
-    return;
-  }
-  const selected = await openNativeDialog({
-    multiple: false,
-    directory: true,
-  });
-  const path = String(Array.isArray(selected) ? selected[0] : selected || "").trim();
-  if (!path) return;
-  const existing = selectableCreateConversationWorkspaces.value.find((item) => item.path.toLowerCase() === path.toLowerCase());
-  if (existing) {
-    createConversationWorkspacePath.value = existing.path;
-    createConversationWorkspaceAccess.value = normalizeWorkspaceAccess(existing.access);
-    handleCreateConversationWorkspaceAccessChange();
-    void checkCreateConversationWorkspaceGitRoot(existing.path);
-    return;
-  }
-  const workspace: ShellWorkspace = {
-    id: `conversation-workspace-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
-    name: defaultWorkspaceNameFromPath(path) || path,
-    path,
-    level: "main",
-    access: "approval",
-    builtIn: false,
-  };
-  createConversationCustomWorkspace.value = workspace;
-  createConversationWorkspacePath.value = workspace.path;
-  createConversationWorkspaceAccess.value = workspace.access;
-  handleCreateConversationWorkspaceAccessChange();
-  void checkCreateConversationWorkspaceGitRoot(workspace.path);
-}
-
-function openCreateConversationWorkspacePicker() {
-  createConversationWorkspacePickerOpen.value = true;
-  createConversationWorkspaceDirectoryError.value = "";
-  createConversationWorkspaceDirectoryItems.value = [];
-  const initialPath = String(createConversationWorkspacePath.value || "").trim();
-  createConversationWorkspaceManualPath.value = initialPath;
-  createConversationWorkspaceBrowserPath.value = initialPath;
-  if (initialPath) {
-    void loadCreateConversationWorkspaceDirectory(initialPath);
-  }
-}
-
-function closeCreateConversationWorkspacePicker() {
-  createConversationWorkspacePickerOpen.value = false;
-  createConversationWorkspaceDirectoryLoading.value = false;
-  createConversationWorkspaceDirectoryError.value = "";
-  createConversationWorkspaceDirectoryItems.value = [];
-  createConversationWorkspaceManualPath.value = "";
-  createConversationWorkspaceBrowserPath.value = "";
-}
-
-async function loadCreateConversationWorkspaceDirectory(pathInput: string) {
-  const path = String(pathInput || "").trim();
-  if (!path || createConversationWorkspaceDirectoryLoading.value) return;
-  createConversationWorkspaceDirectoryLoading.value = true;
-  createConversationWorkspaceDirectoryError.value = "";
-  try {
-    const result = await invokeTauri<WorkspaceDirectoryListResult>("workspace.directory.list", { path });
-    createConversationWorkspaceBrowserPath.value = String(result.path || path).trim();
-    createConversationWorkspaceManualPath.value = createConversationWorkspaceBrowserPath.value;
-    const rawDirectories = Array.isArray(result.directories) ? result.directories : [];
-    createConversationWorkspaceDirectoryItems.value = rawDirectories
-      .map((item) => ({
-        path: String(item.path || "").trim(),
-        name: String(item.name || "").trim(),
-      }))
-      .filter((item) => !!item.path && !!item.name);
-  } catch (error) {
-    createConversationWorkspaceDirectoryError.value = String(error || "读取目录失败");
-    createConversationWorkspaceDirectoryItems.value = [];
-  } finally {
-    createConversationWorkspaceDirectoryLoading.value = false;
-  }
-}
-
-function confirmCreateConversationWorkspacePicker() {
-  const path = String(createConversationWorkspaceManualPath.value || "").trim();
-  if (!path) return;
-  const existing = selectableCreateConversationWorkspaces.value.find((item) => item.path.toLowerCase() === path.toLowerCase());
-  if (existing) {
-    createConversationWorkspacePath.value = existing.path;
-    createConversationWorkspaceAccess.value = normalizeWorkspaceAccess(existing.access);
-    createConversationCustomWorkspace.value = null;
-    handleCreateConversationWorkspaceAccessChange();
-    void checkCreateConversationWorkspaceGitRoot(existing.path);
-    closeCreateConversationWorkspacePicker();
-    return;
-  }
-  const workspace: ShellWorkspace = {
-    id: `conversation-workspace-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
-    name: defaultWorkspaceNameFromPath(path) || path,
-    path,
-    level: "main",
-    access: "approval",
-    builtIn: false,
-  };
-  createConversationCustomWorkspace.value = workspace;
-  createConversationWorkspacePath.value = workspace.path;
-  createConversationWorkspaceAccess.value = workspace.access;
-  handleCreateConversationWorkspaceAccessChange();
-  void checkCreateConversationWorkspaceGitRoot(workspace.path);
-  closeCreateConversationWorkspacePicker();
-}
-
-function loadRecentConversationTopics() {
-  try {
-    const raw = window.localStorage.getItem(RECENT_CONVERSATION_TOPICS_STORAGE_KEY);
-    if (!raw) return;
-    const parsed = JSON.parse(raw);
-    if (!Array.isArray(parsed)) return;
-    const normalized: string[] = [];
-    const seen = new Set<string>();
-    for (const item of parsed) {
-      const text = String(item || "").trim();
-      if (!text || seen.has(text)) continue;
-      seen.add(text);
-      normalized.push(text);
-      if (normalized.length >= RECENT_CONVERSATION_TOPICS_LIMIT) break;
-    }
-    recentConversationTopics.value = normalized;
-  } catch {
-    recentConversationTopics.value = [];
-  }
-}
-
-function saveRecentConversationTopics() {
-  try {
-    window.localStorage.setItem(RECENT_CONVERSATION_TOPICS_STORAGE_KEY, JSON.stringify(recentConversationTopics.value));
-  } catch {
-    // ignore persistence failures
-  }
-}
-
-function pushRecentConversationTopic(rawText: string) {
-  const text = String(rawText || "").trim();
-  if (!text) return;
-  recentConversationTopics.value = [text, ...recentConversationTopics.value.filter((item) => item !== text)].slice(0, RECENT_CONVERSATION_TOPICS_LIMIT);
-  saveRecentConversationTopics();
-}
 
 function handleDocumentPointerDown(event: PointerEvent) {
   const target = event.target as Node | null;
   const searchRoot = configSearchPopoverRef.value;
   if (configSearchOpen.value && searchRoot && target && !searchRoot.contains(target)) {
     configSearchOpen.value = false;
-  }
-  const topicRoot = createConversationTopicRootRef.value;
-  if (createConversationTopicSuggestionsOpen.value && topicRoot && target && !topicRoot.contains(target)) {
-    createConversationTopicSuggestionsOpen.value = false;
   }
 }
 
@@ -1141,201 +577,18 @@ function isInteractiveHeaderTarget(target: HTMLElement): boolean {
   );
 }
 
-function handleCreateConversation() {
-  createConversationTitle.value = "";
-  const activeConversation = props.conversationItems.find(
-    (item) => String(item.conversationId || "").trim() === String(props.activeConversationId || "").trim(),
-  );
-  const option = resolveCreateConversationOption(
-    String(activeConversation?.departmentId || "").trim() || String(props.defaultCreateConversationDepartmentId || "").trim(),
-    String(activeConversation?.agentId || "").trim(),
-  );
-  createConversationDepartmentId.value = option?.departmentId || "";
-  createConversationAgentId.value = option?.agentId || "";
-  createConversationTopicSuggestionsOpen.value = false;
-  suppressNextCreateConversationTopicFocus.value = true;
-  resetCreateConversationWorkspace();
-  const currentMainWorkspace = Array.isArray(props.currentChatWorkspaces)
-    ? props.currentChatWorkspaces.find((w) => w.level === "main")
-    : null;
-  if (currentMainWorkspace?.path) {
-    createConversationWorkspacePath.value = currentMainWorkspace.path;
-    createConversationWorkspaceAccess.value = normalizeWorkspaceAccess(currentMainWorkspace.access);
-    void checkCreateConversationWorkspaceGitRoot(currentMainWorkspace.path);
-  } else {
-    const preferredWorkspace = selectableCreateConversationWorkspaces.value[0];
-    if (preferredWorkspace?.path) {
-      createConversationWorkspacePath.value = preferredWorkspace.path;
-      createConversationWorkspaceAccess.value = normalizeWorkspaceAccess(preferredWorkspace.access);
-      void checkCreateConversationWorkspaceGitRoot(preferredWorkspace.path);
-    }
-  }
-  createConversationDialogOpen.value = true;
-  nextTick(() => createConversationInputRef.value?.focus());
-}
-
-function openCreateConversationDialogWithWorkspace(workspace: ShellWorkspace) {
-  handleCreateConversation();
-  const path = String(workspace.path || "").trim();
-  if (!path) return;
-  const existing = selectableCreateConversationWorkspaces.value.find((item) => item.path.toLowerCase() === path.toLowerCase());
-  const target: ShellWorkspace = existing || {
-    id: String(workspace.id || "").trim() || `conversation-workspace-${Date.now().toString(36)}`,
-    name: String(workspace.name || "").trim() || defaultWorkspaceNameFromPath(path) || path,
-    path,
-    level: "main",
-    access: normalizeWorkspaceAccess(workspace.access),
-    builtIn: false,
-  };
-  if (!existing) {
-    createConversationCustomWorkspace.value = target;
-  }
-  createConversationWorkspacePath.value = target.path;
-  createConversationWorkspaceAccess.value = normalizeWorkspaceAccess(target.access);
-  void checkCreateConversationWorkspaceGitRoot(target.path);
-}
-
-function handleOpenCreateConversationDialogEvent(event: Event) {
-  const detail = (event as CustomEvent<{ workspace?: ShellWorkspace }>).detail;
-  const workspace = detail?.workspace;
-  if (!workspace?.path) {
-    handleCreateConversation();
-    return;
-  }
-  openCreateConversationDialogWithWorkspace(workspace);
-}
-
-function closeCreateConversationDialog() {
-  createConversationDialogOpen.value = false;
-  createConversationTitle.value = "";
-  createConversationDepartmentId.value = "";
-  createConversationAgentId.value = "";
-  createConversationTopicSuggestionsOpen.value = false;
-  resetCreateConversationWorkspace();
-  importConversationLoading.value = false;
-}
-
-function applyRecentConversationTopic(topic: string) {
-  createConversationTitle.value = String(topic || "").trim();
-  createConversationTopicSuggestionsOpen.value = false;
-  nextTick(() => createConversationInputRef.value?.focus());
-}
-
-function handleCreateConversationTopicFocus() {
-  if (suppressNextCreateConversationTopicFocus.value) {
-    suppressNextCreateConversationTopicFocus.value = false;
-    return;
-  }
-  createConversationTopicSuggestionsOpen.value = true;
-}
-
-function resolveCreateConversationOption(departmentId?: string, agentId?: string): ConversationDepartmentOption | null {
-  const did = String(departmentId || "").trim();
-  const aid = String(agentId || "").trim();
-  if (did && aid) {
-    const exact = props.createConversationDepartmentOptions.find(
-      (item) => item.departmentId === did && item.agentId === aid,
-    );
-    if (exact) return exact;
-  }
-  if (did) {
-    const byDepartment = props.createConversationDepartmentOptions.find((item) => item.departmentId === did);
-    if (byDepartment) return byDepartment;
-  }
-  return props.createConversationDepartmentOptions[0] || null;
-}
-
-function confirmCreateConversation() {
-  const title = String(createConversationTitle.value || "").trim();
-  const departmentId = String(createConversationDepartmentId.value || "").trim();
-  const agentId = String(createConversationAgentId.value || "").trim();
-  if (title) {
-    pushRecentConversationTopic(title);
-  }
-  createConversationDialogOpen.value = false;
-  createConversationTitle.value = "";
-  createConversationDepartmentId.value = "";
-  createConversationAgentId.value = "";
-  createConversationTopicSuggestionsOpen.value = false;
-  const shellWorkspaces = createConversationWorkspacePayload();
-  const shellWorkMode = (createConversationWorkspaceAccess.value === "read_only" && !createConversationMaxPermission.value)
-    ? "directory"
-    : createConversationWorkMode.value;
-  const shellAutonomousMode = createConversationMaxPermission.value;
-  resetCreateConversationWorkspace();
-  emit("create-conversation", {
-    title,
-    departmentId: departmentId || undefined,
-    agentId: agentId || undefined,
-    shellWorkspaces,
-    shellWorkMode,
-    shellAutonomousMode,
-  });
-}
-
-async function importConversationFromExternal() {
-  if (importConversationLoading.value) return;
-  importConversationLoading.value = true;
-  try {
-    const selected = await openNativeDialog({
-      multiple: false,
-      directory: false,
-      filters: [{ name: "JSON", extensions: ["json"] }],
-    });
-    const importPath = Array.isArray(selected) ? selected[0] : selected;
-    const path = String(importPath || "").trim();
-    if (!path) return;
-    const title = String(createConversationTitle.value || "").trim();
-    const departmentId = String(createConversationDepartmentId.value || "").trim();
-    const agentId = String(createConversationAgentId.value || "").trim();
-    if (title) {
-      pushRecentConversationTopic(title);
-    }
-    createConversationDialogOpen.value = false;
-    createConversationTitle.value = "";
-    createConversationDepartmentId.value = "";
-    createConversationAgentId.value = "";
-    createConversationTopicSuggestionsOpen.value = false;
-    const shellWorkspaces = createConversationWorkspacePayload();
-    const shellWorkMode = (createConversationWorkspaceAccess.value === "read_only" && !createConversationMaxPermission.value)
-      ? "directory"
-      : createConversationWorkMode.value;
-    const shellAutonomousMode = createConversationMaxPermission.value;
-    resetCreateConversationWorkspace();
-    emit("create-conversation", {
-      title,
-      departmentId: departmentId || undefined,
-      agentId: agentId || undefined,
-      importPath: path,
-      shellWorkspaces,
-      shellWorkMode,
-      shellAutonomousMode,
-    });
-  } finally {
-    importConversationLoading.value = false;
-  }
-}
-
-function handleCreateConversationDialogKeydown(event: KeyboardEvent) {
-  if (event.key === "Escape" && createConversationTopicSuggestionsOpen.value) {
-    event.preventDefault();
-    createConversationTopicSuggestionsOpen.value = false;
-    return;
-  }
-  if (event.key === "Enter" && !event.shiftKey && !event.ctrlKey && !event.altKey && !event.metaKey) {
-    event.preventDefault();
-    confirmCreateConversation();
-  }
+function handleOpenDraftConversationEvent() {
+  emit("create-conversation");
 }
 
 onMounted(() => {
-  loadRecentConversationTopics();
   document.addEventListener("pointerdown", handleDocumentPointerDown);
   window.addEventListener("mousemove", handleWindowMouseMove);
   window.addEventListener("mouseup", clearPendingTitlebarDrag);
   window.addEventListener("blur", clearPendingTitlebarDrag);
   window.addEventListener("keydown", handleWindowKeydown);
-  window.addEventListener("easy-call:open-create-conversation-dialog", handleOpenCreateConversationDialogEvent);
+  // 侧栏分节 + 与 composer「新会话」按钮通过全局事件请求打开会话草稿
+  window.addEventListener("easy-call:open-draft-conversation", handleOpenDraftConversationEvent);
   updateWindowWidth();
   window.addEventListener("resize", updateWindowWidth, { passive: true });
 });
@@ -1346,7 +599,7 @@ onBeforeUnmount(() => {
   window.removeEventListener("mouseup", clearPendingTitlebarDrag);
   window.removeEventListener("blur", clearPendingTitlebarDrag);
   window.removeEventListener("keydown", handleWindowKeydown);
-  window.removeEventListener("easy-call:open-create-conversation-dialog", handleOpenCreateConversationDialogEvent);
+  window.removeEventListener("easy-call:open-draft-conversation", handleOpenDraftConversationEvent);
   window.removeEventListener("resize", updateWindowWidth);
 });
 </script>

@@ -30,17 +30,28 @@ export function buildConversationSections(
     titles: ConversationSectionTitles;
     locale?: string | string[];
     currentWorkspaceRootPath?: string;
+    activeConversationId?: string;
   },
 ): ConversationSection[] {
   const { tab, titles, locale } = options;
+  const normalizedActiveId = String(options.activeConversationId || "").trim();
   const visibleItems = items.filter((item) => {
     const kind = String(item.kind || "local_unarchived").trim();
-    return tab === "contact"
+    const kindMatched = tab === "contact"
       ? kind === "remote_im_contact"
       : kind !== "remote_im_contact";
+    if (!kindMatched) return false;
+    // 会话草稿默认隐藏：仅当它正是当前打开的会话时进入「最近会话」，
+    // 且不参与置顶、当前项目与工作区分组。
+    if (item.isDraft && String(item.conversationId || "").trim() !== normalizedActiveId) {
+      return false;
+    }
+    return true;
   });
-  const pinned = visibleItems.filter((item) => !!item.isPinned || !!item.isSystemNotificationConversation);
-  const others = visibleItems.filter((item) => !item.isPinned && !item.isSystemNotificationConversation);
+  const draftActiveItems = visibleItems.filter((item) => !!item.isDraft);
+  const regularItems = visibleItems.filter((item) => !item.isDraft);
+  const pinned = regularItems.filter((item) => !!item.isPinned || !!item.isSystemNotificationConversation);
+  const others = regularItems.filter((item) => !item.isPinned && !item.isSystemNotificationConversation);
 
   // 「当前项目」分组：把属于当前工作区路径的会话单独列出，
   // 并从最近会话与其他工作区分组中剔除，避免重复显示。
@@ -52,7 +63,7 @@ export function buildConversationSections(
   const currentProjectItems = others.filter(isCurrentProjectItem);
   const restOthers = others.filter((item) => !isCurrentProjectItem(item));
 
-  const recentSection = buildRecentConversationSection(restOthers, titles.recent);
+  const recentSection = buildRecentConversationSection([...draftActiveItems, ...restOthers], titles.recent);
   const sections: ConversationSection[] = [];
   if (pinned.length > 0) {
     sections.push({

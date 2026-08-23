@@ -46,6 +46,7 @@ export function useChatConversationItemsDerivedState(bindings: Record<string, an
         isActive: !!item.isActive,
         isSystemNotificationConversation,
         isPinned: !!item.isPinned,
+        isDraft: !!item.isDraft,
         pinIndex: Number.isFinite(Number(item.pinIndex)) ? Number(item.pinIndex) : undefined,
         runtimeState: localRuntimeState || item.runtimeState,
         currentTodo: String(item.currentTodo || "").trim(),

@@ -992,6 +992,7 @@ export type UnarchivedConversationSummary = {
   isSystemNotificationConversation?: boolean;
   isMainConversation?: boolean;
   isPinned?: boolean;
+  isDraft?: boolean;
   pinIndex?: number;
   runtimeState?: "idle" | "assistant_streaming" | "organizing_context" | "archiving" | "compacting";
   currentTodo?: string;
@@ -1068,6 +1069,7 @@ export type ChatConversationOverviewItem = {
   isSystemNotificationConversation?: boolean;
   isMainConversation?: boolean;
   isPinned?: boolean;
+  isDraft?: boolean;
   pinIndex?: number;
   runtimeState?: "idle" | "assistant_streaming" | "organizing_context" | "archiving" | "compacting";
   currentTodo?: string;
