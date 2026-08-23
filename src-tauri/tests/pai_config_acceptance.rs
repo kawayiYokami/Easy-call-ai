@@ -143,7 +143,7 @@ fn run_cli(root: &Path, args: &[&str]) -> String {
     pai_config_tool::run_with_paths(
         root.to_path_buf(),
         root.join("app_config.toml"),
-        root.join("app_data.json"),
+        root.join("config_mark"),
         root.join("llm-workspace"),
         &args,
     )
@@ -155,7 +155,7 @@ fn run_cli_err(root: &Path, args: &[&str]) -> String {
     pai_config_tool::run_with_paths(
         root.to_path_buf(),
         root.join("app_config.toml"),
-        root.join("app_data.json"),
+        root.join("config_mark"),
         root.join("llm-workspace"),
         &args,
     )

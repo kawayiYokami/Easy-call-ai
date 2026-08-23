@@ -7,7 +7,7 @@ mod memory_store_tests {
             .join("easy_call_ai_tests")
             .join(format!("{}_{}", name, Uuid::new_v4()));
         fs::create_dir_all(&root).expect("create temp dir");
-        root.join("app_data.json")
+        root.join("config_mark")
     }
 
     #[test]

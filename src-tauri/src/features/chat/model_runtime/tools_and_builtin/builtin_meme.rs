@@ -1385,7 +1385,7 @@ mod builtin_meme_tests {
         AppState {
             app_handle: Arc::new(Mutex::new(None)),
             config_path: root.join("app_config.toml"),
-            data_path: root.join("app_data.json"),
+            data_path: root.join("config_mark"),
             llm_workspace_path: root.join("llm-workspace"),
             shared_http_client: reqwest::Client::new(),
             terminal_shell: detect_default_terminal_shell(),

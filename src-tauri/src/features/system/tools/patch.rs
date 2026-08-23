@@ -1858,7 +1858,7 @@ mod apply_patch_tool_tests {
     fn make_temp_data_path(prefix: &str) -> PathBuf {
         let root = std::env::temp_dir().join(format!("{prefix}-{}", Uuid::new_v4()));
         std::fs::create_dir_all(root.join("config")).expect("create config dir");
-        root.join("config").join("app_data.json")
+        root.join("config").join("config_mark")
     }
 
     #[test]

@@ -2119,7 +2119,7 @@ mod storage_usage_tests {
         AppState {
             app_handle: Arc::new(Mutex::new(None)),
             config_path: root.join("app_config.toml"),
-            data_path: root.join("app_data.json"),
+            data_path: root.join("config_mark"),
             llm_workspace_path: root.join("llm-workspace"),
             shared_http_client: reqwest::Client::new(),
             terminal_shell: detect_default_terminal_shell(),
@@ -2313,7 +2313,7 @@ mod storage_usage_tests {
             "easy-call-storage-cleanup-normal-{}",
             Uuid::new_v4()
         ));
-        let data_path = root.join("app_data.json");
+        let data_path = root.join("config_mark");
         let ready = storage_usage_test_conversation("ready-conversation", "");
         let legacy_only = storage_usage_test_conversation("legacy-only", "");
         let ready_paths =
@@ -2354,7 +2354,7 @@ mod storage_usage_tests {
             "easy-call-storage-cleanup-delegate-{}",
             Uuid::new_v4()
         ));
-        let data_path = root.join("app_data.json");
+        let data_path = root.join("config_mark");
         let entry = delegate_store_create_delegate(
             &data_path,
             &DelegateCreateInput {
@@ -2405,7 +2405,7 @@ mod storage_usage_tests {
             "easy-call-storage-abnormal-conversations-{}",
             Uuid::new_v4()
         ));
-        let data_path = root.join("app_data.json");
+        let data_path = root.join("config_mark");
         let mut stale =
             storage_usage_test_conversation("remote-stale", CONVERSATION_KIND_REMOTE_IM_CONTACT);
         stale.root_conversation_id = Some("remote_im_contact:channel-a:group:remote-a".to_string());

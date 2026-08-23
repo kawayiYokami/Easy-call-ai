@@ -1218,7 +1218,7 @@ mod delegate_store_tests {
             "easy-call-delegate-snapshot-create-{}",
             Uuid::new_v4()
         ));
-        let data_path = root.join("app_data.json");
+        let data_path = root.join("config_mark");
         let snapshots = delegate_snapshot_cache_list(&data_path).expect("bootstrap empty cache");
         assert!(snapshots.is_empty());
 
@@ -1243,7 +1243,7 @@ mod delegate_store_tests {
             "easy-call-delegate-snapshot-create-bootstrap-{}",
             Uuid::new_v4()
         ));
-        let data_path = root.join("app_data.json");
+        let data_path = root.join("config_mark");
 
         let entry =
             delegate_store_create_delegate(&data_path, &test_delegate_input()).expect("create delegate");
@@ -1262,7 +1262,7 @@ mod delegate_store_tests {
             "easy-call-delegate-remote-recovery-{}",
             Uuid::new_v4()
         ));
-        let data_path = root.join("app_data.json");
+        let data_path = root.join("config_mark");
         let mut reply_input = test_delegate_input();
         reply_input.kind = "remote_im_reply".to_string();
         let reply = delegate_store_create_delegate(&data_path, &reply_input)
@@ -1292,7 +1292,7 @@ mod delegate_store_tests {
             "easy-call-delegate-snapshot-no-cache-bootstrap-{}",
             Uuid::new_v4()
         ));
-        let data_path = root.join("app_data.json");
+        let data_path = root.join("config_mark");
         let entry =
             delegate_store_create_delegate(&data_path, &test_delegate_input()).expect("create delegate");
         let conversation = test_delegate_conversation(&entry);
@@ -1319,7 +1319,7 @@ mod delegate_store_tests {
             "easy-call-delegate-snapshot-delete-empty-{}",
             Uuid::new_v4()
         ));
-        let data_path = root.join("app_data.json");
+        let data_path = root.join("config_mark");
         let entry =
             delegate_store_create_delegate(&data_path, &test_delegate_input()).expect("create delegate");
 
@@ -1339,7 +1339,7 @@ mod delegate_store_tests {
             "easy-call-delegate-snapshot-rebuild-{}",
             Uuid::new_v4()
         ));
-        let data_path = root.join("app_data.json");
+        let data_path = root.join("config_mark");
 
         let entry =
             delegate_store_create_delegate(&data_path, &test_delegate_input()).expect("create delegate");

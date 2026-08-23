@@ -2750,7 +2750,7 @@ mod prompt_media_path_tests {
 
     #[test]
     fn prompt_path_from_stored_binary_marker_should_keep_download_refs_workspace_relative() {
-        let data_path = PathBuf::from("C:/pai/config/app_data.json");
+        let data_path = PathBuf::from("C:/pai/config/config_mark");
 
         let path = prompt_path_from_stored_binary_marker(
             &download_marker_from_id("conversation-a/image.png"),
@@ -2762,7 +2762,7 @@ mod prompt_media_path_tests {
 
     #[test]
     fn prompt_path_from_stored_binary_marker_should_make_media_refs_reachable() {
-        let data_path = PathBuf::from("C:/pai/config/app_data.json");
+        let data_path = PathBuf::from("C:/pai/config/config_mark");
 
         let path = prompt_path_from_stored_binary_marker(
             &media_marker_from_id("image.png"),
@@ -2800,7 +2800,7 @@ mod prompt_media_path_tests {
         let root = std::env::temp_dir().join(format!("eca-resolve-media-{}", Uuid::new_v4()));
         let data_dir = root.join("data");
         std::fs::create_dir_all(&data_dir).expect("create data dir");
-        let data_path = data_dir.join("app_data.json");
+        let data_path = data_dir.join("config_mark");
         let downloads_dir = downloads_storage_dir_from_data_path(&data_path).expect("downloads dir");
         std::fs::create_dir_all(downloads_dir.join("conversation-a")).expect("create downloads subdir");
         let good_raw = B64.decode(test_png_base64()).expect("decode png");

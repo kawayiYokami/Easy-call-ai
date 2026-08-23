@@ -1439,7 +1439,7 @@ mod git_panel_repos_tests {
         let state = AppState {
             app_handle: Arc::new(Mutex::new(None)),
             config_path: base.join("app_config.toml"),
-            data_path: base.join("app_data.json"),
+            data_path: base.join("config_mark"),
             llm_workspace_path: base.join("llm-workspace"),
             shared_http_client: reqwest::Client::new(),
             terminal_shell: detect_default_terminal_shell(),

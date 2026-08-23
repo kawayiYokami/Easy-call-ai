@@ -272,7 +272,7 @@ fn codex_auth_storage_root() -> Result<PathBuf, String> {
         return Ok(portable_root.join("auth").join("codex"));
     }
     let (config_dir, _legacy_dir) = resolve_standard_config_dir()?;
-    Ok(app_root_from_data_path(&config_dir.join("app_data.json"))
+    Ok(app_root_from_data_path(&config_dir.join("config_mark"))
         .join("auth")
         .join("codex"))
 }

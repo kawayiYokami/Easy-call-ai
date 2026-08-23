@@ -463,7 +463,7 @@ mod migration_v4_tests {
             "easy-call-migration-v3-v4-equivalence-{}",
             Uuid::new_v4()
         ));
-        let data_path = root.join("app_data.json");
+        let data_path = root.join("config_mark");
         let paths = message_store_paths(&data_path, "conversation-a").expect("paths");
         let conversation = test_conversation(vec![
             text_message("m1", "user", "hello"),
@@ -504,7 +504,7 @@ mod migration_v4_tests {
             "easy-call-migration-v3-v4-locator-{}",
             Uuid::new_v4()
         ));
-        let data_path = root.join("app_data.json");
+        let data_path = root.join("config_mark");
         let paths = message_store_paths(&data_path, "conversation-a").expect("paths");
         let conversation = test_conversation(vec![
             tool_message(
@@ -539,7 +539,7 @@ mod migration_v4_tests {
             "easy-call-migration-v3-v4-idempotent-{}",
             Uuid::new_v4()
         ));
-        let data_path = root.join("app_data.json");
+        let data_path = root.join("config_mark");
         let paths = message_store_paths(&data_path, "conversation-a").expect("paths");
         let conversation = test_conversation(vec![text_message("m1", "user", "hello")]);
         migration_v1_to_v2_conversation(&paths, &conversation, false).expect("seed v2");

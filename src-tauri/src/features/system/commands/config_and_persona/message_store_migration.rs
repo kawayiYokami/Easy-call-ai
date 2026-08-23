@@ -853,7 +853,7 @@ mod message_store_migration_gate_tests {
             "eca-message-store-migration-{label}-{}",
             Uuid::new_v4()
         ));
-        let data_path = root.join("config").join("app_data.json");
+        let data_path = root.join("config").join("config_mark");
         (root, data_path)
     }
 

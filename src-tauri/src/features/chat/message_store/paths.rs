@@ -255,7 +255,7 @@ mod message_store_atomic_write_tests {
             "easy-call-message-store-paths-{}",
             Uuid::new_v4()
         ));
-        let data_path = root.join("app_data.json");
+        let data_path = root.join("config_mark");
 
         for invalid_id in [
             "../escape",

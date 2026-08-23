@@ -278,7 +278,7 @@ impl AppState {
         Ok(Self {
             app_handle: Arc::new(Mutex::new(None)),
             config_path: config_dir.join("app_config.toml"),
-            data_path: config_dir.join("app_data.json"),
+            data_path: config_dir.join("config_mark"),
             llm_workspace_path,
             shared_http_client,
             terminal_shell,

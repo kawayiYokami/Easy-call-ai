@@ -434,7 +434,7 @@
     #[test]
     fn runtime_organization_snapshot_should_filter_missing_children_after_private_merge() {
         let root = std::env::temp_dir().join(format!("eca-runtime-org-{}", Uuid::new_v4()));
-        let data_path = root.join("config").join("app_data.json");
+        let data_path = root.join("config").join("config_mark");
         let departments_dir = root
             .join("llm-workspace")
             .join("private-organization")
@@ -1336,7 +1336,7 @@ model = "gpt-4.1"
     #[test]
     fn private_department_id_conflict_should_be_skipped_with_repair_hint() {
         let root = std::env::temp_dir().join(format!("eca-private-org-conflict-{}", Uuid::new_v4()));
-        let data_path = root.join("config").join("app_data.json");
+        let data_path = root.join("config").join("config_mark");
         let departments_dir = root
             .join("llm-workspace")
             .join("private-organization")
@@ -1544,7 +1544,7 @@ model = "gpt-4.1"
     fn write_agents_shard_should_not_touch_conversations() {
         let root = std::env::temp_dir().join(format!("eca-app-data-shards-{}", Uuid::new_v4()));
         std::fs::create_dir_all(root.join("config")).expect("create temp config dir");
-        let data_path = root.join("config").join("app_data.json");
+        let data_path = root.join("config").join("config_mark");
 
         let mut data = AppData::default();
         data.conversations = vec![build_test_conversation("conv-a", "Conversation A")];
@@ -1585,7 +1585,7 @@ model = "gpt-4.1"
     fn runtime_volatile_normalization_should_not_require_rewriting_after_migration_version_recorded() {
         let root = std::env::temp_dir().join(format!("eca-read-baseline-migration-{}", Uuid::new_v4()));
         std::fs::create_dir_all(root.join("config")).expect("create temp config dir");
-        let data_path = root.join("config").join("app_data.json");
+        let data_path = root.join("config").join("config_mark");
         let mut data = AppData::default();
         data.data_migration_version =
             DATA_MIGRATION_VERSION_V2_ASSISTANT_WORKSPACE_FOR_EMPTY_SHELL_WORKSPACES;
@@ -1620,7 +1620,7 @@ model = "gpt-4.1"
     fn write_conversation_shard_should_write_message_store_and_only_touch_target() {
         let root = std::env::temp_dir().join(format!("eca-conversation-shard-{}", Uuid::new_v4()));
         std::fs::create_dir_all(root.join("config")).expect("create temp config dir");
-        let data_path = root.join("config").join("app_data.json");
+        let data_path = root.join("config").join("config_mark");
 
         let mut data = AppData::default();
         data.conversations = vec![
@@ -1806,7 +1806,7 @@ model = "gpt-4.1"
         AppState {
             app_handle: Arc::new(Mutex::new(None)),
             config_path: root.join("app_config.toml"),
-            data_path: root.join("app_data.json"),
+            data_path: root.join("config_mark"),
             llm_workspace_path: root.join("llm-workspace"),
             shared_http_client: reqwest::Client::new(),
             terminal_shell: detect_default_terminal_shell(),

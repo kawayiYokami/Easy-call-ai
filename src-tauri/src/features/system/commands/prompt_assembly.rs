@@ -438,7 +438,7 @@ mod prompt_assembly_tests {
             .join("easy_call_ai_tests")
             .join(format!("{}_{}", name, Uuid::new_v4()));
         fs::create_dir_all(&root).expect("create temp dir");
-        root.join("app_data.json")
+        root.join("config_mark")
     }
 
     #[test]
@@ -542,7 +542,7 @@ mod prompt_assembly_tests {
         AppState {
             app_handle: Arc::new(Mutex::new(None)),
             config_path: llm_workspace_path.join("app_config.toml"),
-            data_path: llm_workspace_path.join("app_data.json"),
+            data_path: llm_workspace_path.join("config_mark"),
             llm_workspace_path,
             shared_http_client: reqwest::Client::new(),
             terminal_shell: terminal_shell.clone(),

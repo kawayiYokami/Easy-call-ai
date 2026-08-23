@@ -2528,7 +2528,7 @@ mod tool_review_tests {
     #[test]
     fn tool_review_prune_legacy_batch_report_records_should_remove_batch_scope_records() {
         let root = env::temp_dir().join(format!("easy-call-ai-tool-review-{}", Uuid::new_v4()));
-        let data_path = root.join("app_data.json");
+        let data_path = root.join("config_mark");
         let conversation_id = "conversation-1";
         let reports_dir = app_root_from_data_path(&data_path)
             .join("tool-review-reports")

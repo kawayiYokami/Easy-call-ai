@@ -320,7 +320,7 @@ mod delegate_conversation_store_tests {
             "easy-call-delegate-store-write-{}",
             Uuid::new_v4()
         ));
-        let data_path = root.join("app_data.json");
+        let data_path = root.join("config_mark");
         let entry = test_delegate_entry(&data_path);
         let conversation = test_delegate_conversation(&entry.delegate_id);
 
@@ -340,7 +340,7 @@ mod delegate_conversation_store_tests {
             "easy-call-delegate-store-delete-{}",
             Uuid::new_v4()
         ));
-        let data_path = root.join("app_data.json");
+        let data_path = root.join("config_mark");
         let entry = test_delegate_entry(&data_path);
         let conversation = test_delegate_conversation(&entry.delegate_id);
         delegate_conversation_store_write(&data_path, &conversation).expect("write delegate");

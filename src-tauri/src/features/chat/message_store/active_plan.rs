@@ -87,7 +87,7 @@ pub(super) fn active_plan_complete_by_path(
 fn active_plan_records_in_progress_should_return_newest_first() {
     let root = std::env::temp_dir().join(format!("eca-active-plan-order-{}", Uuid::new_v4()));
     let conversation_id = "conv-active-plan-order";
-    let data_path = root.join("app_data.json");
+    let data_path = root.join("config_mark");
     let paths = message_store_paths(&data_path, conversation_id).expect("message store paths");
     let conversation = Conversation {
         id: conversation_id.to_string(),

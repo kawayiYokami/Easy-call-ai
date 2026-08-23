@@ -1818,7 +1818,7 @@ fn remote_wake_splice_should_slim_every_closed_block_immediately() {
 #[test]
 fn remote_wake_splice_should_preserve_trigger_in_new_block_and_slim_old_block() {
     let root = std::env::temp_dir().join(format!("eca-remote-wake-splice-{}", Uuid::new_v4()));
-    let data_path = root.join("app_data.json");
+    let data_path = root.join("config_mark");
     let message = |id: &str, role: &str, text: &str| ChatMessage {
         id: id.to_string(),
         role: role.to_string(),
@@ -2813,7 +2813,7 @@ fn chat_metadata_store_recover_operations(data_path: &PathBuf) -> Result<(), Str
 #[test]
 fn v3_chat_metadata_migration_should_initialize_empty_chat_without_legacy_files() {
     let root = std::env::temp_dir().join(format!("eca-chat-v3-empty-{}", Uuid::new_v4()));
-    let data_path = root.join("app_data.json");
+    let data_path = root.join("config_mark");
     chat_metadata_store_run_v3_migration(&data_path).expect("migrate empty chat storage");
     assert!(chat_metadata_store_is_ready(&data_path).expect("read migration state"));
     assert!(chat_metadata_store_db_path(&data_path).exists());
@@ -2825,7 +2825,7 @@ fn v3_chat_metadata_migration_should_initialize_empty_chat_without_legacy_files(
 #[test]
 fn v3_chat_metadata_migration_should_import_v2_metadata_without_removing_v2_files() {
     let root = std::env::temp_dir().join(format!("eca-chat-v3-import-{}", Uuid::new_v4()));
-    let data_path = root.join("app_data.json");
+    let data_path = root.join("config_mark");
     let mut conversation = Conversation {
         id: "conv-v3-import".to_string(), title: "SQLite 会话".to_string(), agent_id: DEFAULT_AGENT_ID.to_string(), department_id: String::new(), bound_conversation_id: None, parent_conversation_id: None, child_conversation_ids: Vec::new(), fork_message_cursor: None, unread_count: 0, conversation_kind: CONVERSATION_KIND_CHAT.to_string(), root_conversation_id: None, delegate_id: None, created_at: now_iso(), updated_at: now_iso(), last_user_at: None, last_assistant_at: None, status: "active".to_string(), user_profile_snapshot: String::new(), shell_workspace_path: None, shell_workspaces: Vec::new(), shell_autonomous_mode: false, shell_work_mode: default_shell_work_mode(), archived_at: None, messages: Vec::new(), fast_request_turns: Vec::new(), current_todos: Vec::new(), memory_recall_table: Vec::new(), plan_mode_enabled: false, preferred_api_config_id: None, auto_push_remote_contact_id: None, active_goal: None, cumulative_usage: ConversationCumulativeUsage::default(),
         is_draft: false,
@@ -2947,7 +2947,7 @@ fn v3_chat_metadata_migration_should_import_v2_metadata_without_removing_v2_file
 #[test]
 fn v3_chat_metadata_recover_operations_should_drop_bad_operation_detail() {
     let root = std::env::temp_dir().join(format!("eca-chat-v3-bad-operation-{}", Uuid::new_v4()));
-    let data_path = root.join("app_data.json");
+    let data_path = root.join("config_mark");
     chat_metadata_store_run_v3_migration(&data_path).expect("initialize v3 storage");
     let conn = chat_metadata_store_open(&data_path).expect("open SQLite metadata");
     let operation_id = Uuid::new_v4().to_string();
@@ -2972,7 +2972,7 @@ fn v3_chat_metadata_recover_operations_should_drop_bad_operation_detail() {
 #[test]
 fn v3_chat_metadata_recover_operations_should_keep_record_when_cleanup_fails() {
     let root = std::env::temp_dir().join(format!("eca-chat-v3-cleanup-retry-{}", Uuid::new_v4()));
-    let data_path = root.join("app_data.json");
+    let data_path = root.join("config_mark");
     chat_metadata_store_run_v3_migration(&data_path).expect("initialize v3 storage");
     let conn = chat_metadata_store_open(&data_path).expect("open SQLite metadata");
     let conversation_id = "cleanup-retry-conversation";
@@ -3017,7 +3017,7 @@ fn v3_chat_metadata_recover_operations_should_keep_record_when_cleanup_fails() {
 #[test]
 fn v3_chat_metadata_migration_should_skip_building_conversation_without_writing_back() {
     let root = std::env::temp_dir().join(format!("eca-chat-v3-skip-building-{}", Uuid::new_v4()));
-    let data_path = root.join("app_data.json");
+    let data_path = root.join("config_mark");
     let message = |id: &str| ChatMessage {
         id: id.to_string(),
         role: "user".to_string(),
@@ -3063,7 +3063,7 @@ fn v3_chat_metadata_migration_should_skip_building_conversation_without_writing_
 #[test]
 fn v3_chat_metadata_block_reader_should_stop_at_block_boundary() {
     let root = std::env::temp_dir().join(format!("eca-chat-v3-block-reader-{}", Uuid::new_v4()));
-    let data_path = root.join("app_data.json");
+    let data_path = root.join("config_mark");
     let message = |id: &str, role: &str| ChatMessage {
         id: id.to_string(), role: role.to_string(), created_at: now_iso(), speaker_agent_id: None,
         parts: vec![MessagePart::Text { text: id.to_string(), reasoning_content: None }], extra_text_blocks: Vec::new(), provider_meta: None, tool_call: None, mcp_call: None, meme_annotations: None,
@@ -3110,7 +3110,7 @@ fn v3_chat_metadata_block_reader_should_stop_at_block_boundary() {
 #[test]
 fn v3_chat_metadata_physical_append_should_append_bytes_without_rebuilding() {
     let root = std::env::temp_dir().join(format!("eca-chat-v3-physical-append-{}", Uuid::new_v4()));
-    let data_path = root.join("app_data.json");
+    let data_path = root.join("config_mark");
     let message = |id: &str, role: &str| ChatMessage {
         id: id.to_string(), role: role.to_string(), created_at: now_iso(), speaker_agent_id: None,
         parts: vec![MessagePart::Text { text: id.to_string(), reasoning_content: None }], extra_text_blocks: Vec::new(), provider_meta: None, tool_call: None, mcp_call: None, meme_annotations: None,
@@ -3183,7 +3183,7 @@ fn v3_chat_metadata_physical_append_should_append_bytes_without_rebuilding() {
 #[test]
 fn v3_chat_metadata_physical_append_should_truncate_orphan_tail_bytes() {
     let root = std::env::temp_dir().join(format!("eca-chat-v3-orphan-tail-{}", Uuid::new_v4()));
-    let data_path = root.join("app_data.json");
+    let data_path = root.join("config_mark");
     let message = |id: &str, role: &str| ChatMessage {
         id: id.to_string(), role: role.to_string(), created_at: now_iso(), speaker_agent_id: None,
         parts: vec![MessagePart::Text { text: id.to_string(), reasoning_content: None }], extra_text_blocks: Vec::new(), provider_meta: None, tool_call: None, mcp_call: None, meme_annotations: None,
@@ -3239,7 +3239,7 @@ fn v3_chat_metadata_physical_append_should_truncate_orphan_tail_bytes() {
 #[test]
 fn v3_chat_metadata_mutations_should_publish_only_sql_locator_and_blocks() {
     let root = std::env::temp_dir().join(format!("eca-chat-v3-mutations-{}", Uuid::new_v4()));
-    let data_path = root.join("app_data.json");
+    let data_path = root.join("config_mark");
     let mut conversation = Conversation {
         id: "conv-v3-mutations".to_string(), title: "SQLite mutation".to_string(), agent_id: DEFAULT_AGENT_ID.to_string(), department_id: String::new(), bound_conversation_id: None, parent_conversation_id: None, child_conversation_ids: Vec::new(), fork_message_cursor: None, unread_count: 0, conversation_kind: CONVERSATION_KIND_CHAT.to_string(), root_conversation_id: None, delegate_id: None, created_at: now_iso(), updated_at: now_iso(), last_user_at: None, last_assistant_at: None, status: "active".to_string(), user_profile_snapshot: String::new(), shell_workspace_path: None, shell_workspaces: Vec::new(), shell_autonomous_mode: false, shell_work_mode: default_shell_work_mode(), archived_at: None, messages: Vec::new(), fast_request_turns: Vec::new(), current_todos: Vec::new(), memory_recall_table: Vec::new(), plan_mode_enabled: false, preferred_api_config_id: None, auto_push_remote_contact_id: None, active_goal: None, cumulative_usage: ConversationCumulativeUsage::default(),
         is_draft: false,
@@ -3407,7 +3407,7 @@ fn v3_chat_metadata_mutations_should_publish_only_sql_locator_and_blocks() {
 #[test]
 fn v3_chat_metadata_migration_should_keep_legacy_conversation_file_without_blocking() {
     let root = std::env::temp_dir().join(format!("eca-chat-v3-legacy-{}", Uuid::new_v4()));
-    let data_path = root.join("app_data.json");
+    let data_path = root.join("config_mark");
     let legacy_dir = app_layout_chat_conversations_dir(&data_path);
     fs::create_dir_all(&legacy_dir).expect("create legacy chat dir");
     fs::write(legacy_dir.join("legacy.json"), "{}").expect("write legacy conversation");
@@ -3422,7 +3422,7 @@ fn v3_chat_metadata_migration_should_keep_legacy_conversation_file_without_block
 #[test]
 fn v3_chat_metadata_snapshot_should_wait_for_same_conversation_writer() {
     let root = std::env::temp_dir().join(format!("eca-chat-v3-snapshot-writer-gate-{}", Uuid::new_v4()));
-    let data_path = root.join("app_data.json");
+    let data_path = root.join("config_mark");
     chat_metadata_store_run_v3_migration(&data_path).expect("initialize v3 storage");
     let conversation = Conversation {
         id: "snapshot-writer-gate-conversation".to_string(),
@@ -3505,7 +3505,7 @@ fn v3_chat_metadata_snapshot_should_wait_for_same_conversation_writer() {
 #[test]
 fn v3_chat_metadata_delete_should_wait_for_same_conversation_reader() {
     let root = std::env::temp_dir().join(format!("eca-chat-v3-delete-gate-{}", Uuid::new_v4()));
-    let data_path = root.join("app_data.json");
+    let data_path = root.join("config_mark");
     chat_metadata_store_run_v3_migration(&data_path).expect("initialize v3 storage");
     let (reader_entered_tx, reader_entered_rx) = std::sync::mpsc::channel();
     let (release_reader_tx, release_reader_rx) = std::sync::mpsc::channel();
@@ -3548,7 +3548,7 @@ fn v3_chat_metadata_delete_should_wait_for_same_conversation_reader() {
 #[test]
 fn v3_chat_metadata_publication_gate_should_wait_only_for_same_conversation() {
     let root = std::env::temp_dir().join(format!("eca-chat-v3-publication-gate-{}", Uuid::new_v4()));
-    let data_path = root.join("app_data.json");
+    let data_path = root.join("config_mark");
     let paths = message_store_paths(&data_path, "same-conversation").expect("same paths");
     let other_paths = message_store_paths(&data_path, "other-conversation").expect("other paths");
     let publication_gate = chat_metadata_store_publication_gate(&paths);

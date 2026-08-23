@@ -1141,7 +1141,7 @@ mod terminal_workspace_tests {
         AppState {
             app_handle: Arc::new(Mutex::new(None)),
             config_path: llm_workspace_path.join("app_config.toml"),
-            data_path: llm_workspace_path.join("app_data.json"),
+            data_path: llm_workspace_path.join("config_mark"),
             llm_workspace_path,
             shared_http_client: reqwest::Client::new(),
             terminal_shell: terminal_shell.clone(),

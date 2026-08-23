@@ -823,7 +823,7 @@ mod message_store_persist_tests {
             "easy-call-message-store-persist-{}",
             Uuid::new_v4()
         ));
-        let data_path = root.join("app_data.json");
+        let data_path = root.join("config_mark");
         let paths = message_store_paths(&data_path, "conversation-persist").expect("paths");
         let conversation = test_conversation(vec![test_message("m1"), test_message("m2")]);
 
@@ -850,7 +850,7 @@ mod message_store_persist_tests {
             "easy-call-message-store-meta-only-{}",
             Uuid::new_v4()
         ));
-        let data_path = root.join("app_data.json");
+        let data_path = root.join("config_mark");
         let paths = message_store_paths(&data_path, "conversation-persist").expect("paths");
         let mut conversation = test_conversation(vec![test_message("m1"), test_message("m2")]);
         chat_store_write_snapshot(&paths, &conversation)
@@ -894,7 +894,7 @@ mod message_store_persist_tests {
             "easy-call-message-store-messages-only-{}",
             Uuid::new_v4()
         ));
-        let data_path = root.join("app_data.json");
+        let data_path = root.join("config_mark");
         let paths = message_store_paths(&data_path, "conversation-persist").expect("paths");
         let conversation = test_conversation(vec![test_message("m1")]);
         write_jsonl_snapshot_directory_shard(&paths, &conversation)
@@ -925,7 +925,7 @@ mod message_store_persist_tests {
             "easy-call-message-store-append-{}",
             Uuid::new_v4()
         ));
-        let data_path = root.join("app_data.json");
+        let data_path = root.join("config_mark");
         let paths = message_store_paths(&data_path, "conversation-persist").expect("paths");
         let conversation = test_conversation(vec![test_message("m1"), test_message("m2")]);
         chat_store_write_snapshot(&paths, &conversation)
@@ -959,7 +959,7 @@ mod message_store_persist_tests {
             "easy-call-message-store-append-empty-{}",
             Uuid::new_v4()
         ));
-        let data_path = root.join("app_data.json");
+        let data_path = root.join("config_mark");
         let paths = message_store_paths(&data_path, "conversation-persist").expect("paths");
         let conversation = test_conversation(Vec::new());
         chat_store_write_snapshot(&paths, &conversation)
@@ -994,7 +994,7 @@ mod message_store_persist_tests {
             "easy-call-message-store-append-batch-{}",
             Uuid::new_v4()
         ));
-        let data_path = root.join("app_data.json");
+        let data_path = root.join("config_mark");
         let paths = message_store_paths(&data_path, "conversation-persist").expect("paths");
         let conversation = test_conversation(vec![test_message("m1")]);
         chat_store_write_snapshot(&paths, &conversation)
@@ -1034,7 +1034,7 @@ mod message_store_persist_tests {
             "easy-call-message-store-truncate-{}",
             Uuid::new_v4()
         ));
-        let data_path = root.join("app_data.json");
+        let data_path = root.join("config_mark");
         let paths = message_store_paths(&data_path, "conversation-persist").expect("paths");
         let mut conversation = test_conversation(vec![
             test_message("m1"),
@@ -1072,7 +1072,7 @@ mod message_store_persist_tests {
             "easy-call-message-store-replace-{}",
             Uuid::new_v4()
         ));
-        let data_path = root.join("app_data.json");
+        let data_path = root.join("config_mark");
         let paths = message_store_paths(&data_path, "conversation-persist").expect("paths");
         let conversation = test_conversation(vec![
             test_message("m1"),
@@ -1121,7 +1121,7 @@ mod message_store_persist_tests {
             "easy-call-message-store-splice-{}",
             Uuid::new_v4()
         ));
-        let data_path = root.join("app_data.json");
+        let data_path = root.join("config_mark");
         let paths = message_store_paths(&data_path, "conversation-persist").expect("paths");
         let mut conversation = test_conversation(vec![
             test_message("m1"),
@@ -1165,7 +1165,7 @@ mod message_store_persist_tests {
             "easy-call-message-store-gate-{}",
             Uuid::new_v4()
         ));
-        let data_path = root.join("app_data.json");
+        let data_path = root.join("config_mark");
         let paths = message_store_paths(&data_path, "conversation-persist").expect("paths");
         let conversation = test_conversation(vec![test_message("m1")]);
 
@@ -1188,7 +1188,7 @@ mod message_store_persist_tests {
             "easy-call-message-store-recover-missing-blocks-{}",
             Uuid::new_v4()
         ));
-        let data_path = root.join("app_data.json");
+        let data_path = root.join("config_mark");
         let paths = message_store_paths(&data_path, "conversation-persist").expect("paths");
         let conversation = test_conversation(vec![test_message("m1"), test_message("m2")]);
         write_jsonl_snapshot_directory_shard(&paths, &conversation)
@@ -1222,7 +1222,7 @@ mod message_store_persist_tests {
             "easy-call-message-store-if-changed-stale-{}",
             Uuid::new_v4()
         ));
-        let data_path = root.join("app_data.json");
+        let data_path = root.join("config_mark");
         let paths = message_store_paths(&data_path, "conversation-persist").expect("paths");
         let conversation = test_conversation(vec![test_message("m1")]);
         write_jsonl_snapshot_directory_shard(&paths, &conversation)
@@ -1311,7 +1311,7 @@ mod message_store_persist_tests {
             "easy-call-message-store-append-line-tool-{}",
             Uuid::new_v4()
         ));
-        let data_path = root.join("app_data.json");
+        let data_path = root.join("config_mark");
         let paths = message_store_paths(&data_path, "conversation-persist").expect("paths");
         let conversation = test_conversation(vec![test_message("m1")]);
         chat_store_write_snapshot(&paths, &conversation).expect("write ready snapshot");
@@ -1358,7 +1358,7 @@ mod message_store_persist_tests {
             "easy-call-message-store-append-line-text-{}",
             Uuid::new_v4()
         ));
-        let data_path = root.join("app_data.json");
+        let data_path = root.join("config_mark");
         let paths = message_store_paths(&data_path, "conversation-persist").expect("paths");
         let conversation = test_conversation(vec![test_message("m1")]);
         chat_store_write_snapshot(&paths, &conversation).expect("write ready snapshot");
@@ -1410,7 +1410,7 @@ mod message_store_persist_tests {
             "easy-call-message-store-append-line-meta-{}",
             Uuid::new_v4()
         ));
-        let data_path = root.join("app_data.json");
+        let data_path = root.join("config_mark");
         let paths = message_store_paths(&data_path, "conversation-persist").expect("paths");
         let conversation = test_conversation(vec![test_message("m1")]);
         chat_store_write_snapshot(&paths, &conversation).expect("write ready snapshot");

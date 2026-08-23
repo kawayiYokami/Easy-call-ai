@@ -1037,7 +1037,7 @@ mod message_attachment_projection_tests {
     fn persistence_canonicalizer_should_never_keep_relative_or_url_attachment_paths() {
         let root = std::env::temp_dir().join(format!("attachment-canonical-{}", Uuid::new_v4()));
         std::fs::create_dir_all(&root).expect("create temp root");
-        let data_path = root.join("app_data.json");
+        let data_path = root.join("config_mark");
         let mut parts = vec![
             MessagePart::Attachment {
                 path: "downloads/relative.png".to_string(),

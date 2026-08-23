@@ -289,7 +289,7 @@ mod rewind_apply_patch_tests {
     #[test]
     fn restore_should_work_with_valid_backup_record_by_id() {
         let root = make_temp_dir("rewind-id-restore");
-        let data_path = root.join("config").join("app_data.json");
+        let data_path = root.join("config").join("config_mark");
         std::fs::create_dir_all(root.join("config")).expect("create config");
 
         let file = root.join("a.txt");
@@ -345,7 +345,7 @@ mod rewind_apply_patch_tests {
     #[test]
     fn cleanup_should_skip_missing_record_gracefully() {
         let root = make_temp_dir("rewind-id-missing");
-        let data_path = root.join("config").join("app_data.json");
+        let data_path = root.join("config").join("config_mark");
         std::fs::create_dir_all(root.join("config")).expect("create config");
 
         let cleaned = cleanup_backup_records_by_ids(&data_path, &["nonexistent-id".to_string()])
@@ -356,7 +356,7 @@ mod rewind_apply_patch_tests {
     #[test]
     fn cleanup_should_remove_records_and_blobs() {
         let root = make_temp_dir("rewind-id-cleanup");
-        let data_path = root.join("config").join("app_data.json");
+        let data_path = root.join("config").join("config_mark");
         std::fs::create_dir_all(root.join("config")).expect("create config");
 
         let record_id = Uuid::new_v4().to_string();

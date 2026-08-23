@@ -827,7 +827,7 @@ mod message_store_tests {
 
     #[test]
     fn message_store_paths_should_extend_existing_chat_conversation_layout() {
-        let data_path = PathBuf::from("E:/app/data/app_data.json");
+        let data_path = PathBuf::from("E:/app/data/config_mark");
         let paths = message_store_paths(&data_path, "conversation-a").expect("paths");
 
         assert!(paths
@@ -901,7 +901,7 @@ mod message_store_tests {
             "easy-call-message-store-run-{}",
             Uuid::new_v4()
         ));
-        let data_path = root.join("app_data.json");
+        let data_path = root.join("config_mark");
         let paths = message_store_paths(&data_path, "conversation-a").expect("paths");
         let conversation = test_conversation(vec![
             test_message("m1", "user"),
@@ -936,7 +936,7 @@ mod message_store_tests {
             "easy-call-independent-v1-v2-{}",
             Uuid::new_v4()
         ));
-        let data_path = root.join("app_data.json");
+        let data_path = root.join("config_mark");
         let paths = message_store_paths(&data_path, "conversation-a").expect("paths");
         let conversation = test_conversation(vec![
             test_message("m1", "user"),
@@ -970,7 +970,7 @@ mod message_store_tests {
             "easy-call-independent-v1-v2-preserve-{}",
             Uuid::new_v4()
         ));
-        let data_path = root.join("app_data.json");
+        let data_path = root.join("config_mark");
         let paths = message_store_paths(&data_path, "conversation-a").expect("paths");
         let conversation = test_conversation(vec![test_message("m1", "user")]);
         if let Some(parent) = paths.legacy_conversation_file.parent() {
@@ -1010,7 +1010,7 @@ mod message_store_tests {
             "easy-call-independent-v2-v3-{}",
             Uuid::new_v4()
         ));
-        let data_path = root.join("app_data.json");
+        let data_path = root.join("config_mark");
         let paths = message_store_paths(&data_path, "conversation-a").expect("paths");
         let conversation = test_conversation(vec![
             test_message("m1", "user"),
@@ -1086,7 +1086,7 @@ mod message_store_tests {
             "easy-call-independent-v2-v3-existing-current-{}",
             Uuid::new_v4()
         ));
-        let data_path = root.join("app_data.json");
+        let data_path = root.join("config_mark");
         let paths = message_store_paths(&data_path, "conversation-a").expect("paths");
         let mut legacy = test_conversation(vec![test_message("m1", "user")]);
         legacy.title = "V2 旧标题".to_string();
@@ -1116,7 +1116,7 @@ mod message_store_tests {
             "easy-call-independent-v2-v3-skip-{}",
             Uuid::new_v4()
         ));
-        let data_path = root.join("app_data.json");
+        let data_path = root.join("config_mark");
         let good_paths = message_store_paths(&data_path, "conversation-a").expect("good paths");
         let good = test_conversation(vec![test_message("m1", "user")]);
         migration_v1_to_v2_conversation(&good_paths, &good, false).expect("seed good v2");
@@ -1153,7 +1153,7 @@ mod message_store_tests {
             "easy-call-independent-v2-v3-building-{}",
             Uuid::new_v4()
         ));
-        let data_path = root.join("app_data.json");
+        let data_path = root.join("config_mark");
         let paths = message_store_paths(&data_path, "conversation-a").expect("paths");
         let conversation = test_conversation(vec![test_message("m1", "user")]);
         migration_v1_to_v2_conversation(&paths, &conversation, false).expect("seed v2");
@@ -1176,7 +1176,7 @@ mod message_store_tests {
             "easy-call-independent-v2-v3-system-failure-{}",
             Uuid::new_v4()
         ));
-        let data_path = root.join("app_data.json");
+        let data_path = root.join("config_mark");
         let paths = message_store_paths(&data_path, "conversation-a").expect("paths");
         let conversation = test_conversation(vec![test_message("m1", "user")]);
         migration_v1_to_v2_conversation(&paths, &conversation, false).expect("seed v2");
@@ -1198,7 +1198,7 @@ mod message_store_tests {
             "easy-call-message-store-dry-run-{}",
             Uuid::new_v4()
         ));
-        let data_path = root.join("app_data.json");
+        let data_path = root.join("config_mark");
         let paths = message_store_paths(&data_path, "conversation-a").expect("paths");
         let conversation = test_conversation(vec![test_message("m1", "user")]);
 

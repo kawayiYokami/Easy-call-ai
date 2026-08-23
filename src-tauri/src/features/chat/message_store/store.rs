@@ -2782,7 +2782,7 @@ mod message_store_reader_tests {
             "easy-call-message-store-chat-snapshot-{}",
             Uuid::new_v4()
         ));
-        let data_path = root.join("app_data.json");
+        let data_path = root.join("config_mark");
         let paths = message_store_paths(&data_path, "conversation-reader").expect("paths");
         let conversation = test_conversation(vec![
             test_message("u1", "user"),
@@ -2811,7 +2811,7 @@ mod message_store_reader_tests {
             "easy-call-message-store-recent-page-stale-{}",
             Uuid::new_v4()
         ));
-        let data_path = root.join("app_data.json");
+        let data_path = root.join("config_mark");
         let paths = message_store_paths(&data_path, "conversation-recent-page").expect("paths");
         let mut conversation = test_conversation(vec![
             test_message("u1", "user"),
@@ -2876,7 +2876,7 @@ mod message_store_reader_tests {
             "easy-call-message-store-branch-selection-{}",
             Uuid::new_v4()
         ));
-        let data_path = root.join("app_data.json");
+        let data_path = root.join("config_mark");
         let paths = message_store_paths(&data_path, "conversation-reader").expect("paths");
         let conversation = test_conversation(vec![
             test_message("m1", "user"),
@@ -2918,7 +2918,7 @@ mod message_store_reader_tests {
             "easy-call-message-store-directory-read-{}",
             Uuid::new_v4()
         ));
-        let data_path = root.join("app_data.json");
+        let data_path = root.join("config_mark");
         let paths = message_store_paths(&data_path, "conversation-reader").expect("paths");
         let conversation = test_conversation(vec![
             test_message("jsonl1", "assistant"),
@@ -2947,7 +2947,7 @@ mod message_store_reader_tests {
             "easy-call-message-store-meta-ready-{}",
             Uuid::new_v4()
         ));
-        let data_path = root.join("app_data.json");
+        let data_path = root.join("config_mark");
         let paths = message_store_paths(&data_path, "conversation-reader").expect("paths");
         let conversation = test_conversation(vec![
             test_message("jsonl1", "assistant"),
@@ -2973,7 +2973,7 @@ mod message_store_reader_tests {
             "easy-call-message-store-meta-mismatch-{}",
             Uuid::new_v4()
         ));
-        let data_path = root.join("app_data.json");
+        let data_path = root.join("config_mark");
         let paths = message_store_paths(&data_path, "conversation-reader").expect("paths");
         let conversation = test_conversation(vec![test_message("jsonl1", "assistant")]);
         migration_v1_to_v2_conversation(&paths, &conversation, false).expect("run migration");
@@ -2996,7 +2996,7 @@ mod message_store_reader_tests {
             "easy-call-message-store-directory-stale-{}",
             Uuid::new_v4()
         ));
-        let data_path = root.join("app_data.json");
+        let data_path = root.join("config_mark");
         let paths = message_store_paths(&data_path, "conversation-reader").expect("paths");
         let conversation = test_conversation(vec![test_message("m1", "user")]);
         migration_v1_to_v2_conversation(&paths, &conversation, false).expect("run migration");
@@ -3024,7 +3024,7 @@ mod message_store_reader_tests {
             "easy-call-message-store-broken-block-{}",
             Uuid::new_v4()
         ));
-        let data_path = root.join("app_data.json");
+        let data_path = root.join("config_mark");
         let paths = message_store_paths(&data_path, "conversation-reader").expect("paths");
         let conversation = test_conversation(vec![test_message("m1", "user")]);
         chat_store_write_snapshot(&paths, &conversation).expect("write ready snapshot");
@@ -3049,7 +3049,7 @@ mod message_store_reader_tests {
             "easy-call-chat-store-v3-only-{}",
             Uuid::new_v4()
         ));
-        let data_path = root.join("app_data.json");
+        let data_path = root.join("config_mark");
         let paths = message_store_paths(&data_path, "conversation-reader").expect("paths");
         let conversation = test_conversation(vec![test_message("m1", "user")]);
         fs::create_dir_all(
@@ -3095,7 +3095,7 @@ mod message_store_reader_tests {
             "easy-call-chat-store-append-preserve-legacy-block-{}",
             Uuid::new_v4()
         ));
-        let data_path = root.join("app_data.json");
+        let data_path = root.join("config_mark");
         let paths = message_store_paths(&data_path, "conversation-reader").expect("paths");
         let mut conversation = test_conversation(vec![test_message("m1", "user")]);
         chat_store_write_snapshot(&paths, &conversation).expect("write V3 current");
@@ -3130,7 +3130,7 @@ mod message_store_reader_tests {
             "easy-call-chat-store-splice-preserve-legacy-block-{}",
             Uuid::new_v4()
         ));
-        let data_path = root.join("app_data.json");
+        let data_path = root.join("config_mark");
         let paths = message_store_paths(&data_path, "conversation-reader").expect("paths");
         let first = test_message("m1", "user");
         let mut conversation = test_conversation(vec![first.clone()]);
@@ -3172,7 +3172,7 @@ mod message_store_reader_tests {
             "easy-call-chat-store-snapshot-preserve-legacy-block-{}",
             Uuid::new_v4()
         ));
-        let data_path = root.join("app_data.json");
+        let data_path = root.join("config_mark");
         let paths = message_store_paths(&data_path, "conversation-reader").expect("paths");
         fs::create_dir_all(&paths.blocks_dir).expect("create blocks dir");
         let unmanaged_block = paths.blocks_dir.join("000000.jsonl");
@@ -3211,7 +3211,7 @@ mod message_store_reader_tests {
             "easy-call-message-store-delete-{}",
             Uuid::new_v4()
         ));
-        let data_path = root.join("app_data.json");
+        let data_path = root.join("config_mark");
         let paths = message_store_paths(&data_path, "conversation-reader").expect("paths");
         let conversation = test_conversation(vec![test_message("m1", "user")]);
         write_conversation_shard(&data_path, &conversation).expect("write legacy");
@@ -3231,7 +3231,7 @@ mod message_store_reader_tests {
             "easy-call-message-store-delete-guard-{}",
             Uuid::new_v4()
         ));
-        let data_path = root.join("app_data.json");
+        let data_path = root.join("config_mark");
         let paths = message_store_paths(&data_path, "conversation-reader").expect("paths");
         let conversation = test_conversation(vec![test_message("m1", "user")]);
         fs::create_dir_all(
@@ -3277,7 +3277,7 @@ mod message_store_reader_tests {
             "easy-call-message-store-delete-current-guard-{}",
             Uuid::new_v4()
         ));
-        let data_path = root.join("app_data.json");
+        let data_path = root.join("config_mark");
         let paths = message_store_paths(&data_path, "conversation-reader").expect("paths");
         let conversation = test_conversation(vec![test_message("m1", "user")]);
         chat_store_write_snapshot(&paths, &conversation).expect("write V3 current");

@@ -615,7 +615,7 @@ fn preview_memory_import(
     preview_dir: &Path,
     memories: &[MemoryEntry],
 ) -> Result<ImportMemoriesResult, String> {
-    let temp_data_path = preview_dir.join("memory-preview").join("app_data.json");
+    let temp_data_path = preview_dir.join("memory-preview").join("config_mark");
     if let Some(parent) = temp_data_path.parent() {
         std::fs::create_dir_all(parent)
             .map_err(|err| format!("创建记忆预检目录失败 ({}): {err}", parent.display()))?;

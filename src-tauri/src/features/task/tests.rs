@@ -5,7 +5,7 @@
             Uuid::new_v4()
         ));
         let _ = fs::remove_dir_all(&root);
-        root.join("config").join("app_data.json")
+        root.join("config").join("config_mark")
     }
 
     fn task_test_state(label: &str) -> AppState {

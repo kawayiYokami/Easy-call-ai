@@ -209,7 +209,7 @@ mod archive_host_selection_tests {
             "eca-archive-owner-private-{}",
             Uuid::new_v4()
         ));
-        let data_path = root.join("data").join("app_data.json");
+        let data_path = root.join("data").join("config_mark");
         let departments_dir = app_root_from_data_path(&data_path)
             .join("llm-workspace")
             .join("private-organization")
