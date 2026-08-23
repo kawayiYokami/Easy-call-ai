@@ -1,12 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { computed, ref, shallowRef } from "vue";
+import type { Ref } from "vue";
 import type { AssistantStreamBlock, ChatMessage } from "../src/types/app";
 import { useChatFlow, type AssistantDeltaEvent } from "../src/features/chat/composables/use-chat-flow";
 import { useChatFlowDrafts } from "../src/features/chat/composables/use-chat-flow-drafts";
 import { useChatFlowStop } from "../src/features/chat/composables/use-chat-flow-stop";
 import { useChatRuntime } from "../src/features/chat/composables/use-chat-runtime";
 import { useChatMessageBlocks } from "../src/features/chat/composables/use-chat-turns";
-import { projectMessageForDisplay } from "../src/utils/chat-message-semantics";
+import { assistantTextFromStreamBlocks, projectMessageForDisplay } from "../src/utils/chat-message-semantics";
 
 const hoisted = vi.hoisted(() => {
   class MockChannel<T> {
@@ -83,6 +84,11 @@ function expectedStreamBlock(input: Partial<AssistantStreamBlock>): AssistantStr
     tools: input.tools || [],
     pendingTextBreak: input.pendingTextBreak === true,
   };
+}
+
+function streamedTextOf(allMessages: Ref<ChatMessage[]>, messageIdPrefix: string): string {
+  const draft = allMessages.value.find((message) => String(message.id || "").startsWith(messageIdPrefix));
+  return assistantTextFromStreamBlocks(draft?.contentBlocks || []);
 }
 
 describe("useChatFlow stream isolation", () => {
@@ -352,11 +358,9 @@ describe("useChatFlow stream isolation", () => {
     await Promise.resolve();
 
     expect(chatting.value).toBe(false);
-    expect(latestAssistantText.value).toBe("");
 
     await runtime.refreshConversationHistory();
     expect(allMessages.value).toEqual(oldHistory);
-    expect(latestAssistantText.value).toBe("");
 
     expect(capturedChannel).not.toBeNull();
     capturedChannel!.emit({ kind: "history_flushed", message: "{\"conversationId\":\"conversation-1\",\"messageCount\":1,\"activateAssistant\":true}" });
@@ -367,7 +371,8 @@ describe("useChatFlow stream isolation", () => {
     capturedChannel!.emit({ delta: "N" });
     await vi.advanceTimersByTimeAsync(110);
     expect(chatting.value).toBe(true);
-    expect(latestAssistantText.value).toBe("N");
+    const streamingDraft = allMessages.value.find((message) => String(message.id || "").startsWith("stream-assistant-"));
+    expect(streamingDraft?.contentBlocks).toMatchObject([{ reasoning: "", text: "N" }]);
 
     expect(resolveRequest).not.toBeNull();
     resolveRequest!({
@@ -378,7 +383,8 @@ describe("useChatFlow stream isolation", () => {
 
     await sendPromise;
 
-    expect(latestAssistantText.value).toBe("N");
+    const finalDraft = allMessages.value.find((message) => String(message.id || "").startsWith("stream-assistant-"));
+    expect(finalDraft?.contentBlocks).toMatchObject([{ reasoning: "", text: "N" }]);
     expect(chatErrorText.value).toBe("");
     expect(chatting.value).toBe(true);
   });
@@ -451,8 +457,8 @@ describe("useChatFlow stream isolation", () => {
     });
 
     const assistantDraft = allMessages.value.find((message) => String(message.id || "").startsWith("stream-assistant-"));
-    expect(assistantDraft?.providerMeta?._preStreamingStatusText).toBe("模型请求失败 code 500，正在重试 (1/5)，等待 1 秒...");
-    expect(toolStatusText.value).toBe("模型请求失败 code 500，正在重试 (1/5)，等待 1 秒...");
+    expect(assistantDraft?.providerMeta?._toolStatusText).toBe("模型请求失败 code 500，正在重试 (1/5)，等待 1 秒...");
+    expect(assistantDraft?.providerMeta?._toolStatusState).toBe("running");
 
     capturedChannel!.emit({ delta: "N" });
     await vi.advanceTimersByTimeAsync(110);
@@ -547,8 +553,6 @@ describe("useChatFlow stream isolation", () => {
     expect(invokeStopChatMessage).toHaveBeenCalledTimes(1);
     expect(chatting.value).toBe(false);
     expect(flow.frontendRoundPhase.value).toBe("idle");
-    expect(toolStatusText.value).toBe("");
-    expect(toolStatusState.value).toBe("");
     expect(allMessages.value.some((message) => String(message.id || "").startsWith("stream-assistant-"))).toBe(false);
     expect(allMessages.value.find((message) => message.id === "stale-assistant")?.providerMeta?._streaming).toBeUndefined();
     expect(onReloadMessages).toHaveBeenCalledTimes(0);
@@ -836,7 +840,6 @@ describe("useChatFlow stream isolation", () => {
       kind: "content",
       text: "不太确定，展开说说？",
     });
-    expect(streamBlocks.value).toEqual([]);
     expect(chatting.value).toBe(false);
   });
 
@@ -928,11 +931,9 @@ describe("useChatFlow stream isolation", () => {
       },
     });
 
-    expect(streamBlocks.value).toEqual([]);
-    expect(toolStatusText.value).toBe("正在执行 operate");
-    expect(toolStatusState.value).toBe("running");
-
     const draft = allMessages.value.find((message) => message.role === "assistant" && message.id.startsWith("stream-assistant-"));
+    expect(draft?.providerMeta?._toolStatusText).toBe("正在执行 operate");
+    expect(draft?.providerMeta?._toolStatusState).toBe("running");
     expect(draft?.contentBlocks).toEqual([]);
     const projection = projectMessageForDisplay(draft as ChatMessage);
     expect(projection.activityItems).toEqual([]);
@@ -1023,8 +1024,7 @@ describe("useChatFlow stream isolation", () => {
     await flushAsyncSteps();
 
     const draft = allMessages.value.find((message) => String(message.id || "").startsWith("stream-assistant-"));
-    expect(streamBlocks.value).toEqual([expectedStreamBlock({ reasoning: "", text: "A" })]);
-    expect(draft?.contentBlocks).toEqual(streamBlocks.value);
+    expect(draft?.contentBlocks).toEqual([expectedStreamBlock({ reasoning: "", text: "A" })]);
   });
 
   it("keeps current streaming round visible until history_flushed switches to next round", async () => {
@@ -1096,7 +1096,7 @@ describe("useChatFlow stream isolation", () => {
     capturedChannels[0].emit({ delta: "FIRST" });
     await vi.advanceTimersByTimeAsync(250);
     expect(chatting.value).toBe(true);
-    expect(latestAssistantText.value).toBe("FIRST");
+    expect(streamedTextOf(allMessages, "stream-assistant-1")).toBe("FIRST");
 
     chatInput.value = "second question";
     const secondSend = flow.sendChat();
@@ -1105,23 +1105,23 @@ describe("useChatFlow stream isolation", () => {
 
     // 第二次发送只是在排队，不能抢占当前正在显示的第一轮流式。
     expect(chatting.value).toBe(true);
-    expect(latestAssistantText.value).toBe("FIRST");
+    expect(streamedTextOf(allMessages, "stream-assistant-1")).toBe("FIRST");
 
     capturedChannels[1].emit({ delta: "SECOND-BEFORE-FLUSH" });
     await vi.advanceTimersByTimeAsync(250);
-    expect(latestAssistantText.value).toBe("FIRST");
+    expect(streamedTextOf(allMessages, "stream-assistant-1")).toBe("FIRST");
 
     capturedChannels[1].emit({ kind: "history_flushed", message: "{\"conversationId\":\"conversation-1\",\"messageCount\":2,\"activateAssistant\":true}" });
     await flushAsyncSteps();
     expect(onReloadMessages).toHaveBeenCalledTimes(0);
-    expect(latestAssistantText.value).toBe("FIRST");
+    expect(streamedTextOf(allMessages, "stream-assistant-1")).toBe("FIRST");
     expect(chatting.value).toBe(true);
     expect(flow.frontendRoundPhase.value).toBe("streaming");
     expect(visibleTurnCount.value).toBe(1);
 
     capturedChannels[1].emit({ delta: "SECOND-AFTER-FLUSH" });
     await vi.advanceTimersByTimeAsync(1200);
-    expect(latestAssistantText.value).toBe("FIRST");
+    expect(streamedTextOf(allMessages, "stream-assistant-1")).toBe("FIRST");
 
     resolveRequests[0]({
       assistantText: "FIRST-DONE",
@@ -1131,7 +1131,7 @@ describe("useChatFlow stream isolation", () => {
     await firstSend;
 
     // 当前流式轮次保持可见，排队中的后续轮次不能覆盖当前显示。
-    expect(latestAssistantText.value).toBe("FIRST");
+    expect(streamedTextOf(allMessages, "stream-assistant-1")).toBe("FIRST");
     expect(chatting.value).toBe(true);
 
     resolveRequests[1]({
@@ -1141,7 +1141,7 @@ describe("useChatFlow stream isolation", () => {
     });
     await secondSend;
 
-    expect(latestAssistantText.value).toBe("FIRST");
+    expect(streamedTextOf(allMessages, "stream-assistant-1")).toBe("FIRST");
     expect(chatting.value).toBe(true);
   });
 
@@ -1199,7 +1199,6 @@ describe("useChatFlow stream isolation", () => {
 
     // 仅入队、未收到 history_flushed 时，不应出现新的前台流式轮次。
     expect(chatting.value).toBe(false);
-    expect(latestAssistantText.value).toBe("");
 
     resolveRequest!({
       assistantText: "",
@@ -1208,7 +1207,6 @@ describe("useChatFlow stream isolation", () => {
     });
     await sendPromise;
 
-    expect(latestAssistantText.value).toBe("");
     expect(onReloadMessages).toHaveBeenCalledTimes(0);
     expect(chatting.value).toBe(false);
   });
@@ -1276,12 +1274,11 @@ describe("useChatFlow stream isolation", () => {
     await flushAsyncSteps();
 
     expect(flow.frontendRoundPhase.value).toBe("streaming");
-    expect(streamBlocks.value).toEqual([expectedStreamBlock({
+    const draft = allMessages.value.find((message) => String(message.id || "").startsWith("stream-assistant-"));
+    expect(draft?.contentBlocks).toEqual([expectedStreamBlock({
       reasoning: "正在分析流式块。",
       text: "你好",
     })]);
-    const draft = allMessages.value.find((message) => String(message.id || "").startsWith("stream-assistant-"));
-    expect(draft?.contentBlocks).toEqual(streamBlocks.value);
     expect(projectMessageForDisplay(draft as ChatMessage).activityItems.map((item) => item.text)).toEqual([
       "正在分析流式块。",
       "你好",
@@ -1351,12 +1348,11 @@ describe("useChatFlow stream isolation", () => {
     });
     await flushAsyncSteps();
 
-    expect(streamBlocks.value).toEqual([expectedStreamBlock({
+    const draft = allMessages.value.find((message) => String(message.id || "").startsWith("stream-assistant-"));
+    expect(draft?.contentBlocks).toEqual([expectedStreamBlock({
       reasoning: "正在分析不同 activation 的当前通道事件。",
       text: "",
     })]);
-    const draft = allMessages.value.find((message) => String(message.id || "").startsWith("stream-assistant-"));
-    expect(draft?.contentBlocks).toEqual(streamBlocks.value);
     expect(projectMessageForDisplay(draft as ChatMessage).activityItems.map((item) => item.text)).toEqual([
       "正在分析不同 activation 的当前通道事件。",
     ]);
@@ -1525,8 +1521,6 @@ describe("useChatFlow stream isolation", () => {
       },
     });
     await flushAsyncSteps();
-
-    expect(latestAssistantText.value).toBe("等待完成，现在汇报。");
 
     const draft = allMessages.value.find((message) => String(message.id || "").startsWith("stream-assistant-"));
     expect(draft?.parts).toEqual([{ type: "text", text: "" }]);
@@ -1774,8 +1768,8 @@ describe("useChatFlow stream isolation", () => {
     await flushAsyncSteps();
 
     const draft = allMessages.value.find((message) => String(message.id || "").startsWith("stream-assistant-"));
-    expect(toolStatusText.value).toBe("正在执行 operate");
-    expect(toolStatusState.value).toBe("running");
+    expect(draft?.providerMeta?._toolStatusText).toBe("正在执行 operate");
+    expect(draft?.providerMeta?._toolStatusState).toBe("running");
     expect(draft?.contentBlocks).toEqual([expectedStreamBlock({
       reasoning: "思维链1",
       text: "",
@@ -2046,12 +2040,12 @@ describe("useChatFlowStop", () => {
           };
         });
       },
-      updateMessageText: (messageId, _streamSegments, _streamTail, _streamAnimatedDelta, rawBlocks) => {
+      updateMessageText: (messageId, rawBlocks) => {
         allMessages.value = allMessages.value.map((message) => {
           if (String(message.id || "") !== messageId) return message;
           return {
             ...message,
-            parts: [{ type: "text", text: latestAssistantText.value }],
+            parts: [{ type: "text", text: assistantTextFromStreamBlocks(rawBlocks || []) }],
             contentBlocks: rawBlocks,
           };
         });
@@ -2160,12 +2154,12 @@ describe("useChatFlowStop", () => {
           };
         });
       },
-      updateMessageText: (messageId, _streamSegments, _streamTail, _streamAnimatedDelta, rawBlocks) => {
+      updateMessageText: (messageId, rawBlocks) => {
         allMessages.value = allMessages.value.map((message) => {
           if (String(message.id || "") !== messageId) return message;
           return {
             ...message,
-            parts: [{ type: "text", text: latestAssistantText.value }],
+            parts: [{ type: "text", text: assistantTextFromStreamBlocks(rawBlocks || []) }],
             contentBlocks: rawBlocks,
           };
         });
