@@ -73,12 +73,27 @@ export function useChatConversationActionsOrchestrator(bindings: Record<string, 
 
   // 新建会话 = 打开（或创建）会话草稿：设置直接落在草稿字段上，
   // 发出第一句话时后端自动转正并创建下一个备用草稿。
-  async function openDraftConversation() {
+  // workspace 传入时，后端在返回前把工作区写入草稿。
+  async function openDraftConversation(workspace?: {
+    shellWorkspaces?: ShellWorkspace[];
+    shellWorkMode?: ShellWorkMode;
+    shellAutonomousMode?: boolean;
+  }) {
     try {
-      const result = await invokeTauri<{ conversationId: string; created: boolean }>("conversation.openDraft");
+      const result = await invokeTauri<{ conversationId: string; created: boolean }>("conversation.openDraft", {
+        input: {
+          shellWorkspaces: workspace?.shellWorkspaces || null,
+          shellWorkMode: workspace?.shellWorkMode || null,
+          shellAutonomousMode: workspace?.shellAutonomousMode || null,
+        },
+      });
       const conversationId = String(result?.conversationId || "").trim();
       if (!conversationId) return "";
       await bindings.switchUnarchivedConversation(conversationId);
+      // 草稿可能已经打开（conversationId 未变化）：watcher 不触发，需主动刷新工作区 UI
+      if (typeof bindings.refreshChatWorkspaceState === "function") {
+        await bindings.refreshChatWorkspaceState();
+      }
       return conversationId;
     } catch (error) {
       bindings.setStatus(bindings.tr("status.conversationCreateFailed", { err: bindings.formatRequestFailed(error) }));

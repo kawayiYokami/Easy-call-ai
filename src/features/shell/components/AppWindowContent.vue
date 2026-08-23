@@ -342,14 +342,14 @@
               </div>
               <button
                 type="button"
-                class="btn btn-lg z-10 h-16 w-full max-w-80 rounded-2xl text-base shadow-lg"
+                class="btn btn-lg btn-primary z-10 h-16 w-full max-w-80 rounded-2xl text-base shadow-lg"
                 @click="createSideChatConversation?.(true)"
               >
                 {{ t('chat.sideChat.newPageInContext', { persona: selectedPersonaName }) }}
               </button>
               <button
                 type="button"
-                class="btn btn-lg z-10 h-16 w-full max-w-80 rounded-2xl text-base shadow-lg"
+                class="btn btn-lg btn-outline z-10 h-16 w-full max-w-80 rounded-2xl text-base shadow-lg"
                 @click="createSideChatConversation?.(false)"
               >
                 {{ t('chat.sideChat.newPageBlank', { persona: selectedPersonaName }) }}

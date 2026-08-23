@@ -157,6 +157,7 @@ export function useChatWindowRuntimeOrchestrator(bindings: Record<string, any>) 
     hasMoreBackendHistory: bindings.hasMoreBackendHistory,
     foregroundTailLatestReady: bindings.foregroundTailLatestReady,
     chatWorkspaceName: bindings.chatWorkspaceName,
+    refreshChatWorkspaceState: bindings.refreshChatWorkspaceState,
     conversationMessageCache: bindings.conversationMessageCache,
     backgroundConversationBadgeMap: bindings.backgroundConversationBadgeMap,
     setStatus: bindings.setStatus,

@@ -615,6 +615,7 @@ export function useChatWindowApp() {
     suppressNextCompactionReload,
     allMessages,
     refreshChatUnarchivedConversations,
+    refreshChatWorkspaceState,
     perfNow,
     perfLog,
     PERF_DEBUG,

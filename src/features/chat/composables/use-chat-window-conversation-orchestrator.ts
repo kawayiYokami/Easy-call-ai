@@ -168,6 +168,7 @@ export function useChatWindowConversationOrchestrator(bindings: Record<string, a
     refreshUnarchivedConversationOverview: chatForeground.refreshUnarchivedConversationOverview,
     syncUnarchivedConversationOverviewChangedSinceWatermark: chatForeground.syncUnarchivedConversationOverviewChangedSinceWatermark,
     switchUnarchivedConversation: chatForeground.switchUnarchivedConversation,
+    refreshChatWorkspaceState: bindings.refreshChatWorkspaceState,
     requestConversationLightSnapshot: chatForeground.requestConversationLightSnapshot,
     applyConversationOverviewItemUpdated,
     applyConversationSnapshot,

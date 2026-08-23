@@ -367,7 +367,7 @@ const emit = defineEmits<{
   (e: "toggle-pin-conversation", conversationId: string): void;
   (e: "archive-conversation", conversationId: string): void;
   (e: "delete-conversation", conversationId: string): void;
-  (e: "create-conversation"): void;
+  (e: "create-conversation", payload?: { workspaceRootPath?: string }): void;
   (e: "trimConversation"): void;
   (e: "startDrag"): void;
   (e: "close-window"): void;
@@ -577,8 +577,11 @@ function isInteractiveHeaderTarget(target: HTMLElement): boolean {
   );
 }
 
-function handleOpenDraftConversationEvent() {
-  emit("create-conversation");
+function handleOpenDraftConversationEvent(event: Event) {
+  const detail = (event as CustomEvent<{ workspaceRootPath?: string }>).detail || {};
+  emit("create-conversation", {
+    workspaceRootPath: String(detail.workspaceRootPath || "").trim() || undefined,
+  });
 }
 
 onMounted(() => {

@@ -1173,24 +1173,57 @@ async fn create_unarchived_conversation(
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+struct OpenDraftConversationInput {
+    /// 打开草稿时立即写入的工作区；None 表示不修改工作区
+    #[serde(default)]
+    shell_workspaces: Option<Vec<ShellWorkspaceConfig>>,
+    #[serde(default)]
+    shell_work_mode: Option<String>,
+    #[serde(default)]
+    shell_autonomous_mode: Option<bool>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 struct OpenDraftConversationOutput {
     conversation_id: String,
     created: bool,
 }
 
 /// 打开会话草稿：存在未归档草稿则直接返回；否则创建一个新草稿。
+/// 传入工作区时，无论新建还是复用已有草稿，都会在返回前写入该草稿的工作区。
 #[tauri::command]
 async fn open_draft_conversation(
+    input: Option<OpenDraftConversationInput>,
     state: State<'_, AppState>,
 ) -> Result<OpenDraftConversationOutput, String> {
-    open_draft_conversation_inner(state.inner()).await
+    open_draft_conversation_inner(input, state.inner()).await
 }
 
-async fn open_draft_conversation_inner(state: &AppState) -> Result<OpenDraftConversationOutput, String> {
+async fn open_draft_conversation_inner(
+    input: Option<OpenDraftConversationInput>,
+    state: &AppState,
+) -> Result<OpenDraftConversationOutput, String> {
     let app_state = state.clone();
+    let shell_workspaces = input.as_ref().and_then(|item| item.shell_workspaces.clone());
+    let shell_work_mode = input.as_ref().and_then(|item| item.shell_work_mode.clone());
+    let shell_autonomous_mode = input.as_ref().and_then(|item| item.shell_autonomous_mode);
     let output = tokio::task::spawn_blocking(
         move || -> Result<OpenDraftConversationOutput, String> {
             if let Some(conversation_id) = find_existing_draft_conversation_id(&app_state)? {
+                if shell_workspaces.is_some() || shell_work_mode.is_some() || shell_autonomous_mode.is_some() {
+                    conversation_service_v2().apply_external_metadata_patch(
+                        &app_state,
+                        &conversation_id,
+                        "conversation_v2_open_draft_with_workspace",
+                        ConversationExternalMetadataPatch {
+                            shell_workspaces: shell_workspaces.clone(),
+                            shell_work_mode: shell_work_mode.clone(),
+                            shell_autonomous_mode,
+                            ..Default::default()
+                        },
+                    )?;
+                }
                 return Ok(OpenDraftConversationOutput {
                     conversation_id,
                     created: false,
@@ -1202,9 +1235,9 @@ async fn open_draft_conversation_inner(state: &AppState) -> Result<OpenDraftConv
                 department_id: None,
                 title: None,
                 copy_source_conversation_id: None,
-                shell_workspaces: None,
-                shell_work_mode: None,
-                shell_autonomous_mode: None,
+                shell_workspaces,
+                shell_work_mode,
+                shell_autonomous_mode,
                 is_draft: Some(true),
             };
             let result = conversation_service_v2().create_conversation(&app_state, &input)?;

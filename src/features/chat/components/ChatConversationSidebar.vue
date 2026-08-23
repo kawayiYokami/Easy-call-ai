@@ -903,9 +903,13 @@ function handleConversationTabTransitionSettled() {
   scheduleConversationListScrollbarUpdate();
 }
 
-function createConversationInSection(_section: ConversationSection) {
-  // 新建入口统一打开会话草稿；草稿设置由转正前的草稿字段继承，不再按分组预填 workspace
-  window.dispatchEvent(new CustomEvent("easy-call:open-draft-conversation"));
+function createConversationInSection(section: ConversationSection) {
+  // 新建入口统一打开会话草稿；从文件夹分节新建时把该文件夹作为草稿工作区
+  window.dispatchEvent(new CustomEvent("easy-call:open-draft-conversation", {
+    detail: {
+      workspaceRootPath: String(section.workspaceRootPath || "").trim() || undefined,
+    },
+  }));
 }
 
 function normalizedPreviewMessages(item: ChatConversationOverviewItem): ConversationPreviewMessage[] {

@@ -47,7 +47,7 @@
       @toggle-pin-conversation="toggleConversationPin"
       @archive-conversation="archiveConversationFromList"
       @delete-conversation="deleteUnarchivedConversationFromArchives"
-      @create-conversation="openDraftConversation"
+      @create-conversation="openDraftConversationFromEntry"
       @trim-conversation="openTrimActionDialog"
       @start-drag="startDrag"
       @close-window="handleCloseWindow"
@@ -327,7 +327,7 @@
       :on-delete-conversation="deleteUnarchivedConversationFromArchives"
       :on-rebind-conversation-recipient="rebindConversationRecipient"
       :on-update-draft-conversation="updateDraftConversation"
-      :on-create-conversation="openDraftConversation"
+      :on-create-conversation="openDraftConversationFromEntry"
       :on-branch-conversation-from-selection="branchConversationFromSelection"
       :on-forward-conversation-from-selection="forwardConversationFromSelection"
       :on-user-async-delegate-from-selection="userAsyncDelegateFromSelection"
@@ -512,6 +512,39 @@ export default defineComponent({
     const app = useChatWindowApp();
     const embedded = isEmbeddedWebHost();
 
+    // 打开草稿会话：从文件夹分节新建时带该文件夹；标题栏/composer 新建时带当前会话工作区
+    function openDraftConversationFromEntry(payload?: { workspaceRootPath?: string } | Record<string, unknown>) {
+      const workspaceRootPath = String((payload as { workspaceRootPath?: string } | undefined)?.workspaceRootPath || "").trim();
+      if (workspaceRootPath) {
+        const name = workspaceRootPath.replace(/\\/g, "/").replace(/\/+$/, "").split("/").pop() || workspaceRootPath;
+        void app.openDraftConversation({
+          shellWorkspaces: [{
+            id: `conversation-workspace-${Math.random().toString(36).slice(2, 8)}`,
+            name,
+            path: workspaceRootPath,
+            level: "main",
+            access: "approval",
+            builtIn: false,
+          }],
+          shellWorkMode: "directory",
+          shellAutonomousMode: false,
+        });
+        return;
+      }
+      void app.openDraftConversation({
+        shellWorkspaces: (app.chatWorkspaceChoices?.value || []).map((item) => ({
+          id: item.id,
+          name: item.name,
+          path: item.path,
+          level: item.level,
+          access: item.access,
+          builtIn: false,
+        })),
+        shellWorkMode: app.chatWorkspaceWorkMode?.value,
+        shellAutonomousMode: app.chatWorkspaceAutonomousMode?.value,
+      });
+    }
+
     // 远程前端模式：手机壳层 header 的会话操作（切换对话列表/新建对话）通过
     // postMessage 转发到这里执行，由电脑 PAI 页面在自己的会话状态上完成操作。
     // 监听与安全校验统一收敛在 tauri-api 的 onTransportRemoteChatCommand。
@@ -520,7 +553,7 @@ export default defineComponent({
         if (method === "toggle-conversation-list") {
           void app.toggleSideConversationList();
         } else if (method === "create-conversation") {
-          void app.openDraftConversation();
+          openDraftConversationFromEntry();
         }
       });
       onBeforeUnmount(stopRemoteCommands);
@@ -529,6 +562,7 @@ export default defineComponent({
     return {
       ...app,
       hideWindowHeader: embedded,
+      openDraftConversationFromEntry,
     };
   },
 });
