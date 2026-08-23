@@ -1,7 +1,12 @@
 {
-  "generatedAt": "2026-08-21T23:56:18.431Z",
-  "latestVersion": "v0.72.0",
+  "generatedAt": "2026-08-23T10:04:32.828Z",
+  "latestVersion": "v0.73.0",
   "releases": [
+    {
+      "version": "v0.73.0",
+      "path": "docs/changelog/releases/v0.73.0.md",
+      "summary": "会话存储全面升级：消息改为多行分组 + zstd 压缩存储，占用更小、读写更快；旧数据在启动后自动后台迁移，实时显示进度与完成汇总，迁移期间界面不再长时间无反馈"
+    },
     {
       "version": "v0.72.0",
       "path": "docs/changelog/releases/v0.72.0.md",
