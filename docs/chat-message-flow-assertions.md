@@ -1,14 +1,14 @@
 # 聊天消息流转断言
 
-本文档只定义正确格式，不描述当前实现。
+本文档定义正确格式与流转语义，同时描述当前真相层存储形态（V4 多行组 + zstd 压缩块）。
 
 ## 1. 基本原则
 
-1. 真相层存储的是聚合消息。
+1. 真相层存储的是聚合消息：一次 AI 调度 = 一条 ChatMessage（聚合多个工具调用、正文与思维链）。
 2. 只有一次 assistant 调度会被聚合成一条 assistant 消息。
 3. user 消息永远是离散消息，不参与 assistant 调度聚合。
 4. 请求体层必须把聚合 assistant 消息拆回消息序列。
-5. 调度中缓存的是“新增请求体消息”，不是聚合消息。
+5. 调度中缓存的是"新增请求体消息"，不是聚合消息。
 6. 完成或中止时，必须把缓存里的新增请求体消息重新折叠为一条 assistant 聚合消息。
 
 ## 2. 思维链字段职责
@@ -34,50 +34,63 @@
   - 回灌到每一轮 `toolCall[*].reasoning_content`
   - 在请求体重建时挪到 tool-call assistant 消息上
 
-## 3. 真相层正确格式
+## 3. 真相层存储格式（V4）
 
-以下是一条正确的 assistant 聚合消息。
+真相层 = 一条聚合 ChatMessage = 一组多行（`chat/conversations/<id>/blocks/*.jsonl.zstd`，zstd 压缩）。
 
-```json
-{
-  "role": "assistant",
-  "parts": [
-    {
-      "type": "text",
-      "text": "终端版本是 PowerShell 7.5.4。"
-    }
-  ],
-  "providerMeta": {
-    "reasoningStandard": "我已经拿到工具结果，现在直接回答用户终端版本。"
-  },
-  "toolCall": [
-    {
-      "role": "assistant",
-      "content": null,
-      "reasoning_content": "先调用终端工具查看 PowerShell 版本。",
-      "tool_calls": [
-        {
-          "id": "call_1",
-          "type": "function",
-          "function": {
-            "name": "exec",
-            "arguments": "{\"command\":\"pwsh --version\"}"
-          }
-        }
-      ]
-    },
-    {
-      "role": "tool",
-      "tool_call_id": "call_1",
-      "content": "PowerShell 7.5.4"
-    }
-  ]
-}
+### 3.1 组行 schema
+
+- **工具行**：`tool_call` 数组的一个元素一行 `{"kind":"tool", id, role, createdAt, speakerAgentId?, "event":{...}}`。按序拆行/按序拼接，不做 call/result 配对假设（并行调用是 1 个 call 元素内含 N 个 tool_calls、后跟 N 个 result 元素；还有截图等第三方形态，逐行原样搬运对任何形态成立）。
+- **正文行**：最终正文到达后追加一行 `{"kind":"assistant", id, role, createdAt, speakerAgentId?, parts, extraTextBlocks, providerMeta, memeAnnotations?, mcpCall?}`。
+- **普通消息（无工具）**：单行 `{"kind":"message", "message":{完整 ChatMessage}}`。
+- 公共字段（id/role/createdAt/speakerAgentId）冗余在组内每一行——正文行最后才写，未闭合组只有工具行，必须能独立还原消息骨架。
+
+### 3.2 组行示例
+
+一次工具调度（工具调用 + 最终回答）的聚合 ChatMessage，落盘为多行组：
+
+```jsonl
+{"kind":"tool","id":"msg_1","role":"assistant","createdAt":"2026-08-23T10:00:00.000Z","event":{"role":"assistant","content":null,"reasoning_content":"先调用终端工具查看 PowerShell 版本。","tool_calls":[{"id":"call_1","type":"function","function":{"name":"exec","arguments":"{\"command\":\"pwsh --version\"}"}}]}}
+{"kind":"tool","id":"msg_1","role":"assistant","createdAt":"2026-08-23T10:00:00.000Z","event":{"role":"tool","tool_call_id":"call_1","content":"PowerShell 7.5.4"}}
+{"kind":"assistant","id":"msg_1","role":"assistant","createdAt":"2026-08-23T10:00:00.000Z","parts":[{"type":"text","text":"终端版本是 PowerShell 7.5.4。"}],"providerMeta":{"reasoningStandard":"我已经拿到工具结果，现在直接回答用户终端版本。"}}
 ```
+
+普通消息（无工具调用）单行：
+
+```jsonl
+{"kind":"message","message":{"id":"msg_2","role":"user","createdAt":"2026-08-23T10:00:00.000Z","parts":[{"type":"text","text":"查一下 PowerShell 版本"}]}}
+```
+
+### 3.3 块与定位
+
+- 块文件：`blocks/{block_id:06}.jsonl.zstd`，整块单帧 zstd 压缩，原子写入（`.jsonl.zstd.tmp` 临时文件替换）。
+- 明文坐标 = 组级：`message_locator` 表的 `byte_offset` 指向组首行、`byte_len` 覆盖整组多行；`messages.idx.json` 是块内定位索引。
+- 定位权威：`chat/chat_metadata.sqlite.message_locator`（conversation_id, sequence, message_id, block_id, byte_offset, byte_len, compaction_kind, role, created_at）。
+
+### 3.4 解压脚本
+
+仓库提供 [scripts/unpack_message_blocks.py](E:\github\easy_call_ai\scripts\unpack_message_blocks.py)：
+
+```bash
+python scripts/unpack_message_blocks.py D:\\paitest\\data
+python scripts/unpack_message_blocks.py D:\\paitest\\data --conversation ac7ed70e-...
+```
+
+- 流式解压全部 `.jsonl.zstd` 块到输出目录（默认输入目录同级 `unpacked-blocks/`）
+- 对照 `chat_metadata.sqlite` 的 `message_locator` 做结束偏移对账（`MAX(byte_offset + byte_len)` == 明文字节数）
+- 需要 `pip install zstandard`
+
+### 3.5 组装规则（组 → ChatMessage）
+
+1. 公共字段（id/role/createdAt/speakerAgentId）取组内第一行（各行冗余一致）
+2. 工具行 → `tool_call` 数组（每行一个元素按序 push，不配对）
+3. 正文行 → `parts` / `extraTextBlocks` / `providerMeta` / `memeAnnotations` / `mcpCall`
+4. 未闭合组（只有工具行、无正文行）→ parts 等默认值，仅工具调用有效
+5. 普通消息行必须是组内唯一有效行；「message 行 + 其他行」混排是帧落盘但事务未提交的崩溃形态，显式报错让上层走整块校验
 
 ## 4. 请求体层正确格式
 
-上面的聚合 assistant 消息，拆开后必须变成以下消息序列。
+聚合 assistant 消息（第 3.1 节的语义等价物）拆开后，必须变成以下消息序列。
 
 ```json
 [
@@ -200,80 +213,7 @@
 
 ## 6. 完成持久化后的正确折叠结果
 
-完成或中止时，必须把第 5.3 节中的缓存重新折叠为第 3 节中的聚合 assistant 消息。
-
-### 6.1 新增请求体消息 -> 真相层聚合消息
-
-若本轮调度缓存中的新增请求体消息为：
-
-```json
-[
-  {
-    "role": "assistant",
-    "content": null,
-    "reasoning_content": "先调用终端工具查看 PowerShell 版本。",
-    "tool_calls": [
-      {
-        "id": "call_1",
-        "type": "function",
-        "function": {
-          "name": "exec",
-          "arguments": "{\"command\":\"pwsh --version\"}"
-        }
-      }
-    ]
-  },
-  {
-    "role": "tool",
-    "tool_call_id": "call_1",
-    "content": "PowerShell 7.5.4"
-  },
-  {
-    "role": "assistant",
-    "content": "终端版本是 PowerShell 7.5.4。",
-    "reasoning_content": "我已经拿到工具结果，现在直接回答用户终端版本。"
-  }
-]
-```
-
-则写回真相层后，必须折叠为：
-
-```json
-{
-  "role": "assistant",
-  "parts": [
-    {
-      "type": "text",
-      "text": "终端版本是 PowerShell 7.5.4。"
-    }
-  ],
-  "providerMeta": {
-    "reasoningStandard": "我已经拿到工具结果，现在直接回答用户终端版本。"
-  },
-  "toolCall": [
-    {
-      "role": "assistant",
-      "content": null,
-      "reasoning_content": "先调用终端工具查看 PowerShell 版本。",
-      "tool_calls": [
-        {
-          "id": "call_1",
-          "type": "function",
-          "function": {
-            "name": "exec",
-            "arguments": "{\"command\":\"pwsh --version\"}"
-          }
-        }
-      ]
-    },
-    {
-      "role": "tool",
-      "tool_call_id": "call_1",
-      "content": "PowerShell 7.5.4"
-    }
-  ]
-}
-```
+完成或中止时，必须把第 5.3 节中的缓存重新折叠为一条聚合 assistant 消息，再以 V4 多行组格式写入真相层（第 3.1-3.2 节）。
 
 折叠规则：
 
@@ -332,11 +272,13 @@
 3. 折叠后不得丢失任何 tool round 的 `reasoning_content`
 4. 折叠后不得把 tool round 的 `reasoning_content` 写进 `providerMeta.reasoningStandard`
 5. 折叠后 `providerMeta.reasoningStandard` 只表示最终答复文本的思维链
+6. 落盘时 `toolCall` 每个元素按序拆为工具行（不配对），最终正文作为正文行，公共字段冗余在每行
 
 ## 9. 一句话总结
 
 正确模型是：
 
-- `toolCall[*].reasoning_content` 负责“每一轮工具调用前的思维链”
-- `providerMeta.reasoningStandard` 负责“最终答复文本的思维链”
+- `toolCall[*].reasoning_content` 负责"每一轮工具调用前的思维链"
+- `providerMeta.reasoningStandard` 负责"最终答复文本的思维链"
 - 二者都必须全链路保留，但绝不能混用
+- 真相层以 V4 多行组（工具行/正文行/普通消息行）zstd 压缩块存储，解压用 `scripts/unpack_message_blocks.py`

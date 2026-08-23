@@ -1,10 +1,10 @@
 # 聊天 UI 数据流说明
 
-> 更新于 2026-06-20
+> 更新于 2026-08-23
 
 ## 目的
 
-这份文档只做一件事：把“真相层聚合 assistant 消息”如何映射到聊天 UI 说明清楚，并且与 `docs/chat-message-flow-assertions.md` 保持一致。
+这份文档只做一件事：把"真相层聚合 assistant 消息"如何映射到聊天 UI 说明清楚，并且与 `docs/chat-message-flow-assertions.md` 保持一致。
 
 本文只采用下面三层口径：
 
@@ -27,58 +27,18 @@
 
 真实类型入口：
 
-- `src/types/app.ts:528` 的 `MessagePart`
-- `src/types/app.ts:590` 的 `ChatMessage`
+- `src/types/app.ts` 的 `MessagePart`
+- `src/types/app.ts` 的 `ChatMessage`
 
-对 assistant 来说，真相层的一条聚合消息长这样：
+对 assistant 来说，真相层的一条聚合消息关键字段：
 
-```json
-{
-  "role": "assistant",
-  "parts": [
-    {
-      "type": "text",
-      "text": "终端版本是 PowerShell 7.5.4。"
-    }
-  ],
-  "providerMeta": {
-    "reasoningStandard": "我已经拿到工具结果，现在直接回答用户终端版本。"
-  },
-  "toolCall": [
-    {
-      "role": "assistant",
-      "content": null,
-      "reasoning_content": "先调用终端工具查看 PowerShell 版本。",
-      "tool_calls": [
-        {
-          "id": "call_1",
-          "type": "function",
-          "function": {
-            "name": "exec",
-            "arguments": "{\"command\":\"pwsh --version\"}"
-          }
-        }
-      ]
-    },
-    {
-      "role": "tool",
-      "tool_call_id": "call_1",
-      "content": "PowerShell 7.5.4"
-    }
-  ]
-}
-```
-
-这里的语义必须说死：
-
-- `parts[*].text`
-  最终给用户看的正文
-- `providerMeta.reasoningStandard`
-  最终正文对应思维链
-- `toolCall[* role=assistant]`
-  某一轮 tool round 的 assistant 请求
-- `toolCall[* role=tool]`
-  对应工具返回
+| 字段 | 语义 |
+|---|---|
+| `parts[*].text` | 最终给用户看的正文 |
+| `providerMeta.reasoningStandard` | 最终正文对应思维链 |
+| `contentBlocks` | 流式快照直接写入的增量块（`AssistantStreamBlock[]`）；完成/停止不得重建 |
+| `toolCall[* role=assistant]` | 某一轮 tool round 的 assistant 请求 |
+| `toolCall[* role=tool]` | 对应工具返回 |
 
 注意：
 
@@ -89,41 +49,7 @@
 
 ## 3. 请求体层正确结构
 
-同一条真相层聚合 assistant 消息，拆回请求体后才是消息序列。
-
-正确例子：
-
-```json
-[
-  {
-    "role": "assistant",
-    "content": null,
-    "reasoning_content": "先调用终端工具查看 PowerShell 版本。",
-    "tool_calls": [
-      {
-        "id": "call_1",
-        "type": "function",
-        "function": {
-          "name": "exec",
-          "arguments": "{\"command\":\"pwsh --version\"}"
-        }
-      }
-    ]
-  },
-  {
-    "role": "tool",
-    "tool_call_id": "call_1",
-    "content": "PowerShell 7.5.4"
-  },
-  {
-    "role": "assistant",
-    "content": "终端版本是 PowerShell 7.5.4。",
-    "reasoning_content": "我已经拿到工具结果，现在直接回答用户终端版本。"
-  }
-]
-```
-
-这里才存在两种 assistant 消息：
+同一条真相层聚合 assistant 消息，拆回请求体后才是消息序列。这里才存在两种 assistant 消息：
 
 1. tool-call assistant
 
@@ -146,68 +72,41 @@
 }
 ```
 
-这两者不能混为一谈。
+这两者不能混为一谈。具体格式与折叠规则见 `docs/chat-message-flow-assertions.md`。
 
-## 4. 关于“工具消息正文”的正确说法
+## 4. 关于"工具消息正文"的正确说法
 
-如果后续要在 UI 上处理“工具消息正文”，必须先说清是请求体层还是真相层。
+如果后续要在 UI 上处理"工具消息正文"，必须先说清是请求体层还是真相层。
 
 ### 4.1 真相层
 
-在真相层里，tool round assistant 消息通常是：
-
-```json
-{
-  "role": "assistant",
-  "content": null,
-  "reasoning_content": "...",
-  "tool_calls": [...]
-}
-```
-
-所以按断言文档，默认不存在可显示正文。
+在真相层里，tool round assistant 消息通常是 `content: null`，按断言文档，默认不存在可显示正文。
 
 ### 4.2 请求体层
 
-在请求体层里，tool-call assistant 消息理论上可以带正文。
-
-例如：
+在请求体层里，tool-call assistant 消息理论上可以带正文：
 
 ```json
 {
   "role": "assistant",
   "content": "我先去读一下 config.toml。",
   "reasoning_content": "先读取配置文件确认字段名。",
-  "tool_calls": [
-    {
-      "id": "tool_1",
-      "type": "function",
-      "function": {
-        "name": "read_file",
-        "arguments": "{\"path\":\"config.toml\"}"
-      }
-    }
-  ]
+  "tool_calls": [...]
 }
 ```
 
 这里：
 
-- `content`
-  才是“工具消息正文”
-- `reasoning_content`
-  是该轮工具调用前的思维链
-- `tool_calls`
-  是工具调用声明
+- `content` 才是"工具消息正文"
+- `reasoning_content` 是该轮工具调用前的思维链
+- `tool_calls` 是工具调用声明
 
-所以以后如果说“把图标挂在工具正文后面”，准确口径应该是：
+所以以后如果说"把图标挂在工具正文后面"，准确口径应该是：
 
 ```text
 挂在请求体层 tool-call assistant 消息的 content 后面
 仅当该 content 非空时显示
 ```
-
-这也是后续 UI 设计应该对齐的目标。
 
 ## 5. 当前前端是怎么读真相层数据的
 
@@ -215,74 +114,43 @@
 
 关键入口：
 
-- `src/utils/chat-message.ts:12` 的 `renderMessage()`
-- `src/utils/chat-message.ts:26` 的 `messageText()`
-- `src/utils/chat-message-semantics.ts:199` 的 `normalizeMessageToolHistoryEvents()`
-- `src/utils/chat-message-semantics.ts:305` 的 `projectChatActivityForDisplay()`
-- `src/utils/chat-message-semantics.ts:943` 的 `projectMessageForDisplay()`
+- `src/utils/chat-message.ts` 的 `renderMessage()` / `messageText()`
+- `src/utils/chat-message-semantics.ts` 的 `assistantContentBlocksFromMessage()`
+- `src/utils/chat-message-semantics.ts` 的 `assistantTextFromStreamBlocks()`
+- `src/utils/chat-message-semantics.ts` 的 `normalizeMessageToolHistoryEvents()`
+- `src/utils/chat-message-semantics.ts` 的 `projectChatActivityForDisplay()`
+- `src/utils/chat-message-semantics.ts` 的 `projectMessageForDisplay()`
 
-## 6. 真相层到 UI 的当前投影规则
+## 6. 正文与工具活动的数据源
 
-### 6.1 最终正文
+当前正文与工具活动有两条来源，按状态切换：
 
-`projectMessageForDisplay()` 会先从真相层消息中提取最终正文。
+### 6.1 流式正文：contentBlocks
 
-正文来源：
+流式输出期间，正文直接以 `contentBlocks`（`AssistantStreamBlock[]`）增量写入消息，前端从 `contentBlocks` 全量重算显示文本（`assistantTextFromStreamBlocks`），不再维护独立的流式分段字段。
 
-```text
-parts[*].text
-```
+### 6.2 最终正文
 
-也就是说，主气泡正文默认来自真相层 `parts`，不是来自 `toolCall[* role=assistant].content`。
+`projectMessageForDisplay()` 会先从真相层消息中提取最终正文。正文来源是 `parts[*].text`，不是 `toolCall[* role=assistant].content`。
 
-### 6.2 工具过程
+### 6.3 工具过程
 
-当前前端会把 `toolCall[]` 解析成工具活动数据，而不是把它平铺成多条外层聊天行。
-
-工具过程来源：
-
-```text
-toolCall[]
-```
-
-解析后会变成：
+前端把 `toolCall[]` 解析成工具活动数据，而不是把它平铺成多条外层聊天行。工具过程来源是 `toolCall[]`，解析后变成：
 
 - `toolCallCount`
 - `lastToolName`
 - `toolCalls`
 - `activityItems`
 
-### 6.3 最终 assistant 文本合并
+### 6.4 停止后的兜底校验
 
-`src/utils/chat-message-semantics.ts:504` 的 `mergedAssistantDisplayText()` 会把 assistant history text 与最终正文合并。
-
-这一步的意义是：
-
-- 若历史 assistant 事件里本身带文本
-- 前端会尝试把它们并入最终显示文本
-
-但这属于当前显示策略，不代表真相层结构本身。
+停止后若 `contentBlocks` 有内容但投影为空（`projection.toolCalls` / `projection.activityItems` 均为空），会触发 `console.warn` 提示"停止后消息投影缺失"，这是显示层的一致性守护，不代表真相层结构本身。
 
 ## 7. 从真相层消息到渲染块
 
-`src/features/chat/composables/use-chat-turns.ts:121` 的 `buildMessageBlocks()` 会把一条 `ChatMessage` 投影成一个或多个 `ChatMessageBlock`。
+`src/features/chat/composables/use-chat-turns.ts` 的 `buildMessageBlocks()` 会把一条 `ChatMessage` 投影成一个或多个 `ChatMessageBlock`，并带缓存（`messageBlockCache`，按消息签名失效）。
 
-对典型 assistant 聚合消息来说，主要结果是一个主 `ChatMessageBlock`：
-
-```ts
-{
-  id,
-  role: "assistant",
-  text,
-  toolCallCount,
-  lastToolName,
-  toolCalls,
-  activityItems,
-  images,
-  audios,
-  attachmentFiles,
-}
-```
+对典型 assistant 聚合消息来说，主要结果是一个主 `ChatMessageBlock`，字段见 `src/types/app.ts` 的 `ChatMessageBlock`（`text`、`toolCallCount`、`lastToolName`、`toolCalls`、`activityItems`、`images`、`audios`、`attachmentFiles`、`activityStatus` 等）。
 
 也就是说：
 
@@ -296,18 +164,19 @@ toolCall[]
 
 渲染组件入口：
 
-- `src/features/chat/views/ChatView.vue:99`
-- `src/features/chat/views/ChatView.vue:130`
+- `src/features/chat/views/ChatView.vue`
 - `src/features/chat/components/ChatMessageItem.vue`
 
 对 assistant 聚合消息，当前 UI 大致分三块：
 
-1. 头部
-   说话人、时间、流式状态
-2. 主正文气泡
-   来自 `parts[*].text` 投影后的 `block.text`
-3. 活动面板
-   来自 `toolCall[]` / `activityItems`
+1. 头部：说话人、时间、流式状态
+2. 主正文气泡：来自 `parts[*].text` 投影后的 `block.text`
+3. 活动面板：来自 `toolCall[]` / `activityItems`（流式时从 `contentBlocks` 重算）
+
+正文渲染支持两种模式：
+
+- 分段 Markdown（`assistantMarkdownPieces`，按 `TOOL_TEXT_BREAK_PLACEHOLDER` 分段后走 `AppMarkdownRenderer`）
+- 整段 Markdown（`AppMarkdownRenderer` / `PlainMarkdownRenderer` 调试模式）
 
 所以当前用户看到的是：
 
@@ -327,43 +196,7 @@ assistant(final text)
 
 这种请求体层平铺序列。
 
-## 9. 后续 UI 优化时的正确挂点
-
-如果接下来要做“工具正文后面加一个小图标”，正确挂点应该先写成规则：
-
-### 规则 A
-
-只有在“请求体层 tool-call assistant 消息的 `content` 非空”时，才存在“工具正文”这个概念。
-
-### 规则 B
-
-图标应该挂在：
-
-```text
-tool-call assistant.content
-```
-
-正文行尾，而不是挂在：
-
-- activity 面板工具摘要行
-- 最终 assistant 正文 `parts[*].text`
-- tool 结果 `tool.content`
-
-### 规则 C
-
-若当前真相层不保存这段正文，而只是保存：
-
-- `parts[*].text`
-- `providerMeta.reasoningStandard`
-- `toolCall[*].reasoning_content`
-- `toolCall[* role=tool].content`
-
-那么 UI 想精确渲染“工具正文图标”，就必须先确认：
-
-1. 这段正文是否还存在于前端可用数据中
-2. 若不存在，是否需要在真相层或投影层补字段
-
-## 10. 一句话总结
+## 9. 一句话总结
 
 一句话总结当前正确口径：
 
@@ -371,11 +204,12 @@ tool-call assistant.content
 真相层保存的是一条聚合 assistant 消息：
 最终正文在 parts，
 最终正文思维链在 providerMeta.reasoningStandard，
-toolCall 只保存 tool round；
-当前聊天 UI 把这条聚合消息渲染成“一条主气泡 + 一个工具活动面板”。
+toolCall 只保存 tool round，
+流式增量在 contentBlocks；
+当前聊天 UI 把这条聚合消息渲染成"一条主气泡 + 一个工具活动面板"。
 ```
 
-而“工具正文后面的小图标”这个需求，应该挂在：
+而"工具正文后面的小图标"这个需求，应该挂在：
 
 ```text
 请求体层 tool-call assistant.content

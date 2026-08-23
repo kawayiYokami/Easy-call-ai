@@ -92,9 +92,17 @@ Tauri 管理 3 个无边框窗口：`main`（配置，900×900）、`chat`（对
 
 默认情况下，配置与运行数据存储在 `ProjectDirs` 配置目录；若可执行文件同级存在 `PORTABLE` 标记文件，则切换到可执行文件同级 `data/` 目录（无数据库）。
 
-当前主要文件/目录：
+应用根目录 `app_root` 由 `app_root_from_data_path` 从 `config_mark` 锚点反推（平台感知：父目录名是 `config` 则取上级，否则用自身）。目录布局在 `app_root` 直下层：
+
 - `app_config.toml` — 配置、API 供应商、热键、工具开关
-- `app_data.json` — 会话、人格、任务、Todo、缓存布局主数据
+- `config_mark` — 路径锚点占位文件（从不读写内容，仅用于反推 app_root，替代早期伪装的 `app_data.json`）
+- `config/` — agents.json 等代理配置
+- `state/` — runtime_state.json 等运行时状态
+- `chat/conversations/` — 会话数据
+- `backups/` — 备份
+- `memory/` — 记忆库
+- `task/` — 任务存储
+- `delegate/` — 委托存储
 - `avatars/`、`media/`、`exports/` — 资源目录
 - `llm-workspace/` — Shell / Skills / MCP 等运行工作区
 
