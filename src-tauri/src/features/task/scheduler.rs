@@ -559,10 +559,9 @@ async fn task_dispatch_due_task(
     }
     let request_id = format!("task-dispatch-{}", Uuid::new_v4());
     let ingress = task_enqueue_conversation_trigger(state, task, session)?;
-    let (sent, duplicate, dispatch_kind) = match &ingress {
-        ChatEventIngress::Direct(_) => (true, false, "direct"),
-        ChatEventIngress::Queued { .. } => (true, false, "queued"),
-        ChatEventIngress::Duplicate { .. } => (false, true, "duplicate"),
+    let (sent, dispatch_kind) = match &ingress {
+        ChatEventIngress::Direct(_) => (true, "direct"),
+        ChatEventIngress::Queued { .. } => (true, "queued"),
     };
     if sent {
         task_mark_dispatch_sent(state, task)?;
@@ -571,7 +570,7 @@ async fn task_dispatch_due_task(
     task_store_insert_run_log(
         &state.data_path,
         &task.task_id,
-        if duplicate { "duplicate" } else { "sent" },
+        "sent",
         &format!(
             "任务已投递原会话，requestId={}，goal={}，conversationId={}，trigger={}，todoCount={}，hasRunAt={}，cronExpression={}，durationMs={}，targetScope={}，systemTask=false，dispatchKind={}",
             request_id,

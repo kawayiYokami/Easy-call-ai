@@ -8397,32 +8397,6 @@
     }
 
     #[test]
-    fn scheduler_should_ignore_duplicate_user_event_after_message_persisted_even_when_idle() {
-        let state = test_chat_runtime_state();
-        let now = now_iso();
-        let mut conversation = test_chat_conversation("conversation-a", "active", &now);
-        let mut persisted = test_text_message("user", "hello", &now);
-        persisted.provider_meta = build_user_message_provider_meta(
-            None,
-            &[],
-            &[],
-            Some("chat-same-request"),
-        );
-        conversation.messages.push(persisted);
-        write_conversation_shard(&state.data_path, &conversation).expect("write conversation");
-        let mut duplicate = test_pending_event("conversation-a");
-        duplicate.runtime_context = Some(RuntimeContext {
-            request_id: Some("chat-same-request".to_string()),
-            ..RuntimeContext::default()
-        });
-
-        let ingress = ingress_chat_event(&state, duplicate).expect("ingress duplicate");
-
-        assert!(matches!(ingress, ChatEventIngress::Duplicate { .. }));
-        assert_eq!(total_queue_len(&state).expect("queue len"), 0);
-    }
-
-    #[test]
     fn queue_snapshot_should_keep_full_message_text_for_recall() {
         let state = test_chat_runtime_state();
         set_conversation_runtime_state(&state, "conversation-a", MainSessionState::AssistantStreaming)

@@ -135,7 +135,6 @@ struct ActivatedAssistantResult {
 pub(crate) enum ChatEventIngress {
     Direct(ChatPendingEvent),
     Queued { event_id: String },
-    Duplicate { event_id: String },
 }
 
 // ==================== 队列查询和管理 ====================
@@ -252,14 +251,6 @@ pub(crate) async fn process_chat_event_after_ingress(state: &AppState, ingress: 
         }
         ChatEventIngress::Queued { event_id } => {
             process_chat_queue_for_event(state, &event_id).await;
-        }
-        ChatEventIngress::Duplicate { event_id } => {
-            let _ = complete_pending_chat_events_with_error(
-                state,
-                &[event_id],
-                "重复消息已忽略",
-            );
-            emit_chat_queue_snapshot(state);
         }
     }
 }

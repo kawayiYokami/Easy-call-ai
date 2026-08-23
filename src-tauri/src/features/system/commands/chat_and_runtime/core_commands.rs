@@ -460,12 +460,6 @@ async fn confirm_plan_and_continue_inner(
                 conversation_id, event_id
             ));
         }
-        ChatEventIngress::Duplicate { event_id } => {
-            runtime_log_warn(format!(
-                "[计划] 确认后继续执行重复，已忽略 conversation_id={} event_id={}",
-                conversation_id, event_id
-            ));
-        }
     }
     trigger_chat_queue_processing(state);
     Ok(true)
@@ -1718,10 +1712,9 @@ async fn submit_chat_message_inner(
         }
     };
 
-    let (accepted, duplicate, ingress_label) = match &ingress {
-        ChatEventIngress::Direct(_) => (true, false, "direct"),
-        ChatEventIngress::Queued { .. } => (true, false, "queued"),
-        ChatEventIngress::Duplicate { .. } => (false, true, "duplicate"),
+    let (accepted, ingress_label) = match &ingress {
+        ChatEventIngress::Direct(_) => (true, "direct"),
+        ChatEventIngress::Queued { .. } => (true, "queued"),
     };
 
     trigger_chat_event_after_ingress(state, ingress);
@@ -1740,7 +1733,7 @@ async fn submit_chat_message_inner(
 
     Ok(SubmitChatResult {
         accepted,
-        duplicate,
+        duplicate: false,
         event_id,
         conversation_id,
         trace_id: request_id,

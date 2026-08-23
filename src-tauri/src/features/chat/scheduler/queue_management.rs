@@ -45,66 +45,6 @@ fn conversation_running_slot_count(
     usize::from(claims.contains(conversation_id))
 }
 
-fn chat_pending_event_request_id(event: &ChatPendingEvent) -> Option<&str> {
-    event
-        .runtime_context
-        .as_ref()
-        .and_then(|context| context.request_id.as_deref())
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-}
-
-fn chat_pending_event_duplicates_existing_message(
-    state: &AppState,
-    event: &ChatPendingEvent,
-) -> Result<bool, String> {
-    let Some(request_id) = chat_pending_event_request_id(event) else {
-        return Ok(false);
-    };
-    let conversation_meta = match conversation_service_v2().get_conversation_meta(state, &event.conversation_id)
-    {
-        Ok(conversation_meta)
-            if conversation_meta.status.trim() != "archived"
-                && conversation_meta
-                    .archived_at
-                    .as_deref()
-                    .map(str::trim)
-                    .filter(|value| !value.is_empty())
-                    .is_none() => conversation_meta,
-        _ => return Ok(false),
-    };
-    let paths = message_store::message_store_paths(&state.data_path, &conversation_meta.id)?;
-    let Some(page) =
-        message_store::chat_store_read_recent_messages_page_cached(&paths, 32)?
-    else {
-        return Ok(false);
-    };
-    Ok(page.messages.iter().any(|message| {
-        message
-            .provider_meta
-            .as_ref()
-            .and_then(|meta| meta.get("requestId").or_else(|| meta.get("request_id")))
-            .and_then(serde_json::Value::as_str)
-            .map(str::trim)
-            .filter(|value| !value.is_empty())
-            .map(|value| value == request_id)
-            .unwrap_or(false)
-    }))
-}
-
-fn pending_queue_has_same_request_id(
-    slot: &ConversationRuntimeSlot,
-    event: &ChatPendingEvent,
-) -> bool {
-    let Some(request_id) = chat_pending_event_request_id(event) else {
-        return false;
-    };
-    slot.pending_queue
-        .iter()
-        .filter_map(chat_pending_event_request_id)
-        .any(|value| value == request_id)
-}
-
 /// 获取队列状态
 pub(crate) fn get_queue_snapshot(state: &AppState) -> Result<Vec<ChatQueueEventSummary>, String> {
     let slots = lock_conversation_runtime_slots(state)?;
@@ -540,18 +480,10 @@ pub(crate) fn ingress_chat_event(
     let mut slots = lock_conversation_runtime_slots(state)?;
     let running_count = claims.len();
     let slot = conversation_slot_mut(&mut slots, &event.conversation_id);
-    if pending_queue_has_same_request_id(slot, &event) {
-        return Ok(ChatEventIngress::Duplicate { event_id: event.id });
-    }
     let blocked = slot.state != MainSessionState::Idle
         || !slot.pending_queue.is_empty()
         || conversation_running_slot_count(&claims, &event.conversation_id) > 0
         || running_count >= CHAT_CONCURRENCY_LIMIT;
-    // 已经写入消息存储的 requestId 无论本次会走直通还是排队，都必须
-    // 幂等处理。只在 blocked 时检查会让网络重试在会话空闲窗口重复落盘。
-    if chat_pending_event_duplicates_existing_message(state, &event)? {
-        return Ok(ChatEventIngress::Duplicate { event_id: event.id });
-    }
     slot.last_activity_at = now_iso();
     if blocked {
         let event_id = event.id.clone();
