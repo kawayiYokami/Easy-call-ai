@@ -897,7 +897,7 @@ fn sanitize_avatar_key(value: &str) -> String {
 fn normalize_avatar_bytes_to_webp(raw: &[u8]) -> Result<Vec<u8>, String> {
     let image = image::load_from_memory(raw)
         .map_err(|err| format!("Decode avatar image failed: {err}"))?;
-    let resized = image.resize_to_fill(128, 128, image::imageops::FilterType::Lanczos3);
+    let resized = image.resize_to_fill(256, 256, image::imageops::FilterType::Lanczos3);
     let mut out = Vec::<u8>::new();
     let mut cursor = Cursor::new(&mut out);
     resized
