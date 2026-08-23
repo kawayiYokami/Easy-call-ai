@@ -52,67 +52,13 @@
           </button>
 
           <div class="min-h-0" :style="{ height: `${dropdownBodyHeight}px` }">
-            <ChatConversationFloatingScroll class="h-full">
-              <div ref="dropdownContentRef" class="flex flex-col gap-4 p-4 sm:flex-row sm:flex-wrap sm:gap-x-2 sm:gap-y-4">
-                <div
-                  v-for="group in departmentGroups"
-                  :key="group.departmentId"
-                  class="relative w-full min-w-0 flex flex-col gap-1 rounded-xl border-x border-t border-base-300 bg-base-100 p-2 transition-colors sm:w-auto sm:min-w-[16rem]"
-                >
-                  <div class="absolute -top-2.5 left-1/2 -translate-x-1/2 whitespace-nowrap bg-base-100 px-2 text-center text-xs font-semibold text-base-content/70">
-                    {{ group.departmentName }}
-                  </div>
-                  <div
-                    v-if="group.agents.every((option) => option.personaMissing)"
-                    class="w-full px-2 py-4 text-center text-xs text-base-content/60"
-                  >
-                    {{ t("chat.departmentNoAvailableAgent") }}
-                  </div>
-                  <div v-else class="grid grid-cols-3 gap-1 sm:flex sm:flex-wrap sm:justify-center">
-                    <button
-                      v-for="option in group.agents"
-                      :key="option.id"
-                      type="button"
-                      class="flex min-w-0 w-full flex-col items-center gap-1 rounded-lg px-1 py-1 transition-colors hover:bg-base-200 sm:w-20"
-                      :class="selectedValue === option.id ? 'bg-primary/10' : ''"
-                      @click="selectOption(option)"
-                    >
-                      <div class="avatar">
-                        <div
-                          class="h-10 w-10 rounded-full transition-shadow"
-                          :class="selectedValue === option.id ? 'ring-2 ring-primary ring-offset-1 ring-offset-base-100' : ''"
-                        >
-                          <img
-                            v-if="resolveAvatarUrl(option.agentId)"
-                            :src="resolveAvatarUrl(option.agentId)"
-                            :alt="option.agentName"
-                            class="h-10 w-10 rounded-full object-cover"
-                          />
-                          <div
-                            v-else
-                            class="flex h-10 w-10 items-center justify-center rounded-full bg-primary text-sm font-semibold text-primary-content"
-                          >
-                            {{ agentInitials(option.agentName) }}
-                          </div>
-                        </div>
-                      </div>
-                      <span class="max-w-full truncate text-center text-xs leading-tight">
-                        {{ option.agentName }}
-                      </span>
-                      <span v-if="option.personaMissing" class="text-caption leading-none text-warning">
-                        {{ t("chat.personaRemoved") }}
-                      </span>
-                      <span v-else-if="option.modelMissing" class="text-caption leading-none text-warning">
-                        {{ t("chat.personaModelNotConfigured") }}
-                      </span>
-                      <span v-else-if="option.unavailable" class="text-caption leading-none text-warning">
-                        {{ t("chat.personaRemoved") }}
-                      </span>
-                    </button>
-                  </div>
-                </div>
-              </div>
-            </ChatConversationFloatingScroll>
+            <PersonaGroupGrid
+              ref="personaGroupGridRef"
+              :options="normalizedOptions"
+              :selected-id="selectedValue"
+              :avatar-url-map="props.personaAvatarUrlMap"
+              @select="selectOption"
+            />
           </div>
         </div>
       </div>
@@ -134,8 +80,8 @@ import { ChevronDown } from "@lucide/vue";
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 import type { ApiConfigItem, DepartmentConfig, PersonaProfile } from "../../../types/app";
-import ChatConversationFloatingScroll from "../../chat/components/ChatConversationFloatingScroll.vue";
 import ApiConfigPicker from "../../config/components/ApiConfigPicker.vue";
+import PersonaGroupGrid from "./PersonaGroupGrid.vue";
 import {
   buildDepartmentPersonaOptions,
   departmentPersonaOptionId,
@@ -179,15 +125,9 @@ const emit = defineEmits<{
 
 const { t } = useI18n();
 
-type AgentGroup = {
-  departmentId: string;
-  departmentName: string;
-  agents: DepartmentPersonaOption[];
-};
-
 const rootRef = ref<HTMLElement | null>(null);
 const dropdownPanelRef = ref<HTMLElement | null>(null);
-const dropdownContentRef = ref<HTMLElement | null>(null);
+const personaGroupGridRef = ref<InstanceType<typeof PersonaGroupGrid> | null>(null);
 const dropdownOpen = ref(false);
 const dropdownDirection = ref<"up" | "down">("down");
 const dropdownBodyHeight = ref(320);
@@ -275,25 +215,6 @@ const textApiConfigs = computed(() =>
 
 const showModelSelector = computed(() => props.showModel && textApiConfigs.value.length > 0);
 
-const departmentGroups = computed<AgentGroup[]>(() => {
-  const groups = new Map<string, AgentGroup>();
-  for (const option of normalizedOptions.value) {
-    const departmentId = String(option.departmentId || "").trim();
-    if (!departmentId) continue;
-    const existing = groups.get(departmentId);
-    if (existing) {
-      existing.agents.push(option);
-      continue;
-    }
-    groups.set(departmentId, {
-      departmentId,
-      departmentName: String(option.departmentName || "").trim() || departmentId,
-      agents: [option],
-    });
-  }
-  return Array.from(groups.values());
-});
-
 const selectedSummaryLabel = computed(() => {
   if (selectedOption.value) {
     const departmentName = String(selectedOption.value.departmentName || "").trim();
@@ -380,7 +301,7 @@ function updateDropdownLayout() {
   const availableHeight = clampDropdownBodyHeight(
     finalSpace >= DROPDOWN_MIN_HEIGHT ? chosenSpace : finalSpace,
   );
-  const contentHeight = dropdownContentRef.value?.scrollHeight ?? 0;
+  const contentHeight = personaGroupGridRef.value?.contentRef?.scrollHeight ?? 0;
   const naturalHeight = contentHeight > 0 ? contentHeight : availableHeight;
   dropdownBodyHeight.value = Math.min(availableHeight, Math.max(96, naturalHeight));
 }

@@ -62,23 +62,16 @@
             @wheel="handleConversationWheelInput"
             @pointerdown="beginPointerScrollIntent"
           >
+          <DraftRecipientCard
+            v-if="activeConversationIsDraft"
+            :options="props.createConversationDepartmentOptions"
+            :recent-options="draftRecentRecipientOptions"
+            :selected-department-id="draftSelectedDepartmentId"
+            :selected-agent-id="draftSelectedAgentId"
+            :avatar-url-map="props.personaAvatarUrlMap"
+            @change="handleDraftPersonaChange($event)"
+          />
           <div class="ecall-chat-history-flow flex min-w-0 shrink-0 flex-col">
-            <div
-              v-if="activeConversationIsDraft"
-              class="mx-auto w-full max-w-225 shrink-0 px-4 pb-1 pt-6"
-            >
-              <DepartmentPersonaSelect
-                v-model:department-id="draftSelectedDepartmentId"
-                v-model:agent-id="draftSelectedAgentId"
-                v-model:api-config-id="draftSelectedApiConfigId"
-                :options="props.createConversationDepartmentOptions"
-                :persona-avatar-url-map="props.personaAvatarUrlMap"
-                show-model
-                :auto-select-first="false"
-                @change="handleDraftPersonaChange($event)"
-                @update:api-config-id="handleDraftModelChange($event)"
-              />
-            </div>
             <div
               v-if="showNoMoreHistoryDivider"
               class="mx-auto flex w-full max-w-225 items-center gap-3 px-4 pb-2 pt-1 text-xs text-base-content/45"
@@ -658,6 +651,7 @@ import ChatApprovalPanel from "../components/ChatApprovalPanel.vue";
 import ChatComposerPanel from "../components/ChatComposerPanel.vue";
 import RemoteImContactEnergyDashboard from "../components/RemoteImContactEnergyDashboard.vue";
 import DepartmentPersonaSelect from "../../shared/components/DepartmentPersonaSelect.vue";
+import DraftRecipientCard from "../components/DraftRecipientCard.vue";
 import FloatingScrollbar from "../../shell/components/FloatingScrollbar.vue";
 import ChatConversationSidebar from "../components/ChatConversationSidebar.vue";
 import ChatWorkspaceToolbar from "../components/ChatWorkspaceToolbar.vue";
@@ -933,10 +927,56 @@ const activeConversationIsRemoteContact = computed(() =>
 
 // ==================== 会话草稿：历史区人格选择卡 ====================
 
-const activeConversationIsDraft = computed(() => !!activeConversationSummary.value?.isDraft);
+// 草稿判定：overview 标记为草稿即显示选择卡。
+// 转正由后端写回存储 is_draft=false 并推送 overview 水位线，前端收到后自动消失。
+// 但「用户按下回车发出消息」的那一刻前端就要立刻转正，不等后端水位线：
+// 本地记录已发送消息的会话 id，该会话即使 overview 仍标记 isDraft=true 也不再显示选择卡。
+const locallyPromotedConversationId = ref("");
+const activeConversationIsDraft = computed(() => {
+  const conversationId = String(props.activeConversationId || "").trim();
+  const locallyPromoted =
+    !!locallyPromotedConversationId.value &&
+    locallyPromotedConversationId.value === conversationId;
+  return !!activeConversationSummary.value?.isDraft && !locallyPromoted;
+});
 const draftSelectedDepartmentId = ref("");
 const draftSelectedAgentId = ref("");
-const draftSelectedApiConfigId = ref("");
+
+const DRAFT_RECENT_RECIPIENT_LIMIT = 6;
+
+const draftRecentRecipientOptions = computed<DepartmentPersonaOption[]>(() => {
+  const allOptions = Array.isArray(props.createConversationDepartmentOptions)
+    ? props.createConversationDepartmentOptions
+    : [];
+  const activeConversationId = String(props.activeConversationId || "").trim();
+  const items = [...(props.unarchivedConversationItems || [])].sort((a, b) => {
+    const timeOf = (item: ChatConversationOverviewItem) =>
+      String(item.lastMessageAt || item.updatedAt || "").trim();
+    return timeOf(b).localeCompare(timeOf(a));
+  });
+  const seen = new Set<string>();
+  const recents: DepartmentPersonaOption[] = [];
+  for (const item of items) {
+    const departmentId = String(item.departmentId || "").trim();
+    const agentId = String(item.agentId || "").trim();
+    if (!departmentId || !agentId) continue;
+    if (String(item.conversationId || "").trim() === activeConversationId) continue;
+    // 按「部门+人格」组合去重：同一人格挂多个部门时，每个部门各占一个行星卡片
+    const key = `${departmentId}\u0000${agentId}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    const option = allOptions.find((candidate) =>
+      String(candidate.departmentId || "").trim() === departmentId
+      && String(candidate.agentId || "").trim() === agentId
+      && !candidate.unavailable
+      && !candidate.personaMissing
+    );
+    if (!option) continue;
+    recents.push(option);
+    if (recents.length >= DRAFT_RECENT_RECIPIENT_LIMIT) break;
+  }
+  return recents;
+});
 
 watch(
   [activeConversationIsDraft, () => props.activeConversationId],
@@ -944,7 +984,6 @@ watch(
     if (!isDraft) return;
     draftSelectedDepartmentId.value = String(activeConversationSummary.value?.departmentId || "").trim();
     draftSelectedAgentId.value = String(activeConversationSummary.value?.agentId || "").trim();
-    draftSelectedApiConfigId.value = String(props.preferredChatModelId || "").trim();
   },
   { immediate: true },
 );
@@ -956,14 +995,6 @@ function handleDraftPersonaChange(payload: { departmentId: string; agentId: stri
     conversationId: String(props.activeConversationId || "").trim(),
     departmentId: payload.departmentId,
     agentId: payload.agentId,
-  });
-}
-
-function handleDraftModelChange(apiConfigId: string) {
-  draftSelectedApiConfigId.value = String(apiConfigId || "").trim();
-  emit("updateDraftConversation", {
-    conversationId: String(props.activeConversationId || "").trim(),
-    preferredApiConfigId: draftSelectedApiConfigId.value || null,
   });
 }
 const remoteImContactDashboardContactId = computed(() =>
@@ -1940,6 +1971,11 @@ async function openActiveConversationInBrowser() {
 }
 
 function handleSendChat() {
+  const conversationId = String(props.activeConversationId || "").trim();
+  // 用户按下回车/点发送即视为转正：前端立刻隐藏草稿选择卡，不等后端水位线。
+  if (conversationId && activeConversationIsDraft.value) {
+    locallyPromotedConversationId.value = conversationId;
+  }
   const extraTextBlocks = attachedIdeContextReferences.value.map((item) => String(item.textBlock || "").trim()).filter(Boolean);
   emit("sendChat", extraTextBlocks.length > 0 ? { extraTextBlocks } : undefined);
   clearAttachedIdeContextReferences();
