@@ -5640,6 +5640,83 @@
         assert!(found.is_none(), "normal conversation must not be treated as draft");
     }
 
+    #[tokio::test]
+    async fn conversation_service_v2_should_promote_draft_on_first_user_message_and_create_next_draft()
+    {
+        let state = test_chat_runtime_state();
+        let git_init = std::process::Command::new("git")
+            .args(["init", "--quiet"])
+            .current_dir(&state.llm_workspace_path)
+            .output()
+            .expect("initialize git workspace");
+        assert!(git_init.status.success(), "git init should succeed");
+
+        let created = conversation_service_v2()
+            .create_conversation(
+                &state,
+                &CreateUnarchivedConversationInput {
+                    api_config_id: None,
+                    agent_id: None,
+                    department_id: None,
+                    title: None,
+                    copy_source_conversation_id: None,
+                    shell_workspaces: None,
+                    shell_work_mode: None,
+                    shell_autonomous_mode: None,
+                    is_draft: Some(true),
+                },
+            )
+            .expect("create draft with fallback defaults");
+
+        let now = now_iso();
+        conversation_service_v2()
+            .append_user_message(
+                &state,
+                &UserMessageAppendInput {
+                    conversation_id: created.conversation_id.clone(),
+                    message: test_text_message("user", "第一条消息，转正", &now),
+                    memory_recall_ids: Vec::new(),
+                },
+            )
+            .await
+            .expect("append user message should promote draft");
+
+        let promoted = state_read_conversation_cached(&state, &created.conversation_id)
+            .expect("read promoted conversation");
+        assert!(
+            !promoted.is_draft,
+            "draft must be cleared after first user message is persisted"
+        );
+        let promoted_meta = conversation_service_v2()
+            .get_conversation_meta(&state, &created.conversation_id)
+            .expect("read promoted meta view");
+        assert!(
+            !promoted_meta.is_draft,
+            "is_draft=false must be written back to storage meta"
+        );
+
+        let next_draft = find_existing_draft_conversation_id(&state)
+            .expect("find next draft after promotion");
+        assert!(
+            next_draft.is_some() && next_draft.as_deref() != Some(created.conversation_id.as_str()),
+            "a fresh backup draft should exist after promotion"
+        );
+        if let Some(next_draft_id) = next_draft {
+            let next_meta = conversation_service_v2()
+                .get_conversation_meta(&state, &next_draft_id)
+                .expect("read next draft meta");
+            assert!(next_meta.is_draft, "backup draft must keep is_draft=true");
+            assert_eq!(
+                next_meta.department_id, promoted_meta.department_id,
+                "backup draft should inherit department"
+            );
+            assert_eq!(
+                next_meta.agent_id, promoted_meta.agent_id,
+                "backup draft should inherit agent"
+            );
+        }
+    }
+
     #[test]
     fn conversation_service_v2_should_reject_draft_agent_outside_department() {
         let state = test_chat_runtime_state();

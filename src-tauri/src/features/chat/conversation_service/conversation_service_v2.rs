@@ -656,6 +656,7 @@ struct ConversationExternalMetadataPatch {
     routing_agent_id: Option<String>,
     routing_root_conversation_id: Option<Option<String>>,
     routing_conversation_kind: Option<String>,
+    is_draft: Option<bool>,
 }
 
 fn conversation_service_v2() -> &'static ConversationServiceV2 {
@@ -1232,6 +1233,9 @@ impl ConversationServiceV2 {
                         if let Some(value) = patch.routing_conversation_kind {
                             conversation.conversation_kind = value;
                         }
+                        if let Some(value) = patch.is_draft {
+                            conversation.is_draft = value;
+                        }
                         if conversation
                             .shell_workspace_path
                             .as_deref()
@@ -1680,7 +1684,7 @@ impl ConversationServiceV2 {
         let state_for_mutation = state.clone();
         let conversation_id_for_mutation = conversation_id.to_string();
         let input_for_mutation = input.clone();
-        with_conversation_mutation_async(
+        let (was_draft, promoted_conversation) = with_conversation_mutation_async(
             state.clone(),
             conversation_id_for_mutation.clone(),
             "append_user_message".to_string(),
@@ -1692,6 +1696,7 @@ impl ConversationServiceV2 {
                         "Unarchived conversation not found: {conversation_id_for_mutation}"
                     ));
                 }
+                let was_draft = conversation_meta.is_draft;
                 let store_paths =
                     message_store::message_store_paths(&state_for_mutation.data_path, &conversation_id_for_mutation)?;
                 let updated_at = input_for_mutation.message.created_at.clone();
@@ -1712,6 +1717,11 @@ impl ConversationServiceV2 {
                     |cached| {
                         let mut metadata_conversation =
                             service.build_conversation_snapshot_from_meta(cached, Vec::new());
+                        // 任何用户消息写入都立刻转正：草稿收到第一条用户消息即清除草稿标记，
+                        // 写回存储后 append 路径后续 emit 的 overview 水位线携带 isDraft=false。
+                        if cached.is_draft() {
+                            metadata_conversation.is_draft = false;
+                        }
                         metadata_conversation.unread_count = unread_count;
                         metadata_conversation.updated_at = updated_at.clone();
                         metadata_conversation.last_user_at = Some(updated_at.clone());
@@ -1754,10 +1764,24 @@ impl ConversationServiceV2 {
                     &state_for_mutation,
                     &conversation_id_for_mutation,
                 )?;
-                Ok(())
+                Ok((was_draft, metadata_conversation))
             },
         )
         .await?;
+        // 草稿转正后立即创建下一个备用草稿：继承刚转正会话的部门/人格/模型/workspace。
+        // 创建失败不阻断消息发送，下次打开草稿入口时按单例查询兜底重建。
+        if was_draft {
+            match create_next_draft_conversation_inherited(state, &promoted_conversation) {
+                Ok(new_draft_id) => runtime_log_info(format!(
+                    "[会话草稿] 完成，任务=首条用户消息转正，conversation_id={}，new_draft_conversation_id={}",
+                    conversation_id, new_draft_id
+                )),
+                Err(err) => runtime_log_warn(format!(
+                    "[会话草稿] 创建备用草稿失败，等待下次打开时重建，conversation_id={}，error={err}",
+                    conversation_id
+                )),
+            }
+        }
         if let Err(err) = emit_unarchived_conversation_overview_item_updated_from_state(
             state,
             conversation_id,

@@ -13,6 +13,7 @@ impl ConversationServiceV2 {
             MissingTarget(String),
             Committed(SchedulerHistoryFlushCommitResult),
         }
+        let mut promoted: Option<Conversation> = None;
         let outcome = with_conversation_mutation(
             state,
             conversation_id,
@@ -30,6 +31,7 @@ impl ConversationServiceV2 {
                         )));
                     }
                 };
+                let was_draft = conversation_meta.is_draft;
                 let mut conversation = self.build_conversation_record_from_meta_view(&conversation_meta);
                 let remote_im_contacts = state_service_list_remote_im_contacts(state, None)?;
                 let mut remote_im_checkpoints = state_service_list_remote_im_contact_checkpoints(state)?;
@@ -69,6 +71,12 @@ impl ConversationServiceV2 {
                         metadata_snapshot.updated_at = conversation.updated_at.clone();
                         metadata_snapshot.last_user_at = conversation.last_user_at.clone();
                         metadata_snapshot.last_assistant_at = conversation.last_assistant_at.clone();
+                        // 草稿转正：scheduler 批量落盘写入真实消息即清除草稿标记，
+                        // 写回存储后后续 emit 的 overview 水位线携带 isDraft=false。
+                        // 压缩消息走 persist_compaction_message 独立路径，不会进入本函数。
+                        if was_draft {
+                            metadata_snapshot.is_draft = false;
+                        }
                         cached.apply_metadata_fields_from_conversation(&metadata_snapshot);
                         cached.apply_appended_messages(&persisted_batch_messages);
                         Ok(())
@@ -84,6 +92,9 @@ impl ConversationServiceV2 {
                     &remote_im_checkpoints,
                     remote_im_runtime_before,
                 )?;
+                if was_draft && !metadata_snapshot.is_draft {
+                    promoted = Some(metadata_snapshot);
+                }
                 Ok(SchedulerHistoryFlushOutcome::Committed(
                     SchedulerHistoryFlushCommitResult {
                         persisted_batch_messages,
@@ -92,6 +103,31 @@ impl ConversationServiceV2 {
                 ))
             },
         )?;
+        // 草稿转正后立即创建下一个备用草稿：继承刚转正会话的部门/人格/模型/workspace。
+        // 创建失败不阻断消息发送，下次打开草稿入口时按单例查询兜底重建。
+        if let Some(promoted_conversation) = promoted {
+            match create_next_draft_conversation_inherited(state, &promoted_conversation) {
+                Ok(new_draft_id) => runtime_log_info(format!(
+                    "[会话草稿] 完成，任务=scheduler 落盘转正，conversation_id={}，new_draft_conversation_id={}",
+                    conversation_id, new_draft_id
+                )),
+                Err(err) => runtime_log_warn(format!(
+                    "[会话草稿] 创建备用草稿失败，等待下次打开时重建，conversation_id={}，error={err}",
+                    conversation_id
+                )),
+            }
+        }
+        // 水位线：会话状态已变更（消息落盘/草稿转正），在 service 层统一收尾处
+        // 调用水位线方法推送，调用方无需也不允许手动推送。
+        if let Err(err) = emit_unarchived_conversation_overview_item_updated_from_state(
+            state,
+            conversation_id,
+        ) {
+            runtime_log_warn(format!(
+                "[会话概览] 跳过，任务=scheduler 落盘后推送单会话，conversation_id={}，error={}",
+                conversation_id, err
+            ));
+        }
         match outcome {
             SchedulerHistoryFlushOutcome::MissingTarget(error) => {
                 let event_ids = events
