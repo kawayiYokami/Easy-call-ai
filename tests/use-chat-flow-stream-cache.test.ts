@@ -12,18 +12,23 @@ describe("useChatFlowStreamCache stream block snapshots", () => {
     const toolStatusText = ref("");
     const toolStatusState = ref<"running" | "done" | "failed" | "">("");
     const streamBlocks = ref<AssistantStreamBlock[]>([]);
+    const restoredTimers: unknown[] = [];
 
     const cache = useChatFlowStreamCache({
       getConversationId: () => "conversation-1",
-      latestAssistantText,
-      toolStatusText,
-      toolStatusState,
-      streamBlocks,
+      getCurrentDisplayState: () => ({
+        assistantText: latestAssistantText.value,
+        toolStatusText: toolStatusText.value,
+        toolStatusState: toolStatusState.value,
+        streamBlocks: streamBlocks.value,
+      }),
       getActiveActivationId: () => "request-1",
       getFrontendDispatchStartedAtMs: () => 100,
       getFrontendDispatchElapsedMs: () => 8,
       currentFrontendDispatchElapsedMs: () => 8,
-      restoreFrontendDispatchTimerFromCache: () => {},
+      restoreFrontendDispatchTimerFromCache: (snapshot) => {
+        restoredTimers.push(snapshot);
+      },
     });
 
     const reasoningBlock: AssistantStreamBlock = { reasoning: "R1" };
@@ -39,14 +44,15 @@ describe("useChatFlowStreamCache stream block snapshots", () => {
 
     expect(streamCacheHasVisibleProgress(cache.readConversationStreamCache("conversation-1"))).toBe(true);
     expect(cache.applyConversationStreamCacheToDisplay("conversation-1")).toBe(true);
-    expect(streamBlocks.value).toEqual([{
+    expect(cache.readConversationStreamCache("conversation-1")?.streamBlocks).toEqual([{
       reasoning: "R1",
       reasoningCharCount: 2,
       text: "",
       tools: [],
       pendingTextBreak: false,
     }]);
-    expect(latestAssistantText.value).toBe("");
+    expect(cache.readConversationStreamCache("conversation-1")?.assistantText).toBe("");
+    expect(restoredTimers).toHaveLength(1);
   });
 
   it("can apply active stream snapshots after channel and generation already matched", () => {
@@ -57,10 +63,12 @@ describe("useChatFlowStreamCache stream block snapshots", () => {
 
     const cache = useChatFlowStreamCache({
       getConversationId: () => "conversation-1",
-      latestAssistantText,
-      toolStatusText,
-      toolStatusState,
-      streamBlocks,
+      getCurrentDisplayState: () => ({
+        assistantText: latestAssistantText.value,
+        toolStatusText: toolStatusText.value,
+        toolStatusState: toolStatusState.value,
+        streamBlocks: streamBlocks.value,
+      }),
       getActiveActivationId: () => "foreground-activation",
       getFrontendDispatchStartedAtMs: () => 100,
       getFrontendDispatchElapsedMs: () => 8,
@@ -73,14 +81,13 @@ describe("useChatFlowStreamCache stream block snapshots", () => {
       requestId: "backend-activation",
       streamBlocks: [{ reasoning: "R2" }],
     })).toBe(false);
-    expect(streamBlocks.value).toEqual([]);
 
     expect(cache.applyConversationStreamCacheSnapshotToDisplay("conversation-1", {
       activationId: "backend-activation",
       requestId: "backend-activation",
       streamBlocks: [{ reasoning: "R2" }],
     }, { ignoreActivationId: true })).toBe(true);
-    expect(streamBlocks.value).toEqual([{
+    expect(cache.readConversationStreamCache("conversation-1")?.streamBlocks).toEqual([{
       reasoning: "R2",
       reasoningCharCount: 2,
       text: "",
@@ -97,10 +104,12 @@ describe("useChatFlowStreamCache stream block snapshots", () => {
 
     const cache = useChatFlowStreamCache({
       getConversationId: () => "conversation-1",
-      latestAssistantText,
-      toolStatusText,
-      toolStatusState,
-      streamBlocks,
+      getCurrentDisplayState: () => ({
+        assistantText: latestAssistantText.value,
+        toolStatusText: toolStatusText.value,
+        toolStatusState: toolStatusState.value,
+        streamBlocks: streamBlocks.value,
+      }),
       getActiveActivationId: () => "request-1",
       getFrontendDispatchStartedAtMs: () => 100,
       getFrontendDispatchElapsedMs: () => 8,
