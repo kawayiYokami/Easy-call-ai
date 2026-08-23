@@ -899,6 +899,26 @@ export function listTransportFileReaderDirectoryOpenTargets<T>(): Promise<T> {
   return invokeRequiredNativeTransport<T>("本机目录打开方式", "list_file_reader_directory_open_targets");
 }
 
+/** 系统字体枚举仅桌面宿主可查，Web/VS Code 无此能力。 */
+export function listTransportSystemFonts<T>(): Promise<T> {
+  return invokeRequiredNativeTransport<T>("系统字体枚举", "list_system_fonts");
+}
+
+/** genai 内置 chat 适配器清单仅桌面宿主可查，Web/VS Code 无此能力。 */
+export function listTransportGenaiChatAdapters<T>(): Promise<T> {
+  return invokeRequiredNativeTransport<T>("genai 内置聊天适配器清单", "list_genai_chat_adapters");
+}
+
+/** 打开（或创建）会话草稿仅桌面宿主可用，Web/VS Code 无此能力。 */
+export function openTransportConversationDraft<T>(input: Record<string, unknown>): Promise<T> {
+  return invokeRequiredNativeTransport<T>("会话草稿打开", "conversation.openDraft", { input });
+}
+
+/** 改写会话草稿字段仅桌面宿主可用，Web/VS Code 无此能力。 */
+export function updateTransportConversationDraft<T>(input: Record<string, unknown>): Promise<T> {
+  return invokeRequiredNativeTransport<T>("会话草稿更新", "conversation.updateDraft", { input });
+}
+
 export async function openTransportFileReaderDirectoryTarget(
   path: string,
   targetKind: string,
@@ -1374,6 +1394,8 @@ const WEB_BRIDGE_NATIVE_ONLY_COMMANDS = new Set([
   "export_archive_to_file",
   "archives.export",
   "conversation.importShare",
+  "conversation.openDraft",
+  "conversation.updateDraft",
   "export_memories_to_path",
   "export_agent_private_memories",
   "write_base64_file_to_path",
@@ -1405,6 +1427,8 @@ const WEB_BRIDGE_NATIVE_ONLY_COMMANDS = new Set([
   "show_archives_window",
   "show_quick_setup_window",
   "complete_quick_setup_and_open_chat",
+  "list_system_fonts",
+  "list_genai_chat_adapters",
   "open_runtime_logs_window",
   "sync_tray_icon",
   "get_github_update_state",

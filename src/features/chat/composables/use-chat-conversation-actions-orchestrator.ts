@@ -1,4 +1,4 @@
-import { importTransportConversationShare, invokeTauri } from "../../../services/tauri-api";
+import { importTransportConversationShare, invokeTauri, openTransportConversationDraft, updateTransportConversationDraft } from "../../../services/tauri-api";
 import type { ShellWorkspace, ShellWorkMode } from "../../../types/app";
 
 export function useChatConversationActionsOrchestrator(bindings: Record<string, any>) {
@@ -80,7 +80,7 @@ export function useChatConversationActionsOrchestrator(bindings: Record<string, 
     shellAutonomousMode?: boolean;
   }) {
     try {
-      const result = await invokeTauri<{ conversationId: string; created: boolean }>("conversation.openDraft", {
+      const result = await openTransportConversationDraft<{ conversationId: string; created: boolean }>({
         input: {
           shellWorkspaces: workspace?.shellWorkspaces || null,
           shellWorkMode: workspace?.shellWorkMode || null,
@@ -113,7 +113,7 @@ export function useChatConversationActionsOrchestrator(bindings: Record<string, 
         // undefined 不修改；null 清空回部门默认；字符串为指定模型
         input.preferredApiConfigId = patch.preferredApiConfigId;
       }
-      await invokeTauri("conversation.updateDraft", { input });
+      await updateTransportConversationDraft(input);
       return true;
     } catch (error) {
       bindings.setStatusError("status.requestFailed", error);

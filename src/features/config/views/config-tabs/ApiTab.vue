@@ -247,7 +247,7 @@ import ConfigCard from "../../components/ConfigCard.vue";
 import ConfigTemplate from "../../components/ConfigTemplate.vue";
 import ProviderToolbar, { type ProviderToolbarOption } from "../../components/ProviderToolbar.vue";
 import SettingsStickyLayout from "../../components/SettingsStickyLayout.vue";
-import { canUseTransportGenaiChatAdapters, invokeTauri, openTransportExternalUrl } from "../../../../services/tauri-api";
+import { canUseTransportGenaiChatAdapters, invokeTauri, listTransportGenaiChatAdapters, openTransportExternalUrl } from "../../../../services/tauri-api";
 import CodexProviderPanel from "./CodexProviderPanel.vue";
 import ImageGenerationTab from "./ImageGenerationTab.vue";
 import { normalizeApiRequestFormat } from "../../utils/api-request-format";
@@ -2084,7 +2084,7 @@ watch(
 
 onMounted(() => {
   if (!canUseTransportGenaiChatAdapters()) return;
-  void invokeTauri<Array<{ id: string; label: string; supported: boolean }>>("list_genai_chat_adapters")
+  void listTransportGenaiChatAdapters<Array<{ id: string; label: string; supported: boolean }>>()
     .then((adapters) => {
       if (Array.isArray(adapters) && adapters.length > 0) {
         genaiChatAdapters.value = adapters;

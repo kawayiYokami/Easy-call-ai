@@ -233,7 +233,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
-import { canUseTransportSystemFonts, invokeTauri } from "../../../../services/tauri-api";
+import { canUseTransportSystemFonts, listTransportSystemFonts } from "../../../../services/tauri-api";
 import SegmentedControl from "../../components/SegmentedControl.vue";
 import ConfigTemplate from "../../components/ConfigTemplate.vue";
 import FontFamilySelect from "../../components/FontFamilySelect.vue";
@@ -409,7 +409,7 @@ onMounted(async () => {
   if (!fontsAvailable.value) return;
   fontsLoading.value = true;
   try {
-    const fonts = await invokeTauri<{ family: string; monospace: boolean }[]>("list_system_fonts");
+    const fonts = await listTransportSystemFonts<{ family: string; monospace: boolean }[]>();
     if (Array.isArray(fonts)) {
       const families: string[] = [];
       const mono = new Set<string>();
