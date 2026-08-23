@@ -300,7 +300,7 @@
 import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 import { getTransportCapabilities } from "../../../services/tauri-api";
-import { Bolt, Columns3Cog, FoldVertical, History, Minus, PanelLeft, PanelLeftClose, PanelRight, PanelRightClose, Search, Settings, Square, SquarePen, X } from "@lucide/vue";
+import { Bolt, Columns3Cog, Download, FoldVertical, History, Minus, PanelLeft, PanelLeftClose, PanelRight, PanelRightClose, Search, Settings, Square, SquarePen, X } from "@lucide/vue";
 import type { ChatConversationOverviewItem } from "../../../types/app";
 import { resolveConversationDisplayTitle } from "../../chat/utils/conversation-title";
 import type { ConfigSearchResult, ConfigSearchTab } from "../../config/search/config-search";
