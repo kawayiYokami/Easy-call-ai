@@ -1,11 +1,11 @@
 <template>
   <div class="absolute inset-0 z-10 flex items-center justify-center overflow-hidden">
     <div class="pointer-events-none absolute inset-0" aria-hidden="true">
-      <div class="absolute -top-16 left-1/2 h-72 w-72 -translate-x-1/2 rounded-full bg-primary/15 blur-3xl"></div>
-      <div class="absolute bottom-8 left-1/5 h-80 w-80 rounded-full bg-secondary/15 blur-3xl"></div>
-      <div class="absolute -bottom-24 right-1/6 h-72 w-72 rounded-full bg-accent/10 blur-3xl"></div>
+      <div class="absolute -top-16 left-1/2 h-72 w-72 -translate-x-1/2 rounded-full bg-primary/5 blur-3xl"></div>
+      <div class="absolute bottom-8 left-1/5 h-80 w-80 rounded-full bg-secondary/5 blur-3xl"></div>
+      <div class="absolute -bottom-24 right-1/6 h-72 w-72 rounded-full bg-accent/3 blur-3xl"></div>
     </div>
-    <div class="pointer-events-none absolute left-1/2 top-1/2 h-96 w-96 -translate-x-1/2 -translate-y-1/2 rounded-full bg-white/15 blur-3xl" />
+    <div class="pointer-events-none absolute left-1/2 top-1/2 h-96 w-96 -translate-x-1/2 -translate-y-1/2 rounded-full bg-white/5 blur-3xl" />
 
     <div class="relative flex max-h-full flex-col items-center gap-8 px-6 py-8">
       <div class="text-sm font-medium tracking-wide text-base-content/60">

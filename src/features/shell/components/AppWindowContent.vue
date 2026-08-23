@@ -336,9 +336,9 @@
             />
             <div v-else class="relative flex min-h-0 flex-1 flex-col items-center justify-center gap-5 overflow-hidden px-6">
               <div class="pointer-events-none absolute inset-0" aria-hidden="true">
-                <div class="absolute -top-16 left-1/2 h-72 w-72 -translate-x-1/2 rounded-full bg-primary/15 blur-3xl"></div>
-                <div class="absolute bottom-8 left-1/5 h-80 w-80 rounded-full bg-secondary/15 blur-3xl"></div>
-                <div class="absolute -bottom-24 right-1/6 h-72 w-72 rounded-full bg-accent/10 blur-3xl"></div>
+                <div class="absolute -top-16 left-1/2 h-72 w-72 -translate-x-1/2 rounded-full bg-primary/5 blur-3xl"></div>
+                <div class="absolute bottom-8 left-1/5 h-80 w-80 rounded-full bg-secondary/5 blur-3xl"></div>
+                <div class="absolute -bottom-24 right-1/6 h-72 w-72 rounded-full bg-accent/3 blur-3xl"></div>
               </div>
               <button
                 type="button"
