@@ -1802,7 +1802,7 @@
       "linkLabel": "计划："
     },
     "localImageUnavailable": "图片不可用",
-    "supervision": {
+    "goal": {
       "buttonTitle": "启动目标",
       "activeButtonTitle": "当前会话已有活跃目标，点击查看或停止",
       "buttonHint": "启动一个绑定当前会话的目标",

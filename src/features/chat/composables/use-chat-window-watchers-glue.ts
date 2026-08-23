@@ -12,7 +12,7 @@ export function useChatWindowWatchersGlue(bindings: Record<string, any>) {
   watch(
     () => bindings.currentChatConversationId.value,
     (conversationId) => {
-      bindings.handleSupervisionConversationChanged();
+      bindings.handleGoalConversationChanged();
       const cid = String(conversationId || "").trim();
       if (!cid) return;
       if (bindings.viewMode.value !== "chat") return;

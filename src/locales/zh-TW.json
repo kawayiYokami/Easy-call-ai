@@ -1810,7 +1810,7 @@
       "linkLabel": "計劃："
     },
     "localImageUnavailable": "圖片不可用",
-    "supervision": {
+    "goal": {
       "buttonTitle": "啟動目標",
       "activeButtonTitle": "目前會話已有啟用中的目標，點擊可查看或停止",
       "buttonHint": "啟動一個綁定目前會話的目標",

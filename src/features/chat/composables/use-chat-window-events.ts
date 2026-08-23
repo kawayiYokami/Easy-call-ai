@@ -65,7 +65,7 @@ export function useChatWindowEvents(bindings: Record<string, any>) {
       if (failed) return;
       bindings.toolReviewRefreshTick.value += 1;
       queueMicrotask(() => {
-        void bindings.refreshActiveSupervisionTask({ silent: true });
+        void bindings.refreshActiveGoalTask({ silent: true });
       });
     });
 
@@ -118,8 +118,8 @@ export function useChatWindowEvents(bindings: Record<string, any>) {
     });
 
     bindings.scheduleChatWindowActiveStateSync("mounted");
-    bindings.startSupervisionTaskPolling();
-    void bindings.refreshActiveSupervisionTask({ silent: true });
+    bindings.startGoalTaskPolling();
+    void bindings.refreshActiveGoalTask({ silent: true });
     window.addEventListener("focus", bindings.handleWindowFocusForStateSync);
     window.addEventListener("blur", bindings.handleWindowBlurForStateSync);
     document.addEventListener("visibilitychange", bindings.handleVisibilityForStateSync);
@@ -137,7 +137,7 @@ export function useChatWindowEvents(bindings: Record<string, any>) {
     document.removeEventListener("visibilitychange", bindings.handleVisibilityForStateSync);
     bindings.clearChatWindowActiveSyncTimer();
     bindings.clearChatMicPrewarmTimer();
-    bindings.clearSupervisionTaskPollTimer();
+    bindings.clearGoalTaskPollTimer();
     bindings.cleanupChatForegroundActivity();
     bindings.agentWorkPresence.cleanup();
     void bindings.getChatFlow()?.unbindActiveConversationStream?.().catch(() => {});

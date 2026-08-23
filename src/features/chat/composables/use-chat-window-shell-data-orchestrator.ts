@@ -5,7 +5,7 @@ import { useAgentWorkPresence } from "./use-agent-work-presence";
 import { useArchiveImport } from "./use-archive-import";
 import { useArchivesView } from "./use-archives-view";
 import { useConversationPlanMode } from "./use-conversation-plan-mode";
-import { useSupervisionTask } from "./use-supervision-task";
+import { useGoalTask } from "./use-goal-task";
 
 export function useChatWindowShellDataOrchestrator(bindings: Record<string, any>) {
   const githubUpdate = useGithubUpdateView({
@@ -37,7 +37,7 @@ export function useChatWindowShellDataOrchestrator(bindings: Record<string, any>
     unarchivedConversations: archivesView.unarchivedConversations,
   });
 
-  const supervisionTask = useSupervisionTask({
+  const goalTask = useGoalTask({
     t: bindings.tr,
     currentConversationId: bindings.currentChatConversationId,
     setStatus: bindings.setStatus,
@@ -48,7 +48,7 @@ export function useChatWindowShellDataOrchestrator(bindings: Record<string, any>
     archivesView,
     archiveImport,
     conversationPlanMode,
-    supervisionTask,
+    goalTask,
     agentWorkPresence: useAgentWorkPresence(),
   };
 }

@@ -184,13 +184,13 @@
         :active-agent-id="currentChatAgentId"
         :active-conversation-id="currentChatConversationId"
         :current-todos="currentChatTodos"
-        :supervision-active="chatSupervisionActive"
-        :supervision-title="chatSupervisionTitle"
-        :supervision-dialog-open="supervisionTaskDialogOpen"
-        :supervision-task-saving="supervisionTaskSaving"
-        :supervision-task-error="supervisionTaskError"
-        :active-supervision-task="activeSupervisionTask"
-        :recent-supervision-task-history="recentSupervisionTaskHistory"
+        :goal-active="chatGoalActive"
+        :goal-title="chatGoalTitle"
+        :goal-dialog-open="goalDialogOpen"
+        :goal-saving="goalSaving"
+        :goal-error="goalError"
+        :active-goal-task="activeGoalTask"
+        :recent-goal-task-history="recentGoalTaskHistory"
         :unarchived-conversation-items="chatUnarchivedConversationItems"
         :remote-im-contact-conversations="remoteImContactConversations"
         :conversation-items="chatConversationItems || chatUnarchivedConversationItems"
@@ -247,10 +247,10 @@
         @attach-tool-review-report="attachToolReviewReport"
         @lock-workspace="onLockChatWorkspace"
         @open-code-review="$emit('open-code-review')"
-        @open-supervision-task="openSupervisionTaskDialog"
-        @close-supervision-task="closeSupervisionTaskDialog"
-        @save-supervision-task="saveSupervisionTask"
-        @stop-supervision-task="stopSupervisionTask"
+        @open-goal-task="openGoalTaskDialog"
+        @close-goal-task="closeGoalTaskDialog"
+        @save-goal-task="saveGoalTask"
+        @stop-goal-task="stopGoalTask"
         @task-created="setStatus(props.t('config.task.created'))"
         @task-updated="setStatus(props.t('config.task.updated'))"
         @refresh-tool-review-message="onRefreshToolReviewMessage"
@@ -657,12 +657,12 @@ const props = defineProps<{
   createSideConversationBranchFromTurn?: (payload: { turnId: string; sourceConversationId?: string }) => Promise<void> | void;
   closeSideChatConversations?: (conversationIds: string[]) => Promise<void> | void;
   currentChatTodos: ChatTodoItem[];
-  chatSupervisionActive: boolean;
-  chatSupervisionTitle: string;
-  supervisionTaskDialogOpen: boolean;
-  supervisionTaskSaving: boolean;
-  supervisionTaskError: string;
-  activeSupervisionTask: {
+  chatGoalActive: boolean;
+  chatGoalTitle: string;
+  goalDialogOpen: boolean;
+  goalSaving: boolean;
+  goalError: string;
+  activeGoalTask: {
     taskId: string;
     goal: string;
     why: string;
@@ -670,7 +670,7 @@ const props = defineProps<{
     endAtLocal: string;
     remainingHours: number;
   } | null;
-  recentSupervisionTaskHistory: Array<{
+  recentGoalTaskHistory: Array<{
     goal: string;
     why: string;
     todo: string;
@@ -813,10 +813,10 @@ const props = defineProps<{
   }) => Promise<"with_patch" | "message_only" | "cancel">;
   confirmPlan: (payload: { messageId: string }) => void;
   onLockChatWorkspace: () => void;
-  openSupervisionTaskDialog: () => void;
-  closeSupervisionTaskDialog: () => void;
-  saveSupervisionTask: (payload: { durationHours: number; goal: string; why: string; todo: string }) => void;
-  stopSupervisionTask: () => void;
+  openGoalTaskDialog: () => void;
+  closeGoalTaskDialog: () => void;
+  saveGoalTask: (payload: { durationHours: number; goal: string; why: string; todo: string }) => void;
+  stopGoalTask: () => void;
   onRefreshToolReviewMessage: (payload: { conversationId: string; messageId: string }) => void;
   onSwitchConversation: (payload: { conversationId: string; kind?: "local_unarchived" | "remote_im_contact"; remoteContactId?: string }) => void;
   onRenameConversation: (payload: { conversationId: string; title: string }) => void;

@@ -389,9 +389,9 @@
             :frontend-round-phase="frontendRoundPhase" :chat-usage-percent="chatUsagePercent"
             :chatting="chatting" :busy="conversationInteractionBusy"
             :stop-chat-disabled="isOrganizingContextBusy || submitPending" :frozen="frozen"
-            :supervision-active="supervisionActive"
-            :supervision-title="supervisionButtonTitle"
-            :supervision-disabled="activeConversationSummary?.kind === 'remote_im_contact'"
+            :goal-active="goalActive"
+            :goal-title="goalButtonTitle"
+            :goal-disabled="activeConversationSummary?.kind === 'remote_im_contact'"
             :system-notification-mode="activeConversationIsSystemNotification"
             :remote-contact-mode="activeConversationIsRemoteContact"
             :selection-delegate-only="messageSelectionDelegateOnly"
@@ -418,7 +418,7 @@
             @send-chat="handleSendChat" @stop-chat="$emit('stopChat')"
             @open-delegate-selection="openDelegateSelectionMenu"
             @open-task-create="openTaskCreateDialog"
-            @open-supervision-task="$emit('openSupervisionTask')"
+            @open-goal-task="$emit('openGoalTask')"
             @exit-selection-mode="handleExitMessageSelectionMode"
             @selection-action-copy="copySelectedMessages"
             @selection-action-branch="emitSelectionAction('branch')"
@@ -444,12 +444,11 @@
           @copy-image="handleCopyLocalImage" @save-image="handleSaveLocalImage"
         />
 
-        <ChatSupervisionTaskDialog
-          v-if="showConversationActions"
-          :open="supervisionDialogOpen" :saving="supervisionTaskSaving" :error-text="supervisionTaskError"
-          :active-task="activeSupervisionTask" :recent-history="recentSupervisionTaskHistory"
-          @close="$emit('closeSupervisionTask')" @save="$emit('saveSupervisionTask', $event)"
-          @stop="$emit('stopSupervisionTask')"
+        <ChatGoalTaskDialog
+          :open="goalDialogOpen" :saving="goalSaving" :error-text="goalError"
+          :active-task="activeGoalTask" :recent-history="recentGoalTaskHistory"
+          @close="$emit('closeGoalTask')" @save="$emit('saveGoalTask', $event)"
+          @stop="$emit('stopGoalTask')"
         />
         <ToolReviewTargetDialog
           v-if="showConversationActions"
@@ -652,7 +651,7 @@ import ToolReviewTargetDialog from "../components/ToolReviewTargetDialog.vue";
 import FileReaderPanel from "../../file-reader/components/FileReaderPanel.vue";
 import PanelTabStrip from "../../shared/components/PanelTabStrip.vue";
 import ChatImagePreviewDialog from "../components/dialogs/ChatImagePreviewDialog.vue";
-import ChatSupervisionTaskDialog from "../components/dialogs/ChatSupervisionTaskDialog.vue";
+import ChatGoalTaskDialog from "../components/dialogs/ChatGoalTaskDialog.vue";
 import TaskCreateCard from "../components/dialogs/TaskCreateCard.vue";
 import ConversationTodoDropdown from "../components/ConversationTodoDropdown.vue";
 import CompactionSummaryCard from "../components/CompactionSummaryCard.vue";
@@ -706,10 +705,10 @@ const props = defineProps<{
   currentWorkspaceName: string; currentWorkspaceDisplayName?: string; currentWorkspaceRootPath: string; workspaces: ShellWorkspace[];
   currentWorkspaceAutonomousMode?: boolean;
   currentDepartmentId: string; activeAgentId: string; activeConversationId: string; currentTodos: ChatTodoItem[];
-  supervisionActive: boolean; supervisionTitle: string; supervisionDialogOpen: boolean;
-  supervisionTaskSaving: boolean; supervisionTaskError: string;
-  activeSupervisionTask: { taskId: string; goal: string; why: string; todo: string; endAtLocal: string; remainingHours: number } | null;
-  recentSupervisionTaskHistory: Array<{ goal: string; why: string; todo: string; durationHours: number }>;
+  goalActive: boolean; goalTitle: string; goalDialogOpen: boolean;
+  goalSaving: boolean; goalError: string;
+  activeGoalTask: { taskId: string; goal: string; why: string; todo: string; endAtLocal: string; remainingHours: number } | null;
+  recentGoalTaskHistory: Array<{ goal: string; why: string; todo: string; durationHours: number }>;
   currentTheme: string; unarchivedConversationItems: ChatConversationOverviewItem[];
   remoteImContactConversations: RemoteImContactConversationOption[];
   conversationItems?: ChatConversationOverviewItem[]; sideConversationListVisible: boolean;
@@ -758,10 +757,10 @@ const emit = defineEmits<{
   (e: "recallTurn", payload: { turnId: string }): void;
   (e: "regenerateTurn", payload: { turnId: string }): void;
   (e: "confirmPlan", payload: { messageId: string }): void;
-  (e: "lockWorkspace"): void; (e: "openSupervisionTask"): void; (e: "openCodeReview"): void;
-  (e: "closeSupervisionTask"): void;
-  (e: "saveSupervisionTask", payload: { durationHours: number; goal: string; why: string; todo: string }): void;
-  (e: "stopSupervisionTask"): void;
+  (e: "lockWorkspace"): void; (e: "openGoalTask"): void; (e: "openCodeReview"): void;
+  (e: "closeGoalTask"): void;
+  (e: "saveGoalTask", payload: { durationHours: number; goal: string; why: string; todo: string }): void;
+  (e: "stopGoalTask"): void;
   (e: "taskCreated", task: TaskEntry): void;
   (e: "taskUpdated", task: TaskEntry): void;
   (e: "switchConversation", payload: { conversationId: string; kind?: "local_unarchived" | "remote_im_contact"; remoteContactId?: string }): void;
@@ -893,7 +892,7 @@ function handleSelectionCopyFailed() {
 const {
   markdownIsDark, normalizedConversationTodos,
   activeConversationSummary, isCurrentConversationCompacting,
-  activeConversationTerminalApprovals, supervisionButtonTitle,
+  activeConversationTerminalApprovals, goalButtonTitle,
   isOrganizingContextBusy, chatStatusBanner: baseChatStatusBanner, selectedMentionKeys,
   latestPendingPlanMessageId,
 } = useChatConversationCtx(props, isDarkAppTheme, t);

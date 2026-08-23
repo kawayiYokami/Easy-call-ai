@@ -1824,7 +1824,7 @@
       "linkLabel": "Plan: "
     },
     "localImageUnavailable": "Image unavailable",
-    "supervision": {
+    "goal": {
       "buttonTitle": "Start Goal",
       "activeButtonTitle": "This conversation already has an active goal. Click to view or stop it.",
       "buttonHint": "Start a goal bound to this conversation",

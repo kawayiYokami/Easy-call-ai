@@ -279,15 +279,15 @@
         <div v-if="!isMobileCompact" class="flex items-center justify-between">
           <div class="flex items-center">
             <div
-              :class="supervisionActive ? 'aura aura-rainbow aura-sm' : undefined"
-              :style="supervisionActive ? { '--aura-radius': '9999px' } : undefined"
+              :class="goalActive ? 'aura aura-rainbow aura-sm' : undefined"
+              :style="goalActive ? { '--aura-radius': '9999px' } : undefined"
             >
               <button
                 class="btn btn-sm btn-circle shrink-0"
-                :class="supervisionActive ? 'btn-primary' : 'btn-ghost'"
-                :disabled="frozen || supervisionDisabled"
-                :title="supervisionTitle || t('chat.supervision.buttonTitle')"
-                @click="emit('openSupervisionTask')"
+                :class="goalActive ? 'btn-primary' : 'btn-ghost'"
+                :disabled="frozen || goalDisabled"
+                :title="goalTitle || t('chat.goal.buttonTitle')"
+                @click="emit('openGoalTask')"
               >
                 <Target class="h-3.5 w-3.5" />
               </button>
@@ -389,15 +389,15 @@
       <div class="flex items-center justify-between">
         <div class="flex items-center">
           <div
-            :class="supervisionActive ? 'aura aura-rainbow aura-sm' : undefined"
-            :style="supervisionActive ? { '--aura-radius': '9999px' } : undefined"
+            :class="goalActive ? 'aura aura-rainbow aura-sm' : undefined"
+            :style="goalActive ? { '--aura-radius': '9999px' } : undefined"
           >
             <button
               class="btn btn-sm btn-circle shrink-0"
-              :class="supervisionActive ? 'btn-primary' : 'btn-ghost'"
-              :disabled="frozen || supervisionDisabled"
-              :title="supervisionTitle || t('chat.supervision.buttonTitle')"
-              @click="emit('openSupervisionTask')"
+              :class="goalActive ? 'btn-primary' : 'btn-ghost'"
+              :disabled="frozen || goalDisabled"
+              :title="goalTitle || t('chat.goal.buttonTitle')"
+              @click="emit('openGoalTask')"
             >
               <Target class="h-3.5 w-3.5" />
             </button>
@@ -629,9 +629,9 @@ const props = defineProps<{
   busy: boolean;
   stopChatDisabled?: boolean;
   frozen: boolean;
-  supervisionActive: boolean;
-  supervisionTitle: string;
-  supervisionDisabled?: boolean;
+  goalActive: boolean;
+  goalTitle: string;
+  goalDisabled?: boolean;
   systemNotificationMode?: boolean;
   remoteContactMode?: boolean;
   showSideConversationList: boolean;
@@ -676,7 +676,7 @@ const emit = defineEmits<{
   (e: "stopChat"): void;
   (e: "openDelegateSelection"): void;
   (e: "openTaskCreate"): void;
-  (e: "openSupervisionTask"): void;
+  (e: "openGoalTask"): void;
   (e: "open-conversation-list"): void;
   (e: "open-settings"): void;
   (e: "trim-conversation"): void;

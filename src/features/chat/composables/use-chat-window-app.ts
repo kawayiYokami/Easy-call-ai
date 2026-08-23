@@ -328,12 +328,12 @@ export function useChatWindowApp() {
   } = shellData.archivesView;
   const { setConversationPlanMode } = shellData.conversationPlanMode;
   const {
-    refreshActiveSupervisionTask,
-    startSupervisionTaskPolling,
-    clearSupervisionTaskPollTimer,
-    handleConversationChanged: handleSupervisionConversationChanged,
+    refreshActiveGoalTask,
+    startGoalTaskPolling,
+    clearGoalTaskPollTimer,
+    handleConversationChanged: handleGoalConversationChanged,
     applyConversationGoalUpdated,
-  } = shellData.supervisionTask;
+  } = shellData.goalTask;
   const agentWorkPresence = shellData.agentWorkPresence;
   let refreshToolsStatus: () => void | Promise<void> = () => {};
   const configOrchestrator = useChatWindowConfigOrchestrator({
@@ -878,10 +878,10 @@ export function useChatWindowApp() {
     unarchivedConversations,
     agentWorkPresence,
     cancelPendingRewindConfirm: shellDialogFlows.cancelPendingRewindConfirm,
-    handleSupervisionConversationChanged,
-    clearSupervisionTaskPollTimer,
-    startSupervisionTaskPolling,
-    refreshActiveSupervisionTask,
+    handleGoalConversationChanged,
+    clearGoalTaskPollTimer,
+    startGoalTaskPolling,
+    refreshActiveGoalTask,
     applyConversationGoalUpdated,
     ...configDerived,
     ...configCore,
@@ -1025,7 +1025,7 @@ export function useChatWindowApp() {
     ...shellData.githubUpdate,
     ...shellData.archivesView,
     ...shellData.conversationPlanMode,
-    ...shellData.supervisionTask,
+    ...shellData.goalTask,
     ...shellData.archiveImport,
     ...configDerived,
     ...configCore,

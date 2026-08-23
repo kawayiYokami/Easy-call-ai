@@ -18,8 +18,8 @@ export function useChatConversationCtx(
     trimmingConversationId?: string;
     terminalApprovals?: TerminalApprovalConversationItem[];
     terminalApprovalResolving?: boolean;
-    supervisionActive: boolean;
-    supervisionTitle: string;
+    goalActive: boolean;
+    goalTitle: string;
     chatErrorText: string;
     selectedMentions: ChatMentionTarget[];
     messageBlocks: Array<{
@@ -98,9 +98,9 @@ export function useChatConversationCtx(
     return conversationApprovals.length > 0 ? conversationApprovals : allApprovals;
   });
 
-  const supervisionButtonTitle = computed(() => {
-    const base = props.supervisionActive ? t("chat.supervision.activeButtonTitle") : t("chat.supervision.buttonTitle");
-    const detail = String(props.supervisionTitle || "").trim();
+  const goalButtonTitle = computed(() => {
+    const base = props.goalActive ? t("chat.goal.activeButtonTitle") : t("chat.goal.buttonTitle");
+    const detail = String(props.goalTitle || "").trim();
     return detail ? `${base}\n${detail}` : base;
   });
 
@@ -195,7 +195,7 @@ export function useChatConversationCtx(
     activeConversationSummary,
     isCurrentConversationCompacting,
     activeConversationTerminalApprovals,
-    supervisionButtonTitle,
+    goalButtonTitle,
     isOrganizingContextBusy,
     chatStatusBanner,
     selectedMentionKeys,
