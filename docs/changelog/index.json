@@ -1,7 +1,12 @@
 {
-  "generatedAt": "2026-08-23T10:04:32.828Z",
-  "latestVersion": "v0.73.0",
+  "generatedAt": "2026-08-23T12:18:47.571Z",
+  "latestVersion": "v0.73.1",
   "releases": [
+    {
+      "version": "v0.73.1",
+      "path": "docs/changelog/releases/v0.73.1.md",
+      "summary": "修复 Web 端（VS Code 侧边栏）无法创建会话的问题：新建会话与草稿打开命令已接入 Web 传输层"
+    },
     {
       "version": "v0.73.0",
       "path": "docs/changelog/releases/v0.73.0.md",
