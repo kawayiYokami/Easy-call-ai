@@ -289,9 +289,9 @@
       :style="mentionListPopupStyle"
     >
       <div class="relative overflow-hidden rounded-box border border-base-300 bg-base-100 shadow-xl">
-        <div
-          ref="mentionListScrollRef"
-          class="ecall-toolbar-mention-scroll max-h-[min(56vh,24rem)] min-w-56 max-w-[min(80vw,20rem)] overflow-y-auto overscroll-contain p-1"
+        <OverlayScrollArea
+          ref="mentionListAreaRef"
+          scroller-class="ecall-toolbar-mention-scroll max-h-[min(56vh,24rem)] min-w-56 max-w-[min(80vw,20rem)] overscroll-contain p-1"
         >
           <ul class="flex flex-col gap-1">
             <li
@@ -347,8 +347,7 @@
               </button>
             </li>
           </ul>
-        </div>
-        <FloatingScrollbar ref="mentionListScrollbarRef" :target="mentionListScrollRef" />
+        </OverlayScrollArea>
       </div>
     </div>
   </Teleport>
@@ -358,10 +357,13 @@
       class="fixed z-1200"
       :style="avatarPopupStyle"
     >
-      <div class="relative overflow-hidden rounded-box border border-base-300 bg-base-100 shadow-xl">
-        <div
-          ref="avatarPopupPanelRef"
-          class="ecall-toolbar-mention-scroll max-h-[min(56vh,24rem)] w-max max-w-[min(80vw,20rem)] overflow-y-auto overscroll-contain p-1"
+      <div
+        ref="avatarPopupPanelRef"
+        class="relative overflow-hidden rounded-box border border-base-300 bg-base-100 shadow-xl"
+      >
+        <OverlayScrollArea
+          ref="avatarPopupAreaRef"
+          scroller-class="ecall-toolbar-mention-scroll max-h-[min(56vh,24rem)] w-max max-w-[min(80vw,20rem)] overscroll-contain p-1"
         >
         <ul class="flex flex-col gap-1">
           <li
@@ -395,8 +397,7 @@
             </button>
           </li>
         </ul>
-        </div>
-        <FloatingScrollbar ref="avatarPopupScrollbarRef" :target="avatarPopupPanelRef" />
+        </OverlayScrollArea>
       </div>
     </div>
   </Teleport>
@@ -407,7 +408,7 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, useAttrs, type Ref
 import { useI18n } from "vue-i18n";
 import { BellRing, ChevronRight, ClipboardCheck, ClipboardList, GitBranch, GitBranchPlus, Grip, ListTodo, MessageSquareMore, Package, Palette, Send, Share2, Split, Users } from "@lucide/vue";
 import type { ChatMentionEntry, ConversationDelegateStatusSummary } from "../../../types/app";
-import FloatingScrollbar from "../../shell/components/FloatingScrollbar.vue";
+import OverlayScrollArea from "../../shared/components/OverlayScrollArea.vue";
 import { SIDE_FILE_TAGS_AVAILABLE, useChatComposerAppearance } from "../../shell/composables/use-chat-composer-appearance";
 import { useChatMessageAppearance, type ChatMarkdownLayout } from "../../shell/composables/use-chat-message-appearance";
 import { useFileReaderAppearance } from "../../shell/composables/use-file-reader-appearance";
@@ -596,8 +597,7 @@ const fileTagsContextMenuRef = ref<HTMLElement | null>(null);
 const mentionListButtonRef = ref<HTMLButtonElement | null>(null);
 const mentionListPopupOpen = ref(false);
 const mentionListPopupRef = ref<HTMLElement | null>(null);
-const mentionListScrollRef = ref<HTMLElement | null>(null);
-const mentionListScrollbarRef = ref<InstanceType<typeof FloatingScrollbar> | null>(null);
+const mentionListAreaRef = ref<InstanceType<typeof OverlayScrollArea> | null>(null);
 const mentionListPopupStyle = ref<Record<string, string>>({
   left: "0px",
   top: "0px",
@@ -628,7 +628,7 @@ const avatarPopupTarget = ref<{
 } | null>(null);
 const avatarPopupAnchorEl = ref<HTMLElement | null>(null);
 const avatarPopupPanelRef = ref<HTMLElement | null>(null);
-const avatarPopupScrollbarRef = ref<InstanceType<typeof FloatingScrollbar> | null>(null);
+const avatarPopupAreaRef = ref<InstanceType<typeof OverlayScrollArea> | null>(null);
 
 const avatarPopupStyle = ref<Record<string, string>>({
   left: "0px",
@@ -711,7 +711,7 @@ async function updateMentionListPopupPlacement(anchorRect?: DOMRect) {
     preferredWidth: 320,
     alignRight: true,
   });
-  mentionListScrollbarRef.value?.updateThumb();
+  mentionListAreaRef.value?.updateThumb();
 }
 
 async function updateAvatarPopupPlacement(anchorRect?: DOMRect) {
@@ -722,7 +722,7 @@ async function updateAvatarPopupPlacement(anchorRect?: DOMRect) {
     preferredWidth: 320,
     alignRight: true,
   });
-  avatarPopupScrollbarRef.value?.updateThumb();
+  avatarPopupAreaRef.value?.updateThumb();
 }
 
 function handleCompactPersonaEntryClick(event: MouseEvent, entry: ChatMentionEntry & { selected?: boolean }) {

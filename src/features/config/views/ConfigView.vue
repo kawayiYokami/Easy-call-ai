@@ -267,10 +267,8 @@
       <label for="config-drawer-toggle" aria-label="关闭设置导航" class="drawer-overlay"></label>
       <aside
         class="relative flex h-full min-h-0 w-44 flex-col border-r border-base-300 bg-base-200 px-2"
-        @mouseenter="navScrollbarRef?.reveal()"
-        @mouseleave="navScrollbarRef?.hide()"
       >
-        <div ref="navScrollerRef" class="ecall-floating-scroll-target min-h-0 flex-1 overflow-y-auto pr-1">
+        <OverlayScrollArea class="min-h-0 flex-1" scroller-class="pr-1">
           <ul class="menu w-full gap-1 p-0 pt-2 [&>li>a]:w-full">
             <li v-for="item in visibleConfigNavItems" :key="item.tab">
               <a :class="configNavLinkClass(item.tab)" @click="selectConfigNavTab(item.tab)">
@@ -284,8 +282,7 @@
               </a>
             </li>
           </ul>
-        </div>
-        <FloatingScrollbar ref="navScrollbarRef" :target="navScrollerRef" />
+        </OverlayScrollArea>
       </aside>
     </div>
   </div>
@@ -433,7 +430,7 @@ import {
 } from "../../../services/tauri-api";
 import { toErrorMessage } from "../../../utils/error";
 import { ArrowLeftRight, Beaker, Bell, Building2, ClipboardList, Code, Cpu, Database, Home, Info, Keyboard, Menu, Network, Palette, Puzzle, Radio, ScrollText, Star, User, Wifi, Wrench } from "@lucide/vue";
-import FloatingScrollbar from "../../shell/components/FloatingScrollbar.vue";
+import OverlayScrollArea from "../../shared/components/OverlayScrollArea.vue";
 
 type ConfigTab = "welcome" | "hotkey" | "api" | "tools" | "mcp" | "skill" | "persona" | "department" | "departmentTree" | "demo" | "chatSettings" | "notification" | "networkAccess" | "remoteIm" | "usage" | "memory" | "task" | "logs" | "appearance" | "migration" | "about";
 type AvatarTarget = { agentId: string };
@@ -613,8 +610,6 @@ const cropperReady = ref(false);
 const localCropError = ref("");
 const avatarEditorTargetId = ref("");
 const configDrawerOpen = ref(false);
-const navScrollerRef = ref<HTMLElement | null>(null);
-const navScrollbarRef = ref<InstanceType<typeof FloatingScrollbar> | null>(null);
 const memorySyncLocked = ref(false);
 const savingToolsConfig = ref(false);
 let cropper: Cropper | null = null;

@@ -7,7 +7,7 @@
     <div
       ref="scrollerRef"
       class="overlay-scroll-area-scroller"
-      :class="scrollerClass"
+      :class="[props.scrollerClass, scrollerOverflowClass]"
       @wheel="handleWheel"
     >
       <slot />
@@ -35,9 +35,11 @@ import FloatingScrollbar from "../../shell/components/FloatingScrollbar.vue";
 const props = withDefaults(defineProps<{
   orientation?: "vertical" | "horizontal" | "both";
   variant?: "theme" | "code-dark";
+  scrollerClass?: string;
 }>(), {
   orientation: "vertical",
   variant: "theme",
+  scrollerClass: "",
 });
 
 const scrollerRef = ref<HTMLElement | null>(null);
@@ -47,7 +49,7 @@ const horizontalScrollbarRef = ref<InstanceType<typeof FloatingScrollbar> | null
 const showVerticalScrollbar = computed(() => props.orientation === "vertical" || props.orientation === "both");
 const showHorizontalScrollbar = computed(() => props.orientation === "horizontal" || props.orientation === "both");
 
-const scrollerClass = computed(() => {
+const scrollerOverflowClass = computed(() => {
   if (props.orientation === "horizontal") return "overflow-x-auto overflow-y-hidden";
   if (props.orientation === "both") return "overflow-auto";
   return "overflow-x-hidden overflow-y-auto";
@@ -104,6 +106,13 @@ watch(
     void nextTick(updateScrollbars);
   },
 );
+
+defineExpose({
+  scrollerRef,
+  updateThumb: updateScrollbars,
+  reveal: revealScrollbars,
+  hide: hideScrollbars,
+});
 </script>
 
 <style scoped>

@@ -1,21 +1,17 @@
 <template>
-  <div class="relative overflow-hidden" @mouseenter="scrollbarRef?.reveal()" @mouseleave="scrollbarRef?.hide()">
-    <div ref="scrollerRef" class="conversation-list-scroll h-full overflow-y-auto">
-      <slot />
-    </div>
-    <FloatingScrollbar ref="scrollbarRef" :target="scrollerRef" />
-  </div>
+  <OverlayScrollArea ref="areaRef" class="h-full overflow-hidden" scroller-class="h-full">
+    <slot />
+  </OverlayScrollArea>
 </template>
 
 <script setup lang="ts">
 import { ref } from "vue";
-import FloatingScrollbar from "../../shell/components/FloatingScrollbar.vue";
+import OverlayScrollArea from "../../shared/components/OverlayScrollArea.vue";
 
-const scrollerRef = ref<HTMLElement | null>(null);
-const scrollbarRef = ref<InstanceType<typeof FloatingScrollbar> | null>(null);
+const areaRef = ref<InstanceType<typeof OverlayScrollArea> | null>(null);
 
 function scrollToElement(element: HTMLElement | null | undefined) {
-  const scroller = scrollerRef.value;
+  const scroller = areaRef.value?.scrollerRef;
   if (!scroller || !element) return;
   const scrollerRect = scroller.getBoundingClientRect();
   const elementRect = element.getBoundingClientRect();
@@ -24,20 +20,7 @@ function scrollToElement(element: HTMLElement | null | undefined) {
 }
 
 defineExpose({
-  updateThumb: () => scrollbarRef.value?.updateThumb(),
+  updateThumb: () => areaRef.value?.updateThumb(),
   scrollToElement,
 });
 </script>
-
-<style scoped>
-.conversation-list-scroll {
-  scrollbar-gutter: auto;
-  scrollbar-width: none;
-  -ms-overflow-style: none;
-}
-
-.conversation-list-scroll::-webkit-scrollbar {
-  width: 0;
-  height: 0;
-}
-</style>

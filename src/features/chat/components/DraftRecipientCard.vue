@@ -76,7 +76,7 @@
             class="absolute z-30 w-full overflow-hidden rounded-box border border-base-300 bg-base-100 shadow-xl"
             :class="workspaceDropdownDirection === 'up' ? 'bottom-full mb-2' : 'top-full mt-2'"
           >
-            <div class="max-h-60 overflow-y-auto overscroll-contain p-1">
+            <OverlayScrollArea scroller-class="max-h-60 overscroll-contain" class="p-1">
               <button
                 v-for="option in mergedOptions"
                 :key="option.path"
@@ -94,7 +94,7 @@
                   class="h-3.5 w-3.5 shrink-0 text-primary"
                 />
               </button>
-            </div>
+            </OverlayScrollArea>
           </div>
         </div>
         <div class="flex max-w-full flex-wrap items-center justify-center gap-2">
@@ -258,6 +258,7 @@ import { FolderOpen, FolderSearch, ChevronDown, Check } from "@lucide/vue";
 import { openTransportFileDialog } from "../../../services/tauri-api";
 import { departmentPersonaOptionId, type DepartmentPersonaOption } from "../../shared/department-persona-options";
 import PersonaGroupGrid from "../../shared/components/PersonaGroupGrid.vue";
+import OverlayScrollArea from "../../shared/components/OverlayScrollArea.vue";
 
 interface RecentRecipientGroup {
   agentId: string;

@@ -122,6 +122,7 @@ Tauri 管理 3 个无边框窗口：`main`（配置，900×900）、`chat`（对
 ### 前端规则
 
 - DaisyUI 组件优先，避免手写重复样式
+- 滚动区统一使用 `OverlayScrollArea`（`src/features/shared/components/OverlayScrollArea.vue`）：普通 div 滚动容器一律用它包裹，不要裸挂 `FloatingScrollbar`、不要直接写 `overflow-y-auto` 了事；需要外部同步时用它的 expose（`scrollerRef` / `updateThumb` / `reveal` / `hide`），限高与布局类通过 `scroller-class` 传给内部 scroller。具名例外：textarea 自滚动、聊天主区与代码区等虚拟列表 scroller（事件与联动密集）仍直接挂 `FloatingScrollbar`
 - 配置页"有改动才允许保存"，保存后状态立即回写
 - 不要默认引入 watch/autosave；当前配置页以显式保存为主
 - APP 与 Web/VS Code 的传输差异只能收敛在 `tauri-api`；会改变会话、轮次或消息状态的运行时流程不得按宿主分支或复制实现。

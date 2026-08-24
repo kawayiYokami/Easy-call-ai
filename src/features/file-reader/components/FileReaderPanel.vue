@@ -162,8 +162,7 @@
               />
             </label>
           </div>
-          <div class="relative min-h-0 flex-1" @mouseenter="directoryScrollbarRef?.reveal()" @mouseleave="directoryScrollbarRef?.hide()">
-          <div ref="directoryScroller" class="file-reader-scroll-container min-h-0 h-full overflow-auto py-1 text-sm">
+          <OverlayScrollArea ref="directoryAreaRef" class="min-h-0 flex-1" scroller-class="file-reader-scroll-container min-h-0 h-full py-1 text-sm">
             <div v-if="directoryTreeRoot.loading" class="flex items-center gap-2 px-3 py-2 text-xs opacity-65">
               <span class="loading loading-spinner loading-xs"></span>
               {{ t('fileReader.loadingDirectory') }}
@@ -215,9 +214,7 @@
               </template>
             </div>
           </template>
-        </div>
-        <FloatingScrollbar ref="directoryScrollbarRef" :target="directoryScroller" />
-        </div>
+        </OverlayScrollArea>
         </template>
 
         <template v-else>
@@ -751,6 +748,7 @@ import ChatImagePreviewDialog from "../../chat/components/dialogs/ChatImagePrevi
 import { useChatImagePreview } from "../../chat/composables/use-chat-image-preview";
 import { isAbsoluteLocalPath, isAssistantSpacePath, normalizeLocalLinkHref, parseLocalFileReference } from "../../chat/utils/local-link";
 import FloatingScrollbar from "../../shell/components/FloatingScrollbar.vue";
+import OverlayScrollArea from "../../shared/components/OverlayScrollArea.vue";
 import { useFileReaderAppearance } from "../../shell/composables/use-file-reader-appearance";
 import PanelTabStrip from "../../shared/components/PanelTabStrip.vue";
 import GitPanel from "./GitPanel.vue";
@@ -901,8 +899,7 @@ const contentScroller = ref<HTMLElement | null>(null);
 const markdownScroller = ref<HTMLElement | null>(null);
 const virtualCodeScroller = ref<HTMLElement | null>(null);
 const plainTextScroller = ref<HTMLElement | null>(null);
-const directoryScroller = ref<HTMLElement | null>(null);
-const directoryScrollbarRef = ref<InstanceType<typeof FloatingScrollbar> | null>(null);
+const directoryAreaRef = ref<InstanceType<typeof OverlayScrollArea> | null>(null);
 const virtualCodeScrollbarRef = ref<InstanceType<typeof FloatingScrollbar> | null>(null);
 const addressScrollState = ref({ scrollable: false, left: 0, clientWidth: 0, scrollWidth: 0 });
 const showTabs = computed(() => props.showTabs !== false && !props.directoryOnly);
@@ -2409,7 +2406,7 @@ async function revealPathInDirectoryTree(path: string) {
   const rowIndex = visibleTreeRows.value.findIndex((row) =>
     row.kind === "entry" && !row.entry.isDirectory && sameNormalizedPath(row.entry.path, targetPath)
   );
-  const scroller = directoryScroller.value;
+  const scroller = directoryAreaRef.value?.scrollerRef ?? null;
   if (rowIndex < 0 || !scroller) return;
   scroller.scrollTop = Math.max(0, rowIndex * 28 - Math.round(scroller.clientHeight / 2));
 }
