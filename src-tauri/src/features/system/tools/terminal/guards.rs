@@ -36,29 +36,95 @@ fn terminal_git_dangerous_block_reason(command: &str) -> Option<&'static str> {
         let Some(first) = simple.argv.first() else {
             continue;
         };
-        let base_cmd = terminal_unquote_token(first).to_ascii_lowercase();
-        if base_cmd != "git" {
+        if terminal_unquote_token(first).to_ascii_lowercase() != "git" {
             continue;
+        }
+        // 跳过 git 全局选项及其参数（-C <path>、-c <key>=<val> 等），
+        // 之后第一个非选项 token 才是子命令；否则 -C 会占位导致 push 拦截失效
+        let mut sub_index = 1usize;
+        while sub_index < simple.argv.len() {
+            let token = terminal_unquote_token(&simple.argv[sub_index]);
+            if !token.starts_with('-') {
+                break;
+            }
+            // 带参数的全局选项：跳过其参数
+            let takes_value = matches!(
+                token.as_str(),
+                "-C" | "-c" | "--git-dir" | "--work-tree" | "--namespace" | "--exec-path"
+                    | "--shallow-file" | "--config-env"
+            ) || token.starts_with("--git-dir=")
+                || token.starts_with("--work-tree=")
+                || token.starts_with("--namespace=")
+                || token.starts_with("--exec-path=")
+                || token.starts_with("-c=");
+            sub_index += 1;
+            if takes_value && sub_index < simple.argv.len() {
+                sub_index += 1;
+            }
         }
         let second = simple
             .argv
-            .get(1)
+            .get(sub_index)
             .map(|item| terminal_unquote_token(item).to_ascii_lowercase())
             .unwrap_or_default();
-        let has_force_flag = simple.argv.iter().skip(2).any(|item| {
+        // 子命令之后的参数（跳过全局选项后定位）
+        let sub_args = simple.argv.iter().skip(sub_index + 1);
+        let has_force_flag = sub_args.clone().any(|item| {
             let token = terminal_unquote_token(item).to_ascii_lowercase();
             matches!(token.as_str(), "-f" | "--force")
         });
 
         match second.as_str() {
-            "push" if has_force_flag => {
-                return Some("git push --force/-f is especially dangerous and is blocked");
+            // push 会改写远端状态且影响共享仓库，一律拦截（用户策略：push 须经确认）
+            "push" => {
+                return Some("git push is especially dangerous and is blocked");
             }
             "pull" if has_force_flag => {
                 return Some("git pull --force/-f is especially dangerous and is blocked");
             }
             "reset" => return Some("git reset is blocked"),
             "clean" => return Some("git clean is blocked"),
+            // 强删分支（-D）会丢弃整条分支；--delete --force 与 -d -f 是等价组合，
+            // -d 单独是安全删除不拦（注意 -D 不能转小写，否则与 -d 混淆）
+            "branch" => {
+                let raw_args: Vec<String> = sub_args
+                    .clone()
+                    .map(|item| terminal_unquote_token(item))
+                    .collect();
+                let delete = raw_args.iter().any(|t| {
+                    matches!(t.as_str(), "-d" | "--delete" | "-D")
+                });
+                let force = raw_args.iter().any(|t| {
+                    matches!(t.as_str(), "-f" | "--force" | "-D")
+                });
+                if delete && force {
+                    return Some("git branch -D is especially dangerous and is blocked");
+                }
+            }
+            // 清空/删除储藏不可恢复
+            "stash" => {
+                let third = sub_args
+                    .clone()
+                    .next()
+                    .map(|item| terminal_unquote_token(item).to_ascii_lowercase())
+                    .unwrap_or_default();
+                if matches!(third.as_str(), "clear" | "drop") {
+                    return Some("git stash clear/drop is especially dangerous and is blocked");
+                }
+            }
+            // rebase 改写提交历史，正常人不会主动用
+            "rebase" => return Some("git rebase is especially dangerous and is blocked"),
+            // 改远端目标影响后续 push 落点；rm 是 remove 的官方别名
+            "remote" => {
+                let third = sub_args
+                    .clone()
+                    .next()
+                    .map(|item| terminal_unquote_token(item).to_ascii_lowercase())
+                    .unwrap_or_default();
+                if matches!(third.as_str(), "remove" | "rm" | "set-url") {
+                    return Some("git remote remove/set-url is especially dangerous and is blocked");
+                }
+            }
             _ => {}
         }
     }
@@ -207,11 +273,109 @@ mod terminal_output_decode_tests {
     }
 
     #[test]
-    fn git_push_force_should_be_blocked_as_high_risk() {
+    fn git_push_should_be_blocked_by_local_rule() {
+        // 普通 push 同样拦截（用户策略：push 会改写共享远端，须经确认）
+        assert_eq!(
+            terminal_command_block_reason("git push origin main"),
+            Some("git push is especially dangerous and is blocked")
+        );
         assert_eq!(
             terminal_command_block_reason("git push --force origin main"),
-            Some("git push --force/-f is especially dangerous and is blocked")
+            Some("git push is especially dangerous and is blocked")
         );
+        // 带 -f 短标志也一样
+        assert_eq!(
+            terminal_command_block_reason("git push -f origin main"),
+            Some("git push is especially dangerous and is blocked")
+        );
+    }
+
+    #[test]
+    fn git_push_with_global_options_should_be_blocked() {
+        // -C <path> 全局选项：跳过选项及其参数后再识别 push 子命令
+        assert_eq!(
+            terminal_command_block_reason("git -C /repo push origin main"),
+            Some("git push is especially dangerous and is blocked")
+        );
+        // 多个全局选项连用
+        assert_eq!(
+            terminal_command_block_reason("git -C /repo -c user.name=test push origin main"),
+            Some("git push is especially dangerous and is blocked")
+        );
+        // 非 git 命令不受影响
+        assert_eq!(terminal_command_block_reason("git -C /repo status"), None);
+    }
+
+    #[test]
+    fn git_branch_force_delete_should_be_blocked() {
+        assert_eq!(
+            terminal_command_block_reason("git branch -D old-feature"),
+            Some("git branch -D is especially dangerous and is blocked")
+        );
+        // --delete --force 与 -d -f 是 -D 的等价组合，同样拦截
+        assert_eq!(
+            terminal_command_block_reason("git branch --delete --force old-feature"),
+            Some("git branch -D is especially dangerous and is blocked")
+        );
+        assert_eq!(
+            terminal_command_block_reason("git branch -d -f old-feature"),
+            Some("git branch -D is especially dangerous and is blocked")
+        );
+        // 安全删除 -d 不拦
+        assert_eq!(terminal_command_block_reason("git branch -d old-feature"), None);
+        // 单独 --delete 或单独 --force 不拦（不是强删组合）
+        assert_eq!(terminal_command_block_reason("git branch --delete old-feature"), None);
+        assert_eq!(terminal_command_block_reason("git branch -f new-branch"), None);
+        // 普通 branch 列表/新建不拦
+        assert_eq!(terminal_command_block_reason("git branch"), None);
+        assert_eq!(terminal_command_block_reason("git branch new-feature"), None);
+    }
+
+    #[test]
+    fn git_stash_clear_drop_should_be_blocked() {
+        assert_eq!(
+            terminal_command_block_reason("git stash clear"),
+            Some("git stash clear/drop is especially dangerous and is blocked")
+        );
+        assert_eq!(
+            terminal_command_block_reason("git stash drop stash@{0}"),
+            Some("git stash clear/drop is especially dangerous and is blocked")
+        );
+        // 普通 stash 操作不拦
+        assert_eq!(terminal_command_block_reason("git stash"), None);
+        assert_eq!(terminal_command_block_reason("git stash apply"), None);
+    }
+
+    #[test]
+    fn git_rebase_should_be_blocked() {
+        assert_eq!(
+            terminal_command_block_reason("git rebase main"),
+            Some("git rebase is especially dangerous and is blocked")
+        );
+        assert_eq!(
+            terminal_command_block_reason("git rebase -i HEAD~3"),
+            Some("git rebase is especially dangerous and is blocked")
+        );
+    }
+
+    #[test]
+    fn git_remote_remove_set_url_should_be_blocked() {
+        assert_eq!(
+            terminal_command_block_reason("git remote remove origin"),
+            Some("git remote remove/set-url is especially dangerous and is blocked")
+        );
+        // rm 是 remove 的官方别名，同样拦截
+        assert_eq!(
+            terminal_command_block_reason("git remote rm origin"),
+            Some("git remote remove/set-url is especially dangerous and is blocked")
+        );
+        assert_eq!(
+            terminal_command_block_reason("git remote set-url origin https://example.com/repo.git"),
+            Some("git remote remove/set-url is especially dangerous and is blocked")
+        );
+        // 查看远端不拦
+        assert_eq!(terminal_command_block_reason("git remote -v"), None);
+        assert_eq!(terminal_command_block_reason("git remote add upstream https://example.com/up.git"), None);
     }
 
     #[test]
