@@ -276,140 +276,14 @@
                   {{ t("config.department.permissionCatalogLoadFailed", { err: permissionCatalogError }) }}
                 </div>
                 <template v-else>
-                  <div class="grid min-w-0 gap-2 overflow-hidden">
-                    <div class="text-xs font-medium text-base-content/70">{{ t("config.department.permissionBuiltinTools") }}</div>
-                    <fieldset class="grid min-w-0 gap-2 overflow-hidden">
-                      <button
-                        v-for="item in visiblePermissionBuiltinTools"
-                        :key="`builtin-${item.name}`"
-                        type="button"
-                        class="flex min-w-0 w-full max-w-full items-center gap-3 overflow-hidden rounded-xl border px-3 py-2.5 text-left transition"
-                        :class="[
-                          permissionNameChecked('builtinToolNames', item.name)
-                            ? permissionCardTone.card
-                            : 'border-base-content/10 bg-base-200 text-base-content',
-                          permissionListDisabled
-                            ? 'cursor-not-allowed opacity-60'
-                            : 'cursor-pointer hover:border-base-content/20',
-                        ]"
-                        :aria-checked="permissionNameChecked('builtinToolNames', item.name)"
-                        role="checkbox"
-                        :disabled="permissionListDisabled"
-                        @click="toggleBuiltinPermissionName(item.name)"
-                      >
-                        <span
-                          class="flex h-5 w-5 shrink-0 items-center justify-center rounded border transition"
-                          :class="permissionNameChecked('builtinToolNames', item.name)
-                            ? permissionCardTone.box
-                            : 'border-base-content/20 bg-base-200 text-transparent'"
-                        >
-                          <component :is="permissionCardTone.icon" class="h-3.5 w-3.5" />
-                        </span>
-                        <span class="min-w-0 flex flex-1 items-center gap-2 overflow-hidden">
-                          <span class="max-w-56 shrink-0 truncate text-sm font-semibold" :title="item.name">{{ item.name }}</span>
-                          <span
-                            v-if="item.description"
-                            class="min-w-0 truncate text-xs"
-                            :class="permissionNameChecked('builtinToolNames', item.name) ? 'text-base-content/80' : 'text-base-content/80'"
-                            :title="item.description"
-                          >
-                            {{ truncatePermissionDescription(item.description) }}
-                          </span>
-                        </span>
-                      </button>
-                    </fieldset>
+                  <div v-if="skillPermissionRequiresExec" class="text-xs text-base-content/50">
+                    {{ t("config.department.permissionSkillsRequireExec") }}
                   </div>
-
-                  <div class="grid min-w-0 gap-2 overflow-hidden">
-                    <div class="text-xs font-medium text-base-content/70">{{ t("config.department.permissionSkills") }}</div>
-                    <div v-if="skillPermissionRequiresExec" class="text-xs text-base-content/50">
-                      {{ t("config.department.permissionSkillsRequireExec") }}
-                    </div>
-                    <fieldset class="grid min-w-0 gap-2 overflow-hidden">
-                      <button
-                        v-for="item in visiblePermissionSkills"
-                        :key="`skill-${item.name}`"
-                        type="button"
-                        class="flex min-w-0 w-full max-w-full items-center gap-3 overflow-hidden rounded-xl border px-3 py-2.5 text-left transition"
-                        :class="[
-                          permissionNameChecked('skillNames', item.name)
-                            ? permissionCardTone.card
-                            : 'border-base-content/10 bg-base-200 text-base-content',
-                          skillPermissionListDisabled
-                            ? 'cursor-not-allowed opacity-60'
-                            : 'cursor-pointer hover:border-base-content/20',
-                        ]"
-                        :aria-checked="permissionNameChecked('skillNames', item.name)"
-                        role="checkbox"
-                        :disabled="skillPermissionListDisabled"
-                        @click="handleSkillPermissionToggle(item.name)"
-                      >
-                        <span
-                          class="flex h-5 w-5 shrink-0 items-center justify-center rounded border transition"
-                          :class="permissionNameChecked('skillNames', item.name)
-                            ? permissionCardTone.box
-                            : 'border-base-content/20 bg-base-200 text-transparent'"
-                        >
-                          <component :is="permissionCardTone.icon" class="h-3.5 w-3.5" />
-                        </span>
-                        <span class="min-w-0 flex flex-1 items-center gap-2 overflow-hidden">
-                          <span class="max-w-56 shrink-0 truncate text-sm font-semibold" :title="item.name">{{ item.name }}</span>
-                          <span
-                            v-if="item.description"
-                            class="min-w-0 truncate text-xs"
-                            :class="permissionNameChecked('skillNames', item.name) ? 'text-base-content/80' : 'text-base-content/80'"
-                            :title="item.description"
-                          >
-                            {{ truncatePermissionDescription(item.description) }}
-                          </span>
-                        </span>
-                      </button>
-                    </fieldset>
-                  </div>
-
-                  <div class="grid min-w-0 gap-2 overflow-hidden">
-                    <div class="text-xs font-medium text-base-content/70">{{ t("config.department.permissionMcpTools") }}</div>
-                    <fieldset class="grid min-w-0 gap-2 overflow-hidden">
-                      <button
-                        v-for="item in permissionCatalog.mcpTools"
-                        :key="`mcp-${item.name}`"
-                        type="button"
-                        class="flex min-w-0 w-full max-w-full items-center gap-3 overflow-hidden rounded-xl border px-3 py-2.5 text-left transition"
-                        :class="[
-                          permissionNameChecked('mcpToolNames', item.name)
-                            ? permissionCardTone.card
-                            : 'border-base-content/10 bg-base-200 text-base-content',
-                          permissionListDisabled
-                            ? 'cursor-not-allowed opacity-60'
-                            : 'cursor-pointer hover:border-base-content/20',
-                        ]"
-                        :aria-checked="permissionNameChecked('mcpToolNames', item.name)"
-                        role="checkbox"
-                        :disabled="permissionListDisabled"
-                        @click="togglePermissionName('mcpToolNames', item.name, !permissionNameChecked('mcpToolNames', item.name))"
-                      >
-                        <span
-                          class="flex h-5 w-5 shrink-0 items-center justify-center rounded border transition"
-                          :class="permissionNameChecked('mcpToolNames', item.name)
-                            ? permissionCardTone.box
-                            : 'border-base-content/20 bg-base-200 text-transparent'"
-                        >
-                          <component :is="permissionCardTone.icon" class="h-3.5 w-3.5" />
-                        </span>
-                        <span class="min-w-0 flex flex-1 items-center gap-2 overflow-hidden">
-                          <span class="max-w-56 shrink-0 truncate text-sm font-semibold" :title="item.name">{{ item.name }}</span>
-                          <span
-                            v-if="item.description"
-                            class="min-w-0 truncate text-xs"
-                            :class="permissionNameChecked('mcpToolNames', item.name) ? 'text-base-content/80' : 'text-base-content/80'"
-                            :title="item.description"
-                          >
-                            {{ truncatePermissionDescription(item.description) }}
-                          </span>
-                        </span>
-                      </button>
-                    </fieldset>
-                  </div>
+                  <DepartmentToolTree
+                    :sections="toolTreeSections"
+                    @leaf-toggle="handleToolTreeLeafToggle"
+                    @group-toggle="handleToolTreeGroupToggle"
+                  />
                 </template>
               </div>
             </div>
@@ -425,10 +299,17 @@
 
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from "vue";
-import { Check, Plus, RotateCcw, Save, Trash2, X } from "@lucide/vue";
+import { Plus, RotateCcw, Save, Trash2 } from "@lucide/vue";
 import { useI18n } from "vue-i18n";
 import { invokeTauri } from "../../../../services/tauri-api";
 import type { ApiConfigItem, AppConfig, DepartmentConfig, DepartmentPermissionCatalog, PersonaProfile } from "../../../../types/app";
+import {
+  buildBuiltinToolGroups,
+  buildMcpToolGroups,
+  type DepartmentToolLeafCategory,
+  type DepartmentToolTreeSection,
+} from "../../utils/department-tool-tree";
+import DepartmentToolTree from "./department/DepartmentToolTree.vue";
 import {
   buildDepartmentBasicSnapshot,
   departmentBasicComparableSnapshot,
@@ -498,8 +379,6 @@ function isTextRequestFormat(format: string): boolean {
   const normalized = String(format || "").trim().toLowerCase();
   return normalized === "deepseek/kimi" || TEXT_REQUEST_FORMATS.has(normalized);
 }
-
-type DepartmentPermissionNameCategory = "builtinToolNames" | "skillNames" | "mcpToolNames";
 
 function isSystemBuiltInDepartment(department: DepartmentConfig | null | undefined) {
   if (!department) return false;
@@ -661,19 +540,6 @@ const departmentValidationMessage = computed(() =>
 
 const selectedDepartmentPermissionControl = computed(() => selectedDepartment.value?.permissionControl ?? null);
 const permissionControlEnabled = computed(() => !!selectedDepartmentPermissionControl.value?.enabled);
-const permissionCardTone = computed(() =>
-  selectedDepartmentPermissionControl.value?.mode === "whitelist"
-    ? {
-        card: "border-success/40 bg-success/12 text-base-content shadow-sm",
-        box: "border-success bg-success text-success-content",
-        icon: Check,
-      }
-    : {
-        card: "border-error/40 bg-error/12 text-base-content shadow-sm",
-        box: "border-error bg-error text-error-content",
-        icon: X,
-      },
-);
 const permissionListDisabled = computed(() =>
   !permissionControlEnabled.value,
 );
@@ -689,10 +555,62 @@ const skillPermissionRequiresExec = computed(() =>
 const skillPermissionListDisabled = computed(() =>
   permissionListDisabled.value || skillPermissionRequiresExec.value,
 );
-const visiblePermissionBuiltinTools = computed(() => {
-  return permissionCatalog.value.builtinTools;
+
+const BUILTIN_TOOL_GROUP_LABEL_KEYS: Record<string, string> = {
+  files: "config.department.permissionGroupFiles",
+  execConfig: "config.department.permissionGroupExecConfig",
+  desktop: "config.department.permissionGroupDesktop",
+  web: "config.department.permissionGroupWeb",
+  delegate: "config.department.permissionGroupDelegate",
+  media: "config.department.permissionGroupMedia",
+  other: "config.department.permissionGroupOther",
+};
+
+const toolTreeSections = computed<DepartmentToolTreeSection[]>(() => {
+  const control = selectedDepartmentPermissionControl.value;
+  const checkedSetFor = (category: DepartmentToolLeafCategory) =>
+    new Set((control?.[category] || []).map((value) => String(value || "").trim()).filter(Boolean));
+  const builtinChecked = checkedSetFor("builtinToolNames");
+  const skillChecked = checkedSetFor("skillNames");
+  const mcpChecked = checkedSetFor("mcpToolNames");
+  return [
+    {
+      key: "builtinToolNames",
+      label: t("config.department.permissionBuiltinTools"),
+      disabled: permissionListDisabled.value,
+      groups: buildBuiltinToolGroups(
+        permissionCatalog.value.builtinTools,
+        (name) => builtinChecked.has(name),
+        (groupKey) => t(BUILTIN_TOOL_GROUP_LABEL_KEYS[groupKey] ?? "config.department.permissionGroupOther"),
+      ),
+      leaves: [],
+    },
+    {
+      key: "skillNames",
+      label: t("config.department.permissionSkills"),
+      disabled: skillPermissionListDisabled.value,
+      groups: [],
+      leaves: permissionCatalog.value.skills.map((item) => ({
+        category: "skillNames" as const,
+        name: item.name,
+        displayName: item.name,
+        description: item.description,
+        enabled: skillChecked.has(item.name),
+      })),
+    },
+    {
+      key: "mcpToolNames",
+      label: t("config.department.permissionMcpTools"),
+      disabled: permissionListDisabled.value,
+      groups: buildMcpToolGroups(
+        permissionCatalog.value.mcpTools,
+        (name) => mcpChecked.has(name),
+        t("config.department.permissionGroupOther"),
+      ),
+      leaves: [],
+    },
+  ];
 });
-const visiblePermissionSkills = computed(() => permissionCatalog.value.skills);
 
 const availableAssigneePersonas = computed(() =>
   sortPersonasForSelect(
@@ -870,54 +788,28 @@ function updateDepartmentPermissionControl(patch: Partial<NonNullable<Department
   touchSelectedDepartment();
 }
 
-function togglePermissionName(
-  category: DepartmentPermissionNameCategory,
-  name: string,
-  checked: boolean,
-) {
+function setPermissionNamesBatch(category: DepartmentToolLeafCategory, names: string[], checked: boolean) {
   const control = selectedDepartmentPermissionControl.value;
-  console.info("[部门权限] 切换名单项", {
-    departmentId: selectedDepartment.value?.id || "",
-    category,
-    name,
-    checked,
-    hasControl: !!control,
-    enabled: !!control?.enabled,
-    disabled: permissionListDisabled.value,
-  });
   if (!control) return;
-  const trimmed = String(name || "").trim();
-  if (!trimmed) return;
   const next = new Set((control[category] || []).map((value) => String(value || "").trim()).filter(Boolean));
-  if (checked) {
-    next.add(trimmed);
-  } else {
-    next.delete(trimmed);
+  for (const raw of names) {
+    const trimmed = String(raw || "").trim();
+    if (!trimmed) continue;
+    if (checked) {
+      next.add(trimmed);
+    } else {
+      next.delete(trimmed);
+    }
   }
   updateDepartmentPermissionControl({ [category]: Array.from(next) } as Partial<NonNullable<DepartmentConfig["permissionControl"]>>);
 }
 
-function toggleBuiltinPermissionName(name: string) {
-  togglePermissionName("builtinToolNames", name, !permissionNameChecked("builtinToolNames", name));
+function handleToolTreeLeafToggle(payload: { category: DepartmentToolLeafCategory; name: string; checked: boolean }) {
+  setPermissionNamesBatch(payload.category, [payload.name], payload.checked);
 }
 
-function handleSkillPermissionToggle(name: string) {
-  if (skillPermissionListDisabled.value) return;
-  togglePermissionName("skillNames", name, !permissionNameChecked("skillNames", name));
-}
-
-function permissionNameChecked(category: DepartmentPermissionNameCategory, name: string) {
-  const control = selectedDepartmentPermissionControl.value;
-  if (!control) return false;
-  return (control[category] || []).includes(name);
-}
-
-function truncatePermissionDescription(value: string, maxChars = 48) {
-  const text = String(value || "").trim();
-  if (!text) return "";
-  const chars = Array.from(text);
-  if (chars.length <= maxChars) return text;
-  return `${chars.slice(0, maxChars).join("")}...`;
+function handleToolTreeGroupToggle(payload: { category: DepartmentToolLeafCategory; names: string[]; checked: boolean }) {
+  setPermissionNamesBatch(payload.category, payload.names, payload.checked);
 }
 
 function nextDepartmentName() {
