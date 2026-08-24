@@ -72,6 +72,10 @@ walkdir = "2.5.0"
 zip = { version = "8.5.1", default-features = false, features = ["deflate", "aes-crypto"] }
 ropey = "1.6.1"
 unicode-segmentation = "1.13.3"
+notify = "7"
+notify-debouncer-mini = "0.5"
+gix-ignore = "0.22"
+bstr = "1"
 
 [features]
 default = ["custom-protocol"]

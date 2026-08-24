@@ -1442,6 +1442,8 @@ const WEB_BRIDGE_NATIVE_ONLY_COMMANDS = new Set([
   "open_file_reader_window_command",
   "read_local_binary_file",
   "set_chat_window_side_expanded",
+  "git_panel_watch_start",
+  "git_panel_watch_stop",
 ]);
 
 // 业务层使用同一组可读的协议方法名；桌面端的 Tauri command 名称由适配器
@@ -1886,6 +1888,7 @@ const TRANSPORT_NOTIFICATION_EVENT_ALIASES: Record<string, string | string[]> = 
   "fileReaderAppearance.changed": "easy-call:file-reader-appearance-changed",
   "workspace.migrationProgress": "easy-call:workspace-migration-progress",
   "fileReader.watchChanged": "easy-call:file-reader-watch-changed",
+  "gitPanel.watchChanged": "easy-call:git-panel-changed",
 };
 
 const localTransportNotificationHandlers = new Map<string, Set<(payload: unknown) => void>>();
@@ -2905,6 +2908,22 @@ export async function gitPanelDiscover(workspacePath: string, refresh = false): 
 
 export async function gitPanelStatus(workspacePath: string): Promise<GitPanelStatusOutput> {
   return invokeTauri<GitPanelStatusOutput>("git_panel_status", gitPanelWorkspaceArgs(gitPanelRequiredWorkspace(workspacePath)));
+}
+
+/** Git 面板仓库监视事件载荷（后端按路径分类后推送） */
+export interface GitPanelWatchEventPayload {
+  workspacePath: string;
+  workdirChanged: boolean;
+  headChanged: boolean;
+  refsChanged: boolean;
+}
+
+export async function gitPanelWatchStart(workspacePath: string): Promise<void> {
+  await invokeTauri<void>("git_panel_watch_start", gitPanelWorkspaceArgs(gitPanelRequiredWorkspace(workspacePath)));
+}
+
+export async function gitPanelWatchStop(workspacePath: string): Promise<void> {
+  await invokeTauri<void>("git_panel_watch_stop", gitPanelWorkspaceArgs(gitPanelRequiredWorkspace(workspacePath)));
 }
 
 export async function gitPanelDiff(input: {

@@ -661,7 +661,7 @@ async fn git_panel_dispatch(request: IdeChatJsonRpcRequest, state: &AppState) ->
         }
         "git_panel_status" => {
             let input = ide_chat_parse_param_field::<GitPanelWorkspaceInput>(request.params, "input")?;
-            ide_chat_serialize(git_panel_status(input).await?)
+            ide_chat_serialize(git_panel_status_inner(input).await?)
         }
         "git_panel_diff" => {
             let input = ide_chat_parse_param_field::<GitPanelDiffInput>(request.params, "input")?;

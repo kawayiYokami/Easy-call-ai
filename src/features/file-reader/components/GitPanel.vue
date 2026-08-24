@@ -561,6 +561,9 @@ import {
   gitPanelStatus,
   gitPanelSync,
   gitPanelUnstage,
+  gitPanelWatchStart,
+  gitPanelWatchStop,
+  onTransportNotification,
   type GitPanelBranchEntry,
   type GitPanelCommitFileEntry,
   type GitPanelLogEntry,
@@ -569,7 +572,9 @@ import {
   type GitPanelRunOutput,
   type GitPanelStashEntry,
   type GitPanelStatusEntry,
+  type GitPanelWatchEventPayload,
 } from "../../../services/tauri-api";
+import { decideGitPanelRefreshTargets } from "../git-panel-watch-refresh";
 import GitChangesGroup from "./GitChangesGroup.vue";
 import CommitGraphLine from "./CommitGraphLine.vue";
 import GitResizeHandle from "./GitResizeHandle.vue";
@@ -1778,6 +1783,67 @@ function openDiff(payload: { path: string; staged: boolean; untracked?: boolean 
 }
 
 // ==================== 提交框自适应高度 ====================
+// ==================== 外部变化自动刷新 ====================
+// 后端 watcher 事件订阅 + focus 兜底：编辑器/终端/外部工具改动仓库时面板自动刷新。
+// 刷新粒度：workdir 只刷更改/暂存区；head/refs 额外刷可见的提交历史/分支/储藏。
+let unlistenGitPanelWatch: (() => void) | null = null;
+
+function refreshRefsDependentVisibleArea() {
+  if (!repoRoot.value || historyCollapsed.value) return;
+  if (activeGitTab.value === "commits") {
+    void loadHistory(true);
+  } else if (activeGitTab.value === "stashes") {
+    void loadStashes(true);
+  } else if (activeGitTab.value === "branches") {
+    void Promise.all([loadBranches(true), loadRemotes()]);
+  }
+}
+
+function refreshBySignals(payload: GitPanelWatchEventPayload) {
+  const targets = decideGitPanelRefreshTargets({
+    hasRepoRoot: !!repoRoot.value,
+    isCurrentRepo: isCurrentRepo(payload?.workspacePath || ""),
+    historyCollapsed: historyCollapsed.value,
+    activeGitTab: activeGitTab.value,
+    workdirChanged: !!payload?.workdirChanged,
+    headChanged: !!payload?.headChanged,
+    refsChanged: !!payload?.refsChanged,
+  });
+  for (const target of targets) {
+    if (target === "status") {
+      void loadStatus(true);
+    } else if (target === "history") {
+      void loadHistory(true);
+    } else if (target === "stashes") {
+      void loadStashes(true);
+    } else if (target === "branches") {
+      void Promise.all([loadBranches(true), loadRemotes()]);
+    }
+  }
+}
+
+function handleWindowFocusRefresh() {
+  if (!repoRoot.value) return;
+  void loadStatus(true);
+  refreshRefsDependentVisibleArea();
+}
+
+// watcher 跟随仓库选择：repoRoot 就绪/切换时开启（后端幂等），清空时用旧仓库停止
+watch(
+  () => repoRoot.value,
+  (root, prevRoot) => {
+    if (root) {
+      gitPanelWatchStart(root).catch((error) => {
+        console.warn("[Git面板] 开启仓库监听失败", error);
+      });
+    } else if (prevRoot) {
+      gitPanelWatchStop(prevRoot).catch((error) => {
+        console.warn("[Git面板] 停止仓库监听失败", error);
+      });
+    }
+  },
+);
+
 // ==================== 生命周期 ====================
 const commitInputRef = ref<HTMLTextAreaElement | null>(null);
 
@@ -1797,6 +1863,11 @@ function resetCommitInputHeight() {
 onMounted(() => {
   restoreGitTab();
   restoreChangesViewMode();
+  unlistenGitPanelWatch = onTransportNotification<GitPanelWatchEventPayload>(
+    "gitPanel.watchChanged",
+    refreshBySignals,
+  );
+  window.addEventListener("focus", handleWindowFocusRefresh);
   void loadDiscover().then(() => {
     if (repoRoot.value) {
       ensureVisibleData();
@@ -1814,6 +1885,16 @@ watch(
 );
 
 onBeforeUnmount(() => {
+  unlistenGitPanelWatch?.();
+  unlistenGitPanelWatch = null;
+  window.removeEventListener("focus", handleWindowFocusRefresh);
+  // 携带当前仓库根停止：后端仅在仓库匹配时递减引用计数，避免卸载本实例误杀其他并存实例的监听
+  const stopRoot = repoRoot.value;
+  if (stopRoot) {
+    gitPanelWatchStop(stopRoot).catch((error) => {
+      console.warn("[Git面板] 停止仓库监听失败", error);
+    });
+  }
   logObserver?.disconnect();
   logObserver = undefined;
   branchesObserver?.disconnect();

@@ -1495,6 +1495,8 @@ fn main() {
             open_file_with_default_program,
             git_panel_repos,
             git_panel_detect,
+            git_panel_watch_start,
+            git_panel_watch_stop,
             git_panel_discover,
             git_panel_status,
             git_panel_diff,

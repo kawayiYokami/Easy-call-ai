@@ -347,8 +347,8 @@ async fn git_panel_detect(input: GitPanelWorkspaceInput) -> Result<GitPanelDetec
 
 // ---------- 命令：状态 ----------
 
-#[tauri::command]
-async fn git_panel_status(input: GitPanelWorkspaceInput) -> Result<GitPanelStatusOutput, String> {
+/// 状态查询核心实现：tauri 命令与 IDE jsonrpc 分发共用。
+async fn git_panel_status_inner(input: GitPanelWorkspaceInput) -> Result<GitPanelStatusOutput, String> {
     let workspace_path = git_panel_validate_path(&input.workspace_path)?;
     let repo_root = git_panel_resolve_root(&workspace_path).await?;
     let branch = git_panel_current_branch(&repo_root).await;
@@ -380,6 +380,18 @@ async fn git_panel_status(input: GitPanelWorkspaceInput) -> Result<GitPanelStatu
         staged_total,
         unstaged_total,
     })
+}
+
+#[tauri::command]
+async fn git_panel_status(app: tauri::AppHandle, input: GitPanelWorkspaceInput) -> Result<GitPanelStatusOutput, String> {
+    let started = std::time::Instant::now();
+    let result = git_panel_status_inner(input).await;
+    // 自适应降级状态机收敛点：任何一次 status 调用（事件刷新/focus/手动/操作收尾/tab 补载）
+    // 的耗时都驱动 watcher 降级或恢复（用户策略），无需专门探测定时器
+    if let Ok(output) = &result {
+        git_panel_watch_adapt_after_status(&output.repo_root, started.elapsed().as_millis(), app).await;
+    }
+    result
 }
 
 /// 前端暂存组过滤规则的 Rust 复刻：X 列非空且非 ?，且排除「未跟踪 + 已暂存」矛盾项。
