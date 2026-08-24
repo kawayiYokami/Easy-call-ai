@@ -81,11 +81,9 @@ export function useChatConversationActionsOrchestrator(bindings: Record<string, 
   }) {
     try {
       const result = await openTransportConversationDraft<{ conversationId: string; created: boolean }>({
-        input: {
-          shellWorkspaces: workspace?.shellWorkspaces || null,
-          shellWorkMode: workspace?.shellWorkMode || null,
-          shellAutonomousMode: workspace?.shellAutonomousMode || null,
-        },
+        shellWorkspaces: workspace?.shellWorkspaces || null,
+        shellWorkMode: workspace?.shellWorkMode || null,
+        shellAutonomousMode: workspace?.shellAutonomousMode || null,
       });
       const conversationId = String(result?.conversationId || "").trim();
       if (!conversationId) return "";
