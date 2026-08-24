@@ -754,7 +754,7 @@
       "expert": "Expert Model",
       "quick": "Fast Model"
     },
-        "chatSettings": {
+    "chatSettings": {
       "defaultModelsTitle": "Model Roles",
       "defaultModelsHint": "Set the default model for each role here when nothing more specific is configured.",
       "execTerminalTitle": "Execute Terminal",
@@ -1440,7 +1440,7 @@
     "simpleSetupModeAdvanced": "Advanced",
     "simpleSetupModeSwitchToAdvanced": "Switch to Advanced",
     "simpleSetupModeSwitchToSimple": "Switch to Simple",
-        "messageStoreMigration": {
+    "messageStoreMigration": {
       "title": "Message Store Migration",
       "confirm": "Confirm",
       "retry": "Retry",
@@ -1477,6 +1477,10 @@
     "personaModelNotConfigured": "Model not configured",
     "personaRemoved": "Removed",
     "departmentNoAvailableAgent": "Department has no available agent",
+    "draftWorkModeDirectory": "Directory",
+    "draftWorkModeIsolated": "Project worktrees",
+    "draftWorkModeIndependent": "Session worktree",
+    "draftWorkspacePlaceholder": "Choose a working directory",
     "draftRecipientTitle": "Who are you talking to?",
     "draftRecipientPlaceholder": "Select a recipient",
     "draftRecipientPickHint": "Pick a recent candidate or browse all",

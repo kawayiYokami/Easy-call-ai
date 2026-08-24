@@ -1438,7 +1438,7 @@
     "simpleSetupModeAdvanced": "進階",
     "simpleSetupModeSwitchToAdvanced": "切換到進階",
     "simpleSetupModeSwitchToSimple": "切換到簡單",
-        "messageStoreMigration": {
+    "messageStoreMigration": {
       "title": "會話訊息倉庫遷移",
       "confirm": "確認",
       "retry": "重試",
@@ -1475,6 +1475,10 @@
     "personaModelNotConfigured": "未設定模型",
     "personaRemoved": "已移除",
     "departmentNoAvailableAgent": "部門無可用負責人",
+    "draftWorkModeDirectory": "目錄",
+    "draftWorkModeIsolated": "專案內工作樹",
+    "draftWorkModeIndependent": "本會話工作樹",
+    "draftWorkspacePlaceholder": "選擇工作目錄",
     "draftRecipientTitle": "和誰對話？",
     "draftRecipientPlaceholder": "選擇對話對象",
     "draftRecipientPickHint": "點擊右側候選或從全部中選擇",

@@ -48,6 +48,15 @@ export function normalizeWorkspaceLevel(level: string): ShellWorkspaceLevel {
   return "secondary";
 }
 
+// 剥离 Windows 扩展路径前缀（\\?\ 与 \\?\UNC\），用于前端显示与选项匹配
+export function stripExtendedPathPrefix(path?: string): string {
+  const raw = String(path || "").trim();
+  if (!raw) return "";
+  if (raw.startsWith("\\\\?\\UNC\\")) return `\\${raw.slice("\\\\?\\UNC\\".length)}`;
+  if (raw.startsWith("\\\\?\\")) return raw.slice("\\\\?\\".length);
+  return raw;
+}
+
 export function defaultWorkspaceNameFromPath(path: string): string {
   const raw = String(path || "").trim();
   if (!raw) return "";

@@ -69,6 +69,13 @@
             :selected-department-id="draftSelectedDepartmentId"
             :selected-agent-id="draftSelectedAgentId"
             :avatar-url-map="props.personaAvatarUrlMap"
+            :workspace-options="draftWorkspaceOptions"
+            :workspace-root-path="stripExtendedPathPrefix(currentWorkspaceRootPath)"
+            :workspace-access="currentWorkspaceAccess"
+            :workspace-work-mode="props.currentWorkspaceWorkMode || 'directory'"
+            :workspace-autonomous-mode="Boolean(props.currentWorkspaceAutonomousMode)"
+            :save-workspace="props.saveDraftWorkspaces ? handleDraftWorkspaceSave : undefined"
+            :git-root-check="props.draftWorkspaceGitRootCheck"
             @change="handleDraftPersonaChange($event)"
           />
           <div class="ecall-chat-history-flow flex min-w-0 shrink-0 flex-col">
@@ -671,7 +678,8 @@ import { useChatMessageActions } from "../composables/use-chat-message-actions";
 import { useChatScrollLayout } from "../composables/use-chat-scroll-layout";
 import type { TerminalApprovalConversationItem } from "../../shell/composables/use-terminal-approval";
 import { isAbsoluteLocalPath, isAssistantSpacePath, normalizeLocalLinkHref, parseLocalFileReference } from "../utils/local-link";
-import { buildConversationSections, type ConversationSection } from "../utils/conversation-sections";
+import { buildConversationSections, buildWorkspaceConversationSections, type ConversationSection } from "../utils/conversation-sections";
+import { stripExtendedPathPrefix } from "../../../utils/shell-workspaces";
 import { type ChatRenderItem, isRightAlignedMessage, canOpenInFileReader, fileExtensionFromPath } from "../utils/chat-render";
 import { clearFileReaderContextCandidates } from "../utils/file-reader-context-tags";
 import { useIdeContext } from "../composables/use-ide-context";
@@ -714,6 +722,10 @@ const props = defineProps<{
   latestOwnMessageAlignRequest: number; conversationScrollToBottomRequest: number; scrollToBottomBehavior: "auto" | "smooth" | "smooth_light";
   currentWorkspaceName: string; currentWorkspaceDisplayName?: string; currentWorkspaceRootPath: string; workspaces: ShellWorkspace[];
   currentWorkspaceAutonomousMode?: boolean;
+  currentWorkspaceWorkMode?: ShellWorkMode;
+  configShellWorkspaces?: ShellWorkspace[];
+  saveDraftWorkspaces?: (items: ShellWorkspace[], autonomousMode: boolean, workMode: ShellWorkMode) => Promise<void>;
+  draftWorkspaceGitRootCheck?: (path: string) => Promise<boolean>;
   currentDepartmentId: string; activeAgentId: string; activeConversationId: string; currentTodos: ChatTodoItem[];
   goalActive: boolean; goalTitle: string; goalDialogOpen: boolean;
   goalSaving: boolean; goalError: string;
@@ -1511,6 +1523,21 @@ const currentWorkspacePermissionKind = computed<"read_only" | "approval" | "full
   return "read_only";
 });
 
+// 草稿卡片回显用：不含 autonomous 分支的纯权限值
+const currentWorkspaceAccess = computed<"read_only" | "approval" | "full_access">(() => {
+  const targetPath = String(props.currentWorkspaceRootPath || "").trim().toLowerCase();
+  const workspaceList = Array.isArray(props.workspaces) ? props.workspaces : [];
+  const matched = workspaceList.find((item) => String(item.path || "").trim().toLowerCase() === targetPath);
+  if (matched?.access === "approval" || matched?.access === "full_access" || matched?.access === "read_only") {
+    return matched.access;
+  }
+  const mainWorkspace = workspaceList.find((item) => String(item.level || "").trim() === "main");
+  if (mainWorkspace?.access === "approval" || mainWorkspace?.access === "full_access" || mainWorkspace?.access === "read_only") {
+    return mainWorkspace.access;
+  }
+  return "read_only";
+});
+
 const supportsFloatingSessionToolbar = computed(() =>
   !props.hideConversationControlPanel
   && !activeConversationIsSystemNotification.value
@@ -2044,6 +2071,52 @@ const conversationDisplaySections = computed<ConversationSection[]>(() => {
   // 滚动时同一会话滚两遍，顺序对不上列表直觉。
   return sections.filter((section) => section.key !== "recent");
 });
+
+// 草稿卡片工作目录下拉选项：当前会话工作区 + 全局配置工作区 + 侧栏按工作区分组的所有目录，按路径去重
+const draftWorkspaceOptions = computed<Array<{ id: string; name: string; path: string; access: ShellWorkspace["access"] }>>(() => {
+  const deduped = new Map<string, { id: string; name: string; path: string; access: ShellWorkspace["access"] }>();
+  const push = (workspace: { id?: string; name?: string; path?: string; access?: ShellWorkspace["access"] }) => {
+    const path = stripExtendedPathPrefix(workspace.path);
+    if (!path) return;
+    const key = path.toLowerCase();
+    if (deduped.has(key)) return;
+    const rawAccess = String(workspace.access || "").trim();
+    deduped.set(key, {
+      id: String(workspace.id || "").trim() || `conversation-workspace-${key}`,
+      name: String(workspace.name || "").trim() || path,
+      path,
+      access: rawAccess === "full_access" || rawAccess === "read_only" ? (rawAccess as ShellWorkspace["access"]) : "approval",
+    });
+  };
+  for (const workspace of Array.isArray(props.workspaces) ? props.workspaces : []) push(workspace);
+  for (const workspace of Array.isArray(props.configShellWorkspaces) ? props.configShellWorkspaces : []) push(workspace);
+  const localItems = (props.conversationItems || props.unarchivedConversationItems || []).filter((item) =>
+    item.kind !== "remote_im_contact" && !item.isPinned && !item.isSystemNotificationConversation,
+  );
+  for (const section of buildWorkspaceConversationSections(localItems, {
+    defaultWorkspaceTitle: t("chat.defaultWorkspace"),
+    locale: locale.value,
+  })) {
+    push({ path: section.workspaceRootPath || "", name: section.title, access: "approval" });
+  }
+  return Array.from(deduped.values());
+});
+
+async function handleDraftWorkspaceSave(payload: { path: string; name: string; access: ShellWorkspace["access"]; workMode: ShellWorkMode }) {
+  if (!props.saveDraftWorkspaces) return;
+  await props.saveDraftWorkspaces(
+    [{
+      id: `conversation-workspace-${Date.now().toString(36)}`,
+      name: payload.name,
+      path: payload.path,
+      level: "main",
+      access: payload.access,
+      builtIn: false,
+    }],
+    Boolean(props.currentWorkspaceAutonomousMode),
+    payload.workMode,
+  );
+}
 
 function handleShiftWheel(event: WheelEvent) {
   if (!event.shiftKey) return;

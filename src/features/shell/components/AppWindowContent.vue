@@ -179,7 +179,11 @@
         :current-workspace-display-name="currentChatWorkspaceDisplayName"
         :current-workspace-root-path="currentChatWorkspaceRootPath"
         :current-workspace-autonomous-mode="currentChatWorkspaceAutonomousMode"
+        :current-workspace-work-mode="currentChatWorkMode"
         :workspaces="currentChatWorkspaces"
+        :config-shell-workspaces="config.shellWorkspaces || []"
+        :save-draft-workspaces="saveDraftWorkspaces"
+        :draft-workspace-git-root-check="draftWorkspaceGitRootCheck"
         :current-department-id="currentChatDepartmentId"
         :active-agent-id="currentChatAgentId"
         :active-conversation-id="currentChatConversationId"
@@ -518,6 +522,7 @@ import type {
   PersonaProfile,
   PromptCommandPreset,
   ResponseStyleOption,
+  ShellWorkMode,
   ShellWorkspace,
   ToolLoadStatus,
   UnarchivedConversationSummary,
@@ -669,6 +674,9 @@ const props = defineProps<{
   currentChatWorkspaceRootPath: string;
   currentChatWorkspaceAutonomousMode: boolean;
   currentChatWorkspaces: ShellWorkspace[];
+  currentChatWorkMode?: ShellWorkMode;
+  saveDraftWorkspaces?: (items: ShellWorkspace[], autonomousMode: boolean, workMode: ShellWorkMode) => Promise<void>;
+  draftWorkspaceGitRootCheck?: (path: string) => Promise<boolean>;
   currentChatDepartmentId: string;
   currentChatAgentId: string;
   currentChatConversationId: string;

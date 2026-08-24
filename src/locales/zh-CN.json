@@ -754,7 +754,7 @@
       "expert": "专家模型",
       "quick": "快速模型"
     },
-        "chatSettings": {
+    "chatSettings": {
       "defaultModelsTitle": "模型分工",
       "defaultModelsHint": "这里设置各类默认模型，其他地方没设置时优先使用这里。",
       "execTerminalTitle": "执行终端",
@@ -1440,7 +1440,7 @@
     "simpleSetupModeAdvanced": "高级",
     "simpleSetupModeSwitchToAdvanced": "切换到高级",
     "simpleSetupModeSwitchToSimple": "切换到简单",
-        "messageStoreMigration": {
+    "messageStoreMigration": {
       "title": "会话消息仓库迁移",
       "confirm": "确认",
       "retry": "重试",
@@ -1477,6 +1477,10 @@
     "personaModelNotConfigured": "未配置模型",
     "personaRemoved": "已移除",
     "departmentNoAvailableAgent": "部门无可用负责人",
+    "draftWorkModeDirectory": "目录",
+    "draftWorkModeIsolated": "项目内工作树",
+    "draftWorkModeIndependent": "本会话工作树",
+    "draftWorkspacePlaceholder": "选择工作目录",
     "draftRecipientTitle": "和谁对话？",
     "draftRecipientPlaceholder": "选择对话对象",
     "draftRecipientPickHint": "点击右侧候选或从全部中选择",

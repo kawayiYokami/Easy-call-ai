@@ -41,6 +41,101 @@
         </div>
       </div>
 
+      <div
+        v-if="saveWorkspace"
+        class="flex w-full max-w-md flex-col items-center gap-2"
+      >
+        <div ref="workspaceSelectRootRef" class="relative w-full">
+          <div class="flex h-9 w-full items-center gap-1 rounded-field border border-base-content/10 bg-base-100/50 pl-3.5 pr-1 shadow-sm backdrop-blur-md">
+            <FolderOpen class="h-3.5 w-3.5 shrink-0 text-base-content/45" />
+            <button
+              type="button"
+              class="min-w-0 flex-1 cursor-pointer text-left text-xs font-medium text-base-content outline-none"
+              :disabled="mergedOptions.length === 0"
+              @click="toggleWorkspaceDropdown"
+            >
+              <span class="block w-full truncate" :class="selectedWorkspaceName ? '' : 'text-base-content/45'">
+                {{ selectedWorkspaceName || t("chat.draftWorkspacePlaceholder") }}
+              </span>
+            </button>
+            <ChevronDown
+              class="pointer-events-none h-3.5 w-3.5 shrink-0 text-base-content/45 transition-transform"
+              :class="workspaceDropdownOpen ? 'rotate-180' : ''"
+            />
+            <button
+              type="button"
+              class="btn btn-ghost btn-circle btn-sm shrink-0 text-base-content/55"
+              :title="t('common.browse')"
+              @click="browseWorkspaceDirectory"
+            >
+              <FolderSearch class="h-3.5 w-3.5" />
+            </button>
+          </div>
+          <div
+            v-if="workspaceDropdownOpen && mergedOptions.length > 0"
+            class="absolute z-30 w-full overflow-hidden rounded-box border border-base-300 bg-base-100 shadow-xl"
+            :class="workspaceDropdownDirection === 'up' ? 'bottom-full mb-2' : 'top-full mt-2'"
+          >
+            <div class="max-h-60 overflow-y-auto overscroll-contain p-1">
+              <button
+                v-for="option in mergedOptions"
+                :key="option.path"
+                type="button"
+                class="flex w-full items-center gap-2 rounded-field px-2.5 py-2 text-left text-xs transition-colors"
+                :class="option.path.toLowerCase() === selectedPath.toLowerCase()
+                  ? 'bg-base-200 font-medium'
+                  : 'hover:bg-base-200/70'"
+                :title="option.path"
+                @click="handleWorkspaceOptionSelect(option.path)"
+              >
+                <span class="min-w-0 flex-1 truncate">{{ option.name }}</span>
+                <Check
+                  v-if="option.path.toLowerCase() === selectedPath.toLowerCase()"
+                  class="h-3.5 w-3.5 shrink-0 text-primary"
+                />
+              </button>
+            </div>
+          </div>
+        </div>
+        <div class="flex max-w-full flex-wrap items-center justify-center gap-2">
+          <div class="flex items-center rounded-selector border border-base-content/10 bg-base-content/5 p-0.5 backdrop-blur-md">
+            <button
+              v-for="accessOption in ACCESS_OPTIONS"
+              :key="accessOption"
+              type="button"
+              class="rounded-selector px-3 py-1.5 text-[11px] font-medium leading-none transition-all"
+              :class="selectedAccess === accessOption
+                ? 'bg-base-100 text-base-content shadow-sm'
+                : 'text-base-content/55 hover:text-base-content'"
+              @click="setAccess(accessOption)"
+            >
+              {{ t(`config.tools.workspaceAccess${ACCESS_LABEL_KEY[accessOption]}`) }}
+            </button>
+          </div>
+          <div class="flex items-center rounded-selector border border-base-content/10 bg-base-content/5 p-0.5 backdrop-blur-md">
+            <button
+              v-for="modeOption in MODE_OPTIONS"
+              :key="modeOption"
+              type="button"
+              class="rounded-selector px-3 py-1.5 text-[11px] font-medium leading-none transition-all"
+              :class="selectedWorkMode === modeOption
+                ? 'bg-base-100 text-base-content shadow-sm'
+                : (isWorkModeDisabled(modeOption) ? 'cursor-not-allowed text-base-content/30' : 'text-base-content/55 hover:text-base-content')"
+              :title="t(MODE_HINT_KEY[modeOption])"
+              @click="setWorkMode(modeOption)"
+            >
+              {{ t(`chat.draftWorkMode${MODE_LABEL_KEY[modeOption]}`) }}
+            </button>
+          </div>
+        </div>
+        <div
+          class="h-4 text-center text-[11px] leading-4 transition-opacity duration-200"
+          :class="worktreeCheckMessage ? 'text-base-content/50 opacity-100' : 'opacity-0'"
+        >
+          {{ worktreeCheckMessage || " " }}
+        </div>
+      </div>
+
       <div class="flex max-w-full flex-wrap items-stretch justify-center gap-3">
         <div
           v-for="group in recentGroups"
@@ -157,8 +252,10 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref } from "vue";
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
+import { FolderOpen, FolderSearch, ChevronDown, Check } from "@lucide/vue";
+import { openTransportFileDialog } from "../../../services/tauri-api";
 import { departmentPersonaOptionId, type DepartmentPersonaOption } from "../../shared/department-persona-options";
 import PersonaGroupGrid from "../../shared/components/PersonaGroupGrid.vue";
 
@@ -168,18 +265,40 @@ interface RecentRecipientGroup {
   departments: DepartmentPersonaOption[];
 }
 
+type WorkspaceOption = {
+  id: string;
+  name: string;
+  path: string;
+  access: "read_only" | "approval" | "full_access";
+};
+
+type ShellWorkspaceAccess = WorkspaceOption["access"];
+type ShellWorkMode = "directory" | "isolated_worktree" | "independent_worktree";
+
 const props = withDefaults(defineProps<{
   options?: DepartmentPersonaOption[];
   recentOptions?: DepartmentPersonaOption[];
   selectedDepartmentId?: string;
   selectedAgentId?: string;
   avatarUrlMap?: Record<string, string>;
+  workspaceOptions?: WorkspaceOption[];
+  workspaceRootPath?: string;
+  workspaceAccess?: ShellWorkspaceAccess | "";
+  workspaceWorkMode?: ShellWorkMode;
+  workspaceAutonomousMode?: boolean;
+  saveWorkspace?: (input: { path: string; name: string; access: ShellWorkspaceAccess; workMode: ShellWorkMode }) => Promise<void>;
+  gitRootCheck?: (path: string) => Promise<boolean>;
 }>(), {
   options: () => [],
   recentOptions: () => [],
   selectedDepartmentId: "",
   selectedAgentId: "",
   avatarUrlMap: () => ({}),
+  workspaceOptions: () => [],
+  workspaceRootPath: "",
+  workspaceAccess: "",
+  workspaceWorkMode: "directory",
+  workspaceAutonomousMode: false,
 });
 
 const emit = defineEmits<{
@@ -189,6 +308,266 @@ const emit = defineEmits<{
 const { t } = useI18n();
 
 const showAll = ref(false);
+
+// ========== 草稿工作区快捷设置 ==========
+
+const ACCESS_OPTIONS = ["read_only", "approval", "full_access"] as const;
+const ACCESS_LABEL_KEY: Record<ShellWorkspaceAccess, string> = {
+  read_only: "ReadOnly",
+  approval: "Approval",
+  full_access: "FullAccess",
+};
+const MODE_OPTIONS = ["directory", "isolated_worktree", "independent_worktree"] as const;
+const MODE_LABEL_KEY: Record<ShellWorkMode, string> = {
+  directory: "Directory",
+  isolated_worktree: "Isolated",
+  independent_worktree: "Independent",
+};
+const MODE_HINT_KEY: Record<ShellWorkMode, string> = {
+  directory: "chat.workspaceWorkModeDirectory",
+  isolated_worktree: "chat.workspaceWorkModeIsolated",
+  independent_worktree: "chat.workspaceWorkModeIndependent",
+};
+
+const selectedPath = ref("");
+const selectedAccess = ref<ShellWorkspaceAccess>("approval");
+const selectedWorkMode = ref<ShellWorkMode>("directory");
+const worktreeAvailable = ref(false);
+const worktreeCheckMessage = ref("");
+const customOption = ref<WorkspaceOption | null>(null);
+const saving = ref(false);
+let pendingSave = false;
+let checkSequence = 0;
+let lastGitCheckPath = "";
+
+function normalizeAccess(value: unknown): ShellWorkspaceAccess {
+  const text = String(value || "").trim();
+  if (text === "full_access" || text === "read_only" || text === "approval") return text;
+  return "approval";
+}
+
+const mergedOptions = computed<WorkspaceOption[]>(() => {
+  const list = [...props.workspaceOptions];
+  if (customOption.value && !list.some((item) => item.path.toLowerCase() === customOption.value!.path.toLowerCase())) {
+    list.push(customOption.value);
+  }
+  return list;
+});
+
+function findOptionByPath(path: string): WorkspaceOption | null {
+  const target = String(path || "").trim().toLowerCase();
+  if (!target) return null;
+  return mergedOptions.value.find((item) => item.path.toLowerCase() === target) ?? null;
+}
+
+// ========== 目录组件化下拉（照 DepartmentPersonaSelect 的交互骨架） ==========
+
+const workspaceDropdownOpen = ref(false);
+const workspaceDropdownDirection = ref<"up" | "down">("down");
+const workspaceSelectRootRef = ref<HTMLElement | null>(null);
+
+const selectedWorkspaceName = computed(() => {
+  if (!selectedPath.value) return "";
+  return findOptionByPath(selectedPath.value)?.name || selectedPath.value.replace(/\\/g, "/").replace(/\/+$/, "").split("/").pop() || selectedPath.value;
+});
+
+function toggleWorkspaceDropdown() {
+  if (mergedOptions.value.length === 0) return;
+  workspaceDropdownOpen.value = !workspaceDropdownOpen.value;
+  if (workspaceDropdownOpen.value) {
+    void nextTick(updateWorkspaceDropdownLayout);
+  }
+}
+
+function handleWorkspaceOptionSelect(path: string) {
+  workspaceDropdownOpen.value = false;
+  handleDirectoryChange(path);
+}
+
+function updateWorkspaceDropdownLayout() {
+  if (!workspaceDropdownOpen.value) return;
+  const root = workspaceSelectRootRef.value;
+  if (!root) return;
+  const rect = root.getBoundingClientRect();
+  const viewportHeight = window.innerHeight || document.documentElement.clientHeight || 0;
+  const panelHeight = Math.min(mergedOptions.value.length * 34 + 8, 240);
+  const spaceBelow = viewportHeight - rect.bottom;
+  const spaceAbove = rect.top;
+  workspaceDropdownDirection.value = spaceBelow >= panelHeight || spaceBelow >= spaceAbove ? "down" : "up";
+}
+
+function handleDocumentPointerDown(event: PointerEvent) {
+  if (!workspaceDropdownOpen.value) return;
+  const target = event.target as Node | null;
+  if (workspaceSelectRootRef.value && target && !workspaceSelectRootRef.value.contains(target)) {
+    workspaceDropdownOpen.value = false;
+  }
+}
+
+onMounted(() => {
+  document.addEventListener("pointerdown", handleDocumentPointerDown);
+  window.addEventListener("resize", updateWorkspaceDropdownLayout, { passive: true });
+});
+
+onBeforeUnmount(() => {
+  document.removeEventListener("pointerdown", handleDocumentPointerDown);
+  window.removeEventListener("resize", updateWorkspaceDropdownLayout);
+});
+
+watch(
+  () => [props.workspaceAccess, props.workspaceWorkMode] as const,
+  ([nextAccess, nextMode]) => {
+    selectedAccess.value = normalizeAccess(nextAccess);
+    selectedWorkMode.value = nextMode === "isolated_worktree" || nextMode === "independent_worktree" ? nextMode : "directory";
+  },
+  { immediate: true },
+);
+
+watch(
+  () => props.workspaceRootPath,
+  (nextPath) => {
+    const normalized = String(nextPath || "").trim();
+    if (selectedPath.value !== normalized) {
+      customOption.value = null;
+      worktreeCheckMessage.value = "";
+      worktreeAvailable.value = false;
+    }
+    selectedPath.value = normalized;
+    // 仅在目录真正变化时探测 Git 根，保存回流同值不重复检查
+    if (normalized && props.gitRootCheck && normalized !== lastGitCheckPath) {
+      void runGitRootCheck(normalized);
+    }
+  },
+  { immediate: true },
+);
+
+function isWorkModeDisabled(mode: ShellWorkMode): boolean {
+  if (mode === "directory") return false;
+  // 与旧版一致：只读（且未开最大权限）不能用工作树；目录不是 Git 根时禁用
+  if (selectedAccess.value === "read_only" && !props.workspaceAutonomousMode) return true;
+  return !worktreeAvailable.value;
+}
+
+function buildSnapshot() {
+  const source = findOptionByPath(selectedPath.value);
+  return {
+    path: selectedPath.value,
+    name: String(source?.name || "").trim() || selectedPath.value.replace(/\\/g, "/").replace(/\/+$/, "").split("/").pop() || selectedPath.value,
+    access: selectedAccess.value,
+    workMode: selectedWorkMode.value,
+  };
+}
+
+async function commitSave() {
+  if (!props.saveWorkspace || !selectedPath.value) return;
+  if (saving.value) {
+    pendingSave = true;
+    return;
+  }
+  saving.value = true;
+  try {
+    while (true) {
+      pendingSave = false;
+      try {
+        await props.saveWorkspace(buildSnapshot());
+      } catch {
+        restoreFromProps();
+        break;
+      }
+      if (!pendingSave) break;
+    }
+  } finally {
+    saving.value = false;
+  }
+}
+
+function restoreFromProps() {
+  selectedPath.value = String(props.workspaceRootPath || "").trim();
+  selectedAccess.value = normalizeAccess(props.workspaceAccess);
+  selectedWorkMode.value = props.workspaceWorkMode === "isolated_worktree" || props.workspaceWorkMode === "independent_worktree"
+    ? props.workspaceWorkMode
+    : "directory";
+  worktreeAvailable.value = false;
+  worktreeCheckMessage.value = "";
+}
+
+async function runGitRootCheck(path: string) {
+  const sequence = ++checkSequence;
+  lastGitCheckPath = path;
+  if (!props.gitRootCheck || !path) {
+    worktreeAvailable.value = false;
+    worktreeCheckMessage.value = "";
+    return;
+  }
+  worktreeAvailable.value = false;
+  worktreeCheckMessage.value = t("chat.workspaceWorktreeChecking");
+  try {
+    const available = await props.gitRootCheck(path);
+    if (sequence !== checkSequence) return;
+    worktreeAvailable.value = Boolean(available);
+    worktreeCheckMessage.value = available ? "" : t("chat.workspaceWorktreeUnavailable");
+  } catch (error) {
+    if (sequence !== checkSequence) return;
+    worktreeAvailable.value = false;
+    worktreeCheckMessage.value = error instanceof Error ? error.message : String(error);
+  }
+  if (!worktreeAvailable.value && selectedWorkMode.value !== "directory") {
+    selectedWorkMode.value = "directory";
+    void commitSave();
+  }
+}
+
+function handleDirectoryChange(path: string) {
+  const normalized = String(path || "").trim();
+  if (!normalized) return;
+  const source = findOptionByPath(normalized);
+  selectedPath.value = normalized;
+  selectedAccess.value = normalizeAccess(source?.access);
+  if (selectedAccess.value === "read_only" && !props.workspaceAutonomousMode) {
+    selectedWorkMode.value = "directory";
+  }
+  void commitSave();
+  void runGitRootCheck(normalized);
+}
+
+function setAccess(access: ShellWorkspaceAccess) {
+  if (selectedAccess.value === access) return;
+  selectedAccess.value = access;
+  if (access === "read_only" && !props.workspaceAutonomousMode && selectedWorkMode.value !== "directory") {
+    selectedWorkMode.value = "directory";
+  }
+  void commitSave();
+}
+
+function setWorkMode(mode: ShellWorkMode) {
+  if (selectedWorkMode.value === mode || isWorkModeDisabled(mode)) return;
+  selectedWorkMode.value = mode;
+  void commitSave();
+}
+
+async function browseWorkspaceDirectory() {
+  workspaceDropdownOpen.value = false;
+  let picked: string | string[] | null = null;
+  try {
+    picked = await openTransportFileDialog({ directory: true, multiple: false });
+  } catch {
+    return;
+  }
+  const path = String(Array.isArray(picked) ? picked[0] || "" : picked || "").trim();
+  if (!path) return;
+  const existing = findOptionByPath(path);
+  if (!existing) {
+    customOption.value = {
+      id: `conversation-workspace-custom-${Date.now().toString(36)}`,
+      name: path.replace(/\\/g, "/").replace(/\/+$/, "").split("/").pop() || path,
+      path,
+      access: "approval",
+    };
+  }
+  handleDirectoryChange(path);
+}
+
+// ========== 人格候选 ==========
 
 const selectedAgentId = computed(() => String(props.selectedAgentId || "").trim());
 
