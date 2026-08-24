@@ -234,6 +234,7 @@
               </div>
               <GitTree
                 :nodes="commitTreeNodes"
+                :indent="0"
                 @expand="onCommitExpand"
                 @row-click="onCommitRowClick"
               >
