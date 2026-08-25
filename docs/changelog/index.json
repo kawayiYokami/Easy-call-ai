@@ -1,7 +1,12 @@
 {
-  "generatedAt": "2026-08-25T01:26:58.819Z",
-  "latestVersion": "v0.74.0",
+  "generatedAt": "2026-08-25T02:15:41.542Z",
+  "latestVersion": "v0.74.1",
   "releases": [
+    {
+      "version": "v0.74.1",
+      "path": "docs/changelog/releases/v0.74.1.md",
+      "summary": "修复 Web 端与 VS Code 侧边栏的 Git 面板无法使用自动刷新的问题：仓库监听（watch）不再被 Web 端拦截，改动、提交、切换分支等操作会像桌面端一样自动刷新更改区和提交历史"
+    },
     {
       "version": "v0.74.0",
       "path": "docs/changelog/releases/v0.74.0.md",
