@@ -218,7 +218,7 @@ async fn ide_chat_handle_jsonrpc_request(
         // git 面板：Web 与 channel 双接口，与 tauri 命令共用同一套 git_panel 内部实现。
         // 路由全部收敛到 git_panel_dispatch，避免超长函数内堆积 30+ 个内联分支。
         git_panel_method if git_panel_method.starts_with("git_panel_") => {
-            git_panel_dispatch(request.clone(), state).await
+            git_panel_dispatch(request.clone(), state, app).await
         }
         "fileReader.directory.list" => ide_chat_file_reader_directory_list(request.params).await,
         "fileReader.readFile" => ide_chat_file_reader_read(request.params).await,
@@ -643,12 +643,24 @@ async fn ide_chat_handle_jsonrpc_request(
 
 /// git 面板路由分发：与 tauri 命令共用同一套 git_panel 内部实现。
 /// 主分发函数只保留一个前缀守卫分支，具体分支收敛到这里，避免超长函数。
-async fn git_panel_dispatch(request: IdeChatJsonRpcRequest, state: &AppState) -> Result<Value, String> {
+async fn git_panel_dispatch(
+    request: IdeChatJsonRpcRequest,
+    state: &AppState,
+    app: &AppHandle,
+) -> Result<Value, String> {
     match request.method.as_str() {
         "git_panel_repos" => {
             let refresh = request.params.get("refresh").and_then(Value::as_bool).unwrap_or(false);
             let input = ide_chat_parse_param_field::<GitPanelWorkspaceInput>(request.params, "input")?;
             ide_chat_serialize(git_panel_repos_inner(input, refresh, state).await?)
+        }
+        "git_panel_watch_start" => {
+            let input = ide_chat_parse_param_field::<GitPanelWorkspaceInput>(request.params, "input")?;
+            ide_chat_serialize(git_panel_watch_start(app.clone(), input).await?)
+        }
+        "git_panel_watch_stop" => {
+            let input = ide_chat_parse_param_field::<GitPanelWorkspaceInput>(request.params, "input")?;
+            ide_chat_serialize(git_panel_watch_stop(input).await?)
         }
         "git_panel_detect" => {
             let input = ide_chat_parse_param_field::<GitPanelWorkspaceInput>(request.params, "input")?;

@@ -250,14 +250,18 @@ async fn git_panel_watch_consumer(
             "[Git面板监视] 推送变化信号 workspace={} workdir={} head={} refs={}",
             repo_root, signals.workdir_changed, signals.head_changed, signals.refs_changed
         ));
-        let _ = app.emit(
-            GIT_PANEL_WATCH_EVENT,
-            GitPanelWatchEventPayload {
-                workspace_path: repo_root.clone(),
-                workdir_changed: signals.workdir_changed,
-                head_changed: signals.head_changed,
-                refs_changed: signals.refs_changed,
-            },
+        let payload = GitPanelWatchEventPayload {
+            workspace_path: repo_root.clone(),
+            workdir_changed: signals.workdir_changed,
+            head_changed: signals.head_changed,
+            refs_changed: signals.refs_changed,
+        };
+        let _ = app.emit(GIT_PANEL_WATCH_EVENT, payload.clone());
+        // Web/VS Code 客户端经 WS bridge 收不到 Tauri 原生事件，必须主动广播
+        // notification（method 与前端 onTransportNotification 的 canonical 名一致）。
+        ide_chat_broadcast_notification(
+            "gitPanel.watchChanged",
+            serde_json::to_value(payload).unwrap_or(serde_json::Value::Null),
         );
     }
 }
