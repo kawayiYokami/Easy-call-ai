@@ -1289,6 +1289,7 @@
       "validateSuccess": "校验通过",
       "stopped": "已停止",
       "deploySuccess": "部署成功",
+      "probingTools": "正在探测工具…",
       "deployFailed": "部署失败",
       "nodeRequired": "缺少 Node.js",
       "nodeRequiredHint": "MCP 服务依赖 Node.js 运行，安装后即可部署",

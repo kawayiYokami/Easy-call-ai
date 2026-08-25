@@ -480,6 +480,8 @@ struct ToolLoadStatus {
 struct DepartmentPermissionCatalogItem {
     name: String,
     description: String,
+    #[serde(default)]
+    group: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

@@ -253,25 +253,6 @@ fn read_media_tool_timeout_override(args_json: &str) -> std::time::Duration {
     std::time::Duration::from_secs(timeout_secs)
 }
 
-fn model_mcp_tool_name(
-    member_name: &str,
-    raw_tool_name: &str,
-    builtin_tool_names: &HashSet<String>,
-    mcp_tool_name_counts: &std::collections::HashMap<String, usize>,
-) -> String {
-    let overlaps_builtin = builtin_tool_names.contains(raw_tool_name);
-    let overlaps_mcp = mcp_tool_name_counts
-        .get(raw_tool_name)
-        .copied()
-        .unwrap_or_default()
-        > 1;
-    if overlaps_builtin || overlaps_mcp {
-        mcp_tool_prefixed_name(member_name, raw_tool_name)
-    } else {
-        raw_tool_name.to_string()
-    }
-}
-
 fn build_global_tool_schema_cache(state: &AppState) -> Vec<CachedRuntimeToolSchema> {
     let preview_session_id = "__tool_schema_cache__".to_string();
     let _preview_api_id = "__tool_schema_cache__".to_string();
@@ -388,10 +369,6 @@ fn build_global_tool_schema_cache(state: &AppState) -> Vec<CachedRuntimeToolSche
         }
         .provider_tool_definition(),
     ];
-    let builtin_tool_names = builtin_definitions
-        .iter()
-        .map(|definition| definition.name.clone())
-        .collect::<HashSet<_>>();
     let mut definitions = builtin_definitions
         .into_iter()
         .map(CachedRuntimeToolSchema::builtin)
@@ -409,27 +386,10 @@ fn build_global_tool_schema_cache(state: &AppState) -> Vec<CachedRuntimeToolSche
                         .map(move |tool| (server.clone(), tool))
                 })
                 .collect::<Vec<_>>();
-            let mut mcp_tool_name_counts = std::collections::HashMap::<String, usize>::new();
-            for (_, tool) in &mcp_tools {
-                let raw_tool_name = if tool.raw_tool_name.is_empty() {
-                    &tool.tool_name
-                } else {
-                    &tool.raw_tool_name
-                };
-                *mcp_tool_name_counts.entry(raw_tool_name.clone()).or_default() += 1;
-            }
             for (server, tool) in mcp_tools {
-                let raw_tool_name = if tool.raw_tool_name.is_empty() {
-                    tool.tool_name.clone()
-                } else {
-                    tool.raw_tool_name.clone()
-                };
-                let provider_tool_name = model_mcp_tool_name(
-                    &tool.member_name,
-                    &raw_tool_name,
-                    &builtin_tool_names,
-                    &mcp_tool_name_counts,
-                );
+                // 工具名（别名）在探测时已按规则生成：原始名带成员前缀则保持，裸名补 {成员}_ 前缀。
+                // 注册、展示、AI 调用全部统一用该别名，执行时才反查 raw_tool_name 调远端。
+                let provider_tool_name = tool.tool_name.clone();
                 definitions.push(CachedRuntimeToolSchema::mcp(
                     &server.id,
                     &server.name,
@@ -1801,48 +1761,6 @@ mod tool_assembly_permission_tests {
         assert_eq!(
             resolved.manifest[0].get("reason").and_then(Value::as_str),
             Some("MCP 组成员名规范化后没有可用字符，工具无法挂载")
-        );
-    }
-
-    #[test]
-    fn mcp_model_name_uses_raw_name_without_a_collision() {
-        let builtin_names = HashSet::from(["read".to_string()]);
-        let mcp_name_counts = std::collections::HashMap::from([("akasha_search".to_string(), 1)]);
-
-        assert_eq!(
-            model_mcp_tool_name(
-                "Akasha Terminal",
-                "akasha_search",
-                &builtin_names,
-                &mcp_name_counts,
-            ),
-            "akasha_search"
-        );
-    }
-
-    #[test]
-    fn mcp_model_name_prefixes_only_mcp_when_it_overlaps_a_builtin() {
-        let builtin_names = HashSet::from(["search".to_string()]);
-        let mcp_name_counts = std::collections::HashMap::from([("search".to_string(), 1)]);
-
-        assert_eq!(
-            model_mcp_tool_name("Akasha Terminal", "search", &builtin_names, &mcp_name_counts),
-            "Akasha_Terminal_search"
-        );
-    }
-
-    #[test]
-    fn mcp_model_name_prefixes_each_mcp_when_raw_names_overlap() {
-        let builtin_names = HashSet::new();
-        let mcp_name_counts = std::collections::HashMap::from([("search".to_string(), 2)]);
-
-        assert_eq!(
-            model_mcp_tool_name("context7", "search", &builtin_names, &mcp_name_counts),
-            "context7_search"
-        );
-        assert_eq!(
-            model_mcp_tool_name("Akasha Terminal", "search", &builtin_names, &mcp_name_counts),
-            "Akasha_Terminal_search"
         );
     }
 

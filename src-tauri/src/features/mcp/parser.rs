@@ -211,14 +211,6 @@ fn issue_server_missing_name(index: usize) -> McpValidationIssue {
     .with_param("index", &index.to_string())
 }
 
-fn issue_duplicate_name(name: &str) -> McpValidationIssue {
-    McpValidationIssue::new(
-        "duplicate_name",
-        format!("duplicate server name '{name}' in definition"),
-    )
-    .with_server(name)
-}
-
 fn parse_server_array(
     items: &[Value],
     field_path: &str,
@@ -242,10 +234,7 @@ fn parse_server_array(
             issues.push(issue_server_missing_name(idx));
             continue;
         };
-        if out.iter().any(|(n, _)| n == &name) {
-            issues.push(issue_duplicate_name(&name));
-            continue;
-        }
+        // 同名成员不跳过：同名覆盖由用户自行安排顺序，系统不去重
         out.push((name, value_obj));
     }
     Ok(ParsedMcpDefinition {
@@ -319,19 +308,9 @@ fn normalized_mcp_member_name_or_original(raw: &str) -> String {
     normalize_mcp_member_name(raw).unwrap_or_else(|| raw.trim().to_string())
 }
 
-fn normalized_unique_mcp_member_name(raw: &str, used_names: &mut std::collections::HashSet<String>) -> String {
-    let base = normalized_mcp_member_name_or_original(raw);
-    if used_names.insert(base.clone()) {
-        return base;
-    }
-    let mut suffix = 2usize;
-    loop {
-        let candidate = format!("{base}_{suffix}");
-        if used_names.insert(candidate.clone()) {
-            return candidate;
-        }
-        suffix += 1;
-    }
+fn normalized_unique_mcp_member_name(raw: &str, _used_names: &mut std::collections::HashSet<String>) -> String {
+    // 成员名不去重：同名覆盖由用户自行安排顺序，规范化后原名保留
+    normalized_mcp_member_name_or_original(raw)
 }
 
 fn normalize_mcp_member_name_in_array(items: &mut [Value]) {

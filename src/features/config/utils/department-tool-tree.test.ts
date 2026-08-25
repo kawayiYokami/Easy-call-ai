@@ -3,11 +3,10 @@ import type { DepartmentPermissionCatalogItem } from "../../../types/app";
 import {
   buildBuiltinToolGroups,
   buildMcpToolGroups,
-  splitMcpToolName,
 } from "./department-tool-tree";
 
-function item(name: string, description = ""): DepartmentPermissionCatalogItem {
-  return { name, description };
+function item(name: string, description = "", group = ""): DepartmentPermissionCatalogItem {
+  return { name, description, group };
 }
 
 describe("buildBuiltinToolGroups", () => {
@@ -50,33 +49,21 @@ describe("buildBuiltinToolGroups", () => {
   });
 });
 
-describe("splitMcpToolName", () => {
-  it("拆分 server 与 tool 短名", () => {
-    expect(splitMcpToolName("filesystem::read_file")).toEqual({ server: "filesystem", tool: "read_file" });
-  });
-
-  it("无分隔符或位置非法时返回 null", () => {
-    expect(splitMcpToolName("plain_tool")).toBeNull();
-    expect(splitMcpToolName("::lead")).toBeNull();
-    expect(splitMcpToolName("trail::")).toBeNull();
-  });
-});
-
 describe("buildMcpToolGroups", () => {
-  it("按 server 分组且叶子展示短名、保留全名", () => {
+  it("按 server 分组且叶子保留注册层全名", () => {
     const groups = buildMcpToolGroups(
-      [item("fs::read"), item("fs::write"), item("git::status")],
+      [item("read", "", "fs"), item("write", "", "fs"), item("status", "", "git")],
       () => false,
       "其他",
     );
     expect(groups.map((group) => group.label)).toEqual(["fs", "git"]);
     const fs = groups[0];
     expect(fs.leaves.map((leaf) => leaf.displayName)).toEqual(["read", "write"]);
-    expect(fs.leaves.every((leaf) => leaf.name.startsWith("fs::"))).toBe(true);
+    expect(fs.leaves.map((leaf) => leaf.name)).toEqual(["read", "write"]);
     expect(fs.state).toBe("none");
   });
 
-  it("无前缀工具落入其他组并使用传入的展示名", () => {
+  it("无分组工具落入其他组并使用传入的展示名", () => {
     const groups = buildMcpToolGroups([item("bare")], () => false, "其他");
     expect(groups).toHaveLength(1);
     expect(groups[0].key).toBe("other");
@@ -86,16 +73,16 @@ describe("buildMcpToolGroups", () => {
 
   it("组内部分启用时状态为 partial", () => {
     const groups = buildMcpToolGroups(
-      [item("s::a"), item("s::b")],
-      (name) => name === "s::a",
+      [item("a", "", "s"), item("b", "", "s")],
+      (name) => name === "a",
       "其他",
     );
     expect(groups[0].state).toBe("partial");
   });
 
-  it("server 名为 other 与裸工具并存时分组键不冲突", () => {
+  it("server 名为 other 与无分组工具并存时分组键不冲突", () => {
     const groups = buildMcpToolGroups(
-      [item("other::read"), item("bare")],
+      [item("read", "", "other"), item("bare")],
       () => false,
       "其他",
     );

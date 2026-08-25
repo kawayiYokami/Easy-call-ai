@@ -405,7 +405,13 @@ impl RuntimeToolDyn for CachedMcpRuntimeTool {
                     "MCP 工具 `{qualified_by_name}` 当前不可用：部门权限已撤销"
                 )));
             }
-            let (peer, _) = match mcp_get_or_connect_peer_for_tool(&server, &runtime_tool_name).await {
+            let (peer, _) = match mcp_get_or_connect_peer_for_tool(
+                &server,
+                &runtime_tool_name,
+                &current_tool.member_name,
+            )
+            .await
+            {
                 Ok(result) => result,
                 Err(err) => {
                     return Ok(ProviderToolResult::error(format!(
@@ -806,11 +812,21 @@ fn mcp_definition_tool_filters(
     let mut deny = std::collections::HashSet::<String>::new();
     if let Ok(parsed) = parse_mcp_definition_servers(raw_definition_json) {
         for (member_name, obj) in parsed.servers {
+            let member_prefix = format!("{}_", normalized_mcp_member_name_or_original(&member_name));
             for item in value_get_string_array(&obj, "enabledTools") {
-                allow.insert(mcp_tool_prefixed_name(&member_name, &item));
+                // 与探测别名规则一致：已带成员前缀保持，否则补前缀
+                allow.insert(if item.starts_with(&member_prefix) {
+                    item
+                } else {
+                    mcp_tool_prefixed_name(&member_name, &item)
+                });
             }
             for item in value_get_string_array(&obj, "disabledTools") {
-                deny.insert(mcp_tool_prefixed_name(&member_name, &item));
+                deny.insert(if item.starts_with(&member_prefix) {
+                    item
+                } else {
+                    mcp_tool_prefixed_name(&member_name, &item)
+                });
             }
         }
     }
@@ -1215,6 +1231,7 @@ async fn mcp_list_tools_with_peer(
 async fn mcp_get_or_connect_peer_for_tool(
     server: &McpServerConfig,
     tool_name: &str,
+    member_name: &str,
 ) -> Result<(rmcp::service::Peer<rmcp::RoleClient>, String), String> {
     if !mcp_policy_enabled_for_tool(server, tool_name) || !mcp_tool_allowed_by_definition(server, tool_name) {
         return Err(format!(
@@ -1222,50 +1239,43 @@ async fn mcp_get_or_connect_peer_for_tool(
             tool_name, server.id
         ));
     }
-    let member_name = parse_mcp_group_definitions(server)?
-        .into_iter()
-        .map(|(member_name, _, _)| member_name)
-        .filter(|member_name| {
-            let prefix = format!("{}_", normalized_mcp_member_name_or_original(member_name));
-            tool_name.starts_with(&prefix)
-        })
-        .max_by_key(|member_name| member_name.len())
-        .ok_or_else(|| format!("MCP tool '{}' has no matching member prefix", tool_name))?;
+    // 成员归属来自运行时实例的 member_name（探测时记录），不再靠工具名前缀反查
     mcp_get_or_connect_client(server).await?;
     let cache = mcp_client_cache();
     let guard = cache.lock().await;
     let cached = guard
         .get(&server.id)
-        .and_then(|member_map| member_map.get(&member_name))
+        .and_then(|member_map| member_map.get(member_name))
         .ok_or_else(|| {
             format!(
                 "MCP runtime cache missing member '{member_name}' of server '{}'",
                 server.id
             )
         })?;
-    Ok((cached.client.peer().clone(), member_name))
+    Ok((cached.client.peer().clone(), member_name.to_string()))
 }
 
 async fn mcp_list_server_tools_runtime(server: &McpServerConfig) -> Result<Vec<McpToolDescriptor>, String> {
     let members = parse_mcp_group_definitions(server)?;
     let mut out = Vec::<McpToolDescriptor>::new();
-    let mut seen_names = std::collections::HashSet::<String>::new();
-    let mut duplicate_names = Vec::<String>::new();
     for (member_name, _, _) in &members {
         let member_compatibility_error = mcp_member_name_compatibility_error(member_name);
         let (_peer, tools) = mcp_list_tools_with_peer(server, member_name).await?;
         for def in tools {
             let raw_name = def.name.to_string();
-            let prefixed = mcp_tool_prefixed_name(member_name, &raw_name);
-            if !seen_names.insert(prefixed.clone()) {
-                duplicate_names.push(prefixed.clone());
-                continue;
-            }
+            // 原始名已带本成员规范化前缀（如 akasha_skill）则保持，避免 akasha_akasha_skill；
+            // 不带（如裸名 search）才补 {成员}_{工具} 前缀
+            let member_prefix = format!("{}_", normalized_mcp_member_name_or_original(member_name));
+            let tool_name = if raw_name.starts_with(&member_prefix) {
+                raw_name.clone()
+            } else {
+                mcp_tool_prefixed_name(member_name, &raw_name)
+            };
             let description = def.description.clone().unwrap_or_default().to_string();
             out.push(McpToolDescriptor {
-                enabled: mcp_policy_enabled_for_tool(server, &prefixed)
-                    && mcp_tool_allowed_by_definition(server, &prefixed),
-                tool_name: prefixed,
+                enabled: mcp_policy_enabled_for_tool(server, &tool_name)
+                    && mcp_tool_allowed_by_definition(server, &tool_name),
+                tool_name,
                 description,
                 compatibility_error: member_compatibility_error.clone(),
                 member_name: member_name.clone(),
@@ -1273,12 +1283,6 @@ async fn mcp_list_server_tools_runtime(server: &McpServerConfig) -> Result<Vec<M
                 parameters: serde_json::Value::Object(def.input_schema.as_ref().clone()),
             });
         }
-    }
-    if !duplicate_names.is_empty() {
-        return Err(format!(
-            "MCP 组内工具名重复: {}",
-            duplicate_names.join(", ")
-        ));
     }
     Ok(out)
 }

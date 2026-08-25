@@ -412,11 +412,39 @@ async function toggleDeploy(server: McpServerView) {
         lastElapsedMs: deployResult.elapsedMs,
       });
     }
-    setStatus(`${t('config.mcp.deploySuccess')}: ${server.name}（tools=${deployResult.tools.length}）`);
+    if (deployResult.tools.length === 0) {
+      setStatus(`${t('config.mcp.deploySuccess')}: ${server.name}（${t('config.mcp.probingTools')}）`);
+      void pollServerTools(server.id);
+    } else {
+      setStatus(`${t('config.mcp.deploySuccess')}: ${server.name}（tools=${deployResult.tools.length}）`);
+    }
   } catch (error) {
     setStatus(`${t('config.mcp.deployFailed')}: ${toErrorMessage(error)}`, true);
   } finally {
     loading.value = false;
+  }
+}
+
+// 部署是异步探测：返回为空时轮询运行时状态，探测完成即自动填充工具列表
+async function pollServerTools(serverId: string) {
+  for (let attempt = 0; attempt < 6; attempt++) {
+    await new Promise((resolve) => setTimeout(resolve, 1500));
+    try {
+      const result = await invokeTauri<McpListServerToolsResult>("mcp_list_server_tools_cached", {
+        input: { serverId },
+      });
+      const target = servers.value.find((s) => s.id === serverId);
+      if (target) {
+        target.toolItems = result.tools;
+        target.lastElapsedMs = result.elapsedMs;
+      }
+      if (result.tools.length > 0) {
+        setStatus(`${t('config.mcp.deploySuccess')}: ${target?.name ?? serverId}（tools=${result.tools.length}）`);
+        return;
+      }
+    } catch {
+      return;
+    }
   }
 }
 

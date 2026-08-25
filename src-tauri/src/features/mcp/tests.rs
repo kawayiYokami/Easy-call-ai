@@ -155,7 +155,8 @@ fn array_missing_name_reports_issue() {
 }
 
 #[test]
-fn array_duplicate_name_reports_issue() {
+fn array_duplicate_name_keeps_all_servers() {
+    // 同名成员不去重：数组内两个同名 server 都保留，由用户自行安排顺序
     let json = r#"{
         "mcpServers": [
             { "name": "dup", "command": "npx" },
@@ -163,9 +164,9 @@ fn array_duplicate_name_reports_issue() {
         ]
     }"#;
     let parsed = expand(json).expect("partial ok");
-    assert_eq!(parsed.servers.len(), 1);
-    assert_eq!(parsed.issues[0].code, "duplicate_name");
-    assert_eq!(parsed.issues[0].server_name.as_deref(), Some("dup"));
+    assert_eq!(parsed.servers.len(), 2);
+    assert_eq!(parsed.servers[0].0, "dup");
+    assert_eq!(parsed.servers[1].0, "dup");
 }
 
 #[test]
@@ -250,26 +251,16 @@ fn parse_group_definitions_multi_members() {
 }
 
 #[test]
-fn normalized_member_name_collision_across_servers_is_rejected() {
-    let next = test_server_with_definition(
-        r#"{
-            "mcpServers": {
-                "Akasha Terminal": { "command": "npx" }
-            }
-        }"#,
+fn normalized_member_name_collision_across_servers_is_allowed() {
+    // 跨卡片成员名重复不再拦截：同名覆盖由用户自行安排顺序
+    assert_eq!(
+        normalized_mcp_member_name_or_original("Akasha Terminal"),
+        "Akasha_Terminal"
     );
-    let mut existing = test_server_with_definition(
-        r#"{
-            "mcpServers": {
-                "Akasha_Terminal": { "command": "npx" }
-            }
-        }"#,
+    assert_eq!(
+        normalized_mcp_member_name_or_original("Akasha_Terminal"),
+        "Akasha_Terminal"
     );
-    existing.id = "mcp-existing".to_string();
-
-    let error = ensure_mcp_member_names_are_unique_across_servers(&next, &[existing])
-        .expect_err("规范化后成员名冲突必须拒绝保存");
-    assert!(error.contains("Akasha_Terminal"));
 }
 
 #[test]
@@ -311,6 +302,28 @@ fn definition_tool_filters_are_member_prefixed() {
     assert!(mcp_tool_allowed_by_definition(&server, "ctx_search"));
     assert!(!mcp_tool_allowed_by_definition(&server, "ctx_trending"));
     assert!(!mcp_tool_allowed_by_definition(&server, "search"));
+}
+
+#[test]
+fn definition_tool_filters_keep_already_prefixed_names() {
+    // 与探测别名规则一致：已带成员前缀的工具名保持原样，不重复加前缀
+    let server = test_server_with_definition(
+        r#"{
+            "mcpServers": {
+                "akasha": {
+                    "url": "https://mcp.example.com/akasha",
+                    "transport": "sse",
+                    "enabledTools": ["akasha_search"],
+                    "disabledTools": ["akasha_skill"]
+                }
+            }
+        }"#,
+    );
+    let (allow, deny) = mcp_definition_tool_filters(&server.definition_json);
+    assert!(allow.contains("akasha_search"), "已带前缀应保持，got {allow:?}");
+    assert!(deny.contains("akasha_skill"), "已带前缀应保持，got {deny:?}");
+    assert!(mcp_tool_allowed_by_definition(&server, "akasha_search"));
+    assert!(!mcp_tool_allowed_by_definition(&server, "akasha_skill"));
 }
 
 // ========== SSE transport 集成测试（本地 mock 服务端） ==========
@@ -525,20 +538,56 @@ mod sse_transport_tests {
     }
 
     #[tokio::test]
-    async fn sse_group_ambiguous_prefixed_name_detected() {
-        // 成员名/工具名含下划线导致前缀歧义：a_b 成员的 c 工具 vs a 成员的 b_c 工具 → a_b_c 重复
+    async fn sse_group_tools_already_prefixed_kept_unchanged() {
+        // 成员返回的工具名已带成员前缀（如 akasha_skill）时保持原样，不重复加前缀
+        let url_a = spawn_sse_mock(&["akasha_catalog", "akasha_read"]).await;
+        let server = group_server_with_urls(&[("akasha", &url_a)]);
+
+        let tools = mcp_list_server_tools_runtime(&server)
+            .await
+            .expect("list group tools");
+        let names = tools
+            .iter()
+            .map(|t| t.tool_name.as_str())
+            .collect::<Vec<_>>();
+        assert!(
+            names.contains(&"akasha_catalog"),
+            "已带前缀应保持, got {names:?}"
+        );
+        assert!(
+            names.contains(&"akasha_read"),
+            "已带前缀应保持, got {names:?}"
+        );
+        assert!(
+            !names.contains(&"akasha_akasha_catalog"),
+            "不应重复加前缀, got {names:?}"
+        );
+        let catalog = tools
+            .iter()
+            .find(|t| t.tool_name == "akasha_catalog")
+            .expect("akasha_catalog 存在");
+        assert_eq!(catalog.raw_tool_name, "akasha_catalog");
+    }
+
+    #[tokio::test]
+    async fn sse_group_ambiguous_prefixed_name_kept_side_by_side() {
+        // 成员名/工具名含下划线导致前缀歧义：a_b 成员的 c 工具 vs a 成员的 b_c 工具 → a_b_c 同名共存
         let url_a = spawn_sse_mock(&["c"]).await;
         let url_b = spawn_sse_mock(&["b_c"]).await;
         let server = group_server_with_urls(&[("a_b", &url_a), ("a", &url_b)]);
 
-        let err = mcp_list_server_tools_runtime(&server)
+        let tools = mcp_list_server_tools_runtime(&server)
             .await
-            .expect_err("应检测到前缀冲突");
-        assert!(err.contains("重复"), "错误应提示重复, got: {err}");
+            .expect("同名共存不应报错");
+        let a_b_c_count = tools
+            .iter()
+            .filter(|t| t.tool_name == "a_b_c")
+            .count();
+        assert_eq!(a_b_c_count, 2, "同名工具应共存, got {tools:?}");
     }
 
     #[test]
-    fn validate_rejects_cross_group_member_duplicate() {
+    fn validate_allows_cross_group_member_duplicate() {
         let result = mcp_validate_definition_inner(McpDefinitionValidateInput {
             definition_json: r#"{
                 "mcpServers": {
@@ -549,10 +598,9 @@ mod sse_transport_tests {
             existing_member_names: vec!["context7".to_string(), "filesystem".to_string()],
         })
         .expect("validate ok");
-        assert!(!result.ok);
         assert!(
-            result.issues.iter().any(|i| i.code == "duplicate_member_name"),
-            "应报跨卡片成员重名, got {:?}",
+            !result.issues.iter().any(|i| i.code == "duplicate_member_name"),
+            "跨卡片成员重名不应再报 issue, got {:?}",
             result.issues
         );
     }

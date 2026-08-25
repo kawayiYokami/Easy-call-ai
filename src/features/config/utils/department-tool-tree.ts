@@ -44,7 +44,6 @@ const BUILTIN_TOOL_GROUP_DEFS: readonly BuiltinToolGroupDef[] = [
 
 const OTHER_GROUP_KEY = "other";
 const MCP_GROUP_KEY_PREFIX = "server:";
-const MCP_NAME_SEPARATOR = "::";
 
 function buildLeaf(category: DepartmentToolLeafCategory, item: DepartmentPermissionCatalogItem, displayName: string, isEnabled: (name: string) => boolean): DepartmentToolTreeLeaf {
   return {
@@ -95,15 +94,6 @@ export function buildBuiltinToolGroups(
 
 // ========== MCP 工具：按 server 分组 ==========
 
-export function splitMcpToolName(fullName: string): { server: string; tool: string } | null {
-  const index = fullName.indexOf(MCP_NAME_SEPARATOR);
-  if (index <= 0 || index >= fullName.length - MCP_NAME_SEPARATOR.length) return null;
-  return {
-    server: fullName.slice(0, index),
-    tool: fullName.slice(index + MCP_NAME_SEPARATOR.length),
-  };
-}
-
 export function buildMcpToolGroups(
   items: DepartmentPermissionCatalogItem[],
   isEnabled: (name: string) => boolean,
@@ -112,14 +102,14 @@ export function buildMcpToolGroups(
   const grouped = new Map<string, DepartmentToolTreeLeaf[]>();
   const otherLeaves: DepartmentToolTreeLeaf[] = [];
   for (const item of items) {
-    const parts = splitMcpToolName(item.name);
-    if (!parts) {
+    const groupName = (item.group || "").trim();
+    if (!groupName) {
       otherLeaves.push(buildLeaf("mcpToolNames", item, item.name, isEnabled));
       continue;
     }
-    const bucket = grouped.get(parts.server) ?? [];
-    bucket.push(buildLeaf("mcpToolNames", item, parts.tool, isEnabled));
-    grouped.set(parts.server, bucket);
+    const bucket = grouped.get(groupName) ?? [];
+    bucket.push(buildLeaf("mcpToolNames", item, item.name, isEnabled));
+    grouped.set(groupName, bucket);
   }
   const groups = Array.from(grouped.entries()).map(([server, leaves]) =>
     buildGroup(`${MCP_GROUP_KEY_PREFIX}${server}`, server, leaves),

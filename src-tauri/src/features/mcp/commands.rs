@@ -1,29 +1,3 @@
-fn normalized_mcp_member_names(definition_json: &str) -> Result<std::collections::HashSet<String>, String> {
-    let parsed = parse_mcp_definition_servers(definition_json)
-        .map_err(|err| err.message.clone())?;
-    Ok(parsed
-        .servers
-        .into_iter()
-        .map(|(member_name, _)| normalized_mcp_member_name_or_original(&member_name))
-        .collect())
-}
-
-fn ensure_mcp_member_names_are_unique_across_servers(
-    next: &McpServerConfig,
-    existing_servers: &[McpServerConfig],
-) -> Result<(), String> {
-    let next_member_names = normalized_mcp_member_names(&next.definition_json)?;
-    for server in existing_servers.iter().filter(|server| server.id != next.id) {
-        let existing_member_names = normalized_mcp_member_names(&server.definition_json)?;
-        if let Some(member_name) = next_member_names.intersection(&existing_member_names).next() {
-            return Err(format!(
-                "MCP 组成员名规范化后与现有卡片重复：{member_name}"
-            ));
-        }
-    }
-    Ok(())
-}
-
 fn normalize_mcp_server_input(input: McpServerInput) -> Result<McpServerConfig, String> {
     let id = input.id.trim().to_string();
     if id.is_empty() {
@@ -83,26 +57,6 @@ fn load_server_by_id(state: &AppState, server_id: &str) -> Result<McpServerConfi
         .into_iter()
         .find(|s| s.id == server_id)
         .ok_or_else(|| format!("MCP server '{}' not found", server_id))
-}
-
-fn list_tools_from_runtime_or_policy(server: &McpServerConfig) -> Vec<McpToolDescriptor> {
-    let runtime_tools = list_tools_from_runtime(server);
-    if !runtime_tools.is_empty() {
-        return runtime_tools;
-    }
-    server
-        .tool_policies
-        .iter()
-        .map(|policy| McpToolDescriptor {
-            tool_name: policy.tool_name.clone(),
-            description: String::new(),
-            enabled: mcp_tool_allowed_by_definition(server, &policy.tool_name) && policy.enabled,
-            compatibility_error: None,
-            member_name: String::new(),
-            raw_tool_name: String::new(),
-            parameters: serde_json::Value::Object(serde_json::Map::new()),
-        })
-        .collect()
 }
 
 fn list_tools_from_runtime(server: &McpServerConfig) -> Vec<McpToolDescriptor> {
@@ -363,7 +317,7 @@ fn mcp_validate_definition_inner(
     input: McpDefinitionValidateInput,
 ) -> Result<McpDefinitionValidateResult, String> {
     let _schema = mcp_definition_json_schema();
-    let (servers, mut issues) = validate_mcp_definition_servers(&input.definition_json);
+    let (servers, issues) = validate_mcp_definition_servers(&input.definition_json);
     let server_count = servers.len();
     let first_transport = servers
         .first()
@@ -373,25 +327,6 @@ fn mcp_validate_definition_inner(
                 .map(|parsed| parsed.transport.as_str().to_string())
         });
     let first_name = servers.first().map(|(name, _)| name.clone());
-
-    // 跨卡片成员重名检测：成员名相同则工具前缀必然冲突
-    if !input.existing_member_names.is_empty() {
-        for (name, _) in &servers {
-            if input
-                .existing_member_names
-                .iter()
-                .any(|n| n == name)
-            {
-                issues.push(
-                    McpValidationIssue::new(
-                        "duplicate_member_name",
-                        format!("server name '{name}' already exists in another group"),
-                    )
-                    .with_server(name),
-                );
-            }
-        }
-    }
 
     if issues.is_empty() {
         Ok(McpDefinitionValidateResult {
@@ -433,8 +368,6 @@ fn mcp_save_server_inner(
     state: &AppState,
 ) -> Result<McpServerConfig, String> {
     let next = normalize_mcp_server_input(input)?;
-    let existing_servers = load_workspace_mcp_servers(state)?;
-    ensure_mcp_member_names_are_unique_across_servers(&next, &existing_servers)?;
     save_workspace_mcp_server(state, &next)?;
     let mut saved = load_server_by_id(state, &next.id)?;
     saved = overlay_runtime_state_on_server(saved);
@@ -549,7 +482,7 @@ fn mcp_list_server_tools_cached_inner(
     };
 
     let started = std::time::Instant::now();
-    let tools = list_tools_from_runtime_or_policy(&server);
+    let tools = list_tools_from_runtime(&server);
 
     Ok(McpListServerToolsResult {
         server_id: server.id,
@@ -577,24 +510,6 @@ async fn mcp_deploy_server_inner(
 
     let server = {
         let server = load_server_by_id(state, server_id)?;
-        // 跨卡片成员名冲突检测：成员名相同则工具前缀必然冲突
-        let current_members = parse_mcp_group_definitions(&server)?
-            .into_iter()
-            .map(|(name, _, _)| name)
-            .collect::<Vec<_>>();
-        let all_servers = load_workspace_mcp_servers(state)?;
-        for other in all_servers.iter().filter(|s| s.id != server_id && s.enabled) {
-            if let Ok(other_members) = parse_mcp_group_definitions(other) {
-                for (other_name, _, _) in other_members {
-                    if current_members.contains(&other_name) {
-                        return Err(format!(
-                            "MCP 成员名 '{other_name}' 与已部署的卡片 '{}' 冲突，工具前缀会重复，请先改名",
-                            other.name
-                        ));
-                    }
-                }
-            }
-        }
         set_workspace_mcp_policy_enabled(state, server_id, true)?;
         server
     };
@@ -602,7 +517,7 @@ async fn mcp_deploy_server_inner(
     let started = std::time::Instant::now();
     mcp_runtime_state_mark_starting(&server);
     mcp_start_supervisor_probe_for_server(state.clone(), server.clone(), "manual_deploy");
-    let final_tools = list_tools_from_runtime_or_policy(&server);
+    let final_tools = list_tools_from_runtime(&server);
     Ok(McpListServerToolsResult {
         server_id: server.id,
         tools: final_tools,

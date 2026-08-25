@@ -1289,6 +1289,7 @@
       "validateSuccess": "Validation passed",
       "stopped": "Stopped",
       "deploySuccess": "Deploy successful",
+      "probingTools": "Probing tools...",
       "deployFailed": "Deploy failed",
       "nodeRequired": "Node.js missing",
       "nodeRequiredHint": "MCP servers run on Node.js; install it to deploy",

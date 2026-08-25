@@ -352,6 +352,7 @@ export type DepartmentPermissionControl = {
 export type DepartmentPermissionCatalogItem = {
   name: string;
   description: string;
+  group?: string;
 };
 
 export type DepartmentPermissionCatalog = {

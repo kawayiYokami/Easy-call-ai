@@ -188,7 +188,11 @@ async fn builtin_tool_definitions_for_frontend(
     out
 }
 
-fn department_permission_catalog_item(name: &str, description: &str) -> Option<DepartmentPermissionCatalogItem> {
+fn department_permission_catalog_item(
+    name: &str,
+    description: &str,
+    group: &str,
+) -> Option<DepartmentPermissionCatalogItem> {
     let name = name.trim();
     if name.is_empty() {
         return None;
@@ -196,6 +200,7 @@ fn department_permission_catalog_item(name: &str, description: &str) -> Option<D
     Some(DepartmentPermissionCatalogItem {
         name: name.to_string(),
         description: description.trim().to_string(),
+        group: group.trim().to_string(),
     })
 }
 
@@ -204,7 +209,7 @@ fn sorted_unique_catalog_items(
 ) -> Vec<DepartmentPermissionCatalogItem> {
     let mut out = values.into_iter().collect::<Vec<_>>();
     out.sort_by(|a, b| a.name.cmp(&b.name));
-    out.dedup_by(|a, b| a.name == b.name);
+    // 不去重：同名工具共存，由用户自行安排生效顺序
     out
 }
 
@@ -238,6 +243,7 @@ async fn list_department_permission_catalog_inner(
                 department_permission_catalog_item(
                     &item.function.name,
                     &item.function.description,
+                    "",
                 )
             }),
     );
@@ -245,25 +251,37 @@ async fn list_department_permission_catalog_inner(
     let skills = load_workspace_skill_summaries_with_errors(state)
         .map(|(skills, _errors)| {
             sorted_unique_catalog_items(skills.into_iter().filter_map(|item| {
-                department_permission_catalog_item(&item.name, &item.description)
+                department_permission_catalog_item(&item.name, &item.description, "")
             }))
         })
         .unwrap_or_default();
-    let mcp_tools = sorted_unique_catalog_items(
-        load_workspace_mcp_servers(state)?
-            .into_iter()
+    let mcp_tools = {
+        // 与注册层 build_global_tool_schema_cache 一致：仅已启用 server 的运行时真实工具
+        let servers = load_workspace_mcp_servers(state)?;
+        let runtime_tools = servers
+            .iter()
+            .filter(|server| server.enabled)
             .flat_map(|server| {
-                let server_name = server.name.clone();
-                list_tools_from_runtime_or_policy(&server)
+                list_tools_from_runtime(server)
                     .into_iter()
-                    .filter_map(move |tool| {
-                        department_permission_catalog_item(
-                            &format!("{}::{}", server_name, tool.tool_name),
-                            &tool.description,
-                        )
-                    })
-            }),
-    );
+                    .filter(|tool| tool.enabled)
+                    .map(move |tool| (server, tool))
+            })
+            .collect::<Vec<_>>();
+        sorted_unique_catalog_items(
+            runtime_tools
+                .into_iter()
+                .filter_map(move |(server, tool)| {
+                    // 与注册层一致：直接使用探测时生成的别名 tool_name
+                    let provider_tool_name = tool.tool_name.clone();
+                    department_permission_catalog_item(
+                        &provider_tool_name,
+                        &tool.description,
+                        &server.name,
+                    )
+                }),
+        )
+    };
     Ok(DepartmentPermissionCatalog {
         builtin_tools,
         skills,

@@ -1287,6 +1287,7 @@
       "validateSuccess": "校驗通過",
       "stopped": "已停止",
       "deploySuccess": "部署成功",
+      "probingTools": "正在偵測工具…",
       "deployFailed": "部署失敗",
       "nodeRequired": "缺少 Node.js",
       "nodeRequiredHint": "MCP 服務依賴 Node.js 執行，安裝後即可部署",
