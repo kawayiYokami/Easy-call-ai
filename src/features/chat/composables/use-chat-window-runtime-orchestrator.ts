@@ -132,6 +132,7 @@ export function useChatWindowRuntimeOrchestrator(bindings: Record<string, any>) 
         bindings.getChatFlow()?.readConversationStreamCache(conversationId) || null,
       refreshRemoteImConversationOverview: bindings.refreshRemoteImConversationOverview,
       setStatusError: bindings.setStatusError,
+      setConversationChatErrorText: bindings.setConversationChatErrorText,
       perfNow: bindings.perfNow,
       tr: bindings.tr,
     },

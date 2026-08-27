@@ -40,6 +40,8 @@ pub(super) struct ConversationPersistMeta {
     fast_request_turns: Vec<FastRequestTurn>,
     last_message_id: Option<String>,
     last_message_at: Option<String>,
+    #[serde(default)]
+    last_error: Option<String>,
     message_count: usize,
     body_message_count: usize,
     body_text_length: usize,
@@ -193,6 +195,8 @@ pub(super) struct ConversationShardMeta {
     last_message_id: Option<String>,
     #[serde(default)]
     last_message_at: Option<String>,
+    #[serde(default)]
+    last_error: Option<String>,
     #[serde(default)]
     message_count: usize,
     #[serde(default)]
@@ -379,6 +383,10 @@ impl ConversationShardMeta {
         self.last_message_at.as_deref()
     }
 
+    pub(super) fn last_error(&self) -> Option<&str> {
+        self.last_error.as_deref()
+    }
+
     pub(super) fn created_at(&self) -> &str {
         self.created_at.as_str()
     }
@@ -487,6 +495,7 @@ impl ConversationShardMeta {
         target.cumulative_usage = self.cumulative_usage.clone();
         target.active_goal = self.active_goal.clone();
         target.fast_request_turns = self.fast_request_turns.clone();
+        target.last_error = self.last_error.clone();
     }
 
     pub(super) fn apply_metadata_fields_from_conversation(&mut self, source: &Conversation) {
@@ -521,6 +530,7 @@ impl ConversationShardMeta {
         self.cumulative_usage = source.cumulative_usage.clone();
         self.active_goal = source.active_goal.clone();
         self.fast_request_turns = source.fast_request_turns.clone();
+        self.last_error = source.last_error.clone();
     }
 
     pub(super) fn apply_metadata_fields_from_meta(&mut self, source: &ConversationShardMeta) {
@@ -554,6 +564,7 @@ impl ConversationShardMeta {
         self.auto_push_remote_contact_id = source.auto_push_remote_contact_id.clone();
         self.cumulative_usage = source.cumulative_usage.clone();
         self.active_goal = source.active_goal.clone();
+        self.last_error = source.last_error.clone();
     }
 
     pub(super) fn apply_metadata_fields_from_meta_view(&mut self, source: &ConversationMetaView) {
@@ -585,6 +596,7 @@ impl ConversationShardMeta {
         self.auto_push_remote_contact_id = source.auto_push_remote_contact_id.clone();
         self.cumulative_usage = source.cumulative_usage.clone();
         self.active_goal = source.active_goal.clone();
+        self.last_error = source.last_error.clone();
     }
 
     pub(super) fn preserve_message_derived_fields_from(&mut self, source: &ConversationShardMeta) {
@@ -859,6 +871,7 @@ impl ConversationShardMeta {
             cumulative_usage: conversation.cumulative_usage.clone(),
             active_goal: conversation.active_goal.clone(),
             fast_request_turns: conversation.fast_request_turns.clone(),
+            last_error: conversation.last_error.clone(),
             last_message_id: conversation.messages.last().map(|message| message.id.clone()),
             last_message_at: conversation.messages.last().map(|message| message.created_at.clone()),
             message_count: conversation.messages.len(),
@@ -957,6 +970,7 @@ impl ConversationShardMeta {
             fast_request_turns: meta.fast_request_turns.clone(),
             last_message_id: meta.last_message_id.clone(),
             last_message_at: meta.last_message_at.clone(),
+            last_error: meta.last_error.clone(),
             message_count: meta.message_count,
             body_message_count: meta.body_message_count,
             body_text_length: meta.body_text_length,
@@ -1004,6 +1018,7 @@ impl ConversationShardMeta {
             fast_request_turns: self.fast_request_turns.clone(),
             last_message_id: self.last_message_id.clone(),
             last_message_at: self.last_message_at.clone(),
+            last_error: self.last_error.clone(),
             message_count: self.message_count,
             body_message_count: self.body_message_count,
             body_text_length: self.body_text_length,
@@ -1049,6 +1064,7 @@ impl ConversationShardMeta {
             auto_push_remote_contact_id: self.auto_push_remote_contact_id,
             cumulative_usage: self.cumulative_usage,
             active_goal: self.active_goal,
+            last_error: self.last_error,
         }
     }
 }
@@ -1163,6 +1179,7 @@ mod message_store_meta_tests {
                 usage_start: ConversationCumulativeUsage::default(),
                 usage_end: None,
             }),
+            last_error: Some("测试轮次失败".to_string()),
             is_draft: false,
         }
     }
@@ -1190,6 +1207,9 @@ mod message_store_meta_tests {
         assert_eq!(restored.active_goal, conversation.active_goal);
         assert_eq!(restored.fast_request_turns, conversation.fast_request_turns);
         assert_eq!(persist_meta.fast_request_turns, conversation.fast_request_turns);
+        assert_eq!(restored.last_error, conversation.last_error);
+        assert_eq!(persist_meta.last_error, conversation.last_error);
+        assert_eq!(meta.last_error(), Some("测试轮次失败"));
     }
 
     #[test]

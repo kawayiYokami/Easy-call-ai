@@ -474,9 +474,22 @@ export function useChatConversationSync(bindings: Record<string, any>) {
   function applyConversationOverviewUpdated(payload?: Record<string, any> | null) {
     if (!Array.isArray(payload?.unarchivedConversations)) return;
     bindings.unarchivedConversations.value = payload.unarchivedConversations;
+    syncOverviewConversationErrors(payload.unarchivedConversations);
     const serverTime = String(payload?.serverTime || "").trim();
     if (serverTime && bindings.lastOverviewSyncAt) {
       bindings.lastOverviewSyncAt.value = serverTime;
+    }
+  }
+
+  function syncOverviewConversationErrors(items: Record<string, any>[]) {
+    if (typeof bindings.setConversationChatErrorText !== "function") return;
+    for (const item of items) {
+      const conversationId = String(item?.conversationId || "").trim();
+      if (!conversationId) continue;
+      bindings.setConversationChatErrorText(
+        conversationId,
+        String(item?.lastError || "").trim(),
+      );
     }
   }
 
@@ -489,6 +502,7 @@ export function useChatConversationSync(bindings: Record<string, any>) {
       String(item.title || "").trim(),
       String(item.summary || "").trim(),
       String(item.currentTodo || "").trim(),
+      String(item.lastError || "").trim(),
       Math.max(0, Number(item.unreadCount || 0)),
       !!item.isPinned,
       !!item.isSystemNotificationConversation,
@@ -535,6 +549,7 @@ export function useChatConversationSync(bindings: Record<string, any>) {
     if (serverTime && bindings.lastOverviewSyncAt) {
       bindings.lastOverviewSyncAt.value = serverTime;
     }
+    syncOverviewConversationErrors([conversation]);
   }
 
   function applyConversationPinUpdated(payload?: Record<string, any> | null) {

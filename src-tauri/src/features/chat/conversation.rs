@@ -766,7 +766,7 @@ mod summary_context_title_tests {
             plan_mode_enabled: false,
             preferred_api_config_id: None,
             auto_push_remote_contact_id: None,
-            active_goal: None,
+            active_goal: None, last_error: None,
             cumulative_usage: ConversationCumulativeUsage::default(),
             is_draft: false,
         }
@@ -1113,6 +1113,7 @@ fn build_conversation_record(
         auto_push_remote_contact_id: None,
         cumulative_usage: ConversationCumulativeUsage::default(),
         active_goal: None,
+        last_error: None,
     }
 }
 
@@ -3699,6 +3700,7 @@ fn build_prompt_with_mode(
         auto_push_remote_contact_id: conversation.auto_push_remote_contact_id.clone(),
         cumulative_usage: conversation.cumulative_usage.clone(),
         active_goal: conversation.active_goal.clone(),
+        last_error: conversation.last_error.clone(),
     };
     let recall_memory_ids = collect_prompt_retrieved_memory_ids(&enriched_conversation.messages);
     let recall_memories = if recall_memory_ids.is_empty() {

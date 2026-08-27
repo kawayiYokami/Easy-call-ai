@@ -6,6 +6,7 @@ function createBindings() {
     ensureConversationMessageIds: vi.fn(),
     unarchivedConversations: { value: [] as any[] },
     lastOverviewSyncAt: { value: "" },
+    setConversationChatErrorText: vi.fn(),
   };
 }
 
@@ -83,5 +84,42 @@ describe("applyConversationOverviewItemUpdated", () => {
     });
 
     expect(bindings.unarchivedConversations.value).toBe(before);
+  });
+
+  it("lastError 变化时同步到会话错误文本，为空时清除", () => {
+    const bindings = createBindings();
+    bindings.unarchivedConversations.value = [
+      overviewItem("b", "2026-08-09T12:00:00"),
+      overviewItem("a", "2026-08-09T11:00:00"),
+    ];
+    const { applyConversationOverviewItemUpdated } = useChatConversationSync(bindings);
+
+    // 带 lastError 的更新：写入错误文本
+    applyConversationOverviewItemUpdated({
+      conversation: { ...overviewItem("a", "2026-08-09T11:00:00"), lastError: "上游调用失败" },
+    });
+    expect(bindings.setConversationChatErrorText).toHaveBeenCalledWith("a", "上游调用失败");
+
+    // lastError 清空：清除错误文本
+    applyConversationOverviewItemUpdated({
+      conversation: { ...overviewItem("a", "2026-08-09T11:00:00"), lastError: "" },
+    });
+    expect(bindings.setConversationChatErrorText).toHaveBeenCalledWith("a", "");
+  });
+
+  it("lastError 变化足以让签名不同，强制替换列表项", () => {
+    const bindings = createBindings();
+    bindings.unarchivedConversations.value = [
+      overviewItem("a", "2026-08-09T11:00:00"),
+    ];
+    const { applyConversationOverviewItemUpdated } = useChatConversationSync(bindings);
+    const before = bindings.unarchivedConversations.value;
+
+    applyConversationOverviewItemUpdated({
+      conversation: { ...overviewItem("a", "2026-08-09T11:00:00"), lastError: "失败" },
+    });
+
+    expect(bindings.unarchivedConversations.value).not.toBe(before);
+    expect(bindings.unarchivedConversations.value[0].lastError).toBe("失败");
   });
 });

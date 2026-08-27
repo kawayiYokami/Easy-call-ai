@@ -3,6 +3,7 @@ import type { ConfigSearchTab, ConfigSearchResult } from "../../config/search/co
 import type { ChatMentionTarget } from "../../../types/app";
 import type { ConversationPipelineStatus } from "../../shell/composables/use-pipeline-status";
 import type { searchConfigTabs } from "../../config/search/config-search";
+import { invokeTauri } from "../../../services/tauri-api";
 import {
   loadStoredChatLeftPanelMode,
   loadStoredChatMonitorPanelMode,
@@ -142,8 +143,13 @@ export function useChatUiStateOrchestrator(bindings: ChatUiStateBindings) {
 
   function clearChatError() {
     const conversationId = String(bindings.currentChatConversationId.value || "").trim();
+    // 本地立即清除，不等后端广播回环；后端清除后所有端同步消失。
     setConversationChatErrorText(conversationId, "");
     bindings.clearConversationStatus(conversationId, "error");
+    if (!conversationId) return;
+    void invokeTauri("conversation.clearChatError", { input: { conversationId } }).catch((error) => {
+      console.warn("[会话错误] 清除失败", { conversationId, error });
+    });
   }
 
   function handleChatInputUpdate(value: string) {

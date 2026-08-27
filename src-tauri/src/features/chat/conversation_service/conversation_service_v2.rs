@@ -128,6 +128,7 @@ struct ConversationMetaView {
     active_goal: Option<ConversationGoalState>,
     fast_request_turns: Vec<FastRequestTurn>,
     last_message_id: Option<String>,
+    last_error: Option<String>,
     preview_messages: Vec<ConversationMetaPreviewMessage>,
 }
 
@@ -315,6 +316,7 @@ impl ConversationMetaView {
             active_goal: meta.active_goal().cloned(),
             fast_request_turns: meta.fast_request_turns().to_vec(),
             last_message_id,
+            last_error: meta.last_error().map(ToOwned::to_owned),
             preview_messages,
         }
     }

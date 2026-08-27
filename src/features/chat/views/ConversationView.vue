@@ -117,7 +117,7 @@ import { isViewLayerBusy } from "../composables/chat-view-busy";
 import { getActiveChatComposerScope, clearChatComposerFocus } from "../composables/chat-composer-focus";
 import { collectPastedFiles, ingestPastedImages } from "../composables/chat-paste-ingest";
 import { useI18n } from "vue-i18n";
-import { onTransportNotification } from "../../../services/tauri-api";
+import { onTransportNotification, invokeTauri } from "../../../services/tauri-api";
 import type { ConversationGoalState } from "../../../types/app";
 import type { TerminalApprovalConversationItem } from "../../shell/composables/use-terminal-approval";
 import type { ExclusiveChatViewSubscriptionSlot } from "../composables/exclusive-chat-view-subscription-slot";
@@ -231,6 +231,11 @@ function updateChatInput(value: string) {
 
 function clearChatError() {
   runtime.chatErrorText.value = "";
+  const cid = String(conversationId.value || "").trim();
+  if (!cid) return;
+  void invokeTauri("conversation.clearChatError", { input: { conversationId: cid } }).catch((error) => {
+    console.warn("[会话错误] 追问清除失败", { conversationId: cid, error });
+  });
 }
 
 // 焦点在本视图输入框内时的图片粘贴：与主会话共用同一份入队逻辑，

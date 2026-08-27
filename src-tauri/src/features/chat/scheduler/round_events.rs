@@ -442,6 +442,40 @@ fn local_chat_notification_settings(
     }
 }
 
+fn persist_conversation_round_error(state: &AppState, conversation_id: &str, error_text: &str) {
+    let normalized_error = error_text.trim().to_string();
+    if normalized_error.is_empty() {
+        return;
+    }
+    match state_update_conversation_metadata_cached(state, conversation_id, |conversation| {
+        conversation.last_error = Some(normalized_error.clone());
+        Ok(())
+    }) {
+        Ok(_) => {}
+        Err(err) => {
+            runtime_log_warn(format!(
+                "[聊天推送] 持久化轮次失败信息失败，conversation_id={}，error={}",
+                conversation_id, err
+            ));
+            return;
+        }
+    }
+    let is_side_chat = conversation_service_v2()
+        .get_conversation_meta(state, conversation_id)
+        .ok()
+        .map(|meta| meta.conversation_kind.trim() == CONVERSATION_KIND_SIDE_CHAT)
+        .unwrap_or(false);
+    if is_side_chat {
+        return;
+    }
+    if let Err(err) = emit_unarchived_conversation_overview_item_updated_from_state(state, conversation_id) {
+        runtime_log_debug(format!(
+            "[聊天推送] 轮次失败后 overview 广播失败，conversation_id={}，error={}",
+            conversation_id, err
+        ));
+    }
+}
+
 fn emit_round_failed_event(
     state: &AppState,
     conversation_id: &str,
@@ -449,6 +483,7 @@ fn emit_round_failed_event(
     activation_id: Option<&str>,
     request_id: Option<&str>,
 ) {
+    persist_conversation_round_error(state, conversation_id, error_text);
     notify_local_chat_round_failed(state, conversation_id, error_text);
     let app_handle = match state.app_handle.lock() {
         Ok(guard) => guard.as_ref().cloned(),

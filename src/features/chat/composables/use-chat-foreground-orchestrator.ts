@@ -56,9 +56,27 @@ export function useChatForegroundOrchestrator(bindings: Record<string, any>) {
       }
       bindings.unarchivedConversations.value = sortOverviewItems(nextItems);
     }
+    syncOverviewLastErrors(changed);
+    for (const deletedId of deletedIds) {
+      if (typeof bindings.setConversationChatErrorText === "function") {
+        bindings.setConversationChatErrorText(deletedId, "");
+      }
+    }
     const serverTime = String(payload?.serverTime || "").trim();
     if (serverTime && bindings.lastOverviewSyncAt) {
       bindings.lastOverviewSyncAt.value = serverTime;
+    }
+  }
+
+  function syncOverviewLastErrors(items: Record<string, any>[]) {
+    if (typeof bindings.setConversationChatErrorText !== "function") return;
+    for (const item of items) {
+      const conversationId = String(item?.conversationId || "").trim();
+      if (!conversationId) continue;
+      bindings.setConversationChatErrorText(
+        conversationId,
+        String(item?.lastError || "").trim(),
+      );
     }
   }
 
@@ -217,7 +235,9 @@ export function useChatForegroundOrchestrator(bindings: Record<string, any>) {
 
   async function refreshUnarchivedConversationOverview() {
     const payload = await requestUnarchivedConversationOverviewChangedSince("");
-    bindings.unarchivedConversations.value = sortOverviewItems(Array.isArray(payload?.changed) ? payload.changed : []);
+    const items = Array.isArray(payload?.changed) ? payload.changed : [];
+    bindings.unarchivedConversations.value = sortOverviewItems(items);
+    syncOverviewLastErrors(items);
     const serverTime = String(payload?.serverTime || "").trim();
     if (serverTime && bindings.lastOverviewSyncAt) {
       bindings.lastOverviewSyncAt.value = serverTime;

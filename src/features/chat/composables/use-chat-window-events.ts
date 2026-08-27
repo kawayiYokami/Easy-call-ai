@@ -97,6 +97,13 @@ export function useChatWindowEvents(bindings: Record<string, any>) {
       bindings.applyConversationPinUpdated(payload);
     });
 
+    subscribe<any>("chatConversationChatErrorCleared", "conversation.chatErrorCleared", (payload) => {
+      const conversationId = bindings.readConversationIdFromPayload(payload);
+      if (!conversationId) return;
+      bindings.setConversationChatErrorText?.(conversationId, "");
+      bindings.clearConversationBadge?.(conversationId);
+    });
+
     subscribe<any>("chatConversationGoalUpdated", "conversation.goalUpdated", (payload) => {
       bindings.applyConversationGoalUpdated(payload);
     });

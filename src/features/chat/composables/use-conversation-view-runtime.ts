@@ -157,6 +157,11 @@ export function useConversationViewRuntime(options: ConversationViewRuntimeOptio
     currentTodos.value = Array.isArray(snapshot?.currentTodos) ? snapshot.currentTodos : [];
     planModeEnabled.value = !!snapshot?.conversation?.planModeEnabled;
     runtimeState.value = snapshot?.runtimeState || "idle";
+    // 打开追问时恢复后端持久化的轮次错误，保证重启/切换后仍可见。
+    const snapshotLastError = String((snapshot?.conversation as Record<string, any> | null | undefined)?.lastError || "").trim();
+    if (snapshotLastError) {
+      chatErrorText.value = snapshotLastError;
+    }
   }
 
   async function requestSnapshot(conversationId: string) {
@@ -651,8 +656,18 @@ export function useConversationViewRuntime(options: ConversationViewRuntimeOptio
     },
   );
 
+  const stopChatErrorClearedEvent = onTransportNotification<{ conversationId?: string }>(
+    "conversation.chatErrorCleared",
+    (payload) => {
+      const conversationId = String(payload?.conversationId || "").trim();
+      if (!conversationId || conversationId !== currentConversationId()) return;
+      chatErrorText.value = "";
+    },
+  );
+
   onScopeDispose(() => {
     stopRewindCompletedEvent();
+    stopChatErrorClearedEvent();
     disposed = true;
     foregroundRecoveryRunner.cancel();
     ++foregroundSyncSequence;

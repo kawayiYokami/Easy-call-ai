@@ -395,7 +395,7 @@ mod migration_v4_tests {
             preferred_api_config_id: None,
             is_draft: false,
             auto_push_remote_contact_id: None,
-            active_goal: None,
+            active_goal: None, last_error: None,
             cumulative_usage: ConversationCumulativeUsage::default(),
         }
     }

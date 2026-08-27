@@ -1349,6 +1349,67 @@ async fn update_draft_conversation_inner(
     Ok(())
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ClearChatErrorInput {
+    conversation_id: String,
+}
+
+#[tauri::command]
+async fn clear_chat_error(
+    input: ClearChatErrorInput,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    clear_chat_error_inner(input, state.inner()).await
+}
+
+async fn clear_chat_error_inner(input: ClearChatErrorInput, state: &AppState) -> Result<(), String> {
+    let app_state = state.clone();
+    let conversation_id = input.conversation_id.trim().to_string();
+    let conversation_id_for_emit = conversation_id.clone();
+    tokio::task::spawn_blocking(move || {
+        if conversation_id.is_empty() {
+            return Err("清除会话错误失败：conversationId 为空。".to_string());
+        }
+        state_update_conversation_metadata_cached(&app_state, &conversation_id, |conversation| {
+            conversation.last_error = None;
+            Ok(())
+        })?;
+        Ok(())
+    })
+    .await
+    .map_err(|err| format!("清除会话错误任务异常：{err}"))??;
+    emit_chat_error_cleared_event(state, &conversation_id_for_emit);
+    let _ = emit_unarchived_conversation_overview_item_updated_from_state(
+        state,
+        &conversation_id_for_emit,
+    );
+    Ok(())
+}
+
+fn emit_chat_error_cleared_event(state: &AppState, conversation_id: &str) {
+    let payload = serde_json::json!({ "conversationId": conversation_id });
+    ide_chat_broadcast_notification("conversation.chatErrorCleared", payload.clone());
+    let app_handle = match state.app_handle.lock() {
+        Ok(guard) => guard.as_ref().cloned(),
+        Err(_) => None,
+    };
+    let Some(app_handle) = app_handle else {
+        runtime_log_warn(format!(
+            "[聊天推送] chatErrorCleared emit 跳过: app_handle unavailable, conversation_id={}",
+            conversation_id
+        ));
+        return;
+    };
+    match app_handle.emit("easy-call:chat-error-cleared", payload) {
+        Ok(_) => {}
+        Err(err) => runtime_log_error(format!(
+            "[聊天推送] chatErrorCleared emit 失败: conversation_id={}, error={}",
+            conversation_id, err
+        )),
+    }
+}
+
 fn validate_draft_agent_for_department(
     state: &AppState,
     department_id: &str,
@@ -3778,7 +3839,7 @@ mod unarchived_conversations_tests {
             plan_mode_enabled: true,
             preferred_api_config_id: None,
             auto_push_remote_contact_id: None,
-            active_goal: None,
+            active_goal: None, last_error: None,
             cumulative_usage: ConversationCumulativeUsage::default(),
             is_draft: false,
         }

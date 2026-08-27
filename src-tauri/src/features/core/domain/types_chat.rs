@@ -527,6 +527,8 @@ struct Conversation {
     cumulative_usage: ConversationCumulativeUsage,
     #[serde(default)]
     active_goal: Option<ConversationGoalState>,
+    #[serde(default)]
+    last_error: Option<String>,
 }
 
 #[derive(Debug, Clone)]

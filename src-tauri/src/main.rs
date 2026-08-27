@@ -1279,6 +1279,7 @@ fn main() {
             create_unarchived_conversation,
             open_draft_conversation,
             update_draft_conversation,
+            clear_chat_error,
             create_side_chat_conversation,
             create_conversation_branch_from_message,
             export_conversation_share_json,
