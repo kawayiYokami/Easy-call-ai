@@ -1490,6 +1490,7 @@
     "draftWorkModeIndependent": "本会话工作树",
     "draftWorkspacePlaceholder": "选择工作目录",
     "draftRecipientTitle": "和谁对话？",
+    "draftRecipientDefaultTitle": "新会话",
     "draftRecipientPlaceholder": "选择对话对象",
     "draftRecipientPickHint": "点击右侧候选或从全部中选择",
     "draftRecipientMore": "更多",

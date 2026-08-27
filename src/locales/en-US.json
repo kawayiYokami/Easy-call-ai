@@ -1490,6 +1490,7 @@
     "draftWorkModeIndependent": "Session worktree",
     "draftWorkspacePlaceholder": "Choose a working directory",
     "draftRecipientTitle": "Who are you talking to?",
+    "draftRecipientDefaultTitle": "New conversation",
     "draftRecipientPlaceholder": "Select a recipient",
     "draftRecipientPickHint": "Pick a recent candidate or browse all",
     "draftRecipientMore": "More",

@@ -69,6 +69,7 @@
             :selected-department-id="draftSelectedDepartmentId"
             :selected-agent-id="draftSelectedAgentId"
             :avatar-url-map="props.personaAvatarUrlMap"
+            :title="draftConversationTitle"
             :workspace-options="draftWorkspaceOptions"
             :workspace-root-path="stripExtendedPathPrefix(currentWorkspaceRootPath)"
             :workspace-access="currentWorkspaceAccess"
@@ -77,6 +78,7 @@
             :save-workspace="props.saveDraftWorkspaces ? handleDraftWorkspaceSave : undefined"
             :git-root-check="props.draftWorkspaceGitRootCheck"
             @change="handleDraftPersonaChange($event)"
+            @update:title="handleDraftTitleChange($event)"
           />
           <div class="ecall-chat-history-flow flex min-w-0 shrink-0 flex-col">
             <div
@@ -792,7 +794,7 @@ const emit = defineEmits<{
   (e: "exportConversation", conversationId: string): void;
   (e: "deleteConversation", conversationId: string): void;
   (e: "rebindConversationRecipient", payload: { conversationId: string; departmentId: string; agentId: string }): void;
-  (e: "updateDraftConversation", payload: { conversationId: string; departmentId?: string; agentId?: string; preferredApiConfigId?: string | null }): void;
+  (e: "updateDraftConversation", payload: { conversationId: string; departmentId?: string; agentId?: string; preferredApiConfigId?: string | null; title?: string | null }): void;
   (e: "createConversation", input?: { title?: string; departmentId?: string; agentId?: string; copyCurrent?: boolean; importPath?: string; shellWorkspaces?: ShellWorkspace[]; shellWorkMode?: ShellWorkMode; shellAutonomousMode?: boolean }): void;
   (e: "loadOlderHistory"): void; (e: "reachedBottom"): void;
   (e: "jumpToConversationBottom"): void;
@@ -954,6 +956,11 @@ const activeConversationIsDraft = computed(() => {
 const draftSelectedDepartmentId = ref("");
 const draftSelectedAgentId = ref("");
 
+// 草稿卡自定义标题：默认显示会话原标题（可能为空），用户修改后写入草稿字段
+const draftConversationTitle = computed(() =>
+  String(activeConversationSummary.value?.title || "").trim(),
+);
+
 const DRAFT_RECENT_RECIPIENT_LIMIT = 6;
 
 const draftRecentRecipientOptions = computed<DepartmentPersonaOption[]>(() => {
@@ -1007,6 +1014,13 @@ function handleDraftPersonaChange(payload: { departmentId: string; agentId: stri
     conversationId: String(props.activeConversationId || "").trim(),
     departmentId: payload.departmentId,
     agentId: payload.agentId,
+  });
+}
+
+function handleDraftTitleChange(title: string) {
+  emit("updateDraftConversation", {
+    conversationId: String(props.activeConversationId || "").trim(),
+    title: String(title || "").trim() || null,
   });
 }
 const remoteImContactDashboardContactId = computed(() =>

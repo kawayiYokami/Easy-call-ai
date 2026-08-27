@@ -1271,6 +1271,9 @@ struct UpdateDraftConversationInput {
     /// None=不修改；Some(None)=清空回部门默认模型；Some(Some(id))=指定偏好模型
     #[serde(default)]
     preferred_api_config_id: Option<Option<String>>,
+    /// None=不修改；Some(Some(title))=自定义会话标题；Some(None)=清空标题
+    #[serde(default)]
+    title: Option<Option<String>>,
 }
 
 /// 在草稿历史区切换部门/人格/模型：直接改写草稿会话字段，作为下次新建的默认值。
@@ -1328,6 +1331,10 @@ async fn update_draft_conversation_inner(
                 routing_department_id: requested_department_id,
                 routing_agent_id: requested_agent_id,
                 preferred_api_config_id: input.preferred_api_config_id,
+                title: input.title.flatten().map(|value| {
+                    let trimmed = value.trim().to_string();
+                    if trimmed.is_empty() { "".to_string() } else { trimmed }
+                }),
                 ..Default::default()
             },
         )?;

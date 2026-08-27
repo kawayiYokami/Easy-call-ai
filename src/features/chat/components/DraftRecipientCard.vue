@@ -1,5 +1,5 @@
 <template>
-  <div class="absolute inset-0 z-10 flex items-center justify-center overflow-hidden">
+  <div class="absolute inset-0 z-10 flex items-center justify-center overflow-hidden bg-base-100/85 backdrop-blur-sm">
     <div class="pointer-events-none absolute inset-0" aria-hidden="true">
       <div class="absolute -top-16 left-1/2 h-72 w-72 -translate-x-1/2 rounded-full bg-primary/5 blur-3xl"></div>
       <div class="absolute bottom-8 left-1/5 h-80 w-80 rounded-full bg-secondary/5 blur-3xl"></div>
@@ -7,9 +7,31 @@
     </div>
     <div class="pointer-events-none absolute left-1/2 top-1/2 h-96 w-96 -translate-x-1/2 -translate-y-1/2 rounded-full bg-white/5 blur-3xl" />
 
-    <div class="relative flex max-h-full flex-col items-center gap-8 px-6 py-8">
-      <div class="text-sm font-medium tracking-wide text-base-content/60">
-        {{ t("chat.draftRecipientTitle") }}
+    <div class="relative m-auto flex max-h-full w-full flex-col items-center gap-8 overflow-y-auto overscroll-contain px-6 pb-32 pt-8">
+      <div class="flex items-center gap-1.5">
+        <template v-if="titleEditing">
+          <input
+            ref="titleInputRef"
+            v-model="draftTitle"
+            type="text"
+            class="input input-sm w-64 max-w-full text-center text-sm font-medium tracking-wide"
+            :placeholder="t('chat.draftRecipientTitle')"
+            @blur="commitTitle"
+            @keydown.enter.prevent="commitTitle"
+            @keydown.esc.prevent="cancelTitleEdit"
+          />
+        </template>
+        <template v-else>
+          <button
+            type="button"
+            class="group flex items-center gap-1.5 text-sm font-medium tracking-wide text-base-content/60 transition-colors hover:text-base-content"
+            :title="t('common.edit')"
+            @click="startTitleEdit"
+          >
+            <span>{{ displayTitleText }}</span>
+            <Pencil class="h-3.5 w-3.5 opacity-50 transition-opacity group-hover:opacity-100" />
+          </button>
+        </template>
       </div>
 
       <div class="flex flex-col items-center gap-3">
@@ -254,7 +276,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
-import { FolderOpen, FolderSearch, ChevronDown, Check } from "@lucide/vue";
+import { FolderOpen, FolderSearch, ChevronDown, Check, Pencil } from "@lucide/vue";
 import { openTransportFileDialog } from "../../../services/tauri-api";
 import { departmentPersonaOptionId, type DepartmentPersonaOption } from "../../shared/department-persona-options";
 import PersonaGroupGrid from "../../shared/components/PersonaGroupGrid.vue";
@@ -282,6 +304,7 @@ const props = withDefaults(defineProps<{
   selectedDepartmentId?: string;
   selectedAgentId?: string;
   avatarUrlMap?: Record<string, string>;
+  title?: string;
   workspaceOptions?: WorkspaceOption[];
   workspaceRootPath?: string;
   workspaceAccess?: ShellWorkspaceAccess | "";
@@ -295,6 +318,7 @@ const props = withDefaults(defineProps<{
   selectedDepartmentId: "",
   selectedAgentId: "",
   avatarUrlMap: () => ({}),
+  title: "",
   workspaceOptions: () => [],
   workspaceRootPath: "",
   workspaceAccess: "",
@@ -304,11 +328,46 @@ const props = withDefaults(defineProps<{
 
 const emit = defineEmits<{
   change: [value: { departmentId: string; agentId: string }];
+  "update:title": [value: string];
 }>();
 
 const { t } = useI18n();
 
 const showAll = ref(false);
+
+// ========== 草稿标题 ==========
+
+const draftTitle = ref(String(props.title || "").trim());
+const titleEditing = ref(false);
+const titleInputRef = ref<HTMLInputElement | null>(null);
+
+const displayTitleText = computed(() => draftTitle.value.trim() || t("chat.draftRecipientDefaultTitle"));
+
+watch(
+  () => props.title,
+  (next) => {
+    draftTitle.value = String(next || "").trim();
+  },
+);
+
+function startTitleEdit() {
+  titleEditing.value = true;
+  void nextTick(() => {
+    titleInputRef.value?.focus();
+    titleInputRef.value?.select();
+  });
+}
+
+function cancelTitleEdit() {
+  titleEditing.value = false;
+  draftTitle.value = String(props.title || "").trim();
+}
+
+function commitTitle() {
+  titleEditing.value = false;
+  const next = draftTitle.value.trim();
+  emit("update:title", next);
+}
 
 // ========== 草稿工作区快捷设置 ==========
 

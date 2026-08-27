@@ -99,8 +99,8 @@ export function useChatConversationActionsOrchestrator(bindings: Record<string, 
     }
   }
 
-  // 在草稿历史区切换部门/人格/模型：直接改写草稿会话字段
-  async function updateDraftConversation(patch: { departmentId?: string; agentId?: string; preferredApiConfigId?: string | null }) {
+  // 在草稿历史区切换部门/人格/模型/标题：直接改写草稿会话字段
+  async function updateDraftConversation(patch: { departmentId?: string; agentId?: string; preferredApiConfigId?: string | null; title?: string | null }) {
     const conversationId = String(bindings.currentChatConversationId.value || "").trim();
     if (!conversationId) return false;
     try {
@@ -110,6 +110,10 @@ export function useChatConversationActionsOrchestrator(bindings: Record<string, 
       if (patch.preferredApiConfigId !== undefined) {
         // undefined 不修改；null 清空回部门默认；字符串为指定模型
         input.preferredApiConfigId = patch.preferredApiConfigId;
+      }
+      if (patch.title !== undefined) {
+        // undefined 不修改；null/空字符串清空标题；字符串为自定义标题
+        input.title = patch.title;
       }
       await updateTransportConversationDraft(input);
       return true;
