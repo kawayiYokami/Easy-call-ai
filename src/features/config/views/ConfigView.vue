@@ -268,7 +268,7 @@
       <aside
         class="relative flex h-full min-h-0 w-44 flex-col border-r border-base-300 bg-base-200 px-2"
       >
-        <OverlayScrollArea class="min-h-0 flex-1" scroller-class="pr-1">
+        <OverlayScrollArea class="min-h-0 flex-1" scroller-class="pr-1 h-full">
           <ul class="menu w-full gap-1 p-0 pt-2 [&>li>a]:w-full">
             <li v-for="item in visibleConfigNavItems" :key="item.tab">
               <a :class="configNavLinkClass(item.tab)" @click="selectConfigNavTab(item.tab)">
