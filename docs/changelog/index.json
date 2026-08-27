@@ -1,7 +1,12 @@
 {
-  "generatedAt": "2026-08-25T02:15:41.542Z",
-  "latestVersion": "v0.74.1",
+  "generatedAt": "2026-08-27T09:50:33.875Z",
+  "latestVersion": "v0.74.2",
   "releases": [
+    {
+      "version": "v0.74.2",
+      "path": "docs/changelog/releases/v0.74.2.md",
+      "summary": "修复设置窗口左侧导航栏无法滚动的问题：导航菜单项较多时现在可以正常滚动到末尾"
+    },
     {
       "version": "v0.74.1",
       "path": "docs/changelog/releases/v0.74.1.md",
