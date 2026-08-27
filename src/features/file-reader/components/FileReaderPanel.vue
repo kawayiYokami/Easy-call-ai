@@ -150,6 +150,15 @@
               :title="directoryTreeRoot.path"
               @contextmenu.prevent.stop="openPathOnlyContextMenu(directoryTreeRoot.path, $event)"
             >{{ directoryTreeRoot.name }}</span>
+            <button
+              v-if="!atProjectDirectoryRoot"
+              type="button"
+              class="btn btn-ghost btn-xs btn-square h-6 min-h-6 shrink-0"
+              :title="t('fileReader.backToProjectDirectory')"
+              @click="backToProjectDirectory"
+            >
+              <Home class="h-3.5 w-3.5" />
+            </button>
           </div>
           <div class="px-2 pt-2">
             <label class="input input-bordered input-sm flex items-center gap-2">
@@ -723,7 +732,7 @@
 
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
-import { ChevronDown, ChevronRight, Check, Code2, Copy, Eye, ExternalLink, FilePlus, Files, Folders, GitBranch, MessageSquarePlus, RefreshCw, Search, SquareTerminal } from "@lucide/vue";
+import { ChevronDown, ChevronRight, Check, Code2, Copy, Eye, ExternalLink, FilePlus, Files, Folders, GitBranch, Home, MessageSquarePlus, RefreshCw, Search, SquareTerminal } from "@lucide/vue";
 import {
   copyTransportChatImageToClipboard,
   getTransportCapabilities,
@@ -883,6 +892,8 @@ const contextMenuPosition = ref({ x: 0, y: 0 });
 const contextMenuTarget = ref<FileReaderContextMenuTarget | null>(null);
 const selectionAction = ref<FileReaderSelectionAction | null>(null);
 const directoryRootPath = ref("");
+/** 项目根锚点：目录树"回到项目目录"的目标，优先工作区根/会话恢复根，首次展开目录树时兜底 */
+const projectDirectoryRoot = ref("");
 const directoryTreeFilter = ref("");
 const directoryOpenTargetsLoading = ref(false);
 const directoryOpenTargetOptions = ref<DirectoryOpenTargetOption[]>([]);
@@ -923,6 +934,8 @@ let unlistenFileDrop: (() => void) | null = null;
 let unlistenFileReaderWatch: (() => void) | null = null;
 let restoringSessionId = 0;
 let suppressSessionPersist = false;
+let sessionRestoreResolve: (() => void) | null = null;
+let sessionRestorePromise: Promise<void> | null = null;
 let lastCapturedSelectionKey = "";
 let lastCapturedVisibleRangeKey = "";
 let visibleRangeCaptureTimer = 0;
@@ -1001,6 +1014,20 @@ const directoryTreeRoot = computed(() => {
   const rootPath = normalizePath(directoryRootPath.value);
   return rootPath ? directoryNodes.value[rootPath] || null : null;
 });
+
+// 当前目录树根是否就是项目根锚点
+const atProjectDirectoryRoot = computed(() => {
+  const rootPath = normalizePath(directoryRootPath.value);
+  const projectPath = normalizePath(projectDirectoryRoot.value);
+  return !rootPath || !projectPath || sameNormalizedPath(rootPath, projectPath);
+});
+
+function backToProjectDirectory() {
+  const projectPath = normalizePath(projectDirectoryRoot.value || "");
+  if (projectPath && !atProjectDirectoryRoot.value) {
+    void openDirectoryTree(projectPath);
+  }
+}
 
 // Git 面板跟随目录树根；声明在 directoryTreeRoot 之后避免 TDZ
 const gitPanelWorkspacePath = computed(() => String(props.initialRootPath || directoryTreeRoot.value?.path || "").trim());
@@ -1721,11 +1748,15 @@ async function restoreFileReaderSession(key = props.sessionKey, fallbackRootPath
   const storageKey = String(key || "").trim();
   const restoreId = ++restoringSessionId;
   suppressSessionPersist = true;
+  sessionRestorePromise = new Promise<void>((resolve) => {
+    sessionRestoreResolve = resolve;
+  });
   try {
     tabs.value = [];
     activePath.value = "";
     resetVirtualCodeCaches();
     directoryRootPath.value = "";
+    projectDirectoryRoot.value = "";
     directoryTreeWidth.value = FILE_READER_DIRECTORY_TREE_DEFAULT_WIDTH;
     directoryTreeFilter.value = "";
     directoryNodes.value = {};
@@ -1735,6 +1766,7 @@ async function restoreFileReaderSession(key = props.sessionKey, fallbackRootPath
       // 无会话缓存且当前没有打开文件：自动展开工作区目录
       if (initialRoot) {
         directoryRootPath.value = initialRoot;
+        projectDirectoryRoot.value = initialRoot;
         await loadDirectory(initialRoot, true);
       }
       return;
@@ -1765,6 +1797,8 @@ async function restoreFileReaderSession(key = props.sessionKey, fallbackRootPath
       // 有已打开文件：恢复文件；目录仅在会话里曾展开时恢复
       if (restoredDirectoryRoot) {
         directoryRootPath.value = restoredDirectoryRoot;
+        // 项目根锚点始终是工作区根
+        projectDirectoryRoot.value = initialRoot;
         await loadDirectory(restoredDirectoryRoot, true);
       }
       if (restoreId !== restoringSessionId) return;
@@ -1776,6 +1810,8 @@ async function restoreFileReaderSession(key = props.sessionKey, fallbackRootPath
     const rootToOpen = restoredDirectoryRoot || initialRoot;
     if (rootToOpen) {
       directoryRootPath.value = rootToOpen;
+      // 项目根锚点始终是工作区根，不能跟随恢复的旧目录根
+      projectDirectoryRoot.value = initialRoot;
       await loadDirectory(rootToOpen, true);
     }
   } finally {
@@ -1783,7 +1819,15 @@ async function restoreFileReaderSession(key = props.sessionKey, fallbackRootPath
       suppressSessionPersist = false;
       scheduleAddressScrollStateUpdate();
     }
+    sessionRestoreResolve?.();
+    sessionRestoreResolve = null;
+    sessionRestorePromise = null;
   }
+}
+
+/** 会话恢复进行中时返回其完成 Promise；无恢复进行时立即完成。 */
+function whenSessionRestored(): Promise<void> {
+  return sessionRestorePromise || Promise.resolve();
 }
 
 function createRestoredTab(path: string): FileTab {
@@ -2355,9 +2399,9 @@ async function requestFileReaderFileBlock(path: string, startLine: number, lineC
   });
 }
 
-async function loadDirectory(path: string, expanded: boolean) {
+async function loadDirectory(path: string, expanded: boolean): Promise<boolean> {
   const normalizedPath = normalizePath(path);
-  if (!normalizedPath) return;
+  if (!normalizedPath) return false;
   updateDirectoryNode(normalizedPath, { loading: true, error: "", expanded });
   try {
     const payload = await requestFileReaderDirectory(normalizedPath);
@@ -2370,19 +2414,27 @@ async function loadDirectory(path: string, expanded: boolean) {
       entries: normalizeDirectoryEntries(payload.entries || []),
       loaded: true, loading: false, error: "", expanded,
     });
+    return true;
   } catch (error) {
     updateDirectoryNode(normalizedPath, {
       loaded: false, loading: false,
       error: error instanceof Error ? error.message : String(error), expanded,
     });
+    return false;
   }
 }
 
-async function openDirectoryTree(path: string) {
+async function openDirectoryTree(path: string): Promise<boolean> {
   const normalizedPath = normalizePath(path);
-  if (!normalizedPath) return;
+  if (!normalizedPath) return false;
+  // 打开目录树即展示文件视图：避免会话恢复把左侧栏停在 Git 面板
+  asideMode.value = "files";
+  // 项目根锚点只由工作区根建立；独立窗口（无工作区根）才用首次目录兜底
+  if (!projectDirectoryRoot.value && !initialDirectoryPath.value) {
+    projectDirectoryRoot.value = normalizedPath;
+  }
   directoryRootPath.value = normalizedPath;
-  await loadDirectory(normalizedPath, true);
+  return await loadDirectory(normalizedPath, true);
 }
 
 async function revealPathInDirectoryTree(path: string) {
@@ -2927,6 +2979,7 @@ defineExpose({
   closeOtherTabs,
   openDirectoryTree,
   closeDirectoryTree,
+  whenSessionRestored,
   tabs,
   activePath,
   directoryRootPath,

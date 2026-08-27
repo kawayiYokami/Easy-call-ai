@@ -2687,7 +2687,8 @@
     "filesTab": "Files",
     "gitTab": "Git",
     "noDiffContent": "No changes to display",
-    "loadGitDiffFailed": "Load Git diff"
+    "loadGitDiffFailed": "Load Git diff",
+    "backToProjectDirectory": "Back to project directory"
   },
   "gitPanel": {
     "commitsTab": "Commits",

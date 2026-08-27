@@ -216,6 +216,7 @@
         @side-conversation-list-visible-change="setSideConversationListVisible"
         @tool-review-panel-open-change="setToolReviewPanelOpen"
         @open-chat-reader-file="openChatReaderFile"
+        @open-chat-reader-directory="openChatReaderDirectory"
         @side-panel-widths-change="setChatSidePanelWidths"
         @side-panel-widths-commit="commitChatSidePanelWidths"
         @update:conversation-list-tab="updateConversationListTab"
@@ -899,6 +900,7 @@ const chatViewRef = ref<{
   exitMessageSelectionMode: () => void;
   showTransientNotice: (text: string, tone?: "default" | "error" | "info") => void;
   openFileInReader: (path: string, line?: number) => Promise<void>;
+  openDirectoryInReader: (path: string) => Promise<boolean>;
 } | null>(null);
 
 const sideChatTabs = computed(() => (props.sideConversations || []).map((conversation) => ({
@@ -940,6 +942,21 @@ async function openChatReaderFile(path: string, line?: number) {
     const chatView = chatViewRef.value;
     if (!chatView) throw new Error("文件阅读面板尚未就绪");
     await chatView.openFileInReader(path, line);
+  } catch (error) {
+    showChatNotice(props.t("status.openLinkFailed", { err: String(error) }), "error");
+  }
+}
+
+async function openChatReaderDirectory(path: string, line?: number) {
+  try {
+    await props.openChatReaderPanel();
+    const chatView = chatViewRef.value;
+    if (!chatView) throw new Error("文件阅读面板尚未就绪");
+    const openedAsDirectory = await chatView.openDirectoryInReader(path);
+    if (!openedAsDirectory) {
+      // 无扩展名但不是目录（如 Makefile）：回退按文件打开
+      await chatView.openFileInReader(path, line);
+    }
   } catch (error) {
     showChatNotice(props.t("status.openLinkFailed", { err: String(error) }), "error");
   }

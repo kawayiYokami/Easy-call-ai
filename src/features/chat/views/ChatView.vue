@@ -762,6 +762,7 @@ const emit = defineEmits<{
   (e: "sideConversationListVisibleChange", value: boolean): void;
   (e: "toolReviewPanelOpenChange", value: boolean): void;
   (e: "openChatReaderFile", path: string, line?: number): void;
+  (e: "openChatReaderDirectory", path: string, line?: number): void;
   (e: "sidePanelWidthsChange", value: { leftWidth: number; rightWidth: number }): void;
   (e: "sidePanelWidthsCommit", value: { leftWidth: number; rightWidth: number }): void;
   (e: "update:conversation-list-tab", value: "local" | "contact" | "task"): void;
@@ -1469,6 +1470,7 @@ defineExpose({
   exitMessageSelectionMode: handleExitMessageSelectionMode,
   showTransientNotice,
   openFileInReader,
+  openDirectoryInReader,
 });
 
 // ==================== scroll layout ====================
@@ -2237,7 +2239,12 @@ async function handleAssistantLinkClick(event: MouseEvent) {
     }
     try {
       if (canOpenInFileReader(localPath) || !fileExtensionFromPath(localPath)) {
-        await openLocalFileInChatReader(localPath, localReference?.line);
+        if (!fileExtensionFromPath(localPath)) {
+          // 无扩展名：先按目录展开，失败由上层回退按文件读（如 Makefile）
+          openLocalDirectoryInChatReader(localPath, localReference?.line);
+        } else {
+          await openLocalFileInChatReader(localPath, localReference?.line);
+        }
       }
       else { await openTransportLocalDirectory(localPath); }
       linkOpenErrorText.value = "";
@@ -2255,12 +2262,31 @@ function openLocalFileInChatReader(path: string, line?: number) {
   emit("openChatReaderFile", path, line);
 }
 
+function openLocalDirectoryInChatReader(path: string, line?: number) {
+  emit("openChatReaderDirectory", path, line);
+}
+
 async function openFileInReader(path: string, line?: number) {
   const panel = chatReaderPanelRef.value;
   if (!panel) {
     throw new Error("文件阅读面板尚未就绪");
   }
   await panel.openPath(path, { targetLine: line });
+}
+
+/** 目录展开成功返回 true；失败时关闭目录树并返回 false，由调用方回退按文件打开。 */
+async function openDirectoryInReader(path: string): Promise<boolean> {
+  const panel = chatReaderPanelRef.value;
+  if (!panel) {
+    return false;
+  }
+  // 面板首次挂载时会异步恢复会话（可能把目录根切回旧会话目录），等它完成再展开目标目录
+  await panel.whenSessionRestored?.();
+  const opened = await panel.openDirectoryTree(path);
+  if (!opened) {
+    panel.closeDirectoryTree();
+  }
+  return opened;
 }
 
 // ==================== lifecycle ====================

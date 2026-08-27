@@ -2687,7 +2687,8 @@
     "filesTab": "文件",
     "gitTab": "Git",
     "noDiffContent": "没有可显示的改动内容",
-    "loadGitDiffFailed": "加载 Git 改动"
+    "loadGitDiffFailed": "加载 Git 改动",
+    "backToProjectDirectory": "回到项目目录"
   },
   "gitPanel": {
     "commitsTab": "提交",

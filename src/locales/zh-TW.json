@@ -2683,7 +2683,8 @@
     "filesTab": "檔案",
     "gitTab": "Git",
     "noDiffContent": "沒有可顯示的變更內容",
-    "loadGitDiffFailed": "載入 Git 變更"
+    "loadGitDiffFailed": "載入 Git 變更",
+    "backToProjectDirectory": "回到專案目錄"
   },
   "gitPanel": {
     "commitsTab": "提交",
