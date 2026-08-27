@@ -1359,7 +1359,7 @@ impl RuntimeToolMetadata for BuiltinDelegateTool {
             serde_json::json!({
               "type": "object",
               "properties": {
-                "department_id": { "type": "string", "description": "要委托给哪个下级部门的 ID。应选择与当前任务最匹配的直接下级部门。" },
+                "department_id": { "type": "string", "description": "要委托给的下级部门，直接填「你的直属下级部门」清单中的部门名称（也兼容部门 ID）。应选择与当前任务最匹配的直接下级部门。" },
                 "mode": { "type": "string", "enum": ["wait", "background"], "description": "委托方式。mode 只表示父调度是否等待结果，不表示是否并发。除非用户明确要求后台运行，否则一律使用 wait。wait 会等待子代理返回结果，多个 wait 委托可以同时发出并等待全部返回；background 会后台运行并稍后写回当前来源会话。", "default": "wait" },
                 "why": { "type": "string", "description": "为什么要做、背景材料、已知事实、已有线索或必要上下文。" },
                 "goal": { "type": "string", "description": "这次委托要达成的目标，写成明确可执行、可判断完成的任务。" },

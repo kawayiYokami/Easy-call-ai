@@ -69,7 +69,19 @@ impl ConversationServiceV2 {
         };
         let target_department = runtime_department_by_id(&runtime_snapshot, target_department_id)
             .cloned()
-            .ok_or_else(|| format!("目标部门不存在，departmentId={target_department_id}"))?;
+            .or_else(|| {
+                runtime_snapshot
+                    .config
+                    .departments
+                    .iter()
+                    .find(|department| {
+                        department.name.trim().eq_ignore_ascii_case(target_department_id.trim())
+                    })
+                    .cloned()
+            })
+            .ok_or_else(|| {
+                format!("目标部门不存在，departmentId={target_department_id}")
+            })?;
         let target_agent_id = if let Some(requested_agent_id) = target_agent_id
             .map(str::trim)
             .filter(|value| !value.is_empty())

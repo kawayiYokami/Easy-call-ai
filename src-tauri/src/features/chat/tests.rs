@@ -10856,6 +10856,72 @@
     }
 
     #[test]
+    fn common_delegate_preflight_should_resolve_target_department_by_name() {
+        let state = test_chat_runtime_state();
+        let mut source_agent = default_agent();
+        source_agent.id = "source-agent-by-name".to_string();
+        source_agent.name = "源部门人格".to_string();
+
+        let mut target_agent = default_agent();
+        target_agent.id = "target-agent-by-name".to_string();
+        target_agent.name = "目标部门人格".to_string();
+
+        let mut parent = default_assistant_department("api-a");
+        parent.id = "dept-parent-by-name".to_string();
+        parent.name = "父部门".to_string();
+        parent.is_built_in_assistant = false;
+        parent.agent_ids = vec![source_agent.id.clone()];
+        parent.child_department_ids = vec!["dept-child-by-name".to_string()];
+
+        let mut child = default_assistant_department("api-a");
+        child.id = "dept-child-by-name".to_string();
+        child.name = "研究员部门".to_string();
+        child.is_built_in_assistant = false;
+        child.agent_ids = vec![target_agent.id.clone()];
+
+        let config = AppConfig {
+            departments: vec![parent, child],
+            ..AppConfig::default()
+        };
+        write_config(&state.config_path, &config).expect("write config");
+        state_write_agents_cached(
+            &state,
+            &[
+                source_agent.clone(),
+                target_agent.clone(),
+                default_user_persona(),
+            ],
+        )
+        .expect("write agents");
+
+        let conversation = build_conversation_record(
+            "api-a",
+            &source_agent.id,
+            "dept-parent-by-name",
+            "按名称寻址测试",
+            CONVERSATION_KIND_CHAT,
+            None,
+            None,
+        );
+        state_schedule_conversation_persist(&state, &conversation)
+            .expect("persist conversation");
+
+        // 传入部门名称而非 ID，应能解析到目标部门。
+        let preflight = common_delegate_preflight(
+            &state,
+            &source_agent.id,
+            Some("dept-parent-by-name"),
+            Some(&conversation.id),
+            "研究员部门",
+            Some(&target_agent.id),
+        )
+        .expect("resolve delegate preflight by department name");
+
+        assert_eq!(preflight.target_department.id, "dept-child-by-name");
+        assert_eq!(preflight.target_department.name, "研究员部门");
+    }
+
+    #[test]
     fn common_delegate_preflight_should_not_require_direct_child_department() {
         let state = test_chat_runtime_state();
         let mut source_agent = default_agent();

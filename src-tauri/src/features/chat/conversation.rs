@@ -2867,7 +2867,6 @@ fn collect_prompt_media_parts(
 
 #[derive(Debug, Clone)]
 struct PromptDepartmentCard {
-    id: String,
     name: String,
     summary: String,
 }
@@ -2883,7 +2882,6 @@ struct DepartmentPromptLabels {
     current_guide_label: &'static str,
     available_title: &'static str,
     available_empty: &'static str,
-    available_id_label: &'static str,
     available_summary_label: &'static str,
     empty_summary: &'static str,
     empty_guide: &'static str,
@@ -2895,7 +2893,6 @@ fn department_prompt_labels(_ui_language: &str) -> DepartmentPromptLabels {
         current_guide_label: "部门办事指南",
         available_title: "你的直属下级部门",
         available_empty: "当前没有可用的直属下级部门。",
-        available_id_label: "部门 ID",
         available_summary_label: "概述",
         empty_summary: "未提供",
         empty_guide: "尚未配置办事指南。",
@@ -2907,7 +2904,6 @@ fn prompt_department_card_from_config(
     empty_summary: &str,
 ) -> PromptDepartmentCard {
     PromptDepartmentCard {
-        id: department.id.clone(),
         name: department.name.trim().to_string(),
         summary: if department.summary.trim().is_empty() {
             empty_summary.to_string()
@@ -2997,11 +2993,9 @@ fn build_departments_prompt_block(
     } else {
         for department in prompt_context.available {
             lines.push(format!(
-                "{}：{} | {}：{} | {}：{}",
+                "{}：{} | {}：{}",
                 labels.current_name_label,
                 department.name,
-                labels.available_id_label,
-                department.id,
                 labels.available_summary_label,
                 department.summary
             ));
@@ -3105,7 +3099,7 @@ fn build_builtin_tool_rule_block(tool_id: &str, rg_installed: bool) -> Option<St
              - 只有用户明确要求后台运行、不等待结果时，才使用 `mode: \"background\"`。\n\
              - 当前已经在委托线程中再次委托时，只允许使用 `wait`。\n\
              - 若目标岗位由你本人兼任，只允许使用 `wait`。\n\
-             - `department_id` 必须选择最匹配的直属下级部门。\n\
+             - `department_id` 直接填「你的直属下级部门」清单中的部门名称即可（也兼容部门 ID）。\n\
              - `why` 写清父任务、已知事实、必要上下文、约束和前序结果；不要只写一句空泛背景。\n\
              - `goal` 写清本次子任务要完成什么，目标应可判断是否完成。\n\
              - `todo` 写清优先关注点、范围边界、交付要求和需要避免的方向。\n\
