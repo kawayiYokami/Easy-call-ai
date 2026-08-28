@@ -268,7 +268,7 @@
             </div>
           </div>
           <button
-            v-if="activeTab?.kind === 'diff' && activeTab.diffSource?.path"
+            v-if="activeTab?.kind === 'diff' && activeTab.diffSource?.path && !isMultiFileDiff"
             class="btn btn-ghost btn-xs h-6 min-h-6 w-6 shrink-0 px-0"
             type="button"
             title="打开源文件"
@@ -402,19 +402,24 @@
                 @open-image-preview="openMarkdownImagePreview"
               />
             </div>
-            <div
-              v-else-if="activeTab.kind === 'diff'"
+            <MultiFileDiffView
+              v-else-if="activeTab.kind === 'diff' && isMultiFileDiff"
               class="h-full min-h-0"
-            >
-              <ToolReviewCodePreview
-                :code="activeTab.content"
-                mode="patch"
-                :is-dark="markdownIsDark"
-                :show-line-numbers="true"
-                :context-lines="Math.max(1, activeTab.diffSource?.context || 3)"
-                @expand-gap="expandGitDiffContext"
-              />
-            </div>
+              :diff-text="activeTab.content"
+              :is-dark="markdownIsDark"
+              :context-lines="Math.max(1, activeTab.diffSource?.context || 3)"
+              @expand-file-gap="expandFileDiffContext"
+              @open-file="openMultiFileTarget"
+            />
+            <ToolReviewCodePreview
+              v-else-if="activeTab.kind === 'diff'"
+              :code="activeTab.content"
+              mode="patch"
+              :is-dark="markdownIsDark"
+              :show-line-numbers="true"
+              :context-lines="Math.max(1, activeTab.diffSource?.context || 3)"
+              @expand-gap="expandGitDiffContext"
+            />
             <div
               v-else-if="activeTab.virtualized"
               class="relative h-full min-h-0"
@@ -759,7 +764,9 @@ import OverlayScrollArea from "../../shared/components/OverlayScrollArea.vue";
 import { useFileReaderAppearance } from "../../shell/composables/use-file-reader-appearance";
 import PanelTabStrip from "../../shared/components/PanelTabStrip.vue";
 import GitPanel from "./GitPanel.vue";
+import MultiFileDiffView from "../../chat/components/MultiFileDiffView.vue";
 import ToolReviewCodePreview from "../../chat/components/ToolReviewCodePreview.vue";
+import { isMultiFileDiffText, replaceFileSection } from "../utils/multiFileDiff";
 import { useI18n } from "vue-i18n";
 import type { IdeContextReferenceItem } from "../../../types/app";
 import {
@@ -953,6 +960,12 @@ let directoryTreeResizeMoved = false;
 // ==================== Computed ====================
 
 const activeTab = computed(() => tabs.value.find((tab) => tab.path === activePath.value) || tabs.value[0] || null);
+
+const isMultiFileDiff = computed(() => {
+  const tab = activeTab.value;
+  if (!tab || tab.kind !== "diff") return false;
+  return isMultiFileDiffText(String(tab.content || ""));
+});
 
 const activeMediaSourceUrl = computed(() => {
   const tab = activeTab.value;
@@ -2361,11 +2374,49 @@ async function expandGitDiffContext() {
   await openGitDiffTab({ ...source, context: nextContext });
 }
 
+/** 多文件 diff：仅展开单个文件内的隐藏行（按文件重拉并局部替换） */
+async function expandFileDiffContext(payload: { path: string; nextContext: number }) {
+  const active = activeTab.value;
+  if (!active || active.kind !== "diff" || !active.diffSource) return;
+  const source = active.diffSource;
+  const targetPath = String(payload.path || "").trim();
+  const nextContext = Math.max(1, Number(payload.nextContext) || 33);
+  if (!targetPath) return;
+  try {
+    let newSegment = "";
+    if (source.hash) {
+      const result = await gitPanelShow(source.workspacePath, source.hash, targetPath, nextContext);
+      newSegment = String(result?.diff || "");
+    } else {
+      const result = await gitPanelDiff({ workspacePath: source.workspacePath, path: targetPath, staged: source.staged, context: nextContext });
+      newSegment = String(result?.diff || "");
+    }
+    if (!newSegment.trim()) return;
+    const updated = replaceFileSection(String(active.content || ""), targetPath, newSegment);
+    // 更新当前 diff tab 的文本与上下文标记
+    const nextTab: FileTab = { ...active, content: updated, diffSource: { ...source, context: Math.max(source.context || 3, nextContext) } };
+    replaceTabState(nextTab);
+  } catch (error) {
+    reportFileReaderActionFailure(t('fileReader.loadGitDiffFailed'), targetPath, error);
+  }
+}
+
 function openDiffTargetFile() {
   const tab = activeTab.value;
   const source = tab?.diffSource;
   if (!tab || tab.kind !== "diff" || !source?.path || !source.workspacePath) return;
   const targetPath = normalizePath(`${source.workspacePath}/${source.path}`);
+  if (!targetPath) return;
+  void openPath(targetPath);
+}
+
+function openMultiFileTarget(payload: { path: string }) {
+  const tab = activeTab.value;
+  const source = tab?.diffSource;
+  const filePath = String(payload?.path || "").trim();
+  const workspacePath = normalizePath(source?.workspacePath || "");
+  if (!filePath || !workspacePath) return;
+  const targetPath = normalizePath(`${workspacePath}/${filePath}`);
   if (!targetPath) return;
   void openPath(targetPath);
 }

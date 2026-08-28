@@ -1,28 +1,41 @@
 <template>
   <div class="flex h-full min-h-0 w-full flex-col gap-2">
     <div v-if="title" class="px-4 pt-3 text-xs text-base-content/65">{{ title }}</div>
+    <!-- embedded 模式：不自建滚动区，纵/横均由外层 MultiFileDiffView 统一接管 -->
     <div
-      class="tool-review-code-main relative min-h-0 flex-1 overflow-hidden"
+      v-if="props.embedded"
+      class="tool-review-code-main tool-review-code-main-embedded min-h-0 flex-none"
       :class="{
         'tool-review-code-main-with-lines': showGutter,
         'tool-review-code-main-with-patch-lines': isPatchMode,
+        'tool-review-code-main--dark': !!props.isDark,
       }"
-      @mouseenter="scrollbarRef?.reveal()"
-      @mouseleave="scrollbarRef?.hide()"
     >
-      <div ref="scrollerRef" class="tool-review-code-scroller h-full overflow-auto">
-        <pre v-if="!highlightedHtml" class="tool-review-raw-pre">{{ code }}</pre>
-        <div v-else class="tool-review-code-view" v-html="highlightedHtml" @click="onViewClick"></div>
-      </div>
-      <FloatingScrollbar ref="scrollbarRef" :target="scrollerRef" variant="code-dark" />
+      <pre v-if="!highlightedHtml" class="tool-review-raw-pre">{{ code }}</pre>
+      <div v-else class="tool-review-code-view" v-html="highlightedHtml" @click="onViewClick"></div>
     </div>
+    <OverlayScrollArea
+      v-else
+      class="tool-review-code-main min-h-0 flex-1"
+      :class="{
+        'tool-review-code-main-with-lines': showGutter,
+        'tool-review-code-main-with-patch-lines': isPatchMode,
+        'tool-review-code-main--dark': !!props.isDark,
+      }"
+      orientation="both"
+      variant="code-dark"
+      scroller-class="tool-review-code-scroller h-full"
+    >
+      <pre v-if="!highlightedHtml" class="tool-review-raw-pre">{{ code }}</pre>
+      <div v-else class="tool-review-code-view" v-html="highlightedHtml" @click="onViewClick"></div>
+    </OverlayScrollArea>
   </div>
 </template>
 
 <script setup lang="ts">
 import { computed, onBeforeUnmount, ref, watch } from "vue";
 import { bundledLanguagesInfo, codeToHtml } from "shiki";
-import FloatingScrollbar from "../../shell/components/FloatingScrollbar.vue";
+import OverlayScrollArea from "../../shared/components/OverlayScrollArea.vue";
 
 const props = defineProps<{
   title?: string;
@@ -33,14 +46,14 @@ const props = defineProps<{
   showLineNumbers?: boolean;
   /** 当前 diff 的 -U 上下文行数（决定尾部截断检测阈值），默认 3 */
   contextLines?: number;
+  /** 嵌入多文件列表时：高度自适应、仅横向滚动，纵向由外层接管 */
+  embedded?: boolean;
 }>();
 
 const emit = defineEmits<{
   (e: "expandGap"): void;
 }>();
 
-const scrollerRef = ref<HTMLElement | null>(null);
-const scrollbarRef = ref<InstanceType<typeof FloatingScrollbar> | null>(null);
 const baseHighlightedHtml = ref("");
 let highlightAbort: AbortController | null = null;
 
@@ -323,7 +336,17 @@ onBeforeUnmount(() => {
 
 <style scoped>
 .tool-review-code-main {
-  background: var(--color-base-200);
+  --ap-add-bg: #e6ffec;
+  --ap-add-fg: #1a7f37;
+  --ap-remove-bg: #ffebe9;
+  --ap-remove-fg: #cf222e;
+  background: var(--color-base-100);
+}
+.tool-review-code-main--dark {
+  --ap-add-bg: rgba(46, 160, 67, 0.15);
+  --ap-add-fg: #3fb950;
+  --ap-remove-bg: rgba(248, 81, 73, 0.15);
+  --ap-remove-fg: #f85149;
 }
 
 .tool-review-code-scroller {
@@ -336,11 +359,18 @@ onBeforeUnmount(() => {
   height: 0;
 }
 
+.tool-review-code-main-embedded {
+  overflow: visible;
+}
+.tool-review-code-main-embedded .tool-review-code-view code {
+  min-width: max-content;
+}
+
 .tool-review-code-view {
   height: 100%;
   min-height: 100%;
   font-family: var(--app-code-font-family);
-  background: var(--color-base-200);
+  background: var(--color-base-100);
 }
 
 .tool-review-raw-pre {
@@ -349,7 +379,7 @@ onBeforeUnmount(() => {
   padding: 0.75rem 1rem;
   white-space: pre;
   color: var(--color-base-content);
-  background: var(--color-base-200);
+  background: var(--color-base-100);
   font-family: var(--app-code-font-family);
   font-size: var(--app-text-xs-size);
   line-height: 1.5;
@@ -362,7 +392,7 @@ onBeforeUnmount(() => {
   padding: 0.75rem 0;
   border: 0;
   border-radius: 0;
-  background: var(--color-base-200) !important;
+  background: var(--color-base-100) !important;
   box-shadow: none;
   overflow: visible;
 }
@@ -399,11 +429,11 @@ onBeforeUnmount(() => {
 }
 
 .tool-review-code-main-with-lines :deep(.tool-review-code-view .line.tool-review-patch-line-delete) {
-  background: rgba(239, 68, 68, 0.08);
+  background: var(--ap-remove-bg, rgba(248, 81, 73, 0.08));
 }
 
 .tool-review-code-main-with-lines :deep(.tool-review-code-view .line.tool-review-patch-line-add) {
-  background: rgba(34, 197, 94, 0.08);
+  background: var(--ap-add-bg, rgba(46, 160, 67, 0.08));
 }
 
 .tool-review-code-main-with-lines :deep(.tool-review-code-view .line.tool-review-patch-line-header) {
@@ -416,21 +446,21 @@ onBeforeUnmount(() => {
   justify-content: flex-start;
   gap: 0.5rem;
   padding: 0.3rem 0.75rem;
-  margin: 1px 0;
+  margin: 0;
   cursor: pointer;
   color: var(--color-base-content);
   opacity: 0.72;
   font-size: 0.75rem;
-  background: color-mix(in oklab, var(--color-base-content) 5%, var(--color-base-200));
-  border-top: 1px solid color-mix(in oklab, var(--color-base-content) 8%, transparent);
-  border-bottom: 1px solid color-mix(in oklab, var(--color-base-content) 8%, transparent);
+  background: var(--color-base-200);
+  border-top: 1px solid var(--color-base-300);
+  border-bottom: 1px solid var(--color-base-300);
   user-select: none;
 }
 
 :deep(.tool-review-code-view .line.tool-review-gap-bar:hover) {
   opacity: 1;
   color: var(--color-primary);
-  background: color-mix(in oklab, var(--color-primary) 10%, var(--color-base-200));
+  background: var(--color-base-200);
 }
 
 :deep(.tool-review-code-view .line.tool-review-gap-bar .line-code) {
