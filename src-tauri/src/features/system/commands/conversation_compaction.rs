@@ -101,6 +101,19 @@ pub(crate) async fn run_context_compaction_pipeline(
 ) -> Result<ForceArchiveResult, String> {
     let started_at = std::time::Instant::now();
     let trace_id = Uuid::new_v4().to_string();
+    // 调度事件：压缩开始（仅委托，latest Run）
+    let _ = schedule_event_push_to_latest_run(
+        state,
+        &source.id,
+        "compaction_start",
+        0,
+        None,
+        serde_json::json!({
+            "reason": compaction_reason,
+            "traceTag": trace_tag,
+            "traceId": trace_id,
+        }),
+    );
     let (selected_api, resolved_api) = resolve_context_compaction_primary_model(
         state,
         selected_api,
@@ -135,6 +148,34 @@ pub(crate) async fn run_context_compaction_pipeline(
     .await;
 
     let elapsed_ms = started_at.elapsed().as_millis();
+    // 调度事件：压缩结束
+    {
+        let success = result.is_ok();
+        let detail = if let Some(err) = result.as_ref().err() {
+            serde_json::json!({
+                "reason": compaction_reason,
+                "traceTag": trace_tag,
+                "traceId": trace_id,
+                "error": err,
+                "elapsedMs": elapsed_ms,
+            })
+        } else {
+            serde_json::json!({
+                "reason": compaction_reason,
+                "traceTag": trace_tag,
+                "traceId": trace_id,
+                "elapsedMs": elapsed_ms,
+            })
+        };
+        let _ = schedule_event_push_to_latest_run(
+            state,
+            &source.id,
+            "compaction_end",
+            0,
+            Some(success),
+            detail,
+        );
+    }
     if let Err(state_err) =
         set_conversation_runtime_state_and_emit(state, &source.id, MainSessionState::Idle)
     {

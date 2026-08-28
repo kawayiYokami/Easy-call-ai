@@ -1130,6 +1130,35 @@ export type ConversationDelegateStatusSummary = {
   targetAgentId?: string;
 };
 
+export type ScheduleEvent = {
+  id: string;
+  runId: string;
+  conversationId: string;
+  delegateId?: string;
+  rootConversationId?: string;
+  phase: string;
+  createdAt: string;
+  elapsedMs: number;
+  success?: boolean;
+  detail: Record<string, unknown>;
+};
+
+export type ScheduleRun = {
+  runId: string;
+  conversationId: string;
+  delegateId?: string;
+  rootConversationId?: string;
+  status: string;
+  startedAt: string;
+  updatedAt: string;
+  elapsedMs: number;
+  requestCount: number;
+  toolCallCount: number;
+  lastToolName?: string;
+  lastModelName?: string;
+  events: ScheduleEvent[];
+};
+
 export type AgentWorkSignalPayload = {
   conversationId: string;
   agentId: string;

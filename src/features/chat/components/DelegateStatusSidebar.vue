@@ -40,17 +40,37 @@
           <button
             type="button"
             class="btn btn-sm gap-1.5 border-base-300 bg-base-100 font-normal hover:bg-base-100"
-            @click="emit('openDelegateDetail', delegate)"
+            @click="openDetailWithTimeline(delegate)"
           >{{ t('chat.delegateStatus.viewDetail') }}</button>
         </div>
       </section>
     </div>
   </aside>
+  <dialog class="modal" :class="{ 'modal-open': detailDialogOpen }">
+    <div class="modal-box flex max-h-[80vh] max-w-2xl flex-col overflow-hidden p-0">
+      <div class="flex shrink-0 items-center justify-between gap-3 border-b border-base-200 px-5 py-3">
+        <div class="min-w-0 truncate text-sm font-semibold text-base-content">{{ detailDialogTitle }}</div>
+        <button type="button" class="btn btn-ghost btn-sm gap-1 shrink-0" @click="detailDialogOpen = false"><span class="text-base leading-none">×</span><span>关闭</span></button>
+      </div>
+      <div class="min-h-0 flex-1 overflow-y-auto px-5 py-4">
+        <DelegateScheduleTimeline
+          v-if="detailDialogConversationId"
+          :conversation-id="detailDialogConversationId"
+          :auto-refresh-key="detailDialogRefreshKey"
+        />
+      </div>
+    </div>
+    <form method="dialog" class="modal-backdrop">
+      <button type="button" @click="detailDialogOpen = false">close</button>
+    </form>
+  </dialog>
 </template>
 
 <script setup lang="ts">
+import { ref } from "vue";
 import { useI18n } from "vue-i18n";
 import type { ConversationDelegateStatusSummary } from "../../../types/app";
+import DelegateScheduleTimeline from "./DelegateScheduleTimeline.vue";
 
 defineProps<{
   statuses: ConversationDelegateStatusSummary[];
@@ -63,6 +83,20 @@ const emit = defineEmits<{
 }>();
 
 const { t } = useI18n();
+
+const detailDialogOpen = ref(false);
+const detailDialogTitle = ref("");
+const detailDialogConversationId = ref("");
+const detailDialogRefreshKey = ref("");
+
+function openDetailWithTimeline(status: ConversationDelegateStatusSummary) {
+  const conversationId = String(status?.conversationId || status?.delegateId || "").trim();
+  if (!conversationId) return;
+  detailDialogTitle.value = String(status?.title || status?.delegateId || "委托详情");
+  detailDialogConversationId.value = conversationId;
+  detailDialogRefreshKey.value = `${status.status}:${status.updatedAt}`;
+  detailDialogOpen.value = true;
+}
 
 function formatDelegateStatus(status: string) {
   if (status === "running" || status === "delivered") return t('chat.delegateStatus.statusRunning');

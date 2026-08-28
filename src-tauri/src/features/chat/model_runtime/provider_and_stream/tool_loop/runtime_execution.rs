@@ -291,9 +291,35 @@ async fn execute_prepared_tool_call_group(
             Some(call.tool_call_id.as_str()),
             &format!("正在调用工具：{}", call.tool_name),
         );
+        // 调度事件：工具调用开始（仅委托，latest Run，elapsed 由 Store 内 Instant 推导）
+        if let Some(state) = tool_abort_state {
+            let arg_preview: String = call.tool_args.chars().take(2000).collect();
+            let mut detail = serde_json::json!({
+                "toolName": call.tool_name,
+                "toolCallId": call.tool_call_id,
+                "argLength": call.tool_args.chars().count(),
+            });
+            if !arg_preview.trim().is_empty() {
+                if let Some(obj) = detail.as_object_mut() {
+                    obj.insert("argPreview".to_string(), serde_json::json!(arg_preview));
+                }
+            }
+            let _ = schedule_event_push_to_latest_run(
+                state,
+                chat_session_key,
+                "tool_call",
+                0,
+                None,
+                detail,
+            );
+        }
     }
+    let calls_snapshot: Vec<(String, String)> = calls
+        .iter()
+        .map(|call| (call.tool_name.clone(), call.tool_call_id.clone()))
+        .collect();
     let run_group = execute_prepared_tool_call_group_inner(tools, on_delta, calls);
-    if let Some(state) = tool_abort_state {
+    let executed_result: Result<Vec<ExecutedToolCall>, String> = if let Some(state) = tool_abort_state {
         let (abort_handle, abort_registration) = AbortHandle::new_pair();
         register_inflight_tool_abort_handle(state, chat_session_key, abort_handle)?;
         let result = futures_util::future::Abortable::new(run_group, abort_registration).await;
@@ -315,7 +341,83 @@ async fn execute_prepared_tool_call_group(
         }
     } else {
         run_group.await
+    };
+    if let Some(state) = tool_abort_state {
+        match executed_result.as_ref() {
+            Ok(executed) => {
+                for exec in executed {
+                    let is_error = exec.tool_result.is_error;
+                    let text_len = match exec.tool_result.parts.iter().find_map(|part| match part {
+                        ProviderToolResultPart::Text { text } => Some(text.chars().count()),
+                        _ => None,
+                    }) {
+                        Some(len) => len,
+                        None => 0,
+                    };
+                    let text_preview: String = exec.tool_result.parts.iter().find_map(|part| match part {
+                        ProviderToolResultPart::Text { text } => Some(text.chars().take(2000).collect::<String>()),
+                        _ => None,
+                    }).unwrap_or_default();
+                    let mut detail = serde_json::json!({
+                        "toolName": exec.tool_name,
+                        "toolCallId": exec.tool_call_id,
+                        "isError": is_error,
+                        "textLength": text_len,
+                    });
+                    if !text_preview.trim().is_empty() {
+                        if let Some(obj) = detail.as_object_mut() {
+                            obj.insert("textPreview".to_string(), serde_json::json!(text_preview));
+                        }
+                    }
+                    let _ = schedule_event_push_to_latest_run(
+                        state,
+                        chat_session_key,
+                        "tool_result",
+                        0,
+                        Some(!is_error),
+                        detail,
+                    );
+                }
+            }
+            Err(err) => {
+                let is_aborted = err == CHAT_ABORTED_BY_USER_ERROR;
+                if calls_snapshot.is_empty() {
+                    let detail = serde_json::json!({
+                        "isError": true,
+                        "isAborted": is_aborted,
+                        "error": err,
+                    });
+                    let _ = schedule_event_push_to_latest_run(
+                        state,
+                        chat_session_key,
+                        "tool_result",
+                        0,
+                        Some(false),
+                        detail,
+                    );
+                } else {
+                    for (tool_name, tool_call_id) in &calls_snapshot {
+                        let detail = serde_json::json!({
+                            "toolName": tool_name,
+                            "toolCallId": tool_call_id,
+                            "isError": true,
+                            "isAborted": is_aborted,
+                            "error": err,
+                        });
+                        let _ = schedule_event_push_to_latest_run(
+                            state,
+                            chat_session_key,
+                            "tool_result",
+                            0,
+                            Some(false),
+                            detail,
+                        );
+                    }
+                }
+            }
+        }
     }
+    executed_result
 }
 
 fn runtime_tool_result_followup_message(

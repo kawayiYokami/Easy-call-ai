@@ -692,6 +692,22 @@ async fn send_chat_message_inner(
         .map(str::trim)
         .filter(|v| !v.is_empty())
         .map(ToOwned::to_owned);
+    // 调度事件：仅委托接入，普通会话由 is_delegate 过滤直接 no-op
+    {
+        let _ = schedule_event_run_start_with_instant(
+            state,
+            &runtime_context,
+            requested_conversation_id.as_deref().unwrap_or(""),
+            &trace_id,
+            &now_log_local_rfc3339(),
+            Some(chat_started_at),
+            0,
+            serde_json::json!({
+                "traceId": trace_id,
+                "triggerOnly": trigger_only,
+            }),
+        );
+    }
 
     #[derive(Clone)]
     struct ConversationPrepareSnapshot {
@@ -1208,6 +1224,10 @@ async fn send_chat_message_inner(
     let state_for_run = state.clone();
     let stage_timeline_for_run = stage_timeline.clone();
     let trace_id_for_run = trace_id.clone();
+    // 调度事件收口所需的克隆（run 闭包会移动原变量）
+    let runtime_context_for_schedule_events = runtime_context.clone();
+    let requested_conversation_id_for_schedule_events = requested_conversation_id.clone();
+    let trace_id_for_schedule_events = trace_id.clone();
     let run = async move {
     let state = state_for_run;
     let log_run_stage = |stage: &str| {
@@ -2053,6 +2073,28 @@ async fn send_chat_message_inner(
                 attempt + 1
             );
             log_run_stage(&request_start_stage);
+            // 调度事件：模型轮次开始
+            {
+                let elapsed_ms = chat_started_at
+                    .elapsed()
+                    .as_millis()
+                    .min(u128::from(u64::MAX)) as u64;
+                let _ = schedule_event_push_if_delegate(
+                    &state,
+                    &runtime_context,
+                    conversation_id.as_str(),
+                    &trace_id_for_run,
+                    "model_round_start",
+                    elapsed_ms,
+                    None,
+                    serde_json::json!({
+                        "candidateApiId": candidate_selected_api.id,
+                        "attempt": attempt + 1,
+                        "modelName": candidate_model_name,
+                        "providerName": candidate_selected_api.name,
+                    }),
+                );
+            }
             let chat_round_execution = call_model_dispatch(
                 &candidate_resolved_api,
                 &app_config,
@@ -2069,6 +2111,60 @@ async fn send_chat_message_inner(
                 Some(&conversation_id),
             )
             .await;
+            // 调度事件：模型轮次结束（含思考与正文摘要）
+            {
+                let elapsed_ms = chat_started_at
+                    .elapsed()
+                    .as_millis()
+                    .min(u128::from(u64::MAX)) as u64;
+                let success = chat_round_execution.result.is_ok();
+                let error_text = chat_round_execution.result.as_ref().err().cloned();
+                let (assistant_len, reasoning_len, reasoning_preview, tool_calls_len, text_preview) =
+                    if let Ok(reply) = chat_round_execution.result.as_ref() {
+                        let raw_text = if reply.assistant_text.trim().is_empty() && !reply.final_response_text.trim().is_empty() {
+                            reply.final_response_text.as_str()
+                        } else {
+                            reply.assistant_text.as_str()
+                        };
+                        let a_len = raw_text.chars().count();
+                        let r_len = reply.activity_reasoning_text.chars().count();
+                        let r_preview: Option<String> = {
+                            let trimmed = reply.activity_reasoning_text.trim();
+                            if trimmed.is_empty() { None } else { Some(trimmed.chars().take(4000).collect::<String>()) }
+                        };
+                        let t_len = reply.tool_history_events.len();
+                        let preview = raw_text.chars().take(4000).collect::<String>();
+                        (Some(a_len), Some(r_len), r_preview, Some(t_len), if preview.trim().is_empty() { None } else { Some(preview) })
+                    } else {
+                        (None, None, None, None, None)
+                    };
+                let mut detail = serde_json::json!({
+                    "candidateApiId": candidate_selected_api.id,
+                    "attempt": attempt + 1,
+                    "modelName": candidate_model_name,
+                    "providerName": candidate_selected_api.name,
+                    "elapsedMs": chat_round_execution.log_parts.elapsed_ms,
+                    "hasError": error_text.is_some(),
+                    "error": error_text,
+                });
+                if let Some(obj) = detail.as_object_mut() {
+                    if let Some(v) = assistant_len { obj.insert("assistantTextLength".to_string(), serde_json::json!(v)); }
+                    if let Some(v) = reasoning_len { obj.insert("reasoningLength".to_string(), serde_json::json!(v)); }
+                    if let Some(v) = reasoning_preview { obj.insert("reasoningPreview".to_string(), serde_json::json!(v)); }
+                    if let Some(v) = tool_calls_len { obj.insert("toolCallCount".to_string(), serde_json::json!(v)); }
+                    if let Some(v) = text_preview { obj.insert("textPreview".to_string(), serde_json::json!(v)); }
+                }
+                let _ = schedule_event_push_if_delegate(
+                    &state,
+                    &runtime_context,
+                    conversation_id.as_str(),
+                    &trace_id_for_run,
+                    "model_round_end",
+                    elapsed_ms,
+                    Some(success),
+                    detail,
+                );
+            }
             let restart_after_compaction = matches!(
                 &chat_round_execution.result,
                 Err(error) if error == CHAT_DISPATCH_RESTART_AFTER_COMPACTION
@@ -2880,6 +2976,44 @@ async fn send_chat_message_inner(
                 chat_key, err
             ));
         }
+    }
+    // 调度事件：收口（与 pipeline 日志同作用域，仅委托写入）
+    {
+        let elapsed_ms = chat_started_at
+            .elapsed()
+            .as_millis()
+            .min(u128::from(u64::MAX)) as u64;
+        let success = final_result.is_ok();
+        let detail = if let Some(err) = final_result.as_ref().err() {
+            serde_json::json!({ "error": err })
+        } else if let Some(ok) = final_result.as_ref().ok() {
+            let raw_text = ok.assistant_text.as_str();
+            let preview: String = raw_text.chars().take(4000).collect();
+            let mut obj = serde_json::json!({
+                "assistantTextLength": raw_text.chars().count(),
+                "conversationId": ok.conversation_id,
+            });
+            if !preview.trim().is_empty() {
+                if let Some(map) = obj.as_object_mut() {
+                    map.insert("textPreview".to_string(), serde_json::json!(preview));
+                }
+            }
+            obj
+        } else {
+            serde_json::json!({})
+        };
+        let _ = schedule_event_push_if_delegate(
+            state,
+            &runtime_context_for_schedule_events,
+            requested_conversation_id_for_schedule_events
+                .as_deref()
+                .unwrap_or(chat_session_key_for_log.as_str()),
+            &trace_id_for_schedule_events,
+            "dispatch_end",
+            elapsed_ms,
+            Some(success),
+            detail,
+        );
     }
     let timeline = stage_timeline.lock().ok().map(|items| items.clone());
     let (mut pipeline_headers, pipeline_tools) = latest_chat_round_headers_and_tools(

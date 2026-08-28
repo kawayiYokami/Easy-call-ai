@@ -109,6 +109,9 @@ struct MemoryCacheStats {
     pending_chat_round_sessions: usize,
     pending_chat_round_entries: usize,
     pending_chat_round_estimated_json_bytes: usize,
+    schedule_event_runs: usize,
+    schedule_event_events: usize,
+    schedule_event_estimated_json_bytes: usize,
     conversation_runtime_slots: usize,
     conversation_runtime_stream_block_count: usize,
     pending_chat_result_senders: usize,
@@ -1707,6 +1710,24 @@ fn dump_memory_cache_stats_inner(state: &AppState) -> Result<MemoryCacheStats, S
     let pending_chat_round_estimated_json_bytes =
         estimate_json_bytes(&pending_chat_rounds.rounds_by_chat_session);
 
+    let schedule_events = state
+        .schedule_events
+        .lock()
+        .map_err(|_| "Failed to lock schedule events".to_string())?;
+    let schedule_event_runs = schedule_events
+        .runs_by_conversation
+        .values()
+        .map(|deque: &std::collections::VecDeque<ScheduleRun>| deque.len())
+        .sum::<usize>();
+    let schedule_event_events = schedule_events
+        .runs_by_conversation
+        .values()
+        .flat_map(|deque: &std::collections::VecDeque<ScheduleRun>| deque.iter())
+        .map(|run| run.events.len())
+        .sum::<usize>();
+    let schedule_event_estimated_json_bytes =
+        schedule_event_estimated_json_bytes(&schedule_events);
+
     let conversation_runtime_slots = state
         .conversation_runtime_slots
         .lock()
@@ -1887,6 +1908,9 @@ fn dump_memory_cache_stats_inner(state: &AppState) -> Result<MemoryCacheStats, S
         pending_chat_round_sessions,
         pending_chat_round_entries,
         pending_chat_round_estimated_json_bytes,
+        schedule_event_runs,
+        schedule_event_events,
+        schedule_event_estimated_json_bytes,
         conversation_runtime_slots: conversation_runtime_slots_count,
         conversation_runtime_stream_block_count,
         pending_chat_result_senders,

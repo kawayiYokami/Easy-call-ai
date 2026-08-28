@@ -73,7 +73,7 @@
           @collapse-all="collapseAllDelegateSections"
         >
           <div v-if="!isDelegateSectionCollapsed(section.key)">
-            <section v-for="delegate in section.items" :key="delegate.delegateId">
+            <section v-for="delegate in section.items" :key="delegate.delegateId" class="mx-1">
               <DelegateCard
                 :title="delegate.title || delegate.delegateId"
                 :running="isDelegateRunning(delegate)"
@@ -169,27 +169,17 @@
   </aside>
 
   <dialog class="modal" :class="{ 'modal-open': delegateResultDialogOpen }">
-    <div class="modal-box max-h-[80vh] max-w-2xl overflow-y-auto">
-      <div class="mb-3 flex items-center justify-between gap-3">
+    <div class="modal-box flex max-h-[80vh] max-w-2xl flex-col overflow-hidden p-0">
+      <div class="flex shrink-0 items-center justify-between gap-3 border-b border-base-200 px-5 py-3">
         <div class="min-w-0 truncate text-sm font-semibold text-base-content">{{ delegateResultTitle }}</div>
-        <button type="button" class="btn btn-ghost btn-sm" @click="delegateResultDialogOpen = false">×</button>
+        <button type="button" class="btn btn-ghost btn-sm gap-1 shrink-0" @click="delegateResultDialogOpen = false"><span class="text-base leading-none">×</span><span>关闭</span></button>
       </div>
-      <div v-if="delegateResultLoading" class="flex items-center gap-2 text-sm text-base-content/65">
-        <span class="loading loading-spinner loading-sm"></span>
-        加载中
-      </div>
-      <div
-        v-else-if="delegateResultText"
-        class="tool-review-report-markdown assistant-markdown text-sm leading-7 text-base-content/80"
-      >
-        <AppMarkdownRenderer
-          :text="delegateResultText"
-          :is-dark="markdownIsDark"
-          @click="handleDelegateResultLinkClick"
+      <div class="min-h-0 flex-1 overflow-y-auto px-5 py-4">
+        <DelegateScheduleTimeline
+          v-if="delegateResultConversationId"
+          :conversation-id="delegateResultConversationId"
+          :auto-refresh-key="delegateResultTimelineKey"
         />
-      </div>
-      <div v-else class="whitespace-pre-wrap wrap-break-word text-sm leading-7 text-base-content/80">
-        没有可显示的结果
       </div>
     </div>
     <form method="dialog" class="modal-backdrop">
@@ -222,6 +212,7 @@ import { formatConversationListTime, formatConversationListTimeWithMinuteDetails
 import { AppMarkdownRenderer, initKatex } from "../markdown";
 import ToolAssessmentCard from "./ToolAssessmentCard.vue";
 import DelegateCard from "./DelegateCard.vue";
+import DelegateScheduleTimeline from "./DelegateScheduleTimeline.vue";
 import FloatingScrollbar from "../../shell/components/FloatingScrollbar.vue";
 import CollapsibleGroup from "./CollapsibleGroup.vue";
 import TerminalApprovalPatchSample from "../../shell/components/TerminalApprovalPatchSample.vue";
@@ -270,19 +261,8 @@ const emit = defineEmits<{
 const { t, locale } = useI18n();
 const contentScroller = ref<HTMLElement | null>(null);
 const delegateResultDialogOpen = ref(false);
-const delegateResultLoading = ref(false);
 const delegateResultTitle = ref("");
-const delegateResultText = ref("");
 const rootAttrs = useAttrs();
-
-async function handleDelegateResultLinkClick(event: MouseEvent) {
-  const target = event.target as HTMLElement | null;
-  if (!target?.closest("a")) return;
-  event.preventDefault();
-  delegateResultDialogOpen.value = false;
-  await nextTick();
-  emit("assistantLinkClick", event);
-}
 const collapsedToolAssessmentSectionKeys = ref<Record<string, boolean>>({});
 const collapsedSegmentKeys = ref<Record<string, boolean>>({});
 const collapsedDelegateSectionKeys = ref<Record<string, boolean>>({
@@ -291,6 +271,8 @@ const collapsedDelegateSectionKeys = ref<Record<string, boolean>>({
   interrupted: true,
   failed: true,
 });
+const delegateResultConversationId = ref("");
+const delegateResultTimelineKey = ref("");
 const collapsedTaskSectionKeys = ref<Record<string, boolean>>({
   active: false,
   completed: true,
@@ -513,46 +495,13 @@ const nextBatch = computed(() => {
   return props.batches[index + 1] || null;
 });
 
-async function openDelegateResult(status: import("../../../types/app").ConversationDelegateStatusSummary) {
-  const conversationId = String(status?.conversationId || "").trim();
+function openDelegateResult(status: import("../../../types/app").ConversationDelegateStatusSummary) {
+  const conversationId = String(status?.conversationId || status?.delegateId || "").trim();
   if (!conversationId) return;
   delegateResultTitle.value = String(status?.title || status?.delegateId || "委托结果");
-  delegateResultText.value = "";
+  delegateResultConversationId.value = conversationId;
+  delegateResultTimelineKey.value = `${status.status}:${status.updatedAt}`;
   delegateResultDialogOpen.value = true;
-  delegateResultLoading.value = true;
-  try {
-    const page = await invokeTauri<ArchiveBlockPage>("delegate.blockPage", { conversationId }, 10000);
-    delegateResultText.value = formatDelegateResultText(findLastAssistantText(Array.isArray(page?.messages) ? page.messages : []));
-  } catch (error) {
-    delegateResultText.value = `读取委托结果失败：${String(error)}`;
-  } finally {
-    delegateResultLoading.value = false;
-  }
-}
-
-function findLastAssistantText(messages: ChatMessage[]) {
-  for (let index = messages.length - 1; index >= 0; index -= 1) {
-    const message = messages[index];
-    if (message?.role !== "assistant") continue;
-    const text = message.parts
-      ?.filter((part) => part.type === "text")
-      .map((part) => part.text)
-      .join("\n")
-      .trim();
-    if (text) return text;
-  }
-  return "";
-}
-
-function formatDelegateResultText(text: string) {
-  const trimmed = text.trim();
-  if (!trimmed) return "";
-  try {
-    const parsed = JSON.parse(trimmed);
-    return `\`\`\`json\n${JSON.stringify(parsed, null, 2)}\n\`\`\``;
-  } catch {
-    return text;
-  }
 }
 
 type ToolReviewGroup = {

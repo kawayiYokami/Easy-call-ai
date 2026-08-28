@@ -15,6 +15,9 @@ include!("commands/prompt_assembly.rs");
 // ==================== 调试日志命令 ====================
 include!("commands/debug_log_commands.rs");
 
+// ==================== 调度事件系统（事件式溯源） ====================
+include!("commands/schedule_events.rs");
+
 // ==================== 分享导出命令 ====================
 include!("commands/share_export_commands.rs");
 

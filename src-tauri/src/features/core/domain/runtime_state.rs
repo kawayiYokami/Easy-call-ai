@@ -75,6 +75,7 @@ struct AppState {
     terminal_pending_approvals:
         Arc<Mutex<std::collections::HashMap<String, PendingTerminalApprovalRequest>>>,
     llm_round_logs: Arc<Mutex<RecentLlmRoundLogs>>,
+    schedule_events: Arc<Mutex<ScheduleEventStore>>,
     conversation_runtime_slots:
         Arc<Mutex<std::collections::HashMap<String, ConversationRuntimeSlot>>>,
     conversation_processing_claims: Arc<Mutex<std::collections::HashSet<String>>>,
@@ -316,6 +317,7 @@ impl AppState {
             )),
             terminal_pending_approvals: Arc::new(Mutex::new(std::collections::HashMap::new())),
             llm_round_logs: Arc::new(Mutex::new(RecentLlmRoundLogs::default())),
+            schedule_events: Arc::new(Mutex::new(ScheduleEventStore::default())),
             conversation_runtime_slots: Arc::new(Mutex::new(std::collections::HashMap::new())),
             conversation_processing_claims: Arc::new(Mutex::new(std::collections::HashSet::new())),
             goal_continue_suppressed_conversation_ids: Arc::new(Mutex::new(
