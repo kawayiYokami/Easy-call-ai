@@ -3,7 +3,7 @@
     ref="rendererRootRef"
     v-bind="attrs"
     class="ecall-md-renderer"
-    :class="[isDark ? 'ecall-md-dark' : 'ecall-md-light', variant === 'document' ? 'ecall-md-document' : 'ecall-md-chat']"
+    :class="[isDark ? 'ecall-md-dark' : 'ecall-md-light', variant === 'document' ? 'ecall-md-document' : 'ecall-md-chat', streaming ? 'ecall-md-streaming' : '']"
     @click="emit('click', $event)"
   >
     <BlockRenderer
@@ -534,6 +534,7 @@ const InlineRenderer = defineComponent({
       type: Function as PropType<(payload: MarkdownImagePreviewPayload) => void>,
       default: undefined,
     },
+    animate: { type: Boolean, default: false },
   },
   setup(inlineProps) {
     return () => renderSegments(
@@ -544,6 +545,7 @@ const InlineRenderer = defineComponent({
         onToolcallClick: toggleToolcallPreview,
         footnoteIndexMap: inlineProps.footnoteIndexMap,
         onImagePreview: inlineProps.onImagePreview,
+        animate: inlineProps.animate,
       },
     );
   },
@@ -602,6 +604,7 @@ const BlockRenderer = defineComponent({
             localImageBasePath: blockProps.localImageBasePath,
             footnoteIndexMap: blockProps.footnoteIndexMap,
             onImagePreview: blockProps.onImagePreview,
+            animate: blockProps.streaming,
           }),
         ]);
       }
@@ -632,6 +635,7 @@ const BlockRenderer = defineComponent({
             localImageBasePath: blockProps.localImageBasePath,
             footnoteIndexMap: blockProps.footnoteIndexMap,
             onImagePreview: blockProps.onImagePreview,
+            animate: blockProps.streaming,
           }),
         ])));
       }
@@ -645,6 +649,7 @@ const BlockRenderer = defineComponent({
                   localImageBasePath: blockProps.localImageBasePath,
                   footnoteIndexMap: blockProps.footnoteIndexMap,
                   onImagePreview: blockProps.onImagePreview,
+                  animate: blockProps.streaming,
                 }),
               ]))),
             ]),
@@ -654,6 +659,7 @@ const BlockRenderer = defineComponent({
                 localImageBasePath: blockProps.localImageBasePath,
                 footnoteIndexMap: blockProps.footnoteIndexMap,
                 onImagePreview: blockProps.onImagePreview,
+                animate: blockProps.streaming,
               }),
             ]))))),
           ]),
@@ -695,6 +701,7 @@ const BlockRenderer = defineComponent({
               localImageBasePath: blockProps.localImageBasePath,
               footnoteIndexMap: blockProps.footnoteIndexMap,
               onImagePreview: blockProps.onImagePreview,
+              animate: blockProps.streaming,
             }),
           ]),
           block.body
@@ -723,6 +730,7 @@ const BlockRenderer = defineComponent({
               localImageBasePath: blockProps.localImageBasePath,
               footnoteIndexMap: blockProps.footnoteIndexMap,
               onImagePreview: blockProps.onImagePreview,
+              animate: blockProps.streaming,
             }),
           ]))),
         ]);
@@ -736,6 +744,7 @@ const BlockRenderer = defineComponent({
           localImageBasePath: blockProps.localImageBasePath,
           footnoteIndexMap: blockProps.footnoteIndexMap,
           onImagePreview: blockProps.onImagePreview,
+          animate: blockProps.streaming,
         }),
       ]);
     };
@@ -773,6 +782,7 @@ const BlockRenderer = defineComponent({
                       onToolcallClick: toggleToolcallPreview,
                       footnoteIndexMap: blockProps.footnoteIndexMap,
                       onImagePreview: blockProps.onImagePreview,
+                      animate: blockProps.streaming,
                     },
                   )
                   : []),
@@ -793,6 +803,7 @@ const BlockRenderer = defineComponent({
                 onToolcallClick: toggleToolcallPreview,
                 footnoteIndexMap: blockProps.footnoteIndexMap,
                 onImagePreview: blockProps.onImagePreview,
+                animate: blockProps.streaming,
               },
             ));
           }
@@ -815,6 +826,7 @@ const BlockRenderer = defineComponent({
                 onToolcallClick: toggleToolcallPreview,
                 footnoteIndexMap: blockProps.footnoteIndexMap,
                 onImagePreview: blockProps.onImagePreview,
+                animate: blockProps.streaming,
               },
             )));
           } else if (grouped.endIndex > index && !grouped.stripLeadingOnEnd) {
@@ -837,6 +849,7 @@ type RenderSegmentOptions = {
   onToolcallClick?: (ids: string[], anchorEl: HTMLButtonElement | null) => void;
   footnoteIndexMap?: Record<string, number>;
   onImagePreview?: (payload: MarkdownImagePreviewPayload) => void;
+  animate?: boolean;
 };
 
 function footnoteDomId(rawId: string): string {
@@ -860,6 +873,29 @@ function scrollToFootnote(rawId: string) {
     if (activeFootnoteId.value === id) activeFootnoteId.value = "";
     activeFootnoteTimer = 0;
   }, 1800);
+}
+
+function renderAnimatedText(text: string, keyPrefix: string): VNodeChild[] {
+  if (!text) return [];
+  const parts = text.split(/(\s+)/);
+  const out: VNodeChild[] = [];
+  let wordIndex = 0;
+  for (let i = 0; i < parts.length; i += 1) {
+    const part = parts[i];
+    if (!part) continue;
+    if (/^\s+$/.test(part)) {
+      out.push(part);
+      continue;
+    }
+    out.push(h("span", {
+      key: `${keyPrefix}-w-${wordIndex}`,
+      class: "ecall-md-animate-word",
+      style: { "--sd-delay": `${wordIndex * 35}ms` } as Record<string, string>,
+      "data-sd-animate": "",
+    }, part));
+    wordIndex += 1;
+  }
+  return out.length > 0 ? out : [text];
 }
 
 function renderSegments(
@@ -1020,7 +1056,11 @@ function renderSegments(
       nodes.push(h("del", { key: `${keyPrefix}-d-${index}`, class: "ecall-md-del" }, renderSegments(segment.children, `${keyPrefix}-d-${index}`, localImageBasePath, options)));
       continue;
     }
-    nodes.push(segment.text);
+    if (options.animate) {
+      nodes.push(...renderAnimatedText(segment.text, `${keyPrefix}-t-${index}`));
+    } else {
+      nodes.push(segment.text);
+    }
   }
   return nodes;
 }
@@ -1782,5 +1822,21 @@ ul.ecall-md-list {
 
 .ecall-md-document .ecall-md-mermaid-block {
   margin: 0.75rem 0;
+}
+
+/* ==================== Streaming Animation ==================== */
+@keyframes ecall-md-fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.ecall-md-streaming .ecall-md-animate-word {
+  animation: ecall-md-fadeIn 150ms ease var(--sd-delay, 0ms) both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ecall-md-streaming .ecall-md-animate-word {
+    animation: none;
+  }
 }
 </style>
