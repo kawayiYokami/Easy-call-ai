@@ -93,12 +93,22 @@
         <button
           type="button"
           class="btn btn-ghost btn-sm btn-square shrink-0"
-          :class="directoryTreeRoot ? 'bg-base-100/60 hover:bg-base-100/60' : ''"
-          :disabled="!directoryToggleTargetPath"
-          :title="directoryTreeRoot ? t('fileReader.collapseTree') : t('fileReader.expandTree', { path: directoryToggleTargetPath })"
-          @click="toggleDirectoryTree"
+          :class="directoryTreeRoot && asideMode === 'files' ? 'bg-base-200 text-primary' : ''"
+          :disabled="!directoryTreeRoot && !directoryToggleTargetPath"
+          :title="t('fileReader.filesTab')"
+          @click="toggleFilesPanel"
         >
-          <Folders class="size-4" />
+          <Files class="size-4" />
+        </button>
+        <button
+          type="button"
+          class="btn btn-ghost btn-sm btn-square shrink-0"
+          :class="directoryTreeRoot && asideMode === 'git' ? 'bg-base-200 text-primary' : ''"
+          :disabled="!directoryTreeRoot && !directoryToggleTargetPath && !gitPanelWorkspacePath"
+          :title="t('fileReader.gitTab')"
+          @click="toggleGitPanel"
+        >
+          <GitBranch class="size-4" />
         </button>
       </template>
     </PanelTabStrip>
@@ -110,28 +120,6 @@
         :class="directoryOnly ? 'w-full' : ''"
         :style="directoryOnly ? undefined : { width: `${effectiveDirectoryTreeWidth}px` }"
       >
-        <!-- 文件 / Git tab 切换 -->
-        <div class="flex h-8 shrink-0 items-center gap-1 border-b border-base-300 bg-base-200/35 px-2">
-          <button
-            type="button"
-            class="btn btn-ghost btn-xs h-6 min-h-6 flex-1 justify-center gap-1 font-medium"
-            :class="asideMode === 'files' ? 'bg-base-100 text-primary shadow-sm' : 'text-base-content/60 hover:bg-base-300/40'"
-            @click="asideMode = 'files'"
-          >
-            <Files class="h-3.5 w-3.5" />
-            <span>{{ t('fileReader.filesTab') }}</span>
-          </button>
-          <button
-            type="button"
-            class="btn btn-ghost btn-xs h-6 min-h-6 flex-1 justify-center gap-1 font-medium"
-            :class="asideMode === 'git' ? 'bg-base-100 text-primary shadow-sm' : 'text-base-content/60 hover:bg-base-300/40'"
-            @click="switchToGitMode"
-          >
-            <GitBranch class="h-3.5 w-3.5" />
-            <span>{{ t('fileReader.gitTab') }}</span>
-          </button>
-        </div>
-
         <template v-if="asideMode === 'files'">
           <div class="flex h-8 shrink-0 items-center gap-1.5 border-b border-base-300 bg-base-200/35 px-3 text-sm">
             <button
@@ -2670,6 +2658,47 @@ async function toggleDirectoryTree() {
   if (path) {
     await openDirectoryTree(path);
   }
+}
+
+async function toggleFilesPanel() {
+  if (directoryTreeRoot.value && asideMode.value === "files") {
+    closeDirectoryTree();
+    return;
+  }
+  if (!directoryTreeRoot.value) {
+    const path = directoryToggleTargetPath.value;
+    if (path) {
+      await openDirectoryTree(path);
+      return;
+    }
+  }
+  asideMode.value = "files";
+}
+
+async function toggleGitPanel() {
+  if (directoryTreeRoot.value && asideMode.value === "git") {
+    closeDirectoryTree();
+    return;
+  }
+  if (!directoryTreeRoot.value) {
+    const path = directoryToggleTargetPath.value;
+    if (path) {
+      await openDirectoryTree(path);
+      // openDirectoryTree 默认切到 files，这里改回 git
+      asideMode.value = "git";
+      return;
+    }
+    if (gitPanelWorkspacePath.value) {
+      asideMode.value = "git";
+      // 无目录树时仅切模式，aside 会通过 gitPanelWorkspacePath 展示
+      // 临时用 git 工作区作为占位根，避免 aside 仍隐藏
+      directoryRootPath.value = gitPanelWorkspacePath.value;
+      await loadDirectory(gitPanelWorkspacePath.value, true);
+      asideMode.value = "git";
+      return;
+    }
+  }
+  asideMode.value = "git";
 }
 
 function readStoredDirectoryOpenTargetKind() {

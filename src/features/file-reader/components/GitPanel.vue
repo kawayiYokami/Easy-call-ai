@@ -97,24 +97,28 @@
           <textarea
             ref="commitInputRef"
             v-model="commitMessage"
-            class="textarea w-full git-panel-commit-input"
+            class="textarea textarea-sm w-full git-panel-commit-input text-xs"
             :placeholder="t('gitPanel.commitMessagePlaceholder')"
             rows="1"
             @input="autoGrowCommitInput"
           ></textarea>
-          <div class="mt-1.5 flex items-center gap-1.5">
-            <label class="flex cursor-pointer items-center gap-1 text-xs opacity-70">
-              <input v-model="amendCommit" type="checkbox" class="checkbox checkbox-xs" />
-              {{ t('gitPanel.amend') }}
-            </label>
-            <span class="flex-1"></span>
+          <div class="join mt-1.5 w-full">
             <button
               type="button"
-              class="btn btn-primary btn-xs"
+              class="btn btn-primary btn-xs join-item w-[80%]"
               :disabled="busy || !commitMessage.trim() || stagedEntries.length === 0"
-              @click="runCommit"
+              @click="runCommit(false)"
             >
               {{ t('gitPanel.commit') }}
+            </button>
+            <button
+              type="button"
+              class="btn btn-xs join-item w-[20%] border-base-300 bg-base-100"
+              :disabled="busy || !commitMessage.trim() || stagedEntries.length === 0"
+              :title="t('gitPanel.amend')"
+              @click="runCommit(true)"
+            >
+              修正
             </button>
           </div>
         </div>
@@ -172,8 +176,14 @@
         :class="{ 'flex-1': !historyCollapsed && (historyHeight === null || changesCollapsed) }"
         :style="!historyCollapsed && !changesCollapsed && historyHeight !== null ? { height: `${historyHeight}px` } : undefined"
       >
-        <!-- 下栏折叠条：折叠按钮 + 分支名 + 刷新/同步/拉/推 -->
+        <!-- 下栏折叠条：折叠按钮 + 三选名称（折叠时提示） + 分支名 + 刷新/同步/拉/推 -->
         <GitSectionBar v-model="historyCollapsed">
+          <template #default>
+            <span v-if="historyCollapsed" class="flex items-center gap-1.5 text-xs font-medium opacity-70">
+              <component :is="activeHistoryTab.icon" class="h-3.5 w-3.5 shrink-0 opacity-60" />
+              <span class="truncate">{{ activeHistoryTab.label }}</span>
+            </span>
+          </template>
           <template #actions>
             <button
               v-if="activeGitTab === 'commits'"
@@ -611,6 +621,9 @@ const gitPanelTabs = computed(() => [
 ]);
 
 const activeGitTab = ref("commits");
+const activeHistoryTab = computed(
+  () => gitPanelTabs.value.find((tab) => tab.key === activeGitTab.value) ?? gitPanelTabs.value[0],
+);
 const busy = ref(false);
 
 // ==================== 折叠状态 ====================
@@ -627,8 +640,8 @@ function toggleChangesViewMode() {
   persistChangesViewMode();
 }
 
-// 仓库栏：折叠/展开 + 列表（懒加载，展开首次才扫描）
-const repoCollapsed = ref(false);
+// 仓库栏：折叠/展开 + 列表（懒加载，展开首次才扫描）— 上栏默认折叠
+const repoCollapsed = ref(true);
 const repos = ref<GitPanelRepoEntry[]>([]);
 const reposLoading = ref(false);
 const reposLoaded = ref(false);
@@ -706,7 +719,6 @@ const branchPickerLoading = ref(false);
 
 // ==================== 提交区 ====================
 const commitMessage = ref("");
-const amendCommit = ref(false);
 const stashMessage = ref("");
 const newBranchName = ref("");
 const selectedBranch = ref("");
@@ -1290,16 +1302,15 @@ function discardPaths(paths: string[]) {
   void runGitAction(`restore --staged --worktree ${paths.join(" ")}`, () => gitPanelDiscard(repoRoot.value, paths), `已撤回 ${paths.length} 个文件`);
 }
 
-async function runCommit() {
+async function runCommit(amend = false) {
   const message = commitMessage.value.trim();
   if (!message || stagedEntries.value.length === 0 || busy.value) return;
   busy.value = true;
   try {
-    const result = await gitPanelCommit(repoRoot.value, message, amendCommit.value);
-    appendOutput(`commit${amendCommit.value ? " --amend" : ""}`, result);
-    if (result.exitCode === 0) showSuccessToast(amendCommit.value ? "已修改提交" : "已提交");
+    const result = await gitPanelCommit(repoRoot.value, message, amend);
+    appendOutput(`commit${amend ? " --amend" : ""}`, result);
+    if (result.exitCode === 0) showSuccessToast(amend ? "已修改提交" : "已提交");
     commitMessage.value = "";
-    amendCommit.value = false;
     resetCommitInputHeight();
     await loadStatus(true);
     await loadHistory(true);
