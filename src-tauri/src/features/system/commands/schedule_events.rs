@@ -585,10 +585,30 @@ fn schedule_event_list_runs_inner(
         .schedule_events
         .lock()
         .map_err(|_| "Failed to lock schedule events".to_string())?;
-    let Some(deque) = store.runs_by_conversation.get(key) else {
-        return Ok(Vec::new());
-    };
-    Ok(deque.iter().cloned().collect())
+    if let Some(deque) = store.runs_by_conversation.get(key) {
+        if !deque.is_empty() {
+            return Ok(deque.iter().cloned().collect());
+        }
+    }
+    // remote_im_reply_delegate 以联系人会话为存储键，委托详情按 delegateId 查询会命中空；
+    // 全表回退按 run.delegateId / rootConversationId 聚合，避免键分裂导致时间线为空。
+    let mut fallback: Vec<ScheduleRun> = Vec::new();
+    for deque in store.runs_by_conversation.values() {
+        for run in deque {
+            if run.delegate_id.as_deref() == Some(key) || run.root_conversation_id.as_deref() == Some(key) {
+                fallback.push(run.clone());
+            }
+        }
+    }
+    if !fallback.is_empty() {
+        fallback.sort_by(|a, b| b.started_at.cmp(&a.started_at));
+        return Ok(fallback);
+    }
+    Ok(store
+        .runs_by_conversation
+        .get(key)
+        .map(|deque| deque.iter().cloned().collect())
+        .unwrap_or_default())
 }
 
 fn schedule_event_update_run_metadata(

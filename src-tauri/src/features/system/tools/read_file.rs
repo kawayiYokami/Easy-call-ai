@@ -1841,6 +1841,7 @@ fn test_read_file_state() -> AppState {
                 std::collections::HashMap::new(),
             )),
             terminal_pending_approvals: Arc::new(Mutex::new(std::collections::HashMap::new())),
+            schedule_events: Arc::new(Mutex::new(ScheduleEventStore::default())),
             conversation_runtime_slots: Arc::new(Mutex::new(std::collections::HashMap::new())),
             conversation_processing_claims: Arc::new(Mutex::new(std::collections::HashSet::new())),
             goal_continue_suppressed_conversation_ids: Arc::new(Mutex::new(
