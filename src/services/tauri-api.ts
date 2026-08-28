@@ -2932,6 +2932,7 @@ export async function gitPanelDiff(input: {
   path: string;
   staged?: boolean;
   hash?: string;
+  context?: number;
 }): Promise<GitPanelDiffOutput> {
   const workspacePath = gitPanelRequiredWorkspace(input.workspacePath);
   const path = String(input.path || "").trim();
@@ -2942,6 +2943,7 @@ export async function gitPanelDiff(input: {
       path,
       staged: !!input.staged,
       hash: String(input.hash || "").trim(),
+      context: input.context,
     },
   });
 }
@@ -3077,12 +3079,12 @@ export async function gitPanelLog(workspacePath: string, limit?: number, skip?: 
   });
 }
 
-export async function gitPanelShow(workspacePath: string, hash: string, path = ""): Promise<GitPanelDiffOutput> {
+export async function gitPanelShow(workspacePath: string, hash: string, path = "", context?: number): Promise<GitPanelDiffOutput> {
   const normalizedWorkspace = gitPanelRequiredWorkspace(workspacePath);
   const normalizedHash = String(hash || "").trim();
   if (!normalizedHash) throw new Error("缺少提交哈希");
   return invokeTauri<GitPanelDiffOutput>("git_panel_show", {
-    input: { workspacePath: normalizedWorkspace, hash: normalizedHash, path: String(path || "").trim() },
+    input: { workspacePath: normalizedWorkspace, hash: normalizedHash, path: String(path || "").trim(), context },
   });
 }
 

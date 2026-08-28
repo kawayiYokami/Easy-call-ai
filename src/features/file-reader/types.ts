@@ -38,6 +38,8 @@ export type GitDiffTabSource = {
   hash?: string;
   /** 未跟踪文件（git ??）：无 git diff 内容，直接打开文件本体 */
   untracked?: boolean;
+  /** 当前使用的 -U 上下文行数；0 表示 git 默认(3)，点"展开后续"后递增 */
+  context?: number;
 };
 
 export type FileTab = {

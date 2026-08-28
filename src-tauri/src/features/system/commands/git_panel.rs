@@ -63,6 +63,8 @@ struct GitPanelShowInput {
     hash: String,
     /// 为空时查看整个提交的 diff
     path: String,
+    /// 上下文行数（-U 参数）；None 走 git 默认（3）
+    context: Option<usize>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -436,6 +438,8 @@ struct GitPanelDiffInput {
     staged: bool,
     /// 提供 hash 时查看某次提交的该文件 diff（git show hash -- path）
     hash: String,
+    /// 上下文行数（-U 参数）；None 走 git 默认（3）
+    context: Option<usize>,
 }
 
 #[tauri::command]
@@ -444,13 +448,25 @@ async fn git_panel_diff(input: GitPanelDiffInput) -> Result<GitPanelDiffOutput, 
     let repo_root = git_panel_resolve_root(&workspace_path).await?;
     let path = git_panel_validate_path(&input.path)?;
 
+    let context_arg = input.context.filter(|&n| n > 0).map(|n| format!("-U{n}"));
+    let context_refs: Vec<&str> = context_arg.iter().map(String::as_str).collect();
+
     let diff = if !input.hash.trim().is_empty() {
         let hash = git_panel_validate_hash(&input.hash)?;
-        git_executor().run_read(&repo_root, &["show", "--format=", "--no-ext-diff", &hash, "--", &path]).await?
+        let mut full: Vec<&str> = vec!["show", "--format=", "--no-ext-diff"];
+        full.extend(context_refs.iter().copied());
+        full.extend([hash.as_str(), "--", path.as_str()]);
+        git_executor().run_read(&repo_root, &full).await?
     } else if input.staged {
-        git_executor().run_read(&repo_root, &["diff", "--cached", "--no-ext-diff", "--", &path]).await?
+        let mut full: Vec<&str> = vec!["diff", "--cached", "--no-ext-diff"];
+        full.extend(context_refs.iter().copied());
+        full.extend(["--", path.as_str()]);
+        git_executor().run_read(&repo_root, &full).await?
     } else {
-        git_executor().run_read(&repo_root, &["diff", "--no-ext-diff", "--", &path]).await?
+        let mut full: Vec<&str> = vec!["diff", "--no-ext-diff"];
+        full.extend(context_refs.iter().copied());
+        full.extend(["--", path.as_str()]);
+        git_executor().run_read(&repo_root, &full).await?
     };
     Ok(GitPanelDiffOutput { diff })
 }
@@ -932,29 +948,37 @@ async fn git_panel_show(input: GitPanelShowInput) -> Result<GitPanelDiffOutput, 
     let repo_root = git_panel_resolve_root(&workspace_path).await?;
     let hash = git_panel_validate_hash(&input.hash)?;
     let path = input.path.trim().to_string();
+
+    let context_arg = input.context.filter(|&n| n > 0).map(|n| format!("-U{n}"));
+    let context_refs: Vec<&str> = context_arg.iter().map(String::as_str).collect();
+
     // stash 是合并提交：git show 只会输出 combined diff（diff --cc），可读性差；
     // 改走 diff 第一父提交（stash 创建时的 HEAD），得到标准 diff
     let is_stash = hash.starts_with("stash@{");
+    let parent_ref = format!("{hash}^1");
     let diff = if path.is_empty() {
         if is_stash {
-            git_executor().run_read(&repo_root, &["diff", &format!("{hash}^1"), &hash]).await?
+            let mut full: Vec<&str> = vec!["diff", &parent_ref, &hash];
+            full.extend(context_refs.iter().copied());
+            git_executor().run_read(&repo_root, &full).await?
         } else {
-            git_executor().run_read(&repo_root, &["show", "--format=", "--no-ext-diff", &hash]).await?
+            let mut full: Vec<&str> = vec!["show", "--format=", "--no-ext-diff"];
+            full.extend(context_refs.iter().copied());
+            full.push(hash.as_str());
+            git_executor().run_read(&repo_root, &full).await?
         }
     } else {
         let path = git_panel_validate_path(&path)?;
         if is_stash {
-            git_executor().run_read(
-                &repo_root,
-                &["diff", &format!("{hash}^1"), &hash, "--", &path],
-            )
-            .await?
+            let mut full: Vec<&str> = vec!["diff", &parent_ref, &hash];
+            full.extend(context_refs.iter().copied());
+            full.extend(["--", path.as_str()]);
+            git_executor().run_read(&repo_root, &full).await?
         } else {
-            git_executor().run_read(
-                &repo_root,
-                &["show", "--format=", "--no-ext-diff", &hash, "--", &path],
-            )
-            .await?
+            let mut full: Vec<&str> = vec!["show", "--format=", "--no-ext-diff"];
+            full.extend(context_refs.iter().copied());
+            full.extend([hash.as_str(), "--", path.as_str()]);
+            git_executor().run_read(&repo_root, &full).await?
         }
     };
     Ok(GitPanelDiffOutput { diff })

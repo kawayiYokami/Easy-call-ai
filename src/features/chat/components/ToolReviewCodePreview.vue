@@ -12,7 +12,7 @@
     >
       <div ref="scrollerRef" class="tool-review-code-scroller h-full overflow-auto">
         <pre v-if="!highlightedHtml" class="tool-review-raw-pre">{{ code }}</pre>
-        <div v-else class="tool-review-code-view" v-html="highlightedHtml"></div>
+        <div v-else class="tool-review-code-view" v-html="highlightedHtml" @click="onViewClick"></div>
       </div>
       <FloatingScrollbar ref="scrollbarRef" :target="scrollerRef" variant="code-dark" />
     </div>
@@ -31,12 +31,27 @@ const props = defineProps<{
   mode?: "plain" | "patch";
   isDark?: boolean;
   showLineNumbers?: boolean;
+  /** 当前 diff 的 -U 上下文行数（决定尾部截断检测阈值），默认 3 */
+  contextLines?: number;
+}>();
+
+const emit = defineEmits<{
+  (e: "expandGap"): void;
 }>();
 
 const scrollerRef = ref<HTMLElement | null>(null);
 const scrollbarRef = ref<InstanceType<typeof FloatingScrollbar> | null>(null);
-const highlightedHtml = ref("");
+const baseHighlightedHtml = ref("");
 let highlightAbort: AbortController | null = null;
+
+/** hunk 行号间隙：startLine 是 diff 文本中展开条应插入的行索引（head/between 为间隙后的 hunk 头，tail 为行数末尾） */
+const rawGaps = ref<Array<{ startLine: number; kind: "head" | "between" | "tail"; count?: number }>>([]);
+
+const highlightedHtml = computed(() => {
+  const base = baseHighlightedHtml.value;
+  if (!base) return "";
+  return applyGaps(base, rawGaps.value);
+});
 
 const SHIKI_LANGUAGE_KEYS = new Set(
   bundledLanguagesInfo.flatMap((item) => [item.id, ...(item.aliases || [])]).map((item) => item.toLowerCase()),
@@ -48,26 +63,81 @@ const showGutter = computed(() => isPatchMode.value || props.showLineNumbers ===
 async function updateHighlightedCode() {
   const rawCode = String(props.code || "");
   if (!rawCode.trim()) {
-    highlightedHtml.value = "";
+    baseHighlightedHtml.value = "";
+    rawGaps.value = [];
     return;
   }
   if (highlightAbort) highlightAbort.abort();
   highlightAbort = new AbortController();
   const signal = highlightAbort.signal;
   const language = resolveLanguage();
-  // patch 模式下先剥掉 git hunk 头后的 section heading，只留 `@@ ... @@`
-  const code = props.mode === "patch" ? stripPatchHeading(rawCode) : rawCode;
+  const code = rawCode;
   try {
     const html = await codeToHtml(code, {
       lang: language,
       theme: props.isDark ? "github-dark" : "github-light",
     });
     if (signal.aborted) return;
-    highlightedHtml.value = normalizeShikiLineHtml(html, code, props.mode);
+    const { html: normalized, gaps } = normalizeShikiLineHtml(html, code, props.mode);
+    baseHighlightedHtml.value = normalized;
+    rawGaps.value = gaps;
   } catch {
     if (signal.aborted) return;
-    highlightedHtml.value = "";
+    baseHighlightedHtml.value = "";
+    rawGaps.value = [];
   }
+}
+
+/** 在 hunk 头的行标签前插入折叠条；tail 追加到末尾（从后往前处理，保证行索引稳定） */
+function applyGaps(base: string, gaps: Array<{ startLine: number; kind: "head" | "between" | "tail"; count?: number }>) {
+  if (!isPatchMode.value || gaps.length === 0) return base;
+  let result = base;
+  for (let idx = gaps.length - 1; idx >= 0; idx -= 1) {
+    const gap = gaps[idx];
+    if (gap.kind === "tail") {
+      const codeEnd = result.lastIndexOf("</code>");
+      if (codeEnd < 0) continue;
+      result = result.slice(0, codeEnd) + buildGapBarHtml(gap.kind, gap.count) + result.slice(codeEnd);
+      continue;
+    }
+    const lineStart = findNthLineStart(base, gap.startLine);
+    if (lineStart < 0) continue;
+    result = result.slice(0, lineStart) + buildGapBarHtml(gap.kind, gap.count) + result.slice(lineStart);
+  }
+  return result;
+}
+
+const LINE_START_PATTERN = /<span class="line[ "]/g;
+
+function findNthLineStart(html: string, lineIndex: number): number {
+  LINE_START_PATTERN.lastIndex = 0;
+  let count = 0;
+  let match: RegExpExecArray | null;
+  while ((match = LINE_START_PATTERN.exec(html)) !== null) {
+    if (count === lineIndex) return match.index;
+    count += 1;
+  }
+  return -1;
+}
+
+function buildGapBarHtml(kind: "head" | "between" | "tail" = "between", count?: number) {
+  // 参考 git-diff-view 的 ExpandUp / ExpandDown / ExpandAll（GitHub 风格的箭头+虚线图标）
+  const iconUp = `<svg aria-hidden="true" height="14" width="14" viewBox="0 0 16 16" fill="currentColor"><path d="M7.823 1.677 4.927 4.573A.25.25 0 0 0 5.104 5H7.25v3.236a.75.75 0 1 0 1.5 0V5h2.146a.25.25 0 0 0 .177-.427L8.177 1.677a.25.25 0 0 0-.354 0ZM13.75 11a.75.75 0 0 0 0 1.5h.5a.75.75 0 0 0 0-1.5h-.5Zm-3.75.75a.75.75 0 0 1 .75-.75h.5a.75.75 0 0 1 0 1.5h-.5a.75.75 0 0 1-.75-.75ZM7.75 11a.75.75 0 0 0 0 1.5h.5a.75.75 0 0 0 0-1.5h-.5ZM4 11.75a.75.75 0 0 1 .75-.75h.5a.75.75 0 0 1 0 1.5h-.5a.75.75 0 0 1-.75-.75ZM1.75 11a.75.75 0 0 0 0 1.5h.5a.75.75 0 0 0 0-1.5h-.5Z"></path></svg>`;
+  const iconDown = `<svg aria-hidden="true" height="14" width="14" viewBox="0 0 16 16" fill="currentColor"><path d="m8.177 14.323 2.896-2.896a.25.25 0 0 0-.177-.427H8.75V7.764a.75.75 0 1 0-1.5 0V11H5.104a.25.25 0 0 0-.177.427l2.896 2.896a.25.25 0 0 0 .354 0ZM2.25 5a.75.75 0 0 0 0-1.5h-.5a.75.75 0 0 0 0 1.5h.5ZM6 4.25a.75.75 0 0 1-.75.75h-.5a.75.75 0 0 1 0-1.5h.5a.75.75 0 0 1 .75.75ZM8.25 5a.75.75 0 0 0 0-1.5h-.5a.75.75 0 0 0 0 1.5h.5ZM12 4.25a.75.75 0 0 1-.75.75h-.5a.75.75 0 0 1 0-1.5h.5a.75.75 0 0 1 .75.75Zm2.25.75a.75.75 0 0 0 0-1.5h-.5a.75.75 0 0 0 0 1.5h.5Z"></path></svg>`;
+  const iconAll = `<svg aria-hidden="true" height="14" width="14" viewBox="0 0 16 16" fill="currentColor"><path d="m8.177.677 2.896 2.896a.25.25 0 0 1-.177.427H8.75v1.25a.75.75 0 0 1-1.5 0V4H5.104a.25.25 0 0 1-.177-.427L7.823.677a.25.25 0 0 1 .354 0ZM7.25 10.75a.75.75 0 0 1 1.5 0V12h2.146a.25.25 0 0 1 .177.427l-2.896 2.896a.25.25 0 0 1-.354 0l-2.896-2.896A.25.25 0 0 1 5.104 12H7.25v-1.25Zm-5-2a.75.75 0 0 0 0-1.5h-.5a.75.75 0 0 0 0 1.5h.5ZM6 8a.75.75 0 0 1-.75.75h-.5a.75.75 0 0 1 0-1.5h.5A.75.75 0 0 1 6 8Zm2.25.75a.75.75 0 0 0 0-1.5h-.5a.75.75 0 0 0 0 1.5h.5ZM12 8a.75.75 0 0 1-.75.75h-.5a.75.75 0 0 1 0-1.5h.5A.75.75 0 0 1 12 8Zm2.25.75a.75.75 0 0 0 0-1.5h-.5a.75.75 0 0 0 0 1.5h.5Z"></path></svg>`;
+  let icon = iconAll;
+  if (kind === "head") icon = iconUp;
+  else if (kind === "tail") icon = iconDown;
+  else icon = iconAll;
+  const label = count != null && count > 0 ? `${count} 个隐藏的行` : "展开被折叠的内容";
+  return `<span class="line tool-review-gap-bar" data-gap-kind="${kind}"><span class="line-code"><span class="tool-review-gap-bar-icon">${icon}</span><span>${escapeHtmlAttribute(label)}</span></span></span>`;
+}
+
+function onViewClick(event: MouseEvent) {
+  const target = event.target as HTMLElement;
+  const bar = target.closest<HTMLElement>(".tool-review-gap-bar");
+  if (!bar) return;
+  emit("expandGap");
 }
 
 function stripPatchHeading(code: string) {
@@ -83,14 +153,40 @@ function resolveLanguage() {
 
 function normalizeShikiLineHtml(html: string, code: string, mode?: "plain" | "patch") {
   const compactHtml = html.replace(/<\/span>\s+<span class="line"/g, '</span><span class="line"');
-  if (mode !== "patch" && props.showLineNumbers !== true) return compactHtml;
-  const lineMeta = mode === "patch" ? buildPatchLineMeta(code) : buildPlainLineMeta(code);
+  if (mode !== "patch" && props.showLineNumbers !== true) return { html: compactHtml, gaps: [] };
+  const { meta, gaps } = mode === "patch"
+    ? buildPatchLineMeta(code, Math.max(1, props.contextLines || 3))
+    : { meta: buildPlainLineMeta(code), gaps: [] };
   let lineIndex = 0;
-  return compactHtml.replace(/<span class="line"/g, () => {
-    const meta = lineMeta[lineIndex] || { gutter: "", kindClass: "" };
+  let normalized = compactHtml.replace(/<span class="line"/g, () => {
+    const metaLine = meta[lineIndex] || { gutter: "", kindClass: "" };
     lineIndex += 1;
-    return `<span class="line ${meta.kindClass}" data-gutter="${escapeHtmlAttribute(meta.gutter)}"`;
+    return `<span class="line ${metaLine.kindClass}" data-gutter="${escapeHtmlAttribute(metaLine.gutter)}"`;
   });
+  // hunk 头友好文案：用函数/类签名 + 行号替代原始 @@，原始 @@ 放 title
+  if (mode === "patch") {
+    const headerTargets: Array<{ idx: number; label: string; raw: string }> = [];
+    const rawLines = String(code || "").split("\n");
+    meta.forEach((m, idx) => {
+      const anyM = m as { hunkLabel?: string };
+      if (anyM.hunkLabel) headerTargets.push({ idx, label: anyM.hunkLabel, raw: rawLines[idx] || "" });
+    });
+    for (let t = headerTargets.length - 1; t >= 0; t -= 1) {
+      const { idx, label, raw } = headerTargets[t];
+      const start = findNthLineStart(normalized, idx);
+      if (start < 0) continue;
+      const nextStart = findNthLineStart(normalized, idx + 1);
+      const lineEnd = nextStart >= 0 ? nextStart : normalized.lastIndexOf("</code>");
+      if (lineEnd < 0) continue;
+      const openEnd = normalized.indexOf(">", start);
+      if (openEnd < 0 || openEnd >= lineEnd) continue;
+      const closeStart = normalized.lastIndexOf("</span>", lineEnd - 1);
+      if (closeStart < 0 || closeStart <= openEnd) continue;
+      const friendly = `<span class="tool-review-hunk-label" title="${escapeHtmlAttribute(raw)}">${escapeHtmlAttribute(label)}</span>`;
+      normalized = normalized.slice(0, openEnd + 1) + friendly + normalized.slice(closeStart);
+    }
+  }
+  return { html: normalized, gaps };
 }
 
 function buildPlainLineMeta(code: string) {
@@ -101,18 +197,35 @@ function buildPlainLineMeta(code: string) {
   }));
 }
 
-function buildPatchLineMeta(code: string) {
+function buildPatchLineMeta(code: string, contextLines = 3) {
   const lines = String(code || "").split("\n");
-  const out = [] as Array<{ gutter: string; kindClass: string }>;
+  const out = [] as Array<{ gutter: string; kindClass: string; hunkLabel?: string }>;
+  const gaps = [] as Array<{ startLine: number; kind: "head" | "between" | "tail"; count?: number }>;
   let oldLineNumber: number | null = null;
   let newLineNumber: number | null = null;
-  for (const line of lines) {
+  let sawHeader = false;
+
+  for (let lineIndex = 0; lineIndex < lines.length; lineIndex += 1) {
+    const line = lines[lineIndex];
     // git diff 真实格式：@@ -oldStart,oldCount +newStart,newCount @@（count 为 1 时可省略）
-    const gitHeaderMatch = line.match(/^@@\s+-(\d+)(?:,\d+)?\s+\+(\d+)(?:,\d+)?\s+@@/);
+    const gitHeaderMatch = line.match(/^@@\s+-(\d+)(?:,\d+)?\s+\+(\d+)(?:,\d+)?\s+@@(.*)$/);
     if (gitHeaderMatch) {
-      oldLineNumber = Number(gitHeaderMatch[1]);
+      const nextOldStart = Number(gitHeaderMatch[1]);
+      const heading = String(gitHeaderMatch[3] || "").trim();
+      // 行号已在左侧 gutter 展示，header 不再拼接“第 X 行”
+      const friendly = heading;
+      // 文件头部：第一个 hunk 的旧起始行号 > 1 说明开头有省略
+      if (!sawHeader && nextOldStart > 1) {
+        gaps.push({ startLine: lineIndex, kind: "head", count: nextOldStart - 1 });
+      }
+      // 中间间隙：与上一个 hunk 的旧文件行号有距离说明有省略
+      if (oldLineNumber != null && nextOldStart > oldLineNumber) {
+        gaps.push({ startLine: lineIndex, kind: "between", count: nextOldStart - oldLineNumber });
+      }
+      sawHeader = true;
+      oldLineNumber = nextOldStart;
       newLineNumber = Number(gitHeaderMatch[2]);
-      out.push({ gutter: "", kindClass: "tool-review-patch-line-header" });
+      out.push({ gutter: "", kindClass: "tool-review-patch-line-header", hunkLabel: friendly });
       continue;
     }
     // 工具生成的伪格式：@@ lines 10-15 @@ / @@ line 10 @@
@@ -142,7 +255,7 @@ function buildPatchLineMeta(code: string) {
 
     if (line.startsWith("-")) {
       out.push({
-        gutter: formatPatchGutter(oldLineNumber, null),
+        gutter: formatPatchGutter(oldLineNumber),
         kindClass: "tool-review-patch-line-delete",
       });
       if (oldLineNumber != null) oldLineNumber += 1;
@@ -151,27 +264,37 @@ function buildPatchLineMeta(code: string) {
 
     if (line.startsWith("+")) {
       out.push({
-        gutter: formatPatchGutter(null, newLineNumber),
+        gutter: formatPatchGutter(newLineNumber),
         kindClass: "tool-review-patch-line-add",
       });
       if (newLineNumber != null) newLineNumber += 1;
       continue;
     }
 
+    // 上下文行
     out.push({
-      gutter: formatPatchGutter(oldLineNumber, newLineNumber),
+      gutter: formatPatchGutter(newLineNumber ?? oldLineNumber),
       kindClass: "tool-review-patch-line-context",
     });
     if (oldLineNumber != null) oldLineNumber += 1;
     if (newLineNumber != null) newLineNumber += 1;
   }
-  return out;
+  // 文件尾部：从末尾反向统计连续上下文行数，达到 -U 值说明其后仍有省略
+  if (sawHeader) {
+    let tailStreak = 0;
+    for (let i = out.length - 1; i >= 0; i -= 1) {
+      if (out[i].kindClass !== "tool-review-patch-line-context") break;
+      tailStreak += 1;
+    }
+    if (tailStreak >= contextLines) {
+      gaps.push({ startLine: lines.length, kind: "tail" });
+    }
+  }
+  return { meta: out, gaps };
 }
 
-function formatPatchGutter(oldLineNumber: number | null, newLineNumber: number | null) {
-  const left = oldLineNumber == null ? "" : String(oldLineNumber);
-  const right = newLineNumber == null ? "" : String(newLineNumber);
-  return `${left.padStart(4, " ")} ${right.padStart(4, " ")}`;
+function formatPatchGutter(lineNumber: number | null) {
+  return lineNumber == null ? "" : String(lineNumber);
 }
 
 function escapeHtmlAttribute(value: string) {
@@ -183,7 +306,7 @@ function escapeHtmlAttribute(value: string) {
 }
 
 watch(
-  () => [props.code, props.mode, props.lang, props.isDark, props.showLineNumbers] as const,
+  () => [props.code, props.mode, props.lang, props.isDark, props.showLineNumbers, props.contextLines] as const,
   () => {
     void updateHighlightedCode();
   },
@@ -257,17 +380,12 @@ onBeforeUnmount(() => {
 
 :deep(.tool-review-code-view .line::before) {
   display: inline-block;
-  width: 5.75rem;
+  width: 2.75rem;
   padding: 0 0.75rem 0 0.5rem;
   text-align: right;
   color: #64748b;
   user-select: none;
   white-space: pre;
-}
-
-.tool-review-code-main-with-lines:not(.tool-review-code-main-with-patch-lines) :deep(.tool-review-code-view .line::before) {
-  width: 2.75rem;
-  padding: 0 0.75rem 0 0.5rem;
 }
 
 .tool-review-code-main-with-lines :deep(.tool-review-code-view .line::before) {
@@ -289,7 +407,48 @@ onBeforeUnmount(() => {
 }
 
 .tool-review-code-main-with-lines :deep(.tool-review-code-view .line.tool-review-patch-line-header) {
-  color: #c084fc;
+  display: none;
+}
+
+:deep(.tool-review-code-view .line.tool-review-gap-bar) {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 0.5rem;
+  padding: 0.3rem 0.75rem;
+  margin: 1px 0;
+  cursor: pointer;
+  color: var(--color-base-content);
+  opacity: 0.72;
+  font-size: 0.75rem;
+  background: color-mix(in oklab, var(--color-base-content) 5%, var(--color-base-200));
+  border-top: 1px solid color-mix(in oklab, var(--color-base-content) 8%, transparent);
+  border-bottom: 1px solid color-mix(in oklab, var(--color-base-content) 8%, transparent);
+  user-select: none;
+}
+
+:deep(.tool-review-code-view .line.tool-review-gap-bar:hover) {
+  opacity: 1;
+  color: var(--color-primary);
+  background: color-mix(in oklab, var(--color-primary) 10%, var(--color-base-200));
+}
+
+:deep(.tool-review-code-view .line.tool-review-gap-bar .line-code) {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+:deep(.tool-review-code-view .line.tool-review-gap-bar .tool-review-gap-bar-icon) {
+  display: inline-flex;
+  flex-shrink: 0;
+  opacity: 0.9;
+}
+
+:deep(.tool-review-code-view .line.tool-review-gap-bar::before) {
+  content: "";
+  width: 0;
+  padding: 0;
 }
 
 .tool-review-code-main-with-lines :deep(.tool-review-code-view .line.tool-review-patch-line-meta) {

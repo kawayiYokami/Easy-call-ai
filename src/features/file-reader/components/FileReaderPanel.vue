@@ -264,7 +264,7 @@
               <span v-if="activePathSegments.length > 0" class="shrink-0 text-base-content/35">›</span>
               <span
                 class="inline-flex shrink-0 items-center rounded px-1.5 py-1 font-medium text-base-content/80"
-                :title="activeTab.path"
+                :title="activeTab.diffSource?.path || activeTab.path"
               >
                 {{ activeTab.title }}
               </span>
@@ -279,6 +279,15 @@
               ></div>
             </div>
           </div>
+          <button
+            v-if="activeTab?.kind === 'diff' && activeTab.diffSource?.path"
+            class="btn btn-ghost btn-xs h-6 min-h-6 w-6 shrink-0 px-0"
+            type="button"
+            title="打开源文件"
+            @click.stop="openDiffTargetFile"
+          >
+            <FileText class="h-4 w-4" />
+          </button>
           <button
             class="btn btn-ghost btn-xs h-6 min-h-6 w-6 shrink-0 px-0"
             type="button"
@@ -410,11 +419,12 @@
               class="h-full min-h-0"
             >
               <ToolReviewCodePreview
-                :title="activeTab.title"
                 :code="activeTab.content"
                 mode="patch"
                 :is-dark="markdownIsDark"
                 :show-line-numbers="true"
+                :context-lines="Math.max(1, activeTab.diffSource?.context || 3)"
+                @expand-gap="expandGitDiffContext"
               />
             </div>
             <div
@@ -732,7 +742,7 @@
 
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
-import { ChevronDown, ChevronRight, Check, Code2, Copy, Eye, ExternalLink, FilePlus, Files, Folders, GitBranch, Home, MessageSquarePlus, RefreshCw, Search, SquareTerminal } from "@lucide/vue";
+import { ChevronDown, ChevronRight, Check, Code2, Copy, Eye, ExternalLink, FilePlus, Files, FileText, Folders, GitBranch, Home, MessageSquarePlus, RefreshCw, Search, SquareTerminal } from "@lucide/vue";
 import {
   copyTransportChatImageToClipboard,
   getTransportCapabilities,
@@ -1120,6 +1130,8 @@ const effectiveDirectoryTreeWidth = computed(() => clampDirectoryTreeWidth(direc
 const activePathSegments = computed(() => {
   const tab = activeTab.value;
   if (!tab) return [];
+  // diff tab 的 path 是合成的 git-diff:xxx，不对应真实磁盘路径，路径栏只显示相对文件名
+  if (tab.kind === "diff") return [];
   const normalized = normalizePath(tab.path);
   const parts = normalized.split("/").filter(Boolean);
   if (parts.length <= 1) return [];
@@ -2284,8 +2296,8 @@ async function openGitDiffTab(source: GitDiffTabSource) {
   const tabPath = buildGitDiffTabKey(source);
   try {
     const result = source.hash
-      ? await gitPanelShow(workspacePath, source.hash, source.path === source.hash ? "" : source.path)
-      : await gitPanelDiff({ workspacePath, path: source.path, staged: source.staged });
+      ? await gitPanelShow(workspacePath, source.hash, source.path === source.hash ? "" : source.path, source.context)
+      : await gitPanelDiff({ workspacePath, path: source.path, staged: source.staged, context: source.context });
     const diffText = String(result?.diff || "");
     if (!diffText.trim()) {
       // 空 diff 是正常提示而非操作失败，直接展示文案，不套 actionFailed 模板
@@ -2347,6 +2359,27 @@ async function openGitDiffTab(source: GitDiffTabSource) {
   } catch (error) {
     reportFileReaderActionFailure(t('fileReader.loadGitDiffFailed'), source.path, error);
   }
+}
+
+/** 点击 diff 中"展开后续"条：增大 -U 上下文重新拉取并刷新当前 tab */
+async function expandGitDiffContext() {
+  const active = activeTab.value;
+  if (!active || active.kind !== "diff" || !active.diffSource) return;
+  const source = active.diffSource;
+  const nextContext = Math.max(
+    source.context ? source.context + 30 : 33,
+    33,
+  );
+  await openGitDiffTab({ ...source, context: nextContext });
+}
+
+function openDiffTargetFile() {
+  const tab = activeTab.value;
+  const source = tab?.diffSource;
+  if (!tab || tab.kind !== "diff" || !source?.path || !source.workspacePath) return;
+  const targetPath = normalizePath(`${source.workspacePath}/${source.path}`);
+  if (!targetPath) return;
+  void openPath(targetPath);
 }
 
 async function pickFile() {
