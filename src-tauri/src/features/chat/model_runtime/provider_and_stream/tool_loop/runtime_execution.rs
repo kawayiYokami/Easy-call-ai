@@ -291,9 +291,9 @@ async fn execute_prepared_tool_call_group(
             Some(call.tool_call_id.as_str()),
             &format!("正在调用工具：{}", call.tool_name),
         );
-        // 调度事件：工具调用开始（仅委托，latest Run，elapsed 由 Store 内 Instant 推导）
+        // 调度事件：工具调用开始（全量，latest Run，elapsed 由 Store 内 Instant 推导，长度全量不裁剪）
         if let Some(state) = tool_abort_state {
-            let arg_preview: String = call.tool_args.chars().take(2000).collect();
+            let arg_preview: String = call.tool_args.clone();
             let mut detail = serde_json::json!({
                 "toolName": call.tool_name,
                 "toolCallId": call.tool_call_id,
@@ -355,7 +355,7 @@ async fn execute_prepared_tool_call_group(
                         None => 0,
                     };
                     let text_preview: String = exec.tool_result.parts.iter().find_map(|part| match part {
-                        ProviderToolResultPart::Text { text } => Some(text.chars().take(2000).collect::<String>()),
+                        ProviderToolResultPart::Text { text } => Some(text.clone()),
                         _ => None,
                     }).unwrap_or_default();
                     let mut detail = serde_json::json!({

@@ -1169,99 +1169,23 @@ fn recent_llm_round_logs_estimated_json_bytes(logs: &RecentLlmRoundLogs) -> usiz
 }
 
 fn push_llm_round_log(
-    state: Option<&AppState>,
-    trace_id: Option<String>,
-    group_key: Option<String>,
-    scene: &str,
-    request_format: RequestFormat,
-    provider_name: &str,
-    model_name: &str,
-    base_url: &str,
-    headers: Vec<LlmRoundLogHeader>,
-    tools: Option<Value>,
-    response: Option<Value>,
-    error: Option<String>,
-    elapsed_ms: u64,
-    timeline: Option<Vec<LlmRoundLogStage>>,
+    _state: Option<&AppState>,
+    _trace_id: Option<String>,
+    _group_key: Option<String>,
+    _scene: &str,
+    _request_format: RequestFormat,
+    _provider_name: &str,
+    _model_name: &str,
+    _base_url: &str,
+    _headers: Vec<LlmRoundLogHeader>,
+    _tools: Option<Value>,
+    _response: Option<Value>,
+    _error: Option<String>,
+    _elapsed_ms: u64,
+    _timeline: Option<Vec<LlmRoundLogStage>>,
 ) {
-    let Some(app_state) = state else {
-        return;
-    };
-    let entry = build_llm_round_log_entry(
-        trace_id.clone(),
-        scene,
-        request_format,
-        provider_name,
-        model_name,
-        base_url,
-        headers,
-        tools,
-        response,
-        error,
-        elapsed_ms,
-        timeline,
-    );
-    if scene == "chat" {
-        let Some(group_key) =
-            llm_round_log_group_key(scene, trace_id.as_deref(), group_key.as_deref())
-        else {
-            return;
-        };
-        let Ok(mut pending) = pending_chat_round_buffer().lock() else {
-            return;
-        };
-        pending
-            .rounds_by_chat_session
-            .entry(group_key)
-            .or_default()
-            .push(entry);
-        return;
-    }
-    if llm_round_log_is_pipeline_scene(scene) {
-        let rounds = llm_round_log_group_key(scene, trace_id.as_deref(), group_key.as_deref())
-            .and_then(|group_key| {
-                pending_chat_round_buffer()
-                    .lock()
-                    .ok()
-                    .and_then(|mut pending| pending.rounds_by_chat_session.remove(&group_key))
-            })
-            .unwrap_or_default();
-        let round_count = rounds.len();
-        let tool_call_count = rounds.iter().map(log_entry_tool_call_count).sum();
-        let mut pipeline_entry = entry;
-        pipeline_entry.round_count = Some(round_count);
-        pipeline_entry.tool_call_count = Some(tool_call_count);
-        if let Some(round_usage) = aggregate_round_usage(&rounds) {
-            let mut response = pipeline_entry
-                .response
-                .take()
-                .unwrap_or_else(|| serde_json::json!({}));
-            if let Some(map) = response.as_object_mut() {
-                map.insert("roundUsage".to_string(), round_usage);
-            } else {
-                response = serde_json::json!({ "roundUsage": round_usage });
-            }
-            pipeline_entry.response = Some(response);
-        }
-        if !rounds.is_empty() {
-            pipeline_entry.rounds = Some(rounds);
-        }
-        let capacity = llm_round_log_capacity_for_state(app_state);
-        let Ok(mut logs) = app_state.llm_round_logs.lock() else {
-            return;
-        };
-        push_display_llm_log(
-            llm_round_log_bucket_mut(&mut logs, scene),
-            pipeline_entry,
-            capacity,
-        );
-        return;
-    }
-    let capacity = llm_round_log_capacity_for_state(app_state);
-    let Ok(mut logs) = app_state.llm_round_logs.lock() else {
-        return;
-    };
-    push_display_llm_log(llm_round_log_bucket_mut(&mut logs, scene), entry, capacity);
+    // 已全量切换至调度事件：旧 pipelineLogs 不再写入，保留空实现以兼容历史调用点
+    let _ = _state;
 }
 
 fn latest_chat_round_headers_and_tools(
@@ -1323,12 +1247,9 @@ fn list_recent_llm_round_logs(state: State<'_, AppState>) -> Result<Vec<LlmRound
 }
 
 fn list_recent_llm_round_logs_inner(state: &AppState) -> Result<Vec<LlmRoundLogEntry>, String> {
+    // 已全量切换至调度事件聚合，原 RecentLlmRoundLogs 仅作兼容，真实数据来自 schedule_events
     let capacity = llm_round_log_capacity_for_state(state);
-    let logs = state
-        .llm_round_logs
-        .lock()
-        .map_err(|_| "Failed to lock llm round logs".to_string())?;
-    Ok(recent_llm_round_logs_for_ui(&logs, capacity))
+    Ok(schedule_event_collect_llm_entries(state, capacity))
 }
 
 fn find_llm_round_log_entry_by_id<'a>(
@@ -1447,6 +1368,22 @@ fn get_recent_llm_round_log_section_inner(
     if id.is_empty() {
         return Ok(None);
     }
+    if let Some(entry) = schedule_event_find_entry_by_id(state, &id) {
+        if let Some(value) = llm_round_log_section_value(&entry, &section) {
+            return Ok(Some(value));
+        }
+        // 回退到 rounds 内查找
+        if let Some(rounds) = entry.rounds.as_ref() {
+            for round in rounds {
+                if let Some(found) = find_llm_round_log_entry_by_id(round, &id).and_then(|found| llm_round_log_section_value(found, &section)) {
+                    return Ok(Some(found));
+                }
+            }
+        }
+        // 若仍未命中，直接返回 entry 的 section
+        return Ok(llm_round_log_section_value(&entry, &section));
+    }
+    // 兼容旧路径：若调度事件未命中，再查旧存储（过渡期）
     let logs = state
         .llm_round_logs
         .lock()
@@ -1468,17 +1405,16 @@ fn clear_recent_llm_round_logs(state: State<'_, AppState>) -> Result<bool, Strin
 }
 
 fn clear_recent_llm_round_logs_inner(state: &AppState) -> Result<bool, String> {
-    let mut logs = state
-        .llm_round_logs
-        .lock()
-        .map_err(|_| "Failed to lock llm round logs".to_string())?;
-    logs.pipeline_logs.clear();
-    logs.other_logs.clear();
-    pending_chat_round_buffer()
-        .lock()
-        .map_err(|_| "Failed to lock pending chat round logs".to_string())?
-        .rounds_by_chat_session
-        .clear();
+    // 已切换至事件系统：清空调度事件即等价于清空 LogTab
+    let _ = schedule_event_clear_all(state)?;
+    // 兼容清空旧存储，避免残留
+    if let Ok(mut logs) = state.llm_round_logs.lock() {
+        logs.pipeline_logs.clear();
+        logs.other_logs.clear();
+    }
+    if let Ok(mut pending) = pending_chat_round_buffer().lock() {
+        pending.rounds_by_chat_session.clear();
+    }
     Ok(true)
 }
 

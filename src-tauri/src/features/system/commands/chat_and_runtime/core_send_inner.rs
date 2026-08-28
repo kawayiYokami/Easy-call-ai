@@ -2130,10 +2130,10 @@ async fn send_chat_message_inner(
                         let r_len = reply.activity_reasoning_text.chars().count();
                         let r_preview: Option<String> = {
                             let trimmed = reply.activity_reasoning_text.trim();
-                            if trimmed.is_empty() { None } else { Some(trimmed.chars().take(4000).collect::<String>()) }
+                            if trimmed.is_empty() { None } else { Some(trimmed.to_string()) }
                         };
                         let t_len = reply.tool_history_events.len();
-                        let preview = raw_text.chars().take(4000).collect::<String>();
+                        let preview = raw_text.to_string();
                         (Some(a_len), Some(r_len), r_preview, Some(t_len), if preview.trim().is_empty() { None } else { Some(preview) })
                     } else {
                         (None, None, None, None, None)
@@ -2977,7 +2977,7 @@ async fn send_chat_message_inner(
             ));
         }
     }
-    // 调度事件：收口（与 pipeline 日志同作用域，仅委托写入）
+    // 调度事件：收口（全量，收口与 pipeline 日志同作用域，长度全量不裁剪）
     {
         let elapsed_ms = chat_started_at
             .elapsed()
@@ -2988,7 +2988,7 @@ async fn send_chat_message_inner(
             serde_json::json!({ "error": err })
         } else if let Some(ok) = final_result.as_ref().ok() {
             let raw_text = ok.assistant_text.as_str();
-            let preview: String = raw_text.chars().take(4000).collect();
+            let preview: String = raw_text.to_string();
             let mut obj = serde_json::json!({
                 "assistantTextLength": raw_text.chars().count(),
                 "conversationId": ok.conversation_id,
@@ -2996,6 +2996,22 @@ async fn send_chat_message_inner(
             if !preview.trim().is_empty() {
                 if let Some(map) = obj.as_object_mut() {
                     map.insert("textPreview".to_string(), serde_json::json!(preview));
+                }
+            }
+            // usage 全量（若存在），便于 LogTab 重建
+            {
+                let mut usage_obj = serde_json::Map::new();
+                if let Some(v) = ok.provider_prompt_tokens { usage_obj.insert("providerPromptTokens".to_string(), serde_json::json!(v)); }
+                if let Some(v) = ok.estimated_prompt_tokens { usage_obj.insert("estimatedPromptTokens".to_string(), serde_json::json!(v)); }
+                if let Some(v) = ok.effective_prompt_tokens { usage_obj.insert("effectivePromptTokens".to_string(), serde_json::json!(v)); }
+                if let Some(v) = ok.effective_prompt_source.as_ref() { usage_obj.insert("effectivePromptSource".to_string(), serde_json::json!(v)); }
+                if let Some(v) = ok.context_window_tokens { usage_obj.insert("contextWindowTokens".to_string(), serde_json::json!(v)); }
+                if let Some(v) = ok.max_output_tokens { usage_obj.insert("maxOutputTokens".to_string(), serde_json::json!(v)); }
+                if let Some(v) = ok.context_usage_percent { usage_obj.insert("contextUsagePercent".to_string(), serde_json::json!(v)); }
+                if !usage_obj.is_empty() {
+                    if let Some(map) = obj.as_object_mut() {
+                        map.insert("usage".to_string(), Value::Object(usage_obj));
+                    }
                 }
             }
             obj
@@ -3026,6 +3042,26 @@ async fn send_chat_message_inner(
     );
     if pipeline_headers.is_empty() {
         pipeline_headers = masked_auth_headers(&selected_api_for_log.api_key);
+    }
+    // 调度事件：全量 Run 头补齐（同次调度内 headers/baseUrl/tools 仅在 Run 头存一次，不在后续事件重复）
+    {
+        let _ = schedule_event_update_run_metadata(
+            state,
+            requested_conversation_id_for_schedule_events
+                .as_deref()
+                .unwrap_or(chat_session_key_for_log.as_str()),
+            &trace_id_for_schedule_events,
+            serde_json::json!({
+                "traceId": trace_id_for_schedule_events,
+                "scene": "chat_pipeline",
+                "requestFormat": resolved_api_for_log.request_format.as_str(),
+                "provider": selected_api_for_log.name,
+                "model": selected_api_for_log.model,
+                "baseUrl": resolved_api_for_log.base_url,
+                "headers": pipeline_headers,
+                "tools": pipeline_tools,
+            }),
+        );
     }
     push_llm_round_log(
         Some(state),

@@ -1148,6 +1148,14 @@ export type ScheduleRun = {
   conversationId: string;
   delegateId?: string;
   rootConversationId?: string;
+  traceId?: string;
+  scene?: string;
+  requestFormat?: string;
+  provider?: string;
+  model?: string;
+  baseUrl?: string;
+  headers?: Array<{ name: string; value: string }>;
+  tools?: unknown;
   status: string;
   startedAt: string;
   updatedAt: string;

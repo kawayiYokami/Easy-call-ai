@@ -7,9 +7,6 @@
 
 
 
-const SCHEDULE_EVENT_CAPACITY_NORMAL: usize = 3;
-const SCHEDULE_EVENT_CAPACITY_DELEGATE: usize = 10;
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct ScheduleEvent {
@@ -38,6 +35,22 @@ struct ScheduleRun {
     delegate_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     root_conversation_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    trace_id: Option<String>,
+    #[serde(default)]
+    scene: String,
+    #[serde(default)]
+    request_format: String,
+    #[serde(default)]
+    provider: String,
+    #[serde(default)]
+    model: String,
+    #[serde(default)]
+    base_url: String,
+    #[serde(default)]
+    headers: Vec<LlmRoundLogHeader>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    tools: Option<Value>,
     status: String,
     started_at: String,
     updated_at: String,
@@ -58,11 +71,73 @@ struct ScheduleEventStore {
     runs_by_conversation: std::collections::HashMap<String, std::collections::VecDeque<ScheduleRun>>,
 }
 
-fn schedule_event_capacity(is_delegate: bool) -> usize {
-    if is_delegate {
-        SCHEDULE_EVENT_CAPACITY_DELEGATE
-    } else {
-        SCHEDULE_EVENT_CAPACITY_NORMAL
+fn schedule_event_capacity_for_state(state: &AppState) -> usize {
+    llm_round_log_capacity_for_state(state)
+}
+
+fn schedule_event_apply_run_metadata_from_detail(run: &mut ScheduleRun, detail: &Value) {
+    if run.trace_id.is_none() {
+        if let Some(value) = detail.get("traceId").and_then(Value::as_str).map(str::trim).filter(|value| !value.is_empty()) {
+            run.trace_id = Some(value.to_string());
+        }
+    }
+    if run.scene.trim().is_empty() {
+        if let Some(value) = detail.get("scene").and_then(Value::as_str).map(str::trim).filter(|value| !value.is_empty()) {
+            run.scene = value.to_string();
+        }
+    }
+    if run.request_format.trim().is_empty() {
+        if let Some(value) = detail.get("requestFormat").and_then(Value::as_str).map(str::trim).filter(|value| !value.is_empty()) {
+            run.request_format = value.to_string();
+        }
+    }
+    if run.provider.trim().is_empty() {
+        if let Some(value) = detail.get("provider").and_then(Value::as_str).map(str::trim).filter(|value| !value.is_empty()) {
+            run.provider = value.to_string();
+        } else if let Some(value) = detail.get("providerName").and_then(Value::as_str).map(str::trim).filter(|value| !value.is_empty()) {
+            run.provider = value.to_string();
+        }
+    }
+    if run.model.trim().is_empty() {
+        if let Some(value) = detail.get("model").and_then(Value::as_str).map(str::trim).filter(|value| !value.is_empty()) {
+            run.model = value.to_string();
+        } else if let Some(value) = detail.get("modelName").and_then(Value::as_str).map(str::trim).filter(|value| !value.is_empty()) {
+            run.model = value.to_string();
+        }
+    }
+    if run.base_url.trim().is_empty() {
+        if let Some(value) = detail.get("baseUrl").and_then(Value::as_str).map(str::trim).filter(|value| !value.is_empty()) {
+            run.base_url = value.to_string();
+        }
+    }
+    if run.headers.is_empty() {
+        if let Some(value) = detail.get("headers").and_then(Value::as_array) {
+            let mut headers = Vec::new();
+            for item in value {
+                let name = item.get("name").and_then(Value::as_str).map(str::trim).filter(|value| !value.is_empty());
+                let header_value = item.get("value").and_then(Value::as_str).map(str::trim).filter(|value| !value.is_empty());
+                if let (Some(name), Some(header_value)) = (name, header_value) {
+                    headers.push(LlmRoundLogHeader { name: name.to_string(), value: header_value.to_string() });
+                }
+            }
+            if !headers.is_empty() {
+                run.headers = headers;
+            }
+        }
+    }
+    if run.tools.is_none() {
+        if let Some(value) = detail.get("tools").cloned() {
+            if !value.is_null() {
+                run.tools = Some(value);
+            }
+        }
+    }
+    if run.tools.is_none() {
+        if let Some(value) = detail.get("availableTools").cloned() {
+            if !value.is_null() {
+                run.tools = Some(value);
+            }
+        }
     }
 }
 
@@ -102,15 +177,16 @@ fn schedule_event_is_delegate_schedule(
 }
 
 fn schedule_event_ensure_run(
+    state: &AppState,
     store: &mut ScheduleEventStore,
     conversation_id: &str,
     run_id: &str,
     delegate_id: Option<String>,
     root_conversation_id: Option<String>,
     started_at: &str,
-    is_delegate: bool,
 ) {
     schedule_event_ensure_run_with_instant(
+        state,
         store,
         conversation_id,
         run_id,
@@ -118,11 +194,11 @@ fn schedule_event_ensure_run(
         root_conversation_id,
         started_at,
         None,
-        is_delegate,
     );
 }
 
 fn schedule_event_ensure_run_with_instant(
+    state: &AppState,
     store: &mut ScheduleEventStore,
     conversation_id: &str,
     run_id: &str,
@@ -130,7 +206,6 @@ fn schedule_event_ensure_run_with_instant(
     root_conversation_id: Option<String>,
     started_at: &str,
     started_instant: Option<std::time::Instant>,
-    is_delegate: bool,
 ) {
     let key = conversation_id.trim().to_string();
     if key.is_empty() || run_id.trim().is_empty() {
@@ -146,6 +221,14 @@ fn schedule_event_ensure_run_with_instant(
         conversation_id: key.clone(),
         delegate_id: delegate_id.filter(|value| !value.trim().is_empty()),
         root_conversation_id: root_conversation_id.filter(|value| !value.trim().is_empty()),
+        trace_id: None,
+        scene: String::new(),
+        request_format: String::new(),
+        provider: String::new(),
+        model: String::new(),
+        base_url: String::new(),
+        headers: Vec::new(),
+        tools: None,
         status: "running".to_string(),
         started_at: now.clone(),
         updated_at: now,
@@ -157,7 +240,7 @@ fn schedule_event_ensure_run_with_instant(
         events: Vec::new(),
         started_instant,
     });
-    let capacity = schedule_event_capacity(is_delegate);
+    let capacity = schedule_event_capacity_for_state(state);
     while deque.len() > capacity {
         deque.pop_front();
     }
@@ -187,6 +270,10 @@ fn schedule_event_push_inner(
         return Ok(());
     };
     let normalized_phase = phase.trim();
+    // 去重：同一 Run 内 headers/baseUrl/tools 等不变元数据仅在 dispatch_start 存一次，后续增量不再重复写入 Run 头
+    if normalized_phase == "dispatch_start" || normalized_phase == "dispatch_end" || normalized_phase == "model_round_start" || normalized_phase == "model_round_end" {
+        schedule_event_apply_run_metadata_from_detail(run, &detail);
+    }
     if normalized_phase == "tool_call" {
         run.tool_call_count = run.tool_call_count.saturating_add(1);
         if let Some(name) = detail.get("toolName").and_then(Value::as_str).map(str::trim).filter(|value| !value.is_empty()) {
@@ -319,6 +406,14 @@ fn schedule_event_push_to_latest_run(
     } else {
         deque[idx].elapsed_ms
     };
+    // 去重：Run 头元数据仅首次写入，后续增量不再重复覆盖 headers/baseUrl/tools
+    if normalized_phase == "dispatch_start"
+        || normalized_phase == "dispatch_end"
+        || normalized_phase == "model_round_start"
+        || normalized_phase == "model_round_end"
+    {
+        schedule_event_apply_run_metadata_from_detail(&mut deque[idx], &detail);
+    }
     let run_id = deque[idx].run_id.clone();
     let delegate_id = deque[idx].delegate_id.clone();
     let root_conversation_id = deque[idx].root_conversation_id.clone();
@@ -409,9 +504,7 @@ fn schedule_event_run_start_with_instant(
     elapsed_ms: u64,
     detail: Value,
 ) -> Result<bool, String> {
-    if !schedule_event_is_delegate_schedule(state, runtime_context, conversation_id) {
-        return Ok(false);
-    }
+    // 已全量接入：不再按 is_delegate 过滤，普通会话与委托会话均落库，容量由 llmRoundLogCapacity 统一控制
     let delegate_id = runtime_context
         .remote_im_reply_delegate_id
         .as_deref()
@@ -442,12 +535,12 @@ fn schedule_event_run_start_with_instant(
                 .filter(|value| !value.is_empty())
                 .map(ToOwned::to_owned)
         });
-    let is_delegate = true;
     {
         let Ok(mut store) = state.schedule_events.lock() else {
             return Err("Failed to lock schedule events".to_string());
         };
         schedule_event_ensure_run_with_instant(
+            state,
             &mut store,
             conversation_id,
             run_id,
@@ -455,7 +548,6 @@ fn schedule_event_run_start_with_instant(
             root_conversation_id.clone(),
             started_at,
             started_instant,
-            is_delegate,
         );
     }
     schedule_event_push_inner(state, conversation_id, run_id, "dispatch_start", elapsed_ms, None, detail)?;
@@ -464,7 +556,7 @@ fn schedule_event_run_start_with_instant(
 
 fn schedule_event_push_if_delegate(
     state: &AppState,
-    runtime_context: &RuntimeContext,
+    _runtime_context: &RuntimeContext,
     conversation_id: &str,
     run_id: &str,
     phase: &str,
@@ -472,9 +564,7 @@ fn schedule_event_push_if_delegate(
     success: Option<bool>,
     detail: Value,
 ) -> Result<bool, String> {
-    if !schedule_event_is_delegate_schedule(state, runtime_context, conversation_id) {
-        return Ok(false);
-    }
+    // 已全量接入：保持兼容名但不再过滤，直接落库
     schedule_event_push_inner(state, conversation_id, run_id, phase, elapsed_ms, success, detail)?;
     Ok(true)
 }
@@ -495,6 +585,233 @@ fn schedule_event_list_runs_inner(
         return Ok(Vec::new());
     };
     Ok(deque.iter().cloned().collect())
+}
+
+fn schedule_event_update_run_metadata(
+    state: &AppState,
+    conversation_id: &str,
+    run_id: &str,
+    detail: Value,
+) -> Result<bool, String> {
+    let key = conversation_id.trim();
+    let normalized_run_id = run_id.trim();
+    if key.is_empty() || normalized_run_id.is_empty() {
+        return Ok(false);
+    }
+    let Ok(mut store) = state.schedule_events.lock() else {
+        return Err("Failed to lock schedule events".to_string());
+    };
+    let Some(deque) = store.runs_by_conversation.get_mut(key) else {
+        return Ok(false);
+    };
+    let Some(run) = deque.iter_mut().find(|item| item.run_id == normalized_run_id) else {
+        return Ok(false);
+    };
+    schedule_event_apply_run_metadata_from_detail(run, &detail);
+    Ok(true)
+}
+
+fn schedule_run_to_llm_entry(run: &ScheduleRun) -> LlmRoundLogEntry {
+    let scene = if run.scene.trim().is_empty() { "chat_pipeline".to_string() } else { run.scene.clone() };
+    let request_format = if run.request_format.trim().is_empty() { "openai".to_string() } else { run.request_format.clone() };
+    let provider = run.provider.clone();
+    let model = run.model.clone();
+    let base_url = run.base_url.clone();
+    let headers = run.headers.clone();
+    let tools = run.tools.clone();
+    let success = run.status != "error" && run.status != "failed";
+    let mut error: Option<String> = None;
+    let mut response: Option<Value> = None;
+    let mut timeline: Option<Vec<LlmRoundLogStage>> = None;
+    if !run.events.is_empty() {
+        let mut stages = Vec::new();
+        let mut prev_elapsed = 0_u64;
+        for event in &run.events {
+            let since = event.elapsed_ms.saturating_sub(prev_elapsed);
+            stages.push(LlmRoundLogStage { stage: event.phase.clone(), elapsed_ms: event.elapsed_ms, since_prev_ms: since });
+            prev_elapsed = event.elapsed_ms;
+            if event.phase == "dispatch_end" {
+                if let Some(flag) = event.success {
+                    if !flag {
+                        error = event.detail.get("error").and_then(Value::as_str).map(ToOwned::to_owned).or_else(|| Some("dispatch failed".to_string()));
+                    }
+                }
+                // 合成 pipeline response：取 dispatch_end 的文本与 usage
+                if error.is_none() {
+                    let mut obj = serde_json::Map::new();
+                    if let Some(v) = event.detail.get("assistantTextLength") { obj.insert("assistantTextLength".to_string(), v.clone()); }
+                    if let Some(v) = event.detail.get("reasoningLength") { obj.insert("reasoningLength".to_string(), v.clone()); }
+                    if let Some(v) = event.detail.get("textPreview").and_then(Value::as_str) {
+                        obj.insert("assistantText".to_string(), Value::String(v.to_string()));
+                    }
+                    if let Some(v) = event.detail.get("reasoningPreview").and_then(Value::as_str) {
+                        obj.insert("reasoningContent".to_string(), Value::String(v.to_string()));
+                        obj.insert("activityReasoningText".to_string(), Value::String(v.to_string()));
+                    }
+                    if let Some(v) = event.detail.get("usage") { obj.insert("usage".to_string(), v.clone()); }
+                    if let Some(v) = event.detail.get("toolCallCount") { obj.insert("toolCallCount".to_string(), v.clone()); }
+                    if !obj.is_empty() { response = Some(Value::Object(obj)); }
+                } else {
+                    // 失败时也保留 error 字段，response 置空
+                }
+            }
+        }
+        timeline = Some(stages);
+    }
+    if response.is_none() && run.events.iter().any(|e| e.phase == "model_round_end") {
+        // 回退：取最后一次 model_round_end 的预览作为 pipeline response
+        if let Some(ev) = run.events.iter().rev().find(|e| e.phase == "model_round_end") {
+            let mut obj = serde_json::Map::new();
+            if let Some(v) = ev.detail.get("assistantTextLength") { obj.insert("assistantTextLength".to_string(), v.clone()); }
+            if let Some(v) = ev.detail.get("reasoningLength") { obj.insert("reasoningLength".to_string(), v.clone()); }
+            if let Some(v) = ev.detail.get("textPreview").and_then(Value::as_str) {
+                obj.insert("assistantText".to_string(), Value::String(v.to_string()));
+            }
+            if let Some(v) = ev.detail.get("reasoningPreview").and_then(Value::as_str) {
+                obj.insert("reasoningContent".to_string(), Value::String(v.to_string()));
+                obj.insert("activityReasoningText".to_string(), Value::String(v.to_string()));
+            }
+            if let Some(v) = ev.detail.get("toolCallCount") { obj.insert("toolCallCount".to_string(), v.clone()); }
+            if !obj.is_empty() { response = Some(Value::Object(obj)); }
+        }
+    }
+    // 合成 rounds：以 model_round_start/end 配对
+    let mut rounds: Option<Vec<LlmRoundLogEntry>> = None;
+    let mut round_entries = Vec::new();
+    let mut idx = 0_usize;
+    while idx < run.events.len() {
+        let ev = &run.events[idx];
+        if ev.phase == "model_round_start" {
+            let start = ev;
+            // 寻找对应的 end
+            let mut end_opt: Option<&ScheduleEvent> = None;
+            let mut tool_names: Vec<String> = Vec::new();
+            let mut tool_count = 0_usize;
+            let mut j = idx + 1;
+            while j < run.events.len() {
+                let nxt = &run.events[j];
+                if nxt.phase == "tool_call" {
+                    if let Some(name) = nxt.detail.get("toolName").and_then(Value::as_str) { push_unique_log_name(&mut tool_names, name); }
+                    tool_count = tool_count.saturating_add(1);
+                }
+                if nxt.phase == "model_round_end" {
+                    end_opt = Some(nxt);
+                    break;
+                }
+                if nxt.phase == "model_round_start" {
+                    break;
+                }
+                j += 1;
+            }
+            if let Some(end) = end_opt {
+                let round_id = format!("{}-round-{}", run.run_id, round_entries.len() + 1);
+                let assistant_text = end.detail.get("textPreview").and_then(Value::as_str).unwrap_or("").to_string();
+                let reasoning_text = end.detail.get("reasoningPreview").and_then(Value::as_str).unwrap_or("").to_string();
+                let assistant_len = end.detail.get("assistantTextLength").and_then(Value::as_u64).unwrap_or(assistant_text.chars().count() as u64);
+                let reasoning_len = end.detail.get("reasoningLength").and_then(Value::as_u64).unwrap_or(reasoning_text.chars().count() as u64);
+                let success = end.success.unwrap_or(true);
+                let err = end.detail.get("error").and_then(Value::as_str).map(ToOwned::to_owned);
+                let mut resp_obj = serde_json::Map::new();
+                resp_obj.insert("assistantText".to_string(), Value::String(assistant_text.clone()));
+                if !reasoning_text.is_empty() {
+                    resp_obj.insert("reasoningContent".to_string(), Value::String(reasoning_text.clone()));
+                    resp_obj.insert("activityReasoningText".to_string(), Value::String(reasoning_text));
+                }
+                resp_obj.insert("assistantTextLength".to_string(), serde_json::json!(assistant_len));
+                resp_obj.insert("reasoningContentLength".to_string(), serde_json::json!(reasoning_len));
+                resp_obj.insert("toolCallCount".to_string(), serde_json::json!(tool_count));
+                if !tool_names.is_empty() { resp_obj.insert("toolCallNames".to_string(), log_tool_call_names_value(tool_names.clone())); }
+                let round = LlmRoundLogEntry {
+                    id: round_id,
+                    created_at: start.created_at.clone(),
+                    trace_id: run.trace_id.clone(),
+                    scene: "chat".to_string(),
+                    request_format: request_format.clone(),
+                    provider: if provider.is_empty() { start.detail.get("providerName").and_then(Value::as_str).unwrap_or("").to_string() } else { provider.clone() },
+                    model: if model.is_empty() { start.detail.get("modelName").and_then(Value::as_str).unwrap_or("").to_string() } else { model.clone() },
+                    base_url: base_url.clone(),
+                    headers: headers.clone(),
+                    tools: tools.clone(),
+                    response: Some(Value::Object(resp_obj)),
+                    error: err.clone(),
+                    elapsed_ms: end.elapsed_ms.saturating_sub(start.elapsed_ms),
+                    timeline: None,
+                    round_count: None,
+                    tool_call_count: Some(tool_count),
+                    rounds: None,
+                    success,
+                };
+                round_entries.push(round);
+                idx = j + 1;
+                continue;
+            }
+        }
+        idx += 1;
+    }
+    if !round_entries.is_empty() { rounds = Some(round_entries); }
+    // 若无 rounds 但有工具调用，仍提供空 rounds 占位以免前端误判
+    let round_count_val = rounds.as_ref().map(|v| v.len()).unwrap_or(0);
+    let tool_call_count_val = run.tool_call_count;
+    // 未设置 provider/model 时回退到 last_model_name
+    let final_provider = if provider.is_empty() { run.last_model_name.clone().unwrap_or_default() } else { provider };
+    let final_model = if model.is_empty() { run.last_model_name.clone().unwrap_or_default() } else { model };
+    LlmRoundLogEntry {
+        id: run.run_id.clone(),
+        created_at: run.started_at.clone(),
+        trace_id: run.trace_id.clone(),
+        scene,
+        request_format,
+        provider: final_provider,
+        model: final_model,
+        base_url,
+        headers,
+        tools,
+        response,
+        error,
+        elapsed_ms: run.elapsed_ms,
+        timeline,
+        round_count: Some(round_count_val),
+        tool_call_count: Some(tool_call_count_val),
+        rounds,
+        success,
+    }
+}
+
+fn schedule_event_collect_llm_entries(state: &AppState, capacity: usize) -> Vec<LlmRoundLogEntry> {
+    let Ok(store) = state.schedule_events.lock() else { return Vec::new(); };
+    let mut all: Vec<LlmRoundLogEntry> = Vec::new();
+    for deque in store.runs_by_conversation.values() {
+        for run in deque.iter() {
+            all.push(schedule_run_to_llm_entry(run));
+        }
+    }
+    // 按创建时间排序，最新的在后，再按 capacity 截断，每会话窗口已由 Run 容量控制，这里再全局按 capacity 过滤以兼容旧语义（pipeline_logs + other_logs 各 capacity）
+    all.sort_by(|a, b| a.created_at.cmp(&b.created_at));
+    if all.len() > capacity.saturating_mul(2) {
+        let skip = all.len().saturating_sub(capacity.saturating_mul(2));
+        all.drain(0..skip);
+    }
+    // 映射为 UI 兼容的紧凑结构（tools 压缩等由 compact_llm_round_log_entry_for_ui 处理，上层会再处理）
+    all.into_iter().map(|entry| compact_llm_round_log_entry_for_ui(&entry)).collect()
+}
+
+fn schedule_event_find_entry_by_id(state: &AppState, id: &str) -> Option<LlmRoundLogEntry> {
+    let trimmed = id.trim();
+    if trimmed.is_empty() { return None; }
+    let Ok(store) = state.schedule_events.lock() else { return None; };
+    for deque in store.runs_by_conversation.values() {
+        for run in deque.iter() {
+            let entry = schedule_run_to_llm_entry(run);
+            if let Some(found) = find_llm_round_log_entry_by_id(&entry, trimmed) { return Some(found.clone()); }
+        }
+    }
+    None
+}
+
+fn schedule_event_clear_all(state: &AppState) -> Result<bool, String> {
+    let mut store = state.schedule_events.lock().map_err(|_| "Failed to lock schedule events".to_string())?;
+    store.runs_by_conversation.clear();
+    Ok(true)
 }
 
 #[tauri::command]
