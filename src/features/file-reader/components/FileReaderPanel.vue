@@ -92,8 +92,8 @@
         </div>
         <button
           type="button"
-          class="btn btn-ghost btn-sm btn-square shrink-0"
-          :class="isFilesPanelOpen ? 'bg-base-200 text-primary' : ''"
+          class="btn btn-sm btn-square shrink-0"
+          :class="isFilesPanelOpen ? 'bg-base-300 text-primary border-base-300 shadow-sm' : 'btn-ghost'"
           :disabled="!directoryTreeRoot && !directoryToggleTargetPath"
           :title="t('fileReader.filesTab')"
           @click="toggleFilesPanel"
@@ -102,8 +102,8 @@
         </button>
         <button
           type="button"
-          class="btn btn-ghost btn-sm btn-square shrink-0"
-          :class="isGitPanelOpen ? 'bg-base-200 text-primary' : ''"
+          class="btn btn-sm btn-square shrink-0"
+          :class="isGitPanelOpen ? 'bg-base-300 text-primary border-base-300 shadow-sm' : 'btn-ghost'"
           :disabled="!directoryTreeRoot && !directoryToggleTargetPath && !gitPanelWorkspacePath"
           :title="t('fileReader.gitTab')"
           @click="toggleGitPanel"
@@ -1043,8 +1043,8 @@ function backToProjectDirectory() {
 // Git 面板跟随目录树根；声明在 directoryTreeRoot 之后避免 TDZ
 const gitPanelWorkspacePath = computed(() => String(props.initialRootPath || directoryTreeRoot.value?.path || "").trim());
 
-const isFilesPanelOpen = computed(() => !!directoryTreeRoot.value && asideMode.value === "files");
-const isGitPanelOpen = computed(() => !!directoryTreeRoot.value && asideMode.value === "git");
+const isFilesPanelOpen = computed(() => !!directoryRootPath.value && asideMode.value === "files");
+const isGitPanelOpen = computed(() => !!directoryRootPath.value && asideMode.value === "git");
 
 const hoverDirectoryTreeRows = computed<TreeRow[]>(() => {
   const root = hoverDirectoryTreeRoot.value;
