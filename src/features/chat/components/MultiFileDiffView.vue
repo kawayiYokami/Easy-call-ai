@@ -15,8 +15,9 @@
         <button
           type="button"
           class="file-section-header sticky top-0 z-10 flex w-full items-center gap-2 bg-base-300 px-3 py-1.5 text-left hover:bg-base-300/80"
+          title="左键折叠当前文件，右键折叠全部"
           @click="toggle(section.key)"
-          @contextmenu.prevent="collapse(section.key)"
+          @contextmenu.prevent="collapseAll"
         >
           <ChevronRight class="h-3.5 w-3.5 shrink-0 opacity-60 transition-transform" :class="{ 'rotate-90': isExpanded(section.key) }" />
           <span class="min-w-0 flex-1 truncate font-mono text-xs font-medium">{{ section.path }}</span>
@@ -126,11 +127,9 @@ function toggle(key: string) {
   expandedKeys.value = next;
 }
 
-function collapse(key: string) {
-  if (!expandedKeys.value.has(key)) return;
-  const next = new Set(expandedKeys.value);
-  next.delete(key);
-  expandedKeys.value = next;
+function collapseAll() {
+  if (expandedKeys.value.size === 0) return;
+  expandedKeys.value = new Set();
 }
 
 function sectionContext(key: string) {
