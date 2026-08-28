@@ -1173,17 +1173,27 @@ watch(() => props.initialOpenPath, (path) => {
   }
 }, { immediate: true });
 
-watch([() => props.sessionKey, () => props.initialRootPath], ([nextKey, nextRootPath], [previousKey]) => {
-  const previousSessionKey = String(previousKey || "").trim();
-  if (previousSessionKey) {
-    persistFileReaderSession(previousSessionKey);
-  }
-  const sessionKey = String(nextKey || "").trim();
-  if (sessionKey) {
-    void restoreFileReaderSession(sessionKey, nextRootPath);
+watch([() => props.sessionKey, () => props.initialRootPath], ([nextKey, nextRootPath], [prevKey, prevRootPath]) => {
+  const prevSessionKey = String(prevKey || "").trim();
+  const nextSessionKey = String(nextKey || "").trim();
+  // 会话切换：持久化旧会话并完整恢复新会话（带新工作区兜底）
+  if (nextSessionKey !== prevSessionKey) {
+    if (prevSessionKey) {
+      persistFileReaderSession(prevSessionKey);
+    }
+    if (nextSessionKey) {
+      void restoreFileReaderSession(nextSessionKey, nextRootPath);
+      return;
+    }
+    void restoreFileReaderSession("", nextRootPath);
     return;
   }
-  void restoreFileReaderSession("", nextRootPath);
+  // 同会话仅工作区路径变化：不要整量 restore（会清空目录树导致闪烁与循环），仅更新项目根锚点
+  const newRoot = normalizePath(String(nextRootPath || "").trim());
+  const oldRoot = normalizePath(String(prevRootPath || "").trim());
+  if (newRoot && newRoot !== oldRoot && !projectDirectoryRoot.value) {
+    projectDirectoryRoot.value = newRoot;
+  }
 }, { immediate: true });
 
 watch(
@@ -1435,9 +1445,15 @@ function scheduleAutoRefreshActiveTab() {
   }, 350);
 }
 
+function isGitInternalPath(path: string): boolean {
+  const normalized = normalizePath(path).replace(/\\/g, "/").toLowerCase();
+  return normalized.endsWith("/.git") || normalized.includes("/.git/");
+}
+
 function scheduleAutoRefreshDirectoryNode(path: string) {
   const normalizedPath = normalizePath(path);
   if (!normalizedPath) return;
+  if (isGitInternalPath(normalizedPath)) return;
   pendingAutoRefreshDirectoryPaths.add(normalizedPath);
   if (autoRefreshDirectoryTimer) window.clearTimeout(autoRefreshDirectoryTimer);
   autoRefreshDirectoryTimer = window.setTimeout(() => {
@@ -1445,6 +1461,7 @@ function scheduleAutoRefreshDirectoryNode(path: string) {
     const paths = Array.from(pendingAutoRefreshDirectoryPaths);
     pendingAutoRefreshDirectoryPaths.clear();
     for (const directoryPath of paths) {
+      if (isGitInternalPath(directoryPath)) continue;
       if (!isPathRelevantToVisibleDirectory(directoryPath)) continue;
       const node = treeDirectoryNode(directoryPath);
       const root = directoryTreeRoot.value;
@@ -1456,6 +1473,7 @@ function scheduleAutoRefreshDirectoryNode(path: string) {
 
 function isPathRelevantToVisibleDirectory(path: string) {
   const normalizedPath = normalizePath(path);
+  if (isGitInternalPath(normalizedPath)) return false;
   const root = directoryTreeRoot.value;
   if (root && sameNormalizedPath(normalizedPath, root.path)) return true;
   return visibleTreeRows.value.some((row) => row.kind === "entry" && sameNormalizedPath(normalizedPath, row.entry.path));
@@ -2553,11 +2571,13 @@ async function loadDirectory(path: string, expanded: boolean): Promise<boolean> 
   }
 }
 
-async function openDirectoryTree(path: string): Promise<boolean> {
+async function openDirectoryTree(path: string, options: { switchToFiles?: boolean } = {}): Promise<boolean> {
   const normalizedPath = normalizePath(path);
   if (!normalizedPath) return false;
-  // 打开目录树即展示文件视图：避免会话恢复把左侧栏停在 Git 面板
-  asideMode.value = "files";
+  // 默认打开即切到文件视图；工作区跟随等场景可保留当前 Git 模式
+  if (options.switchToFiles !== false) {
+    asideMode.value = "files";
+  }
   // 项目根锚点只由工作区根建立；独立窗口（无工作区根）才用首次目录兜底
   if (!projectDirectoryRoot.value && !initialDirectoryPath.value) {
     projectDirectoryRoot.value = normalizedPath;

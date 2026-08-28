@@ -1698,13 +1698,17 @@ async function refreshChatReaderDirectoryOnWorkspaceChange() {
   await nextTick();
   await nextTick();
   if (!effectiveToolReviewPanelOpen.value || props.chatRightPanelMode !== "reader") return;
-  const panel = chatReaderPanelRef.value;
+  const panel = chatReaderPanelRef.value as unknown as { directoryRootPath: string; asideMode: string; openDirectoryTree: (path: string, opts?: { switchToFiles?: boolean }) => Promise<boolean> } | null;
   const workspaceRootPath = String(props.currentWorkspaceRootPath || "").trim();
   if (!panel || !workspaceRootPath) return;
-  // 目录树已展开时跟随工作区路径刷新；用户未展开/已关闭时保持关闭，不强制弹出
-  if (String(panel.directoryRootPath || "").trim()) {
-    await panel.openDirectoryTree(workspaceRootPath);
-  }
+  // Git 模式下不跟随工作区强刷，避免把 Git 面板盖回文件目录
+  if (String(panel.asideMode || "").trim() === "git") return;
+  // 目录树已展开时才跟随；未展开保持关闭，已在目标路径则不重复加载
+  const currentRoot = String(panel.directoryRootPath || "").trim();
+  if (!currentRoot) return;
+  const norm = (p: string) => String(p || "").trim().replace(/\\/g, "/").replace(/\/$/, "").toLowerCase();
+  if (norm(currentRoot) === norm(workspaceRootPath)) return;
+  await panel.openDirectoryTree(workspaceRootPath, { switchToFiles: false });
 }
 
 function selectChatRightPanelMode(mode: ChatRightPanelMode) {
