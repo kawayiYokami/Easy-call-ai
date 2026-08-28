@@ -25,6 +25,7 @@
       :remote-im-contact-conversations="remoteImContactConversations"
       :create-conversation-department-options="createConversationDepartmentOptions"
       :persona-avatar-url-map="personaAvatarUrlMap"
+      :active-agent-id="activeAgentId"
       @exit-selection-mode="emit('exitSelectionMode')"
       @selection-action-branch="emit('selectionActionBranch')"
       @selection-action-forward="emit('selectionActionForward', $event)"
@@ -650,6 +651,7 @@ const props = defineProps<{
   currentTheme?: string;
   showConversationActions?: boolean;
   chatUsagePercent?: number;
+  activeAgentId?: string;
 }>();
 
 const emit = defineEmits<{

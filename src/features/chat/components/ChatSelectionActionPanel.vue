@@ -143,6 +143,7 @@ const props = defineProps<{
   remoteImContactConversations: RemoteImContactConversationOption[];
   createConversationDepartmentOptions: ConversationDepartmentOption[];
   personaAvatarUrlMap?: Record<string, string>;
+  activeAgentId?: string;
 }>();
 
 const emit = defineEmits<{
@@ -208,9 +209,11 @@ const selectionDeliverTargetOptions = computed(() => {
   return [...localTargets, ...remoteTargets];
 });
 
-const delegateDepartmentOptions = computed(() =>
-  // 用户主动发起异步委托不受 AI delegate 工具的“直接下级部门”限制。
-  (Array.isArray(props.createConversationDepartmentOptions) ? props.createConversationDepartmentOptions : [])
+const delegateDepartmentOptions = computed(() => {
+  const sourceAgentId = String(props.activeAgentId || "").trim();
+  // 用户主动发起异步委托不受 AI delegate 工具的“直接下级部门”限制，
+  // 但禁止委托给自己：异步委托给同一人格只能走同步路径。
+  return (Array.isArray(props.createConversationDepartmentOptions) ? props.createConversationDepartmentOptions : [])
     .map((item) => ({
       id: String(item.id || "").trim(),
       departmentId: String(item.departmentId || "").trim(),
@@ -229,8 +232,9 @@ const delegateDepartmentOptions = computed(() =>
       unavailable: !!item.unavailable,
       childDepartmentIds: Array.isArray(item.childDepartmentIds) ? item.childDepartmentIds : [],
     }))
-    .filter((item) => !!item.id && !!item.departmentId && !!item.agentId),
-);
+    .filter((item) => !!item.id && !!item.departmentId && !!item.agentId)
+    .filter((item) => !sourceAgentId || String(item.agentId || "").trim() !== sourceAgentId);
+});
 
 const preferredDelegateDepartmentId = computed(() => String(delegateDepartmentOptions.value[0]?.id || "").trim());
 const canSubmitSelectionDelegate = computed(() =>
