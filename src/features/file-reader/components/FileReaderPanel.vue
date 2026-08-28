@@ -897,8 +897,6 @@ const contextMenuPosition = ref({ x: 0, y: 0 });
 const contextMenuTarget = ref<FileReaderContextMenuTarget | null>(null);
 const selectionAction = ref<FileReaderSelectionAction | null>(null);
 const directoryRootPath = ref("");
-/** 项目根锚点：目录树"回到项目目录"的目标，优先工作区根/会话恢复根，首次展开目录树时兜底 */
-const projectDirectoryRoot = ref("");
 const directoryTreeFilter = ref("");
 const directoryOpenTargetsLoading = ref(false);
 const directoryOpenTargetOptions = ref<DirectoryOpenTargetOption[]>([]);
@@ -1035,15 +1033,15 @@ const directoryTreeRoot = computed(() => {
   return rootPath ? directoryNodes.value[rootPath] || null : null;
 });
 
-// 当前目录树根是否就是项目根锚点
+// 当前目录树根是否就是项目根锚点：直接以当前会话工作区为准，无中间态
 const atProjectDirectoryRoot = computed(() => {
   const rootPath = normalizePath(directoryRootPath.value);
-  const projectPath = normalizePath(projectDirectoryRoot.value);
+  const projectPath = initialDirectoryPath.value;
   return !rootPath || !projectPath || sameNormalizedPath(rootPath, projectPath);
 });
 
 function backToProjectDirectory() {
-  const projectPath = normalizePath(projectDirectoryRoot.value || "");
+  const projectPath = initialDirectoryPath.value;
   if (projectPath && !atProjectDirectoryRoot.value) {
     void openDirectoryTree(projectPath);
   }
@@ -1188,12 +1186,8 @@ watch([() => props.sessionKey, () => props.initialRootPath], ([nextKey, nextRoot
     void restoreFileReaderSession("", nextRootPath);
     return;
   }
-  // 同会话仅工作区路径变化：不要整量 restore（会清空目录树导致闪烁与循环），仅更新项目根锚点
-  const newRoot = normalizePath(String(nextRootPath || "").trim());
-  const oldRoot = normalizePath(String(prevRootPath || "").trim());
-  if (newRoot && newRoot !== oldRoot && !projectDirectoryRoot.value) {
-    projectDirectoryRoot.value = newRoot;
-  }
+  // 同会话仅工作区变化不整量 restore：Home 直接跟随 initialDirectoryPath 计算，无需额外同步
+  void prevRootPath;
 }, { immediate: true });
 
 watch(
@@ -1840,17 +1834,14 @@ async function restoreFileReaderSession(key = props.sessionKey, fallbackRootPath
     activePath.value = "";
     resetVirtualCodeCaches();
     directoryRootPath.value = "";
-    projectDirectoryRoot.value = "";
     directoryTreeWidth.value = FILE_READER_DIRECTORY_TREE_DEFAULT_WIDTH;
     directoryTreeFilter.value = "";
     directoryNodes.value = {};
 
     const initialRoot = normalizePath(fallbackRootPath || "");
     if (!storageKey) {
-      // 无会话缓存且当前没有打开文件：自动展开工作区目录
       if (initialRoot) {
         directoryRootPath.value = initialRoot;
-        projectDirectoryRoot.value = initialRoot;
         await loadDirectory(initialRoot, true);
       }
       return;
@@ -1878,11 +1869,8 @@ async function restoreFileReaderSession(key = props.sessionKey, fallbackRootPath
     suppressSessionPersist = false;
 
     if (activePath.value) {
-      // 有已打开文件：恢复文件；目录仅在会话里曾展开时恢复
       if (restoredDirectoryRoot) {
         directoryRootPath.value = restoredDirectoryRoot;
-        // 项目根锚点始终是工作区根
-        projectDirectoryRoot.value = initialRoot;
         await loadDirectory(restoredDirectoryRoot, true);
       }
       if (restoreId !== restoringSessionId) return;
@@ -1898,8 +1886,6 @@ async function restoreFileReaderSession(key = props.sessionKey, fallbackRootPath
     const rootToOpen = restoredDirectoryRoot || (hasStoredDirectoryPreference ? "" : initialRoot);
     if (rootToOpen) {
       directoryRootPath.value = rootToOpen;
-      // 项目根锚点始终是工作区根，不能跟随恢复的旧目录根
-      projectDirectoryRoot.value = initialRoot;
       await loadDirectory(rootToOpen, true);
     }
   } finally {
@@ -2574,13 +2560,8 @@ async function loadDirectory(path: string, expanded: boolean): Promise<boolean> 
 async function openDirectoryTree(path: string, options: { switchToFiles?: boolean } = {}): Promise<boolean> {
   const normalizedPath = normalizePath(path);
   if (!normalizedPath) return false;
-  // 默认打开即切到文件视图；工作区跟随等场景可保留当前 Git 模式
   if (options.switchToFiles !== false) {
     asideMode.value = "files";
-  }
-  // 项目根锚点只由工作区根建立；独立窗口（无工作区根）才用首次目录兜底
-  if (!projectDirectoryRoot.value && !initialDirectoryPath.value) {
-    projectDirectoryRoot.value = normalizedPath;
   }
   directoryRootPath.value = normalizedPath;
   return await loadDirectory(normalizedPath, true);

@@ -531,7 +531,7 @@
           v-if="chatRightPanelMode === 'reader'"
           ref="chatReaderPanelRef"
           class="h-full w-full"
-          :initial-root-path="currentWorkspaceRootPath"
+          :initial-root-path="effectiveFileReaderRootPath"
           :session-key="chatFileReaderSessionKey"
           :legacy-session-key="legacyChatFileReaderSessionKey"
           :enable-global-drop="false"
@@ -1127,6 +1127,21 @@ const chatFileReaderSessionKey = computed(() => {
 const legacyChatFileReaderSessionKey = computed(() => {
   const conversationId = String(props.activeConversationId || "").trim();
   return conversationId ? `easy-call.chat.file-reader-session.${conversationId}` : "";
+});
+
+// 文件阅读器项目根：优先取会话概览里的 workspaceRootPath（与 sessionKey 同步到达），
+// 避免 currentWorkspaceRootPath（workspace.list 异步）滞后导致的 Home 闪现
+const effectiveFileReaderRootPath = computed(() => {
+  const conversationId = String(props.activeConversationId || "").trim();
+  if (conversationId) {
+    const listA = (props.unarchivedConversationItems || []) as Array<Record<string, unknown>>;
+    const listB = (props.conversationItems || []) as Array<Record<string, unknown>>;
+    const hit = listA.find((item) => String(item.conversationId || "").trim() === conversationId)
+      || listB.find((item) => String(item.conversationId || "").trim() === conversationId);
+    const workspacePath = String((hit as Record<string, unknown>)?.workspaceRootPath || "").trim();
+    if (workspacePath) return workspacePath;
+  }
+  return String(props.currentWorkspaceRootPath || "").trim();
 });
 
 // ==================== messages / audio ====================
