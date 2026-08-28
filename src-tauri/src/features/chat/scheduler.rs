@@ -1281,6 +1281,7 @@ async fn process_conversation_batch(
                 context_usage_percent: None,
                 remote_im_reply_decision: remote_im_skip_decision,
                 remote_im_reply_target: None,
+                usage: None,
             },
         )?;
     }

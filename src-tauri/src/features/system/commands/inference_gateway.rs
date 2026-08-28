@@ -5,6 +5,7 @@ struct CallPolicy {
     json_only: bool,
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Clone)]
 struct ModelCallLogParts {
     scene: &'static str,
@@ -49,23 +50,8 @@ impl Drop for ProviderConcurrencyGuard {
     }
 }
 
-fn push_model_call_log_parts(state: Option<&AppState>, execution: &ModelCallExecutionResult) {
-    push_llm_round_log(
-        state,
-        None,
-        None,
-        execution.log_parts.scene,
-        execution.log_parts.request_format,
-        &execution.log_parts.provider_name,
-        &execution.log_parts.model_name,
-        &execution.log_parts.base_url,
-        execution.log_parts.headers.clone(),
-        execution.log_parts.tools.clone(),
-        execution.log_parts.response.clone(),
-        execution.log_parts.error.clone(),
-        execution.log_parts.elapsed_ms,
-        execution.log_parts.timeline.clone(),
-    );
+fn push_model_call_log_parts(_state: Option<&AppState>, _execution: &ModelCallExecutionResult) {
+    // 已切换至调度事件：旧推理网关日志不再写入
 }
 
 fn elapsed_ms_u64(started_at: std::time::Instant) -> u64 {

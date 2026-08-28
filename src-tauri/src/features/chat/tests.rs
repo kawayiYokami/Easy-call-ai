@@ -3920,7 +3920,6 @@
                 std::collections::HashMap::new(),
             )),
             terminal_pending_approvals: Arc::new(Mutex::new(std::collections::HashMap::new())),
-            llm_round_logs: Arc::new(Mutex::new(RecentLlmRoundLogs::default())),
             conversation_runtime_slots: Arc::new(Mutex::new(std::collections::HashMap::new())),
             conversation_processing_claims: Arc::new(Mutex::new(std::collections::HashSet::new())),
             goal_continue_suppressed_conversation_ids: Arc::new(Mutex::new(
@@ -12319,44 +12318,47 @@
     #[test]
     #[ignore = "压测探针：本地按需运行 cargo test llm_round_log_large_response_probe -- --ignored --nocapture"]
     fn llm_round_log_large_response_probe() {
+        // 已切换至调度事件：通过真实调度事件路径写入大响应并校验序列化后体积
         let state = test_chat_runtime_state();
         let large_response = "响应片段。".repeat(220_000);
-        let response = serde_json::json!({
-            "assistantText": large_response,
-            "toolHistoryEvents": []
+        let conversation_id = Uuid::new_v4().to_string();
+        let run_id = Uuid::new_v4().to_string();
+        let runtime_context = RuntimeContext::default();
+        let started_at = now_iso();
+        let dispatch_detail = serde_json::json!({
+            "traceId": run_id,
+            "provider": "probe",
+            "model": "probe-model",
+            "baseUrl": "https://example.test",
+            "headers": [],
+            "tools": []
         });
-
-        let started = std::time::Instant::now();
-        push_llm_round_log(
-            Some(&state),
-            Some("trace-large-response".to_string()),
-            None,
-            "Archive summary",
-            RequestFormat::OpenAI,
-            "archive-summary",
-            "deepseek-chat",
-            "http://localhost:5001/v1",
-            masked_auth_headers("sk-test"),
-            None,
-            Some(response),
-            None,
-            1234,
-            None,
-        );
-        let elapsed_ms = started.elapsed().as_millis();
-        let logs = state.llm_round_logs.lock().expect("llm round logs");
-        let stored = logs.other_logs.back().expect("stored log entry");
-        let response_bytes = serde_json::to_vec(&stored.response).expect("serialize stored response");
-
+        schedule_event_run_start(&state, &runtime_context, &conversation_id, &run_id, &started_at, 0, dispatch_detail)
+            .expect("schedule run start");
+        let large_detail = serde_json::json!({
+            "textPreview": large_response,
+            "assistantTextLength": large_response.chars().count(),
+            "usage": { "promptTokens": 1, "completionTokens": 1 }
+        });
+        schedule_event_push_inner(&state, &conversation_id, &run_id, "model_round_end", 1, Some(true), large_detail)
+            .expect("push large scheduling event");
+        let store = state.schedule_events.lock().expect("lock schedule events");
+        let run = store
+            .runs_by_conversation
+            .get(&conversation_id)
+            .and_then(|deque| deque.iter().find(|item| item.run_id == run_id))
+            .expect("probe run should exist");
+        let serialized = serde_json::to_vec(run).expect("serialize probe run");
+        // 也可通过整库估算校验
+        let estimated = schedule_event_estimated_json_bytes(&store);
         runtime_log_info(format!(
-            "[压测] llm_round_log_large_response 大响应结果：stored_logs={}，response_bytes={}，elapsed={}ms",
-            logs.other_logs.len(),
-            response_bytes.len(),
-            elapsed_ms
+            "[压测] llm_round_log_large_response 调度事件序列化结果：run_bytes={}，store_estimated_bytes={}，events={}",
+            serialized.len(),
+            estimated,
+            run.events.len()
         ));
-
-        assert_eq!(logs.other_logs.len(), 1);
-        assert!(response_bytes.len() > 1_500_000);
+        assert!(serialized.len() > 1_500_000, "serialized scheduling event should exceed threshold, got {}", serialized.len());
+        assert!(estimated > 1_500_000, "estimated store bytes should exceed threshold, got {}", estimated);
     }
 
     #[test]

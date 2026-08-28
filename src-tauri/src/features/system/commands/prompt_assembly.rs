@@ -576,7 +576,6 @@ mod prompt_assembly_tests {
             terminal_session_roots: Arc::new(Mutex::new(HashMap::new())),
             terminal_live_sessions: Arc::new(tokio::sync::Mutex::new(HashMap::new())),
             terminal_pending_approvals: Arc::new(Mutex::new(HashMap::new())),
-            llm_round_logs: Arc::new(Mutex::new(RecentLlmRoundLogs::default())),
             conversation_runtime_slots: Arc::new(Mutex::new(HashMap::new())),
             conversation_processing_claims: Arc::new(Mutex::new(HashSet::new())),
             goal_continue_suppressed_conversation_ids: Arc::new(Mutex::new(HashSet::new())),

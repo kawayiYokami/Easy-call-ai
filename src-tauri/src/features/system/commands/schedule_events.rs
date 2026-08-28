@@ -141,6 +141,7 @@ fn schedule_event_apply_run_metadata_from_detail(run: &mut ScheduleRun, detail: 
     }
 }
 
+#[allow(dead_code)]
 fn schedule_event_is_delegate_schedule(
     state: &AppState,
     runtime_context: &RuntimeContext,
@@ -176,6 +177,7 @@ fn schedule_event_is_delegate_schedule(
     false
 }
 
+#[allow(dead_code)]
 fn schedule_event_ensure_run(
     state: &AppState,
     store: &mut ScheduleEventStore,
@@ -450,6 +452,7 @@ fn schedule_event_push_to_latest_run(
     Ok(true)
 }
 
+#[allow(dead_code)]
 fn schedule_event_elapsed_from_run(
     store: &ScheduleEventStore,
     conversation_id: &str,
@@ -473,6 +476,7 @@ fn schedule_event_elapsed_from_run(
     }
 }
 
+#[allow(dead_code)]
 fn schedule_event_run_start(
     state: &AppState,
     runtime_context: &RuntimeContext,
@@ -628,7 +632,8 @@ fn schedule_run_to_llm_entry(run: &ScheduleRun) -> LlmRoundLogEntry {
         let mut prev_elapsed = 0_u64;
         for event in &run.events {
             let since = event.elapsed_ms.saturating_sub(prev_elapsed);
-            stages.push(LlmRoundLogStage { stage: event.phase.clone(), elapsed_ms: event.elapsed_ms, since_prev_ms: since });
+            let detail = if event.detail.is_null() { None } else { Some(event.detail.clone()) };
+            stages.push(LlmRoundLogStage { stage: event.phase.clone(), elapsed_ms: event.elapsed_ms, since_prev_ms: since, detail });
             prev_elapsed = event.elapsed_ms;
             if event.phase == "dispatch_end" {
                 if let Some(flag) = event.success {
@@ -672,6 +677,7 @@ fn schedule_run_to_llm_entry(run: &ScheduleRun) -> LlmRoundLogEntry {
                 obj.insert("activityReasoningText".to_string(), Value::String(v.to_string()));
             }
             if let Some(v) = ev.detail.get("toolCallCount") { obj.insert("toolCallCount".to_string(), v.clone()); }
+            if let Some(v) = ev.detail.get("usage") { obj.insert("usage".to_string(), v.clone()); }
             if !obj.is_empty() { response = Some(Value::Object(obj)); }
         }
     }

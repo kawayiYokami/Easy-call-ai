@@ -190,36 +190,16 @@ fn tool_loop_round_response_value(
 }
 
 fn push_tool_loop_round_log(
-    state: Option<&AppState>,
-    chat_session_key: &str,
-    selected_api: &ApiConfig,
-    api_config: &ResolvedApiConfig,
-    model_name: &str,
-    tool_assembly: &RuntimeToolAssembly,
-    response: Value,
-    elapsed_ms: u64,
+    _state: Option<&AppState>,
+    _chat_session_key: &str,
+    _selected_api: &ApiConfig,
+    _api_config: &ResolvedApiConfig,
+    _model_name: &str,
+    _tool_assembly: &RuntimeToolAssembly,
+    _response: Value,
+    _elapsed_ms: u64,
 ) {
-    let timeline = Some(vec![LlmRoundLogStage {
-        stage: "model_round_total".to_string(),
-        elapsed_ms,
-        since_prev_ms: elapsed_ms,
-    }]);
-    push_llm_round_log(
-        state,
-        Some(format!("round-{chat_session_key}")),
-        Some(chat_session_key.to_string()),
-        "chat",
-        selected_api.request_format,
-        &selected_api.name,
-        model_name,
-        &api_config.base_url,
-        masked_auth_headers(&api_config.api_key),
-        runtime_tool_names_for_log(tool_assembly),
-        Some(response),
-        None,
-        elapsed_ms,
-        timeline,
-    );
+    // 已切换至调度事件：旧 chat 单轮日志不再写入
 }
 
 #[derive(Debug, Clone)]

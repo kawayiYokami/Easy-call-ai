@@ -618,6 +618,7 @@ async fn send_chat_message_inner(
                 stage: stage.to_string(),
                 elapsed_ms,
                 since_prev_ms,
+                detail: None,
             });
         }
     };
@@ -1247,6 +1248,7 @@ async fn send_chat_message_inner(
                 stage: stage.to_string(),
                 elapsed_ms,
                 since_prev_ms,
+                detail: None,
             });
         }
     };
@@ -2009,6 +2011,7 @@ async fn send_chat_message_inner(
     log_run_stage("prompt_ready");
 
     let mut model_reply: Option<ModelReply> = None;
+    let mut last_model_usage: Option<Value> = None;
     let mut active_selected_api = selected_api.clone();
     let mut active_resolved_api = resolved_api.clone();
     let mut fallback_errors = Vec::<String>::new();
@@ -2119,7 +2122,7 @@ async fn send_chat_message_inner(
                     .min(u128::from(u64::MAX)) as u64;
                 let success = chat_round_execution.result.is_ok();
                 let error_text = chat_round_execution.result.as_ref().err().cloned();
-                let (assistant_len, reasoning_len, reasoning_preview, tool_calls_len, text_preview) =
+                let (assistant_len, reasoning_len, reasoning_preview, tool_calls_len, text_preview, usage_for_detail) =
                     if let Ok(reply) = chat_round_execution.result.as_ref() {
                         let raw_text = if reply.assistant_text.trim().is_empty() && !reply.final_response_text.trim().is_empty() {
                             reply.final_response_text.as_str()
@@ -2134,10 +2137,14 @@ async fn send_chat_message_inner(
                         };
                         let t_len = reply.tool_history_events.len();
                         let preview = raw_text.to_string();
-                        (Some(a_len), Some(r_len), r_preview, Some(t_len), if preview.trim().is_empty() { None } else { Some(preview) })
+                        let usage = reply.usage.clone();
+                        (Some(a_len), Some(r_len), r_preview, Some(t_len), if preview.trim().is_empty() { None } else { Some(preview) }, usage)
                     } else {
-                        (None, None, None, None, None)
+                        (None, None, None, None, None, None)
                     };
+                if let Some(usage) = usage_for_detail.clone() {
+                    last_model_usage = Some(usage);
+                }
                 let mut detail = serde_json::json!({
                     "candidateApiId": candidate_selected_api.id,
                     "attempt": attempt + 1,
@@ -2153,6 +2160,7 @@ async fn send_chat_message_inner(
                     if let Some(v) = reasoning_preview { obj.insert("reasoningPreview".to_string(), serde_json::json!(v)); }
                     if let Some(v) = tool_calls_len { obj.insert("toolCallCount".to_string(), serde_json::json!(v)); }
                     if let Some(v) = text_preview { obj.insert("textPreview".to_string(), serde_json::json!(v)); }
+                    if let Some(v) = usage_for_detail { obj.insert("usage".to_string(), v); }
                 }
                 let _ = schedule_event_push_if_delegate(
                     &state,
@@ -2169,43 +2177,14 @@ async fn send_chat_message_inner(
                 &chat_round_execution.result,
                 Err(error) if error == CHAT_DISPATCH_RESTART_AFTER_COMPACTION
             );
-            let round_logs_recorded_internally = chat_round_execution
+            let _round_logs_recorded_internally = chat_round_execution
                 .result
                 .as_ref()
                 .ok()
                 .map(|reply| reply.round_logs_recorded_internally)
                 .unwrap_or(false);
-            if !restart_after_compaction && !round_logs_recorded_internally {
-                let ModelCallLogParts {
-                    scene,
-                    request_format,
-                    provider_name,
-                    model_name,
-                    base_url,
-                    headers,
-                    tools,
-                    response,
-                    error,
-                    elapsed_ms,
-                    timeline,
-                } = chat_round_execution.log_parts;
-                push_llm_round_log(
-                    Some(&state),
-                    Some(format!("round-{chat_session_key}")),
-                    Some(chat_session_key.to_string()),
-                    scene,
-                    request_format,
-                    &provider_name,
-                    &model_name,
-                    &base_url,
-                    headers,
-                    tools,
-                    response,
-                    error,
-                    elapsed_ms,
-                    timeline,
-                );
-            }
+            // 已切换至调度事件：旧 chat 单轮日志不再写入，仅保留 schedule_event 打点
+            let _ = &chat_round_execution.log_parts;
             let request_finish_stage = format!(
                 "model_request.finish[candidate_api_id={},attempt={}]",
                 candidate_selected_api.id,
@@ -2868,6 +2847,7 @@ async fn send_chat_message_inner(
                 .as_ref()
                 .map(|item| item.action.clone()),
             remote_im_reply_target: remote_im_reply_decision.and_then(|item| item.target),
+            usage: last_model_usage.clone(),
         });
     }
     };
@@ -2998,8 +2978,12 @@ async fn send_chat_message_inner(
                     map.insert("textPreview".to_string(), serde_json::json!(preview));
                 }
             }
-            // usage 全量（若存在），便于 LogTab 重建
-            {
+            // usage 全量（若存在），便于 LogTab 重建 — 优先使用模型返回的真实用量
+            if let Some(usage) = ok.usage.clone() {
+                if let Some(map) = obj.as_object_mut() {
+                    map.insert("usage".to_string(), usage);
+                }
+            } else {
                 let mut usage_obj = serde_json::Map::new();
                 if let Some(v) = ok.provider_prompt_tokens { usage_obj.insert("providerPromptTokens".to_string(), serde_json::json!(v)); }
                 if let Some(v) = ok.estimated_prompt_tokens { usage_obj.insert("estimatedPromptTokens".to_string(), serde_json::json!(v)); }
@@ -3063,37 +3047,8 @@ async fn send_chat_message_inner(
             }),
         );
     }
-    push_llm_round_log(
-        Some(state),
-        Some(trace_id),
-        Some(chat_session_key_for_log.clone()),
-        "chat_pipeline",
-        resolved_api_for_log.request_format,
-        &selected_api_for_log.name,
-        &selected_api_for_log.model,
-        &resolved_api_for_log.base_url,
-        pipeline_headers,
-        pipeline_tools,
-        final_result
-            .as_ref()
-            .ok()
-            .map(|value| serde_json::json!({
-                "conversationId": value.conversation_id,
-                "assistantTextLength": value.assistant_text.chars().count(),
-                "usage": {
-                    "rigPromptTokens": value.provider_prompt_tokens,
-                    "estimatedPromptTokens": value.estimated_prompt_tokens,
-                    "effectivePromptTokens": value.effective_prompt_tokens,
-                    "effectivePromptSource": value.effective_prompt_source,
-                    "contextWindowTokens": value.context_window_tokens,
-                    "maxOutputTokens": value.max_output_tokens,
-                    "contextUsagePercent": value.context_usage_percent
-                }
-            })),
-        final_result.as_ref().err().cloned(),
-        chat_started_at.elapsed().as_millis().min(u128::from(u64::MAX)) as u64,
-        timeline,
-    );
+    // 已切换至调度事件：旧 pipeline 日志不再写入
+    let _ = (&trace_id, &chat_session_key_for_log, &timeline, &final_result);
     // 兜底催处理：归档阶段可能短暂阻塞出队，这里在当前轮次结束后补一次调度触发。
     trigger_chat_queue_processing(state);
     final_result

@@ -879,27 +879,8 @@ async fn quick_genai_chat_inner(
     )
     .await
     .map_err(|_| "Quick setup connectivity test timed out.".to_string())??;
-    push_llm_round_log(
-        Some(&state),
-        None,
-        None,
-        "Quick setup connectivity test",
-        resolved_api.request_format,
-        resolved_api
-            .provider_id
-            .as_deref()
-            .map(str::trim)
-            .filter(|value| !value.is_empty())
-            .unwrap_or("simple-setup"),
-        model,
-        &resolved_api.base_url,
-        masked_auth_headers(&resolved_api.api_key),
-        None,
-        Some(model_reply_to_log_value(&reply)),
-        None,
-        started_at.elapsed().as_millis().min(u128::from(u64::MAX)) as u64,
-        None,
-    );
+    // 已切换至调度事件：旧 quick setup 日志不再写入
+    let _ = (&reply, &started_at);
     let final_text = reply.final_response_text.trim();
     let text = if final_text.is_empty() {
         reply.assistant_text.trim().to_string()

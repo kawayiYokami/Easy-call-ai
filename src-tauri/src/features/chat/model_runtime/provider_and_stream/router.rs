@@ -779,6 +779,7 @@ async fn call_model_dispatch(
         stage: "model_round_total".to_string(),
         elapsed_ms,
         since_prev_ms: elapsed_ms,
+        detail: None,
     }]);
     let log_parts = match &result {
         Ok(reply) => ModelCallLogParts {

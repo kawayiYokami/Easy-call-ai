@@ -203,6 +203,7 @@ fn persist_aborted_chat_partial_result(
         context_usage_percent: None,
         remote_im_reply_decision: None,
         remote_im_reply_target: None,
+        usage: None,
     }))
 }
 

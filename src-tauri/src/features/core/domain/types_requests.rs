@@ -154,6 +154,8 @@ struct SendChatResult {
     remote_im_reply_decision: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     remote_im_reply_target: Option<RemoteImReplyTarget>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    usage: Option<Value>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

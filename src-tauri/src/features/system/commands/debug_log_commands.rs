@@ -18,6 +18,8 @@ struct LlmRoundLogStage {
     stage: String,
     elapsed_ms: u64,
     since_prev_ms: u64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    detail: Option<Value>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -46,11 +48,6 @@ struct LlmRoundLogEntry {
     #[serde(skip_serializing_if = "Option::is_none")]
     rounds: Option<Vec<LlmRoundLogEntry>>,
     success: bool,
-}
-
-#[derive(Debug, Default)]
-struct PendingChatRoundBuffer {
-    rounds_by_chat_session: std::collections::HashMap<String, Vec<LlmRoundLogEntry>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -104,11 +101,6 @@ struct MemoryCacheStats {
     terminal_live_sessions: usize,
     terminal_session_roots: usize,
     terminal_pending_approvals: usize,
-    llm_round_logs: usize,
-    llm_round_logs_estimated_json_bytes: usize,
-    pending_chat_round_sessions: usize,
-    pending_chat_round_entries: usize,
-    pending_chat_round_estimated_json_bytes: usize,
     schedule_event_runs: usize,
     schedule_event_events: usize,
     schedule_event_estimated_json_bytes: usize,
@@ -155,11 +147,6 @@ struct MemoryCacheStats {
 fn runtime_log_buffer() -> &'static Mutex<RuntimeLogBuffer> {
     static RUNTIME_LOGS: OnceLock<Mutex<RuntimeLogBuffer>> = OnceLock::new();
     RUNTIME_LOGS.get_or_init(|| Mutex::new(RuntimeLogBuffer::default()))
-}
-
-fn pending_chat_round_buffer() -> &'static Mutex<PendingChatRoundBuffer> {
-    static PENDING_CHAT_ROUNDS: OnceLock<Mutex<PendingChatRoundBuffer>> = OnceLock::new();
-    PENDING_CHAT_ROUNDS.get_or_init(|| Mutex::new(PendingChatRoundBuffer::default()))
 }
 
 fn backend_log_write_lock() -> &'static Mutex<()> {
@@ -828,100 +815,6 @@ fn model_reply_to_log_value(reply: &ModelReply) -> Value {
     value
 }
 
-fn build_llm_round_log_entry(
-    trace_id: Option<String>,
-    scene: &str,
-    request_format: RequestFormat,
-    provider_name: &str,
-    model_name: &str,
-    base_url: &str,
-    headers: Vec<LlmRoundLogHeader>,
-    tools: Option<Value>,
-    response: Option<Value>,
-    error: Option<String>,
-    elapsed_ms: u64,
-    timeline: Option<Vec<LlmRoundLogStage>>,
-) -> LlmRoundLogEntry {
-    let success = error.as_ref().map(|value| value.trim().is_empty()).unwrap_or(true);
-    LlmRoundLogEntry {
-        id: Uuid::new_v4().to_string(),
-        created_at: now_log_local_rfc3339(),
-        trace_id,
-        scene: scene.to_string(),
-        request_format: request_format.as_str().to_string(),
-        provider: provider_name.to_string(),
-        model: model_name.to_string(),
-        base_url: base_url.to_string(),
-        headers,
-        tools,
-        response,
-        error: error.filter(|v| !v.trim().is_empty()),
-        elapsed_ms,
-        timeline,
-        round_count: None,
-        tool_call_count: None,
-        rounds: None,
-        success,
-    }
-}
-
-fn llm_round_log_group_key(
-    scene: &str,
-    trace_id: Option<&str>,
-    group_key: Option<&str>,
-) -> Option<String> {
-    match scene {
-        "chat" => group_key
-            .map(str::trim)
-            .filter(|value| !value.is_empty())
-            .map(str::to_string)
-            .or_else(|| {
-                trace_id
-                    .map(str::trim)
-                    .filter(|value| !value.is_empty())
-                    .map(|value| value.strip_prefix("round-").unwrap_or(value).to_string())
-            }),
-        "chat_pipeline" => group_key
-            .map(str::trim)
-            .filter(|value| !value.is_empty())
-            .map(str::to_string)
-            .or_else(|| {
-                trace_id
-                    .map(str::trim)
-                    .filter(|value| !value.is_empty())
-                    .map(str::to_string)
-            }),
-        _ => None,
-    }
-}
-
-fn log_entry_tool_call_count(entry: &LlmRoundLogEntry) -> usize {
-    let Some(response) = entry.response.as_ref() else {
-        return 0;
-    };
-    if let Some(count) = response
-        .get("toolCallCount")
-        .and_then(Value::as_u64)
-        .and_then(|value| usize::try_from(value).ok())
-    {
-        return count;
-    }
-    if let Some(tool_calls) = response.get("toolCalls").and_then(Value::as_array) {
-        return tool_calls.len();
-    }
-    let Some(events) = response
-        .get("toolHistoryEvents")
-        .and_then(Value::as_array)
-    else {
-        return 0;
-    };
-    events
-        .iter()
-        .filter_map(|event| event.get("tool_calls").and_then(Value::as_array))
-        .map(|calls| calls.len())
-        .sum()
-}
-
 fn compact_log_tools_value(tools: &Value) -> Option<Value> {
     let items = tools.as_array()?;
     let mut names = Vec::<String>::new();
@@ -1034,6 +927,7 @@ fn compact_llm_round_log_entry_for_ui(entry: &LlmRoundLogEntry) -> LlmRoundLogEn
     }
 }
 
+#[allow(dead_code)]
 #[derive(Default)]
 struct LlmRoundUsageTotals {
     prompt_tokens: i64,
@@ -1047,6 +941,7 @@ struct LlmRoundUsageTotals {
     round_count: usize,
 }
 
+#[allow(dead_code)]
 fn usage_value_i64(usage: &Value, key: &str) -> i64 {
     usage
         .get(key)
@@ -1055,6 +950,7 @@ fn usage_value_i64(usage: &Value, key: &str) -> i64 {
         .unwrap_or(0)
 }
 
+#[allow(dead_code)]
 fn aggregate_round_usage(rounds: &[LlmRoundLogEntry]) -> Option<Value> {
     let mut totals = LlmRoundUsageTotals::default();
     for round in rounds {
@@ -1110,135 +1006,16 @@ fn llm_round_log_capacity_for_state(state: &AppState) -> usize {
         .unwrap_or(DEFAULT_LLM_ROUND_LOG_CAPACITY)
 }
 
-fn trim_display_llm_logs(
-    logs: &mut std::collections::VecDeque<LlmRoundLogEntry>,
-    capacity: usize,
-) {
-    while logs.len() > capacity {
-        let _ = logs.pop_front();
-    }
-}
-
-fn push_display_llm_log(
-    logs: &mut std::collections::VecDeque<LlmRoundLogEntry>,
-    entry: LlmRoundLogEntry,
-    capacity: usize,
-) {
-    logs.push_back(entry);
-    trim_display_llm_logs(logs, capacity);
-}
-
-fn llm_round_log_is_pipeline_scene(scene: &str) -> bool {
-    scene == "chat_pipeline"
-}
-
-fn llm_round_log_bucket_mut<'a>(
-    logs: &'a mut RecentLlmRoundLogs,
-    scene: &str,
-) -> &'a mut std::collections::VecDeque<LlmRoundLogEntry> {
-    if llm_round_log_is_pipeline_scene(scene) {
-        &mut logs.pipeline_logs
-    } else {
-        &mut logs.other_logs
-    }
-}
-
-fn recent_llm_round_logs_for_ui(logs: &RecentLlmRoundLogs, capacity: usize) -> Vec<LlmRoundLogEntry> {
-    let mut items = Vec::new();
-    items.extend(
-        logs.pipeline_logs
-            .iter()
-            .skip(logs.pipeline_logs.len().saturating_sub(capacity))
-            .map(compact_llm_round_log_entry_for_ui),
-    );
-    items.extend(
-        logs.other_logs
-            .iter()
-            .skip(logs.other_logs.len().saturating_sub(capacity))
-            .map(compact_llm_round_log_entry_for_ui),
-    );
-    items
-}
-
-fn recent_llm_round_logs_total_count(logs: &RecentLlmRoundLogs) -> usize {
-    logs.pipeline_logs.len().saturating_add(logs.other_logs.len())
-}
-
-fn recent_llm_round_logs_estimated_json_bytes(logs: &RecentLlmRoundLogs) -> usize {
-    estimate_json_bytes(logs)
-}
-
-fn push_llm_round_log(
-    _state: Option<&AppState>,
-    _trace_id: Option<String>,
-    _group_key: Option<String>,
-    _scene: &str,
+fn latest_chat_round_headers_and_tools(
+    _state: &AppState,
+    _chat_session_key: Option<&str>,
     _request_format: RequestFormat,
     _provider_name: &str,
     _model_name: &str,
     _base_url: &str,
-    _headers: Vec<LlmRoundLogHeader>,
-    _tools: Option<Value>,
-    _response: Option<Value>,
-    _error: Option<String>,
-    _elapsed_ms: u64,
-    _timeline: Option<Vec<LlmRoundLogStage>>,
-) {
-    // 已全量切换至调度事件：旧 pipelineLogs 不再写入，保留空实现以兼容历史调用点
-    let _ = _state;
-}
-
-fn latest_chat_round_headers_and_tools(
-    state: &AppState,
-    chat_session_key: Option<&str>,
-    request_format: RequestFormat,
-    provider_name: &str,
-    model_name: &str,
-    base_url: &str,
 ) -> (Vec<LlmRoundLogHeader>, Option<Value>) {
-    if let Some(group_key) = chat_session_key
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-    {
-        if let Ok(pending) = pending_chat_round_buffer().lock() {
-            if let Some(rounds) = pending.rounds_by_chat_session.get(group_key) {
-                if let Some(entry) = rounds.iter().rev().find(|entry| {
-                    entry.scene == "chat"
-                        && entry.request_format == request_format.as_str()
-                        && entry.provider == provider_name
-                        && entry.model == model_name
-                        && entry.base_url == base_url
-                }) {
-                    return (
-                        entry.headers.clone(),
-                        entry.tools.as_ref().and_then(compact_log_tools_value),
-                    );
-                }
-            }
-        }
-    }
-    let Ok(logs) = state.llm_round_logs.lock() else {
-        return (Vec::new(), None);
-    };
-    let Some(entry) = logs
-        .pipeline_logs
-        .iter()
-        .rev()
-        .flat_map(|entry| entry.rounds.iter().flatten().rev())
-        .find(|entry| {
-            entry.scene == "chat"
-                && entry.request_format == request_format.as_str()
-                && entry.provider == provider_name
-                && entry.model == model_name
-                && entry.base_url == base_url
-        })
-    else {
-        return (Vec::new(), None);
-    };
-    (
-        entry.headers.clone(),
-        entry.tools.as_ref().and_then(compact_log_tools_value),
-    )
+    // 已切换至调度事件：旧 pipeline 缓冲不再使用，直接返回空由调用方回退至 masked_auth
+    (Vec::new(), None)
 }
 
 #[tauri::command]
@@ -1247,7 +1024,7 @@ fn list_recent_llm_round_logs(state: State<'_, AppState>) -> Result<Vec<LlmRound
 }
 
 fn list_recent_llm_round_logs_inner(state: &AppState) -> Result<Vec<LlmRoundLogEntry>, String> {
-    // 已全量切换至调度事件聚合，原 RecentLlmRoundLogs 仅作兼容，真实数据来自 schedule_events
+    // 已全量切换至调度事件聚合，真实数据来自 schedule_events
     let capacity = llm_round_log_capacity_for_state(state);
     Ok(schedule_event_collect_llm_entries(state, capacity))
 }
@@ -1383,20 +1160,7 @@ fn get_recent_llm_round_log_section_inner(
         // 若仍未命中，直接返回 entry 的 section
         return Ok(llm_round_log_section_value(&entry, &section));
     }
-    // 兼容旧路径：若调度事件未命中，再查旧存储（过渡期）
-    let logs = state
-        .llm_round_logs
-        .lock()
-        .map_err(|_| "Failed to lock llm round logs".to_string())?;
-    Ok(logs
-        .pipeline_logs
-        .iter()
-        .rev()
-        .chain(logs.other_logs.iter().rev())
-        .find_map(|entry| {
-            find_llm_round_log_entry_by_id(entry, &id)
-                .and_then(|entry| llm_round_log_section_value(entry, &section))
-        }))
+    Ok(None)
 }
 
 #[tauri::command]
@@ -1407,14 +1171,6 @@ fn clear_recent_llm_round_logs(state: State<'_, AppState>) -> Result<bool, Strin
 fn clear_recent_llm_round_logs_inner(state: &AppState) -> Result<bool, String> {
     // 已切换至事件系统：清空调度事件即等价于清空 LogTab
     let _ = schedule_event_clear_all(state)?;
-    // 兼容清空旧存储，避免残留
-    if let Ok(mut logs) = state.llm_round_logs.lock() {
-        logs.pipeline_logs.clear();
-        logs.other_logs.clear();
-    }
-    if let Ok(mut pending) = pending_chat_round_buffer().lock() {
-        pending.rounds_by_chat_session.clear();
-    }
     Ok(true)
 }
 
@@ -1626,26 +1382,6 @@ fn dump_memory_cache_stats_inner(state: &AppState) -> Result<MemoryCacheStats, S
         .len();
     let terminal_live_sessions = state.terminal_live_sessions.blocking_lock().len();
 
-    let llm_round_logs = state
-        .llm_round_logs
-        .lock()
-        .map_err(|_| "Failed to lock llm round logs".to_string())?;
-    let llm_round_logs_count = recent_llm_round_logs_total_count(&llm_round_logs);
-    let llm_round_logs_estimated_json_bytes =
-        recent_llm_round_logs_estimated_json_bytes(&llm_round_logs);
-
-    let pending_chat_rounds = pending_chat_round_buffer()
-        .lock()
-        .map_err(|_| "Failed to lock pending chat rounds".to_string())?;
-    let pending_chat_round_sessions = pending_chat_rounds.rounds_by_chat_session.len();
-    let pending_chat_round_entries = pending_chat_rounds
-        .rounds_by_chat_session
-        .values()
-        .map(Vec::len)
-        .sum::<usize>();
-    let pending_chat_round_estimated_json_bytes =
-        estimate_json_bytes(&pending_chat_rounds.rounds_by_chat_session);
-
     let schedule_events = state
         .schedule_events
         .lock()
@@ -1839,11 +1575,6 @@ fn dump_memory_cache_stats_inner(state: &AppState) -> Result<MemoryCacheStats, S
         terminal_live_sessions,
         terminal_session_roots,
         terminal_pending_approvals,
-        llm_round_logs: llm_round_logs_count,
-        llm_round_logs_estimated_json_bytes,
-        pending_chat_round_sessions,
-        pending_chat_round_entries,
-        pending_chat_round_estimated_json_bytes,
         schedule_event_runs,
         schedule_event_events,
         schedule_event_estimated_json_bytes,

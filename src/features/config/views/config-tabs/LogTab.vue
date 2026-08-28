@@ -15,6 +15,7 @@
               class="btn btn-sm min-h-9 w-16 join-item"
               :class="props.config.llmRoundLogCapacity === option ? 'btn-primary' : 'bg-base-200'"
               type="button"
+              :disabled="capacitySaving"
               @click="setLogCapacity(option)"
             >
               {{ t("config.logs.times", { count: option }) }}
@@ -83,49 +84,41 @@
             </div>
           </div>
 
-          <div class="mt-4 grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
-            <MetricTile
+          <div class="stats stats-vertical sm:stats-horizontal w-full bg-base-200 shadow-sm mt-4">
+            <div
               v-for="metric in pipelineMetricCards(entry)"
               :key="metric.key"
-              :label="metric.label"
-              :value="metric.value"
-            />
+              class="stat place-items-center sm:place-items-start px-4 py-3 text-center sm:text-left"
+            >
+              <div class="stat-title text-xs opacity-70">{{ metric.label }}</div>
+              <div class="stat-value text-lg font-semibold leading-tight break-all">{{ metric.value }}</div>
+            </div>
           </div>
 
-          <UsageGrid
-            class="mt-3"
-            :metrics="usageMetricCards(pipelineUsage(entry))"
-            :empty-text="t('config.logs.noUsage')"
-          />
+          <div v-if="usageMetricCards(pipelineUsage(entry)).length" class="stats stats-vertical sm:stats-horizontal w-full bg-base-200 shadow-sm mt-3">
+            <div
+              v-for="metric in usageMetricCards(pipelineUsage(entry))"
+              :key="metric.key"
+              class="stat place-items-center sm:place-items-start px-3 py-2 text-center sm:text-left"
+            >
+              <div class="stat-title text-[11px] opacity-60">{{ metric.label }}</div>
+              <div class="stat-value text-base font-semibold">{{ metric.value }}</div>
+            </div>
+          </div>
+          <div v-else class="mt-3 rounded-box border border-dashed border-base-300 bg-base-100 px-4 py-3 text-sm opacity-60">
+            {{ t("config.logs.noUsage") }}
+          </div>
 
-          <div class="mt-4 grid gap-2">
+          <div v-if="entry.timeline?.length" class="mt-4">
             <details
-              v-if="entry.timeline?.length"
               class="collapse collapse-arrow rounded-lg border border-base-300 bg-base-200/70"
+              open
             >
               <summary class="collapse-title min-h-0 py-3 text-sm font-medium">
                 {{ t("config.logs.pipelineTimeline", { count: entry.timeline.length }) }}
               </summary>
               <div class="collapse-content">
                 <TimelineList :items="timelineItems(entry)" />
-              </div>
-            </details>
-
-            <details class="collapse collapse-arrow rounded-lg border border-base-300 bg-base-200/70">
-              <summary class="collapse-title min-h-0 py-3 text-sm font-medium">{{ t("config.logs.pipelineResponse") }}</summary>
-              <div class="collapse-content space-y-3">
-                <UsageGrid
-                  :metrics="usageMetricCards(pipelineUsage(entry))"
-                  :empty-text="t('config.logs.noUsage')"
-                />
-                <div class="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
-                  <MetricTile
-                    v-for="metric in pipelineResponseMetricCards(entry)"
-                    :key="metric.key"
-                    :label="metric.label"
-                    :value="metric.value"
-                  />
-                </div>
               </div>
             </details>
           </div>
@@ -184,11 +177,19 @@
               {{ entry.success ? t("common.success") : t("common.failed") }}
             </div>
           </div>
-          <UsageGrid
-            class="mt-3"
-            :metrics="usageMetricCards(roundUsage(entry))"
-            :empty-text="t('config.logs.noUsage')"
-          />
+          <div v-if="usageMetricCards(roundUsage(entry)).length" class="stats stats-vertical sm:stats-horizontal w-full bg-base-200 shadow-sm mt-3">
+            <div
+              v-for="metric in usageMetricCards(roundUsage(entry))"
+              :key="metric.key"
+              class="stat place-items-center sm:place-items-start px-3 py-2 text-center sm:text-left"
+            >
+              <div class="stat-title text-[11px] opacity-60">{{ metric.label }}</div>
+              <div class="stat-value text-base font-semibold">{{ metric.value }}</div>
+            </div>
+          </div>
+          <div v-else class="mt-3 rounded-box border border-dashed border-base-300 bg-base-100 px-4 py-3 text-sm opacity-60">
+            {{ t("config.logs.noUsage") }}
+          </div>
           <details
             v-if="entry.timeline?.length"
             class="collapse collapse-arrow mt-3 rounded-lg border border-base-300 bg-base-200/70"
@@ -330,6 +331,7 @@
 
 <script setup lang="ts">
 import { computed, defineComponent, h, onMounted, ref, shallowRef, type PropType } from "vue";
+import PipelineScheduleTimeline from "../../components/PipelineScheduleTimeline.vue";
 import { useI18n } from "vue-i18n";
 import { invokeTauri } from "../../../../services/tauri-api";
 import ConfigTemplate from "../../components/ConfigTemplate.vue";
@@ -393,31 +395,10 @@ const UsageGrid = defineComponent({
 const TimelineList = defineComponent({
   name: "TimelineList",
   props: {
-    items: { type: Array as PropType<TimelineItem[]>, required: true },
+    items: { type: Array as PropType<LlmRoundLogStage[]>, required: true },
   },
   setup(props) {
-    return () => h("ul", { class: "timeline timeline-vertical timeline-snap-icon max-md:timeline-compact" }, props.items.map((item, index) => {
-      const isFirst = index === 0;
-      const isLast = index === props.items.length - 1;
-      const isStart = index % 2 === 0;
-      const content = [
-        h("time", { class: "font-mono italic text-primary" }, item.total),
-        h("div", { class: "font-black" }, item.label),
-        `${t("config.logs.stages.stageElapsed")} +${item.delta}`,
-      ];
-      return h("li", { key: item.key }, [
-        isFirst ? null : h("hr"),
-        h("div", { class: "timeline-middle" },
-          h("svg", { xmlns: "http://www.w3.org/2000/svg", viewBox: "0 0 20 20", fill: "currentColor", class: "h-5 w-5 text-primary" },
-            h("path", { "fill-rule": "evenodd", d: "M10 18a8 8 0 100-16 8 8 0 000 16zm3.857-9.809a.75.75 0 00-1.214-.882l-3.483 4.79-1.88-1.88a.75.75 0 10-1.06 1.061l2.5 2.5a.75.75 0 001.137-.089l4-5.5z", "clip-rule": "evenodd" }),
-          ),
-        ),
-        isStart
-          ? h("div", { class: "timeline-start mb-10 md:text-end" }, content)
-          : h("div", { class: "timeline-end md:mb-10" }, content),
-        isLast ? null : h("hr"),
-      ]);
-    }));
+    return () => h(PipelineScheduleTimeline, { stages: props.items });
   },
 });
 
@@ -446,6 +427,7 @@ const props = defineProps<{
   openConversationList: () => void;
   openPromptPreview: () => void;
   openSystemPromptPreview: () => void;
+  saveConfigAction?: () => Promise<boolean> | boolean;
 }>();
 
 const { t, locale } = useI18n();
@@ -460,7 +442,9 @@ const templateGroups = computed<ConfigTemplateGroup[]>(() => [
 const loading = ref(false);
 const logs = shallowRef<LlmRoundLogEntry[]>([]);
 const logCapacityOptions = [1, 3, 10] as const;
-const actionButtonClass = "btn btn-sm min-h-9 w-24 bg-base-200";
+const actionButtonClass = "btn btn-sm min-h-9 shrink-0 whitespace-nowrap bg-base-200 px-4";
+const capacitySaving = ref(false);
+let capacitySaveToken = 0;
 const selectedRound = shallowRef<{
   pipeline: LlmRoundLogEntry;
   round: LlmRoundLogEntry;
@@ -536,10 +520,42 @@ const stageLabelKeys: Record<string, string> = {
   "assistant_message_persist_scheduled": "config.logs.stages.persistScheduled",
   "send_chat_message_inner.finish": "config.logs.stages.chatFinish",
   "model_round_total": "config.logs.stages.modelRoundTotal",
+  "dispatch_start": "config.logs.stages.dispatchStart",
+  "dispatch_end": "config.logs.stages.dispatchEnd",
+  "model_round_start": "config.logs.stages.modelRoundStart",
+  "model_round_end": "config.logs.stages.modelRoundEnd",
+  "tool_call": "config.logs.stages.toolCall",
+  "tool_result": "config.logs.stages.toolResult",
+  "compaction_start": "config.logs.stages.compactionStart",
+  "compaction_end": "config.logs.stages.compactionEnd",
 };
 
-function setLogCapacity(value: 1 | 3 | 10) {
+async function setLogCapacity(value: 1 | 3 | 10) {
+  if (props.config.llmRoundLogCapacity === value) return;
+  if (capacitySaving.value) return;
+  const token = ++capacitySaveToken;
+  const requested = value;
+  const prev = props.config.llmRoundLogCapacity;
   props.config.llmRoundLogCapacity = value;
+  capacitySaving.value = true;
+  if (!props.saveConfigAction) {
+    if (token === capacitySaveToken) capacitySaving.value = false;
+    return;
+  }
+  try {
+    const saved = await Promise.resolve(props.saveConfigAction());
+    if (!saved) {
+      if (token === capacitySaveToken && props.config.llmRoundLogCapacity === requested) {
+        props.config.llmRoundLogCapacity = prev;
+      }
+    }
+  } catch {
+    if (token === capacitySaveToken && props.config.llmRoundLogCapacity === requested) {
+      props.config.llmRoundLogCapacity = prev;
+    }
+  } finally {
+    if (token === capacitySaveToken) capacitySaving.value = false;
+  }
 }
 
 function asRecord(value: unknown): UnknownRecord | null {
@@ -608,28 +624,28 @@ function stageLabel(stage: string): string {
   return key ? t(key) : stage;
 }
 
-function timelineItems(entry: LlmRoundLogEntry): TimelineItem[] {
-  return (entry.timeline ?? []).map((item: LlmRoundLogStage, index) => ({
-    key: `${index}:${item.stage}:${item.elapsedMs}`,
-    label: stageLabel(item.stage),
-    timeDisplay: `${formatTimeDelta(item.elapsedMs)}（+${formatTimeDelta(item.sincePrevMs)}）`,
-    delta: formatTimeDelta(item.sincePrevMs),
-    total: formatTimeDelta(item.elapsedMs),
-  }));
+function timelineItems(entry: LlmRoundLogEntry): LlmRoundLogStage[] {
+  return entry.timeline ?? [];
 }
 
-function topSlowStages(entry: LlmRoundLogEntry) {
-  return [...(entry.timeline ?? [])]
-    .sort((a, b) => b.sincePrevMs - a.sincePrevMs)
-    .slice(0, 3);
+function slowestStage(entry: LlmRoundLogEntry): LlmRoundLogStage | null {
+  const timeline = entry.timeline ?? [];
+  if (timeline.length === 0) return null;
+  let best = timeline[0] as LlmRoundLogStage;
+  for (let i = 1; i < timeline.length; i += 1) {
+    const cur = timeline[i] as LlmRoundLogStage;
+    if ((cur.sincePrevMs ?? 0) > (best.sincePrevMs ?? 0)) best = cur;
+  }
+  return best;
 }
 
 function pipelineMetricCards(entry: LlmRoundLogEntry): Metric[] {
+  const slow = slowestStage(entry);
   return [
     { key: "elapsed", label: t("config.logs.totalElapsed"), value: msText(entry.elapsedMs) },
     { key: "rounds", label: t("config.logs.modelRounds"), value: numberText(entry.roundCount ?? entry.rounds?.length ?? 0) },
     { key: "tools", label: t("config.logs.toolCalls"), value: numberText(entry.toolCallCount ?? totalToolCallsForRounds(entry.rounds)) },
-    { key: "slow", label: t("config.logs.slowestStage"), value: topSlowStages(entry).map((item) => `${stageLabel(item.stage)} ${msText(item.sincePrevMs)}`).join(" / ") || "-" },
+    { key: "slow", label: t("config.logs.slowestStage"), value: slow ? `${stageLabel(slow.stage)} ${msText(slow.sincePrevMs)}` : "-" },
   ];
 }
 

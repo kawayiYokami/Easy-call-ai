@@ -217,6 +217,7 @@
             :open-conversation-list="() => $emit('openConversationList')"
             :open-prompt-preview="() => $emit('openPromptPreview')"
             :open-system-prompt-preview="() => $emit('openSystemPromptPreview')"
+            :save-config-action="saveConfigAction"
           />
 
           <AppearanceTab

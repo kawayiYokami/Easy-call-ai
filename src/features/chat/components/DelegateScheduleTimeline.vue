@@ -160,27 +160,15 @@ function syncCollapsedState() {
   const next = new Set(collapsedIds.value);
   const isFirstLoad = previousAllIds.size === 0 && collapsedIds.value.size === 0;
   if (isFirstLoad) {
-    for (const id of currentAll) {
-      if (currentLast.has(id)) next.delete(id);
-      else next.add(id);
-    }
+    for (const id of currentAll) next.add(id);
     collapsedIds.value = next;
     previousAllIds = currentAll;
     previousLastIds = currentLast;
     return;
   }
   for (const id of currentAll) {
-    const isLast = currentLast.has(id);
     const isNew = !previousAllIds.has(id);
-    const wasLast = previousLastIds.has(id);
-    if (isNew) {
-      if (isLast) next.delete(id);
-      else next.add(id);
-    } else if (wasLast && !isLast) {
-      next.add(id);
-    } else if (!wasLast && isLast) {
-      next.delete(id);
-    }
+    if (isNew) next.add(id);
   }
   for (const id of Array.from(next)) {
     if (!currentAll.has(id)) next.delete(id);

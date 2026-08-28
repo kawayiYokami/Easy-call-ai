@@ -24,13 +24,6 @@ struct IdeContextSnapshot {
     updated_at: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-#[serde(rename_all = "camelCase")]
-struct RecentLlmRoundLogs {
-    pipeline_logs: std::collections::VecDeque<LlmRoundLogEntry>,
-    other_logs: std::collections::VecDeque<LlmRoundLogEntry>,
-}
-
 #[derive(Clone)]
 struct AppState {
     app_handle: Arc<Mutex<Option<AppHandle>>>,
@@ -74,7 +67,6 @@ struct AppState {
     >,
     terminal_pending_approvals:
         Arc<Mutex<std::collections::HashMap<String, PendingTerminalApprovalRequest>>>,
-    llm_round_logs: Arc<Mutex<RecentLlmRoundLogs>>,
     schedule_events: Arc<Mutex<ScheduleEventStore>>,
     conversation_runtime_slots:
         Arc<Mutex<std::collections::HashMap<String, ConversationRuntimeSlot>>>,
@@ -316,7 +308,6 @@ impl AppState {
                 std::collections::HashMap::new(),
             )),
             terminal_pending_approvals: Arc::new(Mutex::new(std::collections::HashMap::new())),
-            llm_round_logs: Arc::new(Mutex::new(RecentLlmRoundLogs::default())),
             schedule_events: Arc::new(Mutex::new(ScheduleEventStore::default())),
             conversation_runtime_slots: Arc::new(Mutex::new(std::collections::HashMap::new())),
             conversation_processing_claims: Arc::new(Mutex::new(std::collections::HashSet::new())),
