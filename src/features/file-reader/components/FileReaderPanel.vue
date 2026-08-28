@@ -446,7 +446,7 @@
                     :data-file-block-key="entry.block.key"
                     :data-start-line="entry.block.startLine"
                     :data-end-line="entry.block.endLine"
-                    :ref="measureVirtualCodeRow"
+                    :ref="handleMeasureVirtualCodeRow"
                     class="file-reader-code-virtual-row"
                     :style="{
                       top: `${entry.row.start}px`,
@@ -956,6 +956,8 @@ let directoryTreeResizePreviousBodyCursor = "";
 let directoryTreeResizePreviousBodyUserSelect = "";
 let fileReaderLayoutResizeObserver: ResizeObserver | null = null;
 let directoryTreeResizeMoved = false;
+let directoryTreeResizeRaf = 0;
+let pendingDirectoryTreeResizeWidth: number | null = null;
 
 // ==================== Computed ====================
 
@@ -985,7 +987,7 @@ const {
   resetVirtualCodeCaches,
   migrateVirtualCodeCaches,
   collectVirtualizedVisibleContent,
-  measureVirtualCodeRow,
+  measureVirtualCodeRow: rawMeasureVirtualCodeRow,
   remeasureVirtualCodeRows,
 } = useFileReaderVirtualCode({
   activeTab,
@@ -994,6 +996,13 @@ const {
   isRawMode: isTabRawMode,
   requestFileBlock: requestFileReaderFileBlock,
 });
+
+function handleMeasureVirtualCodeRow(element: Element | { $el?: Element } | null) {
+  // 拖拽侧栏时暂停测量：每个 pointermove 都会改变内容区宽度，触发所有可见虚拟块 getBoundingClientRect → 强制布局，是卡顿主因
+  // 非换行模式下块高度固定（120*21px），拖拽期间完全可跳过；换行模式结束后会补量一次
+  if (activeDirectoryTreeResize.value) return;
+  rawMeasureVirtualCodeRow(element);
+}
 const {
   fileReaderLineWrapEnabled,
   toggleFileReaderLineWrapEnabled,
@@ -1249,6 +1258,11 @@ function startDirectoryTreeResize(event: PointerEvent) {
   directoryTreeResizeStartX = event.clientX;
   directoryTreeResizeStartWidth = effectiveDirectoryTreeWidth.value;
   directoryTreeResizeMoved = false;
+  pendingDirectoryTreeResizeWidth = null;
+  if (directoryTreeResizeRaf) {
+    window.cancelAnimationFrame(directoryTreeResizeRaf);
+    directoryTreeResizeRaf = 0;
+  }
   directoryTreeResizePointerId = Number.isFinite(event.pointerId) ? event.pointerId : null;
   directoryTreeResizeHandle = event.currentTarget instanceof HTMLElement ? event.currentTarget : null;
   directoryTreeResizeHandle?.setPointerCapture?.(event.pointerId);
@@ -1267,7 +1281,17 @@ function handleDirectoryTreeResizeMove(event: PointerEvent) {
     directoryTreeResizeMoved = true;
   }
   const delta = directoryOnly.value ? 0 : directoryTreeResizeStartX - event.clientX;
-  setDirectoryTreeWidth(directoryTreeResizeStartWidth + delta);
+  const targetWidth = clampDirectoryTreeWidth(directoryTreeResizeStartWidth + delta);
+  // rAF 节流：拖拽时每帧最多提交一次宽度，避免 pointermove 高频触发 Vue 响应式 + Virtualizer 全量 getBoundingClientRect
+  pendingDirectoryTreeResizeWidth = targetWidth;
+  if (directoryTreeResizeRaf) return;
+  directoryTreeResizeRaf = window.requestAnimationFrame(() => {
+    directoryTreeResizeRaf = 0;
+    if (pendingDirectoryTreeResizeWidth === null) return;
+    const nextWidth = pendingDirectoryTreeResizeWidth;
+    pendingDirectoryTreeResizeWidth = null;
+    directoryTreeWidth.value = nextWidth;
+  });
 }
 
 function shouldCollapseDirectoryTreeFromClientX(clientX: number): boolean {
@@ -1295,12 +1319,25 @@ function stopDirectoryTreeResize(event?: PointerEvent) {
   }
   directoryTreeResizeHandle = null;
   directoryTreeResizePointerId = null;
+  // 拖拽结束：刷掉 rAF 队列中未提交的宽度，避免丢最后一帧
+  if (directoryTreeResizeRaf) {
+    window.cancelAnimationFrame(directoryTreeResizeRaf);
+    directoryTreeResizeRaf = 0;
+  }
+  if (pendingDirectoryTreeResizeWidth !== null) {
+    directoryTreeWidth.value = pendingDirectoryTreeResizeWidth;
+    pendingDirectoryTreeResizeWidth = null;
+  }
   activeDirectoryTreeResize.value = false;
   if (shouldCollapse) {
     directoryTreeWidth.value = restoreWidthOnCollapse;
     closeDirectoryTree();
   } else {
     persistFileReaderSession();
+    // 拖拽期间暂停了 Virtualizer 测量（见 handleMeasureVirtualCodeRow），仅在换行模式下高度会随宽度变化，结束后再补量一次
+    if (fileReaderLineWrapEnabled.value) {
+      void nextTick(() => remeasureVirtualCodeRows());
+    }
   }
   directoryTreeResizeMoved = false;
 }
@@ -3037,6 +3074,7 @@ onMounted(async () => {
   measureFileReaderLayoutWidth();
   if (typeof ResizeObserver !== "undefined" && fileReaderLayoutRoot.value) {
     fileReaderLayoutResizeObserver = new ResizeObserver(() => {
+      if (activeDirectoryTreeResize.value) return;
       measureFileReaderLayoutWidth();
       setDirectoryTreeWidth(directoryTreeWidth.value);
     });
@@ -3064,6 +3102,11 @@ onMounted(async () => {
 
 onBeforeUnmount(() => {
   emit("clearContextReferences");
+  if (directoryTreeResizeRaf) {
+    window.cancelAnimationFrame(directoryTreeResizeRaf);
+    directoryTreeResizeRaf = 0;
+  }
+  pendingDirectoryTreeResizeWidth = null;
   window.removeEventListener("resize", updateAddressScrollState);
   window.removeEventListener("pointerdown", handleGlobalPointerDown);
   window.removeEventListener("keydown", handleGlobalEscape);
