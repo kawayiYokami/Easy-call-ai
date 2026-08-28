@@ -1778,6 +1778,19 @@ function readFileReaderSessionState(key = props.sessionKey): FileReaderSessionSt
   }
 }
 
+function hasStoredFileReaderSession(key = props.sessionKey): boolean {
+  const storageKey = String(key || "").trim();
+  if (!storageKey || typeof window === "undefined") return false;
+  try {
+    if (window.localStorage.getItem(storageKey) !== null) return true;
+    const legacyStorageKey = String(props.legacySessionKey || "").trim();
+    if (legacyStorageKey && window.localStorage.getItem(legacyStorageKey) !== null) return true;
+  } catch {
+    return false;
+  }
+  return false;
+}
+
 function persistFileReaderSession(key = props.sessionKey) {
   if (suppressSessionPersist) return;
   const storageKey = String(key || "").trim();
@@ -1860,7 +1873,11 @@ async function restoreFileReaderSession(key = props.sessionKey, fallbackRootPath
     }
 
     // 没有打开任何文件：自动展开目录（优先上次目录，否则工作区根）
-    const rootToOpen = restoredDirectoryRoot || initialRoot;
+    // 修复：切换会话后"侧边栏是否打开"丢失 —— 之前无论是否存过会话，无文件时都会 fallback 到 initialRoot，导致"已关闭"被改写为"已打开"
+    // 现在区分"首次打开该会话（无存储）"与"已存储且显式关闭（directoryRootPath==''）"，后者保持关闭
+    const hasStoredSession = hasStoredFileReaderSession(storageKey);
+    const hasStoredDirectoryPreference = hasStoredSession && Object.prototype.hasOwnProperty.call(state, "directoryRootPath");
+    const rootToOpen = restoredDirectoryRoot || (hasStoredDirectoryPreference ? "" : initialRoot);
     if (rootToOpen) {
       directoryRootPath.value = rootToOpen;
       // 项目根锚点始终是工作区根，不能跟随恢复的旧目录根
