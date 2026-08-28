@@ -3291,10 +3291,10 @@ defineExpose({
   user-select: none;
 }
 .file-reader-code-virtual-gutter-raw {
-  background: color-mix(in srgb, var(--color-base-200) 60%, transparent);
+  background: color-mix(in srgb, var(--color-base-200) 60%, var(--color-base-100));
 }
 .file-reader-code-virtual-gutter-shiki {
-  background: color-mix(in srgb, var(--color-base-200) 60%, transparent);
+  background: color-mix(in srgb, var(--color-base-200) 60%, var(--color-base-100));
 }
 .file-reader-code-virtual-line-content {
   display: block;
