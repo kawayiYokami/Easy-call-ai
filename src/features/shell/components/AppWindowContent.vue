@@ -23,7 +23,6 @@
       :generated-dark-tokens="generatedDarkTokens"
       :ui-size-scale="config.uiSizeScale ?? 100"
       :selected-api-config="selectedApiConfig"
-      :tool-api-config="toolApiConfig"
       :base-url-reference="baseUrlReference"
       :refreshing-models="refreshingModels"
       :model-options="selectedModelOptions"
@@ -89,8 +88,6 @@
       @update-generated-theme-controls="updateGeneratedThemeControls"
       @reset-generated-theme="resetGeneratedTheme"
       @refresh-models="refreshModels"
-      @tool-switch-changed="onToolsChanged"
-      @save-api-config="saveConfig"
       @add-api-config="addApiConfig"
       @remove-selected-api-config="removeSelectedApiConfig"
       @add-persona="addPersona"
@@ -572,7 +569,7 @@ const props = defineProps<{
   chatRightPanelMode: ChatRightPanelMode;
   chatMonitorPanelMode: ChatMonitorPanelMode;
   config: AppConfig;
-  configTab: "welcome" | "hotkey" | "api" | "tools" | "mcp" | "skill" | "persona" | "department" | "departmentTree" | "demo" | "chatSettings" | "notification" | "networkAccess" | "remoteIm" | "usage" | "memory" | "task" | "logs" | "appearance" | "migration" | "about";
+  configTab: "welcome" | "hotkey" | "api" | "mcp" | "skill" | "persona" | "department" | "departmentTree" | "demo" | "chatSettings" | "notification" | "networkAccess" | "remoteIm" | "usage" | "memory" | "task" | "logs" | "appearance" | "migration" | "about";
   localeOptions: Array<{ value: "zh-CN" | "en-US" | "zh-TW"; label: string }>;
   currentTheme: string;
   themeMode: ThemeModeKind;
@@ -583,7 +580,6 @@ const props = defineProps<{
   generatedLightTokens: GeneratedThemeTokens;
   generatedDarkTokens: GeneratedThemeTokens;
   selectedApiConfig: ApiConfigItem | null;
-  toolApiConfig: ApiConfigItem | null;
   baseUrlReference: string;
   refreshingModels: boolean;
   selectedModelOptions: string[];
@@ -762,7 +758,7 @@ const props = defineProps<{
   selectPromptPreviewConversation: (conversationId: string) => void;
   setMemoryDialogRef: (el: Element | null) => void;
   setPromptPreviewDialogRef: (el: Element | null) => void;
-  updateConfigTab: (value: "hotkey" | "api" | "tools" | "mcp" | "skill" | "persona" | "department" | "departmentTree" | "demo" | "chatSettings" | "notification" | "networkAccess" | "remoteIm" | "memory" | "task" | "logs" | "appearance" | "about") => void;
+  updateConfigTab: (value: "hotkey" | "api" | "mcp" | "skill" | "persona" | "department" | "departmentTree" | "demo" | "chatSettings" | "notification" | "networkAccess" | "remoteIm" | "memory" | "task" | "logs" | "appearance" | "about") => void;
   setUiLanguage: (value: string) => void;
   updatePersonaEditorId: (value: string) => void;
   updateSelectedPersonaId: (value: string) => void;

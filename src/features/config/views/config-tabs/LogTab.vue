@@ -39,7 +39,7 @@
           </button>
         </div>
 
-        <div class="grid grid-cols-3 gap-2 border-t border-base-200 pt-4">
+        <div class="grid grid-cols-4 gap-2 border-t border-base-200 pt-4">
           <button class="btn btn-sm w-full bg-base-200" @click="props.openConversationList">
             {{ t("config.chatSettings.openConversationList") }}
           </button>
@@ -48,6 +48,9 @@
           </button>
           <button class="btn btn-sm w-full bg-base-200" @click="props.openSystemPromptPreview">
             {{ t("config.chatSettings.previewSystemPrompt") }}
+          </button>
+          <button class="btn btn-sm w-full bg-base-200" @click="openBuiltinToolCatalog">
+            {{ t("config.logs.builtinToolCatalog") }}
           </button>
         </div>
       </div>
@@ -327,6 +330,47 @@
         <button @click="closeRound">close</button>
       </form>
     </dialog>
+
+    <dialog ref="builtinToolCatalogDialog" class="modal">
+      <div class="modal-box max-w-2xl p-4">
+        <h3 class="text-sm font-semibold">{{ t("config.logs.builtinToolCatalogTitle") }}</h3>
+        <div v-if="builtinToolDefinitions.length" class="mt-2 divide-y divide-base-300/60">
+          <div
+            v-for="item in builtinToolDefinitions"
+            :key="item.function.name"
+            class="py-3"
+          >
+            <div class="min-w-0">
+              <div class="font-medium">{{ item.function.name }}</div>
+              <div class="text-xs opacity-60 whitespace-pre-wrap">{{ item.function.description || t("config.mcpToolList.noDescription") }}</div>
+              <div v-if="toolParameterSummary(item.function.name).length" class="mt-1 flex flex-wrap gap-1">
+                <span
+                  v-for="paramText in toolParameterSummary(item.function.name)"
+                  :key="`${item.function.name}-param-${paramText}`"
+                  class="text-caption px-1.5 py-0.5 rounded bg-base-200 border border-base-300/70 opacity-80"
+                >
+                  {{ paramText }}
+                </span>
+              </div>
+              <div v-if="toolParameterExamples(item.function.name).length" class="mt-1 grid gap-1">
+                <pre
+                  v-for="example in toolParameterExamples(item.function.name)"
+                  :key="`${item.function.name}-example-${example}`"
+                  class="text-caption leading-4 px-2 py-1 rounded bg-base-200 border border-base-300/70 opacity-90 whitespace-pre-wrap overflow-x-auto"
+                >{{ example }}</pre>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div v-else class="py-6 text-center text-sm opacity-50">{{ builtinToolCatalogLoading ? t("common.loading") : t("config.mcpToolList.empty") }}</div>
+        <div class="modal-action mt-4">
+          <button class="btn btn-sm" type="button" @click="closeBuiltinToolCatalog">{{ t("common.close") }}</button>
+        </div>
+      </div>
+      <form method="dialog" class="modal-backdrop">
+        <button @click="closeBuiltinToolCatalog">close</button>
+      </form>
+    </dialog>
 </template>
 
 <script setup lang="ts">
@@ -336,7 +380,7 @@ import { useI18n } from "vue-i18n";
 import { invokeTauri } from "../../../../services/tauri-api";
 import ConfigTemplate from "../../components/ConfigTemplate.vue";
 import type { ConfigTemplateGroup } from "../../components/config-template";
-import type { AppConfig, LlmRoundLogEntry, LlmRoundLogStage } from "../../../../types/app";
+import type { AppConfig, FrontendToolDefinition, LlmRoundLogEntry, LlmRoundLogStage } from "../../../../types/app";
 import { toErrorMessage } from "../../../../utils/error";
 
 type Metric = {
@@ -988,6 +1032,174 @@ async function clearAll() {
   } finally {
     loading.value = false;
   }
+}
+
+// ========== 内置工具清单（list_tool_catalog 只读展示） ==========
+
+const builtinToolCatalogDialog = ref<HTMLDialogElement | null>(null);
+const builtinToolCatalogLoading = ref(false);
+const builtinToolDefinitions = ref<FrontendToolDefinition[]>([]);
+
+async function openBuiltinToolCatalog() {
+  const dialog = builtinToolCatalogDialog.value;
+  if (!dialog) return;
+  dialog.showModal();
+  if (builtinToolDefinitions.value.length > 0) return;
+  builtinToolCatalogLoading.value = true;
+  try {
+    const list = await invokeTauri<FrontendToolDefinition[]>("list_tool_catalog");
+    builtinToolDefinitions.value = Array.isArray(list) ? list : [];
+  } catch {
+    builtinToolDefinitions.value = [];
+  } finally {
+    builtinToolCatalogLoading.value = false;
+  }
+}
+
+function closeBuiltinToolCatalog() {
+  builtinToolCatalogDialog.value?.close();
+}
+
+type ToolSchemaShape = Record<string, unknown>;
+
+function asToolSchemaShape(value: unknown): ToolSchemaShape {
+  return value && typeof value === "object" ? (value as ToolSchemaShape) : {};
+}
+
+function toolSchemaTypeText(shape: ToolSchemaShape): string {
+  if (shape.const !== undefined && shape.const !== null) {
+    return String(shape.const);
+  }
+  const typeValue = shape.type;
+  if (Array.isArray(shape.type)) {
+    return shape.type.map(String).join(" | ");
+  }
+  return String(typeValue || "any");
+}
+
+function toolSchemaSummaryLine(name: string, shape: ToolSchemaShape, required: boolean): string {
+  const requiredText = required ? "*" : "";
+  const enumValues = Array.isArray(shape.enum) ? ` [${shape.enum.map(String).join(", ")}]` : "";
+  const minText = shape.minimum !== undefined ? ` >= ${shape.minimum}` : "";
+  const maxText = shape.maximum !== undefined ? ` <= ${shape.maximum}` : "";
+  const rangeText = `${enumValues}${minText}${maxText}`.trim();
+  const descriptionText = typeof shape.description === "string" ? shape.description.trim() : "";
+  return `${requiredText}${name}: ${toolSchemaTypeText(shape)}${rangeText ? ` ${rangeText}` : ""}${descriptionText ? ` - ${descriptionText}` : ""}`;
+}
+
+function collectToolSchemaSummaryLines(
+  properties: ToolSchemaShape,
+  requiredRaw: string[],
+  prefix = "",
+): string[] {
+  const lines = new Set<string>();
+  for (const [name, schema] of Object.entries(properties)) {
+    const shape = asToolSchemaShape(schema);
+    const path = prefix ? `${prefix}.${name}` : name;
+    lines.add(toolSchemaSummaryLine(path, shape, requiredRaw.includes(name)));
+
+    const nestedPropertiesRaw = shape.properties;
+    if (nestedPropertiesRaw && typeof nestedPropertiesRaw === "object") {
+      const nestedRequired = Array.isArray(shape.required) ? shape.required : [];
+      collectToolSchemaSummaryLines(
+        nestedPropertiesRaw as ToolSchemaShape,
+        nestedRequired.map(String),
+        path,
+      ).forEach((line) => lines.add(line));
+    }
+
+    const itemsShape = asToolSchemaShape(shape.items);
+    if (itemsShape.properties && typeof itemsShape.properties === "object") {
+      collectToolSchemaSummaryLines(
+        itemsShape.properties as ToolSchemaShape,
+        Array.isArray(itemsShape.required) ? itemsShape.required.map(String) : [],
+        `${path}[]`,
+      ).forEach((line) => lines.add(line));
+    }
+  }
+  return Array.from(lines);
+}
+
+function formatSchemaExample(value: unknown): string {
+  if (typeof value === "string") {
+    return value.trim();
+  }
+  try {
+    return JSON.stringify(value, null, 2);
+  } catch {
+    return String(value);
+  }
+}
+
+function collectToolSchemaExamples(
+  properties: ToolSchemaShape,
+  prefix = "",
+): string[] {
+  const examples: string[] = [];
+  for (const [name, schema] of Object.entries(properties)) {
+    const shape = asToolSchemaShape(schema);
+    const path = prefix ? `${prefix}.${name}` : name;
+    if (shape.examples !== undefined) {
+      examples.push(`${path}: ${formatSchemaExample(shape.examples)}`);
+    } else if (shape.default !== undefined) {
+      examples.push(`${path}: ${formatSchemaExample(shape.default)}`);
+    }
+
+    const nestedPropertiesRaw = shape.properties;
+    if (nestedPropertiesRaw && typeof nestedPropertiesRaw === "object") {
+      examples.push(...collectToolSchemaExamples(nestedPropertiesRaw as ToolSchemaShape, path));
+    }
+
+    const itemsShape = asToolSchemaShape(shape.items);
+    if (itemsShape.properties && typeof itemsShape.properties === "object") {
+      examples.push(...collectToolSchemaExamples(itemsShape.properties as ToolSchemaShape, `${path}[]`));
+    }
+  }
+  return examples;
+}
+
+function toolParameterSummary(id: string): string[] {
+  const definition = builtinToolDefinitions.value.find((item) => item.function?.name === id);
+  const parameters = definition?.function?.parameters;
+  if (!parameters || typeof parameters !== "object") return [];
+  const root = parameters as Record<string, unknown>;
+  const branches = Array.isArray(root.oneOf) ? root.oneOf : [];
+  if (branches.length) {
+    return Array.from(new Set(
+      branches.flatMap((branch) => {
+        const shape = asToolSchemaShape(branch);
+        const propertiesRaw = shape.properties;
+        const requiredRaw = Array.isArray(shape.required) ? shape.required.map(String) : [];
+        if (!propertiesRaw || typeof propertiesRaw !== "object") return [];
+        return collectToolSchemaSummaryLines(propertiesRaw as ToolSchemaShape, requiredRaw);
+      }),
+    ));
+  }
+  const propertiesRaw = root.properties;
+  const requiredRaw = Array.isArray(root.required) ? root.required.map(String) : [];
+  if (!propertiesRaw || typeof propertiesRaw !== "object") return [];
+  return collectToolSchemaSummaryLines(propertiesRaw as ToolSchemaShape, requiredRaw);
+}
+
+function toolParameterExamples(id: string): string[] {
+  const definition = builtinToolDefinitions.value.find((item) => item.function?.name === id);
+  const parameters = definition?.function?.parameters;
+  if (!parameters || typeof parameters !== "object") return [];
+  const root = parameters as Record<string, unknown>;
+  const branches = Array.isArray(root.oneOf) ? root.oneOf : [];
+  if (branches.length) {
+    return Array.from(new Set(
+      branches.flatMap((branch) => {
+        const shape = asToolSchemaShape(branch);
+        const propertiesRaw = shape.properties;
+        if (!propertiesRaw || typeof propertiesRaw !== "object") return [];
+        return collectToolSchemaExamples(propertiesRaw as ToolSchemaShape);
+      }),
+    ));
+  }
+  const propertiesRaw = root.properties;
+  if (!propertiesRaw || typeof propertiesRaw !== "object") return [];
+  return Array.from(new Set(collectToolSchemaExamples(propertiesRaw as ToolSchemaShape)));
 }
 
 onMounted(() => {

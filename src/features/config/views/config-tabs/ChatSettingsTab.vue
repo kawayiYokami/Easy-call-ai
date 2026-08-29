@@ -122,6 +122,29 @@
       </div>
     </template>
 
+    <template #row-assistant-space-dir>
+      <div class="grid min-w-0 gap-2">
+        <div class="text-sm">{{ t("config.chatSettings.assistantSpaceDirTitle") }}</div>
+        <div class="flex items-center gap-2">
+          <code
+            class="min-w-0 flex-1 truncate rounded bg-base-200 px-2 py-1 font-mono text-xs"
+            :class="{ 'opacity-50': !assistantSpacePath }"
+          >{{ assistantSpacePath || t("config.chatSettings.assistantSpaceDirEmpty") }}</code>
+          <button
+            class="btn btn-sm shrink-0"
+            type="button"
+            :disabled="!localFileSystemAvailable || !assistantSpacePath"
+            @click="pickAssistantSpaceDir"
+          >
+            {{ t("config.chatSettings.assistantSpaceDirModify") }}
+          </button>
+        </div>
+        <div v-if="assistantSpaceStatus" class="text-xs" :class="assistantSpaceStatusError ? 'text-error' : 'opacity-70'">
+          {{ assistantSpaceStatus }}
+        </div>
+      </div>
+    </template>
+
     <template #row-desktop-operate>
       <div class="flex min-w-0 items-center justify-between gap-4">
         <div class="min-w-0">
@@ -168,6 +191,58 @@
     </template>
 
   </ConfigTemplate>
+
+  <dialog ref="migrateWorkspaceDialog" class="modal">
+    <div class="modal-box max-w-lg p-4">
+      <h3 class="text-sm font-semibold">{{ t("config.tools.migrateWorkspaceTitle") }}</h3>
+      <p v-if="workspaceMigrationUi.mode === 'confirm'" class="mt-3 text-sm whitespace-pre-wrap">
+        {{ t("config.tools.migrateWorkspaceConfirm", { oldPath: pendingWorkspaceMigration.oldPath, newPath: pendingWorkspaceMigration.newPath }) }}
+      </p>
+      <div v-else class="mt-3 grid gap-3">
+        <div class="text-sm">{{ workspaceMigrationUi.message || t("config.tools.migrateWorkspacePreparing") }}</div>
+        <progress class="progress progress-primary w-full" :value="workspaceMigrationProgressValue" max="100"></progress>
+        <div class="flex items-center justify-between text-xs opacity-70">
+          <span>{{ workspaceMigrationStageLabel }}</span>
+          <span>{{ workspaceMigrationUi.processed }}/{{ workspaceMigrationUi.total }}</span>
+        </div>
+        <div v-if="workspaceMigrationUi.currentPath" class="text-xs font-mono break-all opacity-70">
+          {{ workspaceMigrationUi.currentPath }}
+        </div>
+        <div v-if="workspaceMigrationUi.error" class="rounded bg-error/10 px-3 py-2 text-sm text-error whitespace-pre-wrap break-all">
+          {{ workspaceMigrationUi.error }}
+        </div>
+      </div>
+      <div class="modal-action mt-4">
+        <button
+          class="btn btn-sm btn-ghost"
+          type="button"
+          :disabled="workspaceMigrationUi.mode === 'running'"
+          @click="cancelWorkspaceMigration"
+        >
+          {{ workspaceMigrationUi.mode === 'error' ? t("common.close") : t("common.cancel") }}
+        </button>
+        <button
+          v-if="workspaceMigrationUi.mode === 'confirm'"
+          class="btn btn-sm btn-outline"
+          type="button"
+          @click="skipWorkspaceMigration"
+        >
+          {{ t("config.tools.migrateWorkspaceSkip") }}
+        </button>
+        <button
+          v-if="workspaceMigrationUi.mode === 'confirm'"
+          class="btn btn-sm btn-primary"
+          type="button"
+          @click="confirmWorkspaceMigration"
+        >
+          {{ t("common.confirm") }}
+        </button>
+      </div>
+    </div>
+    <form method="dialog" class="modal-backdrop">
+      <button aria-label="close" @click="cancelWorkspaceMigration">close</button>
+    </form>
+  </dialog>
 </template>
 
 <script setup lang="ts">
@@ -179,7 +254,15 @@ import ConfigTemplate from "../../components/ConfigTemplate.vue";
 import type { ConfigTemplateGroup } from "../../components/config-template";
 import ApiConfigPicker from "../../components/ApiConfigPicker.vue";
 import type { AppConfig, ApiConfigItem, ChatSettingsPatch, ConversationApiSettingsPatch, PromptCommandPreset, ResponseStyleOption, ToolLoadStatus } from "../../../../types/app";
-import { invokeTauri, openTransportExternalUrl } from "../../../../services/tauri-api";
+import {
+  getTransportCapabilities,
+  invokeTauri,
+  migrateTransportShellWorkspaceDirectory,
+  onTransportNotification,
+  openTransportExternalUrl,
+  openTransportFileDialog,
+} from "../../../../services/tauri-api";
+import { toErrorMessage } from "../../../../utils/error";
 import { deriveImageGenerationModelOptions } from "../../utils/image-generation-config";
 
 type TerminalShellCandidate = {
@@ -217,6 +300,178 @@ const terminalShellOptions = ref<TerminalShellCandidate[]>([]);
 const GIT_DOWNLOAD_URL = "https://git-scm.com/downloads";
 const isWindowsHost = typeof navigator !== "undefined" && /windows/i.test(String(navigator.userAgent || ""));
 const terminalShellKindValue = computed(() => String(props.config.terminalShellKind || "auto"));
+
+// ========== 助理空间目录（shellWorkspaces system 级条目） ==========
+
+const localFileSystemAvailable = getTransportCapabilities().localFileSystem;
+const assistantSpaceStatus = ref("");
+const assistantSpaceStatusError = ref(false);
+
+type WorkspaceMigrationDecision = "migrate" | "skip" | "cancel";
+const migrateWorkspaceDialog = ref<HTMLDialogElement | null>(null);
+const pendingWorkspaceMigration = ref({ oldPath: "", newPath: "" });
+const workspaceMigrationUi = ref({
+  taskId: "",
+  mode: "confirm" as "confirm" | "running" | "error",
+  stage: "idle",
+  message: "",
+  processed: 0,
+  total: 0,
+  currentPath: "",
+  error: "",
+});
+let resolveWorkspaceMigrationConfirm: ((value: WorkspaceMigrationDecision) => void) | null = null;
+let workspaceMigrationProgressUnlisten: (() => void) | null = null;
+
+const assistantSpacePath = computed(() => String(props.config.shellWorkspaces?.[0]?.path || "").trim());
+
+const workspaceMigrationProgressValue = computed(() => {
+  if (workspaceMigrationUi.value.total <= 0) return 0;
+  return Math.max(0, Math.min(100, Math.round((workspaceMigrationUi.value.processed / workspaceMigrationUi.value.total) * 100)));
+});
+const workspaceMigrationStageLabel = computed(() => {
+  const stage = workspaceMigrationUi.value.stage;
+  if (stage === "scanning") return t("config.tools.migrateWorkspaceStageScanning");
+  if (stage === "copying") return t("config.tools.migrateWorkspaceStageCopying");
+  if (stage === "deleting") return t("config.tools.migrateWorkspaceStageDeleting");
+  if (stage === "completed") return t("config.tools.migrateWorkspaceStageCompleted");
+  if (stage === "failed") return t("config.tools.migrateWorkspaceStageFailed");
+  return t("config.tools.migrateWorkspacePreparing");
+});
+
+function setAssistantSpaceStatus(text: string, isError = false) {
+  assistantSpaceStatus.value = text;
+  assistantSpaceStatusError.value = isError;
+}
+
+function requestWorkspaceMigrationConfirm(oldPath: string, newPath: string): Promise<WorkspaceMigrationDecision> {
+  const dialog = migrateWorkspaceDialog.value;
+  if (!dialog) return Promise.resolve("cancel");
+  pendingWorkspaceMigration.value = { oldPath, newPath };
+  workspaceMigrationUi.value = {
+    taskId: "",
+    mode: "confirm",
+    stage: "idle",
+    message: "",
+    processed: 0,
+    total: 0,
+    currentPath: "",
+    error: "",
+  };
+  return new Promise<WorkspaceMigrationDecision>((resolve) => {
+    resolveWorkspaceMigrationConfirm = resolve;
+    dialog.showModal();
+  });
+}
+
+function finishWorkspaceMigrationConfirm(value: WorkspaceMigrationDecision) {
+  const dialog = migrateWorkspaceDialog.value;
+  if (dialog?.open && value !== "migrate") {
+    dialog.close();
+  }
+  resolveWorkspaceMigrationConfirm?.(value);
+  resolveWorkspaceMigrationConfirm = null;
+}
+
+function confirmWorkspaceMigration() {
+  workspaceMigrationUi.value.mode = "running";
+  workspaceMigrationUi.value.stage = "scanning";
+  workspaceMigrationUi.value.message = t("config.tools.migrateWorkspacePreparing");
+  finishWorkspaceMigrationConfirm("migrate");
+}
+
+function skipWorkspaceMigration() {
+  finishWorkspaceMigrationConfirm("skip");
+}
+
+function cancelWorkspaceMigration() {
+  if (workspaceMigrationUi.value.mode === "running") return;
+  finishWorkspaceMigrationConfirm("cancel");
+}
+
+async function ensureWorkspaceMigrationListener() {
+  if (workspaceMigrationProgressUnlisten) return;
+  workspaceMigrationProgressUnlisten = onTransportNotification<{
+    taskId: string;
+    stage: string;
+    processed: number;
+    total: number;
+    currentPath?: string | null;
+    message: string;
+    done: boolean;
+    error?: string | null;
+  }>("workspace.migrationProgress", (payload) => {
+    if (!payload || payload.taskId !== workspaceMigrationUi.value.taskId) return;
+    workspaceMigrationUi.value.stage = String(payload.stage || "");
+    workspaceMigrationUi.value.message = String(payload.message || "");
+    workspaceMigrationUi.value.processed = Number(payload.processed || 0);
+    workspaceMigrationUi.value.total = Number(payload.total || 0);
+    workspaceMigrationUi.value.currentPath = String(payload.currentPath || "");
+    workspaceMigrationUi.value.error = String(payload.error || "");
+    if (payload.error) {
+      workspaceMigrationUi.value.mode = "error";
+    }
+  });
+}
+
+async function migrateWorkspaceWithProgress(oldPath: string, newPath: string): Promise<string> {
+  await ensureWorkspaceMigrationListener();
+  const taskId = `workspace-migration-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  workspaceMigrationUi.value.taskId = taskId;
+  workspaceMigrationUi.value.mode = "running";
+  workspaceMigrationUi.value.stage = "scanning";
+  workspaceMigrationUi.value.message = t("config.tools.migrateWorkspacePreparing");
+  workspaceMigrationUi.value.processed = 0;
+  workspaceMigrationUi.value.total = 0;
+  workspaceMigrationUi.value.currentPath = oldPath;
+  workspaceMigrationUi.value.error = "";
+  try {
+    const migratedPath = await migrateTransportShellWorkspaceDirectory({ oldPath, newPath, taskId });
+    const dialog = migrateWorkspaceDialog.value;
+    if (dialog?.open) {
+      dialog.close();
+    }
+    return migratedPath;
+  } catch (error) {
+    workspaceMigrationUi.value.mode = "error";
+    workspaceMigrationUi.value.stage = "failed";
+    workspaceMigrationUi.value.message = t("config.tools.migrateWorkspaceFailed");
+    workspaceMigrationUi.value.error = toErrorMessage(error);
+    throw error;
+  }
+}
+
+// 修改助理空间目录：选目录 → 与已保存路径不同则弹窗（迁移/跳过/取消），语义与原工具页保存流程一致
+async function pickAssistantSpaceDir() {
+  if (!localFileSystemAvailable || workspaceMigrationUi.value.mode === "running") return;
+  const workspace = props.config.shellWorkspaces?.[0];
+  const previousSavedPath = String(workspace?.path || "").trim();
+  if (!workspace || !previousSavedPath) return;
+  const picked = await openTransportFileDialog({ directory: true, multiple: false, defaultPath: previousSavedPath });
+  if (!picked || Array.isArray(picked)) return;
+  const nextPath = String(picked).trim();
+  const normalizedPreviousSavedPath = previousSavedPath.replace(/[\\/]+$/g, "");
+  const normalizedNextPath = nextPath.replace(/[\\/]+$/g, "");
+  if (!normalizedNextPath || normalizedPreviousSavedPath === normalizedNextPath) return;
+  const decision = await requestWorkspaceMigrationConfirm(previousSavedPath, nextPath);
+  if (decision === "cancel") return;
+  if (decision === "migrate") {
+    try {
+      const migratedPath = await migrateWorkspaceWithProgress(previousSavedPath, nextPath);
+      workspace.path = migratedPath;
+      setAssistantSpaceStatus(t("config.tools.migrateWorkspaceDone", { path: migratedPath }));
+    } catch {
+      return;
+    }
+  } else {
+    workspace.path = nextPath;
+  }
+  const saved = await Promise.resolve(props.saveConfigAction());
+  if (!saved) {
+    workspace.path = previousSavedPath;
+    setAssistantSpaceStatus(t("config.chatSettings.assistantSpaceDirSaveFailed"), true);
+  }
+}
 
 async function loadTerminalShellCandidates() {
   if (!isWindowsHost) return;
@@ -321,7 +576,10 @@ const templateGroups = computed<ConfigTemplateGroup[]>(() => [
   {
     key: "exec-terminal",
     title: t("config.chatSettings.execTerminalTitle"),
-    rows: [{ key: "exec-terminal", items: [] }],
+    rows: [
+      { key: "exec-terminal", items: [] },
+      { key: "assistant-space-dir", items: [] },
+    ],
   },
   {
     key: "instruction-presets",

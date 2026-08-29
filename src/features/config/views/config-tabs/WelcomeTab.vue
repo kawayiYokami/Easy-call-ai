@@ -95,7 +95,7 @@ import {
 import { toErrorMessage } from "../../../../utils/error";
 import appIconUrl from "../../../../../src-tauri/icons/128x128.png";
 
-type ConfigTab = "welcome" | "hotkey" | "api" | "tools" | "mcp" | "skill" | "persona" | "department" | "departmentTree" | "chatSettings" | "usage" | "memory" | "task" | "logs" | "appearance" | "migration" | "about";
+type ConfigTab = "welcome" | "hotkey" | "api" | "mcp" | "skill" | "persona" | "department" | "departmentTree" | "chatSettings" | "usage" | "memory" | "task" | "logs" | "appearance" | "migration" | "about";
 type HostRuntimePrerequisiteKind = "git" | "node" | "rg";
 type HostRuntimePrerequisites = {
   gitInstalled?: boolean;
