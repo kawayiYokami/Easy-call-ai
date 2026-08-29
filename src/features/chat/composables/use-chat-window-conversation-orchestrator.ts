@@ -292,6 +292,7 @@ export function useChatWindowConversationOrchestrator(bindings: Record<string, a
     updateDraftConversation: chatConversationActions.updateDraftConversation,
     createSideChatConversation: chatConversationActions.createSideChatConversation,
     branchConversationFromSelection: chatConversationActions.branchConversationFromSelection,
+    branchConversationFromCurrent: chatConversationActions.branchConversationFromCurrent,
     forwardConversationFromSelection: chatConversationActions.forwardConversationFromSelection,
     userAsyncDelegateFromSelection: chatConversationActions.userAsyncDelegateFromSelection,
     renameCurrentConversation: chatConversationActions.renameCurrentConversation,

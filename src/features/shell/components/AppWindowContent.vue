@@ -246,6 +246,7 @@
         @selection-action-copy="() => {}"
         @selection-action-copy-error="() => {}"
         @selection-action-branch="onBranchConversationFromSelection($event)"
+        @branch-conversation-from-current="onBranchConversationFromCurrent()"
         @selection-action-forward="onForwardConversationFromSelection($event)"
         @selection-action-delegate="handleUserAsyncDelegateFromSelection"
         @selection-action-share="handleSelectionShareAction($event)"
@@ -859,6 +860,7 @@ const props = defineProps<{
   onUpdateDraftConversation: (payload: { conversationId: string; departmentId?: string; agentId?: string; preferredApiConfigId?: string | null; title?: string | null }) => void;
   onCreateConversation: (input?: { title?: string; departmentId?: string; agentId?: string; copyCurrent?: boolean; importPath?: string; shellWorkspaces?: ShellWorkspace[]; shellAutonomousMode?: boolean }) => void;
   onBranchConversationFromSelection: (payload: { count: number; messageIds: string[] }) => void;
+  onBranchConversationFromCurrent: () => void;
   onForwardConversationFromSelection: (payload: { count: number; messageIds: string[]; target: { kind: "local_unarchived" | "remote_im_contact"; conversationId: string; remoteContactId?: string } }) => void;
   onUserAsyncDelegateFromSelection: (payload: { count: number; messageIds: string[]; departmentId: string; agentId: string; presetId: string; why: string; goal: string; todo: string }) => Promise<boolean> | boolean;
   loadArchives: () => void;

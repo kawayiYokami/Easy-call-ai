@@ -424,7 +424,7 @@ impl ConversationServiceV2 {
         let branch_summary_title = build_branch_conversation_summary_title(
             &source_conversation_meta.title,
             source_conversation_meta.latest_summary_title.as_deref(),
-            first_selected_ordinal.max(1),
+            Some(first_selected_ordinal.max(1)),
             main_conversation_id_downgraded(state).as_deref().map(str::trim)
                 == Some(source_conversation_meta.id.as_str()),
         );

@@ -1,7 +1,12 @@
 {
-  "generatedAt": "2026-08-29T06:13:59.500Z",
-  "latestVersion": "v0.74.5",
+  "generatedAt": "2026-08-29T07:23:33.226Z",
+  "latestVersion": "v0.74.6",
   "releases": [
+    {
+      "version": "v0.74.6",
+      "path": "docs/changelog/releases/v0.74.6.md",
+      "summary": "恢复聊天窗口标题栏的「设置」按钮：0.74.5 曾将设置入口并入左下角头像菜单，导致顶部设置按钮消失，本次加回，两处入口并存"
+    },
     {
       "version": "v0.74.5",
       "path": "docs/changelog/releases/v0.74.5.md",

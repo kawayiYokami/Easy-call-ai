@@ -182,6 +182,40 @@ export function useChatConversationActionsOrchestrator(bindings: Record<string, 
     }
   }
 
+  async function branchConversationFromCurrent() {
+    const sourceConversationId = String(bindings.currentChatConversationId.value || "").trim();
+    if (!sourceConversationId || bindings.branchingConversation.value) return;
+    bindings.branchingConversation.value = true;
+    try {
+      const result = await invokeTauri<{
+        conversationId: string;
+        title: string;
+        warning?: string | null;
+      }>("conversation.branchFromCurrent", {
+        input: {
+          sourceConversationId,
+        },
+      });
+      const conversationId = String(result?.conversationId || "").trim();
+      if (!conversationId) return;
+      // 分支创建已由后端单项事件插入，这里仅做差量兜底，不再全量拉取。
+      if (typeof bindings.syncUnarchivedConversationOverviewChangedSinceWatermark === "function") {
+        await bindings.syncUnarchivedConversationOverviewChangedSinceWatermark("branch_from_current");
+      }
+      const warning = String(result?.warning || "").trim();
+      await bindings.switchUnarchivedConversation(conversationId);
+      if (warning) {
+        bindings.setStatus(bindings.tr("status.conversationBranchCreatedWithWarning", { warning }));
+      } else {
+        bindings.setStatus(bindings.tr("status.conversationBranchCreated", { title: String(result?.title || "").trim() || conversationId }));
+      }
+    } catch (error) {
+      bindings.setStatusError("status.loadMessagesFailed", error);
+    } finally {
+      bindings.branchingConversation.value = false;
+    }
+  }
+
   async function createConversationBranchFromMessage(payload: { turnId: string; targetUserMessageId: string }) {
     const sourceConversationId = String(bindings.currentChatConversationId.value || "").trim();
     const turnMessageId = String(payload?.targetUserMessageId || payload?.turnId || "").trim();
@@ -404,6 +438,7 @@ export function useChatConversationActionsOrchestrator(bindings: Record<string, 
     updateDraftConversation,
     createSideChatConversation,
     branchConversationFromSelection,
+    branchConversationFromCurrent,
     createConversationBranchFromMessage,
     forwardConversationFromSelection,
     userAsyncDelegateFromSelection,

@@ -1282,6 +1282,7 @@ fn main() {
             clear_chat_error,
             create_side_chat_conversation,
             create_conversation_branch_from_message,
+            branch_unarchived_conversation_from_current,
             export_conversation_share_json,
             import_conversation_share_from_file,
             branch_unarchived_conversation_from_selection,

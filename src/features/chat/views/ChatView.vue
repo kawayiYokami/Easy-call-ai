@@ -781,6 +781,7 @@ const emit = defineEmits<{
   (e: "stopChat"): void; (e: "trimConversation"): void; (e: "openConversationList"): void; (e: "openSettings"): void;
   (e: "clearChatError"): void;
   (e: "createConversationBranchFromTurn", payload: { turnId: string }): void;
+  (e: "branchConversationFromCurrent"): void;
   (e: "recallTurn", payload: { turnId: string }): void;
   (e: "regenerateTurn", payload: { turnId: string }): void;
   (e: "confirmPlan", payload: { messageId: string }): void;
@@ -1189,18 +1190,9 @@ const openDelegateSelectionMenu = () => openSelectionMenu({ delegateOnly: true, 
 const openForwardSelectionMenu = () => openSelectionMenu({ allowWhenBusy: true });
 const openShareSelectionMenu = () => openSelectionMenu({ allowWhenBusy: true });
 
-/** 从当前会话最新一条用户消息直接创建分支（无需进入选择模式） */
+/** 从当前会话创建分支：后端纯复制会话快照，无需选择消息，忙碌中照常执行 */
 function openBranchFromCurrentMessage() {
-  if (props.chatting || props.frozen || conversationInteractionBusy.value) return;
-  const candidates = props.messageBlocks.filter(
-    (block) => !block.isExtraTextBlock
-      && String(block.role || "").trim().toLowerCase() === "user"
-      && !block.isStreaming,
-  );
-  const latest = candidates[candidates.length - 1];
-  const turnId = latest ? String(latest.sourceMessageId || latest.id || "").trim() : "";
-  if (!turnId) return;
-  emit("createConversationBranchFromTurn", { turnId });
+  emit("branchConversationFromCurrent");
 }
 
 function openTaskCreateDialog() {

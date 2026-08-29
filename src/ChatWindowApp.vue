@@ -332,6 +332,7 @@
       :on-update-draft-conversation="updateDraftConversation"
       :on-create-conversation="openDraftConversationFromEntry"
       :on-branch-conversation-from-selection="branchConversationFromSelection"
+      :on-branch-conversation-from-current="branchConversationFromCurrent"
       :on-forward-conversation-from-selection="forwardConversationFromSelection"
       :on-user-async-delegate-from-selection="userAsyncDelegateFromSelection"
       :on-open-skill-panel="openSkillPlaceholderDialog"
