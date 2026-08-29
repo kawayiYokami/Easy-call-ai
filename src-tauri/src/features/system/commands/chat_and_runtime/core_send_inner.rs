@@ -3699,7 +3699,7 @@ mod core_send_inner_tests {
     }
 
     #[test]
-    fn build_chat_candidate_api_ids_should_keep_department_queue_when_fallback_enabled() {
+    fn build_chat_candidate_api_ids_should_keep_only_preferred_model_when_fallback_disabled() {
         let app_config = AppConfig {
             api_configs: vec![
                 test_chat_api("api-a", false),
@@ -3720,10 +3720,7 @@ mod core_send_inner_tests {
         .expect("build candidates");
 
         assert!(preferred_applied);
-        assert_eq!(
-            candidate_api_ids,
-            vec!["api-c".to_string(), "api-a".to_string(), "api-b".to_string()]
-        );
+        assert_eq!(candidate_api_ids, vec!["api-c".to_string()]);
     }
 
     #[test]

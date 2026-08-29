@@ -11339,8 +11339,8 @@
             name: "部门 A".to_string(),
             summary: String::new(),
             guide: String::new(),
-            api_config_ids: vec!["provider-a".to_string(), "provider-a::model-a".to_string()],
-            api_config_id: "provider-a".to_string(),
+            api_config_ids: vec!["provider-a::model-a".to_string(), "provider-a".to_string()],
+            api_config_id: "provider-a::model-a".to_string(),
             model_failure_fallback_enabled: true,
             agent_ids: vec![DEFAULT_AGENT_ID.to_string()],
             child_department_ids: Vec::new(),
@@ -11357,104 +11357,6 @@
         let resolved = delegate_target_chat_api_config_ids(&app_config, &department);
 
         assert_eq!(resolved, vec!["provider-a::model-a".to_string()]);
-    }
-
-    #[test]
-    fn delegate_target_chat_api_config_ids_should_resolve_model_roles() {
-        let expert_id = "provider-a::expert";
-        let quick_id = "provider-a::quick";
-        let app_config = AppConfig {
-            api_configs: vec![
-                ApiConfig {
-                    id: expert_id.to_string(),
-                    name: "provider-a/expert".to_string(),
-                    request_format: RequestFormat::OpenAI,
-                    allow_concurrent_requests: false,
-                    max_concurrent_requests: None,
-                    enable_text: true,
-                    enable_image: false,
-                    enable_audio: false,
-                    enable_video: false,
-                    enable_tools: true,
-                    tools: vec![],
-                    base_url: "https://api.openai.com/v1".to_string(),
-                    api_key: "k".to_string(),
-                    codex_auth_mode: default_codex_auth_mode(),
-                    codex_local_auth_path: default_codex_local_auth_path(),
-                    codex_custom_url: None,
-                    codex_custom_api_key: None,
-                    codex_originator: default_codex_originator(),
-                    codex_residency_requirement: None,
-                    model: "expert".to_string(),
-                    reasoning_effort: default_reasoning_effort(),
-                    temperature: 1.0,
-                    custom_temperature_enabled: false,
-                    context_window_tokens: 128_000,
-                    max_output_tokens: 4_096,
-                    custom_max_output_tokens_enabled: false,
-                    failure_retry_count: 0,
-                },
-                ApiConfig {
-                    id: quick_id.to_string(),
-                    name: "provider-a/quick".to_string(),
-                    request_format: RequestFormat::OpenAI,
-                    allow_concurrent_requests: false,
-                    max_concurrent_requests: None,
-                    enable_text: true,
-                    enable_image: false,
-                    enable_audio: false,
-                    enable_video: false,
-                    enable_tools: true,
-                    tools: vec![],
-                    base_url: "https://api.openai.com/v1".to_string(),
-                    api_key: "k".to_string(),
-                    codex_auth_mode: default_codex_auth_mode(),
-                    codex_local_auth_path: default_codex_local_auth_path(),
-                    codex_custom_url: None,
-                    codex_custom_api_key: None,
-                    codex_originator: default_codex_originator(),
-                    codex_residency_requirement: None,
-                    model: "quick".to_string(),
-                    reasoning_effort: default_reasoning_effort(),
-                    temperature: 1.0,
-                    custom_temperature_enabled: false,
-                    context_window_tokens: 128_000,
-                    max_output_tokens: 4_096,
-                    custom_max_output_tokens_enabled: false,
-                    failure_retry_count: 0,
-                },
-            ],
-            api_providers: Vec::new(),
-            assistant_department_api_config_id: expert_id.to_string(),
-            tool_review_api_config_id: Some(quick_id.to_string()),
-            ..AppConfig::default()
-        };
-        let department = DepartmentConfig {
-            id: "dept-a".to_string(),
-            name: "部门 A".to_string(),
-            summary: String::new(),
-            guide: String::new(),
-            api_config_ids: vec![
-                MODEL_ROLE_EXPERT_API_CONFIG_ID.to_string(),
-                MODEL_ROLE_QUICK_API_CONFIG_ID.to_string(),
-            ],
-            api_config_id: MODEL_ROLE_EXPERT_API_CONFIG_ID.to_string(),
-            model_failure_fallback_enabled: true,
-            agent_ids: vec![DEFAULT_AGENT_ID.to_string()],
-            child_department_ids: Vec::new(),
-            created_at: now_utc_rfc3339(),
-            updated_at: now_utc_rfc3339(),
-            order_index: 1,
-            is_built_in_assistant: false,
-            is_deputy: false,
-            source: "main_config".to_string(),
-            scope: "global".to_string(),
-            permission_control: DepartmentPermissionControl::default(),
-        };
-
-        let resolved = delegate_target_chat_api_config_ids(&app_config, &department);
-
-        assert_eq!(resolved, vec![expert_id.to_string(), quick_id.to_string()]);
     }
 
     #[test]

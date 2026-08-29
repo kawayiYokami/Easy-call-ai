@@ -187,32 +187,6 @@
                   {{ t("config.department.addModel") }}
                 </button>
               </div>
-
-              <label
-                v-if="selectedDepartmentCanEnableModelFailureFallback"
-                class="mt-3 flex items-start gap-2 rounded-box border border-base-300/60 px-2.5 py-2 text-base-content/70"
-              >
-                <input
-                  class="checkbox checkbox-xs mt-0.5 opacity-70"
-                  type="checkbox"
-                  :checked="selectedDepartmentModelFailureFallbackEnabled"
-                  @change="updateDepartmentModelFailureFallback(($event.target as HTMLInputElement).checked)"
-                />
-                <span class="min-w-0">
-                  <span class="block text-xs font-normal">{{ t("config.department.modelFailureFallback") }}</span>
-                  <span class="block text-xs opacity-55">
-                    {{ selectedDepartmentModelFailureFallbackEnabled
-                      ? t("config.department.modelFallbackHint")
-                      : t("config.department.singleModelHint") }}
-                  </span>
-                </span>
-              </label>
-              <div
-                v-if="selectedDepartmentModelFailureFallbackEnabled"
-                class="mt-2 rounded-box border border-warning/30 bg-warning/10 px-3 py-2 text-xs text-warning"
-              >
-                {{ t("config.department.modelSwitchCostWarning") }}
-              </div>
               <div class="mt-1 text-xs opacity-40">{{ t("config.department.allowedModelsNote") }}</div>
             </div>
 
@@ -1012,18 +986,6 @@ function updateDepartmentApiConfigAt(index: number, apiId: string) {
     target.apiConfigIds = [MODEL_ROLE_EXPERT_API_CONFIG_ID];
   }
   target.apiConfigId = target.apiConfigIds[0] || "";
-  touchSelectedDepartment();
-}
-
-function updateDepartmentModelFailureFallback(enabled: boolean) {
-  const target = selectedDepartment.value;
-  if (!target || target.modelFailureFallbackEnabled === enabled) return;
-  if (!departmentCanEnableModelFailureFallback(target)) return;
-  target.modelFailureFallbackEnabled = enabled;
-  if (currentDepartmentApiConfigIds(target).length === 0) {
-    target.apiConfigIds = [MODEL_ROLE_EXPERT_API_CONFIG_ID];
-    target.apiConfigId = MODEL_ROLE_EXPERT_API_CONFIG_ID;
-  }
   touchSelectedDepartment();
 }
 

@@ -99,7 +99,8 @@ function mapDepartmentConfig(item: unknown): AppConfig["departments"][number] {
     guide: String((item as { guide?: unknown })?.guide || "").trim(),
     apiConfigId: effectiveApiConfigIds[0] || "",
     apiConfigIds: effectiveApiConfigIds,
-    modelFailureFallbackEnabled: !isPrivateWorkspaceDepartment && !!(item as { modelFailureFallbackEnabled?: unknown })?.modelFailureFallbackEnabled,
+    // 请求失败自动切换机制已禁用：恒为关闭，后端候选队列恒只取第一个模型
+    modelFailureFallbackEnabled: false,
     agentIds: Array.isArray((item as { agentIds?: unknown[] })?.agentIds)
       ? ((item as { agentIds?: unknown[] }).agentIds || []).map((v) => String(v || "").trim()).filter(Boolean)
       : [],

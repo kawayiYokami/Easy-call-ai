@@ -287,12 +287,10 @@ fn default_private_workspace_source() -> String {
     "private_workspace".to_string()
 }
 
-fn is_private_workspace_department(department: &DepartmentConfig) -> bool {
-    department.source.trim() == default_private_workspace_source()
-}
-
-fn department_model_failure_fallback_enabled(department: &DepartmentConfig) -> bool {
-    department.model_failure_fallback_enabled && !is_private_workspace_department(department)
+// 请求失败自动切换下一个模型的机制已禁用：候选模型恒只取第一个，不再降级。
+#[allow(dead_code)]
+fn department_model_failure_fallback_enabled(_department: &DepartmentConfig) -> bool {
+    false
 }
 
 fn default_global_scope() -> String {

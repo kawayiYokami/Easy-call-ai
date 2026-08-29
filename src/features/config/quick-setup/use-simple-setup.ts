@@ -570,7 +570,6 @@ export function useSimpleSetup() {
     if (department) {
       department.apiConfigId = MODEL_ROLE_EXPERT_API_CONFIG_ID;
       department.apiConfigIds = [MODEL_ROLE_EXPERT_API_CONFIG_ID];
-      department.modelFailureFallbackEnabled = true;
       department.updatedAt = new Date().toISOString();
     }
   }
