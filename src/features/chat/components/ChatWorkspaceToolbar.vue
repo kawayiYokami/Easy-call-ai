@@ -2,7 +2,6 @@
   <div
     v-bind="attrs"
     class="rounded-box bg-base-100/70 px-2 py-1.5 shadow backdrop-blur-md flex items-center justify-between gap-2 text-xs"
-    @contextmenu.prevent.stop="openFileTagsContextMenu"
   >
     <div class="flex min-w-0 flex-1 items-center gap-1.5">
       <div
@@ -207,6 +206,18 @@
                   />
                 </div>
               </li>
+              <li class="menu-title px-2 py-1 text-xs uppercase tracking-wide opacity-60">{{ t("appearance.inputPanel") }}</li>
+              <li>
+                <label class="flex cursor-pointer items-center justify-between gap-3 px-2 py-1.5">
+                  <span class="text-sm">{{ t("appearance.inputPanelIdeBridgeFileTags") }}</span>
+                  <input
+                    :checked="ideBridgeFileTagsEnabled"
+                    type="checkbox"
+                    class="toggle toggle-sm"
+                    @change="setIdeBridgeFileTagsEnabled(($event.target as HTMLInputElement).checked)"
+                  />
+                </label>
+              </li>
               <li class="menu-title px-2 py-1 text-xs uppercase tracking-wide opacity-60">{{ t("appearance.fileReader") }}</li>
               <li>
                 <label class="flex cursor-pointer items-center justify-between gap-3 px-2 py-1.5">
@@ -249,38 +260,6 @@
       </button>
     </div>
   </div>
-  <Teleport to="body">
-    <ul
-      v-if="fileTagsContextMenu"
-      ref="fileTagsContextMenuRef"
-      class="menu fixed z-[1200] w-64 rounded-box border border-base-300 bg-base-100 p-2 text-base-content shadow-xl"
-      :style="{ left: `${fileTagsContextMenu.x}px`, top: `${fileTagsContextMenu.y}px` }"
-      @contextmenu.prevent.stop
-    >
-      <li>
-        <label class="flex cursor-pointer items-center justify-between gap-3 px-2 py-2">
-          <span class="text-sm">{{ t("appearance.inputPanelIdeBridgeFileTags") }}</span>
-          <input
-            :checked="ideBridgeFileTagsEnabled"
-            type="checkbox"
-            class="toggle toggle-sm"
-            @change="setIdeBridgeFileTagsEnabled(($event.target as HTMLInputElement).checked)"
-          />
-        </label>
-      </li>
-      <li v-if="SIDE_FILE_TAGS_AVAILABLE">
-        <label class="flex cursor-pointer items-center justify-between gap-3 px-2 py-2">
-          <span class="text-sm">{{ t("appearance.inputPanelSideFileTags") }}</span>
-          <input
-            :checked="sideFileTagsEnabled"
-            type="checkbox"
-            class="toggle toggle-sm"
-            @change="setSideFileTagsEnabled(($event.target as HTMLInputElement).checked)"
-          />
-        </label>
-      </li>
-    </ul>
-  </Teleport>
   <Teleport to="body">
     <div
       v-if="mentionListPopupOpen"
@@ -409,7 +388,7 @@ import { useI18n } from "vue-i18n";
 import { BellRing, ChevronRight, ClipboardCheck, ClipboardList, GitBranch, GitBranchPlus, Grip, ListTodo, MessageSquareMore, Package, Palette, Send, Share2, Split, Users } from "@lucide/vue";
 import type { ChatMentionEntry, ConversationDelegateStatusSummary } from "../../../types/app";
 import OverlayScrollArea from "../../shared/components/OverlayScrollArea.vue";
-import { SIDE_FILE_TAGS_AVAILABLE, useChatComposerAppearance } from "../../shell/composables/use-chat-composer-appearance";
+import { useChatComposerAppearance } from "../../shell/composables/use-chat-composer-appearance";
 import { useChatMessageAppearance, type ChatMarkdownLayout } from "../../shell/composables/use-chat-message-appearance";
 import { useFileReaderAppearance } from "../../shell/composables/use-file-reader-appearance";
 import SessionControlPanel from "./SessionControlPanel.vue";
@@ -474,12 +453,7 @@ const emit = defineEmits<{
 
 const attrs = useAttrs();
 const { t } = useI18n();
-const {
-  sideFileTagsEnabled,
-  ideBridgeFileTagsEnabled,
-  setSideFileTagsEnabled,
-  setIdeBridgeFileTagsEnabled,
-} = useChatComposerAppearance();
+const { ideBridgeFileTagsEnabled, setIdeBridgeFileTagsEnabled } = useChatComposerAppearance();
 const {
   assistantBubbleBackgroundEnabled,
   segmentedMarkdownEnabled,
@@ -589,8 +563,6 @@ const hasDelegateStatuses = computed(() => (props.delegateStatuses || []).length
 const showSessionControlPanel = computed(() => !props.hideWorkspaceButton || hasDelegateStatuses.value);
 const POPUP_OFFSET = 8;
 const POPUP_VIEWPORT_PADDING = 8;
-const fileTagsContextMenu = ref<{ x: number; y: number } | null>(null);
-const fileTagsContextMenuRef = ref<HTMLElement | null>(null);
 
 // ========== 头像栏去重 + 部门弹出 ==========
 
@@ -754,23 +726,6 @@ function closeMentionListPopup() {
   mentionListPopupOpen.value = false;
 }
 
-function openFileTagsContextMenu(event: MouseEvent) {
-  const menuWidth = 256;
-  const menuHeight = 108;
-  fileTagsContextMenu.value = {
-    x: Math.max(8, Math.min(event.clientX, window.innerWidth - menuWidth - 8)),
-    y: Math.max(8, Math.min(event.clientY, window.innerHeight - menuHeight - 8)),
-  };
-}
-
-function closeFileTagsContextMenu() {
-  fileTagsContextMenu.value = null;
-}
-
-function handleFileTagsContextMenuKeydown(event: KeyboardEvent) {
-  if (event.key === "Escape") closeFileTagsContextMenu();
-}
-
 function toggleMentionListPopup() {
   if (busy.value) return;
   mentionListPopupOpen.value = !mentionListPopupOpen.value;
@@ -793,12 +748,6 @@ function handleAvatarClickOutside(event: MouseEvent) {
     && !mentionListPopupRef.value?.contains(target)
   ) {
     closeMentionListPopup();
-  }
-  if (
-    fileTagsContextMenu.value
-    && !fileTagsContextMenuRef.value?.contains(target)
-  ) {
-    closeFileTagsContextMenu();
   }
   if (
     avatarPopupTarget.value
@@ -847,7 +796,6 @@ onMounted(() => {
   window.addEventListener("scroll", handleAvatarPopupViewportChange, true);
   window.addEventListener("click", handleAvatarClickOutside, true);
   window.addEventListener("pointerdown", handleGlobalPointerDown, true);
-  window.addEventListener("keydown", handleFileTagsContextMenuKeydown);
 });
 
 onBeforeUnmount(() => {
@@ -859,7 +807,6 @@ onBeforeUnmount(() => {
   window.removeEventListener("scroll", handleAvatarPopupViewportChange, true);
   window.removeEventListener("click", handleAvatarClickOutside, true);
   window.removeEventListener("pointerdown", handleGlobalPointerDown, true);
-  window.removeEventListener("keydown", handleFileTagsContextMenuKeydown);
 });
 </script>
 
