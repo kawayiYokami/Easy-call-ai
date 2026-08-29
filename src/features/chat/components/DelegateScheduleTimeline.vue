@@ -409,6 +409,10 @@ function eventSummaryLine(event: { phase: string; detail: any }) {
 
 function eventBodyText(event: { phase: string; detail: any }) {
   const d = normalizeDetail(event.detail);
+  if (event.phase === "dispatch_start") {
+    if (d.textPreview) return String(d.textPreview);
+    return "";
+  }
   if (event.phase === "model_round_end") {
     const chunks: string[] = [];
     if (d.reasoningPreview) chunks.push(String(d.reasoningPreview).trim());

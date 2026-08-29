@@ -13492,3 +13492,70 @@
         assert!(!get_conversation_plan_mode_enabled(&state, "conversation-plan-d").unwrap());
         assert!(!get_conversation_plan_mode_enabled(&state, "conversation-plan-e").unwrap());
     }
+
+    #[test]
+    fn schedule_run_from_persisted_conversation_should_fold_tool_history_into_structural_run() {
+        let mut conversation = test_chat_conversation("delegate-fold-test", "archived", "2026-08-28T13:00:00Z");
+        conversation.conversation_kind = CONVERSATION_KIND_DELEGATE.to_string();
+        conversation.root_conversation_id = Some("root-conversation".to_string());
+        conversation.delegate_id = Some("delegate-fold-test".to_string());
+        conversation.messages.push(test_text_message("user", "执行委托任务", "2026-08-28T13:00:00Z"));
+        let mut assistant = test_text_message("assistant", "委托完成。", "2026-08-28T13:29:37Z");
+        assistant.tool_call = Some(vec![
+            serde_json::json!({
+                "role": "assistant",
+                "content": null,
+                "reasoning_content": "先看目录",
+                "tool_calls": [
+                    { "id": "call-a", "call_id": "call-a", "type": "function", "function": { "name": "exec", "arguments": "{\"command\":\"ls\"}" } },
+                    { "id": "call-b", "call_id": "call-b", "type": "function", "function": { "name": "read_file", "arguments": "{\"path\":\"a.rs\"}" } }
+                ]
+            }),
+            serde_json::json!({ "role": "tool", "tool_call_id": "call-a", "content": "file-a" }),
+            serde_json::json!({ "role": "tool", "tool_call_id": "call-b", "content": "file-b" }),
+        ]);
+        assistant.provider_meta = Some(serde_json::json!({ "providerPromptTokens": 1234_u64 }));
+        conversation.messages.push(assistant);
+
+        let run = schedule_run_from_persisted_conversation(&conversation).expect("structural run");
+
+        assert_eq!(run.run_id, "persisted-delegate-fold-test");
+        assert_eq!(run.delegate_id.as_deref(), Some("delegate-fold-test"));
+        assert_eq!(run.status, "success");
+        assert_eq!(run.request_count, 1);
+        assert_eq!(run.tool_call_count, 2);
+        assert_eq!(run.last_tool_name.as_deref(), Some("read_file"));
+        // 消息级锚点差：13:00:00Z → 13:29:37Z = 1777 秒
+        assert_eq!(run.elapsed_ms, 1_777_000);
+
+        let phases: Vec<&str> = run.events.iter().map(|event| event.phase.as_str()).collect();
+        assert_eq!(phases, vec!["dispatch_start", "model_round_end", "tool_call", "tool_call", "tool_result", "tool_result", "dispatch_end"]);
+        assert!(run.events.iter().all(|event| event.elapsed_ms == 0));
+        assert_eq!(run.events[0].detail["textPreview"], "执行委托任务");
+        assert_eq!(run.events[1].detail["toolCallCount"], 2);
+        assert_eq!(run.events[1].detail["reasoningPreview"], "先看目录");
+        assert_eq!(run.events[2].detail["toolName"], "exec");
+        assert_eq!(run.events[2].detail["argPreview"], "{\"command\":\"ls\"}");
+        // tool_result 按 tool_call_id 配对回工具名
+        assert_eq!(run.events[4].detail["toolName"], "exec");
+        assert_eq!(run.events[5].detail["toolName"], "read_file");
+        assert_eq!(run.events[6].detail["textPreview"], "委托完成。");
+        assert_eq!(run.events[6].detail["usage"]["providerPromptTokens"], 1234);
+    }
+
+    #[test]
+    fn schedule_run_from_persisted_conversation_should_return_none_without_events() {
+        let conversation = test_chat_conversation("delegate-empty-test", "archived", "2026-08-28T13:29:37Z");
+        assert!(schedule_run_from_persisted_conversation(&conversation).is_none());
+    }
+
+    #[test]
+    fn list_schedule_runs_should_stay_empty_when_memory_and_disk_have_no_delegate_events() {
+        let state = test_chat_runtime_state();
+        // delegate- 键：内存与磁盘皆无事件，返回空且不报错
+        let runs = schedule_event_list_runs_inner(&state, "delegate-not-exist").expect("list runs");
+        assert!(runs.is_empty());
+        // 非 delegate- 前缀键不触发读盘回退
+        let plain = schedule_event_list_runs_inner(&state, "plain-conversation").expect("list plain runs");
+        assert!(plain.is_empty());
+    }

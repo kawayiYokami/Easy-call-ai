@@ -604,11 +604,290 @@ fn schedule_event_list_runs_inner(
         fallback.sort_by(|a, b| b.started_at.cmp(&a.started_at));
         return Ok(fallback);
     }
-    Ok(store
-        .runs_by_conversation
-        .get(key)
-        .map(|deque| deque.iter().cloned().collect())
-        .unwrap_or_default())
+    drop(store);
+    // 重启后内存事件已清空：从持久化委托消息折叠合成结构 Run（无耗时时间线）。
+    // 整读依据：合成时间线天然依赖全部 assistant 消息的完整 toolCall 事件集，
+    // 轻量路径（block page / metadata）不提供 toolCall 展开；仅在内存查空的冷路径触发。
+    if key.starts_with("delegate-") {
+        if let Ok(Some(conversation)) = delegate_conversation_store_read(&state.data_path, key) {
+            if let Some(run) = schedule_run_from_persisted_conversation(&conversation) {
+                return Ok(vec![run]);
+            }
+        }
+        return Ok(Vec::new());
+    }
+    Ok(Vec::new())
+}
+
+// ==================== 持久化委托消息 → 结构 Run ====================
+
+fn schedule_run_message_text(message: &ChatMessage) -> String {
+    let mut texts: Vec<&str> = Vec::new();
+    for part in &message.parts {
+        if let MessagePart::Text { text, .. } = part {
+            if !text.trim().is_empty() {
+                texts.push(text.as_str());
+            }
+        }
+    }
+    texts.join("\n\n")
+}
+
+fn schedule_run_persisted_event(
+    run_id: &str,
+    conversation_id: &str,
+    delegate_id: Option<String>,
+    root_conversation_id: Option<String>,
+    phase: &str,
+    created_at: &str,
+    success: Option<bool>,
+    detail: Value,
+) -> ScheduleEvent {
+    ScheduleEvent {
+        id: Uuid::new_v4().to_string(),
+        run_id: run_id.to_string(),
+        conversation_id: conversation_id.to_string(),
+        delegate_id: delegate_id.clone(),
+        root_conversation_id: root_conversation_id.clone(),
+        phase: phase.to_string(),
+        created_at: created_at.to_string(),
+        elapsed_ms: 0,
+        success,
+        detail,
+    }
+}
+
+fn schedule_run_parse_persisted_elapsed(started_at: &str, updated_at: &str) -> u64 {
+    let Ok(start) = chrono::DateTime::parse_from_rfc3339(started_at) else {
+        return 0;
+    };
+    let Ok(end) = chrono::DateTime::parse_from_rfc3339(updated_at) else {
+        return 0;
+    };
+    (end - start).num_milliseconds().max(0) as u64
+}
+
+// 从持久化委托 Conversation 折叠合成结构 Run：
+// 第一条 user 消息 → dispatch_start；toolCall 历史逐轮 → model_round_end / tool_call / tool_result；
+// assistant 正文 → dispatch_end（含 provider_meta 用量）。各阶段无耗时（elapsed=0），仅 Run 级保留首尾锚点差。
+fn schedule_run_from_persisted_conversation(conversation: &Conversation) -> Option<ScheduleRun> {
+    let run_id = format!("persisted-{}", conversation.id.trim());
+    let conversation_id = conversation.id.trim().to_string();
+    let delegate_id = conversation
+        .delegate_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToOwned::to_owned)
+        .or_else(|| {
+            let trimmed = conversation_id.as_str();
+            if trimmed.starts_with("delegate-") {
+                Some(trimmed.to_string())
+            } else {
+                None
+            }
+        });
+    let root_conversation_id = conversation.root_conversation_id.clone();
+
+    let mut events: Vec<ScheduleEvent> = Vec::new();
+    let mut request_count = 0_usize;
+    let mut tool_call_count = 0_usize;
+    let mut last_tool_name: Option<String> = None;
+    let mut started_at: Option<String> = None;
+    let mut updated_at: Option<String> = None;
+    // 委托创建时间为界：界前是唤醒/归档搬入的历史对话，时间线只覆盖本次调度
+    let run_boundary = chrono::DateTime::parse_from_rfc3339(conversation.created_at.trim()).ok();
+
+    for message in &conversation.messages {
+        let created_at = message.created_at.trim();
+        if let Some(boundary) = run_boundary {
+            if let Ok(created) = chrono::DateTime::parse_from_rfc3339(created_at) {
+                if created < boundary {
+                    continue;
+                }
+            }
+        }
+        if started_at.is_none() && !created_at.is_empty() {
+            started_at = Some(created_at.to_string());
+        }
+        if !created_at.is_empty() {
+            updated_at = Some(created_at.to_string());
+        }
+        if message.role.trim() != "assistant" && !events.iter().any(|event| event.phase == "dispatch_start") {
+            let text = schedule_run_message_text(message);
+            if text.is_empty() {
+                continue;
+            }
+            events.push(schedule_run_persisted_event(
+                &run_id,
+                &conversation_id,
+                delegate_id.clone(),
+                root_conversation_id.clone(),
+                "dispatch_start",
+                created_at,
+                None,
+                serde_json::json!({ "textPreview": text }),
+            ));
+            continue;
+        }
+        if message.role.trim() != "assistant" {
+            continue;
+        }
+        if let Some(tool_events) = &message.tool_call {
+            let mut pending_calls: Vec<(String, String)> = Vec::new();
+            for event in tool_events {
+                let role = event.get("role").and_then(Value::as_str).unwrap_or("").trim().to_ascii_lowercase();
+                if role == "assistant" {
+                    request_count = request_count.saturating_add(1);
+                    let reasoning = event.get("reasoning_content").and_then(Value::as_str).unwrap_or("");
+                    let content = event.get("content").and_then(Value::as_str).unwrap_or("");
+                    let calls = event.get("tool_calls").and_then(Value::as_array).cloned().unwrap_or_default();
+                    events.push(schedule_run_persisted_event(
+                        &run_id,
+                        &conversation_id,
+                        delegate_id.clone(),
+                        root_conversation_id.clone(),
+                        "model_round_end",
+                        created_at,
+                        Some(true),
+                        serde_json::json!({
+                            "reasoningPreview": reasoning,
+                            "textPreview": content,
+                            "assistantTextLength": content.chars().count(),
+                            "reasoningLength": reasoning.chars().count(),
+                            "toolCallCount": calls.len(),
+                        }),
+                    ));
+                    for call in &calls {
+                        let call_id = call.get("id").and_then(Value::as_str).unwrap_or("").trim().to_string();
+                        let name = call
+                            .get("function")
+                            .and_then(|function| function.get("name"))
+                            .and_then(Value::as_str)
+                            .unwrap_or("")
+                            .trim()
+                            .to_string();
+                        let arguments = call
+                            .get("function")
+                            .and_then(|function| function.get("arguments"))
+                            .and_then(Value::as_str)
+                            .unwrap_or("")
+                            .to_string();
+                        if !name.is_empty() {
+                            last_tool_name = Some(name.clone());
+                        }
+                        pending_calls.push((call_id, name.clone()));
+                        tool_call_count = tool_call_count.saturating_add(1);
+                        events.push(schedule_run_persisted_event(
+                            &run_id,
+                            &conversation_id,
+                            delegate_id.clone(),
+                            root_conversation_id.clone(),
+                            "tool_call",
+                            created_at,
+                            None,
+                            serde_json::json!({
+                                "toolName": name,
+                                "argPreview": arguments,
+                                "argLength": arguments.chars().count(),
+                            }),
+                        ));
+                    }
+                } else if role == "tool" {
+                    let call_id = event.get("tool_call_id").and_then(Value::as_str).unwrap_or("").trim().to_string();
+                    let name = pending_calls
+                        .iter()
+                        .rev()
+                        .find(|(pending_id, _)| pending_id == &call_id)
+                        .map(|(_, name)| name.clone())
+                        .unwrap_or_default();
+                    let text = event.get("content").and_then(Value::as_str).unwrap_or("");
+                    let mut detail = serde_json::json!({
+                        "toolName": name,
+                        "textPreview": text,
+                        "textLength": text.chars().count(),
+                    });
+                    if let Some(metadata) = event.get("metadata") {
+                        if let Some(is_error) = metadata.get("isError").and_then(Value::as_bool) {
+                            detail["isError"] = serde_json::json!(is_error);
+                        }
+                    }
+                    events.push(schedule_run_persisted_event(
+                        &run_id,
+                        &conversation_id,
+                        delegate_id.clone(),
+                        root_conversation_id.clone(),
+                        "tool_result",
+                        created_at,
+                        None,
+                        detail,
+                    ));
+                }
+            }
+        }
+        let final_text = schedule_run_message_text(message);
+        if final_text.is_empty() {
+            continue;
+        }
+        let mut detail = serde_json::json!({
+            "assistantTextLength": final_text.chars().count(),
+            "textPreview": final_text,
+        });
+        if let Some(provider_meta) = &message.provider_meta {
+            if provider_meta.is_object() {
+                detail["usage"] = provider_meta.clone();
+            }
+        }
+        events.push(schedule_run_persisted_event(
+            &run_id,
+            &conversation_id,
+            delegate_id.clone(),
+            root_conversation_id.clone(),
+            "dispatch_end",
+            created_at,
+            Some(true),
+            detail,
+        ));
+    }
+    if events.is_empty() {
+        return None;
+    }
+    let status = if conversation
+        .last_error
+        .as_deref()
+        .map(|value| !value.trim().is_empty())
+        .unwrap_or(false)
+    {
+        "error"
+    } else {
+        "success"
+    };
+    let start = started_at.unwrap_or_default();
+    let updated = updated_at.unwrap_or(start.clone());
+    Some(ScheduleRun {
+        run_id,
+        conversation_id,
+        delegate_id,
+        root_conversation_id,
+        trace_id: None,
+        scene: String::new(),
+        request_format: String::new(),
+        provider: String::new(),
+        model: String::new(),
+        base_url: String::new(),
+        headers: Vec::new(),
+        tools: None,
+        status: status.to_string(),
+        started_at: start.clone(),
+        updated_at: updated.clone(),
+        elapsed_ms: schedule_run_parse_persisted_elapsed(&start, &updated),
+        request_count,
+        tool_call_count,
+        last_tool_name,
+        last_model_name: None,
+        events,
+        started_instant: None,
+    })
 }
 
 fn schedule_event_update_run_metadata(
