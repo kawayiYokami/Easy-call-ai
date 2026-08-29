@@ -1,7 +1,12 @@
 {
-  "generatedAt": "2026-08-27T09:50:33.875Z",
-  "latestVersion": "v0.74.2",
+  "generatedAt": "2026-08-29T06:13:59.500Z",
+  "latestVersion": "v0.74.5",
   "releases": [
+    {
+      "version": "v0.74.5",
+      "path": "docs/changelog/releases/v0.74.5.md",
+      "summary": "聊天窗口左下角头像改为下拉菜单，从菜单进入设置或批量归档；顶部不再显示单独设置按钮，界面更简洁"
+    },
     {
       "version": "v0.74.2",
       "path": "docs/changelog/releases/v0.74.2.md",
