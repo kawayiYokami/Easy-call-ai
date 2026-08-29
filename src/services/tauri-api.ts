@@ -524,9 +524,12 @@ export function canUseTransportHostRuntimeCheck(): boolean {
   return isTauriRuntimeAvailable();
 }
 
-/** 按住说话录音仅桌面宿主展示；Web 端不提供该能力，业务层直接读语义能力控制显隐。 */
+/** 按住说话录音：浏览器 MediaRecorder + getUserMedia 可用即支持，
+ *  Web 宿主走远程 STT 上传，桌面宿主由业务层自选远程/本机识别路径。 */
 export function canUseTransportSpeechRecording(): boolean {
-  return isTauriRuntimeAvailable();
+  return typeof navigator !== "undefined"
+    && !!navigator.mediaDevices?.getUserMedia
+    && typeof MediaRecorder !== "undefined";
 }
 
 /** 是否运行在桌面 Tauri 宿主；Web/VS Code 宿主为 false。业务层用于宿主相关界面形态判定。 */

@@ -1,24 +1,18 @@
 <template>
-  <div v-if="adjusterOptions.length > 1" class="w-full min-w-0">
-    <input
-      type="range"
-      min="0"
-      :max="adjusterOptions.length - 1"
-      step="1"
-      :value="activeIndex"
-      class="range"
-      @input="onSlide"
-    />
-    <div class="-mt-0.5 flex justify-between px-2.5 leading-none text-sm">
-      <span v-for="option in adjusterOptions" :key="option.effort" class="font-bold">.</span>
-    </div>
-  </div>
+  <SegmentedControl
+    v-if="adjusterOptions.length > 1"
+    :model-value="activeEffort"
+    :options="adjusterOptions"
+    size="xs"
+    @update:model-value="selectEffort"
+  />
 </template>
 
 <script setup lang="ts">
 import { computed } from "vue";
 import { useI18n } from "vue-i18n";
 import type { ApiConfigItem } from "../../../types/app";
+import SegmentedControl from "./SegmentedControl.vue";
 import { normalizeReasoningEffortValue, reasoningEffortDisplayLabel, sortReasoningEffortValues } from "../utils/api-config-display";
 import { buildModelGroupIndex, rememberModelEffort } from "../utils/model-effort-memory";
 
@@ -61,11 +55,6 @@ const groupItems = computed(() => {
 
 const activeEffort = computed(() => (current.value ? effortOf(current.value) : ""));
 
-const activeIndex = computed(() => {
-  const index = adjusterOptions.value.findIndex((option) => option.effort === activeEffort.value);
-  return index >= 0 ? index : 0;
-});
-
 const adjusterOptions = computed(() => {
   if (groupItems.value.length <= 1) return [];
   const seen = new Set<string>();
@@ -76,16 +65,8 @@ const adjusterOptions = computed(() => {
       seen.add(effort);
       return true;
     })
-    .map((effort) => ({ effort, label: reasoningEffortDisplayLabel(effort, t) || effort }));
+    .map((effort) => ({ value: effort, label: reasoningEffortDisplayLabel(effort, t) || effort }));
 });
-
-/** 滑动条按档位序号换档：每吸附一格即生效一档。 */
-function onSlide(event: Event) {
-  const index = Number((event.target as HTMLInputElement).valueAsNumber);
-  const option = adjusterOptions.value[index];
-  if (!option) return;
-  selectEffort(option.effort);
-}
 
 /** 调节器点击即显式换档：目标叶子一定存在，直接生效并更新记忆。 */
 function selectEffort(effort: string) {

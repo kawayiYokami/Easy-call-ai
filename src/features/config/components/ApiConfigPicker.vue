@@ -26,13 +26,24 @@
     </button>
   </div>
   <Teleport to="body">
-    <div
-      v-if="dropdownOpen && !disabled"
-      ref="panelRef"
-      class="fixed z-1200 flex flex-col overflow-hidden rounded-box border border-base-300 bg-base-100 text-base-content shadow-xl"
-      :data-theme="teleportTheme"
-      :style="panelStyle"
-    >
+    <Transition :name="mobileTouchViewport ? 'ecall-drawer-mask' : ''">
+      <div
+        v-if="dropdownOpen && !disabled && mobileTouchViewport"
+        class="fixed inset-0 z-[1190] bg-black/40"
+        :data-theme="teleportTheme"
+      ></div>
+    </Transition>
+    <Transition :name="mobileTouchViewport ? 'ecall-drawer' : ''">
+      <div
+        v-if="dropdownOpen && !disabled"
+        ref="panelRef"
+        class="fixed z-1200 flex flex-col overflow-hidden bg-base-100 text-base-content"
+        :class="mobileTouchViewport
+          ? 'inset-x-0 bottom-0 max-h-[65vh] rounded-t-2xl border-x border-t border-base-300 pb-[max(0.25rem,env(safe-area-inset-bottom))] shadow-2xl'
+          : 'rounded-box border border-base-300 shadow-xl'"
+        :data-theme="teleportTheme"
+        :style="mobileTouchViewport ? undefined : panelStyle"
+      >
       <div class="relative flex min-h-0 flex-1 flex-col">
         <div
           ref="scrollRef"
@@ -48,15 +59,16 @@
         </div>
         <FloatingScrollbar ref="scrollbarRef" :target="scrollRef" />
       </div>
-      <div class="shrink-0 border-t border-base-300 p-1">
+      <div class="shrink-0 p-1">
         <ChatModelEffortAdjuster
-          class="px-2 py-1.5"
+          class="px-1 py-0.5"
           :options="apiConfigs"
           :selected-id="modelValue"
           @select="handleEffortSelect"
         />
       </div>
-    </div>
+      </div>
+    </Transition>
   </Teleport>
 </template>
 
@@ -68,6 +80,7 @@ import type { ApiConfigItem } from "../../../types/app";
 import ApiConfigSelectionMenu from "./ApiConfigSelectionMenu.vue";
 import ChatModelEffortAdjuster from "./ChatModelEffortAdjuster.vue";
 import FloatingScrollbar from "../../shell/components/FloatingScrollbar.vue";
+import { isMobileTouchViewport } from "../../shared/utils/mobile-viewport";
 import { formatApiConfigOptionLabel, normalizeReasoningEffortValue, reasoningEffortDisplayLabel, sortReasoningEffortValues } from "../utils/api-config-display";
 import { buildApiConfigSelectionTree } from "../utils/api-config-selection-tree";
 import { buildModelGroupIndex, getModelEffortMemory, rememberModelEffort, resolveModelEffortSelection } from "../utils/model-effort-memory";
@@ -105,6 +118,12 @@ const triggerButtonRef = ref<HTMLButtonElement | null>(null);
 const panelRef = ref<HTMLElement | null>(null);
 const scrollRef = ref<HTMLElement | null>(null);
 const scrollbarRef = ref<InstanceType<typeof FloatingScrollbar> | null>(null);
+/** 手机窄屏触摸端：下拉改为底部上拉抽屉，跳过浮层定位 */
+const mobileTouchViewport = ref(isMobileTouchViewport());
+
+function syncMobileTouchViewport() {
+  mobileTouchViewport.value = isMobileTouchViewport();
+}
 const panelStyle = ref<Record<string, string>>({
   left: "0px",
   top: "0px",
@@ -208,7 +227,7 @@ function handleClickOutside(event: MouseEvent) {
 }
 
 async function refreshPosition() {
-  if (!dropdownOpen.value) return;
+  if (!dropdownOpen.value || mobileTouchViewport.value) return;
   const trigger = triggerButtonRef.value || triggerWrapRef.value;
   if (!trigger) return;
   await nextTick();
@@ -277,11 +296,14 @@ watch(dropdownOpen, (open) => {
 });
 
 onMounted(() => {
+  syncMobileTouchViewport();
+  window.addEventListener("resize", syncMobileTouchViewport);
   window.addEventListener("resize", refreshPosition);
   window.addEventListener("scroll", refreshPosition, true);
 });
 
 onBeforeUnmount(() => {
+  window.removeEventListener("resize", syncMobileTouchViewport);
   window.removeEventListener("resize", refreshPosition);
   window.removeEventListener("scroll", refreshPosition, true);
   document.removeEventListener("click", handleClickOutside);
@@ -348,5 +370,47 @@ function handleSelect(id: string) {
 .ecall-api-picker-scroll::-webkit-scrollbar {
   width: 0;
   height: 0;
+}
+
+/* 底部抽屉：打开上滑、收起下滑；遮罩淡入淡出。桌面浮层 Transition name 为空，无过渡 */
+.ecall-drawer-enter-active {
+  animation: ecall-model-drawer-up 0.22s ease-out;
+}
+.ecall-drawer-leave-active {
+  animation: ecall-model-drawer-down 0.18s ease-in forwards;
+}
+@keyframes ecall-model-drawer-up {
+  from {
+    transform: translateY(100%);
+  }
+  to {
+    transform: translateY(0);
+  }
+}
+@keyframes ecall-model-drawer-down {
+  from {
+    transform: translateY(0);
+  }
+  to {
+    transform: translateY(100%);
+  }
+}
+.ecall-drawer-mask-enter-active,
+.ecall-drawer-mask-leave-active {
+  transition: opacity 0.2s ease;
+}
+.ecall-drawer-mask-enter-from,
+.ecall-drawer-mask-leave-to {
+  opacity: 0;
+}
+@media (prefers-reduced-motion: reduce) {
+  .ecall-drawer-enter-active,
+  .ecall-drawer-leave-active {
+    animation: none;
+  }
+  .ecall-drawer-mask-enter-active,
+  .ecall-drawer-mask-leave-active {
+    transition: none;
+  }
 }
 </style>

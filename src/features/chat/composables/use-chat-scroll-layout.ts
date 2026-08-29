@@ -1,5 +1,5 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, type Ref, watch } from "vue";
-import { isMobileTouchViewport } from "../utils/chat-input-focus";
+import { isMobileTouchViewport } from "../../shared/utils/mobile-viewport";
 
 const TODO_DROPDOWN_SAFE_GAP = 30;
 const FLOATING_TOOLBAR_MIN_RESERVE = 24;
@@ -53,7 +53,8 @@ export function useChatScrollLayout(options: UseChatScrollLayoutOptions) {
 
   function updateJumpToBottomOffset() {
     const composerHeight = composerContainer.value?.offsetHeight ?? 0;
-    const nextOffset = Math.max(16, composerHeight + 12);
+    // offsetHeight 不含 margin：移动端卡片 mb-2(8px) 已占 8px，再对齐卡片外边距留 8px 间隙
+    const nextOffset = Math.max(16, composerHeight + 16);
     if (jumpToBottomOffset.value !== nextOffset) {
       jumpToBottomOffset.value = nextOffset;
     }

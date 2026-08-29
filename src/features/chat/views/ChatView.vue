@@ -272,7 +272,7 @@
           </div>
         </Transition>
 
-        <div ref="composerContainer" class="relative shrink-0 border-t border-base-300 bg-base-100 px-2 pt-1.5 pb-1.5">
+        <div ref="composerContainer" class="relative shrink-0 border-t border-base-300 bg-base-100 px-2 pt-1.5 pb-1.5 max-md:mx-2 max-md:mb-2 max-md:rounded-box max-md:border max-md:border-base-300 max-md:shadow-lg">
           <div
             v-if="activeConversationIsRemoteContact"
             class="absolute bottom-full left-1/2 z-20 mb-3 -translate-x-1/2"

@@ -158,26 +158,17 @@
         </div>
       </div>
       <div v-if="mobileViewport" class="flex flex-col gap-1.5">
-        <div class="flex items-start gap-1.5">
+        <div class="flex items-center gap-1.5">
           <button
-            v-if="isMobileCompact"
+            v-if="isMobileCompact && showConversationActions"
             type="button"
             class="btn btn-sm btn-circle btn-ghost shrink-0"
-            :title="t('common.expand')"
-            @click="expandMobileComposer"
+            :title="t('chat.attach')"
+            @click="emit('pickAttachments')"
           >
-            <CircleChevronUp class="h-4 w-4" />
+            <Paperclip class="h-3.5 w-3.5" />
           </button>
-          <button
-            v-else
-            type="button"
-            class="btn btn-sm btn-circle btn-ghost shrink-0"
-            :title="t('common.collapse')"
-            @click="mobileComposerExpanded = false"
-          >
-            <CircleChevronDown class="h-4 w-4" />
-          </button>
-          <div class="min-w-0 flex-1 rounded-2xl bg-base-200 px-3 py-1.5">
+          <div class="min-w-0 flex-1 p-1.5">
             <div v-if="clipboardImages.length > 0" class="ecall-chat-composer-image-previews mb-1.5">
               <div
                 v-for="(img, idx) in clipboardImages"
@@ -221,15 +212,6 @@
             ></textarea>
           </div>
           <button
-            v-if="showConversationActions"
-            type="button"
-            class="btn btn-sm btn-circle btn-ghost shrink-0"
-            :title="t('chat.attach')"
-            @click="emit('pickAttachments')"
-          >
-            <Paperclip class="h-3.5 w-3.5" />
-          </button>
-          <button
             v-if="showStopAction"
             type="button"
             class="btn btn-sm btn-circle shrink-0 btn-error"
@@ -239,46 +221,33 @@
           >
             <Square class="h-3.5 w-3.5 fill-current" />
           </button>
-          <div v-else class="relative flex shrink-0">
-            <button
-              type="button"
-              class="btn btn-sm btn-circle shrink-0"
-              :class="composerInputBlank ? 'bg-base-200' : 'btn-success'"
-              :disabled="!composerInputBlank && (frozen || busy)"
-              :title="composerInputBlank ? t('chat.sendModeMenu') : t('chat.send')"
-              @click="composerInputBlank ? (sendModeMenuOpen = !sendModeMenuOpen) : handleSendChat()"
-              @contextmenu.prevent="sendModeMenuOpen = !sendModeMenuOpen"
-            >
-              <ArrowUp class="h-3.5 w-3.5" />
-            </button>
-            <div
-              v-if="sendModeMenuOpen"
-              class="absolute bottom-full right-0 z-50 mb-1.5 min-w-52 overflow-hidden rounded-box border border-base-300 bg-base-100 text-base-content shadow-xl"
-            >
-              <div class="flex flex-col p-1">
-                <button
-                  type="button"
-                  class="flex min-h-8 w-full items-center justify-between gap-3 rounded-lg px-2.5 text-left text-sm transition-colors hover:bg-base-200"
-                  @click="setSendMode('enter')"
-                >
-                  <span>{{ t("chat.sendModeEnter") }}</span>
-                  <Check v-if="sendMode === 'enter'" class="h-4 w-4 shrink-0 text-primary" />
-                </button>
-                <button
-                  type="button"
-                  class="flex min-h-8 w-full items-center justify-between gap-3 rounded-lg px-2.5 text-left text-sm transition-colors hover:bg-base-200"
-                  @click="setSendMode('ctrl_enter')"
-                >
-                  <span>{{ t("chat.sendModeCtrlEnter") }}</span>
-                  <Check v-if="sendMode === 'ctrl_enter'" class="h-4 w-4 shrink-0 text-primary" />
-                </button>
-                <div class="px-2.5 pt-1 pb-0.5 text-xs opacity-50">{{ t("chat.sendModeAltS") }}</div>
-              </div>
-            </div>
-          </div>
+          <button
+            v-else-if="isMobileCompact && showConversationActions && canUseTransportSpeechRecording()"
+            type="button"
+            class="btn btn-sm btn-circle shrink-0"
+            :class="recording ? 'btn-error' : 'btn-ghost'"
+            :disabled="!canRecord"
+            :title="recording ? t('chat.recording', { seconds: Math.max(1, Math.round(recordingMs / 1000)) }) : t('chat.holdRecord', { hotkey: recordHotkey })"
+            @mousedown.prevent="emit('startRecording')"
+            @mouseup.prevent="emit('stopRecording')"
+            @mouseleave.prevent="recording && emit('stopRecording')"
+            @touchstart.prevent="emit('startRecording')"
+            @touchend.prevent="emit('stopRecording')"
+          >
+            <Mic class="h-3.5 w-3.5" />
+          </button>
         </div>
-        <div v-if="!isMobileCompact" class="flex items-center justify-between">
-          <div class="flex items-center">
+        <div v-if="!isMobileCompact" class="flex items-center justify-between gap-2">
+          <div class="flex min-w-0 items-center">
+            <button
+              v-if="showConversationActions"
+              type="button"
+              class="btn btn-sm btn-circle btn-ghost shrink-0"
+              :title="t('chat.attach')"
+              @click="emit('pickAttachments')"
+            >
+              <Paperclip class="h-3.5 w-3.5" />
+            </button>
             <div
               :class="goalActive ? 'aura aura-rainbow aura-sm' : undefined"
               :style="goalActive ? { '--aura-radius': '9999px' } : undefined"
@@ -293,20 +262,6 @@
                 <Target class="h-3.5 w-3.5" />
               </button>
             </div>
-            <button
-              v-if="showConversationActions && canUseTransportSpeechRecording()"
-              class="btn btn-sm btn-circle shrink-0"
-              :class="recording ? 'btn-error' : 'btn-ghost'"
-              :disabled="!canRecord"
-              :title="recording ? t('chat.recording', { seconds: Math.max(1, Math.round(recordingMs / 1000)) }) : t('chat.holdRecord', { hotkey: recordHotkey })"
-              @mousedown.prevent="emit('startRecording')"
-              @mouseup.prevent="emit('stopRecording')"
-              @mouseleave.prevent="recording && emit('stopRecording')"
-              @touchstart.prevent="emit('startRecording')"
-              @touchend.prevent="emit('stopRecording')"
-            >
-              <Mic class="h-3.5 w-3.5" />
-            </button>
             <ChatModelPicker
               variant="chip"
               :model-value="activeModelDisplayId"
@@ -315,7 +270,7 @@
               @update:model-value="selectConversationPreferredModel"
             />
           </div>
-          <div class="flex items-center gap-2">
+          <div class="flex shrink-0 items-center gap-2">
             <button
               v-if="planModeEnabled"
               type="button"
@@ -334,6 +289,52 @@
             >
               {{ t("chat.plan.mode") }}
             </button>
+            <button
+              v-if="showStopAction"
+              class="btn btn-sm btn-circle shrink-0 btn-error"
+              :disabled="frozen || busy || !!stopChatDisabled"
+              :title="`${t('chat.stop')} / ${t('chat.stopReplying')}`"
+              @click="emit('stopChat')"
+            >
+              <Square class="h-3.5 w-3.5 fill-current" />
+            </button>
+            <div v-else ref="sendModeMenuRef" class="relative flex shrink-0">
+              <button
+                type="button"
+                class="btn btn-sm btn-circle shrink-0"
+                :class="composerInputBlank ? 'bg-base-200' : 'btn-success'"
+                :disabled="!composerInputBlank && (frozen || busy)"
+                :title="composerInputBlank ? t('chat.sendModeMenu') : t('chat.send')"
+                @click="composerInputBlank ? (sendModeMenuOpen = !sendModeMenuOpen) : handleSendChat()"
+                @contextmenu.prevent="sendModeMenuOpen = !sendModeMenuOpen"
+              >
+                <ArrowUp class="h-3.5 w-3.5" />
+              </button>
+              <div
+                v-if="sendModeMenuOpen"
+                class="absolute bottom-full right-0 z-50 mb-1.5 min-w-52 overflow-hidden rounded-box border border-base-300 bg-base-100 text-base-content shadow-xl"
+              >
+                <div class="flex flex-col p-1">
+                  <button
+                    type="button"
+                    class="flex min-h-8 w-full items-center justify-between gap-3 rounded-lg px-2.5 text-left text-sm transition-colors hover:bg-base-200"
+                    @click="setSendMode('enter')"
+                  >
+                    <span>{{ t("chat.sendModeEnter") }}</span>
+                    <Check v-if="sendMode === 'enter'" class="h-4 w-4 shrink-0 text-primary" />
+                  </button>
+                  <button
+                    type="button"
+                    class="flex min-h-8 w-full items-center justify-between gap-3 rounded-lg px-2.5 text-left text-sm transition-colors hover:bg-base-200"
+                    @click="setSendMode('ctrl_enter')"
+                  >
+                    <span>{{ t("chat.sendModeCtrlEnter") }}</span>
+                    <Check v-if="sendMode === 'ctrl_enter'" class="h-4 w-4 shrink-0 text-primary" />
+                  </button>
+                  <div class="px-2.5 pt-1 pb-0.5 text-xs opacity-50">{{ t("chat.sendModeAltS") }}</div>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
       </div>
@@ -575,7 +576,7 @@
 <script setup lang="ts">
 import { Teleport, computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
-import { ArrowUp, CalendarPlus, Check, CircleChevronDown, CircleChevronUp, ClipboardList, FileText, History, Menu, Mic, Minus, Paperclip, Plus, Settings, Square, Target, X } from "@lucide/vue";
+import { ArrowUp, CalendarPlus, Check, ClipboardList, FileText, History, Menu, Mic, Minus, Paperclip, Plus, Settings, Square, Target, X } from "@lucide/vue";
 import type { ApiConfigItem, ChatConversationOverviewItem, ChatMentionEntry, ChatMentionTarget, ConversationForwardTarget, IdeContextReferenceItem, IdeContextWorkspaceGroup, PromptCommandPreset, RemoteImContactConversationOption } from "../../../types/app";
 import ChatQueuePreview from "./ChatQueuePreview.vue";
 import ChatSelectionActionPanel from "./ChatSelectionActionPanel.vue";
@@ -587,7 +588,7 @@ import { clearChatComposerFocus, registerChatComposerFocus } from "../composable
 import type { DepartmentPersonaOption } from "../../shared/department-persona-options";
 import { ideContextReferenceDisplayParts } from "../utils/ide-context-reference-display";
 import { mergeComposerIdeContextGroups } from "../utils/ide-context-reference-groups";
-import { isMobileTouchViewport } from "../utils/chat-input-focus";
+import { isMobileTouchViewport } from "../../shared/utils/mobile-viewport";
 import { canUseTransportSpeechRecording } from "../../../services/tauri-api";
 
 type BinaryAttachment = { mime: string; bytesBase64: string; previewDataUrl?: string };
@@ -817,22 +818,11 @@ function syncMobileViewport() {
   }
 }
 
-/** 手机模式下软键盘收起时（输入框仍聚焦），收回完整输入为单行。 */
-let mobileKeyboardVisible = false;
-function handleVisualViewportResize() {
-  const vv = window.visualViewport;
-  if (!vv || !mobileViewport.value) return;
-  const keyboardVisible = vv.height < window.innerHeight * 0.85;
-  if (mobileKeyboardVisible && !keyboardVisible && mobileComposerExpanded.value) {
-    mobileComposerExpanded.value = false;
-  }
-  mobileKeyboardVisible = keyboardVisible;
-}
-
-function expandMobileComposer() {
+/** 展开为完整输入模式；focus=false 时只展开不聚焦（外部文本注入场景，不弹键盘）。 */
+function expandMobileComposer(focus = true) {
   mobileComposerExpanded.value = true;
   void nextTick(() => {
-    chatInputRef.value?.focus();
+    if (focus) chatInputRef.value?.focus();
     scheduleResizeChatInput();
   });
 }
@@ -841,6 +831,11 @@ watch(isMobileCompact, (compact) => {
   if (compact && chatInputRef.value) {
     chatInputRef.value.style.height = "";
   }
+});
+
+// 外部文本进入输入框（语音转写、消息召回等）时展开卡片，否则单行放不下也无法发送
+watch(() => props.chatInput, (value) => {
+  if (String(value || "") && isMobileCompact.value) expandMobileComposer(false);
 });
 
 function loadSendMode() {
@@ -1353,6 +1348,11 @@ function handleChatInputFocus() {
   if (props.composerScope) {
     registerChatComposerFocus(props.composerScope);
   }
+  // 单行条聚焦即展开为完整输入模式
+  if (isMobileCompact.value) {
+    mobileComposerExpanded.value = true;
+    scheduleResizeChatInput();
+  }
 }
 
 function handleChatInputBlur(event: FocusEvent) {
@@ -1362,7 +1362,13 @@ function handleChatInputBlur(event: FocusEvent) {
   if (!mobileViewport.value) return;
   const nextTarget = event.relatedTarget as Node | null;
   if (nextTarget && composerRootRef.value?.contains(nextTarget)) return;
-  mobileComposerExpanded.value = false;
+  // 延迟一拍再收起：同一次点击可能正在打开 Teleport 到 body 的浮层（如模型抽屉），
+  // 浮层存在时保持展开，避免第二行工具按钮被误缩回
+  window.setTimeout(() => {
+    if (!mobileComposerExpanded.value) return;
+    if (document.querySelector("[data-composer-overlay]")) return;
+    mobileComposerExpanded.value = false;
+  }, 150);
 }
 
 function handleChatInputKeydown(event: KeyboardEvent) {
@@ -1540,7 +1546,6 @@ onMounted(() => {
   window.addEventListener("resize", refreshMentionPanelPosition);
   window.addEventListener("scroll", refreshMentionPanelPosition, true);
   window.addEventListener("resize", syncMobileViewport);
-  window.visualViewport?.addEventListener("resize", handleVisualViewportResize);
   nextTick(() => {
     resizeChatInput();
     refreshMentionPanelPosition();
@@ -1552,7 +1557,6 @@ onBeforeUnmount(() => {
   window.removeEventListener("resize", refreshMentionPanelPosition);
   window.removeEventListener("scroll", refreshMentionPanelPosition, true);
   window.removeEventListener("resize", syncMobileViewport);
-  window.visualViewport?.removeEventListener("resize", handleVisualViewportResize);
   if (resizeInputRaf.value) {
     cancelAnimationFrame(resizeInputRaf.value);
     resizeInputRaf.value = 0;
