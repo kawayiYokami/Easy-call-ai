@@ -875,27 +875,18 @@ function scrollToFootnote(rawId: string) {
   }, 1800);
 }
 
+const MD_ANIMATE_UNIT_PATTERN = /(\s+)|([\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}])|([^\s\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}]+)/gu;
+
 function renderAnimatedText(text: string, keyPrefix: string): VNodeChild[] {
   if (!text) return [];
-  const parts = text.split(/(\s+)/);
-  const out: VNodeChild[] = [];
-  let wordIndex = 0;
-  for (let i = 0; i < parts.length; i += 1) {
-    const part = parts[i];
-    if (!part) continue;
-    if (/^\s+$/.test(part)) {
-      out.push(part);
-      continue;
-    }
-    out.push(h("span", {
-      key: `${keyPrefix}-w-${wordIndex}`,
+  const nodes: VNodeChild[] = [];
+  for (const match of text.matchAll(MD_ANIMATE_UNIT_PATTERN)) {
+    nodes.push(h("span", {
+      key: `${keyPrefix}-o-${match.index ?? 0}`,
       class: "ecall-md-animate-word",
-      style: { "--sd-delay": `${wordIndex * 35}ms` } as Record<string, string>,
-      "data-sd-animate": "",
-    }, part));
-    wordIndex += 1;
+    }, match[0]));
   }
-  return out.length > 0 ? out : [text];
+  return nodes;
 }
 
 function renderSegments(
@@ -1831,7 +1822,7 @@ ul.ecall-md-list {
 }
 
 .ecall-md-streaming .ecall-md-animate-word {
-  animation: ecall-md-fadeIn 150ms ease var(--sd-delay, 0ms) both;
+  animation: ecall-md-fadeIn 150ms ease;
 }
 
 @media (prefers-reduced-motion: reduce) {
