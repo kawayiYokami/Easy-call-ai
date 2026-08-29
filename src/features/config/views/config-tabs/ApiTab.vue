@@ -1649,7 +1649,6 @@ async function syncModelMetadata(group: DraftModelGroup) {
       ...modelCapabilityById.value,
       [modelCard.id]: nextCapability,
     };
-    applyAutoContextWindowTokens(group);
     clampModelCardValues(group);
     // 元数据已知时，自动移除不支持的思考等级（草稿态只改集合，不触发重组）
     const supported = reasoningEffortSupportSet(group);

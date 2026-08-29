@@ -383,15 +383,6 @@ function applyCodexDefaults() {
   props.provider.codexResidencyRequirement = props.provider.codexResidencyRequirement || "";
   props.provider.codexCustomUrl = props.provider.codexCustomUrl || "";
   props.provider.codexCustomApiKey = props.provider.codexCustomApiKey || "";
-  props.provider.models = (props.provider.models || []).map((model) => ({
-    ...model,
-    reasoningEffort: String(model.reasoningEffort || DEFAULT_REASONING_EFFORT).trim() || DEFAULT_REASONING_EFFORT,
-    temperature: 1,
-    customTemperatureEnabled: false,
-    contextWindowTokens: codexContextWindowTokens(model.model),
-    customMaxOutputTokensEnabled: false,
-    maxOutputTokens: 4096,
-  }));
 }
 
 function stopCodexAuthPolling() {
