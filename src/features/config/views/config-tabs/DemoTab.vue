@@ -153,65 +153,50 @@
             >
               <template v-if="message.reasoning?.length || message.tools?.length" #activity>
                 <div class="flex flex-col opacity-90">
-                  <details
-                    class="collapse rounded-none min-w-55"
-                    :open="bubbleDemoActivityOpen(message.id)"
-                    @toggle="onBubbleDemoActivityToggle(message.id, $event)"
-                  >
-                    <summary class="collapse-title px-0 py-0.5 min-h-0 text-sm font-normal flex items-center gap-1.5 text-base-content/42 hover:bg-base-200">
-                      <span class="flex min-w-0 flex-1 items-center gap-1.5">
-                        <span class="shrink-0">思考与工具</span>
-                        <span v-if="message.tools?.length" class="inline-flex h-3 items-center text-base-content/30">·</span>
-                        <span v-if="message.tools?.length" class="min-w-0 truncate text-base-content/42">
-                          {{ message.tools.length }} 个工具
-                        </span>
-                      </span>
-                    </summary>
-                    <div v-if="bubbleDemoActivityOpen(message.id)" class="collapse-content px-0 pb-1 pt-2 text-xs text-base-content/70">
-                      <div class="flex flex-col">
-                        <details
-                          v-if="message.reasoning?.length"
-                          class="collapse rounded-none border-l border-base-content/15 pl-2"
-                          :open="bubbleDemoActivityItemOpen(message.id, 'reasoning')"
-                          @toggle="onBubbleDemoActivityItemToggle(message.id, 'reasoning', $event)"
-                        >
-                          <summary class="collapse-title flex min-h-0 items-center gap-1.5 px-1 py-1 text-xs hover:bg-base-200">
-                            <span class="inline-flex w-3 shrink-0 items-center justify-center font-mono text-xs leading-none text-info">•</span>
-                            <span class="min-w-0 flex-1 truncate text-base-content/75">思考</span>
-                          </summary>
-                          <div v-if="bubbleDemoActivityItemOpen(message.id, 'reasoning')" class="collapse-content px-1 pb-2 pt-1">
-                            <div class="whitespace-pre-wrap wrap-break-word text-xs leading-relaxed text-base-content/70">
-                              {{ message.reasoning.join("\n") }}
-                            </div>
-                          </div>
-                        </details>
-                        <details
-                          v-for="(tool, toolIndex) in message.tools || []"
-                          :key="`${tool.name}-${toolIndex}`"
-                          class="collapse rounded-none border-l border-base-content/15 pl-2"
-                          :open="bubbleDemoActivityItemOpen(message.id, bubbleDemoToolItemKey(tool, toolIndex))"
-                          @toggle="onBubbleDemoActivityItemToggle(message.id, bubbleDemoToolItemKey(tool, toolIndex), $event)"
-                        >
-                          <summary class="collapse-title flex min-h-0 items-center gap-1.5 px-1 py-1 text-xs hover:bg-base-200">
-                            <span class="inline-flex w-3 shrink-0 items-center justify-center leading-none text-success">
-                              <FileText v-if="tool.icon === 'file'" class="size-3" aria-hidden="true" />
-                              <SquareTerminal v-else-if="tool.icon === 'terminal'" class="size-3" aria-hidden="true" />
-                              <Wrench v-else class="size-3" aria-hidden="true" />
-                            </span>
-                            <span class="min-w-0 flex-1 truncate text-base-content/75">
-                              {{ tool.name }}
-                              <span class="ml-1 text-success">✓</span>
-                            </span>
-                          </summary>
-                          <div v-if="bubbleDemoActivityItemOpen(message.id, bubbleDemoToolItemKey(tool, toolIndex))" class="collapse-content px-1 pb-2 pt-1">
-                            <div class="whitespace-pre-wrap wrap-break-word text-xs leading-relaxed text-base-content/70">
-                              {{ tool.detail }}
-                            </div>
-                          </div>
-                        </details>
-                      </div>
+                  <div class="flex min-w-0 flex-wrap items-center gap-1.5 py-0.5 text-sm font-normal text-base-content/42">
+                    <span class="shrink-0">思考与工具</span>
+                    <span v-if="message.tools?.length" class="inline-flex h-3 items-center text-base-content/30">·</span>
+                    <span v-if="message.tools?.length" class="min-w-0 truncate text-base-content/42">
+                      {{ message.tools.length }} 个工具
+                    </span>
+                  </div>
+                  <div class="flex flex-col pt-1 text-xs text-base-content/70">
+                    <div
+                      v-if="message.reasoning?.length"
+                      class="flex gap-1.5 border-l border-base-content/15 py-1 pr-1 pl-2"
+                    >
+                      <span class="inline-flex w-3 shrink-0 items-center justify-center font-mono text-xs leading-none text-info">•</span>
+                      <ExpandableText
+                        class="min-w-0 flex-1"
+                        :text="message.reasoning.join('\n')"
+                        text-class="text-base-content/70"
+                      />
                     </div>
-                  </details>
+                    <details
+                      v-for="(tool, toolIndex) in message.tools || []"
+                      :key="`${tool.name}-${toolIndex}`"
+                      class="collapse rounded-none border-l border-base-content/15 pl-2"
+                      :open="bubbleDemoActivityItemOpen(message.id, bubbleDemoToolItemKey(tool, toolIndex))"
+                      @toggle="onBubbleDemoActivityItemToggle(message.id, bubbleDemoToolItemKey(tool, toolIndex), $event)"
+                    >
+                      <summary class="collapse-title flex min-h-0 items-center gap-1.5 px-1 py-1 text-xs hover:bg-base-200">
+                        <span class="inline-flex w-3 shrink-0 items-center justify-center leading-none text-success">
+                          <FileText v-if="tool.icon === 'file'" class="size-3" aria-hidden="true" />
+                          <SquareTerminal v-else-if="tool.icon === 'terminal'" class="size-3" aria-hidden="true" />
+                          <Wrench v-else class="size-3" aria-hidden="true" />
+                        </span>
+                        <span class="min-w-0 flex-1 truncate text-base-content/75">
+                          {{ tool.name }}
+                          <span class="ml-1 text-success">✓</span>
+                        </span>
+                      </summary>
+                      <div v-if="bubbleDemoActivityItemOpen(message.id, bubbleDemoToolItemKey(tool, toolIndex))" class="collapse-content px-1 pb-2 pt-1">
+                        <div class="whitespace-pre-wrap wrap-break-word text-xs leading-relaxed text-base-content/70">
+                          {{ tool.detail }}
+                        </div>
+                      </div>
+                    </details>
+                  </div>
                 </div>
               </template>
               <div class="space-y-2 text-sm leading-relaxed">
@@ -273,6 +258,7 @@ import {
 import ConfigTemplate from "../../components/ConfigTemplate.vue";
 import type { ConfigTemplateGroup } from "../../components/config-template";
 import ChatBubbleShell from "../../../chat/components/ChatBubbleShell.vue";
+import ExpandableText from "../../../shared/components/ExpandableText.vue";
 import ChatAttachmentList from "../../../chat/components/ChatAttachmentList.vue";
 import DelegateCard from "../../../chat/components/DelegateCard.vue";
 import SessionControlPanel from "../../../chat/components/SessionControlPanel.vue";
@@ -341,7 +327,6 @@ const configTemplateDemo = ref<Record<string, unknown>>({
   homepage: "https://pai.example.com",
   browserNote: "",
 });
-const bubbleDemoActivityOpenMap = ref<Record<string, boolean>>({});
 const bubbleDemoActivityItemOpenKey = ref("");
 const playingBubbleDemoAudioId = ref("");
 const { t } = useI18n();
@@ -604,10 +589,6 @@ function detailsOpenFromEvent(event: Event): boolean {
   return target instanceof HTMLDetailsElement ? target.open : false;
 }
 
-function bubbleDemoActivityOpen(messageId: string): boolean {
-  return !!bubbleDemoActivityOpenMap.value[messageId];
-}
-
 function bubbleDemoActivityItemKey(messageId: string, itemKey: string): string {
   return `${messageId}:${itemKey}`;
 }
@@ -627,17 +608,6 @@ function toggleBubbleDemoAudio(attachmentId: string): void {
 function handleBubbleDemoAttachmentActivate(payload: { attachment: ChatAttachmentView }): void {
   if (payload.attachment.kind !== "audio" || !payload.attachment.id) return;
   toggleBubbleDemoAudio(payload.attachment.id);
-}
-
-function onBubbleDemoActivityToggle(messageId: string, event: Event): void {
-  const open = detailsOpenFromEvent(event);
-  bubbleDemoActivityOpenMap.value = {
-    ...bubbleDemoActivityOpenMap.value,
-    [messageId]: open,
-  };
-  if (!open && bubbleDemoActivityItemOpenKey.value.startsWith(`${messageId}:`)) {
-    bubbleDemoActivityItemOpenKey.value = "";
-  }
 }
 
 function onBubbleDemoActivityItemToggle(messageId: string, itemKey: string, event: Event): void {

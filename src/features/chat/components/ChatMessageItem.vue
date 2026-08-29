@@ -87,9 +87,9 @@
               <div class="flex flex-col">
                 <template v-for="item in resolvedActivityItems(block)" :key="`${block.id}-activity-${activityItemKey(item)}`">
                   <details
-                    v-if="activityItemCanExpand(item)"
+                    v-if="item.kind === 'tool' && activityItemCanExpand(item)"
                     class="collapse rounded-none border-l border-base-content/15 pl-2"
-                    :open="activityItemOpen(block, item)"
+                    :open="activityItemOpen(item)"
                     @toggle="onActivityItemToggle(item, $event)"
                   >
                     <summary class="collapse-title flex min-h-0 items-center gap-1.5 px-1 py-1 text-xs hover:bg-base-200">
@@ -106,44 +106,33 @@
                         class="ecall-activity-item-summary min-w-0 flex-1"
                         :class="activityItemTitleClass(item)"
                       >
-                        <template v-if="item.kind === 'tool'">
-                          <span>{{ activityItemDisplay(item).text }}</span>
-                          <span
-                            v-if="activityItemDisplay(item).adds > 0"
-                            class="ml-1 shrink-0 text-success"
-                          >+{{ activityItemDisplay(item).adds }}</span>
-                          <span
-                            v-if="activityItemDisplay(item).removes > 0"
-                            class="ml-1 shrink-0 text-error"
-                          >-{{ activityItemDisplay(item).removes }}</span>
-                        </template>
-                        <template v-else>
-                          {{ activityItemTitle(item) }}
-                        </template>
+                        <span>{{ activityItemDisplay(item).text }}</span>
+                        <span
+                          v-if="activityItemDisplay(item).adds > 0"
+                          class="ml-1 shrink-0 text-success"
+                        >+{{ activityItemDisplay(item).adds }}</span>
+                        <span
+                          v-if="activityItemDisplay(item).removes > 0"
+                          class="ml-1 shrink-0 text-error"
+                        >-{{ activityItemDisplay(item).removes }}</span>
                       </span>
                       <ChevronDown
                         class="mt-0.5 h-3.5 w-3.5 shrink-0 text-base-content/45 transition-transform duration-150"
-                        :class="activityItemOpen(block, item) ? 'rotate-180' : ''"
+                        :class="activityItemOpen(item) ? 'rotate-180' : ''"
                       />
                     </summary>
                     <div
-                      v-if="activityItemOpen(block, item)"
+                      v-if="activityItemOpen(item)"
                       class="collapse-content pb-2 pr-1 pt-1 pl-[1.375rem]"
                     >
-                      <div
-                        v-if="item.kind === 'reasoning' || item.kind === 'content'"
-                        class="whitespace-pre-wrap wrap-break-word text-xs leading-relaxed"
-                        :class="activityItemDetailClass(item)"
-                      >{{ activityItemRemainingText(item) }}</div>
                       <pre
-                        v-else
                         class="m-0 max-h-72 overflow-auto whitespace-pre-wrap break-all rounded bg-base-200/60 p-2 text-xs leading-relaxed"
                         :class="activityItemDetailClass(item)"
                       ><code>{{ activityToolArgsText(item) }}</code></pre>
                     </div>
                   </details>
                   <div
-                    v-else
+                    v-else-if="item.kind === 'tool'"
                     class="flex min-h-0 items-center gap-1.5 border-l border-base-content/15 px-1 py-1 pl-3 text-xs"
                     @click.stop
                   >
@@ -160,21 +149,31 @@
                       class="ecall-activity-item-summary min-w-0 flex-1"
                       :class="activityItemTitleClass(item)"
                     >
-                      <template v-if="item.kind === 'tool'">
-                        <span>{{ activityItemDisplay(item).text }}</span>
-                        <span
-                          v-if="activityItemDisplay(item).adds > 0"
-                          class="ml-1 shrink-0 text-success"
-                        >+{{ activityItemDisplay(item).adds }}</span>
-                        <span
-                          v-if="activityItemDisplay(item).removes > 0"
-                          class="ml-1 shrink-0 text-error"
-                        >-{{ activityItemDisplay(item).removes }}</span>
-                      </template>
-                      <template v-else>
-                        {{ activityItemTitle(item) }}
-                      </template>
+                      <span>{{ activityItemDisplay(item).text }}</span>
+                      <span
+                        v-if="activityItemDisplay(item).adds > 0"
+                        class="ml-1 shrink-0 text-success"
+                      >+{{ activityItemDisplay(item).adds }}</span>
+                      <span
+                        v-if="activityItemDisplay(item).removes > 0"
+                        class="ml-1 shrink-0 text-error"
+                      >-{{ activityItemDisplay(item).removes }}</span>
                     </span>
+                  </div>
+                  <div
+                    v-else
+                    class="flex gap-1.5 border-l border-base-content/15 py-1 pr-1 pl-2"
+                  >
+                    <span
+                      class="self-baseline inline-flex w-3 shrink-0 items-center justify-center font-mono text-xs"
+                      :class="activityItemMarkerClass(item)"
+                    >{{ activityItemMarker(item) }}</span>
+                    <ExpandableText
+                      class="min-w-0 flex-1"
+                      :text="activityItemText(item)"
+                      :text-class="activityItemDetailClass(item)"
+                      :follow="!!item.running"
+                    />
                   </div>
                 </template>
                 <button
@@ -548,6 +547,7 @@ import ChatBubbleShell from "./ChatBubbleShell.vue";
 import ChatAttachmentItem from "./ChatAttachmentItem.vue";
 import PlainMarkdownRenderer from "./PlainMarkdownRenderer.vue";
 import AnimatedCountText from "./AnimatedCountText.vue";
+import ExpandableText from "../../shared/components/ExpandableText.vue";
 
 initKatex();
 
@@ -738,22 +738,6 @@ function detailsOpenFromEvent(event: Event): boolean {
   return target instanceof HTMLDetailsElement ? target.open : false;
 }
 
-function onActivityToggle(event: Event): void {
-  activityExpanded.value = detailsOpenFromEvent(event);
-  if (!activityExpanded.value) {
-    expandedActivityItemKeys.value = new Set();
-  }
-}
-
-function closeActivityDetails(): void {
-  const details = activityDetailsRef.value;
-  if (details instanceof HTMLDetailsElement) {
-    details.open = false;
-  }
-  activityExpanded.value = false;
-  expandedActivityItemKeys.value = new Set();
-}
-
 function onActivityItemToggle(item: ChatActivityItem, event: Event): void {
   const key = activityItemKey(item);
   const next = new Set(expandedActivityItemKeys.value);
@@ -763,21 +747,6 @@ function onActivityItemToggle(item: ChatActivityItem, event: Event): void {
     next.delete(key);
   }
   expandedActivityItemKeys.value = next;
-}
-
-function collapseDetailsFromContentClick(event: MouseEvent): void {
-  const target = event.target;
-  if (!(target instanceof HTMLElement)) return;
-  if (target.closest('button, a, input, textarea, select, summary, label, [data-selection-ignore="true"]')) {
-    return;
-  }
-  if (window.getSelection()?.toString()) {
-    return;
-  }
-  const details = target.closest("details");
-  if (details instanceof HTMLDetailsElement) {
-    details.open = false;
-  }
 }
 
 function messageName(block: ChatMessageBlock): string {
@@ -990,6 +959,33 @@ function activityPanelOpen(block: ChatMessageBlock): boolean {
   return activityExpanded.value || activityShouldAutoExpand(block);
 }
 
+function onActivityToggle(event: Event): void {
+  activityExpanded.value = detailsOpenFromEvent(event);
+}
+
+function collapseDetailsFromContentClick(event: MouseEvent): void {
+  const target = event.target;
+  if (!(target instanceof HTMLElement)) return;
+  if (target.closest('button, a, input, textarea, select, summary, label, [data-selection-ignore="true"]')) {
+    return;
+  }
+  if (window.getSelection()?.toString()) {
+    return;
+  }
+  const details = target.closest("details");
+  if (details instanceof HTMLDetailsElement) {
+    details.open = false;
+  }
+}
+
+function closeActivityDetails(): void {
+  const details = activityDetailsRef.value;
+  if (details instanceof HTMLDetailsElement) {
+    details.open = false;
+  }
+  activityExpanded.value = false;
+}
+
 function activityReasoningCountLabel(block: ChatMessageBlock): string {
   const count = Number(block.activityReasoningCharCount || 0);
   return count > 0 ? `(${count.toLocaleString("zh-CN")})` : "";
@@ -1056,7 +1052,7 @@ function activityItemsSignature(block: ChatMessageBlock): string {
 
 function activityExpandedItemsSignature(block: ChatMessageBlock): string {
   return resolvedActivityItems(block)
-    .map((item) => `${activityItemKey(item)}:${activityItemOpen(block, item) ? "1" : "0"}`)
+    .map((item) => `${activityItemKey(item)}:${activityItemOpen(item) ? "1" : "0"}`)
     .join("|");
 }
 
@@ -1084,8 +1080,8 @@ function isActivityItemExpanded(item: ChatActivityItem): boolean {
   return expandedActivityItemKeys.value.has(activityItemKey(item));
 }
 
-function activityItemOpen(block: ChatMessageBlock, item: ChatActivityItem): boolean {
-  return activityShouldAutoExpand(block) || isActivityItemExpanded(item);
+function activityItemOpen(item: ChatActivityItem): boolean {
+  return isActivityItemExpanded(item);
 }
 
 function activityItemText(item: ChatActivityItem): string {
@@ -1106,12 +1102,7 @@ function activityItemTextParts(item: ChatActivityItem): { summary: string; remai
 }
 
 function activityItemCanExpand(item: ChatActivityItem): boolean {
-  if (item.kind === "tool") return !!activityToolArgsText(item);
-  return !!activityItemTextParts(item).remaining;
-}
-
-function activityItemRemainingText(item: ChatActivityItem): string {
-  return activityItemTextParts(item).remaining;
+  return item.kind === "tool" && !!activityToolArgsText(item);
 }
 
 function stripToolcallMarkers(text: string): string {
@@ -1732,20 +1723,21 @@ function openAttachmentPath(path: string) {
 
 <style scoped>
 /* 浅色主题：思维链橙色、工具绿色（加深保证白底可读） */
-.ecall-activity-reasoning {
+/* :deep 穿透：颜色类经 textClass 传入 ExpandableText 内部文本元素，scoped 规则需跨组件生效 */
+:deep(.ecall-activity-reasoning) {
   color: #c2410c;
 }
 
-.ecall-activity-tool {
+:deep(.ecall-activity-tool) {
   color: #15803d;
 }
 
 /* 深色主题：思维链橙色、工具绿色（提亮保证深底可读） */
-.ecall-activity-reasoning-dark {
+:deep(.ecall-activity-reasoning-dark) {
   color: #fb923c;
 }
 
-.ecall-activity-tool-dark {
+:deep(.ecall-activity-tool-dark) {
   color: #4ade80;
 }
 
