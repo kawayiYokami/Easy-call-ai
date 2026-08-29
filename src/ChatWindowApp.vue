@@ -24,7 +24,6 @@
       :maximized="maximized"
       :window-ready="windowReady"
       :open-settings-title="t('window.configTitle')"
-      :hide-settings="true"
       :close-title="t('common.close')"
       :config-search-query="configSearchQuery"
       :config-search-results="configSearchResults"
