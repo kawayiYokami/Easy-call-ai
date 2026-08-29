@@ -28,6 +28,7 @@
         @export-conversation="handleConversationExport"
         @delete-conversation="handleConversationDelete"
         @batch-archive-completed="handleBatchArchiveCompleted"
+        @open-settings="$emit('openSettings')"
       />
     </div>
 

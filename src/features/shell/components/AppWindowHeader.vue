@@ -145,6 +145,7 @@
       </button>
 
       <button
+        v-if="!hideSettings"
         class="btn btn-ghost btn-sm"
         :title="openSettingsTitle || t('common.settings')"
         @mousedown.stop
@@ -331,6 +332,8 @@ const props = withDefaults(defineProps<{
   maximized: boolean;
   windowReady: boolean;
   openSettingsTitle: string;
+  /** 隐藏标题栏设置按钮（聊天窗口由侧边栏头像菜单承担入口） */
+  hideSettings?: boolean;
   closeTitle?: string;
   configSearchQuery?: string;
   configSearchResults?: ConfigSearchResult[];
@@ -347,6 +350,7 @@ const props = withDefaults(defineProps<{
   windowControlsVisible: true,
   pipelineStatusEnabled: true,
   simpleSetupMode: false,
+  hideSettings: false,
 });
 
 const pipelineStatus = props.pipelineStatusEnabled

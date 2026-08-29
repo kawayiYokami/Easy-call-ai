@@ -153,10 +153,14 @@
         </div>
       </Transition>
     </ChatConversationFloatingScroll>
-    <div class="shrink-0 border-t border-base-300 bg-base-100/95 px-2 py-2 backdrop-blur">
+    <div class="shrink-0 px-2 py-2">
       <div class="flex items-center justify-between gap-2">
-        <div class="avatar">
-          <div class="flex h-9 w-9 items-center justify-center rounded-full bg-neutral text-neutral-content">
+        <div class="dropdown dropdown-top dropdown-start">
+          <div
+            tabindex="0"
+            role="button"
+            class="flex h-9 w-9 cursor-pointer items-center justify-center rounded-full bg-neutral text-neutral-content outline-none"
+          >
             <img
               v-if="props.userAvatarUrl"
               :src="props.userAvatarUrl"
@@ -165,15 +169,24 @@
             />
             <span v-else class="text-sm font-bold">{{ userAvatarInitial }}</span>
           </div>
+          <ul
+            tabindex="0"
+            class="dropdown-content menu z-50 mb-2 w-44 rounded-box border border-base-300 bg-base-100 p-1 text-base-content shadow-xl"
+          >
+            <li>
+              <button type="button" @click="handleOpenSettings">
+                <Settings class="h-3.5 w-3.5" />
+                <span>{{ t("common.settings") }}</span>
+              </button>
+            </li>
+            <li>
+              <button type="button" @click="handleOpenBatchArchive">
+                <Archive class="h-3.5 w-3.5" />
+                <span>{{ t("chat.batchArchive.entryAction") }}</span>
+              </button>
+            </li>
+          </ul>
         </div>
-        <button
-          type="button"
-          class="btn btn-ghost btn-xs min-h-8 rounded-xl px-3 text-sm font-bold"
-          @click="openBatchArchiveCard"
-        >
-          <span>{{ t("chat.batchArchive.entryAction") }}</span>
-          <ChevronRight class="h-3.5 w-3.5" />
-        </button>
       </div>
     </div>
     <dialog class="modal" :class="{ 'modal-open': batchArchiveCardOpen }">
@@ -301,7 +314,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
-import { Archive, ChevronRight, Search, SquarePen } from "@lucide/vue";
+import { Archive, Search, Settings, SquarePen } from "@lucide/vue";
 import CollapsibleGroup from "./CollapsibleGroup.vue";
 import ChatConversationItem from "./ChatConversationItem.vue";
 import type { ApiConfigItem, ChatConversationOverviewItem, ConversationPreviewMessage } from "../../../types/app";
@@ -374,9 +387,26 @@ const emit = defineEmits<{
   (e: "update:activeTab", value: ConversationSidebarTab): void;
   (e: "editTask", task: TaskEntry): void;
   (e: "batchArchiveCompleted", payload: { archivedConversationIds: string[]; activeConversationId?: string }): void;
+  (e: "openSettings"): void;
 }>();
 
 const { t, locale } = useI18n();
+/** 头像上拉菜单：DaisyUI dropdown 依赖焦点开合，选中菜单项后主动失焦收起 */
+function closeUserMenu(event: MouseEvent) {
+  (event.currentTarget as HTMLElement | null)?.closest(".dropdown")
+    ?.querySelector<HTMLElement>("[role='button']")?.blur();
+}
+
+function handleOpenSettings(event: MouseEvent) {
+  closeUserMenu(event);
+  emit("openSettings");
+}
+
+function handleOpenBatchArchive(event: MouseEvent) {
+  closeUserMenu(event);
+  openBatchArchiveCard();
+}
+
 const conversationSearchQuery = ref("");
 const showSearch = ref(false);
 const searchInputRef = ref<HTMLInputElement | null>(null);
