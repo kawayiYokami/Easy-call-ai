@@ -1,10 +1,11 @@
 <template>
-  <div
-    v-if="open"
-    class="fixed inset-0 z-80 flex items-center justify-center bg-black/30 px-4 py-8"
-    @click.self="emit('close')"
+  <dialog
+    ref="dialogRef"
+    class="modal"
+    @close="onDialogClose"
+    @cancel.prevent="onDialogClose"
   >
-    <div class="flex max-h-[calc(100dvh-4rem)] w-full max-w-2xl flex-col rounded-2xl border border-base-300 bg-base-100 shadow-2xl">
+    <div class="modal-box flex max-h-[calc(100dvh-4rem)] w-full max-w-2xl flex-col overflow-hidden p-0">
       <div class="flex shrink-0 flex-col gap-3 border-b border-base-300 px-4 py-3">
         <div class="flex items-start justify-between gap-3">
           <div class="min-w-0">
@@ -160,11 +161,14 @@
         </div>
       </div>
     </div>
-  </div>
+    <form method="dialog" class="modal-backdrop">
+      <button @click.prevent="onDialogClose">close</button>
+    </form>
+  </dialog>
 </template>
 
 <script setup lang="ts">
-import { computed, ref } from "vue";
+import { computed, ref, watch } from "vue";
 import { SquareTerminal, Trash2 } from "@lucide/vue";
 import { useI18n } from "vue-i18n";
 import type { ChatWorkspaceChoice } from "../../composables/use-chat-workspace";
@@ -197,6 +201,28 @@ const emit = defineEmits<{
 }>();
 
 const { t } = useI18n();
+const dialogRef = ref<HTMLDialogElement | null>(null);
+
+function onDialogClose() {
+  if (props.saving) {
+    const d = dialogRef.value;
+    if (d && !d.open && props.open) d.showModal();
+    return;
+  }
+  emit("close");
+}
+
+function syncDialog() {
+  const d = dialogRef.value;
+  if (!d) return;
+  if (props.open) {
+    if (!d.open) d.showModal();
+  } else if (d.open) d.close();
+}
+
+watch(() => props.open, syncDialog);
+watch(dialogRef, syncDialog);
+
 const MAX_DISPLAYED_WORKSPACES = 100;
 const searchQuery = ref("");
 const displayedWorkspaces = computed(() => props.workspaces.filter((item) => item.level !== "system"));

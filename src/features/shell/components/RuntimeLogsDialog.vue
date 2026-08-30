@@ -1,5 +1,5 @@
 <template>
-  <dialog class="modal" :class="{ 'modal-open': open }">
+  <dialog ref="dialogRef" class="modal" @close="onDialogClose" @cancel.prevent="onDialogClose">
     <div class="modal-box max-w-4xl h-[70vh] flex flex-col">
       <div class="flex items-center justify-between gap-2">
         <h3 class="font-semibold text-base">{{ t("runtimeLogs.title") }}</h3>
@@ -37,7 +37,7 @@
       <pre class="mt-3 flex-1 overflow-auto rounded-box border border-base-300 bg-base-100 p-3 font-mono text-xs leading-5 whitespace-pre-wrap break-words"><code>{{ runtimeLogCode }}</code></pre>
     </div>
     <form method="dialog" class="modal-backdrop">
-      <button @click.prevent="$emit('close')">close</button>
+      <button @click.prevent="onDialogClose">close</button>
     </form>
   </dialog>
 </template>
@@ -54,11 +54,28 @@ const props = defineProps<{
   errorText: string;
 }>();
 
-defineEmits<{
+const emit = defineEmits<{
   (e: "close"): void;
   (e: "refresh"): void;
   (e: "clear"): void;
 }>();
+
+const dialogRef = ref<HTMLDialogElement | null>(null);
+
+function onDialogClose() {
+  emit("close");
+}
+
+function syncDialog() {
+  const d = dialogRef.value;
+  if (!d) return;
+  if (props.open) {
+    if (!d.open) d.showModal();
+  } else if (d.open) d.close();
+}
+
+watch(() => props.open, syncDialog);
+watch(dialogRef, syncDialog);
 
 const levelOptions = ["info", "warn", "error", "debug", "trace"] as const;
 const selectedLevel = ref<"all" | (typeof levelOptions)[number]>("info");

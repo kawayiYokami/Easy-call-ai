@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 import { Star } from "@lucide/vue";
 import { AppMarkdownRenderer, initKatex } from "../../chat/markdown";
@@ -82,6 +83,92 @@ const emit = defineEmits<{
 
 const { t } = useI18n();
 
+const updateDialogRef = ref<HTMLDialogElement | null>(null);
+const rewindConfirmDialogRef = ref<HTMLDialogElement | null>(null);
+const branchFromMessageConfirmDialogRef = ref<HTMLDialogElement | null>(null);
+const configSaveErrorDialogRef = ref<HTMLDialogElement | null>(null);
+const archiveImportPreviewDialogRef = ref<HTMLDialogElement | null>(null);
+const skillPlaceholderDialogRef = ref<HTMLDialogElement | null>(null);
+
+function onUpdateDialogClose() {
+  emit("closeUpdateDialog");
+}
+function syncUpdateDialog() {
+  const d = updateDialogRef.value;
+  if (!d) return;
+  if (props.updateDialogOpen) {
+    if (!d.open) d.showModal();
+  } else if (d.open) d.close();
+}
+function onRewindConfirmDialogClose() {
+  emit("cancelRewindConfirm");
+}
+function syncRewindConfirmDialog() {
+  const d = rewindConfirmDialogRef.value;
+  if (!d) return;
+  if (props.rewindConfirmDialogOpen) {
+    if (!d.open) d.showModal();
+  } else if (d.open) d.close();
+}
+function onBranchFromMessageDialogClose() {
+  emit("cancelBranchFromMessageConfirm");
+}
+function syncBranchFromMessageDialog() {
+  const d = branchFromMessageConfirmDialogRef.value;
+  if (!d) return;
+  if (props.branchFromMessageConfirmDialogOpen) {
+    if (!d.open) d.showModal();
+  } else if (d.open) d.close();
+}
+function onConfigSaveErrorDialogClose() {
+  emit("closeSettingsSaveErrorDialog");
+}
+function syncConfigSaveErrorDialog() {
+  const d = configSaveErrorDialogRef.value;
+  if (!d) return;
+  if (props.configSaveErrorDialogOpen) {
+    if (!d.open) d.showModal();
+  } else if (d.open) d.close();
+}
+function onArchiveImportPreviewDialogClose() {
+  if (props.archiveImportRunning) {
+    const d = archiveImportPreviewDialogRef.value;
+    if (d && !d.open && props.archiveImportPreviewDialogOpen) d.showModal();
+    return;
+  }
+  emit("closeArchiveImportPreviewDialog");
+}
+function syncArchiveImportPreviewDialog() {
+  const d = archiveImportPreviewDialogRef.value;
+  if (!d) return;
+  if (props.archiveImportPreviewDialogOpen) {
+    if (!d.open) d.showModal();
+  } else if (d.open) d.close();
+}
+function onSkillPlaceholderDialogClose() {
+  emit("closeSkillPlaceholderDialog");
+}
+function syncSkillPlaceholderDialog() {
+  const d = skillPlaceholderDialogRef.value;
+  if (!d) return;
+  if (props.skillPlaceholderDialogOpen) {
+    if (!d.open) d.showModal();
+  } else if (d.open) d.close();
+}
+
+watch(() => props.updateDialogOpen, syncUpdateDialog);
+watch(updateDialogRef, syncUpdateDialog);
+watch(() => props.rewindConfirmDialogOpen, syncRewindConfirmDialog);
+watch(rewindConfirmDialogRef, syncRewindConfirmDialog);
+watch(() => props.branchFromMessageConfirmDialogOpen, syncBranchFromMessageDialog);
+watch(branchFromMessageConfirmDialogRef, syncBranchFromMessageDialog);
+watch(() => props.configSaveErrorDialogOpen, syncConfigSaveErrorDialog);
+watch(configSaveErrorDialogRef, syncConfigSaveErrorDialog);
+watch(() => props.archiveImportPreviewDialogOpen, syncArchiveImportPreviewDialog);
+watch(archiveImportPreviewDialogRef, syncArchiveImportPreviewDialog);
+watch(() => props.skillPlaceholderDialogOpen, syncSkillPlaceholderDialog);
+watch(skillPlaceholderDialogRef, syncSkillPlaceholderDialog);
+
 function handleConfirmTrimAction() {
   emit("confirmTrimAction");
 }
@@ -110,7 +197,7 @@ function canShowUpdateSecondaryActions() {
 </script>
 
 <template>
-  <dialog class="modal" :class="{ 'modal-open': updateDialogOpen }">
+  <dialog ref="updateDialogRef" class="modal" @close="onUpdateDialogClose" @cancel.prevent="onUpdateDialogClose">
     <div class="modal-box w-[min(92vw,48rem)] max-w-[48rem] flex max-h-[85dvh] flex-col overflow-hidden">
       <h3 class="font-semibold text-base">
         {{ updateDialogTitle }}
@@ -183,7 +270,7 @@ function canShowUpdateSecondaryActions() {
       </div>
     </div>
     <form method="dialog" class="modal-backdrop">
-      <button @click.prevent="emit('closeUpdateDialog')">close</button>
+      <button @click.prevent="onUpdateDialogClose">close</button>
     </form>
   </dialog>
 
@@ -197,7 +284,7 @@ function canShowUpdateSecondaryActions() {
     @clear="emit('clearRuntimeLogs')"
   />
 
-  <dialog class="modal" :class="{ 'modal-open': rewindConfirmDialogOpen }">
+  <dialog ref="rewindConfirmDialogRef" class="modal" @close="onRewindConfirmDialogClose" @cancel.prevent="onRewindConfirmDialogClose">
     <div class="modal-box max-w-md">
       <h3 class="font-semibold text-base">{{ t("dialogs.rewind.title") }}</h3>
       <div class="mt-2 text-sm opacity-80">{{ t("dialogs.rewind.hint") }}</div>
@@ -216,11 +303,11 @@ function canShowUpdateSecondaryActions() {
       </div>
     </div>
     <form method="dialog" class="modal-backdrop">
-      <button @click.prevent="emit('cancelRewindConfirm')">close</button>
+      <button @click.prevent="onRewindConfirmDialogClose">close</button>
     </form>
   </dialog>
 
-  <dialog class="modal" :class="{ 'modal-open': branchFromMessageConfirmDialogOpen }">
+  <dialog ref="branchFromMessageConfirmDialogRef" class="modal" @close="onBranchFromMessageDialogClose" @cancel.prevent="onBranchFromMessageDialogClose">
     <div class="modal-box max-w-md">
       <h3 class="font-semibold text-base">{{ t("dialogs.branchFromMessage.title") }}</h3>
       <div class="mt-2 text-sm opacity-80">{{ t("dialogs.branchFromMessage.hint") }}</div>
@@ -230,11 +317,11 @@ function canShowUpdateSecondaryActions() {
       </div>
     </div>
     <form method="dialog" class="modal-backdrop">
-      <button @click.prevent="emit('cancelBranchFromMessageConfirm')">close</button>
+      <button @click.prevent="onBranchFromMessageDialogClose">close</button>
     </form>
   </dialog>
 
-  <dialog class="modal" :class="{ 'modal-open': configSaveErrorDialogOpen }">
+  <dialog ref="configSaveErrorDialogRef" class="modal" @close="onConfigSaveErrorDialogClose" @cancel.prevent="onConfigSaveErrorDialogClose">
     <div class="modal-box max-w-md">
       <h3 class="font-semibold text-base">
         {{ configSaveErrorDialogTitle }}
@@ -248,11 +335,11 @@ function canShowUpdateSecondaryActions() {
       </div>
     </div>
     <form method="dialog" class="modal-backdrop">
-      <button @click.prevent="emit('closeSettingsSaveErrorDialog')">close</button>
+      <button @click.prevent="onConfigSaveErrorDialogClose">close</button>
     </form>
   </dialog>
 
-  <dialog class="modal" :class="{ 'modal-open': archiveImportPreviewDialogOpen }">
+  <dialog ref="archiveImportPreviewDialogRef" class="modal" @close="onArchiveImportPreviewDialogClose" @cancel.prevent="onArchiveImportPreviewDialogClose">
     <div class="modal-box max-w-md">
       <h3 class="font-semibold text-base">
         {{ t("archives.importPreviewTitle") }}
@@ -274,11 +361,11 @@ function canShowUpdateSecondaryActions() {
       </div>
     </div>
     <form method="dialog" class="modal-backdrop">
-      <button @click.prevent="emit('closeArchiveImportPreviewDialog')">close</button>
+      <button @click.prevent="onArchiveImportPreviewDialogClose">close</button>
     </form>
   </dialog>
 
-  <dialog class="modal" :class="{ 'modal-open': skillPlaceholderDialogOpen }">
+  <dialog ref="skillPlaceholderDialogRef" class="modal" @close="onSkillPlaceholderDialogClose" @cancel.prevent="onSkillPlaceholderDialogClose">
     <div class="modal-box max-w-md">
       <h3 class="font-semibold text-base">{{ t("dialogs.skill.title") }}</h3>
       <div class="mt-2 text-sm opacity-80">{{ t("dialogs.skill.placeholder") }}</div>
@@ -287,7 +374,7 @@ function canShowUpdateSecondaryActions() {
       </div>
     </div>
     <form method="dialog" class="modal-backdrop">
-      <button @click.prevent="emit('closeSkillPlaceholderDialog')">close</button>
+      <button @click.prevent="onSkillPlaceholderDialogClose">close</button>
     </form>
   </dialog>
 

@@ -1,5 +1,5 @@
 <template>
-  <dialog class="modal" :class="{ 'modal-open': open }" @cancel.prevent="handleClose">
+  <dialog ref="dialogRef" class="modal" @close="onDialogClose" @cancel.prevent="onDialogClose">
     <div class="modal-box w-11/12 max-w-2xl p-0">
       <div class="flex items-center justify-between gap-3 border-b border-base-300/70 px-5 py-4">
         <h3 class="text-base font-semibold">{{ dialogTitle }}</h3>
@@ -187,11 +187,11 @@
       </form>
     </div>
     <form method="dialog" class="modal-backdrop">
-      <button @click.prevent="handleClose">close</button>
+      <button @click.prevent="onDialogClose">close</button>
     </form>
   </dialog>
 
-  <dialog class="modal" :class="{ 'modal-open': deleteConfirmOpen }" @cancel.prevent="closeDeleteConfirm">
+  <dialog ref="deleteConfirmDialogRef" class="modal" @close="onDeleteConfirmDialogClose" @cancel.prevent="onDeleteConfirmDialogClose">
     <div class="modal-box max-w-md p-4">
       <h3 class="text-sm font-semibold">{{ t("common.delete") }}</h3>
       <p class="mt-3 whitespace-pre-wrap text-sm">{{ t("config.task.deleteConfirm") }}</p>
@@ -206,7 +206,7 @@
       </div>
     </div>
     <form method="dialog" class="modal-backdrop">
-      <button @click.prevent="closeDeleteConfirm">close</button>
+      <button @click.prevent="onDeleteConfirmDialogClose">close</button>
     </form>
   </dialog>
 </template>
@@ -299,10 +299,51 @@ const emit = defineEmits<{
 }>();
 
 const { t, locale } = useI18n();
+const dialogRef = ref<HTMLDialogElement | null>(null);
+const deleteConfirmDialogRef = ref<HTMLDialogElement | null>(null);
 const contentInputRef = ref<HTMLTextAreaElement | null>(null);
 const saving = ref(false);
 const optimizing = ref(false);
 const deleteConfirmOpen = ref(false);
+
+function onDialogClose() {
+  if (dialogBusy.value) {
+    const d = dialogRef.value;
+    if (d && !d.open && props.open) d.showModal();
+    return;
+  }
+  handleClose();
+}
+
+function syncDialog() {
+  const d = dialogRef.value;
+  if (!d) return;
+  if (props.open) {
+    if (!d.open) d.showModal();
+  } else if (d.open) d.close();
+}
+
+function onDeleteConfirmDialogClose() {
+  if (dialogBusy.value) {
+    const d = deleteConfirmDialogRef.value;
+    if (d && !d.open && deleteConfirmOpen.value) d.showModal();
+    return;
+  }
+  closeDeleteConfirm();
+}
+
+function syncDeleteConfirmDialog() {
+  const d = deleteConfirmDialogRef.value;
+  if (!d) return;
+  if (deleteConfirmOpen.value) {
+    if (!d.open) d.showModal();
+  } else if (d.open) d.close();
+}
+
+watch(() => props.open, syncDialog);
+watch(dialogRef, syncDialog);
+watch(deleteConfirmOpen, syncDeleteConfirmDialog);
+watch(deleteConfirmDialogRef, syncDeleteConfirmDialog);
 const errorText = ref("");
 const title = ref("");
 const content = ref("");

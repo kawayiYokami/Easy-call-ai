@@ -1,7 +1,6 @@
 <template>
-  <Teleport to="body">
-    <div v-if="open" class="fixed inset-0 z-[1200] flex items-center justify-center bg-base-content/30 p-4 backdrop-blur-sm">
-      <div class="card w-full max-w-md border border-base-300 bg-base-100 shadow-2xl">
+  <dialog ref="dialogRef" class="modal" @close="onDialogClose" @cancel.prevent="onDialogClose">
+    <div class="modal-box w-full max-w-md p-0 overflow-hidden border border-base-300 bg-base-100 shadow-2xl">
         <div class="card-body gap-4">
           <div class="flex items-start justify-between gap-3">
             <div>
@@ -63,13 +62,15 @@
             </button>
           </div>
         </div>
-      </div>
     </div>
-  </Teleport>
+    <form method="dialog" class="modal-backdrop">
+      <button @click.prevent="onDialogClose">close</button>
+    </form>
+  </dialog>
 </template>
 
 <script setup lang="ts">
-import { computed } from "vue";
+import { computed, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 import { X } from "@lucide/vue";
 import type { RemoteImContactConversationOption } from "../../../types/app";
@@ -90,6 +91,27 @@ const emit = defineEmits<{
 }>();
 
 const { t } = useI18n();
+const dialogRef = ref<HTMLDialogElement | null>(null);
+
+function onDialogClose() {
+  if (props.saving) {
+    const d = dialogRef.value;
+    if (d && !d.open && props.open) d.showModal();
+    return;
+  }
+  emit("close");
+}
+
+function syncDialog() {
+  const d = dialogRef.value;
+  if (!d) return;
+  if (props.open) {
+    if (!d.open) d.showModal();
+  } else if (d.open) d.close();
+}
+
+watch(() => props.open, syncDialog);
+watch(dialogRef, syncDialog);
 
 const saveDisabled = computed(() =>
   props.saving || (props.enabled && !String(props.selectedContactId || "").trim()),

@@ -189,7 +189,7 @@
         </div>
       </div>
     </div>
-    <dialog class="modal" :class="{ 'modal-open': batchArchiveCardOpen }">
+    <dialog ref="batchArchiveDialogRef" class="modal" @close="closeBatchArchiveCard" @cancel.prevent="closeBatchArchiveCard">
       <div class="modal-box flex h-[min(88vh,44rem)] w-[min(94vw,64rem)] max-w-none flex-col overflow-hidden p-0">
         <div class="flex shrink-0 items-center justify-between gap-3 border-b border-base-300 px-5 py-4">
           <h3 class="text-base font-semibold">{{ t("chat.batchArchive.title") }}</h3>
@@ -410,7 +410,19 @@ function handleOpenBatchArchive(event: MouseEvent) {
 const conversationSearchQuery = ref("");
 const showSearch = ref(false);
 const searchInputRef = ref<HTMLInputElement | null>(null);
+const batchArchiveDialogRef = ref<HTMLDialogElement | null>(null);
 const batchArchiveCardOpen = ref(false);
+
+function syncBatchArchiveDialog() {
+  const d = batchArchiveDialogRef.value;
+  if (!d) return;
+  if (batchArchiveCardOpen.value) {
+    if (!d.open) d.showModal();
+  } else if (d.open) d.close();
+}
+
+watch(batchArchiveCardOpen, syncBatchArchiveDialog);
+watch(batchArchiveDialogRef, syncBatchArchiveDialog);
 const batchArchiveDays = ref(30);
 const batchArchiveKeepOnePerWorkspace = ref(true);
 const batchArchiveSelectedModelId = ref("");

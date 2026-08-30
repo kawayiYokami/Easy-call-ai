@@ -28,6 +28,27 @@ const emit = defineEmits<{
 }>();
 
 const { t } = useI18n();
+const dialogRef = ref<HTMLDialogElement | null>(null);
+
+function onDialogClose() {
+  if (props.resolving) {
+    const d = dialogRef.value;
+    if (d && !d.open && props.open) d.showModal();
+    return;
+  }
+  handleClose();
+}
+
+function syncDialog() {
+  const d = dialogRef.value;
+  if (!d) return;
+  if (props.open) {
+    if (!d.open) d.showModal();
+  } else if (d.open) d.close();
+}
+
+watch(() => props.open, syncDialog);
+watch(dialogRef, syncDialog);
 
 function getTerminalApprovalPayloadText(payload: TerminalApprovalRequestPayload | null): string {
   return String(payload?.callPreview || payload?.command || payload?.summary || payload?.message || "").replace(/\r/g, "");
@@ -148,7 +169,7 @@ watch(terminalApprovalPatchBlocks, clampTerminalApprovalPatchIndex);
 </script>
 
 <template>
-  <dialog class="modal" :class="{ 'modal-open': open }">
+  <dialog ref="dialogRef" class="modal" @close="onDialogClose" @cancel.prevent="onDialogClose">
     <div class="modal-box max-w-2xl">
       <h3 class="font-semibold text-base">
         {{ terminalApprovalDialogTitle }}
@@ -215,7 +236,7 @@ watch(terminalApprovalPatchBlocks, clampTerminalApprovalPatchIndex);
       </div>
     </div>
     <form method="dialog" class="modal-backdrop">
-      <button @click.prevent="handleClose">close</button>
+      <button @click.prevent="onDialogClose">close</button>
     </form>
   </dialog>
 </template>

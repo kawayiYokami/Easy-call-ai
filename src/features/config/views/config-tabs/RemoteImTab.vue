@@ -283,7 +283,7 @@
       </div>
     </Teleport>
 
-    <div class="modal z-90" :class="{ 'modal-open': addChannelModalOpen }" @click.self="closeAddChannelModal">
+    <dialog ref="addChannelDialogRef" class="modal" @close="closeAddChannelModal" @cancel.prevent="closeAddChannelModal">
       <div class="modal-box max-w-md">
         <div class="flex items-center justify-between">
           <div class="font-semibold text-lg">{{ t("config.remoteIm.addChannel") }}</div>
@@ -308,9 +308,12 @@
           <button class="btn btn-ghost" @click="closeAddChannelModal">{{ t("common.cancel") }}</button>
         </div>
       </div>
-    </div>
+      <form method="dialog" class="modal-backdrop">
+        <button @click.prevent="closeAddChannelModal">close</button>
+      </form>
+    </dialog>
 
-    <div class="modal z-90" :class="{ 'modal-open': channelLogsModalOpen }" @click.self="closeChannelLogsModal">
+    <dialog ref="channelLogsDialogRef" class="modal" @close="closeChannelLogsModal" @cancel.prevent="closeChannelLogsModal">
       <div class="modal-box max-w-4xl">
         <div class="flex items-center justify-between">
           <div class="font-semibold">
@@ -328,9 +331,12 @@
           <pre v-else class="bg-base-200 rounded-box p-3 font-mono text-xs leading-relaxed whitespace-pre-wrap break-all m-0"><template v-for="(log, idx) in channelLogs" :key="idx"><span :class="log.level === 'error' ? 'text-error' : log.level === 'warn' ? 'text-warning' : ''"><span class="opacity-50">{{ formatLogTime(log.timestamp) }}</span> {{ log.message }}</span>{{ '\n' }}</template></pre>
         </div>
       </div>
-    </div>
+      <form method="dialog" class="modal-backdrop">
+        <button @click.prevent="closeChannelLogsModal">close</button>
+      </form>
+    </dialog>
 
-    <div class="modal z-90" :class="{ 'modal-open': contactLogsModalOpen }" @click.self="closeContactLogsModal">
+    <dialog ref="contactLogsDialogRef" class="modal" @close="closeContactLogsModal" @cancel.prevent="closeContactLogsModal">
       <div class="modal-box max-w-4xl">
         <div class="flex items-center justify-between">
           <div class="font-semibold">
@@ -348,10 +354,13 @@
           <pre v-else class="bg-base-200 rounded-box p-3 font-mono text-xs leading-relaxed whitespace-pre-wrap break-all m-0"><template v-for="(line, idx) in contactLogDisplayLines" :key="`${idx}-${line}`"><span>{{ line }}</span>{{ '\n' }}</template></pre>
         </div>
       </div>
-    </div>
+      <form method="dialog" class="modal-backdrop">
+        <button @click.prevent="closeContactLogsModal">close</button>
+      </form>
+    </dialog>
 
     <!-- 渠道配置模态框 -->
-    <div class="modal z-80" :class="{ 'modal-open': channelConfigModalOpen }" @click.self="closeChannelConfigModal">
+    <dialog ref="channelConfigDialogRef" class="modal" @close="closeChannelConfigModal" @cancel.prevent="closeChannelConfigModal">
       <div class="modal-box max-w-3xl max-h-[80vh] overflow-hidden flex flex-col">
         <div class="flex items-center justify-between shrink-0">
           <div class="font-semibold text-lg">
@@ -570,10 +579,13 @@
           </div>
         </div>
       </div>
-    </div>
+      <form method="dialog" class="modal-backdrop">
+        <button @click.prevent="closeChannelConfigModal">close</button>
+      </form>
+    </dialog>
 
     <!-- 联系人配置模态框 -->
-    <div class="modal z-80" :class="{ 'modal-open': contactConfigModalOpen }" @click.self="closeContactConfigModal">
+    <dialog ref="contactConfigDialogRef" class="modal" @close="closeContactConfigModal" @cancel.prevent="closeContactConfigModal">
       <div class="modal-box max-w-2xl max-h-[80vh] overflow-hidden flex flex-col">
         <div class="flex items-center justify-between shrink-0">
           <div class="font-semibold text-lg flex items-center gap-2">
@@ -783,7 +795,10 @@
           </div>
         </div>
       </div>
-    </div>
+      <form method="dialog" class="modal-backdrop">
+        <button @click.prevent="closeContactConfigModal">close</button>
+      </form>
+    </dialog>
   </div>
 </template>
 
@@ -870,15 +885,67 @@ const selectedChannelId = ref<string>("");
 const channels = computed(() => props.config.remoteImChannels || []);
 const channelStatus = ref<ChannelConnectionStatus | null>(null);
 const channelLogs = ref<ChannelLogEntry[]>([]);
+const channelLogsDialogRef = ref<HTMLDialogElement | null>(null);
 const channelLogsModalOpen = ref(false);
 const channelLogsLoading = ref(false);
 const contactLogs = ref<ChannelLogEntry[]>([]);
+const contactLogsDialogRef = ref<HTMLDialogElement | null>(null);
 const contactLogsModalOpen = ref(false);
 const contactLogsLoading = ref(false);
 const contactLogsContactId = ref("");
+const addChannelDialogRef = ref<HTMLDialogElement | null>(null);
 const addChannelModalOpen = ref(false);
+const channelConfigDialogRef = ref<HTMLDialogElement | null>(null);
 const channelConfigModalOpen = ref(false);
+const contactConfigDialogRef = ref<HTMLDialogElement | null>(null);
 const contactConfigModalOpen = ref(false);
+
+function syncAddChannelDialog() {
+  const d = addChannelDialogRef.value;
+  if (!d) return;
+  if (addChannelModalOpen.value) {
+    if (!d.open) d.showModal();
+  } else if (d.open) d.close();
+}
+function syncChannelLogsDialog() {
+  const d = channelLogsDialogRef.value;
+  if (!d) return;
+  if (channelLogsModalOpen.value) {
+    if (!d.open) d.showModal();
+  } else if (d.open) d.close();
+}
+function syncContactLogsDialog() {
+  const d = contactLogsDialogRef.value;
+  if (!d) return;
+  if (contactLogsModalOpen.value) {
+    if (!d.open) d.showModal();
+  } else if (d.open) d.close();
+}
+function syncChannelConfigDialog() {
+  const d = channelConfigDialogRef.value;
+  if (!d) return;
+  if (channelConfigModalOpen.value) {
+    if (!d.open) d.showModal();
+  } else if (d.open) d.close();
+}
+function syncContactConfigDialog() {
+  const d = contactConfigDialogRef.value;
+  if (!d) return;
+  if (contactConfigModalOpen.value) {
+    if (!d.open) d.showModal();
+  } else if (d.open) d.close();
+}
+
+watch(addChannelModalOpen, syncAddChannelDialog);
+watch(addChannelDialogRef, syncAddChannelDialog);
+watch(channelLogsModalOpen, syncChannelLogsDialog);
+watch(channelLogsDialogRef, syncChannelLogsDialog);
+watch(contactLogsModalOpen, syncContactLogsDialog);
+watch(contactLogsDialogRef, syncContactLogsDialog);
+watch(channelConfigModalOpen, syncChannelConfigDialog);
+watch(channelConfigDialogRef, syncChannelConfigDialog);
+watch(contactConfigModalOpen, syncContactConfigDialog);
+watch(contactConfigDialogRef, syncContactConfigDialog);
 const selectedContactId = ref<string>("");
 const contactPillMenu = ref<ContactPillMenuState | null>(null);
 const contactSettingsClipboard = ref<ContactSettingsClipboard | null>(null);

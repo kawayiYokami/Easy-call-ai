@@ -72,7 +72,7 @@
     </template>
   </div>
 
-  <dialog class="modal" :class="{ 'modal-open': !!selectedTurn }">
+  <dialog ref="selectedTurnDialogRef" class="modal" @close="closeTurnDialog" @cancel.prevent="closeTurnDialog">
     <div class="modal-box max-h-[80vh] max-w-2xl overflow-y-auto">
       <div class="mb-3 flex items-start justify-between gap-3">
         <div v-if="selectedTurn" class="min-w-0">
@@ -102,7 +102,7 @@
       </div>
     </div>
     <form method="dialog" class="modal-backdrop">
-      <button type="button" @click="closeTurnDialog">close</button>
+      <button @click.prevent="closeTurnDialog">close</button>
     </form>
   </dialog>
 </template>
@@ -127,7 +127,19 @@ const turns = ref<FastRequestTurn[]>([]);
 const loading = ref(false);
 const errorText = ref("");
 const collapsedFastRequestSectionKeys = ref<Record<string, boolean>>({});
+const selectedTurnDialogRef = ref<HTMLDialogElement | null>(null);
 const selectedTurn = ref<FastRequestTurn | null>(null);
+
+function syncSelectedTurnDialog() {
+  const d = selectedTurnDialogRef.value;
+  if (!d) return;
+  if (selectedTurn.value) {
+    if (!d.open) d.showModal();
+  } else if (d.open) d.close();
+}
+
+watch(selectedTurn, syncSelectedTurnDialog);
+watch(selectedTurnDialogRef, syncSelectedTurnDialog);
 let requestSeq = 0;
 
 type FastRequestSection = {

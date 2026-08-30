@@ -9,9 +9,13 @@
     <SlidersHorizontal class="h-3.5 w-3.5" />
   </button>
 
-  <Teleport to="body">
-    <div v-if="open" class="fixed inset-0 z-[100] flex items-center justify-center bg-black/40 p-4" @mousedown.self="closeModal">
-      <section class="flex h-[82vh] w-[82vw] max-w-none flex-col overflow-hidden rounded-box border border-base-300 bg-base-100 shadow-2xl" role="dialog" aria-modal="true">
+  <dialog
+    ref="dialogRef"
+    class="modal"
+    @close="onDialogClose"
+    @cancel.prevent="onDialogClose"
+  >
+    <div class="modal-box flex h-[82vh] w-[82vw] max-w-none flex-col overflow-hidden p-0">
         <header class="flex shrink-0 items-start justify-between gap-4 border-b border-base-300 px-5 py-4">
           <div class="min-w-0">
             <h3 class="font-semibold">{{ t('config.remoteIm.channelBehaviorSettings') }}</h3>
@@ -32,13 +36,15 @@
             <Save v-else class="h-3.5 w-3.5" />{{ t('common.save') }}
           </button>
         </footer>
-      </section>
     </div>
-  </Teleport>
+    <form method="dialog" class="modal-backdrop">
+      <button @click.prevent="onDialogClose">close</button>
+    </form>
+  </dialog>
 </template>
 
 <script setup lang="ts">
-import { computed, ref } from "vue";
+import { computed, ref, watch } from "vue";
 import { Save, SlidersHorizontal } from "@lucide/vue";
 import { useI18n } from "vue-i18n";
 import { invokeTauri } from "../../../../../services/tauri-api";
@@ -109,7 +115,29 @@ function settingsFromDraft(value: Draft): RemoteImChannelBehaviorSettings {
   };
 }
 
+const dialogRef = ref<HTMLDialogElement | null>(null);
 const open = ref(false);
+
+function onDialogClose() {
+  if (saving.value) {
+    const d = dialogRef.value;
+    if (d && !d.open && open.value) d.showModal();
+    return;
+  }
+  closeModal();
+}
+
+function syncDialog() {
+  const d = dialogRef.value;
+  if (!d) return;
+  if (open.value) {
+    if (!d.open) d.showModal();
+  } else if (d.open) d.close();
+}
+
+watch(open, syncDialog);
+watch(dialogRef, syncDialog);
+
 const draft = ref<Draft>(draftFromSettings());
 const templateDraft = computed<Record<string, unknown>>({
   get: () => ({

@@ -212,7 +212,7 @@
         :set-status-action="setStatusAction"
       />
     </div>
-    <dialog class="modal" :class="{ 'modal-open': providerDeleteDialogOpen }">
+    <dialog ref="providerDeleteDialogRef" class="modal" @close="closeDeleteProviderDialog" @cancel.prevent="closeDeleteProviderDialog">
       <div class="modal-box max-w-sm">
         <h3 class="text-lg font-semibold">{{ t("config.api.deleteProviderTitle") }}</h3>
         <p class="py-3 text-sm opacity-80">{{ t("config.api.deleteProviderConfirm", { name: pendingDeleteProviderName }) }}</p>
@@ -225,8 +225,8 @@
           </button>
         </div>
       </div>
-      <form method="dialog" class="modal-backdrop" @submit.prevent="closeDeleteProviderDialog">
-        <button type="submit">close</button>
+      <form method="dialog" class="modal-backdrop">
+        <button @click.prevent="closeDeleteProviderDialog">close</button>
       </form>
     </dialog>
   </SettingsStickyLayout>
@@ -363,8 +363,20 @@ const geminiReasoningEffortOptions = computed(() => [
 const baseUrlHelperOpen = ref(false);
 const linkHelperActiveProtocol = ref<ApiRequestFormat>("openai");
 const selectedPresetId = ref("openai-official");
+const providerDeleteDialogRef = ref<HTMLDialogElement | null>(null);
 const providerDeleteDialogOpen = ref(false);
 const pendingDeleteProviderId = ref("");
+
+function syncProviderDeleteDialog() {
+  const d = providerDeleteDialogRef.value;
+  if (!d) return;
+  if (providerDeleteDialogOpen.value) {
+    if (!d.open) d.showModal();
+  } else if (d.open) d.close();
+}
+
+watch(providerDeleteDialogOpen, syncProviderDeleteDialog);
+watch(providerDeleteDialogRef, syncProviderDeleteDialog);
 const pendingDeleteProviderName = ref("");
 const imageGenerationTabRef = ref<ImageGenerationTabPublicInstance | null>(null);
 const modelCapabilityById = ref<Record<string, ModelCapabilityLimits>>({});

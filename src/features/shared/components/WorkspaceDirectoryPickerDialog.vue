@@ -1,5 +1,5 @@
 <template>
-  <dialog class="modal" :class="{ 'modal-open': open }">
+  <dialog ref="dialogRef" class="modal" @close="onDialogClose" @cancel.prevent="onDialogClose">
     <div class="modal-box w-full max-w-lg rounded-2xl border border-base-300 bg-base-100 p-0 shadow-2xl">
       <div class="border-b border-base-300 px-4 py-3">
         <div class="text-sm font-semibold">{{ t("chat.workspacePickerTitle") }}</div>
@@ -121,13 +121,13 @@
       </div>
     </div>
     <form method="dialog" class="modal-backdrop">
-      <button @click.prevent="emit('close')">close</button>
+      <button @click.prevent="onDialogClose">close</button>
     </form>
   </dialog>
 </template>
 
 <script setup lang="ts">
-import { computed } from "vue";
+import { computed, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 
 type DirectoryItem = {
@@ -180,6 +180,27 @@ const emit = defineEmits<{
 }>();
 
 const { t } = useI18n();
+const dialogRef = ref<HTMLDialogElement | null>(null);
+
+function onDialogClose() {
+  if (props.saving) {
+    const d = dialogRef.value;
+    if (d && !d.open && props.open) d.showModal();
+    return;
+  }
+  emit("close");
+}
+
+function syncDialog() {
+  const d = dialogRef.value;
+  if (!d) return;
+  if (props.open) {
+    if (!d.open) d.showModal();
+  } else if (d.open) d.close();
+}
+
+watch(() => props.open, syncDialog);
+watch(dialogRef, syncDialog);
 
 const parentPath = computed(() => {
   const normalized = String(props.browserPath || props.manualPath || "").trim().replace(/[\\/]+$/, "");

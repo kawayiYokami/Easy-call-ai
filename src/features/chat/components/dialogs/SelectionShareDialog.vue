@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { ref, watch } from "vue";
 import { ImageIcon, FileCode2 } from "@lucide/vue";
 
 const props = defineProps<{
@@ -18,14 +19,33 @@ const emit = defineEmits<{
   exportHtml: [];
 }>();
 
+const dialogRef = ref<HTMLDialogElement | null>(null);
+
 function requestClose() {
   if (props.loading) return;
   emit("close");
 }
+
+function onDialogClose() {
+  requestClose();
+  const d = dialogRef.value;
+  if (props.loading && d && !d.open && props.open) d.showModal();
+}
+
+function syncDialog() {
+  const d = dialogRef.value;
+  if (!d) return;
+  if (props.open) {
+    if (!d.open) d.showModal();
+  } else if (d.open) d.close();
+}
+
+watch(() => props.open, syncDialog);
+watch(dialogRef, syncDialog);
 </script>
 
 <template>
-  <dialog class="modal" :class="{ 'modal-open': open }">
+  <dialog ref="dialogRef" class="modal" @close="onDialogClose" @cancel.prevent="onDialogClose">
     <div class="modal-box max-w-lg">
       <h3 class="font-semibold text-base">{{ titleText }}</h3>
       <div class="mt-2 text-sm opacity-75">{{ messageText }}</div>

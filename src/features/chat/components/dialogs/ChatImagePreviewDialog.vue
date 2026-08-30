@@ -1,5 +1,5 @@
 <template>
-  <dialog class="modal ecall-image-preview-modal" :class="{ 'modal-open': open }" @cancel.prevent="emit('close')">
+  <dialog ref="dialogRef" class="modal ecall-image-preview-modal" @close="onDialogClose" @cancel.prevent="onDialogClose">
     <div class="modal-box relative flex h-[92vh] max-h-[92vh] w-[92vw] max-w-[92vw] flex-col overflow-hidden rounded-box bg-black/95 p-0 text-white shadow-2xl">
       <button class="btn btn-lg btn-circle absolute right-4 top-4 z-20 border-0 bg-black/55 text-white/85 shadow-lg hover:bg-white/15 hover:text-white" type="button" title="关闭" aria-label="关闭" @click="emit('close')">
         <X class="h-7 w-7" />
@@ -47,18 +47,19 @@
       </div>
     </div>
     <form method="dialog" class="modal-backdrop">
-      <button @click.prevent="emit('close')">close</button>
+      <button @click.prevent="onDialogClose">close</button>
     </form>
   </dialog>
 </template>
 
 <script setup lang="ts">
+import { ref, watch } from "vue";
 import { Copy, Download, Minus, Plus, RotateCw, X } from "@lucide/vue";
 import { getTransportCapabilities } from "../../../../services/tauri-api";
 
 const localFileSystemAvailable = getTransportCapabilities().localFileSystem;
 
-defineProps<{
+const props = defineProps<{
   open: boolean;
   dataUrl: string;
   zoom: number;
@@ -86,4 +87,21 @@ const emit = defineEmits<{
   (e: "copyImage", path: string): void;
   (e: "saveImage", path: string): void;
 }>();
+
+const dialogRef = ref<HTMLDialogElement | null>(null);
+
+function onDialogClose() {
+  emit("close");
+}
+
+function syncDialog() {
+  const d = dialogRef.value;
+  if (!d) return;
+  if (props.open) {
+    if (!d.open) d.showModal();
+  } else if (d.open) d.close();
+}
+
+watch(() => props.open, syncDialog);
+watch(dialogRef, syncDialog);
 </script>

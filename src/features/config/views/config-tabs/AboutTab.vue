@@ -67,7 +67,7 @@
     </ConfigCard>
   </div>
 
-  <dialog class="modal" :class="{ 'modal-open': updateDialogOpen }">
+  <dialog ref="updateDialogRef" class="modal" @close="closeUpdateDialog" @cancel.prevent="closeUpdateDialog">
     <div class="modal-box">
       <h3 class="font-bold text-lg">{{ updateDialogTitle }}</h3>
       <pre class="mt-2 whitespace-pre-wrap text-sm">{{ updateDialogBody }}</pre>
@@ -80,11 +80,14 @@
         <button class="btn" @click="closeUpdateDialog">{{ t("common.confirm") }}</button>
       </div>
     </div>
+    <form method="dialog" class="modal-backdrop">
+      <button @click.prevent="closeUpdateDialog">close</button>
+    </form>
   </dialog>
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref } from "vue";
+import { computed, onMounted, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 import { invokeTauri, openTransportExternalUrl } from "../../../../services/tauri-api";
 import ConfigCard from "../../components/ConfigCard.vue";
@@ -105,10 +108,22 @@ const emit = defineEmits<{
 
 const { t } = useI18n();
 
+const updateDialogRef = ref<HTMLDialogElement | null>(null);
 const updateDialogOpen = ref(false);
 const updateDialogTitle = ref("");
 const updateDialogBody = ref("");
 const updateDialogReleaseUrl = ref("");
+
+function syncUpdateDialog() {
+  const d = updateDialogRef.value;
+  if (!d) return;
+  if (updateDialogOpen.value) {
+    if (!d.open) d.showModal();
+  } else if (d.open) d.close();
+}
+
+watch(updateDialogOpen, syncUpdateDialog);
+watch(updateDialogRef, syncUpdateDialog);
 const appVersion = ref("...");
 const changelogLoading = ref(false);
 const changelogError = ref("");

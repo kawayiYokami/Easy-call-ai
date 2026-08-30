@@ -1,5 +1,5 @@
 <template>
-  <dialog class="modal !items-start overflow-y-auto overflow-x-hidden pt-[max(1rem,env(safe-area-inset-top))] pb-[max(1rem,env(safe-area-inset-bottom))] sm:!items-center sm:py-6" :class="{ 'modal-open': open }">
+  <dialog ref="dialogRef" class="modal !items-start overflow-y-auto overflow-x-hidden pt-[max(1rem,env(safe-area-inset-top))] pb-[max(1rem,env(safe-area-inset-bottom))] sm:!items-center sm:py-6" @close="onDialogClose" @cancel.prevent="onDialogClose">
     <div class="modal-box mx-auto flex max-h-[calc(100dvh-max(2rem,env(safe-area-inset-top)+env(safe-area-inset-bottom)))] w-[88vw] max-w-4xl flex-col overflow-hidden p-0">
       <div class="shrink-0 border-b border-base-300 px-5 py-4">
         <div class="text-base font-semibold">{{ t("chat.toolReview.generateReviewReport") }}</div>
@@ -66,7 +66,7 @@
       </div>
     </div>
     <form method="dialog" class="modal-backdrop">
-      <button @click.prevent="close">close</button>
+      <button @click.prevent="onDialogClose">close</button>
     </form>
   </dialog>
 </template>
@@ -102,6 +102,28 @@ const emit = defineEmits<{
 }>();
 
 const { t } = useI18n();
+const dialogRef = ref<HTMLDialogElement | null>(null);
+
+function onDialogClose() {
+  if (props.submitting) {
+    const d = dialogRef.value;
+    if (d && !d.open && props.open) d.showModal();
+    return;
+  }
+  close();
+}
+
+function syncDialog() {
+  const d = dialogRef.value;
+  if (!d) return;
+  if (props.open) {
+    if (!d.open) d.showModal();
+  } else if (d.open) d.close();
+}
+
+watch(() => props.open, syncDialog);
+watch(dialogRef, syncDialog);
+
 const selectedDepartmentId = ref("");
 const selectedAgentId = ref("");
 const selectedCommitHashes = ref<string[]>([]);

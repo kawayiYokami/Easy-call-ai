@@ -1,5 +1,5 @@
 <template>
-  <dialog class="modal" :class="{ 'modal-open': open }">
+  <dialog ref="dialogRef" class="modal" @close="onDialogClose" @cancel.prevent="onDialogClose">
     <div class="modal-box w-11/12 max-w-lg p-4">
       <div v-if="activeTask" class="flex items-center justify-between gap-3">
         <div class="min-w-0">
@@ -63,7 +63,7 @@
       </div>
     </div>
     <form method="dialog" class="modal-backdrop">
-      <button @click.prevent="emit('close')">close</button>
+      <button @click.prevent="onDialogClose">close</button>
     </form>
   </dialog>
 </template>
@@ -105,6 +105,27 @@ const emit = defineEmits<{
 }>();
 
 const { t } = useI18n();
+const dialogRef = ref<HTMLDialogElement | null>(null);
+
+function onDialogClose() {
+  if (props.saving) {
+    const d = dialogRef.value;
+    if (d && !d.open && props.open) d.showModal();
+    return;
+  }
+  emit("close");
+}
+
+function syncDialog() {
+  const d = dialogRef.value;
+  if (!d) return;
+  if (props.open) {
+    if (!d.open) d.showModal();
+  } else if (d.open) d.close();
+}
+
+watch(() => props.open, syncDialog);
+watch(dialogRef, syncDialog);
 
 const GOAL_TASK_WHY = "";
 const GOAL_TASK_TODO = "请自行判断";

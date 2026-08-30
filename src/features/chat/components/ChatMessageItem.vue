@@ -486,26 +486,23 @@
     </ul>
   </Teleport>
 
-  <Teleport to="body">
-    <div
-      v-if="rawMessageDataOpen"
-      class="fixed inset-0 z-[1300] flex items-center justify-center bg-black/40 p-4"
-      @click.self="closeRawMessageData"
-    >
-      <section
-        class="flex max-h-[85vh] w-full max-w-3xl flex-col rounded-box border border-base-300 bg-base-100 text-base-content shadow-2xl"
-        role="dialog"
-        aria-modal="true"
-        aria-label="原始 ChatMessage"
-      >
-        <header class="flex items-center justify-between border-b border-base-300 px-4 py-3">
-          <h2 class="font-semibold">原始 ChatMessage</h2>
-          <button type="button" class="btn btn-ghost btn-sm" @click="closeRawMessageData">关闭</button>
-        </header>
-        <pre class="m-0 overflow-auto whitespace-pre-wrap break-all p-4 text-xs leading-relaxed"><code>{{ rawMessageData }}</code></pre>
-      </section>
+  <dialog
+    ref="rawMessageDialogRef"
+    class="modal"
+    @close="closeRawMessageData"
+    @cancel.prevent="closeRawMessageData"
+  >
+    <div class="modal-box flex max-h-[85vh] w-full max-w-3xl flex-col p-0 overflow-hidden">
+      <header class="flex items-center justify-between border-b border-base-300 px-4 py-3">
+        <h2 class="font-semibold">原始 ChatMessage</h2>
+        <button type="button" class="btn btn-ghost btn-sm" @click="closeRawMessageData">关闭</button>
+      </header>
+      <pre class="m-0 overflow-auto whitespace-pre-wrap break-all p-4 text-xs leading-relaxed"><code>{{ rawMessageData }}</code></pre>
     </div>
-  </Teleport>
+    <form method="dialog" class="modal-backdrop">
+      <button @click.prevent="closeRawMessageData">close</button>
+    </form>
+  </dialog>
 </template>
 
 <script setup lang="ts">
@@ -651,6 +648,19 @@ const contextMenuX = ref(0);
 const contextMenuY = ref(0);
 const mathContextCopyText = ref("");
 const rawMessageDataOpen = ref(false);
+const rawMessageDialogRef = ref<HTMLDialogElement | null>(null);
+
+function syncRawMessageDialog() {
+  const d = rawMessageDialogRef.value;
+  if (!d) return;
+  if (rawMessageDataOpen.value) {
+    if (!d.open) d.showModal();
+  } else if (d.open) d.close();
+}
+
+watch(rawMessageDataOpen, syncRawMessageDialog);
+watch(rawMessageDialogRef, syncRawMessageDialog);
+
 const isDevBuild = import.meta.env.DEV;
 const rawMessageData = computed(() => {
   try {

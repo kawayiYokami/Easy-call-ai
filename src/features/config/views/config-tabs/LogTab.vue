@@ -210,7 +210,7 @@
     </div>
   </div>
 
-  <dialog class="modal" :class="{ 'modal-open': !!selectedRound }">
+  <dialog ref="selectedRoundDialogRef" class="modal" @close="closeRound" @cancel.prevent="closeRound">
       <div class="modal-box max-w-5xl space-y-4">
         <div class="flex items-start justify-between gap-3">
           <div class="min-w-0 space-y-1">
@@ -326,8 +326,8 @@
           </div>
         </div>
       </div>
-      <form method="dialog" class="modal-backdrop" @submit.prevent="closeRound">
-        <button @click="closeRound">close</button>
+      <form method="dialog" class="modal-backdrop">
+        <button @click.prevent="closeRound">close</button>
       </form>
     </dialog>
 
@@ -374,7 +374,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, defineComponent, h, onMounted, ref, shallowRef, type PropType } from "vue";
+import { computed, defineComponent, h, onMounted, ref, shallowRef, watch, type PropType } from "vue";
 import PipelineScheduleTimeline from "../../components/PipelineScheduleTimeline.vue";
 import { useI18n } from "vue-i18n";
 import { invokeTauri } from "../../../../services/tauri-api";
@@ -489,11 +489,23 @@ const logCapacityOptions = [1, 3, 10] as const;
 const actionButtonClass = "btn btn-sm min-h-9 shrink-0 whitespace-nowrap bg-base-200 px-4";
 const capacitySaving = ref(false);
 let capacitySaveToken = 0;
+const selectedRoundDialogRef = ref<HTMLDialogElement | null>(null);
 const selectedRound = shallowRef<{
   pipeline: LlmRoundLogEntry;
   round: LlmRoundLogEntry;
   index: number;
 } | null>(null);
+
+function syncSelectedRoundDialog() {
+  const d = selectedRoundDialogRef.value;
+  if (!d) return;
+  if (selectedRound.value) {
+    if (!d.open) d.showModal();
+  } else if (d.open) d.close();
+}
+
+watch(selectedRound, syncSelectedRoundDialog);
+watch(selectedRoundDialogRef, syncSelectedRoundDialog);
 const roundSectionPayloads = shallowRef<Partial<Record<RoundLazySection, unknown>>>({});
 const roundSectionErrors = shallowRef<Partial<Record<RoundLazySection, string>>>({});
 const roundSectionLoading = ref<RoundLazySection | null>(null);

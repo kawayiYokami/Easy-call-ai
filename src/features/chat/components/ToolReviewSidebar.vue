@@ -168,11 +168,11 @@
     <FloatingScrollbar :target="contentScroller" />
   </aside>
 
-  <dialog class="modal" :class="{ 'modal-open': delegateResultDialogOpen }">
+  <dialog ref="delegateResultDialogRef" class="modal" @close="closeDelegateResultDialog" @cancel.prevent="closeDelegateResultDialog">
     <div class="modal-box flex max-h-[80vh] max-w-2xl flex-col overflow-hidden p-0">
       <div class="flex shrink-0 items-center justify-between gap-3 border-b border-base-200 px-5 py-3">
         <div class="min-w-0 truncate text-sm font-semibold text-base-content">{{ delegateResultTitle }}</div>
-        <button type="button" class="btn btn-ghost btn-sm gap-1 shrink-0" @click="delegateResultDialogOpen = false"><span class="text-base leading-none">×</span><span>关闭</span></button>
+        <button type="button" class="btn btn-ghost btn-sm gap-1 shrink-0" @click="closeDelegateResultDialog"><span class="text-base leading-none">×</span><span>关闭</span></button>
       </div>
       <div class="min-h-0 flex-1 overflow-y-auto px-5 py-4">
         <DelegateScheduleTimeline
@@ -183,7 +183,7 @@
       </div>
     </div>
     <form method="dialog" class="modal-backdrop">
-      <button type="button" @click="delegateResultDialogOpen = false">close</button>
+      <button @click.prevent="closeDelegateResultDialog">close</button>
     </form>
   </dialog>
 
@@ -260,7 +260,23 @@ const emit = defineEmits<{
 
 const { t, locale } = useI18n();
 const contentScroller = ref<HTMLElement | null>(null);
+const delegateResultDialogRef = ref<HTMLDialogElement | null>(null);
 const delegateResultDialogOpen = ref(false);
+
+function closeDelegateResultDialog() {
+  delegateResultDialogOpen.value = false;
+}
+
+function syncDelegateResultDialog() {
+  const d = delegateResultDialogRef.value;
+  if (!d) return;
+  if (delegateResultDialogOpen.value) {
+    if (!d.open) d.showModal();
+  } else if (d.open) d.close();
+}
+
+watch(delegateResultDialogOpen, syncDelegateResultDialog);
+watch(delegateResultDialogRef, syncDelegateResultDialog);
 const delegateResultTitle = ref("");
 const rootAttrs = useAttrs();
 const collapsedToolAssessmentSectionKeys = ref<Record<string, boolean>>({});

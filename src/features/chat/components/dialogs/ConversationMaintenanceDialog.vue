@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed } from "vue";
+import { computed, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 import ChartView from "../../../config/views/config-tabs/ChartView.vue";
 import type {
@@ -23,6 +23,27 @@ const emit = defineEmits<{
 }>();
 
 const { t } = useI18n();
+const dialogRef = ref<HTMLDialogElement | null>(null);
+
+function onDialogClose() {
+  if (props.loading || props.running) {
+    const d = dialogRef.value;
+    if (d && !d.open && props.open) d.showModal();
+    return;
+  }
+  emit("close");
+}
+
+function syncDialog() {
+  const d = dialogRef.value;
+  if (!d) return;
+  if (props.open) {
+    if (!d.open) d.showModal();
+  } else if (d.open) d.close();
+}
+
+watch(() => props.open, syncDialog);
+watch(dialogRef, syncDialog);
 
 function formatTokens(value: number | undefined): string {
   if (value === undefined || !Number.isFinite(value)) return "—";
@@ -177,7 +198,7 @@ const compressionEstimatePercent = computed(() => {
 </script>
 
 <template>
-  <dialog class="modal" :class="{ 'modal-open': open }">
+  <dialog ref="dialogRef" class="modal" @close="onDialogClose" @cancel.prevent="onDialogClose">
     <div class="modal-box w-[min(80vw,48rem)] max-w-[48rem]">
       <div class="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
         <h3 class="font-semibold text-base">{{ t("dialogs.trim.title") }}</h3>
@@ -274,7 +295,7 @@ const compressionEstimatePercent = computed(() => {
       </div>
     </div>
     <form method="dialog" class="modal-backdrop">
-      <button @click.prevent="emit('close')">close</button>
+      <button @click.prevent="onDialogClose">close</button>
     </form>
   </dialog>
 </template>
