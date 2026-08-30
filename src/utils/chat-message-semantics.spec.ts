@@ -253,4 +253,37 @@ describe("appendTextDeltaToStreamBlocks 工具标记后切新块", () => {
     const text = assistantTextFromStreamBlocks(next);
     expect(text).toBe(`正文1。 [toolcall:${CALL_A}]${MARK}正文2。`);
   });
+
+  it("块文本尾带换行时拼接工具标记先清理尾随空白", () => {
+    const blocks = appendTextDeltaToStreamBlocks([], "正文1。\n");
+    const withTool = applyAssistantToolEventToStreamBlocks(blocks, JSON.stringify({
+      role: "assistant",
+      content: null,
+      tool_calls: [{
+        id: CALL_A,
+        type: "function",
+        function: { name: "toolA", arguments: "{}" },
+      }],
+    }));
+
+    expect(withTool[0]?.text).toBe(`正文1。 [toolcall:${CALL_A}]`);
+    expect(assistantTextFromStreamBlocks(withTool)).toBe(`正文1。 [toolcall:${CALL_A}]`);
+  });
+
+  it("流式块文本尾带换行时补插 done 标记先清理尾随空白", () => {
+    const text = assistantTextFromStreamBlocks([{
+      reasoning: "",
+      reasoningCharCount: 0,
+      text: "正文1。\n",
+      tools: [{
+        toolCallId: CALL_A,
+        name: "toolA",
+        argsText: "{}",
+        resultText: "结果",
+        status: "done",
+      }],
+      pendingTextBreak: false,
+    }]);
+    expect(text).toBe(`正文1。 [toolcall:${CALL_A}]`);
+  });
 });

@@ -396,10 +396,11 @@ fn apply_tool_result_to_stream_blocks(
         }
         let current_text = cache.stream_blocks[target_index].text.clone();
         if !stream_block_has_inline_tool_marker(&current_text, tool_call_id) {
+            // 模型 delta 常以换行结尾；尾随空白会让渲染层 pre-wrap 段落把标记徽章顶到下一行
             cache.stream_blocks[target_index].text = if current_text.trim().is_empty() {
                 format!("[toolcall:{}]", tool_call_id)
             } else {
-                format!("{} [toolcall:{}]", current_text, tool_call_id)
+                format!("{} [toolcall:{}]", current_text.trim_end(), tool_call_id)
             };
             cache.stream_blocks[target_index].pending_text_break = true;
         }
@@ -709,6 +710,41 @@ mod scheduler_stream_block_tests {
         assert_eq!(cache.stream_blocks[0].tools.len(), 1);
         assert_eq!(cache.stream_blocks[0].tools[0].result_text, "等待完成");
         assert_eq!(cache.stream_blocks[0].tools[0].status, "done");
+        assert_eq!(cache.stream_blocks[0].text, "先说明要等待。 [toolcall:call-wait]");
+        assert!(cache.stream_blocks[0].pending_text_break);
+    }
+
+    #[test]
+    fn assistant_tool_result_should_trim_trailing_whitespace_before_inline_marker() {
+        let mut cache = ConversationStreamRuntimeCache::default();
+        append_stream_text_block(&mut cache, "先说明要等待。\n");
+        apply_assistant_tool_event_to_stream_blocks(
+            &mut cache,
+            &serde_json::json!({
+                "role": "assistant",
+                "content": Value::Null,
+                "tool_calls": [{
+                    "id": "call-wait",
+                    "type": "function",
+                    "function": {
+                        "name": "operate",
+                        "arguments": "{\"method\":\"wait3\"}"
+                    }
+                }]
+            })
+            .to_string(),
+        );
+        apply_tool_result_to_stream_blocks(
+            &mut cache,
+            &serde_json::json!({
+                "role": "tool",
+                "tool_call_id": "call-wait",
+                "content": "等待完成"
+            })
+            .to_string(),
+        );
+
+        assert_eq!(cache.stream_blocks.len(), 1);
         assert_eq!(cache.stream_blocks[0].text, "先说明要等待。 [toolcall:call-wait]");
         assert!(cache.stream_blocks[0].pending_text_break);
     }

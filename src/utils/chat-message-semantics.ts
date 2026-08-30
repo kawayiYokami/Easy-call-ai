@@ -306,7 +306,8 @@ function injectMissingDoneToolMarkersIntoStreamText(text: string, block: Assista
     if (tool.status !== "done") continue;
     const toolCallId = String(tool.toolCallId || "").trim();
     if (!toolCallId || hasInlineToolMarker(output, toolCallId)) continue;
-    output = `${output} [toolcall:${toolCallId}]`;
+    // 模型 delta 常以换行结尾；尾随空白会让渲染层 pre-wrap 段落把标记徽章顶到下一行
+    output = `${output.trimEnd()} [toolcall:${toolCallId}]`;
   }
   return output;
 }
@@ -915,8 +916,9 @@ function attachInlineToolMarkerToStreamBlock(
     }
   }
   const currentText = String(targetBlock.text || "");
+  // 模型 delta 常以换行结尾；尾随空白会让渲染层 pre-wrap 段落把标记徽章顶到下一行
   targetBlock.text = currentText.trim()
-    ? `${currentText} [toolcall:${normalizedToolCallId}]`
+    ? `${currentText.trimEnd()} [toolcall:${normalizedToolCallId}]`
     : `[toolcall:${normalizedToolCallId}]`;
   targetBlock.pendingTextBreak = true;
   return true;
