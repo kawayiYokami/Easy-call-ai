@@ -161,8 +161,6 @@ function buildRemoteMarkdown(entries) {
   const lines = [
     "# 变更日志",
     "",
-    "> 此文件由 `pnpm changelog:build` 自动生成，展示最近版本的完整说明。",
-    "",
   ];
   for (const entry of entries) {
     lines.push(`## 发布：${entry.version}`);
