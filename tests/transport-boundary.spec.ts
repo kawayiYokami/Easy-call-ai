@@ -22,10 +22,10 @@ const capabilityConsumerPaths = new Set([
   resolve(sourceRoot, "ConfigWindowApp.vue"),
   resolve(sourceRoot, "features", "chat", "components", "dialogs", "ChatImagePreviewDialog.vue"),
   resolve(sourceRoot, "features", "config", "views", "config-tabs", "ImageGenerationTab.vue"),
+  resolve(sourceRoot, "features", "config", "views", "config-tabs", "ChatSettingsTab.vue"),
   resolve(sourceRoot, "features", "config", "views", "config-tabs", "McpTab.vue"),
   resolve(sourceRoot, "features", "config", "views", "config-tabs", "SkillTab.vue"),
   resolve(sourceRoot, "features", "config", "views", "config-tabs", "StorageTab.vue"),
-  resolve(sourceRoot, "features", "config", "views", "config-tabs", "ToolsTab.vue"),
   resolve(sourceRoot, "features", "file-reader", "components", "FileReaderPanel.vue"),
   resolve(sourceRoot, "features", "shell", "components", "AppWindowHeader.vue"),
 ]);
