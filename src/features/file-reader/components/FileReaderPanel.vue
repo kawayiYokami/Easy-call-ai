@@ -114,13 +114,15 @@
     </PanelTabStrip>
 
     <div ref="fileReaderLayoutRoot" class="relative flex min-h-0 flex-1" :class="directoryOnly ? '' : 'flex-row-reverse'">
-      <aside
-        v-if="directoryTreeRoot"
-        class="flex shrink-0 flex-col bg-base-200/35"
-        :class="directoryOnly ? 'w-full' : ''"
-        :style="directoryOnly ? undefined : { width: `${effectiveDirectoryTreeWidth}px` }"
-      >
-        <template v-if="asideMode === 'files'">
+      <Transition name="file-reader-aside">
+        <aside
+          v-if="directoryTreeRoot"
+          class="file-reader-aside-panel flex shrink-0 flex-col bg-base-200/35"
+          :class="directoryOnly ? 'w-full' : ''"
+          :style="directoryOnly ? undefined : { width: `${effectiveDirectoryTreeWidth}px` }"
+        >
+          <Transition name="file-reader-aside-content" mode="out-in">
+            <div v-if="asideMode === 'files'" key="files" class="flex min-h-0 flex-1 flex-col overflow-hidden">
           <div class="flex h-8 shrink-0 items-center gap-1.5 border-b border-base-300 bg-base-200/35 px-3 text-sm">
             <button
               v-if="localFileSystemAvailable"
@@ -185,17 +187,18 @@
             :loading-text="t('fileReader.loadingDirectory')"
           />
         </OverlayScrollArea>
-        </template>
-
-        <template v-else>
-          <GitPanel
-            :workspace-path="gitPanelWorkspacePath"
-            :markdown-is-dark="markdownIsDark"
-            :session-key="props.sessionKey"
-            @open-diff="openGitDiffTab"
-          />
-        </template>
-      </aside>
+            </div>
+            <div v-else key="git" class="flex min-h-0 flex-1 flex-col overflow-hidden">
+              <GitPanel
+                :workspace-path="gitPanelWorkspacePath"
+                :markdown-is-dark="markdownIsDark"
+                :session-key="props.sessionKey"
+                @open-diff="openGitDiffTab"
+              />
+            </div>
+          </Transition>
+        </aside>
+      </Transition>
       <main v-if="!directoryOnly" class="flex min-h-0 flex-1 flex-col overflow-hidden bg-base-100">
         <div
           v-if="activeTab"
@@ -3287,5 +3290,54 @@ defineExpose({
   width: 0;
   opacity: 0;
   pointer-events: none;
+}
+
+/* 侧边栏（文件/Git）伸缩与内容切换：自写 Transition，不用 daisyUI drawer（overlay 语义与现有 flex 挤压布局冲突） */
+.file-reader-aside-enter-active,
+.file-reader-aside-leave-active {
+  overflow: hidden;
+  transition:
+    width 220ms cubic-bezier(0.2, 0, 0, 1),
+    opacity 180ms ease;
+}
+.file-reader-aside-enter-from,
+.file-reader-aside-leave-to {
+  width: 0 !important;
+  opacity: 0;
+}
+.file-reader-aside-panel {
+  overflow: hidden;
+}
+.file-reader-aside-content-enter-active {
+  transition:
+    opacity 160ms ease,
+    transform 160ms ease;
+}
+.file-reader-aside-content-leave-active {
+  transition:
+    opacity 120ms ease,
+    transform 120ms ease;
+}
+.file-reader-aside-content-enter-from {
+  opacity: 0;
+  transform: translateX(8px);
+}
+.file-reader-aside-content-leave-to {
+  opacity: 0;
+  transform: translateX(-8px);
+}
+@media (prefers-reduced-motion: reduce) {
+  .file-reader-aside-enter-active,
+  .file-reader-aside-leave-active,
+  .file-reader-aside-content-enter-active,
+  .file-reader-aside-content-leave-active {
+    transition: none !important;
+  }
+  .file-reader-aside-enter-from,
+  .file-reader-aside-leave-to,
+  .file-reader-aside-content-enter-from,
+  .file-reader-aside-content-leave-to {
+    transform: none !important;
+  }
 }
 </style>
