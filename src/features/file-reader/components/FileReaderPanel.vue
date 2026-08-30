@@ -557,13 +557,10 @@
           @mouseenter="cancelHideHoverDirectoryTree"
           @mouseleave="hideHoverDirectoryTree"
         >
-          <div class="flex h-8 shrink-0 items-center gap-1.5 border-b border-base-300 bg-base-200 px-3 text-sm">
-            <span
-              class="flex-1 truncate font-medium"
-              @contextmenu.prevent.stop="hoverDirectoryTreeRoot && openPathOnlyContextMenu(hoverDirectoryTreeRoot.path, $event)"
-            >{{ hoverDirectoryTreeRoot?.name || "" }}</span>
-          </div>
-          <div ref="hoverDirectoryScroller" class="flex-1 overflow-auto py-1 text-sm">
+          <OverlayScrollArea
+            class="min-h-0 flex-1"
+            scroller-class="h-full py-1 text-sm"
+          >
             <div v-if="hoverDirectoryTreeRoot?.loading" class="flex items-center gap-2 px-3 py-2 text-xs opacity-65">
               <span class="loading loading-spinner loading-xs"></span>
               {{ t('fileReader.loadingDirectory') }}
@@ -587,7 +584,7 @@
               :filter="directoryTreeFilter"
               :loading-text="t('fileReader.loadingDirectory')"
             />
-          </div>
+          </OverlayScrollArea>
         </div>
       </template>
       <div
@@ -874,7 +871,6 @@ const hoverDirectoryTreeRoot = ref<DirectoryNode | null>(null);
 const hoverDirectoryTreeNodes = ref<Record<string, DirectoryNode>>({});
 const hoverDirectoryTreeStyle = ref<Record<string, string>>({ left: "0px", top: "0px", width: "280px" });
 const hoverDirectoryTreeRef = ref<HTMLElement | null>(null);
-const hoverDirectoryScroller = ref<HTMLElement | null>(null);
 const hoverDirectoryTreeAnchor = ref("");
 let hoverHideTimer: number | null = null;
 
