@@ -48,7 +48,6 @@ const props = defineProps<{
           class="pai-share-message"
         >
           <ChatBubbleShell
-            :side="entry.align"
             :tone="entry.tone"
             :name="entry.displayName"
             :meta="entry.createdAtText"

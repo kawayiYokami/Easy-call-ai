@@ -143,7 +143,6 @@
             <ChatBubbleShell
               v-for="message in bubbleDemoDisplayMessages"
               :key="message.id"
-              :side="message.side"
               :tone="message.tone"
               :name="message.name"
               :meta="message.meta"
@@ -275,7 +274,6 @@ type NativeNotificationDemoResult = {
 
 type BubbleDemoMessage = {
   id: string;
-  side: "left" | "right";
   tone: "assistant" | "user" | "system";
   personaSlot: "assistant-primary" | "assistant-reviewer" | "assistant-memory" | "assistant-system" | "user";
   name: string;
@@ -413,7 +411,6 @@ const configTemplateGroups: ConfigTemplateGroup[] = [
 const bubbleDemoMessages: BubbleDemoMessage[] = [
   {
     id: "assistant-opening",
-    side: "left",
     tone: "assistant",
     personaSlot: "assistant-primary",
     name: "Pai",
@@ -436,7 +433,6 @@ const bubbleDemoMessages: BubbleDemoMessage[] = [
   },
   {
     id: "reviewer-assistant",
-    side: "left",
     tone: "assistant",
     personaSlot: "assistant-reviewer",
     name: "代码审查员",
@@ -458,7 +454,6 @@ const bubbleDemoMessages: BubbleDemoMessage[] = [
   },
   {
     id: "user-reply",
-    side: "right",
     tone: "user",
     personaSlot: "user",
     name: "我",
@@ -474,7 +469,6 @@ const bubbleDemoMessages: BubbleDemoMessage[] = [
   },
   {
     id: "user-all-attachments",
-    side: "right",
     tone: "user",
     personaSlot: "user",
     name: "我",
@@ -491,7 +485,6 @@ const bubbleDemoMessages: BubbleDemoMessage[] = [
   },
   {
     id: "memory-assistant",
-    side: "left",
     tone: "assistant",
     personaSlot: "assistant-memory",
     name: "记忆管家",
@@ -508,7 +501,6 @@ const bubbleDemoMessages: BubbleDemoMessage[] = [
   },
   {
     id: "assistant-long",
-    side: "left",
     tone: "system",
     personaSlot: "assistant-system",
     name: "系统人格",
@@ -555,7 +547,7 @@ const bubbleDemoDisplayMessages = computed<BubbleDemoDisplayMessage[]>(() =>
       ...message,
       name,
       avatarUrl: String((persona?.id ? props.personaAvatarUrlMap[persona.id] : "") || "").trim(),
-      separated: !!previous && message.tone !== "user" && previous.tone !== "user" && message.side === previous.side,
+      separated: !!previous && message.tone !== "user" && previous.tone !== "user",
     };
   }),
 );

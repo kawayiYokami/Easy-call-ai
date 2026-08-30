@@ -1,6 +1,5 @@
 export type ShareDocumentEntry = {
   id: string;
-  align: "left" | "right";
   tone: "user" | "assistant";
   displayName: string;
   avatarUrl: string;

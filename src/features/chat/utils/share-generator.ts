@@ -224,7 +224,6 @@ export async function projectShareMessages(
       );
       return {
         id: String(message.id || `share-${index}`).trim() || `share-${index}`,
-        align: own ? "right" : "left",
         tone: own ? "user" : "assistant",
         displayName: resolveDisplayName(
           message,

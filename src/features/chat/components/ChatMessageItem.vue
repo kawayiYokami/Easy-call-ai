@@ -35,7 +35,6 @@
       </button>
     </div>
     <ChatBubbleShell
-      :side="isOwnMessage(block) ? 'right' : 'left'"
       :tone="messageShellTone(block)"
       :name="displayName"
       :meta="assistantMetaText"
@@ -43,7 +42,6 @@
       :streaming="!!streamingHeaderStatus"
       :streaming-text="streamingHeaderStatus"
       :wide="blockNeedsWideBubble(block)"
-      :bubble-background="assistantBubbleBackgroundEnabled"
       :content-empty="bubbleContentEmpty(block)"
     >
       <template v-if="showActivitySummary(block)" #activity>
@@ -193,12 +191,10 @@
       <template v-if="!isOwnMessage(block)">
         <div
           v-if="!showAssistantPreStreamingDots(block)"
-          :class="[
-            'assistant-markdown ecall-assistant-bubble max-w-full',
-            blockNeedsWideBubble(block) && !assistantUsesSegmentedMarkdown ? 'ecall-assistant-bubble-wide' : '',
-          ]"
+          class="assistant-markdown ecall-assistant-bubble max-w-full"
+          :class="{ 'ecall-assistant-bubble-wide': blockNeedsWideBubble(block) }"
           :data-bubble-background="assistantBubbleBackgroundEnabled ? 'on' : 'off'"
-          :data-segmented-markdown="assistantUsesSegmentedMarkdown ? 'on' : 'off'"
+          :data-segmented-markdown="segmentedMarkdownEnabled ? 'on' : 'off'"
         >
           <div v-if="block.text">
             <div
@@ -208,33 +204,17 @@
               <PlainMarkdownRenderer :text="assistantRenderedText" />
             </div>
             <div v-else ref="markdownContainerRef">
-              <div
-                v-if="assistantUsesSegmentedMarkdown"
-                class="ecall-assistant-segment-list"
-                :class="{ 'ecall-assistant-segment-list-plain': !assistantBubbleBackgroundEnabled }"
-              >
+              <div class="ecall-assistant-segment-list">
                 <template
                   v-for="(piece, pieceIndex) in assistantMarkdownPieces"
                   :key="piece.key"
                 >
-                  <div
-                    v-if="pieceIndex > 0 && !assistantBubbleBackgroundEnabled"
-                    class="divider divider-start my-1 mx-[0.82rem]"
-                  >
-                    <span class="flex items-center gap-1">
-                      <CircleCheckBig class="h-3 w-3 opacity-60" />
-                      <span class="opacity-60">{{ pieceIndex }}</span>
-                    </span>
-                  </div>
                   <div
                     v-for="(segment, segmentIndex) in piece.segments"
                     :key="segment.key"
                     :class="[
                       'ecall-assistant-segment',
                       segment.kind === 'text' ? 'ecall-assistant-segment-text' : 'ecall-assistant-segment-rich',
-                      segment.kind === 'text' && assistantBubbleBackgroundEnabled
-                        ? 'ecall-assistant-segment-surface'
-                        : 'ecall-assistant-segment-plain',
                     ]"
                   >
                     <AppMarkdownRenderer
@@ -251,31 +231,12 @@
                   </div>
                 </template>
               </div>
-              <AppMarkdownRenderer
-                v-else
-                class="ecall-markdown-content max-w-none"
-                :text="assistantRenderedText"
-                :is-dark="markdownIsDark"
-                :streaming="!!block.isStreaming"
-                :local-image-base-path="currentWorkspaceRootPath"
-                :toolcall-preview-map="toolcallPreviewMap"
-                @math-context-menu="openMathContextMenu"
-                @open-image-preview="emit('openImagePreview', $event)"
-                @click="emit('assistantLinkClick', $event)"
-              />
             </div>
           </div>
           <div
             v-if="block.planCard"
-            class="space-y-3"
-            :class="[
-              block.text ? 'mt-3' : '',
-              assistantUsesSegmentedMarkdown
-                ? assistantBubbleBackgroundEnabled
-                  ? 'ecall-assistant-segment ecall-assistant-segment-text ecall-assistant-segment-surface'
-                  : 'ecall-assistant-segment ecall-assistant-segment-text ecall-assistant-segment-plain ecall-assistant-segment-plan-separated'
-                : '',
-            ]"
+            class="ecall-assistant-segment ecall-assistant-segment-text space-y-3"
+            :class="block.text ? 'mt-3' : ''"
           >
             <div class="text-xs italic opacity-60 mb-1">{{ t("chat.plan.sidebarHint") }}</div>
             <div @click="emit('assistantLinkClick', $event)">
@@ -523,7 +484,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch, watchEffect, watchPostEffect } from "vue";
 import { useI18n } from "vue-i18n";
-import { Braces, ChevronDown, CircleCheckBig, Copy, FileText, ImageIcon, ListCheck, Split, Undo2 } from "@lucide/vue";
+import { Braces, ChevronDown, Copy, FileText, ImageIcon, ListCheck, Split, Undo2 } from "@lucide/vue";
 import { invokeTauri, openTransportWorkspaceFile, readTransportChatImage } from "../../../services/tauri-api";
 import type { ChatActivityItem, ChatMessageBlock } from "../../../types/app";
 import {
@@ -629,26 +590,26 @@ const assistantRawRenderedText = computed(() => formatAssistantStreamingText(pro
 const assistantRenderedText = computed(() =>
   assistantRawRenderedText.value.split(TOOL_TEXT_BREAK_PLACEHOLDER).join("\n\n"),
 );
-const segmentedMarkdownActive = computed(() => segmentedMarkdownEnabled.value);
 const assistantMarkdownPieces = computed<Array<{ key: string; segments: MarkdownSegment[] }>>(() => {
-  if (plainMarkdownDebugEnabled || !segmentedMarkdownActive.value) return [];
+  if (plainMarkdownDebugEnabled) return [];
   const text = assistantRawRenderedText.value;
   if (!text) return [];
-  const pieces = text.split(TOOL_TEXT_BREAK_PLACEHOLDER);
+  const segmented = segmentedMarkdownEnabled.value;
+  const pieces = segmented
+    ? text.split(TOOL_TEXT_BREAK_PLACEHOLDER)
+    : [assistantRenderedText.value];
   const result: Array<{ key: string; segments: MarkdownSegment[] }> = [];
   pieces.forEach((piece, pieceIndex) => {
     if (!piece.trim()) return;
     const blocks = parseMarkdownBlocks(piece, !!props.block.isStreaming);
     result.push({
       key: `piece-${pieceIndex}`,
-      segments: groupMarkdownSegments(blocks),
+      segments: segmented
+        ? groupMarkdownSegments(blocks)
+        : [{ kind: "text", key: `piece-${pieceIndex}-all`, blocks }],
     });
   });
   return result;
-});
-const assistantUsesSegmentedMarkdown = computed(() => {
-  if (plainMarkdownDebugEnabled || !segmentedMarkdownActive.value) return false;
-  return assistantMarkdownPieces.value.length > 0;
 });
 const teleportTheme = computed(() => {
   const documentTheme = typeof document === "undefined" ? "" : document.documentElement.getAttribute("data-theme");
@@ -885,10 +846,9 @@ function showAssistantPreStreamingDots(block: ChatMessageBlock): boolean {
 function bubbleContentEmpty(block: ChatMessageBlock): boolean {
   const own = isOwnMessage(block);
   const ownHasContent = own ? ownBubbleHasContent(block) : false;
-  const assistantSegOverride = !own && assistantUsesSegmentedMarkdown.value && !!assistantRenderedText.value;
   const assistantDots = !own && showAssistantPreStreamingDots(block);
   const assistantHasContent = !own ? assistantBubbleHasContent(block) : false;
-  const empty = own ? !ownHasContent : assistantSegOverride || assistantDots || !assistantHasContent;
+  const empty = own ? !ownHasContent : assistantDots || !assistantHasContent;
   return empty;
 }
 
@@ -2011,12 +1971,12 @@ function openAttachmentPath(path: string) {
 }
 
 .assistant-markdown {
-  --ecall-chat-rich-block-bg: var(--color-base-200);
+  --ecall-chat-rich-block-bg: var(--color-base-100);
 }
 
-.assistant-markdown[data-bubble-background="off"],
-.assistant-markdown[data-segmented-markdown="on"] {
-  --ecall-chat-rich-block-bg: var(--color-base-100);
+/* 有气泡背景且不分段：富块嵌在 base-100 气泡内，用 base-200 拉开层次；其余场景富块独立裸排，一律 base-100 */
+.assistant-markdown[data-bubble-background="on"][data-segmented-markdown="off"] {
+  --ecall-chat-rich-block-bg: var(--color-base-200);
 }
 
 .assistant-markdown :deep(.ecall-md-code-block) {
@@ -2045,28 +2005,8 @@ function openAttachmentPath(path: string) {
   gap: 0.5rem;
 }
 
-/* 无背景模式：分段之间用 daisyUI divider 分隔（见模板），保留 0.5rem 基础间距避免段间贴死 */
-.ecall-assistant-segment-list-plain {
-  gap: 0.5rem;
-}
-
-/* 无背景模式：计划卡跟在正文段后，顶部用分割线区分 */
-.ecall-assistant-segment-plan-separated {
-  border-top: 1px solid var(--color-base-300);
-  padding-top: 0.5rem;
-}
-
 .ecall-assistant-segment {
   min-width: 0;
-}
-
-.ecall-assistant-segment-surface {
-  border-radius: var(--radius-box, 1rem);
-  background: var(--color-base-100);
-}
-
-.ecall-assistant-segment-plain {
-  background: transparent;
 }
 
 .ecall-assistant-segment-text {
@@ -2080,6 +2020,12 @@ function openAttachmentPath(path: string) {
   display: block;
   width: 100%;
   padding: 0;
+}
+
+/* 背景开关：只决定气泡底色是否显示，布局与文字位置恒定不动 */
+.ecall-assistant-bubble[data-bubble-background="on"] .ecall-assistant-segment-text {
+  border-radius: var(--radius-box, 1rem);
+  background: var(--color-base-100);
 }
 
 .ecall-assistant-bubble {

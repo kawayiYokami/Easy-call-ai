@@ -1,19 +1,13 @@
 <template>
-  <div :class="['ecall-chat-bubble-shell', `ecall-chat-bubble-shell-${side}`, `ecall-chat-bubble-tone-${tone}`, { 'ecall-chat-bubble-separated': separated, 'ecall-chat-bubble-wide': wide, 'ecall-chat-bubble-no-avatar': !avatarUrl }]">
+  <div :class="['ecall-chat-bubble-shell', `ecall-chat-bubble-tone-${tone}`, { 'ecall-chat-bubble-separated': separated, 'ecall-chat-bubble-wide': wide, 'ecall-chat-bubble-no-avatar': !avatarUrl }]">
     <template v-if="tone === 'user'">
-      <div class="ecall-chat-bubble-user-row">
-        <div v-if="avatarUrl" class="ecall-chat-bubble-avatar" :title="name">
-          <img :src="avatarUrl" :alt="name" />
+      <div class="ecall-chat-bubble-body">
+        <div class="ecall-chat-bubble-surface" :style="surfaceStyle">
+          <slot />
         </div>
 
-        <div class="ecall-chat-bubble-body">
-          <div class="ecall-chat-bubble-surface" :style="surfaceStyle">
-            <slot />
-          </div>
-
-          <div v-if="$slots.footer" class="ecall-chat-bubble-footer">
-            <slot name="footer" />
-          </div>
+        <div v-if="$slots.footer" class="ecall-chat-bubble-footer">
+          <slot name="footer" />
         </div>
       </div>
     </template>
@@ -57,7 +51,6 @@
 import { computed, type StyleValue } from "vue";
 
 const props = withDefaults(defineProps<{
-  side?: "left" | "right";
   tone?: "assistant" | "user" | "system";
   name: string;
   meta?: string;
@@ -69,7 +62,6 @@ const props = withDefaults(defineProps<{
   bubbleBackground?: boolean;
   contentEmpty?: boolean;
 }>(), {
-  side: "left",
   tone: "assistant",
   meta: "",
   avatarUrl: "",
@@ -105,29 +97,31 @@ const surfaceStyle = computed<StyleValue | undefined>(() => {
 </script>
 
 <style scoped>
+/* ========== 表格骨架：助手/系统 = 头像列 + 内容列；user = 右对齐、无头像 ========== */
 .ecall-chat-bubble-shell {
   --ecall-bubble-avatar-size: 2rem;
   --ecall-bubble-gap: 0.55rem;
   --ecall-bubble-max-width: 100%;
-  --ecall-bubble-avatar-track: calc(var(--ecall-bubble-avatar-size) + var(--ecall-bubble-gap));
-  --ecall-bubble-body-offset: calc(var(--ecall-bubble-avatar-size) / 2);
   position: relative;
   width: 100%;
 }
 
 .ecall-chat-bubble-tone-user {
   --ecall-bubble-max-width: 42rem;
+  display: flex;
+  justify-content: flex-end;
 }
 
 .ecall-chat-bubble-wide {
   --ecall-bubble-max-width: 100%;
 }
 
+/* 连续消息分隔线：沿气泡区域顶边 */
 .ecall-chat-bubble-separated::before {
   position: absolute;
   top: -0.5rem;
-  left: var(--ecall-bubble-body-offset);
-  width: min(var(--ecall-bubble-max-width), calc(100% - var(--ecall-bubble-body-offset)));
+  left: 0;
+  width: min(var(--ecall-bubble-max-width), 100%);
   height: 1px;
   background: color-mix(in srgb, var(--color-base-content) 14%, transparent);
   content: "";
@@ -136,63 +130,20 @@ const surfaceStyle = computed<StyleValue | undefined>(() => {
   transform-origin: center;
 }
 
-.ecall-chat-bubble-shell-right.ecall-chat-bubble-separated::before {
-  right: var(--ecall-bubble-body-offset);
+.ecall-chat-bubble-tone-user.ecall-chat-bubble-separated::before {
   left: auto;
+  right: 0;
 }
 
-.ecall-chat-bubble-head,
-.ecall-chat-bubble-user-row {
-  display: flex;
-  max-width: min(100%, calc(var(--ecall-bubble-max-width) + var(--ecall-bubble-avatar-track)));
-  align-items: flex-start;
-  gap: var(--ecall-bubble-gap);
-}
-
-.ecall-chat-bubble-body {
-  display: flex;
-  width: min(var(--ecall-bubble-max-width), calc(100% - var(--ecall-bubble-body-offset)));
-  max-width: calc(100% - var(--ecall-bubble-body-offset));
-  min-width: 0;
-  margin-left: var(--ecall-bubble-body-offset);
-  flex-direction: column;
-  gap: 0.25rem;
-}
-
-.ecall-chat-bubble-shell-right .ecall-chat-bubble-head,
-.ecall-chat-bubble-shell-right .ecall-chat-bubble-user-row {
-  margin-left: auto;
-  flex-direction: row-reverse;
-}
-
-.ecall-chat-bubble-shell-right .ecall-chat-bubble-body {
-  margin-right: var(--ecall-bubble-body-offset);
-  margin-left: auto;
-  align-items: flex-end;
-}
-
-.ecall-chat-bubble-tone-user .ecall-chat-bubble-body {
-  width: auto;
-  max-width: min(var(--ecall-bubble-max-width), calc(100% - var(--ecall-bubble-avatar-track) - var(--ecall-bubble-body-offset)));
-  margin: 0;
-  flex: 0 1 auto;
-}
-
+/* ---------- 表格：头像列 + 内容列，正文与 footer 跨全宽，天然对齐头像左缘 ---------- */
 .ecall-chat-bubble-shell:not(.ecall-chat-bubble-tone-user) {
   display: grid;
-  grid-template-columns: var(--ecall-bubble-avatar-size) minmax(0, min(var(--ecall-bubble-max-width), calc(100% - var(--ecall-bubble-avatar-track) - var(--ecall-bubble-body-offset))));
+  grid-template-columns: var(--ecall-bubble-avatar-size) minmax(0, 1fr);
   grid-template-areas:
     "avatar main"
     "body body";
   column-gap: var(--ecall-bubble-gap);
   align-items: start;
-}
-
-.ecall-chat-bubble-shell-right:not(.ecall-chat-bubble-tone-user) {
-  grid-template-columns: minmax(0, min(var(--ecall-bubble-max-width), calc(100% - var(--ecall-bubble-avatar-track) - var(--ecall-bubble-body-offset)))) var(--ecall-bubble-avatar-size);
-  grid-template-areas:
-    "main avatar"
-    "body body";
 }
 
 .ecall-chat-bubble-shell:not(.ecall-chat-bubble-tone-user) .ecall-chat-bubble-head {
@@ -210,39 +161,35 @@ const surfaceStyle = computed<StyleValue | undefined>(() => {
 .ecall-chat-bubble-shell:not(.ecall-chat-bubble-tone-user) .ecall-chat-bubble-body {
   box-sizing: border-box;
   grid-area: body;
-  padding-left: var(--ecall-bubble-body-offset);
   width: min(var(--ecall-bubble-max-width), 100%);
   max-width: 100%;
-  margin: 0;
 }
 
-.ecall-chat-bubble-shell-right:not(.ecall-chat-bubble-tone-user) .ecall-chat-bubble-body {
-  justify-self: end;
-}
-
-/* ========== 无头像：不占头像列，内容直接对齐 ========== */
+/* 无头像：不占头像列 */
 .ecall-chat-bubble-shell-no-avatar:not(.ecall-chat-bubble-tone-user) {
-  grid-template-columns: minmax(0, min(var(--ecall-bubble-max-width), 100%));
+  grid-template-columns: minmax(0, 1fr);
   grid-template-areas:
     "main"
     "body";
 }
 
-.ecall-chat-bubble-shell-no-avatar:not(.ecall-chat-bubble-tone-user) .ecall-chat-bubble-body {
-  padding-left: 0;
-}
-
-.ecall-chat-bubble-shell-no-avatar.ecall-chat-bubble-separated::before {
-  left: 0;
-}
-
-.ecall-chat-bubble-shell-no-avatar.ecall-chat-bubble-shell-right.ecall-chat-bubble-separated::before {
-  right: 0;
-  left: auto;
-}
-
-.ecall-chat-bubble-shell-no-avatar.ecall-chat-bubble-tone-user .ecall-chat-bubble-body {
+/* ---------- user：右对齐，无头像 ---------- */
+.ecall-chat-bubble-tone-user .ecall-chat-bubble-body {
+  width: auto;
   max-width: min(var(--ecall-bubble-max-width), 100%);
+  align-items: flex-end;
+}
+
+.ecall-chat-bubble-tone-user .ecall-chat-bubble-footer {
+  flex-direction: row-reverse;
+}
+
+/* ---------- 共通 ---------- */
+.ecall-chat-bubble-body {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 0.25rem;
 }
 
 .ecall-chat-bubble-avatar {
@@ -276,25 +223,12 @@ const surfaceStyle = computed<StyleValue | undefined>(() => {
   gap: 0.2rem;
 }
 
-.ecall-chat-bubble-shell-right .ecall-chat-bubble-main {
-  align-items: flex-end;
-}
-
 .ecall-chat-bubble-header,
 .ecall-chat-bubble-footer {
   display: inline-flex;
   max-width: 100%;
   align-items: baseline;
   gap: 0.45rem;
-}
-
-.ecall-chat-bubble-shell-right .ecall-chat-bubble-footer {
-  flex-direction: row-reverse;
-}
-
-.ecall-chat-bubble-shell-right .ecall-chat-bubble-header {
-  flex-direction: row-reverse;
-  align-items: flex-end;
 }
 
 .ecall-chat-bubble-name {
@@ -349,19 +283,7 @@ const surfaceStyle = computed<StyleValue | undefined>(() => {
   width: 100%;
 }
 
-/* 展开区左移：对齐到头像中心线往左的整体偏移，折叠头保持原位 */
-.ecall-chat-bubble-shell:not(.ecall-chat-bubble-tone-user) .ecall-chat-bubble-activity :deep(.collapse-content) {
-  margin-left: calc(-1 * var(--ecall-bubble-avatar-track) + var(--ecall-bubble-body-offset));
-}
-
-.ecall-chat-bubble-shell-no-avatar:not(.ecall-chat-bubble-tone-user) .ecall-chat-bubble-activity :deep(.collapse-content) {
-  margin-left: 0;
-}
-
-.ecall-chat-bubble-tone-assistant .ecall-chat-bubble-surface,
-.ecall-chat-bubble-tone-system .ecall-chat-bubble-surface {
-  padding: 0.15rem 0;
-}
+/* 展开区与气泡左缘对齐，无额外偏移 */
 
 .ecall-chat-bubble-footer {
   min-height: 1.25rem;
