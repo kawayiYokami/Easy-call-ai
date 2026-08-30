@@ -200,11 +200,10 @@
             <div v-if="branchPickerOpen" class="absolute left-0 right-0 top-full z-20 max-h-64 overflow-y-auto border border-base-300 bg-base-100 p-1 shadow-lg">
               <div v-if="branchPickerLoading" class="px-2 py-2 text-xs opacity-50">{{ t('gitPanel.loading') }}</div>
               <GitTree v-else :nodes="branchPickerTreeNodes" default-expanded @row-click="onBranchPickerRowClick">
-                <template #row="{ row, expanded }">
+                <template #row="{ row }">
                   <!-- 分组头（树根：本地分支/远程分支） -->
                   <template v-if="row.node.data.kind === 'header'">
-                    <ChevronRight class="h-3 w-3 shrink-0 opacity-50" :class="{ 'rotate-90': expanded }" />
-                    <span class="font-medium opacity-60">{{ row.node.data.text }}</span>
+                    <span class="min-w-0 truncate font-medium opacity-60">{{ row.node.data.text }}</span>
                   </template>
                   <!-- 本地分支 -->
                   <template v-else-if="row.node.data.kind === 'branch'">
@@ -261,7 +260,7 @@
                     <span
                       v-for="ref in row.node.data.refs"
                       :key="ref.name"
-                      class="max-w-24 shrink-0 truncate rounded px-1 text-[10px] font-medium"
+                      class="max-w-24 min-w-0 truncate rounded px-1 text-[10px] font-medium"
                       :style="{ color: graphColor(ref.colorIndex), backgroundColor: graphColor(ref.colorIndex) + '1A' }"
                       :title="ref.name"
                     >{{ ref.name }}</span>
@@ -341,10 +340,9 @@
                 @expand="onStashExpand"
                 @row-click="onStashRowClick"
               >
-                <template #row="{ row, expanded, toggle }">
+                <template #row="{ row }">
                   <!-- 父行：储藏（整行点击展开懒加载 diff 文件列表） -->
                   <template v-if="row.node.data.kind === 'stash'">
-                    <ChevronRight class="h-3 w-3 shrink-0 opacity-50" :class="{ 'rotate-90': expanded }" />
                     <span class="shrink-0 font-mono opacity-60">{{ row.node.data.index }}</span>
                     <span class="min-w-0 flex-1 truncate opacity-80">{{ row.node.data.stash.message }}</span>
                     <button
@@ -394,11 +392,10 @@
             </div>
             <div ref="branchesScroller" class="git-panel-scroller min-h-0 flex-1 overflow-y-auto">
               <GitTree :nodes="branchTreeNodes" default-expanded @row-click="onBranchRowClick">
-                <template #row="{ row, expanded }">
+                <template #row="{ row }">
                   <!-- 分组头（树根：本地分支/远程分支/远程） -->
                   <template v-if="row.node.data.kind === 'header'">
-                    <ChevronRight class="h-3 w-3 shrink-0 opacity-50" :class="{ 'rotate-90': expanded }" />
-                    <span class="font-medium opacity-60">{{ row.node.data.text }}</span>
+                    <span class="min-w-0 truncate font-medium opacity-60">{{ row.node.data.text }}</span>
                   </template>
                   <!-- 本地分支 -->
                   <template v-else-if="row.node.data.kind === 'branch'">
@@ -528,7 +525,6 @@ import {
   ArrowDownToLine,
   ArrowRightLeft,
   ArrowUpFromLine,
-  ChevronRight,
   ChevronUp,
   Cloud,
   CloudSync,

@@ -15,19 +15,10 @@
       <template v-if="row.node.data.kind === 'group'">
         <button
           type="button"
-          class="btn btn-ghost btn-xs h-5 min-h-5 w-5 shrink-0 px-0"
-          :title="expanded ? collapseTitle : expandTitle"
+          class="flex min-w-0 flex-1 items-center gap-1 text-left font-medium opacity-70"
           @click.stop="toggle"
         >
-          <ChevronDown v-if="expanded" class="h-3.5 w-3.5" />
-          <ChevronRight v-else class="h-3.5 w-3.5" />
-        </button>
-        <button
-          type="button"
-          class="flex min-w-0 flex-1 items-center gap-1 truncate text-left font-medium opacity-70"
-          @click.stop="toggle"
-        >
-          {{ title }}
+          <span class="min-w-0 truncate">{{ title }}</span>
         </button>
         <button
           v-if="entries.length > 0"
@@ -47,15 +38,6 @@
       </template>
       <!-- 目录行内容 -->
       <template v-else-if="isDir(row.node.data)">
-        <button
-          type="button"
-          class="btn btn-ghost btn-xs h-5 min-h-5 w-5 shrink-0 px-0"
-          :title="expanded ? collapseTitle : expandTitle"
-          @click.stop="toggle"
-        >
-          <ChevronDown v-if="expanded" class="h-3.5 w-3.5" />
-          <ChevronRight v-else class="h-3.5 w-3.5" />
-        </button>
         <button
           type="button"
           class="flex min-w-0 flex-1 items-center gap-1.5 rounded px-1 py-0.5 text-left font-medium"
@@ -171,7 +153,7 @@
 
 <script setup lang="ts">
 import { computed, ref } from "vue";
-import { ChevronDown, ChevronRight, Minus, Plus, Undo2 } from "@lucide/vue";
+import { ChevronDown, Minus, Plus, Undo2 } from "@lucide/vue";
 import type { GitPanelStatusEntry } from "../../../services/tauri-api";
 import { resolveFileTreeIcon } from "../file-tree-icons";
 import GitTree, { type GitTreeExpose, type GitTreeFlatRow, type GitTreeNode } from "./GitTree.vue";
