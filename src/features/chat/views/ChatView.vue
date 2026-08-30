@@ -3,48 +3,58 @@
     ref="chatLayoutRoot"
     class="relative flex h-full min-h-0 flex-row overflow-hidden"
   >
-    <div
-      v-if="showSideConversationList"
-      :class="leftPaneInLayout ? 'relative flex h-full min-h-0 shrink-0' : 'absolute bottom-0 left-0 top-0 z-50 flex h-full min-h-0 border-r border-base-300 bg-base-100 shadow-2xl'"
-      :style="{ width: `${leftPaneVisibleWidth}px` }"
+    <Transition
+      name="chat-pane-left"
+      :css="leftPaneTransitionCssEnabled"
+      :appear="false"
+      @before-enter="handleLeftPaneBeforeTransition"
+      @after-enter="handleLeftPaneAfterTransition"
+      @before-leave="handleLeftPaneBeforeTransition"
+      @after-leave="handleLeftPaneAfterTransition"
     >
-      <ChatConversationSidebar
-        class="min-w-0 flex-1"
-        :items="conversationItems || unarchivedConversationItems"
-        :active-conversation-id="activeConversationId"
-        :user-alias="userAlias"
-        :user-avatar-url="userAvatarUrl"
-        :persona-name-map="personaNameMap"
-        :persona-avatar-url-map="personaAvatarUrlMap"
-        :active-tab="chatLeftPanelMode"
-        :chat-model-options="chatModelOptions"
-        :tool-review-api-config-id="toolReviewApiConfigId"
-        :current-workspace-root-path="currentProjectWorkspaceRoot"
-        @update:active-tab="$emit('update:conversation-list-tab', $event)"
-        @edit-task="openTaskEditDialog"
-        @select="handleConversationListSelect"
-        @rename="handleConversationRename"
-        @toggle-pin-conversation="handleConversationPinToggle"
-        @archive-conversation="handleConversationArchive"
-        @export-conversation="handleConversationExport"
-        @delete-conversation="handleConversationDelete"
-        @batch-archive-completed="handleBatchArchiveCompleted"
-        @open-settings="$emit('openSettings')"
-      />
       <div
-        class="ecall-pane-splitter absolute bottom-0 top-0 right-0 z-10 w-1 -mr-0.5 translate-x-1/2"
-        :class="{ 'ecall-pane-splitter-active': activePaneResizeSide === 'left' }"
-        role="separator"
-        tabindex="0"
-        aria-orientation="vertical"
-        :aria-valuemin="PANE_WIDTH_LIMITS.left.min"
-        :aria-valuemax="PANE_WIDTH_LIMITS.left.max"
-        :aria-valuenow="leftPaneVisibleWidth"
-        @pointerdown="startPaneResize('left', $event)"
-        @keydown.left.prevent="adjustPaneWidthByKeyboard('left', -24)"
-        @keydown.right.prevent="adjustPaneWidthByKeyboard('left', 24)"
-      ></div>
-    </div>
+        v-if="showSideConversationList"
+        :class="leftPaneInLayout ? 'relative flex h-full min-h-0 shrink-0 overflow-hidden' : 'absolute bottom-0 left-0 top-0 z-50 flex h-full min-h-0 border-r border-base-300 bg-base-100 shadow-2xl overflow-hidden'"
+        :style="{ width: `${leftPaneVisibleWidth}px` }"
+      >
+        <ChatConversationSidebar
+          class="min-w-0 flex-1"
+          :items="conversationItems || unarchivedConversationItems"
+          :active-conversation-id="activeConversationId"
+          :user-alias="userAlias"
+          :user-avatar-url="userAvatarUrl"
+          :persona-name-map="personaNameMap"
+          :persona-avatar-url-map="personaAvatarUrlMap"
+          :active-tab="chatLeftPanelMode"
+          :chat-model-options="chatModelOptions"
+          :tool-review-api-config-id="toolReviewApiConfigId"
+          :current-workspace-root-path="currentProjectWorkspaceRoot"
+          @update:active-tab="$emit('update:conversation-list-tab', $event)"
+          @edit-task="openTaskEditDialog"
+          @select="handleConversationListSelect"
+          @rename="handleConversationRename"
+          @toggle-pin-conversation="handleConversationPinToggle"
+          @archive-conversation="handleConversationArchive"
+          @export-conversation="handleConversationExport"
+          @delete-conversation="handleConversationDelete"
+          @batch-archive-completed="handleBatchArchiveCompleted"
+          @open-settings="$emit('openSettings')"
+        />
+        <div
+          class="ecall-pane-splitter absolute bottom-0 top-0 right-0 z-10 w-1 -mr-0.5 translate-x-1/2"
+          :class="{ 'ecall-pane-splitter-active': activePaneResizeSide === 'left' }"
+          role="separator"
+          tabindex="0"
+          aria-orientation="vertical"
+          :aria-valuemin="PANE_WIDTH_LIMITS.left.min"
+          :aria-valuemax="PANE_WIDTH_LIMITS.left.max"
+          :aria-valuenow="leftPaneVisibleWidth"
+          @pointerdown="startPaneResize('left', $event)"
+          @keydown.left.prevent="adjustPaneWidthByKeyboard('left', -24)"
+          @keydown.right.prevent="adjustPaneWidthByKeyboard('left', 24)"
+        ></div>
+      </div>
+    </Transition>
 
     <div class="flex min-h-0 min-w-0 flex-1 overflow-hidden">
       <div data-chat-center-pane="true" class="relative flex min-h-0 min-w-0 flex-1 flex-col">
@@ -540,11 +550,20 @@
       </div>
     </div>
 
-      <div v-if="effectiveToolReviewPanelOpen"
-        :class="rightPaneInLayout ? 'relative flex h-full min-h-0 shrink-0 border-l border-base-300 bg-base-100' : 'absolute bottom-0 right-0 top-0 z-50 flex h-full min-h-0 border-l border-base-300 bg-base-100 shadow-2xl'"
-        :style="{ width: `${rightPaneVisibleWidth}px` }">
-        <div
-          class="ecall-pane-splitter absolute bottom-0 top-0 left-0 z-10 w-1 -ml-0.5 -translate-x-1/2"
+      <Transition
+        name="chat-pane-right"
+        :css="rightPaneTransitionCssEnabled"
+        :appear="false"
+        @before-enter="handleRightPaneBeforeTransition"
+        @after-enter="handleRightPaneAfterTransition"
+        @before-leave="handleRightPaneBeforeTransition"
+        @after-leave="handleRightPaneAfterTransition"
+      >
+        <div v-if="effectiveToolReviewPanelOpen"
+          :class="rightPaneInLayout ? 'relative flex h-full min-h-0 shrink-0 border-l border-base-300 bg-base-100 overflow-hidden' : 'absolute bottom-0 right-0 top-0 z-50 flex h-full min-h-0 border-l border-base-300 bg-base-100 shadow-2xl overflow-hidden'"
+          :style="{ width: `${rightPaneVisibleWidth}px` }">
+          <div
+            class="ecall-pane-splitter absolute bottom-0 top-0 left-0 z-10 w-1 -ml-0.5 -translate-x-1/2"
           :class="{ 'ecall-pane-splitter-active': activePaneResizeSide === 'right' }"
           role="separator"
           tabindex="0"
@@ -628,7 +647,8 @@
             @assistant-link-click="handleAssistantLinkClick"
           />
         </div>
-      </div>
+        </div>
+      </Transition>
     </div>
 
 
@@ -1763,6 +1783,7 @@ const {
   leftPaneInLayout, rightPaneInLayout,
   leftPaneOverlay, rightPaneOverlay, leftPaneVisibleWidth, rightPaneVisibleWidth, activePaneResizeSide,
   collapsePreviewSide, collapsePreviewWidth,
+  isPaneTransitioning, notifyPaneTransitionStart, notifyPaneTransitionEnd,
   startPaneResize, adjustPaneWidthByKeyboard,
 } = useChatPanes({
   chatLayoutRoot, toolReviewPanelOpen: effectiveToolReviewPanelOpen,
@@ -1779,6 +1800,44 @@ const {
   },
   onBeforeUnmountCleanup: (fn) => panesCleanupFns.push(fn),
 });
+
+// --- push 动画：仅 inLayout 时启用，overlay 瞬切；Transition css 由快照驱动，避免 leave 时已置 false 导致误判 ---
+const leftPaneLayoutSnapshot = ref(showSideConversationList.value ? leftPaneInLayout.value : false);
+const rightPaneLayoutSnapshot = ref(effectiveToolReviewPanelOpen.value ? rightPaneInLayout.value : false);
+
+watch([showSideConversationList, leftPaneInLayout], ([open, inLayout]) => {
+  if (open) leftPaneLayoutSnapshot.value = inLayout;
+}, { flush: "sync" });
+
+watch([effectiveToolReviewPanelOpen, rightPaneInLayout], ([open, inLayout]) => {
+  if (open) rightPaneLayoutSnapshot.value = inLayout;
+}, { flush: "sync" });
+
+// 初始化时若已打开，同步一次（appear false 不动画，但需同步快照以便首次关闭能正确判定）
+leftPaneLayoutSnapshot.value = showSideConversationList.value ? leftPaneInLayout.value : false;
+rightPaneLayoutSnapshot.value = effectiveToolReviewPanelOpen.value ? rightPaneInLayout.value : false;
+
+const leftPaneTransitionCssEnabled = computed(() => leftPaneLayoutSnapshot.value);
+const rightPaneTransitionCssEnabled = computed(() => rightPaneLayoutSnapshot.value);
+// css 由快照决定：push 动画，overlay 瞬切；拖拽时 Transition 未激活不受影响；isPaneTransitioning 仅用于锁测量
+
+function handleLeftPaneBeforeTransition() {
+  if (!leftPaneLayoutSnapshot.value) return;
+  notifyPaneTransitionStart();
+}
+
+function handleLeftPaneAfterTransition() {
+  if (isPaneTransitioning.value) notifyPaneTransitionEnd();
+}
+
+function handleRightPaneBeforeTransition() {
+  if (!rightPaneLayoutSnapshot.value) return;
+  notifyPaneTransitionStart();
+}
+
+function handleRightPaneAfterTransition() {
+  if (isPaneTransitioning.value) notifyPaneTransitionEnd();
+}
 
 function closeOverlayPanes() {
   if (leftPaneOverlay.value) emit("sideConversationListVisibleChange", false);

@@ -291,6 +291,33 @@ body {
   background-color: color-mix(in oklab, currentColor 18%, transparent);
 }
 
+/* 聊天左右侧栏 push 动画：仅 inLayout 挤开时 220ms，overlay 瞬切；与 FileReaderPanel 220ms 同参 */
+.chat-pane-left-enter-active,
+.chat-pane-left-leave-active,
+.chat-pane-right-enter-active,
+.chat-pane-right-leave-active {
+  transition: width 220ms cubic-bezier(0.2, 0, 0, 1), opacity 220ms ease-out;
+  overflow: hidden !important;
+  will-change: width;
+}
+
+.chat-pane-left-enter-from,
+.chat-pane-left-leave-to,
+.chat-pane-right-enter-from,
+.chat-pane-right-leave-to {
+  width: 0 !important;
+  opacity: 0.85;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .chat-pane-left-enter-active,
+  .chat-pane-left-leave-active,
+  .chat-pane-right-enter-active,
+  .chat-pane-right-leave-active {
+    transition: none !important;
+  }
+}
+
 .answer {
   white-space: pre-wrap;
   word-break: break-word;

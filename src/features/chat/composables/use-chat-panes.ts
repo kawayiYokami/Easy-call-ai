@@ -60,14 +60,49 @@ export function useChatPanes(options: UseChatPanesOptions) {
   let paneResizeHandle: HTMLElement | null = null;
   let paneResizePointerId: number | null = null;
 
+  // ========== pane push animation lock (220ms) ==========
+
+  const isPaneTransitioning = ref(false);
+  let paneTransitionTimer: ReturnType<typeof setTimeout> | null = null;
+
+  function notifyPaneTransitionStart() {
+    isPaneTransitioning.value = true;
+    if (paneTransitionTimer) {
+      clearTimeout(paneTransitionTimer);
+      paneTransitionTimer = null;
+    }
+    // fallback auto-unlock if hooks miss (e.g. overlay instant)
+    paneTransitionTimer = setTimeout(() => {
+      isPaneTransitioning.value = false;
+      paneTransitionTimer = null;
+      measureContainerWidthImmediate();
+      void nextTick(() => syncViewportMetrics());
+    }, 320);
+  }
+
+  function notifyPaneTransitionEnd() {
+    if (paneTransitionTimer) {
+      clearTimeout(paneTransitionTimer);
+      paneTransitionTimer = null;
+    }
+    isPaneTransitioning.value = false;
+    measureContainerWidthImmediate();
+    void nextTick(() => syncViewportMetrics());
+  }
+
+  function measureContainerWidthImmediate() {
+    const el = chatLayoutRoot.value;
+    containerWidth.value = el ? Math.round(el.getBoundingClientRect().width) : 0;
+  }
+
   // ========== responsive layout measurement ==========
 
   const containerWidth = ref(0);
   let layoutResizeObserver: ResizeObserver | null = null;
 
   function measureContainerWidth() {
-    const el = chatLayoutRoot.value;
-    containerWidth.value = el ? Math.round(el.getBoundingClientRect().width) : 0;
+    if (isPaneTransitioning.value) return;
+    measureContainerWidthImmediate();
   }
 
   function effectivePaneWidth(side: PaneResizeSide): number {
@@ -337,6 +372,10 @@ export function useChatPanes(options: UseChatPanesOptions) {
 
   onBeforeUnmountCleanup(() => {
     stopPaneResize();
+    if (paneTransitionTimer) {
+      clearTimeout(paneTransitionTimer);
+      paneTransitionTimer = null;
+    }
     layoutResizeObserver?.disconnect();
     layoutResizeObserver = null;
   });
@@ -353,6 +392,9 @@ export function useChatPanes(options: UseChatPanesOptions) {
     activePaneResizeSide,
     collapsePreviewSide,
     collapsePreviewWidth,
+    isPaneTransitioning,
+    notifyPaneTransitionStart,
+    notifyPaneTransitionEnd,
     clampPaneWidth,
     setPaneWidth,
     startPaneResize,
