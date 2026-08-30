@@ -14,7 +14,7 @@
     >
       <div
         v-if="showSideConversationList"
-        :class="leftPaneInLayout ? 'relative flex h-full min-h-0 shrink-0 overflow-hidden' : 'absolute bottom-0 left-0 top-0 z-50 flex h-full min-h-0 border-r border-base-300 bg-base-100 shadow-2xl overflow-hidden'"
+        :class="leftPaneLayoutSnapshot ? 'relative flex h-full min-h-0 shrink-0 overflow-hidden' : 'absolute bottom-0 left-0 top-0 z-50 flex h-full min-h-0 border-r border-base-300 bg-base-100 shadow-2xl overflow-hidden'"
         :style="{ width: `${leftPaneVisibleWidth}px` }"
       >
         <ChatConversationSidebar
@@ -41,7 +41,7 @@
           @open-settings="$emit('openSettings')"
         />
         <div
-          class="ecall-pane-splitter absolute bottom-0 top-0 right-0 z-10 w-1 -mr-0.5 translate-x-1/2"
+          class="ecall-pane-splitter absolute bottom-0 top-0 right-0 z-10 w-1 cursor-col-resize"
           :class="{ 'ecall-pane-splitter-active': activePaneResizeSide === 'left' }"
           role="separator"
           tabindex="0"
@@ -560,10 +560,10 @@
         @after-leave="handleRightPaneAfterTransition"
       >
         <div v-if="effectiveToolReviewPanelOpen"
-          :class="rightPaneInLayout ? 'relative flex h-full min-h-0 shrink-0 border-l border-base-300 bg-base-100 overflow-hidden' : 'absolute bottom-0 right-0 top-0 z-50 flex h-full min-h-0 border-l border-base-300 bg-base-100 shadow-2xl overflow-hidden'"
+          :class="rightPaneLayoutSnapshot ? 'relative flex h-full min-h-0 shrink-0 border-l border-base-300 bg-base-100 overflow-hidden' : 'absolute bottom-0 right-0 top-0 z-50 flex h-full min-h-0 border-l border-base-300 bg-base-100 shadow-2xl overflow-hidden'"
           :style="{ width: `${rightPaneVisibleWidth}px` }">
           <div
-            class="ecall-pane-splitter absolute bottom-0 top-0 left-0 z-10 w-1 -ml-0.5 -translate-x-1/2"
+            class="ecall-pane-splitter absolute bottom-0 top-0 left-0 z-10 w-1 cursor-col-resize"
           :class="{ 'ecall-pane-splitter-active': activePaneResizeSide === 'right' }"
           role="separator"
           tabindex="0"
