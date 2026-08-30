@@ -1225,7 +1225,7 @@ h4.ecall-md-heading { font-size: var(--app-text-markdown-heading-4-size); }
   margin-left: 0.18rem;
   border: 0;
   border-radius: 999px;
-  background: color-mix(in srgb, currentColor 10%, transparent);
+  background: var(--color-base-300);
   color: color-mix(in srgb, currentColor 72%, transparent);
   cursor: pointer;
   line-height: 1;
@@ -1234,7 +1234,7 @@ h4.ecall-md-heading { font-size: var(--app-text-markdown-heading-4-size); }
 }
 
 .ecall-md-toolcall-ref:hover {
-  background: color-mix(in srgb, currentColor 16%, transparent);
+  background: color-mix(in srgb, var(--color-base-content) 10%, var(--color-base-300));
   color: currentColor;
 }
 
