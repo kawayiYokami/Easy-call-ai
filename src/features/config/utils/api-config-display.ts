@@ -13,6 +13,9 @@ export const LEGAL_REASONING_EFFORTS = [
 
 export type LegalReasoningEffort = (typeof LEGAL_REASONING_EFFORTS)[number];
 
+/** codex 供应商固定支持的思考等级：保存时按「模型 × 全部等级」落盘，不提供界面配置 */
+export const CODEX_REASONING_EFFORTS = ["low", "medium", "high", "xhigh", "max"] as const;
+
 type TranslateFn = (key: string, params?: Record<string, unknown>) => string;
 type ApiConfigDisplayOptions = {
   providerMaxCharacters?: number;

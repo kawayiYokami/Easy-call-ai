@@ -126,11 +126,7 @@
       <CodexProviderPanel
         v-else
         :provider="selectedProvider"
-        :selected-api-config-id="props.config.selectedApiConfigId"
-        :refreshing-models="props.refreshingModels"
-        :model-options="props.modelOptions"
-        :model-refresh-error="props.modelRefreshError"
-        @refresh-models="$emit('refreshModels')"
+        :draft-groups="draftModelGroups"
         @select-model="selectModelCard"
       />
 
@@ -252,6 +248,7 @@ import CodexProviderPanel from "./CodexProviderPanel.vue";
 import ImageGenerationTab from "./ImageGenerationTab.vue";
 import { normalizeApiRequestFormat } from "../../utils/api-request-format";
 import {
+  CODEX_REASONING_EFFORTS,
   LEGAL_REASONING_EFFORTS,
   reasoningEffortDisplayLabel as sharedReasoningEffortDisplayLabel,
   sortReasoningEffortValues,
@@ -645,6 +642,17 @@ function rebuildDraftGroups() {
 function commitDraftGroups() {
   const provider = selectedProvider.value;
   if (!provider) return;
+  // codex 保存时按「全部模型 × 全部思考等级」落盘：补满草稿组等级并预填唯一 id，不依赖运行时维护
+  if (provider.requestFormat === "codex") {
+    for (const group of draftModelGroups.value) {
+      for (const effort of CODEX_REASONING_EFFORTS) {
+        if (!group.reasoningEfforts.includes(effort)) group.reasoningEfforts.push(effort);
+        if (!group.variantIdByEffort.has(effort)) {
+          group.variantIdByEffort.set(effort, `api-model-${buildProviderSeed()}-${group.primary.id}-${effort}`);
+        }
+      }
+    }
+  }
   // 先算草稿拆分结果，确定哪些卡被移除；被移除的活跃卡先标记 deprecated（保留历史，边界 4）
   const draftModels = splitDraftGroups(provider, draftModelGroups.value, () => `api-model-${buildProviderSeed()}`);
   const keptIds = new Set(draftModels.map((model) => model.id));

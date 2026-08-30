@@ -152,48 +152,35 @@
 
     <ConfigCard :title="t('config.api.codexModels')">
       <template #actions>
-        <button class="btn btn-sm" type="button" :class="{ loading: refreshingModels }" :disabled="refreshingModels" @click="$emit('refreshModels')">
-          <span>{{ t("config.api.refreshModels") }}</span>
-        </button>
-        <button class="btn btn-sm" type="button" @click="addModelCard">
-          <span>{{ t("config.api.addModel") }}</span>
-        </button>
+        <select
+          class="select select-bordered select-sm w-36 shrink-0"
+          :disabled="allCodexModelsEnabled"
+          :value="''"
+          @change="onAddModelSelect"
+        >
+          <option value="" disabled>{{ t("config.api.addModel") }}</option>
+          <option v-for="name in candidateModels" :key="name" :value="name">{{ name }}</option>
+        </select>
       </template>
 
       <div class="divide-y divide-base-200/60">
-          <div v-for="modelCard in provider.models" :key="modelCard.id" class="py-3">
-            <div class="grid gap-3">
-              <div class="flex items-start justify-between gap-2">
-                <button class="min-w-0 flex-1 text-left" type="button" @click="$emit('selectModel', modelCard.id)">
-                  <div class="text-base font-semibold">{{ `${provider.name || provider.id}/${modelCard.model || t("config.api.unnamedModel")}` }}</div>
-                </button>
-                <button class="btn btn-sm btn-square btn-ghost" type="button" :class="provider.models.length <= 1 ? 'text-base-content/30' : 'text-error'" :disabled="provider.models.length <= 1" @click="removeModelCard(modelCard.id)">
-                  <Trash2 class="h-3.5 w-3.5" />
-                </button>
-              </div>
-
-              <div class="grid gap-3">
-                <label class="flex flex-col gap-1">
-                  <span class="text-sm font-medium">{{ t("config.api.model") }}</span>
-                  <select v-model="modelCard.model" class="select select-bordered select-sm" @change="syncCachedModels">
-                    <option v-for="option in providerModelOptions" :key="`${modelCard.id}-${option}`" :value="option">
-                      {{ option }}
-                    </option>
-                  </select>
-                </label>
-
-                <label class="flex flex-col gap-1">
-                  <span class="text-sm font-medium">{{ t("config.api.reasoningEffort") }}</span>
-                  <select v-model="modelCard.reasoningEffort" class="select select-bordered select-sm">
-                    <option v-for="item in reasoningEffortOptions" :key="item.value" :value="item.value">
-                      {{ item.label }}
-                    </option>
-                  </select>
-                </label>
-              </div>
-            </div>
+        <div v-for="group in props.draftGroups" :key="group.primary.id" class="py-3">
+          <div class="flex items-start justify-between gap-2">
+            <label class="min-w-0 flex-1">
+              <span class="text-sm font-medium">{{ t("config.api.model") }}</span>
+              <input
+                v-model="group.primary.model"
+                type="text"
+                class="input input-bordered input-sm mt-1 w-full"
+                :placeholder="t('config.api.unnamedModel')"
+              />
+            </label>
+            <button class="btn btn-sm btn-square btn-ghost" type="button" :class="props.draftGroups.length <= 1 ? 'text-base-content/30' : 'text-error'" :disabled="props.draftGroups.length <= 1" @click="removeModelCard(group.primary.id)">
+              <Trash2 class="h-3.5 w-3.5" />
+            </button>
           </div>
         </div>
+      </div>
     </ConfigCard>
   </div>
 </template>
@@ -216,6 +203,9 @@ import type {
   CodexRateLimitSnapshot,
   CodexRateLimitWindow,
 } from "../../../../types/app";
+import type { DraftModelGroup } from "../../utils/draft-model-groups";
+import { modelGroupKey } from "../../utils/draft-model-groups";
+import { CODEX_REASONING_EFFORTS } from "../../utils/api-config-display";
 import { invokeTauri } from "../../../../services/tauri-api";
 import { formatIsoToLocalDateTime } from "../../../../utils/time";
 
@@ -236,15 +226,11 @@ function codexContextWindowTokens(modelName: string): number {
 
 const props = defineProps<{
   provider: ApiProviderConfigItem;
-  selectedApiConfigId: string;
-  refreshingModels: boolean;
-  modelOptions: string[];
-  modelRefreshError: string;
+  draftGroups: DraftModelGroup[];
 }>();
 
 const { t } = useI18n();
 const emit = defineEmits<{
-  (e: "refreshModels"): void;
   (e: "selectModel", modelId: string): void;
 }>();
 
@@ -256,13 +242,6 @@ const codexRateLimitQueryByProvider = ref<Record<string, CodexRateLimitQueryResu
 const codexRateLimitBusyByProvider = ref<Record<string, boolean>>({});
 const codexRateLimitErrorByProvider = ref<Record<string, string>>({});
 const codexResetBusy = ref(false);
-const reasoningEffortOptions = computed(() => [
-  { value: "default", label: t("config.api.reasoningDefault") },
-  { value: "low", label: t("config.api.reasoningLow") },
-  { value: "medium", label: t("config.api.reasoningMedium") },
-  { value: "high", label: t("config.api.reasoningHigh") },
-  { value: "xhigh", label: t("config.api.reasoningXHigh") },
-]);
 const codexAuthModeOptions: Array<{ value: CodexAuthMode; label: string }> = [
   { value: "read_local", label: t("config.api.codexAuthModeReadLocal") },
   { value: "managed_oauth", label: t("config.api.codexAuthModeManagedOauth") },
@@ -356,11 +335,6 @@ const codexRateLimitPlaceholder = computed(() => {
     return "尚未查询到 Codex 周用量。";
   }
   return "登录后会自动同步 Codex 周用量。";
-});
-const providerModelOptions = computed(() => {
-  const current = (props.provider.models || []).map((item) => String(item.model || "").trim()).filter(Boolean);
-  const cached = Array.isArray(props.provider.cachedModelOptions) ? props.provider.cachedModelOptions : [];
-  return Array.from(new Set([...DEFAULT_CODEX_MODELS, ...props.modelOptions, ...cached, ...current].map((item) => String(item || "").trim()).filter(Boolean)));
 });
 
 function applyCodexDefaults() {
@@ -612,10 +586,6 @@ async function logoutCodex() {
   }
 }
 
-function syncCachedModels() {
-  props.provider.cachedModelOptions = Array.from(new Set(providerModelOptions.value));
-}
-
 function resolveCodexWindowLabel(window?: CodexRateLimitWindow | null, fallback = "weekly"): string {
   const minutes = Number(window?.windowDurationMins ?? 0);
   if (!Number.isFinite(minutes) || minutes <= 0) {
@@ -681,7 +651,7 @@ function createModel(seed: string, modelName: string): ApiModelConfigItem {
   return {
     id: `api-model-${seed}`,
     model: modelName,
-    enableImage: false,
+    enableImage: true,
     enableTools: true,
     reasoningEffort: DEFAULT_REASONING_EFFORT,
     temperature: 1,
@@ -692,32 +662,63 @@ function createModel(seed: string, modelName: string): ApiModelConfigItem {
   };
 }
 
-function addModelCard() {
-  applyCodexDefaults();
-  const existing = new Set((props.provider.models || []).map((item) => String(item.model || "").trim()).filter(Boolean));
-  const nextModel = providerModelOptions.value.find((item) => !existing.has(item)) || providerModelOptions.value[0] || DEFAULT_CODEX_MODELS[0];
+const candidateModels = computed(() =>
+  DEFAULT_CODEX_MODELS.filter(
+    (name) => !props.draftGroups.some((group) => String(group.primary.model || "").trim() === name),
+  ),
+);
+const allCodexModelsEnabled = computed(() => candidateModels.value.length === 0);
+
+function onAddModelSelect(event: Event) {
+  const target = event.target as HTMLSelectElement;
+  const name = String(target.value || "").trim();
+  target.value = "";
+  if (!name) return;
+  addModelCard(name);
+}
+
+function addModelCard(modelName: string) {
   const seed = Date.now().toString();
-  const model = createModel(seed, nextModel);
-  props.provider.models.unshift(model);
-  syncCachedModels();
+  const model = createModel(seed, modelName);
+  const variantIdByEffort = new Map<string, string>();
+  const primaryEffort = String(model.reasoningEffort || "default").trim().toLowerCase() || "default";
+  for (const effort of CODEX_REASONING_EFFORTS) {
+    // 主等级复用卡 id（保持选中有效），其余等级用带等级后缀的唯一 id，避免同毫秒生成重复 id 互相覆盖
+    variantIdByEffort.set(effort, effort === primaryEffort ? model.id : `api-model-${seed}-${effort}`);
+  }
+  props.draftGroups.unshift({
+    key: modelGroupKey(model),
+    primary: model,
+    reasoningEfforts: [...CODEX_REASONING_EFFORTS],
+    variantIdByEffort,
+  });
   emit("selectModel", model.id);
 }
 
 function removeModelCard(modelId: string) {
-  if ((props.provider.models || []).length <= 1) return;
-  const idx = props.provider.models.findIndex((item) => item.id === modelId);
+  if (props.draftGroups.length <= 1) return;
+  const idx = props.draftGroups.findIndex((group) => group.primary.id === modelId);
   if (idx < 0) return;
-  props.provider.models.splice(idx, 1);
-  const fallback = props.provider.models[Math.max(0, idx - 1)] ?? props.provider.models[0];
+  props.draftGroups.splice(idx, 1);
+  const fallback = props.draftGroups[Math.max(0, idx - 1)] ?? props.draftGroups[0];
   if (fallback) {
-    emit("selectModel", fallback.id);
+    emit("selectModel", fallback.primary.id);
   }
 }
+
+// 上下文窗口按模型名固定：模型名变化后重算
+watch(
+  () => props.draftGroups.map((group) => String(group.primary.model || "")),
+  () => {
+    for (const group of props.draftGroups) {
+      group.primary.contextWindowTokens = codexContextWindowTokens(group.primary.model);
+    }
+  },
+);
 
 watch(
   () => props.provider.id,
   () => {
-    syncCachedModels();
     void refreshCodexAuthStatus();
   },
   { immediate: true },
