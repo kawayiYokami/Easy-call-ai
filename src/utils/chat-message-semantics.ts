@@ -944,9 +944,14 @@ export function appendTextDeltaToStreamBlocks(rawBlocks: unknown, delta: string)
   const blocks = copyAssistantStreamBlocksForAppend(rawBlocks);
   if (!text) return blocks;
   const block = ensureAssistantStreamBlock(blocks);
-  if (block.pendingTextBreak && String(block.text || "").trim()) {
-    // 工具标记后的新正文：切新块，与正式投影的「每事件一块」结构一致。
-    // 块间边界由 joinAssistantHistoryTexts 按「前段含工具标记」注入占位符。
+  const lastHasReasoning = !!String(block.reasoning || "").trim()
+    || assistantStreamBlockReasoningCharCount(block) > 0;
+  const needNewBlockForReasoning = lastHasReasoning && !String(block.text || "").trim()
+    && (block.tools || []).length === 0;
+  const needNewBlockForPendingBreak = !!block.pendingTextBreak && !!String(block.text || "").trim();
+  if (needNewBlockForReasoning || needNewBlockForPendingBreak) {
+    // 思维链块与正文块分离：reasoning-only 块后必切新块，避免“末尾正文”被吸到第0块
+    // 贴在思维链后；工具标记后同理。块间边界由 joinAssistantHistoryTexts 按工具标记注入占位符。
     blocks.push({ reasoning: "", reasoningCharCount: 0, text: "", tools: [], pendingTextBreak: false });
   }
   const target = ensureAssistantStreamBlock(blocks);
@@ -1293,7 +1298,7 @@ function resolveMessageMentions(message: ChatMessage): ChatMentionTarget[] {
   return mentions;
 }
 
-function applyMemeAnnotationReplacements(text: string, annotations?: MemeAnnotation[]): string {
+export function applyMemeAnnotationReplacements(text: string, annotations?: MemeAnnotation[]): string {
   if (!annotations || annotations.length === 0) return text;
   let cursor = 0;
   let result = "";

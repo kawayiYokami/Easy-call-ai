@@ -83,11 +83,13 @@ export function useChatFlowStreamingEvents(options: UseChatFlowStreamingEventsOp
   }
 
   // ==================== 流式正文节流 ====================
-  // 正文/思维链文本攒 100ms 批量应用（10fps），避免每个 chunk 都触发
-  // 消息数组整体替换 + 虚拟列表全链重算；工具状态类事件与权威快照即时处理。
+  // 单一有序日志：LLM 本体是线性流，但曾分 text/reasoning 双队列攒批，flush 时
+  // 先刷 reasoning 再刷 text，导致 100ms 窗内 textA->reasoning->textB 被重排为
+  // reasoning->textA+textB，正文被“吸”到思维链后。现改为单一有序队列按到达
+  // seq 保序 flush，渲染顺序恒等于到达顺序。
   const STREAM_TEXT_FLUSH_INTERVAL_MS = 100;
-  let pendingStreamText = "";
-  let pendingReasoningText = "";
+  type PendingOrderedItem = { kind: "text" | "reasoning"; delta: string };
+  let pendingOrdered: PendingOrderedItem[] = [];
   let pendingStreamGen = 0;
   let pendingStreamMessageId = "";
   let streamTextFlushTimer: ReturnType<typeof setTimeout> | null = null;
@@ -99,17 +101,17 @@ export function useChatFlowStreamingEvents(options: UseChatFlowStreamingEventsOp
     }
     const gen = pendingStreamGen;
     const messageId = pendingStreamMessageId;
-    const text = pendingStreamText;
-    const reasoning = pendingReasoningText;
-    pendingStreamText = "";
-    pendingReasoningText = "";
+    const ordered = pendingOrdered;
+    pendingOrdered = [];
     pendingStreamGen = 0;
     pendingStreamMessageId = "";
-    if (reasoning && messageId) {
-      options.applyAssistantEventToMessage(messageId, { kind: "activity_reasoning_delta", delta: reasoning });
-    }
-    if (text && gen) {
-      options.enqueueStreamDelta(gen, text);
+    for (const item of ordered) {
+      if (!item.delta) continue;
+      if (item.kind === "reasoning" && messageId) {
+        options.applyAssistantEventToMessage(messageId, { kind: "activity_reasoning_delta", delta: item.delta });
+      } else if (item.kind === "text" && gen) {
+        options.enqueueStreamDelta(gen, item.delta);
+      }
     }
   }
 
@@ -122,11 +124,24 @@ export function useChatFlowStreamingEvents(options: UseChatFlowStreamingEventsOp
   }
 
   function bufferStreamText(input: { gen: number; messageId: string; text?: string; reasoning?: string }) {
-    if (input.text) pendingStreamText += input.text;
-    if (input.reasoning) pendingReasoningText += input.reasoning;
+    const genMismatched = !!pendingStreamGen && pendingStreamGen !== input.gen;
+    const idMismatched = !!pendingStreamMessageId && pendingStreamMessageId !== input.messageId;
+    if ((genMismatched || idMismatched) && pendingOrdered.length > 0) {
+      flushStreamTextBuffer();
+    }
+    if (input.reasoning) {
+      const last = pendingOrdered[pendingOrdered.length - 1];
+      if (last?.kind === "reasoning") last.delta += input.reasoning;
+      else pendingOrdered.push({ kind: "reasoning", delta: input.reasoning });
+    }
+    if (input.text) {
+      const last = pendingOrdered[pendingOrdered.length - 1];
+      if (last?.kind === "text") last.delta += input.text;
+      else pendingOrdered.push({ kind: "text", delta: input.text });
+    }
     if (!pendingStreamGen) pendingStreamGen = input.gen;
     if (!pendingStreamMessageId) pendingStreamMessageId = input.messageId;
-    scheduleStreamTextFlush();
+    if (pendingOrdered.length > 0) scheduleStreamTextFlush();
   }
 
   function handleStreamingEvent(currentGen: number, parsed: AssistantDeltaEvent) {

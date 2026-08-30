@@ -8,6 +8,7 @@ import {
   estimateConversationTokens,
 } from "../../../utils/chat-message";
 import {
+  applyMemeAnnotationReplacements,
   assistantTextFromStreamBlocks,
   assistantContentBlocksFromMessage,
   normalizeAssistantStreamBlocks,
@@ -122,6 +123,9 @@ export function useChatMessageBlocks(options: UseChatMessageBlocksOptions) {
     const meta = (message.providerMeta || {}) as Record<string, unknown>;
     const streamBlocksSignature = streamBlocksActivitySignature(assistantContentBlocksFromMessage(message));
     const attachments = Array.isArray(meta.attachments) ? meta.attachments.length : 0;
+    const memeAnnotations = Array.isArray(message.memeAnnotations)
+      ? message.memeAnnotations.map((item) => `${String(item.meme || "").trim()}::${String(item.path || "").trim()}`).join("|")
+      : "";
     return [
       String(meta.messageKind || ""),
       String(meta.hiddenPromptText || "").length,
@@ -135,6 +139,7 @@ export function useChatMessageBlocks(options: UseChatMessageBlocksOptions) {
       String(meta.planCard ? "1" : "0"),
       String(meta.taskTrigger ? "1" : "0"),
       streamBlocksSignature,
+      memeAnnotations,
     ].join("|");
   }
 
@@ -304,7 +309,11 @@ export function useChatMessageBlocks(options: UseChatMessageBlocksOptions) {
     const streamTail = "";
     const streamAnimatedDelta = "";
     const streamBlocks = assistantContentBlocksFromMessage(message);
-    const streamingDisplayText = assistantTextFromStreamBlocks(streamBlocks);
+    const streamingDisplayTextRaw = assistantTextFromStreamBlocks(streamBlocks);
+    const streamingDisplayText = applyMemeAnnotationReplacements(
+      streamingDisplayTextRaw,
+      message.memeAnnotations,
+    );
     const streamBlockToolCalls = streamBlocksToToolCalls(streamBlocks);
     const streamBlockActivityItems = streamBlocksToActivityItems(streamBlocks, false);
     if (

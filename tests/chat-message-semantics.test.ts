@@ -746,8 +746,10 @@ describe("chat-message semantics", () => {
       }],
     }));
 
+    // 线性单队列：reasoning -> text -> reasoning 必须分块，text 不再被吸到首个 reasoning 块内
     expect(blocks).toEqual([
-      { reasoning: "先想。", reasoningCharCount: "先想。".length, text: "正文 [toolcall:tool-1]", tools: [], pendingTextBreak: true },
+      { reasoning: "先想。", reasoningCharCount: "先想。".length, text: "", tools: [], pendingTextBreak: false },
+      { reasoning: "", reasoningCharCount: 0, text: "正文 [toolcall:tool-1]", tools: [], pendingTextBreak: true },
       {
         reasoning: "后续思考。",
         reasoningCharCount: "后续思考。".length,
