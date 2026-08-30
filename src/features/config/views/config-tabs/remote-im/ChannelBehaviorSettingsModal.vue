@@ -15,17 +15,150 @@
     @close="onDialogClose"
     @cancel.prevent="onDialogClose"
   >
-    <div class="modal-box flex h-[82vh] w-[82vw] max-w-none flex-col overflow-hidden p-0">
+    <div class="modal-box flex w-full max-w-3xl max-h-[85vh] min-w-0 flex-col overflow-hidden p-0">
         <header class="flex shrink-0 items-start justify-between gap-4 border-b border-base-300 px-5 py-4">
           <div class="min-w-0">
             <h3 class="font-semibold">{{ t('config.remoteIm.channelBehaviorSettings') }}</h3>
+            <p class="mt-1 text-xs text-base-content/60">{{ t('config.remoteIm.channelBehaviorSettingsHint') }}</p>
           </div>
           <button type="button" class="btn btn-circle btn-sm btn-ghost" :title="t('common.close')" @click="closeModal">×</button>
         </header>
 
-        <div class="min-h-0 flex-1 overflow-y-auto bg-base-200/50 px-5 py-4">
-          <div v-if="error" class="alert alert-error mb-4 py-2 text-xs">{{ error }}</div>
-          <ConfigTemplate v-model="templateDraft" :groups="templateGroups" />
+        <div class="min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto px-5 py-4 space-y-6">
+          <div v-if="error" class="alert alert-error py-2 text-xs break-all whitespace-pre-wrap" style="overflow-wrap:anywhere">{{ error }}</div>
+          <p v-if="validationError" class="alert alert-warning py-2 text-xs break-all whitespace-pre-wrap" style="overflow-wrap:anywhere">{{ validationError }}</p>
+
+          <!-- 消息策略 -->
+          <section class="space-y-4 min-w-0">
+            <h4 class="text-sm font-semibold">{{ t('config.remoteIm.channelBehaviorMessagePolicySection') }}</h4>
+            <label class="form-control w-full min-w-0">
+              <div class="py-1"><span class="text-sm">{{ t('config.remoteIm.responseGuidance') }}</span></div>
+              <textarea v-model="draft.responseGuidance" :placeholder="t('config.remoteIm.responseGuidancePlaceholder')" class="textarea textarea-bordered textarea-sm min-h-28 w-full break-all" style="overflow-wrap:anywhere; white-space:pre-wrap"></textarea>
+              <div class="py-1"><span class="text-xs text-base-content/50 break-all" style="overflow-wrap:anywhere">{{ t('config.remoteIm.responseGuidanceHint') }}</span></div>
+            </label>
+            <label class="form-control w-full min-w-0">
+              <div class="py-1"><span class="text-sm">{{ t('config.remoteIm.blockedMessagePrefixes') }}</span></div>
+              <input v-model="draft.blockedMessagePrefixesText" :placeholder="t('config.remoteIm.blockedMessagePrefixesPlaceholder')" type="text" class="input input-bordered input-sm w-full min-w-0" />
+              <div class="py-1"><span class="text-xs text-base-content/50 break-all" style="overflow-wrap:anywhere">{{ t('config.remoteIm.blockedMessagePrefixesHint') }}</span></div>
+            </label>
+            <div class="grid min-w-0 grid-cols-1 gap-4 sm:grid-cols-2">
+              <label class="form-control w-full min-w-0">
+                <div class="py-1"><span class="text-sm">{{ t('config.remoteIm.muteKeywords') }}</span></div>
+                <input v-model="draft.muteKeywordsText" :placeholder="t('config.remoteIm.muteKeywordsPlaceholder')" type="text" class="input input-bordered input-sm w-full min-w-0" />
+              </label>
+              <label class="form-control w-full min-w-0">
+                <div class="py-1"><span class="text-sm">{{ t('config.remoteIm.unmuteKeywords') }}</span></div>
+                <input v-model="draft.unmuteKeywordsText" :placeholder="t('config.remoteIm.unmuteKeywordsPlaceholder')" type="text" class="input input-bordered input-sm w-full min-w-0" />
+              </label>
+            </div>
+            <div class="grid min-w-0 grid-cols-1 gap-4 sm:grid-cols-2">
+              <label class="form-control w-full min-w-0">
+                <div class="py-1"><span class="text-sm">{{ t('config.remoteIm.muteDuration') }}</span></div>
+                <input v-model.number="draft.muteDurationSeconds" type="number" min="0" class="input input-bordered input-sm w-full min-w-0" />
+              </label>
+              <label class="form-control w-full min-w-0">
+                <div class="py-1"><span class="text-sm">{{ t('config.remoteIm.patienceExit') }}</span></div>
+                <input v-model.number="draft.patienceSeconds" type="number" min="0" class="input input-bordered input-sm w-full min-w-0" />
+              </label>
+            </div>
+          </section>
+
+          <div class="divider my-0"></div>
+
+          <!-- 看群频率 -->
+          <section class="space-y-4 min-w-0">
+            <h4 class="text-sm font-semibold">{{ t('config.remoteIm.channelBehaviorViewFrequencySection') }}</h4>
+            <div class="grid min-w-0 grid-cols-1 gap-4 sm:grid-cols-2">
+              <label class="form-control w-full min-w-0">
+                <div class="py-1"><span class="text-sm">{{ t('config.remoteIm.assistantDebounceSeconds') }}</span></div>
+                <input v-model.number="draft.pacing.assistantDebounceSeconds" type="number" min="1" class="input input-bordered input-sm w-full min-w-0" />
+              </label>
+              <label class="form-control w-full min-w-0">
+                <div class="py-1"><span class="text-sm">{{ t('config.remoteIm.secretaryInspectionSeconds') }}</span></div>
+                <input v-model.number="draft.pacing.secretaryInspectionSeconds" type="number" min="1" class="input input-bordered input-sm w-full min-w-0" />
+              </label>
+            </div>
+            <div class="grid min-w-0 grid-cols-1 gap-4 sm:grid-cols-2">
+              <label class="form-control w-full min-w-0">
+                <div class="py-1"><span class="text-sm">{{ t('config.remoteIm.replyCooldownSeconds') }}</span></div>
+                <input v-model.number="draft.pacing.replyCooldownSeconds" type="number" min="0" class="input input-bordered input-sm w-full min-w-0" />
+              </label>
+              <label class="form-control w-full min-w-0">
+                <div class="py-1"><span class="text-sm">{{ t('config.remoteIm.inspectionJitterRatio') }}</span></div>
+                <input v-model.number="draft.pacing.inspectionJitterRatio" type="number" min="0" max="1" step="0.05" class="input input-bordered input-sm w-full min-w-0" />
+              </label>
+            </div>
+          </section>
+
+          <div class="divider my-0"></div>
+
+          <!-- 能量 -->
+          <section class="space-y-4 min-w-0">
+            <h4 class="text-sm font-semibold">{{ t('config.remoteIm.channelBehaviorReplyEnthusiasmSection') }}</h4>
+            <div class="grid min-w-0 grid-cols-1 gap-4 sm:grid-cols-2">
+              <label class="form-control w-full min-w-0">
+                <div class="py-1"><span class="text-sm">{{ t('config.remoteIm.maximumEnergy') }}</span></div>
+                <input v-model.number="draft.pacing.maximumEnergy" type="number" min="0.01" step="1" class="input input-bordered input-sm w-full min-w-0" />
+              </label>
+              <label class="form-control w-full min-w-0">
+                <div class="py-1"><span class="text-sm">{{ t('config.remoteIm.energyRecoveryPerSecond') }}</span></div>
+                <input v-model.number="draft.pacing.energyRecoveryPerSecond" type="number" min="0" step="0.01" class="input input-bordered input-sm w-full min-w-0" />
+              </label>
+            </div>
+            <div class="grid min-w-0 grid-cols-1 gap-4 sm:grid-cols-2">
+              <label class="form-control w-full min-w-0">
+                <div class="py-1"><span class="text-sm">{{ t('config.remoteIm.baseReplyEnergyCost') }}</span></div>
+                <input v-model.number="draft.pacing.baseReplyEnergyCost" type="number" min="0" step="0.1" class="input input-bordered input-sm w-full min-w-0" />
+              </label>
+              <label class="form-control w-full min-w-0">
+                <div class="py-1"><span class="text-sm">{{ t('config.remoteIm.energyCostPerCharacter') }}</span></div>
+                <input v-model.number="draft.pacing.energyCostPerCharacter" type="number" min="0" step="0.01" class="input input-bordered input-sm w-full min-w-0" />
+              </label>
+            </div>
+            <div class="grid min-w-0 grid-cols-1 gap-4 sm:grid-cols-2">
+              <label class="form-control w-full min-w-0">
+                <div class="py-1"><span class="text-sm">{{ t('config.remoteIm.positiveEnergyPhrases') }}</span></div>
+                <input v-model="draft.positiveEnergyPhrasesText" type="text" class="input input-bordered input-sm w-full min-w-0" />
+              </label>
+              <label class="form-control w-full min-w-0">
+                <div class="py-1"><span class="text-sm">{{ t('config.remoteIm.positiveEnergyDelta') }}</span></div>
+                <input v-model.number="draft.pacing.positiveEnergyDelta" type="number" min="0" step="0.1" class="input input-bordered input-sm w-full min-w-0" />
+              </label>
+            </div>
+            <div class="grid min-w-0 grid-cols-1 gap-4 sm:grid-cols-2">
+              <label class="form-control w-full min-w-0">
+                <div class="py-1"><span class="text-sm">{{ t('config.remoteIm.negativeEnergyPhrases') }}</span></div>
+                <input v-model="draft.negativeEnergyPhrasesText" type="text" class="input input-bordered input-sm w-full min-w-0" />
+              </label>
+              <label class="form-control w-full min-w-0">
+                <div class="py-1"><span class="text-sm">{{ t('config.remoteIm.negativeEnergyDelta') }}</span></div>
+                <input v-model.number="draft.pacing.negativeEnergyDelta" type="number" max="0" step="0.1" class="input input-bordered input-sm w-full min-w-0" />
+              </label>
+            </div>
+          </section>
+
+          <div class="divider my-0"></div>
+
+          <!-- 回复长度 -->
+          <section class="space-y-4 min-w-0">
+            <h4 class="text-sm font-semibold">{{ t('config.remoteIm.channelBehaviorReplyLengthSection') }}</h4>
+            <label class="form-control w-full min-w-0">
+              <div class="py-1"><span class="text-sm">{{ t('config.remoteIm.focusInstructions') }}</span></div>
+              <input v-model="draft.focusInstructionsText" type="text" class="input input-bordered input-sm w-full min-w-0" :placeholder="t('config.remoteIm.focusInstructions')" />
+            </label>
+            <div class="grid min-w-0 grid-cols-1 gap-4 sm:grid-cols-2">
+              <label class="form-control w-full min-w-0">
+                <div class="py-1"><span class="text-sm">{{ t('config.remoteIm.normalReplyMaxChars') }}</span></div>
+                <input v-model.number="draft.pacing.normalReplyMaxChars" type="number" min="1" class="input input-bordered input-sm w-full min-w-0" />
+                <div class="py-1"><span class="text-xs text-base-content/50 break-all" style="overflow-wrap:anywhere">{{ t('config.remoteIm.normalReminderPreview', { count: draft.pacing.normalReplyMaxChars }) }}</span></div>
+              </label>
+              <label class="form-control w-full min-w-0">
+                <div class="py-1"><span class="text-sm">{{ t('config.remoteIm.focusReplyMaxChars') }}</span></div>
+                <input v-model.number="draft.pacing.focusReplyMaxChars" type="number" min="1" class="input input-bordered input-sm w-full min-w-0" />
+                <div class="py-1"><span class="text-xs text-base-content/50 break-all" style="overflow-wrap:anywhere">{{ t('config.remoteIm.focusReminderPreview', { count: draft.pacing.focusReplyMaxChars }) }}</span></div>
+              </label>
+            </div>
+          </section>
         </div>
 
         <footer class="flex shrink-0 flex-wrap justify-end gap-2 border-t border-base-300 px-5 py-4">
@@ -49,8 +182,6 @@ import { Save, SlidersHorizontal } from "@lucide/vue";
 import { useI18n } from "vue-i18n";
 import { invokeTauri } from "../../../../../services/tauri-api";
 import type { RemoteImChannelBehaviorSettings, RemoteImChannelConfig, RemoteImGroupReplyPacing } from "../../../../../types/app";
-import ConfigTemplate from "../../../components/ConfigTemplate.vue";
-import type { ConfigTemplateGroup } from "../../../components/config-template";
 import {
   cloneChannelBehaviorSettings,
   DEFAULT_REMOTE_IM_CHANNEL_BEHAVIOR_SETTINGS,
@@ -72,7 +203,6 @@ type Draft = {
   unmuteKeywordsText: string;
   patienceSeconds: number;
   muteDurationSeconds: number;
-  activationCooldownSeconds: number;
   positiveEnergyPhrasesText: string;
   negativeEnergyPhrasesText: string;
   focusInstructionsText: string;
@@ -89,7 +219,6 @@ function draftFromSettings(value?: Partial<RemoteImChannelBehaviorSettings> | nu
     unmuteKeywordsText: settings.unmuteKeywords.join(" "),
     patienceSeconds: settings.patienceSeconds,
     muteDurationSeconds: settings.muteDurationSeconds,
-    activationCooldownSeconds: settings.activationCooldownSeconds,
     positiveEnergyPhrasesText: pacing.positiveEnergyPhrases.join(" "),
     negativeEnergyPhrasesText: pacing.negativeEnergyPhrases.join(" "),
     focusInstructionsText: pacing.focusInstructions.join(" "),
@@ -105,7 +234,6 @@ function settingsFromDraft(value: Draft): RemoteImChannelBehaviorSettings {
     unmuteKeywords: parseSpaceSeparatedList(value.unmuteKeywordsText),
     patienceSeconds: Math.max(0, Math.floor(Number(value.patienceSeconds) || 0)),
     muteDurationSeconds: Math.max(0, Math.floor(Number(value.muteDurationSeconds) || 0)),
-    activationCooldownSeconds: Math.max(0, Math.floor(Number(value.activationCooldownSeconds) || 0)),
     groupReplyPacing: {
       ...value.pacing,
       positiveEnergyPhrases: parseSpaceSeparatedList(value.positiveEnergyPhrasesText),
@@ -139,178 +267,6 @@ watch(open, syncDialog);
 watch(dialogRef, syncDialog);
 
 const draft = ref<Draft>(draftFromSettings());
-const templateDraft = computed<Record<string, unknown>>({
-  get: () => ({
-    responseGuidance: draft.value.responseGuidance,
-    blockedMessagePrefixesText: draft.value.blockedMessagePrefixesText,
-    muteKeywordsText: draft.value.muteKeywordsText,
-    unmuteKeywordsText: draft.value.unmuteKeywordsText,
-    patienceSeconds: draft.value.patienceSeconds,
-    muteDurationSeconds: draft.value.muteDurationSeconds,
-    activationCooldownSeconds: draft.value.activationCooldownSeconds,
-    positiveEnergyPhrasesText: draft.value.positiveEnergyPhrasesText,
-    negativeEnergyPhrasesText: draft.value.negativeEnergyPhrasesText,
-    focusInstructionsText: draft.value.focusInstructionsText,
-    assistantDebounceSeconds: draft.value.pacing.assistantDebounceSeconds,
-    secretaryInspectionSeconds: draft.value.pacing.secretaryInspectionSeconds,
-    replyCooldownSeconds: draft.value.pacing.replyCooldownSeconds,
-    inspectionJitterRatio: draft.value.pacing.inspectionJitterRatio,
-    maximumEnergy: draft.value.pacing.maximumEnergy,
-    baseReplyEnergyCost: draft.value.pacing.baseReplyEnergyCost,
-    energyCostPerCharacter: draft.value.pacing.energyCostPerCharacter,
-    energyRecoveryPerSecond: draft.value.pacing.energyRecoveryPerSecond,
-    positiveEnergyDelta: draft.value.pacing.positiveEnergyDelta,
-    negativeEnergyDelta: draft.value.pacing.negativeEnergyDelta,
-    normalReplyMaxChars: draft.value.pacing.normalReplyMaxChars,
-    focusReplyMaxChars: draft.value.pacing.focusReplyMaxChars,
-  }),
-  set: (value) => {
-    const numberValue = (key: string, fallback: number) => {
-      const parsed = Number(value[key]);
-      return Number.isFinite(parsed) ? parsed : fallback;
-    };
-    draft.value = {
-      ...draft.value,
-      responseGuidance: String(value.responseGuidance ?? draft.value.responseGuidance),
-      blockedMessagePrefixesText: String(value.blockedMessagePrefixesText ?? draft.value.blockedMessagePrefixesText),
-      muteKeywordsText: String(value.muteKeywordsText ?? draft.value.muteKeywordsText),
-      unmuteKeywordsText: String(value.unmuteKeywordsText ?? draft.value.unmuteKeywordsText),
-      patienceSeconds: numberValue("patienceSeconds", draft.value.patienceSeconds),
-      muteDurationSeconds: numberValue("muteDurationSeconds", draft.value.muteDurationSeconds),
-      activationCooldownSeconds: numberValue("activationCooldownSeconds", draft.value.activationCooldownSeconds),
-      positiveEnergyPhrasesText: String(value.positiveEnergyPhrasesText ?? draft.value.positiveEnergyPhrasesText),
-      negativeEnergyPhrasesText: String(value.negativeEnergyPhrasesText ?? draft.value.negativeEnergyPhrasesText),
-      focusInstructionsText: String(value.focusInstructionsText ?? draft.value.focusInstructionsText),
-      pacing: {
-        ...draft.value.pacing,
-        assistantDebounceSeconds: numberValue("assistantDebounceSeconds", draft.value.pacing.assistantDebounceSeconds),
-        secretaryInspectionSeconds: numberValue("secretaryInspectionSeconds", draft.value.pacing.secretaryInspectionSeconds),
-        replyCooldownSeconds: numberValue("replyCooldownSeconds", draft.value.pacing.replyCooldownSeconds),
-        inspectionJitterRatio: numberValue("inspectionJitterRatio", draft.value.pacing.inspectionJitterRatio),
-        maximumEnergy: numberValue("maximumEnergy", draft.value.pacing.maximumEnergy),
-        baseReplyEnergyCost: numberValue("baseReplyEnergyCost", draft.value.pacing.baseReplyEnergyCost),
-        energyCostPerCharacter: numberValue("energyCostPerCharacter", draft.value.pacing.energyCostPerCharacter),
-        energyRecoveryPerSecond: numberValue("energyRecoveryPerSecond", draft.value.pacing.energyRecoveryPerSecond),
-        positiveEnergyDelta: numberValue("positiveEnergyDelta", draft.value.pacing.positiveEnergyDelta),
-        negativeEnergyDelta: numberValue("negativeEnergyDelta", draft.value.pacing.negativeEnergyDelta),
-        normalReplyMaxChars: numberValue("normalReplyMaxChars", draft.value.pacing.normalReplyMaxChars),
-        focusReplyMaxChars: numberValue("focusReplyMaxChars", draft.value.pacing.focusReplyMaxChars),
-      },
-    };
-  },
-});
-const templateGroups = computed<ConfigTemplateGroup[]>(() => [
-  {
-    title: t("config.remoteIm.channelBehaviorMessagePolicySection"),
-    rows: [
-      {
-        items: [{
-          key: "responseGuidance",
-          label: t("config.remoteIm.responseGuidance"),
-          description: t("config.remoteIm.responseGuidanceHint"),
-          placeholder: t("config.remoteIm.responseGuidancePlaceholder"),
-          type: "textarea",
-        }],
-      },
-      {
-        items: [{
-          key: "blockedMessagePrefixesText",
-          label: t("config.remoteIm.blockedMessagePrefixes"),
-          description: t("config.remoteIm.blockedMessagePrefixesHint"),
-          placeholder: t("config.remoteIm.blockedMessagePrefixesPlaceholder"),
-          type: "text",
-        }],
-      },
-      {
-        items: [
-          { key: "muteKeywordsText", label: t("config.remoteIm.muteKeywords"), type: "text", placeholder: t("config.remoteIm.muteKeywordsPlaceholder") },
-          { key: "unmuteKeywordsText", label: t("config.remoteIm.unmuteKeywords"), type: "text", placeholder: t("config.remoteIm.unmuteKeywordsPlaceholder") },
-        ],
-      },
-    ],
-  },
-  {
-    title: t("config.remoteIm.channelBehaviorViewFrequencySection"),
-    rows: [
-      {
-        items: [
-          { key: "assistantDebounceSeconds", label: t("config.remoteIm.assistantDebounceSeconds"), type: "number", min: 1 },
-          { key: "secretaryInspectionSeconds", label: t("config.remoteIm.secretaryInspectionSeconds"), type: "number", min: 1 },
-        ],
-      },
-      {
-        items: [{ key: "inspectionJitterRatio", label: t("config.remoteIm.inspectionJitterRatio"), type: "number", min: 0, max: 1, step: 0.05 }],
-      },
-      {
-        items: [
-          { key: "patienceSeconds", label: t("config.remoteIm.patienceExit"), type: "number", min: 0 },
-          { key: "activationCooldownSeconds", label: t("config.remoteIm.activationCooldownSeconds"), type: "number", min: 0 },
-        ],
-      },
-    ],
-  },
-  {
-    title: t("config.remoteIm.channelBehaviorReplyEnthusiasmSection"),
-    rows: [
-      {
-        items: [
-          { key: "muteDurationSeconds", label: t("config.remoteIm.muteDuration"), type: "number", min: 0 },
-          { key: "replyCooldownSeconds", label: t("config.remoteIm.replyCooldownSeconds"), type: "number", min: 0 },
-        ],
-      },
-      {
-        items: [
-          { key: "maximumEnergy", label: t("config.remoteIm.maximumEnergy"), type: "number", min: 0.01, step: 1 },
-          { key: "baseReplyEnergyCost", label: t("config.remoteIm.baseReplyEnergyCost"), type: "number", min: 0, step: 0.1 },
-        ],
-      },
-      {
-        items: [
-          { key: "energyCostPerCharacter", label: t("config.remoteIm.energyCostPerCharacter"), type: "number", min: 0, step: 0.01 },
-          { key: "energyRecoveryPerSecond", label: t("config.remoteIm.energyRecoveryPerSecond"), type: "number", min: 0, step: 0.01 },
-        ],
-      },
-      {
-        items: [
-          { key: "positiveEnergyPhrasesText", label: t("config.remoteIm.positiveEnergyPhrases"), type: "text" },
-          { key: "positiveEnergyDelta", label: t("config.remoteIm.positiveEnergyDelta"), type: "number", min: 0, step: 0.1 },
-        ],
-      },
-      {
-        items: [
-          { key: "negativeEnergyPhrasesText", label: t("config.remoteIm.negativeEnergyPhrases"), type: "text" },
-          { key: "negativeEnergyDelta", label: t("config.remoteIm.negativeEnergyDelta"), type: "number", max: 0, step: 0.1 },
-        ],
-      },
-    ],
-  },
-  {
-    title: t("config.remoteIm.channelBehaviorReplyLengthSection"),
-    rows: [
-      {
-        items: [{ key: "focusInstructionsText", label: t("config.remoteIm.focusInstructions"), type: "text" }],
-      },
-      {
-        items: [
-          {
-            key: "normalReplyMaxChars",
-            label: t("config.remoteIm.normalReplyMaxChars"),
-            description: t("config.remoteIm.normalReminderPreview", { count: draft.value.pacing.normalReplyMaxChars }),
-            type: "number",
-            min: 1,
-          },
-          {
-            key: "focusReplyMaxChars",
-            label: t("config.remoteIm.focusReplyMaxChars"),
-            description: t("config.remoteIm.focusReminderPreview", { count: draft.value.pacing.focusReplyMaxChars }),
-            type: "number",
-            min: 1,
-          },
-        ],
-      },
-    ],
-  },
-]);
 const savedSnapshot = ref("");
 const editingChannelId = ref("");
 const saving = ref(false);
@@ -318,7 +274,7 @@ const error = ref("");
 const draftSnapshot = computed(() => JSON.stringify(draft.value));
 const dirty = computed(() => !!savedSnapshot.value && draftSnapshot.value !== savedSnapshot.value);
 const validationError = computed(() => {
-  const common = [draft.value.patienceSeconds, draft.value.muteDurationSeconds, draft.value.activationCooldownSeconds];
+  const common = [draft.value.patienceSeconds, draft.value.muteDurationSeconds];
   if (common.some((value) => !Number.isFinite(Number(value)))) return t("config.remoteIm.behaviorFiniteNumberError");
   const p = draft.value.pacing;
   const group = [p.assistantDebounceSeconds, p.secretaryInspectionSeconds, p.replyCooldownSeconds, p.inspectionJitterRatio, p.maximumEnergy, p.baseReplyEnergyCost, p.energyCostPerCharacter, p.energyRecoveryPerSecond, p.positiveEnergyDelta, p.negativeEnergyDelta, p.normalReplyMaxChars, p.focusReplyMaxChars];

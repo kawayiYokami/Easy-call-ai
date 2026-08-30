@@ -29,7 +29,6 @@ export const DEFAULT_REMOTE_IM_CHANNEL_BEHAVIOR_SETTINGS: RemoteImChannelBehavio
   unmuteKeywords: ["张嘴"],
   patienceSeconds: 60,
   muteDurationSeconds: 600,
-  activationCooldownSeconds: 0,
   groupReplyPacing: DEFAULT_REMOTE_IM_GROUP_REPLY_PACING,
 };
 
@@ -92,7 +91,6 @@ export function normalizeChannelBehaviorSettings(
     unmuteKeywords: normalizeList(value?.unmuteKeywords, defaults.unmuteKeywords),
     patienceSeconds: Math.max(0, Math.round(numberValue(value?.patienceSeconds, defaults.patienceSeconds))),
     muteDurationSeconds: Math.max(0, Math.round(numberValue(value?.muteDurationSeconds, defaults.muteDurationSeconds))),
-    activationCooldownSeconds: Math.max(0, Math.round(numberValue(value?.activationCooldownSeconds, defaults.activationCooldownSeconds))),
     groupReplyPacing: normalizeGroupReplyPacing(value?.groupReplyPacing),
   };
 }

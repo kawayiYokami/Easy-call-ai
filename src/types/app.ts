@@ -448,7 +448,6 @@ export type RemoteImChannelBehaviorSettings = {
   unmuteKeywords: string[];
   patienceSeconds: number;
   muteDurationSeconds: number;
-  activationCooldownSeconds: number;
   groupReplyPacing: RemoteImGroupReplyPacing;
 };
 
