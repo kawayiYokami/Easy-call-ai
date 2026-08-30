@@ -2285,6 +2285,8 @@ async function openFileInReader(path: string, line?: number) {
     throw new Error("文件阅读面板尚未就绪");
   }
   await panel.openPath(path, { targetLine: line });
+  // 从聊天跳转打开文件后收起左侧文件夹/Git 栏，让内容区占满（目录内双击打开不受影响）
+  panel.closeDirectoryTree();
 }
 
 /** 目录展开成功返回 true；失败时关闭目录树并返回 false，由调用方回退按文件打开。 */
