@@ -34,6 +34,10 @@
         </div>
       </div>
 
+      <div v-if="$slots['activity-panel']" class="ecall-chat-bubble-activity-panel">
+        <slot name="activity-panel" />
+      </div>
+
       <div class="ecall-chat-bubble-body">
         <div class="ecall-chat-bubble-surface" :style="surfaceStyle">
           <slot />
@@ -141,6 +145,7 @@ const surfaceStyle = computed<StyleValue | undefined>(() => {
   grid-template-columns: var(--ecall-bubble-avatar-size) minmax(0, 1fr);
   grid-template-areas:
     "avatar main"
+    "activity-panel activity-panel"
     "body body";
   column-gap: var(--ecall-bubble-gap);
   align-items: start;
@@ -152,10 +157,16 @@ const surfaceStyle = computed<StyleValue | undefined>(() => {
 
 .ecall-chat-bubble-shell:not(.ecall-chat-bubble-tone-user) .ecall-chat-bubble-avatar {
   grid-area: avatar;
+  margin: 0.25rem 0;
 }
 
 .ecall-chat-bubble-shell:not(.ecall-chat-bubble-tone-user) .ecall-chat-bubble-main {
   grid-area: main;
+  padding: 0.25rem 0;
+}
+
+.ecall-chat-bubble-shell:not(.ecall-chat-bubble-tone-user) .ecall-chat-bubble-activity-panel {
+  grid-area: activity-panel;
 }
 
 .ecall-chat-bubble-shell:not(.ecall-chat-bubble-tone-user) .ecall-chat-bubble-body {
@@ -170,6 +181,7 @@ const surfaceStyle = computed<StyleValue | undefined>(() => {
   grid-template-columns: minmax(0, 1fr);
   grid-template-areas:
     "main"
+    "activity-panel"
     "body";
 }
 

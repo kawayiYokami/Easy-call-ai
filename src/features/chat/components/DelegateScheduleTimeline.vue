@@ -107,6 +107,7 @@ import { computed, ref, watch, onMounted, onBeforeUnmount } from "vue";
 import { invokeTauri } from "../../../services/tauri-api";
 import { isDarkAppTheme, useAppTheme } from "../../shell/composables/use-app-theme";
 import type { ArchiveBlockPage, ChatMessage, ScheduleRun } from "../../../types/app";
+import { useCollapseTransition } from "../composables/use-collapse-transition";
 import { AppMarkdownRenderer, initKatex } from "../markdown";
 
 initKatex();
@@ -130,6 +131,7 @@ let previousLastIds = new Set<string>();
 let pollTimer: ReturnType<typeof window.setInterval> | null = null;
 
 const { currentTheme } = useAppTheme();
+const { animateEnter, animateLeave, cleanupAnimation } = useCollapseTransition();
 const markdownIsDark = computed(() => isDarkAppTheme(String(currentTheme.value || "")));
 
 function isCollapsed(id: string) {
@@ -432,80 +434,6 @@ function eventBodyText(event: { phase: string; detail: any }) {
     return "";
   }
   return "";
-}
-
-function cleanupAnimation(element: Element) {
-  const el = element as HTMLElement;
-  el.style.height = "";
-  el.style.opacity = "";
-  el.style.transform = "";
-  el.style.overflow = "";
-  el.style.willChange = "";
-  el.style.transition = "";
-}
-
-function animateEnter(element: Element, done: () => void) {
-  const el = element as HTMLElement;
-  cleanupAnimation(el);
-  delete el.dataset.ecallCollapseFinished;
-  el.style.height = "0px";
-  el.style.opacity = "0";
-  el.style.transform = "translateY(-6px)";
-  el.style.overflow = "hidden";
-  el.style.willChange = "height, opacity, transform";
-  void el.offsetHeight;
-  const onEnd = (e: TransitionEvent) => {
-    if (e.target !== el || e.propertyName !== "height") return;
-    finishAnimation(el, onEnd, done);
-  };
-  el.addEventListener("transitionend", onEnd);
-  el.style.transition = [
-    "height 180ms cubic-bezier(0.22, 1, 0.36, 1)",
-    "opacity 140ms ease-out",
-    "transform 180ms cubic-bezier(0.22, 1, 0.36, 1)",
-  ].join(", ");
-  requestAnimationFrame(() => {
-    el.style.height = `${el.scrollHeight}px`;
-    el.style.opacity = "1";
-    el.style.transform = "translateY(0)";
-  });
-  window.setTimeout(() => finishAnimation(el, onEnd, done), 400);
-}
-
-function animateLeave(element: Element, done: () => void) {
-  const el = element as HTMLElement;
-  cleanupAnimation(el);
-  delete el.dataset.ecallCollapseFinished;
-  el.style.height = `${el.scrollHeight}px`;
-  el.style.opacity = "1";
-  el.style.transform = "translateY(0)";
-  el.style.overflow = "hidden";
-  el.style.willChange = "height, opacity, transform";
-  void el.offsetHeight;
-  const onEnd = (e: TransitionEvent) => {
-    if (e.target !== el || e.propertyName !== "height") return;
-    finishAnimation(el, onEnd, done);
-  };
-  el.addEventListener("transitionend", onEnd);
-  el.style.transition = [
-    "height 180ms cubic-bezier(0.22, 1, 0.36, 1)",
-    "opacity 140ms ease-out",
-    "transform 180ms cubic-bezier(0.22, 1, 0.36, 1)",
-  ].join(", ");
-  requestAnimationFrame(() => {
-    el.style.height = "0px";
-    el.style.opacity = "0";
-    el.style.transform = "translateY(-6px)";
-  });
-  window.setTimeout(() => finishAnimation(el, onEnd, done), 400);
-}
-
-function finishAnimation(el: HTMLElement, onEnd: (e: TransitionEvent) => void, done: () => void) {
-  if (el.dataset.ecallCollapseFinished === "1") return;
-  el.dataset.ecallCollapseFinished = "1";
-  el.removeEventListener("transitionend", onEnd);
-  cleanupAnimation(el);
-  done();
 }
 
 function formatElapsed(value: number) {
