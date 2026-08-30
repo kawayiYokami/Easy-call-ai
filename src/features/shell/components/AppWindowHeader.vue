@@ -3,24 +3,28 @@
     class="min-h-10 h-10 shrink-0 relative z-40 overflow-visible select-none"
     :class="viewMode === 'chat' ? 'grid items-center bg-base-200 border-b border-base-300' : 'grid grid-cols-[1fr_auto_1fr] items-center bg-base-200 border-b border-base-300 px-2'"
     :style="viewMode === 'chat' ? chatHeaderGridStyle : undefined"
-    @mousedown="handleTitlebarMouseDown"
-    @dblclick.capture="handleTitlebarDoubleClick"
+    data-tauri-drag-region
+    @pointerdown="handleTitlebarPointerDown"
+    @dblclick="handleTitlebarDoubleClick"
   >
     <div
       v-if="viewMode !== 'chat'"
       class="absolute inset-0"
       aria-hidden="true"
+      data-tauri-drag-region
     ></div>
     <div
       v-else
       class="absolute inset-0 z-10"
       aria-hidden="true"
+      data-tauri-drag-region
     ></div>
     <div
       v-if="viewMode === 'chat'"
       class="relative z-30 flex h-full min-w-0 items-center gap-1 px-2"
+      data-tauri-drag-region
     >
-      <div v-if="leftHeaderInLayout" class="indicator" @mousedown.stop>
+      <div v-if="leftHeaderInLayout" class="indicator" @mousedown.stop @dblclick.stop>
         <span
           v-if="conversationUnreadTotal > 0"
           class="indicator-item indicator-top indicator-start z-10 h-2.5 w-2.5 -translate-x-0.5 -translate-y-0.5 rounded-full bg-error"
@@ -41,8 +45,9 @@
     <div
       v-if="viewMode === 'chat'"
       class="relative z-30 grid h-full min-w-0 grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-1 px-2"
+      data-tauri-drag-region
     >
-      <div class="relative z-40 flex min-w-0 items-center gap-1" @mousedown.stop>
+      <div class="relative z-40 flex min-w-0 items-center gap-1" @mousedown.stop @dblclick.stop>
         <div v-if="!leftHeaderInLayout" class="indicator">
           <span
             v-if="conversationUnreadTotal > 0"
@@ -103,24 +108,27 @@
       <div
         class="relative z-30 flex min-w-0 flex-1 self-stretch items-center justify-start gap-1 px-2"
         :title="combinedTitleTooltip"
+        data-tauri-drag-region
       >
         <span
           class="truncate text-sm font-semibold text-base-content"
         >{{ combinedTitle }}</span>
       </div>
 
-      <div class="relative z-40 flex min-w-0 items-center justify-end gap-1" @mousedown.stop>
+      <div class="relative z-40 flex min-w-0 items-center justify-end gap-1" @mousedown.stop @dblclick.stop>
       </div>
     </div>
 
     <div
       v-if="viewMode === 'chat'"
       class="relative z-30 flex h-full min-w-0 flex-nowrap items-center justify-end gap-1 px-2"
+      @dblclick.stop
     >
       <button
         v-if="showUpdateToLatestButton"
         class="btn btn-success btn-sm h-8 min-h-8 gap-2 px-3 relative shadow-sm"
         :title="updateToLatestTitle || ''"
+        @mousedown.stop
         @click.stop="$emit('update-to-latest')"
       >
         <span
@@ -186,7 +194,7 @@
       </button>
     </div>
 
-    <div v-if="viewMode !== 'chat'" class="relative z-10 min-w-0 justify-self-start flex items-center gap-2" @mousedown.stop>
+    <div v-if="viewMode !== 'chat'" class="relative z-10 min-w-0 justify-self-start flex items-center gap-2" @mousedown.stop @dblclick.stop>
       <button
         v-if="viewMode === 'config'"
         class="btn btn-primary btn-sm h-8 min-h-8 gap-1.5 px-2.5"
@@ -223,6 +231,8 @@
       v-if="viewMode !== 'chat'"
       class="relative z-10 w-fit min-w-0 flex items-center justify-center justify-self-center"
       @mousedown.stop
+      @dblclick.stop
+      data-tauri-drag-region
     >
       <label
         v-if="viewMode === 'config' && !simpleSetupMode"
@@ -265,7 +275,7 @@
       </div>
     </div>
 
-    <div v-if="viewMode !== 'chat'" class="relative z-10 flex shrink-0 flex-nowrap justify-self-end gap-1 px-2" @mousedown.stop>
+    <div v-if="viewMode !== 'chat'" class="relative z-10 flex shrink-0 flex-nowrap justify-self-end gap-1 px-2" @mousedown.stop @dblclick.stop>
       <button
         v-if="showWindowControls"
         class="btn btn-ghost btn-sm"
@@ -300,7 +310,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
-import { getTransportCapabilities } from "../../../services/tauri-api";
+import { getTransportCapabilities, isTauriRuntimeAvailable } from "../../../services/tauri-api";
 import { Bolt, Columns3Cog, Download, FoldVertical, History, Minus, PanelLeft, PanelLeftClose, PanelRight, PanelRightClose, Search, Settings, Square, SquarePen, X } from "@lucide/vue";
 import type { ChatConversationOverviewItem } from "../../../types/app";
 import { resolveConversationDisplayTitle } from "../../chat/utils/conversation-title";
@@ -403,15 +413,18 @@ const strokeDashoffset = computed(() => {
 
 const windowWidth = ref(typeof window === "undefined" ? 0 : window.innerWidth);
 
-const TITLEBAR_DRAG_START_DISTANCE = 4;
+// Tauri 原生拖动（data-tauri-drag-region）为首选，JS 拖动仅 WEB 回退
+const TITLEBAR_DRAG_START_DISTANCE = 8;
 
 let pendingTitlebarDrag: { x: number; y: number } | null = null;
+let lastToggleMaximizeAt = 0;
 
 function clearPendingTitlebarDrag() {
   pendingTitlebarDrag = null;
 }
 
 function handleWindowMouseMove(event: MouseEvent) {
+  if (isTauriRuntimeAvailable()) return;
   const start = pendingTitlebarDrag;
   if (!start) return;
   if ((event.buttons & 1) === 0) {
@@ -435,16 +448,22 @@ function isInteractiveTitlebarTarget(target: EventTarget | null): boolean {
 function handleTitlebarDoubleClick(event: MouseEvent) {
   if (!props.windowReady || !showWindowControls.value) return;
   if (event.button !== 0) return;
+  // 按钮容器已 @dblclick.stop，冒泡到这里说明点在拖动区
   if (isInteractiveTitlebarTarget(event.target)) return;
+  // 避免单击按钮后极短时间内的双击误判
+  if (Date.now() - lastToggleMaximizeAt < 300) return;
+  lastToggleMaximizeAt = Date.now();
   event.preventDefault();
   event.stopPropagation();
   emit("toggle-maximize-window");
 }
 
-function handleTitlebarMouseDown(event: MouseEvent) {
+function handleTitlebarPointerDown(event: PointerEvent) {
   if (!props.windowReady || !showWindowControls.value) return;
   if (event.button !== 0) return;
   if (isInteractiveTitlebarTarget(event.target)) return;
+  // Tauri 原生拖动区接管，无需 JS 起拖
+  if (isTauriRuntimeAvailable()) return;
   if (event.detail >= 2) {
     clearPendingTitlebarDrag();
     event.preventDefault();
@@ -452,6 +471,11 @@ function handleTitlebarMouseDown(event: MouseEvent) {
     return;
   }
   pendingTitlebarDrag = { x: event.clientX, y: event.clientY };
+}
+
+// 兼容旧 @mousedown 绑定（若残留）
+function handleTitlebarMouseDown(event: MouseEvent) {
+  handleTitlebarPointerDown(event as unknown as PointerEvent);
 }
 
 function headerPaneWidth(side: "left" | "right"): number {
