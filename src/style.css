@@ -385,3 +385,33 @@ body {
   outline-offset: 0 !important;
   box-shadow: none !important;
 }
+
+/* ecall 折叠专用 0.2s - 复刻 daisyUI collapse details */
+:root { --duration-fold: 200ms; }
+.ecall-expandable__shell {
+  display: block;
+  overflow: clip;
+  interpolate-size: allow-keywords;
+  --overflow-delay: 0s;
+}
+.ecall-expandable--clamped .ecall-expandable__shell {
+  height: var(--ecall-preview-height, 160px);
+  overflow: hidden;
+}
+.ecall-expandable--expanded .ecall-expandable__shell {
+  height: auto;
+  overflow: visible;
+  --overflow-delay: var(--duration-fold);
+}
+.ecall-expandable__content { min-height: 0; overflow: clip; }
+@media (prefers-reduced-motion: no-preference) {
+  .ecall-expandable__shell {
+    transition: height var(--duration-fold) ease, overflow var(--duration-fold) allow-discrete var(--overflow-delay, 0s);
+  }
+}
+.ecall-expandable-text-clamped {
+  mask-image: linear-gradient(to bottom, #000 calc(100% - 2.25rem), transparent 100%);
+}
+@media (prefers-reduced-motion: reduce) {
+  .ecall-expandable__shell, .ecall-expandable__content { transition: none !important; }
+}
