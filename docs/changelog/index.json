@@ -1,7 +1,12 @@
 {
-  "generatedAt": "2026-08-30T10:51:08.975Z",
-  "latestVersion": "v0.76.0",
+  "generatedAt": "2026-08-30T13:04:14.894Z",
+  "latestVersion": "v0.76.1",
   "releases": [
+    {
+      "version": "v0.76.1",
+      "path": "docs/changelog/releases/v0.76.1.md",
+      "summary": "修复流式回复末尾正文被吸附到思维链后的乱序问题，回复顺序不再错位"
+    },
     {
       "version": "v0.76.0",
       "path": "docs/changelog/releases/v0.76.0.md",
