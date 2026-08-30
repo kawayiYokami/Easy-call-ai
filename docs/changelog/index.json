@@ -1,7 +1,12 @@
 {
-  "generatedAt": "2026-08-30T00:49:54.084Z",
-  "latestVersion": "v0.75.0",
+  "generatedAt": "2026-08-30T10:51:08.975Z",
+  "latestVersion": "v0.76.0",
   "releases": [
+    {
+      "version": "v0.76.0",
+      "path": "docs/changelog/releases/v0.76.0.md",
+      "summary": "流式回复改为尾部增量淡入：最后一块内容以 300ms 平滑浮现，代码/表格/数学块直出不参与，60/120Hz 屏幕自适应，系统开启「减少动态效果」时直接显示"
+    },
     {
       "version": "v0.75.0",
       "path": "docs/changelog/releases/v0.75.0.md",
