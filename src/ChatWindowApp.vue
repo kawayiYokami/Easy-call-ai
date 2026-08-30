@@ -488,7 +488,7 @@ import AppWindowHeader from "./features/shell/components/AppWindowHeader.vue";
 import ShellDialogsHost from "./features/shell/components/ShellDialogsHost.vue";
 import StartupOverlay from "./features/shell/components/StartupOverlay.vue";
 import { useChatWindowApp } from "./features/chat/composables/use-chat-window-app";
-import { onTransportRemoteChatCommand } from "./services/tauri-api";
+import { onTransportRemoteChatCommand, transportDraftHostWorkspaces } from "./services/tauri-api";
 
 /** iframe 嵌入且非 VSCode 宿主时隐藏窗口栏：远程前端模式下由宿主壳层提供 header。 */
 function isEmbeddedWebHost(): boolean {
@@ -530,6 +530,17 @@ export default defineComponent({
             access: "approval",
             builtIn: false,
           }],
+          shellWorkMode: "directory",
+          shellAutonomousMode: false,
+        });
+        return;
+      }
+      // VS Code 侧边栏等 Web 宿主：顶栏新建默认落在宿主打开的工作区，
+      // 而非当前会话工作区；桌面端或宿主未注入工作区时维持原语义。
+      const hostWorkspaces = transportDraftHostWorkspaces();
+      if (hostWorkspaces.length > 0) {
+        void app.openDraftConversation({
+          shellWorkspaces: hostWorkspaces,
           shellWorkMode: "directory",
           shellAutonomousMode: false,
         });

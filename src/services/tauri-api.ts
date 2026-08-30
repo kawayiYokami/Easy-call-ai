@@ -1698,6 +1698,34 @@ function transportHostShellWorkspaces(): Array<Record<string, unknown>> {
   }));
 }
 
+/** Web 宿主（VS Code 侧边栏）注入的工作区条目；桌面 Tauri 运行时或宿主未注入工作区时为空数组。 */
+export function transportDraftHostWorkspaces(): Array<{
+  id: string;
+  name: string;
+  path: string;
+  level: "main";
+  access: "approval";
+}> {
+  if (isTauriRuntimeAvailable()) return [];
+  return transportHostWorkspaceShellEntries();
+}
+
+function transportHostWorkspaceShellEntries(): Array<{
+  id: string;
+  name: string;
+  path: string;
+  level: "main";
+  access: "approval";
+}> {
+  return transportHostShellWorkspaces().map((item) => ({
+    id: String(item.id),
+    name: String(item.name),
+    path: String(item.path),
+    level: "main" as const,
+    access: "approval" as const,
+  }));
+}
+
 function mergeTransportHostWorkspaces(existing: unknown): Array<Record<string, unknown>> {
   const merged = new Map<string, Record<string, unknown>>();
   for (const item of Array.isArray(existing) ? existing : []) {
