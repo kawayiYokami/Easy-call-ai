@@ -5,10 +5,11 @@
   >
     <div
       v-if="showSideConversationList"
-      :class="leftPaneInLayout ? 'flex h-full min-h-0 shrink-0' : 'absolute bottom-0 left-0 top-0 z-50 flex h-full min-h-0 border-r border-base-300 bg-base-100 shadow-2xl'"
+      :class="leftPaneInLayout ? 'relative flex h-full min-h-0 shrink-0' : 'absolute bottom-0 left-0 top-0 z-50 flex h-full min-h-0 border-r border-base-300 bg-base-100 shadow-2xl'"
       :style="{ width: `${leftPaneVisibleWidth}px` }"
     >
       <ChatConversationSidebar
+        class="min-w-0 flex-1"
         :items="conversationItems || unarchivedConversationItems"
         :active-conversation-id="activeConversationId"
         :user-alias="userAlias"
@@ -30,6 +31,19 @@
         @batch-archive-completed="handleBatchArchiveCompleted"
         @open-settings="$emit('openSettings')"
       />
+      <div
+        class="ecall-pane-splitter absolute bottom-0 top-0 right-0 z-10 w-1 -mr-0.5 translate-x-1/2"
+        :class="{ 'ecall-pane-splitter-active': activePaneResizeSide === 'left' }"
+        role="separator"
+        tabindex="0"
+        aria-orientation="vertical"
+        :aria-valuemin="PANE_WIDTH_LIMITS.left.min"
+        :aria-valuemax="PANE_WIDTH_LIMITS.left.max"
+        :aria-valuenow="leftPaneVisibleWidth"
+        @pointerdown="startPaneResize('left', $event)"
+        @keydown.left.prevent="adjustPaneWidthByKeyboard('left', -24)"
+        @keydown.right.prevent="adjustPaneWidthByKeyboard('left', 24)"
+      ></div>
     </div>
 
     <div class="flex min-h-0 min-w-0 flex-1 overflow-hidden">
@@ -527,8 +541,21 @@
     </div>
 
       <div v-if="effectiveToolReviewPanelOpen"
-        :class="rightPaneInLayout ? 'flex h-full min-h-0 shrink-0 border-l border-base-300 bg-base-100' : 'absolute bottom-0 right-0 top-0 z-50 flex h-full min-h-0 border-l border-base-300 bg-base-100 shadow-2xl'"
+        :class="rightPaneInLayout ? 'relative flex h-full min-h-0 shrink-0 border-l border-base-300 bg-base-100' : 'absolute bottom-0 right-0 top-0 z-50 flex h-full min-h-0 border-l border-base-300 bg-base-100 shadow-2xl'"
         :style="{ width: `${rightPaneVisibleWidth}px` }">
+        <div
+          class="ecall-pane-splitter absolute bottom-0 top-0 left-0 z-10 w-1 -ml-0.5 -translate-x-1/2"
+          :class="{ 'ecall-pane-splitter-active': activePaneResizeSide === 'right' }"
+          role="separator"
+          tabindex="0"
+          aria-orientation="vertical"
+          :aria-valuemin="PANE_WIDTH_LIMITS.right.min"
+          :aria-valuemax="PANE_WIDTH_LIMITS.right.max"
+          :aria-valuenow="rightPaneVisibleWidth"
+          @pointerdown="startPaneResize('right', $event)"
+          @keydown.left.prevent="adjustPaneWidthByKeyboard('right', 24)"
+          @keydown.right.prevent="adjustPaneWidthByKeyboard('right', -24)"
+        ></div>
         <FileReaderPanel
           v-if="chatRightPanelMode === 'reader'"
           ref="chatReaderPanelRef"
@@ -604,34 +631,7 @@
       </div>
     </div>
 
-    <div
-      v-if="showSideConversationList"
-      class="ecall-pane-splitter ecall-pane-splitter-left absolute bottom-0 top-0 z-60"
-      :class="{ 'ecall-pane-splitter-active': activePaneResizeSide === 'left' }"
-      :style="{ left: `${leftPaneVisibleWidth - 2}px` }"
-      role="separator"
-      tabindex="0"
-      aria-orientation="vertical"
-      :aria-valuemin="PANE_WIDTH_LIMITS.left.min"
-      :aria-valuemax="PANE_WIDTH_LIMITS.left.max"
-      :aria-valuenow="leftPaneVisibleWidth"
-      @pointerdown="startPaneResize('left', $event)"
-      @keydown.left.prevent="adjustPaneWidthByKeyboard('left', -24)"
-      @keydown.right.prevent="adjustPaneWidthByKeyboard('left', 24)"
-    ></div>
 
-    <div
-      v-if="effectiveToolReviewPanelOpen"
-      class="ecall-pane-splitter ecall-pane-splitter-right absolute bottom-0 top-0 z-60"
-      :class="{ 'ecall-pane-splitter-active': activePaneResizeSide === 'right' }"
-      :style="{ right: `${rightPaneVisibleWidth - 2}px` }"
-      role="separator" tabindex="0" aria-orientation="vertical"
-      :aria-valuemin="PANE_WIDTH_LIMITS.right.min" :aria-valuemax="PANE_WIDTH_LIMITS.right.max"
-      :aria-valuenow="rightPaneVisibleWidth"
-      @pointerdown="startPaneResize('right', $event)"
-      @keydown.left.prevent="adjustPaneWidthByKeyboard('right', 24)"
-      @keydown.right.prevent="adjustPaneWidthByKeyboard('right', -24)"
-    ></div>
   </div>
 </template>
 
