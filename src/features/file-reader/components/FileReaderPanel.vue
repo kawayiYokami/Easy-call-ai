@@ -170,47 +170,20 @@
           <div v-else-if="visibleTreeRows.length === 0" class="px-3 py-2 text-xs opacity-60">
             {{ directoryTreeFilter.trim() ? t('fileReader.noMatches') : t('fileReader.emptyDirectory') }}
           </div>
-          <template v-else>
-            <div
-              v-for="row in visibleTreeRows"
-              :key="row.key"
-              class="flex h-7 items-center gap-1 px-2"
-              :class="row.kind === 'entry' && !row.entry.isDirectory && normalizePath(row.entry.path) === activePath ? 'bg-primary/10 text-primary' : 'hover:bg-base-300/55'"
-              :style="{ paddingLeft: `${8 + row.depth * 14}px` }"
-              @contextmenu.prevent.stop="row.kind === 'entry' && openPathOnlyContextMenu(row.entry.path, $event)"
-            >
-              <template v-if="row.kind === 'entry'">
-                <button
-                  v-if="row.entry.isDirectory"
-                  class="btn btn-ghost btn-xs h-5 min-h-5 w-5 shrink-0 px-0"
-                  type="button"
-                  :title="isTreeDirectoryExpanded(row.entry.path) ? t('fileReader.collapseDirectory') : t('fileReader.expandDirectory')"
-                  @click.stop="toggleTreeDirectory(row.entry)"
-                >
-                  <ChevronDown v-if="isTreeDirectoryExpanded(row.entry.path)" class="h-3.5 w-3.5" />
-                  <ChevronRight v-else class="h-3.5 w-3.5" />
-                </button>
-                <span v-else class="h-5 w-5 shrink-0"></span>
-                <button
-                  type="button"
-                  class="flex min-w-0 flex-1 items-center gap-1.5 rounded px-1 py-0.5 text-left"
-                  :title="row.entry.path"
-                  @click="handleTreeEntryClick(row.entry)"
-                >
-                  <img
-                    :src="resolveTreeEntryIcon(row.entry)"
-                    alt=""
-                    class="file-reader-tree-icon h-4 w-4 shrink-0 object-contain"
-                  />
-                  <span class="min-w-0 truncate">{{ row.entry.name }}</span>
-                </button>
-              </template>
-              <template v-else>
-                <span class="h-5 w-5 shrink-0"></span>
-                <span class="truncate px-1 text-xs opacity-60">{{ row.text }}</span>
-              </template>
-            </div>
-          </template>
+          <FileTreeMenu
+            v-else
+            :entries="directoryTreeRoot.entries"
+            :node-for="treeDirectoryNode"
+            :expanded="isTreeDirectoryExpanded"
+            :icon-for="fileTreeIconFor"
+            :on-toggle-directory="onTreeDirectoryToggle"
+            :on-open-entry="handleTreeEntryOpen"
+            :on-context-menu="openPathOnlyContextMenu"
+            :active-path="activePath"
+            :force-open="!!directoryTreeFilter.trim()"
+            :filter="directoryTreeFilter"
+            :loading-text="t('fileReader.loadingDirectory')"
+          />
         </OverlayScrollArea>
         </template>
 
@@ -580,6 +553,7 @@
           ref="hoverDirectoryTreeRef"
           class="fixed z-1200 flex flex-col overflow-hidden rounded-box border border-base-300 bg-base-100 shadow-xl"
           :style="hoverDirectoryTreeStyle"
+          @pointerdown.stop
           @mouseenter="cancelHideHoverDirectoryTree"
           @mouseleave="hideHoverDirectoryTree"
         >
@@ -597,50 +571,22 @@
             <div v-else-if="hoverDirectoryTreeRoot?.error" class="px-3 py-2 text-xs text-error">
               {{ hoverDirectoryTreeRoot.error }}
             </div>
-            <div v-else-if="hoverDirectoryTreeRows.length === 0" class="px-3 py-2 text-xs opacity-60">
+            <div v-else-if="hoverDirectoryTreeRoot && hoverDirectoryTreeRoot.entries.length === 0" class="px-3 py-2 text-xs opacity-60">
               {{ t('fileReader.emptyDirectory') }}
             </div>
-            <template v-else>
-              <div
-                v-for="row in hoverDirectoryTreeRows"
-                :key="row.key"
-                class="flex h-7 items-center gap-1 px-2"
-                :class="row.kind === 'entry' && !row.entry.isDirectory ? 'hover:bg-base-300/55' : ''"
-                :style="{ paddingLeft: `${8 + row.depth * 14}px` }"
-                @contextmenu.prevent.stop="row.kind === 'entry' && openPathOnlyContextMenu(row.entry.path, $event)"
-              >
-                <template v-if="row.kind === 'entry'">
-                  <button
-                    v-if="row.entry.isDirectory"
-                    class="btn btn-ghost btn-xs h-5 min-h-5 w-5 shrink-0 px-0"
-                    type="button"
-                    :title="isHoverDirectoryExpanded(row.entry.path) ? t('fileReader.collapseDirectory') : t('fileReader.expandDirectory')"
-                    @click.stop="toggleHoverDirectory(row.entry)"
-                  >
-                    <ChevronDown v-if="isHoverDirectoryExpanded(row.entry.path)" class="h-3.5 w-3.5" />
-                    <ChevronRight v-else class="h-3.5 w-3.5" />
-                  </button>
-                  <span v-else class="h-5 w-5 shrink-0"></span>
-                  <button
-                    type="button"
-                    class="flex min-w-0 flex-1 items-center gap-1.5 rounded px-1 py-0.5 text-left"
-                    :title="row.entry.path"
-                    @click.stop="openFileFromHoverTree(row.entry)"
-                  >
-                    <img
-                      :src="resolveHoverTreeEntryIcon(row.entry)"
-                      alt=""
-                      class="file-reader-tree-icon h-4 w-4 shrink-0 object-contain"
-                    />
-                    <span class="min-w-0 truncate">{{ row.entry.name }}</span>
-                  </button>
-                </template>
-                <template v-else>
-                  <span class="h-5 w-5 shrink-0"></span>
-                  <span class="truncate px-1 text-xs opacity-60">{{ row.text }}</span>
-                </template>
-              </div>
-            </template>
+            <FileTreeMenu
+              v-else-if="hoverDirectoryTreeRoot"
+              :entries="hoverDirectoryTreeRoot.entries"
+              :node-for="hoverDirectoryNodeFor"
+              :expanded="isHoverDirectoryExpanded"
+              :icon-for="fileTreeIconFor"
+              :on-toggle-directory="onHoverDirectoryToggle"
+              :on-open-entry="openFileFromHoverTree"
+              :on-context-menu="openPathOnlyContextMenu"
+              :force-open="!!directoryTreeFilter.trim()"
+              :filter="directoryTreeFilter"
+              :loading-text="t('fileReader.loadingDirectory')"
+            />
           </div>
         </div>
       </template>
@@ -733,7 +679,7 @@
 
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
-import { ChevronDown, ChevronRight, Check, Code2, Copy, Eye, ExternalLink, FilePlus, Files, FileText, Folders, GitBranch, Home, MessageSquarePlus, RefreshCw, Search, SquareTerminal } from "@lucide/vue";
+import { ChevronDown, Check, Code2, Copy, Eye, ExternalLink, FilePlus, Files, FileText, Folders, GitBranch, Home, MessageSquarePlus, RefreshCw, Search, SquareTerminal } from "@lucide/vue";
 import {
   copyTransportChatImageToClipboard,
   getTransportCapabilities,
@@ -761,6 +707,7 @@ import FloatingScrollbar from "../../shell/components/FloatingScrollbar.vue";
 import OverlayScrollArea from "../../shared/components/OverlayScrollArea.vue";
 import { useFileReaderAppearance } from "../../shell/composables/use-file-reader-appearance";
 import PanelTabStrip from "../../shared/components/PanelTabStrip.vue";
+import FileTreeMenu from "./FileTreeMenu.vue";
 import GitPanel from "./GitPanel.vue";
 import MultiFileDiffView from "../../chat/components/MultiFileDiffView.vue";
 import ToolReviewCodePreview from "../../chat/components/ToolReviewCodePreview.vue";
@@ -1051,12 +998,6 @@ const gitPanelWorkspacePath = computed(() => String(props.initialRootPath || dir
 const isFilesPanelOpen = computed(() => !!directoryRootPath.value && asideMode.value === "files");
 const isGitPanelOpen = computed(() => !!directoryRootPath.value && asideMode.value === "git");
 
-const hoverDirectoryTreeRows = computed<TreeRow[]>(() => {
-  const root = hoverDirectoryTreeRoot.value;
-  if (!root || root.loading || root.error) return [];
-  return flattenDirectoryEntriesFromNodes(root.entries, root.path, hoverDirectoryTreeNodes.value, 0, directoryTreeFilter.value);
-});
-
 const hoverDirectoryBridgeStyle = computed(() => {
   const style = hoverDirectoryTreeStyle.value;
   const width = parseInt(style.width || "280", 10);
@@ -1067,6 +1008,10 @@ const hoverDirectoryBridgeStyle = computed(() => {
     height: "8px",
   };
 });
+
+function hoverDirectoryNodeFor(path: string) {
+  return hoverDirectoryTreeNodes.value[normalizePath(path)] || null;
+}
 
 function isHoverDirectoryExpanded(path: string) {
   return !!hoverDirectoryTreeNodes.value[normalizePath(path)]?.expanded;
@@ -1101,12 +1046,9 @@ const fileTabContextMenuItems = computed(() => {
   ];
 });
 
-function resolveTreeEntryIcon(entry: FileReaderDirectoryEntry) {
-  return resolveFileTreeIcon(entry.path, entry.isDirectory, entry.isDirectory && isTreeDirectoryExpanded(entry.path));
-}
-
-function resolveHoverTreeEntryIcon(entry: FileReaderDirectoryEntry) {
-  return resolveFileTreeIcon(entry.path, entry.isDirectory, entry.isDirectory && isHoverDirectoryExpanded(entry.path));
+/** 文件树条目图标：目录按展开态取开/合图标（主树与 hover 预览树共用） */
+function fileTreeIconFor(entry: FileReaderDirectoryEntry, expanded: boolean) {
+  return resolveFileTreeIcon(entry.path, entry.isDirectory, expanded);
 }
 
 const activeMarkdownSource = computed(() => {
@@ -2005,11 +1947,8 @@ function openOrActivatePath(path: string) {
   void openPath(normalizedPath, { reuseActiveTab: sameDirectory });
 }
 
-function handleTreeEntryClick(entry: FileReaderDirectoryEntry) {
-  if (entry.isDirectory) {
-    void toggleTreeDirectory(entry);
-    return;
-  }
+function handleTreeEntryOpen(entry: FileReaderDirectoryEntry) {
+  // 目录由 menu details 原生折叠处理，这里只处理文件条目
   const normalizedPath = normalizePath(entry.path);
   if (!normalizedPath) return;
   if (props.directoryOnly) {
@@ -2583,12 +2522,12 @@ async function revealPathInDirectoryTree(path: string) {
 
   await nextTick();
   const targetPath = normalizePath(path);
-  const rowIndex = visibleTreeRows.value.findIndex((row) =>
-    row.kind === "entry" && !row.entry.isDirectory && sameNormalizedPath(row.entry.path, targetPath)
-  );
   const scroller = directoryAreaRef.value?.scrollerRef ?? null;
-  if (rowIndex < 0 || !scroller) return;
-  scroller.scrollTop = Math.max(0, rowIndex * 28 - Math.round(scroller.clientHeight / 2));
+  if (!scroller) return;
+  // menu 树行高不再固定：直接定位到目标行元素
+  const target = scroller.querySelector(`a[data-tree-path="${CSS.escape(targetPath)}"]`);
+  if (!(target instanceof HTMLElement)) return;
+  target.scrollIntoView({ block: "center" });
 }
 
 function closeDirectoryTree() {
@@ -2715,26 +2654,28 @@ function updateHoverDirectoryNode(path: string, patch: Partial<DirectoryNode>) {
   return next;
 }
 
-function toggleHoverDirectory(entry: FileReaderDirectoryEntry) {
-  if (!entry.isDirectory) return;
+/** details 原生切换：折叠直接落状态；展开时已加载则置展开，否则置 loading 并拉取子目录 */
+function onHoverDirectoryToggle(entry: FileReaderDirectoryEntry, open: boolean) {
   const normalizedPath = normalizePath(entry.path);
   const node = hoverDirectoryTreeNodes.value[normalizedPath];
 
-  if (node?.expanded) {
+  if (!open) {
     updateHoverDirectoryNode(normalizedPath, { expanded: false });
-  } else if (node?.loaded) {
-    updateHoverDirectoryNode(normalizedPath, { expanded: true });
-  } else {
-    updateHoverDirectoryNode(normalizedPath, {
-      name: String(entry.name || titleFromPath(normalizedPath)),
-      entries: [],
-      loaded: false,
-      error: "",
-      loading: true,
-      expanded: true,
-    });
-    loadHoverSubDirectory(entry);
+    return;
   }
+  if (node?.loaded) {
+    updateHoverDirectoryNode(normalizedPath, { expanded: true });
+    return;
+  }
+  updateHoverDirectoryNode(normalizedPath, {
+    name: String(entry.name || titleFromPath(normalizedPath)),
+    entries: [],
+    loaded: false,
+    error: "",
+    loading: true,
+    expanded: true,
+  });
+  void loadHoverSubDirectory(entry);
 }
 
 async function loadHoverSubDirectory(entry: FileReaderDirectoryEntry) {
@@ -2750,10 +2691,6 @@ async function loadHoverSubDirectory(entry: FileReaderDirectoryEntry) {
 }
 
 async function openFileFromHoverTree(entry: FileReaderDirectoryEntry) {
-  if (entry.isDirectory) {
-    toggleHoverDirectory(entry);
-    return;
-  }
   hideHoverDirectoryTree();
   await openPath(entry.path);
 }
@@ -2953,11 +2890,11 @@ async function openDirectoryInFileManager(path: string) {
   }
 }
 
-async function toggleTreeDirectory(entry: FileReaderDirectoryEntry) {
-  if (!entry.isDirectory) return;
+/** details 原生切换：折叠直接落状态；展开时已加载则置展开，否则懒加载（loadDirectory 成功即展开） */
+function onTreeDirectoryToggle(entry: FileReaderDirectoryEntry, open: boolean) {
   const normalizedPath = normalizePath(entry.path);
   const node = treeDirectoryNode(normalizedPath);
-  if (node?.expanded) {
+  if (!open) {
     updateDirectoryNode(normalizedPath, { expanded: false });
     return;
   }
@@ -2965,7 +2902,7 @@ async function toggleTreeDirectory(entry: FileReaderDirectoryEntry) {
     updateDirectoryNode(normalizedPath, { expanded: true, error: "" });
     return;
   }
-  await loadDirectory(normalizedPath, true);
+  void loadDirectory(normalizedPath, true);
 }
 
 function updateDirectoryNode(path: string, patch: Partial<DirectoryNode>) {
@@ -3012,36 +2949,6 @@ function flattenDirectoryEntries(entries: FileReaderDirectoryEntry[], depth: num
       rows.push({ kind: "status", key: `empty:${normalizedPath}`, depth: depth + 1, text: t('fileReader.emptyDirectory') });
     } else if (node.loaded) {
       rows.push(...flattenDirectoryEntries(node.entries, depth + 1));
-    }
-  }
-  return rows;
-}
-
-function flattenDirectoryEntriesFromNodes(entries: FileReaderDirectoryEntry[], rootPath: string, nodes: Record<string, DirectoryNode>, depth: number, filter = ""): TreeRow[] {
-  const normalizedFilter = filter.trim().toLowerCase();
-  const rows: TreeRow[] = [];
-  for (const entry of entries) {
-    const normalizedPath = normalizePath(entry.path);
-    const node = nodes[normalizedPath];
-    const isExpanded = node?.expanded;
-    const childRows = entry.isDirectory && isExpanded ? flattenDirectoryEntriesFromNodes(nodes[normalizedPath]?.entries || [], normalizedPath, nodes, depth + 1, filter) : [];
-    const matchesFilter = !normalizedFilter || entry.name.toLowerCase().includes(normalizedFilter);
-    if (normalizedFilter && !matchesFilter && childRows.length === 0) continue;
-    rows.push({ kind: "entry", key: `entry:${normalizedPath}`, depth, entry: { ...entry, path: normalizedPath } });
-    if (normalizedFilter) {
-      rows.push(...childRows);
-      continue;
-    }
-    if (!entry.isDirectory || !isExpanded) continue;
-    if (!node) continue;
-    if (node.loading) {
-      rows.push({ kind: "status", key: `loading:${normalizedPath}`, depth: depth + 1, text: t('fileReader.loadingDirectory') });
-    } else if (node.error) {
-      rows.push({ kind: "status", key: `error:${normalizedPath}`, depth: depth + 1, text: node.error });
-    } else if (node.loaded && node.entries.length === 0) {
-      rows.push({ kind: "status", key: `empty:${normalizedPath}`, depth: depth + 1, text: t('fileReader.emptyDirectory') });
-    } else if (node.loaded) {
-      rows.push(...flattenDirectoryEntriesFromNodes(node.entries, normalizedPath, nodes, depth + 1));
     }
   }
   return rows;
