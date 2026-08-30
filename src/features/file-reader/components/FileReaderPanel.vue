@@ -243,8 +243,6 @@
                   class="inline-flex shrink-0 items-center rounded px-1.5 py-1 hover:bg-base-200 hover:text-base-content"
                   :title="t('fileReader.previewDirectory', { path: segment.path })"
                   @click="showHoverDirectoryTree(segment.path, $event)"
-                  @mouseenter="showHoverDirectoryTree(segment.path, $event)"
-                  @mouseleave="hideHoverDirectoryTree"
                 >
                   {{ segment.label }}
                 </button>
@@ -2643,13 +2641,15 @@ async function showHoverDirectoryTree(path: string, event: MouseEvent) {
   await loadDirectoryForHover(normalizedPath);
 }
 
+function dismissHoverDirectoryTree() {
+  if (hoverHideTimer) { window.clearTimeout(hoverHideTimer); hoverHideTimer = null; }
+  hoverDirectoryTreeVisible.value = false;
+  hoverDirectoryTreeRoot.value = null;
+  hoverDirectoryTreeAnchor.value = "";
+}
+
 function hideHoverDirectoryTree() {
-  hoverHideTimer = window.setTimeout(() => {
-    hoverDirectoryTreeVisible.value = false;
-    hoverDirectoryTreeRoot.value = null;
-    hoverDirectoryTreeAnchor.value = "";
-    hoverHideTimer = null;
-  }, 150);
+  hoverHideTimer = window.setTimeout(dismissHoverDirectoryTree, 150);
 }
 
 function cancelHideHoverDirectoryTree() {
@@ -3051,6 +3051,7 @@ function handleGlobalPointerDown(event: PointerEvent) {
   const target = event.target instanceof Node ? event.target : null;
   if (target && directoryOpenTargetDropdownRef.value?.contains(target)) return;
   closeDirectoryOpenTargetDropdown();
+  dismissHoverDirectoryTree();
   closeContextMenu();
   closeSelectionAction();
 }
@@ -3058,6 +3059,7 @@ function handleGlobalPointerDown(event: PointerEvent) {
 function handleGlobalEscape(event: KeyboardEvent) {
   if (event.key === "Escape") {
     closeDirectoryOpenTargetDropdown();
+    dismissHoverDirectoryTree();
     closeContextMenu();
     closeSelectionAction();
   }
