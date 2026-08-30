@@ -346,8 +346,232 @@ function handleWindowResizeOrScroll() {
 }
 
 // ==================== Streaming Throttle ====================
+// 80→8：配合 rAF 逐帧攒批，120Hz≈8.3ms 直出，60Hz 两帧一批，避免 80ms 攒一大句才刷
+const STREAM_PARSE_THROTTLE_MS = 8;
+// 参考 element-plus-x / x-markdown-vue：Intl.Segmenter zh word 粒度 + 300ms fadeIn
+// 大块直出阈值放宽到 36（约 8-12 个中文词），避免 rAF 合批后因 4-5 个小 delta 合并就超 12 而全程无动画
+const STREAMING_TAIL_ANIMATE_THRESHOLD = 36;
 
-const STREAM_PARSE_THROTTLE_MS = 80;
+// ========== rAF 逐帧合批 + 尾部增量动画状态 ==========
+type StreamingTailContext = {
+  enabled: boolean;
+  tailStart: number;
+  total: number;
+  offset: { value: number };
+};
+
+const STREAMING_TEXT_ANIMATION_ENABLED = true;
+
+const committedText = ref(props.text ?? "");
+let pendingRawText = props.text ?? "";
+let rafId = 0;
+let prevCommittedForTail = props.text ?? "";
+const tailLength = ref(0);
+const prefersReducedMotion = ref(false);
+
+// blocks 模式的 rAF 合批（ChatMessageItem 走 blocks，不走 text）
+const committedBlocks = ref<MarkdownBlock[]>(
+  Array.isArray(props.blocks) ? [...(props.blocks as MarkdownBlock[])] : [],
+);
+let pendingBlocks: MarkdownBlock[] | null = null;
+let blocksRafId = 0;
+// 初始基线对齐到初始 committedBlocks，避免首个增量 delta 按 0 计算而误判为大块
+let prevBlocksPlainTotal = (() => {
+  try {
+    return Array.isArray(committedBlocks.value) && committedBlocks.value.length > 0
+      ? totalPlainLength(committedBlocks.value as MarkdownBlock[])
+      : 0;
+  } catch { return 0; }
+})();
+
+function isTailAnimatableBlock(type: MarkdownBlock["type"]): boolean {
+  return type === "paragraph" || type === "heading" || type === "quote" || type === "list" || type === "details";
+}
+
+function computeTailLength(prev: string, next: string): number {
+  if (!next) return 0;
+  if (!prev) return next.length;
+  if (next.startsWith(prev)) return next.length - prev.length;
+  // 非增量（重放/回退），视为全量直出，不做动画
+  return next.length;
+}
+
+function updateTailFromCommit(prev: string, next: string) {
+  const len = computeTailLength(prev, next);
+  tailLength.value = len;
+  prevCommittedForTail = next;
+}
+
+function updateTailFromBlocksCommit(prevTotal: number, nextTotal: number) {
+  const delta = nextTotal >= prevTotal ? nextTotal - prevTotal : nextTotal;
+  // 调试可见：大块直出时 tailLength 会>阈值而跳过动画，正常流式 1-3 字经 rAF 合批后应保持在 1-20 之间
+  tailLength.value = delta;
+  prevBlocksPlainTotal = nextTotal;
+}
+
+function flushPendingTextToCommitted() {
+  rafId = 0;
+  const next = pendingRawText;
+  if (next === committedText.value) return;
+  const prev = committedText.value;
+  committedText.value = next;
+  if (props.streaming) updateTailFromCommit(prev, next);
+  else {
+    tailLength.value = 0;
+    prevCommittedForTail = next;
+  }
+}
+
+function scheduleRafFlush() {
+  if (rafId) return;
+  rafId = window.requestAnimationFrame(flushPendingTextToCommitted);
+}
+
+function commitTextImmediately(next: string) {
+  if (rafId) {
+    window.cancelAnimationFrame(rafId);
+    rafId = 0;
+  }
+  const prev = committedText.value;
+  if (prev !== next) {
+    committedText.value = next;
+    if (props.streaming) updateTailFromCommit(prev, next);
+    else {
+      tailLength.value = 0;
+      prevCommittedForTail = next;
+    }
+  } else {
+    pendingRawText = next;
+  }
+}
+
+function flushPendingBlocks() {
+  blocksRafId = 0;
+  const next = pendingBlocks;
+  pendingBlocks = null;
+  if (!next) return;
+  // helpers totalPlainLength 位于下方，函数声明会被提升，运行时已可用；此处用精确 plain 长度
+  const prevTotal = prevBlocksPlainTotal;
+  let nextTotal = 0;
+  try {
+    nextTotal = (typeof totalPlainLength === "function" ? totalPlainLength(next) : next.length) as number;
+  } catch {
+    nextTotal = next.length;
+  }
+  committedBlocks.value = next;
+  if (props.streaming) updateTailFromBlocksCommit(prevTotal, nextTotal);
+  else {
+    tailLength.value = 0;
+    prevBlocksPlainTotal = nextTotal;
+  }
+}
+
+function scheduleBlocksFlush() {
+  if (blocksRafId) return;
+  blocksRafId = window.requestAnimationFrame(flushPendingBlocks);
+}
+
+function commitBlocksImmediately(next: MarkdownBlock[]) {
+  if (blocksRafId) {
+    window.cancelAnimationFrame(blocksRafId);
+    blocksRafId = 0;
+  }
+  pendingBlocks = null;
+  const prevTotal = prevBlocksPlainTotal;
+  let nextTotal = 0;
+  try {
+    nextTotal = (typeof totalPlainLength === "function" ? totalPlainLength(next) : next.length) as number;
+  } catch {
+    nextTotal = next.length;
+  }
+  committedBlocks.value = [...next];
+  if (props.streaming) updateTailFromBlocksCommit(prevTotal, nextTotal);
+  else {
+    tailLength.value = 0;
+    prevBlocksPlainTotal = nextTotal;
+  }
+}
+
+watch(
+  () => props.text,
+  (nextRaw) => {
+    const next = nextRaw ?? "";
+    pendingRawText = next;
+    if (Array.isArray(props.blocks)) return;
+    if (!props.streaming) {
+      commitTextImmediately(next);
+      return;
+    }
+    scheduleRafFlush();
+  },
+);
+
+watch(
+  () => props.blocks,
+  (nextBlocks) => {
+    if (!Array.isArray(nextBlocks)) return;
+    const cloned = [...(nextBlocks as MarkdownBlock[])];
+    pendingBlocks = cloned;
+    if (!props.streaming) {
+      commitBlocksImmediately(cloned);
+      return;
+    }
+    scheduleBlocksFlush();
+  },
+  { deep: false },
+);
+
+watch(
+  () => props.streaming,
+  (streaming, prevStreaming) => {
+    if (streaming && !prevStreaming) {
+      if (Array.isArray(props.blocks)) {
+        try {
+          prevBlocksPlainTotal = typeof totalPlainLength === "function" ? totalPlainLength(committedBlocks.value) : committedBlocks.value.length;
+        } catch { prevBlocksPlainTotal = committedBlocks.value.length; }
+        tailLength.value = 0;
+        if (Array.isArray(props.blocks) && props.blocks !== committedBlocks.value) {
+          pendingBlocks = [...(props.blocks as MarkdownBlock[])];
+          scheduleBlocksFlush();
+        }
+      } else {
+        prevCommittedForTail = committedText.value;
+        tailLength.value = 0;
+        pendingRawText = props.text ?? "";
+        if (pendingRawText !== committedText.value) scheduleRafFlush();
+      }
+    }
+    if (!streaming) {
+      if (rafId) {
+        window.cancelAnimationFrame(rafId);
+        rafId = 0;
+      }
+      if (blocksRafId) {
+        window.cancelAnimationFrame(blocksRafId);
+        blocksRafId = 0;
+      }
+      pendingBlocks = null;
+      if (Array.isArray(props.blocks)) {
+        const next = [...(props.blocks as MarkdownBlock[])];
+        let nextTotal = 0;
+        try {
+          nextTotal = typeof totalPlainLength === "function" ? totalPlainLength(next) : next.length;
+        } catch { nextTotal = next.length; }
+        committedBlocks.value = next;
+        tailLength.value = 0;
+        prevBlocksPlainTotal = nextTotal;
+      } else {
+        const next = props.text ?? "";
+        pendingRawText = next;
+        tailLength.value = 0;
+        if (committedText.value !== next) {
+          committedText.value = next;
+          prevCommittedForTail = next;
+        }
+      }
+    }
+  },
+);
 
 // 实例级状态（每个组件实例独立）
 const parseState = {
@@ -391,9 +615,9 @@ function scheduleStreamingParseRetry(delayMs: number) {
 const allBlocks = computed<MarkdownBlock[]>(() => {
   void parseRetryTick.value;
   if (Array.isArray(props.blocks)) {
-    return props.blocks;
+    return props.streaming ? committedBlocks.value : (props.blocks as MarkdownBlock[]);
   }
-  const text = props.text;
+  const text = props.streaming ? committedText.value : (props.text ?? "");
   if (!text) {
     parseState.incrementalParser.reset();
     parseState.cachedText = "";
@@ -417,9 +641,14 @@ const allBlocks = computed<MarkdownBlock[]>(() => {
 });
 
 // Batch rendering for streaming: reveal blocks progressively
+// 参考 x-markdown-vue：流式时不做 20/10/24ms 逐批放出，改为 rAF 直出；仅首包超长时仍保留批限作为保护
 const visibleBlocks = computed<MarkdownBlock[]>(() => {
   const blocks = allBlocks.value;
   if (!props.streaming) {
+    return blocks;
+  }
+  // blocks 模式（ChatMessageItem）已走 rAF + tail 增量，直接全量展示，避免尾块被 batchLimit 藏住导致看不到淡入
+  if (Array.isArray(props.blocks)) {
     return blocks;
   }
   if (parseState.batchLimit > 0 && parseState.batchLimit < blocks.length) {
@@ -485,6 +714,14 @@ function scheduleBatchReveal(targetLen: number) {
 }
 
 onBeforeUnmount(() => {
+  if (rafId) {
+    window.cancelAnimationFrame(rafId);
+    rafId = 0;
+  }
+  if (blocksRafId) {
+    window.cancelAnimationFrame(blocksRafId);
+    blocksRafId = 0;
+  }
   clearParseRetryTimer();
   if (parseState.batchTimer) {
     clearTimeout(parseState.batchTimer);
@@ -503,6 +740,13 @@ onMounted(() => {
   document.addEventListener("pointerdown", handleDocumentPointerDown, true);
   window.addEventListener("resize", handleWindowResizeOrScroll, true);
   document.addEventListener("scroll", handleWindowResizeOrScroll, true);
+  try {
+    const mql = window.matchMedia("(prefers-reduced-motion: reduce)");
+    prefersReducedMotion.value = mql.matches;
+    const onChange = (e: MediaQueryListEvent) => { prefersReducedMotion.value = e.matches; };
+    if (typeof mql.addEventListener === "function") mql.addEventListener("change", onChange);
+    else (mql as any).addListener?.(onChange);
+  } catch { /* ignore */ }
 });
 
 // ==================== Heading Tag Helper ====================
@@ -514,6 +758,39 @@ function headingTag(level: unknown): "h1" | "h2" | "h3" | "h4" {
 
 function nestedMarkdownBlocks(text: string, streaming: boolean): MarkdownBlock[] {
   return parseMarkdownBlocks(text, streaming);
+}
+
+// Helpers: total rendered text length for tail-split (仅度量叶子 text，不含 code/math 内部)
+function inlineTextLength(segments: InlineSegment[]): number {
+  let len = 0;
+  for (const seg of segments) {
+    if (seg.type === "text") len += seg.text.length;
+    else if (seg.type === "strong" || seg.type === "em" || seg.type === "strongEm" || seg.type === "delete" || seg.type === "html_sub" || seg.type === "html_sup" || seg.type === "html_kbd" || seg.type === "html_mark") len += inlineTextLength((seg as any).children || []);
+  }
+  return len;
+}
+
+function blockPlainLength(block: MarkdownBlock): number {
+  if (block.type === "paragraph" || block.type === "heading" || block.type === "quote") {
+    return inlineTextLength(parseInlineSegments(block.text));
+  }
+  if (block.type === "list") {
+    return block.items.reduce((sum, it) => sum + inlineTextLength(parseInlineSegments(it.text)), 0);
+  }
+  if (block.type === "details") {
+    return inlineTextLength(parseInlineSegments(block.summary)) + inlineTextLength(parseInlineSegments(block.body));
+  }
+  if (block.type === "table") {
+    return block.headers.reduce((s, c) => s + inlineTextLength(parseInlineSegments(c)), 0)
+      + block.rows.reduce((s, row) => s + row.reduce((a, c) => a + inlineTextLength(parseInlineSegments(c)), 0), 0);
+  }
+  return 0;
+}
+
+function totalPlainLength(blocks: MarkdownBlock[]): number {
+  let total = 0;
+  for (const b of blocks) total += blockPlainLength(b);
+  return total;
 }
 
 // ==================== Inline Renderer ====================
@@ -535,6 +812,10 @@ const InlineRenderer = defineComponent({
       default: undefined,
     },
     animate: { type: Boolean, default: false },
+    tailContext: {
+      type: Object as PropType<StreamingTailContext | null>,
+      default: null,
+    },
   },
   setup(inlineProps) {
     return () => renderSegments(
@@ -546,6 +827,7 @@ const InlineRenderer = defineComponent({
         footnoteIndexMap: inlineProps.footnoteIndexMap,
         onImagePreview: inlineProps.onImagePreview,
         animate: inlineProps.animate,
+        tailContext: inlineProps.tailContext ?? undefined,
       },
     );
   },
@@ -596,15 +878,32 @@ const BlockRenderer = defineComponent({
       ]);
     };
 
+    const isLastBlock = (idx: number) => idx === blockProps.blocks.length - 1;
+
+    function makeTailContextForBlock(block: MarkdownBlock, isLast: boolean): StreamingTailContext | null {
+      if (!isLast) return null;
+      if (!STREAMING_TEXT_ANIMATION_ENABLED) return null;
+      if (!blockProps.streaming) return null;
+      if (prefersReducedMotion.value) return null;
+      if (tailLength.value <= 0 || tailLength.value > STREAMING_TAIL_ANIMATE_THRESHOLD) return null;
+      if (!isTailAnimatableBlock(block.type)) return null;
+      const total = blockPlainLength(block);
+      if (total <= 0) return null;
+      const tailStart = Math.max(0, total - tailLength.value);
+      return { enabled: true, tailStart, total, offset: { value: 0 } };
+    }
+
     const renderBlock = (block: MarkdownBlock, index: number): VNodeChild => {
       if (block.type === "heading") {
+        const tailCtx = makeTailContextForBlock(block, isLastBlock(index));
         return h(headingTag(block.level), { key: `${block.type}-${index}-${block.key}`, class: "ecall-md-heading" }, [
           h(InlineRenderer, {
             segments: parseInlineSegments(block.text),
             localImageBasePath: blockProps.localImageBasePath,
             footnoteIndexMap: blockProps.footnoteIndexMap,
             onImagePreview: blockProps.onImagePreview,
-            animate: blockProps.streaming,
+            animate: false,
+            tailContext: tailCtx,
           }),
         ]);
       }
@@ -623,6 +922,7 @@ const BlockRenderer = defineComponent({
       }
       if (block.type === "list") {
         const tag = block.ordered ? "ol" : "ul";
+        const listTailCtx = makeTailContextForBlock(block, isLastBlock(index));
         return h(tag, {
           key: `${block.type}-${index}-${block.key}`,
           class: block.ordered ? "ecall-md-list ecall-md-list-ordered" : "ecall-md-list",
@@ -635,7 +935,8 @@ const BlockRenderer = defineComponent({
             localImageBasePath: blockProps.localImageBasePath,
             footnoteIndexMap: blockProps.footnoteIndexMap,
             onImagePreview: blockProps.onImagePreview,
-            animate: blockProps.streaming,
+            animate: false,
+            tailContext: listTailCtx,
           }),
         ])));
       }
@@ -649,7 +950,7 @@ const BlockRenderer = defineComponent({
                   localImageBasePath: blockProps.localImageBasePath,
                   footnoteIndexMap: blockProps.footnoteIndexMap,
                   onImagePreview: blockProps.onImagePreview,
-                  animate: blockProps.streaming,
+                  animate: false,
                 }),
               ]))),
             ]),
@@ -659,7 +960,7 @@ const BlockRenderer = defineComponent({
                 localImageBasePath: blockProps.localImageBasePath,
                 footnoteIndexMap: blockProps.footnoteIndexMap,
                 onImagePreview: blockProps.onImagePreview,
-                animate: blockProps.streaming,
+                animate: false,
               }),
             ]))))),
           ]),
@@ -701,7 +1002,7 @@ const BlockRenderer = defineComponent({
               localImageBasePath: blockProps.localImageBasePath,
               footnoteIndexMap: blockProps.footnoteIndexMap,
               onImagePreview: blockProps.onImagePreview,
-              animate: blockProps.streaming,
+              animate: false,
             }),
           ]),
           block.body
@@ -730,7 +1031,7 @@ const BlockRenderer = defineComponent({
               localImageBasePath: blockProps.localImageBasePath,
               footnoteIndexMap: blockProps.footnoteIndexMap,
               onImagePreview: blockProps.onImagePreview,
-              animate: blockProps.streaming,
+              animate: false,
             }),
           ]))),
         ]);
@@ -738,13 +1039,15 @@ const BlockRenderer = defineComponent({
       if (block.type === "hr") {
         return h("hr", { key: `${block.type}-${index}-${block.key}`, class: "ecall-md-hr" });
       }
+      const pTailCtx = makeTailContextForBlock(block, isLastBlock(index));
       return h("p", { key: `${block.type}-${index}-${block.key}`, class: "ecall-md-paragraph" }, [
         h(InlineRenderer, {
           segments: parseInlineSegments(block.text),
           localImageBasePath: blockProps.localImageBasePath,
           footnoteIndexMap: blockProps.footnoteIndexMap,
           onImagePreview: blockProps.onImagePreview,
-          animate: blockProps.streaming,
+          animate: false,
+          tailContext: pTailCtx,
         }),
       ]);
     };
@@ -782,7 +1085,7 @@ const BlockRenderer = defineComponent({
                       onToolcallClick: toggleToolcallPreview,
                       footnoteIndexMap: blockProps.footnoteIndexMap,
                       onImagePreview: blockProps.onImagePreview,
-                      animate: blockProps.streaming,
+                      animate: false,
                     },
                   )
                   : []),
@@ -803,7 +1106,7 @@ const BlockRenderer = defineComponent({
                 onToolcallClick: toggleToolcallPreview,
                 footnoteIndexMap: blockProps.footnoteIndexMap,
                 onImagePreview: blockProps.onImagePreview,
-                animate: blockProps.streaming,
+                animate: false,
               },
             ));
           }
@@ -826,7 +1129,7 @@ const BlockRenderer = defineComponent({
                 onToolcallClick: toggleToolcallPreview,
                 footnoteIndexMap: blockProps.footnoteIndexMap,
                 onImagePreview: blockProps.onImagePreview,
-                animate: blockProps.streaming,
+                animate: false,
               },
             )));
           } else if (grouped.endIndex > index && !grouped.stripLeadingOnEnd) {
@@ -850,6 +1153,7 @@ type RenderSegmentOptions = {
   footnoteIndexMap?: Record<string, number>;
   onImagePreview?: (payload: MarkdownImagePreviewPayload) => void;
   animate?: boolean;
+  tailContext?: StreamingTailContext;
 };
 
 function footnoteDomId(rawId: string): string {
@@ -877,13 +1181,25 @@ function scrollToFootnote(rawId: string) {
 
 const MD_ANIMATE_UNIT_PATTERN = /(\s+)|([\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}])|([^\s\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}]+)/gu;
 
-/** 流式出字淡入动画总开关：暂时关闭，实现保留，恢复时改回 true 即可 */
-const STREAMING_TEXT_ANIMATION_ENABLED = false;
-
 function renderAnimatedText(text: string, keyPrefix: string): VNodeChild[] {
   if (!STREAMING_TEXT_ANIMATION_ENABLED) return text ? [text] : [];
   if (!text) return [];
   const nodes: VNodeChild[] = [];
+  // 优先使用 Intl.Segmenter zh word 粒度（与 x-markdown-vue ig() 一致），失败回退到原正则
+  try {
+    const segCtor = (Intl as any)?.Segmenter;
+    if (segCtor) {
+      const segmenter = new segCtor("zh", { granularity: "word" });
+      for (const { segment, index } of segmenter.segment(text) as Iterable<{ segment: string; index: number }>) {
+        if (!segment) continue;
+        nodes.push(h("span", {
+          key: `${keyPrefix}-s-${index}`,
+          class: "ecall-md-animate-word",
+        }, segment));
+      }
+      if (nodes.length > 0) return nodes;
+    }
+  } catch { /* fallback */ }
   for (const match of text.matchAll(MD_ANIMATE_UNIT_PATTERN)) {
     nodes.push(h("span", {
       key: `${keyPrefix}-o-${match.index ?? 0}`,
@@ -1051,7 +1367,24 @@ function renderSegments(
       nodes.push(h("del", { key: `${keyPrefix}-d-${index}`, class: "ecall-md-del" }, renderSegments(segment.children, `${keyPrefix}-d-${index}`, localImageBasePath, options)));
       continue;
     }
-    if (options.animate) {
+    // 尾部增量：仅 tail 区间做淡入，前缀直出；大块(>12)或前部块直出
+    if (options.tailContext?.enabled) {
+      const ctx = options.tailContext;
+      const segStart = ctx.offset.value;
+      const segEnd = segStart + segment.text.length;
+      ctx.offset.value = segEnd;
+      if (segEnd <= ctx.tailStart) {
+        nodes.push(segment.text);
+      } else if (segStart >= ctx.tailStart) {
+        nodes.push(...renderAnimatedText(segment.text, `${keyPrefix}-t-${index}`));
+      } else {
+        const split = ctx.tailStart - segStart;
+        const prefix = segment.text.slice(0, split);
+        const tail = segment.text.slice(split);
+        if (prefix) nodes.push(prefix);
+        if (tail) nodes.push(...renderAnimatedText(tail, `${keyPrefix}-t-${index}-tail`));
+      }
+    } else if (options.animate) {
       nodes.push(...renderAnimatedText(segment.text, `${keyPrefix}-t-${index}`));
     } else {
       nodes.push(segment.text);
@@ -1820,13 +2153,14 @@ ul.ecall-md-list {
 }
 
 /* ==================== Streaming Animation ==================== */
+/* 对齐 x-markdown-vue：fadeIn .3s ease-in-out，更可见；150ms 在 120Hz 上过短难以感知 */
 @keyframes ecall-md-fadeIn {
   from { opacity: 0; }
   to { opacity: 1; }
 }
 
 .ecall-md-streaming .ecall-md-animate-word {
-  animation: ecall-md-fadeIn 150ms ease;
+  animation: ecall-md-fadeIn 300ms ease-in-out;
 }
 
 @media (prefers-reduced-motion: reduce) {

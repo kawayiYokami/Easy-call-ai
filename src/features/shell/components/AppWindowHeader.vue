@@ -310,7 +310,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
-import { getTransportCapabilities, isTauriRuntimeAvailable } from "../../../services/tauri-api";
+import { getTransportCapabilities } from "../../../services/tauri-api";
 import { Bolt, Columns3Cog, Download, FoldVertical, History, Minus, PanelLeft, PanelLeftClose, PanelRight, PanelRightClose, Search, Settings, Square, SquarePen, X } from "@lucide/vue";
 import type { ChatConversationOverviewItem } from "../../../types/app";
 import { resolveConversationDisplayTitle } from "../../chat/utils/conversation-title";
@@ -424,7 +424,7 @@ function clearPendingTitlebarDrag() {
 }
 
 function handleWindowMouseMove(event: MouseEvent) {
-  if (isTauriRuntimeAvailable()) return;
+  if (transportCapabilities.windowControls) return;
   const start = pendingTitlebarDrag;
   if (!start) return;
   if ((event.buttons & 1) === 0) {
@@ -462,8 +462,8 @@ function handleTitlebarPointerDown(event: PointerEvent) {
   if (!props.windowReady || !showWindowControls.value) return;
   if (event.button !== 0) return;
   if (isInteractiveTitlebarTarget(event.target)) return;
-  // Tauri 原生拖动区接管，无需 JS 起拖
-  if (isTauriRuntimeAvailable()) return;
+  // Tauri 原生拖动区接管（windowControls 代理原生能力），无需 JS 起拖
+  if (transportCapabilities.windowControls) return;
   if (event.detail >= 2) {
     clearPendingTitlebarDrag();
     event.preventDefault();
