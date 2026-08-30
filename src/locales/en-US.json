@@ -1400,6 +1400,8 @@
       "usageCached": "Cache Hit",
       "usageCacheWrite": "Cache Write",
       "usageReasoning": "Reasoning",
+      "builtinToolCatalog": "Builtin Tools",
+      "builtinToolCatalogTitle": "Builtin Tool Catalog",
       "stages": {
         "chatStart": "Start Sending",
         "runtimeReady": "Runtime Ready",

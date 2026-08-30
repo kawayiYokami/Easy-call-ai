@@ -1400,6 +1400,8 @@
       "usageCached": "命中缓存",
       "usageCacheWrite": "写入缓存",
       "usageReasoning": "思考",
+      "builtinToolCatalog": "内置工具",
+      "builtinToolCatalogTitle": "内置工具目录",
       "stages": {
         "chatStart": "开始发送",
         "runtimeReady": "运行时就绪",

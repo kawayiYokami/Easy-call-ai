@@ -1398,6 +1398,8 @@
       "usageCached": "命中快取",
       "usageCacheWrite": "寫入快取",
       "usageReasoning": "思考",
+      "builtinToolCatalog": "內建工具",
+      "builtinToolCatalogTitle": "內建工具目錄",
       "stages": {
         "chatStart": "開始發送",
         "runtimeReady": "運行時就緒",
