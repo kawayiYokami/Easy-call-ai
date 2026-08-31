@@ -507,6 +507,8 @@ struct Conversation {
     #[serde(default = "default_shell_work_mode")]
     shell_work_mode: String,
     #[serde(default)]
+    shell_work_branch: String,
+    #[serde(default)]
     archived_at: Option<String>,
     messages: Vec<ChatMessage>,
     #[serde(default)]

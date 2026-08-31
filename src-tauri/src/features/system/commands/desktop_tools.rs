@@ -772,6 +772,8 @@ struct SaveChatShellWorkspacesInput {
     autonomous_mode: Option<bool>,
     #[serde(default)]
     shell_work_mode: Option<String>,
+    #[serde(default)]
+    shell_work_branch: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -852,6 +854,7 @@ struct ChatShellWorkspaceOutput {
     workspaces: Vec<ShellWorkspaceConfig>,
     autonomous_mode: bool,
     shell_work_mode: String,
+    shell_work_branch: String,
 }
 
 fn resolve_chat_tool_session_id(
@@ -954,15 +957,18 @@ fn apply_conversation_chat_workspace_changes(
     shell_workspaces: Option<Vec<ShellWorkspaceConfig>>,
     shell_autonomous_mode: Option<bool>,
     shell_work_mode: Option<String>,
+    shell_work_branch: Option<String>,
 ) -> Result<Conversation, String> {
     if delegate_runtime_thread_conversation_get(state, conversation_id)?.is_some() {
         let next_path = shell_workspace_path.clone();
         let next_workspaces = shell_workspaces.clone();
+        let next_branch = shell_work_branch.clone();
         delegate_runtime_thread_modify(state, conversation_id, move |thread| {
             let original_path = thread.conversation.shell_workspace_path.clone();
             let original_workspaces = thread.conversation.shell_workspaces.clone();
             let original_autonomous_mode = thread.conversation.shell_autonomous_mode;
             let original_work_mode = thread.conversation.shell_work_mode.clone();
+            let original_branch = thread.conversation.shell_work_branch.clone();
             if let Some(value) = next_path.clone() {
                 thread.conversation.shell_workspace_path = value;
             }
@@ -975,6 +981,9 @@ fn apply_conversation_chat_workspace_changes(
             if let Some(value) = shell_work_mode.clone() {
                 thread.conversation.shell_work_mode = normalize_shell_work_mode_text(&value);
             }
+            if let Some(value) = next_branch.clone() {
+                thread.conversation.shell_work_branch = value.trim().to_string();
+            }
             if thread.conversation.shell_workspace_path.as_deref().map(str::trim).filter(|value| !value.is_empty()).is_some()
                 && terminal_workspace_path_from_conversation(state, &thread.conversation).is_none()
             {
@@ -984,6 +993,7 @@ fn apply_conversation_chat_workspace_changes(
                 && thread.conversation.shell_workspaces == original_workspaces
                 && thread.conversation.shell_autonomous_mode == original_autonomous_mode
                 && thread.conversation.shell_work_mode == original_work_mode
+                && thread.conversation.shell_work_branch == original_branch
             {
                 return Ok(());
             }
@@ -1004,6 +1014,7 @@ fn apply_conversation_chat_workspace_changes(
         shell_workspaces,
         shell_autonomous_mode,
         shell_work_mode,
+        shell_work_branch,
     )?;
     mark_prompt_cache_rebuild_for_system_environment_by_conversation(state, conversation_id);
     Ok(updated)
@@ -1067,6 +1078,7 @@ fn build_chat_shell_workspace_output(
         shell_work_mode: conversation
             .map(|value| normalize_shell_work_mode_text(&value.shell_work_mode))
             .unwrap_or_else(default_shell_work_mode),
+        shell_work_branch: conversation.map(|value| value.shell_work_branch.clone()).unwrap_or_default(),
     }
 }
 
@@ -1909,6 +1921,12 @@ fn update_chat_shell_workspace_layout_inner(
         input.conversation_id.as_deref(),
     )?;
     let normalized_workspaces = normalize_conversation_shell_workspaces(state, &input.workspaces);
+    let normalized_branch = input
+        .shell_work_branch
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(|value| value.to_string());
     let updated = apply_conversation_chat_workspace_changes(
         state,
         &conversation_id,
@@ -1916,6 +1934,7 @@ fn update_chat_shell_workspace_layout_inner(
         Some(normalized_workspaces),
         input.autonomous_mode,
         input.shell_work_mode,
+        normalized_branch,
     )?;
     {
         let mut roots = state

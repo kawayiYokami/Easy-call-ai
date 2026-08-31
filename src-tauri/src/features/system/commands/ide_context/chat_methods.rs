@@ -103,6 +103,7 @@ fn ide_chat_ensure_sidebar_workspace(
         Some(normalized_workspaces),
         None,
         None,
+        None,
     )?;
     Ok(())
 }

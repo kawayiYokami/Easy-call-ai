@@ -16,20 +16,10 @@ fn normalize_shell_workspace_level_text(raw: &str) -> String {
     }
 }
 
-fn normalize_shell_workspace_access_text(raw: &str) -> String {
-    match raw.trim().to_ascii_lowercase().as_str() {
-        SHELL_WORKSPACE_ACCESS_APPROVAL => SHELL_WORKSPACE_ACCESS_APPROVAL.to_string(),
-        SHELL_WORKSPACE_ACCESS_FULL_ACCESS => SHELL_WORKSPACE_ACCESS_FULL_ACCESS.to_string(),
-        SHELL_WORKSPACE_ACCESS_READ_ONLY => SHELL_WORKSPACE_ACCESS_READ_ONLY.to_string(),
-        _ => String::new(),
-    }
-}
-
 fn shell_workspace_default_access_for_level(level: &str) -> String {
     match level {
         SHELL_WORKSPACE_LEVEL_SYSTEM => SHELL_WORKSPACE_ACCESS_FULL_ACCESS.to_string(),
-        SHELL_WORKSPACE_LEVEL_MAIN => SHELL_WORKSPACE_ACCESS_APPROVAL.to_string(),
-        _ => SHELL_WORKSPACE_ACCESS_READ_ONLY.to_string(),
+        _ => SHELL_WORKSPACE_ACCESS_APPROVAL.to_string(),
     }
 }
 
@@ -912,28 +902,31 @@ fn terminal_worktree_write_rejection(
     if mode == SHELL_WORK_MODE_DIRECTORY {
         return Ok(None);
     }
+    // 统一 worktree：仅允许写入 .pai（含专用工作树），阻断其他工作树
     let root = terminal_default_workspace_for_conversation_resolved(state, Some(&conversation))?.path;
     let pai_dir = terminal_normalize_for_access_check(&root.join(".pai"));
     let worktree_dir = terminal_normalize_for_access_check(&pai_dir.join(".worktree"));
     let dedicated_dir = terminal_normalize_for_access_check(
+        &worktree_dir.join(conversation.id.clone()),
+    );
+    let dedicated_dir_legacy = terminal_normalize_for_access_check(
         &worktree_dir.join(conversation.id.chars().take(8).collect::<String>()),
     );
     for target in targets {
         let target = terminal_normalize_for_access_check(target);
         if !path_is_within(&pai_dir, &target) {
             return Ok(Some(format!(
-                "当前工作模式为“{}”，写入目标“{}”不在允许范围内。工作树模式只能写入“{}”；请改用该目录下的路径。",
-                if mode == SHELL_WORK_MODE_INDEPENDENT_WORKTREE { "独立工作树" } else { "在隔离工作树" },
+                "当前工作模式为“工作树”，写入目标“{}”不在允许范围内。工作树模式只能写入“{}”；请改用该目录下的路径。",
                 terminal_path_for_user(&target),
                 terminal_path_for_user(&pai_dir),
             )));
         }
-        if mode == SHELL_WORK_MODE_INDEPENDENT_WORKTREE
-            && path_is_within(&worktree_dir, &target)
+        if path_is_within(&worktree_dir, &target)
             && !path_is_within(&dedicated_dir, &target)
+            && !path_is_within(&dedicated_dir_legacy, &target)
         {
             return Ok(Some(format!(
-                "当前工作模式为“独立工作树”，写入目标“{}”属于其他工作树。当前会话只能在“{}”修改项目；计划、Skill 等工作记录仍可写入“{}”。",
+                "当前工作模式为“工作树”，写入目标“{}”属于其他工作树。当前会话只能在“{}”修改项目；计划、Skill 等工作记录仍可写入“{}”。",
                 terminal_path_for_user(&target),
                 terminal_path_for_user(&dedicated_dir),
                 terminal_path_for_user(&pai_dir),
@@ -1002,20 +995,12 @@ fn terminal_prompt_trusted_roots_block(
         let work_mode = conversation
             .map(|value| normalize_shell_work_mode_text(&value.shell_work_mode))
             .unwrap_or_else(default_shell_work_mode);
-        if work_mode == SHELL_WORK_MODE_ISOLATED_WORKTREE {
+        if work_mode == SHELL_WORK_MODE_WORKTREE {
             let root = terminal_path_for_user(&default_workspace.path);
-            lines.push(format!(
-                "用户希望在隔离工作树中工作。请以「{}」作为 Git 仓库根目录，根据任务需要在「{}/.pai/.worktree/」下创建或复用 Git worktree，并在对应工作树中完成修改；不要直接修改仓库根工作区的项目文件。",
-                root, root
-            ));
-            lines.push("创建前检查仓库根工作区是否存在未提交改动；如果任务依赖这些改动，先询问用户，不得自行提交、暂存、stash 或复制。".to_string());
-            lines.push("注意不要让 .pai/ 被 Git 追踪。不要自动删除工作树或分支，除非用户明确要求。".to_string());
-        } else if work_mode == SHELL_WORK_MODE_INDEPENDENT_WORKTREE {
-            let root = terminal_path_for_user(&default_workspace.path);
-            let session_id = conversation.map(|value| value.id.chars().take(8).collect::<String>()).unwrap_or_default();
+            let session_id = conversation.map(|value| value.id.clone()).unwrap_or_default();
             let worktree = format!("{root}/.pai/.worktree/{session_id}");
             lines.push(format!(
-                "用户希望在独立工作树中工作。项目修改只能发生在「{}」；本项目的工作记录仍维护在「{}/.pai/**」，包括 plan、skill 等所有 .pai 文件。",
+                "用户希望在工作树中工作。项目修改只能发生在「{}」；本项目的工作记录仍维护在「{}/.pai/**」，包括 plan、skill 等所有 .pai 文件。",
                 worktree, root
             ));
             lines.push(format!(
@@ -1127,6 +1112,198 @@ fn terminal_normalize_for_access_check(path: &Path) -> PathBuf {
         cursor = parent;
     }
     path.to_path_buf()
+}
+
+// ========== Worktree 自动创建（首轮发送时） ==========
+
+async fn ensure_conversation_worktree_internal(
+    git_root: &str,
+    worktree_path: &std::path::Path,
+    branch: &str,
+) -> Result<(), String> {
+    let worktree_path_owned = worktree_path.to_path_buf();
+    let git_root_owned = git_root.to_string();
+    if worktree_path.exists() {
+        let worktree_str = worktree_path_owned.to_string_lossy().to_string();
+        let registered = git_executor()
+            .run_read(&git_root_owned, &["worktree", "list", "--porcelain"])
+            .await
+            .map(|stdout| {
+                stdout
+                    .lines()
+                    .any(|line| line.trim().starts_with("worktree ") && line.contains(&worktree_str))
+            })
+            .unwrap_or(false);
+        let git_file_valid = worktree_path_owned.join(".git").exists()
+            || std::fs::read_to_string(worktree_path_owned.join(".git"))
+                .map(|content| content.contains("gitdir:"))
+                .unwrap_or(false);
+        if registered || git_file_valid {
+            return Ok(());
+        }
+        return Err(format!(
+            "工作树路径已存在但未注册为当前仓库的工作树：{}，请手动清理后重试",
+            worktree_str
+        ));
+    }
+    if let Some(parent) = worktree_path.parent() {
+        tokio::fs::create_dir_all(parent)
+            .await
+            .map_err(|err| format!("无法创建工作树父目录：{err}"))?;
+    }
+    let branch_trimmed = branch.trim();
+    let validated_branch = if branch_trimmed.is_empty() {
+        None
+    } else {
+        Some(git_panel_validate_branch_name(branch_trimmed)?)
+    };
+    // 优先尝试带分支的 worktree add，失败时回退为 HEAD
+    let worktree_str = worktree_path.to_string_lossy().to_string();
+    let args_sets: Vec<Vec<String>> = if let Some(validated) = validated_branch {
+        vec![
+            vec!["worktree".to_string(), "add".to_string(), "--force".to_string(), worktree_str.clone(), validated.clone()],
+            vec!["worktree".to_string(), "add".to_string(), worktree_str.clone(), validated],
+            vec!["worktree".to_string(), "add".to_string(), worktree_str.clone()],
+        ]
+    } else {
+        // 无分支：直接以 HEAD 创建
+        vec![
+            vec!["worktree".to_string(), "add".to_string(), worktree_str.clone()],
+            vec!["worktree".to_string(), "add".to_string(), worktree_str.clone(), "HEAD".to_string()],
+        ]
+    };
+    let mut last_err = String::new();
+    for args in args_sets {
+        let args_ref: Vec<&str> = args.iter().map(|s| s.as_str()).collect();
+        let run = git_executor().run_write(git_root, &args_ref);
+        let result = tokio::time::timeout(std::time::Duration::from_secs(30), run).await;
+        match result {
+            Ok(Ok(output)) if output.exit_code == 0 => {
+                runtime_log_info(format!(
+                    "[工作树] 完成，任务=创建工作树，git_root={}，worktree={}，branch={}，args={:?}",
+                    git_root,
+                    worktree_str,
+                    branch_trimmed,
+                    args
+                ));
+                return Ok(());
+            }
+            Ok(Ok(output)) => {
+                last_err = format!("git worktree add 失败：{} {}", output.stderr.trim(), output.stdout.trim());
+                runtime_log_warn(format!(
+                    "[工作树] 失败，任务=创建工作树，git_root={}，worktree={}，branch={}，args={:?}，stderr={}，stdout={}",
+                    git_root, worktree_str, branch_trimmed, args, output.stderr.trim(), output.stdout.trim()
+                ));
+                // 若是“已存在”相关错误，直接视为成功（可能已被并发创建）
+                let combined = format!("{} {}", output.stderr, output.stdout).to_ascii_lowercase();
+                if combined.contains("already exists") || combined.contains("already checked out") || combined.contains("已存在") {
+                    if worktree_path.exists() {
+                        return Ok(());
+                    }
+                }
+            }
+            Ok(Err(err)) => {
+                last_err = format!("git worktree add 执行失败：{err}");
+                runtime_log_warn(format!(
+                    "[工作树] 失败，任务=创建工作树，git_root={}，worktree={}，branch={}，args={:?}，error={}",
+                    git_root, worktree_str, branch_trimmed, args, err
+                ));
+            }
+            Err(_) => {
+                last_err = "git worktree add 超时（30s）".to_string();
+                runtime_log_warn(format!(
+                    "[工作树] 超时，任务=创建工作树，git_root={}，worktree={}，branch={}",
+                    git_root, worktree_str, branch_trimmed
+                ));
+                break;
+            }
+        }
+    }
+    Err(last_err)
+}
+
+pub(crate) async fn ensure_conversation_worktree(_state: &AppState, conversation: &Conversation) -> Result<(), String> {
+    let mode = normalize_shell_work_mode_text(&conversation.shell_work_mode);
+    if mode != SHELL_WORK_MODE_WORKTREE {
+        return Ok(());
+    }
+    let main_ws = conversation
+        .shell_workspaces
+        .iter()
+        .find(|w| w.level == SHELL_WORKSPACE_LEVEL_MAIN)
+        .or_else(|| conversation.shell_workspaces.first());
+    let Some(ws) = main_ws else {
+        return Err("工作树模式需要主目录，当前会话未配置工作区".to_string());
+    };
+    let ws_path = ws.path.trim();
+    if ws_path.is_empty() {
+        return Err("工作树模式的主目录路径为空".to_string());
+    }
+    // 解析 Git 根
+    let git_root = git_panel_resolve_root(ws_path).await.map_err(|err| {
+        format!("工作树 Git 探测失败：{err}")
+    })?;
+    let worktree_path = std::path::PathBuf::from(&git_root).join(".pai").join(".worktree").join(conversation.id.clone());
+    let legacy_path = std::path::PathBuf::from(&git_root).join(".pai").join(".worktree").join(conversation.id.chars().take(8).collect::<String>());
+    if worktree_path.exists() || legacy_path.exists() {
+        let check_path = if worktree_path.exists() { &worktree_path } else { &legacy_path };
+        let check_str = check_path.to_string_lossy().to_string();
+        let registered = git_executor()
+            .run_read(&git_root, &["worktree", "list", "--porcelain"])
+            .await
+            .map(|stdout| {
+                stdout
+                    .lines()
+                    .any(|line| line.trim().starts_with("worktree ") && line.contains(&check_str))
+            })
+            .unwrap_or(false);
+        let git_file_valid = check_path.join(".git").exists()
+            || std::fs::read_to_string(check_path.join(".git"))
+                .map(|content| content.contains("gitdir:"))
+                .unwrap_or(false);
+        if registered || git_file_valid {
+            if !worktree_path.exists() && legacy_path.exists() {
+                runtime_log_info(format!(
+                    "[工作树] 跳过，任务=创建工作树，原因=legacy已存在，git_root={}，legacy={}，worktree={}",
+                    git_root,
+                    legacy_path.display(),
+                    worktree_path.display()
+                ));
+            }
+            return Ok(());
+        }
+        if worktree_path.exists() {
+            return Err(format!(
+                "工作树路径已存在但未注册为当前仓库的工作树：{}，请手动清理后重试",
+                check_str
+            ));
+        }
+        // legacy 存在但未注册，继续走新建流程
+    }
+    let branch = conversation.shell_work_branch.trim().to_string();
+    let _branch_for_log = if branch.is_empty() {
+        // 尝试取当前分支作为兜底分支名
+        let cur = git_panel_current_branch(&git_root).await;
+        let cur_trim = cur.trim().to_string();
+        if cur_trim.is_empty() { branch.clone() } else { cur_trim }
+    } else {
+        branch.clone()
+    };
+    // 若 branch 为空，仍尝试以 HEAD 创建
+    let effective_branch = if branch.trim().is_empty() {
+        git_panel_current_branch(&git_root).await.trim().to_string()
+    } else {
+        branch.clone()
+    };
+    runtime_log_info(format!(
+        "[工作树] 开始，任务=创建工作树，conversation_id={}，git_root={}，worktree={}，branch={}",
+        conversation.id,
+        git_root,
+        worktree_path.display(),
+        effective_branch
+    ));
+    ensure_conversation_worktree_internal(&git_root, &worktree_path, &effective_branch).await?;
+    Ok(())
 }
 
 #[cfg(test)]
@@ -1879,7 +2056,7 @@ mod terminal_workspace_tests {
         state_write_config_cached(&state, &config).expect("write config");
         let mut conversation = build_workspace_test_conversation("worktree-prompt");
         conversation.shell_workspaces = config.shell_workspaces.clone();
-        conversation.shell_work_mode = SHELL_WORK_MODE_ISOLATED_WORKTREE.to_string();
+        conversation.shell_work_mode = SHELL_WORK_MODE_WORKTREE.to_string();
         let mut api = ApiConfig::default();
         api.enable_tools = true;
         api.tools = vec![ApiToolConfig {
@@ -1893,7 +2070,7 @@ mod terminal_workspace_tests {
         let block = terminal_prompt_trusted_roots_block(&state, &api, Some(&conversation))
             .expect("terminal block");
 
-        assert!(block.contains("在隔离工作树中工作"));
+        assert!(block.contains("在工作树中工作"));
         assert!(block.contains(".pai/.worktree/"));
         assert!(block.contains("不要让 .pai/ 被 Git 追踪"));
         assert!(block.contains("不得自行提交、暂存、stash 或复制"));
@@ -1921,7 +2098,7 @@ mod terminal_workspace_tests {
         state_write_config_cached(&state, &config).expect("write config");
         let mut conversation = build_workspace_test_conversation("a1b2c3d4-independent-worktree");
         conversation.shell_workspaces = config.shell_workspaces.clone();
-        conversation.shell_work_mode = SHELL_WORK_MODE_INDEPENDENT_WORKTREE.to_string();
+        conversation.shell_work_mode = SHELL_WORK_MODE_WORKTREE.to_string();
         let mut api = ApiConfig::default();
         api.enable_tools = true;
         api.tools = vec![ApiToolConfig {
@@ -1935,7 +2112,7 @@ mod terminal_workspace_tests {
         let block = terminal_prompt_trusted_roots_block(&state, &api, Some(&conversation))
             .expect("terminal block");
 
-        assert!(block.contains("独立工作树"));
+        assert!(block.contains("工作树"));
         assert!(block.contains(".pai/.worktree/a1b2c3d4"));
         assert!(block.contains("不得改用其他工作树"));
         assert!(block.contains("工作记录仍维护"));
@@ -1976,7 +2153,7 @@ mod terminal_workspace_tests {
         let mut data = AppData::default();
         data.conversations.push(conversation.clone());
 
-        conversation.shell_work_mode = SHELL_WORK_MODE_ISOLATED_WORKTREE.to_string();
+        conversation.shell_work_mode = SHELL_WORK_MODE_WORKTREE.to_string();
         data.conversations[0] = conversation.clone();
         state_write_app_data_cached(&state, &data).expect("write isolated conversation");
         let root_source_rejection = terminal_worktree_write_rejection(
@@ -1996,7 +2173,7 @@ mod terminal_workspace_tests {
         .expect("check isolated plan")
         .is_none());
 
-        conversation.shell_work_mode = SHELL_WORK_MODE_INDEPENDENT_WORKTREE.to_string();
+        conversation.shell_work_mode = SHELL_WORK_MODE_WORKTREE.to_string();
         data.conversations[0] = conversation.clone();
         state_write_app_data_cached(&state, &data).expect("write independent conversation");
         assert!(terminal_worktree_write_rejection(
@@ -2027,7 +2204,7 @@ mod terminal_workspace_tests {
         .expect("check directory mode")
         .is_none());
 
-        conversation.shell_work_mode = SHELL_WORK_MODE_INDEPENDENT_WORKTREE.to_string();
+        conversation.shell_work_mode = SHELL_WORK_MODE_WORKTREE.to_string();
         conversation.shell_autonomous_mode = true;
         data.conversations[0] = conversation;
         state_write_app_data_cached(&state, &data).expect("write autonomous conversation");

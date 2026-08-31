@@ -124,6 +124,8 @@ struct ConversationMetaView {
     shell_workspaces: Vec<ShellWorkspaceConfig>,
     shell_autonomous_mode: bool,
     shell_work_mode: String,
+    #[serde(default)]
+    shell_work_branch: String,
     current_todos: Vec<ConversationTodoItem>,
     active_goal: Option<ConversationGoalState>,
     fast_request_turns: Vec<FastRequestTurn>,
@@ -312,6 +314,7 @@ impl ConversationMetaView {
             shell_workspaces: meta.shell_workspaces().to_vec(),
             shell_autonomous_mode: meta.shell_autonomous_mode(),
             shell_work_mode: normalize_shell_work_mode_text(meta.shell_work_mode()),
+            shell_work_branch: meta.shell_work_branch().to_string(),
             current_todos: meta.current_todos().to_vec(),
             active_goal: meta.active_goal().cloned(),
             fast_request_turns: meta.fast_request_turns().to_vec(),
@@ -651,6 +654,7 @@ struct ConversationExternalMetadataPatch {
     shell_workspaces: Option<Vec<ShellWorkspaceConfig>>,
     shell_autonomous_mode: Option<bool>,
     shell_work_mode: Option<String>,
+    shell_work_branch: Option<String>,
     lifecycle_status: Option<String>,
     lifecycle_archived_at: Option<Option<String>>,
     lifecycle_updated_at: Option<String>,
@@ -1213,6 +1217,9 @@ impl ConversationServiceV2 {
                         }
                         if let Some(value) = patch.shell_work_mode {
                             conversation.shell_work_mode = normalize_shell_work_mode_text(&value);
+                        }
+                        if let Some(value) = patch.shell_work_branch {
+                            conversation.shell_work_branch = value.trim().to_string();
                         }
                         if let Some(value) = patch.lifecycle_status {
                             conversation.status = value;
@@ -2101,6 +2108,7 @@ impl ConversationServiceV2 {
             shell_workspaces,
             shell_autonomous_mode,
             shell_work_mode,
+            None,
         )
     }
 

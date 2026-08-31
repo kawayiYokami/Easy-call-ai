@@ -415,3 +415,36 @@ body {
 @media (prefers-reduced-motion: reduce) {
   .ecall-expandable__shell, .ecall-expandable__content { transition: none !important; }
 }
+
+/* ecall 下拉统一 0.2s - 复刻 collapse 的 duration-fold， opacity + 位移 + 缩放 */
+.ecall-dropdown-enter-active,
+.ecall-dropdown-leave-active,
+.ecall-dropdown-up-enter-active,
+.ecall-dropdown-up-leave-active {
+  transition:
+    opacity var(--duration-fold) ease,
+    transform var(--duration-fold) ease;
+  transform-origin: top center;
+}
+.ecall-dropdown-up-enter-active,
+.ecall-dropdown-up-leave-active {
+  transform-origin: bottom center;
+}
+.ecall-dropdown-enter-from,
+.ecall-dropdown-leave-to {
+  opacity: 0;
+  transform: translateY(-6px) scale(0.98);
+}
+.ecall-dropdown-up-enter-from,
+.ecall-dropdown-up-leave-to {
+  opacity: 0;
+  transform: translateY(6px) scale(0.98);
+}
+@media (prefers-reduced-motion: reduce) {
+  .ecall-dropdown-enter-active,
+  .ecall-dropdown-leave-active,
+  .ecall-dropdown-up-enter-active,
+  .ecall-dropdown-up-leave-active {
+    transition: none !important;
+  }
+}

@@ -529,6 +529,7 @@ fn chat_history_collect_slices_for_state(
             shell_workspaces: conversation_meta.shell_workspaces.clone(),
             shell_autonomous_mode: conversation_meta.shell_autonomous_mode,
             shell_work_mode: normalize_shell_work_mode_text(&conversation_meta.shell_work_mode),
+            shell_work_branch: String::new(),
             archived_at: conversation_meta.archived_at.clone(),
             messages: Vec::new(),
             fast_request_turns: conversation_meta.fast_request_turns.clone(),

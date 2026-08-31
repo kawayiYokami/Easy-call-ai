@@ -64,98 +64,28 @@
       </div>
 
       <div
-        v-if="saveWorkspace"
+        v-if="hasWorkspaceCapability"
         class="flex w-full max-w-md flex-col items-center gap-2"
       >
-        <div ref="workspaceSelectRootRef" class="relative w-full">
-          <div class="flex h-9 w-full items-center gap-1 rounded-field border border-base-content/10 bg-base-100/50 pl-3.5 pr-1 shadow-sm backdrop-blur-md">
-            <FolderOpen class="h-3.5 w-3.5 shrink-0 text-base-content/45" />
-            <button
-              type="button"
-              class="min-w-0 flex-1 cursor-pointer text-left text-xs font-medium text-base-content outline-none"
-              :disabled="mergedOptions.length === 0"
-              @click="toggleWorkspaceDropdown"
-            >
-              <span class="block w-full truncate" :class="selectedWorkspaceName ? '' : 'text-base-content/45'">
-                {{ selectedWorkspaceName || t("chat.draftWorkspacePlaceholder") }}
-              </span>
-            </button>
-            <ChevronDown
-              class="pointer-events-none h-3.5 w-3.5 shrink-0 text-base-content/45 transition-transform"
-              :class="workspaceDropdownOpen ? 'rotate-180' : ''"
-            />
-            <button
-              type="button"
-              class="btn btn-ghost btn-circle btn-sm shrink-0 text-base-content/55"
-              :title="t('common.browse')"
-              @click="browseWorkspaceDirectory"
-            >
-              <FolderSearch class="h-3.5 w-3.5" />
-            </button>
-          </div>
-          <div
-            v-if="workspaceDropdownOpen && mergedOptions.length > 0"
-            class="absolute z-30 w-full overflow-hidden rounded-box border border-base-300 bg-base-100 shadow-xl"
-            :class="workspaceDropdownDirection === 'up' ? 'bottom-full mb-2' : 'top-full mt-2'"
-          >
-            <OverlayScrollArea scroller-class="max-h-60 overscroll-contain" class="p-1">
-              <button
-                v-for="option in mergedOptions"
-                :key="option.path"
-                type="button"
-                class="flex w-full items-center gap-2 rounded-field px-2.5 py-2 text-left text-xs transition-colors"
-                :class="option.path.toLowerCase() === selectedPath.toLowerCase()
-                  ? 'bg-base-200 font-medium'
-                  : 'hover:bg-base-200/70'"
-                :title="option.path"
-                @click="handleWorkspaceOptionSelect(option.path)"
-              >
-                <span class="min-w-0 flex-1 truncate">{{ option.name }}</span>
-                <Check
-                  v-if="option.path.toLowerCase() === selectedPath.toLowerCase()"
-                  class="h-3.5 w-3.5 shrink-0 text-primary"
-                />
-              </button>
-            </OverlayScrollArea>
-          </div>
-        </div>
-        <div class="flex max-w-full flex-wrap items-center justify-center gap-2">
-          <div class="flex items-center rounded-selector border border-base-content/10 bg-base-content/5 p-0.5 backdrop-blur-md">
-            <button
-              v-for="accessOption in ACCESS_OPTIONS"
-              :key="accessOption"
-              type="button"
-              class="rounded-selector px-3 py-1.5 text-[11px] font-medium leading-none transition-all"
-              :class="selectedAccess === accessOption
-                ? 'bg-base-100 text-base-content shadow-sm'
-                : 'text-base-content/55 hover:text-base-content'"
-              @click="setAccess(accessOption)"
-            >
-              {{ t(`config.tools.workspaceAccess${ACCESS_LABEL_KEY[accessOption]}`) }}
-            </button>
-          </div>
-          <div class="flex items-center rounded-selector border border-base-content/10 bg-base-content/5 p-0.5 backdrop-blur-md">
-            <button
-              v-for="modeOption in MODE_OPTIONS"
-              :key="modeOption"
-              type="button"
-              class="rounded-selector px-3 py-1.5 text-[11px] font-medium leading-none transition-all"
-              :class="selectedWorkMode === modeOption
-                ? 'bg-base-100 text-base-content shadow-sm'
-                : (isWorkModeDisabled(modeOption) ? 'cursor-not-allowed text-base-content/30' : 'text-base-content/55 hover:text-base-content')"
-              :title="t(MODE_HINT_KEY[modeOption])"
-              @click="setWorkMode(modeOption)"
-            >
-              {{ t(`chat.draftWorkMode${MODE_LABEL_KEY[modeOption]}`) }}
-            </button>
-          </div>
-        </div>
-        <div
-          class="h-4 text-center text-[11px] leading-4 transition-opacity duration-200"
-          :class="worktreeCheckMessage ? 'text-base-content/50 opacity-100' : 'opacity-0'"
-        >
-          {{ worktreeCheckMessage || " " }}
-        </div>
+        <WorkspaceConfigCard
+          :main-path="selectedPath"
+          :secondary-paths="secondaryPaths"
+          :access="selectedAccess"
+          :work-mode="selectedWorkMode"
+          :selected-branch="selectedBranch"
+          :branch-list="branchList"
+          :branch-loading="branchLoading"
+          :git-root-available="gitRootAvailable"
+          :git-check-message="worktreeCheckMessage"
+          :available-workspaces="mergedOptions"
+          @update:main-path="handleMainPathUpdate"
+          @update:access="handleAccessUpdate"
+          @update:work-mode="handleWorkModeUpdate"
+          @update:branch="handleBranchUpdate"
+          @browse-main="browseWorkspaceDirectory"
+          @add-secondary="handleAddSecondary"
+          @remove-secondary="handleRemoveSecondary"
+        />
       </div>
 
       <div class="flex max-w-full flex-wrap items-stretch justify-center gap-3">
@@ -276,11 +206,13 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
-import { FolderOpen, FolderSearch, ChevronDown, Check, Pencil } from "@lucide/vue";
-import { openTransportFileDialog } from "../../../services/tauri-api";
+import { Pencil } from "@lucide/vue";
+import { openTransportFileDialog, gitPanelBranchList, gitPanelCheckoutCheck, gitPanelCheckout } from "../../../services/tauri-api";
 import { departmentPersonaOptionId, type DepartmentPersonaOption } from "../../shared/department-persona-options";
 import PersonaGroupGrid from "../../shared/components/PersonaGroupGrid.vue";
-import OverlayScrollArea from "../../shared/components/OverlayScrollArea.vue";
+import WorkspaceConfigCard from "../../shared/components/WorkspaceConfigCard.vue";
+import type { ShellWorkspace, ShellWorkMode } from "../../../types/app";
+import { stripExtendedPathPrefix } from "../../../utils/shell-workspaces";
 
 interface RecentRecipientGroup {
   agentId: string;
@@ -292,11 +224,10 @@ type WorkspaceOption = {
   id: string;
   name: string;
   path: string;
-  access: "read_only" | "approval" | "full_access";
+  access: "approval" | "full_access";
 };
 
 type ShellWorkspaceAccess = WorkspaceOption["access"];
-type ShellWorkMode = "directory" | "isolated_worktree" | "independent_worktree";
 
 const props = withDefaults(defineProps<{
   options?: DepartmentPersonaOption[];
@@ -309,8 +240,12 @@ const props = withDefaults(defineProps<{
   workspaceRootPath?: string;
   workspaceAccess?: ShellWorkspaceAccess | "";
   workspaceWorkMode?: ShellWorkMode;
+  workspaceBranch?: string;
+  workspaces?: ShellWorkspace[];
   workspaceAutonomousMode?: boolean;
   saveWorkspace?: (input: { path: string; name: string; access: ShellWorkspaceAccess; workMode: ShellWorkMode }) => Promise<void>;
+  // 新的多目录+分支持久化通道，优先于 saveWorkspace
+  saveWorkspaces?: (items: ShellWorkspace[], autonomousMode: boolean, workMode: ShellWorkMode, branch?: string) => Promise<void>;
   gitRootCheck?: (path: string) => Promise<boolean>;
 }>(), {
   options: () => [],
@@ -323,6 +258,8 @@ const props = withDefaults(defineProps<{
   workspaceRootPath: "",
   workspaceAccess: "",
   workspaceWorkMode: "directory",
+  workspaceBranch: "",
+  workspaces: () => [],
   workspaceAutonomousMode: false,
 });
 
@@ -369,40 +306,31 @@ function commitTitle() {
   emit("update:title", next);
 }
 
-// ========== 草稿工作区快捷设置 ==========
-
-const ACCESS_OPTIONS = ["read_only", "approval", "full_access"] as const;
-const ACCESS_LABEL_KEY: Record<ShellWorkspaceAccess, string> = {
-  read_only: "ReadOnly",
-  approval: "Approval",
-  full_access: "FullAccess",
-};
-const MODE_OPTIONS = ["directory", "isolated_worktree", "independent_worktree"] as const;
-const MODE_LABEL_KEY: Record<ShellWorkMode, string> = {
-  directory: "Directory",
-  isolated_worktree: "Isolated",
-  independent_worktree: "Independent",
-};
-const MODE_HINT_KEY: Record<ShellWorkMode, string> = {
-  directory: "chat.workspaceWorkModeDirectory",
-  isolated_worktree: "chat.workspaceWorkModeIsolated",
-  independent_worktree: "chat.workspaceWorkModeIndependent",
-};
+// ========== 草稿工作区（以 WorkspaceConfigCard 为唯一真相源） ==========
 
 const selectedPath = ref("");
 const selectedAccess = ref<ShellWorkspaceAccess>("approval");
 const selectedWorkMode = ref<ShellWorkMode>("directory");
-const worktreeAvailable = ref(false);
+const selectedBranch = ref("");
+const secondaryPaths = ref<string[]>([]);
+const branchList = ref<string[]>([]);
+const branchLoading = ref(false);
+const gitRootAvailable = ref(false);
 const worktreeCheckMessage = ref("");
 const customOption = ref<WorkspaceOption | null>(null);
 const saving = ref(false);
 let pendingSave = false;
 let checkSequence = 0;
+let branchSequence = 0;
 let lastGitCheckPath = "";
+
+const hasWorkspaceCapability = computed(() => {
+  return Boolean(props.saveWorkspace || props.saveWorkspaces || props.workspaceOptions.length > 0);
+});
 
 function normalizeAccess(value: unknown): ShellWorkspaceAccess {
   const text = String(value || "").trim();
-  if (text === "full_access" || text === "read_only" || text === "approval") return text;
+  if (text === "full_access" || text === "approval") return text;
   return "approval";
 }
 
@@ -410,6 +338,17 @@ const mergedOptions = computed<WorkspaceOption[]>(() => {
   const list = [...props.workspaceOptions];
   if (customOption.value && !list.some((item) => item.path.toLowerCase() === customOption.value!.path.toLowerCase())) {
     list.push(customOption.value);
+  }
+  // 二级目录也可能来自浏览新增，尚未在下拉里
+  for (const sec of secondaryPaths.value) {
+    if (!list.some((item) => item.path.toLowerCase() === sec.toLowerCase())) {
+      list.push({
+        id: `conversation-workspace-custom-sec-${sec.toLowerCase()}`,
+        name: sec.replace(/\\/g, "/").replace(/\/+$/, "").split("/").pop() || sec,
+        path: sec,
+        access: selectedAccess.value,
+      });
+    }
   }
   return list;
 });
@@ -420,65 +359,31 @@ function findOptionByPath(path: string): WorkspaceOption | null {
   return mergedOptions.value.find((item) => item.path.toLowerCase() === target) ?? null;
 }
 
-// ========== 目录组件化下拉（照 DepartmentPersonaSelect 的交互骨架） ==========
-
-const workspaceDropdownOpen = ref(false);
-const workspaceDropdownDirection = ref<"up" | "down">("down");
-const workspaceSelectRootRef = ref<HTMLElement | null>(null);
-
-const selectedWorkspaceName = computed(() => {
-  if (!selectedPath.value) return "";
-  return findOptionByPath(selectedPath.value)?.name || selectedPath.value.replace(/\\/g, "/").replace(/\/+$/, "").split("/").pop() || selectedPath.value;
-});
-
-function toggleWorkspaceDropdown() {
-  if (mergedOptions.value.length === 0) return;
-  workspaceDropdownOpen.value = !workspaceDropdownOpen.value;
-  if (workspaceDropdownOpen.value) {
-    void nextTick(updateWorkspaceDropdownLayout);
+function syncSecondaryFromProps() {
+  const list = Array.isArray(props.workspaces) ? props.workspaces : [];
+  const secondaries = list
+    .filter((ws) => String(ws.level || "").trim().toLowerCase() === "secondary")
+    .map((ws) => stripExtendedPathPrefix(String(ws.path || "").trim()))
+    .filter(Boolean);
+  // 去重保持顺序
+  const deduped: string[] = [];
+  const seen = new Set<string>();
+  for (const path of secondaries) {
+    const key = path.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    deduped.push(path);
   }
+  secondaryPaths.value = deduped;
 }
-
-function handleWorkspaceOptionSelect(path: string) {
-  workspaceDropdownOpen.value = false;
-  handleDirectoryChange(path);
-}
-
-function updateWorkspaceDropdownLayout() {
-  if (!workspaceDropdownOpen.value) return;
-  const root = workspaceSelectRootRef.value;
-  if (!root) return;
-  const rect = root.getBoundingClientRect();
-  const viewportHeight = window.innerHeight || document.documentElement.clientHeight || 0;
-  const panelHeight = Math.min(mergedOptions.value.length * 34 + 8, 240);
-  const spaceBelow = viewportHeight - rect.bottom;
-  const spaceAbove = rect.top;
-  workspaceDropdownDirection.value = spaceBelow >= panelHeight || spaceBelow >= spaceAbove ? "down" : "up";
-}
-
-function handleDocumentPointerDown(event: PointerEvent) {
-  if (!workspaceDropdownOpen.value) return;
-  const target = event.target as Node | null;
-  if (workspaceSelectRootRef.value && target && !workspaceSelectRootRef.value.contains(target)) {
-    workspaceDropdownOpen.value = false;
-  }
-}
-
-onMounted(() => {
-  document.addEventListener("pointerdown", handleDocumentPointerDown);
-  window.addEventListener("resize", updateWorkspaceDropdownLayout, { passive: true });
-});
-
-onBeforeUnmount(() => {
-  document.removeEventListener("pointerdown", handleDocumentPointerDown);
-  window.removeEventListener("resize", updateWorkspaceDropdownLayout);
-});
 
 watch(
-  () => [props.workspaceAccess, props.workspaceWorkMode] as const,
-  ([nextAccess, nextMode]) => {
+  () => [props.workspaceAccess, props.workspaceWorkMode, props.workspaceBranch] as const,
+  ([nextAccess, nextMode, nextBranch]) => {
     selectedAccess.value = normalizeAccess(nextAccess);
-    selectedWorkMode.value = nextMode === "isolated_worktree" || nextMode === "independent_worktree" ? nextMode : "directory";
+    selectedWorkMode.value = nextMode === "worktree" ? "worktree" : "directory";
+    const normalizedBranch = String(nextBranch || "").trim();
+    if (normalizedBranch) selectedBranch.value = normalizedBranch;
   },
   { immediate: true },
 );
@@ -486,40 +391,101 @@ watch(
 watch(
   () => props.workspaceRootPath,
   (nextPath) => {
-    const normalized = String(nextPath || "").trim();
+    const normalized = stripExtendedPathPrefix(String(nextPath || "").trim());
     if (selectedPath.value !== normalized) {
       customOption.value = null;
       worktreeCheckMessage.value = "";
-      worktreeAvailable.value = false;
+      gitRootAvailable.value = false;
+      branchList.value = [];
     }
     selectedPath.value = normalized;
-    // 仅在目录真正变化时探测 Git 根，保存回流同值不重复检查
     if (normalized && props.gitRootCheck && normalized !== lastGitCheckPath) {
+      void runGitRootCheck(normalized);
+    } else if (normalized && !props.gitRootCheck && normalized !== lastGitCheckPath) {
+      // 无外部检查器时，仍尝试通过 branchList 探测间接判断
       void runGitRootCheck(normalized);
     }
   },
   { immediate: true },
 );
 
-function isWorkModeDisabled(mode: ShellWorkMode): boolean {
-  if (mode === "directory") return false;
-  // 与旧版一致：只读（且未开最大权限）不能用工作树；目录不是 Git 根时禁用
-  if (selectedAccess.value === "read_only" && !props.workspaceAutonomousMode) return true;
-  return !worktreeAvailable.value;
-}
+watch(
+  () => props.workspaces,
+  () => {
+    syncSecondaryFromProps();
+  },
+  { immediate: true, deep: true },
+);
 
-function buildSnapshot() {
-  const source = findOptionByPath(selectedPath.value);
-  return {
-    path: selectedPath.value,
-    name: String(source?.name || "").trim() || selectedPath.value.replace(/\\/g, "/").replace(/\/+$/, "").split("/").pop() || selectedPath.value,
-    access: selectedAccess.value,
-    workMode: selectedWorkMode.value,
-  };
+watch(
+  () => props.workspaceBranch,
+  (nextBranch) => {
+    const normalized = String(nextBranch || "").trim();
+    if (normalized) selectedBranch.value = normalized;
+  },
+);
+
+function buildSnapshotWorkspaces(): ShellWorkspace[] {
+  const mainName = String(findOptionByPath(selectedPath.value)?.name || "").trim() || selectedPath.value.replace(/\\/g, "/").replace(/\/+$/, "").split("/").pop() || selectedPath.value;
+  const items: ShellWorkspace[] = [];
+  if (selectedPath.value) {
+    items.push({
+      id: `conversation-workspace-main-${Date.now().toString(36)}`,
+      name: mainName,
+      path: selectedPath.value,
+      level: "main",
+      access: selectedAccess.value,
+      builtIn: false,
+    });
+  }
+  const seen = new Set<string>([selectedPath.value.toLowerCase()]);
+  for (const secPath of secondaryPaths.value) {
+    const normalized = String(secPath || "").trim();
+    if (!normalized) continue;
+    const key = normalized.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    const secName = String(findOptionByPath(normalized)?.name || "").trim() || normalized.replace(/\\/g, "/").replace(/\/+$/, "").split("/").pop() || normalized;
+    items.push({
+      id: `conversation-workspace-sec-${key}-${Math.random().toString(36).slice(2, 6)}`,
+      name: secName,
+      path: normalized,
+      level: "secondary",
+      access: selectedAccess.value,
+      builtIn: false,
+    });
+  }
+  return items;
 }
 
 async function commitSave() {
-  if (!props.saveWorkspace || !selectedPath.value) return;
+  if (!selectedPath.value) return;
+  // 优先走新的多目录+分支通道
+  if (props.saveWorkspaces) {
+    if (saving.value) {
+      pendingSave = true;
+      return;
+    }
+    saving.value = true;
+    try {
+      while (true) {
+        pendingSave = false;
+        const workspaces = buildSnapshotWorkspaces();
+        const branchToSave = selectedWorkMode.value === "worktree" ? String(selectedBranch.value || "").trim() : "";
+        try {
+          await props.saveWorkspaces(workspaces, Boolean(props.workspaceAutonomousMode), selectedWorkMode.value, branchToSave);
+        } catch {
+          restoreFromProps();
+          break;
+        }
+        if (!pendingSave) break;
+      }
+    } finally {
+      saving.value = false;
+    }
+    return;
+  }
+  if (!props.saveWorkspace) return;
   if (saving.value) {
     pendingSave = true;
     return;
@@ -528,8 +494,15 @@ async function commitSave() {
   try {
     while (true) {
       pendingSave = false;
+      const source = findOptionByPath(selectedPath.value);
+      const snapshot = {
+        path: selectedPath.value,
+        name: String(source?.name || "").trim() || selectedPath.value.replace(/\\/g, "/").replace(/\/+$/, "").split("/").pop() || selectedPath.value,
+        access: selectedAccess.value,
+        workMode: selectedWorkMode.value,
+      };
       try {
-        await props.saveWorkspace(buildSnapshot());
+        await props.saveWorkspace(snapshot);
       } catch {
         restoreFromProps();
         break;
@@ -542,78 +515,228 @@ async function commitSave() {
 }
 
 function restoreFromProps() {
-  selectedPath.value = String(props.workspaceRootPath || "").trim();
+  selectedPath.value = stripExtendedPathPrefix(String(props.workspaceRootPath || "").trim());
   selectedAccess.value = normalizeAccess(props.workspaceAccess);
-  selectedWorkMode.value = props.workspaceWorkMode === "isolated_worktree" || props.workspaceWorkMode === "independent_worktree"
-    ? props.workspaceWorkMode
-    : "directory";
-  worktreeAvailable.value = false;
+  selectedWorkMode.value = props.workspaceWorkMode === "worktree" ? "worktree" : "directory";
+  selectedBranch.value = String(props.workspaceBranch || "").trim();
+  syncSecondaryFromProps();
+  gitRootAvailable.value = false;
   worktreeCheckMessage.value = "";
+  branchList.value = [];
+  branchLoading.value = false;
 }
 
 async function runGitRootCheck(path: string) {
   const sequence = ++checkSequence;
   lastGitCheckPath = path;
-  if (!props.gitRootCheck || !path) {
-    worktreeAvailable.value = false;
+  if (!path) {
+    gitRootAvailable.value = false;
     worktreeCheckMessage.value = "";
+    branchList.value = [];
     return;
   }
-  worktreeAvailable.value = false;
-  worktreeCheckMessage.value = t("chat.workspaceWorktreeChecking");
+  gitRootAvailable.value = false;
+  worktreeCheckMessage.value = "";
+  branchLoading.value = true;
+  let available = false;
   try {
-    const available = await props.gitRootCheck(path);
+    if (props.gitRootCheck) {
+      available = await props.gitRootCheck(path);
+    } else {
+      try {
+        const entries = await gitPanelBranchList(path);
+        const names = entries.map((e) => String(e.name || "").trim()).filter(Boolean);
+        if (names.length === 0) {
+          available = false;
+        } else {
+          available = true;
+          if (sequence === checkSequence) {
+            branchList.value = names;
+            const current = entries.find((e) => e.isCurrent)?.name;
+            if (current && !String(selectedBranch.value || "").trim()) {
+              selectedBranch.value = String(current).trim();
+            }
+            gitRootAvailable.value = true;
+            worktreeCheckMessage.value = "";
+            branchLoading.value = false;
+            return;
+          }
+        }
+      } catch {
+        available = false;
+      }
+    }
     if (sequence !== checkSequence) return;
-    worktreeAvailable.value = Boolean(available);
-    worktreeCheckMessage.value = available ? "" : t("chat.workspaceWorktreeUnavailable");
-  } catch (error) {
+    gitRootAvailable.value = Boolean(available);
+    worktreeCheckMessage.value = "";
+  } catch {
     if (sequence !== checkSequence) return;
-    worktreeAvailable.value = false;
-    worktreeCheckMessage.value = error instanceof Error ? error.message : String(error);
+    gitRootAvailable.value = false;
+    worktreeCheckMessage.value = "";
+  } finally {
+    if (sequence === checkSequence) branchLoading.value = false;
   }
-  if (!worktreeAvailable.value && selectedWorkMode.value !== "directory") {
+  if (!gitRootAvailable.value && selectedWorkMode.value !== "directory") {
     selectedWorkMode.value = "directory";
     void commitSave();
   }
+  if (gitRootAvailable.value) {
+    void loadBranchList(path);
+  } else {
+    branchList.value = [];
+  }
 }
 
-function handleDirectoryChange(path: string) {
+async function loadBranchList(path: string) {
+  const seq = ++branchSequence;
   const normalized = String(path || "").trim();
+  if (!normalized) {
+    branchList.value = [];
+    return;
+  }
+  branchLoading.value = true;
+  try {
+    const entries = await gitPanelBranchList(normalized);
+    if (seq !== branchSequence) return;
+    const names = entries.map((e) => String(e.name || "").trim()).filter(Boolean);
+    branchList.value = names;
+    const current = entries.find((e) => e.isCurrent)?.name;
+    if (current) {
+      const curName = String(current).trim();
+      // 若用户尚未选择分支，默认选中当前分支
+      if (!String(selectedBranch.value || "").trim()) {
+        selectedBranch.value = curName;
+        void commitSave();
+      }
+    } else if (!String(selectedBranch.value || "").trim() && names.length > 0) {
+      selectedBranch.value = names[0];
+      void commitSave();
+    }
+  } catch (error) {
+    if (seq !== branchSequence) return;
+    // 分支拉取失败不阻塞主流程，仅清空列表
+    console.warn("[分支] 获取分支列表失败", error);
+    branchList.value = [];
+  } finally {
+    if (seq === branchSequence) branchLoading.value = false;
+  }
+}
+
+function handleMainPathUpdate(path: string) {
+  const normalized = stripExtendedPathPrefix(String(path || "").trim());
   if (!normalized) return;
-  const source = findOptionByPath(normalized);
+  const previousPath = String(selectedPath.value || "").trim().toLowerCase();
+  const isPathChanged = normalized.toLowerCase() !== previousPath;
   selectedPath.value = normalized;
-  selectedAccess.value = normalizeAccess(source?.access);
-  if (selectedAccess.value === "read_only" && !props.workspaceAutonomousMode) {
-    selectedWorkMode.value = "directory";
+  // 切换主目录后，尝试从下拉选项还原 access，并重置分支以选中新仓库当前分支
+  const source = findOptionByPath(normalized);
+  if (source) selectedAccess.value = normalizeAccess(source.access);
+  if (isPathChanged) {
+    selectedBranch.value = "";
+    branchList.value = [];
   }
   void commitSave();
   void runGitRootCheck(normalized);
 }
 
-function setAccess(access: ShellWorkspaceAccess) {
-  if (selectedAccess.value === access) return;
-  selectedAccess.value = access;
-  if (access === "read_only" && !props.workspaceAutonomousMode && selectedWorkMode.value !== "directory") {
-    selectedWorkMode.value = "directory";
+function handleAccessUpdate(access: ShellWorkspaceAccess) {
+  const normalized = normalizeAccess(access);
+  if (selectedAccess.value === normalized) return;
+  selectedAccess.value = normalized;
+  // 统一权限：同步所有目录的 access（本地预览）
+  void commitSave();
+}
+
+async function handleWorkModeUpdate(mode: ShellWorkMode) {
+  const normalized = mode === "worktree" ? "worktree" : "directory";
+  if (selectedWorkMode.value === normalized) return;
+  if (normalized === "worktree" && !gitRootAvailable.value) return;
+  if (normalized === "directory") {
+    selectedWorkMode.value = "directory" as ShellWorkMode;
+    if (gitRootAvailable.value && selectedPath.value) {
+      try {
+        const entries = await gitPanelBranchList(selectedPath.value);
+        const current = entries.find((e) => e.isCurrent)?.name;
+        if (current) {
+          const curName = String(current).trim();
+          if (curName) selectedBranch.value = curName;
+        }
+        branchList.value = entries.map((e) => String(e.name || "").trim()).filter(Boolean);
+      } catch {
+        // ignore
+      }
+    }
+    worktreeCheckMessage.value = "";
+    void commitSave();
+    return;
+  }
+  selectedWorkMode.value = "worktree" as ShellWorkMode;
+  worktreeCheckMessage.value = "";
+  if (gitRootAvailable.value && branchList.value.length === 0 && selectedPath.value) {
+    void loadBranchList(selectedPath.value);
   }
   void commitSave();
 }
 
-function setWorkMode(mode: ShellWorkMode) {
-  if (selectedWorkMode.value === mode || isWorkModeDisabled(mode)) return;
-  selectedWorkMode.value = mode;
-  void commitSave();
+async function handleBranchUpdate(branch: string) {
+  const normalized = String(branch || "").trim();
+  if (!normalized) return;
+  if (selectedBranch.value === normalized) return;
+  if (selectedWorkMode.value === "worktree") {
+    selectedBranch.value = normalized;
+    worktreeCheckMessage.value = "";
+    void commitSave();
+    return;
+  }
+  if (!gitRootAvailable.value || !selectedPath.value) {
+    selectedBranch.value = normalized;
+    worktreeCheckMessage.value = "";
+    void commitSave();
+    return;
+  }
+  branchLoading.value = true;
+  worktreeCheckMessage.value = "";
+  try {
+    const check = await gitPanelCheckoutCheck(selectedPath.value, normalized);
+    const dirtyPaths: string[] = (check as unknown as { dirtyPaths: string[] }).dirtyPaths || [];
+    if (Array.isArray(dirtyPaths) && dirtyPaths.length > 0) {
+      const preview = dirtyPaths.slice(0, 3).join(", ");
+      const more = dirtyPaths.length > 3 ? t("chat.workspaceBranchDirtyMore", { count: dirtyPaths.length - 3 }) : "";
+      const detail = preview ? t("chat.workspaceBranchDirtyDetail", { preview, more }) : "";
+      worktreeCheckMessage.value = t("chat.workspaceBranchDirtyBlocked", { detail });
+      return;
+    }
+    try {
+      await gitPanelCheckout(selectedPath.value, normalized);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      worktreeCheckMessage.value = t("chat.workspaceBranchCheckoutFailed", { message });
+      return;
+    }
+    selectedBranch.value = normalized;
+    try {
+      const entries = await gitPanelBranchList(selectedPath.value);
+      branchList.value = entries.map((e) => String(e.name || "").trim()).filter(Boolean);
+    } catch {
+      // ignore
+    }
+    void commitSave();
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    worktreeCheckMessage.value = t("chat.workspaceBranchCheckFailed", { message });
+  } finally {
+    branchLoading.value = false;
+  }
 }
 
 async function browseWorkspaceDirectory() {
-  workspaceDropdownOpen.value = false;
   let picked: string | string[] | null = null;
   try {
     picked = await openTransportFileDialog({ directory: true, multiple: false });
   } catch {
     return;
   }
-  const path = String(Array.isArray(picked) ? picked[0] || "" : picked || "").trim();
+  const path = stripExtendedPathPrefix(String(Array.isArray(picked) ? picked[0] || "" : picked || "").trim());
   if (!path) return;
   const existing = findOptionByPath(path);
   if (!existing) {
@@ -621,11 +744,51 @@ async function browseWorkspaceDirectory() {
       id: `conversation-workspace-custom-${Date.now().toString(36)}`,
       name: path.replace(/\\/g, "/").replace(/\/+$/, "").split("/").pop() || path,
       path,
-      access: "approval",
+      access: selectedAccess.value,
     };
   }
-  handleDirectoryChange(path);
+  handleMainPathUpdate(path);
 }
+
+async function handleAddSecondary() {
+  let picked: string | string[] | null = null;
+  try {
+    picked = await openTransportFileDialog({ directory: true, multiple: false });
+  } catch {
+    return;
+  }
+  const path = stripExtendedPathPrefix(String(Array.isArray(picked) ? picked[0] || "" : picked || "").trim());
+  if (!path) return;
+  const key = path.toLowerCase();
+  if (secondaryPaths.value.some((p) => p.toLowerCase() === key) || selectedPath.value.toLowerCase() === key) {
+    return;
+  }
+  secondaryPaths.value = [...secondaryPaths.value, path];
+  if (!findOptionByPath(path)) {
+    customOption.value = {
+      id: `conversation-workspace-custom-${Date.now().toString(36)}`,
+      name: path.replace(/\\/g, "/").replace(/\/+$/, "").split("/").pop() || path,
+      path,
+      access: selectedAccess.value,
+    };
+  }
+  void commitSave();
+}
+
+function handleRemoveSecondary(path: string) {
+  const key = String(path || "").trim().toLowerCase();
+  secondaryPaths.value = secondaryPaths.value.filter((p) => p.toLowerCase() !== key);
+  void commitSave();
+}
+
+watch(
+  () => selectedWorkMode.value,
+  (mode) => {
+    if (mode === "worktree" && gitRootAvailable.value && branchList.value.length === 0) {
+      void loadBranchList(selectedPath.value);
+    }
+  },
+);
 
 // ========== 人格候选 ==========
 

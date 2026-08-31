@@ -2029,7 +2029,17 @@
     "codeReviewSubmitFailed": "Failed to submit code review",
     "deleteConversationFailed": "Failed to delete conversation",
     "readCommitFailed": "Failed to read commit",
-    "startCodeReviewFailed": "Failed to start code review"
+    "startCodeReviewFailed": "Failed to start code review",
+    "workspaceWorkModeWorktree": "Work in this conversation's worktree",
+    "draftWorkModeWorktree": "Worktree",
+    "workspaceBranchPlaceholder": "Select branch",
+    "workspaceMoreDirectories": "More directories",
+    "workspaceNoSecondary": "No additional directories",
+    "workspaceBranchDirtyBlocked": "Working tree has changes, cannot switch branch{detail}",
+    "workspaceBranchDirtyDetail": " ({preview}{more})",
+    "workspaceBranchDirtyMore": " and {count} more file(s)",
+    "workspaceBranchCheckoutFailed": "Failed to switch branch: {message}",
+    "workspaceBranchCheckFailed": "Failed to check branch: {message}"
   },
   "memory": {
     "title": "Memories",
@@ -2073,9 +2083,6 @@
     "rebindConversationRecipientFailed": "Failed to update conversation owner: {err}",
     "conversationSelectionForwarded": "Forwarded {count} message(s) to the conversation.",
     "conversationSelectionForwardedToRemoteContact": "Pushed {count} message(s) to the remote contact.",
-    "conversationBranchCreated": "Conversation branch created: {title}",
-    "conversationBranchCreatedWithWarning": "Conversation branch created with a warning: {warning}",
-    "loadMessagesFailed": "Failed to load conversation messages: {err}",
     "conversationBranchCreated": "Conversation branch created: {title}",
     "conversationBranchCreatedWithWarning": "Conversation branch created (warning: {warning})",
     "loadMessagesFailed": "Failed to load conversation messages: {err}",

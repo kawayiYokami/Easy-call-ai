@@ -12,6 +12,7 @@ export function useChatWindowWorkspaceOrchestrator(bindings: Record<string, any>
     chatWorkspaceChoices: workspace.chatWorkspaceChoices,
     chatWorkspaceAutonomousMode: workspace.chatWorkspaceAutonomousMode,
     chatWorkspaceWorkMode: workspace.chatWorkspaceWorkMode,
+    chatWorkspaceBranch: workspace.chatWorkspaceBranch,
     openChatWorkspacePickerBase: workspace.openChatWorkspacePicker,
     closeChatWorkspacePickerBase: workspace.closeChatWorkspacePicker,
     saveChatWorkspaces: workspace.saveChatWorkspaces,

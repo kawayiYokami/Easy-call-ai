@@ -9,6 +9,7 @@ import {
   normalizeWorkspaceLevel,
   workspaceLevelRank,
 } from "../../../utils/shell-workspaces";
+import { normalizeShellWorkMode, normalizeWorkspaceAccess } from "../../../utils/shell-workspaces";
 
 export type ChatWorkspaceChoice = {
   id: string;
@@ -34,6 +35,7 @@ export function useChatWorkspace(options: UseChatWorkspaceOptions) {
   const chatWorkspaceItems = ref<ShellWorkspace[]>([]);
   const chatWorkspaceAutonomousMode = ref(false);
   const chatWorkspaceWorkMode = ref<ShellWorkMode>("directory");
+  const chatWorkspaceBranch = ref("");
   const chatWorkspaceWorktreeAvailable = ref(false);
   const chatWorkspaceWorktreeCheckMessage = ref("");
   let gitCheckSequence = 0;
@@ -50,7 +52,7 @@ export function useChatWorkspace(options: UseChatWorkspaceOptions) {
       name,
       path,
       level,
-      access: item.access,
+      access: normalizeWorkspaceAccess(String(item.access || "")),
     };
   }
 
@@ -81,17 +83,15 @@ export function useChatWorkspace(options: UseChatWorkspaceOptions) {
     if (matched) return matched.access;
     const mainWorkspace = chatWorkspaceChoices.value.find((item) => item.level === "main");
     if (mainWorkspace) return mainWorkspace.access;
-    return "read_only";
+    return "approval";
   });
   const chatWorkspacePermissionLabel = computed(() => {
     if (chatWorkspaceAutonomousMode.value) return t("chat.workspaceStatusPermissionAutonomous");
     if (chatWorkspaceEffectiveAccess.value === "full_access") return t("chat.workspaceStatusPermissionFull");
-    if (chatWorkspaceEffectiveAccess.value === "approval") return t("chat.workspaceStatusPermissionApproval");
-    return t("chat.workspaceStatusPermissionReadOnly");
+    return t("chat.workspaceStatusPermissionApproval");
   });
   const chatWorkspaceWorkModeLabel = computed(() => {
-    if (chatWorkspaceWorkMode.value === "independent_worktree") return t("chat.workspaceStatusModeIndependentWorktree");
-    if (chatWorkspaceWorkMode.value === "isolated_worktree") return t("chat.workspaceStatusModeWorktree");
+    if (chatWorkspaceWorkMode.value === "worktree") return t("chat.workspaceStatusModeWorktree");
     return t("chat.workspaceStatusModeDirectory");
   });
   const chatWorkspaceDisplayName = computed(() => {
@@ -104,9 +104,8 @@ export function useChatWorkspace(options: UseChatWorkspaceOptions) {
     chatWorkspaceRootPath.value = nextPath;
     chatWorkspaceItems.value = Array.isArray(state.workspaces) ? state.workspaces : [];
     chatWorkspaceAutonomousMode.value = Boolean(state.autonomousMode);
-    chatWorkspaceWorkMode.value = state.shellWorkMode === "isolated_worktree" || state.shellWorkMode === "independent_worktree"
-      ? state.shellWorkMode
-      : "directory";
+    chatWorkspaceWorkMode.value = normalizeShellWorkMode(String(state.shellWorkMode || ""));
+    chatWorkspaceBranch.value = String(state.shellWorkBranch || "").trim();
     chatWorkspaceName.value = resolveWorkspaceDisplayName(nextPath, String(state.workspaceName || "").trim());
     chatWorkspacePath.value = nextPath;
   }
@@ -163,6 +162,7 @@ export function useChatWorkspace(options: UseChatWorkspaceOptions) {
       chatWorkspaceItems.value = [];
       chatWorkspaceAutonomousMode.value = false;
       chatWorkspaceWorkMode.value = "directory";
+      chatWorkspaceBranch.value = "";
       chatWorkspaceWorktreeAvailable.value = false;
       chatWorkspaceWorktreeCheckMessage.value = "";
       return;
@@ -187,7 +187,7 @@ export function useChatWorkspace(options: UseChatWorkspaceOptions) {
     chatWorkspacePickerOpen.value = false;
   }
 
-  async function saveChatWorkspaces(workspaces: ChatWorkspaceChoice[], autonomousMode?: boolean, workMode: ShellWorkMode = chatWorkspaceWorkMode.value) {
+  async function saveChatWorkspaces(workspaces: ChatWorkspaceChoice[], autonomousMode?: boolean, workMode: ShellWorkMode = chatWorkspaceWorkMode.value, shellWorkBranch?: string) {
     const conversationId = String(options.activeConversationId.value || "").trim();
     if (!conversationId) {
       options.setStatus("当前会话未就绪，暂时不能设置工作目录");
@@ -197,17 +197,22 @@ export function useChatWorkspace(options: UseChatWorkspaceOptions) {
     const previousName = chatWorkspaceName.value;
     const previousAutonomousMode = chatWorkspaceAutonomousMode.value;
     const previousWorkMode = chatWorkspaceWorkMode.value;
-    applyChatWorkspaceDraft(workspaces);
+    const previousBranch = chatWorkspaceBranch.value;
+    // 统一权限：全部目录共享同一 access（取主目录或首个），避免旧按目录分离
+    const unifiedAccess = normalizeWorkspaceAccess(String(workspaces.find((w) => w.level === "main")?.access || workspaces[0]?.access || "approval"));
+    const normalizedWorkspaces = workspaces.map((w) => ({ ...w, access: unifiedAccess as ChatWorkspaceChoice["access"] }));
+    applyChatWorkspaceDraft(normalizedWorkspaces);
     chatWorkspaceAutonomousMode.value = Boolean(autonomousMode);
-    chatWorkspaceWorkMode.value = workMode === "isolated_worktree" || workMode === "independent_worktree"
-      ? workMode
-      : "directory";
+    chatWorkspaceWorkMode.value = normalizeShellWorkMode(String(workMode || ""));
+    const nextBranch = shellWorkBranch !== undefined ? String(shellWorkBranch || "").trim() : previousBranch;
+    chatWorkspaceBranch.value = nextBranch;
     try {
       const state = await invokeTauri<ChatShellWorkspaceState>("workspace.layout.save", {
         conversationId,
         autonomousMode: Boolean(autonomousMode),
         shellWorkMode: chatWorkspaceWorkMode.value,
-        workspaces: workspaces
+        shellWorkBranch: chatWorkspaceBranch.value || null,
+        workspaces: normalizedWorkspaces
           .filter((item) => item.level !== "system")
           .map((item) => ({
             id: item.id,
@@ -224,6 +229,7 @@ export function useChatWorkspace(options: UseChatWorkspaceOptions) {
       chatWorkspaceName.value = previousName;
       chatWorkspaceAutonomousMode.value = previousAutonomousMode;
       chatWorkspaceWorkMode.value = previousWorkMode;
+      chatWorkspaceBranch.value = previousBranch;
       options.setStatusError("status.requestFailed", error);
       throw error;
     }
@@ -237,6 +243,7 @@ export function useChatWorkspace(options: UseChatWorkspaceOptions) {
     chatWorkspaceChoices,
     chatWorkspaceAutonomousMode,
     chatWorkspaceWorkMode,
+    chatWorkspaceBranch,
     chatWorkspaceWorktreeAvailable,
     chatWorkspaceWorktreeCheckMessage,
     chatWorkspacePermissionLabel,

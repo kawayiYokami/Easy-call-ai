@@ -526,6 +526,8 @@ struct CreateUnarchivedConversationInput {
     #[serde(default)]
     shell_work_mode: Option<String>,
     #[serde(default)]
+    shell_work_branch: Option<String>,
+    #[serde(default)]
     shell_autonomous_mode: Option<bool>,
     /// true 时创建会话草稿：允许缺省部门/人格，走系统默认；草稿不进入常规新建流程
     #[serde(default)]
@@ -1189,6 +1191,8 @@ struct OpenDraftConversationInput {
     #[serde(default)]
     shell_work_mode: Option<String>,
     #[serde(default)]
+    shell_work_branch: Option<String>,
+    #[serde(default)]
     shell_autonomous_mode: Option<bool>,
 }
 
@@ -1246,6 +1250,7 @@ async fn open_draft_conversation_inner(
                 copy_source_conversation_id: None,
                 shell_workspaces,
                 shell_work_mode,
+                shell_work_branch: None,
                 shell_autonomous_mode,
                 is_draft: Some(true),
             };
@@ -1604,6 +1609,7 @@ fn import_conversation_share_from_file(
         copy_source_conversation_id: None,
         shell_workspaces: input.shell_workspaces.clone(),
         shell_work_mode: input.shell_work_mode.clone(),
+        shell_work_branch: None,
         shell_autonomous_mode: input.shell_autonomous_mode,
         is_draft: None,
     };
@@ -1727,6 +1733,7 @@ async fn branch_unarchived_conversation_from_current_internal(
         copy_source_conversation_id: Some(source_conversation.id.clone()),
         shell_workspaces: None,
         shell_work_mode: None,
+        shell_work_branch: None,
         shell_autonomous_mode: None,
         is_draft: None,
     };
@@ -1808,6 +1815,7 @@ async fn create_conversation_branch_from_message_internal(
         copy_source_conversation_id: Some(source_conversation.id.clone()),
         shell_workspaces: None,
         shell_work_mode: None,
+        shell_work_branch: None,
         shell_autonomous_mode: None,
         is_draft: None,
     };

@@ -30,7 +30,20 @@ const LEGACY_SECONDARY_NAMES = [
   "次要工作目錄",
 ];
 
-export const WORKSPACE_ACCESS_ORDER: ShellWorkspaceAccess[] = ["approval", "full_access", "read_only"];
+export const WORKSPACE_ACCESS_ORDER: ShellWorkspaceAccess[] = ["approval", "full_access"];
+
+export function normalizeWorkspaceAccess(value: string): ShellWorkspaceAccess {
+  const normalized = String(value || "").trim().toLowerCase();
+  if (normalized === "full_access") return "full_access";
+  // 旧 read_only 已废弃，统一迁移为 approval
+  return "approval";
+}
+
+export function normalizeShellWorkMode(value: string): import("../types/app").ShellWorkMode {
+  const normalized = String(value || "").trim().toLowerCase();
+  if (normalized === "worktree" || normalized === "isolated_worktree" || normalized === "independent_worktree") return "worktree";
+  return "directory";
+}
 
 function normalizeNameToken(value: string): string {
   return String(value || "").trim().toLowerCase();

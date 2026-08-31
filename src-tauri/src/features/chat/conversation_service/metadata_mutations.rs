@@ -454,6 +454,7 @@ impl ConversationServiceV2 {
         shell_workspaces: Option<Vec<ShellWorkspaceConfig>>,
         shell_autonomous_mode: Option<bool>,
         shell_work_mode: Option<String>,
+        shell_work_branch: Option<String>,
     ) -> Result<Conversation, String> {
         self.apply_external_metadata_patch(
             state,
@@ -464,6 +465,7 @@ impl ConversationServiceV2 {
                 shell_workspaces,
                 shell_autonomous_mode,
                 shell_work_mode,
+                shell_work_branch,
                 ..Default::default()
             },
         )
@@ -477,6 +479,7 @@ impl ConversationServiceV2 {
         shell_workspaces: Option<Vec<ShellWorkspaceConfig>>,
         shell_autonomous_mode: Option<bool>,
         shell_work_mode: Option<String>,
+        shell_work_branch: Option<String>,
     ) -> Result<Conversation, String> {
         let normalized_conversation_id = conversation_id.trim();
         if normalized_conversation_id.is_empty() {
@@ -489,6 +492,7 @@ impl ConversationServiceV2 {
         let original_workspaces = conversation.shell_workspaces.clone();
         let original_autonomous_mode = conversation.shell_autonomous_mode;
         let original_work_mode = conversation.shell_work_mode.clone();
+        let original_branch = conversation.shell_work_branch.clone();
         let updated = self.set_shell_workspace(
             state,
             normalized_conversation_id,
@@ -496,11 +500,13 @@ impl ConversationServiceV2 {
             shell_workspaces,
             shell_autonomous_mode,
             shell_work_mode,
+            shell_work_branch,
         )?;
         if updated.shell_workspace_path == original_path
             && updated.shell_workspaces == original_workspaces
             && updated.shell_autonomous_mode == original_autonomous_mode
             && updated.shell_work_mode == original_work_mode
+            && updated.shell_work_branch == original_branch
         {
             return Ok(updated);
         }

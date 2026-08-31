@@ -710,6 +710,44 @@ async fn send_chat_message_inner(
         );
     }
 
+    // ========== 工作树预检：首轮发送时自动创建 .pai/.worktree/{sessionId} ==========
+    if let Some(cid) = requested_conversation_id.as_deref() {
+        if let Ok(Some(conv)) = conversation_service_v2().try_get_conversation_snapshot(state, cid) {
+            if normalize_shell_work_mode_text(&conv.shell_work_mode) == SHELL_WORK_MODE_WORKTREE {
+                let effective_conv = if conv.conversation_kind.trim() == CONVERSATION_KIND_SIDE_CHAT {
+                    if let Some(parent_id) = conv.parent_conversation_id.as_deref().map(str::trim).filter(|v| !v.is_empty()) {
+                        if let Ok(parent_conv) = conversation_service_v2().get_conversation_metadata_record(state, parent_id) {
+                            let mut merged = conv.clone();
+                            merged.shell_workspaces = parent_conv.shell_workspaces.clone();
+                            merged.shell_work_mode = parent_conv.shell_work_mode.clone();
+                            merged.shell_work_branch = parent_conv.shell_work_branch.clone();
+                            merged
+                        } else {
+                            conv.clone()
+                        }
+                    } else {
+                        conv.clone()
+                    }
+                } else {
+                    conv.clone()
+                };
+                let cid_owned = cid.to_string();
+                let state_clone = state.clone();
+                let ensure_result = ensure_conversation_worktree(&state_clone, &effective_conv).await;
+                if let Err(err) = ensure_result {
+                    runtime_log_warn(format!(
+                        "[工作树] 失败，任务=创建工作树，conversation_id={}，error={}，已中止本次请求",
+                        cid_owned, err
+                    ));
+                    return Err(format!(
+                        "工作树创建失败：{}，已中止本次请求，请检查 Git 状态或切换为目录模式后重试",
+                        err
+                    ));
+                }
+            }
+        }
+    }
+
     #[derive(Clone)]
     struct ConversationPrepareSnapshot {
         agents: Vec<AgentProfile>,
@@ -760,6 +798,7 @@ async fn send_chat_message_inner(
             shell_workspaces: Vec::new(),
             shell_autonomous_mode: false,
             shell_work_mode: default_shell_work_mode(),
+            shell_work_branch: String::new(),
             archived_at: None,
             messages: Vec::new(),
             fast_request_turns: Vec::new(),
@@ -848,6 +887,7 @@ async fn send_chat_message_inner(
                 requested_conversation.shell_workspaces = parent.shell_workspaces;
                 requested_conversation.shell_autonomous_mode = parent.shell_autonomous_mode;
                 requested_conversation.shell_work_mode = normalize_shell_work_mode_text(&parent.shell_work_mode);
+                requested_conversation.shell_work_branch = parent.shell_work_branch.clone();
             }
         }
         let mut data = AppData::default();
@@ -3241,6 +3281,7 @@ mod core_send_inner_tests {
             shell_workspaces: Vec::new(),
             shell_autonomous_mode: false,
             shell_work_mode: default_shell_work_mode(),
+            shell_work_branch: String::new(),
             archived_at: None,
             messages,
             fast_request_turns: Vec::new(),
@@ -3947,6 +3988,7 @@ mod core_send_inner_tests {
             shell_workspaces: Vec::new(),
             shell_autonomous_mode: false,
             shell_work_mode: default_shell_work_mode(),
+            shell_work_branch: String::new(),
             archived_at: None,
             messages: vec![ChatMessage {
                 id: "assistant-existing".to_string(),

@@ -99,8 +99,11 @@
             :workspace-root-path="stripExtendedPathPrefix(currentWorkspaceRootPath)"
             :workspace-access="currentWorkspaceAccess"
             :workspace-work-mode="props.currentWorkspaceWorkMode || 'directory'"
+            :workspace-branch="props.currentWorkspaceBranch || ''"
+            :workspaces="props.workspaces"
             :workspace-autonomous-mode="Boolean(props.currentWorkspaceAutonomousMode)"
-            :save-workspace="props.saveDraftWorkspaces ? handleDraftWorkspaceSave : undefined"
+            :save-workspace="props.saveDraftWorkspaces ? handleDraftWorkspaceSaveLegacy : undefined"
+            :save-workspaces="props.saveDraftWorkspaces ? handleDraftWorkspaceSave : undefined"
             :git-root-check="props.draftWorkspaceGitRootCheck"
             @change="handleDraftPersonaChange($event)"
             @update:title="handleDraftTitleChange($event)"
@@ -747,8 +750,9 @@ const props = defineProps<{
   currentWorkspaceName: string; currentWorkspaceDisplayName?: string; currentWorkspaceRootPath: string; workspaces: ShellWorkspace[];
   currentWorkspaceAutonomousMode?: boolean;
   currentWorkspaceWorkMode?: ShellWorkMode;
+  currentWorkspaceBranch?: string;
   configShellWorkspaces?: ShellWorkspace[];
-  saveDraftWorkspaces?: (items: ShellWorkspace[], autonomousMode: boolean, workMode: ShellWorkMode) => Promise<void>;
+  saveDraftWorkspaces?: (items: ShellWorkspace[], autonomousMode: boolean, workMode: ShellWorkMode, shellWorkBranch?: string) => Promise<void>;
   draftWorkspaceGitRootCheck?: (path: string) => Promise<boolean>;
   currentDepartmentId: string; activeAgentId: string; activeConversationId: string; currentTodos: ChatTodoItem[];
   goalActive: boolean; goalTitle: string; goalDialogOpen: boolean;
@@ -774,7 +778,7 @@ const props = defineProps<{
   showOpenInBrowserButton?: boolean;
   systemNotificationMode?: boolean;
   hideWorkspaceButton?: boolean;
-  workspaceAccess?: "read_only" | "approval" | "full_access" | "";
+  workspaceAccess?: "approval" | "full_access" | "";
 }>();
 
 const emit = defineEmits<{
@@ -795,7 +799,7 @@ const emit = defineEmits<{
   (e: "removeQueuedAttachmentNotice", index: number): void;
   (e: "startRecording"): void; (e: "stopRecording"): void; (e: "pickAttachments"): void;
   (e: "update:conversationPreferredApiConfigId", value: string): void;
-  (e: "updateWorkspaceAccess", value: "read_only" | "approval" | "full_access"): void;
+  (e: "updateWorkspaceAccess", value: "approval" | "full_access"): void;
   (e: "update:planModeEnabled", value: boolean): void;
   (e: "sendChat", payload?: { extraTextBlocks?: string[] }): void;
   (e: "stopChat"): void; (e: "trimConversation"): void; (e: "openConversationList"): void; (e: "openSettings"): void;
@@ -1553,34 +1557,34 @@ watch(
   { immediate: true },
 );
 
-const currentWorkspacePermissionKind = computed<"read_only" | "approval" | "full_access" | "autonomous">(() => {
+const currentWorkspacePermissionKind = computed<"approval" | "full_access" | "autonomous">(() => {
   if (props.currentWorkspaceAutonomousMode) return "autonomous";
   const targetPath = String(props.currentWorkspaceRootPath || "").trim().toLowerCase();
   const workspaceList = Array.isArray(props.workspaces) ? props.workspaces : [];
   const matched = workspaceList.find((item) => String(item.path || "").trim().toLowerCase() === targetPath);
-  if (matched?.access === "approval" || matched?.access === "full_access" || matched?.access === "read_only") {
+  if (matched?.access === "approval" || matched?.access === "full_access") {
     return matched.access;
   }
   const mainWorkspace = workspaceList.find((item) => String(item.level || "").trim() === "main");
-  if (mainWorkspace?.access === "approval" || mainWorkspace?.access === "full_access" || mainWorkspace?.access === "read_only") {
+  if (mainWorkspace?.access === "approval" || mainWorkspace?.access === "full_access") {
     return mainWorkspace.access;
   }
-  return "read_only";
+  return "approval";
 });
 
 // 草稿卡片回显用：不含 autonomous 分支的纯权限值
-const currentWorkspaceAccess = computed<"read_only" | "approval" | "full_access">(() => {
+const currentWorkspaceAccess = computed<"approval" | "full_access">(() => {
   const targetPath = String(props.currentWorkspaceRootPath || "").trim().toLowerCase();
   const workspaceList = Array.isArray(props.workspaces) ? props.workspaces : [];
   const matched = workspaceList.find((item) => String(item.path || "").trim().toLowerCase() === targetPath);
-  if (matched?.access === "approval" || matched?.access === "full_access" || matched?.access === "read_only") {
+  if (matched?.access === "approval" || matched?.access === "full_access") {
     return matched.access;
   }
   const mainWorkspace = workspaceList.find((item) => String(item.level || "").trim() === "main");
-  if (mainWorkspace?.access === "approval" || mainWorkspace?.access === "full_access" || mainWorkspace?.access === "read_only") {
+  if (mainWorkspace?.access === "approval" || mainWorkspace?.access === "full_access") {
     return mainWorkspace.access;
   }
-  return "read_only";
+  return "approval";
 });
 
 const supportsFloatingSessionToolbar = computed(() =>
@@ -2173,7 +2177,7 @@ const draftWorkspaceOptions = computed<Array<{ id: string; name: string; path: s
       id: String(workspace.id || "").trim() || `conversation-workspace-${key}`,
       name: String(workspace.name || "").trim() || path,
       path,
-      access: rawAccess === "full_access" || rawAccess === "read_only" ? (rawAccess as ShellWorkspace["access"]) : "approval",
+      access: rawAccess === "full_access" ? (rawAccess as ShellWorkspace["access"]) : "approval",
     });
   };
   for (const workspace of Array.isArray(props.workspaces) ? props.workspaces : []) push(workspace);
@@ -2190,7 +2194,12 @@ const draftWorkspaceOptions = computed<Array<{ id: string; name: string; path: s
   return Array.from(deduped.values());
 });
 
-async function handleDraftWorkspaceSave(payload: { path: string; name: string; access: ShellWorkspace["access"]; workMode: ShellWorkMode }) {
+async function handleDraftWorkspaceSave(workspaces: ShellWorkspace[], autonomousMode: boolean, workMode: ShellWorkMode, branch?: string) {
+  if (!props.saveDraftWorkspaces) return;
+  await props.saveDraftWorkspaces(workspaces, autonomousMode, workMode, branch);
+}
+
+async function handleDraftWorkspaceSaveLegacy(payload: { path: string; name: string; access: ShellWorkspace["access"]; workMode: ShellWorkMode }) {
   if (!props.saveDraftWorkspaces) return;
   await props.saveDraftWorkspaces(
     [{

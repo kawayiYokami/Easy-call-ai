@@ -243,8 +243,11 @@ export type ImageGenerationResult = {
 
 export type ShellWorkspaceLevel = "system" | "main" | "secondary";
 
-export type ShellWorkspaceAccess = "approval" | "full_access" | "read_only";
-export type ShellWorkMode = "directory" | "isolated_worktree" | "independent_worktree";
+export type ShellWorkspaceAccess = "approval" | "full_access";
+export type ShellWorkMode = "directory" | "worktree";
+/** 兼容旧数据的读写宽松类型，迁移后均归一为新枚举 */
+export type LegacyShellWorkMode = ShellWorkMode | "isolated_worktree" | "independent_worktree";
+export type LegacyShellWorkspaceAccess = ShellWorkspaceAccess | "read_only";
 export type GithubUpdateMethod = "auto" | "direct" | "proxy";
 
 export type ShellWorkspace = {
@@ -263,6 +266,7 @@ export type ChatShellWorkspaceState = {
   workspaces?: ShellWorkspace[];
   autonomousMode?: boolean;
   shellWorkMode?: ShellWorkMode;
+  shellWorkBranch?: string;
 };
 
 export type IdeContextWorkspaceInput = {

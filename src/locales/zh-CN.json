@@ -2029,7 +2029,17 @@
     "codeReviewSubmitFailed": "提交代码审查失败",
     "deleteConversationFailed": "删除会话失败",
     "readCommitFailed": "读取 commit 失败",
-    "startCodeReviewFailed": "发起代码审查失败"
+    "startCodeReviewFailed": "发起代码审查失败",
+    "workspaceWorkModeWorktree": "在此目录的会话工作树工作",
+    "draftWorkModeWorktree": "工作树",
+    "workspaceBranchPlaceholder": "选择分支",
+    "workspaceMoreDirectories": "更多目录",
+    "workspaceNoSecondary": "暂无附加目录",
+    "workspaceBranchDirtyBlocked": "更改区有变动，无法切换分支{detail}",
+    "workspaceBranchDirtyDetail": "（{preview}{more}）",
+    "workspaceBranchDirtyMore": " 等{count}个文件",
+    "workspaceBranchCheckoutFailed": "切换分支失败：{message}",
+    "workspaceBranchCheckFailed": "检查分支失败：{message}"
   },
   "memory": {
     "title": "记忆列表",
@@ -2073,9 +2083,6 @@
     "rebindConversationRecipientFailed": "更新会话接管人失败: {err}",
     "conversationSelectionForwarded": "已转发 {count} 条消息到会话。",
     "conversationSelectionForwardedToRemoteContact": "已推送 {count} 条消息到远程联系人。",
-    "conversationBranchCreated": "会话分支已创建：{title}",
-    "conversationBranchCreatedWithWarning": "会话分支已创建，但需注意：{warning}",
-    "loadMessagesFailed": "加载会话消息失败: {err}",
     "conversationBranchCreated": "会话分支已创建：{title}",
     "conversationBranchCreatedWithWarning": "会话分支已创建（提示：{warning}）",
     "loadMessagesFailed": "加载会话消息失败: {err}",

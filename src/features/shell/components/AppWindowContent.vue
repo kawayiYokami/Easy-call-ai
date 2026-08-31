@@ -177,6 +177,7 @@
         :current-workspace-root-path="currentChatWorkspaceRootPath"
         :current-workspace-autonomous-mode="currentChatWorkspaceAutonomousMode"
         :current-workspace-work-mode="currentChatWorkMode"
+        :current-workspace-branch="currentChatWorkBranch || ''"
         :workspaces="currentChatWorkspaces"
         :config-shell-workspaces="config.shellWorkspaces || []"
         :save-draft-workspaces="saveDraftWorkspaces"
@@ -326,7 +327,7 @@
               :workspace-name="currentChatWorkspaceDisplayName"
               :workspace-root-path="currentChatWorkspaceRootPath"
               :workspaces="currentChatWorkspaces"
-              :workspace-access="currentChatWorkspaces.find((item) => item.level === 'main')?.access || 'read_only'"
+              :workspace-access="currentChatWorkspaces.find((item) => item.level === 'main')?.access || 'approval'"
               :current-theme="currentTheme"
               :terminal-approvals="terminalApprovals"
               :terminal-approval-resolving="terminalApprovalResolving"
@@ -673,7 +674,8 @@ const props = defineProps<{
   currentChatWorkspaceAutonomousMode: boolean;
   currentChatWorkspaces: ShellWorkspace[];
   currentChatWorkMode?: ShellWorkMode;
-  saveDraftWorkspaces?: (items: ShellWorkspace[], autonomousMode: boolean, workMode: ShellWorkMode) => Promise<void>;
+  currentChatWorkBranch?: string;
+  saveDraftWorkspaces?: (items: ShellWorkspace[], autonomousMode: boolean, workMode: ShellWorkMode, shellWorkBranch?: string) => Promise<void>;
   draftWorkspaceGitRootCheck?: (path: string) => Promise<boolean>;
   currentChatDepartmentId: string;
   currentChatAgentId: string;

@@ -624,7 +624,7 @@ const props = defineProps<{
   conversationCallPrimaryApiConfigId: string;
   preferredChatModelId?: string;
   chatModelOptions: ApiConfigItem[];
-  workspaceAccess?: "read_only" | "approval" | "full_access" | "";
+  workspaceAccess?: "approval" | "full_access" | "";
   planModeEnabled: boolean;
   chatting: boolean;
   frontendRoundPhase?: "idle" | "queued" | "waiting" | "streaming";
@@ -671,7 +671,7 @@ const emit = defineEmits<{
   (e: "stopRecording"): void;
   (e: "pickAttachments"): void;
   (e: "update:conversationPreferredApiConfigId", value: string): void;
-  (e: "update:workspaceAccess", value: "read_only" | "approval" | "full_access"): void;
+  (e: "update:workspaceAccess", value: "approval" | "full_access"): void;
   (e: "update:planModeEnabled", value: boolean): void;
   (e: "attachIdeContextReference", value: IdeContextReferenceItem): void;
   (e: "removeIdeContextReference", value: string): void;

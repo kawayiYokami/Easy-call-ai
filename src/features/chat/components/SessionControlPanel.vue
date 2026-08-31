@@ -86,7 +86,7 @@ const props = defineProps<{
   workspaceButtonLabel: string;
   workspaceButtonName: string;
   workspaceButtonDisabled?: boolean;
-  workspacePermissionKind?: "read_only" | "approval" | "full_access" | "autonomous";
+  workspacePermissionKind?: "approval" | "full_access" | "autonomous";
   autoPushActive?: boolean;
   delegates: ConversationDelegateStatusSummary[];
 }>();

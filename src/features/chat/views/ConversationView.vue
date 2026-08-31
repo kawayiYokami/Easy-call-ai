@@ -139,7 +139,7 @@ const props = defineProps<{
   workspaceName: string;
   workspaceRootPath: string;
   workspaces: ShellWorkspace[];
-  workspaceAccess: "read_only" | "approval" | "full_access";
+  workspaceAccess: "approval" | "full_access";
   currentTheme: string;
   config: AppConfig;
   terminalApprovals?: TerminalApprovalConversationItem[];

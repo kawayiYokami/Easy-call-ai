@@ -289,14 +289,19 @@ fn apply_stop_chat_partial_message_by_id(
     Ok(conversation.id.clone())
 }
 
+#[allow(dead_code)]
 fn validate_isolated_worktree_root(path: &str) -> Result<(), String> {
+    validate_worktree_root(path)
+}
+
+fn validate_worktree_root(path: &str) -> Result<(), String> {
     let raw_path = path.trim();
     if raw_path.is_empty() {
-        return Err("隔离工作树需要 Git 仓库根目录，当前工作区路径为空。".to_string());
+        return Err("工作树需要 Git 仓库根目录，当前工作区路径为空。".to_string());
     }
     let canonical_workspace = std::path::Path::new(raw_path)
         .canonicalize()
-        .map_err(|err| format!("无法读取隔离工作树目录：{err}"))?;
+        .map_err(|err| format!("无法读取工作树目录：{err}"))?;
     let mut command = std::process::Command::new("git");
     command
         .current_dir(&canonical_workspace)
@@ -305,15 +310,15 @@ fn validate_isolated_worktree_root(path: &str) -> Result<(), String> {
     {
         use std::os::windows::process::CommandExt as _;
 
-        // 新建隔离工作树会话时同步校验 Git 根目录，不能让 GUI 应用弹出控制台窗口。
+        // 新建工作树会话时同步校验 Git 根目录，不能让 GUI 应用弹出控制台窗口。
         command.creation_flags(0x08000000); // CREATE_NO_WINDOW
     }
     let output = command
         .output()
-        .map_err(|err| format!("无法运行 Git 检查隔离工作树目录：{err}"))?;
+        .map_err(|err| format!("无法运行 Git 检查工作树目录：{err}"))?;
     if !output.status.success() {
         return Err(format!(
-            "隔离工作树需要 Git 仓库根目录：{}",
+            "工作树需要 Git 仓库根目录：{}",
             canonical_workspace.display()
         ));
     }
@@ -325,7 +330,7 @@ fn validate_isolated_worktree_root(path: &str) -> Result<(), String> {
         != normalize_terminal_path_for_compare(&canonical_workspace)
     {
         return Err(format!(
-            "隔离工作树必须选择 Git 仓库根目录，不能选择子目录：{}",
+            "工作树必须选择 Git 仓库根目录，不能选择子目录：{}",
             canonical_workspace.display()
         ));
     }
@@ -369,6 +374,7 @@ fn create_next_draft_conversation_inherited(
         copy_source_conversation_id: None,
         shell_workspaces: Some(promoted.shell_workspaces.clone()),
         shell_work_mode: Some(promoted.shell_work_mode.clone()),
+        shell_work_branch: Some(promoted.shell_work_branch.clone()),
         shell_autonomous_mode: Some(promoted.shell_autonomous_mode),
         is_draft: Some(true),
     };
@@ -525,15 +531,15 @@ fn create_unarchived_conversation_shared(
                     .or_else(|| conversation.shell_workspaces.first())
                     .ok_or_else(|| "工作树模式需要至少一个工作区。".to_string())?;
                 if workspace.access.trim() == SHELL_WORKSPACE_ACCESS_READ_ONLY {
-                    let mode_name = if conversation.shell_work_mode == SHELL_WORK_MODE_INDEPENDENT_WORKTREE {
-                        "独立工作树"
-                    } else {
-                        "在隔离工作树中工作"
-                    };
-                    return Err(format!("{mode_name}至少需要审批权限。"));
+                    return Err("工作树至少需要审批权限。".to_string());
                 }
-                validate_isolated_worktree_root(&workspace.path)?;
+                validate_worktree_root(&workspace.path)?;
             }
+            if let Some(branch) = input.shell_work_branch.as_deref() {
+                conversation.shell_work_branch = branch.trim().to_string();
+            }
+        } else if let Some(branch) = input.shell_work_branch.as_deref() {
+            conversation.shell_work_branch = branch.trim().to_string();
         }
     }
     if let Some(shell_autonomous_mode) = input.shell_autonomous_mode {
@@ -934,6 +940,7 @@ fn read_conversation_for_backup_cleanup(
         shell_workspaces: conversation_meta.shell_workspaces,
         shell_autonomous_mode: conversation_meta.shell_autonomous_mode,
         shell_work_mode: normalize_shell_work_mode_text(&conversation_meta.shell_work_mode),
+        shell_work_branch: conversation_meta.shell_work_branch.clone(),
         archived_at: conversation_meta.archived_at,
         messages,
         fast_request_turns: conversation_meta.fast_request_turns,

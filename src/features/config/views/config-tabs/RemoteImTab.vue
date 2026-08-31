@@ -2068,7 +2068,7 @@ async function addContactWorkspace() {
       name,
       path,
       level: hasMain ? "secondary" : "main",
-      access: hasMain ? "read_only" : "approval",
+      access: (hasMain ? "read_only" : "approval") as unknown as ShellWorkspace["access"],
     });
   } catch {
     // 用户取消选择

@@ -2,6 +2,8 @@ const SHELL_WORKSPACE_LEVEL_SYSTEM: &str = "system";
 const SHELL_WORKSPACE_LEVEL_MAIN: &str = "main";
 const SHELL_WORKSPACE_LEVEL_SECONDARY: &str = "secondary";
 const SHELL_WORK_MODE_DIRECTORY: &str = "directory";
+const SHELL_WORK_MODE_WORKTREE: &str = "worktree";
+// 兼容旧值：旧 isolated / independent 统一迁移为 worktree
 const SHELL_WORK_MODE_ISOLATED_WORKTREE: &str = "isolated_worktree";
 const SHELL_WORK_MODE_INDEPENDENT_WORKTREE: &str = "independent_worktree";
 
@@ -14,26 +16,30 @@ fn default_shell_workspace_level() -> String {
 }
 
 fn default_shell_workspace_access() -> String {
-    SHELL_WORKSPACE_ACCESS_READ_ONLY.to_string()
+    SHELL_WORKSPACE_ACCESS_APPROVAL.to_string()
 }
 
 fn default_shell_work_mode() -> String {
     SHELL_WORK_MODE_DIRECTORY.to_string()
 }
 
+fn normalize_shell_workspace_access_text(raw: &str) -> String {
+    match raw.trim().to_ascii_lowercase().as_str() {
+        SHELL_WORKSPACE_ACCESS_FULL_ACCESS => SHELL_WORKSPACE_ACCESS_FULL_ACCESS.to_string(),
+        SHELL_WORKSPACE_ACCESS_READ_ONLY => SHELL_WORKSPACE_ACCESS_READ_ONLY.to_string(),
+        _ => SHELL_WORKSPACE_ACCESS_APPROVAL.to_string(),
+    }
+}
+
 fn normalize_shell_work_mode_text(raw: &str) -> String {
     match raw.trim().to_ascii_lowercase().as_str() {
-        SHELL_WORK_MODE_ISOLATED_WORKTREE => SHELL_WORK_MODE_ISOLATED_WORKTREE.to_string(),
-        SHELL_WORK_MODE_INDEPENDENT_WORKTREE => SHELL_WORK_MODE_INDEPENDENT_WORKTREE.to_string(),
+        SHELL_WORK_MODE_WORKTREE | SHELL_WORK_MODE_ISOLATED_WORKTREE | SHELL_WORK_MODE_INDEPENDENT_WORKTREE => SHELL_WORK_MODE_WORKTREE.to_string(),
         _ => SHELL_WORK_MODE_DIRECTORY.to_string(),
     }
 }
 
 fn shell_work_mode_requires_git_root(mode: &str) -> bool {
-    matches!(
-        normalize_shell_work_mode_text(mode).as_str(),
-        SHELL_WORK_MODE_ISOLATED_WORKTREE | SHELL_WORK_MODE_INDEPENDENT_WORKTREE
-    )
+    normalize_shell_work_mode_text(mode) == SHELL_WORK_MODE_WORKTREE
 }
 
 const CODEX_AUTH_MODE_READ_LOCAL: &str = "read_local";
