@@ -283,212 +283,428 @@
 /* ============ 对话 Markdown 布局档位（紧凑/适中/宽松），仅布局维度，配色跟随主题 ============ */
 /* 档位由 use-chat-message-appearance 在根元素挂 ecall-md-layout-{compact|comfortable|relaxed} */
 
-/* ---- 紧凑（极简风，默认）---- */
+/* ---- 紧凑（0.6x 密度，贴 dsh 宽松）---- */
 html.ecall-md-layout-compact .ecall-md-chat.ecall-md-renderer {
-  line-height: 1.6;
+  line-height: 1.62;
   font-size: calc(var(--app-chat-message-text-size, var(--app-text-sm-size)) * 0.95);
 }
 
 html.ecall-md-layout-compact .ecall-md-chat .ecall-md-heading {
-  margin: 0.7rem 0 0.25rem;
-  line-height: 1.4;
   font-weight: 700;
+  letter-spacing: 0;
 }
 
 html.ecall-md-layout-compact .ecall-md-chat h1.ecall-md-heading {
-  margin-top: 1rem;
-  font-size: 1.3em;
+  margin: 1.2em 0 0.6em;
+  font-size: 1.5em;
+  line-height: 1.4167;
+  font-weight: 700;
 }
 
 html.ecall-md-layout-compact .ecall-md-chat h2.ecall-md-heading {
-  font-size: 1.15em;
+  margin: 1.2em 0 0.6em;
+  font-size: 1.375em;
+  line-height: 1.4545;
+  font-weight: 700;
 }
 
 html.ecall-md-layout-compact .ecall-md-chat h3.ecall-md-heading {
-  font-size: 1.05em;
-}
-
-html.ecall-md-layout-compact .ecall-md-chat h4.ecall-md-heading {
-  font-size: 1em;
-}
-
-html.ecall-md-layout-compact .ecall-md-chat .ecall-md-paragraph {
-  margin: 0.35rem 0;
-}
-
-html.ecall-md-layout-compact .ecall-md-chat .ecall-md-list {
-  margin: 0.35rem 0;
-  padding-left: 1.4em;
-}
-
-html.ecall-md-layout-compact .ecall-md-chat .ecall-md-list li {
-  margin: 0.15rem 0;
-}
-
-html.ecall-md-layout-compact .ecall-md-chat .ecall-md-quote {
-  margin: 0.5rem 0;
-  padding: 0.05rem 0.8rem;
-  border: 0;
-  border-left: 3px solid currentColor;
-  border-radius: 0;
-  background: transparent;
-}
-
-html.ecall-md-layout-compact .ecall-md-chat .ecall-md-code-block {
-  margin: 0.5rem 0;
-}
-
-html.ecall-md-layout-compact .ecall-md-chat .ecall-md-code-title {
-  padding: 0.25rem 0.6rem;
-}
-
-html.ecall-md-layout-compact .ecall-md-chat .ecall-md-inline-code {
-  padding: 0.08em 0.3em;
-}
-
-html.ecall-md-layout-compact .ecall-md-chat .ecall-md-table-wrap {
-  margin: 0.5rem 0;
-}
-
-html.ecall-md-layout-compact .ecall-md-chat .ecall-md-table th,
-html.ecall-md-layout-compact .ecall-md-chat .ecall-md-table td {
-  padding: 0.3rem 0.6rem;
-}
-
-/* ---- 适中（知乎风）---- */
-html.ecall-md-layout-comfortable .ecall-md-chat.ecall-md-renderer {
-  line-height: 1.75;
-}
-
-html.ecall-md-layout-comfortable .ecall-md-chat .ecall-md-heading {
-  margin: 0.9rem 0 0.35rem;
+  margin: 1.2em 0 0.6em;
+  font-size: 1.25em;
   line-height: 1.5;
   font-weight: 700;
 }
 
-html.ecall-md-layout-comfortable .ecall-md-chat h1.ecall-md-heading {
-  margin-top: 1.2rem;
-  font-size: 1.6em;
-}
-
-html.ecall-md-layout-comfortable .ecall-md-chat h2.ecall-md-heading {
-  font-size: 1.35em;
-}
-
-html.ecall-md-layout-comfortable .ecall-md-chat h3.ecall-md-heading {
-  font-size: 1.15em;
-}
-
-html.ecall-md-layout-comfortable .ecall-md-chat h4.ecall-md-heading {
-  font-size: 1.05em;
-}
-
-html.ecall-md-layout-comfortable .ecall-md-chat .ecall-md-paragraph {
-  margin: 0.5rem 0;
-}
-
-html.ecall-md-layout-comfortable .ecall-md-chat .ecall-md-list {
-  margin: 0.5rem 0;
-  padding-left: 1.5em;
-}
-
-html.ecall-md-layout-comfortable .ecall-md-chat .ecall-md-list li {
-  margin: 0.22rem 0;
-}
-
-html.ecall-md-layout-comfortable .ecall-md-chat .ecall-md-quote {
-  margin: 0.7rem 0;
-  padding: 0.6rem 0.9rem;
-  border: 0;
-  border-left: 4px solid currentColor;
-  border-radius: 0;
-  background: transparent;
-}
-
-html.ecall-md-layout-comfortable .ecall-md-chat .ecall-md-code-block {
-  margin: 0.7rem 0;
-}
-
-html.ecall-md-layout-comfortable .ecall-md-chat .ecall-md-inline-code {
-  padding: 0.1em 0.35em;
-}
-
-html.ecall-md-layout-comfortable .ecall-md-chat .ecall-md-table-wrap {
-  margin: 0.7rem 0;
-}
-
-html.ecall-md-layout-comfortable .ecall-md-chat .ecall-md-table th,
-html.ecall-md-layout-comfortable .ecall-md-chat .ecall-md-table td {
-  padding: 0.4rem 0.8rem;
-}
-
-/* ---- 宽松（Tailwind Prose）---- */
-html.ecall-md-layout-relaxed .ecall-md-chat.ecall-md-renderer {
-  line-height: 1.75;
-}
-
-html.ecall-md-layout-relaxed .ecall-md-chat .ecall-md-heading {
-  margin: 1.6em 0 0.6em;
-  line-height: 1.4;
+html.ecall-md-layout-compact .ecall-md-chat h4.ecall-md-heading {
+  margin: 0.6em 0;
+  font-size: 1em;
+  line-height: 1.62;
   font-weight: 600;
 }
 
+html.ecall-md-layout-compact .ecall-md-chat :where(h5, h6).ecall-md-heading {
+  margin: 0.6em 0;
+  font-size: 1em;
+  line-height: 1.62;
+  font-weight: 600;
+}
+
+html.ecall-md-layout-compact .ecall-md-chat .ecall-md-paragraph {
+  margin: 0.6em 0;
+  line-height: 1.62;
+}
+
+html.ecall-md-layout-compact .ecall-md-chat .ecall-md-list {
+  margin: 0.6em 0;
+  padding-left: 1.125em;
+  line-height: 1.62;
+}
+
+html.ecall-md-layout-compact .ecall-md-chat .ecall-md-list li {
+  margin: 0;
+}
+
+html.ecall-md-layout-compact .ecall-md-chat .ecall-md-list li:not(:first-child) {
+  margin-top: 0.225em;
+}
+
+html.ecall-md-layout-compact .ecall-md-chat .ecall-md-list li > p {
+  margin: 0.3em 0;
+}
+
+html.ecall-md-layout-compact .ecall-md-chat .ecall-md-list li > :where(ul, ol) {
+  margin-top: 0.15em;
+}
+
+html.ecall-md-layout-compact .ecall-md-chat .ecall-md-quote {
+  margin: 0.6em 0 0;
+  padding: 0 0 0 0.875em;
+  border: 0;
+  border-left: 2px solid color-mix(in srgb, var(--color-base-content) 22%, transparent);
+  border-radius: 0;
+  background: transparent;
+  line-height: 1.62;
+}
+
+html.ecall-md-layout-compact .ecall-md-chat .ecall-md-hr {
+  margin: 1.2em 0;
+}
+
+html.ecall-md-layout-compact .ecall-md-chat .ecall-md-code-block {
+  margin: 0.6em 0;
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+html.ecall-md-layout-compact .ecall-md-chat .ecall-md-code-title {
+  padding: 0.5625rem 0.875rem;
+  font-size: 0.75em;
+  line-height: 1.5;
+}
+
+html.ecall-md-layout-compact .ecall-md-chat .ecall-md-code-body {
+  padding: 1em;
+  font-size: 0.8125em;
+  line-height: 1.692;
+}
+
+html.ecall-md-layout-compact .ecall-md-chat .ecall-md-inline-code {
+  font-size: 0.875em;
+  line-height: 1.571;
+  padding: 0 0.357em;
+  border-radius: 6px;
+}
+
+html.ecall-md-layout-compact .ecall-md-chat .ecall-md-table-wrap {
+  margin: 0.6em 0;
+}
+
+html.ecall-md-layout-compact .ecall-md-chat .ecall-md-table {
+  font-size: 0.9375em;
+  line-height: 1.6667;
+}
+
+html.ecall-md-layout-compact .ecall-md-chat .ecall-md-table th {
+  font-weight: 500;
+  padding: 0.4em 0.64em;
+}
+
+html.ecall-md-layout-compact .ecall-md-chat .ecall-md-table td {
+  font-weight: 400;
+  padding: 0.4em 0.64em;
+}
+
+html.ecall-md-layout-compact .ecall-md-chat .ecall-md-table th:first-child,
+html.ecall-md-layout-compact .ecall-md-chat .ecall-md-table td:first-child {
+  padding-left: 0;
+}
+
+html.ecall-md-layout-compact .ecall-md-chat .ecall-md-table td:last-child {
+  padding-right: 0;
+}
+
+/* ---- 适中（0.8x 密度，贴 dsh 宽松）---- */
+html.ecall-md-layout-comfortable .ecall-md-chat.ecall-md-renderer {
+  line-height: 1.70;
+}
+
+html.ecall-md-layout-comfortable .ecall-md-chat .ecall-md-heading {
+  font-weight: 700;
+  letter-spacing: 0;
+}
+
+html.ecall-md-layout-comfortable .ecall-md-chat h1.ecall-md-heading {
+  margin: 1.6em 0 0.8em;
+  font-size: 1.5em;
+  line-height: 1.4167;
+  font-weight: 700;
+}
+
+html.ecall-md-layout-comfortable .ecall-md-chat h2.ecall-md-heading {
+  margin: 1.6em 0 0.8em;
+  font-size: 1.375em;
+  line-height: 1.4545;
+  font-weight: 700;
+}
+
+html.ecall-md-layout-comfortable .ecall-md-chat h3.ecall-md-heading {
+  margin: 1.6em 0 0.8em;
+  font-size: 1.25em;
+  line-height: 1.5;
+  font-weight: 700;
+}
+
+html.ecall-md-layout-comfortable .ecall-md-chat h4.ecall-md-heading {
+  margin: 0.8em 0;
+  font-size: 1em;
+  line-height: 1.70;
+  font-weight: 600;
+}
+
+html.ecall-md-layout-comfortable .ecall-md-chat :where(h5, h6).ecall-md-heading {
+  margin: 0.8em 0;
+  font-size: 1em;
+  line-height: 1.70;
+  font-weight: 600;
+}
+
+html.ecall-md-layout-comfortable .ecall-md-chat .ecall-md-paragraph {
+  margin: 0.8em 0;
+  line-height: 1.70;
+}
+
+html.ecall-md-layout-comfortable .ecall-md-chat .ecall-md-list {
+  margin: 0.8em 0;
+  padding-left: 1.125em;
+  line-height: 1.70;
+}
+
+html.ecall-md-layout-comfortable .ecall-md-chat .ecall-md-list li {
+  margin: 0;
+}
+
+html.ecall-md-layout-comfortable .ecall-md-chat .ecall-md-list li:not(:first-child) {
+  margin-top: 0.3em;
+}
+
+html.ecall-md-layout-comfortable .ecall-md-chat .ecall-md-list li > p {
+  margin: 0.4em 0;
+}
+
+html.ecall-md-layout-comfortable .ecall-md-chat .ecall-md-list li > :where(ul, ol) {
+  margin-top: 0.2em;
+}
+
+html.ecall-md-layout-comfortable .ecall-md-chat .ecall-md-quote {
+  margin: 0.8em 0 0;
+  padding: 0 0 0 0.875em;
+  border: 0;
+  border-left: 2px solid color-mix(in srgb, var(--color-base-content) 22%, transparent);
+  border-radius: 0;
+  background: transparent;
+  line-height: 1.70;
+}
+
+html.ecall-md-layout-comfortable .ecall-md-chat .ecall-md-hr {
+  margin: 1.6em 0;
+}
+
+html.ecall-md-layout-comfortable .ecall-md-chat .ecall-md-code-block {
+  margin: 0.8em 0;
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+html.ecall-md-layout-comfortable .ecall-md-chat .ecall-md-code-title {
+  padding: 0.5625rem 0.875rem;
+  font-size: 0.75em;
+  line-height: 1.5;
+}
+
+html.ecall-md-layout-comfortable .ecall-md-chat .ecall-md-code-body {
+  padding: 1em;
+  font-size: 0.8125em;
+  line-height: 1.692;
+}
+
+html.ecall-md-layout-comfortable .ecall-md-chat .ecall-md-inline-code {
+  font-size: 0.875em;
+  line-height: 1.571;
+  padding: 0 0.357em;
+  border-radius: 6px;
+}
+
+html.ecall-md-layout-comfortable .ecall-md-chat .ecall-md-table-wrap {
+  margin: 0.8em 0;
+}
+
+html.ecall-md-layout-comfortable .ecall-md-chat .ecall-md-table {
+  font-size: 0.9375em;
+  line-height: 1.6667;
+}
+
+html.ecall-md-layout-comfortable .ecall-md-chat .ecall-md-table th {
+  font-weight: 500;
+  padding: 0.533em 0.853em;
+}
+
+html.ecall-md-layout-comfortable .ecall-md-chat .ecall-md-table td {
+  font-weight: 400;
+  padding: 0.533em 0.853em;
+}
+
+html.ecall-md-layout-comfortable .ecall-md-chat .ecall-md-table th:first-child,
+html.ecall-md-layout-comfortable .ecall-md-chat .ecall-md-table td:first-child {
+  padding-left: 0;
+}
+
+html.ecall-md-layout-comfortable .ecall-md-chat .ecall-md-table td:last-child {
+  padding-right: 0;
+}
+
+/* ---- 宽松（deepseek-harness / dsh 基准，16/28 体系）---- */
+/* 对齐 dsh packages/client/ui-primitives/src/markdown/MarkdownText.module.css + gradient-shadow-text.css：
+   base 16px/28px(1.75)、h1 24/34、h2 22/32、h3 20/30、h4 16/28、p 16px、list/hr/table 均按 16px 基准换算为 em */
+html.ecall-md-layout-relaxed .ecall-md-chat.ecall-md-renderer {
+  font-size: var(--app-text-base-size, 16px);
+  line-height: 1.75; /* 28/16 */
+}
+
+html.ecall-md-layout-relaxed .ecall-md-chat .ecall-md-heading {
+  font-weight: 700;
+  letter-spacing: 0;
+}
+
 html.ecall-md-layout-relaxed .ecall-md-chat h1.ecall-md-heading {
-  margin-top: 0;
-  font-size: 2.25em;
+  margin: 2em 0 1em; /* 32 0 16 */
+  font-size: 1.5em; /* 24/16 */
+  line-height: 1.4167; /* 34/24 */
+  font-weight: 700;
 }
 
 html.ecall-md-layout-relaxed .ecall-md-chat h2.ecall-md-heading {
-  font-size: 1.5em;
+  margin: 2em 0 1em;
+  font-size: 1.375em; /* 22/16 */
+  line-height: 1.4545; /* 32/22 */
+  font-weight: 700;
 }
 
 html.ecall-md-layout-relaxed .ecall-md-chat h3.ecall-md-heading {
-  font-size: 1.25em;
+  margin: 2em 0 1em;
+  font-size: 1.25em; /* 20/16 */
+  line-height: 1.5; /* 30/20 */
+  font-weight: 700;
 }
 
 html.ecall-md-layout-relaxed .ecall-md-chat h4.ecall-md-heading {
-  font-size: 1.1em;
+  margin: 1em 0; /* 16 0 */
+  font-size: 1em; /* 16/16 */
+  line-height: 1.75; /* 28/16 */
+  font-weight: 600;
+}
+
+html.ecall-md-layout-relaxed .ecall-md-chat :where(h5, h6).ecall-md-heading {
+  margin: 1em 0;
+  font-size: 1em;
+  line-height: 1.75;
+  font-weight: 600;
 }
 
 html.ecall-md-layout-relaxed .ecall-md-chat .ecall-md-paragraph {
-  margin: 1.25em 0;
+  margin: 1em 0; /* 16 0 */
+  line-height: 1.75;
 }
 
 html.ecall-md-layout-relaxed .ecall-md-chat .ecall-md-list {
-  margin: 1.25em 0;
-  padding-left: 1.625em;
+  margin: 1em 0;
+  padding-left: 1.125em; /* 18px */
+  line-height: 1.75;
 }
 
 html.ecall-md-layout-relaxed .ecall-md-chat .ecall-md-list li {
-  margin: 0.5em 0;
+  margin: 0;
+}
+
+html.ecall-md-layout-relaxed .ecall-md-chat .ecall-md-list li:not(:first-child) {
+  margin-top: 0.375em; /* 6px */
+}
+
+html.ecall-md-layout-relaxed .ecall-md-chat .ecall-md-list li > p {
+  margin: 0.5em 0; /* 8px */
+}
+
+html.ecall-md-layout-relaxed .ecall-md-chat .ecall-md-list li > :where(ul, ol) {
+  margin-top: 0.25em; /* 4px */
 }
 
 html.ecall-md-layout-relaxed .ecall-md-chat .ecall-md-quote {
-  margin: 1.6em 0;
-  padding: 0 0.6em 0 1em;
+  margin: 1em 0 0;
+  padding: 0 0 0 0.875em; /* 14px */
   border: 0;
-  border-left: 0.25em solid currentColor;
+  border-left: 2px solid color-mix(in srgb, var(--color-base-content) 22%, transparent);
   border-radius: 0;
   background: transparent;
+  line-height: 1.75;
+}
+
+html.ecall-md-layout-relaxed .ecall-md-chat .ecall-md-hr {
+  margin: 2em 0; /* 32 0 */
+  border-top-width: 1px;
 }
 
 html.ecall-md-layout-relaxed .ecall-md-chat .ecall-md-code-block {
-  margin: 1.6em 0;
+  margin: 1em 0; /* 16 0 */
+  border-radius: 12px;
+  overflow: hidden;
 }
 
 html.ecall-md-layout-relaxed .ecall-md-chat .ecall-md-code-title {
-  padding: 0.5rem 0.85rem;
+  padding: 0.5625rem 0.875rem; /* 9px 14px */
+  font-size: 0.75em; /* 12px */
+  line-height: 1.5; /* 18/12 */
+}
+
+html.ecall-md-layout-relaxed .ecall-md-chat .ecall-md-code-body {
+  padding: 1em; /* 16px */
+  font-size: 0.8125em; /* 13px code-block */
+  line-height: 1.692; /* 22/13 */
 }
 
 html.ecall-md-layout-relaxed .ecall-md-chat .ecall-md-inline-code {
-  padding: 0.15em 0.4em;
+  font-size: 0.875em; /* 14px */
+  line-height: 1.571; /* 22/14 */
+  padding: 0 0.357em; /* 0 5px */
+  border-radius: 6px;
 }
 
 html.ecall-md-layout-relaxed .ecall-md-chat .ecall-md-table-wrap {
-  margin: 1.6em 0;
+  margin: 1em 0;
 }
 
-html.ecall-md-layout-relaxed .ecall-md-chat .ecall-md-table th,
+html.ecall-md-layout-relaxed .ecall-md-chat .ecall-md-table {
+  font-size: 0.9375em; /* 15/16 */
+  line-height: 1.6667; /* 25/15 */
+}
+
+html.ecall-md-layout-relaxed .ecall-md-chat .ecall-md-table th {
+  font-size: 1em;
+  line-height: 1.6667;
+  font-weight: 500;
+  padding: 0.6667em 1.0667em; /* 10 16 /15 */
+}
+
 html.ecall-md-layout-relaxed .ecall-md-chat .ecall-md-table td {
-  padding: 0.5rem 0.85rem;
+  font-size: 1em;
+  line-height: 1.6667;
+  font-weight: 400;
+  padding: 0.6667em 1.0667em;
+}
+
+html.ecall-md-layout-relaxed .ecall-md-chat .ecall-md-table th:first-child,
+html.ecall-md-layout-relaxed .ecall-md-chat .ecall-md-table td:first-child {
+  padding-left: 0;
+}
+
+html.ecall-md-layout-relaxed .ecall-md-chat .ecall-md-table td:last-child {
+  padding-right: 0;
 }
