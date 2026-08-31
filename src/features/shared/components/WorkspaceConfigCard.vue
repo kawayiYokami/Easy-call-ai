@@ -1,26 +1,8 @@
 <template>
   <div class="flex w-full flex-col gap-2">
-    <!-- 权限：单独居中 -->
+    <!-- 文件 + 分支/worktree 同排居中：超宽自动折行居中 -->
     <div class="flex w-full flex-wrap items-center justify-center gap-2">
-      <div class="flex items-center rounded-selector border border-base-content/10 bg-base-content/5 p-0.5 backdrop-blur-md">
-        <button
-          v-for="accessOption in ACCESS_OPTIONS"
-          :key="accessOption"
-          type="button"
-          class="rounded-selector px-3 py-1.5 text-[11px] font-medium leading-none transition-all"
-          :class="access === accessOption
-            ? 'bg-base-100 text-base-content shadow-sm'
-            : 'text-base-content/55 hover:text-base-content'"
-          @click="emit('update:access', accessOption)"
-        >
-          {{ t(`config.tools.workspaceAccess${ACCESS_LABEL_KEY[accessOption]}`) }}
-        </button>
-      </div>
-    </div>
-
-    <!-- shell + 分支 + worktree 同排居中：shell 收短，分支紧凑，超宽自动折行居中 -->
-    <div class="flex w-full flex-wrap items-center justify-center gap-2">
-      <EcallDropdown v-model="mainDropdownOpen" :disabled="availableWorkspaces.length === 0 && !mainPath" :teleport="true" root-class="shrink-0 w-[220px] max-w-[56%] sm:w-[240px]" panel-class="w-full">
+      <EcallDropdown v-model="mainDropdownOpen" :disabled="availableWorkspaces.length === 0 && !mainPath" :teleport="true" root-class="min-w-[180px] flex-1" panel-class="w-full">
         <template #trigger="{ toggle, open }">
           <div class="flex h-9 w-full items-center gap-1 rounded-field border border-base-content/10 bg-base-100/50 pl-3.5 pr-1 shadow-sm backdrop-blur-md">
             <FolderOpen class="h-3.5 w-3.5 shrink-0 text-base-content/45" />
@@ -80,7 +62,7 @@
           v-model="branchDropdownOpen"
           :disabled="branchList.length === 0 && !selectedBranch"
           :teleport="true"
-          root-class="w-auto min-w-[136px] max-w-[180px]"
+          root-class="min-w-[112px] max-w-[180px]"
           panel-class="w-full"
         >
           <template #trigger="{ toggle, open }">
@@ -135,7 +117,26 @@
         </label>
       </div>
 
-      <!-- 额外目录胶囊 + 加号：同排，少数同行，放不下自动折到下一行居中 -->
+    </div>
+
+    <!-- 权限 + 额外目录胶囊 + 添加目录：同排居中，放不下自动折行 -->
+    <div class="flex w-full flex-wrap items-center justify-center gap-2">
+      <div class="flex shrink-0 items-center rounded-selector border border-base-content/10 bg-base-content/5 p-0.5 backdrop-blur-md">
+        <button
+          v-for="accessOption in ACCESS_OPTIONS"
+          :key="accessOption"
+          type="button"
+          class="rounded-selector px-3 py-1.5 text-[11px] font-medium leading-none transition-all"
+          :class="access === accessOption
+            ? 'bg-base-100 text-base-content shadow-sm'
+            : 'text-base-content/55 hover:text-base-content'"
+          @click="emit('update:access', accessOption)"
+        >
+          {{ t(`config.tools.workspaceAccess${ACCESS_LABEL_KEY[accessOption]}`) }}
+        </button>
+      </div>
+
+      <!-- 额外目录胶囊 + 添加目录：同排，少数同行，放不下自动折到下一行居中 -->
       <div class="flex flex-wrap items-center justify-center gap-1.5">
         <div
           v-for="secPath in secondaryPaths"
