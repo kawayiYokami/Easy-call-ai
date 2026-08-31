@@ -55,11 +55,12 @@ export function buildConversationSections(
 
   // 「当前项目」分组：把属于当前工作区路径的会话单独列出，
   // 并从最近会话与其他工作区分组中剔除，避免重复显示。
+  // 工作树感知：host 与会话路径若落在 {gitRoot}/.pai/.worktree/{id} 内，先回溯到 gitRoot 再比较。
   const currentWorkspacePath = String(options.currentWorkspaceRootPath || "").trim();
-  const normalizedCurrentWorkspacePath = normalizeWorkspaceSectionPath(currentWorkspacePath);
+  const normalizedCurrentWorkspacePath = canonicalWorkspaceRootForComparison(currentWorkspacePath);
   const isCurrentProjectItem = (item: ChatConversationOverviewItem) =>
     !!normalizedCurrentWorkspacePath
-    && normalizeWorkspaceSectionPath(String(item.workspaceRootPath || "").trim()) === normalizedCurrentWorkspacePath;
+    && canonicalWorkspaceRootForComparison(String(item.workspaceRootPath || "").trim()) === normalizedCurrentWorkspacePath;
   const currentProjectItems = others.filter(isCurrentProjectItem);
   const restOthers = others.filter((item) => !isCurrentProjectItem(item));
 
@@ -144,6 +145,19 @@ function normalizeWorkspaceSectionPath(path: string): string {
     .replace(/^\\\\\?\\/i, "")
     .replace(/^\\\\.\\/i, "");
   return normalized.replace(/\\/g, "/").replace(/\/+$/, "").toLocaleLowerCase();
+}
+
+export function canonicalWorkspaceRootForComparison(path: string): string {
+  const normalized = normalizeWorkspaceSectionPath(path);
+  if (!normalized) return "";
+  // 单文件单工作树固定在 {gitRoot}/.pai/.worktree/{id}（兼容 legacy 8 位），
+  // 打开工作树目录时回溯到 gitRoot，保证 host 与会话能归到同一「当前项目」。
+  const marker = "/.pai/.worktree/";
+  const markerIndex = normalized.indexOf(marker);
+  if (markerIndex !== -1) return normalized.slice(0, markerIndex);
+  const suffix = "/.pai/.worktree";
+  if (normalized.endsWith(suffix)) return normalized.slice(0, normalized.length - suffix.length);
+  return normalized;
 }
 
 function compareWorkspaceSectionText(left: string, right: string, locale?: string | string[]): number {

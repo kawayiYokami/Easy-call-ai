@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildConversationSections, conversationCountSinceDayStart, applyConversationSectionOrder, type ConversationSection, type ConversationSectionTitles } from "./conversation-sections";
+import { buildConversationSections, canonicalWorkspaceRootForComparison, conversationCountSinceDayStart, applyConversationSectionOrder, type ConversationSection, type ConversationSectionTitles } from "./conversation-sections";
 import type { ChatConversationOverviewItem } from "../../../types/app";
 
 const titles: ConversationSectionTitles = {
@@ -179,6 +179,78 @@ describe("buildConversationSections", () => {
     const sections = buildConversationSections(items, { tab: "local", titles, locale: "zh-CN" });
     const recentSection = sections.find((section) => section.key === "recent");
     expect(recentSection?.items.length).toBe(12);
+  });
+
+  it("host 为工作树路径时，仓库根与同仓库工作树会话均归入当前项目", () => {
+    const items = [
+      item({ conversationId: "repo-root", lastMessageAt: "2026-08-02T00:00:00Z", updatedAt: "2026-08-02T00:00:00Z", workspaceRootPath: "E:/work/proj" }),
+      item({ conversationId: "worktree-sibling", lastMessageAt: "2026-08-03T00:00:00Z", updatedAt: "2026-08-03T00:00:00Z", workspaceRootPath: "E:/work/proj/.pai/.worktree/def456" }),
+      item({ conversationId: "other", lastMessageAt: "2026-08-01T00:00:00Z", updatedAt: "2026-08-01T00:00:00Z", workspaceRootPath: "E:/work/other" }),
+    ];
+    const sections = buildConversationSections(items, {
+      tab: "local",
+      titles,
+      locale: "zh-CN",
+      currentWorkspaceRootPath: "E:/work/proj/.pai/.worktree/abc123",
+    });
+    const currentProject = sections.find((section) => section.key === "current-project");
+    expect(currentProject?.items.map((entry) => entry.conversationId).sort()).toEqual(["repo-root", "worktree-sibling"].sort());
+  });
+
+  it("host 为仓库根时，工作树会话亦归入当前项目（双向归一）", () => {
+    const items = [
+      item({ conversationId: "worktree-a", lastMessageAt: "2026-08-02T00:00:00Z", updatedAt: "2026-08-02T00:00:00Z", workspaceRootPath: "E:/work/proj/.pai/.worktree/abc123" }),
+      item({ conversationId: "other", lastMessageAt: "2026-08-01T00:00:00Z", updatedAt: "2026-08-01T00:00:00Z", workspaceRootPath: "E:/work/other" }),
+    ];
+    const sections = buildConversationSections(items, {
+      tab: "local",
+      titles,
+      locale: "zh-CN",
+      currentWorkspaceRootPath: "E:/work/proj",
+    });
+    const currentProject = sections.find((section) => section.key === "current-project");
+    expect(currentProject?.items.map((entry) => entry.conversationId)).toEqual(["worktree-a"]);
+  });
+
+  it("host 工作树带扩展前缀与大小写差异仍能归一", () => {
+    const items = [
+      item({ conversationId: "repo-root", lastMessageAt: "2026-08-02T00:00:00Z", updatedAt: "2026-08-02T00:00:00Z", workspaceRootPath: "e:/work/proj" }),
+    ];
+    const sections = buildConversationSections(items, {
+      tab: "local",
+      titles,
+      locale: "zh-CN",
+      currentWorkspaceRootPath: "\\\\?\\E:\\work\\proj\\.pai\\.worktree\\abc123",
+    });
+    const currentProject = sections.find((section) => section.key === "current-project");
+    expect(currentProject?.items.map((entry) => entry.conversationId)).toEqual(["repo-root"]);
+  });
+
+  it("不同仓库的工作树不串台", () => {
+    const items = [
+      item({ conversationId: "other-worktree", lastMessageAt: "2026-08-02T00:00:00Z", updatedAt: "2026-08-02T00:00:00Z", workspaceRootPath: "E:/work/other/.pai/.worktree/xyz" }),
+    ];
+    const sections = buildConversationSections(items, {
+      tab: "local",
+      titles,
+      locale: "zh-CN",
+      currentWorkspaceRootPath: "E:/work/proj/.pai/.worktree/abc123",
+    });
+    const currentProject = sections.find((section) => section.key === "current-project");
+    expect(currentProject?.items).toEqual([]);
+  });
+});
+
+describe("canonicalWorkspaceRootForComparison", () => {
+  it("回溯 .pai/.worktree 段到仓库根，大小写与分隔符归一", () => {
+    expect(canonicalWorkspaceRootForComparison("E:\\work\\proj\\.pai\\.worktree\\abc123")).toBe("e:/work/proj");
+    expect(canonicalWorkspaceRootForComparison("E:/work/proj/.pai/.worktree/")).toBe("e:/work/proj");
+    expect(canonicalWorkspaceRootForComparison("\\\\?\\E:\\work\\proj")).toBe("e:/work/proj");
+    expect(canonicalWorkspaceRootForComparison("E:/work/proj")).toBe("e:/work/proj");
+  });
+
+  it("非工作树路径保持归一化但不截断", () => {
+    expect(canonicalWorkspaceRootForComparison("E:/work/proj/sub/dir/")).toBe("e:/work/proj/sub/dir");
   });
 });
 

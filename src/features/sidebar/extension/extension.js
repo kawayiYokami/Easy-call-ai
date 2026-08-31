@@ -41,9 +41,30 @@ function readDiscoveryFileContent() {
   }
 }
 
+function canonicalWorkspaceRootForExtension(pathValue) {
+  const raw = String(pathValue || "").trim();
+  if (!raw) return "";
+  // 与前端 canonicalWorkspaceRootForComparison 同构：先归一化再回溯 .pai/.worktree。
+  let normalized = raw.replace(/^\\\\\?\\unc\\/i, "//").replace(/^\\\\\?\\/i, "").replace(/^\\\\.\\/i, "");
+  normalized = normalized.replace(/\\/g, "/").replace(/\/+$/, "").toLowerCase();
+  if (!normalized) return raw;
+  const marker = "/.pai/.worktree/";
+  const markerIndex = normalized.indexOf(marker);
+  if (markerIndex !== -1) {
+    // 用归一化后的切片长度反推原始前缀截断：保证 host 与会话 canonical 一致。
+    const prefixLen = markerIndex;
+    // normalized 与 raw 的前缀在去掉反斜杠差异后一一对应，直接在归一化空间切片后返回。
+    // 为避免大小写与分隔符差异，返回归一化后的 canonical（前端会再次归一化，仍相等）。
+    return normalized.slice(0, prefixLen);
+  }
+  const suffix = "/.pai/.worktree";
+  if (normalized.endsWith(suffix)) return normalized.slice(0, normalized.length - suffix.length);
+  return raw;
+}
+
 function readWorkspaceRoots() {
   return (vscode.workspace.workspaceFolders || []).map((folder) => ({
-    path: folder.uri.fsPath,
+    path: canonicalWorkspaceRootForExtension(folder.uri.fsPath),
     name: folder.name,
   }));
 }

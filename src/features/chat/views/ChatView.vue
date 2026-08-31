@@ -705,7 +705,7 @@ import { useChatMessageActions } from "../composables/use-chat-message-actions";
 import { useChatScrollLayout } from "../composables/use-chat-scroll-layout";
 import type { TerminalApprovalConversationItem } from "../../shell/composables/use-terminal-approval";
 import { isAbsoluteLocalPath, isAssistantSpacePath, normalizeLocalLinkHref, parseLocalFileReference } from "../utils/local-link";
-import { buildConversationSections, buildWorkspaceConversationSections, type ConversationSection } from "../utils/conversation-sections";
+import { buildConversationSections, buildWorkspaceConversationSections, canonicalWorkspaceRootForComparison, type ConversationSection } from "../utils/conversation-sections";
 import { stripExtendedPathPrefix } from "../../../utils/shell-workspaces";
 import { type ChatRenderItem, isRightAlignedMessage, canOpenInFileReader, fileExtensionFromPath } from "../utils/chat-render";
 import { clearFileReaderContextCandidates } from "../utils/file-reader-context-tags";
@@ -2134,12 +2134,15 @@ function handleRebindConversationRecipient() {
 
 // 「当前项目」分组只允许在 VS Code 侧边栏显示：
 // 宿主为 VS Code 时跟随扩展注入的 workspaceRoots（当前打开的项目），
-// 与会话工作区（currentWorkspaceRootPath）无关
+// 与会话工作区（currentWorkspaceRootPath）无关。
+// 工作树感知：host 若打开的是 .pai/.worktree/{id}，回溯到项目根再做分组。
 const currentProjectWorkspaceRoot = computed<string>(() => {
   if (!isVscodeHost()) return "";
   try {
     const hostRoot = getTransportHostContext().workspaceRoots[0];
-    return String(hostRoot?.path || "").trim();
+    const raw = String(hostRoot?.path || "").trim();
+    if (!raw) return "";
+    return canonicalWorkspaceRootForComparison(raw);
   } catch {
     return "";
   }
