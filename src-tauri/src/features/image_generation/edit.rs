@@ -438,6 +438,46 @@ async fn edit_gemini_image_once(
     parse_gemini_image_response(&value)
 }
 
+async fn edit_sensenova_image_once(
+    state: &AppState,
+    resolved: &ResolvedImageGenerationModel,
+    request: &ImageGenerationRequest,
+    inputs: &ImageEditInputs,
+    api_key: &str,
+) -> Result<ProviderImageGenerationOutput, String> {
+    // SenseNova 暂未开放稳定的多模态编辑端点，按 OpenAI 兼容的 images/edits 复用
+    ensure_image_edit_input_limits(
+        &resolved.provider.name,
+        inputs,
+        OPENAI_IMAGE_EDIT_MAX_IMAGES,
+        true,
+    )?;
+    let mut form = reqwest::multipart::Form::new();
+    for (name, value) in openai_image_edit_scalar_fields(request, &resolved.model) {
+        form = form.text(name, value);
+    }
+    for (index, input) in inputs.images.iter().enumerate() {
+        form = form.part("image[]", image_edit_multipart_part(input, &format!("image-{index}"))?);
+    }
+    if let Some(mask) = &inputs.mask {
+        form = form.part("mask", image_edit_multipart_part(mask, "mask")?);
+    }
+    let endpoint = append_image_generation_endpoint(&resolved.provider.base_url, "/images/edits");
+    let response = state
+        .shared_http_client
+        .post(endpoint)
+        .bearer_auth(api_key)
+        .multipart(form)
+        .timeout(std::time::Duration::from_secs(u64::from(
+            resolved.provider.timeout_seconds,
+        )))
+        .send()
+        .await
+        .map_err(|err| format!("{} 请求失败：{err}", resolved.provider.name))?;
+    let value = parse_image_generation_json_response(response, &resolved.provider.name).await?;
+    parse_openai_style_image_response(&value)
+}
+
 #[cfg(test)]
 mod image_edit_provider_tests {
     use super::*;

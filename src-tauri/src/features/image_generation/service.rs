@@ -147,6 +147,12 @@ async fn generate_image_with_provider_once(
         ImageGenerationProviderKind::Gemini => {
             generate_gemini_image_once(state, resolved, request, api_key).await
         }
+        ImageGenerationProviderKind::Sensenova if editing => {
+            edit_sensenova_image_once(state, resolved, request, edit_inputs, api_key).await
+        }
+        ImageGenerationProviderKind::Sensenova => {
+            generate_sensenova_image_once(state, resolved, request, api_key).await
+        }
     }
 }
 

@@ -162,7 +162,7 @@ export type ApiProviderConfigItem = {
   failureRetryCount?: number;
 };
 
-export type ImageGenerationProviderKind = "comfyui" | "codex" | "openai" | "xai" | "seedream" | "gemini";
+export type ImageGenerationProviderKind = "comfyui" | "codex" | "openai" | "xai" | "seedream" | "gemini" | "sensenova";
 
 export type ImageGenerationModelConfigItem = {
   id: string;

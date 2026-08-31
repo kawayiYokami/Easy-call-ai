@@ -24,15 +24,19 @@
           <div v-if="selectedProvider.models.length" class="divide-y divide-base-200/60">
             <article v-for="model in selectedProvider.models" :key="model.id" class="py-3">
               <div class="flex items-center justify-between gap-3">
-                <div class="min-w-0 flex-1 truncate text-base font-semibold">{{ model.model || model.id }}</div>
+                <div class="min-w-0 flex-1 truncate text-base font-semibold">{{ model.name || model.model || model.id }}</div>
                 <button class="btn btn-square btn-ghost btn-sm text-error" type="button" :title="t('common.delete')" @click="removeModel(model.id)">
                   <Trash2 class="h-4 w-4" />
                 </button>
               </div>
               <label class="mt-3 grid gap-1">
+                <span class="text-sm font-medium">{{ t("config.imageGeneration.modelName") }}</span>
+                <input v-model="model.name" class="input input-bordered input-sm w-full" :placeholder="t('config.imageGeneration.modelName')" />
+              </label>
+              <label class="mt-3 grid gap-1">
                 <span class="text-sm font-medium">{{ t("config.api.model") }}</span>
                   <div class="join w-full">
-                    <input class="input input-bordered input-sm join-item flex-1 font-mono" :value="model.model || model.id" readonly />
+                    <input v-model="model.model" class="input input-bordered input-sm join-item flex-1 font-mono" :placeholder="model.id" @blur="syncImageModelIdentifier(model)" @keydown.enter.prevent="syncImageModelIdentifier(model)" />
                     <button class="btn btn-sm join-item bg-base-300" type="button" @click="toggleImageModelPicker(model.id)"><ChevronDown class="h-3.5 w-3.5" /></button>
                   </div>
                   <div v-if="activeImageModelPickerId === model.id" class="rounded-box border border-base-300 bg-base-200/50 p-3">
@@ -87,6 +91,13 @@
 
           <!-- 上：参数一排（与 image_generate 工具的可选参数对齐） -->
           <div class="flex flex-wrap gap-3">
+            <div class="grid min-w-40 flex-1 content-start gap-1">
+              <span class="text-xs font-medium text-base-content/60">{{ t("config.imageGeneration.testModel") }}</span>
+              <select v-model="testModelId" class="select select-bordered select-sm w-full">
+                <option v-if="testModelOptions.length === 0" value="" disabled>{{ t("config.imageGeneration.emptyModels") }}</option>
+                <option v-for="option in testModelOptions" :key="option.value" :value="option.value">{{ option.label }}</option>
+              </select>
+            </div>
             <div class="grid content-start gap-1">
               <span class="text-xs font-medium text-base-content/60">{{ t("config.imageGeneration.testSize") }}</span>
               <select v-model="testResolution" class="select select-bordered select-sm w-40 font-mono">
@@ -159,6 +170,7 @@ import { ChevronDown, Copy, Image as ImageIcon, Plus, Trash2 } from "@lucide/vue
 import type {
   AppConfig,
   ComfyUiWorkflowMapping,
+  ImageGenerationModelConfigItem,
   ImageGenerationProviderKind,
   ImageGenerationResult,
 } from "../../../../types/app";
@@ -176,6 +188,7 @@ import {
   createImageGenerationModel,
   createImageGenerationProvider,
   imageGenerationEndpointId,
+  imageGenerationProviderTemplate,
   normalizeImageGenerationModelId,
   normalizeImageGenerationProviders,
 } from "../../utils/image-generation-config";
@@ -197,6 +210,7 @@ const localFileSystemAvailable = getTransportCapabilities().localFileSystem;
 // 与 AI 工具 image_generate 的可选参数对齐：仅 resolution，留空表示用模型默认值
 const testResolution = ref("");
 const testResolutionPresets = ["512x512", "1024x1024", "1536x1024", "1024x1536", "2K", "4K"];
+const testModelId = ref("");
 const testingImage = ref(false);
 const copyingImage = ref(false);
 const testError = ref("");
@@ -214,6 +228,7 @@ const providerTypeOptions: Array<{ value: ImageGenerationProviderKind; label: st
   { value: "xai", label: "xAI Grok Imagine" },
   { value: "seedream", label: "Seedance / Seedream" },
   { value: "gemini", label: "Gemini Nano Banana 2" },
+  { value: "sensenova", label: "商汤科技 · SenseNova" },
 ];
 
 const imageModelOptions = computed(() => {
@@ -226,6 +241,7 @@ const imageModelOptions = computed(() => {
     xai: ["grok-imagine-image-quality", "grok-imagine-image"],
     seedream: ["doubao-seedream-5-0-pro-260628"],
     gemini: ["gemini-3.1-flash-image"],
+    sensenova: ["sensenova-u1-fast", "sensenova-u1.5-lite"],
   };
   return Array.from(new Set([...defaults[provider.providerType], ...provider.models.map((model) => model.model || model.id)].filter(Boolean)));
 });
@@ -255,6 +271,48 @@ const codexApiProviders = computed(() => (
   (props.config.apiProviders || []).filter((provider) => provider.requestFormat === "codex" && !provider.deprecated)
 ));
 
+const testModelOptions = computed(() => {
+  const provider = selectedProvider.value;
+  if (!provider) return [];
+  return provider.models
+    .filter((model) => !model.deprecated)
+    .map((model) => {
+      const endpointId = imageGenerationEndpointId(provider.id, model.id);
+      const display = String(model.name || "").trim();
+      const modelName = String(model.model || model.id || "").trim();
+      const label = display && display !== modelName ? `${display} (${modelName})` : (modelName || display);
+      return { value: endpointId, label };
+    });
+});
+
+function ensureSensenovaModels(provider: { models: Array<{ id: string; name: string; model: string; enabled: boolean; deprecated?: boolean; defaultSize?: string; defaultAspectRatio?: string; defaultQuality?: string }> }) {
+  const presets = [
+    { id: "sensenova-u1-fast", name: "SenseNova U1 Fast", model: "sensenova-u1-fast" },
+    { id: "sensenova-u1.5-lite", name: "SenseNova U1.5 Lite", model: "sensenova-u1.5-lite" },
+  ];
+  const existing = new Set(provider.models.map((m: { model: string; id: string }) => m.model || m.id));
+  let added = false;
+  for (const preset of presets) {
+    if (existing.has(preset.model)) continue;
+    provider.models.push({
+      id: preset.id,
+      name: preset.name,
+      model: preset.model,
+      enabled: true,
+      deprecated: false,
+      defaultSize: (provider.models[0] as { defaultSize?: string } | undefined)?.defaultSize,
+      defaultAspectRatio: (provider.models[0] as { defaultAspectRatio?: string } | undefined)?.defaultAspectRatio,
+      defaultQuality: (provider.models[0] as { defaultQuality?: string } | undefined)?.defaultQuality,
+    });
+    existing.add(preset.model);
+    added = true;
+  }
+  if (provider.models.length === 0) {
+    provider.models = presets.map((p) => ({ id: p.id, name: p.name, model: p.model, enabled: true, deprecated: false }));
+  }
+  void added;
+}
+
 const providerTemplateValues = computed<Record<string, unknown>>({
   get: () => {
     const provider = selectedProvider.value;
@@ -272,8 +330,33 @@ const providerTemplateValues = computed<Record<string, unknown>>({
     const provider = selectedProvider.value;
     if (!provider) return;
     if (typeof values.providerType === "string" && providerTypeOptions.some((item) => item.value === values.providerType)) {
-      provider.providerType = values.providerType as ImageGenerationProviderKind;
-      if (provider.providerType === "codex" && !provider.codexApiProviderId) provider.codexApiProviderId = codexApiProviders.value[0]?.id;
+      const nextType = values.providerType as ImageGenerationProviderKind;
+      const prevType = provider.providerType;
+      if (nextType !== prevType) {
+        const template = imageGenerationProviderTemplate(nextType);
+        provider.providerType = nextType;
+        // 自动填充 URL 与名称：仅当为空或仍为旧模板默认值时覆盖，保留用户手改
+        if (!provider.baseUrl || provider.baseUrl === imageGenerationProviderTemplate(prevType).baseUrl) {
+          provider.baseUrl = template.baseUrl;
+        }
+        if (!provider.name || provider.name === imageGenerationProviderTemplate(prevType).name) {
+          provider.name = template.name;
+        }
+        if (nextType === "sensenova") {
+          ensureSensenovaModels(provider as any);
+          if (!props.config.imageGenerationModelId) {
+            const first = provider.models[0];
+            if (first) props.config.imageGenerationModelId = imageGenerationEndpointId(provider.id, first.id);
+          }
+        } else if (prevType === "sensenova" && provider.models.length === 0) {
+          const model = createImageGenerationModel(nextType, nextSeed());
+          provider.models = [model];
+        }
+        if (nextType === "codex" && !provider.codexApiProviderId) provider.codexApiProviderId = codexApiProviders.value[0]?.id;
+      } else {
+        provider.providerType = nextType;
+        if (provider.providerType === "codex" && !provider.codexApiProviderId) provider.codexApiProviderId = codexApiProviders.value[0]?.id;
+      }
     }
     if (typeof values.providerName === "string") provider.name = values.providerName;
     if (typeof values.baseUrl === "string") provider.baseUrl = values.baseUrl;
@@ -349,7 +432,8 @@ const canRunImageTest = computed(() => (
   !imageDirty.value
   && !testingImage.value
   && testPrompt.value.trim().length > 0
-  && !!props.config.imageGenerationModelId
+  && !!testModelId.value
+  && testModelOptions.value.some((option) => option.value === testModelId.value)
 ));
 
 const workflowJsonError = computed(() => {
@@ -413,6 +497,25 @@ watch(
   (value) => {
     if (value.some((provider) => provider.id === selectedProviderId.value)) return;
     selectedProviderId.value = value[0]?.id || "";
+  },
+  { immediate: true },
+);
+
+watch(
+  () => testModelOptions.value.map((option) => option.value).join("|"),
+  () => {
+    const options = testModelOptions.value.map((option) => option.value);
+    if (options.length === 0) {
+      testModelId.value = "";
+      return;
+    }
+    if (testModelId.value && options.includes(testModelId.value)) return;
+    const global = String(props.config.imageGenerationModelId || "").trim();
+    if (global && options.includes(global)) {
+      testModelId.value = global;
+      return;
+    }
+    testModelId.value = options[0] || "";
   },
   { immediate: true },
 );
@@ -486,23 +589,36 @@ function removeModel(modelId: string) {
   clearInvalidDefaultModel();
 }
 
-function updateModelIdentifier(previousId: string, event: Event) {
+function syncImageModelIdentifier(target: ImageGenerationModelConfigItem) {
   const provider = selectedProvider.value;
-  const model = provider?.models.find((item) => item.id === previousId);
-  if (!provider || !model) return;
-  const input = event.target as HTMLInputElement;
-  const value = input.value;
-  const nextId = String(value || "").trim();
-  if (!nextId || nextId.includes("::") || provider.models.some((item) => item !== model && item.id.toLowerCase() === nextId.toLowerCase())) {
-    input.value = previousId;
+  if (!provider || !target) return;
+  if (provider.providerType === "codex") {
+    const forced = "gpt-5.6-luna";
+    const prevEndpointForced = imageGenerationEndpointId(provider.id, target.id);
+    target.model = forced;
+    if (target.id !== forced && !provider.models.some((m) => m !== target && m.id.toLowerCase() === forced.toLowerCase())) {
+      target.id = forced;
+      if (props.config.imageGenerationModelId === prevEndpointForced) {
+        props.config.imageGenerationModelId = imageGenerationEndpointId(provider.id, forced);
+      }
+    }
+    return;
+  }
+  const raw = String(target.model || "").trim();
+  if (!raw) return;
+  if (raw.includes("::")) {
     props.setStatusAction(t("config.imageGeneration.invalidModelId"));
     return;
   }
-  const previousEndpointId = imageGenerationEndpointId(provider.id, previousId);
-  model.id = nextId;
-  model.model = nextId;
+  if (target.id === raw) return;
+  if (provider.models.some((m) => m !== target && m.id.toLowerCase() === raw.toLowerCase())) {
+    props.setStatusAction(t("config.imageGeneration.invalidModelId"));
+    return;
+  }
+  const previousEndpointId = imageGenerationEndpointId(provider.id, target.id);
+  target.id = raw;
   if (props.config.imageGenerationModelId === previousEndpointId) {
-    props.config.imageGenerationModelId = imageGenerationEndpointId(provider.id, nextId);
+    props.config.imageGenerationModelId = imageGenerationEndpointId(provider.id, raw);
   }
 }
 
@@ -515,8 +631,21 @@ function selectImageModel(previousId: string, value: string) {
   const provider = selectedProvider.value;
   const model = provider?.models.find((item) => item.id === previousId);
   if (!provider || !model || !value) return;
-  model.model = value;
-  model.id = value;
+  const trimmed = String(value).trim();
+  if (!trimmed || trimmed.includes("::")) {
+    props.setStatusAction(t("config.imageGeneration.invalidModelId"));
+    return;
+  }
+  if (provider.models.some((m) => m !== model && m.id.toLowerCase() === trimmed.toLowerCase())) {
+    props.setStatusAction(t("config.imageGeneration.invalidModelId"));
+    return;
+  }
+  const previousEndpointId = imageGenerationEndpointId(provider.id, model.id);
+  model.model = trimmed;
+  model.id = trimmed;
+  if (props.config.imageGenerationModelId === previousEndpointId) {
+    props.config.imageGenerationModelId = imageGenerationEndpointId(provider.id, trimmed);
+  }
   activeImageModelPickerId.value = "";
   imageModelSearch.value = "";
 }
@@ -570,6 +699,7 @@ async function runImageTest() {
   const request: Record<string, unknown> = {
     prompt: testPrompt.value.trim(),
     n: 1,
+    modelId: testModelId.value,
   };
   const resolution = testResolution.value.trim();
   if (resolution) request.size = resolution;

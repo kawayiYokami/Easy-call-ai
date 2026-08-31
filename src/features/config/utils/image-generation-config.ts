@@ -80,6 +80,16 @@ const PROVIDER_TEMPLATES: Record<ImageGenerationProviderKind, ProviderTemplate> 
       defaultAspectRatio: "1:1",
     },
   },
+  sensenova: {
+    name: "商汤科技 · SenseNova",
+    baseUrl: "https://token.sensenova.cn/v1",
+    model: {
+      name: "SenseNova U1 Fast",
+      model: "sensenova-u1-fast",
+      defaultSize: "1024x1024",
+      defaultAspectRatio: "1:1",
+    },
+  },
 };
 
 const PROVIDER_KINDS = new Set<ImageGenerationProviderKind>([
@@ -89,6 +99,7 @@ const PROVIDER_KINDS = new Set<ImageGenerationProviderKind>([
   "xai",
   "seedream",
   "gemini",
+  "sensenova",
 ]);
 
 function normalizedOptionalText(value: unknown): string | undefined {
@@ -170,7 +181,7 @@ export function createImageGenerationProvider(
   seed = Date.now().toString(),
 ): ImageGenerationProviderConfigItem {
   const template = PROVIDER_TEMPLATES[providerType];
-  return {
+  const baseProvider: ImageGenerationProviderConfigItem = {
     id: `image-provider-${providerType}-${seed}`,
     name: template.name,
     providerType,
@@ -195,6 +206,31 @@ export function createImageGenerationProvider(
     comfyuiWorkflowJson: "",
     comfyuiMapping: createDefaultComfyUiMapping(),
   };
+  if (providerType === "sensenova") {
+    baseProvider.models = [
+      {
+        id: "sensenova-u1-fast",
+        name: "SenseNova U1 Fast",
+        model: "sensenova-u1-fast",
+        enabled: true,
+        deprecated: false,
+        defaultSize: template.model.defaultSize,
+        defaultAspectRatio: template.model.defaultAspectRatio,
+        defaultQuality: template.model.defaultQuality,
+      },
+      {
+        id: "sensenova-u1.5-lite",
+        name: "SenseNova U1.5 Lite",
+        model: "sensenova-u1.5-lite",
+        enabled: true,
+        deprecated: false,
+        defaultSize: template.model.defaultSize,
+        defaultAspectRatio: template.model.defaultAspectRatio,
+        defaultQuality: template.model.defaultQuality,
+      },
+    ];
+  }
+  return baseProvider;
 }
 
 export function createImageGenerationModel(

@@ -603,6 +603,26 @@ async fn generate_gemini_image_once(
     parse_gemini_image_response(&value)
 }
 
+async fn generate_sensenova_image_once(
+    state: &AppState,
+    resolved: &ResolvedImageGenerationModel,
+    request: &ImageGenerationRequest,
+    api_key: &str,
+) -> Result<ProviderImageGenerationOutput, String> {
+    // SenseNova 生图完全兼容 OpenAI images/generations 协议，直接复用
+    let endpoint = append_image_generation_endpoint(&resolved.provider.base_url, "/images/generations");
+    let payload = openai_image_generation_payload(request, &resolved.model);
+    let value = post_bearer_image_generation_json(
+        state,
+        &resolved.provider,
+        api_key,
+        &endpoint,
+        &payload,
+    )
+    .await?;
+    parse_openai_style_image_response(&value)
+}
+
 #[cfg(test)]
 mod image_generation_provider_tests {
     use super::*;
@@ -787,5 +807,18 @@ mod image_generation_provider_tests {
         let parsed = parse_gemini_image_response(&value).unwrap_or_default();
         assert_eq!(parsed.images.len(), 1);
         assert_eq!(parsed.images[0].mime_hint.as_deref(), Some("image/png"));
+    }
+
+    #[test]
+    fn sensenova_payload_should_reuse_openai_protocol() {
+        let payload = openai_image_generation_payload(
+            &request(),
+            &ImageGenerationModelConfig {
+                model: "sensenova-u1-fast".to_string(),
+                ..ImageGenerationModelConfig::default()
+            },
+        );
+        assert_eq!(payload.get("model").and_then(Value::as_str), Some("sensenova-u1-fast"));
+        assert_eq!(payload.get("size").and_then(Value::as_str), Some("1536x864"));
     }
 }

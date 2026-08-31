@@ -7,6 +7,7 @@ enum ImageGenerationProviderKind {
     Xai,
     Seedream,
     Gemini,
+    Sensenova,
 }
 
 const CODEX_IMAGE_MAIN_MODEL: &str = "gpt-5.6-luna";
@@ -27,6 +28,7 @@ impl ImageGenerationProviderKind {
             Self::Xai => "xai",
             Self::Seedream => "seedream",
             Self::Gemini => "gemini",
+            Self::Sensenova => "sensenova",
         }
     }
 }

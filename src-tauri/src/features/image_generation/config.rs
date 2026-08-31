@@ -20,6 +20,7 @@ fn default_image_generation_provider_name(kind: ImageGenerationProviderKind) -> 
         ImageGenerationProviderKind::Xai => "xAI Grok Imagine",
         ImageGenerationProviderKind::Seedream => "Seedance / Seedream",
         ImageGenerationProviderKind::Gemini => "Gemini Nano Banana",
+        ImageGenerationProviderKind::Sensenova => "商汤科技 · SenseNova",
     }
 }
 
@@ -33,6 +34,7 @@ fn default_image_generation_base_url(kind: ImageGenerationProviderKind) -> &'sta
         ImageGenerationProviderKind::Gemini => {
             "https://generativelanguage.googleapis.com/v1beta"
         }
+        ImageGenerationProviderKind::Sensenova => "https://token.sensenova.cn/v1",
     }
 }
 
