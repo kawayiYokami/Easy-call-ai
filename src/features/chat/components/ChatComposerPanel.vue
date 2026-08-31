@@ -212,7 +212,7 @@
             ></textarea>
           </div>
           <button
-            v-if="showStopAction"
+            v-if="isMobileCompact && showStopAction"
             type="button"
             class="btn btn-sm btn-circle shrink-0 btn-error"
             :disabled="frozen || busy || !!stopChatDisabled"
@@ -238,7 +238,7 @@
           </button>
         </div>
         <div v-if="!isMobileCompact" class="flex items-center justify-between gap-2">
-          <div class="flex min-w-0 items-center">
+          <div class="flex min-w-0 flex-1 items-center gap-1">
             <button
               v-if="showConversationActions"
               type="button"
@@ -264,6 +264,7 @@
             </div>
             <ChatModelPicker
               variant="chip"
+              class="min-w-0 flex-1"
               :model-value="activeModelDisplayId"
               :api-configs="chatModelOptions"
               :theme="teleportTheme"
