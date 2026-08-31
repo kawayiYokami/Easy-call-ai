@@ -1,7 +1,12 @@
 {
-  "generatedAt": "2026-08-30T13:04:14.894Z",
-  "latestVersion": "v0.76.1",
+  "generatedAt": "2026-08-31T10:07:24.873Z",
+  "latestVersion": "v0.77.0",
   "releases": [
+    {
+      "version": "v0.77.0",
+      "path": "docs/changelog/releases/v0.77.0.md",
+      "summary": "VS Code 侧边栏的「当前项目」在打开工作树目录（`.pai/.worktree/{id}`）时，自动回溯到仓库根并聚合该项目的所有会话"
+    },
     {
       "version": "v0.76.1",
       "path": "docs/changelog/releases/v0.76.1.md",
