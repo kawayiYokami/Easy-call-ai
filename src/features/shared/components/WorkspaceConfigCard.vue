@@ -2,7 +2,7 @@
   <div class="flex w-full flex-col gap-2">
     <!-- 文件 + 分支/worktree 同排居中：超宽自动折行居中 -->
     <div class="flex w-full flex-wrap items-center justify-center gap-2">
-      <EcallDropdown v-model="mainDropdownOpen" :disabled="availableWorkspaces.length === 0 && !mainPath" :teleport="true" root-class="min-w-[180px] flex-1" panel-class="w-full">
+      <EcallDropdown v-model="mainDropdownOpen" :disabled="availableWorkspaces.length === 0 && !mainPath" :teleport="dropdownTeleport" :teleport-to="dropdownTeleportTo" root-class="min-w-[180px] flex-1" panel-class="w-full">
         <template #trigger="{ toggle, open }">
           <div class="flex h-9 w-full items-center gap-1 rounded-field border border-base-content/10 bg-base-100/50 pl-3.5 pr-1 shadow-sm backdrop-blur-md">
             <FolderOpen class="h-3.5 w-3.5 shrink-0 text-base-content/45" />
@@ -61,7 +61,8 @@
         <EcallDropdown
           v-model="branchDropdownOpen"
           :disabled="branchList.length === 0 && !selectedBranch"
-          :teleport="true"
+          :teleport="dropdownTeleport"
+          :teleport-to="dropdownTeleportTo"
           root-class="min-w-[112px] max-w-[180px]"
           panel-class="w-full"
         >
@@ -208,6 +209,8 @@ const props = withDefaults(defineProps<{
   gitCheckMessage?: string;
   availableWorkspaces?: WorkspaceOption[];
   hideAddWorkspace?: boolean;
+  dropdownTeleport?: boolean;
+  dropdownTeleportTo?: string;
 }>(), {
   secondaryPaths: () => [],
   selectedBranch: "",
@@ -217,6 +220,8 @@ const props = withDefaults(defineProps<{
   gitCheckMessage: "",
   availableWorkspaces: () => [],
   hideAddWorkspace: false,
+  dropdownTeleport: true,
+  dropdownTeleportTo: "body",
 });
 
 const emit = defineEmits<{

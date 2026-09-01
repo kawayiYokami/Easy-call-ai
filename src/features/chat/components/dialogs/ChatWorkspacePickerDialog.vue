@@ -2,8 +2,10 @@
   <dialog
     ref="dialogRef"
     class="modal"
+    :open="open"
     @close="onDialogClose"
     @cancel.prevent="onDialogClose"
+    @keydown.esc.prevent="onDialogClose"
   >
     <div class="modal-box flex max-h-[calc(100dvh-4rem)] w-full max-w-xl flex-col overflow-hidden p-0">
       <div class="min-h-0 flex-1 overflow-y-auto px-4 py-4">
@@ -145,24 +147,14 @@ const availableWorkspaceOptions = computed(() => {
 });
 
 function onDialogClose() {
-  if (props.saving) {
-    const d = dialogRef.value;
-    if (d && !d.open && props.open) d.showModal();
-    return;
-  }
+  // :open 绑定已接管显隐，不再调用 showModal/close 避免进入 top layer；仅处理关闭意图
+  if (props.saving) return;
   emit("close");
 }
 
-function syncDialog() {
-  const d = dialogRef.value;
-  if (!d) return;
-  if (props.open) {
-    if (!d.open) d.showModal();
-  } else if (d.open) d.close();
-}
-
-watch(() => props.open, syncDialog);
-watch(dialogRef, syncDialog);
+// 使用 :open 绑定而非 showModal，避免进入 top layer 导致 teleport 到 body 的下拉被遮挡
+// 保留一个空的 sync 占位以兼容热更新，不再操作 dialog 方法
+function syncDialog() {}
 
 watch(
   () => [mainPath.value, props.worktreeAvailable] as const,

@@ -14,13 +14,13 @@
       </div>
     </Transition>
 
-    <!-- Teleport：fixed 脱离 overflow 裁剪，按视口定位 -->
-    <Teleport v-if="teleport" to="body">
+    <!-- Teleport：fixed 脱离 overflow 裁剪，按视口定位；对话框已改为 :open 非 top layer，teleport 到 body 即可在最前 -->
+    <Teleport v-if="teleport" :to="teleportTo" :disabled="!isOpen">
       <Transition :name="transitionName">
         <div
           v-if="isOpen"
           ref="teleportedPanelRef"
-          class="fixed z-[1200] overflow-hidden rounded-box border border-base-300 bg-base-100 shadow-xl"
+          class="fixed z-[1300] overflow-hidden rounded-box border border-base-300 bg-base-100 shadow-xl"
           :class="panelClass"
           :style="teleportedStyle"
           :data-theme="teleportTheme"
@@ -40,6 +40,7 @@ const props = withDefaults(defineProps<{
   modelValue: boolean;
   disabled?: boolean;
   teleport?: boolean;
+  teleportTo?: string;
   matchTriggerWidth?: boolean;
   panelClass?: string;
   rootClass?: string;
@@ -48,6 +49,7 @@ const props = withDefaults(defineProps<{
 }>(), {
   disabled: false,
   teleport: false,
+  teleportTo: "body",
   matchTriggerWidth: true,
   panelClass: "",
   rootClass: "",
@@ -178,7 +180,7 @@ watch(() => isOpen.value, async (open) => {
   }
 });
 
-watch(() => [props.teleport, props.maxHeight, props.placement] as const, () => {
+watch(() => [props.teleport, props.teleportTo, props.maxHeight, props.placement] as const, () => {
   if (isOpen.value) void refreshPosition();
 });
 
