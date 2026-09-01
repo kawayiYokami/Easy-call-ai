@@ -4,7 +4,7 @@
     <div class="flex w-full flex-wrap items-center justify-center gap-2">
       <EcallDropdown v-model="mainDropdownOpen" :disabled="availableWorkspaces.length === 0 && !mainPath" :teleport="dropdownTeleport" :teleport-to="dropdownTeleportTo" root-class="min-w-[180px] flex-1" panel-class="w-full">
         <template #trigger="{ toggle, open }">
-          <div class="flex h-9 w-full items-center gap-1 rounded-field border border-base-content/10 bg-base-100/50 pl-3.5 pr-1 shadow-sm backdrop-blur-md">
+          <div class="flex h-9 w-full items-center gap-1 rounded-field border border-base-content/10 bg-base-100 pl-3.5 pr-1">
             <FolderOpen class="h-3.5 w-3.5 shrink-0 text-base-content/45" />
             <button
               type="button"
@@ -56,7 +56,7 @@
       <!-- 分支 + worktree：join 在一起为一组，共享外边框，中间细分隔 -->
       <div
         v-if="gitRootAvailable"
-        class="flex shrink-0 items-center overflow-hidden rounded-field border border-base-content/10 bg-base-100/50 shadow-sm"
+        class="flex shrink-0 items-center overflow-hidden rounded-field border border-base-content/10 bg-base-100"
       >
         <EcallDropdown
           v-model="branchDropdownOpen"
@@ -114,7 +114,7 @@
             :checked="workMode === 'worktree'"
             @change="handleWorktreeChecked"
           />
-          <span class="text-[11px] font-medium leading-none text-base-content/80">{{ t("chat.draftWorkModeWorktree") }}</span>
+          <span class="text-xs font-medium leading-none text-base-content/80">{{ t("chat.draftWorkModeWorktree") }}</span>
         </label>
       </div>
 
@@ -122,14 +122,14 @@
 
     <!-- 权限 + 额外目录胶囊 + 添加目录：同排居中，放不下自动折行 -->
     <div class="flex w-full flex-wrap items-center justify-center gap-2">
-      <div class="flex shrink-0 items-center rounded-selector border border-base-content/10 bg-base-content/5 p-0.5 backdrop-blur-md">
+      <div class="flex shrink-0 items-center rounded-selector border border-base-content/10 bg-base-content/5 p-0.5">
         <button
           v-for="accessOption in ACCESS_OPTIONS"
           :key="accessOption"
           type="button"
-          class="rounded-selector px-3 py-1.5 text-[11px] font-medium leading-none transition-all"
+          class="rounded-selector px-3.5 py-2 text-xs font-medium leading-none transition-colors"
           :class="access === accessOption
-            ? 'bg-base-100 text-base-content shadow-sm'
+            ? 'bg-base-100 text-base-content'
             : 'text-base-content/55 hover:text-base-content'"
           @click="emit('update:access', accessOption)"
         >
@@ -142,7 +142,7 @@
         <div
           v-for="secPath in secondaryPaths"
           :key="secPath"
-          class="group flex max-w-full items-center gap-1 rounded-full border border-base-300 bg-base-100 px-2.5 py-1 text-xs shadow-sm"
+          class="group flex max-w-full items-center gap-1 rounded-full border border-base-300 bg-base-100 px-3 py-1.5 text-xs"
           :title="secPath"
         >
           <FolderOpen class="h-3 w-3 shrink-0 text-base-content/45" />
@@ -159,7 +159,7 @@
         <button
           v-if="!hideAddWorkspace"
           type="button"
-          class="flex shrink-0 items-center gap-1 rounded-full border border-dashed border-base-300 bg-base-100 px-2.5 py-1 text-xs font-medium text-base-content/55 shadow-sm transition-colors hover:border-primary/40 hover:bg-primary/10 hover:text-primary"
+          class="flex shrink-0 items-center gap-1 rounded-full border border-dashed border-base-300 bg-base-100 px-3 py-1.5 text-xs font-medium text-base-content/55 transition-colors hover:border-primary/40 hover:bg-primary/10 hover:text-primary"
           :title="t('config.tools.addWorkspace')"
           @click="emit('addSecondary')"
         >
