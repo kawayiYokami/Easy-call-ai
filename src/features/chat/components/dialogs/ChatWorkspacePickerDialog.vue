@@ -220,25 +220,25 @@ function onAccessUpdate(access: ChatWorkspaceChoice["access"]) {
 async function onWorkModeUpdate(mode: ShellWorkMode) {
   const normalized = normalizeShellWorkMode(String(mode || "")) as ShellWorkMode;
   checkoutError.value = "";
-  if (normalized === "directory" && props.workMode === "worktree") {
+  const switchingToDirectory = normalized === "directory" && props.workMode === "worktree";
+  // 先切换模式，让外层 stash 掉旧 worktree 分支，再处理项目分支回填，避免 stash 被项目分支覆盖
+  emit("setWorkMode", normalized);
+  if (switchingToDirectory) {
     const path = String(mainPath.value || "").trim();
     if (path) {
       try {
         const entries = await gitPanelBranchList(path);
+        branchList.value = entries.map((e) => String(e.name || "").trim()).filter(Boolean);
         const current = entries.find((e) => e.isCurrent)?.name;
         if (current) {
           const curName = String(current).trim();
-          if (curName && curName !== String(selectedBranch.value || "").trim()) {
-            emit("setBranch", curName);
-          }
+          if (curName) emit("setBranch", curName);
         }
-        branchList.value = entries.map((e) => String(e.name || "").trim()).filter(Boolean);
       } catch {
         // ignore
       }
     }
   }
-  emit("setWorkMode", normalized);
 }
 
 async function onBranchUpdate(branch: string) {
