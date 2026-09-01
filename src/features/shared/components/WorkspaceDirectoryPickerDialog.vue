@@ -14,27 +14,6 @@
       </div>
 
       <div class="flex min-h-0 flex-1 flex-col gap-3 px-4 py-3">
-        <label class="grid w-full gap-1">
-          <span class="text-xs opacity-70">路径</span>
-          <div class="join w-full">
-            <input
-              v-model="manualPath"
-              class="input input-bordered input-sm join-item min-w-0 flex-1 font-mono"
-              type="text"
-              placeholder="例如 E:/github/easy_call_ai 或 /home/me/project"
-              @keydown.enter.prevent="onManualGo"
-            />
-            <button
-              type="button"
-              class="btn btn-sm join-item"
-              :disabled="loading || !manualPath.trim()"
-              @click="onManualGo"
-            >
-              前往
-            </button>
-          </div>
-        </label>
-
         <div class="flex flex-wrap items-center gap-3">
           <label class="flex cursor-pointer items-center gap-1.5 text-xs">
             <input v-model="filterHidden" type="checkbox" class="checkbox checkbox-primary checkbox-xs" />
@@ -56,28 +35,12 @@
           >
             上一级
           </button>
-          <div class="min-w-0 flex-1">
-            <div v-if="breadcrumbs.length === 0" class="truncate font-mono text-xs opacity-70">
-              {{ displayPath || '驱动器' }}
-            </div>
-            <div v-else class="breadcrumbs min-w-0 py-0 text-xs">
-              <ul class="flex flex-wrap">
-                <li v-for="crumb in breadcrumbs" :key="crumb.path">
-                  <button
-                    type="button"
-                    class="link link-hover max-w-[10rem] truncate font-mono"
-                    :title="crumb.path"
-                    @click="onBreadcrumb(crumb.path)"
-                  >
-                    {{ crumb.name }}
-                  </button>
-                </li>
-              </ul>
-            </div>
-            <div class="truncate font-mono text-xs opacity-60" :title="currentPath">
-              {{ currentPath || '请选择目录' }}
-            </div>
-          </div>
+          <BreadcrumbAddressBar
+            :path="currentPath"
+            :switchable="props.switchable"
+            @navigate="onBreadcrumb"
+            @submit="onAddressSubmit"
+          />
           <button
             type="button"
             class="btn btn-xs btn-ghost"
@@ -143,6 +106,7 @@
 <script setup lang="ts">
 import { computed, ref, watch } from "vue";
 import OverlayScrollArea from "./OverlayScrollArea.vue";
+import BreadcrumbAddressBar from "./BreadcrumbAddressBar.vue";
 import { invokeTauri } from "../../../services/tauri-api";
 
 type DirectoryItem = {
@@ -157,12 +121,14 @@ const props = withDefaults(
     title?: string;
     hint?: string;
     confirmLabel?: string;
+    switchable?: boolean;
   }>(),
   {
     initialPath: "",
     title: "选择目录",
     hint: "仅可选择目录，空选择将回退到助理空间",
     confirmLabel: "选择此目录",
+    switchable: true,
   },
 );
 
@@ -174,7 +140,6 @@ const emit = defineEmits<{
 const dialogRef = ref<HTMLDialogElement | null>(null);
 
 const currentPath = ref("");
-const manualPath = ref("");
 const directories = ref<DirectoryItem[]>([]);
 const loading = ref(false);
 const errorText = ref("");
@@ -182,8 +147,6 @@ const filterHidden = ref(true);
 const filterGit = ref(true);
 
 let seq = 0;
-
-const displayPath = computed(() => String(currentPath.value || "").trim());
 
 const canConfirm = computed(() => {
   const p = String(currentPath.value || "").trim();
@@ -218,44 +181,6 @@ const parentPath = computed(() => {
   return candidate;
 });
 
-const breadcrumbs = computed(() => {
-  const p = String(currentPath.value || "").trim();
-  if (!p) return [] as Array<{ name: string; path: string }>;
-  const normalized = p.replace(/\\/g, "/");
-  if (/^[A-Za-z]:\/?$/.test(normalized)) {
-    return [{ name: normalized.replace(/\/$/, "") || normalized, path: normalized }];
-  }
-  const parts = normalized.split("/").filter(Boolean);
-  const isAbsolute = normalized.startsWith("/");
-  const isWindows = /^[A-Za-z]:/.test(normalized);
-  let accum = "";
-  const result: Array<{ name: string; path: string }> = [];
-  if (isAbsolute && !isWindows) {
-    result.push({ name: "/", path: "/" });
-    accum = "";
-  }
-  for (let i = 0; i < parts.length; i += 1) {
-    const name = parts[i];
-    if (isWindows && i === 0 && /^[A-Za-z]:$/.test(name)) {
-      accum = `${name}/`;
-      result.push({ name, path: accum });
-    } else if (isWindows && i === 0) {
-      accum = name;
-      result.push({ name, path: accum });
-    } else {
-      if (accum === "/" || accum === "") {
-        accum = isAbsolute ? `/${name}` : name;
-      } else if (accum.endsWith("/")) {
-        accum = `${accum}${name}`;
-      } else {
-        accum = `${accum}/${name}`;
-      }
-      result.push({ name, path: accum });
-    }
-  }
-  return result;
-});
-
 function onDialogClose() {
   if (loading.value) return;
   emit("close");
@@ -287,10 +212,8 @@ async function loadDirectory(target: string) {
     directories.value = dirs;
     if (resolvedPath) {
       currentPath.value = resolvedPath.replace(/\\/g, "/");
-      manualPath.value = currentPath.value;
     } else {
       currentPath.value = "";
-      manualPath.value = "";
     }
   } catch (error) {
     if (nextSeq !== seq) return;
@@ -321,16 +244,12 @@ function onUp() {
 }
 
 function onRefresh() {
-  void loadDirectory(currentPath.value || manualPath.value || "");
+  void loadDirectory(currentPath.value || "");
 }
 
-function onManualGo() {
-  const p = String(manualPath.value || "").trim();
-  if (!p) {
-    void loadDirectory("");
-    return;
-  }
-  void loadDirectory(p);
+function onAddressSubmit(path: string) {
+  const normalized = String(path || "").trim();
+  void loadDirectory(normalized);
 }
 
 function onConfirm() {
@@ -345,7 +264,6 @@ watch(
     if (open) {
       const init = String(props.initialPath || "").trim();
       currentPath.value = init;
-      manualPath.value = init;
       directories.value = [];
       errorText.value = "";
       void loadDirectory(init);
@@ -362,7 +280,6 @@ watch(
     if (props.open) {
       const normalized = String(next || "").trim();
       if (normalized !== String(currentPath.value || "").trim()) {
-        manualPath.value = normalized;
         void loadDirectory(normalized);
       }
     }
