@@ -123,7 +123,7 @@
               {{ group.agentName }}
             </span>
             <span
-              class="max-w-full truncate rounded-full px-1.5 py-0.5 text-micro leading-tight"
+              class="max-w-full truncate rounded-full px-1.5 py-0.5 text-caption leading-tight"
               :class="group.departments[0].id === selectedId
                 ? 'bg-primary/15 font-medium text-primary'
                 : 'bg-base-content/10 text-base-content/60'"
@@ -139,7 +139,7 @@
               v-for="deptOption in group.departments.slice(1)"
               :key="deptOption.id"
               type="button"
-              class="flex items-center justify-center gap-1 rounded-full px-1.5 py-0.5 text-micro leading-tight transition-colors"
+              class="flex items-center justify-center gap-1 rounded-full px-1.5 py-0.5 text-caption leading-tight transition-colors"
               :class="deptOption.id === selectedId
                 ? 'bg-primary/15 font-medium text-primary'
                 : 'bg-base-content/10 text-base-content/60 hover:bg-base-content/15 hover:text-base-content'"

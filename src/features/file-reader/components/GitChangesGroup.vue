@@ -91,7 +91,7 @@
         </button>
         <span
           v-if="mode === 'list' && row.node.data.dir"
-          class="min-w-0 flex-1 truncate text-micro opacity-40"
+          class="min-w-0 flex-1 truncate text-caption opacity-40"
           :title="row.node.data.path"
         >{{ row.node.data.dir }}</span>
         <span class="ml-auto flex shrink-0 items-center gap-0.5">
@@ -117,7 +117,7 @@
             </button>
           </span>
           <span
-            class="shrink-0 font-mono text-micro font-bold"
+            class="shrink-0 font-mono text-caption font-bold"
             :class="statusClass(row.node.data.entry)"
             :title="statusTitle(row.node.data.entry)"
           >{{ statusLabel(row.node.data.entry) }}</span>

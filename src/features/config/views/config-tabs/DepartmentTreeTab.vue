@@ -94,7 +94,7 @@
                 <Check class="h-3 w-3" />
               </span>
               <span
-                class="flex h-6 w-6 shrink-0 items-center justify-center overflow-hidden rounded-full bg-base-200 text-micro font-semibold text-base-content/70"
+                class="flex h-6 w-6 shrink-0 items-center justify-center overflow-hidden rounded-full bg-base-200 text-caption font-semibold text-base-content/70"
               >
                 <img
                   v-if="departmentAvatarInfo(department).avatarUrl"

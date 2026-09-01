@@ -81,7 +81,7 @@
               <span
                 v-for="m in todayModelDetails"
                 :key="m.model"
-                class="flex items-center gap-1.5 text-micro opacity-80"
+                class="flex items-center gap-1.5 text-caption opacity-80"
               >
                 <span class="size-2 shrink-0 rounded-field" :style="{ backgroundColor: modelColor(m.model) }"></span>
                 <span class="min-w-0">{{ modelDisplayName(m) }}</span>
@@ -124,7 +124,7 @@
               <div
                 v-for="(week, weekIndex) in calendarWeeks"
                 :key="`m-${weekIndex}`"
-                class="min-w-0 overflow-hidden text-left text-micro leading-none opacity-50"
+                class="min-w-0 overflow-hidden text-left text-caption leading-none opacity-50"
                 :style="{ gridColumn: String(weekIndex + 1) }"
               >
                 <span v-if="week.monthLabel" class="inline-block align-top [writing-mode:vertical-rl]">{{ cnMonth(week.monthLabel) }}</span>
@@ -133,7 +133,7 @@
             <div class="flex w-full gap-1">
               <!-- 周几标签列 -->
               <div class="grid shrink-0 grid-rows-7 gap-px pr-1">
-                <span v-for="label in weekdayLabels" :key="label" class="flex h-3 items-center text-micro opacity-50">{{ label }}</span>
+                <span v-for="label in weekdayLabels" :key="label" class="flex h-3 items-center text-caption opacity-50">{{ label }}</span>
               </div>
               <!-- 年历 grid：列=周序号，行=星期几，列宽严格 1fr 均分 -->
               <div class="grid min-w-0 flex-1 gap-px" :style="calendarGridStyle">
@@ -148,7 +148,7 @@
               </div>
             </div>
             <!-- Less/More 色阶图例：多色块模拟连续渐变，与格子同渲染逻辑 -->
-            <div class="mt-1 flex w-full items-center justify-end gap-1 text-micro opacity-50">
+            <div class="mt-1 flex w-full items-center justify-end gap-1 text-caption opacity-50">
               <span>{{ t("config.welcome.trail.legendLess") }}</span>
               <div class="flex gap-px">
                 <div
@@ -180,7 +180,7 @@
   <Teleport to="body">
     <div
       v-if="dayTooltip"
-      class="pointer-events-none fixed z-50 -translate-x-1/2 whitespace-nowrap rounded bg-base-content px-1.5 py-0.5 text-micro text-base-100"
+      class="pointer-events-none fixed z-50 -translate-x-1/2 whitespace-nowrap rounded bg-base-content px-1.5 py-0.5 text-caption text-base-100"
       :style="{ left: `${dayTooltip.left}px`, top: `${dayTooltip.top}px` }"
     >
       {{ dayTooltip.date }} · {{ formatTokens(dayTooltip.totalTokens) }}
