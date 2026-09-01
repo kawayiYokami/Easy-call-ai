@@ -819,6 +819,6 @@ mod image_generation_provider_tests {
             },
         );
         assert_eq!(payload.get("model").and_then(Value::as_str), Some("sensenova-u1-fast"));
-        assert_eq!(payload.get("size").and_then(Value::as_str), Some("1536x864"));
+        assert_eq!(payload.get("size").and_then(Value::as_str), Some("1536x1024"));
     }
 }

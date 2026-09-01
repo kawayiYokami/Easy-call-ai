@@ -282,7 +282,8 @@ fn delegate_runtime_thread_build(
         conversation.shell_workspaces = workspace_snapshot.shell_workspaces;
         conversation.shell_autonomous_mode = workspace_snapshot.shell_autonomous_mode;
         conversation.shell_work_mode = workspace_snapshot.shell_work_mode;
-        conversation.shell_work_branch = workspace_snapshot.shell_work_branch;
+        conversation.shell_work_branch =
+            normalize_shell_work_branch_text(&workspace_snapshot.shell_work_branch);
     }
     runtime_log_info(format!(
         "[委托工作目录] 写入子代理 delegate_id={} shell_workspace_path={} shell_workspaces={} shell_autonomous_mode={}",

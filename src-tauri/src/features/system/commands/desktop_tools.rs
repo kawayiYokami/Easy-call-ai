@@ -855,6 +855,8 @@ struct ChatShellWorkspaceOutput {
     autonomous_mode: bool,
     shell_work_mode: String,
     shell_work_branch: String,
+    worktree_path: String,
+    worktree_exists: bool,
 }
 
 fn resolve_chat_tool_session_id(
@@ -982,7 +984,7 @@ fn apply_conversation_chat_workspace_changes(
                 thread.conversation.shell_work_mode = normalize_shell_work_mode_text(&value);
             }
             if let Some(value) = next_branch.clone() {
-                thread.conversation.shell_work_branch = value.trim().to_string();
+                thread.conversation.shell_work_branch = normalize_shell_work_branch_text(&value);
             }
             if thread.conversation.shell_workspace_path.as_deref().map(str::trim).filter(|value| !value.is_empty()).is_some()
                 && terminal_workspace_path_from_conversation(state, &thread.conversation).is_none()
@@ -1063,12 +1065,48 @@ fn build_chat_shell_workspace_list(
         .collect()
 }
 
+fn resolve_chat_shell_worktree_info(
+    conversation: Option<&Conversation>,
+    root: &Path,
+) -> (String, bool) {
+    let Some(conv) = conversation else {
+        return (String::new(), false);
+    };
+    if normalize_shell_work_mode_text(&conv.shell_work_mode) != SHELL_WORK_MODE_WORKTREE {
+        return (String::new(), false);
+    }
+    let git_root = root.to_string_lossy().to_string();
+    if git_root.trim().is_empty() {
+        return (String::new(), false);
+    }
+    // 路径规则后端持有：{gitRoot}/.pai/.worktree/{conversationId}（兼容 8 位 legacy）
+    let worktree_path = PathBuf::from(root).join(".pai").join(".worktree").join(conv.id.clone());
+    let legacy_path =
+        PathBuf::from(root).join(".pai").join(".worktree").join(conv.id.chars().take(8).collect::<String>());
+    let is_valid_worktree = |p: &PathBuf| {
+        p.exists()
+            && (p.join(".git").exists()
+                || std::fs::read_to_string(p.join(".git"))
+                    .map(|c| c.contains("gitdir:"))
+                    .unwrap_or(false))
+    };
+    if is_valid_worktree(&worktree_path) {
+        return (worktree_path.to_string_lossy().to_string(), true);
+    }
+    if is_valid_worktree(&legacy_path) {
+        return (legacy_path.to_string_lossy().to_string(), true);
+    }
+    // 未创建时仍返回新路径供前端作意图展示，但标记不存在
+    (worktree_path.to_string_lossy().to_string(), false)
+}
+
 fn build_chat_shell_workspace_output(
     state: &AppState,
     session_id: String,
     conversation: Option<&Conversation>,
     root: PathBuf,
 ) -> ChatShellWorkspaceOutput {
+    let (worktree_path, worktree_exists) = resolve_chat_shell_worktree_info(conversation, &root);
     ChatShellWorkspaceOutput {
         session_id,
         workspace_name: resolve_workspace_display_name_for_conversation(state, conversation, &root),
@@ -1078,7 +1116,11 @@ fn build_chat_shell_workspace_output(
         shell_work_mode: conversation
             .map(|value| normalize_shell_work_mode_text(&value.shell_work_mode))
             .unwrap_or_else(default_shell_work_mode),
-        shell_work_branch: conversation.map(|value| value.shell_work_branch.clone()).unwrap_or_default(),
+        shell_work_branch: conversation
+            .map(|value| normalize_shell_work_branch_text(&value.shell_work_branch))
+            .unwrap_or_default(),
+        worktree_path,
+        worktree_exists,
     }
 }
 
@@ -1924,7 +1966,7 @@ fn update_chat_shell_workspace_layout_inner(
     let normalized_branch = input
         .shell_work_branch
         .as_deref()
-        .map(str::trim)
+        .map(|value| normalize_shell_work_branch_text(value))
         .filter(|value| !value.is_empty())
         .map(|value| value.to_string());
     let updated = apply_conversation_chat_workspace_changes(

@@ -4050,6 +4050,7 @@
             shell_workspaces: Vec::new(),
             shell_autonomous_mode: false,
             shell_work_mode: default_shell_work_mode(),
+            shell_work_branch: String::new(),
             archived_at: None,
             messages: Vec::new(),
             fast_request_turns: Vec::new(),
@@ -5434,6 +5435,7 @@
                     copy_source_conversation_id: None,
                     shell_workspaces: None,
                     shell_work_mode: Some("isolated_worktree".to_string()),
+                    shell_work_branch: None,
                     shell_autonomous_mode: None,
                     is_draft: Some(false),
                 },
@@ -5444,7 +5446,7 @@
             .expect("created conversation should exist");
         assert_eq!(created_conversation.title, "V2创建会话");
         assert_eq!(created_conversation.agent_id, DEFAULT_AGENT_ID);
-        assert_eq!(created_conversation.shell_work_mode, "isolated_worktree");
+        assert_eq!(created_conversation.shell_work_mode, "worktree");
         assert_eq!(created_conversation.shell_workspace_path, None);
         assert_eq!(created_conversation.shell_workspaces.len(), 1);
         assert_eq!(
@@ -5578,6 +5580,7 @@
                     copy_source_conversation_id: None,
                     shell_workspaces: None,
                     shell_work_mode: None,
+                    shell_work_branch: None,
                     shell_autonomous_mode: None,
                     is_draft: Some(true),
                 },
@@ -5626,6 +5629,7 @@
                     copy_source_conversation_id: None,
                     shell_workspaces: None,
                     shell_work_mode: None,
+                    shell_work_branch: None,
                     shell_autonomous_mode: None,
                     is_draft: None,
                 },
@@ -5662,6 +5666,7 @@
                     copy_source_conversation_id: None,
                     shell_workspaces: None,
                     shell_work_mode: None,
+                    shell_work_branch: None,
                     shell_autonomous_mode: None,
                     is_draft: Some(true),
                 },
@@ -5757,6 +5762,7 @@
                     copy_source_conversation_id: None,
                     shell_workspaces: None,
                     shell_work_mode: Some(SHELL_WORK_MODE_INDEPENDENT_WORKTREE.to_string()),
+                    shell_work_branch: None,
                     shell_autonomous_mode: None,
                     is_draft: Some(false),
                 },
@@ -5767,7 +5773,7 @@
             .expect("created conversation should exist");
         assert_eq!(
             conversation.shell_work_mode,
-            SHELL_WORK_MODE_INDEPENDENT_WORKTREE
+            SHELL_WORK_MODE_WORKTREE
         );
     }
 
@@ -5798,6 +5804,7 @@
                     built_in: false,
                 }]),
                 shell_work_mode: Some(SHELL_WORK_MODE_ISOLATED_WORKTREE.to_string()),
+                shell_work_branch: None,
                 shell_autonomous_mode: None,
                 is_draft: Some(false),
             },
@@ -5805,7 +5812,7 @@
 
         match result {
             Ok(_) => panic!("read-only workspace must reject isolated worktree mode"),
-            Err(error) => assert_eq!(error, "在隔离工作树中工作至少需要审批权限。"),
+            Err(error) => assert_eq!(error, "工作树至少需要审批权限。"),
         }
     }
 
@@ -5836,6 +5843,7 @@
                     built_in: false,
                 }]),
                 shell_work_mode: Some(SHELL_WORK_MODE_INDEPENDENT_WORKTREE.to_string()),
+                shell_work_branch: None,
                 shell_autonomous_mode: None,
                 is_draft: Some(false),
             },
@@ -5843,7 +5851,7 @@
 
         match result {
             Ok(_) => panic!("read-only workspace must reject independent worktree mode"),
-            Err(error) => assert_eq!(error, "独立工作树至少需要审批权限。"),
+            Err(error) => assert_eq!(error, "工作树至少需要审批权限。"),
         }
     }
 
@@ -9850,6 +9858,7 @@
             }],
             shell_autonomous_mode: false,
             shell_work_mode: default_shell_work_mode(),
+            shell_work_branch: String::new(),
             archived_at: None,
             messages: Vec::new(),
             fast_request_turns: Vec::new(),
@@ -11791,6 +11800,7 @@
             shell_workspaces: Vec::new(),
             shell_autonomous_mode: false,
             shell_work_mode: default_shell_work_mode(),
+            shell_work_branch: String::new(),
             archived_at: None,
             messages: Vec::new(),
             fast_request_turns: Vec::new(),
@@ -11849,6 +11859,7 @@
             shell_workspaces: Vec::new(),
             shell_autonomous_mode: false,
             shell_work_mode: default_shell_work_mode(),
+            shell_work_branch: String::new(),
             archived_at: None,
             messages: Vec::new(),
             fast_request_turns: Vec::new(),
@@ -11920,6 +11931,7 @@
             shell_workspaces: Vec::new(),
             shell_autonomous_mode: false,
             shell_work_mode: default_shell_work_mode(),
+            shell_work_branch: String::new(),
             archived_at: None,
             messages: Vec::new(),
             fast_request_turns: Vec::new(),
@@ -12756,7 +12768,20 @@
         let command_start = command_content
             .find("async fn mark_conversation_read")
             .expect("mark_conversation_read command should be async fn");
-        let command_section = &command_content[command_start..command_start + 600];
+        let command_end = command_content[command_start..]
+            .find("\n}\n\n#[tauri::command]")
+            .map(|offset| command_start + offset + 3)
+            .or_else(|| {
+                command_content[command_start..]
+                    .find("\n}\n\nasync fn ")
+                    .map(|offset| command_start + offset + 3)
+            })
+            .unwrap_or((command_start + 600).min(command_content.len()));
+        let mut end = command_end.min(command_content.len());
+        while end > command_start && !command_content.is_char_boundary(end) {
+            end -= 1;
+        }
+        let command_section = &command_content[command_start..end];
         assert!(
             command_section.contains("spawn_blocking"),
             "mark_conversation_read Tauri command 必须使用 spawn_blocking 移出主线程"

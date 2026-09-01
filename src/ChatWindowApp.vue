@@ -429,6 +429,8 @@
       :autonomous-mode="chatWorkspaceDraftAutonomousMode"
       :work-mode="chatWorkspaceDraftWorkMode"
       :selected-branch="chatWorkspaceDraftBranch"
+      :worktree-path="chatWorkspaceWorktreePath"
+      :worktree-exists="chatWorkspaceWorktreeExists"
       :worktree-available="chatWorkspaceWorktreeAvailable"
       :worktree-check-message="chatWorkspaceWorktreeCheckMessage"
       :validation-message="chatWorkspaceDraftError"

@@ -720,7 +720,8 @@ async fn send_chat_message_inner(
                             let mut merged = conv.clone();
                             merged.shell_workspaces = parent_conv.shell_workspaces.clone();
                             merged.shell_work_mode = parent_conv.shell_work_mode.clone();
-                            merged.shell_work_branch = parent_conv.shell_work_branch.clone();
+                            merged.shell_work_branch =
+                                normalize_shell_work_branch_text(&parent_conv.shell_work_branch);
                             merged
                         } else {
                             conv.clone()
@@ -886,8 +887,9 @@ async fn send_chat_message_inner(
                 requested_conversation.shell_workspace_path = parent.shell_workspace_path;
                 requested_conversation.shell_workspaces = parent.shell_workspaces;
                 requested_conversation.shell_autonomous_mode = parent.shell_autonomous_mode;
-                requested_conversation.shell_work_mode = normalize_shell_work_mode_text(&parent.shell_work_mode);
-                requested_conversation.shell_work_branch = parent.shell_work_branch.clone();
+                requested_conversation.shell_work_mode = parent.shell_work_mode.clone();
+                requested_conversation.shell_work_branch =
+                    normalize_shell_work_branch_text(&parent.shell_work_branch);
             }
         }
         let mut data = AppData::default();

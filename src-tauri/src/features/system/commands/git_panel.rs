@@ -675,11 +675,14 @@ async fn git_panel_branch_list(input: GitPanelWorkspaceInput) -> Result<Vec<GitP
             if trimmed.is_empty() {
                 return None;
             }
-            let (is_current, name) = if let Some(rest) = line.strip_prefix('*') {
+            let (is_current, raw_name) = if let Some(rest) = trimmed.strip_prefix('*') {
                 (true, rest.trim().to_string())
+            } else if let Some(rest) = trimmed.strip_prefix('+') {
+                (false, rest.trim().to_string())
             } else {
-                (false, line.trim().to_string())
+                (false, trimmed.to_string())
             };
+            let name = normalize_shell_work_branch_text(&raw_name);
             if name.is_empty() {
                 return None;
             }

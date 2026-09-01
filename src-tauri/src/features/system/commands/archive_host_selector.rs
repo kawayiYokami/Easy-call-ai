@@ -130,6 +130,7 @@ mod archive_host_selection_tests {
             shell_workspaces: Vec::new(),
             shell_autonomous_mode: false,
             shell_work_mode: default_shell_work_mode(),
+            shell_work_branch: String::new(),
             archived_at: None,
             messages,
             fast_request_turns: Vec::new(),

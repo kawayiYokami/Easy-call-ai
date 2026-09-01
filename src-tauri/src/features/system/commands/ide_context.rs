@@ -1082,7 +1082,7 @@ mod ide_context_tests {
                     copy_source_conversation_id: None,
                     shell_workspaces: None,
                     shell_work_mode: None,
-                    shell_work_branch: String::new(),
+                    shell_work_branch: None,
                     shell_autonomous_mode: None,
                     is_draft: Some(false),
                 },

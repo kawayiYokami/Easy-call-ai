@@ -1219,7 +1219,8 @@ impl ConversationServiceV2 {
                             conversation.shell_work_mode = normalize_shell_work_mode_text(&value);
                         }
                         if let Some(value) = patch.shell_work_branch {
-                            conversation.shell_work_branch = value.trim().to_string();
+                            conversation.shell_work_branch =
+                                normalize_shell_work_branch_text(&value);
                         }
                         if let Some(value) = patch.lifecycle_status {
                             conversation.status = value;

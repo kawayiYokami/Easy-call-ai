@@ -834,6 +834,7 @@ mod message_store_migration_gate_tests {
             shell_workspaces: Vec::new(),
             shell_autonomous_mode: false,
             shell_work_mode: default_shell_work_mode(),
+            shell_work_branch: String::new(),
             archived_at: None,
             messages: vec![test_message("m1", "user"), test_message("m2", "assistant")],
             fast_request_turns: Vec::new(),

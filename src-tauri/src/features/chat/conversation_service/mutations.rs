@@ -536,10 +536,10 @@ fn create_unarchived_conversation_shared(
                 validate_worktree_root(&workspace.path)?;
             }
             if let Some(branch) = input.shell_work_branch.as_deref() {
-                conversation.shell_work_branch = branch.trim().to_string();
+                conversation.shell_work_branch = normalize_shell_work_branch_text(branch);
             }
         } else if let Some(branch) = input.shell_work_branch.as_deref() {
-            conversation.shell_work_branch = branch.trim().to_string();
+            conversation.shell_work_branch = normalize_shell_work_branch_text(branch);
         }
     }
     if let Some(shell_autonomous_mode) = input.shell_autonomous_mode {

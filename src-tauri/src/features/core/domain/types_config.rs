@@ -38,8 +38,51 @@ fn normalize_shell_work_mode_text(raw: &str) -> String {
     }
 }
 
+fn normalize_shell_work_branch_text(raw: &str) -> String {
+    let mut value = raw.trim().to_string();
+    loop {
+        let trimmed = value.trim();
+        if let Some(rest) = trimmed.strip_prefix('*') {
+            value = rest.trim().to_string();
+            continue;
+        }
+        if let Some(rest) = trimmed.strip_prefix('+') {
+            value = rest.trim().to_string();
+            continue;
+        }
+        break;
+    }
+    value.trim().to_string()
+}
+
 fn shell_work_mode_requires_git_root(mode: &str) -> bool {
     normalize_shell_work_mode_text(mode) == SHELL_WORK_MODE_WORKTREE
+}
+
+#[cfg(test)]
+mod shell_work_branch_tests {
+    use super::*;
+
+    #[test]
+    fn normalize_shell_work_branch_text_should_strip_markers() {
+        assert_eq!(
+            normalize_shell_work_branch_text("+ feat/storage-event-sourcing"),
+            "feat/storage-event-sourcing"
+        );
+        assert_eq!(
+            normalize_shell_work_branch_text("* feat/storage-event-sourcing"),
+            "feat/storage-event-sourcing"
+        );
+        assert_eq!(
+            normalize_shell_work_branch_text("  +   feat/storage-event-sourcing  "),
+            "feat/storage-event-sourcing"
+        );
+        assert_eq!(normalize_shell_work_branch_text(""), "");
+        assert_eq!(
+            normalize_shell_work_branch_text("feature/backend-tantivy"),
+            "feature/backend-tantivy"
+        );
+    }
 }
 
 const CODEX_AUTH_MODE_READ_LOCAL: &str = "read_local";

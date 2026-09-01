@@ -458,6 +458,47 @@ async fn ide_chat_branch_message_command(state: &AppState, params: Value) -> Res
     ide_chat_serialize(create_conversation_branch_from_message_internal(input, state).await?)
 }
 
+async fn ide_chat_branch_from_current_command(state: &AppState, params: Value) -> Result<Value, String> {
+    let input = ide_chat_parse_param_field::<BranchUnarchivedConversationFromCurrentInput>(params, "input")?;
+    ide_chat_serialize(branch_unarchived_conversation_from_current_internal(input, state).await?)
+}
+
+async fn ide_chat_clear_chat_error_command(state: &AppState, params: Value) -> Result<Value, String> {
+    let input = ide_chat_parse_param_field::<ClearChatErrorInput>(params, "input")?;
+    ide_chat_serialize(clear_chat_error_inner(input, state).await?)
+}
+
+fn ide_chat_list_schedule_runs_command(state: &AppState, params: Value) -> Result<Value, String> {
+    let conversation_id = ide_chat_parse_param_field::<String>(params.clone(), "conversationId")
+        .or_else(|_| ide_chat_parse_param_field::<String>(params.clone(), "conversation_id"))
+        .or_else(|_| {
+            // 兼容前端直接传 { input: { conversationId } } 的形态
+            ide_chat_parse_param_field::<String>(params.clone(), "input")
+                .and_then(|input_str| {
+                    serde_json::from_str::<Value>(&input_str)
+                        .map_err(|_| "conversationId is required".to_string())
+                        .and_then(|value| {
+                            value
+                                .get("conversationId")
+                                .or_else(|| value.get("conversation_id"))
+                                .and_then(Value::as_str)
+                                .map(|value| value.to_string())
+                                .ok_or_else(|| "conversationId is required".to_string())
+                        })
+                })
+        })
+        .or_else(|_| {
+            // 直接按 Value 对象取字段兜底
+            params
+                .get("conversationId")
+                .or_else(|| params.get("conversation_id"))
+                .and_then(Value::as_str)
+                .map(|value| value.to_string())
+                .ok_or_else(|| "conversationId is required".to_string())
+        })?;
+    ide_chat_serialize(schedule_event_list_runs_inner(state, &conversation_id)?)
+}
+
 async fn ide_chat_submit_delegate_command(state: &AppState, params: Value) -> Result<Value, String> {
     let input = ide_chat_parse_param_field::<SubmitUserAsyncDelegateInput>(params, "input")?;
     ide_chat_serialize(submit_user_async_delegate_internal(input, state).await?)

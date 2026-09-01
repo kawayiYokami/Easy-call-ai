@@ -9,6 +9,8 @@ type UseChatWorkspacePickerFlowOptions = {
   chatWorkspaceAutonomousMode: Ref<boolean>;
   chatWorkspaceWorkMode: Ref<ShellWorkMode>;
   chatWorkspaceBranch: Ref<string>;
+  chatWorkspaceWorktreePath: Ref<string>;
+  chatWorkspaceWorktreeExists: Ref<boolean>;
   openChatWorkspacePickerBase: () => void;
   closeChatWorkspacePickerBase: () => void;
   saveChatWorkspaces: (items: ChatWorkspaceChoice[], autonomousMode?: boolean, workMode?: ShellWorkMode, shellWorkBranch?: string) => Promise<void>;
@@ -27,7 +29,6 @@ export function useChatWorkspacePickerFlow(options: UseChatWorkspacePickerFlowOp
   const chatWorkspaceDraftBranch = ref("");
   const chatWorkspaceDraftError = ref("");
   const chatWorkspacePickerSaving = ref(false);
-  let stashedWorktreeBranch = "";
 
   function cloneChatWorkspaceChoices(items: ChatWorkspaceChoice[]): ChatWorkspaceChoice[] {
     return (items || []).map((item) => ({
@@ -46,11 +47,10 @@ export function useChatWorkspacePickerFlow(options: UseChatWorkspacePickerFlowOp
     const persistedBranch = String(options.chatWorkspaceBranch.value || "").trim();
     chatWorkspaceDraftError.value = "";
     if (chatWorkspaceDraftWorkMode.value === "worktree") {
+      // worktree：显示持久化的意图分支；已创建时会被对话框的 git 真值覆盖
       chatWorkspaceDraftBranch.value = persistedBranch;
-      if (persistedBranch) stashedWorktreeBranch = persistedBranch;
     } else {
-      stashedWorktreeBranch = "";
-      // directory 模式下分支由项目当前分支驱动，不展示持久化的 worktree 分支
+      // directory：分支显示由对话框按 git 真值回填，草稿本身不持有分支
       chatWorkspaceDraftBranch.value = "";
     }
   }
@@ -146,9 +146,8 @@ export function useChatWorkspacePickerFlow(options: UseChatWorkspacePickerFlowOp
       }
     }
     chatWorkspaceDraftChoices.value = draft;
-    // 主目录被删后，若 branch 仍存在但新主不是 git，分支会在 WorkspaceConfigCard 隐藏，保存时自动清空
+    // 主目录被删后，分支在 WorkspaceConfigCard 隐藏，保存时自动清空
     if (removing?.level === "main") {
-      stashedWorktreeBranch = "";
       chatWorkspaceDraftBranch.value = "";
     }
   }
@@ -160,26 +159,20 @@ export function useChatWorkspacePickerFlow(options: UseChatWorkspacePickerFlowOp
   function setChatWorkspaceWorkMode(mode: ShellWorkMode) {
     chatWorkspaceDraftError.value = "";
     const next = normalizeShellWorkMode(String(mode || ""));
-    const prev = chatWorkspaceDraftWorkMode.value;
     chatWorkspaceDraftWorkMode.value = next;
     if (next !== "worktree") {
-      if (prev === "worktree") {
-        const current = String(chatWorkspaceDraftBranch.value || "").trim();
-        if (current) stashedWorktreeBranch = current;
-      }
+      // directory 模式：分支显示由 git 真值驱动，草稿清空等待回填
       chatWorkspaceDraftBranch.value = "";
     } else {
-      const toRestore = String(stashedWorktreeBranch || options.chatWorkspaceBranch.value || "").trim();
-      if (toRestore) chatWorkspaceDraftBranch.value = toRestore;
+      // worktree：回到持久化意图；未创建时保留意图，已创建时对话框会用 git 真值覆盖
+      const persisted = String(options.chatWorkspaceBranch.value || "").trim();
+      chatWorkspaceDraftBranch.value = persisted;
     }
   }
 
   function setChatWorkspaceBranch(branch: string) {
     const normalized = String(branch || "").trim();
     chatWorkspaceDraftBranch.value = normalized;
-    if (chatWorkspaceDraftWorkMode.value === "worktree" && normalized) {
-      stashedWorktreeBranch = normalized;
-    }
   }
 
   async function openChatWorkspaceDir(workspaceId: string) {
@@ -226,7 +219,6 @@ export function useChatWorkspacePickerFlow(options: UseChatWorkspacePickerFlowOp
       });
       chatWorkspaceDraftChoices.value = draft;
     }
-    stashedWorktreeBranch = "";
     chatWorkspaceDraftBranch.value = "";
   }
 

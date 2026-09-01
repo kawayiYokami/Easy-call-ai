@@ -17,6 +17,8 @@ function createFlow(access: "approval" | "full_access" = "approval", mode: Shell
     chatWorkspaceAutonomousMode: ref(false),
     chatWorkspaceWorkMode: ref<ShellWorkMode>(mode),
     chatWorkspaceBranch: ref(""),
+    chatWorkspaceWorktreePath: ref(""),
+    chatWorkspaceWorktreeExists: ref(false),
     openChatWorkspacePickerBase: vi.fn(),
     closeChatWorkspacePickerBase: vi.fn(),
     saveChatWorkspaces,

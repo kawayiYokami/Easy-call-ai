@@ -36,6 +36,8 @@ export function useChatWorkspace(options: UseChatWorkspaceOptions) {
   const chatWorkspaceAutonomousMode = ref(false);
   const chatWorkspaceWorkMode = ref<ShellWorkMode>("directory");
   const chatWorkspaceBranch = ref("");
+  const chatWorkspaceWorktreePath = ref("");
+  const chatWorkspaceWorktreeExists = ref(false);
   const chatWorkspaceWorktreeAvailable = ref(false);
   const chatWorkspaceWorktreeCheckMessage = ref("");
   let gitCheckSequence = 0;
@@ -101,13 +103,19 @@ export function useChatWorkspace(options: UseChatWorkspaceOptions) {
 
   function applyChatWorkspaceState(state: ChatShellWorkspaceState) {
     const nextPath = String(state.rootPath || "").trim();
-    chatWorkspaceRootPath.value = nextPath;
     chatWorkspaceItems.value = Array.isArray(state.workspaces) ? state.workspaces : [];
     chatWorkspaceAutonomousMode.value = Boolean(state.autonomousMode);
     chatWorkspaceWorkMode.value = normalizeShellWorkMode(String(state.shellWorkMode || ""));
     chatWorkspaceBranch.value = String(state.shellWorkBranch || "").trim();
+    chatWorkspaceWorktreePath.value = String((state as any).worktreePath || (state as any).worktree_path || "").trim();
+    chatWorkspaceWorktreeExists.value = Boolean((state as any).worktreeExists ?? (state as any).worktree_exists);
+    // worktree 已创建时 worktreePath 兜底
+    if (chatWorkspaceWorkMode.value === "worktree" && !chatWorkspaceWorktreePath.value && nextPath) {
+      chatWorkspaceWorktreePath.value = `${nextPath.replace(/\\/g, "/").replace(/\/+$/, "")}/.pai/.worktree/${String(options.activeConversationId.value || "").trim()}`;
+    }
     chatWorkspaceName.value = resolveWorkspaceDisplayName(nextPath, String(state.workspaceName || "").trim());
     chatWorkspacePath.value = nextPath;
+    chatWorkspaceRootPath.value = nextPath;
   }
 
   async function checkChatWorkspaceGitRoot(path: string): Promise<boolean> {
@@ -163,6 +171,8 @@ export function useChatWorkspace(options: UseChatWorkspaceOptions) {
       chatWorkspaceAutonomousMode.value = false;
       chatWorkspaceWorkMode.value = "directory";
       chatWorkspaceBranch.value = "";
+      chatWorkspaceWorktreePath.value = "";
+      chatWorkspaceWorktreeExists.value = false;
       chatWorkspaceWorktreeAvailable.value = false;
       chatWorkspaceWorktreeCheckMessage.value = "";
       return;
@@ -244,6 +254,8 @@ export function useChatWorkspace(options: UseChatWorkspaceOptions) {
     chatWorkspaceAutonomousMode,
     chatWorkspaceWorkMode,
     chatWorkspaceBranch,
+    chatWorkspaceWorktreePath,
+    chatWorkspaceWorktreeExists,
     chatWorkspaceWorktreeAvailable,
     chatWorkspaceWorktreeCheckMessage,
     chatWorkspacePermissionLabel,

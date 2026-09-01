@@ -267,6 +267,8 @@ export type ChatShellWorkspaceState = {
   autonomousMode?: boolean;
   shellWorkMode?: ShellWorkMode;
   shellWorkBranch?: string;
+  worktreePath?: string;
+  worktreeExists?: boolean;
 };
 
 export type IdeContextWorkspaceInput = {

@@ -81,6 +81,8 @@ const props = withDefaults(defineProps<{
   workspaces: ChatWorkspaceChoice[];
   autonomousMode: boolean;
   workMode: ShellWorkMode;
+  worktreePath?: string;
+  worktreeExists?: boolean;
   worktreeAvailable: boolean;
   worktreeCheckMessage?: string;
   validationMessage?: string;
@@ -89,6 +91,8 @@ const props = withDefaults(defineProps<{
 }>(), {
   hideAddWorkspace: false,
   selectedBranch: "",
+  worktreePath: "",
+  worktreeExists: false,
 });
 
 const emit = defineEmits<{
@@ -156,12 +160,21 @@ function onDialogClose() {
 // 保留一个空的 sync 占位以兼容热更新，不再操作 dialog 方法
 function syncDialog() {}
 
+function resolveBranchTargetPath(): string {
+  const worktreePath = String(props.worktreePath || "").trim();
+  if (props.workMode === "worktree" && props.worktreeExists && worktreePath) {
+    return worktreePath;
+  }
+  return String(mainPath.value || "").trim();
+}
+
 watch(
-  () => [mainPath.value, props.worktreeAvailable] as const,
-  ([path, available]) => {
+  () => [mainPath.value, props.workMode, String(props.worktreePath || "").trim(), Boolean(props.worktreeExists), props.worktreeAvailable] as const,
+  () => {
     checkoutError.value = "";
-    if (available && path) {
-      void loadBranches(path);
+    const target = resolveBranchTargetPath();
+    if (props.worktreeAvailable && target) {
+      void loadBranches(target);
     } else {
       branchList.value = [];
     }
@@ -183,8 +196,19 @@ async function loadBranches(path: string) {
     const names = entries.map((e) => String(e.name || "").trim()).filter(Boolean);
     branchList.value = names;
     const current = entries.find((e) => e.isCurrent)?.name;
-    if (current && !String(selectedBranch.value || "").trim()) {
-      emit("setBranch", String(current).trim());
+    const currentName = String(current || "").trim();
+    if (!currentName) return;
+    const selected = String(selectedBranch.value || "").trim();
+    // 真值模型：显示永远等于当前真值
+    // directory：永远用项目当前分支
+    // worktree 已创建：用工作树当前分支
+    // worktree 未创建：没有真值，保留意图，不自动覆盖
+    const isWorktree = props.workMode === "worktree";
+    const worktreeExists = Boolean(props.worktreeExists);
+    const shouldSyncToTruth = !isWorktree || worktreeExists;
+    if (shouldSyncToTruth && currentName.toLowerCase() !== selected.toLowerCase()) {
+      // 延迟到下一 tick 再 emit，避免在 load 过程中同步触发 watcher 循环
+      emit("setBranch", currentName);
     }
   } catch {
     if (seq !== branchSeq) return;
@@ -220,38 +244,23 @@ function onAccessUpdate(access: ChatWorkspaceChoice["access"]) {
 async function onWorkModeUpdate(mode: ShellWorkMode) {
   const normalized = normalizeShellWorkMode(String(mode || "")) as ShellWorkMode;
   checkoutError.value = "";
-  const switchingToDirectory = normalized === "directory" && props.workMode === "worktree";
-  // 先切换模式，让外层 stash 掉旧 worktree 分支，再处理项目分支回填，避免 stash 被项目分支覆盖
+  // 真值模型：切换代表意图，显示由 watcher 按 git 真值自动回填；持久化延迟到保存
   emit("setWorkMode", normalized);
-  if (switchingToDirectory) {
-    const path = String(mainPath.value || "").trim();
-    if (path) {
-      try {
-        const entries = await gitPanelBranchList(path);
-        branchList.value = entries.map((e) => String(e.name || "").trim()).filter(Boolean);
-        const current = entries.find((e) => e.isCurrent)?.name;
-        if (current) {
-          const curName = String(current).trim();
-          if (curName) emit("setBranch", curName);
-        }
-      } catch {
-        // ignore
-      }
-    }
-  }
 }
 
 async function onBranchUpdate(branch: string) {
   const normalized = String(branch || "").trim();
   if (!normalized) return;
-  if (normalized === String(selectedBranch.value || "").trim()) return;
-  if (props.workMode === "worktree") {
+  if (normalized.toLowerCase() === String(selectedBranch.value || "").trim().toLowerCase()) return;
+  // worktree 未创建：没有真值可 checkout，仅改草稿意图，持久化延迟到保存/发送
+  if (props.workMode === "worktree" && !props.worktreeExists) {
     checkoutError.value = "";
     emit("setBranch", normalized);
     return;
   }
-  const path = String(mainPath.value || "").trim();
-  if (!path || !props.worktreeAvailable) {
+  // directory 或 worktree 已创建：立即对 git 真值执行 checkout，显示跟着真值走
+  const target = resolveBranchTargetPath();
+  if (!target || !props.worktreeAvailable) {
     checkoutError.value = "";
     emit("setBranch", normalized);
     return;
@@ -259,7 +268,7 @@ async function onBranchUpdate(branch: string) {
   branchLoading.value = true;
   checkoutError.value = "";
   try {
-    const check = await gitPanelCheckoutCheck(path, normalized);
+    const check = await gitPanelCheckoutCheck(target, normalized);
     const dirtyPaths: string[] = (check as unknown as { dirtyPaths: string[] }).dirtyPaths || [];
     if (Array.isArray(dirtyPaths) && dirtyPaths.length > 0) {
       const preview = dirtyPaths.slice(0, 3).join(", ");
@@ -269,14 +278,14 @@ async function onBranchUpdate(branch: string) {
       return;
     }
     try {
-      await gitPanelCheckout(path, normalized);
+      await gitPanelCheckout(target, normalized);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       checkoutError.value = t("chat.workspaceBranchCheckoutFailed", { message });
       return;
     }
     try {
-      const entries = await gitPanelBranchList(path);
+      const entries = await gitPanelBranchList(target);
       branchList.value = entries.map((e) => String(e.name || "").trim()).filter(Boolean);
     } catch {
       // ignore

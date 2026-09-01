@@ -229,6 +229,19 @@ async fn ide_chat_handle_jsonrpc_request(
         "conversation.rewind" => ide_chat_rewind_conversation(state, request.params).await,
         "conversation.branchFromMessage" => ide_chat_branch_conversation_from_message(state, request.params).await,
         "conversation.branchFromSelection" => ide_chat_branch_conversation(state, request.params).await,
+        "conversation.branchFromCurrent" => {
+            ide_chat_branch_from_current_command(state, request.params).await
+        },
+        "branch_unarchived_conversation_from_current" => {
+            ide_chat_branch_from_current_command(state, request.params).await
+        },
+        "conversation.clearChatError" => {
+            ide_chat_clear_chat_error_command(state, request.params).await
+        },
+        "clear_chat_error" => {
+            ide_chat_clear_chat_error_command(state, request.params).await
+        },
+        "list_schedule_runs" => ide_chat_list_schedule_runs_command(state, request.params),
         "conversation.forwardSelection" => ide_chat_forward_selection_command(state, request.params).await,
         "conversation.forwardRemoteContact" => ide_chat_forward_remote_contact_command(state, request.params),
         "conversation.rename" => ide_chat_rename_conversation_command(state, request.params),
