@@ -100,7 +100,6 @@
                 >
                   <span class="shrink-0 opacity-55">📁</span>
                   <span class="min-w-0 flex-1 truncate">{{ item.name }}</span>
-                  <span class="shrink-0 font-mono text-xs opacity-40 truncate max-w-[12rem]">{{ item.path }}</span>
                 </button>
               </template>
             </div>
