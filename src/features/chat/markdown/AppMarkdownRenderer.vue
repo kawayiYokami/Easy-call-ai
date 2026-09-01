@@ -1865,8 +1865,8 @@ ul.ecall-md-list {
   font-family: var(--app-code-font-family);
   font-weight: var(--ecall-md-code-weight-setting, var(--app-font-medium-weight, 500));
   font-variation-settings: "wght" var(--ecall-md-code-weight-setting, var(--app-font-medium-weight, 500));
-  font-size: var(--app-text-xs-size);
-  line-height: 1.55;
+  font-size: inherit;
+  line-height: inherit;
   margin: 0 !important;
   white-space: pre;
 }
@@ -1927,7 +1927,8 @@ ul.ecall-md-list {
   font-family: var(--app-code-font-family);
   font-weight: var(--ecall-md-code-weight-setting, var(--app-font-medium-weight, 500));
   font-variation-settings: "wght" var(--ecall-md-code-weight-setting, var(--app-font-medium-weight, 500));
-  font-size: var(--app-text-xs-size);
+  font-size: inherit;
+  line-height: inherit;
 }
 
 /* ==================== Links ==================== */
