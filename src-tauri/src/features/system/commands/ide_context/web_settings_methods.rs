@@ -14,6 +14,19 @@ fn ide_chat_load_app_bootstrap_snapshot_for_web_settings(state: &AppState) -> Re
     ide_chat_serialize(read_app_bootstrap_snapshot(state)?)
 }
 
+fn ide_chat_get_app_runtime_info_for_web_settings(state: &AppState) -> Result<Value, String> {
+    let data_path = state.data_path.clone();
+    let config_path = state.config_path.clone();
+    let app_root = app_root_from_data_path(&data_path);
+    let is_portable = detect_portable_runtime_root().is_some();
+    ide_chat_serialize(AppRuntimeInfo {
+        app_root: app_root.to_string_lossy().to_string(),
+        data_path: data_path.to_string_lossy().to_string(),
+        config_path: config_path.to_string_lossy().to_string(),
+        is_portable,
+    })
+}
+
 fn ide_chat_save_config_for_web_settings(
     state: &AppState,
     app: &AppHandle,

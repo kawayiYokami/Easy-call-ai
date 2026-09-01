@@ -1,6 +1,11 @@
 import type { AgentWorkSignalPayload, AppConfig } from "../../../types/app";
 import type { PersistedThemePreferences } from "../theme/theme-types";
-import { clearWindowChatViewStreamBindings, onTransportNotification } from "../../../services/tauri-api";
+import { clearWindowChatViewStreamBindings, invokeTauri, onTransportNotification } from "../../../services/tauri-api";
+import {
+  clearLastActiveConversationId,
+  readLastActiveAppRoot,
+  writeLastActiveAppRoot,
+} from "../../chat/utils/last-active-conversation";
 
 type ViewMode = "chat" | "archives" | "config";
 type ConversationApiSettingsPayload = {
@@ -58,6 +63,19 @@ export function useAppBootstrap(options: AppBootstrapOptions) {
   const unlisteners: Array<() => void> = [];
 
   async function mount() {
+    try {
+      const info = await invokeTauri<{ appRoot: string; dataPath: string; configPath: string; isPortable: boolean }>("get_app_runtime_info");
+      const currentRoot = String((info as any)?.appRoot || (info as any)?.app_root || (info as any)?.dataPath || (info as any)?.data_path || "").trim();
+      if (currentRoot) {
+        const lastRoot = readLastActiveAppRoot();
+        if (lastRoot && lastRoot !== currentRoot) {
+          clearLastActiveConversationId();
+        }
+        writeLastActiveAppRoot(currentRoot);
+      }
+    } catch {
+      // 非 Tauri 环境（如纯 Web）或命令未就绪时忽略
+    }
     const mode = options.initWindowMode();
     options.setViewMode(mode);
     // 窗口启动/重载后先清理本窗口残留的流式绑定（旧 bindingId 的 channel 在 JS 侧

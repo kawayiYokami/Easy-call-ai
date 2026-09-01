@@ -69,6 +69,29 @@ fn get_app_version() -> String {
     env!("CARGO_PKG_VERSION").to_string()
 }
 
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct AppRuntimeInfo {
+    app_root: String,
+    data_path: String,
+    config_path: String,
+    is_portable: bool,
+}
+
+#[tauri::command]
+fn get_app_runtime_info(state: State<'_, AppState>) -> Result<AppRuntimeInfo, String> {
+    let data_path = state.data_path.clone();
+    let config_path = state.config_path.clone();
+    let app_root = app_root_from_data_path(&data_path);
+    let is_portable = detect_portable_runtime_root().is_some();
+    Ok(AppRuntimeInfo {
+        app_root: app_root.to_string_lossy().to_string(),
+        data_path: data_path.to_string_lossy().to_string(),
+        config_path: config_path.to_string_lossy().to_string(),
+        is_portable,
+    })
+}
+
 fn parse_version_parts(input: &str) -> Vec<u64> {
     let cleaned = input
         .trim()

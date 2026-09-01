@@ -2,7 +2,11 @@ import { nextTick } from "vue";
 import { i18n } from "../../../i18n";
 import { chatStreamNeedsFrontendBind, invokeTauri } from "../../../services/tauri-api";
 import { toErrorMessage } from "../../../utils/error";
-import { readLastActiveConversationId } from "../utils/last-active-conversation";
+import {
+  clearLastActiveConversationId,
+  isValidConversationIdInCandidates,
+  readLastActiveConversationId,
+} from "../utils/last-active-conversation";
 import { createLatestTaskRunner, runForegroundSnapshotBindingTransaction, snapshotCanBindAssistantStream } from "./chat-foreground-coordinator";
 
 const t = i18n.global.t;
@@ -266,8 +270,10 @@ export function useChatForegroundOrchestrator(bindings: Record<string, any>) {
   function pickForegroundConversationId(candidates: any[]): string {
     const storedConversationId = readLastActiveConversationId();
     if (storedConversationId) {
-      const stored = candidates.find((item) => String(item?.conversationId || "").trim() === storedConversationId);
-      if (stored) return storedConversationId;
+      if (isValidConversationIdInCandidates(storedConversationId, candidates)) {
+        return storedConversationId;
+      }
+      clearLastActiveConversationId();
     }
     const target =
       candidates.find((item) => !!item.isSystemNotificationConversation)
@@ -339,6 +345,16 @@ export function useChatForegroundOrchestrator(bindings: Record<string, any>) {
   async function performSwitchUnarchivedConversation(conversationId: string) {
     const cid = String(conversationId || "").trim();
     if (!cid) return;
+    const storedId = readLastActiveConversationId();
+    if (storedId && cid === storedId && !isValidConversationIdInCandidates(cid, bindings.unarchivedConversations.value)) {
+      clearLastActiveConversationId();
+      const fallbackId = pickForegroundConversationId(bindings.unarchivedConversations.value);
+      if (fallbackId && fallbackId !== cid) {
+        return performSwitchUnarchivedConversation(fallbackId);
+      }
+      await showSwitchDiagnostic("目标会话不在当前列表，已回落", cid, currentConversationId(), bindings.perfNow(), `storedId=${cid}`);
+      return;
+    }
     const previousConversationId = currentConversationId();
     const startedAt = bindings.perfNow();
     let stage = "准备切换";
@@ -456,6 +472,13 @@ export function useChatForegroundOrchestrator(bindings: Record<string, any>) {
         console.warn("[会话切换] 切换收尾失败", { conversationId: cid, error });
       });
     } catch (error) {
+      const msg = toErrorMessage(error);
+      const storedId = readLastActiveConversationId();
+      const notFoundHint = /not found|不存在|找不到|os error 2|读取会话块元数据失败|conversation not found/i.test(msg);
+      const isStaleStoredSwitch = !!storedId && cid === storedId;
+      if (isStaleStoredSwitch && (notFoundHint || !isValidConversationIdInCandidates(cid, bindings.unarchivedConversations.value))) {
+        clearLastActiveConversationId();
+      }
       await showSwitchDiagnostic(stage, cid, previousConversationId, startedAt, error);
     } finally {
       bindings.conversationForegroundSyncing.value = false;

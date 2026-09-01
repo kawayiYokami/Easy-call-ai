@@ -311,6 +311,8 @@ async fn ide_chat_handle_jsonrpc_request(
         "load_config" => ide_chat_load_config_for_web_settings(state),
         "load_app_bootstrap_snapshot" => ide_chat_load_app_bootstrap_snapshot_for_web_settings(state),
         "app.bootstrapSnapshot" => ide_chat_load_app_bootstrap_snapshot_for_web_settings(state),
+        "get_app_runtime_info" => ide_chat_get_app_runtime_info_for_web_settings(state),
+        "app.runtimeInfo" => ide_chat_get_app_runtime_info_for_web_settings(state),
         "messageStore.migration.check" => check_message_store_migration_inner(state)
             .and_then(ide_chat_serialize),
         "messageStore.migration.status" => {
