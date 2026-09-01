@@ -64,13 +64,20 @@
       <button @click.prevent="onDialogClose">close</button>
     </form>
   </dialog>
+  <WorkspaceDirectoryPickerDialog
+    :open="directoryPickerOpen"
+    :initial-path="directoryPickerInitialPath"
+    @close="directoryPickerOpen = false"
+    @select="onDirectoryPicked"
+  />
 </template>
 
 <script setup lang="ts">
 import { computed, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 import WorkspaceConfigCard from "../../../shared/components/WorkspaceConfigCard.vue";
-import { gitPanelBranchList, gitPanelCheckout, gitPanelCheckoutCheck, openTransportFileDialog } from "../../../../services/tauri-api";
+import WorkspaceDirectoryPickerDialog from "../../../shared/components/WorkspaceDirectoryPickerDialog.vue";
+import { gitPanelBranchList, gitPanelCheckout, gitPanelCheckoutCheck } from "../../../../services/tauri-api";
 import type { ChatWorkspaceChoice } from "../../composables/use-chat-workspace";
 import type { ShellWorkMode } from "../../../../types/app";
 import { normalizeShellWorkMode, normalizeWorkspaceAccess } from "../../../../utils/shell-workspaces";
@@ -119,6 +126,10 @@ const branchList = ref<string[]>([]);
 const branchLoading = ref(false);
 const checkoutError = ref("");
 let branchSeq = 0;
+
+const directoryPickerOpen = ref(false);
+const directoryPickerMode = ref<"main" | "secondary">("main");
+const directoryPickerInitialPath = ref("");
 
 const mainPath = computed(() => {
   const main = props.workspaces.find((w) => w.level === "main");
@@ -299,29 +310,28 @@ async function onBranchUpdate(branch: string) {
   }
 }
 
-async function onBrowseMain() {
-  try {
-    const picked = await openTransportFileDialog({ directory: true, multiple: false });
-    if (!picked || Array.isArray(picked)) return;
-    const nextPath = String(picked || "").trim();
-    if (!nextPath) return;
-    emit("updateMainPath", nextPath);
-  } catch {
-    // ignore
-  }
+function onBrowseMain() {
+  directoryPickerMode.value = "main";
+  directoryPickerInitialPath.value = String(mainPath.value || "").trim();
+  directoryPickerOpen.value = true;
 }
 
-async function onAddSecondary() {
-  try {
-    const picked = await openTransportFileDialog({ directory: true, multiple: false });
-    if (!picked || Array.isArray(picked)) return;
-    const nextPath = String(picked || "").trim();
-    if (!nextPath) return;
+function onAddSecondary() {
+  directoryPickerMode.value = "secondary";
+  // 初始路径取主目录的父级或当前主目录，便于同级选择
+  directoryPickerInitialPath.value = String(mainPath.value || "").trim();
+  directoryPickerOpen.value = true;
+}
+
+function onDirectoryPicked(path: string) {
+  const nextPath = String(path || "").trim();
+  directoryPickerOpen.value = false;
+  if (!nextPath) return;
+  if (directoryPickerMode.value === "main") {
+    emit("updateMainPath", nextPath);
+  } else {
     emit("addSecondary", nextPath);
-    // 兼容旧 addWorkspace
     emit("addWorkspace");
-  } catch {
-    // ignore
   }
 }
 

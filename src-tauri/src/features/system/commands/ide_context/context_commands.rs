@@ -161,10 +161,11 @@ async fn ide_chat_workspace_git_root_check(params: Value) -> Result<Value, Strin
     serde_json::to_value(result).map_err(|err| format!("serialize git root check failed: {err}"))
 }
 
-async fn ide_chat_workspace_directory_list(params: Value) -> Result<Value, String> {
+async fn ide_chat_workspace_directory_list(state: &AppState, params: Value) -> Result<Value, String> {
     let input = ide_chat_parse_params::<IdeChatWorkspaceDirectoryListInput>(params)?;
     let path = input.path;
-    let payload = tokio::task::spawn_blocking(move || list_file_reader_directory_inner(path))
+    let app_state = (*state).clone();
+    let payload = tokio::task::spawn_blocking(move || list_file_reader_directory_inner_with_state(path, app_state))
         .await
         .map_err(|err| format!("读取目录任务失败：{err}"))??;
     Ok(serde_json::json!({"path": payload.path, "name": payload.name,
@@ -172,10 +173,11 @@ async fn ide_chat_workspace_directory_list(params: Value) -> Result<Value, Strin
             .map(|e| serde_json::json!({"path": e.path, "name": e.name})).collect::<Vec<_>>() }))
 }
 
-async fn ide_chat_file_reader_directory_list(params: Value) -> Result<Value, String> {
+async fn ide_chat_file_reader_directory_list(state: &AppState, params: Value) -> Result<Value, String> {
     let input = ide_chat_parse_params::<IdeChatWorkspaceDirectoryListInput>(params)?;
     let path = input.path;
-    let payload = tokio::task::spawn_blocking(move || list_file_reader_directory_inner(path))
+    let app_state = (*state).clone();
+    let payload = tokio::task::spawn_blocking(move || list_file_reader_directory_inner_with_state(path, app_state))
         .await
         .map_err(|err| format!("读取目录任务失败：{err}"))??;
     serde_json::to_value(payload).map_err(|err| format!("serialize file reader directory failed: {err}"))

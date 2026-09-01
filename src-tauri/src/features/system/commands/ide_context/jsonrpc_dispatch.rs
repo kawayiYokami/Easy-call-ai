@@ -204,7 +204,7 @@ async fn ide_chat_handle_jsonrpc_request(
             }),
         "workspace.layout.save" => ide_chat_workspace_layout_save(state, request.params),
         "workspace.list" => ide_chat_workspace_list(state, request.params),
-        "workspace.directory.list" => ide_chat_workspace_directory_list(request.params).await,
+        "workspace.directory.list" => ide_chat_workspace_directory_list(state, request.params).await,
         "workspace.gitRootCheck" => ide_chat_workspace_git_root_check(request.params).await,
         // 旧命令保留为兼容别名，但必须落到同一套工作区实现；不再将其视为
         // Web 不可用的 App 专属能力。
@@ -220,7 +220,7 @@ async fn ide_chat_handle_jsonrpc_request(
         git_panel_method if git_panel_method.starts_with("git_panel_") => {
             git_panel_dispatch(request.clone(), state, app).await
         }
-        "fileReader.directory.list" => ide_chat_file_reader_directory_list(request.params).await,
+        "fileReader.directory.list" => ide_chat_file_reader_directory_list(state, request.params).await,
         "fileReader.readFile" => ide_chat_file_reader_read(request.params).await,
         "fileReader.readFileBlock" => ide_chat_file_reader_read_block(request.params).await,
         "conversation.delete" => ide_chat_delete_conversation(state, request.params).await,

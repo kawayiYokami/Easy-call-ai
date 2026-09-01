@@ -1,5 +1,5 @@
 import { ref, type Ref } from "vue";
-import { openTransportFileDialog, openTransportWorkspaceDirectory } from "../../../services/tauri-api";
+import { openTransportWorkspaceDirectory } from "../../../services/tauri-api";
 import type { ChatWorkspaceChoice } from "./use-chat-workspace";
 import type { ShellWorkMode } from "../../../types/app";
 import { normalizeShellWorkMode, normalizeWorkspaceAccess } from "../../../utils/shell-workspaces";
@@ -67,34 +67,31 @@ export function useChatWorkspacePickerFlow(options: UseChatWorkspacePickerFlowOp
   }
 
   async function addChatWorkspace() {
-    try {
-      const picked = await openTransportFileDialog({
-        directory: true,
-        multiple: false,
-      });
-      if (!picked || Array.isArray(picked)) return;
-      const nextPath = String(picked || "").trim();
-      if (!nextPath) return;
-      const draft = cloneChatWorkspaceChoices(chatWorkspaceDraftChoices.value);
-      const existed = draft.some((item) => String(item.path || "").trim().toLowerCase() === nextPath.toLowerCase());
-      if (existed) {
-        options.setStatus(options.workspaceAlreadyExistsText);
-        return;
-      }
-      const hasMain = draft.some((item) => item.level === "main");
-      // 新会话多目录：权限统一为 approval，不再按目录分离
-      const unifiedAccess = normalizeWorkspaceAccess(String(draft.find((w) => w.level === "main")?.access || draft[0]?.access || "approval"));
-      draft.push({
-        id: `conversation-workspace-${Math.random().toString(36).slice(2, 8)}`,
-        name: nextPath.replace(/\\/g, "/").replace(/\/+$/, "").split("/").pop() || nextPath,
-        path: nextPath,
-        level: hasMain ? "secondary" : "main",
-        access: unifiedAccess,
-      });
-      chatWorkspaceDraftChoices.value = draft;
-    } catch (error) {
-      options.setStatusError("status.requestFailed", error);
+    // 已由 WorkspaceDirectoryPickerDialog 统一处理目录选择，此处保留为空实现以兼容旧的 @add-workspace 事件
+    // 实际新增通过 addSecondaryPath(path) 完成
+    return;
+  }
+
+  // 兼容旧调用：若外部传入路径则直接添加
+  async function addChatWorkspaceWithPath(nextPath: string) {
+    const normalized = String(nextPath || "").trim();
+    if (!normalized) return;
+    const draft = cloneChatWorkspaceChoices(chatWorkspaceDraftChoices.value);
+    const existed = draft.some((item) => String(item.path || "").trim().toLowerCase() === normalized.toLowerCase());
+    if (existed) {
+      options.setStatus(options.workspaceAlreadyExistsText);
+      return;
     }
+    const hasMain = draft.some((item) => item.level === "main");
+    const unifiedAccess = normalizeWorkspaceAccess(String(draft.find((w) => w.level === "main")?.access || draft[0]?.access || "approval"));
+    draft.push({
+      id: `conversation-workspace-${Math.random().toString(36).slice(2, 8)}`,
+      name: normalized.replace(/\\/g, "/").replace(/\/+$/, "").split("/").pop() || normalized,
+      path: normalized,
+      level: hasMain ? "secondary" : "main",
+      access: unifiedAccess,
+    });
+    chatWorkspaceDraftChoices.value = draft;
   }
 
   async function setChatWorkspaceAsMain(workspaceId: string) {

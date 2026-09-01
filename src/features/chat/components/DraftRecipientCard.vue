@@ -200,6 +200,12 @@
         </div>
       </div>
     </div>
+    <WorkspaceDirectoryPickerDialog
+      :open="directoryPickerOpen"
+      :initial-path="directoryPickerInitialPath"
+      @close="directoryPickerOpen = false"
+      @select="onDirectoryPicked"
+    />
   </div>
 </template>
 
@@ -207,10 +213,11 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 import { Pencil } from "@lucide/vue";
-import { openTransportFileDialog, gitPanelBranchList, gitPanelCheckoutCheck, gitPanelCheckout } from "../../../services/tauri-api";
+import { gitPanelBranchList, gitPanelCheckoutCheck, gitPanelCheckout } from "../../../services/tauri-api";
 import { departmentPersonaOptionId, type DepartmentPersonaOption } from "../../shared/department-persona-options";
 import PersonaGroupGrid from "../../shared/components/PersonaGroupGrid.vue";
 import WorkspaceConfigCard from "../../shared/components/WorkspaceConfigCard.vue";
+import WorkspaceDirectoryPickerDialog from "../../shared/components/WorkspaceDirectoryPickerDialog.vue";
 import type { ShellWorkspace, ShellWorkMode } from "../../../types/app";
 import { stripExtendedPathPrefix } from "../../../utils/shell-workspaces";
 
@@ -729,50 +736,53 @@ async function handleBranchUpdate(branch: string) {
   }
 }
 
-async function browseWorkspaceDirectory() {
-  let picked: string | string[] | null = null;
-  try {
-    picked = await openTransportFileDialog({ directory: true, multiple: false });
-  } catch {
-    return;
-  }
-  const path = stripExtendedPathPrefix(String(Array.isArray(picked) ? picked[0] || "" : picked || "").trim());
-  if (!path) return;
-  const existing = findOptionByPath(path);
-  if (!existing) {
-    customOption.value = {
-      id: `conversation-workspace-custom-${Date.now().toString(36)}`,
-      name: path.replace(/\\/g, "/").replace(/\/+$/, "").split("/").pop() || path,
-      path,
-      access: selectedAccess.value,
-    };
-  }
-  handleMainPathUpdate(path);
+const directoryPickerOpen = ref(false);
+const directoryPickerMode = ref<"main" | "secondary">("main");
+const directoryPickerInitialPath = ref("");
+
+function browseWorkspaceDirectory() {
+  directoryPickerMode.value = "main";
+  directoryPickerInitialPath.value = String(selectedPath.value || "").trim();
+  directoryPickerOpen.value = true;
 }
 
-async function handleAddSecondary() {
-  let picked: string | string[] | null = null;
-  try {
-    picked = await openTransportFileDialog({ directory: true, multiple: false });
-  } catch {
-    return;
-  }
-  const path = stripExtendedPathPrefix(String(Array.isArray(picked) ? picked[0] || "" : picked || "").trim());
+function handleAddSecondary() {
+  directoryPickerMode.value = "secondary";
+  directoryPickerInitialPath.value = String(selectedPath.value || "").trim();
+  directoryPickerOpen.value = true;
+}
+
+function onDirectoryPicked(pickedPath: string) {
+  const path = stripExtendedPathPrefix(String(pickedPath || "").trim());
+  directoryPickerOpen.value = false;
   if (!path) return;
-  const key = path.toLowerCase();
-  if (secondaryPaths.value.some((p) => p.toLowerCase() === key) || selectedPath.value.toLowerCase() === key) {
-    return;
+  if (directoryPickerMode.value === "main") {
+    const existing = findOptionByPath(path);
+    if (!existing) {
+      customOption.value = {
+        id: `conversation-workspace-custom-${Date.now().toString(36)}`,
+        name: path.replace(/\\/g, "/").replace(/\/+$/, "").split("/").pop() || path,
+        path,
+        access: selectedAccess.value,
+      };
+    }
+    handleMainPathUpdate(path);
+  } else {
+    const key = path.toLowerCase();
+    if (secondaryPaths.value.some((p) => p.toLowerCase() === key) || String(selectedPath.value || "").trim().toLowerCase() === key) {
+      return;
+    }
+    secondaryPaths.value = [...secondaryPaths.value, path];
+    if (!findOptionByPath(path)) {
+      customOption.value = {
+        id: `conversation-workspace-custom-${Date.now().toString(36)}`,
+        name: path.replace(/\\/g, "/").replace(/\/+$/, "").split("/").pop() || path,
+        path,
+        access: selectedAccess.value,
+      };
+    }
+    void commitSave();
   }
-  secondaryPaths.value = [...secondaryPaths.value, path];
-  if (!findOptionByPath(path)) {
-    customOption.value = {
-      id: `conversation-workspace-custom-${Date.now().toString(36)}`,
-      name: path.replace(/\\/g, "/").replace(/\/+$/, "").split("/").pop() || path,
-      path,
-      access: selectedAccess.value,
-    };
-  }
-  void commitSave();
 }
 
 function handleRemoveSecondary(path: string) {

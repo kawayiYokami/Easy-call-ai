@@ -191,6 +191,12 @@
     </template>
 
   </ConfigTemplate>
+  <WorkspaceDirectoryPickerDialog
+    :open="assistantSpacePickerOpen"
+    :initial-path="assistantSpacePickerInitialPath"
+    @close="assistantSpacePickerOpen = false"
+    @select="onAssistantSpacePicked"
+  />
 
   <dialog ref="migrateWorkspaceDialog" class="modal">
     <div class="modal-box max-w-lg p-4">
@@ -253,6 +259,7 @@ import SegmentedControl from "../../components/SegmentedControl.vue";
 import ConfigTemplate from "../../components/ConfigTemplate.vue";
 import type { ConfigTemplateGroup } from "../../components/config-template";
 import ApiConfigPicker from "../../components/ApiConfigPicker.vue";
+import WorkspaceDirectoryPickerDialog from "../../../shared/components/WorkspaceDirectoryPickerDialog.vue";
 import type { AppConfig, ApiConfigItem, ChatSettingsPatch, ConversationApiSettingsPatch, PromptCommandPreset, ResponseStyleOption, ToolLoadStatus } from "../../../../types/app";
 import {
   getTransportCapabilities,
@@ -260,7 +267,6 @@ import {
   migrateTransportShellWorkspaceDirectory,
   onTransportNotification,
   openTransportExternalUrl,
-  openTransportFileDialog,
 } from "../../../../services/tauri-api";
 import { toErrorMessage } from "../../../../utils/error";
 import { deriveImageGenerationModelOptions } from "../../utils/image-generation-config";
@@ -322,6 +328,9 @@ const workspaceMigrationUi = ref({
 });
 let resolveWorkspaceMigrationConfirm: ((value: WorkspaceMigrationDecision) => void) | null = null;
 let workspaceMigrationProgressUnlisten: (() => void) | null = null;
+
+const assistantSpacePickerOpen = ref(false);
+const assistantSpacePickerInitialPath = ref("");
 
 const assistantSpacePath = computed(() => String(props.config.shellWorkspaces?.[0]?.path || "").trim());
 
@@ -442,14 +451,21 @@ async function migrateWorkspaceWithProgress(oldPath: string, newPath: string): P
 }
 
 // 修改助理空间目录：选目录 → 与已保存路径不同则弹窗（迁移/跳过/取消），语义与原工具页保存流程一致
-async function pickAssistantSpaceDir() {
+function pickAssistantSpaceDir() {
   if (!localFileSystemAvailable || workspaceMigrationUi.value.mode === "running") return;
   const workspace = props.config.shellWorkspaces?.[0];
   const previousSavedPath = String(workspace?.path || "").trim();
   if (!workspace || !previousSavedPath) return;
-  const picked = await openTransportFileDialog({ directory: true, multiple: false, defaultPath: previousSavedPath });
-  if (!picked || Array.isArray(picked)) return;
-  const nextPath = String(picked).trim();
+  assistantSpacePickerInitialPath.value = previousSavedPath;
+  assistantSpacePickerOpen.value = true;
+}
+
+async function onAssistantSpacePicked(nextPathRaw: string) {
+  assistantSpacePickerOpen.value = false;
+  const workspace = props.config.shellWorkspaces?.[0];
+  const previousSavedPath = String(workspace?.path || "").trim();
+  if (!workspace || !previousSavedPath) return;
+  const nextPath = String(nextPathRaw || "").trim();
   const normalizedPreviousSavedPath = previousSavedPath.replace(/[\\/]+$/g, "");
   const normalizedNextPath = nextPath.replace(/[\\/]+$/g, "");
   if (!normalizedNextPath || normalizedPreviousSavedPath === normalizedNextPath) return;

@@ -1,122 +1,135 @@
 <template>
-  <dialog ref="dialogRef" class="modal" @close="onDialogClose" @cancel.prevent="onDialogClose">
-    <div class="modal-box w-full max-w-lg rounded-2xl border border-base-300 bg-base-100 p-0 shadow-2xl">
+  <dialog
+    ref="dialogRef"
+    class="modal"
+    :open="open"
+    @close="onDialogClose"
+    @cancel.prevent="onDialogClose"
+    @keydown.esc.prevent="onDialogClose"
+  >
+    <div class="modal-box flex max-h-[calc(100dvh-4rem)] w-full max-w-xl flex-col overflow-hidden p-0">
       <div class="border-b border-base-300 px-4 py-3">
-        <div class="text-sm font-semibold">{{ t("chat.workspacePickerTitle") }}</div>
-        <div class="mt-1 text-xs opacity-70">{{ hintText }}</div>
+        <div class="text-sm font-semibold">{{ title }}</div>
+        <div v-if="hint" class="mt-1 text-xs opacity-70">{{ hint }}</div>
       </div>
-      <div class="space-y-4 px-4 py-4">
+
+      <div class="flex min-h-0 flex-1 flex-col gap-3 px-4 py-3">
         <label class="grid w-full gap-1">
-          <span class="text-xs">{{ pathLabel }}</span>
+          <span class="text-xs opacity-70">路径</span>
           <div class="join w-full">
             <input
-              :value="manualPath"
+              v-model="manualPath"
               class="input input-bordered input-sm join-item min-w-0 flex-1 font-mono"
               type="text"
-              :disabled="saving"
-              :placeholder="placeholderText"
-              @input="emit('update:manualPath', ($event.target as HTMLInputElement | null)?.value || '')"
-              @keydown.enter.prevent="manualPath.trim() && emit('browse', manualPath)"
+              placeholder="例如 E:/github/easy_call_ai 或 /home/me/project"
+              @keydown.enter.prevent="onManualGo"
             />
             <button
               type="button"
               class="btn btn-sm join-item"
-              :disabled="saving || loading || !manualPath.trim()"
-              @click="emit('browse', manualPath)"
+              :disabled="loading || !manualPath.trim()"
+              @click="onManualGo"
             >
-              {{ browseLabel }}
+              前往
             </button>
           </div>
         </label>
-        <div class="mt-2 rounded-box border border-base-300 bg-base-200/30">
-          <div class="flex items-center gap-2 border-b border-base-300 px-2 py-2">
-            <button
-              type="button"
-              class="btn btn-xs"
-              :disabled="saving || loading || !parentPath"
-              @click="parentPath && emit('browse', parentPath)"
-            >
-              {{ parentLabel }}
-            </button>
-            <div class="min-w-0 flex-1 truncate font-mono text-xs" :title="browserPath || manualPath">
-              {{ browserPath || manualPath || emptyPathText }}
-            </div>
-            <button
-              type="button"
-              class="btn btn-xs btn-ghost"
-              :disabled="saving || loading || !browserPath"
-              @click="browserPath && emit('browse', browserPath)"
-            >
-              {{ refreshLabel }}
-            </button>
-          </div>
-          <div class="max-h-64 overflow-y-auto py-1">
-            <div v-if="loading" class="flex items-center gap-2 px-3 py-3 text-sm text-base-content/65">
-              <span class="loading loading-spinner loading-xs"></span>
-              {{ loadingText }}
-            </div>
-            <div v-else-if="errorText" class="px-3 py-3 text-sm text-error">
-              {{ errorText }}
-            </div>
-            <div v-else-if="directories.length === 0" class="px-3 py-3 text-sm text-base-content/55">
-              {{ emptyDirectoryText }}
-            </div>
-            <template v-else>
-              <button
-                v-for="item in directories"
-                :key="item.path"
-                type="button"
-                class="flex min-h-8 w-full items-center gap-2 px-3 py-1.5 text-left text-sm hover:bg-base-300/60"
-                :disabled="saving"
-                :title="item.path"
-                @click="emit('browse', item.path)"
-              >
-                <span class="shrink-0 text-base-content/55">▸</span>
-                <span class="min-w-0 flex-1 truncate">{{ item.name }}</span>
-              </button>
-            </template>
-          </div>
+
+        <div class="flex flex-wrap items-center gap-3">
+          <label class="flex cursor-pointer items-center gap-1.5 text-xs">
+            <input v-model="filterHidden" type="checkbox" class="checkbox checkbox-primary checkbox-xs" />
+            <span>过滤隐藏目录</span>
+          </label>
+          <label class="flex cursor-pointer items-center gap-1.5 text-xs">
+            <input v-model="filterGit" type="checkbox" class="checkbox checkbox-primary checkbox-xs" />
+            <span>过滤 .git 目录</span>
+          </label>
+          <span class="ml-auto text-xs opacity-60">{{ filteredDirectories.length }} 项</span>
         </div>
-        <div class="grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end">
-          <label v-if="!autonomousMode" class="grid w-full gap-1">
-            <span class="text-xs">{{ accessLabelText }}</span>
-            <select
-              :value="access"
-              class="select select-bordered select-sm w-full"
-              :disabled="saving"
-              @change="emit('update:access', ($event.target as HTMLSelectElement | null)?.value || 'approval')"
-            >
-              <option value="approval">{{ t("config.tools.workspaceAccessApproval") }}</option>
-              <option value="full_access">{{ t("config.tools.workspaceAccessFullAccess") }}</option>
-              <option value="read_only">{{ t("config.tools.workspaceAccessReadOnly") }}</option>
-            </select>
-          </label>
-          <label
-            class="flex cursor-pointer items-center gap-2 rounded-box bg-base-200 px-3 py-2 text-xs"
-            :title="t('chat.workspacePickerAutonomousHint')"
+
+        <div class="flex items-center gap-2">
+          <button
+            type="button"
+            class="btn btn-xs"
+            :disabled="loading || !parentPath"
+            @click="onUp"
           >
-            <span>{{ t("chat.workspacePickerAutonomous") }}</span>
-            <input
-              :checked="autonomousMode"
-              type="checkbox"
-              class="checkbox checkbox-primary checkbox-sm"
-              :disabled="saving"
-              @change="emit('update:autonomousMode', Boolean(($event.target as HTMLInputElement | null)?.checked))"
-            />
-          </label>
+            上一级
+          </button>
+          <div class="min-w-0 flex-1">
+            <div v-if="breadcrumbs.length === 0" class="truncate font-mono text-xs opacity-70">
+              {{ displayPath || '驱动器' }}
+            </div>
+            <div v-else class="flex flex-wrap items-center gap-1 text-xs">
+              <template v-for="(crumb, index) in breadcrumbs" :key="crumb.path">
+                <button
+                  type="button"
+                  class="link link-hover max-w-[10rem] truncate font-mono"
+                  :title="crumb.path"
+                  @click="onBreadcrumb(crumb.path)"
+                >
+                  {{ crumb.name }}
+                </button>
+                <span v-if="index < breadcrumbs.length - 1" class="opacity-40">/</span>
+              </template>
+            </div>
+            <div class="truncate font-mono text-xs opacity-60" :title="currentPath">
+              {{ currentPath || '请选择目录' }}
+            </div>
+          </div>
+          <button
+            type="button"
+            class="btn btn-xs btn-ghost"
+            :disabled="loading"
+            @click="onRefresh"
+          >
+            刷新
+          </button>
+        </div>
+
+        <div class="rounded-box border border-base-300 bg-base-200/30">
+          <OverlayScrollArea scroller-class="max-h-64" orientation="vertical">
+            <div class="py-1">
+              <div v-if="loading" class="flex items-center gap-2 px-3 py-3 text-sm opacity-65">
+                <span class="loading loading-spinner loading-xs"></span>
+                正在读取目录
+              </div>
+              <div v-else-if="errorText" class="px-3 py-3 text-sm text-error">{{ errorText }}</div>
+              <div v-else-if="filteredDirectories.length === 0" class="px-3 py-3 text-sm opacity-55">
+                {{ currentPath ? '当前目录没有子目录' : '没有可用驱动器' }}
+              </div>
+              <template v-else>
+                <button
+                  v-for="item in filteredDirectories"
+                  :key="item.path"
+                  type="button"
+                  class="flex min-h-8 w-full items-center gap-2 px-3 py-1.5 text-left text-sm hover:bg-base-300/60"
+                  :title="item.path"
+                  @click="onEntryClick(item.path)"
+                >
+                  <span class="shrink-0 opacity-55">📁</span>
+                  <span class="min-w-0 flex-1 truncate">{{ item.name }}</span>
+                  <span class="shrink-0 font-mono text-xs opacity-40 truncate max-w-[12rem]">{{ item.path }}</span>
+                </button>
+              </template>
+            </div>
+          </OverlayScrollArea>
+        </div>
+
+        <div class="text-xs opacity-60">
+          已选：<span class="font-mono break-all">{{ currentPath || '（空，将使用助理空间）' }}</span>
         </div>
       </div>
-      <div class="flex items-center justify-end gap-2 border-t border-base-300 px-4 py-3">
-        <button class="btn btn-sm btn-ghost" type="button" :disabled="saving" @click="emit('close')">
-          {{ t("common.cancel") }}
-        </button>
+
+      <div class="flex shrink-0 items-center justify-end gap-2 border-t border-base-300 px-4 py-3">
+        <button class="btn btn-sm btn-ghost" type="button" @click="onDialogClose">取消</button>
         <button
           class="btn btn-sm btn-primary"
           type="button"
-          :disabled="saving || !manualPath.trim()"
-          @click="emit('save')"
+          :disabled="!canConfirm"
+          @click="onConfirm"
         >
-          {{ saving ? t("common.saving") : saveLabel }}
+          {{ confirmLabel }}
         </button>
       </div>
     </div>
@@ -128,88 +141,230 @@
 
 <script setup lang="ts">
 import { computed, ref, watch } from "vue";
-import { useI18n } from "vue-i18n";
+import OverlayScrollArea from "./OverlayScrollArea.vue";
+import { invokeTauri } from "../../../services/tauri-api";
 
 type DirectoryItem = {
   path: string;
   name: string;
 };
 
-const props = withDefaults(defineProps<{
-  open: boolean;
-  saving: boolean;
-  loading: boolean;
-  errorText: string;
-  browserPath: string;
-  manualPath: string;
-  access: string;
-  autonomousMode: boolean;
-  directories: DirectoryItem[];
-  saveLabel?: string;
-  hintText?: string;
-  pathLabel?: string;
-  browseLabel?: string;
-  parentLabel?: string;
-  refreshLabel?: string;
-  loadingText?: string;
-  emptyPathText?: string;
-  emptyDirectoryText?: string;
-  accessLabelText?: string;
-  placeholderText?: string;
-}>(), {
-  saveLabel: "使用此目录",
-  hintText: "可手动输入由当前后端访问的工作目录路径。",
-  pathLabel: "工作目录路径",
-  browseLabel: "浏览",
-  parentLabel: "上一级",
-  refreshLabel: "刷新",
-  loadingText: "正在读取目录",
-  emptyPathText: "输入路径后开始浏览",
-  emptyDirectoryText: "当前目录没有可继续进入的子目录",
-  accessLabelText: "访问权限",
-  placeholderText: "例如 E:\\github\\easy_call_ai 或 /home/me/project",
-});
+const props = withDefaults(
+  defineProps<{
+    open: boolean;
+    initialPath?: string;
+    title?: string;
+    hint?: string;
+    confirmLabel?: string;
+  }>(),
+  {
+    initialPath: "",
+    title: "选择目录",
+    hint: "仅可选择目录，空选择将回退到助理空间",
+    confirmLabel: "选择此目录",
+  },
+);
 
 const emit = defineEmits<{
   (e: "close"): void;
-  (e: "browse", path: string): void;
-  (e: "save"): void;
-  (e: "update:manualPath", value: string): void;
-  (e: "update:access", value: string): void;
-  (e: "update:autonomousMode", value: boolean): void;
+  (e: "select", path: string): void;
 }>();
 
-const { t } = useI18n();
 const dialogRef = ref<HTMLDialogElement | null>(null);
 
-function onDialogClose() {
-  if (props.saving) {
-    const d = dialogRef.value;
-    if (d && !d.open && props.open) d.showModal();
-    return;
+const currentPath = ref("");
+const manualPath = ref("");
+const directories = ref<DirectoryItem[]>([]);
+const loading = ref(false);
+const errorText = ref("");
+const filterHidden = ref(true);
+const filterGit = ref(true);
+
+let seq = 0;
+
+const displayPath = computed(() => String(currentPath.value || "").trim());
+
+const canConfirm = computed(() => {
+  const p = String(currentPath.value || "").trim();
+  if (!p) return false;
+  return true;
+});
+
+const filteredDirectories = computed(() => {
+  const list = directories.value || [];
+  return list.filter((item) => {
+    const name = String(item.name || "").trim();
+    if (!name) return false;
+    if (filterGit.value && name === ".git") return false;
+    if (filterHidden.value && name.startsWith(".")) return false;
+    return true;
+  });
+});
+
+const parentPath = computed(() => {
+  const normalized = String(currentPath.value || "").trim().replace(/[\\/]+$/, "");
+  if (!normalized) return "";
+  if (/^[A-Za-z]:\/?$/.test(normalized) || normalized === "/") return "";
+  const lastSlash = Math.max(normalized.lastIndexOf("/"), normalized.lastIndexOf("\\"));
+  if (lastSlash < 0) return "";
+  if (lastSlash === 0) return normalized.slice(0, 1);
+  const candidate = normalized.slice(0, lastSlash);
+  if (/^[A-Za-z]:$/.test(candidate)) return `${candidate}/`;
+  if (candidate === "") return "/";
+  if (/^[A-Za-z]:\/$/.test(normalized.slice(0, lastSlash + 1))) {
+    return normalized.slice(0, lastSlash + 1);
   }
+  return candidate;
+});
+
+const breadcrumbs = computed(() => {
+  const p = String(currentPath.value || "").trim();
+  if (!p) return [] as Array<{ name: string; path: string }>;
+  const normalized = p.replace(/\\/g, "/");
+  if (/^[A-Za-z]:\/?$/.test(normalized)) {
+    return [{ name: normalized.replace(/\/$/, "") || normalized, path: normalized }];
+  }
+  const parts = normalized.split("/").filter(Boolean);
+  const isAbsolute = normalized.startsWith("/");
+  const isWindows = /^[A-Za-z]:/.test(normalized);
+  let accum = "";
+  const result: Array<{ name: string; path: string }> = [];
+  if (isAbsolute && !isWindows) {
+    result.push({ name: "/", path: "/" });
+    accum = "";
+  }
+  for (let i = 0; i < parts.length; i += 1) {
+    const name = parts[i];
+    if (isWindows && i === 0 && /^[A-Za-z]:$/.test(name)) {
+      accum = `${name}/`;
+      result.push({ name, path: accum });
+    } else if (isWindows && i === 0) {
+      accum = name;
+      result.push({ name, path: accum });
+    } else {
+      if (accum === "/" || accum === "") {
+        accum = isAbsolute ? `/${name}` : name;
+      } else if (accum.endsWith("/")) {
+        accum = `${accum}${name}`;
+      } else {
+        accum = `${accum}/${name}`;
+      }
+      result.push({ name, path: accum });
+    }
+  }
+  return result;
+});
+
+function onDialogClose() {
+  if (loading.value) return;
   emit("close");
 }
 
-function syncDialog() {
-  const d = dialogRef.value;
-  if (!d) return;
-  if (props.open) {
-    if (!d.open) d.showModal();
-  } else if (d.open) d.close();
+async function loadDirectory(target: string) {
+  const nextSeq = ++seq;
+  const raw = String(target || "").trim();
+  loading.value = true;
+  errorText.value = "";
+  try {
+    const payload = await invokeTauri<{ path: string; name: string; directories: DirectoryItem[]; entries?: DirectoryItem[] }>(
+      "workspace.directory.list",
+      { path: raw },
+    );
+    if (nextSeq !== seq) return;
+    const resolvedPath = String((payload as unknown as { path: string })?.path || raw || "").trim();
+    const rawEntries = Array.isArray((payload as unknown as { directories: unknown })?.directories)
+      ? (payload as unknown as { directories: DirectoryItem[] }).directories
+      : Array.isArray((payload as unknown as { entries: unknown })?.entries)
+        ? (payload as unknown as { entries: DirectoryItem[] }).entries.filter((e) => (e as DirectoryItem).path)
+        : [];
+    const dirs = rawEntries
+      .map((e) => ({
+        path: String(e.path || "").trim().replace(/\\/g, "/"),
+        name: String(e.name || "").trim(),
+      }))
+      .filter((e) => e.path && e.name);
+    directories.value = dirs;
+    if (resolvedPath) {
+      currentPath.value = resolvedPath.replace(/\\/g, "/");
+      manualPath.value = currentPath.value;
+    } else {
+      currentPath.value = "";
+      manualPath.value = "";
+    }
+  } catch (error) {
+    if (nextSeq !== seq) return;
+    const message = error instanceof Error ? error.message : String(error);
+    errorText.value = message || "读取目录失败";
+    directories.value = [];
+  } finally {
+    if (nextSeq === seq) loading.value = false;
+  }
 }
 
-watch(() => props.open, syncDialog);
-watch(dialogRef, syncDialog);
+function onEntryClick(path: string) {
+  const normalized = String(path || "").trim();
+  if (!normalized) return;
+  void loadDirectory(normalized);
+}
 
-const parentPath = computed(() => {
-  const normalized = String(props.browserPath || props.manualPath || "").trim().replace(/[\\/]+$/, "");
-  if (!normalized) return "";
-  const separatorIndex = Math.max(normalized.lastIndexOf("/"), normalized.lastIndexOf("\\"));
-  if (separatorIndex < 0) return "";
-  if (separatorIndex === 0) return normalized.slice(0, 1);
-  const windowsDriveRoot = /^[A-Za-z]:[\\/]?$/.test(normalized.slice(0, separatorIndex + 1));
-  if (windowsDriveRoot) return normalized.slice(0, separatorIndex + 1);
-  return normalized.slice(0, separatorIndex);
-});
+function onBreadcrumb(path: string) {
+  const normalized = String(path || "").trim();
+  if (!normalized) return;
+  void loadDirectory(normalized);
+}
+
+function onUp() {
+  const p = parentPath.value;
+  if (!p) return;
+  void loadDirectory(p);
+}
+
+function onRefresh() {
+  void loadDirectory(currentPath.value || manualPath.value || "");
+}
+
+function onManualGo() {
+  const p = String(manualPath.value || "").trim();
+  if (!p) {
+    void loadDirectory("");
+    return;
+  }
+  void loadDirectory(p);
+}
+
+function onConfirm() {
+  const p = String(currentPath.value || "").trim();
+  if (!p) return;
+  emit("select", p);
+}
+
+watch(
+  () => props.open,
+  (open) => {
+    if (open) {
+      const init = String(props.initialPath || "").trim();
+      currentPath.value = init;
+      manualPath.value = init;
+      directories.value = [];
+      errorText.value = "";
+      void loadDirectory(init);
+    } else {
+      seq += 1;
+    }
+  },
+  { immediate: true },
+);
+
+watch(
+  () => props.initialPath,
+  (next) => {
+    if (props.open) {
+      const normalized = String(next || "").trim();
+      if (normalized !== String(currentPath.value || "").trim()) {
+        manualPath.value = normalized;
+        void loadDirectory(normalized);
+      }
+    }
+  },
+);
 </script>

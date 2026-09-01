@@ -2543,12 +2543,14 @@ fn read_file_reader_file_block_inner(path: String, start_line: usize, line_count
 }
 
 #[tauri::command]
-async fn list_file_reader_directory(path: String) -> Result<FileReaderDirectoryPayload, String> {
-    tokio::task::spawn_blocking(move || list_file_reader_directory_inner(path))
+async fn list_file_reader_directory(path: String, state: State<'_, AppState>) -> Result<FileReaderDirectoryPayload, String> {
+    let app_state = state.inner().clone();
+    tokio::task::spawn_blocking(move || list_file_reader_directory_inner_with_state(path, app_state))
         .await
         .map_err(|err| format!("读取目录任务失败：{err}"))?
 }
 
+#[allow(dead_code)]
 fn list_file_reader_directory_inner(path: String) -> Result<FileReaderDirectoryPayload, String> {
     let raw_path = path.trim();
     if raw_path.is_empty() {
@@ -2600,6 +2602,98 @@ fn list_file_reader_directory_inner(path: String) -> Result<FileReaderDirectoryP
         name,
         entries,
     })
+}
+
+pub(crate) fn list_file_reader_directory_inner_with_state(path: String, state: AppState) -> Result<FileReaderDirectoryPayload, String> {
+    let mut raw_path = path.trim().to_string();
+    if raw_path.is_empty() {
+        // 空目录不允许：回退到助理空间（统一体验）
+        if let Ok(root) = terminal_default_session_root_canonical(&state) {
+            raw_path = shell_workspace_display_path(&root);
+        } else {
+            // 兜底：尝试列举盘符（Windows）或根目录
+            #[cfg(target_os = "windows")]
+            {
+                return Ok(list_windows_drives_payload());
+            }
+            #[cfg(not(target_os = "windows"))]
+            {
+                raw_path = "/".to_string();
+                if raw_path.is_empty() {
+                    return Err("path is required".to_string());
+                }
+            }
+        }
+    }
+    let directory_path = PathBuf::from(raw_path.clone());
+    if !directory_path.exists() {
+        return Err(format!("目录不存在：{raw_path}"));
+    }
+    if !directory_path.is_dir() {
+        return Err(format!("目标不是目录：{raw_path}"));
+    }
+    let resolved_path = directory_path
+        .canonicalize()
+        .unwrap_or_else(|_| directory_path.clone());
+    let mut entries = Vec::new();
+    let read_dir = fs::read_dir(&directory_path).map_err(|err| format!("读取目录失败：{err}"))?;
+    for entry in read_dir {
+        let entry = entry.map_err(|err| format!("读取目录项失败：{err}"))?;
+        let entry_path = entry.path();
+        let file_type = entry
+            .file_type()
+            .map_err(|err| format!("读取目录项类型失败：{err}"))?;
+        let name = entry.file_name().to_string_lossy().to_string();
+        if name.trim().is_empty() {
+            continue;
+        }
+        let resolved_entry_path = entry_path.canonicalize().unwrap_or(entry_path);
+        entries.push(FileReaderDirectoryEntry {
+            path: terminal_path_for_user(&resolved_entry_path).replace('\\', "/"),
+            name,
+            is_directory: file_type.is_dir(),
+        });
+    }
+    entries.sort_by(|a, b| {
+        b.is_directory
+            .cmp(&a.is_directory)
+            .then_with(|| a.name.to_lowercase().cmp(&b.name.to_lowercase()))
+            .then_with(|| a.name.cmp(&b.name))
+    });
+
+    let name = resolved_path
+        .file_name()
+        .and_then(|value| value.to_str())
+        .unwrap_or_else(|| raw_path.trim_end_matches(['/', '\\']))
+        .to_string();
+    Ok(FileReaderDirectoryPayload {
+        path: terminal_path_for_user(&resolved_path).replace('\\', "/"),
+        name,
+        entries,
+    })
+}
+
+fn list_windows_drives_payload() -> FileReaderDirectoryPayload {
+    let mut entries = Vec::new();
+    #[cfg(target_os = "windows")]
+    {
+        for drive in b'A'..=b'Z' {
+            let drive_path = format!("{}:/", drive as char);
+            let exists = PathBuf::from(&drive_path).exists();
+            if exists {
+                entries.push(FileReaderDirectoryEntry {
+                    path: drive_path.clone(),
+                    name: drive_path.clone(),
+                    is_directory: true,
+                });
+            }
+        }
+    }
+    FileReaderDirectoryPayload {
+        path: String::new(),
+        name: String::new(),
+        entries,
+    }
 }
 
 #[tauri::command]
