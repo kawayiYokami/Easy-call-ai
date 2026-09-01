@@ -60,13 +60,6 @@
           >
             <ArrowUp class="h-3.5 w-3.5" />
           </button>
-          <BreadcrumbAddressBar
-            class="min-w-0 flex-1"
-            :path="currentPath"
-            :switchable="props.switchable"
-            @navigate="onBreadcrumb"
-            @submit="onAddressSubmit"
-          />
           <button
             type="button"
             class="btn btn-xs btn-ghost btn-square"
@@ -76,6 +69,13 @@
           >
             <RefreshCw class="h-3.5 w-3.5" :class="{ 'animate-spin': loading }" />
           </button>
+          <BreadcrumbAddressBar
+            class="min-w-0 flex-1"
+            :path="currentPath"
+            :switchable="props.switchable"
+            @navigate="onBreadcrumb"
+            @submit="onAddressSubmit"
+          />
         </div>
 
         <div class="flex min-h-0 flex-1 rounded-box border border-base-300 bg-base-200/30">
