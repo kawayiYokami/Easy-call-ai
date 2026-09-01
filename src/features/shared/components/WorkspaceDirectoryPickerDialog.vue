@@ -32,16 +32,36 @@
           <span class="ml-auto text-xs opacity-60">{{ filteredDirectories.length }} 项</span>
         </div>
 
-        <div class="flex items-center gap-2">
+        <div class="flex items-center gap-1">
           <button
             type="button"
-            class="btn btn-xs"
+            class="btn btn-xs btn-ghost btn-square"
+            :disabled="!canGoBack || loading"
+            title="后退"
+            @click="goBack"
+          >
+            <ArrowLeft class="h-3.5 w-3.5" />
+          </button>
+          <button
+            type="button"
+            class="btn btn-xs btn-ghost btn-square"
+            :disabled="!canGoForward || loading"
+            title="前进"
+            @click="goForward"
+          >
+            <ArrowRight class="h-3.5 w-3.5" />
+          </button>
+          <button
+            type="button"
+            class="btn btn-xs btn-ghost btn-square"
             :disabled="loading || !parentPath"
+            title="上一级"
             @click="onUp"
           >
-            上一级
+            <ArrowUp class="h-3.5 w-3.5" />
           </button>
           <BreadcrumbAddressBar
+            class="min-w-0 flex-1"
             :path="currentPath"
             :switchable="props.switchable"
             @navigate="onBreadcrumb"
@@ -49,11 +69,12 @@
           />
           <button
             type="button"
-            class="btn btn-xs btn-ghost"
+            class="btn btn-xs btn-ghost btn-square"
             :disabled="loading"
+            title="刷新"
             @click="onRefresh"
           >
-            刷新
+            <RefreshCw class="h-3.5 w-3.5" :class="{ 'animate-spin': loading }" />
           </button>
         </div>
 
@@ -111,6 +132,7 @@
 
 <script setup lang="ts">
 import { computed, ref, watch } from "vue";
+import { ArrowLeft, ArrowRight, ArrowUp, RefreshCw } from "@lucide/vue";
 import OverlayScrollArea from "./OverlayScrollArea.vue";
 import BreadcrumbAddressBar from "./BreadcrumbAddressBar.vue";
 import { invokeTauri } from "../../../services/tauri-api";
@@ -151,8 +173,13 @@ const loading = ref(false);
 const errorText = ref("");
 const filterHidden = ref(true);
 const filterGit = ref(true);
+const historyStack = ref<string[]>([]);
+const historyIndex = ref(-1);
 
 let seq = 0;
+
+const canGoBack = computed(() => historyIndex.value > 0);
+const canGoForward = computed(() => historyIndex.value >= 0 && historyIndex.value < historyStack.value.length - 1);
 
 const canConfirm = computed(() => {
   const p = String(currentPath.value || "").trim();
@@ -187,12 +214,22 @@ const parentPath = computed(() => {
   return candidate;
 });
 
+function pushHistory(path: string) {
+  const normalized = String(path || "").trim();
+  const current = historyIndex.value >= 0 ? String(historyStack.value[historyIndex.value] || "").trim() : "";
+  if (normalized === current && historyStack.value.length > 0) return;
+  const next = historyStack.value.slice(0, historyIndex.value + 1);
+  next.push(normalized);
+  historyStack.value = next;
+  historyIndex.value = next.length - 1;
+}
+
 function onDialogClose() {
   if (loading.value) return;
   emit("close");
 }
 
-async function loadDirectory(target: string) {
+async function loadDirectory(target: string, options: { pushHistory?: boolean } = {}) {
   const nextSeq = ++seq;
   const raw = String(target || "").trim();
   loading.value = true;
@@ -216,10 +253,10 @@ async function loadDirectory(target: string) {
       }))
       .filter((e) => e.path && e.name);
     directories.value = dirs;
-    if (resolvedPath) {
-      currentPath.value = resolvedPath.replace(/\\/g, "/");
-    } else {
-      currentPath.value = "";
+    const nextPath = resolvedPath ? resolvedPath.replace(/\\/g, "/") : "";
+    currentPath.value = nextPath;
+    if (options.pushHistory !== false) {
+      pushHistory(nextPath);
     }
   } catch (error) {
     if (nextSeq !== seq) return;
@@ -234,28 +271,44 @@ async function loadDirectory(target: string) {
 function onEntryClick(path: string) {
   const normalized = String(path || "").trim();
   if (!normalized) return;
-  void loadDirectory(normalized);
+  void loadDirectory(normalized, { pushHistory: true });
 }
 
 function onBreadcrumb(path: string) {
   const normalized = String(path || "").trim();
   if (!normalized) return;
-  void loadDirectory(normalized);
+  void loadDirectory(normalized, { pushHistory: true });
 }
 
 function onUp() {
   const p = parentPath.value;
   if (!p) return;
-  void loadDirectory(p);
+  void loadDirectory(p, { pushHistory: true });
 }
 
 function onRefresh() {
-  void loadDirectory(currentPath.value || "");
+  void loadDirectory(currentPath.value || "", { pushHistory: false });
 }
 
 function onAddressSubmit(path: string) {
   const normalized = String(path || "").trim();
-  void loadDirectory(normalized);
+  void loadDirectory(normalized, { pushHistory: true });
+}
+
+function goBack() {
+  if (!canGoBack.value || loading.value) return;
+  const nextIndex = historyIndex.value - 1;
+  const target = String(historyStack.value[nextIndex] || "").trim();
+  historyIndex.value = nextIndex;
+  void loadDirectory(target, { pushHistory: false });
+}
+
+function goForward() {
+  if (!canGoForward.value || loading.value) return;
+  const nextIndex = historyIndex.value + 1;
+  const target = String(historyStack.value[nextIndex] || "").trim();
+  historyIndex.value = nextIndex;
+  void loadDirectory(target, { pushHistory: false });
 }
 
 function onConfirm() {
@@ -272,7 +325,9 @@ watch(
       currentPath.value = init;
       directories.value = [];
       errorText.value = "";
-      void loadDirectory(init);
+      historyStack.value = [];
+      historyIndex.value = -1;
+      void loadDirectory(init, { pushHistory: true });
     } else {
       seq += 1;
     }
@@ -286,7 +341,7 @@ watch(
     if (props.open) {
       const normalized = String(next || "").trim();
       if (normalized !== String(currentPath.value || "").trim()) {
-        void loadDirectory(normalized);
+        void loadDirectory(normalized, { pushHistory: true });
       }
     }
   },
