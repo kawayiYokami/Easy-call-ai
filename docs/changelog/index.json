@@ -1,7 +1,12 @@
 {
-  "generatedAt": "2026-08-31T10:07:24.873Z",
-  "latestVersion": "v0.77.0",
+  "generatedAt": "2026-09-01T19:13:38.566Z",
+  "latestVersion": "v0.78.0",
   "releases": [
+    {
+      "version": "v0.78.0",
+      "path": "docs/changelog/releases/v0.78.0.md",
+      "summary": "新增商汤科技 SenseNova 生图供应商，切换时自动填入官方网关并预设 U1 Fast 与 U1.5 Lite 两个模型，开箱可用"
+    },
     {
       "version": "v0.77.0",
       "path": "docs/changelog/releases/v0.77.0.md",

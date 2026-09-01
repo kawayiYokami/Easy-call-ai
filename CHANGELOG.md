@@ -5,6 +5,7 @@
 
 ## 最近版本
 
+- [v0.78.0](docs/changelog/releases/v0.78.0.md) - 新增商汤科技 SenseNova 生图供应商，切换时自动填入官方网关并预设 U1 Fast 与 U1.5 Lite 两个模型，开箱可用
 - [v0.77.0](docs/changelog/releases/v0.77.0.md) - VS Code 侧边栏的「当前项目」在打开工作树目录（`.pai/.worktree/{id}`）时，自动回溯到仓库根并聚合该项目的所有会话
 - [v0.76.1](docs/changelog/releases/v0.76.1.md) - 修复流式回复末尾正文被吸附到思维链后的乱序问题，回复顺序不再错位
 - [v0.76.0](docs/changelog/releases/v0.76.0.md) - 流式回复改为尾部增量淡入：最后一块内容以 300ms 平滑浮现，代码/表格/数学块直出不参与，60/120Hz 屏幕自适应，系统开启「减少动态效果」时直接显示
