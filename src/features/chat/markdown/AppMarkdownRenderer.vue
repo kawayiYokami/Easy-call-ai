@@ -621,8 +621,22 @@ function clearParseRetryTimer() {
   parseState.parseRetryTimer = 0;
 }
 
+function clearNestedCaches() {
+  nestedSimpleCache.clear();
+  nestedIncrementalParsers.clear();
+}
+
 function parseAndCacheBlocks(text: string, streaming: boolean): MarkdownBlock[] {
   clearParseRetryTimer();
+  const prevText = parseState.cachedText;
+  const isAppend = !prevText || text.startsWith(prevText);
+  if (streaming && prevText && !isAppend) {
+    // 非追加改写（如回退/重放）清空嵌套增量解析器，避免旧尾巴残留
+    clearNestedCaches();
+  }
+  if (!streaming && (nestedSimpleCache.size > 0 || nestedIncrementalParsers.size > 0)) {
+    clearNestedCaches();
+  }
   parseState.lastParseTime = Date.now();
   parseState.cachedText = text;
   parseState.cachedBlocks = streaming
@@ -755,6 +769,7 @@ onBeforeUnmount(() => {
     clearTimeout(parseState.batchTimer);
     parseState.batchTimer = 0;
   }
+  clearNestedCaches();
   document.removeEventListener("pointerdown", handleDocumentPointerDown, true);
   window.removeEventListener("resize", handleWindowResizeOrScroll, true);
   document.removeEventListener("scroll", handleWindowResizeOrScroll, true);

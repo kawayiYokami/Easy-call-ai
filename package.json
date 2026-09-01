@@ -23,6 +23,7 @@
   "dependencies": {
     "@dagrejs/dagre": "^3.0.0",
     "@lucide/vue": "1.23.0",
+    "@shikijs/stream": "^4.4.3",
     "@tanstack/vue-virtual": "^3.13.35",
     "@tauri-apps/api": "^2.11.1",
     "@tauri-apps/plugin-dialog": "^2.7.1",
@@ -39,6 +40,7 @@
     "mermaid": "^11.16.0",
     "modern-screenshot": "^4.7.0",
     "shiki": "^4.3.1",
+    "shiki-stream": "^0.1.5",
     "vue": "^3.5.39",
     "vue-i18n": "^11.4.6"
   },
