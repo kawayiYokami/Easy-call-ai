@@ -68,9 +68,14 @@
         </div>
 
         <div class="relative flex min-h-0 flex-1 overflow-hidden" @mouseenter="chatScrollbarRef?.reveal()" @mouseleave="chatScrollbarRef?.hide()">
-          <div class="pointer-events-none absolute inset-x-0 top-0 z-20 flex justify-center px-3 pt-0">
-            <ConversationTodoDropdown :todos="normalizedConversationTodos" :persona-name="personaName" />
-          </div>
+          <Transition name="todo-bar-slide">
+            <div
+              v-if="showConversationTodoBar"
+              class="pointer-events-none absolute inset-x-0 top-0 z-20 flex justify-center px-3 pt-0"
+            >
+              <ConversationTodoDropdown :todos="normalizedConversationTodos" :persona-name="personaName" />
+            </div>
+          </Transition>
           <div
             v-if="showInitialMeasureOverlay"
             class="absolute inset-0 z-10 flex items-center justify-center bg-base-200"
@@ -1602,6 +1607,12 @@ const showFloatingSessionToolbar = computed(() => {
   return sessionControlPanelVisible.value;
 });
 
+const showConversationTodoBar = computed(() => {
+  const hasActiveOrPending = normalizedConversationTodos.value.some((item) => item.status === "pending" || item.status === "in_progress");
+  if (!hasActiveOrPending) return false;
+  return atConversationBottom.value;
+});
+
 // ==================== previous user message jump ====================
 
 const scrollNavigationTick = ref(0);
@@ -2443,6 +2454,30 @@ onBeforeUnmount(() => {
 .chat-jump-action-leave-to {
   opacity: 0;
   transform: translateY(4px) scale(0.98);
+}
+
+.todo-bar-slide-enter-active,
+.todo-bar-slide-leave-active {
+  transition: opacity 200ms ease, transform 200ms ease;
+}
+
+.todo-bar-slide-enter-from,
+.todo-bar-slide-leave-to {
+  opacity: 0;
+  transform: translateY(-8px);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .todo-bar-slide-enter-active,
+  .todo-bar-slide-leave-active {
+    transition: none;
+  }
+
+  .todo-bar-slide-enter-from,
+  .todo-bar-slide-leave-to {
+    opacity: 1;
+    transform: none;
+  }
 }
 
 .chat-status-banner-enter-active,
