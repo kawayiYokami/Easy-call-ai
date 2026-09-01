@@ -469,32 +469,45 @@ async fn ide_chat_clear_chat_error_command(state: &AppState, params: Value) -> R
 }
 
 fn ide_chat_list_schedule_runs_command(state: &AppState, params: Value) -> Result<Value, String> {
+    let extract_id = |value: &Value| {
+        value
+            .get("conversationId")
+            .or_else(|| value.get("conversation_id"))
+            .and_then(Value::as_str)
+            .map(|raw| raw.trim().to_string())
+            .filter(|trimmed| !trimmed.is_empty())
+    };
+    // 优先解析 input 为 Value：对象直接取字段，字符串仅此时再 from_str
+    if let Ok(input_value) = ide_chat_parse_param_field::<Value>(params.clone(), "input") {
+        match &input_value {
+            Value::String(raw) => {
+                if let Ok(parsed) = serde_json::from_str::<Value>(raw) {
+                    if let Some(conversation_id) = extract_id(&parsed) {
+                        return ide_chat_serialize(schedule_event_list_runs_inner(state, &conversation_id)?);
+                    }
+                }
+            }
+            Value::Object(_) => {
+                if let Some(conversation_id) = extract_id(&input_value) {
+                    return ide_chat_serialize(schedule_event_list_runs_inner(state, &conversation_id)?);
+                }
+            }
+            _ => {}
+        }
+    }
+    if let Some(conversation_id) = extract_id(&params) {
+        return ide_chat_serialize(schedule_event_list_runs_inner(state, &conversation_id)?);
+    }
     let conversation_id = ide_chat_parse_param_field::<String>(params.clone(), "conversationId")
         .or_else(|_| ide_chat_parse_param_field::<String>(params.clone(), "conversation_id"))
-        .or_else(|_| {
-            // 兼容前端直接传 { input: { conversationId } } 的形态
-            ide_chat_parse_param_field::<String>(params.clone(), "input")
-                .and_then(|input_str| {
-                    serde_json::from_str::<Value>(&input_str)
-                        .map_err(|_| "conversationId is required".to_string())
-                        .and_then(|value| {
-                            value
-                                .get("conversationId")
-                                .or_else(|| value.get("conversation_id"))
-                                .and_then(Value::as_str)
-                                .map(|value| value.to_string())
-                                .ok_or_else(|| "conversationId is required".to_string())
-                        })
-                })
-        })
-        .or_else(|_| {
-            // 直接按 Value 对象取字段兜底
-            params
-                .get("conversationId")
-                .or_else(|| params.get("conversation_id"))
-                .and_then(Value::as_str)
-                .map(|value| value.to_string())
-                .ok_or_else(|| "conversationId is required".to_string())
+        .map(|raw| raw.trim().to_string())
+        .map_err(|_| "conversationId is required".to_string())
+        .and_then(|trimmed| {
+            if trimmed.is_empty() {
+                Err("conversationId is required".to_string())
+            } else {
+                Ok(trimmed)
+            }
         })?;
     ide_chat_serialize(schedule_event_list_runs_inner(state, &conversation_id)?)
 }

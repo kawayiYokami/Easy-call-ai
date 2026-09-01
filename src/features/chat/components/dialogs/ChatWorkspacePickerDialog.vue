@@ -171,16 +171,29 @@ function onDialogClose() {
 // 保留一个空的 sync 占位以兼容热更新，不再操作 dialog 方法
 function syncDialog() {}
 
+const effectiveWorktreeExists = computed(() => {
+  const rawPath = String(props.worktreePath || "").trim();
+  if (props.workMode !== "worktree" || !props.worktreeExists || !rawPath) return false;
+  const normalizedWorktree = rawPath.replace(/\\/g, "/");
+  const marker = "/.pai/.worktree/";
+  const idx = normalizedWorktree.toLowerCase().indexOf(marker);
+  if (idx < 0) return false;
+  const worktreeRoot = normalizedWorktree.slice(0, idx).replace(/\/+$/, "");
+  const normalizedMain = String(mainPath.value || "").trim().replace(/\\/g, "/").replace(/\/+$/, "");
+  if (!worktreeRoot || !normalizedMain) return false;
+  return worktreeRoot.toLowerCase() === normalizedMain.toLowerCase();
+});
+
 function resolveBranchTargetPath(): string {
   const worktreePath = String(props.worktreePath || "").trim();
-  if (props.workMode === "worktree" && props.worktreeExists && worktreePath) {
+  if (props.workMode === "worktree" && effectiveWorktreeExists.value && worktreePath) {
     return worktreePath;
   }
   return String(mainPath.value || "").trim();
 }
 
 watch(
-  () => [mainPath.value, props.workMode, String(props.worktreePath || "").trim(), Boolean(props.worktreeExists), props.worktreeAvailable] as const,
+  () => [mainPath.value, props.workMode, String(props.worktreePath || "").trim(), Boolean(props.worktreeExists), effectiveWorktreeExists.value, props.worktreeAvailable] as const,
   () => {
     checkoutError.value = "";
     const target = resolveBranchTargetPath();
@@ -212,10 +225,10 @@ async function loadBranches(path: string) {
     const selected = String(selectedBranch.value || "").trim();
     // 真值模型：显示永远等于当前真值
     // directory：永远用项目当前分支
-    // worktree 已创建：用工作树当前分支
-    // worktree 未创建：没有真值，保留意图，不自动覆盖
+    // worktree 已创建且草稿主目录与工作树所属一致：用工作树当前分支
+    // worktree 未创建或草稿已切新目录：没有可信真值，保留意图，不自动覆盖
     const isWorktree = props.workMode === "worktree";
-    const worktreeExists = Boolean(props.worktreeExists);
+    const worktreeExists = Boolean(effectiveWorktreeExists.value);
     const shouldSyncToTruth = !isWorktree || worktreeExists;
     if (shouldSyncToTruth && currentName.toLowerCase() !== selected.toLowerCase()) {
       // 延迟到下一 tick 再 emit，避免在 load 过程中同步触发 watcher 循环
@@ -263,8 +276,8 @@ async function onBranchUpdate(branch: string) {
   const normalized = String(branch || "").trim();
   if (!normalized) return;
   if (normalized.toLowerCase() === String(selectedBranch.value || "").trim().toLowerCase()) return;
-  // worktree 未创建：没有真值可 checkout，仅改草稿意图，持久化延迟到保存/发送
-  if (props.workMode === "worktree" && !props.worktreeExists) {
+  // worktree 未创建或草稿已切新目录导致 effective 不存在：没有可信真值可 checkout，仅改草稿意图
+  if (props.workMode === "worktree" && !effectiveWorktreeExists.value) {
     checkoutError.value = "";
     emit("setBranch", normalized);
     return;
