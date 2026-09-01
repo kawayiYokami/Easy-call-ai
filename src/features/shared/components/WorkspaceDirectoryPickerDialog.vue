@@ -8,28 +8,58 @@
     @keydown.esc.prevent="onDialogClose"
   >
     <div
-      class="modal-box flex w-[clamp(360px,68vw,640px)] max-w-none flex-col overflow-hidden p-0"
-      :style="{
-        height: 'clamp(420px, 68vh, 560px)',
-        maxHeight: 'min(82vh, 560px)',
-      }"
+      class="modal-box flex h-[92vh] max-h-[92vh] w-[92vw] max-w-[92vw] flex-col overflow-hidden p-0"
     >
-      <div class="border-b border-base-300 px-4 py-3">
-        <div class="text-sm font-semibold">{{ title }}</div>
-        <div v-if="hint" class="mt-1 text-xs opacity-70">{{ hint }}</div>
+      <div class="border-b border-base-300 px-4 py-3 flex items-start justify-between gap-3">
+        <div class="min-w-0 flex-1">
+          <div class="text-sm font-semibold">{{ displayTitle }}</div>
+          <div v-if="displayHint" class="mt-1 text-xs opacity-70">{{ displayHint }}</div>
+        </div>
+        <button
+          v-if="isDesktop"
+          type="button"
+          class="btn btn-xs btn-ghost shrink-0"
+          @click="onUseSystemPicker"
+        >
+          {{ t('chat.directoryPicker.useSystemPicker') }}
+        </button>
       </div>
 
       <div class="flex min-h-0 flex-1 flex-col gap-3 px-4 py-3">
         <div class="flex flex-wrap items-center gap-3">
           <label class="flex cursor-pointer items-center gap-1.5 text-xs">
             <input v-model="filterHidden" type="checkbox" class="checkbox checkbox-primary checkbox-xs" />
-            <span>过滤隐藏目录</span>
+            <span>{{ t('chat.directoryPicker.filterHidden') }}</span>
           </label>
           <label class="flex cursor-pointer items-center gap-1.5 text-xs">
             <input v-model="filterGit" type="checkbox" class="checkbox checkbox-primary checkbox-xs" />
-            <span>过滤 .git 目录</span>
+            <span>{{ t('chat.directoryPicker.filterGit') }}</span>
           </label>
-          <span class="ml-auto text-xs opacity-60">{{ filteredDirectories.length }} 项</span>
+          <span class="ml-auto text-xs opacity-60">{{ t('chat.directoryPicker.itemsCount', { count: filteredDirectories.length }) }}</span>
+          <div class="flex items-center gap-0.5 rounded-box border border-base-300 p-0.5">
+            <button
+              type="button"
+              class="btn btn-xs btn-square"
+              :class="viewMode === 'list' ? 'btn-ghost bg-base-300' : 'btn-ghost'"
+              :title="t('chat.directoryPicker.viewList')"
+              :aria-label="t('chat.directoryPicker.viewList')"
+              :aria-pressed="viewMode === 'list' ? 'true' : 'false'"
+              @click="viewMode = 'list'"
+            >
+              <List class="h-3.5 w-3.5" />
+            </button>
+            <button
+              type="button"
+              class="btn btn-xs btn-square"
+              :class="viewMode === 'grid' ? 'btn-ghost bg-base-300' : 'btn-ghost'"
+              :title="t('chat.directoryPicker.viewGrid')"
+              :aria-label="t('chat.directoryPicker.viewGrid')"
+              :aria-pressed="viewMode === 'grid' ? 'true' : 'false'"
+              @click="viewMode = 'grid'"
+            >
+              <LayoutGrid class="h-3.5 w-3.5" />
+            </button>
+          </div>
         </div>
 
         <div class="flex items-center gap-1">
@@ -37,7 +67,8 @@
             type="button"
             class="btn btn-xs btn-ghost btn-square"
             :disabled="!canGoBack || loading"
-            title="后退"
+            :title="t('chat.directoryPicker.back')"
+            :aria-label="t('chat.directoryPicker.back')"
             @click="goBack"
           >
             <ArrowLeft class="h-3.5 w-3.5" />
@@ -46,7 +77,8 @@
             type="button"
             class="btn btn-xs btn-ghost btn-square"
             :disabled="!canGoForward || loading"
-            title="前进"
+            :title="t('chat.directoryPicker.forward')"
+            :aria-label="t('chat.directoryPicker.forward')"
             @click="goForward"
           >
             <ArrowRight class="h-3.5 w-3.5" />
@@ -55,7 +87,8 @@
             type="button"
             class="btn btn-xs btn-ghost btn-square"
             :disabled="loading || !parentPath"
-            title="上一级"
+            :title="t('chat.directoryPicker.up')"
+            :aria-label="t('chat.directoryPicker.up')"
             @click="onUp"
           >
             <ArrowUp class="h-3.5 w-3.5" />
@@ -64,7 +97,8 @@
             type="button"
             class="btn btn-xs btn-ghost btn-square"
             :disabled="loading"
-            title="刷新"
+            :title="t('chat.directoryPicker.refresh')"
+            :aria-label="t('chat.directoryPicker.refresh')"
             @click="onRefresh"
           >
             <RefreshCw class="h-3.5 w-3.5" :class="{ 'animate-spin': loading }" />
@@ -83,43 +117,58 @@
             <div class="py-1">
               <div v-if="loading" class="flex items-center gap-2 px-3 py-3 text-sm opacity-65">
                 <span class="loading loading-spinner loading-xs"></span>
-                正在读取目录
+                {{ t('chat.directoryPicker.loading') }}
               </div>
               <div v-else-if="errorText" class="px-3 py-3 text-sm text-error">{{ errorText }}</div>
               <div v-else-if="filteredDirectories.length === 0" class="px-3 py-3 text-sm opacity-55">
-                {{ currentPath ? '当前目录没有子目录' : '没有可用驱动器' }}
+                {{ currentPath ? t('chat.directoryPicker.emptyNoSubDirs') : t('chat.directoryPicker.emptyNoDrives') }}
               </div>
               <template v-else>
-                <button
-                  v-for="item in filteredDirectories"
-                  :key="item.path"
-                  type="button"
-                  class="flex min-h-8 w-full items-center gap-2 px-3 py-1.5 text-left text-sm hover:bg-base-300/60"
-                  :title="item.path"
-                  @click="onEntryClick(item.path)"
-                >
-                  <span class="shrink-0 opacity-55">📁</span>
-                  <span class="min-w-0 flex-1 truncate">{{ item.name }}</span>
-                </button>
+                <template v-if="viewMode === 'list'">
+                  <button
+                    v-for="item in filteredDirectories"
+                    :key="item.path"
+                    type="button"
+                    class="flex min-h-8 w-full items-center gap-2 px-3 py-1.5 text-left text-sm hover:bg-base-300/60"
+                    :title="item.path"
+                    @click="onEntryClick(item.path)"
+                  >
+                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" class="h-4 w-4 shrink-0" fill="#facc15" aria-hidden="true"><path d="M10 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2h-8l-2-2z" /></svg>
+                    <span class="min-w-0 flex-1 truncate">{{ item.name }}</span>
+                  </button>
+                </template>
+                <div v-else class="flex flex-wrap content-start gap-2 p-2">
+                  <button
+                    v-for="item in filteredDirectories"
+                    :key="item.path"
+                    type="button"
+                    class="flex w-[96px] flex-col items-center gap-1 rounded-box border border-transparent px-2 py-2.5 text-center hover:border-base-300 hover:bg-base-300/40"
+                    :title="item.path"
+                    @click="onEntryClick(item.path)"
+                  >
+                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" class="h-7 w-7 shrink-0" fill="#facc15" aria-hidden="true"><path d="M10 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2h-8l-2-2z" /></svg>
+                    <span class="line-clamp-2 w-full break-all text-xs leading-tight">{{ item.name }}</span>
+                  </button>
+                </div>
               </template>
             </div>
           </OverlayScrollArea>
         </div>
 
         <div class="text-xs opacity-60">
-          已选：<span class="font-mono break-all">{{ currentPath || '（空，将使用助理空间）' }}</span>
+          {{ t('chat.directoryPicker.selectedLabel') }} <span class="font-mono break-all">{{ currentPath || t('chat.directoryPicker.selectedEmpty') }}</span>
         </div>
       </div>
 
       <div class="flex shrink-0 items-center justify-end gap-2 border-t border-base-300 px-4 py-3">
-        <button class="btn btn-sm btn-ghost" type="button" @click="onDialogClose">取消</button>
+        <button class="btn btn-sm btn-ghost" type="button" @click="onDialogClose">{{ t('chat.directoryPicker.cancel') }}</button>
         <button
           class="btn btn-sm btn-primary"
           type="button"
           :disabled="!canConfirm"
           @click="onConfirm"
         >
-          {{ confirmLabel }}
+          {{ displayConfirmLabel }}
         </button>
       </div>
     </div>
@@ -131,10 +180,11 @@
 
 <script setup lang="ts">
 import { computed, ref, watch } from "vue";
-import { ArrowLeft, ArrowRight, ArrowUp, RefreshCw } from "@lucide/vue";
+import { useI18n } from "vue-i18n";
+import { ArrowLeft, ArrowRight, ArrowUp, LayoutGrid, List, RefreshCw } from "@lucide/vue";
 import OverlayScrollArea from "./OverlayScrollArea.vue";
 import BreadcrumbAddressBar from "./BreadcrumbAddressBar.vue";
-import { invokeTauri } from "../../../services/tauri-api";
+import { invokeTauri, isDesktopTauriHost, openTransportFileDialog } from "../../../services/tauri-api";
 
 type DirectoryItem = {
   path: string;
@@ -152,9 +202,9 @@ const props = withDefaults(
   }>(),
   {
     initialPath: "",
-    title: "选择目录",
-    hint: "仅可选择目录，空选择将回退到助理空间",
-    confirmLabel: "选择此目录",
+    title: "",
+    hint: "",
+    confirmLabel: "",
     switchable: true,
   },
 );
@@ -164,7 +214,24 @@ const emit = defineEmits<{
   (e: "select", path: string): void;
 }>();
 
+const { t } = useI18n();
+
 const dialogRef = ref<HTMLDialogElement | null>(null);
+
+const isDesktop = isDesktopTauriHost();
+
+const displayTitle = computed(() => {
+  const raw = String(props.title || "").trim();
+  return raw || t('chat.directoryPicker.title');
+});
+const displayHint = computed(() => {
+  const raw = String(props.hint || "").trim();
+  return raw || t('chat.directoryPicker.hint');
+});
+const displayConfirmLabel = computed(() => {
+  const raw = String(props.confirmLabel || "").trim();
+  return raw || t('chat.directoryPicker.confirm');
+});
 
 const currentPath = ref("");
 const directories = ref<DirectoryItem[]>([]);
@@ -172,6 +239,7 @@ const loading = ref(false);
 const errorText = ref("");
 const filterHidden = ref(true);
 const filterGit = ref(true);
+const viewMode = ref<'list' | 'grid'>('list');
 const historyStack = ref<string[]>([]);
 const historyIndex = ref(-1);
 
@@ -260,7 +328,7 @@ async function loadDirectory(target: string, options: { pushHistory?: boolean } 
   } catch (error) {
     if (nextSeq !== seq) return;
     const message = error instanceof Error ? error.message : String(error);
-    errorText.value = message || "读取目录失败";
+    errorText.value = message || t('chat.directoryPicker.loading');
     directories.value = [];
   } finally {
     if (nextSeq === seq) loading.value = false;
@@ -314,6 +382,24 @@ function onConfirm() {
   const p = String(currentPath.value || "").trim();
   if (!p) return;
   emit("select", p);
+}
+
+async function onUseSystemPicker() {
+  if (loading.value) return;
+  try {
+    const picked = await openTransportFileDialog({
+      directory: true,
+      title: String(displayTitle.value || t('chat.directoryPicker.title')),
+      defaultPath: String(currentPath.value || props.initialPath || "").trim() || undefined,
+    });
+    const raw = Array.isArray(picked) ? String(picked[0] || "").trim() : String(picked || "").trim();
+    if (!raw) return;
+    const normalized = raw.replace(/\\/g, "/");
+    emit("select", normalized);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    errorText.value = message || t('chat.directoryPicker.systemPickerFailed');
+  }
 }
 
 watch(
