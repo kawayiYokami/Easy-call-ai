@@ -17,8 +17,8 @@
           :selected-branch="selectedBranch"
           :branch-list="branchList"
           :branch-loading="branchLoading"
-          :git-root-available="worktreeAvailable"
-          :git-check-message="checkoutError || worktreeCheckMessage"
+          :git-root-available="effectiveGitAvailable"
+          :git-check-message="effectiveGitMessage"
           :available-workspaces="availableWorkspaceOptions"
           :hide-add-workspace="hideAddWorkspace"
           @update:main-path="onMainPathUpdate"
@@ -125,7 +125,19 @@ const dialogRef = ref<HTMLDialogElement | null>(null);
 const branchList = ref<string[]>([]);
 const branchLoading = ref(false);
 const checkoutError = ref("");
+const localGitAvailable = ref<boolean | null>(null);
+const localGitMessage = ref("");
 let branchSeq = 0;
+
+const effectiveGitAvailable = computed(() => {
+  if (localGitAvailable.value !== null) return localGitAvailable.value;
+  return props.worktreeAvailable;
+});
+const effectiveGitMessage = computed(() => {
+  if (checkoutError.value) return checkoutError.value;
+  if (localGitMessage.value) return localGitMessage.value;
+  return String(props.worktreeCheckMessage || "").trim();
+});
 
 const directoryPickerOpen = ref(false);
 const directoryPickerMode = ref<"main" | "secondary">("main");
@@ -193,15 +205,21 @@ function resolveBranchTargetPath(): string {
 }
 
 watch(
-  () => [mainPath.value, props.workMode, String(props.worktreePath || "").trim(), Boolean(props.worktreeExists), effectiveWorktreeExists.value, props.worktreeAvailable] as const,
+  () => [mainPath.value, props.workMode, String(props.worktreePath || "").trim(), Boolean(props.worktreeExists), effectiveWorktreeExists.value] as const,
   () => {
-    checkoutError.value = "";
     const target = resolveBranchTargetPath();
-    if (props.worktreeAvailable && target) {
-      void loadBranches(target);
-    } else {
+    if (!target) {
       branchList.value = [];
+      branchLoading.value = false;
+      // 无目标时不保留旧的本地探测结果，避免旧错误残留
+      localGitAvailable.value = false;
+      localGitMessage.value = "";
+      // checkoutError 保留给分支切换错误，这里仅在目标为空时清空
+      checkoutError.value = "";
+      return;
     }
+    // 不再以 worktreeAvailable 门控：始终尝试取真值，失败则显错（Web/桌面同一 Rust 文案）
+    void loadBranches(target);
   },
   { immediate: true },
 );
@@ -211,12 +229,19 @@ async function loadBranches(path: string) {
   const normalized = String(path || "").trim();
   if (!normalized) {
     branchList.value = [];
+    localGitAvailable.value = false;
+    localGitMessage.value = "";
     return;
   }
   branchLoading.value = true;
+  // 每次加载前清空上一次的显错，成功后会置为可用
+  checkoutError.value = "";
+  localGitMessage.value = "";
   try {
     const entries = await gitPanelBranchList(normalized);
     if (seq !== branchSeq) return;
+    localGitAvailable.value = true;
+    localGitMessage.value = "";
     const names = entries.map((e) => String(e.name || "").trim()).filter(Boolean);
     branchList.value = names;
     const current = entries.find((e) => e.isCurrent)?.name;
@@ -234,9 +259,16 @@ async function loadBranches(path: string) {
       // 延迟到下一 tick 再 emit，避免在 load 过程中同步触发 watcher 循环
       emit("setBranch", currentName);
     }
-  } catch {
+  } catch (error) {
     if (seq !== branchSeq) return;
     branchList.value = [];
+    const message = error instanceof Error ? String(error.message || error) : String(error);
+    const normalizedMessage = message.trim() || "加载分支失败";
+    localGitAvailable.value = false;
+    localGitMessage.value = normalizedMessage;
+    checkoutError.value = normalizedMessage;
+    // 关键：不可静默。Web 端 F12 必须可见，卡片通过 effectiveGitMessage 显错
+    console.warn("[工作区] 加载分支失败:", { path: normalized, error: normalizedMessage });
   } finally {
     if (seq === branchSeq) branchLoading.value = false;
   }
