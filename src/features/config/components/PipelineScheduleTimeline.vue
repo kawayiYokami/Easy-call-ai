@@ -12,14 +12,14 @@
           <span class="shrink-0 text-xs font-medium text-base-content/80">{{ phaseLabel(item.stage) }}</span>
           <span v-if="titleInlineSummary(item)" class="min-w-0 flex-1 truncate text-xs text-base-content/55">{{ titleInlineSummary(item) }}</span>
           <span v-else class="flex-1"></span>
-          <span class="shrink-0 text-[11px] tabular-nums text-base-content/40">+{{ formatElapsedShort(item.elapsedMs) }}</span>
+          <span class="shrink-0 text-caption tabular-nums text-base-content/40">+{{ formatElapsedShort(item.elapsedMs) }}</span>
           <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" class="h-3.5 w-3.5 shrink-0 text-base-content/25 transition-transform duration-200" :class="isCollapsed(itemKey(item, index)) ? '' : 'rotate-90'"><path fill-rule="evenodd" d="M7.21 14.78a.75.75 0 01.02-1.06L11.168 10 7.23 6.29a.75.75 0 111.04-1.08l4.5 4.25a.75.75 0 010 1.08l-4.5 4.25a.75.75 0 01-1.06-.02z" clip-rule="evenodd" /></svg>
         </button>
         <Transition :css="false" @enter="animateEnter" @leave="animateLeave" @enter-cancelled="cleanupAnimation" @leave-cancelled="cleanupAnimation">
           <div v-if="!isCollapsed(itemKey(item, index))" class="mt-2 min-w-0 w-full space-y-1.5 border-t border-base-200 pt-2">
             <div v-if="eventSummaryLine(item)" class="whitespace-normal break-words text-xs leading-5 text-base-content/55">{{ eventSummaryLine(item) }}</div>
             <div v-if="eventBodyText(item)" class="whitespace-pre-wrap break-words break-all text-xs leading-5 text-base-content/70">{{ eventBodyText(item) }}</div>
-            <div v-if="eventErrorText(item)" class="whitespace-pre-wrap break-words break-all text-[11px] leading-4 text-error/80">{{ eventErrorText(item) }}</div>
+            <div v-if="eventErrorText(item)" class="whitespace-pre-wrap break-words break-all text-caption leading-4 text-error/80">{{ eventErrorText(item) }}</div>
             <div v-if="!eventSummaryLine(item) && !eventBodyText(item) && !eventErrorText(item)" class="text-xs text-base-content/30">—</div>
           </div>
         </Transition>

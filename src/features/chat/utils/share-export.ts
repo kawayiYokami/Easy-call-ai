@@ -2,6 +2,7 @@ import { i18n } from "../../../i18n";
 import { invokeTauri, readTransportChatImage } from "../../../services/tauri-api";
 import type { ChatMessageBlock } from "../../../types/app";
 import { stripToolcallMarkers } from "../../../utils/chat-message-semantics";
+import { uiSizeTokensFor } from "../../shell/composables/use-ui-size-appearance";
 
 const t = i18n.global.t;
 
@@ -267,7 +268,13 @@ function renderShareEntryHtml(entry: ShareRenderableEntry): string {
   </article>`;
 }
 
+function readShareUiSizeTokens(): { caption: string; xs: string; sm: string } {
+  const tokens = uiSizeTokensFor(typeof window !== "undefined" ? window.localStorage.getItem("easy-call.ui-size.v1") : null);
+  return { caption: tokens.textCaption, xs: tokens.textXs, sm: tokens.textSm };
+}
+
 function shareDocumentCss(theme: ShareThemeSnapshot): string {
+  const uiSize = readShareUiSizeTokens();
   return `
     :root {
       --color-base-100: ${theme.base100};
@@ -300,14 +307,14 @@ function shareDocumentCss(theme: ShareThemeSnapshot): string {
       padding: 0 6px;
     }
     .pai-share-title {
-      font-size: 14px;
+      font-size: ${uiSize.sm};
       font-weight: 700;
       line-height: 1.5;
       opacity: 0.9;
     }
     .pai-share-subtitle {
       margin-top: 2px;
-      font-size: 11px;
+      font-size: ${uiSize.caption};
       line-height: 1.5;
       opacity: 0.6;
     }
@@ -351,7 +358,7 @@ function shareDocumentCss(theme: ShareThemeSnapshot): string {
     .pai-share-avatar {
       background: var(--color-base-200);
       color: var(--color-base-content);
-      font-size: 12px;
+      font-size: ${uiSize.xs};
       font-weight: 700;
       border: 1px solid var(--color-base-300);
       overflow: hidden;
@@ -379,7 +386,7 @@ function shareDocumentCss(theme: ShareThemeSnapshot): string {
       display: flex;
       align-items: baseline;
       gap: 8px;
-      font-size: 12px;
+      font-size: ${uiSize.xs};
       line-height: 1.4;
       padding: 0 2px;
     }
@@ -392,7 +399,7 @@ function shareDocumentCss(theme: ShareThemeSnapshot): string {
       opacity: 0.55;
     }
     .pai-share-remote-label {
-      font-size: 11px;
+      font-size: ${uiSize.caption};
       opacity: 0.55;
     }
     .pai-share-bubble {
@@ -416,7 +423,7 @@ function shareDocumentCss(theme: ShareThemeSnapshot): string {
       overflow-wrap: anywhere;
       word-break: break-word;
       line-height: 1.7;
-      font-size: 14px;
+      font-size: ${uiSize.sm};
     }
     .pai-share-extra {
       margin-bottom: 10px;
@@ -427,7 +434,7 @@ function shareDocumentCss(theme: ShareThemeSnapshot): string {
     }
     .pai-share-extra-label {
       margin-bottom: 4px;
-      font-size: 11px;
+      font-size: ${uiSize.caption};
       font-weight: 700;
       opacity: 0.6;
     }
@@ -460,7 +467,7 @@ function shareDocumentCss(theme: ShareThemeSnapshot): string {
       padding: 4px 10px;
       background: var(--color-base-200);
       border: 1px solid var(--color-base-300);
-      font-size: 11px;
+      font-size: ${uiSize.caption};
       opacity: 0.76;
     }
   `;

@@ -254,13 +254,13 @@
                     <span class="contents" v-html="row.node.data.graphSvg" />
                     <span class="min-w-0 flex-1 truncate" :title="`${row.node.data.entry.message} · ${row.node.data.entry.author}`">
                       {{ row.node.data.entry.message }}
-                      <span class="text-[10px] opacity-50"> {{ row.node.data.entry.author }}</span>
+                      <span class="text-micro opacity-50"> {{ row.node.data.entry.author }}</span>
                     </span>
                     <!-- 分支终点标签：颜色与图中该 ref 的线色一致 -->
                     <span
                       v-for="ref in row.node.data.refs"
                       :key="ref.name"
-                      class="max-w-24 min-w-0 truncate rounded px-1 text-[10px] font-medium"
+                      class="max-w-24 min-w-0 truncate rounded px-1 text-micro font-medium"
                       :style="{ color: graphColor(ref.colorIndex), backgroundColor: graphColor(ref.colorIndex) + '1A' }"
                       :title="ref.name"
                     >{{ ref.name }}</span>
@@ -299,7 +299,7 @@
                   <!-- 子节点：diff 文件（整行点击打开 diff） -->
                   <template v-else>
                     <CommitGraphLine :x="row.node.data.lineX" :color="row.node.data.lineColor" :width="row.node.data.graphWidth" />
-                    <span class="shrink-0 font-mono text-[10px] font-bold" :class="commitFileStatusClass(row.node.data.file.status)">{{ commitFileStatusLabel(row.node.data.file.status) }}</span>
+                    <span class="shrink-0 font-mono text-micro font-bold" :class="commitFileStatusClass(row.node.data.file.status)">{{ commitFileStatusLabel(row.node.data.file.status) }}</span>
                     <span class="min-w-0 truncate">{{ row.node.data.file.path }}</span>
                   </template>
                 </template>
@@ -364,7 +364,7 @@
                   </template>
                   <!-- 子节点：diff 文件（整行点击打开 diff） -->
                   <template v-else>
-                    <span class="shrink-0 font-mono text-[10px] font-bold" :class="commitFileStatusClass(row.node.data.file.status)">{{ commitFileStatusLabel(row.node.data.file.status) }}</span>
+                    <span class="shrink-0 font-mono text-micro font-bold" :class="commitFileStatusClass(row.node.data.file.status)">{{ commitFileStatusLabel(row.node.data.file.status) }}</span>
                     <span class="min-w-0 truncate">{{ row.node.data.file.path }}</span>
                   </template>
                 </template>

@@ -226,7 +226,7 @@ const compressionEstimatePercent = computed(() => {
               <span class="truncate">{{ entry.label }}</span>
               <span
                 v-if="entry.fixed"
-                class="shrink-0 rounded-full bg-base-300/60 px-1.5 py-0.5 text-[10px] text-base-content/60"
+                class="shrink-0 rounded-full bg-base-300/60 px-1.5 py-0.5 text-micro text-base-content/60"
               >{{ t("dialogs.trim.fixedCost") }}</span>
             </span>
             <span class="shrink-0 tabular-nums text-base-content/80">

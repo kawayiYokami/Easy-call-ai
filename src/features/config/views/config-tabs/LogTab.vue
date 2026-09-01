@@ -104,7 +104,7 @@
               :key="metric.key"
               class="stat place-items-center sm:place-items-start px-3 py-2 text-center sm:text-left"
             >
-              <div class="stat-title text-[11px] opacity-60">{{ metric.label }}</div>
+              <div class="stat-title text-caption opacity-60">{{ metric.label }}</div>
               <div class="stat-value text-base font-semibold">{{ metric.value }}</div>
             </div>
           </div>
@@ -186,7 +186,7 @@
               :key="metric.key"
               class="stat place-items-center sm:place-items-start px-3 py-2 text-center sm:text-left"
             >
-              <div class="stat-title text-[11px] opacity-60">{{ metric.label }}</div>
+              <div class="stat-title text-caption opacity-60">{{ metric.label }}</div>
               <div class="stat-value text-base font-semibold">{{ metric.value }}</div>
             </div>
           </div>

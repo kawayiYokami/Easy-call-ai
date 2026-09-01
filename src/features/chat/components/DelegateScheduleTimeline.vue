@@ -67,7 +67,7 @@
                 <span class="shrink-0 text-xs font-medium text-base-content/80">{{ phaseLabel(event.phase) }}</span>
                 <span v-if="titleInlineSummary(event)" class="min-w-0 flex-1 truncate text-xs text-base-content/55">{{ titleInlineSummary(event) }}</span>
                 <span v-else class="flex-1"></span>
-                <span class="shrink-0 text-[11px] tabular-nums text-base-content/40">+{{ formatElapsedShort(event.elapsedMs) }}</span>
+                <span class="shrink-0 text-caption tabular-nums text-base-content/40">+{{ formatElapsedShort(event.elapsedMs) }}</span>
                 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" class="h-3.5 w-3.5 shrink-0 text-base-content/25 transition-transform duration-200" :class="isCollapsed(event.id) ? '' : 'rotate-90'"><path fill-rule="evenodd" d="M7.21 14.78a.75.75 0 01.02-1.06L11.168 10 7.23 6.29a.75.75 0 111.04-1.08l4.5 4.25a.75.75 0 010 1.08l-4.5 4.25a.75.75 0 01-1.06-.02z" clip-rule="evenodd" /></svg>
               </button>
               <Transition
@@ -87,7 +87,7 @@
                   <div v-if="eventBodyText(event)" class="whitespace-pre-wrap break-words break-all text-xs leading-5 text-base-content/70">
                     {{ eventBodyText(event) }}
                   </div>
-                  <div v-if="eventErrorText(event)" class="whitespace-pre-wrap break-words break-all text-[11px] leading-4 text-error/80">
+                  <div v-if="eventErrorText(event)" class="whitespace-pre-wrap break-words break-all text-caption leading-4 text-error/80">
                     {{ eventErrorText(event) }}
                   </div>
                   <div v-if="!eventSummaryLine(event) && !eventBodyText(event) && !eventErrorText(event)" class="text-xs text-base-content/30">—</div>

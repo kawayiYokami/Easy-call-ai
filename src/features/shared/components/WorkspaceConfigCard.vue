@@ -169,7 +169,7 @@
       </div>
     </div>
 
-    <div v-if="gitCheckMessage" class="w-full text-center text-[11px] leading-tight text-error">
+    <div v-if="gitCheckMessage" class="w-full text-center text-caption leading-tight text-error">
       {{ gitCheckMessage }}
     </div>
   </div>

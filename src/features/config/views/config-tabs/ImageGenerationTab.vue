@@ -59,7 +59,7 @@
         <div class="grid gap-4 py-3">
           <label class="grid gap-1">
             <span class="text-sm font-medium">{{ t("config.imageGeneration.workflowJson") }}</span>
-            <textarea v-model="selectedProvider.comfyuiWorkflowJson" class="textarea textarea-bordered min-h-64 font-mono text-[11px] leading-relaxed" :class="{ 'textarea-error': workflowJsonError }" :placeholder="t('config.imageGeneration.workflowPlaceholder')" />
+            <textarea v-model="selectedProvider.comfyuiWorkflowJson" class="textarea textarea-bordered min-h-64 font-mono text-caption leading-relaxed" :class="{ 'textarea-error': workflowJsonError }" :placeholder="t('config.imageGeneration.workflowPlaceholder')" />
             <span v-if="workflowJsonError" class="mt-1 text-xs text-error">{{ workflowJsonError }}</span>
           </label>
           <div class="grid gap-3 md:grid-cols-2">
@@ -135,7 +135,7 @@
             <div class="flex flex-wrap items-center gap-2 text-xs">
               <span class="badge badge-ghost badge-sm">{{ testResult.providerName }} · {{ testResult.model }}</span>
               <span class="badge badge-ghost badge-sm font-mono">{{ firstTestImage.width }}×{{ firstTestImage.height }}</span>
-              <code class="min-w-0 flex-1 truncate rounded bg-base-200 px-2 py-1 text-[11px]" :title="firstTestImage.relativePath">{{ firstTestImage.relativePath }}</code>
+              <code class="min-w-0 flex-1 truncate rounded bg-base-200 px-2 py-1 text-caption" :title="firstTestImage.relativePath">{{ firstTestImage.relativePath }}</code>
               <button v-if="localFileSystemAvailable" class="btn btn-xs btn-ghost shrink-0" type="button" :disabled="copyingImage" @click="copyGeneratedImage(firstTestImage.relativePath)">
                 <span v-if="copyingImage" class="loading loading-spinner loading-xs" />
                 <ImageIcon v-else class="h-3.5 w-3.5" />
