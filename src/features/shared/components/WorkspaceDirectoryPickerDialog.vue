@@ -7,7 +7,13 @@
     @cancel.prevent="onDialogClose"
     @keydown.esc.prevent="onDialogClose"
   >
-    <div class="modal-box flex max-h-[calc(100dvh-4rem)] w-full max-w-xl flex-col overflow-hidden p-0">
+    <div
+      class="modal-box flex w-[clamp(360px,68vw,640px)] max-w-none flex-col overflow-hidden p-0"
+      :style="{
+        height: 'clamp(420px, 68vh, 560px)',
+        maxHeight: 'min(82vh, 560px)',
+      }"
+    >
       <div class="border-b border-base-300 px-4 py-3">
         <div class="text-sm font-semibold">{{ title }}</div>
         <div v-if="hint" class="mt-1 text-xs opacity-70">{{ hint }}</div>
@@ -51,8 +57,8 @@
           </button>
         </div>
 
-        <div class="rounded-box border border-base-300 bg-base-200/30">
-          <OverlayScrollArea scroller-class="max-h-64" orientation="vertical">
+        <div class="flex min-h-0 flex-1 rounded-box border border-base-300 bg-base-200/30">
+          <OverlayScrollArea class="min-h-0 flex-1" scroller-class="h-full" orientation="vertical">
             <div class="py-1">
               <div v-if="loading" class="flex items-center gap-2 px-3 py-3 text-sm opacity-65">
                 <span class="loading loading-spinner loading-xs"></span>
