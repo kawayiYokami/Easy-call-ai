@@ -60,18 +60,19 @@
             <div v-if="breadcrumbs.length === 0" class="truncate font-mono text-xs opacity-70">
               {{ displayPath || '驱动器' }}
             </div>
-            <div v-else class="flex flex-wrap items-center gap-1 text-xs">
-              <template v-for="(crumb, index) in breadcrumbs" :key="crumb.path">
-                <button
-                  type="button"
-                  class="link link-hover max-w-[10rem] truncate font-mono"
-                  :title="crumb.path"
-                  @click="onBreadcrumb(crumb.path)"
-                >
-                  {{ crumb.name }}
-                </button>
-                <span v-if="index < breadcrumbs.length - 1" class="opacity-40">/</span>
-              </template>
+            <div v-else class="breadcrumbs min-w-0 py-0 text-xs">
+              <ul class="flex flex-wrap">
+                <li v-for="crumb in breadcrumbs" :key="crumb.path">
+                  <button
+                    type="button"
+                    class="link link-hover max-w-[10rem] truncate font-mono"
+                    :title="crumb.path"
+                    @click="onBreadcrumb(crumb.path)"
+                  >
+                    {{ crumb.name }}
+                  </button>
+                </li>
+              </ul>
             </div>
             <div class="truncate font-mono text-xs opacity-60" :title="currentPath">
               {{ currentPath || '请选择目录' }}
