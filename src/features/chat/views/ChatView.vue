@@ -87,6 +87,8 @@
             @wheel="handleConversationWheelInput"
             @pointerdown="beginPointerScrollIntent"
           >
+          <Transition name="chat-conversation-switch" mode="out-in">
+          <div :key="activeConversationId || 'conversation-empty'" class="flex min-w-0 shrink-0 flex-col">
           <DraftRecipientCard
             v-if="activeConversationIsDraft"
             :options="props.createConversationDepartmentOptions"
@@ -189,6 +191,8 @@
               :style="{ height: `${toolbarReservedHeight + 10}px` }"
             ></div>
           </div>
+          </div>
+          </Transition>
           </div>
           <FloatingScrollbar ref="chatScrollbarRef" :target="scrollContainer" />
         </div>
@@ -2402,6 +2406,32 @@ onBeforeUnmount(() => {
 <style scoped>
 .ecall-chat-scroll-container {
   overflow-anchor: none;
+}
+
+.chat-conversation-switch-enter-active,
+.chat-conversation-switch-leave-active {
+  transition: opacity 180ms ease, transform 180ms ease;
+}
+.chat-conversation-switch-enter-from {
+  opacity: 0;
+  transform: translateY(6px);
+}
+.chat-conversation-switch-leave-to {
+  opacity: 0;
+  transform: translateY(-6px);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .chat-conversation-switch-enter-active,
+  .chat-conversation-switch-leave-active {
+    transition: none;
+  }
+
+  .chat-conversation-switch-enter-from,
+  .chat-conversation-switch-leave-to {
+    opacity: 1;
+    transform: none;
+  }
 }
 
 .chat-jump-action-enter-active,

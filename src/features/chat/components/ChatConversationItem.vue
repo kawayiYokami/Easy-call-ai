@@ -6,11 +6,18 @@
     @pointerup="handleCardPointerUp"
     @pointerleave="handleCardPointerLeave"
   >
+    <!-- 左侧选中指示：仅 full/sim 用主题色竖条，mini 由右侧竖线承担 -->
+    <div
+      v-if="level !== 'mini'"
+      class="pointer-events-none absolute left-0 top-1.5 bottom-1.5 w-0.5 rounded-full bg-primary transition-[transform,opacity] duration-200 ease-out origin-center"
+      :class="isActiveConversation ? 'scale-y-100 opacity-100' : 'scale-y-50 opacity-0'"
+      aria-hidden="true"
+    ></div>
     <!-- 会话项统一模板：level 决定差异（full 头像 / sim+mini 指示灯，full+sim 两行 / mini 一行） -->
     <div
-      class="flex items-center gap-2 rounded-lg px-2 py-1 text-left transition-colors hover:bg-base-100/70"
+      class="flex items-center gap-2 rounded-lg px-2 py-1 text-left transition-[background-color,box-shadow,transform] duration-200 ease-out will-change-transform hover:bg-base-100/70"
       :class="[
-        isActiveConversation ? 'bg-base-300 hover:bg-base-300' : 'bg-transparent',
+        isActiveConversation ? 'bg-base-300 hover:bg-base-300 shadow-sm' : 'bg-transparent',
         isConversationVisuallyOccupied ? 'opacity-60' : '',
         isActiveConversation ? 'cursor-default' : 'cursor-pointer',
       ]"
