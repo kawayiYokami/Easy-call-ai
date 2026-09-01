@@ -414,15 +414,6 @@ html.ecall-md-layout-compact .ecall-md-chat .ecall-md-table td {
   padding: 0.4em 0.64em;
 }
 
-html.ecall-md-layout-compact .ecall-md-chat .ecall-md-table th:first-child,
-html.ecall-md-layout-compact .ecall-md-chat .ecall-md-table td:first-child {
-  padding-left: 0;
-}
-
-html.ecall-md-layout-compact .ecall-md-chat .ecall-md-table td:last-child {
-  padding-right: 0;
-}
-
 /* ---- 适中（0.8x 密度，贴 dsh 宽松）---- */
 html.ecall-md-layout-comfortable .ecall-md-chat.ecall-md-renderer {
   line-height: 1.70;
@@ -551,15 +542,6 @@ html.ecall-md-layout-comfortable .ecall-md-chat .ecall-md-table th {
 html.ecall-md-layout-comfortable .ecall-md-chat .ecall-md-table td {
   font-weight: 400;
   padding: 0.533em 0.853em;
-}
-
-html.ecall-md-layout-comfortable .ecall-md-chat .ecall-md-table th:first-child,
-html.ecall-md-layout-comfortable .ecall-md-chat .ecall-md-table td:first-child {
-  padding-left: 0;
-}
-
-html.ecall-md-layout-comfortable .ecall-md-chat .ecall-md-table td:last-child {
-  padding-right: 0;
 }
 
 /* ---- 宽松（deepseek-harness / dsh 基准，16/28 体系）---- */
@@ -700,11 +682,4 @@ html.ecall-md-layout-relaxed .ecall-md-chat .ecall-md-table td {
   padding: 0.6667em 1.0667em;
 }
 
-html.ecall-md-layout-relaxed .ecall-md-chat .ecall-md-table th:first-child,
-html.ecall-md-layout-relaxed .ecall-md-chat .ecall-md-table td:first-child {
-  padding-left: 0;
-}
 
-html.ecall-md-layout-relaxed .ecall-md-chat .ecall-md-table td:last-child {
-  padding-right: 0;
-}
