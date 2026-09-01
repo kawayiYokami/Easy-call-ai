@@ -3,6 +3,12 @@ import { Check, Copy, Maximize2 } from "@lucide/vue";
 import CodeBlockPreviewDialog from "../components/dialogs/CodeBlockPreviewDialog.vue";
 import MermaidBlock from "./MermaidBlock";
 
+const HIGHLIGHT_CACHE_MAX = 80;
+const highlightCache = new Map<string, string>();
+function highlightCacheKey(code: string, lang: string, isDark: boolean): string {
+  return `${lang || "text"}::${isDark ? "dark" : "light"}::${code}`;
+}
+
 const CodeBlock = defineComponent({
   name: "CodeBlock",
   props: {
@@ -22,6 +28,7 @@ const CodeBlock = defineComponent({
     const previewOpen = ref(false);
     let copyTimer = 0;
     let highlightAbort: AbortController | null = null;
+    let highlightDebounceTimer = 0;
 
     const isMermaid = computed(() => codeProps.lang === "mermaid");
 
@@ -29,6 +36,16 @@ const CodeBlock = defineComponent({
       if (isMermaid.value) return;
       if (!codeProps.code) {
         highlightedHtml.value = "";
+        return;
+      }
+      const key = highlightCacheKey(codeProps.code, codeProps.lang, codeProps.isDark);
+      const cached = highlightCache.get(key);
+      if (cached !== undefined) {
+        if (highlightAbort) {
+          highlightAbort.abort();
+          highlightAbort = null;
+        }
+        highlightedHtml.value = cached;
         return;
       }
       if (highlightAbort) highlightAbort.abort();
@@ -43,17 +60,66 @@ const CodeBlock = defineComponent({
           theme: codeProps.isDark ? "github-dark" : "github-light",
         });
         if (signal.aborted) return;
+        if (highlightCache.size >= HIGHLIGHT_CACHE_MAX) {
+          const first = highlightCache.keys().next().value as string | undefined;
+          if (first !== undefined) highlightCache.delete(first);
+        }
+        highlightCache.set(key, html);
         highlightedHtml.value = html;
       } catch {
-        highlightedHtml.value = "";
+        if (!signal.aborted) highlightedHtml.value = "";
       }
+    }
+
+    function scheduleHighlight() {
+      if (isMermaid.value) return;
+      if (!codeProps.code) {
+        if (highlightDebounceTimer) {
+          clearTimeout(highlightDebounceTimer);
+          highlightDebounceTimer = 0;
+        }
+        if (highlightAbort) {
+          highlightAbort.abort();
+          highlightAbort = null;
+        }
+        highlightedHtml.value = "";
+        return;
+      }
+      const key = highlightCacheKey(codeProps.code, codeProps.lang, codeProps.isDark);
+      const cached = highlightCache.get(key);
+      if (cached !== undefined) {
+        if (highlightDebounceTimer) {
+          clearTimeout(highlightDebounceTimer);
+          highlightDebounceTimer = 0;
+        }
+        if (highlightAbort) {
+          highlightAbort.abort();
+          highlightAbort = null;
+        }
+        highlightedHtml.value = cached;
+        return;
+      }
+      // 流式期间节流：大块代码在流式期间只保留纯文本，结束后再高亮，避免每 8ms 调一次 shiki
+      if (codeProps.streaming) {
+        if (codeProps.code.length > 4000) return;
+        if (highlightDebounceTimer) clearTimeout(highlightDebounceTimer);
+        highlightDebounceTimer = window.setTimeout(() => {
+          highlightDebounceTimer = 0;
+          void highlight();
+        }, 160);
+        return;
+      }
+      if (highlightDebounceTimer) {
+        clearTimeout(highlightDebounceTimer);
+        highlightDebounceTimer = 0;
+      }
+      void highlight();
     }
 
     watch(
       () => [codeProps.code, codeProps.lang, codeProps.isDark, codeProps.streaming],
       () => {
-        // 已闭合的代码块（出现在 blocks 里）可以直接高亮
-        highlight();
+        scheduleHighlight();
       },
       { immediate: true },
     );
@@ -84,6 +150,10 @@ const CodeBlock = defineComponent({
       if (copyTimer) {
         clearTimeout(copyTimer);
         copyTimer = 0;
+      }
+      if (highlightDebounceTimer) {
+        clearTimeout(highlightDebounceTimer);
+        highlightDebounceTimer = 0;
       }
       if (highlightAbort) {
         highlightAbort.abort();

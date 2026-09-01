@@ -96,6 +96,34 @@ import LazyMarkdownImage from "./LazyMarkdownImage";
 import type { MarkdownImagePreviewPayload } from "./MarkdownImage";
 import { stableMarkdownRuntimeKey } from "./markdown-runtime-key";
 
+// ========== 内联与嵌套解析缓存：避免流式每帧全量重解析 ==========
+const INLINE_CACHE_MAX = 800;
+const inlineSegmentCache = new Map<string, InlineSegment[]>();
+function cachedParseInlineSegments(text: string): InlineSegment[] {
+  const cached = inlineSegmentCache.get(text);
+  if (cached) return cached;
+  const segs = parseInlineSegments(text);
+  if (inlineSegmentCache.size >= INLINE_CACHE_MAX) {
+    const first = inlineSegmentCache.keys().next().value as string | undefined;
+    if (first !== undefined) inlineSegmentCache.delete(first);
+  }
+  inlineSegmentCache.set(text, segs);
+  return segs;
+}
+
+const NESTED_SIMPLE_CACHE_MAX = 200;
+const nestedSimpleCache = new Map<string, MarkdownBlock[]>();
+const nestedIncrementalParsers = new Map<string, IncrementalMarkdownBlockParser>();
+function evictNestedParsersIfNeeded() {
+  if (nestedIncrementalParsers.size <= 120) return;
+  let count = 0;
+  for (const key of nestedIncrementalParsers.keys()) {
+    nestedIncrementalParsers.delete(key);
+    count += 1;
+    if (count >= 20) break;
+  }
+}
+
 defineOptions({
   inheritAttrs: false,
 });
@@ -756,8 +784,31 @@ function headingTag(level: unknown): "h1" | "h2" | "h3" | "h4" {
   return `h${normalized}` as "h1" | "h2" | "h3" | "h4";
 }
 
-function nestedMarkdownBlocks(text: string, streaming: boolean): MarkdownBlock[] {
-  return parseMarkdownBlocks(text, streaming);
+function nestedMarkdownBlocks(text: string, streaming: boolean, blockKey?: string): MarkdownBlock[] {
+  if (!blockKey) {
+    const cacheKey = `${streaming ? "s" : "n"}:${text}`;
+    const cached = nestedSimpleCache.get(cacheKey);
+    if (cached) return cached;
+    const blocks = parseMarkdownBlocks(text, streaming);
+    if (nestedSimpleCache.size >= NESTED_SIMPLE_CACHE_MAX) {
+      const first = nestedSimpleCache.keys().next().value as string | undefined;
+      if (first !== undefined) nestedSimpleCache.delete(first);
+    }
+    nestedSimpleCache.set(cacheKey, blocks);
+    return blocks;
+  }
+  if (!streaming) {
+    nestedIncrementalParsers.delete(blockKey);
+    // 非流式直接全量解析，避免增量 parser 残留错误
+    return parseMarkdownBlocks(text, false);
+  }
+  let parser = nestedIncrementalParsers.get(blockKey);
+  if (!parser) {
+    parser = new IncrementalMarkdownBlockParser();
+    nestedIncrementalParsers.set(blockKey, parser);
+    evictNestedParsersIfNeeded();
+  }
+  return parser.parse(text);
 }
 
 // Helpers: total rendered text length for tail-split (仅度量叶子 text，不含 code/math 内部)
@@ -772,17 +823,17 @@ function inlineTextLength(segments: InlineSegment[]): number {
 
 function blockPlainLength(block: MarkdownBlock): number {
   if (block.type === "paragraph" || block.type === "heading" || block.type === "quote") {
-    return inlineTextLength(parseInlineSegments(block.text));
+    return inlineTextLength(cachedParseInlineSegments(block.text));
   }
   if (block.type === "list") {
-    return block.items.reduce((sum, it) => sum + inlineTextLength(parseInlineSegments(it.text)), 0);
+    return block.items.reduce((sum, it) => sum + inlineTextLength(cachedParseInlineSegments(it.text)), 0);
   }
   if (block.type === "details") {
-    return inlineTextLength(parseInlineSegments(block.summary)) + inlineTextLength(parseInlineSegments(block.body));
+    return inlineTextLength(cachedParseInlineSegments(block.summary)) + inlineTextLength(cachedParseInlineSegments(block.body));
   }
   if (block.type === "table") {
-    return block.headers.reduce((s, c) => s + inlineTextLength(parseInlineSegments(c)), 0)
-      + block.rows.reduce((s, row) => s + row.reduce((a, c) => a + inlineTextLength(parseInlineSegments(c)), 0), 0);
+    return block.headers.reduce((s, c) => s + inlineTextLength(cachedParseInlineSegments(c)), 0)
+      + block.rows.reduce((s, row) => s + row.reduce((a, c) => a + inlineTextLength(cachedParseInlineSegments(c)), 0), 0);
   }
   return 0;
 }
@@ -898,7 +949,7 @@ const BlockRenderer = defineComponent({
         const tailCtx = makeTailContextForBlock(block, isLastBlock(index));
         return h(headingTag(block.level), { key: `${block.type}-${index}-${block.key}`, class: "ecall-md-heading" }, [
           h(InlineRenderer, {
-            segments: parseInlineSegments(block.text),
+            segments: cachedParseInlineSegments(block.text),
             localImageBasePath: blockProps.localImageBasePath,
             footnoteIndexMap: blockProps.footnoteIndexMap,
             onImagePreview: blockProps.onImagePreview,
@@ -908,7 +959,7 @@ const BlockRenderer = defineComponent({
         ]);
       }
       if (block.type === "quote") {
-        const nestedBlocks = nestedMarkdownBlocks(block.text, blockProps.streaming);
+        const nestedBlocks = nestedMarkdownBlocks(block.text, blockProps.streaming, block.key);
         return h("blockquote", { key: `${block.type}-${index}-${block.key}`, class: "ecall-md-quote" }, [
           h(BlockRenderer, {
             blocks: nestedBlocks,
@@ -931,7 +982,7 @@ const BlockRenderer = defineComponent({
           value: block.ordered && item.value ? item.value : undefined,
         }, [
           h(InlineRenderer, {
-            segments: parseInlineSegments(item.text),
+            segments: cachedParseInlineSegments(item.text),
             localImageBasePath: blockProps.localImageBasePath,
             footnoteIndexMap: blockProps.footnoteIndexMap,
             onImagePreview: blockProps.onImagePreview,
@@ -946,7 +997,7 @@ const BlockRenderer = defineComponent({
             h("thead", [
               h("tr", block.headers.map((cell, ci) => h("th", { key: `${index}-h-${ci}` }, [
                 h(InlineRenderer, {
-                  segments: parseInlineSegments(cell),
+                  segments: cachedParseInlineSegments(cell),
                   localImageBasePath: blockProps.localImageBasePath,
                   footnoteIndexMap: blockProps.footnoteIndexMap,
                   onImagePreview: blockProps.onImagePreview,
@@ -956,7 +1007,7 @@ const BlockRenderer = defineComponent({
             ]),
             h("tbody", block.rows.map((row, ri) => h("tr", { key: `${index}-r-${ri}` }, normalizedTableRow(row, block.headers.length).map((cell, ci) => h("td", { key: `${index}-r-${ri}-c-${ci}` }, [
               h(InlineRenderer, {
-                segments: parseInlineSegments(cell),
+                segments: cachedParseInlineSegments(cell),
                 localImageBasePath: blockProps.localImageBasePath,
                 footnoteIndexMap: blockProps.footnoteIndexMap,
                 onImagePreview: blockProps.onImagePreview,
@@ -990,7 +1041,7 @@ const BlockRenderer = defineComponent({
         });
       }
       if (block.type === "details") {
-        const nestedBlocks = nestedMarkdownBlocks(block.body, blockProps.streaming);
+        const nestedBlocks = nestedMarkdownBlocks(block.body, blockProps.streaming, `${block.key}::body`);
         return h("details", {
           key: `${block.type}-${index}-${block.key}`,
           class: "ecall-md-details",
@@ -998,7 +1049,7 @@ const BlockRenderer = defineComponent({
         }, [
           h("summary", { class: "ecall-md-details-summary" }, [
             h(InlineRenderer, {
-              segments: parseInlineSegments(block.summary),
+              segments: cachedParseInlineSegments(block.summary),
               localImageBasePath: blockProps.localImageBasePath,
               footnoteIndexMap: blockProps.footnoteIndexMap,
               onImagePreview: blockProps.onImagePreview,
@@ -1027,7 +1078,7 @@ const BlockRenderer = defineComponent({
             class: ["ecall-md-footnote-item", activeFootnoteId.value === item.id ? "ecall-md-footnote-active" : ""],
           }, [
             h(InlineRenderer, {
-              segments: parseInlineSegments(item.text),
+              segments: cachedParseInlineSegments(item.text),
               localImageBasePath: blockProps.localImageBasePath,
               footnoteIndexMap: blockProps.footnoteIndexMap,
               onImagePreview: blockProps.onImagePreview,
@@ -1042,7 +1093,7 @@ const BlockRenderer = defineComponent({
       const pTailCtx = makeTailContextForBlock(block, isLastBlock(index));
       return h("p", { key: `${block.type}-${index}-${block.key}`, class: "ecall-md-paragraph" }, [
         h(InlineRenderer, {
-          segments: parseInlineSegments(block.text),
+          segments: cachedParseInlineSegments(block.text),
           localImageBasePath: blockProps.localImageBasePath,
           footnoteIndexMap: blockProps.footnoteIndexMap,
           onImagePreview: blockProps.onImagePreview,
