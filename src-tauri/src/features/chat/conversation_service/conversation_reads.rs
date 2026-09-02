@@ -508,6 +508,70 @@ impl ConversationServiceV2 {
         Ok(build_message_page_view_v2(messages, has_more, false))
     }
 
+    fn get_compaction_segment_before_anchor(
+        &self,
+        state: &AppState,
+        conversation_id: &str,
+        anchor_message_id: &str,
+    ) -> Result<ConversationMessagePageView, String> {
+        let normalized_anchor = anchor_message_id.trim();
+        if normalized_anchor.is_empty() {
+            return Err("anchorMessageId is required.".to_string());
+        }
+        let normalized_conversation_id = conversation_id.trim();
+        if normalized_conversation_id.is_empty() {
+            return Err("conversationId is required.".to_string());
+        }
+        let store_paths = message_store::message_store_paths(&state.data_path, normalized_conversation_id)?;
+        let segment = if let Some(segment) = message_store::chat_store_read_compaction_segment_before_anchor(
+            &store_paths,
+            normalized_anchor,
+        )? {
+            segment
+        } else {
+            self.with_unarchived_conversation_by_id_fast(state, normalized_conversation_id, |conversation| {
+                let messages = &conversation.messages;
+                let anchor_idx = messages
+                    .iter()
+                    .position(|m| m.id.trim() == normalized_anchor)
+                    .ok_or_else(|| format!("Message not found: {normalized_anchor}"))?;
+                let boundaries: Vec<usize> = messages
+                    .iter()
+                    .enumerate()
+                    .filter_map(|(idx, m)| {
+                        let kind = m.provider_meta.as_ref()
+                            .and_then(|meta| meta.get("message_meta").or_else(|| meta.get("messageMeta")))
+                            .and_then(|meta| meta.get("kind")).and_then(|v| v.as_str()).map(str::trim).unwrap_or("");
+                        if kind == "context_compaction" || kind == "summary_context_seed" { Some(idx) } else { None }
+                    })
+                    .collect();
+                let anchor_is_compaction = boundaries.contains(&anchor_idx);
+                let start = if anchor_is_compaction {
+                    let pos = boundaries.iter().position(|&idx| idx == anchor_idx).unwrap();
+                    if pos == 0 { 0 } else { boundaries[pos - 1] }
+                } else {
+                    boundaries.iter().rev().find(|&&idx| idx < anchor_idx).copied().unwrap_or(0)
+                };
+                let has_previous = start > 0;
+                Ok(message_store::MessageStoreCompactionSegment {
+                    messages: messages[start..anchor_idx].to_vec(),
+                    boundary_message_id: messages.get(start).and_then(|m| {
+                        let kind = m.provider_meta.as_ref()
+                            .and_then(|meta| meta.get("message_meta").or_else(|| meta.get("messageMeta")))
+                            .and_then(|meta| meta.get("kind")).and_then(|v| v.as_str()).map(str::trim).unwrap_or("");
+                        if kind == "context_compaction" || kind == "summary_context_seed" { Some(m.id.trim().to_string()) } else { None }
+                    }),
+                    previous_boundary_message_id: None,
+                    has_previous_segment: has_previous,
+                })
+            })?
+        };
+        let mut messages = segment.messages;
+        materialize_chat_message_parts_from_media_refs(&mut messages, &state.data_path);
+        let projected = project_messages_for_frontend_display_only(messages);
+        Ok(build_message_page_view_v2(projected, segment.has_previous_segment, false))
+    }
+
     fn get_messages_after(
         &self,
         state: &AppState,

@@ -1308,6 +1308,7 @@ fn main() {
             get_active_conversation_messages,
             get_active_conversation_messages_before,
             get_active_conversation_messages_after,
+            get_active_conversation_compaction_segment_before,
             list_tool_review_batches,
             list_tool_review_reports,
             delete_tool_review_report,

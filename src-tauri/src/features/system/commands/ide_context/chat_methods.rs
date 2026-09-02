@@ -268,6 +268,39 @@ async fn ide_chat_conversation_messages_before_command(
     .map_err(|err| format!("读取活动会话历史消息任务异常：{err}"))?
 }
 
+async fn ide_chat_conversation_compaction_segment_before_command(
+    state: &AppState,
+    params: Value,
+) -> Result<Value, String> {
+    let input = ide_chat_parse_param_field::<GetActiveConversationCompactionSegmentBeforeInput>(params, "input")?;
+    let anchor_message_id = input.anchor_message_id.trim().to_string();
+    if anchor_message_id.is_empty() {
+        return Err("anchorMessageId is required.".to_string());
+    }
+    let conversation_id = input
+        .conversation_id
+        .as_deref()
+        .or_else(|| input.session.as_ref().and_then(|session| session.conversation_id.as_deref()))
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
+        .ok_or_else(|| "conversationId is required.".to_string())?;
+    let app_state = state.clone();
+    tokio::task::spawn_blocking(move || {
+        let page = conversation_service_v2().get_compaction_segment_before_anchor(
+            &app_state,
+            &conversation_id,
+            &anchor_message_id,
+        )?;
+        ide_chat_serialize(GetActiveConversationCompactionSegmentBeforeOutput {
+            messages: page.messages,
+            has_more: page.has_more,
+        })
+    })
+    .await
+    .map_err(|err| format!("读取压缩段分页任务异常：{err}"))?
+}
+
 async fn ide_chat_conversation_light_snapshot_command(
     state: &AppState,
     params: Value,

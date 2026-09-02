@@ -137,6 +137,7 @@ async fn ide_chat_handle_jsonrpc_request(
         "conversation.markRead" => ide_chat_mark_conversation_read(state, request.params).await,
         "conversation.messageById" => ide_chat_conversation_message_by_id_command(state, request.params).await,
         "conversation.messagesBefore" => ide_chat_conversation_messages_before_command(state, request.params).await,
+        "conversation.compactionSegmentBefore" => ide_chat_conversation_compaction_segment_before_command(state, request.params).await,
         "conversation.messagesAfterAsync" =>
             ide_chat_parse_param_field::<RequestConversationMessagesAfterAsyncInput>(
                 request.params,
@@ -572,6 +573,7 @@ async fn ide_chat_handle_jsonrpc_request(
         "get_unarchived_conversation_block_page" => ide_chat_conversation_block_page_command(state, request.params).await,
         "get_unarchived_conversation_message_by_id" => ide_chat_conversation_message_by_id_command(state, request.params).await,
         "get_active_conversation_messages_before" => ide_chat_conversation_messages_before_command(state, request.params).await,
+        "get_active_conversation_compaction_segment_before" => ide_chat_conversation_compaction_segment_before_command(state, request.params).await,
         "request_conversation_messages_after_async" =>
             ide_chat_parse_param_field::<RequestConversationMessagesAfterAsyncInput>(
                 request.params,
@@ -990,6 +992,8 @@ mod web_native_capability_tests {
             "get_unarchived_conversation_block_page",
             "get_unarchived_conversation_message_by_id",
             "get_active_conversation_messages_before",
+            "get_active_conversation_compaction_segment_before",
+            "conversation.compactionSegmentBefore",
             "request_conversation_messages_after_async",
             "mark_conversation_read",
             "set_active_unarchived_conversation",

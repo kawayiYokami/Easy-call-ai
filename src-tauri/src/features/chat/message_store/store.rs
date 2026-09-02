@@ -105,6 +105,7 @@ trait MessageStore {
     fn read_messages_after(&self, after_message_id: &str, limit: usize) -> Result<MessageStoreLimitPage, String>;
     fn read_current_compaction_segment(&self) -> Result<MessageStoreCompactionSegment, String>;
     fn read_compaction_segment_before(&self, boundary_message_id: &str) -> Result<MessageStoreCompactionSegment, String>;
+    fn read_compaction_segment_before_anchor(&self, anchor_message_id: &str) -> Result<MessageStoreCompactionSegment, String>;
 }
 
 struct JsonlSnapshotMessageStore {
@@ -294,6 +295,14 @@ impl MessageStore for JsonlSnapshotMessageStore {
         }
         let messages = self.messages()?;
         read_compaction_segment_before_from_slice(&messages, boundary_message_id)
+    }
+
+    fn read_compaction_segment_before_anchor(&self, anchor_message_id: &str) -> Result<MessageStoreCompactionSegment, String> {
+        if let Some(index) = self.index()? {
+            return read_compaction_segment_before_anchor_from_index(&self.messages_file, &index, anchor_message_id);
+        }
+        let messages = self.messages()?;
+        read_compaction_segment_before_anchor_from_slice(&messages, anchor_message_id)
     }
 }
 
@@ -591,6 +600,18 @@ pub(super) fn chat_store_read_compaction_segment_before(
     Ok(Some(chat_metadata_store_compaction_segment(
         paths,
         Some(boundary_message_id),
+    )?))
+}
+
+pub(super) fn chat_store_read_compaction_segment_before_anchor(
+    paths: &MessageStorePaths,
+    anchor_message_id: &str,
+) -> Result<Option<MessageStoreCompactionSegment>, String> {
+    if !chat_store_exists(paths)? {
+        return Ok(None);
+    }
+    Ok(Some(chat_metadata_store_compaction_segment_before_anchor(
+        paths, anchor_message_id,
     )?))
 }
 
@@ -1907,6 +1928,57 @@ fn read_compaction_segment_before_from_index(
     build_indexed_compaction_segment(path, index, start, boundary_idx, previous_boundary_index)
 }
 
+fn read_compaction_segment_before_anchor_from_index(
+    path: &PathBuf,
+    index: &MessageStoreIndexFile,
+    anchor_message_id: &str,
+) -> Result<MessageStoreCompactionSegment, String> {
+    let anchor_idx = find_index_item_position(index, anchor_message_id)
+        .ok_or_else(|| format!("Message not found: {}", anchor_message_id.trim()))?;
+    let boundaries = compaction_boundary_index_items(index);
+    let anchor_item = index.items.get(anchor_idx)
+        .ok_or_else(|| format!("Message not found: {}", anchor_message_id.trim()))?;
+    let anchor_is_compaction = anchor_item.compaction_kind.is_some()
+        || is_index_compaction_boundary_position(index, anchor_idx);
+    // 当 anchor 本身是压缩边界（或块边界在 has_block_ids 场景），按上一个完整段返回
+    if anchor_is_compaction && boundaries.contains(&anchor_idx) {
+        let Some(boundary_pos) = boundaries.iter().position(|idx| *idx == anchor_idx) else {
+            return Err(format!("Compaction boundary not indexed: {}", anchor_message_id.trim()));
+        };
+        let start = if boundary_pos == 0 {
+            0
+        } else {
+            boundaries[boundary_pos - 1]
+        };
+        let previous_boundary_index = if boundary_pos >= 2 {
+            Some(boundaries[boundary_pos - 2])
+        } else {
+            None
+        };
+        return build_indexed_compaction_segment(path, index, start, anchor_idx, previous_boundary_index);
+    }
+    // 非边界锚点：返回所在段起点到锚点前的切片
+    let start = boundaries
+        .iter()
+        .rev()
+        .find(|&&idx| idx < anchor_idx)
+        .copied()
+        .unwrap_or(0);
+    let previous_boundary_index = {
+        if start == 0 {
+            None
+        } else {
+            let pos = boundaries.iter().position(|&idx| idx == start);
+            match pos {
+                Some(0) => None,
+                Some(p) => Some(boundaries[p - 1]),
+                None => None,
+            }
+        }
+    };
+    build_indexed_compaction_segment(path, index, start, anchor_idx, previous_boundary_index)
+}
+
 fn normalized_message_limit(limit: usize) -> usize {
     limit.clamp(1, 100)
 }
@@ -2125,6 +2197,57 @@ fn read_compaction_segment_before_from_slice(
         boundary_idx,
         previous_boundary_index,
     ))
+}
+
+fn read_compaction_segment_before_anchor_from_slice(
+    messages: &[ChatMessage],
+    anchor_message_id: &str,
+) -> Result<MessageStoreCompactionSegment, String> {
+    let anchor_idx = find_message_index(messages, anchor_message_id)
+        .ok_or_else(|| format!("Message not found: {}", anchor_message_id.trim()))?;
+    let boundaries = compaction_boundary_indexes(messages);
+    let anchor_is_compaction = message_store_compaction_kind(&messages[anchor_idx]).is_some();
+    if anchor_is_compaction {
+        let Some(boundary_pos) = boundaries.iter().position(|idx| *idx == anchor_idx) else {
+            return Err(format!("Compaction boundary not indexed: {}", anchor_message_id.trim()));
+        };
+        let start = if boundary_pos == 0 {
+            0
+        } else {
+            boundaries[boundary_pos - 1]
+        };
+        let previous_boundary_index = if boundary_pos >= 2 {
+            Some(boundaries[boundary_pos - 2])
+        } else {
+            None
+        };
+        Ok(build_compaction_segment(messages, start, anchor_idx, previous_boundary_index))
+    } else {
+        let start = boundaries
+            .iter()
+            .rev()
+            .find(|&&idx| idx < anchor_idx)
+            .copied()
+            .unwrap_or(0);
+        let previous_boundary_index = {
+            if start == 0 {
+                // start 0 可能是无边界起点，也可能是边界 0 本身；需判断 0 是否为压缩边界
+                if boundaries.first().copied() == Some(0) {
+                    None
+                } else {
+                    None
+                }
+            } else {
+                let pos = boundaries.iter().position(|&idx| idx == start);
+                match pos {
+                    Some(0) => None,
+                    Some(p) => Some(boundaries[p - 1]),
+                    None => None,
+                }
+            }
+        };
+        Ok(build_compaction_segment(messages, start, anchor_idx, previous_boundary_index))
+    }
 }
 
 #[cfg(test)]

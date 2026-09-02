@@ -2241,6 +2241,56 @@ fn chat_metadata_store_compaction_segment(
     })
 }
 
+fn chat_metadata_store_compaction_segment_before_anchor(
+    paths: &MessageStorePaths,
+    anchor_message_id: &str,
+) -> Result<MessageStoreCompactionSegment, String> {
+    chat_metadata_store_with_read_snapshot(paths, || {
+        let anchor = chat_metadata_store_read_locator_by_id(paths, anchor_message_id)?
+            .ok_or_else(|| format!("Message not found: {}", anchor_message_id.trim()))?;
+        let conn = chat_metadata_store_open(&paths.data_path)?;
+        let anchor_is_compaction = anchor.item.compaction_kind.is_some();
+        let (start_locator, end_sequence) = if anchor_is_compaction {
+            let previous = conn.query_row(
+                "SELECT sequence, message_id, block_id, byte_offset, byte_len, compaction_kind, role, created_at
+                 FROM message_locator WHERE conversation_id=?1 AND compaction_kind IS NOT NULL AND sequence<?2 ORDER BY sequence DESC LIMIT 1",
+                rusqlite::params![paths.conversation_id, anchor.sequence],
+                |row| Ok(ChatMetadataLocator { sequence: row.get(0)?, item: MessageStoreIndexItem {
+                    message_id: row.get(1)?, block_id: Some(row.get::<_, i64>(2)? as u32), offset: row.get::<_, i64>(3)? as u64,
+                    byte_len: row.get::<_, i64>(4)? as u64, compaction_kind: row.get(5)?, role: row.get(6)?, created_at: row.get(7)?,
+                }}),
+            ).optional().map_err(|err| format!("读取 SQLite 前一压缩边界失败: {err}"))?;
+            (previous, Some(anchor.sequence))
+        } else {
+            let previous_compaction = conn.query_row(
+                "SELECT sequence, message_id, block_id, byte_offset, byte_len, compaction_kind, role, created_at
+                 FROM message_locator WHERE conversation_id=?1 AND compaction_kind IS NOT NULL AND sequence<?2 ORDER BY sequence DESC LIMIT 1",
+                rusqlite::params![paths.conversation_id, anchor.sequence],
+                |row| Ok(ChatMetadataLocator { sequence: row.get(0)?, item: MessageStoreIndexItem {
+                    message_id: row.get(1)?, block_id: Some(row.get::<_, i64>(2)? as u32), offset: row.get::<_, i64>(3)? as u64,
+                    byte_len: row.get::<_, i64>(4)? as u64, compaction_kind: row.get(5)?, role: row.get(6)?, created_at: row.get(7)?,
+                }}),
+            ).optional().map_err(|err| format!("读取 SQLite 前一压缩边界失败: {err}"))?;
+            (previous_compaction, Some(anchor.sequence))
+        };
+        let start_sequence = start_locator.as_ref().map(|locator| locator.sequence).unwrap_or(0);
+        let previous_boundary = match start_locator.as_ref() {
+            Some(start) => conn.query_row(
+                "SELECT message_id FROM message_locator WHERE conversation_id=?1 AND compaction_kind IS NOT NULL AND sequence<?2 ORDER BY sequence DESC LIMIT 1",
+                rusqlite::params![paths.conversation_id, start.sequence], |row| row.get::<_, String>(0),
+            ).optional().map_err(|err| format!("读取 SQLite 更早压缩边界失败: {err}"))?,
+            None => None,
+        };
+        let locators = chat_metadata_store_query_locators(&conn, &paths.conversation_id, "AND sequence>=?2 AND sequence<?3", &[&start_sequence, end_sequence.as_ref().unwrap()])?;
+        Ok(MessageStoreCompactionSegment {
+            messages: chat_metadata_store_read_messages_for_locators(paths, &locators, false)?,
+            boundary_message_id: start_locator.as_ref().map(|locator| locator.item.message_id.trim().to_string()),
+            previous_boundary_message_id: previous_boundary,
+            has_previous_segment: start_sequence > 0,
+        })
+    })
+}
+
 fn chat_metadata_store_block_page(
     paths: &MessageStorePaths,
     requested_block_id: Option<u32>,

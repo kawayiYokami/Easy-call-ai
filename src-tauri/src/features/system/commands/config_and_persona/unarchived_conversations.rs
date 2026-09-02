@@ -3495,6 +3495,61 @@ async fn get_active_conversation_messages_after(
     .map_err(|err| format!("读取活动会话后续消息任务异常：{err}"))?
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct GetActiveConversationCompactionSegmentBeforeInput {
+    #[serde(default)]
+    conversation_id: Option<String>,
+    #[serde(default)]
+    session: Option<SessionSelector>,
+    anchor_message_id: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct GetActiveConversationCompactionSegmentBeforeOutput {
+    messages: Vec<ChatMessage>,
+    has_more: bool,
+}
+
+#[tauri::command]
+async fn get_active_conversation_compaction_segment_before(
+    input: GetActiveConversationCompactionSegmentBeforeInput,
+    state: State<'_, AppState>,
+) -> Result<GetActiveConversationCompactionSegmentBeforeOutput, String> {
+    let anchor_message_id = input.anchor_message_id.trim().to_string();
+    if anchor_message_id.is_empty() {
+        return Err("anchorMessageId is required.".to_string());
+    }
+    let conversation_id = input
+        .conversation_id
+        .as_deref()
+        .or_else(|| {
+            input
+                .session
+                .as_ref()
+                .and_then(|session| session.conversation_id.as_deref())
+        })
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
+        .ok_or_else(|| "conversationId is required.".to_string())?;
+    let app_state = state.inner().clone();
+    tokio::task::spawn_blocking(move || {
+        let page = conversation_service_v2().get_compaction_segment_before_anchor(
+            &app_state,
+            &conversation_id,
+            &anchor_message_id,
+        )?;
+        Ok(GetActiveConversationCompactionSegmentBeforeOutput {
+            messages: page.messages,
+            has_more: page.has_more,
+        })
+    })
+    .await
+    .map_err(|err| format!("读取压缩段分页任务异常：{err}"))?
+}
+
 
 fn request_conversation_messages_after_async_inner(
     input: RequestConversationMessagesAfterAsyncInput,

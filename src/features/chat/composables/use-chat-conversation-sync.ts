@@ -274,11 +274,10 @@ export function useChatConversationSync(bindings: Record<string, any>) {
 
     bindings.loadingOlderConversationHistory.value = true;
     try {
-      const result = await invokeTauri("conversation.messagesBefore", {
+      const result = await invokeTauri("conversation.compactionSegmentBefore", {
         input: {
           conversationId,
-          beforeMessageId: oldestMessageId,
-          limit: bindings.OLDER_HISTORY_PAGE_SIZE,
+          anchorMessageId: oldestMessageId,
         },
       }) as { messages?: any[]; hasMore?: boolean };
       if (
@@ -288,12 +287,30 @@ export function useChatConversationSync(bindings: Record<string, any>) {
       }
       const previousMessages = Array.isArray(bindings.allMessages.value) ? bindings.allMessages.value : [];
       const incomingMessages = freezeConversationMessages(Array.isArray(result?.messages) ? result.messages : []);
-      const nextMessages = mergeMessagesIntoTimeline(previousMessages, incomingMessages, {
-        prependMessages: true,
-      });
-      bindings.allMessages.value = nextMessages;
-      cacheConversationMessages(conversationId, nextMessages);
-      bindings.hasMoreBackendHistory.value = !!result?.hasMore;
+      const CHUNK = 7;
+      if (incomingMessages.length <= CHUNK) {
+        const nextMessages = mergeMessagesIntoTimeline(previousMessages, incomingMessages, {
+          prependMessages: true,
+        });
+        bindings.allMessages.value = nextMessages;
+        cacheConversationMessages(conversationId, nextMessages);
+        bindings.hasMoreBackendHistory.value = !!result?.hasMore;
+      } else {
+        const chunks: any[][] = [];
+        for (let i = 0; i < incomingMessages.length; i += CHUNK) chunks.push(incomingMessages.slice(i, i + CHUNK));
+        let nextMessages: any[] = previousMessages;
+        for (let ci = chunks.length - 1; ci >= 0; ci--) {
+          if (String(bindings.currentChatConversationId.value || "").trim() !== conversationId) return;
+          const chunk = chunks[ci];
+          nextMessages = mergeMessagesIntoTimeline(nextMessages, chunk, { prependMessages: true });
+          bindings.allMessages.value = nextMessages;
+          if (ci === 0) cacheConversationMessages(conversationId, nextMessages);
+          if (ci > 0) {
+            await new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
+          }
+        }
+        bindings.hasMoreBackendHistory.value = !!result?.hasMore;
+      }
     } catch (error) {
       console.warn("[会话缓存] 向上补历史失败", {
         conversationId,
