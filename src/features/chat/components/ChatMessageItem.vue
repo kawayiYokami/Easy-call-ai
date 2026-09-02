@@ -92,7 +92,6 @@
             <div
               v-if="showActivityPanel(block) && activityPanelOpen(block)"
               class="px-0 pb-1 pt-2 text-xs text-base-content/70"
-              @click="collapseDetailsFromContentClick"
             >
               <div class="flex flex-col">
                 <ul class="ecall-activity-timeline">
@@ -948,18 +947,6 @@ function activityPanelOpen(block: ChatMessageBlock): boolean {
 
 function onActivityToggle(event: Event): void {
   activityExpanded.value = detailsOpenFromEvent(event);
-}
-
-function collapseDetailsFromContentClick(event: MouseEvent): void {
-  const target = event.target;
-  if (!(target instanceof HTMLElement)) return;
-  if (target.closest('button, a, input, textarea, select, summary, label, [data-selection-ignore="true"]')) {
-    return;
-  }
-  if (window.getSelection()?.toString()) {
-    return;
-  }
-  closeActivityDetails();
 }
 
 function closeActivityDetails(): void {
