@@ -88,14 +88,14 @@ const surfaceStyle = computed<StyleValue | undefined>(() => {
     return {
       borderRadius: "var(--radius-box, 1rem)",
       backgroundColor: "var(--color-base-300)",
-      padding: "0.68rem 0.82rem",
+      padding: "0.68rem 1rem",
     };
   }
   if (!props.bubbleBackground) return undefined;
   return {
     borderRadius: "var(--radius-box, 1rem)",
     backgroundColor: "var(--color-base-100)",
-    padding: "0.68rem 0.82rem",
+    padding: "0.68rem 1rem",
   };
 });
 </script>

@@ -4,7 +4,7 @@
     :data-message-role="isOwnMessage(block) ? 'user' : block.role"
     :data-active-turn-user="activeTurnUser ? 'true' : undefined"
     :class="[
-      'ecall-chat-message-row group/user-turn relative rounded-2xl px-3 transition-colors',
+      'ecall-chat-message-row group/user-turn relative rounded-2xl px-4 transition-colors',
       shouldAnimateEnter(block) ? 'ecall-message-enter' : '',
       isOwnMessage(block) ? 'ecall-chat-message-row-own' : 'ecall-chat-message-row-other',
       isOwnMessage(block) && compactWithPrevious ? 'ecall-message-continued' : '',
@@ -2010,7 +2010,7 @@ function openAttachmentPath(path: string) {
   display: inline-block;
   width: fit-content;
   max-width: 100%;
-  padding: 0.68rem 0.82rem;
+  padding: 0.68rem 1rem;
 }
 
 .ecall-assistant-segment-rich {

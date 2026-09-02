@@ -67,7 +67,8 @@
           </div>
         </div>
 
-        <div class="relative flex min-h-0 flex-1 overflow-hidden" @mouseenter="chatScrollbarRef?.reveal()" @mouseleave="chatScrollbarRef?.hide()">
+        <div class="relative flex min-h-0 flex-1 overflow-hidden">
+          <div class="relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden" @mouseenter="chatScrollbarRef?.reveal()" @mouseleave="chatScrollbarRef?.hide()">
           <Transition name="todo-bar-slide">
             <div
               v-if="showConversationTodoBar"
@@ -200,6 +201,7 @@
           </Transition>
           </div>
           <FloatingScrollbar ref="chatScrollbarRef" :target="scrollContainer" />
+          </div>
         </div>
         <div
           v-if="supportsFloatingSessionToolbar"
@@ -287,27 +289,49 @@
           @update:enabled="autoPushEnabled = $event"
           @update:selected-contact-id="autoPushSelectedContactId = $event"
         />
-        <Transition name="chat-jump-action">
-          <div v-show="showJumpToBottom" class="pointer-events-none absolute bottom-3 right-5 z-30 flex justify-end" :style="jumpToBottomStyle">
-            <button class="btn btn-sm btn-circle btn-neutral pointer-events-auto shadow-lg" @click="handleJumpToBottom">
-              <ArrowDownToLine class="h-4 w-4" />
-            </button>
-          </div>
-        </Transition>
-        <Transition name="chat-jump-action">
-          <div v-show="showJumpToNextUserMessage" class="pointer-events-none absolute bottom-3 right-5 z-30 flex justify-end" :style="jumpToBottomStyle">
-            <button class="btn btn-sm btn-circle border border-base-300 bg-base-100 text-base-content pointer-events-auto shadow-lg hover:border-base-300 hover:bg-base-100" @click="handleJumpToNextUserMessage">
-              <ChevronsDown class="h-4 w-4" />
-            </button>
-          </div>
-        </Transition>
-        <Transition name="chat-jump-action">
-          <div v-show="showJumpToPreviousUserMessage" class="pointer-events-none absolute bottom-3 right-5 z-30 flex justify-end" :style="jumpAboveBottomStyle">
-            <button class="btn btn-sm btn-circle border border-base-300 bg-base-100 text-base-content pointer-events-auto shadow-lg hover:border-base-300 hover:bg-base-100" @click="handleJumpToPreviousUserMessage">
-              <ChevronsUp class="h-4 w-4" />
-            </button>
-          </div>
-        </Transition>
+        <!-- bottom-right: 灵动岛按钮（圆态）+ 回到底部（放上面防跳动） -->
+        <!-- 圆按钮扩成的卡片：挂进按钮容器，定位以按钮为基准，随 jumpToBottomStyle 走 -->
+        <div class="pointer-events-none absolute bottom-3 right-5 z-31 flex flex-col items-end gap-2" :style="jumpToBottomStyle">
+          <Transition name="ecall-snake-board">
+            <TimelineSnakeBoard
+              v-if="showTimelineFloatPanel && timelineAnchors.length >= 2 && !showFloatingSessionToolbar"
+              :anchors="timelineAnchors"
+              :active-index="activeTimelineIndex"
+              :hovered-index="hoveredTimelineIndex"
+              @hover="hoveredTimelineIndex = $event"
+              @enter-zone="handleTimelineFloatEnter"
+              @leave-zone="handleTimelineFloatLeave"
+              @jump="handleTimelineJumpAndClose($event)"
+            />
+          </Transition>
+          <Transition name="chat-jump-action">
+            <div v-show="showJumpToBottom" class="pointer-events-auto">
+              <button class="btn btn-sm btn-circle btn-neutral shadow-lg" @click="handleJumpToBottom">
+                <ArrowDownToLine class="h-4 w-4" />
+              </button>
+            </div>
+          </Transition>
+          <button
+            v-if="timelineAnchors.length >= 2 && !showTimelineFloatPanel && !showFloatingSessionToolbar"
+            ref="timelineFloatWrapRef"
+            type="button"
+            class="btn btn-sm btn-circle btn-neutral shadow-lg pointer-events-auto shrink-0"
+            :aria-label="showTimelineFloatPanel ? '收起时间线' : '展开时间线'"
+            :aria-expanded="showTimelineFloatPanel ? 'true' : 'false'"
+            @mouseenter="handleTimelineFloatEnter"
+            @mouseleave="handleTimelineFloatLeave"
+            @click="handleTimelineFloatToggle"
+            @keydown.enter.prevent="handleTimelineFloatToggle"
+            @keydown.space.prevent="handleTimelineFloatToggle"
+          >
+            <GanttChart class="h-4 w-4" />
+          </button>
+          <div
+            v-else-if="showTimelineFloatPanel && !showFloatingSessionToolbar"
+            class="h-8 w-8 shrink-0 invisible pointer-events-none"
+            aria-hidden="true"
+          />
+        </div>
 
         <div ref="composerContainer" class="relative shrink-0 border-t border-base-300 bg-base-100 px-2 pt-1.5 pb-1.5 max-md:mx-2 max-md:mb-2 max-md:rounded-box max-md:border max-md:border-base-300 max-md:shadow-lg">
           <div
@@ -675,7 +699,7 @@ import {
   useChatComposerAppearance,
   visibleChatComposerContextGroups,
 } from "../../shell/composables/use-chat-composer-appearance";
-import { ArrowDownToLine, Check, ChevronsDown, ChevronsUp, CircleAlert, Copy, History, Inbox, ListTodo, Network, Trash2, Undo2, Wrench, X } from "@lucide/vue";
+import { ArrowDownToLine, Check, CircleAlert, Copy, GanttChart, History, Inbox, ListTodo, Network, Trash2, Undo2, Wrench, X } from "@lucide/vue";
 import {
   copyTransportChatImageToClipboard,
   getTransportHostContext,
@@ -696,6 +720,9 @@ import RemoteImContactEnergyDashboard from "../components/RemoteImContactEnergyD
 import DepartmentPersonaSelect from "../../shared/components/DepartmentPersonaSelect.vue";
 import DraftRecipientCard from "../components/DraftRecipientCard.vue";
 import FloatingScrollbar from "../../shell/components/FloatingScrollbar.vue";
+import OverlayScrollArea from "../../shared/components/OverlayScrollArea.vue";
+import TimelinePreviewMarkdown from "../components/TimelinePreviewMarkdown.vue";
+import TimelineSnakeBoard from "../components/TimelineSnakeBoard.vue";
 import ChatConversationSidebar from "../components/ChatConversationSidebar.vue";
 import ChatWorkspaceToolbar from "../components/ChatWorkspaceToolbar.vue";
 import ToolReviewSidebar from "../components/ToolReviewSidebar.vue";
@@ -1551,6 +1578,181 @@ const {
   onUserScroll: () => onScroll(),
 });
 
+// timeline: 仅完成态用户消息，流式不锚点（不占位，右下角悬停按钮）
+const timelineAnchors = computed(() => {
+  const blocks = (props.messageBlocks || []) as ChatMessageBlock[];
+  const raw: Array<{ id: string; userText: string; assistantTail: string; blockIndex: number }> = [];
+  for (let i = 0; i < blocks.length; i++) {
+    const b = blocks[i] as ChatMessageBlock;
+    if ((b as any).isStreaming) continue;
+    if ((b as any).isExtraTextBlock || (b as any).remoteImOrigin) continue;
+    const speakerId = String((b as any).speakerAgentId || "").trim();
+    const role = String((b as any).role || "").trim();
+    const isOwn = !speakerId || speakerId === "user-persona" || role === "user";
+    if (!isOwn) continue;
+    const text = String((b as any).text || "");
+    if (!text.trim() && ((b as any).images?.length || 0) === 0 && ((b as any).audios?.length || 0) === 0) continue;
+    let tail = "";
+    for (let j = i + 1; j < blocks.length; j++) {
+      const nb = blocks[j] as ChatMessageBlock;
+      if ((nb as any).isStreaming) continue;
+      const nbSpeaker = String((nb as any).speakerAgentId || "").trim();
+      const nbRole = String((nb as any).role || "").trim();
+      const nbIsOwn = !nbSpeaker || nbSpeaker === "user-persona" || nbRole === "user";
+      if (nbIsOwn) break;
+      const t = String((nb as any).text || "").trim();
+      if (t) {
+        const parts = t.split("\uE000TOOLBREAK\uE000").map((s) => s.trim()).filter(Boolean);
+        tail = parts.length > 0 ? parts[parts.length - 1]! : t;
+        break;
+      }
+    }
+    raw.push({ id: String((b as any).id || `timeline-${i}`), userText: text, assistantTail: tail, blockIndex: i });
+  }
+  // map to virtual index
+  const idToVirtual = new Map<string, number>();
+  virtualRenderItems.value.forEach((item, idx) => {
+    if ((item as any).kind === "message" && (item as any).block) {
+      const bid = String((item as any).block.id || "");
+      if (bid) idToVirtual.set(bid, idx);
+    }
+  });
+  return raw
+    .map((a) => ({ id: a.id, userText: a.userText, assistantTail: a.assistantTail, index: idToVirtual.get(a.id) ?? -1 }))
+    .filter((a) => a.index >= 0);
+});
+
+const prefersReducedMotionTimeline = ref(false);
+onMounted(() => {
+  try {
+    const mql = window.matchMedia("(prefers-reduced-motion: reduce)");
+    prefersReducedMotionTimeline.value = mql.matches;
+    const onChange = (e: MediaQueryListEvent) => { prefersReducedMotionTimeline.value = e.matches; };
+    if (typeof (mql as any).addEventListener === "function") (mql as any).addEventListener("change", onChange);
+    else (mql as any).addListener?.(onChange);
+  } catch {}
+});
+
+const activeTimelineIndex = computed<number | null>(() => {
+  const anchors = timelineAnchors.value;
+  if (anchors.length === 0) return null;
+  const rows = virtualizer.value.getVirtualItems();
+  if (rows.length === 0) return anchors[0]?.index ?? null;
+  const scrollEl = scrollContainer.value;
+  const top = scrollEl ? scrollEl.scrollTop : 0;
+  let firstVisible = anchors[0]!.index;
+  for (const row of rows) {
+    if (row.end > top + 2) { firstVisible = row.index; break; }
+  }
+  // 找到最后一个 index <= firstVisible 的锚点
+  let active = anchors[0]!.index;
+  for (const a of anchors) {
+    if (a.index <= firstVisible + 1) active = a.index;
+    else break;
+  }
+  return active;
+});
+const hoveredTimelineIndex = ref<number | null>(null);
+
+function handleTimelineJump(virtualIndex: number) {
+  if (virtualIndex < 0) return;
+  scrollVirtualizerToIndex(virtualIndex, { align: "start", behavior: prefersReducedMotionTimeline.value ? "auto" : "smooth" });
+}
+
+// timeline hover float: 不占位，右下角按钮悬停展开
+const timelineFloatWrapRef = ref<HTMLElement | null>(null);
+const timelineFloatOpen = ref(false);
+let timelineFloatCloseTimer: ReturnType<typeof setTimeout> | null = null;
+let timelineFloatExpandUntil = 0;
+
+const showTimelineFloatPanel = computed(() => timelineFloatOpen.value && timelineAnchors.value.length >= 2);
+
+const TIMELINE_TOOL_BREAK = "\uE000TOOLBREAK\uE000";
+function cleanTimelinePreviewText(raw: string): string {
+  return String(raw || "")
+    .split(TIMELINE_TOOL_BREAK).join(" ")
+    .replace(/\s*\[toolcall:[^\]\n]+\]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+function formatTimelineUserPreview(raw: string): string {
+  const t = cleanTimelinePreviewText(raw);
+  if (!t) return "（空消息）";
+  return t.length > 56 ? `${t.slice(0, 56)}…` : t;
+}
+function formatTimelineAssistantPreview(raw: string): string {
+  const t = cleanTimelinePreviewText(raw);
+  if (!t) return "";
+  return t.length > 72 ? `${t.slice(0, 72)}…` : t;
+}
+
+function handleTimelineFloatEnter() {
+  if (timelineFloatCloseTimer) {
+    clearTimeout(timelineFloatCloseTimer);
+    timelineFloatCloseTimer = null;
+  }
+  if (showTimelineFloatPanel.value) return;
+  if (timelineAnchors.value.length < 2) return;
+  timelineFloatOpen.value = true;
+  timelineFloatExpandUntil = Date.now() + 320;
+}
+function handleTimelineFloatLeave() {
+  if (timelineFloatCloseTimer) clearTimeout(timelineFloatCloseTimer);
+  const waitForExpand = Math.max(0, timelineFloatExpandUntil - Date.now());
+  timelineFloatCloseTimer = setTimeout(() => {
+    timelineFloatOpen.value = false;
+    timelineFloatCloseTimer = null;
+  }, waitForExpand > 0 ? waitForExpand + 80 : 160);
+}
+function handleTimelineFloatToggle() {
+  if (timelineFloatCloseTimer) {
+    clearTimeout(timelineFloatCloseTimer);
+    timelineFloatCloseTimer = null;
+  }
+  if (showTimelineFloatPanel.value) {
+    timelineFloatOpen.value = false;
+  } else {
+    if (timelineAnchors.value.length < 2) return;
+    timelineFloatOpen.value = true;
+    timelineFloatExpandUntil = Date.now() + 320;
+  }
+}
+function handleTimelineJumpAndClose(virtualIndex: number) {
+  handleTimelineJump(virtualIndex);
+}
+
+function handleTimelineFloatDocumentPointerDown(event: MouseEvent | TouchEvent) {
+  if (!showTimelineFloatPanel.value) return;
+  const target = event.target as Node | null;
+  // 点在蛇形卡片内不关闭，只收掉卡片外点击
+  if (target instanceof Element && target.closest(".ecall-snake-board-card")) return;
+  const el = timelineFloatWrapRef.value;
+  if (el && target && el.contains(target)) return;
+  timelineFloatOpen.value = false;
+  if (timelineFloatCloseTimer) { clearTimeout(timelineFloatCloseTimer); timelineFloatCloseTimer = null; }
+}
+function handleTimelineFloatKeydown(event: KeyboardEvent) {
+  if (event.key === "Escape" && showTimelineFloatPanel.value) {
+    timelineFloatOpen.value = false;
+    if (timelineFloatCloseTimer) { clearTimeout(timelineFloatCloseTimer); timelineFloatCloseTimer = null; }
+  }
+}
+onMounted(() => {
+  window.addEventListener("pointerdown", handleTimelineFloatDocumentPointerDown, true);
+  window.addEventListener("keydown", handleTimelineFloatKeydown);
+});
+onBeforeUnmount(() => {
+  window.removeEventListener("pointerdown", handleTimelineFloatDocumentPointerDown, true);
+  window.removeEventListener("keydown", handleTimelineFloatKeydown);
+  if (timelineFloatCloseTimer) { clearTimeout(timelineFloatCloseTimer); timelineFloatCloseTimer = null; }
+});
+watch(() => timelineAnchors.value.length, (n) => {
+  if (n < 2 && timelineFloatOpen.value) {
+    timelineFloatOpen.value = false;
+    if (timelineFloatCloseTimer) { clearTimeout(timelineFloatCloseTimer); timelineFloatCloseTimer = null; }
+  }
+});
+
 const latestOwnTailSpacerMinHeight = ref(0);
 
 watch(
@@ -1611,6 +1813,13 @@ const showConversationTodoBar = computed(() => {
   const hasActiveOrPending = normalizedConversationTodos.value.some((item) => item.status === "pending" || item.status === "in_progress");
   if (!hasActiveOrPending) return false;
   return atConversationBottom.value;
+});
+
+watch(showFloatingSessionToolbar, (visible) => {
+  if (visible && timelineFloatOpen.value) {
+    timelineFloatOpen.value = false;
+    if (timelineFloatCloseTimer) { clearTimeout(timelineFloatCloseTimer); timelineFloatCloseTimer = null; }
+  }
 });
 
 // ==================== previous user message jump ====================
@@ -2489,5 +2698,48 @@ onBeforeUnmount(() => {
 .chat-status-banner-leave-to {
   opacity: 0;
   transform: translateY(6px);
+}
+
+.ecall-timeline-rail-enter-active,
+.ecall-timeline-rail-leave-active {
+  transition: opacity 200ms ease, transform 200ms ease, width 200ms ease, min-width 200ms ease;
+  overflow: hidden;
+}
+.ecall-timeline-rail-enter-from,
+.ecall-timeline-rail-leave-to {
+  opacity: 0;
+  transform: translateX(-8px);
+  width: 0 !important;
+  min-width: 0 !important;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ecall-timeline-rail-enter-active,
+  .ecall-timeline-rail-leave-active {
+    transition: none;
+  }
+  .ecall-timeline-rail-enter-from,
+  .ecall-timeline-rail-leave-to {
+    opacity: 1;
+    transform: none;
+    width: 0 !important;
+    min-width: 0 !important;
+  }
+}
+
+.ecall-timeline-preview-enter-active,
+.ecall-timeline-preview-leave-active {
+  transition: opacity 180ms ease, transform 180ms ease;
+}
+.ecall-timeline-preview-enter-from,
+.ecall-timeline-preview-leave-to {
+  opacity: 0;
+  transform: translateX(6px) scale(0.98);
+}
+@media (prefers-reduced-motion: reduce) {
+  .ecall-timeline-preview-enter-active,
+  .ecall-timeline-preview-leave-active {
+    transition: none;
+  }
 }
 </style>
