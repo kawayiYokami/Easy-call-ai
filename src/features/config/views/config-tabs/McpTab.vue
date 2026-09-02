@@ -2,7 +2,7 @@
   <SettingsStickyLayout>
     <template #header>
       <div class="flex items-center gap-2">
-        <div class="text-sm font-semibold">MCP</div>
+        <div class="text-sm font-semibold">{{ t('config.tabs.mcp') }}</div>
         <select
           v-if="servers.length > 0"
           v-model="selectedServerId"
@@ -257,7 +257,7 @@ function addServer() {
   const seed = Date.now();
   const next: McpServerView = {
     id: `mcp-${seed}`,
-    name: `MCP ${servers.value.length + 1}`,
+    name: `${t('config.tabs.mcp')} ${servers.value.length + 1}`,
     enabled: false,
     definitionJson: '{\n  "name": "mcp-server",\n  "transport": "stdio",\n  "command": "npx",\n  "args": ["-y", "@upstash/context7-mcp"]\n}',
     toolPolicies: [],

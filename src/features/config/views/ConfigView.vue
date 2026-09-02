@@ -383,7 +383,7 @@ const CONFIG_NAV_ITEMS: ConfigNavItem[] = [
   { tab: "networkAccess", icon: Wifi, labelKey: "config.tabs.networkAccess" },
   { tab: "hotkey", icon: Keyboard, labelKey: "config.tabs.hotkey" },
   { tab: "api", icon: Cpu, labelKey: "config.tabs.api" },
-  { tab: "mcp", icon: Puzzle, label: "MCP" },
+  { tab: "mcp", icon: Puzzle, labelKey: "config.tabs.mcp" },
   { tab: "skill", icon: Code, labelKey: "config.tabs.skill" },
   { tab: "persona", icon: User, labelKey: "config.tabs.persona" },
   { tab: "department", icon: Building2, labelKey: "config.tabs.department" },
