@@ -1,7 +1,12 @@
 {
-  "generatedAt": "2026-09-01T19:13:38.566Z",
-  "latestVersion": "v0.78.0",
+  "generatedAt": "2026-09-02T10:39:22.066Z",
+  "latestVersion": "v0.80.0",
   "releases": [
+    {
+      "version": "v0.80.0",
+      "path": "docs/changelog/releases/v0.80.0.md",
+      "summary": "时间轴灵动岛全新升级为贪吃蛇棋盘：右下角圆按钮原位展开为毛玻璃卡片，卡片根据消息数量与窗口尺寸自动算出行列与尺寸，点与点以蛇形连线从右下角起按时间倒序来回铺开，单数行靠右、双数行靠左，未填满时不溢出"
+    },
     {
       "version": "v0.78.0",
       "path": "docs/changelog/releases/v0.78.0.md",
