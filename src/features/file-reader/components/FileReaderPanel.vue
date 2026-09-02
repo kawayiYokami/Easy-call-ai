@@ -114,12 +114,17 @@
     </PanelTabStrip>
 
     <div ref="fileReaderLayoutRoot" class="relative flex min-h-0 flex-1" :class="directoryOnly ? '' : 'flex-row-reverse'">
+      <div
+        v-if="directoryTreeOverlay"
+        class="absolute inset-0 z-10 bg-base-300/20 backdrop-blur-[1px]"
+        @click="closeDirectoryTree"
+      ></div>
       <Transition name="file-reader-aside">
         <aside
           v-if="directoryTreeRoot"
           class="file-reader-aside-panel flex shrink-0 flex-col bg-base-200/35"
-          :class="directoryOnly ? 'w-full' : ''"
-          :style="directoryOnly ? undefined : { width: `${effectiveDirectoryTreeWidth}px` }"
+          :class="directoryOnly ? 'w-full' : directoryTreeOverlay ? 'absolute inset-y-0 right-0 z-20 w-full shadow-2xl border-l border-base-300' : ''"
+          :style="directoryOnly ? undefined : directoryTreeOverlay ? undefined : { width: `${effectiveDirectoryTreeWidth}px` }"
         >
           <Transition name="file-reader-aside-content" mode="out-in">
             <div v-if="asideMode === 'files'" key="files" class="flex min-h-0 flex-1 flex-col overflow-hidden">
@@ -487,7 +492,7 @@
         </slot>
       </main>
       <div
-        v-if="directoryTreeRoot && !directoryOnly"
+        v-if="directoryTreeRoot && !directoryOnly && !directoryTreeOverlay"
         class="file-reader-resize-handle absolute bottom-0 top-0 z-10"
         :class="activeDirectoryTreeResize ? 'is-active' : ''"
         :style="{ right: `${effectiveDirectoryTreeWidth - 4}px` }"
@@ -811,6 +816,7 @@ type FileReaderSelectionAction = {
 // ==================== Constants ====================
 
 const localFileSystemAvailable = getTransportCapabilities().localFileSystem;
+const FILE_READER_NARROW_BREAKPOINT_PX = 768;
 const FILE_READER_DIRECTORY_TREE_MIN_WIDTH = 220;
 const FILE_READER_DIRECTORY_TREE_MAX_WIDTH = 640;
 const FILE_READER_DIRECTORY_TREE_DEFAULT_WIDTH = 320;
@@ -1075,7 +1081,12 @@ const visibleTreeRows = computed<TreeRow[]>(() => {
   return flattenDirectoryEntries(root.entries, 0, directoryTreeFilter.value);
 });
 
-const effectiveDirectoryTreeWidth = computed(() => clampDirectoryTreeWidth(directoryTreeWidth.value));
+const isFileReaderNarrow = computed(() => fileReaderLayoutWidth.value > 0 && fileReaderLayoutWidth.value < FILE_READER_NARROW_BREAKPOINT_PX);
+const directoryTreeOverlay = computed(() => !directoryOnly.value && isFileReaderNarrow.value && !!directoryTreeRoot.value);
+const effectiveDirectoryTreeWidth = computed(() => {
+  if (directoryTreeOverlay.value) return fileReaderLayoutWidth.value;
+  return clampDirectoryTreeWidth(directoryTreeWidth.value);
+});
 
 const activePathSegments = computed(() => {
   const tab = activeTab.value;
@@ -1195,7 +1206,7 @@ function setDirectoryTreeWidth(width: number) {
 }
 
 function startDirectoryTreeResize(event: PointerEvent) {
-  if (event.button !== 0 || directoryOnly.value) return;
+  if (event.button !== 0 || directoryOnly.value || directoryTreeOverlay.value) return;
   event.preventDefault();
   activeDirectoryTreeResize.value = true;
   directoryTreeResizeStartX = event.clientX;
