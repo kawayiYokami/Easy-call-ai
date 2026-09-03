@@ -361,11 +361,29 @@
         </div>
       </div>
     </div>
+
+    <dialog ref="renameDialogRef" class="modal">
+      <div class="modal-box max-w-sm">
+        <h3 class="text-lg font-semibold">{{ t("config.api.renameDisplayNameTitle") }}</h3>
+        <p class="py-3 text-sm opacity-80">{{ t("config.api.renameDisplayNameHint") }}</p>
+        <div class="modal-action">
+          <button class="btn btn-ghost" type="button" @click="cancelRename">
+            {{ t("common.cancel") }}
+          </button>
+          <button class="btn btn-primary" type="button" @click="confirmRename">
+            {{ t("common.confirm") }}
+          </button>
+        </div>
+      </div>
+      <form method="dialog" class="modal-backdrop">
+        <button>close</button>
+      </form>
+    </dialog>
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed, nextTick, onMounted, onUnmounted, ref } from "vue";
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 import { BookOpen, ChevronDown, HelpCircle, Pencil, Trash2, X } from "@lucide/vue";
 import type { ApiModelConfigItem } from "../../../types/app";
@@ -525,6 +543,8 @@ const displayTitle = computed(() => {
 const editingTitle = ref(false);
 const titleDraft = ref("");
 const titleInputRef = ref<HTMLInputElement | null>(null);
+const renameDialogRef = ref<HTMLDialogElement | null>(null);
+const pendingDisplayName = ref("");
 
 function startEditTitle() {
   titleDraft.value = props.card.displayName ?? "";
@@ -534,10 +554,35 @@ function startEditTitle() {
 
 function commitTitle() {
   if (!editingTitle.value) return;
-  props.card.displayName = titleDraft.value.trim();
+  const next = titleDraft.value.trim();
   editingTitle.value = false;
+  const current = String(props.card.displayName || "").trim();
+  if (next === current) return;
+  pendingDisplayName.value = next;
+  renameDialogRef.value?.showModal();
+}
+
+function confirmRename() {
+  props.card.displayName = pendingDisplayName.value;
+  pendingDisplayName.value = "";
+  renameDialogRef.value?.close();
   emit("sync-metadata");
 }
+
+function cancelRename() {
+  pendingDisplayName.value = "";
+  renameDialogRef.value?.close();
+}
+
+// ========== 模型 ID 变更时显示名跟随重置 ==========
+
+watch(
+  () => props.card.model,
+  (val) => {
+    const id = String(val || "").trim();
+    if (id) props.card.displayName = id;
+  },
+);
 
 function cancelTitle() {
   editingTitle.value = false;

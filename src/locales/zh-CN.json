@@ -142,6 +142,8 @@
       "emptyModelNotAllowed": "存在未填模型名的模型卡，请先填写模型名或删除该模型卡后再保存。",
       "editDisplayName": "点击修改显示名",
       "displayNamePlaceholder": "输入你想要的模型显示名",
+      "renameDisplayNameTitle": "修改显示名",
+      "renameDisplayNameHint": "你修改的只是显示名，并不会改变你调用的模型 ID。模型 ID 变更时，显示名会自动重置为新的模型 ID。",
       "expandModelCard": "展开模型卡",
       "collapseModelCard": "折叠模型卡",
       "modelInfoTitle": "模型信息",

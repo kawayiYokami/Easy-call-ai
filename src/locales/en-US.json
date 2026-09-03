@@ -142,6 +142,8 @@
       "emptyModelNotAllowed": "There are model cards without a model name. Fill in the model name or remove the card before saving.",
       "editDisplayName": "Click to edit display name",
       "displayNamePlaceholder": "Enter the display name you want",
+      "renameDisplayNameTitle": "Edit Display Name",
+      "renameDisplayNameHint": "This only changes the display name; the model ID used for requests stays unchanged. When the model ID changes, the display name resets to the new ID automatically.",
       "expandModelCard": "Expand model card",
       "collapseModelCard": "Collapse model card",
       "modelInfoTitle": "Model Info",
