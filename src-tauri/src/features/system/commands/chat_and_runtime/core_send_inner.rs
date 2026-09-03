@@ -297,13 +297,81 @@ fn legacy_attachment_relative_paths_for_prompt(
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum RetryKind {
+    Empty,
+    RateLimited,
+    NonRetryable,
+}
+
+#[derive(Debug, Clone, Copy, Default)]
+struct RetryBudget {
+    empty_used: u8,
+    rate_used: u8,
+}
+
+const MAX_EMPTY_RETRIES: u8 = 3;
+const WAIT_EMPTY_SECS: u64 = 5;
+const MAX_RATE_RETRIES: u8 = 3;
+const WAIT_RATE_SECS: u64 = 30;
+
+fn is_rate_limited_error(err: &str) -> bool {
+    let lower = err.to_ascii_lowercase();
+    let has_429 = lower
+        .split(|c: char| !c.is_ascii_digit())
+        .any(|token| token == "429");
+    if has_429 {
+        return true;
+    }
+    lower.contains("rate limit")
+        || lower.contains("too many requests")
+        || lower.contains("quota exceeded")
+        || lower.contains("rate_limit_exceeded")
+}
+
+fn classify_retry_kind_for_result(result: &Result<ModelReply, String>) -> RetryKind {
+    match result {
+        Ok(reply) => match model_reply_content_state(reply) {
+            ModelReplyContentState::Visible => RetryKind::NonRetryable,
+            ModelReplyContentState::ReasoningOnly | ModelReplyContentState::Empty => {
+                RetryKind::Empty
+            }
+        },
+        Err(err) => {
+            if is_rate_limited_error(err) {
+                RetryKind::RateLimited
+            } else {
+                RetryKind::NonRetryable
+            }
+        }
+    }
+}
+
+fn retry_policy(kind: RetryKind, budget: &RetryBudget) -> Option<std::time::Duration> {
+    match kind {
+        RetryKind::Empty => {
+            if budget.empty_used < MAX_EMPTY_RETRIES {
+                Some(std::time::Duration::from_secs(WAIT_EMPTY_SECS))
+            } else {
+                None
+            }
+        }
+        RetryKind::RateLimited => {
+            if budget.rate_used < MAX_RATE_RETRIES {
+                Some(std::time::Duration::from_secs(WAIT_RATE_SECS))
+            } else {
+                None
+            }
+        }
+        RetryKind::NonRetryable => None,
+    }
+}
+
 async fn send_chat_message_inner(
     input: SendChatRequest,
     state: &AppState,
     on_delta: &tauri::ipc::Channel<AssistantDeltaEvent>,
 ) -> Result<SendChatResult, String> {
-    const FIXED_MODEL_RETRY_COUNT: usize = 3;
-    const FIXED_MODEL_RETRY_WAIT_SECONDS: u64 = 5;
 
     let mut runtime_context = input.runtime_context.clone().unwrap_or_default();
     let trace_id = runtime_context_request_id_or_new(
@@ -2109,13 +2177,14 @@ async fn send_chat_message_inner(
             ));
             continue;
         }
-        let max_failure_retries = FIXED_MODEL_RETRY_COUNT;
+        let mut retry_budget = RetryBudget::default();
+        let mut attempt: usize = 0;
         let mut candidate_final_error: Option<String> = None;
-        for attempt in 0..=max_failure_retries {
+        loop {
+            attempt += 1;
             let request_start_stage = format!(
                 "model_request.start[candidate_api_id={},attempt={}]",
-                candidate_selected_api.id,
-                attempt + 1
+                candidate_selected_api.id, attempt
             );
             log_run_stage(&request_start_stage);
             // 调度事件：模型轮次开始
@@ -2189,7 +2258,7 @@ async fn send_chat_message_inner(
                 }
                 let mut detail = serde_json::json!({
                     "candidateApiId": candidate_selected_api.id,
-                    "attempt": attempt + 1,
+                    "attempt": attempt,
                     "modelName": candidate_model_name,
                     "providerName": candidate_selected_api.name,
                     "elapsedMs": chat_round_execution.log_parts.elapsed_ms,
@@ -2229,8 +2298,7 @@ async fn send_chat_message_inner(
             let _ = &chat_round_execution.log_parts;
             let request_finish_stage = format!(
                 "model_request.finish[candidate_api_id={},attempt={}]",
-                candidate_selected_api.id,
-                attempt + 1
+                candidate_selected_api.id, attempt
             );
             log_run_stage(&request_finish_stage);
 
@@ -2256,62 +2324,92 @@ async fn send_chat_message_inner(
                 continue 'dispatch;
             }
 
-            let (reason_text, final_error_text, allow_retry) = match chat_round_execution.result {
-                Ok(reply) => {
-                    let content_state = model_reply_content_state(&reply);
-                    match content_state {
-                        ModelReplyContentState::Visible => {
-                            active_selected_api = candidate_selected_api.clone();
-                            active_resolved_api = candidate_resolved_api.clone();
-                            model_reply = Some(reply);
-                            candidate_final_error = None;
-                            break;
-                        }
-                        ModelReplyContentState::ReasoningOnly => {
-                            runtime_log_warn(format!(
-                                "[聊天] 模型返回思考但缺少最终回答，按空回重试: conversation_id={}，api_config_id={}，model={}，attempt={}，activity_reasoning_len={}",
-                                conversation_id,
-                                candidate_selected_api.id,
-                                candidate_selected_api.model,
-                                attempt + 1,
-                                reply.activity_reasoning_text.chars().count()
-                            ));
-                            (
-                                "模型只返回了思维链但没有最终回答".to_string(),
-                                "模型只返回了思维链但没有最终回答，已停止重试；请稍后重试或切换模型。"
-                                    .to_string(),
-                                true,
-                            )
-                        }
-                        ModelReplyContentState::Empty => {
-                            runtime_log_warn(format!(
-                                "[聊天] 模型返回空响应，按空回重试: conversation_id={}，api_config_id={}，model={}，attempt={}",
-                                conversation_id,
-                                candidate_selected_api.id,
-                                candidate_selected_api.model,
-                                attempt + 1
-                            ));
-                            (
-                                "模型权限/套餐不支持（上游返回空响应）".to_string(),
-                                "模型权限/套餐不支持（上游返回空响应），已停止重试，请检查当前 API Key 是否支持该模型，或切换模型。"
-                                    .to_string(),
-                                true,
-                            )
-                        }
-                    }
+            // Visible 成功：随栈销毁即清零（RetryBudget为请求内局部变量，不跨请求）
+            if let Ok(reply) = &chat_round_execution.result {
+                if matches!(
+                    model_reply_content_state(reply),
+                    ModelReplyContentState::Visible
+                ) {
+                    active_selected_api = candidate_selected_api.clone();
+                    active_resolved_api = candidate_resolved_api.clone();
+                    model_reply = Some(reply.clone());
+                    candidate_final_error = None;
+                    break;
                 }
+            }
+
+            let retry_kind = classify_retry_kind_for_result(&chat_round_execution.result);
+            let (reason_text, final_error_text) = match &chat_round_execution.result {
+                Ok(reply) => match model_reply_content_state(reply) {
+                    ModelReplyContentState::ReasoningOnly => {
+                        runtime_log_warn(format!(
+                            "[聊天] 模型返回思考但缺少最终回答，按空回重试: conversation_id={}，api_config_id={}，model={}，attempt={}，activity_reasoning_len={}",
+                            conversation_id,
+                            candidate_selected_api.id,
+                            candidate_selected_api.model,
+                            attempt,
+                            reply.activity_reasoning_text.chars().count()
+                        ));
+                        (
+                            "模型只返回了思维链但没有最终回答".to_string(),
+                            "模型只返回了思维链但没有最终回答，已停止重试；请稍后重试或切换模型。"
+                                .to_string(),
+                        )
+                    }
+                    ModelReplyContentState::Empty => {
+                        runtime_log_warn(format!(
+                            "[聊天] 模型返回空响应，按空回重试: conversation_id={}，api_config_id={}，model={}，attempt={}",
+                            conversation_id,
+                            candidate_selected_api.id,
+                            candidate_selected_api.model,
+                            attempt
+                        ));
+                        (
+                            "模型权限/套餐不支持（上游返回空响应）".to_string(),
+                            "模型权限/套餐不支持（上游返回空响应），已停止重试，请检查当前 API Key 是否支持该模型，或切换模型。"
+                                .to_string(),
+                        )
+                    }
+                    ModelReplyContentState::Visible => unreachable!(),
+                },
                 Err(error) => {
-                    (
-                        "模型请求失败".to_string(),
-                        format!("模型请求失败，已停止重试：{error}"),
-                        false,
-                    )
+                    if retry_kind == RetryKind::RateLimited {
+                        runtime_log_warn(format!(
+                            "[聊天] 命中限流429，按限流重试: conversation_id={}，api_config_id={}，model={}，attempt={}，err={}",
+                            conversation_id, candidate_selected_api.id, candidate_selected_api.model, attempt, error
+                        ));
+                        (
+                            "请求过于频繁(429)".to_string(),
+                            format!("请求过于频繁(429)，已停止重试：{error}"),
+                        )
+                    } else {
+                        (
+                            "模型请求失败".to_string(),
+                            format!("模型请求失败，已停止重试：{error}"),
+                        )
+                    }
                 }
             };
 
-            if allow_retry && attempt < max_failure_retries {
-                let retry_index = attempt + 1;
-                let wait_seconds = FIXED_MODEL_RETRY_WAIT_SECONDS;
+            if let Some(wait) = retry_policy(retry_kind, &retry_budget) {
+                let (retry_index, max_for_kind, wait_seconds) = match retry_kind {
+                    RetryKind::Empty => (
+                        (retry_budget.empty_used + 1) as usize,
+                        MAX_EMPTY_RETRIES as usize,
+                        wait.as_secs(),
+                    ),
+                    RetryKind::RateLimited => (
+                        (retry_budget.rate_used + 1) as usize,
+                        MAX_RATE_RETRIES as usize,
+                        wait.as_secs(),
+                    ),
+                    RetryKind::NonRetryable => unreachable!(),
+                };
+                match retry_kind {
+                    RetryKind::Empty => retry_budget.empty_used += 1,
+                    RetryKind::RateLimited => retry_budget.rate_used += 1,
+                    RetryKind::NonRetryable => {}
+                }
                 let _ = on_delta.send(AssistantDeltaEvent {
                     delta: "".to_string(),
                     kind: Some("tool_status".to_string()),
@@ -2324,17 +2422,18 @@ async fn send_chat_message_inner(
                     tool_status: Some("running".to_string()),
                     tool_args: None,
                     message: Some(format!(
-                        "{reason_text}，正在重试 ({retry_index}/{max_failure_retries})，等待 {wait_seconds} 秒..."
+                        "{reason_text}，正在重试 ({retry_index}/{max_for_kind})，等待 {wait_seconds} 秒..."
                     )),
                     stream_cache: None,
                 });
-                tokio::time::sleep(std::time::Duration::from_secs(wait_seconds)).await;
+                tokio::time::sleep(wait).await;
                 continue;
             }
-            let total_attempts = max_failure_retries + 1;
+            let total_attempts = attempt;
             candidate_final_error = Some(format!(
                 "{final_error_text} (attempted {total_attempts} times)"
             ));
+            break;
         }
         if model_reply.is_some() {
             break;
@@ -4538,6 +4637,131 @@ mod core_send_inner_tests {
         assert_eq!(
             collect_payload_attachment_relative_paths(&payload),
             vec!["downloads/voice.mp3".to_string()]
+        );
+    }
+
+    #[test]
+    fn retry_state_should_classify_rate_limited_and_non_retryable() {
+        assert!(is_rate_limited_error("HTTP 429 rate limit"));
+        assert!(is_rate_limited_error("429 Too Many Requests"));
+        assert!(is_rate_limited_error("quota exceeded, please retry"));
+        assert!(is_rate_limited_error("rate_limit_exceeded"));
+        assert!(is_rate_limited_error("Rate Limit hit: 429"));
+        assert!(!is_rate_limited_error("404 Not Found"));
+        assert!(!is_rate_limited_error("401 Unauthorized"));
+        assert!(!is_rate_limited_error("model not found"));
+        assert!(!is_rate_limited_error("500 internal error"));
+        // 429 子串边界：1429 不应误判
+        assert!(!is_rate_limited_error("error code 1429"));
+        assert!(!is_rate_limited_error(""));
+
+        let empty_reply: Result<ModelReply, String> = Ok(test_model_reply("", "", ""));
+        assert_eq!(
+            classify_retry_kind_for_result(&empty_reply),
+            RetryKind::Empty
+        );
+        let reasoning_only: Result<ModelReply, String> =
+            Ok(test_model_reply("", "", "只有思维链"));
+        assert_eq!(
+            classify_retry_kind_for_result(&reasoning_only),
+            RetryKind::Empty
+        );
+        let visible: Result<ModelReply, String> = Ok(test_model_reply("正文", "", ""));
+        assert_eq!(
+            classify_retry_kind_for_result(&visible),
+            RetryKind::NonRetryable
+        );
+        let rate_err: Result<ModelReply, String> = Err("429 rate limit".to_string());
+        assert_eq!(
+            classify_retry_kind_for_result(&rate_err),
+            RetryKind::RateLimited
+        );
+        let not_found: Result<ModelReply, String> = Err("404 Not Found".to_string());
+        assert_eq!(
+            classify_retry_kind_for_result(&not_found),
+            RetryKind::NonRetryable
+        );
+    }
+
+    #[test]
+    fn retry_policy_should_be_independent_per_kind_and_linear() {
+        let mut budget = RetryBudget::default();
+        // Empty 独立 3 次
+        assert_eq!(
+            retry_policy(RetryKind::Empty, &budget),
+            Some(std::time::Duration::from_secs(WAIT_EMPTY_SECS))
+        );
+        budget.empty_used = 2;
+        assert_eq!(
+            retry_policy(RetryKind::Empty, &budget),
+            Some(std::time::Duration::from_secs(WAIT_EMPTY_SECS))
+        );
+        budget.empty_used = 3;
+        assert_eq!(retry_policy(RetryKind::Empty, &budget), None);
+
+        // RateLimited 独立 3 次，不受 Empty 影响
+        let mut budget2 = RetryBudget {
+            empty_used: 3,
+            rate_used: 0,
+        };
+        assert_eq!(
+            retry_policy(RetryKind::RateLimited, &budget2),
+            Some(std::time::Duration::from_secs(WAIT_RATE_SECS))
+        );
+        budget2.rate_used = 3;
+        assert_eq!(retry_policy(RetryKind::RateLimited, &budget2), None);
+
+        // 线性：混合序列各看各
+        let budget3 = RetryBudget {
+            empty_used: 1,
+            rate_used: 1,
+        };
+        assert_eq!(
+            retry_policy(RetryKind::Empty, &budget3),
+            Some(std::time::Duration::from_secs(WAIT_EMPTY_SECS))
+        );
+        assert_eq!(
+            retry_policy(RetryKind::RateLimited, &budget3),
+            Some(std::time::Duration::from_secs(WAIT_RATE_SECS))
+        );
+
+        // NonRetryable 永远不重试
+        assert_eq!(
+            retry_policy(RetryKind::NonRetryable, &RetryBudget::default()),
+            None
+        );
+        assert_eq!(
+            retry_policy(RetryKind::NonRetryable, &budget3),
+            None
+        );
+    }
+
+    #[test]
+    fn retry_budget_should_reset_on_success_via_new_request_scope() {
+        // 成功清零 = 请求内局部变量随栈销毁；用“新请求从0开始”来验证语义
+        let budget_after_success = RetryBudget::default();
+        assert_eq!(budget_after_success.empty_used, 0);
+        assert_eq!(budget_after_success.rate_used, 0);
+        assert_eq!(
+            retry_policy(RetryKind::Empty, &budget_after_success),
+            Some(std::time::Duration::from_secs(WAIT_EMPTY_SECS))
+        );
+        assert_eq!(
+            retry_policy(RetryKind::RateLimited, &budget_after_success),
+            Some(std::time::Duration::from_secs(WAIT_RATE_SECS))
+        );
+
+        // 已耗尽的预算在新请求里应重新可用
+        let exhausted = RetryBudget {
+            empty_used: MAX_EMPTY_RETRIES,
+            rate_used: MAX_RATE_RETRIES,
+        };
+        assert_eq!(retry_policy(RetryKind::Empty, &exhausted), None);
+        assert_eq!(retry_policy(RetryKind::RateLimited, &exhausted), None);
+        let fresh = RetryBudget::default();
+        assert_eq!(
+            retry_policy(RetryKind::Empty, &fresh),
+            Some(std::time::Duration::from_secs(WAIT_EMPTY_SECS))
         );
     }
 
