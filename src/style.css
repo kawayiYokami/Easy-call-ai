@@ -82,6 +82,39 @@
     dim;
 }
 
+/* 浅色主题定制：base200 #F2F2F2，base300 按 100-200 等距下沉，主题色 #2878F4，次要色 #2CB0B1，其余按常用搭配 */
+[data-theme="light"] {
+  color-scheme: light;
+  --color-base-100: #ffffff;
+  --color-base-200: #f2f2f2;
+  --color-base-300: #e8e8e8;
+  --color-base-content: #1e293b;
+  --color-primary: #2878f4;
+  --color-primary-content: #ffffff;
+  --color-secondary: #2cb0b1;
+  --color-secondary-content: #ffffff;
+  --color-accent: #7c5cff;
+  --color-accent-content: #ffffff;
+  --color-neutral: #1f2937;
+  --color-neutral-content: #f8fafc;
+  --color-info: #0ea5e9;
+  --color-info-content: #ffffff;
+  --color-success: #10b981;
+  --color-success-content: #ffffff;
+  --color-warning: #f59e0b;
+  --color-warning-content: #1f2937;
+  --color-error: #ef4444;
+  --color-error-content: #ffffff;
+  --radius-selector: 0.5rem;
+  --radius-field: 0.5rem;
+  --radius-box: 0.75rem;
+  --size-selector: 0.25rem;
+  --size-field: 0.25rem;
+  --border: 1px;
+  --depth: 0;
+  --noise: 0;
+}
+
 html,
 body,
 #app {
