@@ -1633,7 +1633,18 @@ function handleModelCardSyncMetadata(group: DraftModelGroup) {
   void syncModelMetadata(group);
 }
 
-async function syncModelMetadata(group: DraftModelGroup) {
+// 在途元数据同步登记：保存前需要等它们全部落完，避免 clamp/自动勾选发生在快照之后造成 dirty 反弹
+const pendingMetadataSyncs = new Set<Promise<void>>();
+
+function syncModelMetadata(group: DraftModelGroup): Promise<void> {
+  const task = runModelMetadataSync(group).finally(() => {
+    pendingMetadataSyncs.delete(task);
+  });
+  pendingMetadataSyncs.add(task);
+  return task;
+}
+
+async function runModelMetadataSync(group: DraftModelGroup) {
   const provider = selectedProvider.value;
   const modelCard = group.primary;
   const model = String(modelCard.model || "").trim();
@@ -1855,6 +1866,10 @@ async function openProviderSite(preset: ProviderPreset) {
 async function handleSaveApiConfig() {
   const provider = selectedProvider.value;
   if (provider) {
+    // 先等在途的模型元数据同步落完，再写回草稿，保证保存的快照就是最终形态
+    if (pendingMetadataSyncs.size > 0) {
+      await Promise.all([...pendingMetadataSyncs]);
+    }
     // 基于草稿组检查空模型，失败时不碰 config 本体
     const hasEmptyModel = draftModelGroups.value.some(
       (group) => !String(group.primary.model || "").trim(),
