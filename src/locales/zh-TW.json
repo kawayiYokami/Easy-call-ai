@@ -1535,7 +1535,7 @@
       "executingTool": "正在執行 {name} 中",
       "runningTool": "工具",
       "thinking": "思考中",
-      "requesting": "思考中",
+      "requesting": "請求中",
       "notThought": "未思考",
       "thinkingAndTools": "思考與工具",
       "toolDone": "工具執行畢",

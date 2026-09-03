@@ -913,7 +913,9 @@ function toolCallsForBlock(block: ChatMessageBlock): Array<{ name: string; argsT
 
 function showActivityPanel(block: ChatMessageBlock): boolean {
   if (isOwnMessage(block)) return false;
-  return !!block.activityRunning || block.activityItems.some((item) => hasExpandableActivityItem(item));
+  // 流式空档（isStreaming && running 但尚无首段 reasoning/tool）不提前挂载下面板；
+  // 调度阶段仅由上面一行 transient 状态承接，避免"还没调度下面就在思考中"的抢跑观感。
+  return block.activityItems.some((item) => hasExpandableActivityItem(item));
 }
 
 function showActivitySummary(block: ChatMessageBlock): boolean {
