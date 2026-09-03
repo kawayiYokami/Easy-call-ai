@@ -505,6 +505,14 @@ function reduceStreamSnapshot(
     : (Object.prototype.hasOwnProperty.call(snapshot, "preStreamingStatusText")
       ? String(snapshot.preStreamingStatusText || "")
       : String(meta._preStreamingStatusText || ""));
+  const schedulingState = typeof snapshot.schedulingState === "string"
+    ? String(snapshot.schedulingState || "").trim()
+    : String((meta as Record<string, unknown>)._schedulingState || "").trim();
+  const contextUsagePercent = typeof snapshot.contextUsagePercent === "number"
+    ? snapshot.contextUsagePercent
+    : (typeof (meta as Record<string, unknown>)._contextUsagePercent === "number"
+      ? (meta as Record<string, unknown>)._contextUsagePercent as number
+      : undefined);
   const nextMessage = preserveStableRenderId({
     ...existing,
     speakerAgentId: normalized(snapshot.speakerAgentId || snapshot.agentId) || existing.speakerAgentId,
@@ -515,6 +523,8 @@ function reduceStreamSnapshot(
       _preStreamingStatusText: preStreamingStatusText,
       _toolStatusText: toolStatusText,
       _toolStatusState: toolStatusState,
+      _schedulingState: schedulingState,
+      _contextUsagePercent: contextUsagePercent,
       _frontendDispatchStartedAtMs: positiveInteger(
         snapshot.frontendDispatchStartedAtMs || meta._frontendDispatchStartedAtMs,
       ),
@@ -584,18 +594,29 @@ function reduceAssistantDelta(
   let blocks = assistantContentBlocksFromMessage(existing);
   let toolStatusText = normalized(meta._toolStatusText);
   let toolStatusState = normalizeToolStatus(meta._toolStatusState);
+  let schedulingState = String((meta as Record<string, unknown>)._schedulingState || "").trim();
 
   if (kind === "tool_status") {
     toolStatusText = String(deltaEvent.message || "");
     toolStatusState = normalizeToolStatus(deltaEvent.toolStatus);
+    const msg = toolStatusText;
+    if (toolStatusState === "running") {
+      if (msg.includes("正在调用工具")) schedulingState = "executing_tool";
+      else if (msg.includes("正在进入模型请求") || msg.includes("等待回应") || msg.includes("等待响应")) schedulingState = "waiting_response";
+      else if (msg.includes("正在准备调度") || msg.includes("正在处理附件") || msg.includes("上下文")) schedulingState = "preparing_context";
+    }
   } else if (kind === "assistant_tool_event") {
     blocks = applyAssistantToolEventToStreamBlocks(blocks, deltaEvent.message);
+    schedulingState = "streaming_tool";
   } else if (kind === "assistant_tool_result") {
     blocks = applyAssistantToolResultToStreamBlocks(blocks, deltaEvent.message);
+    schedulingState = "executing_tool";
   } else if (kind === "activity_reasoning_delta") {
     if (delta) blocks = appendReasoningDeltaToStreamBlocks(blocks, delta);
+    if (delta) schedulingState = "streaming_reasoning";
   } else if (delta) {
     blocks = appendTextDeltaToStreamBlocks(blocks, delta);
+    if (delta.trim()) schedulingState = "streaming_text";
   }
 
   const hasVisibleContent = blocks.length > 0 || !!assistantTextFromStreamBlocks(blocks).trim();
@@ -608,6 +629,7 @@ function reduceAssistantDelta(
       _preStreamingStatusText: hasVisibleContent ? "" : normalized(meta._preStreamingStatusText),
       _toolStatusText: toolStatusText,
       _toolStatusState: toolStatusState,
+      _schedulingState: schedulingState,
     },
   }, existing);
   return {

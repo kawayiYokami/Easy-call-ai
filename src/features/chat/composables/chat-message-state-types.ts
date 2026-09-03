@@ -41,6 +41,7 @@ export type ChatMessageStreamSnapshot = {
   contextUsagePercent?: number;
   effectivePromptTokens?: number;
   contextWindowTokens?: number;
+  schedulingState?: string;
 };
 
 export type ChatAssistantDelta = {

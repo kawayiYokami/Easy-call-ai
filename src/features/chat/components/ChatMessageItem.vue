@@ -802,12 +802,43 @@ function showStreamingUi(block: ChatMessageBlock): boolean {
 
 function normalizedStreamingPhaseLabel(block: ChatMessageBlock): string {
   const providerMeta = (block.providerMeta || {}) as Record<string, unknown>;
+  const schedulingState = String((providerMeta as Record<string, unknown>)._schedulingState || "").trim();
+  const rawContextPercent = (providerMeta as Record<string, unknown>)._contextUsagePercent;
+  const contextUsagePercent = typeof rawContextPercent === "number"
+    ? rawContextPercent
+    : Number.parseInt(String(rawContextPercent || "").trim(), 10);
+  const withWater = (text: string): string => {
+    if (schedulingState === "waiting_response" && Number.isFinite(contextUsagePercent) && contextUsagePercent > 0) {
+      return `${text}（${contextUsagePercent}%）`;
+    }
+    return text;
+  };
+  if (schedulingState) {
+    switch (schedulingState) {
+      case "preparing_context":
+        return withWater(t("chat.statusPreparingMessage"));
+      case "waiting_response":
+        return withWater(t("chat.statusWaitingReply"));
+      case "streaming_reasoning":
+        return t("chat.statusThinking");
+      case "streaming_text":
+        return t("chat.statusTypingBody");
+      case "streaming_tool":
+        return t("chat.statusGeneratingTools");
+      case "executing_tool":
+        return t("chat.statusGeneratingTools");
+      case "idle":
+        return "";
+      default:
+        break;
+    }
+  }
+  // Fallback：旧后端无 schedulingState 时，仅读 tool_status，不再以 hasReasoning -> 已阅读消息 推断
   const preStreamingStatusText = String(providerMeta._preStreamingStatusText || "").trim();
   const toolStatusText = String(providerMeta._toolStatusText || "").trim();
   const toolStatusState = String(providerMeta._toolStatusState || "").trim();
-  const hasSpeechContent = hasStreamingSpeechContent(block);
   const doingTool = toolCallsForBlock(block).some((call) => call.status === "doing");
-  const hasReasoning = block.activityStatus === "thinking" || block.activityReasoningCharCount > 0;
+  const hasSpeechContent = hasStreamingSpeechContent(block);
 
   const normalizeRequestPhaseText = (text: string): string => {
     if (!text) return "";
@@ -816,6 +847,7 @@ function normalizedStreamingPhaseLabel(block: ChatMessageBlock): string {
     }
     if (
       text.includes("等待回应")
+      || text.includes("等待响应")
       || text.includes("进入模型请求阶段")
       || text.includes("重新开始当前调度")
       || text.includes("重新发起")
@@ -832,9 +864,6 @@ function normalizedStreamingPhaseLabel(block: ChatMessageBlock): string {
   }
   if (hasSpeechContent) {
     return t("chat.statusTypingBody");
-  }
-  if (hasReasoning) {
-    return t("chat.statusReadMessage");
   }
   if (toolStatusState === "running") {
     const requestPhase = normalizeRequestPhaseText(toolStatusText);
@@ -913,8 +942,17 @@ function toolCallsForBlock(block: ChatMessageBlock): Array<{ name: string; argsT
 
 function showActivityPanel(block: ChatMessageBlock): boolean {
   if (isOwnMessage(block)) return false;
-  // 流式空档（isStreaming && running 但尚无首段 reasoning/tool）不提前挂载下面板；
-  // 调度阶段仅由上面一行 transient 状态承接，避免"还没调度下面就在思考中"的抢跑观感。
+  const streamBlocks = assistantContentBlocksFromMessage(block);
+  if (streamBlocks.length > 0) {
+    const hasTrueContent = streamBlocks.some((b) => {
+      if (String(b.reasoning || "").trim()) return true;
+      if (Array.isArray(b.tools) && b.tools.some((t) => String(t.name || t.argsText || t.resultText || "").trim())) return true;
+      return false;
+    });
+    if (hasTrueContent) return true;
+    // 真块为空或仅纯文本时不抢跑，调度阶段仅由上面一行承接
+    return false;
+  }
   return block.activityItems.some((item) => hasExpandableActivityItem(item));
 }
 

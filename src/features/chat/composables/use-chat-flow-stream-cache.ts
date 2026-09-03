@@ -53,6 +53,7 @@ export type ConversationRuntimeStreamCacheSnapshot = {
   contextUsagePercent?: number;
   effectivePromptTokens?: number;
   contextWindowTokens?: number;
+  schedulingState?: string;
 };
 
 type UseChatFlowStreamCacheOptions = {

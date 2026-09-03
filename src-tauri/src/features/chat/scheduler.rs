@@ -197,6 +197,8 @@ pub(crate) struct ConversationStreamRuntimeCacheSnapshot {
     pub context_usage_percent: u32,
     pub effective_prompt_tokens: u64,
     pub context_window_tokens: u32,
+    #[serde(default)]
+    pub scheduling_state: String,
 }
 
 const CHAT_QUEUE_SNAPSHOT_EVENT: &str = "easy-call:chat-queue-snapshot";

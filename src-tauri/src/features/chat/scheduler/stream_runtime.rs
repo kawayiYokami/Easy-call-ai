@@ -551,6 +551,7 @@ mod scheduler_stream_block_tests {
             context_usage_percent: 0,
             effective_prompt_tokens: 0,
             context_window_tokens: 0,
+            scheduling_state: "idle".to_string(),
         }
     }
 
@@ -895,6 +896,7 @@ fn reset_conversation_stream_runtime_cache(
         started_at: started_at.trim().to_string(),
         started_at_ms,
         updated_at: started_at.trim().to_string(),
+        scheduling_state: "preparing_context".to_string(),
         ..ConversationStreamRuntimeCache::default()
     };
     Ok(())
@@ -926,7 +928,9 @@ fn clear_conversation_stream_runtime_cache(
 ) -> Result<(), String> {
     let mut slots = lock_conversation_runtime_slots(state)?;
     if let Some(slot) = slots.get_mut(conversation_id.trim()) {
-        slot.stream_cache = ConversationStreamRuntimeCache::default();
+        let mut cleared = ConversationStreamRuntimeCache::default();
+        cleared.scheduling_state = "idle".to_string();
+        slot.stream_cache = cleared;
     }
     Ok(())
 }
@@ -953,6 +957,7 @@ fn conversation_stream_runtime_cache_snapshot(
         context_usage_percent: stream_cache.context_usage_percent,
         effective_prompt_tokens: stream_cache.effective_prompt_tokens,
         context_window_tokens: stream_cache.context_window_tokens,
+        scheduling_state: stream_cache.scheduling_state.clone(),
     }
 }
 
@@ -1040,6 +1045,7 @@ fn update_conversation_stream_runtime_cache(
     {
         cache.request_id = value.to_string();
     }
+    let previous_scheduling_state = cache.scheduling_state.clone();
     match event.kind.as_deref() {
         Some("tool_status") => {
             // tool_status 是调度层信号，服务头像右侧/运行态提示；气泡与持久化只读取 stream_blocks。
@@ -1049,26 +1055,51 @@ fn update_conversation_stream_runtime_cache(
                 "running" | "done" | "failed" => tool_status.to_string(),
                 _ => String::new(),
             };
+            // 7步闭环调度枚举：tool_status 文案决定 preparing/waiting/executing
+            let msg = cache.tool_status_text.trim().to_string();
+            if tool_status == "running" {
+                if msg.contains("正在调用工具") {
+                    cache.scheduling_state = "executing_tool".to_string();
+                } else if msg.contains("正在进入模型请求") || msg.contains("等待回应") || msg.contains("等待响应") {
+                    cache.scheduling_state = "waiting_response".to_string();
+                } else if msg.contains("正在准备调度") || msg.contains("正在处理附件") || msg.contains("上下文") {
+                    cache.scheduling_state = "preparing_context".to_string();
+                } else if cache.scheduling_state.is_empty() || cache.scheduling_state == "idle" {
+                    cache.scheduling_state = "preparing_context".to_string();
+                }
+            } else if tool_status == "done" || tool_status == "failed" {
+                // 工具执行结束仍保留 executing_tool，直到下一轮覆盖或 round_completed 清理为 idle
+                if cache.scheduling_state != "executing_tool" && msg.contains("工具") {
+                    cache.scheduling_state = "executing_tool".to_string();
+                }
+            }
         }
         Some("activity_reasoning_delta") => {
             cache.activity_reasoning_text.push_str(&event.delta);
             append_stream_reasoning_block(cache, &event.delta);
+            cache.scheduling_state = "streaming_reasoning".to_string();
         }
         Some("assistant_tool_event") => {
             apply_assistant_tool_event_to_stream_blocks(
                 cache,
                 event.message.as_deref().unwrap_or_default(),
             );
+            cache.scheduling_state = "streaming_tool".to_string();
         }
         Some("assistant_tool_result") => {
             apply_tool_result_to_stream_blocks(
                 cache,
                 event.message.as_deref().unwrap_or_default(),
             );
+            // 工具结果到达仍处于执行阶段，直到下一轮准备上下文覆盖
+            cache.scheduling_state = "executing_tool".to_string();
         }
         _ => {
             cache.assistant_text.push_str(&event.delta);
             append_stream_text_block(cache, &event.delta);
+            if !event.delta.trim().is_empty() {
+                cache.scheduling_state = "streaming_text".to_string();
+            }
         }
     }
     cache.updated_at = now_iso();
@@ -1077,7 +1108,9 @@ fn update_conversation_stream_runtime_cache(
     // 快照的 assistantText 为空会把正文覆盖成空白；无 streamCache 时前端才走
     // 增量渲染逐字累积。后端缓存照常全量更新，恢复查询仍拿完整快照。
     // 低频关键事件（工具三兄弟）仍下发完整快照做权威校正。
-    if should_use_slim_stream_cache_snapshot(event.kind.as_deref()) {
+    // 但调度状态首次切换（waiting -> streaming_*）必须立即推送，否则前端上面一行会卡在 waiting。
+    let scheduling_changed = previous_scheduling_state != cache.scheduling_state;
+    if should_use_slim_stream_cache_snapshot(event.kind.as_deref()) && !scheduling_changed {
         return Ok(None);
     }
     let snapshot = conversation_stream_runtime_cache_snapshot(cache.clone());

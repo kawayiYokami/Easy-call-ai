@@ -574,6 +574,9 @@ struct ConversationStreamRuntimeCache {
     context_usage_percent: u32,
     effective_prompt_tokens: u64,
     context_window_tokens: u32,
+    // 调度状态唯一信源：7 步闭环枚举（preparing_context -> waiting_response -> streaming_reasoning/text/tool -> executing_tool -> idle），随快照原样推送，前端只读。
+    #[allow(dead_code)]
+    scheduling_state: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]

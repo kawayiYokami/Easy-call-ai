@@ -72,6 +72,7 @@ export function transportAssistantDeltaToMessageEvent(
         contextUsagePercent: typeof streamCache.contextUsagePercent === "number" ? streamCache.contextUsagePercent : undefined,
         effectivePromptTokens: Math.max(0, Math.round(Number(streamCache.effectivePromptTokens) || 0)) || undefined,
         contextWindowTokens: Math.max(0, Math.round(Number(streamCache.contextWindowTokens) || 0)) || undefined,
+        schedulingState: normalized((streamCache as Record<string, unknown>).schedulingState) || undefined,
       } : undefined,
     },
   };
