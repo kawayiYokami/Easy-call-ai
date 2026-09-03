@@ -1,12 +1,13 @@
 <template>
-  <dialog
-    ref="dialogRef"
-    class="modal"
-    :open="open"
-    @close="onDialogClose"
-    @cancel.prevent="onDialogClose"
-    @keydown.esc.prevent="onDialogClose"
-  >
+  <Teleport to="body">
+    <dialog
+      ref="dialogRef"
+      class="modal"
+      :open="open"
+      @close="onDialogClose"
+      @cancel.prevent="onDialogClose"
+      @keydown.esc.prevent="onDialogClose"
+    >
     <div
       class="modal-box flex h-[92vh] max-h-[92vh] w-[92vw] max-w-[92vw] flex-col overflow-hidden p-0"
     >
@@ -176,6 +177,7 @@
       <button @click.prevent="onDialogClose">close</button>
     </form>
   </dialog>
+  </Teleport>
 </template>
 
 <script setup lang="ts">
