@@ -1,7 +1,12 @@
 {
-  "generatedAt": "2026-09-03T16:13:19.760Z",
-  "latestVersion": "v0.81.1",
+  "generatedAt": "2026-09-03T17:03:38.689Z",
+  "latestVersion": "v0.81.2",
   "releases": [
+    {
+      "version": "v0.81.2",
+      "path": "docs/changelog/releases/v0.81.2.md",
+      "summary": "流式回复的空档期不再让思考面板抢跑：调度状态文案区分为\"请求中\"与\"思考中\"，等待调度时只在上方显示一行请求状态，不再弹出空的思考/工具面板。"
+    },
     {
       "version": "v0.81.1",
       "path": "docs/changelog/releases/v0.81.1.md",
