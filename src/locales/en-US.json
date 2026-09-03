@@ -1701,7 +1701,7 @@
       "thinking": "Thinking",
       "requesting": "Requesting",
       "notThought": "No thinking",
-      "thinkingAndTools": "Thinking & Tools",
+      "thinkingAndTools": "Reasoning & Execution",
       "toolDone": "Tool done",
       "toolRunning": "Tool running",
       "durationDays": "{days}d{hours}h{minutes}m{seconds}s",

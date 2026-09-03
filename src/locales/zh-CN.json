@@ -1541,7 +1541,7 @@
       "thinking": "思考中",
       "requesting": "请求中",
       "notThought": "未思考",
-      "thinkingAndTools": "思考与工具",
+      "thinkingAndTools": "思考与执行",
       "toolDone": "工具执行毕",
       "toolRunning": "工具执行中",
       "durationDays": "{days}天{hours}小时{minutes}分{seconds}秒",

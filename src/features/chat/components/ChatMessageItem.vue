@@ -1003,9 +1003,7 @@ function activityReasoningCountLabel(block: ChatMessageBlock): string {
 }
 
 function activityStatusText(block: ChatMessageBlock): string {
-  if (block.activityStatus === "running_tool") return t('chat.messageItem.runningTool');
-  if (block.activityStatus === "thinking") return t('chat.messageItem.thinking');
-  if (block.activityStatus === "requesting") return t('chat.messageItem.requesting');
+  void block;
   return t('chat.messageItem.thinkingAndTools');
 }
 
