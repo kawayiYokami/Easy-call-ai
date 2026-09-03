@@ -65,8 +65,8 @@
           <input
             class="range range-secondary w-full"
             type="range"
-            min="10"
-            max="100"
+            min="1"
+            max="30"
             step="1"
             :value="props.controls.contrast"
             @input="patchSlider('contrast', $event)"

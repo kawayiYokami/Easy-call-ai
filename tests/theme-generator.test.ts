@@ -124,12 +124,14 @@ describe("theme generator", () => {
     const muted = generateGeneratedThemeTokens({
       ...DEFAULT_GENERATED_THEME_CONTROLS,
       mode: "light",
+      tint: 100,
       tone: 30,
       themeHue: 60,
     });
     const vivid = generateGeneratedThemeTokens({
       ...DEFAULT_GENERATED_THEME_CONTROLS,
       mode: "light",
+      tint: 100,
       tone: 100,
       themeHue: 60,
     });
@@ -179,7 +181,7 @@ describe("theme generator", () => {
     expect(highSpread).toBeGreaterThan(lowSpread);
   });
 
-  it("keeps at least a 10% lightness gap in light mode when contrast is enabled", () => {
+  it("keeps a small lightness gap in light mode at minimum contrast", () => {
     const tokens = generateGeneratedThemeTokens({
       ...DEFAULT_GENERATED_THEME_CONTROLS,
       mode: "light",
@@ -187,10 +189,12 @@ describe("theme generator", () => {
       contrast: 1,
     });
 
-    expect(readLightness(tokens.base100) - readLightness(tokens.base300)).toBeGreaterThanOrEqual(10);
+    const gap = readLightness(tokens.base100) - readLightness(tokens.base300);
+    expect(gap).toBeGreaterThanOrEqual(1);
+    expect(gap).toBeLessThan(3);
   });
 
-  it("keeps at least a 10% lightness gap in dark mode when contrast is enabled", () => {
+  it("keeps a small lightness gap in dark mode at minimum contrast", () => {
     const tokens = generateGeneratedThemeTokens({
       ...DEFAULT_GENERATED_THEME_CONTROLS,
       mode: "dark",
@@ -198,7 +202,9 @@ describe("theme generator", () => {
       contrast: 1,
     });
 
-    expect(readLightness(tokens.base100) - readLightness(tokens.base300)).toBeGreaterThanOrEqual(10);
+    const gap = readLightness(tokens.base100) - readLightness(tokens.base300);
+    expect(gap).toBeGreaterThanOrEqual(1);
+    expect(gap).toBeLessThan(3);
   });
 
   it("pushes light-mode base300 toward 50% lightness at max contrast", () => {

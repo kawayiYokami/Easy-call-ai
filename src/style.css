@@ -65,20 +65,14 @@
     light --default,
     dark --prefersdark,
     cupcake,
-    emerald,
     corporate,
     halloween,
-    garden,
     forest,
     lofi,
     fantasy,
-    luxury,
     dracula,
     autumn,
     business,
-    night,
-    coffee,
-    winter,
     dim;
 }
 
@@ -89,9 +83,9 @@
   --color-base-200: #f2f2f2;
   --color-base-300: #e8e8e8;
   --color-base-content: #1e293b;
-  --color-primary: #2878f4;
+  --color-primary: #1d5cc2;
   --color-primary-content: #ffffff;
-  --color-secondary: #2cb0b1;
+  --color-secondary: #219090;
   --color-secondary-content: #ffffff;
   --color-accent: #7c5cff;
   --color-accent-content: #ffffff;
@@ -105,9 +99,41 @@
   --color-warning-content: #1f2937;
   --color-error: #ef4444;
   --color-error-content: #ffffff;
-  --radius-selector: 0.5rem;
-  --radius-field: 0.5rem;
-  --radius-box: 0.75rem;
+  --radius-selector: 1rem;
+  --radius-field: 1rem;
+  --radius-box: 1rem;
+  --size-selector: 0.25rem;
+  --size-field: 0.25rem;
+  --border: 1px;
+  --depth: 0;
+  --noise: 0;
+}
+
+[data-theme="dark"] {
+  color-scheme: dark;
+  --color-base-100: #2b2b2b;
+  --color-base-200: #202020;
+  --color-base-300: #1c1c1c;
+  --color-base-content: #ffffff;
+  --color-primary: #1d5cc2;
+  --color-primary-content: #ffffff;
+  --color-secondary: #219090;
+  --color-secondary-content: #ffffff;
+  --color-accent: #7c5cff;
+  --color-accent-content: #ffffff;
+  --color-neutral: #2a3441;
+  --color-neutral-content: #ffffff;
+  --color-info: #0ea5e9;
+  --color-info-content: #ffffff;
+  --color-success: #10b981;
+  --color-success-content: #ffffff;
+  --color-warning: #f59e0b;
+  --color-warning-content: #1f2937;
+  --color-error: #ef4444;
+  --color-error-content: #ffffff;
+  --radius-selector: 1rem;
+  --radius-field: 1rem;
+  --radius-box: 1rem;
   --size-selector: 0.25rem;
   --size-field: 0.25rem;
   --border: 1px;

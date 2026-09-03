@@ -53,11 +53,11 @@ export const GENERATED_THEME_DARK_ID = "generated-dark";
 export const LIGHT_GENERATED_THEME_CONTROLS: GeneratedThemeControls = {
   mode: "light",
   themeHue: 250,
-  contrast: 10,
+  contrast: 3,
   brightness: 100,
   tint: 0,
-  tone: 90,
-  textStrength: 88,
+  tone: 80,
+  textStrength: 100,
   radius: 16,
   depthEnabled: false,
   noiseEnabled: false,
@@ -65,12 +65,12 @@ export const LIGHT_GENERATED_THEME_CONTROLS: GeneratedThemeControls = {
 
 export const DARK_GENERATED_THEME_CONTROLS: GeneratedThemeControls = {
   mode: "dark",
-  themeHue: 300,
-  contrast: 10,
-  brightness: 25,
-  tint: 100,
-  tone: 90,
-  textStrength: 88,
+  themeHue: 250,
+  contrast: 12,
+  brightness: 40,
+  tint: 0,
+  tone: 80,
+  textStrength: 100,
   radius: 16,
   depthEnabled: false,
   noiseEnabled: false,
@@ -89,7 +89,7 @@ export function getGeneratedThemeDefaultControls(mode: ThemeMode): GeneratedThem
 const LEGACY_GENERATED_THEME_CONTROLS: GeneratedThemeControls = {
   mode: "dark",
   themeHue: 230,
-  contrast: 56,
+  contrast: 17,
   brightness: 52,
   tint: 100,
   tone: 58,
@@ -231,16 +231,9 @@ function moveLightnessTowardTarget(
   baseLightness: number,
   targetLightness: number,
   contrastFactor: number,
-  minimumDelta = 0.1,
 ): number {
-  const delta = targetLightness - baseLightness;
-  const distance = Math.abs(delta);
-  if (distance === 0 || contrastFactor <= 0) {
-    return baseLightness;
-  }
-  const minimumFactor = clamp(minimumDelta / distance, 0, 1);
-  const effectiveFactor = Math.max(contrastFactor, minimumFactor);
-  return baseLightness + delta * effectiveFactor;
+  if (contrastFactor <= 0) return baseLightness;
+  return baseLightness + (targetLightness - baseLightness) * clamp(contrastFactor, 0, 1);
 }
 
 function nearestHueDistance(left: number, right: number): number {
@@ -273,11 +266,17 @@ export function normalizeGeneratedThemeControls(
   return {
     mode: input?.mode === "light" ? "light" : "dark",
     themeHue: normalizedThemeHue === 0 ? 360 : clamp(normalizedThemeHue, 1, 360),
-    contrast: clamp(
-      Math.round(normalizePercent(Number(input?.contrast ?? fallbackControls.contrast ?? legacyControls.contrast))),
-      10,
-      100,
-    ),
+    contrast: (() => {
+      const raw = Number(input?.contrast ?? fallbackControls.contrast ?? legacyControls.contrast);
+      const fallback = fallbackControls.contrast;
+      if (!Number.isFinite(raw)) return clamp(Math.round(fallback), 1, 30);
+      if (raw > 30) {
+        // 迁移旧值 10~100 -> 1~30，保持对比度比例
+        const scaled = Math.round((clamp(raw, 10, 100) / 100) * 30);
+        return clamp(scaled, 1, 30);
+      }
+      return clamp(Math.round(raw), 1, 30);
+    })(),
     brightness: Math.round(
       normalizePercent(Number(input?.brightness ?? fallbackControls.brightness ?? legacyControls.brightness)),
     ),
@@ -349,7 +348,7 @@ function buildRoleColor(
 export function generateGeneratedThemeTokens(controlsInput: GeneratedThemeControls): GeneratedThemeTokens {
   const controls = normalizeGeneratedThemeControls(controlsInput);
   const toneFactor = controls.tone / 100;
-  const contrastFactor = controls.contrast / 100;
+  const contrastFactor = controls.contrast / 30;
   const brightnessFactor = controls.brightness / 100;
   const tintFactor = controls.tint / 100;
 
