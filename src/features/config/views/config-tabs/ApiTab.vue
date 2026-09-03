@@ -121,6 +121,7 @@
         :model-value="selectedProvider.apiKeys"
         :connection-test-key-status="connectionTestKeyStatus"
         @update:model-value="updateSelectedApiKeys"
+        @click-status="handleConnectionStatusDotClick"
       />
 
       <CodexProviderPanel
@@ -398,6 +399,22 @@ const connectionTestFirstKeyRunning = ref(false);
 const connectionTestAllKeysRunning = ref(false);
 const connectionTestResults = ref<ConnectionTestResultItem[]>([]);
 const connectionTestKeyStatus = ref<Record<string, { status: "success" | "failed"; latencyMs?: number; error?: string }>>({});
+
+function reportConnectionStatusToBar(apiKey: string, status: { status: "success" | "failed"; latencyMs?: number; error?: string }) {
+  const preview = maskKeyPreview(apiKey);
+  const detail = status.status === "success"
+    ? t("config.api.testConnectionSuccess", { latency: status.latencyMs })
+    : t("config.api.testConnectionFailed", { error: status.error });
+  props.setStatusAction(`${preview} ${detail}`);
+}
+
+function handleConnectionStatusDotClick(apiKey: string) {
+  const key = apiKey.trim();
+  if (!key) return;
+  const st = connectionTestKeyStatus.value[key];
+  if (!st) return;
+  reportConnectionStatusToBar(key, st);
+}
 const capabilityTabs = computed<Array<{ id: ApiTopTab; label: string }>>(() => [
   { id: "text", label: t("config.api.capabilityText") },
   { id: "voice", label: t("config.api.capabilityVoice") },
@@ -1972,7 +1989,9 @@ async function runConnectionTestFirstKey() {
   if (!provider) return;
   const apiKey = (provider.apiKeys || []).find((k) => k.trim()) ?? "";
   if (!apiKey.trim()) {
-    connectionTestResults.value = [{ keyPreview: "-", success: false, error: "API key is empty" }];
+    const errText = "API key is empty";
+    connectionTestResults.value = [{ keyPreview: "-", success: false, error: errText }];
+    props.setStatusAction(t("config.api.testConnectionFailed", { error: errText }));
     return;
   }
   connectionTestFirstKeyRunning.value = true;
@@ -1981,7 +2000,9 @@ async function runConnectionTestFirstKey() {
   try {
     const result = await runSingleConnectionTest(apiKey);
     connectionTestResults.value = [result];
-    connectionTestKeyStatus.value = { [apiKey.trim()]: result.success ? { status: "success", latencyMs: result.latencyMs } : { status: "failed", error: result.error } };
+    const status = result.success ? { status: "success" as const, latencyMs: result.latencyMs } : { status: "failed" as const, error: result.error };
+    connectionTestKeyStatus.value = { [apiKey.trim()]: status };
+    reportConnectionStatusToBar(apiKey, status);
   } finally {
     connectionTestFirstKeyRunning.value = false;
   }
@@ -1992,7 +2013,9 @@ async function runConnectionTestAllKeys() {
   if (!provider) return;
   const keys = (provider.apiKeys || []).filter((k) => k.trim());
   if (keys.length === 0) {
-    connectionTestResults.value = [{ keyPreview: "-", success: false, error: "API key is empty" }];
+    const errText = "API key is empty";
+    connectionTestResults.value = [{ keyPreview: "-", success: false, error: errText }];
+    props.setStatusAction(t("config.api.testConnectionFailed", { error: errText }));
     return;
   }
   connectionTestAllKeysRunning.value = true;
@@ -2005,7 +2028,11 @@ async function runConnectionTestAllKeys() {
       results.push(result);
       connectionTestResults.value = [...results];
       connectionTestKeyStatus.value = { ...connectionTestKeyStatus.value, [key.trim()]: result.success ? { status: "success", latencyMs: result.latencyMs } : { status: "failed", error: result.error } };
+      reportConnectionStatusToBar(key, connectionTestKeyStatus.value[key.trim()]);
     }
+    const successCount = results.filter((r) => r.success).length;
+    const failedCount = results.length - successCount;
+    props.setStatusAction(t("config.api.testAllKeysSummary", { success: successCount, failed: failedCount }));
   } finally {
     connectionTestAllKeysRunning.value = false;
   }

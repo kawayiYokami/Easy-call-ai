@@ -2,22 +2,16 @@
   <ConfigCard :title="title">
     <div class="grid gap-2 py-3">
       <div v-for="(apiKey, index) in props.modelValue" :key="`api-key-${index}`" class="flex items-center gap-2">
-          <div v-if="statusForKey(apiKey)" class="dropdown dropdown-start">
-            <div tabindex="0" role="button" class="cursor-pointer">
-              <span v-if="statusForKey(apiKey)?.status === 'success'" class="status status-success"></span>
-              <span v-else class="status status-error"></span>
-            </div>
-            <div tabindex="0" class="dropdown-content card card-sm z-10 w-64 border border-base-300 bg-base-100 shadow-lg">
-              <div class="card-body p-3">
-                <p v-if="statusForKey(apiKey)?.status === 'success'" class="text-xs text-success">
-                  {{ t("config.api.testConnectionSuccess", { latency: statusForKey(apiKey)?.latencyMs }) }}
-                </p>
-                <p v-else class="break-all text-xs text-error">
-                  {{ statusForKey(apiKey)?.error }}
-                </p>
-              </div>
-            </div>
-          </div>
+          <button
+            v-if="statusForKey(apiKey)"
+            type="button"
+            class="cursor-pointer shrink-0 leading-none"
+            :title="t('config.api.testConnectionReReportTitle')"
+            @click="emit('click-status', apiKey)"
+          >
+            <span v-if="statusForKey(apiKey)?.status === 'success'" class="status status-success"></span>
+            <span v-else class="status status-error"></span>
+          </button>
           <span v-else class="w-4 shrink-0"></span>
           <input
             :value="apiKey"
@@ -86,6 +80,7 @@ const props = withDefaults(defineProps<{
 
 const emit = defineEmits<{
   "update:modelValue": [value: string[]];
+  "click-status": [apiKey: string];
 }>();
 
 const { t } = useI18n();

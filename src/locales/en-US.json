@@ -235,6 +235,8 @@
       "capTools": "Tools",
       "testConnectionSuccess": "Connected ({latency}ms)",
       "testConnectionFailed": "Failed: {error}",
+      "testConnectionReReportTitle": "Click to report again to status bar",
+      "testAllKeysSummary": "Test completed: {success} succeeded, {failed} failed",
       "pinApiKeyToTop": "Pin to top",
       "connectionTest": "Connection Test",
       "testFirstKey": "Test First",

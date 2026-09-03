@@ -235,6 +235,8 @@
       "capTools": "工具调用",
       "testConnectionSuccess": "连通（{latency}ms）",
       "testConnectionFailed": "失败：{error}",
+      "testConnectionReReportTitle": "点击再次上报到底部状态栏",
+      "testAllKeysSummary": "测试完成：{success} 成功，{failed} 失败",
       "pinApiKeyToTop": "置顶",
       "connectionTest": "连通性测试",
       "testFirstKey": "测试首个",
