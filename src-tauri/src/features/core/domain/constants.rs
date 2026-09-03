@@ -23,6 +23,7 @@ const DEPUTY_DEPARTMENT_ID: &str = "deputy-department";
 const REVIEWER_DEPARTMENT_ID: &str = "reviewer-department";
 const SADDLER_DEPARTMENT_ID: &str = "saddler-department";
 const REMOTE_CUSTOMER_SERVICE_DEPARTMENT_ID: &str = "remote-customer-service-department";
+const HR_DEPARTMENT_ID: &str = "hr-department";
 const DELEGATE_TOOL_KIND_DELEGATE: &str = "delegate";
 const DELEGATE_TOOL_KIND_USER_MENTION: &str = "user_async_delegate";
 const SYSTEM_NOTIFICATION_CONVERSATION_ID: &str = "system-notification-conversation";

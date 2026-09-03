@@ -20,6 +20,7 @@ const ASSISTANT_DEPARTMENT_ID: &str = "assistant-department";
 const LEADER_DEPARTMENT_ID: &str = "leader-department";
 const DEPUTY_DEPARTMENT_ID: &str = "deputy-department";
 const REMOTE_CUSTOMER_SERVICE_DEPARTMENT_ID: &str = "remote-customer-service-department";
+const HR_DEPARTMENT_ID: &str = "hr-department";
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
@@ -713,10 +714,15 @@ fn handle_department(ctx: &CliContext, args: &[String]) -> Result<(), String> {
             let agent_id = required_arg(args, 2, "department set-agent <name-or-id> <agent-id>")?;
             let agents = visible_agents(&load_agents(ctx)?);
             let _ = find_agent(&agents, agent_id)?;
-            mutate_department(ctx, selector, |department, _| {
-                department.agent_ids = vec![agent_id.to_string()];
-                Ok(())
-            })
+            mutate_department_checked(
+                ctx,
+                selector,
+                ensure_department_writable_for_agent_assignment,
+                |department, _| {
+                    department.agent_ids = vec![agent_id.to_string()];
+                    Ok(())
+                },
+            )
         }
         "set-model-class" => {
             let selector = required_arg(args, 1, "department set-model-class <name-or-id> <expert|fast>")?;
@@ -1318,6 +1324,15 @@ fn is_preset_department(department: &DepartmentConfig) -> bool {
         || department_id == LEADER_DEPARTMENT_ID
         || department_id == DEPUTY_DEPARTMENT_ID
         || department_id == REMOTE_CUSTOMER_SERVICE_DEPARTMENT_ID
+        || department_id == HR_DEPARTMENT_ID
+}
+
+// 人力部仅开放负责人格（agent_ids）修改，其余字段随预设冻结
+fn ensure_department_writable_for_agent_assignment(department: &DepartmentConfig) -> Result<(), String> {
+    if department.id.trim() == HR_DEPARTMENT_ID {
+        return Ok(());
+    }
+    ensure_department_writable(department)
 }
 
 fn ensure_department_writable(department: &DepartmentConfig) -> Result<(), String> {
@@ -1353,10 +1368,27 @@ fn mutate_department<F>(ctx: &CliContext, selector: &str, mutator: F) -> Result<
 where
     F: FnOnce(&mut DepartmentConfig, &AppConfigSnapshot) -> Result<(), String>,
 {
+    mutate_department_checked(
+        ctx,
+        selector,
+        ensure_department_writable,
+        mutator,
+    )
+}
+
+fn mutate_department_checked<F>(
+    ctx: &CliContext,
+    selector: &str,
+    writable_check: fn(&DepartmentConfig) -> Result<(), String>,
+    mutator: F,
+) -> Result<(), String>
+where
+    F: FnOnce(&mut DepartmentConfig, &AppConfigSnapshot) -> Result<(), String>,
+{
     let mut doc = load_config_doc(ctx)?;
     let mut snapshot = snapshot_from_doc(&doc)?;
     let idx = find_department_index(&snapshot.departments, selector)?;
-    ensure_department_writable(&snapshot.departments[idx])?;
+    writable_check(&snapshot.departments[idx])?;
     let read_only = snapshot.clone();
     let department = snapshot
         .departments
@@ -2560,6 +2592,55 @@ scope = "global"
 "#,
         );
         fs::write(root.join("app_config.toml"), config).expect("write config with preset department");
+    }
+
+    #[test]
+    fn hr_department_should_reject_mutation_but_allow_set_agent() {
+        let root = test_root();
+        seed_app(&root);
+        let mut config = fs::read_to_string(root.join("app_config.toml")).expect("read config");
+        config.push_str(
+            r#"
+
+[[departments]]
+id = "hr-department"
+name = "人力部"
+summary = "built-in"
+guide = "built-in"
+apiConfigIds = ["provider-a::model-a"]
+apiConfigId = "provider-a::model-a"
+agentIds = ["agent-a"]
+childDepartmentIds = []
+createdAt = "2026-01-01T00:00:00Z"
+updatedAt = "2026-01-01T00:00:00Z"
+orderIndex = 9
+isBuiltInAssistant = false
+source = "main_config"
+scope = "global"
+"#,
+        );
+        fs::write(root.join("app_config.toml"), config).expect("write hr department");
+
+        let err = run_command_with_paths(
+            root.clone(),
+            root.join("app_config.toml"),
+            root.join("config_mark"),
+            root.join("llm-workspace"),
+            "department set-model-class hr-department fast",
+        )
+        .expect_err("hr department mutation should be rejected");
+        assert!(err.contains("预设部门是只读的"), "unexpected error: {err}");
+
+        let output = run_command_with_paths(
+            root.clone(),
+            root.join("app_config.toml"),
+            root.join("config_mark"),
+            root.join("llm-workspace"),
+            "department set-agent hr-department agent-a",
+        )
+        .expect("set-agent on hr department should be allowed");
+        let value: JsonValue = serde_json::from_str(&output).expect("parse output");
+        assert_eq!(value["agentIds"][0], "agent-a");
     }
 
     #[test]

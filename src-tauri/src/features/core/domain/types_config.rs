@@ -552,6 +552,71 @@ fn default_assistant_department_name(ui_language: &str) -> String {
     }
 }
 
+// ========== 人力部（hr-department） ==========
+
+const HR_DEPARTMENT_YAML: &str = include_str!("../../../../resources/prompts/departments/hr-department.yaml");
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "snake_case")]
+struct HrDepartmentYaml {
+    #[serde(default)]
+    name: String,
+    #[serde(default)]
+    summary: String,
+    #[serde(default)]
+    guide: String,
+}
+
+fn hr_department_yaml_fields() -> (String, String, String) {
+    match serde_yaml::from_str::<HrDepartmentYaml>(HR_DEPARTMENT_YAML) {
+        Ok(parsed) => {
+            let name = if parsed.name.trim().is_empty() {
+                "HR".to_string()
+            } else {
+                parsed.name
+            };
+            (name, parsed.summary, parsed.guide)
+        }
+        Err(err) => {
+            runtime_log_warn(format!("[配置] 解析人力部预设 yaml 失败，回退内置文案: {err}"));
+            (
+                "HR".to_string(),
+                "负责招募专家：通过对话帮用户查重、创建合适的部门与人格并完成绑定".to_string(),
+                "你是人力部，负责帮用户招募新专家：创建新的部门与人格（agent），并把人格绑定到部门。".to_string(),
+            )
+        }
+    }
+}
+
+fn default_hr_department(api_config_id: &str) -> DepartmentConfig {
+    let now = now_iso();
+    let api_config_id = api_config_id.trim().to_string();
+    let (name, summary, guide) = hr_department_yaml_fields();
+    DepartmentConfig {
+        id: HR_DEPARTMENT_ID.to_string(),
+        name,
+        summary,
+        guide,
+        api_config_ids: if api_config_id.is_empty() {
+            Vec::new()
+        } else {
+            vec![api_config_id.clone()]
+        },
+        api_config_id,
+        model_failure_fallback_enabled: false,
+        agent_ids: vec![DEFAULT_AGENT_ID.to_string()],
+        child_department_ids: Vec::new(),
+        created_at: now.clone(),
+        updated_at: now,
+        order_index: 7,
+        is_built_in_assistant: false,
+        is_deputy: false,
+        source: default_main_source(),
+        scope: default_global_scope(),
+        permission_control: DepartmentPermissionControl::default(),
+    }
+}
+
 fn built_in_department_rank(id: &str) -> i32 {
     match id.trim() {
         ASSISTANT_DEPARTMENT_ID => 0,
@@ -560,7 +625,8 @@ fn built_in_department_rank(id: &str) -> i32 {
         REVIEWER_DEPARTMENT_ID => 3,
         SADDLER_DEPARTMENT_ID => 4,
         REMOTE_CUSTOMER_SERVICE_DEPARTMENT_ID => 5,
-        _ => 6,
+        HR_DEPARTMENT_ID => 6,
+        _ => 7,
     }
 }
 
@@ -590,6 +656,7 @@ fn default_departments(api_config_id: &str) -> Vec<DepartmentConfig> {
         default_reviewer_department(quick_api_config_id),
         default_saddler_department(default_api_config_id),
         default_remote_customer_service_department(default_api_config_id),
+        default_hr_department(default_api_config_id),
     ]
 }
 
@@ -611,6 +678,7 @@ fn default_department_draft(
         REMOTE_CUSTOMER_SERVICE_DEPARTMENT_ID => {
             default_remote_customer_service_department(MODEL_ROLE_EXPERT_API_CONFIG_ID)
         }
+        HR_DEPARTMENT_ID => default_hr_department(MODEL_ROLE_EXPERT_API_CONFIG_ID),
         _ => return Err(format!("没有可还原的部门预设: {department_id}")),
     };
     department.id = department_id.to_string();

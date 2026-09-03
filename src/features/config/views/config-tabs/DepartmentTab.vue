@@ -93,6 +93,7 @@
                 v-model.trim="selectedDepartment.name"
                 class="input input-bordered input-sm w-full"
                 :placeholder="t('config.department.namePlaceholder')"
+                :disabled="selectedDepartmentIsFrozenHr"
                 @input="touchSelectedDepartment"
               />
               <div v-if="selectedDepartmentNameEmpty" class="mt-2 text-xs text-error opacity-80">
@@ -196,6 +197,7 @@
                 v-model="selectedDepartment.summary"
                 class="textarea textarea-bordered textarea-sm min-h-20 w-full"
                 :placeholder="t('config.department.summaryPlaceholder')"
+                :disabled="selectedDepartmentIsFrozenHr"
                 @input="touchSelectedDepartment"
               />
             </div>
@@ -206,6 +208,7 @@
                 v-model="selectedDepartment.guide"
                 class="textarea textarea-bordered textarea-sm min-h-28 w-full"
                 :placeholder="t('config.department.guidePlaceholder')"
+                :disabled="selectedDepartmentIsFrozenHr"
                 @input="touchSelectedDepartment"
               />
               <div class="mt-2 text-xs opacity-40">{{ t("config.department.guideHint") }}</div>
@@ -221,11 +224,12 @@
                   type="checkbox"
                   class="toggle toggle-sm toggle-primary"
                   :checked="permissionControlEnabled"
+                  :disabled="selectedDepartmentIsFrozenHr"
                   @change="updateDepartmentPermissionControl({ enabled: !!($event.target as HTMLInputElement).checked })"
                 />
               </div>
 
-              <div class="grid min-w-0 gap-3 overflow-hidden">
+              <div class="grid min-w-0 gap-3 overflow-hidden" :class="selectedDepartmentIsFrozenHr ? 'pointer-events-none opacity-50' : ''">
                 <select
                   class="select select-bordered select-sm w-full"
                   :disabled="permissionListDisabled"
@@ -318,6 +322,7 @@ const SYSTEM_DEPARTMENT_IDS = new Set([
   "reviewer-department",
   "saddler-department",
   "remote-customer-service-department",
+  "hr-department",
 ]);
 
 const TEXT_REQUEST_FORMATS = new Set([
@@ -358,6 +363,11 @@ function isSystemBuiltInDepartment(department: DepartmentConfig | null | undefin
   if (!department) return false;
   const id = String(department.id || "").trim();
   return SYSTEM_DEPARTMENT_IDS.has(id) || !!department.isBuiltInAssistant;
+}
+
+// 人力部除负责人格外全部字段冻结（后端也会强制覆盖）
+function isFrozenHrDepartment(department: DepartmentConfig | null | undefined) {
+  return String(department?.id || "").trim() === "hr-department";
 }
 
 function normalizeNameList(value: unknown): string[] {
@@ -430,7 +440,7 @@ const permissionCatalogError = ref("");
 const sortedDepartments = computed(() =>
   [...departmentDrafts.value].sort((a, b) => {
     const rank = (id: string) =>
-      id === "assistant-department" ? 0 : id === "leader-department" ? 1 : id === "deputy-department" ? 2 : id === "reviewer-department" ? 3 : id === "saddler-department" ? 4 : id === "remote-customer-service-department" ? 5 : 6;
+      id === "assistant-department" ? 0 : id === "leader-department" ? 1 : id === "deputy-department" ? 2 : id === "reviewer-department" ? 3 : id === "saddler-department" ? 4 : id === "remote-customer-service-department" ? 5 : id === "hr-department" ? 6 : 7;
     const aRank = rank(String(a.id || "").trim());
     const bRank = rank(String(b.id || "").trim());
     return aRank - bRank || a.orderIndex - b.orderIndex;
@@ -441,6 +451,7 @@ const selectedDepartment = computed(
   () => departmentDrafts.value.find((item) => item.id === selectedDepartmentId.value) ?? sortedDepartments.value[0] ?? null,
 );
 const selectedDepartmentIsSystemBuiltIn = computed(() => isSystemBuiltInDepartment(selectedDepartment.value));
+const selectedDepartmentIsFrozenHr = computed(() => isFrozenHrDepartment(selectedDepartment.value));
 const selectedDepartmentIsPrivateWorkspace = computed(() => selectedDepartment.value?.source === "private_workspace");
 const textDepartmentApiConfigs = computed(() =>
   props.apiConfigs.filter((api) => !!api.enableText && isTextRequestFormat(api.requestFormat)),

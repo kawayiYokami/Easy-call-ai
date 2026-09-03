@@ -729,6 +729,54 @@
     }
 
     #[test]
+    fn hr_department_should_be_frozen_preset() {
+        // 默认配置里人力部存在且字段来自 yaml 预设
+        let config = AppConfig::default();
+        let preset = default_hr_department("");
+        let hr = config
+            .departments
+            .iter()
+            .find(|department| department.id == HR_DEPARTMENT_ID)
+            .expect("hr preset department");
+        assert_eq!(hr.name, preset.name);
+        assert_eq!(hr.summary, preset.summary);
+        assert_eq!(hr.guide, preset.guide);
+        assert!(!hr.guide.trim().is_empty());
+        assert_eq!(hr.agent_ids, vec![DEFAULT_AGENT_ID.to_string()]);
+        assert!(!hr.permission_control.enabled);
+
+        // normalize 强制覆盖被篡改的冻结字段，仅保留可写的 agent_ids
+        let mut config = AppConfig::default();
+        {
+            let hr = config
+                .departments
+                .iter_mut()
+                .find(|department| department.id == HR_DEPARTMENT_ID)
+                .expect("hr preset department");
+            hr.name = "被改过的名字".to_string();
+            hr.summary = "被改过的简介".to_string();
+            hr.guide = "被改过的指南".to_string();
+            hr.permission_control.enabled = true;
+            hr.agent_ids = vec!["custom-agent".to_string()];
+        }
+        normalize_departments(&mut config);
+        let hr = config
+            .departments
+            .iter()
+            .find(|department| department.id == HR_DEPARTMENT_ID)
+            .expect("hr preset department");
+        assert_eq!(hr.name, preset.name);
+        assert_eq!(hr.summary, preset.summary);
+        assert_eq!(hr.guide, preset.guide);
+        assert!(!hr.permission_control.enabled);
+        assert_eq!(hr.agent_ids, vec!["custom-agent".to_string()]);
+
+        // 预设草稿可还原
+        let draft = default_department_draft(HR_DEPARTMENT_ID, "zh-CN").expect("hr default draft");
+        assert_eq!(draft.name, preset.name);
+    }
+
+    #[test]
     fn app_data_default_should_include_deputy_agent() {
         let data = AppData::default();
         assert!(data.agents.iter().any(|agent| agent.id == DEPUTY_AGENT_ID));

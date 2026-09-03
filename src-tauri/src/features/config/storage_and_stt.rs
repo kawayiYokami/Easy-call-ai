@@ -1035,6 +1035,9 @@ fn normalize_departments(config: &mut AppConfig) {
     {
         out.push(default_remote_customer_service_department(MODEL_ROLE_EXPERT_API_CONFIG_ID));
     }
+    if !out.iter().any(|item| item.id == HR_DEPARTMENT_ID) {
+        out.push(default_hr_department(MODEL_ROLE_EXPERT_API_CONFIG_ID));
+    }
 
     let normalize_department_api_bindings =
         |item: &mut DepartmentConfig, valid_text_chat_api_ids: &std::collections::HashSet<String>| {
@@ -1109,6 +1112,18 @@ fn normalize_departments(config: &mut AppConfig) {
             if item.guide.trim().is_empty() {
                 item.guide = REMOTE_CUSTOMER_SERVICE_DEPARTMENT_GUIDE.to_string();
             }
+            normalize_department_api_bindings(item, &valid_text_chat_api_ids);
+            if item.agent_ids.is_empty() {
+                item.agent_ids = vec![DEFAULT_AGENT_ID.to_string()];
+            }
+        } else if item.id == HR_DEPARTMENT_ID {
+            item.is_deputy = false;
+            // 人力部是内置冻结部门：name/summary/guide/permission_control 强制以编译期预设覆盖，仅 agent_ids 可写
+            let defaults = default_hr_department(MODEL_ROLE_EXPERT_API_CONFIG_ID);
+            item.name = defaults.name;
+            item.summary = defaults.summary;
+            item.guide = defaults.guide;
+            item.permission_control = DepartmentPermissionControl::default();
             normalize_department_api_bindings(item, &valid_text_chat_api_ids);
             if item.agent_ids.is_empty() {
                 item.agent_ids = vec![DEFAULT_AGENT_ID.to_string()];

@@ -291,7 +291,8 @@ function departmentSortRank(id: string): number {
   if (id === "reviewer-department") return 3;
   if (id === "saddler-department") return 4;
   if (id === "remote-customer-service-department") return 5;
-  return 6;
+  if (id === "hr-department") return 6;
+  return 7;
 }
 
 function compareDepartments(left: DepartmentConfig, right: DepartmentConfig): number {
