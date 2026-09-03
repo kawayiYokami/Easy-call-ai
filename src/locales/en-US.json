@@ -2835,6 +2835,11 @@
     "refreshModelsDone": "Fetched {count} models",
     "refreshModelsFailed": "Failed to fetch models: {error}",
     "overwriteHint": "Saving overwrites existing settings",
-    "saveAndStart": "Save & Start Chat"
+    "save": "Save",
+    "startChat": "Start Chat",
+    "saveAndStart": "Save & Start Chat",
+    "introTitle": "Simple Setup",
+    "introDesc": "Quick start with a single provider and essential features.",
+    "advancedHint": "To add multiple providers and more features, switch to Advanced Settings."
   }
 }

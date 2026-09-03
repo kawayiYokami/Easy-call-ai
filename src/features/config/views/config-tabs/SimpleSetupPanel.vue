@@ -4,9 +4,9 @@
       <div class="grid gap-2">
         <div v-if="errorText" class="alert alert-error py-2 text-sm">{{ errorText }}</div>
         <div v-if="statusText" class="alert alert-success py-2 text-sm">{{ statusText }}</div>
-        <div class="flex items-center justify-between gap-2">
-          <div class="flex min-w-0 items-center gap-2">
-            <span class="text-xs opacity-70">{{ t("simpleSetup.overwriteHint") }}</span>
+        <div class="flex items-center justify-between gap-3">
+          <div class="min-w-0 flex-1 text-xs leading-relaxed opacity-70">
+            {{ t("simpleSetup.advancedHint") }}
           </div>
           <button
             class="btn btn-primary btn-sm"
@@ -260,17 +260,11 @@ const {
 } = useSimpleSetup();
 const providerOptions = simpleProviderOptions.filter((option) => option.id !== "opencode");
 
-const modelCards = computed(() => {
-  const cards = [
-    { id: "quick" as SimpleModelCard, label: t("simpleSetup.modelQuick"), hint: t("simpleSetup.modelQuickHint") },
-    { id: "expert" as SimpleModelCard, label: t("simpleSetup.modelExpert"), hint: t("simpleSetup.modelExpertHint") },
-    { id: "vision" as SimpleModelCard, label: t("simpleSetup.modelVision"), hint: t("simpleSetup.modelVisionHint") },
-  ];
-  if (draft.providerId === "deepseek") {
-    return cards.filter((card) => card.id !== "vision");
-  }
-  return cards;
-});
+const modelCards = computed(() => [
+  { id: "quick" as SimpleModelCard, label: t("simpleSetup.modelQuick"), hint: t("simpleSetup.modelQuickHint") },
+  { id: "expert" as SimpleModelCard, label: t("simpleSetup.modelExpert"), hint: t("simpleSetup.modelExpertHint") },
+  { id: "vision" as SimpleModelCard, label: t("simpleSetup.modelVision"), hint: t("simpleSetup.modelVisionHint") },
+]);
 
 const reasoningEffortOptions = computed(() => [
   { value: "low", label: t("simpleSetup.effortLow") },

@@ -57,7 +57,7 @@ export const SIMPLE_SETUP_ENDPOINT_IDS: Record<SimpleModelCard, string> = {
 };
 
 export const simpleProviderOptions: SimpleProviderPreset[] = [
-  { id: "deepseek", label: "DeepSeek", requestFormat: "deepseek", baseUrl: "https://api.deepseek.com/v1", keyUrl: "https://platform.deepseek.com/api_keys", defaultModel: "deepseek-v4-flash" },
+  { id: "deepseek", label: "DeepSeek", requestFormat: "deepseek", baseUrl: "https://api.deepseek.com/v1", keyUrl: "https://platform.deepseek.com/api_keys", defaultModel: "deepseek-v4-flash", visionModel: "deepseek-v4-flash-vision-exp" },
   { id: "opencode", label: "OpenCode", requestFormat: "openai", baseUrl: "https://opencode.ai/zen/v1", keyUrl: "https://opencode.ai/zen", defaultModel: "gpt-4o-mini", visionModel: "mimo-v2.5" },
   { id: "custom", label: "自定义", requestFormat: "auto", baseUrl: "https://api.openai.com/v1", keyUrl: "", defaultModel: "gpt-4o-mini" },
 ];
@@ -128,7 +128,7 @@ export function defaultSimpleSetupDraft(): SimpleSetupDraft {
     models: {
       quick: createDraftModelCard(SIMPLE_SETUP_MODEL_IDS.quick, preset.defaultModel, "low"),
       expert: createDraftModelCard(SIMPLE_SETUP_MODEL_IDS.expert, preset.defaultModel, "high"),
-      vision: createDraftModelCard(SIMPLE_SETUP_MODEL_IDS.vision, preset.defaultModel, "medium"),
+      vision: createDraftModelCard(SIMPLE_SETUP_MODEL_IDS.vision, preset.visionModel ?? preset.defaultModel, "medium"),
     },
     customModelOptions: [],
     responseStyleId: "none",
@@ -180,6 +180,13 @@ function parseDraft(raw: unknown): SimpleSetupDraft | null {
   const recordHotkey = String(obj.recordHotkey || "");
   if (recordHotkey) draft.recordHotkey = recordHotkey;
   draft.siliconFlowKey = String(obj.siliconFlowKey || "");
+  const preset = simpleProviderOptions.find((item) => item.id === draft.providerId);
+  if (preset?.visionModel) {
+    const visionModel = String(draft.models.vision.model || "").trim();
+    if (!visionModel || visionModel === preset.defaultModel) {
+      draft.models.vision.model = preset.visionModel;
+    }
+  }
   return draft;
 }
 
@@ -333,7 +340,7 @@ export function useSimpleSetup() {
       draft.apiKey = existing.apiKey;
       draft.models.quick.model = existing.model || preset.defaultModel;
       draft.models.expert.model = existing.model || preset.defaultModel;
-      draft.models.vision.model = existing.model || preset.defaultModel;
+      draft.models.vision.model = existing.model || (preset.visionModel ?? preset.defaultModel);
       draft.models.quick.displayName = String(existing.displayName || "").trim();
       draft.models.expert.displayName = String(existing.displayName || "").trim();
       draft.models.vision.displayName = String(existing.displayName || "").trim();
@@ -448,7 +455,7 @@ export function useSimpleSetup() {
     const apiKey = draft.apiKey.trim();
     const requestFormat = normalizeApiRequestFormat(currentProviderRequestFormat());
     const enableText = requestFormat !== "openai_stt" && requestFormat !== "mimo_asr" && requestFormat !== "openai_embedding" && requestFormat !== "openai_rerank" && requestFormat !== "gemini_embedding";
-    const includeVision = draft.providerId !== "deepseek";
+    const includeVision = draft.providerId === "custom" || !!selectedProvider.value.visionModel;
     const configuredModelNames = [
       draft.models.quick.model.trim(),
       draft.models.expert.model.trim(),
@@ -564,7 +571,7 @@ export function useSimpleSetup() {
     config.selectedApiConfigId = SIMPLE_SETUP_ENDPOINT_IDS.expert;
     config.assistantDepartmentApiConfigId = SIMPLE_SETUP_ENDPOINT_IDS.expert;
     config.toolReviewApiConfigId = SIMPLE_SETUP_ENDPOINT_IDS.quick;
-    const includeVision = draft.providerId !== "deepseek";
+    const includeVision = draft.providerId === "custom" || !!selectedProvider.value.visionModel;
     config.visionApiConfigId = includeVision ? SIMPLE_SETUP_ENDPOINT_IDS.vision : "";
     const department = assistantDepartment();
     if (department) {

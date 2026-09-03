@@ -394,25 +394,7 @@ body {
   min-height: 0;
 }
 
-@media (min-width: 768px) {
-  .config-drawer-shell.drawer {
-    height: 100%;
-    min-height: 0;
-  }
 
-  .config-drawer-shell.drawer > .drawer-side {
-    position: relative;
-    inset: auto;
-    width: 11rem;
-    height: 100%;
-    max-height: 100%;
-    overflow: hidden;
-  }
-
-  .config-drawer-shell.drawer > .drawer-side > .drawer-overlay {
-    display: none;
-  }
-}
 
 :where(
   .input,
@@ -504,6 +486,62 @@ body {
   .ecall-dropdown-leave-active,
   .ecall-dropdown-up-enter-active,
   .ecall-dropdown-up-leave-active {
+    transition: none !important;
+  }
+}
+
+/* settings: simple/advanced mode + right content 0.2s, reuse --duration-fold */
+.ecall-config-mode-enter-active,
+.ecall-config-mode-leave-active,
+.ecall-config-content-enter-active,
+.ecall-config-content-leave-active {
+  transition:
+    opacity var(--duration-fold) ease,
+    transform var(--duration-fold) ease;
+}
+.ecall-config-mode-enter-from,
+.ecall-config-content-enter-from {
+  opacity: 0;
+  transform: translateY(6px);
+}
+.ecall-config-mode-leave-to,
+.ecall-config-content-leave-to {
+  opacity: 0;
+  transform: translateY(-6px);
+}
+.config-shell .menu a {
+  transition:
+    background-color var(--duration-fold) ease,
+    color var(--duration-fold) ease;
+}
+.ecall-config-drawer-enter-active {
+  transition: transform var(--duration-fold) ease;
+}
+.ecall-config-drawer-leave-active {
+  transition: transform var(--duration-fold) ease;
+}
+.ecall-config-drawer-enter-from,
+.ecall-config-drawer-leave-to {
+  transform: translateX(-100%);
+}
+.ecall-config-drawer-mask-enter-active,
+.ecall-config-drawer-mask-leave-active {
+  transition: opacity var(--duration-fold) ease;
+}
+.ecall-config-drawer-mask-enter-from,
+.ecall-config-drawer-mask-leave-to {
+  opacity: 0;
+}
+@media (prefers-reduced-motion: reduce) {
+  .ecall-config-mode-enter-active,
+  .ecall-config-mode-leave-active,
+  .ecall-config-content-enter-active,
+  .ecall-config-content-leave-active,
+  .config-shell .menu a,
+  .ecall-config-drawer-enter-active,
+  .ecall-config-drawer-leave-active,
+  .ecall-config-drawer-mask-enter-active,
+  .ecall-config-drawer-mask-leave-active {
     transition: none !important;
   }
 }

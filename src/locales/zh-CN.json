@@ -2835,6 +2835,11 @@
     "refreshModelsDone": "已获取 {count} 个模型",
     "refreshModelsFailed": "获取模型列表失败：{error}",
     "overwriteHint": "保存后将覆盖原有设置",
-    "saveAndStart": "保存并开始对话"
+    "save": "保存",
+    "startChat": "开始对话",
+    "saveAndStart": "保存并开始对话",
+    "introTitle": "简单配置",
+    "introDesc": "适合快速开始，仅配置单个供应商与基础能力。",
+    "advancedHint": "如需增加多个供应商和更多功能，请切换到高级设置。"
   }
 }
