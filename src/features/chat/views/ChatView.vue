@@ -616,6 +616,7 @@
           v-if="chatRightPanelMode === 'reader'"
           ref="chatReaderPanelRef"
           class="h-full w-full"
+          :narrow-overlay="rightPaneOverlay"
           :initial-root-path="effectiveFileReaderRootPath"
           :session-key="chatFileReaderSessionKey"
           :legacy-session-key="legacyChatFileReaderSessionKey"

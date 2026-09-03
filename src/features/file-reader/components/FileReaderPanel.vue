@@ -114,17 +114,12 @@
     </PanelTabStrip>
 
     <div ref="fileReaderLayoutRoot" class="relative flex min-h-0 flex-1" :class="directoryOnly ? '' : 'flex-row-reverse'">
-      <div
-        v-if="directoryTreeOverlay"
-        class="absolute inset-0 z-10 bg-base-300/20 backdrop-blur-[1px]"
-        @click="closeDirectoryTree"
-      ></div>
       <Transition name="file-reader-aside">
         <aside
           v-if="directoryTreeRoot"
           class="file-reader-aside-panel flex shrink-0 flex-col bg-base-200/35"
-          :class="directoryOnly ? 'w-full' : directoryTreeOverlay ? 'absolute inset-y-0 right-0 z-20 w-full shadow-2xl border-l border-base-300' : ''"
-          :style="directoryOnly ? undefined : directoryTreeOverlay ? undefined : { width: `${effectiveDirectoryTreeWidth}px` }"
+          :class="directoryOnly || directoryTreeFullscreen ? 'w-full' : ''"
+          :style="directoryOnly || directoryTreeFullscreen ? undefined : { width: `${effectiveDirectoryTreeWidth}px` }"
         >
           <Transition name="file-reader-aside-content" mode="out-in">
             <div v-if="asideMode === 'files'" key="files" class="flex min-h-0 flex-1 flex-col overflow-hidden">
@@ -204,7 +199,7 @@
           </Transition>
         </aside>
       </Transition>
-      <main v-if="!directoryOnly" class="flex min-h-0 flex-1 flex-col overflow-hidden bg-base-100">
+      <main v-if="!directoryOnly" v-show="!directoryTreeFullscreen" class="flex min-h-0 flex-1 flex-col overflow-hidden bg-base-100">
         <div
           v-if="activeTab"
           class="relative flex h-8 shrink-0 items-center gap-2 border-b border-base-300 bg-base-100 px-3 text-sm text-base-content/60"
@@ -492,7 +487,7 @@
         </slot>
       </main>
       <div
-        v-if="directoryTreeRoot && !directoryOnly && !directoryTreeOverlay"
+        v-if="directoryTreeRoot && !directoryOnly && !directoryTreeFullscreen"
         class="file-reader-resize-handle absolute bottom-0 top-0 z-10"
         :class="activeDirectoryTreeResize ? 'is-active' : ''"
         :style="{ right: `${effectiveDirectoryTreeWidth - 4}px` }"
@@ -776,6 +771,8 @@ const props = withDefaults(defineProps<{
   enableGlobalDrop?: boolean;
   markdownIsDark?: boolean;
   customMarkstreamId?: string;
+  /** 宿主（外层右侧栏）判定为窄屏浮层态：目录树打开时占满宿主、内容区归零，由外层决定而非面板自测宽度 */
+  narrowOverlay?: boolean;
   sessionKey?: string;
   legacySessionKey?: string;
 }>(), {
@@ -788,6 +785,7 @@ const props = withDefaults(defineProps<{
   customMarkstreamId: "file-reader-markstream",
   sessionKey: "",
   legacySessionKey: "",
+  narrowOverlay: false,
 });
 
 const emit = defineEmits<{
@@ -816,7 +814,6 @@ type FileReaderSelectionAction = {
 // ==================== Constants ====================
 
 const localFileSystemAvailable = getTransportCapabilities().localFileSystem;
-const FILE_READER_NARROW_BREAKPOINT_PX = 768;
 const FILE_READER_DIRECTORY_TREE_MIN_WIDTH = 220;
 const FILE_READER_DIRECTORY_TREE_MAX_WIDTH = 640;
 const FILE_READER_DIRECTORY_TREE_DEFAULT_WIDTH = 320;
@@ -1081,10 +1078,13 @@ const visibleTreeRows = computed<TreeRow[]>(() => {
   return flattenDirectoryEntries(root.entries, 0, directoryTreeFilter.value);
 });
 
-const isFileReaderNarrow = computed(() => fileReaderLayoutWidth.value > 0 && fileReaderLayoutWidth.value < FILE_READER_NARROW_BREAKPOINT_PX);
-const directoryTreeOverlay = computed(() => !directoryOnly.value && isFileReaderNarrow.value && !!directoryTreeRoot.value);
+// 目录树「占满态」：由外层传入的窄屏浮层判定（narrowOverlay）驱动，面板不再自测宽度断手机。
+// 占满 = 树 w-full、内容区归零，纯 flex 让位，不叠浮层遮罩。
+const directoryTreeFullscreen = computed(
+  () => !directoryOnly.value && props.narrowOverlay === true && !!directoryTreeRoot.value,
+);
 const effectiveDirectoryTreeWidth = computed(() => {
-  if (directoryTreeOverlay.value) return fileReaderLayoutWidth.value;
+  if (directoryTreeFullscreen.value) return fileReaderLayoutWidth.value;
   return clampDirectoryTreeWidth(directoryTreeWidth.value);
 });
 
@@ -1206,7 +1206,7 @@ function setDirectoryTreeWidth(width: number) {
 }
 
 function startDirectoryTreeResize(event: PointerEvent) {
-  if (event.button !== 0 || directoryOnly.value || directoryTreeOverlay.value) return;
+  if (event.button !== 0 || directoryOnly.value || directoryTreeFullscreen.value) return;
   event.preventDefault();
   activeDirectoryTreeResize.value = true;
   directoryTreeResizeStartX = event.clientX;
