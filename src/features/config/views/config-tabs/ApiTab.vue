@@ -382,8 +382,6 @@ watch(providerDeleteDialogRef, syncProviderDeleteDialog);
 const pendingDeleteProviderName = ref("");
 const imageGenerationTabRef = ref<ImageGenerationTabPublicInstance | null>(null);
 const modelCapabilityById = ref<Record<string, ModelCapabilityLimits>>({});
-// 已按能力元数据自动勾选过全部档位的模型组：避免用户手动收窄后被重复自动勾选
-const autoFilledReasoningEffortGroupIds = new Set<string>();
 // 默认展开的模型卡：仅新增模型加入，进入页面/切换供应商时保持折叠
 const defaultOpenModelIds = new Set<string>();
 const resolvedAdapterByModelId = ref<Record<string, string>>({});
@@ -1753,25 +1751,8 @@ async function runModelMetadataSync(group: DraftModelGroup) {
       [modelCard.id]: nextCapability,
     };
     clampModelCardValues(group);
-    // 元数据已知时，自动移除不支持的思考等级（草稿态只改集合，不触发重组）
-    const supported = reasoningEffortSupportSet(group);
-    if (supported) {
-      const nextEfforts = group.reasoningEfforts.filter((effort) => supported.has(effort));
-      if (nextEfforts.length !== group.reasoningEfforts.length) {
-        group.reasoningEfforts = nextEfforts.length > 0 ? nextEfforts : ["default"];
-      }
-      // 首次匹配到模型（尚未配置任何档位）时，自动勾上全部可用等级
-      if (
-        supported.size > 0
-        && group.reasoningEfforts.every((effort) => effort === "default")
-        && !autoFilledReasoningEffortGroupIds.has(group.primary.id)
-      ) {
-        autoFilledReasoningEffortGroupIds.add(group.primary.id);
-        for (const effort of sortReasoningEffortValues(supported)) {
-          setGroupReasoningEffort(group, effort, true);
-        }
-      }
-    }
+    // 思维等级不再自动改写：仅通过 reasoningEffortSupportSet 决定置灰/提示，用户已勾的档位保留原样
+    // 如需按后端推荐重置，由用户显式点击“重置”按钮触发
   } catch (error) {
     console.warn("[API] 获取模型元数据失败:", error);
   }
@@ -1921,7 +1902,14 @@ async function openProviderSite(preset: ProviderPreset) {
 async function handleSaveApiConfig() {
   const provider = selectedProvider.value;
   if (provider) {
-    // 先等在途的模型元数据同步落完，再写回草稿，保证保存的快照就是最终形态
+    // 先把防抖中的元数据拉取 flush 掉，再等在途同步，避免保存时报告与落盘不一致
+    if (metadataSyncDebounceTimer !== null) {
+      window.clearTimeout(metadataSyncDebounceTimer);
+      metadataSyncDebounceTimer = null;
+      for (const group of draftModelGroups.value) {
+        void syncModelMetadata(group);
+      }
+    }
     if (pendingMetadataSyncs.size > 0) {
       await Promise.all([...pendingMetadataSyncs]);
     }
@@ -2163,18 +2151,17 @@ watch(
       stopCodexAuthPolling();
       return;
     }
-    if (previousProviderId && previousProviderId !== providerId) {
-      void refreshResolvedAdaptersForSelectedProvider();
-    } else {
-      // 同供应商内的协议切换已在 setter 中触发，这里兜底
-      scheduleMetadataSyncForAllGroups();
-    }
+    // 非 codex：刷新适配器并防抖拉取模型能力，不再逐字触发
+    void refreshResolvedAdaptersForSelectedProvider();
+    scheduleMetadataSyncForAllGroups();
     stopCodexAuthPolling();
   },
   { immediate: true },
 );
 
 onMounted(() => {
+  // 一次性归一历史协议写法，不再用 watch 反复原地修改
+  normalizeProviderRequestFormats();
   if (!canUseTransportGenaiChatAdapters()) return;
   void listTransportGenaiChatAdapters<Array<{ id: string; label: string; supported: boolean }>>()
     .then((adapters) => {
@@ -2188,6 +2175,7 @@ onMounted(() => {
 });
 
 onUnmounted(() => {
+  cancelMetadataSyncDebounce();
   stopCodexAuthPolling();
 });
 </script>
