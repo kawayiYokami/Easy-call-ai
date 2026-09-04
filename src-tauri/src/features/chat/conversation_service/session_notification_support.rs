@@ -220,10 +220,28 @@ fn session_notification_dispatch_sender(
                     session_notification_body_preview(&request.body)
                 ));
                 runtime.spawn(async move {
-                    if let Err(err) = process_session_notification_dispatch_request(request).await {
-                        runtime_log_error(format!(
+                    let outcome =
+                        futures_util::FutureExt::catch_unwind(std::panic::AssertUnwindSafe(
+                            process_session_notification_dispatch_request(request),
+                        ))
+                        .await;
+                    match outcome {
+                        Ok(Ok(())) => {}
+                        Ok(Err(err)) => runtime_log_error(format!(
                             "[会话通知] 失败，任务=执行会话投递，error={err}"
-                        ));
+                        )),
+                        Err(panic_payload) => {
+                            let panic_text = panic_payload
+                                .downcast_ref::<&str>()
+                                .map(|text| (*text).to_string())
+                                .or_else(|| {
+                                    panic_payload.downcast_ref::<String>().cloned()
+                                })
+                                .unwrap_or_else(|| "未知 panic".to_string());
+                            runtime_log_error(format!(
+                                "[会话通知] 失败，任务=执行会话投递，原因=投递协程 panic，panic={panic_text}"
+                            ));
+                        }
                     }
                 });
             }
@@ -271,61 +289,130 @@ fn enqueue_session_notification_dispatch(
     Ok(())
 }
 
-fn session_notification_wait_reason(state: MainSessionState) -> Option<&'static str> {
-    match state {
-        MainSessionState::AssistantStreaming => Some("目标会话正在流式输出"),
-        MainSessionState::OrganizingContext => Some("目标会话正在整理上下文"),
-        MainSessionState::Idle => None,
-    }
-}
-
 async fn process_session_notification_dispatch_request(
     request: SessionNotificationDispatchRequest,
 ) -> Result<(), String> {
-    const RETRY_DELAY_MS: u64 = 350;
     let started_at = std::time::Instant::now();
-    let mut wait_round = 0u32;
     runtime_log_info(format!(
         "[会话通知] 开始，任务=执行会话投递，action={}，target_conversation_id={}，message_id={}",
         request.action,
         request.target_conversation_id,
         request.message.id
     ));
-    loop {
-        let state = get_conversation_runtime_state(&request.state, &request.target_conversation_id)?;
-        if let Some(reason) = session_notification_wait_reason(state.clone()) {
-            wait_round += 1;
-            if wait_round == 1 || wait_round % 10 == 0 {
-                runtime_log_info(format!(
-                    "[会话通知] 等待，任务=会话间投递，action={}，target_conversation_id={}，reason={}，wait_round={}，duration_ms={}",
-                    request.action,
-                    request.target_conversation_id,
-                    reason,
-                    wait_round,
-                    started_at.elapsed().as_millis()
-                ));
-            }
-            tokio::time::sleep(std::time::Duration::from_millis(RETRY_DELAY_MS)).await;
-            continue;
-        }
-        break;
+
+    let service = conversation_service_v2();
+    let target_conversation_id = request.target_conversation_id.trim().to_string();
+    let target_conversation_meta = service
+        .get_conversation_meta(&request.state, &target_conversation_id)
+        .map_err(|err| {
+            runtime_log_error(format!(
+                "[会话通知] 失败，任务=目标会话元数据读取，action={}，target_conversation_id={}，message_id={}，error={err}",
+                request.action,
+                target_conversation_id,
+                request.message.id
+            ));
+            format!("目标会话元数据读取失败: {err}")
+        })?;
+    runtime_log_info(format!(
+        "[会话通知] 节点，任务=投递元数据读取完成，action={}，target_conversation_id={}，message_id={}，is_remote_im_contact={}，kind={}，duration_ms={}",
+        request.action,
+        target_conversation_id,
+        request.message.id,
+        target_conversation_meta.is_remote_im_contact,
+        target_conversation_meta.conversation_kind.trim(),
+        started_at.elapsed().as_millis()
+    ));
+
+    if target_conversation_meta.is_remote_im_contact {
+        // 远程联系人保持原投递：渠道外发 + 历史写入 + 前端事件
+        service
+            .deliver_session_notification(
+                &request.state,
+                &target_conversation_id,
+                &request.body,
+                &request.message,
+                &request.action,
+            )
+            .await?;
+        runtime_log_info(format!(
+            "[会话通知] 完成，任务=会话间投递，action={}，target_conversation_id={}，message_id={}，duration_ms={}",
+            request.action,
+            target_conversation_id,
+            request.message.id,
+            started_at.elapsed().as_millis()
+        ));
+        return Ok(());
     }
 
-    conversation_service_v2()
-        .deliver_session_notification(
-            &request.state,
-            &request.target_conversation_id,
-            &request.body,
-            &request.message,
-            &request.action,
-        )
-        .await?;
+    // 运行时能力判据：未归档的本地 chat / side_chat 会话都能收通知（分支会话是 side_chat）
+    if !service
+        .conversation_meta_is_local_conversation_runtime_meta_view(&target_conversation_meta)
+    {
+        return Err(format!(
+            "目标会话不支持通知投递，kind={}",
+            target_conversation_meta.conversation_kind.trim()
+        ));
+    }
+
+    // 本地普通会话：系统引导消息入队（Guided），会话空闲时插话并激活主助理开新回合
+    let conversation = service
+        .get_conversation_metadata_record(&request.state, &target_conversation_id)?;
+    let mut runtime_context =
+        runtime_context_new("session_notification", "session_notification");
+    runtime_context.request_id = Some(format!(
+        "session-notification-request-{}",
+        Uuid::new_v4()
+    ));
+    runtime_context.dispatch_id = Some(format!(
+        "session-notification-dispatch-{}",
+        Uuid::new_v4()
+    ));
+    runtime_context.target_conversation_id = Some(target_conversation_id.clone());
+    runtime_context.root_conversation_id = conversation
+        .root_conversation_id
+        .clone()
+        .or_else(|| Some(target_conversation_id.clone()));
+    runtime_context.executor_agent_id = Some(conversation.agent_id.clone());
+    runtime_context.executor_department_id = Some(conversation.department_id.clone());
+    let event = ChatPendingEvent {
+        id: format!("session-notification-{}", Uuid::new_v4()),
+        conversation_id: target_conversation_id.clone(),
+        created_at: now_iso(),
+        source: ChatEventSource::System,
+        queue_mode: ChatQueueMode::Guided,
+        messages: vec![request.message.clone()],
+        activate_assistant: true,
+        assistant_message_id: None,
+        session_info: ChatSessionInfo {
+            department_id: conversation.department_id.clone(),
+            agent_id: conversation.agent_id.clone(),
+        },
+        runtime_context: Some(runtime_context),
+        sender_info: None,
+    };
+    let ingress = ingress_chat_event(&request.state, event)?;
+    let ingress_kind = match &ingress {
+        ChatEventIngress::Direct(_) => "direct",
+        ChatEventIngress::Queued { .. } => "queued",
+    };
     runtime_log_info(format!(
-        "[会话通知] 完成，任务=会话间投递，action={}，target_conversation_id={}，message_id={}，wait_round={}，duration_ms={}",
+        "[会话通知] 节点，任务=引导消息入队，action={}，target_conversation_id={}，message_id={}，ingress={}，duration_ms={}",
         request.action,
-        request.target_conversation_id,
+        target_conversation_id,
         request.message.id,
-        wait_round,
+        ingress_kind,
+        started_at.elapsed().as_millis()
+    ));
+    trigger_chat_event_after_ingress_with_delay(
+        &request.state,
+        ingress,
+        std::time::Duration::from_secs(1),
+    );
+    runtime_log_info(format!(
+        "[会话通知] 完成，任务=会话间投递，action={}，target_conversation_id={}，message_id={}，duration_ms={}",
+        request.action,
+        target_conversation_id,
+        request.message.id,
         started_at.elapsed().as_millis()
     ));
     Ok(())

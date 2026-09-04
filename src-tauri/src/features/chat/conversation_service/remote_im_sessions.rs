@@ -1127,10 +1127,28 @@ impl ConversationServiceV2 {
         action: &str,
     ) -> Result<(), String> {
         let normalized_target_session_id = target_session_id.trim();
+        runtime_log_info(format!(
+            "[会话通知] 节点，任务=投递入口，action={}，target_conversation_id={}，message_id={}",
+            action,
+            normalized_target_session_id,
+            message.id
+        ));
         let app_config = state_read_config_cached(state)?;
+        runtime_log_info(format!(
+            "[会话通知] 节点，任务=投递配置读取完成，action={}，target_conversation_id={}，message_id={}",
+            action,
+            normalized_target_session_id,
+            message.id
+        ));
         let target_conversation_meta = self
             .get_conversation_meta(state, normalized_target_session_id)
             .map_err(|_| "目标会话不存在".to_string())?;
+        runtime_log_info(format!(
+            "[会话通知] 节点，任务=投递元数据读取完成，action={}，target_conversation_id={}，message_id={}",
+            action,
+            normalized_target_session_id,
+            message.id
+        ));
         if !self.conversation_meta_is_unarchived_meta_view(&target_conversation_meta) {
             return Err("目标会话不存在".to_string());
         }
@@ -1190,7 +1208,20 @@ impl ConversationServiceV2 {
             return Err("目标会话不存在".to_string());
         }
 
+        runtime_log_info(format!(
+            "[会话通知] 节点，任务=投递前置检查完成，action={}，target_conversation_id={}，message_id={}，is_remote_im_contact={}",
+            action,
+            normalized_target_session_id,
+            message.id,
+            target_conversation_meta.is_remote_im_contact
+        ));
         self.append_message(state, normalized_target_session_id, message).await?;
+        runtime_log_info(format!(
+            "[会话通知] 节点，任务=通知消息写入完成，action={}，target_conversation_id={}，message_id={}",
+            action,
+            normalized_target_session_id,
+            message.id
+        ));
         emit_conversation_message_appended_event(state, normalized_target_session_id, message);
         Ok(())
     }

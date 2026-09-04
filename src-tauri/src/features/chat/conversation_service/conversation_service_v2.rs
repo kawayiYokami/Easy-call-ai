@@ -1511,6 +1511,10 @@ impl ConversationServiceV2 {
         }
         let store_paths =
             message_store::message_store_paths(&state.data_path, normalized_conversation_id)?;
+        runtime_log_info(format!(
+            "[会话消息写入] 节点，任务=元数据读取完成，conversation_id={}",
+            normalized_conversation_id
+        ));
         let updated_at = message.created_at.clone();
         let last_user_at = if message.role.trim() == "user" {
             Some(message.created_at.clone())
@@ -1544,6 +1548,10 @@ impl ConversationServiceV2 {
                 Ok(())
             },
         )?;
+        runtime_log_info(format!(
+            "[会话消息写入] 节点，任务=元数据缓存更新完成，conversation_id={}",
+            normalized_conversation_id
+        ));
         let metadata_conversation =
             self.build_conversation_snapshot_from_meta(&updated_meta, Vec::new());
         state_upsert_chat_index_conversation_cached(state, &metadata_conversation)?;
@@ -1556,6 +1564,10 @@ impl ConversationServiceV2 {
             &ready_meta,
             std::slice::from_ref(message),
         )?;
+        runtime_log_info(format!(
+            "[会话消息写入] 节点，任务=存储写入完成，conversation_id={}",
+            normalized_conversation_id
+        ));
         self.mark_conversation_metadata_cached_persisted(state, normalized_conversation_id)?;
         Ok(())
     }

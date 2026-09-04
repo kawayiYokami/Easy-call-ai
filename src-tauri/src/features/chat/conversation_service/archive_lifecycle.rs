@@ -435,9 +435,7 @@ impl ConversationServiceV2 {
                 &store_paths,
                 trigger_message_id,
             ) {
-                Ok(Some(block_message_count))
-                    if remote_im_wake_compaction_should_skip_for_low_frequency(block_message_count) =>
-                {
+                Ok(Some(block_message_count)) => {
                     runtime_log_info(format!(
                         "[远程唤醒压缩] 跳过，任务=低频群入场，conversation_id={}，trigger_message_id={}，current_block_message_count={}，minimum_block_message_count={}",
                         conversation_id,
@@ -445,17 +443,25 @@ impl ConversationServiceV2 {
                         block_message_count,
                         REMOTE_IM_WAKE_COMPACTION_MIN_BLOCK_MESSAGE_COUNT
                     ));
-                    return Ok(RemoteImDynamicWakeCompactionOutcome::SkippedLowFrequency {
-                        block_message_count,
-                    });
+                    if remote_im_wake_compaction_should_skip_for_low_frequency(block_message_count) {
+                        runtime_log_info(format!(
+                            "[远程唤醒压缩] 跳过，任务=低频群入场，conversation_id={}，trigger_message_id={}，block_message_count={}，minimum_block_message_count={}",
+                            conversation_id,
+                            trigger_message_id,
+                            block_message_count,
+                            REMOTE_IM_WAKE_COMPACTION_MIN_BLOCK_MESSAGE_COUNT
+                        ));
+                        return Ok(RemoteImDynamicWakeCompactionOutcome::SkippedLowFrequency {
+                            block_message_count,
+                        });
+                    }
                 }
-                Ok(Some(_)) => {}
                 Ok(None) => runtime_log_warn(format!(
-                    "[远程唤醒压缩] 降级，任务=低频群入场计数，conversation_id={}，trigger_message_id={}，reason=消息存储未就绪，继续原压缩路径",
+                    "[远程唤醒压缩] 降级，任务=入场 block 计数，conversation_id={}，trigger_message_id={}，reason=消息存储未就绪，继续压缩路径",
                     conversation_id, trigger_message_id
                 )),
                 Err(err) => runtime_log_warn(format!(
-                    "[远程唤醒压缩] 降级，任务=低频群入场计数，conversation_id={}，trigger_message_id={}，error={}，继续原压缩路径",
+                    "[远程唤醒压缩] 降级，任务=入场 block 计数，conversation_id={}，trigger_message_id={}，error={}，继续压缩路径",
                     conversation_id, trigger_message_id, err
                 )),
             }
@@ -480,6 +486,8 @@ impl ConversationServiceV2 {
         } else {
             String::new()
         };
+        let background_shell_lines =
+            terminal_background_shell_running_summary_lines(state, conversation_id);
         let summary = build_compaction_message(
             "",
             Some("远程唤醒上下文"),
@@ -489,6 +497,7 @@ impl ConversationServiceV2 {
                 "remote_im_wake_empty_fallback"
             },
             (!preserved_dialogue.trim().is_empty()).then_some(preserved_dialogue.as_str()),
+            &background_shell_lines,
         );
         let mut persisted_conversation = self.build_conversation_record_from_meta_view(&conversation_meta);
         persisted_conversation.updated_at = now_iso();
@@ -519,6 +528,13 @@ impl ConversationServiceV2 {
                 "远程唤醒压缩写入校验失败：摘要和触发消息顺序错误，conversation_id={conversation_id}"
             ));
         }
+        runtime_log_info(format!(
+            "[远程唤醒压缩] 完成，任务=写入摘要，conversation_id={}，summary_message_id={}，trigger_message_id={}，include_history={}",
+            conversation_id,
+            summary.id,
+            trigger_message_id,
+            include_history
+        ));
         Ok(RemoteImDynamicWakeCompactionOutcome::Applied)
             },
         )

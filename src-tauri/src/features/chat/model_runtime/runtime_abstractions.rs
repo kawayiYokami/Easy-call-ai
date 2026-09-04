@@ -171,6 +171,9 @@ fn provider_tool_metadata_from_value(tool_name: &str, value: &Value) -> Provider
 fn provider_tool_output_from_value(tool_name: &str, value: &Value) -> String {
     match tool_name {
         "exec" => {
+            if value.get("background").and_then(Value::as_bool) == Some(true) {
+                return serde_json::to_string(value).unwrap_or_else(|_| tool_value_readable_text(value));
+            }
             if let Some(aggregated_output) = value
                 .get("aggregatedOutput")
                 .and_then(Value::as_str)
@@ -432,6 +435,27 @@ mod runtime_tool_result_tests {
             result.metadata.control,
             ProviderToolControl::Task { .. }
         ));
+    }
+
+    #[test]
+    fn exec_background_result_keeps_full_json_for_projection() {
+        let value = serde_json::json!({
+            "ok": true,
+            "background": true,
+            "backgroundId": "bg-shell-1",
+            "id": "bg-shell-1",
+            "status": "running",
+            "command": "sleep 10",
+            "description": "等待",
+            "cwd": "C:/workspace",
+            "mode": "background",
+            "logPath": "C:/workspace/logs/bg-shell-1.log"
+        });
+        let result = provider_tool_result_from_value("exec", value);
+
+        assert!(result.output.contains("\"backgroundId\":\"bg-shell-1\""));
+        assert!(result.output.contains("\"logPath\""));
+        assert!(result.output.contains("\"status\":\"running\""));
     }
 
     #[test]

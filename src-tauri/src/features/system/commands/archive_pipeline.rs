@@ -1044,6 +1044,7 @@ fn build_compaction_message(
     title: Option<&str>,
     compaction_reason: &str,
     preserved_dialogue: Option<&str>,
+    background_shell_lines: &[String],
 ) -> ChatMessage {
     let now = now_iso();
     let reason = compaction_reason.trim();
@@ -1066,11 +1067,17 @@ fn build_compaction_message(
         .filter(|value| !value.is_empty())
         .map(normalize_multiline_block)
         .unwrap_or_else(|| "（暂无保留对话）".to_string());
-    let sections = vec![
+    let mut sections = vec![
         format!("## 摘要说明\n\n{}", normalize_markdown_block(&summary_note)),
         format!("## 摘要正文\n\n{}", clean_compaction_summary_text(summary)),
         format!("## 保留对话\n\n{}", preserved_dialogue_text),
     ];
+    if !background_shell_lines.is_empty() {
+        sections.push(format!(
+            "## 运行中的后台任务\n\n{}",
+            normalize_multiline_block(&background_shell_lines.join("\n"))
+        ));
+    }
     let text = sections.join("\n\n");
     let normalized_title = title.and_then(normalize_summary_context_title);
     ChatMessage {
@@ -2031,6 +2038,7 @@ mod archive_pipeline_tests {
             Some("摘要格式"),
             "",
             None,
+            &[],
         );
         let text = render_message_content_for_model(&message);
 
@@ -2038,6 +2046,23 @@ mod archive_pipeline_tests {
         assert!(text.contains("## 摘要正文"));
         assert!(text.contains("## 当前进展\n\n- 已完成摘要格式优化"));
         assert!(!text.contains("[上下文整理]"));
+        assert!(!text.contains("## 运行中的后台任务"));
+    }
+
+    #[test]
+    fn build_compaction_message_should_carry_background_shell_lines() {
+        let message = build_compaction_message(
+            "## 当前进展\n\n- 完成",
+            None,
+            "",
+            None,
+            &["- bg-shell-abc：description=跑 dev server，command=pnpm tauri dev".to_string()],
+        );
+        let text = render_message_content_for_model(&message);
+
+        assert!(text.contains("## 运行中的后台任务"));
+        assert!(text.contains("bg-shell-abc"));
+        assert!(text.contains("pnpm tauri dev"));
     }
 
     #[test]

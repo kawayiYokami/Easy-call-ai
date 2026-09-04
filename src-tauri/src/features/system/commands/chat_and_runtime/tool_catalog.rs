@@ -134,6 +134,13 @@ async fn builtin_tool_definitions_for_frontend(
             .provider_tool_definition(),
         ),
         frontend_tool_definition(
+            BuiltinBackgroundTool {
+                app_state: state.clone(),
+                session_id: preview_session_id.clone(),
+            }
+            .provider_tool_definition(),
+        ),
+        frontend_tool_definition(
             BuiltinInformSessionTool {
                 app_state: state.clone(),
                 session_id: preview_session_id.clone(),

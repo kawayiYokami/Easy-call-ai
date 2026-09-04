@@ -3919,6 +3919,9 @@
             terminal_live_sessions: Arc::new(tokio::sync::Mutex::new(
                 std::collections::HashMap::new(),
             )),
+            terminal_background_shell_tasks: Arc::new(tokio::sync::Mutex::new(
+                std::collections::HashMap::new(),
+            )),
             terminal_pending_approvals: Arc::new(Mutex::new(std::collections::HashMap::new())),
             schedule_events: Arc::new(Mutex::new(ScheduleEventStore::default())),
             conversation_runtime_slots: Arc::new(Mutex::new(std::collections::HashMap::new())),
@@ -6219,6 +6222,7 @@
             Some("工具调度压缩"),
             "force_context_usage_82",
             Some("用户：连续检查两个目标\n助手：第一轮工具检查已经完成。"),
+            &[],
         );
         conversation_service_v2()
             .persist_compaction_message(&state, &conversation, &compression_message, None)
@@ -7864,14 +7868,47 @@
 
         assert_eq!(result.target_kind, "queued");
         assert!(!result.pushed_to_remote);
-        let target = wait_for_session_notification(&state, &target_local_id);
-        assert_eq!(target.messages.len(), 1);
-        assert_eq!(target.messages[0].role, "assistant");
+        // 本地会话走引导队列：空会话批次先补种初始摘要，通知消息随后写入并激活主助理。
+        let target = {
+            let mut found = None;
+            for _ in 0..60 {
+                if let Ok(conversation) = state_read_conversation_cached(&state, &target_local_id) {
+                    if let Some(index) = conversation.messages.iter().position(|message| {
+                        message
+                            .provider_meta
+                            .as_ref()
+                            .and_then(|meta| meta.get("messageKind"))
+                            .and_then(Value::as_str)
+                            == Some("session_notification")
+                    }) {
+                        found = Some(conversation);
+                        let _ = index;
+                        break;
+                    }
+                }
+                std::thread::sleep(std::time::Duration::from_millis(50));
+            }
+            found.expect("通知消息应写入本地目标会话历史")
+        };
+        let notification_index = target
+            .messages
+            .iter()
+            .position(|message| {
+                message
+                    .provider_meta
+                    .as_ref()
+                    .and_then(|meta| meta.get("messageKind"))
+                    .and_then(Value::as_str)
+                    == Some("session_notification")
+            })
+            .expect("通知消息应写入本地目标会话历史");
+        let notification = &target.messages[notification_index];
+        assert_eq!(notification.role, "assistant");
         assert_eq!(
-            target.messages[0].speaker_agent_id.as_deref(),
+            notification.speaker_agent_id.as_deref(),
             Some(SYSTEM_PERSONA_ID)
         );
-        match &target.messages[0].parts[0] {
+        match &notification.parts[0] {
             MessagePart::Text { text, .. } => {
                 assert_eq!(text, "[源会话·通知部门·通知人格]:请跟进");
             }

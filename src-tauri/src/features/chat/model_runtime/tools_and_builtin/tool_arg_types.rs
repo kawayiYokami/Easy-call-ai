@@ -43,11 +43,25 @@ struct RecallToolArgs {
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+struct BackgroundToolArgs {
+    action: String,
+    #[serde(default)]
+    id: Option<String>,
+    #[serde(default)]
+    limit: Option<usize>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
 struct TerminalExecToolArgs {
     #[serde(default)]
     action: Option<String>,
     #[serde(default)]
+    mode: Option<String>,
+    #[serde(default)]
     command: Option<String>,
+    #[serde(default)]
+    description: Option<String>,
     #[serde(default)]
     timeout_ms: Option<u64>,
     #[serde(default)]

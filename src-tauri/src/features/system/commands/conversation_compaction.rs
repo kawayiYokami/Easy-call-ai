@@ -301,11 +301,14 @@ async fn run_context_compaction_pipeline_inner(
         } else {
             build_user_profile_snapshot_block(&state.data_path, &owner_agent, 12)?
         };
+    let background_shell_lines =
+        terminal_background_shell_running_summary_lines(state, &source.id);
     let compression_message = build_compaction_message(
         &summary_draft.summary,
         Some(summary_draft.title.as_str()),
         compaction_reason,
         Some(&preserved_dialogue),
+        &background_shell_lines,
     );
     let persist_result = conversation_service_v2().persist_compaction_message(
         state,

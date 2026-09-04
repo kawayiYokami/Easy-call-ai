@@ -65,6 +65,9 @@ struct AppState {
     terminal_live_sessions: Arc<
         tokio::sync::Mutex<std::collections::HashMap<String, TerminalLiveShellSessionHandle>>,
     >,
+    terminal_background_shell_tasks: Arc<
+        tokio::sync::Mutex<std::collections::HashMap<String, TerminalBackgroundShellTaskHandle>>,
+    >,
     terminal_pending_approvals:
         Arc<Mutex<std::collections::HashMap<String, PendingTerminalApprovalRequest>>>,
     schedule_events: Arc<Mutex<ScheduleEventStore>>,
@@ -305,6 +308,9 @@ impl AppState {
                 Arc::new(Mutex::new(std::collections::HashMap::new())),
             terminal_session_roots: Arc::new(Mutex::new(std::collections::HashMap::new())),
             terminal_live_sessions: Arc::new(tokio::sync::Mutex::new(
+                std::collections::HashMap::new(),
+            )),
+            terminal_background_shell_tasks: Arc::new(tokio::sync::Mutex::new(
                 std::collections::HashMap::new(),
             )),
             terminal_pending_approvals: Arc::new(Mutex::new(std::collections::HashMap::new())),

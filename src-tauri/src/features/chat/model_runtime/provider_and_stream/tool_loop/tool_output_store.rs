@@ -62,6 +62,14 @@ fn project_provider_tool_result(
     result: &ProviderToolResult,
 ) -> ProviderToolProjection {
     if tool_name == "exec" {
+        if let Ok(value) = serde_json::from_str::<serde_json::Value>(&result.output) {
+            if value.get("background").and_then(|flag| flag.as_bool()) == Some(true) {
+                return ProviderToolProjection {
+                    text: result.output.clone(),
+                    metadata: result.metadata.clone(),
+                };
+            }
+        }
         let exit_code = result
             .metadata
             .exit_code
@@ -164,6 +172,30 @@ mod tool_output_store_tests {
 
         assert!(projected.contains("tokens truncated"));
         assert!(projected.ends_with("Use search or ranged reads; do not read the whole file."));
+    }
+
+    #[test]
+    fn exec_projection_should_passthrough_background_result_json() {
+        let output = serde_json::json!({
+            "ok": true,
+            "background": true,
+            "backgroundId": "bg-1",
+            "id": "bg-1",
+            "status": "running",
+            "command": "sleep 10",
+            "description": "sleep",
+            "cwd": "C:/workspace",
+            "mode": "background",
+            "logPath": "C:/workspace/logs/bg-1.log"
+        })
+        .to_string();
+        let result = ProviderToolResult::text(output);
+
+        let projected = project_provider_tool_result(None, "exec", &result);
+
+        assert_eq!(projected.text, result.output);
+        assert!(projected.text.contains("backgroundId"));
+        assert!(projected.text.contains("logPath"));
     }
 
     #[test]

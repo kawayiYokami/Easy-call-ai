@@ -514,6 +514,8 @@ impl RuntimeToolMetadata for BuiltinTerminalExecTool {
               "type": "object",
               "properties": {
                 "command": { "type": "string", "description": "要执行的一次性 shell 命令。" },
+                "description": { "type": "string", "description": "可选，本次命令的简短说明。后台任务会用于列表展示与完成写回；留空时列表以命令文本展示。" },
+                "mode": { "type": "string", "enum": ["wait", "background"], "default": "wait", "description": "执行模式。wait=当前调用等待结果；background=立即返回后台任务 id。" },
                 "timeout_ms": { "type": "integer", "minimum": 1, "default": 300000, "description": "命令超时时间，单位毫秒；未指定时默认 300000ms，超时后回收本次进程树。长耗时检查/构建应显式传入足够大的值。" },
                 "commitment": { "type": "string", "description": "危险命令确认承诺。平时留空；仅当 exec 返回 blockedReason=local_rule_blocked 且 message 要求确认时，向用户说明危险性并取得明确许可后，填入返回中的 commitmentHint 文案再重新调用。" }
               },
@@ -638,6 +640,12 @@ impl RuntimeValueTool for BuiltinTerminalExecTool {
             .map(str::trim)
             .filter(|v| !v.is_empty())
             .unwrap_or("run");
+        let resolved_mode = args
+            .mode
+            .as_deref()
+            .map(str::trim)
+            .filter(|v| !v.is_empty())
+            .unwrap_or("wait");
         let resolved_command = args.command.as_deref().map(str::trim).unwrap_or("");
         if resolved_action == "run" && resolved_command.is_empty() {
             return Err(ToolInvokeError::from("exec.command is required".to_string()));
@@ -649,11 +657,18 @@ impl RuntimeValueTool for BuiltinTerminalExecTool {
             resolved_command,
         )
         .map_err(ToolInvokeError::from)?;
+        let resolved_description = args
+            .description
+            .as_deref()
+            .map(str::trim)
+            .unwrap_or("");
         let result = builtin_shell_exec(
             &self.app_state,
             &self.session_id,
             resolved_action,
+            resolved_mode,
             resolved_command,
+            resolved_description,
             args.timeout_ms,
             args.commitment.as_deref(),
         )
@@ -1020,6 +1035,12 @@ struct BuiltinGetSessionTool {
 }
 
 #[derive(Debug, Clone)]
+struct BuiltinBackgroundTool {
+    app_state: AppState,
+    session_id: String,
+}
+
+#[derive(Debug, Clone)]
 struct BuiltinInformSessionTool {
     app_state: AppState,
     session_id: String,
@@ -1242,6 +1263,25 @@ impl RuntimeToolMetadata for BuiltinGetSessionTool {
     }
 }
 
+impl RuntimeToolMetadata for BuiltinBackgroundTool {
+    fn provider_tool_definition(&self) -> ProviderToolDefinition {
+        ProviderToolDefinition::new(
+            "background",
+            "统一查询和治理后台工作。当前支持查看本会话 shell 后台运行态与委托状态、查看详情和终止。",
+            serde_json::json!({
+              "type": "object",
+              "properties": {
+                "action": { "type": "string", "enum": ["list", "status", "kill"], "description": "后台动作。list=列当前会话运行中的 shell 后台和委托；status=查看某项状态；kill=终止某项后台工作。" },
+                "id": { "type": "string", "description": "后台工作 ID。status/kill 时必填。" },
+                "limit": { "type": "integer", "description": "可选。返回内容的最大字符数提示。" }
+              },
+              "required": ["action"],
+              "additionalProperties": false
+            }),
+        )
+    }
+}
+
 impl RuntimeValueTool for BuiltinGetSessionTool {
     const NAME: &'static str = "get_session";
     type Args = GetSessionToolArgs;
@@ -1261,6 +1301,32 @@ impl RuntimeValueTool for BuiltinGetSessionTool {
                     debug_value_snippet(v, 240)
                 )),
                 Err(err) => runtime_log_error(format!("[工具执行] 内置工具 get_session 执行失败: 错误={err}")),
+            }
+            result
+        })
+    }
+}
+
+impl RuntimeValueTool for BuiltinBackgroundTool {
+    const NAME: &'static str = "background";
+    type Args = BackgroundToolArgs;
+    type Error = ToolInvokeError;
+
+    fn call_typed(&self, args: Self::Args) -> RuntimeToolValueFuture<'_, Self::Error> {
+        Box::pin(async move {
+            runtime_log_debug(format!(
+                "[工具调试] 内置工具执行开始 name=background args={}",
+                debug_value_snippet(&serde_json::to_value(&args).unwrap_or(Value::Null), 240)
+            ));
+            let result = builtin_background(&self.app_state, &self.session_id, args)
+                .await
+                .map_err(ToolInvokeError::from);
+            match &result {
+                Ok(v) => runtime_log_debug(format!(
+                    "[工具调试] 内置工具执行完成 name=background result={}",
+                    debug_value_snippet(v, 240)
+                )),
+                Err(err) => runtime_log_error(format!("[工具执行] 内置工具 background 执行失败: 错误={err}")),
             }
             result
         })

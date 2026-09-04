@@ -85,6 +85,15 @@ const BUILTIN_TOOL_POLICY_TABLE: &[BuiltinToolPolicy] = &[
         prompt_rule_id: Some("exec"),
         ..DEFAULT_BUILTIN_TOOL_POLICY
     },
+    // background 是 exec 的伴生工具（同会话作用域）：与 exec 共用 prompt rule 与 origin 门槛，
+    // 强制挂载档（SystemExempt 跳过部门权限检查），不允许部门禁用
+    BuiltinToolPolicy {
+        id: "background",
+        permission_class: BuiltinToolPermissionClass::SystemExempt,
+        runtime_scope: BuiltinToolRuntimeScope::Any,
+        prompt_rule_id: Some("exec"),
+        visible_in_department_permissions: false,
+    },
     BuiltinToolPolicy {
         id: "config",
         ..DEFAULT_BUILTIN_TOOL_POLICY

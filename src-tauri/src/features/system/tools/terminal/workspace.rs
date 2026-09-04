@@ -1351,6 +1351,7 @@ mod terminal_workspace_tests {
             inflight_completed_tool_history: Arc::new(Mutex::new(HashMap::new())),
             terminal_session_roots: Arc::new(Mutex::new(HashMap::new())),
             terminal_live_sessions: Arc::new(tokio::sync::Mutex::new(HashMap::new())),
+            terminal_background_shell_tasks: Arc::new(tokio::sync::Mutex::new(HashMap::new())),
             terminal_pending_approvals: Arc::new(Mutex::new(HashMap::new())),
             schedule_events: Arc::new(Mutex::new(ScheduleEventStore::default())),
             conversation_runtime_slots: Arc::new(Mutex::new(HashMap::new())),

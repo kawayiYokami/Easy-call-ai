@@ -1,4 +1,5 @@
 #[cfg(target_os = "windows")]
+#[derive(Debug)]
 struct WindowsJobGuard(windows_sys::Win32::Foundation::HANDLE);
 
 #[cfg(target_os = "windows")]
@@ -61,6 +62,16 @@ impl WindowsJobGuard {
         let assign_ok = unsafe { AssignProcessToJobObject(self.0, process) };
         if assign_ok == 0 {
             return Err("AssignProcessToJobObject failed".to_string());
+        }
+        Ok(())
+    }
+
+    fn terminate_job(&self) -> Result<(), String> {
+        use windows_sys::Win32::System::JobObjects::TerminateJobObject;
+
+        let terminate_ok = unsafe { TerminateJobObject(self.0, 1) };
+        if terminate_ok == 0 {
+            return Err("TerminateJobObject failed".to_string());
         }
         Ok(())
     }

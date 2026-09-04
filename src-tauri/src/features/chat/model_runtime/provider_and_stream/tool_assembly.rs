@@ -340,6 +340,11 @@ fn build_global_tool_schema_cache(state: &AppState) -> Vec<CachedRuntimeToolSche
             session_id: preview_session_id.clone(),
         }
         .provider_tool_definition(),
+        BuiltinBackgroundTool {
+            app_state: state.clone(),
+            session_id: preview_session_id.clone(),
+        }
+        .provider_tool_definition(),
         BuiltinInformSessionTool {
             app_state: state.clone(),
             session_id: preview_session_id.clone(),
@@ -1061,6 +1066,10 @@ fn build_builtin_runtime_tool_executor(
             session_id: tool_session_id.to_string(),
         }),
         "get_session" => Box::new(BuiltinGetSessionTool {
+            app_state: state.clone(),
+            session_id: tool_session_id.to_string(),
+        }),
+        "background" => Box::new(BuiltinBackgroundTool {
             app_state: state.clone(),
             session_id: tool_session_id.to_string(),
         }),

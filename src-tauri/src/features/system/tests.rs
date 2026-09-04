@@ -449,6 +449,7 @@
             Some("当前标题"),
             "manual",
             Some("用户：继续推进\n助手甲：我来接着处理"),
+            &[],
         );
         let text = message
             .parts
@@ -476,6 +477,7 @@
             Some("计划标题"),
             "manual",
             None,
+            &[],
         );
         let text = message
             .parts

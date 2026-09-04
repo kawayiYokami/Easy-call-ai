@@ -863,12 +863,15 @@ async fn builtin_shell_exec(
     state: &AppState,
     session_id: &str,
     action: &str,
+    mode: &str,
     command: &str,
+    description: &str,
     timeout_ms: Option<u64>,
     commitment: Option<&str>,
 ) -> Result<Value, String> {
     let action = action.trim().to_ascii_lowercase();
     let cmd = command.trim();
+    let description = description.trim();
     let ui_language = state_read_config_cached(state)
         .map(|config| config.ui_language)
         .unwrap_or_else(|_| "zh-CN".to_string());
@@ -1597,6 +1600,35 @@ async fn builtin_shell_exec(
         }
     }
 
+    if mode.trim().eq_ignore_ascii_case("background") {
+        let conversation_id = delegate_session_conversation_id(&normalized_session)
+            .ok_or_else(|| "缺少当前工具调用会话 ID，无法启动后台 shell。".to_string())?;
+        let task_id = terminal_background_shell_spawn_and_register(
+            state,
+            &normalized_session,
+            &conversation_id,
+            description.to_string(),
+            cmd.to_string(),
+            execution_cwd.clone(),
+            // 后台任务不受前台 timeout 约束：跑到自然结束或被 kill，超时由命令自行控制
+            None,
+            runtime_shell.clone(),
+        )
+        .await?;
+        return Ok(serde_json::json!({
+            "ok": true,
+            "background": true,
+            "backgroundId": task_id,
+            "id": task_id,
+            "status": "running",
+            "command": cmd,
+            "description": description,
+            "cwd": terminal_path_for_user(&execution_cwd),
+            "mode": "background",
+            "logPath": terminal_path_for_user(&terminal_background_shell_log_path(&task_id)),
+        }));
+    }
+
     let execution_result = run_command_in_workspace(state, &normalized_session, cmd, &execution_cwd, timeout_ms, is_read_whitelist).await;
     let execution = match execution_result {
         Ok(execution) => execution,
@@ -1707,6 +1739,7 @@ mod terminal_exec_tests {
             inflight_completed_tool_history: Arc::new(Mutex::new(HashMap::new())),
             terminal_session_roots: Arc::new(Mutex::new(HashMap::new())),
             terminal_live_sessions: Arc::new(tokio::sync::Mutex::new(HashMap::new())),
+            terminal_background_shell_tasks: Arc::new(tokio::sync::Mutex::new(HashMap::new())),
             terminal_pending_approvals: Arc::new(Mutex::new(HashMap::new())),
             schedule_events: Arc::new(Mutex::new(ScheduleEventStore::default())),
             conversation_runtime_slots: Arc::new(Mutex::new(HashMap::new())),
@@ -1851,11 +1884,12 @@ mod terminal_exec_tests {
 
         let state = build_test_state(shell, root.clone());
         let started = std::time::Instant::now();
-        let run = builtin_shell_exec(
-            &state,
+        let run = builtin_shell_exec(&state,
             "test-session",
             "run",
+            "wait",
             "echo changed > ./existing.txt",
+            "test: echo changed > ./existing.txt",
             Some(8_000), None,
         );
         let result = timeout(Duration::from_secs(15), run)
@@ -1923,7 +1957,7 @@ mod terminal_exec_tests {
 
         let result = timeout(
             Duration::from_secs(15),
-            builtin_shell_exec(&state, &session_id, "run", command, Some(8_000), None),
+            builtin_shell_exec(&state, &session_id, "run", "wait", command, "test command", Some(8_000), None),
         )
         .await
         .map_err(|_| "builtin_shell_exec timed out".to_string())??;
@@ -1997,11 +2031,12 @@ mod terminal_exec_tests {
         )
         .expect("configure workspaces");
 
-        let result = builtin_shell_exec(
-            &state,
+        let result = builtin_shell_exec(&state,
             "read-outside-session",
             "run",
+            "wait",
             "Get-Content C:\\Windows\\win.ini | Select-Object -First 1",
+            "test: Get-Content C:\\Windows\\win.ini | Selec",
             Some(8_000), None,
         )
         .await
@@ -2038,7 +2073,13 @@ mod terminal_exec_tests {
             outside_path.to_string_lossy()
         );
 
-        let result = builtin_shell_exec(&state, "write-outside-session", "run", &command, Some(8_000), None)
+        let result = builtin_shell_exec(&state,
+            "write-outside-session",
+            "run",
+            "wait",
+            &command,
+            "test command",
+            Some(8_000), None)
             .await
             .expect("run write command");
 
@@ -2086,7 +2127,9 @@ mod terminal_exec_tests {
             &state,
             &session_id,
             "run",
+            "wait",
             "python -c \"print('hello')\"",
+            "test: python hello",
             Some(8_000), None,
         )
         .await
@@ -2165,11 +2208,12 @@ mod terminal_exec_tests {
         )
         .expect("configure conversation workspaces");
 
-        let result = builtin_shell_exec(
-            &state,
+        let result = builtin_shell_exec(&state,
             &session_id,
             "run",
+            "wait",
             "Set-Content -Path .\\note.txt -Value 'hi'",
+            "test: Set-Content -Path .\\note.txt -Value 'hi",
             Some(8_000), None,
         )
         .await
@@ -2215,11 +2259,12 @@ mod terminal_exec_tests {
         )
         .expect("configure conversation workspaces");
 
-        let result = builtin_shell_exec(
-            &state,
+        let result = builtin_shell_exec(&state,
             &session_id,
             "run",
+            "wait",
             "Get-Content C:\\Windows\\win.ini | Select-Object -First 1 | Set-Content -Path '.\\note.txt'",
+            "test: Get-Content C:\\Windows\\win.ini | Selec",
             Some(8_000), None,
         )
         .await
@@ -2443,11 +2488,12 @@ mod terminal_exec_tests {
             terminal_path_for_user(&outside_root).replace('\\', "/")
         );
 
-        let result = builtin_shell_exec(
-            &state,
+        let result = builtin_shell_exec(&state,
             "git-read-outside-roots",
             "run",
+            "wait",
             &command,
+            "test command",
             Some(8_000), None,
         )
         .await
@@ -2487,11 +2533,12 @@ mod terminal_exec_tests {
         )
         .expect("configure conversation workspaces");
 
-        let result = builtin_shell_exec(
-            &state,
+        let result = builtin_shell_exec(&state,
             &session_id,
             "run",
+            "wait",
             "powershell -EncodedCommand AAAA",
+            "test: powershell -EncodedCommand AAAA",
             Some(8_000), None,
         )
         .await
@@ -2552,7 +2599,9 @@ mod terminal_exec_tests {
             &state,
             &session_id,
             "run",
+            "wait",
             "powershell -EncodedCommand AAAA",
+            "test: powershell -EncodedCommand AAAA",
             Some(8_000),
             Some(TERMINAL_EXEC_COMMITMENT_TEXT),
         )
@@ -2582,6 +2631,294 @@ mod terminal_exec_tests {
     }
 
     #[tokio::test]
+    async fn background_tool_should_only_manage_current_conversation_shell_tasks() -> Result<(), String> {
+        let root = std::env::temp_dir().join(format!("eca-background-tool-{}", Uuid::new_v4()));
+        fs::create_dir_all(&root).map_err(|err| format!("create root failed: {err}"))?;
+        let shell = TerminalShellProfile {
+            kind: "test-shell".to_string(),
+            path: "test-shell".to_string(),
+            args_prefix: Vec::new(),
+        };
+        let state = build_test_state(shell, root.clone());
+        let (_system_root, main_root, secondary_root) = configure_test_workspaces(
+            &state,
+            SHELL_WORKSPACE_ACCESS_FULL_ACCESS,
+            SHELL_WORKSPACE_ACCESS_READ_ONLY,
+        )?;
+        let session_id = configure_test_conversation_workspaces(
+            &state,
+            "background-conversation-a",
+            DEFAULT_AGENT_ID,
+            Some(main_root.as_path()),
+            &main_root,
+            SHELL_WORKSPACE_ACCESS_FULL_ACCESS,
+            &secondary_root,
+            SHELL_WORKSPACE_ACCESS_READ_ONLY,
+        )?;
+        let other_session_id = configure_test_conversation_workspaces(
+            &state,
+            "background-conversation-b",
+            DEFAULT_AGENT_ID,
+            Some(main_root.as_path()),
+            &main_root,
+            SHELL_WORKSPACE_ACCESS_FULL_ACCESS,
+            &secondary_root,
+            SHELL_WORKSPACE_ACCESS_READ_ONLY,
+        )?;
+        let conversation_id = delegate_session_conversation_id(&session_id)
+            .ok_or_else(|| "missing conversation id for test session".to_string())?;
+        let other_conversation_id = delegate_session_conversation_id(&other_session_id)
+            .ok_or_else(|| "missing conversation id for other test session".to_string())?;
+
+        let current_task = std::sync::Arc::new(TerminalBackgroundShellTask {
+            id: "bg-shell-current".to_string(),
+            _session_id: session_id.clone(),
+            conversation_id: conversation_id.clone(),
+            command: "echo current".to_string(),
+            cwd: terminal_path_for_user(&main_root),
+            description: "echo current".to_string(),
+            started_at: now_iso(),
+            timeout_ms: Some(8_000),
+            status: std::sync::Mutex::new(TerminalBackgroundShellStatus::Running),
+            exit_code: std::sync::Mutex::new(None),
+            log_path: terminal_background_shell_log_path("bg-shell-current"),
+            kill_requested: std::sync::atomic::AtomicBool::new(false),
+            kill_signal_tx: tokio::sync::watch::channel(false).0,
+        });
+        let other_task = std::sync::Arc::new(TerminalBackgroundShellTask {
+            id: "bg-shell-other".to_string(),
+            _session_id: other_session_id.clone(),
+            conversation_id: other_conversation_id,
+            command: "echo other".to_string(),
+            cwd: terminal_path_for_user(&main_root),
+            description: "echo other".to_string(),
+            started_at: now_iso(),
+            timeout_ms: Some(8_000),
+            status: std::sync::Mutex::new(TerminalBackgroundShellStatus::Running),
+            exit_code: std::sync::Mutex::new(None),
+            log_path: terminal_background_shell_log_path("bg-shell-other"),
+            kill_requested: std::sync::atomic::AtomicBool::new(false),
+            kill_signal_tx: tokio::sync::watch::channel(false).0,
+        });
+        {
+            let mut tasks = state.terminal_background_shell_tasks.lock().await;
+            tasks.insert(current_task.id.clone(), current_task);
+            tasks.insert(other_task.id.clone(), other_task);
+        }
+
+        let list = builtin_background(
+            &state,
+            &session_id,
+            BackgroundToolArgs {
+                action: "list".to_string(),
+                id: None,
+                limit: None,
+            },
+        )
+        .await?;
+        let list_ids = list
+            .get("items")
+            .and_then(Value::as_array)
+            .ok_or_else(|| format!("background list missing items: {list}"))?
+            .iter()
+            .filter_map(|item| item.get("id").and_then(Value::as_str))
+            .collect::<Vec<_>>();
+        assert!(list_ids.contains(&"bg-shell-current"));
+        assert!(!list_ids.contains(&"bg-shell-other"));
+
+        let status = builtin_background(
+            &state,
+            &session_id,
+            BackgroundToolArgs {
+                action: "status".to_string(),
+                id: Some("bg-shell-current".to_string()),
+                limit: None,
+            },
+        )
+        .await?;
+        assert_eq!(status.get("kind").and_then(Value::as_str), Some("shell"));
+        assert!(status
+            .get("detail")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .contains("bg-shell-current"));
+
+        let kill = builtin_background(
+            &state,
+            &session_id,
+            BackgroundToolArgs {
+                action: "kill".to_string(),
+                id: Some("bg-shell-current".to_string()),
+                limit: None,
+            },
+        )
+        .await?;
+        // 无 monitor 的登记表条目：kill 请求被受理，但没有 monitor 可确认终态。
+        assert_eq!(kill.get("killed").and_then(Value::as_bool), Some(true));
+        assert_eq!(kill.get("confirmed").and_then(Value::as_bool), Some(false));
+        let remaining = state.terminal_background_shell_tasks.lock().await;
+        assert!(remaining.contains_key("bg-shell-current"));
+        assert!(remaining.contains_key("bg-shell-other"));
+        drop(remaining);
+
+        let _ = fs::remove_dir_all(&root);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn background_shell_should_spawn_complete_and_cleanup() -> Result<(), String> {
+        let Some(shell) = shell_candidate_by_kind("git-bash") else {
+            runtime_log_warn(format!("[测试] 跳过后台 shell 启动验证，类型=git-bash: 当前设备不可用"));
+            return Ok(());
+        };
+        let root = std::env::temp_dir().join(format!("eca-background-spawn-{}", Uuid::new_v4()));
+        fs::create_dir_all(&root).map_err(|err| format!("create root failed: {err}"))?;
+        let state = build_test_state(shell, root.clone());
+        let (_system_root, main_root, secondary_root) = configure_test_workspaces(
+            &state,
+            SHELL_WORKSPACE_ACCESS_FULL_ACCESS,
+            SHELL_WORKSPACE_ACCESS_READ_ONLY,
+        )?;
+        let session_id = configure_test_conversation_workspaces(
+            &state,
+            "background-spawn-conversation",
+            DEFAULT_AGENT_ID,
+            Some(main_root.as_path()),
+            &main_root,
+            SHELL_WORKSPACE_ACCESS_FULL_ACCESS,
+            &secondary_root,
+            SHELL_WORKSPACE_ACCESS_READ_ONLY,
+        )?;
+
+        let started = builtin_shell_exec(
+            &state,
+            &session_id,
+            "run",
+            "background",
+            "echo background-shell-ok",
+            "验证后台启动",
+            None,
+            None,
+        )
+        .await?;
+        assert_eq!(started.get("ok").and_then(Value::as_bool), Some(true));
+        let task_id = started
+            .get("backgroundId")
+            .and_then(Value::as_str)
+            .ok_or_else(|| "backgroundId missing".to_string())?
+            .to_string();
+        let log_path = started
+            .get("logPath")
+            .and_then(Value::as_str)
+            .ok_or_else(|| "logPath missing".to_string())?
+            .to_string();
+
+        // 等待 monitor 完成写回；终态任务保留在登记表供对账。
+        let mut settled = false;
+        for _ in 0..250 {
+            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+            let tasks = state.terminal_background_shell_tasks.lock().await;
+            if let Some(task) = tasks.get(task_id.as_str()) {
+                let status = *task.status.lock().expect("terminal background status poisoned");
+                if terminal_background_shell_is_terminal(status) {
+                    settled = true;
+                    break;
+                }
+            }
+        }
+        assert!(settled, "任务完成后应进入终态并保留在登记表");
+        let status = {
+            let tasks = state.terminal_background_shell_tasks.lock().await;
+            let Some(task) = tasks.get(task_id.as_str()) else {
+                return Err("completed task should stay in registry".to_string());
+            };
+            let status = *task.status.lock().expect("terminal background status poisoned");
+            status
+        };
+        assert_eq!(status, TerminalBackgroundShellStatus::Completed);
+        let log_content = fs::read_to_string(&log_path).map_err(|err| format!("read log failed: {err}"))?;
+        assert!(
+            log_content.contains("background-shell-ok"),
+            "日志文件应包含命令输出，实际: {log_content}"
+        );
+
+        let _ = fs::remove_dir_all(&root);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn background_shell_kill_should_terminate_and_cleanup() -> Result<(), String> {
+        let Some(shell) = shell_candidate_by_kind("git-bash") else {
+            runtime_log_warn(format!("[测试] 跳过后台 shell 终止验证，类型=git-bash: 当前设备不可用"));
+            return Ok(());
+        };
+        let root = std::env::temp_dir().join(format!("eca-background-kill-{}", Uuid::new_v4()));
+        fs::create_dir_all(&root).map_err(|err| format!("create root failed: {err}"))?;
+        let state = build_test_state(shell, root.clone());
+        let (_system_root, main_root, secondary_root) = configure_test_workspaces(
+            &state,
+            SHELL_WORKSPACE_ACCESS_FULL_ACCESS,
+            SHELL_WORKSPACE_ACCESS_READ_ONLY,
+        )?;
+        let session_id = configure_test_conversation_workspaces(
+            &state,
+            "background-kill-conversation",
+            DEFAULT_AGENT_ID,
+            Some(main_root.as_path()),
+            &main_root,
+            SHELL_WORKSPACE_ACCESS_FULL_ACCESS,
+            &secondary_root,
+            SHELL_WORKSPACE_ACCESS_READ_ONLY,
+        )?;
+
+        let started = builtin_shell_exec(
+            &state,
+            &session_id,
+            "run",
+            "background",
+            "sleep 5",
+            "验证后台终止",
+            None,
+            None,
+        )
+        .await?;
+        assert_eq!(started.get("ok").and_then(Value::as_bool), Some(true));
+        let task_id = started
+            .get("backgroundId")
+            .and_then(Value::as_str)
+            .ok_or_else(|| "backgroundId missing".to_string())?
+            .to_string();
+
+        let kill = builtin_background(
+            &state,
+            &session_id,
+            BackgroundToolArgs {
+                action: "kill".to_string(),
+                id: Some(task_id.clone()),
+                limit: None,
+            },
+        )
+        .await?;
+        assert_eq!(kill.get("killed").and_then(Value::as_bool), Some(true));
+        assert_eq!(kill.get("confirmed").and_then(Value::as_bool), Some(true));
+        assert_eq!(kill.get("status").and_then(Value::as_str), Some("Killed"));
+
+        // 终态任务保留在登记表供对账。
+        let status = {
+            let tasks = state.terminal_background_shell_tasks.lock().await;
+            let Some(task) = tasks.get(task_id.as_str()) else {
+                return Err("killed task should stay in registry".to_string());
+            };
+            let status = *task.status.lock().expect("terminal background status poisoned");
+            status
+        };
+        assert_eq!(status, TerminalBackgroundShellStatus::Killed);
+
+        let _ = fs::remove_dir_all(&root);
+        Ok(())
+    }
+
+    #[tokio::test]
     async fn shell_exec_result_should_not_expose_session_id() -> Result<(), String> {
         let Some(shell) = shell_candidate_by_kind("git-bash") else {
             runtime_log_warn(format!("[测试] 跳过 Shell，类型=git-bash: 当前设备不可用"));
@@ -2591,8 +2928,13 @@ mod terminal_exec_tests {
         fs::create_dir_all(&root).map_err(|err| format!("create temp root failed: {err}"))?;
         let state = build_test_state(shell, root.clone());
 
-        let run_result =
-            builtin_shell_exec(&state, "no-session-id", "run", "echo ok", Some(8_000), None).await?;
+        let run_result = builtin_shell_exec(&state,
+            "no-session-id",
+            "run",
+            "wait",
+            "echo ok",
+            "test: echo ok",
+            Some(8_000), None).await?;
         assert!(run_result.get("sessionId").is_none(), "run result leaked sessionId: {run_result}");
         assert_eq!(
             run_result
@@ -2602,8 +2944,13 @@ mod terminal_exec_tests {
             Some("ok")
         );
 
-        let list_result =
-            builtin_shell_exec(&state, "no-session-id", "list", "", Some(8_000), None).await?;
+        let list_result = builtin_shell_exec(&state,
+            "no-session-id",
+            "list",
+            "wait",
+            "",
+            "test command",
+            Some(8_000), None).await?;
         assert!(list_result.get("sessionId").is_none(), "list result leaked sessionId: {list_result}");
         for session in list_result
             .get("sessions")
@@ -2614,8 +2961,13 @@ mod terminal_exec_tests {
             assert!(session.get("sessionId").is_none(), "listed session leaked sessionId: {session}");
         }
 
-        let close_result =
-            builtin_shell_exec(&state, "no-session-id", "close", "", Some(8_000), None).await?;
+        let close_result = builtin_shell_exec(&state,
+            "no-session-id",
+            "close",
+            "wait",
+            "",
+            "test command",
+            Some(8_000), None).await?;
         assert!(close_result.get("sessionId").is_none(), "close result leaked sessionId: {close_result}");
 
         let _ = fs::remove_dir_all(&root);
