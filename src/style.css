@@ -490,6 +490,34 @@ body {
   }
 }
 
+/* 思考与工具：新增块 0.2s - 仅新增块淡入，内部流式不重播，复用 --duration-fold */
+.ecall-activity-item-enter-active {
+  transition:
+    opacity var(--duration-fold) ease,
+    transform var(--duration-fold) ease;
+}
+
+.ecall-activity-item-enter-from {
+  opacity: 0;
+  transform: translateY(-6px);
+}
+
+.ecall-activity-item-move {
+  transition: transform var(--duration-fold) ease;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ecall-activity-item-enter-active,
+  .ecall-activity-item-move {
+    transition: none !important;
+  }
+
+  .ecall-activity-item-enter-from {
+    opacity: 1;
+    transform: none;
+  }
+}
+
 /* settings: simple/advanced mode + right content 0.2s, reuse --duration-fold */
 .ecall-config-mode-enter-active,
 .ecall-config-mode-leave-active,

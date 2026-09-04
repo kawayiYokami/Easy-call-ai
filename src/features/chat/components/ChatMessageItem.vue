@@ -94,9 +94,8 @@
               class="px-0 pb-1 pt-2 text-xs text-base-content/70"
             >
               <div class="flex flex-col">
-                <ul class="ecall-activity-timeline">
-                  <template v-for="(item, itemIndex) in resolvedActivityItems(block)" :key="`${block.id}-activity-${activityItemKey(item)}`">
-                    <li class="flex gap-1.5" :class="activityItemNodeClass(item)">
+                <TransitionGroup name="ecall-activity-item" tag="ul" class="ecall-activity-timeline" :appear="false">
+                  <li v-for="(item, itemIndex) in resolvedActivityItems(block)" :key="`${block.id}-activity-${activityItemKey(item)}`" class="flex gap-1.5" :class="activityItemNodeClass(item)">
                       <div class="flex w-4 shrink-0 flex-col items-center pt-1">
                         <span
                           v-if="item.kind === 'tool' && item.status === 'doing'"
@@ -198,8 +197,7 @@
                         </div>
                       </div>
                     </li>
-                  </template>
-                </ul>
+                </TransitionGroup>
                 <button
                   type="button"
                   class="btn btn-sm mt-2 w-full border-0 bg-base-300 text-base-content/70 hover:bg-base-300 hover:text-base-content"
