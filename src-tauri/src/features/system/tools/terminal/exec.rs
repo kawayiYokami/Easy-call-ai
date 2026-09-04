@@ -1285,7 +1285,7 @@ async fn builtin_shell_exec(
                             "cwd": terminal_path_for_user(&cwd),
                         }));
                     }
-                    let approved = match terminal_request_user_approval(
+                    let decision = match terminal_request_user_approval(
                         state,
                         "工具智能评估",
                         review_note,
@@ -1311,12 +1311,12 @@ async fn builtin_shell_exec(
                         Ok(v) => v,
                         Err(err) => return Err(err),
                     };
-                    if !approved {
+                    if !decision.approved {
                         return Ok(serde_json::json!({
                             "ok": false,
                             "approved": false,
                             "blockedReason": "user_denied_ai_review_raw_json_command",
-                            "message": "用户拒绝了查看原始评估结果后的终端命令。",
+                            "message": format_terminal_denied_message("用户拒绝了查看原始评估结果后的终端命令。", &decision),
                             "toolReview": smart_review_history.clone(),
                             "rootPath": session_root_text,
                             "workspacePath": workspace_path_text,
@@ -1371,7 +1371,7 @@ async fn builtin_shell_exec(
                     "cwd": terminal_path_for_user(&cwd),
                 }));
             }
-            let approved = match terminal_request_user_approval(
+            let decision = match terminal_request_user_approval(
                 state,
                 "工具智能评估",
                 &lines.join("\n"),
@@ -1379,9 +1379,9 @@ async fn builtin_shell_exec(
                 "ai_tool_review",
                 Some("shell_exec"),
                 None,
-                None,
+                Some(cmd),
                 Some(&cwd),
-                None,
+                Some(cmd),
                 None,
                 None,
                 match &write_risk {
@@ -1397,12 +1397,12 @@ async fn builtin_shell_exec(
                 Ok(v) => v,
                 Err(err) => return Err(err),
             };
-            if !approved {
+            if !decision.approved {
                 return Ok(serde_json::json!({
                     "ok": false,
                     "approved": false,
                     "blockedReason": "user_denied_ai_reviewed_command",
-                    "message": "用户拒绝了智能评估后的终端命令。",
+                    "message": format_terminal_denied_message("用户拒绝了智能评估后的终端命令。", &decision),
                     "toolReview": smart_review_history.clone(),
                     "rootPath": session_root_text,
                     "workspacePath": workspace_path_text,
@@ -1459,7 +1459,7 @@ async fn builtin_shell_exec(
                             "command": cmd,
                         }));
                     }
-                    let approved = match terminal_request_user_approval(
+                    let decision = match terminal_request_user_approval(
                         state,
                         "终端执行审批",
                         &message,
@@ -1482,12 +1482,12 @@ async fn builtin_shell_exec(
                         Ok(v) => v,
                         Err(err) => return Err(err),
                     };
-                    if !approved {
+                    if !decision.approved {
                         return Ok(serde_json::json!({
                             "ok": false,
                             "approved": false,
                             "blockedReason": "user_denied_new_file_change",
-                            "message": "用户拒绝了本次写入类终端命令。",
+                            "message": format_terminal_denied_message("用户拒绝了本次写入类终端命令。", &decision),
                             "rootPath": session_root_text,
                             "workspacePath": workspace_path_text,
                             "cwd": terminal_path_for_user(&cwd),
@@ -1532,7 +1532,7 @@ async fn builtin_shell_exec(
                             "command": cmd,
                         }));
                     }
-                    let approved = match terminal_request_user_approval(
+                    let decision = match terminal_request_user_approval(
                         state,
                         "终端执行审批",
                         &lines.join("\n"),
@@ -1555,12 +1555,12 @@ async fn builtin_shell_exec(
                         Ok(v) => v,
                         Err(err) => return Err(err),
                     };
-                    if !approved {
+                    if !decision.approved {
                         return Ok(serde_json::json!({
                             "ok": false,
                             "approved": false,
                             "blockedReason": "user_denied_existing_file_change",
-                            "message": "用户拒绝了本次写入类终端命令。",
+                            "message": format_terminal_denied_message("用户拒绝了本次写入类终端命令。", &decision),
                             "rootPath": session_root_text,
                             "workspacePath": workspace_path_text,
                             "cwd": terminal_path_for_user(&cwd),

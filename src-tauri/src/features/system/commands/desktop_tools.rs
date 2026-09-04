@@ -739,6 +739,8 @@ fn file_reader_directory_open_targets_for_ui(state: &AppState) -> Vec<Value> {
 struct ResolveTerminalApprovalInput {
     request_id: String,
     approved: bool,
+    #[serde(default)]
+    reason: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -1999,7 +2001,7 @@ fn resolve_terminal_approval(
     input: ResolveTerminalApprovalInput,
     state: State<'_, AppState>,
 ) -> Result<(), String> {
-    let _ = resolve_terminal_approval_request(&state, &input.request_id, input.approved)?;
+    let _ = resolve_terminal_approval_request(&state, &input.request_id, input.approved, input.reason.as_deref())?;
     Ok(())
 }
 

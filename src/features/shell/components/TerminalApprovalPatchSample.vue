@@ -35,12 +35,16 @@ const props = withDefaults(defineProps<{
   title?: string;
   collapsed?: boolean;
   lang?: string;
+  hideHeader?: boolean;
+  embedded?: boolean;
 }>(), {
   diffOnly: true,
   showPrefixes: true,
   title: "",
   collapsed: undefined,
   lang: "",
+  hideHeader: false,
+  embedded: false,
 });
 
 const emit = defineEmits<{
@@ -149,7 +153,7 @@ const kindLabel = computed(() => {
 
 const delta = computed(() => countTerminalApprovalPatchDelta(props.lines));
 
-const showTitleBar = computed(() => props.showPrefixes !== false);
+const showTitleBar = computed(() => !props.hideHeader && props.showPrefixes !== false);
 
 // ==================== shiki 行级高亮 ====================
 // 保留自定义解析（行号/标记/底色），仅把 code 文字换成语法高亮 HTML。
@@ -228,7 +232,7 @@ function lineHtml(index: number, fallback: string) {
 <template>
   <div
     class="approval-patch-sample flex w-full flex-col"
-    :class="{ 'approval-patch-sample--dark': isDark }"
+    :class="{ 'approval-patch-sample--dark': isDark, 'approval-patch-sample--embedded': embedded }"
   >
     <div
       v-if="showTitleBar"
@@ -300,6 +304,13 @@ function lineHtml(index: number, fallback: string) {
   --ap-add-fg: #3fb950;
   --ap-remove-bg: rgba(248, 81, 73, 0.15);
   --ap-remove-fg: #f85149;
+}
+
+.approval-patch-sample--embedded {
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  overflow: visible;
 }
 
 .approval-patch-sample__title {

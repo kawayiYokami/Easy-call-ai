@@ -365,6 +365,8 @@ struct IdeChatSelectModelInput {
 struct IdeChatResolveTerminalApprovalInput {
     request_id: String,
     approved: bool,
+    #[serde(default)]
+    reason: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]

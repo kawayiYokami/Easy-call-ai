@@ -331,8 +331,8 @@
               :current-theme="currentTheme"
               :terminal-approvals="terminalApprovals"
               :terminal-approval-resolving="terminalApprovalResolving"
-              :approve-terminal-approval="(requestId) => approveTerminalApproval(requestId)"
-              :deny-terminal-approval="(requestId) => denyTerminalApproval(requestId)"
+              :approve-terminal-approval="(requestId: string, reason?: string) => approveTerminalApproval(requestId, reason)"
+              :deny-terminal-approval="(requestId: string, reason?: string) => denyTerminalApproval(requestId, reason)"
               :approve-terminal-approval-for-session="(requestId) => approveTerminalApprovalForSession(requestId)"
               :approve-terminal-approval-for-workspace="(requestId) => approveTerminalApprovalForWorkspace(requestId)"
               :request-recall-mode="requestRecallMode"
@@ -647,8 +647,8 @@ const props = defineProps<{
   toolReviewRefreshTick: number;
   terminalApprovals?: TerminalApprovalConversationItem[];
   terminalApprovalResolving?: boolean;
-  approveTerminalApproval: (requestId?: string) => void;
-  denyTerminalApproval: (requestId?: string) => void;
+  approveTerminalApproval: (requestId?: string, reason?: string) => void;
+  denyTerminalApproval: (requestId?: string, reason?: string) => void;
   approveTerminalApprovalForSession: (requestId?: string) => void;
   approveTerminalApprovalForWorkspace: (requestId?: string) => void;
   planModeEnabled: boolean;

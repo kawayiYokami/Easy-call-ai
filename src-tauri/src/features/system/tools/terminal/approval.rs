@@ -1,6 +1,12 @@
 #[derive(Debug)]
+struct TerminalApprovalDecision {
+    approved: bool,
+    reason: Option<String>,
+}
+
+#[derive(Debug)]
 struct PendingTerminalApprovalRequest {
-    sender: tokio::sync::oneshot::Sender<bool>,
+    sender: tokio::sync::oneshot::Sender<TerminalApprovalDecision>,
     session_id: String,
     workspace_path: Option<String>,
 }
@@ -175,7 +181,7 @@ async fn terminal_request_user_approval(
     target_paths: &[PathBuf],
     review_opinion: Option<&str>,
     review_model_name: Option<&str>,
-) -> Result<bool, String> {
+) -> Result<TerminalApprovalDecision, String> {
     let request_id = Uuid::new_v4().to_string();
     let app_handle = {
         let guard = state
@@ -196,7 +202,7 @@ async fn terminal_request_user_approval(
         target_paths,
         cwd,
     );
-    let (tx, rx) = tokio::sync::oneshot::channel::<bool>();
+    let (tx, rx) = tokio::sync::oneshot::channel::<TerminalApprovalDecision>();
     {
         let mut pending = state
             .terminal_pending_approvals
@@ -301,8 +307,21 @@ async fn terminal_request_user_approval(
     }
 
     match wait_result {
-        Ok(approved) => Ok(approved),
+        Ok(decision) => Ok(decision),
         Err(_) => Err("Terminal approval channel closed unexpectedly.".to_string()),
+    }
+}
+
+fn normalize_terminal_approval_reason(reason: Option<&str>) -> Option<String> {
+    let text = reason.map(str::trim).filter(|v| !v.is_empty()).map(|v| v.chars().take(500).collect::<String>())?;
+    Some(text)
+}
+
+fn format_terminal_denied_message(base: &str, decision: &TerminalApprovalDecision) -> String {
+    if let Some(reason) = decision.reason.as_deref().map(str::trim).filter(|v| !v.is_empty()) {
+        format!("{base} 拒绝原因：{reason}")
+    } else {
+        base.to_string()
     }
 }
 
@@ -310,6 +329,7 @@ fn resolve_terminal_approval_request(
     state: &AppState,
     request_id: &str,
     approved: bool,
+    reason: Option<&str>,
 ) -> Result<bool, String> {
     let trimmed = request_id.trim();
     if trimmed.is_empty() {
@@ -332,7 +352,8 @@ fn resolve_terminal_approval_request(
         return Ok(false);
     };
 
-    if pending_request.sender.send(approved).is_err() {
+    let normalized_reason = normalize_terminal_approval_reason(reason);
+    if pending_request.sender.send(TerminalApprovalDecision { approved, reason: normalized_reason }).is_err() {
         runtime_log_debug(format!(
             "[工具调试] 终端审批接收端已关闭: {}",
             trimmed
@@ -361,7 +382,7 @@ fn approve_terminal_approval_for_session_request(
             .ok_or_else(|| "terminal approval request not found".to_string())?
     };
     remember_terminal_conversation_autonomous_mode(state, &session_id)?;
-    resolve_terminal_approval_request(state, trimmed, true)
+    resolve_terminal_approval_request(state, trimmed, true, None)
 }
 
 fn approve_terminal_approval_for_workspace_request(
@@ -388,5 +409,5 @@ fn approve_terminal_approval_for_workspace_request(
         )
     };
     remember_terminal_workspace_without_approval(state, &session_id, &workspace_path)?;
-    resolve_terminal_approval_request(state, trimmed, true)
+    resolve_terminal_approval_request(state, trimmed, true, None)
 }

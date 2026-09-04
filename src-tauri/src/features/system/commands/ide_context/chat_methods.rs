@@ -395,7 +395,7 @@ fn ide_chat_resolve_terminal_approval_command(
     params: Value,
 ) -> Result<Value, String> {
     let input = ide_chat_parse_param_field::<ResolveTerminalApprovalInput>(params, "input")?;
-    let _ = resolve_terminal_approval_request(state, &input.request_id, input.approved)?;
+    let _ = resolve_terminal_approval_request(state, &input.request_id, input.approved, input.reason.as_deref())?;
     ide_chat_serialize(())
 }
 
@@ -957,6 +957,7 @@ fn ide_chat_resolve_terminal_approval(state: &AppState, params: Value) -> Result
         state,
         input.request_id.trim(),
         input.approved,
+        input.reason.as_deref(),
     )?;
     Ok(serde_json::json!({ "resolved": resolved }))
 }

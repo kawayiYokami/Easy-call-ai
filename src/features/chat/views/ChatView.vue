@@ -337,7 +337,13 @@
           />
         </div>
 
-        <div ref="composerContainer" class="relative shrink-0 border-t border-base-300 bg-base-100 px-2 pt-1.5 pb-1.5 max-md:mx-2 max-md:mb-2 max-md:rounded-box max-md:border max-md:border-base-300 max-md:shadow-lg">
+        <div
+          ref="composerContainer"
+          class="relative shrink-0 border-t px-2 pt-1.5 pb-1.5 max-md:mx-2 max-md:mb-2 max-md:rounded-box max-md:border max-md:shadow-lg"
+          :class="activeConversationTerminalApprovals.length > 0
+            ? 'border-transparent bg-transparent max-md:border-transparent max-md:bg-transparent max-md:shadow-none'
+            : 'border-base-300 bg-base-100 max-md:border-base-300'"
+        >
           <div
             v-if="activeConversationIsRemoteContact"
             class="absolute bottom-full left-1/2 z-20 mb-3 -translate-x-1/2"
@@ -392,13 +398,14 @@
               </div>
             </div>
           </Transition>
-          <ChatApprovalPanel
+          <ChatQuestionPanel
             v-if="activeConversationTerminalApprovals.length > 0"
-            :approvals="activeConversationTerminalApprovals" :resolving="terminalApprovalResolving"
-            @approve="$emit('approveTerminalApproval', $event)"
-            @deny="$emit('denyTerminalApproval', $event)"
-            @approve-for-session="$emit('approveTerminalApprovalForSession', $event)"
-            @approve-for-workspace="$emit('approveTerminalApprovalForWorkspace', $event)"
+            :key="activeConversationTerminalApprovals.map((a) => a.requestId).join(',')"
+            :items="approvalQuestionItems"
+            v-model="approvalQuestionAnswers"
+            :submitting="!!terminalApprovalResolving"
+            @submit="handleApprovalQuestionSubmit"
+            @approve-for-workspace="handleApprovalQuestionWorkspaceRemember"
           />
           <div
             v-else-if="activeConversationRecipientMissing"
@@ -719,7 +726,7 @@ import {
 } from "../../../services/tauri-api";
 import type { ApiConfigItem, ChatConversationOverviewItem, ChatMentionEntry, ChatMentionTarget, ChatMessageBlock, ChatPersonaPresenceChip, ChatTodoItem, ConversationDelegateStatusSummary, ConversationForwardTarget, IdeContextReferenceItem, IdeContextWorkspaceGroup, PromptCommandPreset, RemoteImContactConversationOption, ShellWorkspace, ShellWorkMode } from "../../../types/app";
 import ChatMessageItem from "../components/ChatMessageItem.vue";
-import ChatApprovalPanel from "../components/ChatApprovalPanel.vue";
+import ChatQuestionPanel from "../components/ChatQuestionPanel.vue";
 import ChatComposerPanel from "../components/ChatComposerPanel.vue";
 import RemoteImContactEnergyDashboard from "../components/RemoteImContactEnergyDashboard.vue";
 import DepartmentPersonaSelect from "../../shared/components/DepartmentPersonaSelect.vue";
@@ -875,8 +882,8 @@ const emit = defineEmits<{
   (e: "selectionActionForward", payload: { count: number; messageIds: string[]; blocks: ChatMessageBlock[]; conversationId?: string; target: ConversationForwardTarget }): void;
   (e: "selectionActionDelegate", payload: { count: number; messageIds: string[]; blocks: ChatMessageBlock[]; conversationId?: string; departmentId: string; agentId: string; presetId: string; why: string; goal: string; todo: string }): void;
   (e: "selectionActionShare", payload: { count: number; messageIds: string[]; blocks: ChatMessageBlock[]; conversationId?: string; exportFormat?: "html" | "png" | "copyPng" }): void;
-  (e: "approveTerminalApproval", requestId: string): void;
-  (e: "denyTerminalApproval", requestId: string): void;
+  (e: "approveTerminalApproval", requestId: string, reason?: string): void;
+  (e: "denyTerminalApproval", requestId: string, reason?: string): void;
   (e: "approveTerminalApprovalForSession", requestId: string): void;
   (e: "approveTerminalApprovalForWorkspace", requestId: string): void;
 }>();
@@ -991,6 +998,50 @@ const {
   isOrganizingContextBusy, chatStatusBanner: baseChatStatusBanner, selectedMentionKeys,
   latestPendingPlanMessageId,
 } = useChatConversationCtx(props, isDarkAppTheme, t);
+
+// 提问卡：终端审批转 QuestionItems，一次性提交
+const approvalQuestionAnswers = ref<Record<string, { optionId: string; label: string; comment: string }>>({});
+const approvalQuestionItems = computed(() => {
+  return activeConversationTerminalApprovals.value.map((item) => {
+    const title = String(item.summary || item.toolName || item.approvalKind || t("chat.toolReview.title") || "终端审批").trim() || "终端审批";
+    const desc = String(item.message || item.reason || "").trim();
+    const cmd = String(item.command || "").trim();
+    const rawPreview = String(item.callPreview || "").trim();
+    let preview = rawPreview || cmd;
+    // 保证命令始终可见：callPreview 为 raw_json/评估意见时，命令另起一行拼接
+    if (rawPreview && cmd && rawPreview !== cmd && !rawPreview.includes(cmd)) {
+      preview = `${rawPreview}\n\n$ ${cmd}`;
+    }
+    const workspaceLabel = String(item.workspaceName || item.workspacePath || "").trim();
+    return {
+      id: item.requestId,
+      title,
+      description: desc || undefined,
+      previewText: preview || undefined,
+      canRememberWorkspace: !!item.canRememberWorkspace,
+      workspaceLabel: workspaceLabel || undefined,
+      options: [
+        { id: "approve", label: "同意", kind: "direct" as const },
+        { id: "deny", label: "拒绝", kind: "withInput" as const, placeholder: "补充说明（拒绝必填）", inputRequired: true },
+      ],
+    };
+  });
+});
+watch(() => activeConversationTerminalApprovals.value.map((a) => a.requestId).join(","), () => {
+  approvalQuestionAnswers.value = {};
+});
+function handleApprovalQuestionSubmit(answers: Array<{ id: string; optionId: string; label: string; comment: string }>) {
+  for (const ans of answers) {
+    const reason = String(ans.comment ?? "").trim() || undefined;
+    if (ans.optionId === "deny") emit("denyTerminalApproval", ans.id, reason);
+    else emit("approveTerminalApproval", ans.id, reason);
+  }
+}
+function handleApprovalQuestionWorkspaceRemember(requestId: string) {
+  const normalized = String(requestId || "").trim();
+  if (!normalized) return;
+  emit("approveTerminalApprovalForWorkspace", normalized);
+}
 const chatStatusBanner = computed(() => {
   if (transientNotice.value) return transientNotice.value;
   return baseChatStatusBanner.value;

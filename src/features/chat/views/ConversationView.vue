@@ -86,8 +86,8 @@
     @recall-turn="runtime.handleRecallTurn"
     @regenerate-turn="runtime.handleRegenerateTurn"
     @create-conversation-branch-from-turn="props.createConversationBranchFromTurn"
-    @approve-terminal-approval="approveTerminalApproval?.($event)"
-    @deny-terminal-approval="denyTerminalApproval?.($event)"
+    @approve-terminal-approval="(requestId: string, reason?: string) => approveTerminalApproval?.(requestId, reason)"
+    @deny-terminal-approval="(requestId: string, reason?: string) => denyTerminalApproval?.(requestId, reason)"
     @approve-terminal-approval-for-session="approveTerminalApprovalForSession?.($event)"
     @approve-terminal-approval-for-workspace="approveTerminalApprovalForWorkspace?.($event)"
     :goal-active="goalActive"
@@ -144,8 +144,8 @@ const props = defineProps<{
   config: AppConfig;
   terminalApprovals?: TerminalApprovalConversationItem[];
   terminalApprovalResolving?: boolean;
-  approveTerminalApproval?: (requestId: string) => void;
-  denyTerminalApproval?: (requestId: string) => void;
+  approveTerminalApproval?: (requestId: string, reason?: string) => void;
+  denyTerminalApproval?: (requestId: string, reason?: string) => void;
   approveTerminalApprovalForSession?: (requestId: string) => void;
   approveTerminalApprovalForWorkspace?: (requestId: string) => void;
   requestRecallMode?: (payload: {

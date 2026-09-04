@@ -116,7 +116,7 @@ export function useTerminalApproval(options: UseTerminalApprovalOptions) {
     });
   }
 
-  async function resolveTerminalApproval(approved: boolean, requestId?: string) {
+  async function resolveTerminalApproval(approved: boolean, requestId?: string, reason?: string) {
     if (options.resolving.value) return;
     const normalizedRequestId = String(requestId || "").trim();
     const targetIndex = normalizedRequestId
@@ -125,11 +125,13 @@ export function useTerminalApproval(options: UseTerminalApprovalOptions) {
     if (targetIndex < 0) return;
     const current = options.queue.value[targetIndex] ?? null;
     if (!current) return;
+    const normalizedReason = String(reason ?? "").trim().slice(0, 500) || undefined;
     options.resolving.value = true;
     try {
       await invokeTauri("terminalApproval.resolve", {
         requestId: current.requestId,
         approved,
+        ...(normalizedReason ? { reason: normalizedReason } : {}),
       });
       options.queue.value.splice(targetIndex, 1);
     } catch (error) {
@@ -140,12 +142,12 @@ export function useTerminalApproval(options: UseTerminalApprovalOptions) {
     }
   }
 
-  function denyTerminalApproval(requestId?: string) {
-    void resolveTerminalApproval(false, requestId);
+  function denyTerminalApproval(requestId?: string, reason?: string) {
+    void resolveTerminalApproval(false, requestId, reason);
   }
 
-  function approveTerminalApproval(requestId?: string) {
-    void resolveTerminalApproval(true, requestId);
+  function approveTerminalApproval(requestId?: string, reason?: string) {
+    void resolveTerminalApproval(true, requestId, reason);
   }
 
   async function invokeTerminalApprovalAction(
