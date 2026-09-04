@@ -309,6 +309,7 @@ async fn ide_chat_handle_jsonrpc_request(
         "terminalApproval.approveForWorkspace" => {
             ide_chat_approve_terminal_approval_for_workspace(state, request.params)
         }
+        "terminalApproval.list" => ide_chat_list_pending_terminal_approvals(state),
         "conversation.planMode.set" => ide_chat_set_conversation_plan_mode(state, request.params),
         "conversation.plan.confirm" => ide_chat_confirm_plan(state, request.params).await,
         "conversation.plan.readFile" => ide_chat_read_plan_file(state, request.params),

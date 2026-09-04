@@ -165,6 +165,14 @@ export function useChatForegroundRuntime(bindings: Record<string, any>) {
     } catch (error) {
       console.warn("[聊天前台恢复] 会话概览同步失败", { reason, error });
     }
+    // 同步拉回仍在 backend pending 的终端审批（刷新/切走后前端队列丢失的场景）
+    try {
+      const rehydrate = (bindings as unknown as { rehydrateTerminalApprovals?: () => Promise<unknown> }).rehydrateTerminalApprovals
+        ?? (bindings as unknown as { terminalApproval?: { rehydrateTerminalApprovals?: () => Promise<unknown> } }).terminalApproval?.rehydrateTerminalApprovals;
+      if (typeof rehydrate === "function") await (rehydrate as () => Promise<unknown>)();
+    } catch (error) {
+      console.warn("[聊天前台恢复] 审批恢复失败", { reason, error });
+    }
   });
 
   const foregroundActivity = useChatForegroundActivity({

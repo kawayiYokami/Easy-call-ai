@@ -243,6 +243,8 @@ export function useChatWindowRuntimeOrchestrator(bindings: Record<string, any>) 
     applyConversationRuntimeStateUpdated: bindings.applyConversationRuntimeStateUpdated,
     syncUnarchivedConversationOverviewChangedSinceWatermark: bindings.syncUnarchivedConversationOverviewChangedSinceWatermark,
     switchUnarchivedConversation: bindings.switchUnarchivedConversation,
+    rehydrateTerminalApprovals: bindings.rehydrateTerminalApprovals,
+    terminalApproval: bindings.terminalApproval,
     onBackground: bindings.onBackground,
     onVisibilityChange: bindings.onVisibilityChange,
     onCleanup: bindings.onCleanup,

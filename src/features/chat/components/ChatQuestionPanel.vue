@@ -289,16 +289,20 @@ function handleSubmitAll(overrideMap?: Record<string, QuestionAnswer>) {
               {{ currentItem.description }}
             </div>
           </div>
-          <button
+          <label
             v-if="canRememberWorkspaceForCurrent"
-            type="button"
-            class="btn btn-ghost shrink-0"
-            :disabled="submitting"
+            class="flex shrink-0 cursor-pointer items-center gap-2 btn btn-ghost font-normal"
+            :class="submitting ? 'pointer-events-none opacity-60' : ''"
             :title="workspaceLabelForCurrent || t('terminalApproval.rememberWorkspace')"
-            @click="handleWorkspaceRemember"
           >
-            {{ t("terminalApproval.rememberWorkspace") }}
-          </button>
+            <input
+              type="checkbox"
+              class="checkbox checkbox-sm"
+              :disabled="submitting"
+              @change="handleWorkspaceRemember"
+            >
+            <span>{{ t("terminalApproval.rememberWorkspace") }}</span>
+          </label>
         </div>
         <!-- 内容区：引用块样式，左竖线 + base-200/60 -->
         <div

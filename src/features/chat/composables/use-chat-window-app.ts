@@ -672,6 +672,8 @@ export function useChatWindowApp() {
     messageText,
     extractMessageImages,
     extractMessageAttachmentFiles,
+    rehydrateTerminalApprovals: () => contentOrchestrator.terminalApproval.rehydrateTerminalApprovals(),
+    terminalApproval: contentOrchestrator.terminalApproval,
   });
   const {
     configRuntime,

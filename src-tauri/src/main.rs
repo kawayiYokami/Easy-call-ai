@@ -1488,6 +1488,7 @@ fn main() {
             resolve_terminal_approval,
             approve_terminal_approval_for_session,
             approve_terminal_approval_for_workspace,
+            list_pending_terminal_approvals,
             open_file_reader_window_command,
             read_file_reader_file,
             read_file_reader_file_block,

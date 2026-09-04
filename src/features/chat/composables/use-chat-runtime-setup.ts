@@ -234,6 +234,13 @@ export function useChatRuntimeSetup(bindings: Record<string, any>) {
   const foregroundRuntime = useChatForegroundRuntime({
     ...bindings,
     getChatFlow: () => chatFlow,
+    rehydrateTerminalApprovals: (() => {
+      const direct = (bindings as unknown as { rehydrateTerminalApprovals?: () => Promise<unknown> }).rehydrateTerminalApprovals;
+      if (typeof direct === "function") return direct;
+      const fromApproval = (bindings as unknown as { terminalApproval?: { rehydrateTerminalApprovals?: () => Promise<unknown> } }).terminalApproval?.rehydrateTerminalApprovals;
+      if (typeof fromApproval === "function") return fromApproval;
+      return () => Promise.resolve(0);
+    })(),
   });
   const stopRewindCompletedEvent = onTransportNotification<ChatRewindCompletedPayload>(
     "chat.rewindCompleted",

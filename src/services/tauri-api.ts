@@ -1523,6 +1523,7 @@ const TAURI_COMMAND_ALIASES: Record<string, string> = {
   "terminalApproval.resolve": "resolve_terminal_approval",
   "terminalApproval.approveForSession": "approve_terminal_approval_for_session",
   "terminalApproval.approveForWorkspace": "approve_terminal_approval_for_workspace",
+  "terminalApproval.list": "list_pending_terminal_approvals",
   "conversation.plan.readFile": "read_plan_file_content",
   "conversation.rewindPreview": "preview_rewind_conversation_from_message",
   "conversation.rewind": "rewind_conversation_from_message",

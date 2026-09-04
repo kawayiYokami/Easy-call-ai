@@ -185,6 +185,22 @@ export function useTerminalApproval(options: UseTerminalApprovalOptions) {
     void invokeTerminalApprovalAction("terminalApproval.approveForWorkspace", "approve_for_workspace", requestId);
   }
 
+  async function rehydrateTerminalApprovals(): Promise<number> {
+    try {
+      const items = await invokeTauri<TerminalApprovalRequestPayload[]>("terminalApproval.list");
+      if (!Array.isArray(items)) return 0;
+      let added = 0;
+      for (const item of items) {
+        const before = options.queue.value.length;
+        enqueueTerminalApprovalRequest(item as TerminalApprovalRequestPayload);
+        if (options.queue.value.length !== before) added += 1;
+      }
+      return added;
+    } catch {
+      return 0;
+    }
+  }
+
   return {
     terminalApprovalCurrent,
     terminalApprovalDialogOpen,
@@ -198,5 +214,6 @@ export function useTerminalApproval(options: UseTerminalApprovalOptions) {
     approveTerminalApproval,
     approveTerminalApprovalForSession,
     approveTerminalApprovalForWorkspace,
+    rehydrateTerminalApprovals,
   };
 }

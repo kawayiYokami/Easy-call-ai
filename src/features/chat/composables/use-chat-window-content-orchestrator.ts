@@ -94,6 +94,19 @@ export function useChatWindowContentOrchestrator(bindings: ChatWindowContentOrch
     queue: bindings.terminalApprovalQueue,
     resolving: bindings.terminalApprovalResolving,
   });
+  // 启动与焦点恢复：后台仍有 pending 但前端队列已空（刷新/失焦）时拉回
+  // 去重：contentOrchestrator 可能被 sideChat 等多次实例化，单窗口只注册一次焦点恢复
+  if (typeof window !== "undefined" && !(window as unknown as Record<string, unknown>).__ecallTerminalApprovalRehydrateBound) {
+    (window as unknown as Record<string, unknown>).__ecallTerminalApprovalRehydrateBound = true;
+    const rehydrate = () => { void terminalApproval.rehydrateTerminalApprovals().catch(() => {}); };
+    void rehydrate();
+    window.addEventListener("focus", rehydrate);
+    document.addEventListener("visibilitychange", () => {
+      if (document.visibilityState === "visible") rehydrate();
+    });
+  } else {
+    void terminalApproval.rehydrateTerminalApprovals().catch(() => {});
+  }
   const basicState = useChatWindowBasicDerivedState({
     t: bindings.tr,
     viewMode: bindings.viewMode,

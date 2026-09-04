@@ -9,6 +9,7 @@ struct PendingTerminalApprovalRequest {
     sender: tokio::sync::oneshot::Sender<TerminalApprovalDecision>,
     session_id: String,
     workspace_path: Option<String>,
+    payload: TerminalApprovalRequestPayload,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -202,22 +203,6 @@ async fn terminal_request_user_approval(
         target_paths,
         cwd,
     );
-    let (tx, rx) = tokio::sync::oneshot::channel::<TerminalApprovalDecision>();
-    {
-        let mut pending = state
-            .terminal_pending_approvals
-            .lock()
-            .map_err(|_| "Failed to lock terminal pending approvals".to_string())?;
-        pending.insert(
-            request_id.clone(),
-            PendingTerminalApprovalRequest {
-                sender: tx,
-                session_id: normalize_terminal_tool_session_id(session_id),
-                workspace_path: workspace_memory_target.as_ref().map(|(_, path)| path.clone()),
-            },
-        );
-    }
-
     let payload = TerminalApprovalRequestPayload {
         request_id: request_id.clone(),
         title: title.to_string(),
@@ -268,6 +253,23 @@ async fn terminal_request_user_approval(
         workspace_name: workspace_memory_target.as_ref().map(|(name, _)| name.clone()),
         workspace_path: workspace_memory_target.map(|(_, path)| path),
     };
+
+    let (tx, rx) = tokio::sync::oneshot::channel::<TerminalApprovalDecision>();
+    {
+        let mut pending = state
+            .terminal_pending_approvals
+            .lock()
+            .map_err(|_| "Failed to lock terminal pending approvals".to_string())?;
+        pending.insert(
+            request_id.clone(),
+            PendingTerminalApprovalRequest {
+                sender: tx,
+                session_id: normalize_terminal_tool_session_id(session_id),
+                workspace_path: payload.workspace_path.clone(),
+                payload: payload.clone(),
+            },
+        );
+    }
 
     if let Err(err) = app_handle.emit("easy-call:terminal-approval-request", &payload) {
         if let Ok(mut pending) = state.terminal_pending_approvals.lock() {
@@ -410,4 +412,21 @@ fn approve_terminal_approval_for_workspace_request(
     };
     remember_terminal_workspace_without_approval(state, &session_id, &workspace_path)?;
     resolve_terminal_approval_request(state, trimmed, true, None)
+}
+
+fn list_pending_terminal_approval_requests(state: &AppState) -> Vec<TerminalApprovalRequestPayload> {
+    let Ok(pending) = state.terminal_pending_approvals.lock() else {
+        return vec![];
+    };
+    pending.values().map(|item| item.payload.clone()).collect()
+}
+
+#[tauri::command]
+fn list_pending_terminal_approvals(state: State<'_, AppState>) -> Result<Vec<TerminalApprovalRequestPayload>, String> {
+    Ok(list_pending_terminal_approval_requests(&state))
+}
+
+fn ide_chat_list_pending_terminal_approvals(state: &AppState) -> Result<Value, String> {
+    let items = list_pending_terminal_approval_requests(state);
+    ide_chat_serialize(items)
 }
