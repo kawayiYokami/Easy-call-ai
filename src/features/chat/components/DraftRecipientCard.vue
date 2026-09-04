@@ -330,6 +330,7 @@ import WorkspaceConfigCard from "../../shared/components/WorkspaceConfigCard.vue
 import WorkspaceDirectoryPickerDialog from "../../shared/components/WorkspaceDirectoryPickerDialog.vue";
 import type { ShellWorkspace, ShellWorkMode } from "../../../types/app";
 import { stripExtendedPathPrefix } from "../../../utils/shell-workspaces";
+import { pushRecentWorkspacePath } from "../../../utils/recent-workspaces";
 
 interface RecentRecipientGroup {
   agentId: string;
@@ -435,7 +436,6 @@ const branchList = ref<string[]>([]);
 const branchLoading = ref(false);
 const gitRootAvailable = ref(false);
 const worktreeCheckMessage = ref("");
-const customOption = ref<WorkspaceOption | null>(null);
 const saving = ref(false);
 let pendingSave = false;
 let checkSequence = 0;
@@ -452,24 +452,7 @@ function normalizeAccess(value: unknown): ShellWorkspaceAccess {
   return "approval";
 }
 
-const mergedOptions = computed<WorkspaceOption[]>(() => {
-  const list = [...props.workspaceOptions];
-  if (customOption.value && !list.some((item) => item.path.toLowerCase() === customOption.value!.path.toLowerCase())) {
-    list.push(customOption.value);
-  }
-  // 二级目录也可能来自浏览新增，尚未在下拉里
-  for (const sec of secondaryPaths.value) {
-    if (!list.some((item) => item.path.toLowerCase() === sec.toLowerCase())) {
-      list.push({
-        id: `conversation-workspace-custom-sec-${sec.toLowerCase()}`,
-        name: sec.replace(/\\/g, "/").replace(/\/+$/, "").split("/").pop() || sec,
-        path: sec,
-        access: selectedAccess.value,
-      });
-    }
-  }
-  return list;
-});
+const mergedOptions = computed<WorkspaceOption[]>(() => [...props.workspaceOptions]);
 
 function findOptionByPath(path: string): WorkspaceOption | null {
   const target = String(path || "").trim().toLowerCase();
@@ -479,11 +462,7 @@ function findOptionByPath(path: string): WorkspaceOption | null {
 
 function syncSecondaryFromProps() {
   const list = Array.isArray(props.workspaces) ? props.workspaces : [];
-  const secondaries = list
-    .filter((ws) => String(ws.level || "").trim().toLowerCase() === "secondary")
-    .map((ws) => stripExtendedPathPrefix(String(ws.path || "").trim()))
-    .filter(Boolean);
-  // 去重保持顺序
+  const secondaries = list.filter((ws) => String(ws.level || "").trim().toLowerCase() === "secondary").map((ws) => stripExtendedPathPrefix(String(ws.path || "").trim())).filter(Boolean);
   const deduped: string[] = [];
   const seen = new Set<string>();
   for (const path of secondaries) {
@@ -510,18 +489,14 @@ watch(
   () => props.workspaceRootPath,
   (nextPath) => {
     const normalized = stripExtendedPathPrefix(String(nextPath || "").trim());
-    if (selectedPath.value !== normalized) {
-      customOption.value = null;
-      worktreeCheckMessage.value = "";
+    if (selectedPath.value !== normalized) worktreeCheckMessage.value = "";
+    selectedPath.value = normalized;
+    if (normalized && normalized !== lastGitCheckPath) void runGitRootCheck(normalized);
+    else if (!normalized) {
       gitRootAvailable.value = false;
       branchList.value = [];
-    }
-    selectedPath.value = normalized;
-    if (normalized && props.gitRootCheck && normalized !== lastGitCheckPath) {
-      void runGitRootCheck(normalized);
-    } else if (normalized && !props.gitRootCheck && normalized !== lastGitCheckPath) {
-      // 无外部检查器时，仍尝试通过 branchList 探测间接判断
-      void runGitRootCheck(normalized);
+      branchLoading.value = false;
+      lastGitCheckPath = "";
     }
   },
   { immediate: true },
@@ -546,17 +521,8 @@ watch(
 function buildSnapshotWorkspaces(): ShellWorkspace[] {
   const mainName = String(findOptionByPath(selectedPath.value)?.name || "").trim() || selectedPath.value.replace(/\\/g, "/").replace(/\/+$/, "").split("/").pop() || selectedPath.value;
   const items: ShellWorkspace[] = [];
-  if (selectedPath.value) {
-    items.push({
-      id: `conversation-workspace-main-${Date.now().toString(36)}`,
-      name: mainName,
-      path: selectedPath.value,
-      level: "main",
-      access: selectedAccess.value,
-      builtIn: false,
-    });
-  }
-  const seen = new Set<string>([selectedPath.value.toLowerCase()]);
+  if (selectedPath.value) items.push({ id: `conversation-workspace-main-${Date.now().toString(36)}`, name: mainName, path: selectedPath.value, level: "main", access: selectedAccess.value, builtIn: false });
+  const seen = new Set<string>([String(selectedPath.value || "").trim().toLowerCase()]);
   for (const secPath of secondaryPaths.value) {
     const normalized = String(secPath || "").trim();
     if (!normalized) continue;
@@ -564,26 +530,15 @@ function buildSnapshotWorkspaces(): ShellWorkspace[] {
     if (seen.has(key)) continue;
     seen.add(key);
     const secName = String(findOptionByPath(normalized)?.name || "").trim() || normalized.replace(/\\/g, "/").replace(/\/+$/, "").split("/").pop() || normalized;
-    items.push({
-      id: `conversation-workspace-sec-${key}-${Math.random().toString(36).slice(2, 6)}`,
-      name: secName,
-      path: normalized,
-      level: "secondary",
-      access: selectedAccess.value,
-      builtIn: false,
-    });
+    items.push({ id: `conversation-workspace-sec-${key}-${Math.random().toString(36).slice(2, 6)}`, name: secName, path: normalized, level: "secondary", access: selectedAccess.value, builtIn: false });
   }
   return items;
 }
 
 async function commitSave() {
   if (!selectedPath.value) return;
-  // 优先走新的多目录+分支通道
   if (props.saveWorkspaces) {
-    if (saving.value) {
-      pendingSave = true;
-      return;
-    }
+    if (saving.value) { pendingSave = true; return; }
     saving.value = true;
     try {
       while (true) {
@@ -653,7 +608,7 @@ async function runGitRootCheck(path: string) {
     branchList.value = [];
     return;
   }
-  gitRootAvailable.value = false;
+  // 检查期间保留上一目录的 gitRootAvailable/branchList，不立即隐藏，避免切换时跳动
   worktreeCheckMessage.value = "";
   branchLoading.value = true;
   let available = false;
@@ -743,16 +698,13 @@ async function loadBranchList(path: string) {
 function handleMainPathUpdate(path: string) {
   const normalized = stripExtendedPathPrefix(String(path || "").trim());
   if (!normalized) return;
+  pushRecentWorkspacePath(normalized);
   const previousPath = String(selectedPath.value || "").trim().toLowerCase();
   const isPathChanged = normalized.toLowerCase() !== previousPath;
   selectedPath.value = normalized;
-  // 切换主目录后，尝试从下拉选项还原 access，并重置分支以选中新仓库当前分支
   const source = findOptionByPath(normalized);
   if (source) selectedAccess.value = normalizeAccess(source.access);
-  if (isPathChanged) {
-    selectedBranch.value = "";
-    branchList.value = [];
-  }
+  if (isPathChanged) { selectedBranch.value = ""; branchList.value = []; }
   void commitSave();
   void runGitRootCheck(normalized);
 }
@@ -867,31 +819,12 @@ function onDirectoryPicked(pickedPath: string) {
   const path = stripExtendedPathPrefix(String(pickedPath || "").trim());
   directoryPickerOpen.value = false;
   if (!path) return;
-  if (directoryPickerMode.value === "main") {
-    const existing = findOptionByPath(path);
-    if (!existing) {
-      customOption.value = {
-        id: `conversation-workspace-custom-${Date.now().toString(36)}`,
-        name: path.replace(/\\/g, "/").replace(/\/+$/, "").split("/").pop() || path,
-        path,
-        access: selectedAccess.value,
-      };
-    }
-    handleMainPathUpdate(path);
-  } else {
+  pushRecentWorkspacePath(path);
+  if (directoryPickerMode.value === "main") handleMainPathUpdate(path);
+  else {
     const key = path.toLowerCase();
-    if (secondaryPaths.value.some((p) => p.toLowerCase() === key) || String(selectedPath.value || "").trim().toLowerCase() === key) {
-      return;
-    }
+    if (secondaryPaths.value.some((p) => p.toLowerCase() === key) || String(selectedPath.value || "").trim().toLowerCase() === key) return;
     secondaryPaths.value = [...secondaryPaths.value, path];
-    if (!findOptionByPath(path)) {
-      customOption.value = {
-        id: `conversation-workspace-custom-${Date.now().toString(36)}`,
-        name: path.replace(/\\/g, "/").replace(/\/+$/, "").split("/").pop() || path,
-        path,
-        access: selectedAccess.value,
-      };
-    }
     void commitSave();
   }
 }

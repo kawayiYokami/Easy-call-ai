@@ -747,7 +747,8 @@ import { useChatScrollLayout } from "../composables/use-chat-scroll-layout";
 import type { TerminalApprovalConversationItem } from "../../shell/composables/use-terminal-approval";
 import { isAbsoluteLocalPath, isAssistantSpacePath, normalizeLocalLinkHref, parseLocalFileReference } from "../utils/local-link";
 import { buildConversationSections, buildWorkspaceConversationSections, canonicalWorkspaceRootForComparison, type ConversationSection } from "../utils/conversation-sections";
-import { stripExtendedPathPrefix } from "../../../utils/shell-workspaces";
+import { defaultWorkspaceNameFromPath, stripExtendedPathPrefix } from "../../../utils/shell-workspaces";
+import { recentWorkspacePaths } from "../../../utils/recent-workspaces";
 import { type ChatRenderItem, isRightAlignedMessage, canOpenInFileReader, fileExtensionFromPath } from "../utils/chat-render";
 import { clearFileReaderContextCandidates } from "../utils/file-reader-context-tags";
 import { useIdeContext } from "../composables/use-ide-context";
@@ -2552,32 +2553,16 @@ const conversationDisplaySections = computed<ConversationSection[]>(() => {
   return sections.filter((section) => section.key !== "recent");
 });
 
-// 草稿卡片工作目录下拉选项：当前会话工作区 + 全局配置工作区 + 侧栏按工作区分组的所有目录，按路径去重
+// 草稿下拉唯一真相源：持久化 recent + 侧边栏全量分组，去重合并纯函数，永久只增不减
 const draftWorkspaceOptions = computed<Array<{ id: string; name: string; path: string; access: ShellWorkspace["access"] }>>(() => {
+  const allItems = (props.conversationItems || props.unarchivedConversationItems || []) as ChatConversationOverviewItem[];
+  const sidebarPaths = buildWorkspaceConversationSections(allItems, { defaultWorkspaceTitle: t("chat.defaultWorkspace"), locale: locale.value }).map((s) => String(s.workspaceRootPath || "").trim()).filter(Boolean);
+  const merged = [...recentWorkspacePaths.value, ...sidebarPaths];
   const deduped = new Map<string, { id: string; name: string; path: string; access: ShellWorkspace["access"] }>();
-  const push = (workspace: { id?: string; name?: string; path?: string; access?: ShellWorkspace["access"] }) => {
-    const path = stripExtendedPathPrefix(workspace.path);
-    if (!path) return;
-    const key = path.toLowerCase();
-    if (deduped.has(key)) return;
-    const rawAccess = String(workspace.access || "").trim();
-    deduped.set(key, {
-      id: String(workspace.id || "").trim() || `conversation-workspace-${key}`,
-      name: String(workspace.name || "").trim() || path,
-      path,
-      access: rawAccess === "full_access" ? (rawAccess as ShellWorkspace["access"]) : "approval",
-    });
-  };
-  for (const workspace of Array.isArray(props.workspaces) ? props.workspaces : []) push(workspace);
-  for (const workspace of Array.isArray(props.configShellWorkspaces) ? props.configShellWorkspaces : []) push(workspace);
-  const localItems = (props.conversationItems || props.unarchivedConversationItems || []).filter((item) =>
-    item.kind !== "remote_im_contact" && !item.isPinned && !item.isSystemNotificationConversation,
-  );
-  for (const section of buildWorkspaceConversationSections(localItems, {
-    defaultWorkspaceTitle: t("chat.defaultWorkspace"),
-    locale: locale.value,
-  })) {
-    push({ path: section.workspaceRootPath || "", name: section.title, access: "approval" });
+  for (const path of merged) {
+    const key = String(path).toLowerCase();
+    if (!key || deduped.has(key)) continue;
+    deduped.set(key, { id: `conversation-workspace-${key}`, name: defaultWorkspaceNameFromPath(path) || path, path, access: "approval" });
   }
   return Array.from(deduped.values());
 });
