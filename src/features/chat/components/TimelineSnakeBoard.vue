@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref } from "vue";
+import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import TimelinePreviewMarkdown from "./TimelinePreviewMarkdown.vue";
 
 type TimelineAnchor = {
@@ -9,11 +9,15 @@ type TimelineAnchor = {
   index: number;
 };
 
-const props = defineProps<{
+const props = withDefaults(defineProps<{
   anchors: TimelineAnchor[];
   activeIndex: number | null;
   hoveredIndex: number | null;
-}>();
+  anchorEl?: HTMLElement | null;
+  visible?: boolean;
+}>(), {
+  visible: true,
+});
 
 const emit = defineEmits<{
   (e: "hover", index: number | null): void;
@@ -22,10 +26,7 @@ const emit = defineEmits<{
   (e: "leave-zone"): void;
 }>();
 
-// 卡片挂在右下角按钮容器内：容器即定位锚（随 jumpToBottomStyle 走），
-// 卡片底边压在按钮底边上原位向上长
 const SAFE = 12;
-// 间距（原 56/32 的 52%）：24/16 放大 30%
 const MAX_GAP = 31;
 const MIN_GAP = 21;
 const PADDING = 21;
@@ -38,41 +39,101 @@ const PREVIEW_GAP = 4;
 const PREVIEW_H = 152;
 
 const hostRef = ref<HTMLElement | null>(null);
-const avail = ref({ w: 0, h: 0 });
-let regionRo: ResizeObserver | null = null;
+const viewport = ref({
+  w: typeof window !== "undefined" ? window.innerWidth : 1920,
+  h: typeof window !== "undefined" ? window.innerHeight : 1080,
+});
+const anchorRect = ref<DOMRect | null>(null);
+let anchorRo: ResizeObserver | null = null;
+let viewportTimer: number | null = null;
 
-function measureAvail() {
-  const host = hostRef.value;
-  const wrap = host?.parentElement as HTMLElement | null;
-  const region = wrap?.offsetParent as HTMLElement | null;
-  if (!wrap || !region) return;
-  const rr = region.getBoundingClientRect();
-  const wr = wrap.getBoundingClientRect();
-  avail.value = {
-    w: Math.round(wr.right - rr.left - SAFE),
-    h: Math.round(wr.bottom - rr.top - SAFE),
-  };
+function updateViewport() {
+  if (typeof window === "undefined") return;
+  viewport.value = { w: window.innerWidth, h: window.innerHeight };
 }
 
+function updateAnchorRect() {
+  const el = props.anchorEl;
+  if (!el) {
+    anchorRect.value = null;
+    return;
+  }
+  anchorRect.value = el.getBoundingClientRect();
+}
+
+function measureAll() {
+  updateViewport();
+  updateAnchorRect();
+}
+
+function scheduleMeasure() {
+  if (viewportTimer != null) return;
+  viewportTimer = window.setTimeout(() => {
+    viewportTimer = null;
+    measureAll();
+  }, 16);
+}
+
+function onWindowResize() {
+  scheduleMeasure();
+}
+
+function onWindowScroll() {
+  scheduleMeasure();
+}
+
+watch(
+  () => props.anchorEl,
+  (el) => {
+    if (anchorRo) {
+      anchorRo.disconnect();
+      anchorRo = null;
+    }
+    if (el && typeof ResizeObserver !== "undefined") {
+      anchorRo = new ResizeObserver(() => scheduleMeasure());
+      anchorRo.observe(el);
+      const parent = el.parentElement;
+      if (parent) anchorRo.observe(parent);
+    }
+    scheduleMeasure();
+  },
+  { immediate: true },
+);
+
 onMounted(() => {
-  measureAvail();
-  const wrap = hostRef.value?.parentElement as HTMLElement | null;
-  const region = wrap?.offsetParent as HTMLElement | null;
-  if (region && typeof ResizeObserver !== "undefined") {
-    regionRo = new ResizeObserver(() => measureAvail());
-    regionRo.observe(region);
+  measureAll();
+  window.addEventListener("resize", onWindowResize);
+  window.addEventListener("scroll", onWindowScroll, true);
+  if (typeof window !== "undefined" && (window as any).visualViewport) {
+    (window as any).visualViewport.addEventListener("resize", onWindowResize);
+    (window as any).visualViewport.addEventListener("scroll", onWindowScroll);
   }
 });
 
 onBeforeUnmount(() => {
-  if (regionRo) { regionRo.disconnect(); regionRo = null; }
+  window.removeEventListener("resize", onWindowResize);
+  window.removeEventListener("scroll", onWindowScroll, true);
+  if (typeof window !== "undefined" && (window as any).visualViewport) {
+    (window as any).visualViewport.removeEventListener("resize", onWindowResize);
+    (window as any).visualViewport.removeEventListener("scroll", onWindowScroll);
+  }
+  if (anchorRo) {
+    anchorRo.disconnect();
+    anchorRo = null;
+  }
+  if (viewportTimer != null) {
+    clearTimeout(viewportTimer);
+    viewportTimer = null;
+  }
 });
 
-// 按消息数与窗口算行列，行列定卡片尺寸：gap 从 12 压到 8 取能放下 N 点的最大间距
 const layout = computed(() => {
   const N = props.anchors.length;
-  const availW = avail.value.w;
-  const availH = avail.value.h;
+  const vw = viewport.value.w;
+  const vh = viewport.value.h;
+  const ar = anchorRect.value;
+  const availW = vw - SAFE * 2;
+  const availH = ar ? Math.max(32, ar.top - SAFE - 8) : vh - SAFE * 2;
   if (N === 0 || availW < MIN_GAP || availH < MIN_GAP) return null;
   let gap = MAX_GAP;
   let cols = 1;
@@ -99,7 +160,6 @@ const layout = computed(() => {
   const posByIndex = new Map<number, { x: number; y: number }>();
   const ordered: Array<{ x: number; y: number }> = [];
   for (let k = 0; k < N && k < capacity; k++) {
-    // k=0 最新消息，右下角起按时间倒序蛇形来回拐弯；末行不满一行时：单数行（1/3…从下往上）靠右、双数行靠左，空位留对侧
     const anchor = props.anchors[N - 1 - k];
     if (!anchor) continue;
     const rowFromBottom = Math.floor(k / cols);
@@ -114,16 +174,82 @@ const layout = computed(() => {
   return { gap, cols, rows, cardW, cardH, posByIndex, ordered };
 });
 
-const boardStyle = computed(() => {
+const boardFixedStyle = computed(() => {
+  const vw = viewport.value.w;
+  const vh = viewport.value.h;
   if (!layout.value) {
-    return { right: "0px", bottom: "0px", width: "32px", height: "32px" } as Record<string, string>;
+    const ar = anchorRect.value;
+    if (ar) {
+      let right = vw - ar.right;
+      let bottom = vh - ar.top + 8;
+      right = Math.max(SAFE, Math.min(right, vw - 32 - SAFE));
+      bottom = Math.max(SAFE, Math.min(bottom, vh - 32 - SAFE));
+      return {
+        position: "fixed",
+        right: `${Math.round(right)}px`,
+        bottom: `${Math.round(bottom)}px`,
+        width: "32px",
+        height: "32px",
+      } as Record<string, string>;
+    }
+    return {
+      position: "fixed",
+      right: `${SAFE}px`,
+      bottom: `${SAFE + 40}px`,
+      width: "32px",
+      height: "32px",
+    } as Record<string, string>;
   }
+  const cardW = layout.value.cardW;
+  const cardH = layout.value.cardH;
+  const ar = anchorRect.value;
+  if (!ar) {
+    return {
+      position: "fixed",
+      right: `${SAFE}px`,
+      bottom: `${SAFE + 40}px`,
+      width: `${cardW}px`,
+      height: `${cardH}px`,
+    } as Record<string, string>;
+  }
+  let right = vw - ar.right;
+  let bottom = vh - ar.top + 8;
+  const maxRight = vw - cardW - SAFE;
+  const maxBottom = vh - cardH - SAFE;
+  right = Math.min(Math.max(right, SAFE), Math.max(SAFE, maxRight));
+  bottom = Math.min(Math.max(bottom, SAFE), Math.max(SAFE, maxBottom));
   return {
-    right: "0px",
-    bottom: "0px",
-    width: `${layout.value.cardW}px`,
-    height: `${layout.value.cardH}px`,
+    position: "fixed",
+    right: `${Math.round(right)}px`,
+    bottom: `${Math.round(bottom)}px`,
+    width: `${cardW}px`,
+    height: `${cardH}px`,
   } as Record<string, string>;
+});
+
+const boardViewportPos = computed(() => {
+  if (!layout.value) {
+    const ar = anchorRect.value;
+    const vw = viewport.value.w;
+    const vh = viewport.value.h;
+    if (ar) {
+      let right = vw - ar.right;
+      let bottom = vh - ar.top + 8;
+      right = Math.max(SAFE, Math.min(right, vw - 32 - SAFE));
+      bottom = Math.max(SAFE, Math.min(bottom, vh - 32 - SAFE));
+      return { left: vw - right - 32, top: vh - bottom - 32 };
+    }
+    return { left: vw - SAFE - 32, top: vh - SAFE - 40 - 32 };
+  }
+  const s = boardFixedStyle.value;
+  const right = parseFloat(String(s.right).replace("px", "")) || 0;
+  const bottom = parseFloat(String(s.bottom).replace("px", "")) || 0;
+  const vw = viewport.value.w;
+  const vh = viewport.value.h;
+  return {
+    left: vw - right - layout.value.cardW,
+    top: vh - bottom - layout.value.cardH,
+  };
 });
 
 const polylinePoints = computed(() => {
@@ -155,7 +281,6 @@ function dotStyle(anchor: TimelineAnchor): Record<string, string> {
   };
 }
 
-// hint 跟随鼠标/手指：坐标相对卡片，上下自动翻转，水平钳制在卡片内
 const mouseLocal = ref({ x: 0, y: 0 });
 
 function handleBoardMouseMove(event: MouseEvent) {
@@ -189,7 +314,6 @@ function findNearestAnchor(clientX: number, clientY: number): TimelineAnchor | n
 }
 
 let scrubPointerId: number | null = null;
-let scrubHasMoved = false;
 let scrubStartX = 0;
 let scrubStartY = 0;
 let lastScrubJumpAt = 0;
@@ -200,14 +324,12 @@ function handleBoardPointerDown(event: PointerEvent) {
   const nearest = findNearestAnchor(event.clientX, event.clientY);
   if (!nearest) return;
   scrubPointerId = event.pointerId;
-  scrubHasMoved = false;
   scrubStartX = event.clientX;
   scrubStartY = event.clientY;
   const local = toLocal(event.clientX, event.clientY);
   if (local) mouseLocal.value = local;
   emit("hover", nearest.index);
   try { (hostRef.value as HTMLElement | null)?.setPointerCapture(event.pointerId); } catch {}
-  // 阻止触摸滚动
   if (event.pointerType === "touch") event.preventDefault();
 }
 
@@ -217,8 +339,7 @@ function handleBoardPointerMove(event: PointerEvent) {
   if (scrubPointerId == null || scrubPointerId !== event.pointerId) return;
   const dx = event.clientX - scrubStartX;
   const dy = event.clientY - scrubStartY;
-  if (dx * dx + dy * dy > 16) scrubHasMoved = true;
-  // 按住滑动预览：实时吸附到最近点
+  if (dx * dx + dy * dy > 16) {}
   const nearest = findNearestAnchor(event.clientX, event.clientY);
   if (nearest) emit("hover", nearest.index);
 }
@@ -239,7 +360,6 @@ function handleBoardPointerUp(event: PointerEvent) {
 }
 
 function handleDotClick(anchor: TimelineAnchor) {
-  // 刚通过拖动松手跳转过同一索引，避免双触发
   if (lastScrubJumpIndex === anchor.index && Date.now() - lastScrubJumpAt < 500) return;
   emit("jump", anchor.index);
 }
@@ -252,102 +372,128 @@ const previewAnchor = computed(() => {
 
 const tooltipW = computed(() => {
   const cardW = layout.value?.cardW ?? PREVIEW_MAX_W;
-  // 卡片内边距 10*2，留 8px 安全边
   return Math.min(PREVIEW_MAX_W, Math.max(220, cardW - PREVIEW_PAD * 2 - 8));
 });
 
 const tooltipBelow = computed(() => {
   const y = mouseLocal.value.y;
-  const cardH = layout.value?.cardH ?? 0;
-  const aboveOk = y - 14 - PREVIEW_H >= 8;
-  const belowOk = y + 18 + PREVIEW_H <= cardH - 8;
-  if (aboveOk) return false;
-  return belowOk;
+  const vh = viewport.value.h;
+  const boardTop = boardViewportPos.value.top;
+  const cursorY = boardTop + y;
+  const aboveTop = cursorY - 14 - PREVIEW_H;
+  const belowBottom = cursorY + 18 + PREVIEW_H;
+  const aboveOkViewport = aboveTop >= SAFE;
+  const belowOkViewport = belowBottom <= vh - SAFE;
+  if (aboveOkViewport) return false;
+  if (belowOkViewport) return true;
+  const spaceAbove = cursorY - SAFE;
+  const spaceBelow = vh - SAFE - cursorY;
+  return spaceBelow > spaceAbove;
 });
 
 const tooltipStyle = computed(() => {
   const w = tooltipW.value;
+  const vw = viewport.value.w;
+  const vh = viewport.value.h;
+  const boardPos = boardViewportPos.value;
+  const cardW = layout.value?.cardW ?? w;
   const half = w / 2 + 6;
-  const cardW = layout.value?.cardW ?? 0;
-  const x = Math.min(Math.max(mouseLocal.value.x, half), Math.max(half, cardW - half));
+  const clampedInsideX = Math.min(Math.max(mouseLocal.value.x, half), Math.max(half, cardW - half));
+  const desiredViewportX = boardPos.left + clampedInsideX;
+  const clampedViewportX = Math.min(Math.max(desiredViewportX, SAFE + w / 2), vw - SAFE - w / 2);
+  const cursorViewportY = boardPos.top + mouseLocal.value.y;
+  let top: number;
   if (tooltipBelow.value) {
-    return { left: `${x}px`, top: `${mouseLocal.value.y + 18}px`, width: `${w}px`, transform: "translate(-50%, 0)" };
+    top = cursorViewportY + 18;
+    if (top + PREVIEW_H > vh - SAFE) {
+      top = Math.max(SAFE, vh - SAFE - PREVIEW_H);
+    }
+  } else {
+    top = cursorViewportY - 14 - PREVIEW_H;
+    if (top < SAFE) top = SAFE;
+    if (top + PREVIEW_H > vh - SAFE) {
+      top = Math.max(SAFE, vh - SAFE - PREVIEW_H);
+    }
   }
-  return { left: `${x}px`, top: `${mouseLocal.value.y - 14}px`, width: `${w}px`, transform: "translate(-50%, -100%)" };
+  return {
+    position: "fixed",
+    left: `${Math.round(clampedViewportX)}px`,
+    top: `${Math.round(top)}px`,
+    width: `${w}px`,
+    transform: "translateX(-50%)",
+  } as Record<string, string>;
 });
 </script>
 
 <template>
-  <div
-    ref="hostRef"
-    class="ecall-snake-board-card pointer-events-auto absolute z-30 rounded-2xl bg-base-100/70 shadow backdrop-blur-md select-none touch-none"
-    :style="boardStyle"
-    @mousemove="handleBoardMouseMove"
-    @pointerdown="handleBoardPointerDown"
-    @pointermove="handleBoardPointerMove"
-    @pointerup="handleBoardPointerUp"
-    @pointercancel="handleBoardPointerUp"
-    @mouseenter="emit('enter-zone')"
-    @mouseleave="emit('leave-zone'); emit('hover', null)"
-  >
-    <!-- 内容层：裁剪圆角随卡片长大，tooltip 不在此层内避免被边缘吞掉 -->
-    <div class="ecall-snake-board-content relative h-full w-full overflow-hidden rounded-2xl">
-      <!-- 蛇形连线 -->
-      <svg
-        v-if="layout && polylinePoints"
-        class="pointer-events-none absolute inset-0 h-full w-full"
-        :viewBox="`0 0 ${layout.cardW} ${layout.cardH}`"
+  <Teleport to="body">
+    <Transition name="ecall-snake-board">
+      <div
+        v-if="visible && layout"
+        ref="hostRef"
+        class="ecall-snake-board-card pointer-events-auto fixed z-[100] rounded-2xl bg-base-100/70 shadow backdrop-blur-md select-none touch-none"
+        :style="boardFixedStyle"
+        @mousemove="handleBoardMouseMove"
+        @pointerdown="handleBoardPointerDown"
+        @pointermove="handleBoardPointerMove"
+        @pointerup="handleBoardPointerUp"
+        @pointercancel="handleBoardPointerUp"
+        @mouseenter="emit('enter-zone')"
+        @mouseleave="emit('leave-zone'); emit('hover', null)"
       >
-        <polyline
-          :points="polylinePoints"
-          fill="none"
-          stroke="var(--color-base-300)"
-          stroke-width="2"
-          stroke-linecap="round"
-          stroke-linejoin="round"
-        />
-      </svg>
-
-      <!-- git 时间线风格：当前位置三角挖孔（空心三角），其余实色圆点；悬停放大 -->
-      <button
-        v-for="anchor in anchors"
-        :key="anchor.id"
-        type="button"
-        class="absolute flex items-center justify-center rounded-full"
-        :style="dotStyle(anchor)"
-        :aria-label="anchor.userText.slice(0, 30)"
-        @mouseenter="emit('hover', anchor.index)"
-        @focus="emit('hover', anchor.index)"
-        @click.stop="handleDotClick(anchor)"
-      >
-        <!-- 当前位置：三角挖孔（描边三角，中间透明），悬停在当前位则略放大 -->
-        <span
-          v-if="isActive(anchor.index)"
-          class="pointer-events-none flex items-center justify-center transition-transform duration-150"
-          :style="isFocused(anchor.index) ? 'transform: scale(1.15)' : ''"
-          :aria-hidden="true"
-        >
-          <svg :width="TRI_OUTER" :height="TRI_OUTER" viewBox="0 0 20 18" class="overflow-visible drop-shadow-sm" shape-rendering="geometricPrecision">
-            <path d="M10 2 L18.5 16 L1.5 16 Z" fill="none" stroke="var(--color-primary)" stroke-width="1.9" stroke-linejoin="round" stroke-linecap="round" />
-            <path d="M10 7.2 L14.6 14.2 L5.4 14.2 Z" fill="var(--color-base-100)" stroke="none" />
+        <div class="ecall-snake-board-content relative h-full w-full overflow-hidden rounded-2xl">
+          <svg
+            v-if="polylinePoints"
+            class="pointer-events-none absolute inset-0 h-full w-full"
+            :viewBox="`0 0 ${layout.cardW} ${layout.cardH}`"
+          >
+            <polyline
+              :points="polylinePoints"
+              fill="none"
+              stroke="var(--color-base-300)"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            />
           </svg>
-        </span>
-        <span
-          v-else
-          class="rounded-full transition-[width,height,background-color] duration-150"
-          :class="isFocused(anchor.index) ? 'bg-primary' : 'bg-base-content/55'"
-          :style="isFocused(anchor.index)
-            ? `width:${DOT_FOCUSED}px;height:${DOT_FOCUSED}px`
-            : `width:${DOT_SMALL}px;height:${DOT_SMALL}px`"
-        />
-      </button>
-    </div>
-
-    <!-- 悬停 hint：跟鼠标上方弹出，5 行预览（用户 1 行 + 助理 4 行） -->
+          <button
+            v-for="anchor in anchors"
+            :key="anchor.id"
+            type="button"
+            class="absolute flex items-center justify-center rounded-full"
+            :style="dotStyle(anchor)"
+            :aria-label="anchor.userText.slice(0, 30)"
+            @mouseenter="emit('hover', anchor.index)"
+            @focus="emit('hover', anchor.index)"
+            @click.stop="handleDotClick(anchor)"
+          >
+            <span
+              v-if="isActive(anchor.index)"
+              class="pointer-events-none flex items-center justify-center transition-transform duration-150"
+              :style="isFocused(anchor.index) ? 'transform: scale(1.15)' : ''"
+              :aria-hidden="true"
+            >
+              <svg :width="TRI_OUTER" :height="TRI_OUTER" viewBox="0 0 20 18" class="overflow-visible drop-shadow-sm" shape-rendering="geometricPrecision">
+                <path d="M10 2 L18.5 16 L1.5 16 Z" fill="none" stroke="var(--color-primary)" stroke-width="1.9" stroke-linejoin="round" stroke-linecap="round" />
+                <path d="M10 7.2 L14.6 14.2 L5.4 14.2 Z" fill="var(--color-base-100)" stroke="none" />
+              </svg>
+            </span>
+            <span
+              v-else
+              class="rounded-full transition-[width,height,background-color] duration-150"
+              :class="isFocused(anchor.index) ? 'bg-primary' : 'bg-base-content/55'"
+              :style="isFocused(anchor.index)
+                ? `width:${DOT_FOCUSED}px;height:${DOT_FOCUSED}px`
+                : `width:${DOT_SMALL}px;height:${DOT_SMALL}px`"
+            />
+          </button>
+        </div>
+      </div>
+    </Transition>
     <Transition name="ecall-timeline-preview">
       <div
-        v-if="previewAnchor"
-        class="pointer-events-none absolute z-20"
+        v-if="visible && previewAnchor"
+        class="pointer-events-none fixed z-[101]"
         :style="tooltipStyle"
       >
         <div v-if="tooltipBelow" class="mx-auto h-2 w-2 -translate-y-[1px] rotate-45 border-t border-l border-base-200 bg-base-100" />
@@ -368,15 +514,16 @@ const tooltipStyle = computed(() => {
         <div v-if="!tooltipBelow" class="mx-auto h-2 w-2 -translate-y-[1px] rotate-45 border-b border-r border-base-200 bg-base-100" />
       </div>
     </Transition>
-  </div>
+  </Teleport>
 </template>
 
 <style scoped>
-/* 灵动岛：卡片从按钮原位（32px 圆）长开 */
 .ecall-snake-board-enter-active {
   transition:
     width 280ms cubic-bezier(0.22, 1, 0.36, 1),
     height 280ms cubic-bezier(0.22, 1, 0.36, 1),
+    right 280ms cubic-bezier(0.22, 1, 0.36, 1),
+    bottom 280ms cubic-bezier(0.22, 1, 0.36, 1),
     border-radius 280ms cubic-bezier(0.22, 1, 0.36, 1),
     background-color 280ms ease;
 }
@@ -384,6 +531,8 @@ const tooltipStyle = computed(() => {
   transition:
     width 200ms ease,
     height 200ms ease,
+    right 200ms ease,
+    bottom 200ms ease,
     border-radius 200ms ease,
     background-color 200ms ease,
     opacity 160ms ease;
