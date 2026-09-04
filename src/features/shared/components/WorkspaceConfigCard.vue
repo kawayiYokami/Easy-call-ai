@@ -53,14 +53,14 @@
         </template>
       </EcallDropdown>
 
-      <!-- 分支 + worktree：join 在一起为一组，共享外边框，中间细分隔 -->
+      <!-- 分支 + worktree：join 在一起为一组，共享外边框，中间细分隔；不可用时禁用而非隐藏，避免切目录时整行跳动 -->
       <div
-        v-if="gitRootAvailable"
-        class="flex shrink-0 items-center overflow-hidden rounded-field border border-base-content/10 bg-base-100"
+        class="flex shrink-0 items-center overflow-hidden rounded-field border bg-base-100 transition-colors"
+        :class="gitRootAvailable ? 'border-base-content/10' : 'border-base-content/10 opacity-60'"
       >
         <EcallDropdown
           v-model="branchDropdownOpen"
-          :disabled="branchList.length === 0 && !selectedBranch"
+          :disabled="!gitRootAvailable || (branchList.length === 0 && !selectedBranch)"
           :teleport="dropdownTeleport"
           :teleport-to="dropdownTeleportTo"
           root-class="min-w-[112px] max-w-[180px]"
@@ -71,12 +71,12 @@
               <GitBranch class="h-3.5 w-3.5 shrink-0 text-base-content/45" />
               <button
                 type="button"
-                class="min-w-0 flex-1 cursor-pointer text-left text-xs font-medium text-base-content outline-none"
-                :disabled="branchList.length === 0 && !selectedBranch"
+                class="min-w-0 flex-1 cursor-pointer text-left text-xs font-medium text-base-content outline-none disabled:cursor-not-allowed disabled:opacity-60"
+                :disabled="!gitRootAvailable || (branchList.length === 0 && !selectedBranch)"
                 @click="toggle"
               >
                 <span class="block w-full truncate" :class="displayBranchName ? '' : 'text-base-content/45'">
-                  {{ displayBranchName || (branchLoading ? t("common.loading") : t("chat.workspaceBranchPlaceholder")) }}
+                  {{ displayBranchName || (branchLoading ? t("common.loading") : (gitRootAvailable ? t("chat.workspaceBranchPlaceholder") : "非 Git 目录")) }}
                 </span>
               </button>
               <ChevronDown
@@ -107,14 +107,15 @@
           </template>
         </EcallDropdown>
         <div class="h-5 w-px shrink-0 bg-base-content/10"></div>
-        <label class="flex h-8 shrink-0 cursor-pointer select-none items-center gap-1.5 bg-transparent px-2.5">
+        <label class="flex h-8 shrink-0 select-none items-center gap-1.5 bg-transparent px-2.5" :class="gitRootAvailable ? 'cursor-pointer' : 'cursor-not-allowed opacity-60'">
           <input
             type="checkbox"
-            class="checkbox checkbox-primary checkbox-xs h-3.5 w-3.5 rounded-[4px]"
+            class="checkbox checkbox-primary checkbox-xs h-3.5 w-3.5 rounded-[4px] disabled:cursor-not-allowed"
             :checked="workMode === 'worktree'"
+            :disabled="!gitRootAvailable"
             @change="handleWorktreeChecked"
           />
-          <span class="text-xs font-medium leading-none text-base-content/80">{{ t("chat.draftWorkModeWorktree") }}</span>
+          <span class="text-xs font-medium leading-none" :class="gitRootAvailable ? 'text-base-content/80' : 'text-base-content/50'">{{ t("chat.draftWorkModeWorktree") }}</span>
         </label>
       </div>
 
@@ -176,7 +177,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref, watch } from "vue";
+import { computed, nextTick, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 import { FolderOpen, FolderSearch, FolderPlus, ChevronDown, Check, GitBranch, X } from "@lucide/vue";
 import EcallDropdown from "./EcallDropdown.vue";
@@ -259,13 +260,14 @@ function secondaryDisplayName(path: string): string {
 }
 
 function handleMainSelect(path: string, close: () => void) {
+  // 先关闭下拉（让固定定位面板开始离场），再在下一帧更新文本，避免触发宽度变化时面板重新锚定到新的文本位置而瞬移到右边
   close();
-  emit("update:mainPath", path);
+  void nextTick(() => emit("update:mainPath", path));
 }
 
 function handleBranchSelect(branch: string, close: () => void) {
   close();
-  emit("update:branch", branch);
+  void nextTick(() => emit("update:branch", branch));
 }
 
 function handleWorktreeChecked(event: Event) {

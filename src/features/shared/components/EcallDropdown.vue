@@ -14,9 +14,9 @@
       </div>
     </Transition>
 
-    <!-- Teleport：fixed 脱离 overflow 裁剪，按视口定位；对话框已改为 :open 非 top layer，teleport 到 body 即可在最前 -->
-    <Teleport v-if="teleport" :to="teleportTo" :disabled="!isOpen">
-      <Transition :name="transitionName">
+    <!-- Teleport：fixed 脱离 overflow 裁剪，按视口定位；对话框已改为 :open 非 top layer，teleport 到 body 即可在最前；不使用 disabled 切换，避免关闭瞬间固定定位面板被移回原位导致瞬移到右边 -->
+    <Teleport v-if="teleport && isOpen" :to="teleportTo">
+      <Transition :name="transitionName" appear>
         <div
           v-if="isOpen"
           ref="teleportedPanelRef"
