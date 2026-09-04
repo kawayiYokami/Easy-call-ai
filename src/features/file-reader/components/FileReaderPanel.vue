@@ -412,47 +412,49 @@
                 @keyup="captureCurrentTextSelection"
                 @contextmenu.prevent="openActiveFileContextMenu"
               >
-                <div class="file-reader-code-virtual-canvas" :style="{ height: `${activeVirtualCodeTotalSize}px` }">
-                  <div
-                    v-for="entry in activeVirtualCodeEntries"
-                    :key="entry.block.key"
-                    :data-index="entry.row.index"
-                    :data-file-block-key="entry.block.key"
-                    :data-start-line="entry.block.startLine"
-                    :data-end-line="entry.block.endLine"
-                    :ref="handleMeasureVirtualCodeRow"
-                    class="file-reader-code-virtual-row"
-                    :style="{
-                      top: `${entry.row.start}px`,
-                      '--file-reader-code-gutter-ch': String(virtualCodeLineNumberDigits),
-                    }"
-                  >
+                <Virtualizer
+                  v-if="virtualCodeScroller"
+                  :data="activeVirtualCodeBlocks"
+                  :scroll-ref="virtualCodeScroller"
+                  :item-size="(activeTab?.blockLineCount || 120) * FILE_READER_VIRTUAL_BLOCK_LINE_HEIGHT_PX"
+                  class="file-reader-code-virtual-canvas min-w-0 w-full"
+                >
+                  <template #default="{ item: block }">
                     <div
-                      class="file-reader-code-virtual-block"
-                      :class="isTabRawMode(activeTab) ? 'file-reader-code-virtual-block-raw' : 'file-reader-code-virtual-block-shiki'"
+                      :key="block.key"
+                      :data-file-block-key="block.key"
+                      :data-start-line="block.startLine"
+                      :data-end-line="block.endLine"
+                      class="file-reader-code-virtual-row"
                       :style="{ '--file-reader-code-gutter-ch': String(virtualCodeLineNumberDigits) }"
                     >
                       <div
-                        v-for="(lineHtml, lineIndex) in entry.lines"
-                        :key="`${entry.block.key}-${lineIndex}`"
-                        :data-line-number="entry.block.startLine + lineIndex"
-                        class="file-reader-code-virtual-line"
+                        class="file-reader-code-virtual-block"
+                        :class="isTabRawMode(activeTab) ? 'file-reader-code-virtual-block-raw' : 'file-reader-code-virtual-block-shiki'"
+                        :style="{ '--file-reader-code-gutter-ch': String(virtualCodeLineNumberDigits) }"
                       >
                         <div
-                          aria-hidden="true"
-                          class="file-reader-code-virtual-line-number"
-                          :class="isTabRawMode(activeTab) ? 'file-reader-code-virtual-gutter-raw' : 'file-reader-code-virtual-gutter-shiki'"
+                          v-for="(lineHtml, lineIndex) in getVirtualBlockLines(block)"
+                          :key="`${block.key}-${lineIndex}`"
+                          :data-line-number="block.startLine + lineIndex"
+                          class="file-reader-code-virtual-line"
                         >
-                          {{ entry.block.startLine + lineIndex }}
+                          <div
+                            aria-hidden="true"
+                            class="file-reader-code-virtual-line-number"
+                            :class="isTabRawMode(activeTab) ? 'file-reader-code-virtual-gutter-raw' : 'file-reader-code-virtual-gutter-shiki'"
+                          >
+                            {{ block.startLine + lineIndex }}
+                          </div>
+                          <div
+                            class="file-reader-code-virtual-line-content"
+                            v-html="lineHtml"
+                          ></div>
                         </div>
-                        <div
-                          class="file-reader-code-virtual-line-content"
-                          v-html="lineHtml"
-                        ></div>
                       </div>
                     </div>
-                  </div>
-                </div>
+                  </template>
+                </Virtualizer>
               </div>
               <FloatingScrollbar
                 v-if="!isTabRawMode(activeTab)"
@@ -703,9 +705,11 @@ import { AppMarkdownRenderer, initKatex } from "../../chat/markdown";
 import ChatImagePreviewDialog from "../../chat/components/dialogs/ChatImagePreviewDialog.vue";
 import { useChatImagePreview } from "../../chat/composables/use-chat-image-preview";
 import { isAbsoluteLocalPath, isAssistantSpacePath, normalizeLocalLinkHref, parseLocalFileReference } from "../../chat/utils/local-link";
+import { Virtualizer } from "virtua/vue";
 import FloatingScrollbar from "../../shell/components/FloatingScrollbar.vue";
 import OverlayScrollArea from "../../shared/components/OverlayScrollArea.vue";
 import { useFileReaderAppearance } from "../../shell/composables/use-file-reader-appearance";
+import { FILE_READER_VIRTUAL_BLOCK_LINE_HEIGHT_PX } from "../constants";
 import PanelTabStrip from "../../shared/components/PanelTabStrip.vue";
 import FileTreeMenu from "./FileTreeMenu.vue";
 import GitPanel from "./GitPanel.vue";
@@ -925,15 +929,14 @@ const activeMediaSourceUrl = computed(() => {
 });
 
 const {
-  activeVirtualCodeEntries,
-  activeVirtualCodeTotalSize,
+  activeVirtualCodeBlocks,
   virtualCodeLineNumberDigits,
+  blockContentLines,
   clearFileBlockCaches,
   resetVirtualCodeCaches,
   migrateVirtualCodeCaches,
   collectVirtualizedVisibleContent,
-  measureVirtualCodeRow: rawMeasureVirtualCodeRow,
-  remeasureVirtualCodeRows,
+  ensureVirtualCodeBlockLoaded,
 } = useFileReaderVirtualCode({
   activeTab,
   markdownIsDark: computed(() => props.markdownIsDark),
@@ -942,11 +945,12 @@ const {
   requestFileBlock: requestFileReaderFileBlock,
 });
 
-function handleMeasureVirtualCodeRow(element: Element | { $el?: Element } | null) {
-  // 拖拽侧栏时暂停测量：每个 pointermove 都会改变内容区宽度，触发所有可见虚拟块 getBoundingClientRect → 强制布局，是卡顿主因
-  // 非换行模式下块高度固定（120*21px），拖拽期间完全可跳过；换行模式结束后会补量一次
-  if (activeDirectoryTreeResize.value) return;
-  rawMeasureVirtualCodeRow(element);
+// virtua 自动通过 ResizeObserver 测量，换行或宽度变化无需手工触发
+function remeasureVirtualCodeRows() {}
+
+function getVirtualBlockLines(block: import("../types").VirtualCodeBlock) {
+  void ensureVirtualCodeBlockLoaded(block);
+  return blockContentLines(block.key, block.lineCount);
 }
 const {
   fileReaderLineWrapEnabled,
@@ -3235,13 +3239,10 @@ defineExpose({
   word-break: break-word;
 }
 .file-reader-code-virtual-canvas {
-  position: relative;
   min-width: 100%;
 }
 .file-reader-code-virtual-row {
-  position: absolute;
-  left: 0;
-  top: 0;
+  position: relative;
   width: 100%;
 }
 .file-reader-code-virtual-block {

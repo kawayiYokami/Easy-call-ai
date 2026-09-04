@@ -1,9 +1,7 @@
 import { computed, ref, watch, type ComputedRef, type Ref } from "vue";
-import { useVirtualizer } from "@tanstack/vue-virtual";
 import { getSingletonHighlighter, hastToHtml, type GrammarState } from "shiki";
 import {
   FILE_READER_VIRTUAL_BLOCK_LINE_HEIGHT_PX,
-  FILE_READER_VIRTUAL_BLOCK_OVERSCAN,
 } from "../constants";
 import type { FileReaderFileBlockPayload, FileTab, VirtualCodeBlock } from "../types";
 import {
@@ -84,33 +82,22 @@ export function useFileReaderVirtualCode(options: UseFileReaderVirtualCodeOption
     return blocks;
   });
 
-  const virtualCodeBlockVirtualizer = useVirtualizer(
-    computed(() => ({
-      count: activeVirtualCodeBlocks.value.length,
-      getScrollElement: () => options.virtualCodeScroller.value,
-      getItemKey: (index: number) => activeVirtualCodeBlocks.value[index]?.key ?? `file-block-${index}`,
-      estimateSize: (index: number) => {
-        const block = activeVirtualCodeBlocks.value[index];
-        if (!block) return FILE_READER_VIRTUAL_BLOCK_LINE_HEIGHT_PX;
-        return block.lineCount * FILE_READER_VIRTUAL_BLOCK_LINE_HEIGHT_PX;
-      },
-      overscan: FILE_READER_VIRTUAL_BLOCK_OVERSCAN,
-      measureElement: (element: Element) => (element as HTMLElement).getBoundingClientRect().height,
-    })),
-  );
-
+  // virtua 接管虚拟化后，不再需要 tanstack 的 virtualizer。
+  // 保留兼容的 activeVirtualCodeEntries / activeVirtualCodeTotalSize 供旧调用点渐进迁移，
+  // 但不再基于虚拟窗口过滤，改为全量块（virtua 在视图层自行裁剪）。
   const activeVirtualCodeEntries = computed(() => {
-    const rows = virtualCodeBlockVirtualizer.value.getVirtualItems();
-    return rows.map((row) => ({
-      row,
-      block: activeVirtualCodeBlocks.value[row.index],
-    })).filter((entry): entry is { row: (typeof rows)[number]; block: VirtualCodeBlock } => Boolean(entry.block)).map((entry) => ({
-      ...entry,
-      lines: blockContentLines(entry.block.key, entry.block.lineCount),
+    return activeVirtualCodeBlocks.value.map((block, index) => ({
+      block,
+      // 兼容旧结构：row 仅保留 index，start/size 由 virtua 内部管理
+      row: { index, start: 0, size: block.lineCount * FILE_READER_VIRTUAL_BLOCK_LINE_HEIGHT_PX } as unknown as { index: number; start: number; size: number },
+      lines: blockContentLines(block.key, block.lineCount),
     }));
   });
 
-  const activeVirtualCodeTotalSize = computed(() => virtualCodeBlockVirtualizer.value.getTotalSize());
+  const activeVirtualCodeTotalSize = computed(() => {
+    // 估算总高度，仅用于非 virtua 兜底；virtua 会自动测量
+    return activeVirtualCodeBlocks.value.reduce((acc, b) => acc + b.lineCount * FILE_READER_VIRTUAL_BLOCK_LINE_HEIGHT_PX, 0);
+  });
 
   const virtualCodeLineNumberDigits = computed(() => {
     const totalLines = Math.max(1, options.activeTab.value?.totalLines || 1);
@@ -380,11 +367,7 @@ export function useFileReaderVirtualCode(options: UseFileReaderVirtualCodeOption
     if (!active || options.isRawMode(active) || active.kind === "markdown") return;
     activeHighlightRefreshId += 1;
     clearHighlightCachesForPath(active.path);
-    const refreshId = activeHighlightRefreshId;
-    for (const entry of activeVirtualCodeEntries.value) {
-      if (refreshId !== activeHighlightRefreshId) return;
-      await ensureVirtualCodeBlockLoaded(entry.block);
-    }
+    // virtua 渲染后会按需触发 ensureVirtualCodeBlockLoaded，此处不再遍历全量 visible
   }
 
   function clearHighlightCachesForPath(path: string) {
@@ -420,32 +403,20 @@ export function useFileReaderVirtualCode(options: UseFileReaderVirtualCodeOption
     return chunks.join("\n").trim();
   }
 
-  function measureVirtualCodeRow(element: Element | { $el?: Element } | null) {
-    if (!element) return;
-    const target = element instanceof Element ? element : element.$el;
-    if (!(target instanceof Element)) return;
-    virtualCodeBlockVirtualizer.value.measureElement(target);
+  function measureVirtualCodeRow(_element: Element | { $el?: Element } | null) {
+    // virtua 通过 ResizeObserver 自动测量，无需手工 measureElement
   }
 
   function remeasureVirtualCodeRows() {
-    virtualCodeBlockVirtualizer.value.measure();
+    // virtua 自动处理；换行模式切换时由 Virtualizer 重新测量
   }
-
-  watch(
-    activeVirtualCodeEntries,
-    (entries) => {
-      for (const entry of entries) {
-        void ensureVirtualCodeBlockLoaded(entry.block);
-      }
-    },
-    { immediate: true },
-  );
 
   watch(activeShikiTheme, () => {
     void refreshActiveCodeHighlights();
   });
 
   return {
+    activeVirtualCodeBlocks,
     activeVirtualCodeEntries,
     activeVirtualCodeTotalSize,
     virtualCodeLineNumberDigits,
@@ -457,5 +428,6 @@ export function useFileReaderVirtualCode(options: UseFileReaderVirtualCodeOption
     collectVirtualizedVisibleContent,
     measureVirtualCodeRow,
     remeasureVirtualCodeRows,
+    ensureVirtualCodeBlockLoaded,
   };
 }

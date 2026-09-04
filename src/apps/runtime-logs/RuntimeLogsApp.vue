@@ -30,28 +30,23 @@
       </button>
     </header>
 
-    <div
-      ref="logContainer"
-      class="flex-1 overflow-auto border-t border-base-300 bg-base-100 text-xs leading-5 [font-family:var(--app-code-font-family)]"
-      @scroll.passive="handleScroll"
+    <div v-if="filteredLogs.length === 0" class="flex-1 border-t border-base-300 bg-base-100 p-3 text-xs opacity-50 [font-family:var(--app-code-font-family)]">{{ loading ? "正在加载..." : "暂无日志" }}</div>
+    <VList
+      v-else
+      ref="vlistRef"
+      :data="filteredLogs"
+      :item-size="ROW_HEIGHT"
+      class="flex-1 min-h-0 border-t border-base-300 bg-base-100 text-xs leading-5 [font-family:var(--app-code-font-family)]"
+      :on-scroll="handleVirtuaScroll"
+      v-slot="{ item, index }"
     >
-      <div v-if="filteredLogs.length === 0" class="p-3 opacity-50">{{ loading ? "正在加载..." : "暂无日志" }}</div>
       <div
-        v-else
-        ref="logSpacer"
-        class="relative min-w-full"
-        :style="{ height: `${totalSize}px` }"
-      >
-        <div
-          v-for="row in virtualRows"
-          :key="String(row.key)"
-          class="absolute left-0 right-0 overflow-hidden pr-3 pl-3 text-ellipsis whitespace-pre"
-          :class="levelClass(rowEntry(row.index)?.level ?? '')"
-          :style="{ transform: `translateY(${row.start}px)`, height: `${row.size}px` }"
-          :title="rowTitle(row.index)"
-        >{{ formatLine(rowEntry(row.index) as RuntimeLogEntry) }}</div>
-      </div>
-    </div>
+        class="overflow-hidden pr-3 pl-3 text-ellipsis whitespace-pre"
+        :class="levelClass(item.level)"
+        :title="item.message"
+        :style="{ height: `${ROW_HEIGHT}px`, lineHeight: `${ROW_HEIGHT}px` }"
+      >{{ formatLine(item) }}</div>
+    </VList>
 
     <footer class="flex h-6 shrink-0 items-center gap-2 border-t border-base-300 bg-base-200 px-3 text-xs opacity-60">
       <span>显示 {{ filteredLogs.length }} / {{ logs.length }}</span>
@@ -63,7 +58,7 @@
 
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
-import { useVirtualizer } from "@tanstack/vue-virtual";
+import { VList } from "virtua/vue";
 import {
   hideCurrentTransportWindow,
   invokeTauri,
@@ -91,7 +86,7 @@ const loading = ref(false);
 const errorText = ref("");
 const selectedLevel = ref<"all" | string>("info");
 const selectedModule = ref("all");
-const logContainer = ref<HTMLElement | null>(null);
+const vlistRef = ref<InstanceType<typeof VList> | null>(null);
 
 let pollTimer: ReturnType<typeof setInterval> | null = null;
 let lastCreatedAt = "";
@@ -117,38 +112,25 @@ const filteredLogs = computed(() =>
   }),
 );
 
-const virtualizer = useVirtualizer(
-  computed(() => ({
-    count: filteredLogs.value.length,
-    getScrollElement: () => logContainer.value,
-    getItemKey: (index: number) => filteredLogs.value[index]?.id ?? `log-${index}`,
-    estimateSize: () => ROW_HEIGHT,
-    overscan: 30,
-  })),
-);
-
-const virtualRows = computed(() => virtualizer.value.getVirtualItems());
-const totalSize = computed(() => virtualizer.value.getTotalSize());
-
-function rowEntry(index: number): RuntimeLogEntry | undefined {
-  return filteredLogs.value[index];
-}
-
-function rowTitle(index: number): string {
-  return rowEntry(index)?.message ?? "";
-}
-
-function handleScroll() {
-  const el = logContainer.value;
-  if (!el) return;
-  const distanceToBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
+function handleVirtuaScroll(offset: number) {
+  const handle = vlistRef.value as unknown as { scrollSize: number; viewportSize: number } | null;
+  if (!handle) return;
+  const distanceToBottom = handle.scrollSize - offset - handle.viewportSize;
   stickToBottom = distanceToBottom <= BOTTOM_FOLLOW_THRESHOLD_PX;
 }
 
 function scrollToBottom() {
-  const el = logContainer.value;
-  if (!el) return;
-  el.scrollTop = el.scrollHeight;
+  const handle = vlistRef.value as unknown as { scrollToIndex: (index: number, opts?: unknown) => void; scrollTo: (offset: number) => void; scrollSize: number } | null;
+  if (!handle || filteredLogs.value.length === 0) return;
+  try {
+    handle.scrollToIndex(filteredLogs.value.length - 1, { align: "end" });
+  } catch {
+    try {
+      handle.scrollTo(handle.scrollSize);
+    } catch {
+      // ignore
+    }
+  }
 }
 
 watch(filteredLogs, () => {

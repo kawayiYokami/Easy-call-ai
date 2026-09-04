@@ -24,7 +24,6 @@
     "@dagrejs/dagre": "^3.0.0",
     "@lucide/vue": "1.23.0",
     "@shikijs/stream": "^4.4.3",
-    "@tanstack/vue-virtual": "^3.13.35",
     "@tauri-apps/api": "^2.11.1",
     "@tauri-apps/plugin-dialog": "^2.7.1",
     "@terrastruct/d2": "^0.1.33",
