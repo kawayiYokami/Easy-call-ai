@@ -260,6 +260,7 @@ import {
   buildDraftGroups,
   modelGroupKey,
   normalizedModelReasoningEffortFor,
+  peekDraftModels,
   splitDraftGroups,
   type DraftModelGroup,
 } from "../../utils/draft-model-groups";
@@ -659,11 +660,41 @@ const draftViewModels = computed<ApiModelConfigItem[]>(() =>
 
 // ========== 草稿聚合（读取时执行一次，编辑期间不重建） ==========
 
+function syncDerivedUiToSelectedProvider() {
+  const provider = selectedProvider.value;
+  const cap = selectedCapability.value;
+  if (activeTopTab.value !== "imageGeneration" && activeTopTab.value !== cap) {
+    activeTopTab.value = cap;
+  }
+  // 链接助手的默认协议：跟随当前协议，但保留用户手动切换
+  const nextLinkProto = defaultLinkHelperProtocol();
+  if (linkHelperActiveProtocol.value !== nextLinkProto) {
+    // 仅在切换供应商或协议变化时同步，避免逐字抖动
+    linkHelperActiveProtocol.value = nextLinkProto;
+  }
+}
+
+function expandDraftGroupsForCodexIfNeeded() {
+  const provider = selectedProvider.value;
+  if (!provider || provider.requestFormat !== "codex") return;
+  for (const group of draftModelGroups.value) {
+    for (const effort of CODEX_REASONING_EFFORTS) {
+      if (!group.reasoningEfforts.includes(effort)) group.reasoningEfforts.push(effort);
+      if (!group.variantIdByEffort.has(effort)) {
+        group.variantIdByEffort.set(effort, `api-model-${buildProviderSeed()}-${group.primary.id}-${effort}`);
+      }
+    }
+  }
+}
+
 function rebuildDraftGroups() {
   const provider = selectedProvider.value;
   // 重建草稿（进入页面/切换供应商）时回到默认折叠，仅本次新增的卡片例外
   defaultOpenModelIds.clear();
   draftModelGroups.value = buildDraftGroups(provider);
+  expandDraftGroupsForCodexIfNeeded();
+  syncDerivedUiToSelectedProvider();
+  syncConnectionTestSelection();
 }
 
 // ========== 草稿拆分（保存时执行一次，写回 config.models） ==========
@@ -769,14 +800,24 @@ const providerTemplateValues = computed<Record<string, unknown>>({
     const provider = selectedProvider.value;
     if (!provider) return;
     if (typeof values.name === "string") provider.name = values.name;
-    if (typeof values.baseUrl === "string") provider.baseUrl = values.baseUrl;
+    if (typeof values.baseUrl === "string") {
+      provider.baseUrl = values.baseUrl;
+      // 地址是用户显式编辑，失焦或切换后按需拉取元数据，不再逐字监听
+      scheduleMetadataSyncForAllGroups();
+    }
     if (typeof values.requestFormat === "string" && values.requestFormat !== provider.requestFormat) {
       provider.requestFormat = values.requestFormat as ApiRequestFormat;
-      if (provider.requestFormat !== "codex") {
-        stopCodexAuthPolling();
-      } else {
+      if (provider.requestFormat === "codex") {
+        expandDraftGroupsForCodexIfNeeded();
         void refreshCodexAuthStatus(provider);
+      } else {
+        stopCodexAuthPolling();
+        // 切回非 codex 不自动缩回已展开的档位，保留用户意图
       }
+      // 协议是用户显式选择，直接同步衍生 UI，不靠 watch
+      syncDerivedUiToSelectedProvider();
+      scheduleMetadataSyncForAllGroups();
+      void refreshResolvedAdaptersForSelectedProvider();
     }
   },
 });
@@ -818,16 +859,6 @@ const currentCodexAuthStatus = computed(() => {
   const providerId = String(selectedProvider.value?.id || "").trim();
   return providerId ? codexAuthStatusByProvider.value[providerId] ?? null : null;
 });
-
-watch(
-  selectedCapability,
-  (value) => {
-    if (activeTopTab.value !== "imageGeneration") {
-      activeTopTab.value = value;
-    }
-  },
-  { immediate: true },
-);
 
 const linkHelperTabs = computed(() =>
   protocolOptions.value.filter((option) =>
@@ -885,15 +916,39 @@ const savedProviderMap = computed(() => {
     return new Map<string, ApiProviderConfigItem>();
   }
 });
+function cloneDraftGroupsForDirty(): DraftModelGroup[] {
+  return draftModelGroups.value.map((group) => ({
+    key: group.key,
+    primary: { ...group.primary },
+    reasoningEfforts: [...group.reasoningEfforts],
+    variantIdByEffort: new Map(group.variantIdByEffort),
+  }));
+}
+
+function draftGroupsWithCodexVirtualExpansion(groups: DraftModelGroup[], provider: ApiProviderConfigItem | null): DraftModelGroup[] {
+  if (!provider || provider.requestFormat !== "codex") return groups;
+  // codex 在保存时会虚拟展开为全档位，脏检查也需同构展开，否则保存前后不一致
+  for (const group of groups) {
+    for (const effort of CODEX_REASONING_EFFORTS) {
+      if (!group.reasoningEfforts.includes(effort)) group.reasoningEfforts.push(effort);
+      if (!group.variantIdByEffort.has(effort)) {
+        group.variantIdByEffort.set(effort, `__peek__${group.key}__${effort}`);
+      }
+    }
+  }
+  return groups;
+}
+
 const currentProviderDirty = computed(() => {
   const provider = selectedProvider.value;
   if (!provider) return false;
   const savedProvider = savedProviderMap.value.get(String(provider.id || "").trim());
   if (!savedProvider) return true;
-  // 草稿态比较：用草稿拆分结果构造 provider 视图，与保存后落盘内容一致
+  // 纯预览：不产生副作用，避免 Date.now 导致的报告抖动；codex 虚拟展开与 commit 同构
+  const virtualGroups = draftGroupsWithCodexVirtualExpansion(cloneDraftGroupsForDirty(), provider);
   const draftView = {
     ...provider,
-    models: splitDraftGroups(provider, draftModelGroups.value, () => `api-model-${buildProviderSeed()}`),
+    models: peekDraftModels(provider, virtualGroups),
   };
   return JSON.stringify(normalizeProviderForCompare(draftView)) !== JSON.stringify(normalizeProviderForCompare(savedProvider));
 });
@@ -2053,92 +2108,68 @@ async function runConnectionTestAllKeys() {
   }
 }
 
-watch(
-  selectedProtocol,
-  () => {
-    linkHelperActiveProtocol.value = defaultLinkHelperProtocol();
-  },
-  { immediate: true },
-);
+function syncConnectionTestSelection() {
+  const provider = selectedProvider.value;
+  connectionTestKeyStatus.value = {};
+  modelConnectionResult.value = {};
+  const activeModels = draftViewModels.value;
+  if (!provider || activeModels.length === 0) {
+    connectionTestModelId.value = "";
+    connectionTestResults.value = [];
+    return;
+  }
+  if (!activeModels.some((m) => m.id === connectionTestModelId.value)) {
+    connectionTestModelId.value = activeModels[0].id;
+  }
+}
 
-watch(
-  () => providerList.value.map((provider) => provider.requestFormat).join("\0"),
-  normalizeProviderRequestFormats,
-  { immediate: true },
-);
+let metadataSyncDebounceTimer: number | null = null;
+function scheduleMetadataSyncForAllGroups() {
+  if (metadataSyncDebounceTimer !== null) {
+    window.clearTimeout(metadataSyncDebounceTimer);
+    metadataSyncDebounceTimer = null;
+  }
+  // 用户显式输入后的防抖拉取，不再逐字触发
+  metadataSyncDebounceTimer = window.setTimeout(() => {
+    metadataSyncDebounceTimer = null;
+    for (const group of draftModelGroups.value) {
+      void syncModelMetadata(group);
+    }
+  }, 400);
+}
 
+function cancelMetadataSyncDebounce() {
+  if (metadataSyncDebounceTimer !== null) {
+    window.clearTimeout(metadataSyncDebounceTimer);
+    metadataSyncDebounceTimer = null;
+  }
+}
+
+// 唯一入口：选中供应商变化时重建草稿并同步衍生状态
 watch(
   () => selectedProvider.value?.id,
   (providerId, previousProviderId) => {
     const provider = selectedProvider.value;
     rebuildDraftGroups();
+    // rebuild 已同步 activeTopTab / linkHelper / 连接测试，无需额外 watch
     if (!providerId || !provider) {
+      cancelMetadataSyncDebounce();
       stopCodexAuthPolling();
       return;
     }
     if (provider.requestFormat === "codex") {
       void refreshCodexAuthStatus(provider);
+      cancelMetadataSyncDebounce();
+      stopCodexAuthPolling();
       return;
     }
     if (previousProviderId && previousProviderId !== providerId) {
       void refreshResolvedAdaptersForSelectedProvider();
+    } else {
+      // 同供应商内的协议切换已在 setter 中触发，这里兜底
+      scheduleMetadataSyncForAllGroups();
     }
     stopCodexAuthPolling();
-  },
-  { immediate: true },
-);
-
-watch(
-  () => selectedProvider.value?.id,
-  () => {
-    const provider = selectedProvider.value;
-    connectionTestKeyStatus.value = {};
-    modelConnectionResult.value = {};
-    const activeModels = draftViewModels.value;
-    if (!provider || activeModels.length === 0) {
-      connectionTestModelId.value = "";
-      connectionTestResults.value = [];
-      return;
-    }
-    if (!activeModels.some((m) => m.id === connectionTestModelId.value)) {
-      connectionTestModelId.value = activeModels[0].id;
-    }
-  },
-  { immediate: true },
-);
-
-watch(
-  () => {
-    const provider = selectedProvider.value;
-    const activeModels = draftModelGroups.value.map((group) => group.primary);
-    return [
-      provider?.id || "",
-      selectedProtocol.value,
-      ...activeModels.map((model) => `${model.id}:${String(model.model || "").trim()}`),
-    ].join("\0");
-  },
-  () => {
-    void refreshResolvedAdaptersForSelectedProvider();
-  },
-  { immediate: true },
-);
-
-watch(
-  () => {
-    const provider = selectedProvider.value;
-    const activeModels = draftModelGroups.value.map((group) => group.primary);
-    return [
-      provider?.id || "",
-      provider?.baseUrl || "",
-      provider?.requestFormat || "",
-      ...activeModels.map((model) => `${model.id}:${String(model.model || "").trim()}`),
-    ].join("\0");
-  },
-  (current, previous) => {
-    if (current === previous) return;
-    for (const group of draftModelGroups.value) {
-      void syncModelMetadata(group);
-    }
   },
   { immediate: true },
 );

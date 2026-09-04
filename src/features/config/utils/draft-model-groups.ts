@@ -57,6 +57,39 @@ export function buildDraftGroups(provider: ApiProviderConfigItem | null | undefi
   return Array.from(groups.values());
 }
 
+// 纯预览：草稿组 → 模型列表，不产生副作用（不写回 variantIdByEffort）
+// 用于脏检查等需要稳定比较的场景，缺失 id 用基于 key+effort 的稳定占位，避免 Date.now 导致的抖动
+export function peekDraftModels(
+  provider: ApiProviderConfigItem | null | undefined,
+  groups: DraftModelGroup[],
+): ApiModelConfigItem[] {
+  if (!provider) return [];
+  const nextModels: ApiModelConfigItem[] = [];
+  const keptIds = new Set<string>();
+  for (const group of groups) {
+    const efforts = group.reasoningEfforts.length > 0 ? group.reasoningEfforts : ["default"];
+    for (const effort of efforts) {
+      const normalized = String(effort || "").trim().toLowerCase() || "default";
+      const existingId = group.variantIdByEffort.get(normalized);
+      // 稳定占位：与 commit 产生的真实 id 不同，但同一次预览内稳定，且与 saved 对比时能正确反映“新增档位”的差异
+      const id = existingId ?? `__peek__${group.key}__${normalized}`;
+      keptIds.add(id);
+      nextModels.push({
+        ...group.primary,
+        id,
+        deprecated: false,
+        reasoningEffort: normalized,
+      });
+    }
+  }
+  for (const model of provider.models || []) {
+    if (isModelDeprecated(model) && !keptIds.has(model.id)) {
+      nextModels.push(model);
+    }
+  }
+  return nextModels;
+}
+
 // 保存时拆分一次：草稿组 → config.models；id 复用 variantIdByEffort，新等级生成新 id
 export function splitDraftGroups(
   provider: ApiProviderConfigItem | null | undefined,
