@@ -41,6 +41,7 @@
     "modern-screenshot": "^4.7.0",
     "shiki": "^4.3.1",
     "shiki-stream": "^0.1.5",
+    "virtua": "^0.51.0",
     "vue": "^3.5.39",
     "vue-i18n": "^11.4.6"
   },

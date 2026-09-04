@@ -267,30 +267,15 @@ export function useConversationViewRuntime(options: ConversationViewRuntimeOptio
     if (!conversationId || !oldestMessageId || !hasMoreHistory.value || loadingOlderHistory.value) return;
     loadingOlderHistory.value = true;
     try {
-      const result = await invokeTauri<{ messages?: ChatMessage[]; hasMore?: boolean }>("conversation.compactionSegmentBefore", {
-        input: { conversationId, anchorMessageId: oldestMessageId },
+      const result = await invokeTauri<{ messages?: ChatMessage[]; hasMore?: boolean }>("conversation.messagesBefore", {
+        input: { conversationId, beforeMessageId: oldestMessageId, limit: 50 },
       });
       if (conversationId !== currentConversationId()) return;
       const incoming = ensureConversationMessageIds(Array.isArray(result?.messages) ? result.messages : []);
-      const CHUNK = 7;
-      if (incoming.length <= CHUNK) {
-        allMessages.value = mergeAuthoritativeMessages(allMessages.value, incoming, {
-          prependMessages: true,
-        });
-        hasMoreHistory.value = !!result?.hasMore;
-      } else {
-        const chunks: ChatMessage[][] = [];
-        for (let i = 0; i < incoming.length; i += CHUNK) chunks.push(incoming.slice(i, i + CHUNK));
-        let cur: ChatMessage[] = allMessages.value as ChatMessage[];
-        for (let ci = chunks.length - 1; ci >= 0; ci--) {
-          if (conversationId !== currentConversationId()) return;
-          const chunk = chunks[ci];
-          cur = mergeAuthoritativeMessages(cur, chunk, { prependMessages: true });
-          allMessages.value = cur;
-          if (ci > 0) await new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
-        }
-        hasMoreHistory.value = !!result?.hasMore;
-      }
+      allMessages.value = mergeAuthoritativeMessages(allMessages.value, incoming, {
+        prependMessages: true,
+      });
+      hasMoreHistory.value = !!result?.hasMore;
     } finally {
       loadingOlderHistory.value = false;
     }

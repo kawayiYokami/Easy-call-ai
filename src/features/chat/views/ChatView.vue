@@ -126,67 +126,70 @@
               <span class="shrink-0 font-semibold text-base-content/55">{{ t("chat.noMoreHistory") }}</span>
               <div class="h-px flex-1 bg-base-300/70"></div>
             </div>
-            <div class="relative min-w-0 w-full shrink-0" :style="{ height: `${totalVirtualSize}px` }">
-              <div
-                v-for="entry in virtualEntries"
-                :key="entry.item.id"
-                :data-index="entry.row.index"
-                :ref="measureElementRef"
-                class="absolute left-0 top-0 w-full ecall-chat-virtual-item"
-                :style="{ transform: `translateY(${entry.row.start}px)` }"
-              >
-                <div
-                  v-if="entry.item.kind === 'compaction'"
-                  class="mt-4 flex items-center gap-3 text-xs text-base-content/45"
-                >
-                  <div class="h-px flex-1 bg-base-300/80"></div>
-                  <button type="button" class="btn btn-ghost btn-xs shrink-0 gap-1.5 px-2 text-base-content/60 hover:text-base-content"
-                    :title="t('chat.viewSummary')" @click="openConversationSummary(entry.item.block, $event)"
-                    @contextmenu.prevent.stop="openCompactionSummaryContextMenu(entry.item.block, $event)">
-                    <History class="h-3.5 w-3.5" />
-                    <span>{{ t("chat.viewSummary") }}</span>
-                  </button>
-                  <div class="h-px flex-1 bg-base-300/80"></div>
-                </div>
-                <div v-else-if="entry.item.kind === 'plan_started'" class="mt-4 flex items-center gap-3 text-xs text-base-content/45">
-                  <div class="h-px flex-1 bg-base-300/80"></div>
-                  <span class="shrink-0 rounded-full border border-base-300/80 bg-base-100 px-3 py-1 text-base-content/55">{{ t("chat.planStartedDivider") }}</span>
-                  <div class="h-px flex-1 bg-base-300/80"></div>
-                </div>
-                <div v-else-if="entry.item.kind === 'message'"
-                  v-memo="[...messageMemoKey(entry.item.block, entry.item.renderId, entry.item.blockIndex, entry.item.compactWithPrevious), departmentNameMapSignature]">
-                  <div class="ecall-elastic-item-shell">
-                    <ChatMessageItem
-                      :active-conversation-id="activeConversationId" :block="entry.item.block"
-                      :selection-key="entry.item.renderId" :selection-mode-enabled="messageSelectionModeEnabled"
-                      :selected="selectedMessageRenderIdSet.has(entry.item.renderId)"
-                      :chatting="chatting" :busy="conversationInteractionBusy" :frozen="frozen"
-                      :user-alias="userAlias" :user-avatar-url="userAvatarUrl"
-                      :persona-name-map="personaNameMap" :persona-avatar-url-map="personaAvatarUrlMap"
-                      :department-name-map="departmentNameMap"
-                      :markdown-is-dark="markdownIsDark"
-                      :playing-audio-id="playingAudioId" :active-turn-user="false"
-                      :compact-with-previous="entry.item.compactWithPrevious"
-                      :can-regenerate="showConversationActions && canRegenerateBlock(entry.item.block, entry.item.blockIndex)"
-                      :can-confirm-plan="canConfirmPlan(entry.item.block)"
-                      :current-workspace-root-path="currentWorkspaceRootPath"
-                      :current-theme="currentTheme"
-                      :disable-recall-and-branch-actions="activeConversationIsSystemNotification"
-                      @create-conversation-branch-from-turn="$emit('createConversationBranchFromTurn', $event)"
-                      @recall-turn="$emit('recallTurn', $event)" @regenerate-turn="$emit('regenerateTurn', $event)"
-                      @confirm-plan="$emit('confirmPlan', $event)" @enter-selection-mode="handleEnterMessageSelectionMode"
-                      @toggle-message-selected="toggleMessageSelected"
-                      @copy-message="handleCopyMessage"
-                      @copy-message-image-done="handleCopyMessageImageDone"
-                      @copy-message-image-failed="handleCopyMessageImageFailed"
-                      @open-image-preview="openChatMessageImagePreview"
-                      @toggle-audio-playback="toggleAudioPlayback($event.id, $event.audio)"
-                      @assistant-link-click="handleAssistantLinkClick"
-                    />
+            <Virtualizer
+              v-if="scrollContainer"
+              :data="virtualRenderItems"
+              :shift="virtuaShift"
+              ref="virtuaRef"
+              :key="scrollContainer ? 'virtua-ready' : 'virtua-pending'"
+              :scroll-ref="(scrollContainer as unknown as HTMLElement)"
+              class="min-w-0 w-full shrink-0"
+            >
+              <template #default="{ item }">
+                <div :key="item.id" class="w-full ecall-chat-virtual-item">
+                  <div
+                    v-if="item.kind === 'compaction'"
+                    class="mt-4 flex items-center gap-3 text-xs text-base-content/45"
+                  >
+                    <div class="h-px flex-1 bg-base-300/80"></div>
+                    <button type="button" class="btn btn-ghost btn-xs shrink-0 gap-1.5 px-2 text-base-content/60 hover:text-base-content"
+                      :title="t('chat.viewSummary')" @click="openConversationSummary(item.block, $event)"
+                      @contextmenu.prevent.stop="openCompactionSummaryContextMenu(item.block, $event)">
+                      <History class="h-3.5 w-3.5" />
+                      <span>{{ t("chat.viewSummary") }}</span>
+                    </button>
+                    <div class="h-px flex-1 bg-base-300/80"></div>
+                  </div>
+                  <div v-else-if="item.kind === 'plan_started'" class="mt-4 flex items-center gap-3 text-xs text-base-content/45">
+                    <div class="h-px flex-1 bg-base-300/80"></div>
+                    <span class="shrink-0 rounded-full border border-base-300/80 bg-base-100 px-3 py-1 text-base-content/55">{{ t("chat.planStartedDivider") }}</span>
+                    <div class="h-px flex-1 bg-base-300/80"></div>
+                  </div>
+                  <div v-else-if="item.kind === 'message'"
+                    v-memo="[...messageMemoKey(item.block, item.renderId, item.blockIndex, item.compactWithPrevious), departmentNameMapSignature]">
+                    <div class="ecall-elastic-item-shell">
+                      <ChatMessageItem
+                        :active-conversation-id="activeConversationId" :block="item.block"
+                        :selection-key="item.renderId" :selection-mode-enabled="messageSelectionModeEnabled"
+                        :selected="selectedMessageRenderIdSet.has(item.renderId)"
+                        :chatting="chatting" :busy="conversationInteractionBusy" :frozen="frozen"
+                        :user-alias="userAlias" :user-avatar-url="userAvatarUrl"
+                        :persona-name-map="personaNameMap" :persona-avatar-url-map="personaAvatarUrlMap"
+                        :department-name-map="departmentNameMap"
+                        :markdown-is-dark="markdownIsDark"
+                        :playing-audio-id="playingAudioId" :active-turn-user="false"
+                        :compact-with-previous="item.compactWithPrevious"
+                        :can-regenerate="showConversationActions && canRegenerateBlock(item.block, item.blockIndex)"
+                        :can-confirm-plan="canConfirmPlan(item.block)"
+                        :current-workspace-root-path="currentWorkspaceRootPath"
+                        :current-theme="currentTheme"
+                        :disable-recall-and-branch-actions="activeConversationIsSystemNotification"
+                        @create-conversation-branch-from-turn="$emit('createConversationBranchFromTurn', $event)"
+                        @recall-turn="$emit('recallTurn', $event)" @regenerate-turn="$emit('regenerateTurn', $event)"
+                        @confirm-plan="$emit('confirmPlan', $event)" @enter-selection-mode="handleEnterMessageSelectionMode"
+                        @toggle-message-selected="toggleMessageSelected"
+                        @copy-message="handleCopyMessage"
+                        @copy-message-image-done="handleCopyMessageImageDone"
+                        @copy-message-image-failed="handleCopyMessageImageFailed"
+                        @open-image-preview="openChatMessageImagePreview"
+                        @toggle-audio-playback="toggleAudioPlayback($event.id, $event.audio)"
+                        @assistant-link-click="handleAssistantLinkClick"
+                      />
+                    </div>
                   </div>
                 </div>
-              </div>
-            </div>
+              </template>
+            </Virtualizer>
 
             <div
               class="pointer-events-none overflow-hidden"
@@ -694,7 +697,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, onMounted, ref, toRef, watch, type Ref } from "vue";
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, shallowRef, toRef, watch, type Ref } from "vue";
 import { useI18n } from "vue-i18n";
 import { isDarkAppTheme, isVscodeHost } from "../../shell/composables/use-app-theme";
 import {
@@ -751,7 +754,7 @@ import { useIdeContext } from "../composables/use-ide-context";
 import { useDelegateStatus } from "../composables/use-delegate-status";
 import { useRemoteImContactDashboard } from "../composables/use-remote-im-contact-dashboard";
 import { useChatVirtualList } from "../composables/use-chat-virtual-list";
-import { useChatVirtualScroll } from "../composables/use-chat-virtual-scroll";
+import { Virtualizer } from "virtua/vue";
 import { useChatPanes, PANE_WIDTH_LIMITS, type UseChatPanesOptions } from "../composables/use-chat-panes";
 import { useChatSelection } from "../composables/use-chat-selection";
 import { useChatConversationCtx, type ChatStatusBanner, type ChatStatusBannerTone } from "../composables/use-chat-conversation-ctx";
@@ -1452,9 +1455,14 @@ const { chatRenderItems, messageMemoKey } = useChatVirtualList({
 const virtualRenderItems = computed<ChatRenderItem[]>(() => [...chatRenderItems.value]);
 const olderHistoryCorrectionAllowed = ref(false);
 
-// 初始测高覆盖层：会话切换后消息行按 1px 估计高度定位、未实测前会重叠，
-// 用半透明覆盖层遮住直到视口内全部行实测完成（measurementSettled）。
-// 超时兜底 1.5s 防信号异常导致永久遮挡；流式期间不显示（行高度持续变化）。
+// virtua 最简：shift 在顶部 prepend 时保持视口锚定，无需隐藏预量 staged 容器
+const virtuaRef = ref<InstanceType<typeof Virtualizer> | null>(null);
+const virtuaShift = computed(() => {
+  if (virtualRenderItems.value.length === 0) return false;
+  return !!props.loadingOlderHistory || olderHistoryCorrectionAllowed.value;
+});
+// 初始覆盖层：virtua 内部已用 ResizeObserver 实时测量，首帧不再因 1px 估计重叠
+// 仅会话切换后短暂遮挡 300ms 防首帧测量抖动，超时兜底。
 const initialMeasureOverlayForceHidden = ref(false);
 let initialMeasureOverlayTimeout: ReturnType<typeof setTimeout> | undefined;
 watch(
@@ -1469,11 +1477,12 @@ watch(
       initialMeasureOverlayTimeout = setTimeout(() => {
         initialMeasureOverlayTimeout = undefined;
         initialMeasureOverlayForceHidden.value = true;
-      }, 1500);
+      }, 400);
     }
   },
   { immediate: true },
 );
+const measurementSettled = ref(true);
 const showInitialMeasureOverlay = computed(() =>
   !!String(props.activeConversationId || "").trim()
   && virtualRenderItems.value.length > 0
@@ -1564,24 +1573,147 @@ const {
   focusComposerInput: (options) => composerPanelRef.value?.focusInput(options),
 });
 
-// ==================== virtual scroll ====================
+// ==================== virtual scroll (virtua) ====================
 
-const {
-  virtualizer, virtualEntries, totalVirtualSize,
-  latestOwnTailContentHeight, latestOwnTailContentMeasured, measurementSettled, scheduleVirtualMeasure, syncViewportMetrics,
-  scrollVirtualizerToIndex, scrollVirtualizerToConversationBottomLightweight,
-  resetVirtualizerAtConversationBottom,
-  measureElementRef,
-} = useChatVirtualScroll({
-  renderItems: virtualRenderItems,
-  scrollContainer, scrollbarRef: chatScrollbarRef as Ref<{ updateThumb: () => void } | null>,
-  activeConversationId: toRef(props, "activeConversationId"),
-  latestOwnElasticItemId,
-  latestOwnElasticMinHeight,
-  chatting: toRef(props, "chatting"),
-  olderHistoryCorrectionAllowed,
-  debugEnabled: computed(() => true),
-  onUserScroll: () => onScroll(),
+// virtua 的 shift 在顶部插入时自动保持视口位置，无需手工锚定与隐藏预量
+function scrollVirtualizerToIndex(
+  index: number,
+  options?: { align?: "auto" | "start" | "center" | "end"; behavior?: ScrollBehavior },
+) {
+  if (virtuaRef.value) {
+    try {
+      virtuaRef.value.scrollToIndex(index, options as any);
+      return;
+    } catch {}
+  }
+  // 兜底：直接按索引估算偏移（每项约 320px）滚动外层容器，保证跳转可用
+  const el = scrollContainer.value;
+  if (!el) return;
+  const clamped = Math.max(0, Math.min(index, virtualRenderItems.value.length - 1));
+  const approxOffset = clamped * 320;
+  el.scrollTo({ top: approxOffset, behavior: options?.behavior || "auto" });
+}
+function scrollVirtualizerToConversationBottomLightweight(behavior: "auto" | "smooth" = "auto") {
+  const el = scrollContainer.value;
+  if (!el) {
+    const len = virtualRenderItems.value.length;
+    if (len <= 0 || !virtuaRef.value) return;
+    try { virtuaRef.value.scrollToIndex(len - 1, { align: "end", behavior } as any); } catch {}
+    return;
+  }
+  // 新消息/气泡插入时直接置底，确保“上推”可见；等待尾部留白与 virtua 测量稳定后再做最终置底
+  const attempt = (retries = 4) => {
+    const targetTop = Math.max(0, el.scrollHeight - el.clientHeight);
+    el.scrollTo({ top: targetTop, behavior });
+    chatScrollbarRef.value?.updateThumb();
+    if (retries > 0) {
+      const needTail = !!String(latestOwnElasticItemId.value || "").trim() && !latestOwnTailContentMeasured.value;
+      const v = virtuaRef.value as unknown as { cache?: unknown } | null;
+      const sizes = (v as any)?.cache?.[0] as number[] | undefined;
+      const hasUnmeasured = Array.isArray(sizes) && sizes.slice(-4).some((h: number) => h === -1);
+      if (needTail || hasUnmeasured) {
+        requestAnimationFrame(() => attempt(retries - 1));
+      }
+    }
+  };
+  void nextTick(() => requestAnimationFrame(() => attempt()));
+}
+function resetVirtualizerAtConversationBottom(behavior: "auto" | "smooth" = "auto") {
+  const el = scrollContainer.value;
+  if (el) {
+    const attempt = (retries = 6) => {
+      const targetTop = Math.max(0, el.scrollHeight - el.clientHeight);
+      el.scrollTo({ top: targetTop, behavior });
+      chatScrollbarRef.value?.updateThumb();
+      if (retries > 0) {
+        const needTail = !!String(latestOwnElasticItemId.value || "").trim() && !latestOwnTailContentMeasured.value;
+        const v = virtuaRef.value as unknown as { cache?: unknown } | null;
+        const sizes = (v as any)?.cache?.[0] as number[] | undefined;
+        const hasUnmeasured = Array.isArray(sizes) && sizes.slice(-4).some((h: number) => h === -1);
+        if (needTail || hasUnmeasured) {
+          requestAnimationFrame(() => attempt(retries - 1));
+        } else if (Math.abs(el.scrollTop - targetTop) > 2) {
+          requestAnimationFrame(() => attempt(retries - 1));
+        }
+      }
+    };
+    void nextTick(() => requestAnimationFrame(() => attempt()));
+    return;
+  }
+  const len = virtualRenderItems.value.length;
+  if (len <= 0 || !virtuaRef.value) return;
+  try { virtuaRef.value.scrollToIndex(len - 1, { align: "end", behavior } as any); } catch {}
+}
+function scheduleVirtualMeasure() {
+  // virtua 内部 ResizeObserver 自动测量，无需手动触发
+}
+function syncViewportMetrics() {
+  void nextTick(() => chatScrollbarRef.value?.updateThumb());
+}
+
+// 尾部弹性高度：直接用 virtua 测量值求和，需轮询 cache（非响应式）
+const latestOwnTailContentRange = computed(() => {
+  const itemId = String(latestOwnElasticItemId.value || "").trim();
+  if (!itemId) return [] as ChatRenderItem[];
+  const startIndex = virtualRenderItems.value.findIndex((item) => item.id === itemId);
+  return startIndex < 0 ? [] : virtualRenderItems.value.slice(startIndex);
+});
+const tailMetricsTick = ref(0);
+let tailMetricsRaf = 0;
+let tailMetricsRetry = 0;
+function scheduleTailMetricsRefresh() {
+  if (tailMetricsRaf) return;
+  tailMetricsRaf = requestAnimationFrame(() => {
+    tailMetricsRaf = 0;
+    tailMetricsTick.value += 1;
+    if (!latestOwnTailContentMeasured.value && latestOwnTailContentRange.value.length > 0 && tailMetricsRetry < 24) {
+      tailMetricsRetry += 1;
+      scheduleTailMetricsRefresh();
+    } else {
+      tailMetricsRetry = 0;
+    }
+  });
+}
+watch([() => virtualRenderItems.value.length, () => String(latestOwnElasticItemId.value || "").trim(), () => !!virtuaRef.value], () => {
+  tailMetricsRetry = 0;
+  void nextTick(() => scheduleTailMetricsRefresh());
+}, { immediate: true });
+onBeforeUnmount(() => {
+  if (tailMetricsRaf) {
+    cancelAnimationFrame(tailMetricsRaf);
+    tailMetricsRaf = 0;
+  }
+});
+
+const latestOwnTailContentHeight = computed(() => {
+  void tailMetricsTick.value;
+  const v = virtuaRef.value as unknown as { cache?: unknown } | null;
+  if (!v || !Array.isArray((v as any).cache) || !Array.isArray((v as any).cache[0])) return 0;
+  const sizes = (v as any).cache[0] as number[];
+  let total = 0;
+  for (const item of latestOwnTailContentRange.value) {
+    const idx = virtualRenderItems.value.findIndex((it) => it.id === item.id);
+    if (idx >= 0 && idx < sizes.length) {
+      const h = sizes[idx];
+      if (Number.isFinite(h) && h > 0 && h !== -1) total += h;
+    }
+  }
+  return total;
+});
+const latestOwnTailContentMeasured = computed(() => {
+  void tailMetricsTick.value;
+  const v = virtuaRef.value as unknown as { cache?: unknown } | null;
+  if (!v || !Array.isArray((v as any).cache) || !Array.isArray((v as any).cache[0])) return false;
+  const sizes = (v as any).cache[0] as number[];
+  const range = latestOwnTailContentRange.value;
+  if (range.length === 0) return false;
+  for (const item of range) {
+    const idx = virtualRenderItems.value.findIndex((it) => it.id === item.id);
+    if (idx < 0 || idx >= sizes.length) return false;
+    const h = sizes[idx];
+    if (h === -1 || !Number.isFinite(h) || h <= 0) return false;
+  }
+  return true;
 });
 
 // timeline: 仅完成态用户消息，流式不锚点（不占位，右下角悬停按钮）
@@ -1642,13 +1774,19 @@ onMounted(() => {
 const activeTimelineIndex = computed<number | null>(() => {
   const anchors = timelineAnchors.value;
   if (anchors.length === 0) return null;
-  const rows = virtualizer.value.getVirtualItems();
-  if (rows.length === 0) return anchors[0]?.index ?? null;
+  if (virtualRenderItems.value.length === 0) return anchors[0]?.index ?? null;
   const scrollEl = scrollContainer.value;
   const top = scrollEl ? scrollEl.scrollTop : 0;
   let firstVisible = anchors[0]!.index;
-  for (const row of rows) {
-    if (row.end > top + 2) { firstVisible = row.index; break; }
+  // virtua 提供 findItemIndex，可直接定位顶部可见索引
+  if (virtuaRef.value && typeof (virtuaRef.value as any).findItemIndex === "function") {
+    try {
+      const idx = (virtuaRef.value as any).findItemIndex(top);
+      if (Number.isFinite(idx) && idx >= 0) firstVisible = idx;
+    } catch {}
+  } else if (scrollEl) {
+    // 回退：线性查找近似
+    firstVisible = Math.max(0, Math.floor(top / 300));
   }
   // 找到最后一个 index <= firstVisible 的锚点
   let active = anchors[0]!.index;
@@ -1762,14 +1900,30 @@ watch(() => timelineAnchors.value.length, (n) => {
 const latestOwnTailSpacerMinHeight = ref(0);
 
 watch(
-  [latestOwnElasticItemId, latestOwnElasticMinHeight, latestOwnTailContentHeight, latestOwnTailContentMeasured],
+  [latestOwnElasticItemId, latestOwnElasticMinHeight, latestOwnTailContentHeight, latestOwnTailContentMeasured, tailMetricsTick],
   ([itemId, targetHeight, tailContentHeight, tailContentMeasured]) => {
     if (!itemId) {
       latestOwnTailSpacerMinHeight.value = targetHeight;
       return;
     }
     if (!tailContentMeasured) return;
-    latestOwnTailSpacerMinHeight.value = Math.max(0, targetHeight - tailContentHeight);
+    const next = Math.max(0, targetHeight - tailContentHeight);
+    if (latestOwnTailSpacerMinHeight.value !== next) {
+      latestOwnTailSpacerMinHeight.value = next;
+      // 尾部留白变化后，若当前在底部附近，自动跟随置底，保证新消息上推到位
+      void nextTick(() => {
+        requestAnimationFrame(() => {
+          const el = scrollContainer.value;
+          if (!el) return;
+          const distanceToBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
+          if (distanceToBottom <= 120) {
+            const targetTop = Math.max(0, el.scrollHeight - el.clientHeight);
+            el.scrollTo({ top: targetTop, behavior: "auto" });
+            chatScrollbarRef.value?.updateThumb();
+          }
+        });
+      });
+    }
   },
   { immediate: true },
 );
@@ -1844,14 +1998,15 @@ function isPreviousUserMessageJumpItem(item: ChatRenderItem | undefined): boolea
 function collectPreviousUserMessageJumpTargets() {
   const scrollEl = scrollContainer.value;
   if (!scrollEl || virtualRenderItems.value.length <= 0) return [];
-  const rows = virtualizer.value.getVirtualItems();
   const viewportTop = scrollEl.scrollTop;
-  let firstVisibleIndex = virtualRenderItems.value.length;
-  for (const row of rows) {
-    if (row.end > viewportTop + 2) {
-      firstVisibleIndex = row.index;
-      break;
-    }
+  let firstVisibleIndex = 0;
+  if (virtuaRef.value && typeof (virtuaRef.value as any).findItemIndex === "function") {
+    try {
+      const idx = (virtuaRef.value as any).findItemIndex(viewportTop + 2);
+      if (Number.isFinite(idx) && idx >= 0) firstVisibleIndex = idx;
+    } catch {}
+  } else {
+    firstVisibleIndex = Math.max(0, Math.floor(viewportTop / 300));
   }
   const targets: Array<{ index: number; item: ChatRenderItem }> = [];
   for (let index = Math.min(firstVisibleIndex - 1, virtualRenderItems.value.length - 1); index >= 0; index -= 1) {
@@ -1882,13 +2037,13 @@ const previousUserMessageJumpTarget = computed(() => {
 function collectNextUserMessageJumpTargets() {
   const scrollEl = scrollContainer.value;
   if (!scrollEl || virtualRenderItems.value.length <= 0) return [];
-  const rows = virtualizer.value.getVirtualItems();
   const viewportBottom = scrollEl.scrollTop + scrollEl.clientHeight;
-  let lastVisibleIndex = -1;
-  for (const row of rows) {
-    if (row.start < viewportBottom - 2) {
-      lastVisibleIndex = row.index;
-    }
+  let lastVisibleIndex = virtualRenderItems.value.length - 1;
+  if (virtuaRef.value && typeof (virtuaRef.value as any).findItemIndex === "function") {
+    try {
+      const idx = (virtuaRef.value as any).findItemIndex(Math.max(0, viewportBottom - 2));
+      if (Number.isFinite(idx) && idx >= 0) lastVisibleIndex = idx;
+    } catch {}
   }
   if (lastVisibleIndex < 0) return [];
   const targets: Array<{ index: number; item: ChatRenderItem }> = [];
