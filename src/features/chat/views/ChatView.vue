@@ -294,20 +294,19 @@
           @update:selected-contact-id="autoPushSelectedContactId = $event"
         />
         <!-- bottom-right: 灵动岛按钮（圆态）+ 回到底部（放上面防跳动） -->
-        <!-- 圆按钮扩成的卡片：挂进按钮容器，定位以按钮为基准，随 jumpToBottomStyle 走 -->
+        <!-- 卡片已 Teleport 到 body 视口锚定，按钮容器仅提供锚点定位 -->
         <div class="pointer-events-none absolute bottom-3 right-5 z-31 flex flex-col items-end gap-2" :style="jumpToBottomStyle">
-          <Transition name="ecall-snake-board">
-            <TimelineSnakeBoard
-              v-if="showTimelineFloatPanel && timelineAnchors.length >= 2 && !showFloatingSessionToolbar"
-              :anchors="timelineAnchors"
-              :active-index="activeTimelineIndex"
-              :hovered-index="hoveredTimelineIndex"
-              @hover="hoveredTimelineIndex = $event"
-              @enter-zone="handleTimelineFloatEnter"
-              @leave-zone="handleTimelineFloatLeave"
-              @jump="handleTimelineJumpAndClose($event)"
-            />
-          </Transition>
+          <TimelineSnakeBoard
+            :visible="showTimelineFloatPanel && timelineAnchors.length >= 2 && !showFloatingSessionToolbar"
+            :anchors="timelineAnchors"
+            :active-index="activeTimelineIndex"
+            :hovered-index="hoveredTimelineIndex"
+            :anchor-el="timelineBoardAnchorEl"
+            @hover="hoveredTimelineIndex = $event"
+            @enter-zone="handleTimelineFloatEnter"
+            @leave-zone="handleTimelineFloatLeave"
+            @jump="handleTimelineJumpAndClose($event)"
+          />
           <Transition name="chat-jump-action">
             <div v-show="showJumpToBottom" class="pointer-events-auto">
               <button class="btn btn-sm btn-circle btn-neutral shadow-lg" @click="handleJumpToBottom">
@@ -332,6 +331,7 @@
           </button>
           <div
             v-else-if="showTimelineFloatPanel && !showFloatingSessionToolbar"
+            ref="timelineFloatPlaceholderRef"
             class="h-8 w-8 shrink-0 invisible pointer-events-none"
             aria-hidden="true"
           />
@@ -747,7 +747,7 @@ import { useChatScrollLayout } from "../composables/use-chat-scroll-layout";
 import type { TerminalApprovalConversationItem } from "../../shell/composables/use-terminal-approval";
 import { isAbsoluteLocalPath, isAssistantSpacePath, normalizeLocalLinkHref, parseLocalFileReference } from "../utils/local-link";
 import { buildConversationSections, buildWorkspaceConversationSections, canonicalWorkspaceRootForComparison, type ConversationSection } from "../utils/conversation-sections";
-import { defaultWorkspaceNameFromPath, stripExtendedPathPrefix } from "../../../utils/shell-workspaces";
+import { defaultWorkspaceNameFromPath, normalizeWorkspacePathKey, stripExtendedPathPrefix } from "../../../utils/shell-workspaces";
 import { recentWorkspacePaths } from "../../../utils/recent-workspaces";
 import { type ChatRenderItem, isRightAlignedMessage, canOpenInFileReader, fileExtensionFromPath } from "../utils/chat-render";
 import { clearFileReaderContextCandidates } from "../utils/file-reader-context-tags";
@@ -1804,13 +1804,18 @@ function handleTimelineJump(virtualIndex: number) {
   scrollVirtualizerToIndex(virtualIndex, { align: "start", behavior: prefersReducedMotionTimeline.value ? "auto" : "smooth" });
 }
 
-// timeline hover float: 不占位，右下角按钮悬停展开
+// timeline hover float: 不占位，右下角按钮悬停展开（视口锚定）
 const timelineFloatWrapRef = ref<HTMLElement | null>(null);
+const timelineFloatPlaceholderRef = ref<HTMLElement | null>(null);
 const timelineFloatOpen = ref(false);
 let timelineFloatCloseTimer: ReturnType<typeof setTimeout> | null = null;
 let timelineFloatExpandUntil = 0;
 
 const showTimelineFloatPanel = computed(() => timelineFloatOpen.value && timelineAnchors.value.length >= 2);
+const timelineBoardAnchorEl = computed(() => {
+  if (showTimelineFloatPanel.value) return timelineFloatPlaceholderRef.value;
+  return timelineFloatWrapRef.value;
+});
 
 const TIMELINE_TOOL_BREAK = "\uE000TOOLBREAK\uE000";
 function cleanTimelinePreviewText(raw: string): string {
@@ -1869,10 +1874,9 @@ function handleTimelineJumpAndClose(virtualIndex: number) {
 function handleTimelineFloatDocumentPointerDown(event: MouseEvent | TouchEvent) {
   if (!showTimelineFloatPanel.value) return;
   const target = event.target as Node | null;
-  // 点在蛇形卡片内不关闭，只收掉卡片外点击
   if (target instanceof Element && target.closest(".ecall-snake-board-card")) return;
-  const el = timelineFloatWrapRef.value;
-  if (el && target && el.contains(target)) return;
+  const anchorEl = timelineBoardAnchorEl.value;
+  if (anchorEl && target && anchorEl.contains(target as Node)) return;
   timelineFloatOpen.value = false;
   if (timelineFloatCloseTimer) { clearTimeout(timelineFloatCloseTimer); timelineFloatCloseTimer = null; }
 }
@@ -2559,8 +2563,10 @@ const draftWorkspaceOptions = computed<Array<{ id: string; name: string; path: s
   const sidebarPaths = buildWorkspaceConversationSections(allItems, { defaultWorkspaceTitle: t("chat.defaultWorkspace"), locale: locale.value }).map((s) => String(s.workspaceRootPath || "").trim()).filter(Boolean);
   const merged = [...recentWorkspacePaths.value, ...sidebarPaths];
   const deduped = new Map<string, { id: string; name: string; path: string; access: ShellWorkspace["access"] }>();
-  for (const path of merged) {
-    const key = String(path).toLowerCase();
+  for (const rawPath of merged) {
+    const path = stripExtendedPathPrefix(String(rawPath || "").trim()).replace(/\/+$/, "");
+    if (!path) continue;
+    const key = normalizeWorkspacePathKey(path);
     if (!key || deduped.has(key)) continue;
     deduped.set(key, { id: `conversation-workspace-${key}`, name: defaultWorkspaceNameFromPath(path) || path, path, access: "approval" });
   }
@@ -2574,18 +2580,7 @@ async function handleDraftWorkspaceSave(workspaces: ShellWorkspace[], autonomous
 
 async function handleDraftWorkspaceSaveLegacy(payload: { path: string; name: string; access: ShellWorkspace["access"]; workMode: ShellWorkMode }) {
   if (!props.saveDraftWorkspaces) return;
-  await props.saveDraftWorkspaces(
-    [{
-      id: `conversation-workspace-${Date.now().toString(36)}`,
-      name: payload.name,
-      path: payload.path,
-      level: "main",
-      access: payload.access,
-      builtIn: false,
-    }],
-    Boolean(props.currentWorkspaceAutonomousMode),
-    payload.workMode,
-  );
+  await props.saveDraftWorkspaces([{ id: `conversation-workspace-${Date.now().toString(36)}`, name: payload.name, path: payload.path, level: "main", access: payload.access, builtIn: false }], Boolean(props.currentWorkspaceAutonomousMode), payload.workMode);
 }
 
 function handleShiftWheel(event: WheelEvent) {

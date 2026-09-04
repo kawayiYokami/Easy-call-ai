@@ -70,6 +70,12 @@ export function stripExtendedPathPrefix(path?: string): string {
   return raw;
 }
 
+export function normalizeWorkspacePathKey(path?: string): string {
+  let normalized = String(path || "").trim();
+  normalized = normalized.replace(/^\\\\\?\\unc\//i, "//").replace(/^\\\\\?\\/i, "").replace(/^\\\\\.\\/i, "");
+  return normalized.replace(/\\/g, "/").replace(/\/+$/, "").toLowerCase();
+}
+
 export function defaultWorkspaceNameFromPath(path: string): string {
   const raw = String(path || "").trim();
   if (!raw) return "";

@@ -1,7 +1,14 @@
 import { ref } from "vue";
+import { normalizeWorkspacePathKey, stripExtendedPathPrefix } from "./shell-workspaces";
 
 const STORAGE_KEY = "pai.recent_workspaces.v1";
 const LIMIT = 20;
+
+function normalizeStoredPath(path: string): string {
+  const stripped = stripExtendedPathPrefix(String(path || "").trim());
+  if (!stripped) return "";
+  return stripped.replace(/\/+$/, "");
+}
 
 function loadRecentWorkspacePaths(): string[] {
   try {
@@ -9,10 +16,18 @@ function loadRecentWorkspacePaths(): string[] {
     if (!raw) return [];
     const parsed = JSON.parse(raw);
     if (!Array.isArray(parsed)) return [];
-    return parsed
-      .map((item) => String(item || "").trim())
-      .filter(Boolean)
-      .slice(0, LIMIT);
+    const out: string[] = [];
+    const seen = new Set<string>();
+    for (const item of parsed) {
+      const normalized = normalizeStoredPath(String(item || ""));
+      if (!normalized) continue;
+      const key = normalizeWorkspacePathKey(normalized);
+      if (!key || seen.has(key)) continue;
+      seen.add(key);
+      out.push(normalized);
+      if (out.length >= LIMIT) break;
+    }
+    return out;
   } catch {
     return [];
   }
@@ -30,11 +45,12 @@ function saveRecentWorkspacePaths(paths: string[]) {
 export const recentWorkspacePaths = ref<string[]>(loadRecentWorkspacePaths());
 
 export function pushRecentWorkspacePath(path: string) {
-  const normalized = String(path || "").trim();
+  const normalized = normalizeStoredPath(String(path || ""));
   if (!normalized) return;
-  const key = normalized.toLowerCase();
+  const key = normalizeWorkspacePathKey(normalized);
+  if (!key) return;
   const list = [...recentWorkspacePaths.value];
-  const existingIndex = list.findIndex((item) => String(item).toLowerCase() === key);
+  const existingIndex = list.findIndex((item) => normalizeWorkspacePathKey(String(item || "")) === key);
   if (existingIndex !== -1) list.splice(existingIndex, 1);
   list.unshift(normalized);
   if (list.length > LIMIT) list.length = LIMIT;
