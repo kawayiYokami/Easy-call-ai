@@ -1329,27 +1329,33 @@ function collectFileReaderWatchTargets(): FileReaderWatchTarget[] {
   const targets: FileReaderWatchTarget[] = [];
   const active = activeTab.value;
   if (active?.loaded && !active.loading && !active.error && active.path) {
-    targets.push({ path: normalizePath(active.path), kind: "file" });
+    const normalizedActive = normalizePath(active.path);
+    if (normalizedActive && !isGitInternalPath(normalizedActive)) {
+      targets.push({ path: normalizedActive, kind: "file" });
+    }
   }
   const root = directoryTreeRoot.value;
   if (root?.path) {
-    targets.push({ path: normalizePath(root.path), kind: "directory" });
+    const normalizedRoot = normalizePath(root.path);
+    if (normalizedRoot && !isGitInternalPath(normalizedRoot)) {
+      targets.push({ path: normalizedRoot, kind: "directory" });
+    }
   }
-  const perDirectoryCount = new Map<string, number>();
-  for (const row of visibleTreeRows.value) {
-    if (row.kind !== "entry") continue;
-    const path = normalizePath(row.entry.path);
-    const parentPath = directoryFromPath(path);
-    const currentCount = perDirectoryCount.get(parentPath) || 0;
-    if (currentCount >= 100) continue;
-    perDirectoryCount.set(parentPath, currentCount + 1);
-    targets.push({ path, kind: row.entry.isDirectory ? "directory" : "file" });
+  for (const node of Object.values(directoryNodes.value)) {
+    if (!node?.expanded) continue;
+    const normalized = normalizePath(node.path);
+    if (!normalized || isGitInternalPath(normalized)) continue;
+    targets.push({ path: normalized, kind: "directory" });
   }
   const seen = new Set<string>();
   return targets.filter((target) => {
-    const key = `${target.kind}:${normalizePath(target.path).toLowerCase()}`;
-    if (!target.path || seen.has(key)) return false;
+    const normalized = normalizePath(target.path);
+    if (!normalized || isGitInternalPath(normalized)) return false;
+    const key = `${target.kind}:${normalized.toLowerCase()}`;
+    if (seen.has(key)) return false;
     seen.add(key);
+    // 归一后回写，避免大小写/斜杠差异导致后端重复
+    target.path = normalized;
     return true;
   });
 }

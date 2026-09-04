@@ -2197,6 +2197,11 @@ fn file_reader_watch_fingerprint(path: &str) -> FileReaderWatchFingerprint {
     }
 }
 
+fn is_file_reader_watch_git_internal_path(path: &str) -> bool {
+    let normalized = path.replace('\\', "/").to_lowercase();
+    normalized.ends_with("/.git") || normalized.contains("/.git/")
+}
+
 fn file_reader_watch_directory_signature(path: &PathBuf) -> String {
     let read_dir = match fs::read_dir(path) {
         Ok(value) => value,
@@ -2205,6 +2210,11 @@ fn file_reader_watch_directory_signature(path: &PathBuf) -> String {
     let mut entries = Vec::new();
     for entry in read_dir.take(FILE_READER_WATCH_DIRECTORY_SIGNATURE_LIMIT) {
         let Ok(entry) = entry else { continue };
+        let file_name = entry.file_name();
+        let file_name_lossy = file_name.to_string_lossy();
+        if file_name_lossy.eq_ignore_ascii_case(".git") {
+            continue;
+        }
         let entry_path = entry.path();
         let metadata = match entry.metadata() {
             Ok(value) => value,
@@ -2212,7 +2222,7 @@ fn file_reader_watch_directory_signature(path: &PathBuf) -> String {
         };
         entries.push(format!(
             "{}|{}|{}|{}",
-            entry.file_name().to_string_lossy(),
+            file_name_lossy,
             if metadata.is_dir() { "d" } else { "f" },
             metadata.len(),
             file_reader_watch_modified_ms(&metadata)
@@ -2225,20 +2235,93 @@ fn file_reader_watch_directory_signature(path: &PathBuf) -> String {
     entries.join("\n")
 }
 
+fn file_reader_watch_first_directory_diff(old_sig: &str, new_sig: &str) -> Option<String> {
+    if old_sig == new_sig {
+        return None;
+    }
+    let old_lines: Vec<&str> = if old_sig.is_empty() {
+        Vec::new()
+    } else {
+        old_sig.split('\n').collect()
+    };
+    let new_lines: Vec<&str> = if new_sig.is_empty() {
+        Vec::new()
+    } else {
+        new_sig.split('\n').collect()
+    };
+    let old_set: std::collections::HashSet<&str> = old_lines.iter().copied().collect();
+    for line in &new_lines {
+        if !old_set.contains(line) {
+            return Some(format!("新增/变更条目={}", line));
+        }
+    }
+    let new_set: std::collections::HashSet<&str> = new_lines.iter().copied().collect();
+    for line in &old_lines {
+        if !new_set.contains(line) {
+            return Some(format!("删除/变更条目={}", line));
+        }
+    }
+    Some(format!(
+        "签名长度 {}->{}",
+        old_sig.len(),
+        new_sig.len()
+    ))
+}
+
 fn start_file_reader_watch_polling(app: AppHandle) {
     let _ = FILE_READER_WATCH_THREAD_STARTED.get_or_init(|| {
         std::thread::spawn(move || loop {
             std::thread::sleep(std::time::Duration::from_millis(FILE_READER_WATCH_POLL_MS));
-            let events = {
+            let (events, first_changed_log) = {
                 let store = file_reader_watch_targets_store();
                 let mut targets_by_session =
                     store.lock().unwrap_or_else(|poison| poison.into_inner());
                 let mut events = Vec::new();
+                let mut first_changed_log: Option<String> = None;
                 for (session_id, targets) in targets_by_session.iter_mut() {
                     for target in targets.iter_mut() {
                         let next = file_reader_watch_fingerprint(&target.path);
                         if next == target.fingerprint {
                             continue;
+                        }
+                        if first_changed_log.is_none() {
+                            let detail = if target.fingerprint.is_dir || next.is_dir {
+                                let diff = file_reader_watch_first_directory_diff(
+                                    &target.fingerprint.directory_signature,
+                                    &next.directory_signature,
+                                );
+                                format!(
+                                    "session={} path={} kind={} exists {}->{} is_dir {}->{} len {}->{} modified_ms {}->{} signature_len {}->{} {}",
+                                    session_id,
+                                    target.path,
+                                    target.kind,
+                                    target.fingerprint.exists,
+                                    next.exists,
+                                    target.fingerprint.is_dir,
+                                    next.is_dir,
+                                    target.fingerprint.len,
+                                    next.len,
+                                    target.fingerprint.modified_ms,
+                                    next.modified_ms,
+                                    target.fingerprint.directory_signature.len(),
+                                    next.directory_signature.len(),
+                                    diff.unwrap_or_else(|| "无条目差异".to_string())
+                                )
+                            } else {
+                                format!(
+                                    "session={} path={} kind={} exists {}->{} len {}->{} modified_ms {}->{}",
+                                    session_id,
+                                    target.path,
+                                    target.kind,
+                                    target.fingerprint.exists,
+                                    next.exists,
+                                    target.fingerprint.len,
+                                    next.len,
+                                    target.fingerprint.modified_ms,
+                                    next.modified_ms
+                                )
+                            };
+                            first_changed_log = Some(detail);
                         }
                         target.fingerprint = next;
                         events.push(FileReaderWatchEventPayload {
@@ -2248,8 +2331,15 @@ fn start_file_reader_watch_polling(app: AppHandle) {
                         });
                     }
                 }
-                events
+                (events, first_changed_log)
             };
+            if let Some(detail) = first_changed_log {
+                runtime_log_debug(format!(
+                    "[文件管理器] 检测到变更 {} 本次批量数={}",
+                    detail,
+                    events.len()
+                ));
+            }
             for payload in events {
                 let _ = app.emit("easy-call:file-reader-watch-changed", payload);
             }
@@ -2279,6 +2369,9 @@ fn update_file_reader_watch_targets(
             .unwrap_or_else(|_| PathBuf::from(raw_path))
             .to_string_lossy()
             .replace('\\', "/");
+        if is_file_reader_watch_git_internal_path(&normalized_path) {
+            continue;
+        }
         if !seen.insert(normalized_path.clone()) {
             continue;
         }
