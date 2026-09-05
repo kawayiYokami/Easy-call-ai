@@ -84,6 +84,7 @@ onBeforeUnmount(() => {
           </button>
         </div>
         <ToolReviewCodePreview
+          v-if="open"
           class="min-h-0 flex-1"
           :code="code"
           :lang="languageLabel"

@@ -42,6 +42,13 @@ let dragStartScrollOffset = 0;
 let activePointerId: number | null = null;
 let observedScroller: HTMLElement | null = null;
 let pendingThumbFrame = 0;
+let cachedClientExtent = 0;
+let cachedScrollExtent = 0;
+let lastExtentRefreshAt = 0;
+// 滚动热路径只读 scrollTop（廉价）；client/scroll extent 是布局依赖读，
+// 强制同步重排代价高，改为缓存 + 最小间隔刷新
+const EXTENT_REFRESH_MIN_INTERVAL_MS = 300;
+
 
 const isHorizontal = computed(() => props.orientation === "horizontal");
 
@@ -81,13 +88,19 @@ function setDocumentDragging(active: boolean) {
   document.body.classList.toggle("floating-scrollbar-dragging", active);
 }
 
-function updateThumbNow() {
+function updateThumbNow(forceExtentRefresh = false) {
   const scroller = targetRef.value;
   if (!scroller) return;
 
-  const clientExtent = isHorizontal.value ? scroller.clientWidth : scroller.clientHeight;
-  const scrollExtent = isHorizontal.value ? scroller.scrollWidth : scroller.scrollHeight;
   const scrollOffset = isHorizontal.value ? scroller.scrollLeft : scroller.scrollTop;
+  const now = performance.now();
+  if (forceExtentRefresh || now - lastExtentRefreshAt >= EXTENT_REFRESH_MIN_INTERVAL_MS) {
+    cachedClientExtent = isHorizontal.value ? scroller.clientWidth : scroller.clientHeight;
+    cachedScrollExtent = isHorizontal.value ? scroller.scrollWidth : scroller.scrollHeight;
+    lastExtentRefreshAt = now;
+  }
+  const clientExtent = cachedClientExtent;
+  const scrollExtent = cachedScrollExtent;
   const scrollable = scrollExtent > clientExtent + 1;
   if (canScroll.value !== scrollable) {
     canScroll.value = scrollable;
@@ -113,16 +126,16 @@ function updateThumbNow() {
   }
 }
 
-function updateThumb() {
+function updateThumb(forceExtentRefresh = false) {
   if (pendingThumbFrame) return;
   pendingThumbFrame = requestAnimationFrame(() => {
     pendingThumbFrame = 0;
-    updateThumbNow();
+    updateThumbNow(forceExtentRefresh);
   });
 }
 
 function reveal() {
-  updateThumbNow();
+  updateThumbNow(true);
   if (!canScroll.value) return;
   scrollbarVisible.value = true;
 }
@@ -164,10 +177,10 @@ function observeScroller(scroller: HTMLElement | null) {
   observedScroller = scroller;
   scroller.addEventListener("scroll", handleScroll, { passive: true });
   if (typeof ResizeObserver !== "undefined") {
-    resizeObserver = new ResizeObserver(updateThumb);
+    resizeObserver = new ResizeObserver(() => updateThumb(true));
     resizeObserver.observe(scroller);
   }
-  void nextTick(updateThumb);
+  void nextTick(() => updateThumb(true));
 }
 
 function scrollByThumbDelta(deltaPointer: number) {

@@ -78,10 +78,6 @@ function onWindowResize() {
   scheduleMeasure();
 }
 
-function onWindowScroll() {
-  scheduleMeasure();
-}
-
 watch(
   () => props.anchorEl,
   (el) => {
@@ -103,19 +99,15 @@ watch(
 onMounted(() => {
   measureAll();
   window.addEventListener("resize", onWindowResize);
-  window.addEventListener("scroll", onWindowScroll, true);
   if (typeof window !== "undefined" && (window as any).visualViewport) {
     (window as any).visualViewport.addEventListener("resize", onWindowResize);
-    (window as any).visualViewport.addEventListener("scroll", onWindowScroll);
   }
 });
 
 onBeforeUnmount(() => {
   window.removeEventListener("resize", onWindowResize);
-  window.removeEventListener("scroll", onWindowScroll, true);
   if (typeof window !== "undefined" && (window as any).visualViewport) {
     (window as any).visualViewport.removeEventListener("resize", onWindowResize);
-    (window as any).visualViewport.removeEventListener("scroll", onWindowScroll);
   }
   if (anchorRo) {
     anchorRo.disconnect();

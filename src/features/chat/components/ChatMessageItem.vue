@@ -494,7 +494,8 @@
         <h2 class="font-semibold">原始 ChatMessage</h2>
         <button type="button" class="btn btn-ghost btn-sm" @click="closeRawMessageData">关闭</button>
       </header>
-      <pre class="m-0 overflow-auto whitespace-pre-wrap break-all p-4 text-xs leading-relaxed"><code>{{ rawMessageData }}</code></pre>
+      <!-- 未打开时不渲染：大消息 JSON 有数十万字符，visibility:hidden 仍参与布局 -->
+      <pre v-if="rawMessageDataOpen" class="m-0 overflow-auto whitespace-pre-wrap break-all p-4 text-xs leading-relaxed"><code>{{ rawMessageData }}</code></pre>
     </div>
     <form method="dialog" class="modal-backdrop">
       <button @click.prevent="closeRawMessageData">close</button>
@@ -659,7 +660,9 @@ watch(rawMessageDataOpen, syncRawMessageDialog);
 watch(rawMessageDialogRef, syncRawMessageDialog);
 
 const isDevBuild = import.meta.env.DEV;
+// 惰性序列化：未打开时不 stringify（大消息 JSON 数十万字符，白耗 CPU）
 const rawMessageData = computed(() => {
+  if (!rawMessageDataOpen.value) return "";
   try {
     return JSON.stringify(props.block.rawMessage || props.block, null, 2);
   } catch (error) {
