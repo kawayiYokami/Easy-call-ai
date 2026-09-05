@@ -1,7 +1,12 @@
 {
-  "generatedAt": "2026-09-04T08:35:22.508Z",
-  "latestVersion": "v0.82.6",
+  "generatedAt": "2026-09-05T13:53:33.498Z",
+  "latestVersion": "v0.83.0",
   "releases": [
+    {
+      "version": "v0.83.0",
+      "path": "docs/changelog/releases/v0.83.0.md",
+      "summary": "桌面操作能力新增后台操作模式：助手无需切换窗口、不抢焦点，就能直接对指定后台窗口截图、点击（含双击）、填写文本、读取文本、滚动和发送按键——例如地址栏填完网址后直接回车导航，全程不打断你正在做的事。操作结果会报告实际生效的投递方式和操作后焦点落点，界面变化后重复旧操作会得到明确报错而不是错误动作。"
+    },
     {
       "version": "v0.82.6",
       "path": "docs/changelog/releases/v0.82.6.md",
