@@ -38,6 +38,21 @@ async fn run_operate_tool(
                 ));
                 steps.push(step);
             }
+            DesktopScriptAction::MouseMove { line, target, pre_delay } => {
+                execute_mouse_move(&mut enigo, &target, pre_delay).await?;
+                let step = DesktopScriptStepResult {
+                    line,
+                    kind: DesktopScriptStepKind::Mouse,
+                    summary: "mouse move completed".to_string(),
+                    ok: true,
+                    saved_path: None,
+                };
+                runtime_log_info(format!(
+                    "[桌面脚本] 步骤完成，任务=run_operate_tool，line={}，kind=MouseMove，summary={}",
+                    line, step.summary
+                ));
+                steps.push(step);
+            }
             DesktopScriptAction::MouseScroll { line, direction, repeat, delay, pre_delay } => {
                 execute_mouse_scroll(&mut enigo, direction, repeat, delay, pre_delay).await?;
                 let step = DesktopScriptStepResult {
@@ -226,6 +241,25 @@ mod operate_tool_tests {
             DesktopScriptAction::MouseClick { repeat, .. } => assert_eq!(repeat, 2),
             _ => panic!("expected mouse click"),
         }
+    }
+
+    #[test]
+    fn parse_mouse_move_script() {
+        match parse_single("mouse move @0.25,0.40 pre_delay=0.2") {
+            DesktopScriptAction::MouseMove { target, pre_delay, .. } => {
+                assert!((target.x - 0.25).abs() < f64::EPSILON);
+                assert!((target.y - 0.40).abs() < f64::EPSILON);
+                assert_eq!(pre_delay, std::time::Duration::from_millis(200));
+            }
+            _ => panic!("expected mouse move"),
+        }
+    }
+
+    #[test]
+    fn parse_mouse_move_requires_point() {
+        let err = parse_script(&OperateRequest { script: "mouse move".to_string(), timeout_ms: None }).unwrap_err();
+        assert!(err.message.contains("第 1 行 mouse"));
+        assert!(err.message.contains("移动格式"));
     }
 
     #[test]

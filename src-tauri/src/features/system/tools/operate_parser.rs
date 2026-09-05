@@ -118,6 +118,7 @@ enum ScreenshotModeSpec {
 #[derive(Debug, Clone)]
 enum DesktopScriptAction {
     MouseClick { line: usize, button: OperateMouseButton, target: NormalizedPoint, repeat: u32, delay: std::time::Duration, pre_delay: std::time::Duration, press: std::time::Duration },
+    MouseMove { line: usize, target: NormalizedPoint, pre_delay: std::time::Duration },
     MouseScroll { line: usize, direction: i32, repeat: u32, delay: std::time::Duration, pre_delay: std::time::Duration },
     Key { line: usize, keys: Vec<String>, repeat: u32, delay: std::time::Duration, pre_delay: std::time::Duration, press: std::time::Duration },
     Text { line: usize, text: String, repeat: u32, delay: std::time::Duration, pre_delay: std::time::Duration },
@@ -274,7 +275,7 @@ fn parse_absolute_save_path(line: usize, action: &str, raw: &str) -> DesktopTool
 
 fn parse_mouse_line(line_no: usize, tokens: &[String]) -> DesktopToolResult<DesktopScriptAction> {
     if tokens.len() < 2 {
-        return Err(operate_line_error(line_no, "mouse", "非法：至少需要按钮或滚动方向".to_string()));
+        return Err(operate_line_error(line_no, "mouse", "非法：至少需要按钮、滚动方向或 move".to_string()));
     }
     let subject = tokens[1].trim().to_ascii_lowercase();
     if subject == "scroll_up" || subject == "scroll_down" {
@@ -284,6 +285,15 @@ fn parse_mouse_line(line_no: usize, tokens: &[String]) -> DesktopToolResult<Desk
         let pre_delay = params.get("pre_delay").map(|v| parse_seconds_token(line_no, "mouse", v, "pre_delay")).transpose()?.unwrap_or_default();
         let direction = if subject == "scroll_up" { 1 } else { -1 };
         return Ok(DesktopScriptAction::MouseScroll { line: line_no, direction, repeat, delay, pre_delay });
+    }
+    if subject == "move" {
+        if tokens.len() < 3 {
+            return Err(operate_line_error(line_no, "mouse", "非法：移动格式应为 `mouse move @x,y`".to_string()));
+        }
+        let target = parse_normalized_pair(line_no, "mouse", &tokens[2])?;
+        let params = parse_named_params(line_no, "mouse", &tokens[3..], &["pre_delay"])?;
+        let pre_delay = params.get("pre_delay").map(|v| parse_seconds_token(line_no, "mouse", v, "pre_delay")).transpose()?.unwrap_or_default();
+        return Ok(DesktopScriptAction::MouseMove { line: line_no, target, pre_delay });
     }
     if tokens.len() < 4 {
         return Err(operate_line_error(line_no, "mouse", "非法：点击格式应为 `mouse <button> click @x,y`".to_string()));

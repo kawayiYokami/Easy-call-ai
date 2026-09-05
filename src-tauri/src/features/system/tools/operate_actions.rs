@@ -249,6 +249,13 @@ async fn execute_mouse_click(enigo: &mut enigo::Enigo, button: OperateMouseButto
     Ok(())
 }
 
+async fn execute_mouse_move(enigo: &mut enigo::Enigo, target: &NormalizedPoint, pre_delay: std::time::Duration) -> DesktopToolResult<()> {
+    sleep_duration(pre_delay).await;
+    let bounds = primary_monitor_bounds()?;
+    let (x, y) = normalized_point_to_screen(target, &bounds);
+    enigo.move_mouse(x, y, enigo::Coordinate::Abs).map_err(|err| map_input_err(err, "mouse move failed"))
+}
+
 async fn execute_mouse_scroll(enigo: &mut enigo::Enigo, direction: i32, repeat: u32, delay: std::time::Duration, pre_delay: std::time::Duration) -> DesktopToolResult<()> {
     sleep_duration(pre_delay).await;
     for idx in 0..repeat {
