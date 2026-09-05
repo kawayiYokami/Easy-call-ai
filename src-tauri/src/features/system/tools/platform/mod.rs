@@ -46,6 +46,85 @@ pub struct UiElementInfo {
     pub height: f64,
     /// 该元素当前是否持有键盘焦点（激活窗口后用于确认焦点是否落在目标控件）
     pub focused: bool,
+    /// 快照内元素引用编号（1 起全局唯一；仅 operate 截图响应赋值，供 app 动作 el= 引用）
+    #[serde(rename = "ref", skip_serializing_if = "Option::is_none")]
+    pub element_ref: Option<u32>,
+}
+
+/// app 后台动作目标：按快照序号定位元素，或屏幕物理坐标定位
+#[derive(Debug, Clone)]
+pub enum AppTarget {
+    /// el：模型侧元素引用编号（仅用于 stale 报错文案，指向模型能认识的 ref）
+    Element { el: u32, ordinal: usize, control_type: String, name: String },
+    Point { screen_x: i32, screen_y: i32 },
+}
+
+// ==================== app 后台动作（Windows 专用，其余平台明确报错） ====================
+
+/// 后台点击：UIA InvokePattern 优先（dblclick=true 时跳过 Invoke 直接 PostMessage 双击序列），PostMessage 兜底。返回实际使用的投递方式。
+#[cfg(target_os = "windows")]
+pub fn app_click(window_id: usize, target: &AppTarget, repeat: u32, dblclick: bool) -> Result<&'static str, String> {
+    windows::app_click(window_id, target, repeat, dblclick)
+}
+
+/// 后台写值：ValuePattern.SetValue 整体替换文本控件内容。
+#[cfg(target_os = "windows")]
+pub fn app_set_value(window_id: usize, target: &AppTarget, text: &str) -> Result<&'static str, String> {
+    windows::app_set_value(window_id, target, text)
+}
+
+/// 后台读值：ValuePattern.CurrentValue 读回文本控件当前值。
+#[cfg(target_os = "windows")]
+pub fn app_get_value(window_id: usize, target: &AppTarget) -> Result<String, String> {
+    windows::app_get_value(window_id, target)
+}
+
+/// 后台滚动：ScrollPattern 优先，WM_MOUSEWHEEL 兜底。返回实际使用的投递方式。
+#[cfg(target_os = "windows")]
+pub fn app_scroll(window_id: usize, target: &AppTarget, up: bool, small: bool, repeat: u32) -> Result<&'static str, String> {
+    windows::app_scroll(window_id, target, up, small, repeat)
+}
+
+/// 后台按键：向目标窗口的内部焦点控件投递键盘消息。
+#[cfg(target_os = "windows")]
+pub fn app_key(window_id: usize, keys: &[String], repeat: u32) -> Result<&'static str, String> {
+    windows::app_key(window_id, keys, repeat)
+}
+
+/// 查询目标窗口线程当前内部焦点控件（type, name）；无内部焦点或查询失败返回 None。
+#[cfg(target_os = "windows")]
+pub fn app_focus_summary(window_id: usize) -> Result<Option<(String, String)>, String> {
+    windows::app_focus_summary(window_id)
+}
+
+#[cfg(not(target_os = "windows"))]
+pub fn app_click(_window_id: usize, _target: &AppTarget, _repeat: u32, _dblclick: bool) -> Result<&'static str, String> {
+    Err("app 后台操作当前仅在 Windows 平台可用".to_string())
+}
+
+#[cfg(not(target_os = "windows"))]
+pub fn app_set_value(_window_id: usize, _target: &AppTarget, _text: &str) -> Result<&'static str, String> {
+    Err("app 后台操作当前仅在 Windows 平台可用".to_string())
+}
+
+#[cfg(not(target_os = "windows"))]
+pub fn app_get_value(_window_id: usize, _target: &AppTarget) -> Result<String, String> {
+    Err("app 后台操作当前仅在 Windows 平台可用".to_string())
+}
+
+#[cfg(not(target_os = "windows"))]
+pub fn app_scroll(_window_id: usize, _target: &AppTarget, _up: bool, _small: bool, _repeat: u32) -> Result<&'static str, String> {
+    Err("app 后台操作当前仅在 Windows 平台可用".to_string())
+}
+
+#[cfg(not(target_os = "windows"))]
+pub fn app_key(_window_id: usize, _keys: &[String], _repeat: u32) -> Result<&'static str, String> {
+    Err("app 后台操作当前仅在 Windows 平台可用".to_string())
+}
+
+#[cfg(not(target_os = "windows"))]
+pub fn app_focus_summary(_window_id: usize) -> Result<Option<(String, String)>, String> {
+    Ok(None)
 }
 
 // ==================== 平台函数入口（按 cfg 分发） ====================

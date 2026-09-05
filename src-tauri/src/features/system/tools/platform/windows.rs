@@ -5,7 +5,7 @@
 // - activate window：SW_RESTORE + Alt 键技巧 + SetForegroundWindow + 轮询验证
 // - 控件树：手写 UIA COM vtable 绑定（不引入 windows crate，仅 windows-core + windows-sys）
 
-use super::{MAX_ELEMENTS, UiElementInfo, WindowInfo};
+use super::{AppTarget, MAX_ELEMENTS, UiElementInfo, WindowInfo};
 
 // ==================== UI Automation 最小绑定 ====================
 // 接口定义复制自 windows-0.61.3 生成代码（windows_core::imp::define_interface! 宏），
@@ -44,6 +44,29 @@ pub const UIA_SliderControlTypeId: UIA_CONTROLTYPE_ID = UIA_CONTROLTYPE_ID(50015
 pub const UIA_TabItemControlTypeId: UIA_CONTROLTYPE_ID = UIA_CONTROLTYPE_ID(50019);
 #[allow(non_upper_case_globals)]
 pub const UIA_TreeItemControlTypeId: UIA_CONTROLTYPE_ID = UIA_CONTROLTYPE_ID(50024);
+/// Document：记事本/Word 等应用的文本编辑区用这个类型，不在白名单里就永远摸不到编辑区
+#[allow(non_upper_case_globals)]
+pub const UIA_DocumentControlTypeId: UIA_CONTROLTYPE_ID = UIA_CONTROLTYPE_ID(50030);
+
+// 以下类型不进可交互白名单，仅供 control_type_name 命名映射（避免快照里显示 Unknown 误导模型）
+#[allow(non_upper_case_globals)]
+pub const UIA_ListControlTypeId: UIA_CONTROLTYPE_ID = UIA_CONTROLTYPE_ID(50008);
+#[allow(non_upper_case_globals)]
+pub const UIA_MenuBarControlTypeId: UIA_CONTROLTYPE_ID = UIA_CONTROLTYPE_ID(50010);
+#[allow(non_upper_case_globals)]
+pub const UIA_TabControlTypeId: UIA_CONTROLTYPE_ID = UIA_CONTROLTYPE_ID(50018);
+#[allow(non_upper_case_globals)]
+pub const UIA_TextControlTypeId: UIA_CONTROLTYPE_ID = UIA_CONTROLTYPE_ID(50020);
+#[allow(non_upper_case_globals)]
+pub const UIA_CustomControlTypeId: UIA_CONTROLTYPE_ID = UIA_CONTROLTYPE_ID(50025);
+#[allow(non_upper_case_globals)]
+pub const UIA_WindowControlTypeId: UIA_CONTROLTYPE_ID = UIA_CONTROLTYPE_ID(50032);
+#[allow(non_upper_case_globals)]
+pub const UIA_PaneControlTypeId: UIA_CONTROLTYPE_ID = UIA_CONTROLTYPE_ID(50033);
+#[allow(non_upper_case_globals)]
+pub const UIA_StatusBarControlTypeId: UIA_CONTROLTYPE_ID = UIA_CONTROLTYPE_ID(50017);
+#[allow(non_upper_case_globals)]
+pub const UIA_TitleBarControlTypeId: UIA_CONTROLTYPE_ID = UIA_CONTROLTYPE_ID(50037);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(transparent)]
@@ -68,6 +91,7 @@ pub fn is_interactive_control_type(ct: UIA_CONTROLTYPE_ID) -> bool {
             | UIA_SliderControlTypeId
             | UIA_TabItemControlTypeId
             | UIA_TreeItemControlTypeId
+            | UIA_DocumentControlTypeId
     )
 }
 
@@ -86,6 +110,16 @@ pub fn control_type_name(ct: UIA_CONTROLTYPE_ID) -> &'static str {
         UIA_SliderControlTypeId => "Slider",
         UIA_TabItemControlTypeId => "TabItem",
         UIA_TreeItemControlTypeId => "TreeItem",
+        UIA_DocumentControlTypeId => "Document",
+        UIA_ListControlTypeId => "List",
+        UIA_MenuBarControlTypeId => "MenuBar",
+        UIA_TabControlTypeId => "Tab",
+        UIA_TextControlTypeId => "Text",
+        UIA_CustomControlTypeId => "Custom",
+        UIA_WindowControlTypeId => "Window",
+        UIA_PaneControlTypeId => "Pane",
+        UIA_StatusBarControlTypeId => "StatusBar",
+        UIA_TitleBarControlTypeId => "TitleBar",
         _ => "Unknown",
     }
 }
@@ -157,7 +191,7 @@ pub struct IUIAutomationElement_Vtbl {
     _get_cached_property_value_ex: usize,
     _get_current_pattern_as: usize,
     _get_cached_pattern_as: usize,
-    _get_current_pattern: usize,
+    pub GetCurrentPattern: unsafe extern "system" fn(*mut core::ffi::c_void, i32, *mut *mut core::ffi::c_void) -> windows_core::HRESULT,
     _get_cached_pattern: usize,
     _get_cached_parent: usize,
     _get_cached_children: usize,
@@ -224,6 +258,99 @@ impl IUIAutomationElement {
         (windows_core::Interface::vtable(self).CurrentBoundingRectangle)(windows_core::Interface::as_raw(self), &mut result__)
             .map(|| result__)
     }
+
+    /// 按模式 ID 取当前元素支持的 pattern 接口；元素不支持时返回 Ok(空指针)。
+    /// 返回的裸指针即为该 pattern 的接口指针，由调用方按 IID 转型（GetCurrentPattern 保证类型一致）。
+    pub unsafe fn GetCurrentPatternRaw(&self, pattern_id: i32) -> windows_core::Result<*mut core::ffi::c_void> {
+        let mut raw: *mut core::ffi::c_void = core::ptr::null_mut();
+        (windows_core::Interface::vtable(self).GetCurrentPattern)(windows_core::Interface::as_raw(self), pattern_id, &mut raw)
+            .map(|| raw)
+    }
+}
+
+// ==================== IUIAutomation pattern 接口（Invoke / Value / Scroll） ====================
+//
+// 接口与 IID 复制自 windows-0.61.3 生成代码（Win32::UI::Accessibility），仅保留会用到的方法。
+// 模式 ID：Invoke=10000、Value=10002、Scroll=10004；ScrollAmount 枚举值沿用 SDK 官方命名。
+
+/// UIA ScrollAmount 枚举（数值来自 Windows SDK UIA_ScrollAmount）
+#[allow(non_camel_case_types)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(transparent)]
+pub struct ScrollAmount(pub i32);
+
+#[allow(non_upper_case_globals)]
+pub const ScrollAmount_LargeDecrement: ScrollAmount = ScrollAmount(0);
+#[allow(non_upper_case_globals)]
+pub const ScrollAmount_SmallDecrement: ScrollAmount = ScrollAmount(1);
+#[allow(non_upper_case_globals)]
+pub const ScrollAmount_NoAmount: ScrollAmount = ScrollAmount(2);
+#[allow(non_upper_case_globals)]
+pub const ScrollAmount_LargeIncrement: ScrollAmount = ScrollAmount(3);
+#[allow(non_upper_case_globals)]
+pub const ScrollAmount_SmallIncrement: ScrollAmount = ScrollAmount(4);
+
+define_interface!(IUIAutomationInvokePattern, IUIAutomationInvokePattern_Vtbl, 0xfb377fbe_8ea6_46d5_9c73_6499642d3059);
+interface_hierarchy!(IUIAutomationInvokePattern, windows_core::IUnknown);
+
+#[allow(non_snake_case)]
+#[repr(C)]
+pub struct IUIAutomationInvokePattern_Vtbl {
+    pub base__: windows_core::IUnknown_Vtbl,
+    pub Invoke: unsafe extern "system" fn(*mut core::ffi::c_void) -> windows_core::HRESULT,
+}
+
+#[allow(non_snake_case)]
+impl IUIAutomationInvokePattern {
+    pub unsafe fn Invoke(&self) -> windows_core::Result<()> {
+        (windows_core::Interface::vtable(self).Invoke)(windows_core::Interface::as_raw(self)).map(|| ())
+    }
+}
+
+define_interface!(IUIAutomationValuePattern, IUIAutomationValuePattern_Vtbl, 0xa94cd8b1_0844_4cd6_9d2d_640537ab39e9);
+interface_hierarchy!(IUIAutomationValuePattern, windows_core::IUnknown);
+
+#[allow(non_snake_case)]
+#[repr(C)]
+pub struct IUIAutomationValuePattern_Vtbl {
+    pub base__: windows_core::IUnknown_Vtbl,
+    pub SetValue: unsafe extern "system" fn(*mut core::ffi::c_void, *mut core::ffi::c_void) -> windows_core::HRESULT,
+    pub get_CurrentValue: unsafe extern "system" fn(*mut core::ffi::c_void, *mut *mut core::ffi::c_void) -> windows_core::HRESULT,
+    _get_cached_value: usize,
+    _get_is_read_only: usize,
+    _get_cached_is_read_only: usize,
+}
+
+#[allow(non_snake_case)]
+impl IUIAutomationValuePattern {
+    /// SetValue 接收 BSTR；传入的 BSTR 由调用方持有并保持存活到调用返回。
+    pub unsafe fn SetValue(&self, value: *mut core::ffi::c_void) -> windows_core::Result<()> {
+        (windows_core::Interface::vtable(self).SetValue)(windows_core::Interface::as_raw(self), value).map(|| ())
+    }
+
+    /// 读回控件当前值（BSTR 所有权转移给返回值）。
+    pub unsafe fn CurrentValue(&self) -> windows_core::Result<windows_core::BSTR> {
+        let mut value = core::ptr::null_mut();
+        (windows_core::Interface::vtable(self).get_CurrentValue)(windows_core::Interface::as_raw(self), &mut value)
+            .map(|| unsafe { windows_core::BSTR::from_raw(value as *const u16) })
+    }
+}
+
+define_interface!(IUIAutomationScrollPattern, IUIAutomationScrollPattern_Vtbl, 0x88f4d42a_e881_459d_a77c_73bbbb7e02dc);
+interface_hierarchy!(IUIAutomationScrollPattern, windows_core::IUnknown);
+
+#[allow(non_snake_case)]
+#[repr(C)]
+pub struct IUIAutomationScrollPattern_Vtbl {
+    pub base__: windows_core::IUnknown_Vtbl,
+    pub Scroll: unsafe extern "system" fn(*mut core::ffi::c_void, ScrollAmount, ScrollAmount) -> windows_core::HRESULT,
+}
+
+#[allow(non_snake_case)]
+impl IUIAutomationScrollPattern {
+    pub unsafe fn Scroll(&self, horizontal: ScrollAmount, vertical: ScrollAmount) -> windows_core::Result<()> {
+        (windows_core::Interface::vtable(self).Scroll)(windows_core::Interface::as_raw(self), horizontal, vertical).map(|| ())
+    }
 }
 
 // ==================== IUIAutomationElementArray ====================
@@ -282,52 +409,29 @@ pub fn collect_ui_tree_for_windows(
     }
     let mut all = Vec::with_capacity(64);
 
-    // COM 初始化：S_OK=本代码首次初始化（需配平 CoUninitialize）；S_FALSE=线程已初始化（直接复用，无需配平）；
-    // RPC_E_CHANGED_MODE=线程已以其他模式初始化（COM 仍可用，无需配平）；其他失败则放弃扫描。
-    let coinit = unsafe { windows_sys::Win32::System::Com::CoInitializeEx(core::ptr::null(), 0 /* COINIT_MULTITHREADED */) };
-    let owns_com = coinit == 0; // 仅 S_OK 表示本代码首次初始化
-    let com_ok = coinit >= 0 || coinit == windows_sys::Win32::Foundation::RPC_E_CHANGED_MODE;
-    if !com_ok {
-        return Vec::new();
-    }
-
-    let _co_guard = ComGuard::new(owns_com);
-
-    // CoCreateInstance(CUIAutomation) → IUIAutomation
-    let clsid = windows_sys::core::GUID::from_u128(0xff48dba4_60ef_4201_aa87_54103eef594e); // CLSID_CUIAutomation
-    let iid = windows_sys::core::GUID::from_u128(0x30cbe57d_d9d0_452a_ab13_7ac5ac4825ee); // IID_IUIAutomation
-    let mut automation_raw: *mut core::ffi::c_void = core::ptr::null_mut();
-    let hr = unsafe {
-        windows_sys::Win32::System::Com::CoCreateInstance(
-            &clsid,
-            core::ptr::null_mut(),
-            windows_sys::Win32::System::Com::CLSCTX_INPROC_SERVER,
-            &iid,
-            &mut automation_raw,
-        )
+    let (automation, _co_guard) = match create_uia_automation() {
+        Ok(v) => v,
+        Err(_) => return Vec::new(),
     };
-    if hr >= 0 && !automation_raw.is_null() {
-        let automation = unsafe { IUIAutomation::from_raw(automation_raw) };
-        for (hwnd, title) in windows {
-            if all.len() >= MAX_ELEMENTS {
-                break;
-            }
-            let remaining = MAX_ELEMENTS - all.len();
-            let mut scanned = scan_window(
-                &automation,
-                *hwnd,
-                primary_origin_x,
-                primary_origin_y,
-                primary_width,
-                primary_height,
-                remaining,
-            );
-            for elem in scanned.iter_mut() {
-                elem.window_id = *hwnd as u32;
-                elem.window_title = title.clone();
-            }
-            all.append(&mut scanned);
+    for (hwnd, title) in windows {
+        if all.len() >= MAX_ELEMENTS {
+            break;
         }
+        let remaining = MAX_ELEMENTS - all.len();
+        let mut scanned = scan_window(
+            &automation,
+            *hwnd,
+            primary_origin_x,
+            primary_origin_y,
+            primary_width,
+            primary_height,
+            remaining,
+        );
+        for elem in scanned.iter_mut() {
+            elem.window_id = *hwnd as u32;
+            elem.window_title = title.clone();
+        }
+        all.append(&mut scanned);
     }
     all
 }
@@ -350,6 +454,16 @@ pub fn collect_window_ui_elements(
     )
 }
 
+/// 扫描到的原始元素（保留 COM 对象与原始屏幕坐标，供 pattern 调用复用）
+#[derive(Clone)]
+struct RawUiElement {
+    element: IUIAutomationElement,
+    type_name: &'static str,
+    name: String,
+    rect: windows_sys::Win32::Foundation::RECT,
+    focused: bool,
+}
+
 fn scan_window(
     automation: &IUIAutomation,
     hwnd: usize,
@@ -368,6 +482,34 @@ fn scan_window(
             return Vec::new();
         }
     }
+    collect_raw_elements(automation, hwnd, max_elements)
+        .into_iter()
+        .map(|raw| {
+            let w = (raw.rect.right - raw.rect.left) as f64;
+            let h = (raw.rect.bottom - raw.rect.top) as f64;
+            UiElementInfo {
+                window_id: hwnd as u32,
+                window_title: String::new(),
+                control_type: raw.type_name.to_string(),
+                name: raw.name,
+                x: (raw.rect.left as f64 - primary_origin_x) / primary_width,
+                y: (raw.rect.top as f64 - primary_origin_y) / primary_height,
+                width: w / primary_width,
+                height: h / primary_height,
+                focused: raw.focused,
+                element_ref: None,
+            }
+        })
+        .collect()
+}
+
+/// 对指定窗口做一次可交互元素扫描（保留 COM 元素对象）；过滤与排序语义与 scan_window 一致：
+/// 只保留白名单类型、enabled、矩形非空的元素，顺序为 FindAll 返回顺序。
+fn collect_raw_elements(
+    automation: &IUIAutomation,
+    hwnd: usize,
+    max_elements: usize,
+) -> Vec<RawUiElement> {
     let mut elements = Vec::with_capacity(max_elements.min(64));
     unsafe {
         let root = match automation.ElementFromHandle(hwnd as *mut core::ffi::c_void) {
@@ -406,9 +548,9 @@ fn scan_window(
                 Ok(r) => r,
                 Err(_) => continue,
             };
-            let w = (rect.right - rect.left) as f64;
-            let h = (rect.bottom - rect.top) as f64;
-            if w <= 0.0 || h <= 0.0 {
+            let w = rect.right - rect.left;
+            let h = rect.bottom - rect.top;
+            if w <= 0 || h <= 0 {
                 continue;
             }
             let name = elem
@@ -416,16 +558,13 @@ fn scan_window(
                 .ok()
                 .map(|b| b.to_string())
                 .unwrap_or_default();
-            elements.push(UiElementInfo {
-                window_id: hwnd as u32,
-                window_title: String::new(),
-                control_type: control_type_name(ct).to_string(),
+            let focused = elem.CurrentHasKeyboardFocus().unwrap_or(false);
+            elements.push(RawUiElement {
+                element: elem,
+                type_name: control_type_name(ct),
                 name,
-                x: (rect.left as f64 - primary_origin_x) / primary_width,
-                y: (rect.top as f64 - primary_origin_y) / primary_height,
-                width: w / primary_width,
-                height: h / primary_height,
-                focused: elem.CurrentHasKeyboardFocus().unwrap_or(false),
+                rect,
+                focused,
             });
         }
     }
@@ -452,6 +591,473 @@ impl Drop for ComGuard {
             }
         }
     }
+}
+
+// ==================== app 动作族（后台点击 / 写值 / 滚动） ====================
+
+// UIA pattern ID（UIA_InvokePatternId / UIA_ValuePatternId / UIA_ScrollPatternId）
+const UIA_INVOKE_PATTERN_ID: i32 = 10000;
+const UIA_VALUE_PATTERN_ID: i32 = 10002;
+const UIA_SCROLL_PATTERN_ID: i32 = 10004;
+
+/// 创建 UIA 实例（COM 初始化 + CoCreateInstance）；COM 守卫随返回值存活到调用结束。
+fn create_uia_automation() -> Result<(IUIAutomation, ComGuard), String> {
+    // COM 初始化：S_OK=本代码首次初始化（需配平）；S_FALSE=线程已初始化（复用，无需配平）；
+    // RPC_E_CHANGED_MODE=线程已以其他模式初始化（COM 仍可用，无需配平）。
+    let coinit = unsafe { windows_sys::Win32::System::Com::CoInitializeEx(core::ptr::null(), 0 /* COINIT_MULTITHREADED */) };
+    let owns_com = coinit == 0;
+    let com_ok = coinit >= 0 || coinit == windows_sys::Win32::Foundation::RPC_E_CHANGED_MODE;
+    if !com_ok {
+        return Err(format!("COM 初始化失败：HRESULT={coinit}"));
+    }
+    let guard = ComGuard::new(owns_com);
+    let clsid = windows_sys::core::GUID::from_u128(0xff48dba4_60ef_4201_aa87_54103eef594e); // CLSID_CUIAutomation
+    let iid = windows_sys::core::GUID::from_u128(0x30cbe57d_d9d0_452a_ab13_7ac5ac4825ee); // IID_IUIAutomation
+    let mut automation_raw: *mut core::ffi::c_void = core::ptr::null_mut();
+    let hr = unsafe {
+        windows_sys::Win32::System::Com::CoCreateInstance(
+            &clsid,
+            core::ptr::null_mut(),
+            windows_sys::Win32::System::Com::CLSCTX_INPROC_SERVER,
+            &iid,
+            &mut automation_raw,
+        )
+    };
+    if hr < 0 || automation_raw.is_null() {
+        return Err(format!("创建 UIA 实例失败：HRESULT={hr}"));
+    }
+    Ok((unsafe { IUIAutomation::from_raw(automation_raw) }, guard))
+}
+
+fn with_uia_automation<T>(f: impl FnOnce(&IUIAutomation) -> Result<T, String>) -> Result<T, String> {
+    let (automation, guard) = create_uia_automation()?;
+    let _keep_alive = guard;
+    f(&automation)
+}
+
+/// 核对重扫元素与快照记录一致：类型必须一致；快照名称非空时名称也必须一致。
+/// 不一致视为元素树已变化，报错携带 el 引用与变化摘要（原类型/名称 vs 现类型/名称），
+/// 让模型判断是局部变化还是页面刷新，避免点错控件。
+fn verify_app_element(raw: &RawUiElement, el: u32, control_type: &str, name: &str, ordinal: usize) -> Result<(), String> {
+    if raw.type_name != control_type {
+        return Err(format!(
+            "el={el}（窗口内第 {} 项）已变化：现为 {}('{}')，快照记录为 {}('{}')；位置还在说明是局部变化，类型对不上请重新截图（elements=true）后再试",
+            ordinal + 1,
+            raw.type_name,
+            raw.name,
+            control_type,
+            name
+        ));
+    }
+    if !name.is_empty() && raw.name != name {
+        return Err(format!(
+            "el={el}（窗口内第 {} 项）已变化：类型 {} 未变但名称变为 '{}'，快照记录为 '{}'；名称对不上请重新截图（elements=true）后再试",
+            ordinal + 1,
+            control_type,
+            raw.name,
+            name
+        ));
+    }
+    Ok(())
+}
+
+/// 解析 app 目标：Element 按快照序号重扫核对；Point 命中包含该坐标的最小交互元素（无命中为 None）。
+/// 返回 (元素, 事件屏幕坐标)。
+fn resolve_app_target(
+    automation: &IUIAutomation,
+    hwnd: usize,
+    target: &AppTarget,
+) -> Result<(Option<RawUiElement>, (i32, i32)), String> {
+    match target {
+        AppTarget::Element { el, ordinal, control_type, name } => {
+            let list = collect_raw_elements(automation, hwnd, MAX_ELEMENTS);
+            let raw = list.get(*ordinal).ok_or_else(|| {
+                format!(
+                    "el={el}（窗口内第 {} 项）已消失：当前控件树共 {} 项，页面可能已刷新，请重新截图（elements=true）",
+                    ordinal + 1,
+                    list.len()
+                )
+            })?;
+            verify_app_element(raw, *el, control_type, name, *ordinal)?;
+            let point = ((raw.rect.left + raw.rect.right) / 2, (raw.rect.top + raw.rect.bottom) / 2);
+            Ok((Some(raw.clone()), point))
+        }
+        AppTarget::Point { screen_x, screen_y } => {
+            let list = collect_raw_elements(automation, hwnd, MAX_ELEMENTS);
+            let hit = list
+                .iter()
+                .filter(|e| {
+                    e.rect.left <= *screen_x && *screen_x < e.rect.right && e.rect.top <= *screen_y && *screen_y < e.rect.bottom
+                })
+                .min_by_key(|e| (e.rect.right - e.rect.left) * (e.rect.bottom - e.rect.top))
+                .cloned();
+            Ok((hit, (*screen_x, *screen_y)))
+        }
+    }
+}
+
+/// 后台点击：UIA InvokePattern 优先，元素不支持或坐标无元素命中时降级 PostMessage 投递鼠标消息。
+/// dblclick=true 时跳过 Invoke（Invoke 是语义激活，无双击概念）直接走 PostMessage 双击序列。
+/// 返回实际使用的投递方式："invoke" 或 "postmessage"。不移动全局光标、不抢焦点。
+pub fn app_click(hwnd: usize, target: &AppTarget, repeat: u32, dblclick: bool) -> Result<&'static str, String> {
+    with_uia_automation(|automation| {
+        let (element, point) = resolve_app_target(automation, hwnd, target)?;
+        if let Some(raw) = &element {
+            if !dblclick {
+                unsafe {
+                    if let Ok(pattern_raw) = raw.element.GetCurrentPatternRaw(UIA_INVOKE_PATTERN_ID) {
+                        if !pattern_raw.is_null() {
+                            let pattern: IUIAutomationInvokePattern = windows_core::Type::from_abi(pattern_raw)
+                                .map_err(|err| format!("转换 InvokePattern 失败：{err}"))?;
+                            for _ in 0..repeat.max(1) {
+                                pattern.Invoke().map_err(|err| format!("Invoke 调用失败：{err}"))?;
+                            }
+                            return Ok("invoke");
+                        }
+                    }
+                }
+            }
+        }
+        post_mouse_click(hwnd, point.0, point.1, repeat, dblclick)?;
+        Ok("postmessage")
+    })
+}
+
+/// 后台读值：ValuePattern.CurrentValue 读回目标文本控件当前值。无 PostMessage 降级。
+pub fn app_get_value(hwnd: usize, target: &AppTarget) -> Result<String, String> {
+    with_uia_automation(|automation| {
+        let AppTarget::Element { .. } = target else {
+            return Err("getvalue 必须使用 el= 指定控件".to_string());
+        };
+        let (element, _) = resolve_app_target(automation, hwnd, target)?;
+        let raw = element.ok_or_else(|| "getvalue 必须使用 el= 指定控件".to_string())?;
+        unsafe {
+            let pattern_raw = raw
+                .element
+                .GetCurrentPatternRaw(UIA_VALUE_PATTERN_ID)
+                .map_err(|err| format!("查询 ValuePattern 失败：{err}"))?;
+            if pattern_raw.is_null() {
+                return Err(format!("目标控件（{}）不支持 ValuePattern，无法后台读取值", raw.type_name));
+            }
+            let pattern: IUIAutomationValuePattern = windows_core::Type::from_abi(pattern_raw)
+                .map_err(|err| format!("转换 ValuePattern 失败：{err}"))?;
+            pattern
+                .CurrentValue()
+                .map(|bstr| bstr.to_string())
+                .map_err(|err| format!("CurrentValue 调用失败：{err}"))
+        }
+    })
+}
+
+/// 查询目标窗口线程当前内部焦点控件（type, name）。
+/// GetGUIThreadInfo 对后台窗口同样有效；hwndFocus 为空（窗口无内部焦点）或查询失败返回 None。
+pub fn app_focus_summary(hwnd: usize) -> Result<Option<(String, String)>, String> {
+    use windows_sys::Win32::UI::WindowsAndMessaging::{GetGUIThreadInfo, GetWindowThreadProcessId, GUITHREADINFO};
+
+    if hwnd == 0 {
+        return Ok(None);
+    }
+    let mut pid = 0u32;
+    let thread_id = unsafe { GetWindowThreadProcessId(hwnd as _, &mut pid) };
+    if thread_id == 0 {
+        return Ok(None);
+    }
+    let mut info: GUITHREADINFO = unsafe { core::mem::zeroed() };
+    info.cbSize = std::mem::size_of::<GUITHREADINFO>() as u32;
+    if unsafe { GetGUIThreadInfo(thread_id, &mut info) } == 0 || info.hwndFocus.is_null() {
+        return Ok(None);
+    }
+    match with_uia_automation(|automation| {
+        unsafe {
+            let element = automation
+                .ElementFromHandle(info.hwndFocus as *mut core::ffi::c_void)
+                .map_err(|err| format!("焦点控件转换为 UIA 元素失败：{err}"))?;
+            let type_name = element
+                .CurrentControlType()
+                .map(control_type_name)
+                .unwrap_or("Unknown");
+            let name = element.CurrentName().ok().map(|b| b.to_string()).unwrap_or_default();
+            Ok(Some((type_name.to_string(), name)))
+        }
+    }) {
+        Ok(v) => Ok(v),
+        // 焦点摘要只是附加上下文，失败静默降级，不影响动作本身
+        Err(_) => Ok(None),
+    }
+}
+
+/// 后台写值：ValuePattern.SetValue 整体替换目标文本控件内容。无 PostMessage 降级
+/// （向任意控件盲投 WM_SETTEXT 风险大，不支持 pattern 的控件应明确报错）。
+/// 返回实际使用的投递方式："valuepattern"。
+pub fn app_set_value(hwnd: usize, target: &AppTarget, text: &str) -> Result<&'static str, String> {
+    with_uia_automation(|automation| {
+        let AppTarget::Element { .. } = target else {
+            return Err("setvalue 必须使用 el= 指定文本控件".to_string());
+        };
+        let (element, _) = resolve_app_target(automation, hwnd, target)?;
+        let raw = element.ok_or_else(|| "setvalue 必须使用 el= 指定文本控件".to_string())?;
+        unsafe {
+            let pattern_raw = raw
+                .element
+                .GetCurrentPatternRaw(UIA_VALUE_PATTERN_ID)
+                .map_err(|err| format!("查询 ValuePattern 失败：{err}"))?;
+            if pattern_raw.is_null() {
+                return Err("目标控件不支持 ValuePattern，无法后台写入文本".to_string());
+            }
+            let pattern: IUIAutomationValuePattern = windows_core::Type::from_abi(pattern_raw)
+                .map_err(|err| format!("转换 ValuePattern 失败：{err}"))?;
+            let bstr = windows_core::BSTR::from(text);
+            pattern
+                .SetValue(bstr.as_ptr() as *mut core::ffi::c_void)
+                .map_err(|err| format!("SetValue 调用失败：{err}"))?;
+        }
+        Ok("valuepattern")
+    })
+}
+
+/// 后台滚动：ScrollPattern 优先，不支持时降级 PostMessage WM_MOUSEWHEEL。
+/// 方向语义与滚轮一致：up=视图上移（内容回退），down=视图下移（内容前进）。
+/// 返回实际使用的投递方式："scrollpattern" 或 "postmessage"。
+pub fn app_scroll(hwnd: usize, target: &AppTarget, up: bool, small: bool, repeat: u32) -> Result<&'static str, String> {
+    with_uia_automation(|automation| {
+        let (element, point) = resolve_app_target(automation, hwnd, target)?;
+        let vertical = match (up, small) {
+            (true, false) => ScrollAmount_LargeDecrement,
+            (true, true) => ScrollAmount_SmallDecrement,
+            (false, false) => ScrollAmount_LargeIncrement,
+            (false, true) => ScrollAmount_SmallIncrement,
+        };
+        if let Some(raw) = &element {
+            unsafe {
+                if let Ok(pattern_raw) = raw.element.GetCurrentPatternRaw(UIA_SCROLL_PATTERN_ID) {
+                    if !pattern_raw.is_null() {
+                        let pattern: IUIAutomationScrollPattern = windows_core::Type::from_abi(pattern_raw)
+                            .map_err(|err| format!("转换 ScrollPattern 失败：{err}"))?;
+                        for _ in 0..repeat.max(1) {
+                            pattern
+                                .Scroll(ScrollAmount_NoAmount, vertical)
+                                .map_err(|err| format!("Scroll 调用失败：{err}"))?;
+                        }
+                        return Ok("scrollpattern");
+                    }
+                }
+            }
+        }
+        post_mouse_wheel(hwnd, point.0, point.1, up, repeat)?;
+        Ok("postmessage")
+    })
+}
+
+/// 从顶层窗口逐层下沉到屏幕坐标命中的子窗口（RealChildWindowFromPoint 自动跳过透明窗口）。
+/// 返回 (最终子窗口, 该子窗口客户区坐标)。
+fn descend_to_child_at(
+    hwnd: usize,
+    screen_x: i32,
+    screen_y: i32,
+) -> (windows_sys::Win32::Foundation::HWND, windows_sys::Win32::Foundation::POINT) {
+    use windows_sys::Win32::Foundation::POINT;
+    use windows_sys::Win32::Graphics::Gdi::ScreenToClient;
+    use windows_sys::Win32::UI::WindowsAndMessaging::RealChildWindowFromPoint;
+
+    let mut current = hwnd as _;
+    for _ in 0..16 {
+        let mut client = POINT { x: screen_x, y: screen_y };
+        unsafe {
+            ScreenToClient(current, &mut client);
+        }
+        let child = unsafe { RealChildWindowFromPoint(current, client) };
+        if child.is_null() || child == current {
+            break;
+        }
+        current = child;
+    }
+    let mut client = POINT { x: screen_x, y: screen_y };
+    unsafe {
+        ScreenToClient(current, &mut client);
+    }
+    (current, client)
+}
+
+/// 鼠标消息 lParam 打包：低 16 位 x、高 16 位 y（客户区坐标，有符号溢出按 u16 截断与 Win32 一致）。
+fn mouse_lparam(client_x: i32, client_y: i32) -> isize {
+    ((client_y as u16 as isize) << 16) | (client_x as u16 as isize)
+}
+
+/// PostMessage 兜底点击：向坐标命中的最深子窗口投递鼠标消息（不移动全局光标、不抢焦点）。
+/// dblclick=true 时发送标准双击序列（DOWN/UP → LBUTTONDBLCLK/UP）。
+/// UWP/WebView2 等走独立输入管线的界面不响应此类消息，这类界面必须依赖 UIA pattern 路径。
+fn post_mouse_click(hwnd: usize, screen_x: i32, screen_y: i32, repeat: u32, dblclick: bool) -> Result<(), String> {
+    use windows_sys::Win32::UI::WindowsAndMessaging::{
+        IsIconic, PostMessageW, WM_LBUTTONDBLCLK, WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MOUSEMOVE,
+    };
+    if hwnd == 0 {
+        return Err("目标窗口句柄为 0".to_string());
+    }
+    unsafe {
+        if IsIconic(hwnd as _) != 0 {
+            return Err("目标窗口已最小化，无法投递鼠标消息".to_string());
+        }
+    }
+    let (target_hwnd, client) = descend_to_child_at(hwnd, screen_x, screen_y);
+    let lparam = mouse_lparam(client.x, client.y);
+    unsafe {
+        for _ in 0..repeat.max(1) {
+            PostMessageW(target_hwnd, WM_MOUSEMOVE, 0, lparam);
+            PostMessageW(target_hwnd, WM_LBUTTONDOWN, 0x0001 /* MK_LBUTTON */, lparam);
+            PostMessageW(target_hwnd, WM_LBUTTONUP, 0, lparam);
+            if dblclick {
+                PostMessageW(target_hwnd, WM_LBUTTONDBLCLK, 0x0001 /* MK_LBUTTON */, lparam);
+                PostMessageW(target_hwnd, WM_LBUTTONUP, 0, lparam);
+            }
+        }
+    }
+    Ok(())
+}
+
+/// PostMessage 兜底滚动：向坐标命中的子窗口投递 WM_MOUSEWHEEL（lParam 为屏幕坐标，wParam 高 16 位 wheel delta）。
+fn post_mouse_wheel(hwnd: usize, screen_x: i32, screen_y: i32, up: bool, repeat: u32) -> Result<(), String> {
+    use windows_sys::Win32::UI::WindowsAndMessaging::{IsIconic, PostMessageW, WM_MOUSEWHEEL};
+    if hwnd == 0 {
+        return Err("目标窗口句柄为 0".to_string());
+    }
+    unsafe {
+        if IsIconic(hwnd as _) != 0 {
+            return Err("目标窗口已最小化，无法投递滚轮消息".to_string());
+        }
+    }
+    let (target_hwnd, _) = descend_to_child_at(hwnd, screen_x, screen_y);
+    let delta: u16 = if up { 120 } else { u16::MAX - 119 }; // wheel delta：+120 向上，-120 向下（补码）
+    let wparam: usize = (delta as usize) << 16;
+    let lparam = mouse_lparam(screen_x, screen_y);
+    unsafe {
+        for _ in 0..repeat.max(1) {
+            PostMessageW(target_hwnd, WM_MOUSEWHEEL, wparam, lparam);
+        }
+    }
+    Ok(())
+}
+
+// ==================== app 后台按键 ====================
+
+/// 常用键名 → VK 码。修饰键按左侧键处理；单字符键按大写 ASCII（字母）/ '0' 基（数字）。
+fn vk_from_name(name: &str) -> Option<u32> {
+    let normalized = name.trim().to_ascii_lowercase();
+    let vk = match normalized.as_str() {
+        "enter" | "return" => 0x0D,
+        "esc" | "escape" => 0x1B,
+        "tab" => 0x09,
+        "space" | "spacebar" => 0x20,
+        "backspace" => 0x08,
+        "delete" | "del" => 0x2E,
+        "insert" | "ins" => 0x2D,
+        "home" => 0x24,
+        "end" => 0x23,
+        "pageup" => 0x21,
+        "pagedown" => 0x22,
+        "up" | "arrowup" => 0x26,
+        "down" | "arrowdown" => 0x28,
+        "left" | "arrowleft" => 0x25,
+        "right" | "arrowright" => 0x27,
+        "ctrl" | "control" | "lctrl" | "leftcontrol" => 0x11,
+        "shift" | "lshift" | "leftshift" => 0x10,
+        "alt" | "lalt" | "leftalt" => 0x12,
+        "win" | "meta" | "lwin" => 0x5B,
+        "capslock" => 0x14,
+        _ => {
+            // F1~F12
+            if let Some(rest) = normalized.strip_prefix('f') {
+                if let Ok(n) = rest.parse::<u32>() {
+                    if (1..=12).contains(&n) {
+                        return Some(0x70 + n - 1);
+                    }
+                }
+            }
+            // 单字符键：字母/数字
+            let chars: Vec<char> = normalized.chars().collect();
+            if chars.len() == 1 {
+                let c = chars[0].to_ascii_uppercase();
+                if c.is_ascii_alphabetic() || c.is_ascii_digit() {
+                    return Some(c as u32);
+                }
+            }
+            return None;
+        }
+    };
+    Some(vk)
+}
+
+/// 扩展键判定（方向键/Insert/Delete/Home/End/PgUp/PgDn，lParam 需置扩展位 0x01000000）。
+fn is_extended_vk(vk: u32) -> bool {
+    matches!(vk, 0x21..=0x28 | 0x2D | 0x2E)
+}
+
+/// 定位后台按键的投递目标：取目标窗口线程的内部焦点控件（GetGUIThreadInfo 对后台窗口同样有效）；
+/// 拿不到内部焦点时退回窗口自身。
+fn resolve_key_target_hwnd(hwnd: usize) -> windows_sys::Win32::Foundation::HWND {
+    use windows_sys::Win32::UI::WindowsAndMessaging::{GetGUIThreadInfo, GetWindowThreadProcessId, GUITHREADINFO};
+
+    let mut pid = 0u32;
+    let thread_id = unsafe { GetWindowThreadProcessId(hwnd as _, &mut pid) };
+    if thread_id != 0 {
+        let mut info: GUITHREADINFO = unsafe { core::mem::zeroed() };
+        info.cbSize = std::mem::size_of::<GUITHREADINFO>() as u32;
+        if unsafe { GetGUIThreadInfo(thread_id, &mut info) } != 0 && !info.hwndFocus.is_null() {
+            return info.hwndFocus;
+        }
+    }
+    hwnd as _
+}
+
+/// 后台按键：向目标窗口的内部焦点控件投递 WM_KEYDOWN/WM_KEYUP（不抢焦点、不改变真实键盘状态）。
+/// lParam 携带扫描码与扩展标志，KeyUp 附加前态与切换位；修饰键按组合顺序先按下后逆序释放。
+/// 全局快捷键/菜单加速键类应用可能不响应（这类处理在目标线程消息循环之外的加速键表）。
+/// 返回投递方式："postmessage"。
+pub fn app_key(hwnd: usize, keys: &[String], repeat: u32) -> Result<&'static str, String> {
+    use windows_sys::Win32::UI::Input::KeyboardAndMouse::{MapVirtualKeyW, MAPVK_VK_TO_VSC};
+    use windows_sys::Win32::UI::WindowsAndMessaging::{IsIconic, PostMessageW, WM_KEYDOWN, WM_KEYUP};
+
+    if hwnd == 0 {
+        return Err("目标窗口句柄为 0".to_string());
+    }
+    unsafe {
+        if IsIconic(hwnd as _) != 0 {
+            return Err("目标窗口已最小化，无法投递按键消息".to_string());
+        }
+    }
+    if keys.is_empty() {
+        return Err("按键组合为空".to_string());
+    }
+
+    let mut parsed = Vec::with_capacity(keys.len());
+    for key in keys {
+        let vk = vk_from_name(key).ok_or_else(|| format!("暂不支持后台按键 `{key}`"))?;
+        let scan = unsafe { MapVirtualKeyW(vk, MAPVK_VK_TO_VSC) } & 0xFF;
+        parsed.push((vk, scan as isize));
+    }
+
+    let target = resolve_key_target_hwnd(hwnd);
+    for _ in 0..repeat.max(1) {
+        for (vk, scan) in &parsed {
+            let mut lparam = (*scan) << 16; // 位 16~23 扫描码
+            if is_extended_vk(*vk) {
+                lparam |= 0x0100_0000; // 位 24 扩展键标志
+            }
+            unsafe {
+                PostMessageW(target, WM_KEYDOWN, *vk as usize, lparam);
+            }
+        }
+        for (vk, scan) in parsed.iter().rev() {
+            let mut lparam = (*scan) << 16;
+            if is_extended_vk(*vk) {
+                lparam |= 0x0100_0000;
+            }
+            lparam |= 0xC000_0000; // 位 30 前态=1、位 31 切换=1
+            unsafe {
+                PostMessageW(target, WM_KEYUP, *vk as usize, lparam);
+            }
+        }
+    }
+    Ok("postmessage")
 }
 
 // ==================== 窗口枚举与激活 ====================
@@ -600,19 +1206,23 @@ mod windows_platform_tests {
         assert!(is_interactive_control_type(UIA_TreeItemControlTypeId));
         assert!(is_interactive_control_type(UIA_SliderControlTypeId));
         assert!(is_interactive_control_type(UIA_RadioButtonControlTypeId));
+        assert!(is_interactive_control_type(UIA_DocumentControlTypeId));
     }
 
     #[test]
     fn non_interactive_types_should_be_rejected() {
         assert!(!is_interactive_control_type(UIA_CONTROLTYPE_ID(50001))); // unknown
         assert!(!is_interactive_control_type(UIA_CONTROLTYPE_ID(0)));
-        assert!(!is_interactive_control_type(UIA_CONTROLTYPE_ID(50025)));
+        assert!(!is_interactive_control_type(UIA_CustomControlTypeId));
     }
 
     #[test]
     fn control_type_name_should_map_known_types() {
         assert_eq!(control_type_name(UIA_ButtonControlTypeId), "Button");
         assert_eq!(control_type_name(UIA_EditControlTypeId), "Edit");
+        assert_eq!(control_type_name(UIA_DocumentControlTypeId), "Document");
+        assert_eq!(control_type_name(UIA_PaneControlTypeId), "Pane");
+        assert_eq!(control_type_name(UIA_TextControlTypeId), "Text");
         assert_eq!(control_type_name(UIA_CONTROLTYPE_ID(999)), "Unknown");
     }
 
@@ -668,6 +1278,181 @@ mod windows_platform_tests {
         eprintln!("scanned {} elements from {} windows", elems.len(), targets.len());
         for e in elems.iter().take(5) {
             eprintln!("  {}({}) at {}x{}", e.control_type, e.name, e.x, e.y);
+        }
+    }
+
+    /// 记事本 UIA 树探针：拉起记事本，不做类型白名单过滤，打印全部元素的
+    /// 控件类型 ID/名称，用于确认编辑区是否因白名单（如 Document 类型）被滤掉。
+    /// 自拉自杀，Drop 守卫保证测试结束回收记事本进程。
+    #[test]
+    #[ignore = "需要真实 Windows 桌面"]
+    fn probe_notepad_ui_tree_without_filter() {
+        use windows_sys::Win32::UI::WindowsAndMessaging::{EnumWindows, GetWindowTextLengthW, GetWindowTextW, IsWindowVisible};
+
+        struct KillGuard(std::process::Child);
+        impl Drop for KillGuard {
+            fn drop(&mut self) {
+                let _ = self.0.kill();
+                let _ = self.0.wait();
+            }
+        }
+
+        let child = std::process::Command::new("notepad").spawn().expect("launch notepad");
+        let _guard = KillGuard(child);
+        std::thread::sleep(std::time::Duration::from_millis(2000));
+
+        static FOUND_HWNDS: std::sync::Mutex<Vec<isize>> = std::sync::Mutex::new(Vec::new());
+        unsafe extern "system" fn enum_cb(hwnd: *mut core::ffi::c_void, _lparam: isize) -> i32 {
+            if IsWindowVisible(hwnd) == 0 {
+                return 1;
+            }
+            let len = GetWindowTextLengthW(hwnd);
+            if len == 0 {
+                return 1;
+            }
+            let mut buf = vec![0u16; len as usize + 1];
+            GetWindowTextW(hwnd, buf.as_mut_ptr(), buf.len() as i32);
+            let title = String::from_utf16_lossy(&buf[..len as usize]);
+            if title.contains("记事本") || title.to_lowercase().contains("notepad") {
+                if let Ok(mut slot) = FOUND_HWNDS.lock() {
+                    slot.push(hwnd as isize);
+                }
+            }
+            1
+        }
+
+        let (automation, _guard) = create_uia_automation().expect("UIA init");
+        unsafe {
+            EnumWindows(Some(enum_cb), 0);
+        }
+        let hwnd = FOUND_HWNDS
+            .lock()
+            .unwrap()
+            .first()
+            .copied()
+            .expect("notepad window not found");
+
+        unsafe {
+            let root = automation
+                .ElementFromHandle(hwnd as *mut core::ffi::c_void)
+                .expect("ElementFromHandle");
+            let condition = automation.CreateTrueCondition().expect("condition");
+            let array = root.FindAll(TreeScope_Descendants, &condition).expect("FindAll");
+            let len = array.Length().unwrap_or(0);
+            eprintln!("[notepad-probe] hwnd=0x{hwnd:x} total elements={len}");
+            for i in 0..len {
+                let Ok(elem) = array.GetElement(i) else { continue };
+                let ct = elem.CurrentControlType().unwrap_or(UIA_CONTROLTYPE_ID(-1));
+                let name = elem.CurrentName().ok().map(|b| b.to_string()).unwrap_or_default();
+                let enabled = elem.CurrentIsEnabled().unwrap_or(false);
+                let rect_str = elem
+                    .CurrentBoundingRectangle()
+                    .map(|r| format!("({},{},{},{})", r.left, r.top, r.right, r.bottom))
+                    .unwrap_or_default();
+                eprintln!(
+                    "[notepad-probe] #{i} type={}({}) enabled={} name={:?} rect={}",
+                    ct.0,
+                    control_type_name(ct),
+                    enabled,
+                    name,
+                    rect_str
+                );
+            }
+        }
+    }
+
+    /// 记事本编辑区 pattern 支持面探针：验证 Document 编辑区是否支持
+    /// ValuePattern 读回（getvalue 前提）与 ScrollPattern（后台滚动路径）。
+    /// 自拉自杀，KillGuard 守卫。
+    #[test]
+    #[ignore = "需要真实 Windows 桌面"]
+    fn probe_notepad_document_pattern_support() {
+        use windows_sys::Win32::UI::WindowsAndMessaging::{EnumWindows, GetWindowTextLengthW, GetWindowTextW, IsWindowVisible};
+
+        struct KillGuard(std::process::Child);
+        impl Drop for KillGuard {
+            fn drop(&mut self) {
+                let _ = self.0.kill();
+                let _ = self.0.wait();
+            }
+        }
+
+        let child = std::process::Command::new("notepad").spawn().expect("launch notepad");
+        let _guard = KillGuard(child);
+        std::thread::sleep(std::time::Duration::from_millis(2000));
+
+        static FOUND_HWNDS: std::sync::Mutex<Vec<isize>> = std::sync::Mutex::new(Vec::new());
+        unsafe extern "system" fn enum_cb(hwnd: *mut core::ffi::c_void, _lparam: isize) -> i32 {
+            if IsWindowVisible(hwnd) == 0 {
+                return 1;
+            }
+            let len = GetWindowTextLengthW(hwnd);
+            if len == 0 {
+                return 1;
+            }
+            let mut buf = vec![0u16; len as usize + 1];
+            GetWindowTextW(hwnd, buf.as_mut_ptr(), buf.len() as i32);
+            let title = String::from_utf16_lossy(&buf[..len as usize]);
+            if title.contains("记事本") || title.to_lowercase().contains("notepad") {
+                if let Ok(mut slot) = FOUND_HWNDS.lock() {
+                    slot.push(hwnd as isize);
+                }
+            }
+            1
+        }
+
+        let (automation, _com_guard) = create_uia_automation().expect("UIA init");
+        unsafe {
+            EnumWindows(Some(enum_cb), 0);
+        }
+        let hwnd = FOUND_HWNDS
+            .lock()
+            .unwrap()
+            .first()
+            .copied()
+            .expect("notepad window not found");
+
+        unsafe {
+            let root = automation
+                .ElementFromHandle(hwnd as *mut core::ffi::c_void)
+                .expect("ElementFromHandle");
+            let condition = automation.CreateTrueCondition().expect("condition");
+            let array = root.FindAll(TreeScope_Descendants, &condition).expect("FindAll");
+            let len = array.Length().unwrap_or(0);
+
+            let mut editor = None;
+            for i in 0..len {
+                if let Ok(elem) = array.GetElement(i) {
+                    if elem.CurrentControlType().unwrap_or(UIA_CONTROLTYPE_ID(-1)) == UIA_DocumentControlTypeId {
+                        editor = Some(elem);
+                        break;
+                    }
+                }
+            }
+            let editor = editor.expect("Document editor element not found");
+
+            // ValuePattern：读初始值 → SetValue 写入 → 再读回验证
+            let vp_raw = editor
+                .GetCurrentPatternRaw(UIA_VALUE_PATTERN_ID)
+                .expect("query ValuePattern");
+            if vp_raw.is_null() {
+                eprintln!("[pattern-probe] ValuePattern: 不支持 → getvalue 需另寻路径");
+            } else {
+                let vp: IUIAutomationValuePattern = windows_core::Type::from_abi(vp_raw).expect("cast ValuePattern");
+                let before = vp.CurrentValue().map(|b| b.to_string()).unwrap_or_else(|e| format!("读取失败:{e:?}"));
+                eprintln!("[pattern-probe] ValuePattern: 支持，写前值={:?} len={}", before, before.chars().count());
+                let bstr = windows_core::BSTR::from("后台探针写入-abc123");
+                vp.SetValue(bstr.as_ptr() as *mut core::ffi::c_void).expect("SetValue");
+                let after = vp.CurrentValue().map(|b| b.to_string()).unwrap_or_else(|e| format!("读取失败:{e:?}"));
+                eprintln!("[pattern-probe] ValuePattern: 写后读回={:?} len={}", after, after.chars().count());
+                assert_eq!(after, "后台探针写入-abc123", "写后读回不一致 → getvalue 语义存疑");
+            }
+
+            // ScrollPattern：只报告支持与否，不动真实滚动
+            let sp_raw = editor
+                .GetCurrentPatternRaw(UIA_SCROLL_PATTERN_ID)
+                .expect("query ScrollPattern");
+            eprintln!("[pattern-probe] ScrollPattern: {}", if sp_raw.is_null() { "不支持（走 PostMessage 兜底）" } else { "支持" });
         }
     }
 }

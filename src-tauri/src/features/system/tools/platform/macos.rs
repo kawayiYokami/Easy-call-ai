@@ -469,6 +469,7 @@ fn scan_elements(
                             width: s.width / primary_width,
                             height: s.height / primary_height,
                             focused: node.attr_bool(ATTR_FOCUSED).unwrap_or(false),
+                            element_ref: None,
                         });
                     }
                 }

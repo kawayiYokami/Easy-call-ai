@@ -68,6 +68,22 @@ async fn run_operate_tool(
                 ));
                 steps.push(step);
             }
+            DesktopScriptAction::App { line, window_id, action, post_delay } => {
+                let (verb, method, extra) = execute_app_action(window_id, action, post_delay).await?;
+                let extra_text = extra.map(|e| format!(", {e}")).unwrap_or_default();
+                let step = DesktopScriptStepResult {
+                    line,
+                    kind: DesktopScriptStepKind::App,
+                    summary: format!("app {verb} completed, window_id={window_id}, method={method}{extra_text}"),
+                    ok: true,
+                    saved_path: None,
+                };
+                runtime_log_info(format!(
+                    "[桌面脚本] 步骤完成，任务=run_operate_tool，line={}，kind=App，summary={}",
+                    line, step.summary
+                ));
+                steps.push(step);
+            }
             DesktopScriptAction::Key { line, keys, repeat, delay, pre_delay, press } => {
                 execute_key_action(&mut enigo, &keys, line, repeat, delay, pre_delay, press).await?;
                 let step = DesktopScriptStepResult {
@@ -260,6 +276,156 @@ mod operate_tool_tests {
         let err = parse_script(&OperateRequest { script: "mouse move".to_string(), timeout_ms: None }).unwrap_err();
         assert!(err.message.contains("第 1 行 mouse"));
         assert!(err.message.contains("移动格式"));
+    }
+
+    #[test]
+    fn parse_app_click_by_element_ref() {
+        match parse_single("app 0x1a2b click el=3 pre_delay=0.1") {
+            DesktopScriptAction::App { window_id, action, .. } => {
+                assert_eq!(window_id, 0x1a2b);
+                match action {
+                    AppScriptAction::Click { target, repeat, .. } => {
+                        assert!(matches!(target, AppScriptTarget::Element(3)));
+                        assert_eq!(repeat, 1);
+                    }
+                    _ => panic!("expected click action"),
+                }
+            }
+            _ => panic!("expected app action"),
+        }
+    }
+
+    #[test]
+    fn parse_app_click_by_point() {
+        match parse_single("app 123 click @0.50,0.50 repeat=2") {
+            DesktopScriptAction::App { window_id, action, .. } => {
+                assert_eq!(window_id, 123);
+                match action {
+                    AppScriptAction::Click { target, repeat, .. } => {
+                        assert!(matches!(target, AppScriptTarget::Point(_)));
+                        assert_eq!(repeat, 2);
+                    }
+                    _ => panic!("expected click action"),
+                }
+            }
+            _ => panic!("expected app action"),
+        }
+    }
+
+    #[test]
+    fn parse_app_setvalue_rejects_point_target() {
+        let err = parse_script(&OperateRequest { script: "app 1 setvalue @0.5,0.5 \"hi\"".to_string(), timeout_ms: None }).unwrap_err();
+        assert!(err.message.contains("setvalue"));
+        assert!(err.message.contains("el="));
+    }
+
+    #[test]
+    fn parse_app_scroll_script() {
+        match parse_single("app 45 scroll_down el=7 repeat=3 delay=0.2") {
+            DesktopScriptAction::App { window_id, action, .. } => {
+                assert_eq!(window_id, 45);
+                match action {
+                    AppScriptAction::ScrollDown { target, repeat, delay, .. } => {
+                        assert!(matches!(target, AppScriptTarget::Element(7)));
+                        assert_eq!(repeat, 3);
+                        assert_eq!(delay, std::time::Duration::from_millis(200));
+                    }
+                    _ => panic!("expected scroll action"),
+                }
+            }
+            _ => panic!("expected app action"),
+        }
+    }
+
+    #[test]
+    fn parse_app_key_script() {
+        match parse_single("app 663002 key Enter") {
+            DesktopScriptAction::App { window_id, action, .. } => {
+                assert_eq!(window_id, 663002);
+                match action {
+                    AppScriptAction::Key { keys, repeat, .. } => {
+                        assert_eq!(keys, vec!["Enter".to_string()]);
+                        assert_eq!(repeat, 1);
+                    }
+                    _ => panic!("expected key action"),
+                }
+            }
+            _ => panic!("expected app action"),
+        }
+    }
+
+    #[test]
+    fn parse_app_key_combo_script() {
+        match parse_single("app 10 key Control+A repeat=2 delay=0.1") {
+            DesktopScriptAction::App { action: AppScriptAction::Key { keys, repeat, delay, .. }, .. } => {
+                assert_eq!(keys, vec!["Control".to_string(), "A".to_string()]);
+                assert_eq!(repeat, 2);
+                assert_eq!(delay, std::time::Duration::from_millis(100));
+            }
+            _ => panic!("expected app key action"),
+        }
+    }
+
+    #[test]
+    fn parse_app_getvalue_script() {
+        match parse_single("app 77 getvalue el=5") {
+            DesktopScriptAction::App { window_id, action: AppScriptAction::GetValue { el }, .. } => {
+                assert_eq!(window_id, 77);
+                assert_eq!(el, 5);
+            }
+            _ => panic!("expected app getvalue action"),
+        }
+    }
+
+    #[test]
+    fn parse_app_getvalue_rejects_point_target() {
+        let err = parse_script(&OperateRequest { script: "app 1 getvalue @0.5,0.5".to_string(), timeout_ms: None }).unwrap_err();
+        assert!(err.message.contains("getvalue"));
+        assert!(err.message.contains("el="));
+    }
+
+    #[test]
+    fn parse_app_post_delay_script() {
+        match parse_single("app 9 setvalue el=2 \"abc\" post_delay=1.5") {
+            DesktopScriptAction::App { post_delay, .. } => {
+                assert_eq!(post_delay, std::time::Duration::from_millis(1500));
+            }
+            _ => panic!("expected app action"),
+        }
+    }
+
+    #[test]
+    fn parse_app_click_dblclick_script() {
+        match parse_single("app 8 click el=4 dblclick=true") {
+            DesktopScriptAction::App { action: AppScriptAction::Click { target, dblclick, .. }, .. } => {
+                assert!(matches!(target, AppScriptTarget::Element(4)));
+                assert!(dblclick);
+            }
+            _ => panic!("expected app click action"),
+        }
+    }
+
+    #[test]
+    fn parse_app_dblclick_rejects_bad_value() {
+        let err = parse_script(&OperateRequest { script: "app 8 click @0.5,0.5 dblclick=yes".to_string(), timeout_ms: None }).unwrap_err();
+        assert!(err.message.contains("dblclick") || err.message.contains("布尔参数非法"));
+    }
+
+    #[test]
+    fn parse_screenshot_window_id_script() {
+        match parse_single("screenshot window_id=0x1f elements=true") {
+            DesktopScriptAction::Screenshot { mode, elements, .. } => {
+                assert!(matches!(mode, ScreenshotModeSpec::WindowId(0x1f)));
+                assert!(elements);
+            }
+            _ => panic!("expected screenshot action"),
+        }
+    }
+
+    #[test]
+    fn parse_screenshot_window_id_conflicts_with_region() {
+        let err = parse_script(&OperateRequest { script: "screenshot window_id=1 region=@0.1,0.1,0.2,0.2".to_string(), timeout_ms: None }).unwrap_err();
+        assert!(err.message.contains("window_id"));
     }
 
     #[test]

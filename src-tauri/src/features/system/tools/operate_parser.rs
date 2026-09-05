@@ -41,6 +41,7 @@ enum DesktopScriptStepKind {
     Text,
     Wait,
     Screenshot,
+    App,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -113,6 +114,24 @@ enum ScreenshotModeSpec {
     Desktop,
     FocusedWindow,
     Region(NormalizedRegion),
+    WindowId(u32),
+}
+
+/// app 动作目标：快照元素引用（el=<n>）或归一化坐标（@x,y）
+#[derive(Debug, Clone)]
+enum AppScriptTarget {
+    Element(u32),
+    Point(NormalizedPoint),
+}
+
+#[derive(Debug, Clone)]
+enum AppScriptAction {
+    Click { target: AppScriptTarget, repeat: u32, dblclick: bool, pre_delay: std::time::Duration },
+    SetValue { el: u32, text: String, pre_delay: std::time::Duration },
+    ScrollUp { target: AppScriptTarget, repeat: u32, delay: std::time::Duration, pre_delay: std::time::Duration },
+    ScrollDown { target: AppScriptTarget, repeat: u32, delay: std::time::Duration, pre_delay: std::time::Duration },
+    Key { keys: Vec<String>, repeat: u32, delay: std::time::Duration, pre_delay: std::time::Duration },
+    GetValue { el: u32 },
 }
 
 #[derive(Debug, Clone)]
@@ -124,6 +143,7 @@ enum DesktopScriptAction {
     Text { line: usize, text: String, repeat: u32, delay: std::time::Duration, pre_delay: std::time::Duration },
     Wait { line: usize, duration: std::time::Duration },
     Screenshot { line: usize, mode: ScreenshotModeSpec, save_path: Option<String>, quality: f32, elements: bool },
+    App { line: usize, window_id: u32, action: AppScriptAction, post_delay: std::time::Duration },
 }
 
 fn operate_invalid(message: impl Into<String>) -> DesktopToolError {
@@ -186,6 +206,14 @@ fn parse_repeat_token(line: usize, action: &str, raw: &str) -> DesktopToolResult
         return Err(operate_line_error(line, action, format!("repeat 非法：必须在 1~100 之间，当前为 `{raw}`")));
     }
     Ok(value)
+}
+
+fn parse_bool_token(line: usize, action: &str, raw: &str) -> DesktopToolResult<bool> {
+    match raw.trim().to_ascii_lowercase().as_str() {
+        "true" | "1" => Ok(true),
+        "false" | "0" => Ok(false),
+        _ => Err(operate_line_error(line, action, format!("布尔参数非法：必须是 true/1 或 false/0，当前为 `{raw}`"))),
+    }
 }
 
 fn parse_named_params(line: usize, action: &str, tokens: &[String], allowed: &[&str]) -> DesktopToolResult<std::collections::HashMap<String, String>> {
@@ -311,6 +339,114 @@ fn parse_mouse_line(line_no: usize, tokens: &[String]) -> DesktopToolResult<Desk
     Ok(DesktopScriptAction::MouseClick { line: line_no, button, target, repeat, delay, pre_delay, press })
 }
 
+/// windowId 解析：十进制或 0x 前缀十六进制（与 windows 工具的 id 口径一致）
+fn parse_window_id_token(line: usize, action: &str, raw: &str) -> DesktopToolResult<u32> {
+    let trimmed = raw.trim();
+    let parsed = if let Some(hex) = trimmed.strip_prefix("0x").or_else(|| trimmed.strip_prefix("0X")) {
+        u32::from_str_radix(hex, 16)
+    } else {
+        trimmed.parse::<u32>()
+    };
+    parsed.map_err(|_| operate_line_error(line, action, format!("windowId 非法：必须是十进制或 0x 前缀十六进制，当前为 `{raw}`")))
+}
+
+/// app 动作目标解析：`el=<n>` 引用快照元素，或 `@x,y` 归一化坐标
+fn parse_app_target(line: usize, token: &str) -> DesktopToolResult<AppScriptTarget> {
+    let trimmed = token.trim();
+    if let Some(raw) = trimmed.strip_prefix("el=").or_else(|| trimmed.strip_prefix("EL=")) {
+        let el = raw.trim().parse::<u32>().map_err(|_| operate_line_error(line, "app", format!("el 非法：必须是正整数，当前为 `{raw}`")))?;
+        if el == 0 {
+            return Err(operate_line_error(line, "app", "el 非法：引用编号从 1 开始".to_string()));
+        }
+        return Ok(AppScriptTarget::Element(el));
+    }
+    Ok(AppScriptTarget::Point(parse_normalized_pair(line, "app", trimmed)?))
+}
+
+fn parse_app_line(line_no: usize, tokens: &[String]) -> DesktopToolResult<DesktopScriptAction> {
+    if tokens.len() < 4 {
+        return Err(operate_line_error(line_no, "app", "非法：格式应为 `app <windowId> <动作> <目标> [参数]`，动作支持 click / setvalue / getvalue / scroll_up / scroll_down / key".to_string()));
+    }
+    let window_id = parse_window_id_token(line_no, "app", &tokens[1])?;
+    let verb = tokens[2].trim().to_ascii_lowercase();
+    // post_delay 是全部 app 动作共享的收尾等待：动作完成后等 UI 响应（弹菜单/联想词）再返回，
+    // 避免下一条动作拿到过期的元素树
+    let parse_post_delay = |params: &std::collections::HashMap<String, String>| -> DesktopToolResult<std::time::Duration> {
+        params
+            .get("post_delay")
+            .map(|v| parse_seconds_token(line_no, "app", v, "post_delay"))
+            .transpose()
+            .map(|d| d.unwrap_or_default())
+    };
+    match verb.as_str() {
+        "click" => {
+            let target = parse_app_target(line_no, &tokens[3])?;
+            let params = parse_named_params(line_no, "app", &tokens[4..], &["repeat", "dblclick", "pre_delay", "post_delay"])?;
+            let repeat = params.get("repeat").map(|v| parse_repeat_token(line_no, "app", v)).transpose()?.unwrap_or(1);
+            let dblclick = params.get("dblclick").map(|v| parse_bool_token(line_no, "app", v)).transpose()?.unwrap_or(false);
+            let pre_delay = params.get("pre_delay").map(|v| parse_seconds_token(line_no, "app", v, "pre_delay")).transpose()?.unwrap_or_default();
+            let post_delay = parse_post_delay(&params)?;
+            Ok(DesktopScriptAction::App { line: line_no, window_id, action: AppScriptAction::Click { target, repeat, dblclick, pre_delay }, post_delay })
+        }
+        "setvalue" => {
+            if tokens.len() < 5 {
+                return Err(operate_line_error(line_no, "app", "非法：setvalue 格式应为 `app <windowId> setvalue el=<n> \"内容\"`".to_string()));
+            }
+            let AppScriptTarget::Element(el) = parse_app_target(line_no, &tokens[3])? else {
+                return Err(operate_line_error(line_no, "app", "非法：setvalue 必须使用 el=<n> 指定文本控件（@x,y 坐标无法可靠定位文本框）".to_string()));
+            };
+            let Some(text) = strip_quoted_value(&tokens[4]) else {
+                return Err(operate_line_error(line_no, "app", "非法：必须使用双引号包裹文本内容".to_string()));
+            };
+            let text = text.replace("\\n", "\n");
+            if text.is_empty() {
+                return Err(operate_line_error(line_no, "app", "非法：文本内容不能为空".to_string()));
+            }
+            let params = parse_named_params(line_no, "app", &tokens[5..], &["pre_delay", "post_delay"])?;
+            let pre_delay = params.get("pre_delay").map(|v| parse_seconds_token(line_no, "app", v, "pre_delay")).transpose()?.unwrap_or_default();
+            let post_delay = parse_post_delay(&params)?;
+            Ok(DesktopScriptAction::App { line: line_no, window_id, action: AppScriptAction::SetValue { el, text, pre_delay }, post_delay })
+        }
+        "getvalue" => {
+            let AppScriptTarget::Element(el) = parse_app_target(line_no, &tokens[3])? else {
+                return Err(operate_line_error(line_no, "app", "非法：getvalue 必须使用 el=<n> 指定控件（@x,y 坐标无法可靠定位读取目标）".to_string()));
+            };
+            parse_named_params(line_no, "app", &tokens[4..], &[])?;
+            Ok(DesktopScriptAction::App { line: line_no, window_id, action: AppScriptAction::GetValue { el }, post_delay: std::time::Duration::ZERO })
+        }
+        "scroll_up" | "scroll_down" => {
+            let target = parse_app_target(line_no, &tokens[3])?;
+            let params = parse_named_params(line_no, "app", &tokens[4..], &["repeat", "delay", "pre_delay", "post_delay"])?;
+            let repeat = params.get("repeat").map(|v| parse_repeat_token(line_no, "app", v)).transpose()?.unwrap_or(1);
+            let delay = params.get("delay").map(|v| parse_seconds_token(line_no, "app", v, "delay")).transpose()?.unwrap_or_default();
+            let pre_delay = params.get("pre_delay").map(|v| parse_seconds_token(line_no, "app", v, "pre_delay")).transpose()?.unwrap_or_default();
+            let post_delay = parse_post_delay(&params)?;
+            let action = if verb == "scroll_up" {
+                AppScriptAction::ScrollUp { target, repeat, delay, pre_delay }
+            } else {
+                AppScriptAction::ScrollDown { target, repeat, delay, pre_delay }
+            };
+            Ok(DesktopScriptAction::App { line: line_no, window_id, action, post_delay })
+        }
+        "key" => {
+            if tokens.len() < 4 {
+                return Err(operate_line_error(line_no, "app", "非法：key 缺少按键组合，格式应为 `app <windowId> key <combo>`".to_string()));
+            }
+            let keys = parse_key_combo(&tokens[3]);
+            if keys.is_empty() {
+                return Err(operate_line_error(line_no, "app", "非法：缺少按键组合".to_string()));
+            }
+            let params = parse_named_params(line_no, "app", &tokens[4..], &["repeat", "delay", "pre_delay", "post_delay"])?;
+            let repeat = params.get("repeat").map(|v| parse_repeat_token(line_no, "app", v)).transpose()?.unwrap_or(1);
+            let delay = params.get("delay").map(|v| parse_seconds_token(line_no, "app", v, "delay")).transpose()?.unwrap_or_default();
+            let pre_delay = params.get("pre_delay").map(|v| parse_seconds_token(line_no, "app", v, "pre_delay")).transpose()?.unwrap_or_default();
+            let post_delay = parse_post_delay(&params)?;
+            Ok(DesktopScriptAction::App { line: line_no, window_id, action: AppScriptAction::Key { keys, repeat, delay, pre_delay }, post_delay })
+        }
+        other => Err(operate_line_error(line_no, "app", format!("非法：暂只支持 click / setvalue / getvalue / scroll_up / scroll_down / key，当前为 `{other}`"))),
+    }
+}
+
 fn parse_key_line(line_no: usize, tokens: &[String]) -> DesktopToolResult<DesktopScriptAction> {
     if tokens.len() < 2 {
         return Err(operate_line_error(line_no, "key", "非法：缺少按键组合".to_string()));
@@ -365,17 +501,23 @@ fn parse_screenshot_line(line_no: usize, tokens: &[String]) -> DesktopToolResult
         match token.trim().to_ascii_lowercase().as_str() {
             "focused_window" => {
                 if !matches!(mode, ScreenshotModeSpec::Desktop) {
-                    return Err(operate_line_error(line_no, "screenshot", "非法：focused_window 与 region 不能同时出现".to_string()));
+                    return Err(operate_line_error(line_no, "screenshot", "非法：focused_window/window_id 与 region 不能同时出现".to_string()));
                 }
                 mode = ScreenshotModeSpec::FocusedWindow;
             }
             other => return Err(operate_line_error(line_no, "screenshot", format!("非法参数 `{other}`"))),
         }
     }
-    let params = parse_named_params(line_no, "screenshot", &named_tokens, &["region", "save", "quality", "elements"])?;
+    let params = parse_named_params(line_no, "screenshot", &named_tokens, &["region", "save", "quality", "elements", "window_id"])?;
+    if let Some(raw) = params.get("window_id") {
+        if !matches!(mode, ScreenshotModeSpec::Desktop) {
+            return Err(operate_line_error(line_no, "screenshot", "非法：window_id 与 focused_window/region 不能同时出现".to_string()));
+        }
+        mode = ScreenshotModeSpec::WindowId(parse_window_id_token(line_no, "screenshot", raw)?);
+    }
     if let Some(raw) = params.get("region") {
         if !matches!(mode, ScreenshotModeSpec::Desktop) {
-            return Err(operate_line_error(line_no, "screenshot", "非法：focused_window 与 region 不能同时出现".to_string()));
+            return Err(operate_line_error(line_no, "screenshot", "非法：focused_window/window_id 与 region 不能同时出现".to_string()));
         }
         mode = ScreenshotModeSpec::Region(parse_normalized_region(line_no, "screenshot", raw)?);
     }
@@ -408,11 +550,12 @@ fn parse_script_line(line_no: usize, raw_line: &str) -> DesktopToolResult<Option
     }
     match tokens[0].trim().to_ascii_lowercase().as_str() {
         "mouse" => parse_mouse_line(line_no, &tokens).map(Some),
+        "app" => parse_app_line(line_no, &tokens).map(Some),
         "key" => parse_key_line(line_no, &tokens).map(Some),
         "text" => parse_text_line(line_no, &tokens).map(Some),
         "wait" => parse_wait_line(line_no, &tokens).map(Some),
         "screenshot" => parse_screenshot_line(line_no, &tokens).map(Some),
-        other => Err(operate_line_error(line_no, "脚本", format!("未知动作：{other}。可用动作：mouse、key、text、wait、screenshot"))),
+        other => Err(operate_line_error(line_no, "脚本", format!("未知动作：{other}。可用动作：mouse、app、key、text、wait、screenshot"))),
     }
 }
 

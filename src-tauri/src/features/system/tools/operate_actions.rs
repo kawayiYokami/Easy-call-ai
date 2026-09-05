@@ -1,5 +1,7 @@
 use enigo::{Keyboard, Mouse};
 
+use crate::platform::AppTarget;
+
 fn ensure_dpi_awareness_once() {
     static ONCE: std::sync::OnceLock<()> = std::sync::OnceLock::new();
     let _ = ONCE.get_or_init(|| {
@@ -471,7 +473,7 @@ async fn execute_screenshot_action(
     let save_path = save_path.or_else(|| Some(default_operate_screenshot_path(screenshots_root)));
     let request = ScreenshotRequest {
         mode: match mode {
-            ScreenshotModeSpec::Desktop | ScreenshotModeSpec::FocusedWindow => ScreenshotMode::Desktop,
+            ScreenshotModeSpec::Desktop | ScreenshotModeSpec::FocusedWindow | ScreenshotModeSpec::WindowId(_) => ScreenshotMode::Desktop,
             ScreenshotModeSpec::Region(_) => ScreenshotMode::Region,
         },
         monitor_id: None,
@@ -489,17 +491,19 @@ async fn execute_screenshot_action(
     let result = match mode {
         ScreenshotModeSpec::Desktop | ScreenshotModeSpec::Region(_) => run_screenshot_tool(request).await?,
         ScreenshotModeSpec::FocusedWindow => run_capture_window_tool(request, None)?,
+        ScreenshotModeSpec::WindowId(window_id) => run_capture_window_tool(request, Some(*window_id))?,
     };
     let mode_name = match mode {
         ScreenshotModeSpec::Desktop => "desktop",
         ScreenshotModeSpec::FocusedWindow => "focused_window",
+        ScreenshotModeSpec::WindowId(_) => "window_id",
         ScreenshotModeSpec::Region(_) => "region",
     }
     .to_string();
 
     // elements=true：扫描可交互元素树（当前 Windows 实现；其他平台返回空并在 summary 提示）。
     // UIA 遍历是同步阻塞调用（数百 ms），放到阻塞线程池执行，避免占用 Tokio 工作线程。
-    let tree = if elements {
+    let mut tree = if elements {
         let mode_for_scan = mode.clone();
         Some(
             tokio::task::spawn_blocking(move || collect_ui_tree_for_mode(&mode_for_scan))
@@ -510,7 +514,177 @@ async fn execute_screenshot_action(
         None
     };
 
+    // 为元素分配快照引用编号（app 动作 el= 的取值），并登记最近一次快照供动作解析核对
+    if let Some(elems) = tree.as_mut() {
+        for (idx, elem) in elems.iter_mut().enumerate() {
+            elem.element_ref = Some(idx as u32 + 1);
+        }
+        store_element_tree(elems);
+    }
+
     Ok((result, mode_name, tree))
+}
+
+// ==================== app 后台动作（元素 ref 注册 + 分发） ====================
+
+/// 最近一次 operate 截图返回的元素快照（含 ref 编号），供 app 动作 el= 解析与核对。
+static LAST_ELEMENT_TREE: std::sync::Mutex<Vec<UiElementInfo>> = std::sync::Mutex::new(Vec::new());
+
+fn store_element_tree(tree: &[UiElementInfo]) {
+    if let Ok(mut slot) = LAST_ELEMENT_TREE.lock() {
+        *slot = tree.to_vec();
+    }
+}
+
+/// 解析 el=<n>：在最近快照中定位元素，校验所属窗口，并换算为该窗口内的扫描序号。
+fn resolve_element_ref(el: u32, window_id: u32) -> DesktopToolResult<(usize, String, String)> {
+    let tree = LAST_ELEMENT_TREE
+        .lock()
+        .map_err(|_| DesktopToolError::internal_error("元素快照注册表被占用"))?;
+    let pos = tree
+        .iter()
+        .position(|e| e.element_ref == Some(el))
+        .ok_or_else(|| {
+            DesktopToolError::invalid_params(format!("el={el} 不存在：请先执行 screenshot（elements=true）获取元素引用"))
+        })?;
+    let entry = &tree[pos];
+    if entry.window_id != window_id {
+        return Err(DesktopToolError::invalid_params(format!(
+            "el={el} 属于窗口 {}，与目标窗口 {window_id} 不一致",
+            entry.window_id
+        )));
+    }
+    let ordinal = tree[..pos].iter().filter(|e| e.window_id == entry.window_id).count();
+    Ok((ordinal, entry.control_type.clone(), entry.name.clone()))
+}
+
+async fn build_app_target(window_id: u32, target: AppScriptTarget) -> DesktopToolResult<AppTarget> {
+    match target {
+        AppScriptTarget::Element(el) => {
+            let (ordinal, control_type, name) = resolve_element_ref(el, window_id)?;
+            Ok(AppTarget::Element { el, ordinal, control_type, name })
+        }
+        AppScriptTarget::Point(point) => {
+            let bounds = primary_monitor_bounds()?;
+            let (x, y) = normalized_point_to_screen(&point, &bounds);
+            Ok(AppTarget::Point { screen_x: x, screen_y: y })
+        }
+    }
+}
+
+async fn execute_app_click(window_id: u32, target: AppScriptTarget, repeat: u32, dblclick: bool, pre_delay: std::time::Duration) -> DesktopToolResult<&'static str> {
+    sleep_duration(pre_delay).await;
+    let app_target = build_app_target(window_id, target).await?;
+    let window_id = window_id as usize;
+    // UIA 重扫与 pattern 调用是同步阻塞 COM 调用，放阻塞线程池执行
+    tokio::task::spawn_blocking(move || crate::platform::app_click(window_id, &app_target, repeat, dblclick))
+        .await
+        .map_err(|err| DesktopToolError::internal_error(format!("app click task failed: {err}")))?
+        .map_err(DesktopToolError::invalid_params)
+}
+
+async fn execute_app_set_value(window_id: u32, el: u32, text: String, pre_delay: std::time::Duration) -> DesktopToolResult<&'static str> {
+    sleep_duration(pre_delay).await;
+    let (ordinal, control_type, name) = resolve_element_ref(el, window_id)?;
+    let app_target = AppTarget::Element { el, ordinal, control_type, name };
+    let window_id = window_id as usize;
+    tokio::task::spawn_blocking(move || crate::platform::app_set_value(window_id, &app_target, &text))
+        .await
+        .map_err(|err| DesktopToolError::internal_error(format!("app setvalue task failed: {err}")))?
+        .map_err(DesktopToolError::invalid_params)
+}
+
+async fn execute_app_get_value(window_id: u32, el: u32) -> DesktopToolResult<String> {
+    let (ordinal, control_type, name) = resolve_element_ref(el, window_id)?;
+    let app_target = AppTarget::Element { el, ordinal, control_type, name };
+    let window_id = window_id as usize;
+    tokio::task::spawn_blocking(move || crate::platform::app_get_value(window_id, &app_target))
+        .await
+        .map_err(|err| DesktopToolError::internal_error(format!("app getvalue task failed: {err}")))?
+        .map_err(DesktopToolError::invalid_params)
+}
+
+async fn execute_app_scroll(window_id: u32, target: AppScriptTarget, up: bool, repeat: u32, delay: std::time::Duration, pre_delay: std::time::Duration) -> DesktopToolResult<&'static str> {
+    sleep_duration(pre_delay).await;
+    let app_target = build_app_target(window_id, target).await?;
+    let window_id = window_id as usize;
+    let mut method = "scrollpattern";
+    for idx in 0..repeat {
+        if idx > 0 {
+            sleep_duration(delay).await;
+        }
+        let app_target = app_target.clone();
+        method = tokio::task::spawn_blocking(move || crate::platform::app_scroll(window_id, &app_target, up, true, 1))
+            .await
+            .map_err(|err| DesktopToolError::internal_error(format!("app scroll task failed: {err}")))?
+            .map_err(DesktopToolError::invalid_params)?;
+    }
+    Ok(method)
+}
+
+async fn execute_app_key(window_id: u32, keys: &[String], repeat: u32, delay: std::time::Duration, pre_delay: std::time::Duration) -> DesktopToolResult<&'static str> {
+    sleep_duration(pre_delay).await;
+    let window_id = window_id as usize;
+    let keys = keys.to_vec();
+    let mut method = "postmessage";
+    for idx in 0..repeat {
+        if idx > 0 {
+            sleep_duration(delay).await;
+        }
+        method = tokio::task::spawn_blocking({
+            let keys = keys.clone();
+            move || crate::platform::app_key(window_id, &keys, 1)
+        })
+        .await
+        .map_err(|err| DesktopToolError::internal_error(format!("app key task failed: {err}")))?
+        .map_err(DesktopToolError::invalid_params)?;
+    }
+    Ok(method)
+}
+
+/// 分发 app 动作；返回 (动作名, 实际投递方式, 附加摘要)。
+/// 附加摘要：getvalue 返回读到的值；写/点/滚/键动作返回动作后的内部焦点控件描述（focus=Type('name')），
+/// 让模型不重截就能确认焦点去向。post_delay 在动作完成后统一等待。
+async fn execute_app_action(window_id: u32, action: AppScriptAction, post_delay: std::time::Duration) -> DesktopToolResult<(&'static str, &'static str, Option<String>)> {
+    let (verb, method) = match action {
+        AppScriptAction::Click { target, repeat, dblclick, pre_delay } => {
+            let method = execute_app_click(window_id, target, repeat, dblclick, pre_delay).await?;
+            ("click", method)
+        }
+        AppScriptAction::SetValue { el, text, pre_delay } => {
+            let method = execute_app_set_value(window_id, el, text, pre_delay).await?;
+            ("setvalue", method)
+        }
+        AppScriptAction::GetValue { el } => {
+            let value = execute_app_get_value(window_id, el).await?;
+            return Ok(("getvalue", "valuepattern", Some(format!("value={value:?}"))));
+        }
+        AppScriptAction::ScrollUp { target, repeat, delay, pre_delay } => {
+            let method = execute_app_scroll(window_id, target, true, repeat, delay, pre_delay).await?;
+            ("scroll_up", method)
+        }
+        AppScriptAction::ScrollDown { target, repeat, delay, pre_delay } => {
+            let method = execute_app_scroll(window_id, target, false, repeat, delay, pre_delay).await?;
+            ("scroll_down", method)
+        }
+        AppScriptAction::Key { keys, repeat, delay, pre_delay } => {
+            let method = execute_app_key(window_id, &keys, repeat, delay, pre_delay).await?;
+            ("key", method)
+        }
+    };
+    sleep_duration(post_delay).await;
+    let focus = query_focus_summary(window_id).await;
+    Ok((verb, method, focus.map(|(t, n)| format!("focus={t}('{n}')"))))
+}
+
+/// 动作完成后查询目标窗口的内部焦点控件；仅对修改型动作有意义，失败静默为 None。
+async fn query_focus_summary(window_id: u32) -> Option<(String, String)> {
+    let window_id = window_id as usize;
+    tokio::task::spawn_blocking(move || crate::platform::app_focus_summary(window_id))
+        .await
+        .ok()
+        .and_then(|result| result.ok())
+        .flatten()
 }
 
 /// 元素矩形与归一化 region 矩形是否有交集（region 为相对主屏 0~1 归一化）。
@@ -547,6 +721,14 @@ fn collect_ui_tree_for_mode(mode: &ScreenshotModeSpec) -> Vec<UiElementInfo> {
         _ => None,
     };
     let targets: Vec<(usize, String)> = match mode {
+        ScreenshotModeSpec::WindowId(window_id) => {
+            let title = windows
+                .iter()
+                .find(|w| w.id().ok() == Some(*window_id))
+                .map(|w| w.title().unwrap_or_default())
+                .unwrap_or_default();
+            vec![(*window_id as usize, title)]
+        }
         ScreenshotModeSpec::FocusedWindow => windows
             .iter()
             .filter(|w| w.is_focused().unwrap_or(false))
@@ -589,15 +771,15 @@ mod operate_actions_tests {
         let region = ScreenshotModeSpec::Region(NormalizedRegion { x: 0.16, y: 0.04, width: 0.36, height: 0.9 });
         let all = vec![
             // region 内
-            UiElementInfo { window_id: 1, window_title: "in".into(), control_type: "Button".into(), name: "in".into(), x: 0.3, y: 0.5, width: 0.05, height: 0.05, focused: false },
+            UiElementInfo { window_id: 1, window_title: "in".into(), control_type: "Button".into(), name: "in".into(), x: 0.3, y: 0.5, width: 0.05, height: 0.05, focused: false, element_ref: None },
             // 完全在 region 外（任务栏 y=0.958 场景）
-            UiElementInfo { window_id: 2, window_title: "taskbar".into(), control_type: "Button".into(), name: "taskbar".into(), x: 0.3, y: 0.958, width: 0.05, height: 0.03, focused: false },
+            UiElementInfo { window_id: 2, window_title: "taskbar".into(), control_type: "Button".into(), name: "taskbar".into(), x: 0.3, y: 0.958, width: 0.05, height: 0.03, focused: false, element_ref: None },
             // x 越界（Chrome 场景，y 高达 4.x）
-            UiElementInfo { window_id: 3, window_title: "chrome".into(), control_type: "Button".into(), name: "chrome".into(), x: 0.3, y: 4.2, width: 0.05, height: 0.05, focused: false },
+            UiElementInfo { window_id: 3, window_title: "chrome".into(), control_type: "Button".into(), name: "chrome".into(), x: 0.3, y: 4.2, width: 0.05, height: 0.05, focused: false, element_ref: None },
             // 部分相交：矩形左边缘在 region 内，右边缘超出
-            UiElementInfo { window_id: 4, window_title: "partial".into(), control_type: "Edit".into(), name: "partial".into(), x: 0.4, y: 0.5, width: 0.3, height: 0.05, focused: false },
+            UiElementInfo { window_id: 4, window_title: "partial".into(), control_type: "Edit".into(), name: "partial".into(), x: 0.4, y: 0.5, width: 0.3, height: 0.05, focused: false, element_ref: None },
             // 负坐标（PAI 窗口主屏外元素）
-            UiElementInfo { window_id: 5, window_title: "neg".into(), control_type: "Button".into(), name: "neg".into(), x: -0.2, y: 0.5, width: 0.05, height: 0.05, focused: false },
+            UiElementInfo { window_id: 5, window_title: "neg".into(), control_type: "Button".into(), name: "neg".into(), x: -0.2, y: 0.5, width: 0.05, height: 0.05, focused: false, element_ref: None },
         ];
         let kept: Vec<&UiElementInfo> = all
             .iter()
