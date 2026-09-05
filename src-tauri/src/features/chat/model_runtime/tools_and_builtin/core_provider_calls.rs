@@ -573,11 +573,16 @@ fn provider_genai_reasoning_explicitly_disabled(api_config: &ResolvedApiConfig) 
 
 /// 需要手动注入 thinking.type=disabled 的通道：非 DeepSeek（genai 已管理）且命中
 /// 已知需关闭思维链的供应商域名/模型（moonshot/doubao/ark/volc/kimi 等）。
+/// Responses 协议家族不走该通道：`thinking` 是 Chat Completions 字段，
+/// /responses 端点不识别；none 由 genai 转成 reasoning.effort=none 透传。
 fn provider_genai_requires_manual_thinking_disabled(
     api_config: &ResolvedApiConfig,
     adapter_kind: genai::adapter::AdapterKind,
 ) -> bool {
     if !provider_genai_reasoning_disabled_raw(api_config) {
+        return false;
+    }
+    if api_config.request_format.is_openai_responses_family() {
         return false;
     }
     if adapter_kind == genai::adapter::AdapterKind::DeepSeek {
@@ -1584,6 +1589,43 @@ mod openai_responses_genai_request_tests {
         assert_eq!(options.capture_reasoning_content, Some(false));
         // DeepSeek 已由 genai managed_body_thinking 管理：none 透传为 Zero，
         // 由 genai 生成 thinking.type=disabled，本项目不再手动注入。
+        assert!(matches!(
+            options.reasoning_effort,
+            Some(genai::chat::ReasoningEffort::Zero)
+        ));
+        assert_eq!(options.extra_body, None);
+    }
+
+    #[test]
+    fn build_provider_genai_chat_options_should_pass_zero_effort_for_deepseek_responses_none() {
+        let api_config = ResolvedApiConfig {
+            provider_id: Some("deepseek-provider".to_string()),
+            provider_api_keys: Vec::new(),
+            provider_key_cursor: 0,
+            request_format: RequestFormat::OpenAIResponses,
+            allow_concurrent_requests: false,
+            max_concurrent_requests: None,
+            base_url: "https://api.deepseek.com/v1".to_string(),
+            api_key: "test-key".to_string(),
+            model: "deepseek-v4-pro".to_string(),
+            reasoning_effort: Some("none".to_string()),
+            temperature: None,
+            max_output_tokens: None,
+            prompt_cache_key: None,
+            extra_headers: Vec::new(),
+            codex_auth: None,
+            codex_custom_api_key: None,
+        };
+
+        let options = build_provider_genai_chat_options(
+            &api_config,
+            genai::adapter::AdapterKind::OpenAIResp,
+            true,
+            true,
+        );
+
+        // Responses 协议：none 透传为 Zero，由 genai 生成 reasoning.effort=none；
+        // 不注入 Chat Completions 的 thinking.type=disabled。
         assert!(matches!(
             options.reasoning_effort,
             Some(genai::chat::ReasoningEffort::Zero)
