@@ -181,8 +181,9 @@
       />
     </dialog>
 
-    <dialog ref="promptPreviewDialog" class="modal">
+    <dialog ref="promptPreviewDialog" class="modal" @close="markPromptPreviewDialogClosed">
       <PromptPreviewDialog
+        v-if="promptPreviewDialogOpen"
         :mode="promptPreviewMode"
         :conversation-scope="promptPreviewConversationScope"
         :loading="promptPreviewLoading"
@@ -807,6 +808,8 @@ const promptPreviewRemoteConversations = computed(() => [] as import("./types/ap
 const promptPreviewDelegateConversations = computed(() => [] as import("./types/app").DelegateConversationSummary[]);
 const {
   promptPreviewDialog,
+  promptPreviewDialogOpen,
+  markPromptPreviewDialogClosed,
   promptPreviewLoading,
   promptPreviewText,
   promptPreviewLatestUserText,

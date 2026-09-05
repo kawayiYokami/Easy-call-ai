@@ -446,8 +446,9 @@
         @import-file="handleMemoryImportFile"
       />
     </dialog>
-    <dialog :ref="promptPreviewDialogVNodeRef" class="modal">
+    <dialog :ref="promptPreviewDialogVNodeRef" class="modal" @close="markPromptPreviewDialogClosed">
       <PromptPreviewDialog
+        v-if="promptPreviewDialogOpen"
         :mode="promptPreviewMode"
         :conversation-scope="promptPreviewConversationScope"
         :loading="promptPreviewLoading"
@@ -760,6 +761,8 @@ const props = defineProps<{
   selectPromptPreviewConversation: (conversationId: string) => void;
   setMemoryDialogRef: (el: Element | null) => void;
   setPromptPreviewDialogRef: (el: Element | null) => void;
+  promptPreviewDialogOpen: boolean;
+  markPromptPreviewDialogClosed: () => void;
   updateConfigTab: (value: "hotkey" | "api" | "mcp" | "skill" | "persona" | "department" | "departmentTree" | "demo" | "chatSettings" | "notification" | "networkAccess" | "remoteIm" | "memory" | "task" | "logs" | "appearance" | "about") => void;
   setUiLanguage: (value: string) => void;
   updatePersonaEditorId: (value: string) => void;

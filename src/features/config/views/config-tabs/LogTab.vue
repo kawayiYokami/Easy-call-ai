@@ -331,8 +331,8 @@
       </form>
     </dialog>
 
-    <dialog ref="builtinToolCatalogDialog" class="modal">
-      <div class="modal-box max-w-2xl p-4">
+    <dialog ref="builtinToolCatalogDialog" class="modal" @close="builtinToolCatalogOpen = false">
+      <div v-if="builtinToolCatalogOpen" class="modal-box max-w-2xl p-4">
         <h3 class="text-sm font-semibold">{{ t("config.logs.builtinToolCatalogTitle") }}</h3>
         <div v-if="builtinToolDefinitions.length" class="mt-2 divide-y divide-base-300/60">
           <div
@@ -1049,12 +1049,14 @@ async function clearAll() {
 // ========== 内置工具清单（list_tool_catalog 只读展示） ==========
 
 const builtinToolCatalogDialog = ref<HTMLDialogElement | null>(null);
+const builtinToolCatalogOpen = ref(false);
 const builtinToolCatalogLoading = ref(false);
 const builtinToolDefinitions = ref<FrontendToolDefinition[]>([]);
 
 async function openBuiltinToolCatalog() {
   const dialog = builtinToolCatalogDialog.value;
   if (!dialog) return;
+  builtinToolCatalogOpen.value = true;
   dialog.showModal();
   if (builtinToolDefinitions.value.length > 0) return;
   builtinToolCatalogLoading.value = true;
@@ -1069,6 +1071,7 @@ async function openBuiltinToolCatalog() {
 }
 
 function closeBuiltinToolCatalog() {
+  builtinToolCatalogOpen.value = false;
   builtinToolCatalogDialog.value?.close();
 }
 

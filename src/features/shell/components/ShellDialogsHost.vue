@@ -209,10 +209,10 @@ function canShowUpdateSecondaryActions() {
         max="100"
       />
       <pre
-        v-if="updateDialogKind === 'error'"
+        v-if="updateDialogOpen && updateDialogKind === 'error'"
         class="mt-3 min-h-0 flex-1 whitespace-pre-wrap break-words text-sm overflow-y-auto text-error"
       >{{ updateDialogBody }}</pre>
-      <div v-else class="mt-3 min-h-0 flex-1 overflow-x-hidden overflow-y-auto">
+      <div v-else-if="updateDialogOpen" class="mt-3 min-h-0 flex-1 overflow-x-hidden overflow-y-auto">
         <AppMarkdownRenderer
           :text="updateDialogBody"
           :is-dark="!!props.markdownIsDark"

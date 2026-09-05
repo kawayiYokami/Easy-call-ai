@@ -238,7 +238,7 @@
             </label>
           </section>
 
-          <section class="mt-5 flex min-h-0 flex-1 flex-col">
+          <section v-if="batchArchiveCardOpen" class="mt-5 flex min-h-0 flex-1 flex-col">
             <div class="flex items-center justify-between gap-3">
               <div class="text-sm font-semibold">
                 {{ t("chat.batchArchive.previewTitle", { count: batchArchiveCandidateConversations.length }) }}

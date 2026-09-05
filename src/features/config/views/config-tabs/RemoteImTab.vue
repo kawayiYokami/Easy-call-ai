@@ -326,7 +326,7 @@
             <button class="btn btn-sm" @click="closeChannelLogsModal">{{ t("common.close") }}</button>
           </div>
         </div>
-        <div class="mt-3 max-h-[60vh] overflow-y-auto">
+        <div v-if="channelLogsModalOpen" class="mt-3 max-h-[60vh] overflow-y-auto">
           <div v-if="channelLogs.length === 0" class="opacity-60 italic text-xs">{{ t("config.remoteIm.noLogs") }}</div>
           <pre v-else class="bg-base-200 rounded-box p-3 font-mono text-xs leading-relaxed whitespace-pre-wrap break-all m-0"><template v-for="(log, idx) in channelLogs" :key="idx"><span :class="log.level === 'error' ? 'text-error' : log.level === 'warn' ? 'text-warning' : ''"><span class="opacity-50">{{ formatLogTime(log.timestamp) }}</span> {{ log.message }}</span>{{ '\n' }}</template></pre>
         </div>
@@ -349,7 +349,7 @@
             <button class="btn btn-sm" @click="closeContactLogsModal">{{ t("common.close") }}</button>
           </div>
         </div>
-        <div class="mt-3 max-h-[60vh] overflow-y-auto">
+        <div v-if="contactLogsModalOpen" class="mt-3 max-h-[60vh] overflow-y-auto">
           <div v-if="contactLogs.length === 0" class="opacity-60 italic text-xs">{{ t('config.remoteIm.noContactLogs') }}</div>
           <pre v-else class="bg-base-200 rounded-box p-3 font-mono text-xs leading-relaxed whitespace-pre-wrap break-all m-0"><template v-for="(line, idx) in contactLogDisplayLines" :key="`${idx}-${line}`"><span>{{ line }}</span>{{ '\n' }}</template></pre>
         </div>

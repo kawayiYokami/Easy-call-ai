@@ -34,7 +34,7 @@
         <span class="opacity-70">{{ t("runtimeLogs.visibleCount", { visible: filteredLogs.length, total: logs.length }) }}</span>
       </div>
       <div v-if="errorText" class="text-error text-sm mt-2">{{ errorText }}</div>
-      <pre class="mt-3 flex-1 overflow-auto rounded-box border border-base-300 bg-base-100 p-3 font-mono text-xs leading-5 whitespace-pre-wrap break-words"><code>{{ runtimeLogCode }}</code></pre>
+      <pre v-if="props.open" class="mt-3 flex-1 overflow-auto rounded-box border border-base-300 bg-base-100 p-3 font-mono text-xs leading-5 whitespace-pre-wrap break-words"><code>{{ runtimeLogCode }}</code></pre>
     </div>
     <form method="dialog" class="modal-backdrop">
       <button @click.prevent="onDialogClose">close</button>

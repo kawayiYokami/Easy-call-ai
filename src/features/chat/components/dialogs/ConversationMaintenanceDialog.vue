@@ -199,7 +199,7 @@ const compressionEstimatePercent = computed(() => {
 
 <template>
   <dialog ref="dialogRef" class="modal" @close="onDialogClose" @cancel.prevent="onDialogClose">
-    <div class="modal-box w-[min(80vw,48rem)] max-w-[48rem]">
+    <div v-if="open" class="modal-box w-[min(80vw,48rem)] max-w-[48rem]">
       <div class="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
         <h3 class="font-semibold text-base">{{ t("dialogs.trim.title") }}</h3>
         <div class="flex flex-wrap items-center gap-x-3 gap-y-0.5 text-xs opacity-60">

@@ -1,5 +1,5 @@
 <template>
-  <dialog ref="dialogRef" class="modal">
+  <dialog ref="dialogRef" class="modal" @close="dialogOpen = false">
     <div class="modal-box h-[90vh] w-[90vw] max-w-none p-0">
       <div class="flex items-center justify-between border-b border-base-300 px-4 py-3">
         <div class="min-w-0">
@@ -31,7 +31,7 @@
           </div>
         </div>
         <ToolReviewCodePreview
-          v-if="showPreview"
+          v-if="showPreview && dialogOpen"
           :mode="previewMode"
           :title="previewMode === 'patch' ? '' : t('chat.toolReview.commandPreview')"
           :code="previewText"
@@ -69,12 +69,15 @@ withDefaults(defineProps<{
 
 const { t } = useI18n();
 const dialogRef = ref<HTMLDialogElement | null>(null);
+const dialogOpen = ref(false);
 
 function openChangesDialog() {
+  dialogOpen.value = true;
   dialogRef.value?.showModal();
 }
 
 function closeChangesDialog() {
+  dialogOpen.value = false;
   dialogRef.value?.close();
 }
 

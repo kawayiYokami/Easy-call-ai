@@ -234,6 +234,8 @@
       :prompt-preview-conversation-scope="promptPreviewConversationScope"
       :prompt-preview-conversation-id="promptPreviewConversationId"
       :prompt-preview-conversation-options="promptPreviewConversationOptions"
+      :prompt-preview-dialog-open="promptPreviewDialogOpen"
+      :mark-prompt-preview-dialog-closed="markPromptPreviewDialogClosed"
       :load-prompt-preview="loadPromptPreview"
       :select-prompt-preview-conversation-scope="selectPromptPreviewConversationScope"
       :select-prompt-preview-conversation="selectPromptPreviewConversation"

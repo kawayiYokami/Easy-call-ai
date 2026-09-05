@@ -69,6 +69,7 @@
 
     <dialog ref="editorDialog" class="modal" @cancel.prevent="onEditorDialogCancel">
       <TaskDebugCard
+        v-if="editorOpen"
         :mode="editorMode"
         :loading="editorLoading"
         :saving="editorSaving"

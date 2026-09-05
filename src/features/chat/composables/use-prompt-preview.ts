@@ -36,6 +36,7 @@ type UsePromptPreviewOptions = {
 
 export function usePromptPreview(options: UsePromptPreviewOptions) {
   const promptPreviewDialog = ref<HTMLDialogElement | null>(null);
+  const promptPreviewDialogOpen = ref(false);
   const promptPreviewLoading = ref(false);
   const promptPreviewText = ref("");
   const promptPreviewLatestUserText = ref("");
@@ -153,6 +154,7 @@ export function usePromptPreview(options: UsePromptPreviewOptions) {
     promptPreviewLatestImages.value = 0;
     promptPreviewLatestAudios.value = 0;
     promptPreviewConversationId.value = resolveInitialPromptPreviewConversationId();
+    promptPreviewDialogOpen.value = true;
     promptPreviewDialog.value?.showModal();
   }
 
@@ -215,7 +217,12 @@ export function usePromptPreview(options: UsePromptPreviewOptions) {
   }
 
   function closePromptPreview() {
+    promptPreviewDialogOpen.value = false;
     promptPreviewDialog.value?.close();
+  }
+
+  function markPromptPreviewDialogClosed() {
+    promptPreviewDialogOpen.value = false;
   }
 
   async function selectPromptPreviewConversation(conversationId: string) {
@@ -289,6 +296,8 @@ export function usePromptPreview(options: UsePromptPreviewOptions) {
 
   return {
     promptPreviewDialog,
+    promptPreviewDialogOpen,
+    markPromptPreviewDialogClosed,
     promptPreviewLoading,
     promptPreviewText,
     promptPreviewLatestUserText,
