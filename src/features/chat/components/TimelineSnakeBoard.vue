@@ -133,7 +133,7 @@ const layout = computed(() => {
   const vh = viewport.value.h;
   const ar = anchorRect.value;
   const availW = vw - SAFE * 2;
-  const availH = ar ? Math.max(32, ar.top - SAFE - 8) : vh - SAFE * 2;
+  const availH = ar ? Math.max(32, ar.bottom - SAFE) : vh - SAFE * 2;
   if (N === 0 || availW < MIN_GAP || availH < MIN_GAP) return null;
   let gap = MAX_GAP;
   let cols = 1;
@@ -181,7 +181,7 @@ const boardFixedStyle = computed(() => {
     const ar = anchorRect.value;
     if (ar) {
       let right = vw - ar.right;
-      let bottom = vh - ar.top + 8;
+      let bottom = vh - ar.bottom;
       right = Math.max(SAFE, Math.min(right, vw - 32 - SAFE));
       bottom = Math.max(SAFE, Math.min(bottom, vh - 32 - SAFE));
       return {
@@ -212,8 +212,9 @@ const boardFixedStyle = computed(() => {
       height: `${cardH}px`,
     } as Record<string, string>;
   }
+  // 蛇板底边对齐 anchor 底边：从按钮原位展开，不悬浮
   let right = vw - ar.right;
-  let bottom = vh - ar.top + 8;
+  let bottom = vh - ar.bottom;
   const maxRight = vw - cardW - SAFE;
   const maxBottom = vh - cardH - SAFE;
   right = Math.min(Math.max(right, SAFE), Math.max(SAFE, maxRight));
@@ -234,7 +235,7 @@ const boardViewportPos = computed(() => {
     const vh = viewport.value.h;
     if (ar) {
       let right = vw - ar.right;
-      let bottom = vh - ar.top + 8;
+      let bottom = vh - ar.bottom;
       right = Math.max(SAFE, Math.min(right, vw - 32 - SAFE));
       bottom = Math.max(SAFE, Math.min(bottom, vh - 32 - SAFE));
       return { left: vw - right - 32, top: vh - bottom - 32 };

@@ -293,9 +293,9 @@
           @update:enabled="autoPushEnabled = $event"
           @update:selected-contact-id="autoPushSelectedContactId = $event"
         />
-        <!-- bottom-right: 灵动岛按钮（圆态）+ 回到底部（放上面防跳动） -->
+        <!-- bottom-right: 时间线按钮 + 回到底部，绝对定位钉死各自偏移，显隐互不影响位置 -->
         <!-- 卡片已 Teleport 到 body 视口锚定，按钮容器仅提供锚点定位 -->
-        <div class="pointer-events-none absolute bottom-3 right-5 z-31 flex flex-col items-end gap-2" :style="jumpToBottomStyle">
+        <div class="pointer-events-none absolute bottom-3 right-5 z-31" :style="jumpToBottomStyle">
           <TimelineSnakeBoard
             :visible="showTimelineFloatPanel && timelineAnchors.length >= 2 && !showFloatingSessionToolbar"
             :anchors="timelineAnchors"
@@ -307,18 +307,11 @@
             @leave-zone="handleTimelineFloatLeave"
             @jump="handleTimelineJumpAndClose($event)"
           />
-          <Transition name="chat-jump-action">
-            <div v-show="showJumpToBottom" class="pointer-events-auto">
-              <button class="btn btn-sm btn-circle btn-neutral shadow-lg" @click="handleJumpToBottom">
-                <ArrowDownToLine class="h-4 w-4" />
-              </button>
-            </div>
-          </Transition>
           <button
             v-if="timelineAnchors.length >= 2 && !showTimelineFloatPanel && !showFloatingSessionToolbar"
             ref="timelineFloatWrapRef"
             type="button"
-            class="btn btn-sm btn-circle btn-neutral shadow-lg pointer-events-auto shrink-0"
+            class="absolute bottom-10 right-0 btn btn-sm btn-circle btn-neutral shadow-lg pointer-events-auto"
             :aria-label="showTimelineFloatPanel ? '收起时间线' : '展开时间线'"
             :aria-expanded="showTimelineFloatPanel ? 'true' : 'false'"
             @mouseenter="handleTimelineFloatEnter"
@@ -332,9 +325,16 @@
           <div
             v-else-if="showTimelineFloatPanel && !showFloatingSessionToolbar"
             ref="timelineFloatPlaceholderRef"
-            class="h-8 w-8 shrink-0 invisible pointer-events-none"
+            class="absolute bottom-10 right-0 h-8 w-8 invisible pointer-events-none"
             aria-hidden="true"
           />
+          <Transition name="chat-jump-action">
+            <div v-show="showJumpToBottom" class="pointer-events-auto absolute bottom-0 right-0">
+              <button class="btn btn-sm btn-circle btn-neutral shadow-lg" @click="handleJumpToBottom">
+                <ArrowDownToLine class="h-4 w-4" />
+              </button>
+            </div>
+          </Transition>
         </div>
 
         <div
